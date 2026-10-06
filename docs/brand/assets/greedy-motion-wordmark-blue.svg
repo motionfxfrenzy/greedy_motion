@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 170" role="img" aria-labelledby="title desc">
+  <title id="title">Greedy Motion blue wordmark</title>
+  <desc id="desc">The words Greedy Motion in deep ink blue and vivid sky blue with an orange motion accent.</desc>
+  <text x="18" y="117" fill="#102A5C" font-family="Space Grotesk, Arial, sans-serif" font-size="104" font-weight="800" letter-spacing="-6">Greedy</text>
+  <text x="354" y="117" fill="#168BFF" font-family="Space Grotesk, Arial, sans-serif" font-size="104" font-weight="800" letter-spacing="-6">Mot&#305;on</text>
+  <g aria-label="Greedy Slice i dot">
+    <path fill="#168BFF" d="M520 37c0-9 8-16 18-16 8 0 16 4 22 12-6 8-14 13-22 13-10 0-18-4-18-9Z"/>
+    <path fill="#FF5A1F" d="M523 45c10-2 21-8 32-18-2 10-9 18-20 21Z"/>
+  </g>
+</svg>

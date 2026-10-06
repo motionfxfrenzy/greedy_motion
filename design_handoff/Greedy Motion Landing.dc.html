@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<title>Greedy Motion — Product videos, without the production maze</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+@font-face { font-family: "DM Mono"; src: url("fonts/dm-mono-400.woff2") format("woff2"); font-weight: 400; }
+@keyframes gmDriftA { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(-10vw,6vh) scale(1.12); } }
+@keyframes gmDriftB { 0% { transform: translate(0,0) scale(1.08); } 100% { transform: translate(8vw,-5vh) scale(.94); } }
+@keyframes gmDriftC { 0% { transform: translate(0,0); } 100% { transform: translate(5vw,8vh); } }
+@keyframes gmFloat { 0%,100% { transform: translateY(0) rotate(var(--r,0deg)); } 50% { transform: translateY(-12px) rotate(var(--r,0deg)); } }
+@keyframes gmMarquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+@keyframes gmWord { 0% { opacity: 0; transform: translateY(.35em); filter: blur(6px); } 100% { opacity: 1; transform: translateY(0); filter: blur(0); } }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #ebf5ff; color: #0a0d12; font-family: "Plus Jakarta Sans", Helvetica, Arial, sans-serif; letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+a { color: #0A6CFF; text-decoration: none; } a:hover { color: #0050c8; }
+</style>
+</helmet>
+<div style="position:relative;min-height:100vh;overflow:hidden;">
+{{ ambient }}
+<div style="position:relative;z-index:1;">
+
+  <header style="position:sticky;top:0;z-index:20;display:flex;justify-content:center;padding:14px 20px;">
+    <div style="width:100%;max-width:1200px;display:flex;align-items:center;gap:24px;padding:10px 12px 10px 18px;border-radius:9999px;background:rgba(250,253,255,.72);backdrop-filter:blur(16px) saturate(1.3);box-shadow:0 14px 20px 4px rgba(4,69,144,.06);">
+      <a href="#top" style="display:flex;align-items:center;gap:8px;"><img src="assets/gm-mark.svg" alt="" style="height:24px;display:block;" /><span style="display:flex;gap:5px;font-size:17px;font-weight:600;letter-spacing:-.02em;white-space:nowrap;"><span style="color:#0B1F4D;">Greedy</span><span style="color:#0A6CFF;">Motion</span></span></a>
+      <nav style="display:flex;gap:22px;margin-left:12px;">
+        <a href="#how" style="color:#535862;font-size:15px;font-weight:500;white-space:nowrap;">How it works</a>
+        <a href="#features" style="color:#535862;font-size:15px;font-weight:500;white-space:nowrap;">Features</a>
+        <a href="#pricing" style="color:#535862;font-size:15px;font-weight:500;white-space:nowrap;">Pricing</a>
+      </nav>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+        <a href="Greedy Motion Auth.dc.html?mode=signin" style="padding:10px 16px;color:#0a0d12;font-size:15px;font-weight:500;white-space:nowrap;">Sign in</a>
+        <a href="Greedy Motion Auth.dc.html?mode=signup" style="padding:10px 20px;border-radius:9999px;background:#181d27;color:#fff;font-size:15px;font-weight:500;white-space:nowrap;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;">Start free</a>
+      </div>
+    </div>
+  </header>
+
+  <section id="top" style="max-width:1200px;margin:0 auto;padding:112px 24px 56px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:22px;">
+    <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 14px 6px 8px;border-radius:9999px;background:rgba(250,253,255,.8);font-size:13px;font-weight:500;color:#535862;"><span style="padding:2px 8px;border-radius:9999px;background:#D3F6E3;color:#0a5c35;font-size:12px;font-weight:600;">New</span>Ask to change any moment in plain language</span>
+    <h1 style="margin:0;font-weight:600;font-size:clamp(38px,5vw,68px);line-height:1.08;letter-spacing:-0.035em;max-width:820px;text-wrap:balance;">Your {{ wordEl }}<br />don’t need an editor.</h1>
+    <p style="margin:0;font-size:17px;line-height:1.6;color:#535862;max-width:540px;text-wrap:pretty;">Turn approved screenshots and product messaging into on-brand motion videos. Review a storyboard, ask for changes, approve, download.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
+      <a href="Greedy Motion Auth.dc.html?mode=signup" style="padding:12px 24px;border-radius:9999px;background:#181d27;color:#fff;font-size:15px;font-weight:500;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;">Make your first video</a>
+      <a href="#how" style="padding:12px 22px;border-radius:9999px;background:#fafdff;color:#0a0d12;font-size:15px;font-weight:500;">See how it works</a>
+    </div>
+    <span style="font-size:13px;color:#93979f;">Free for 14 days · No credit card</span>
+
+    <div style="position:relative;width:100%;max-width:880px;margin-top:48px;">
+      <div style="position:absolute;left:max(-6%, calc(12px - (100vw - 100%) / 2));top:12%;z-index:2;padding:12px 16px;border-radius:20px;background:#F1E6FF;text-align:left;font-size:13px;--r:-4deg;animation:gmFloat 6s ease-in-out infinite;box-shadow:0 14px 20px 4px rgba(4,69,144,.08);"><strong style="display:block;font-size:14px;font-weight:600;">Brand kit found</strong><span style="color:#535862;">Logo · #4F46E5 · Inter</span></div>
+      <div style="position:absolute;right:max(-5%, calc(12px - (100vw - 100%) / 2));top:6%;z-index:2;padding:12px 16px;border-radius:20px;background:#D3F6E3;text-align:left;font-size:13px;--r:3deg;animation:gmFloat 7s ease-in-out 1s infinite;box-shadow:0 14px 20px 4px rgba(4,69,144,.08);"><strong style="display:block;font-size:14px;font-weight:600;">Storyboard ready</strong><span style="color:#535862;">5 scenes · 0:30</span></div>
+      <div style="position:absolute;right:max(-3%, calc(12px - (100vw - 100%) / 2));bottom:10%;z-index:2;max-width:250px;padding:12px 16px;border-radius:20px;background:#fafdff;text-align:left;font-size:13px;--r:-2deg;animation:gmFloat 8s ease-in-out .5s infinite;box-shadow:0 14px 20px 4px rgba(4,69,144,.10);"><span style="font-family:'DM Mono',monospace;font-size:11px;color:#0A6CFF;">0:11 · Scene 3</span><span style="display:block;margin-top:4px;color:#0a0d12;">“Show the dashboard for longer.”</span></div>
+      <div style="position:absolute;left:max(-3%, calc(12px - (100vw - 100%) / 2));bottom:14%;z-index:2;padding:12px 16px;border-radius:20px;background:#FFF2BE;text-align:left;font-size:13px;--r:4deg;animation:gmFloat 6.5s ease-in-out 2s infinite;box-shadow:0 14px 20px 4px rgba(4,69,144,.08);"><strong style="display:block;font-size:14px;font-weight:600;">Approved · Revision 4</strong><span style="color:#535862;">MP4 · 1920 × 1080</span></div>
+      <div style="padding:3px;border-radius:36px;background:linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%);box-shadow:0 30px 60px -20px rgba(4,69,144,.35);">
+        <div style="padding:14px;border-radius:33px;background:#0a0d12;">
+          <dc-import name="Scene Frame" scene="{{ heroScene }}" branded="{{ true }}" logo-place="open-end" radius="20px" hint-size="100%,520px"></dc-import>
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 6px 2px;">
+            <span style="display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#fff;color:#0a0d12;font-size:10px;">▶</span>
+            <div style="flex:1;height:4px;border-radius:4px;background:rgba(255,255,255,.14);overflow:hidden;"><div style="height:100%;width:{{ heroPct }};background:linear-gradient(90deg,#168BFF,#0A6CFF);transition:width 300ms linear;"></div></div>
+            <span style="font-family:'DM Mono',monospace;font-size:12px;color:#93979f;white-space:nowrap;">{{ heroLabel }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding:40px 0 20px;display:flex;flex-direction:column;align-items:center;gap:18px;">
+    <span style="font-size:14px;color:#93979f;">SaaS teams shipping updates with Greedy Motion</span>
+    {{ logoMarquee }}
+  </section>
+
+  <section id="how" style="max-width:1200px;margin:0 auto;padding:128px 24px 48px;display:flex;flex-direction:column;gap:40px;">
+    <div style="text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center;"><h2 style="margin:0;font-weight:600;font-size:clamp(28px,3.4vw,44px);line-height:1.15;letter-spacing:-0.03em;max-width:760px;">From screenshots to an approved MP4.</h2><p style="margin:0;font-size:16px;color:#535862;">Four steps. You stay in control of every one.</p></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;">
+      <sc-for list="{{ steps }}" as="s" hint-placeholder-count="4">
+        <div style="padding:28px;border-radius:28px;background:{{ s.bg }};display:flex;flex-direction:column;gap:14px;min-height:280px;transition:transform 400ms cubic-bezier(.16,1,.3,1);" style-hover="transform:translateY(-4px);">
+          <span style="font-family:'DM Mono',monospace;font-size:13px;color:#535862;">{{ s.n }}</span>
+          <strong style="font-size:20px;font-weight:600;letter-spacing:-.02em;line-height:1.15;">{{ s.title }}</strong>
+          <span style="font-size:16px;line-height:1.45;color:#535862;margin-top:auto;">{{ s.body }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section id="features" style="max-width:1200px;margin:0 auto;padding:112px 24px 48px;display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;">
+    <div style="grid-column:1 / -1;display:flex;flex-direction:column;gap:12px;margin-bottom:20px;"><h2 style="margin:0;font-weight:600;font-size:clamp(28px,3.4vw,44px);line-height:1.15;letter-spacing:-0.03em;max-width:760px;">Guardrails for everyone. Control for pros.</h2><p style="margin:0;font-size:16px;color:#535862;max-width:560px;">Marketers move through a guided flow. Designers open the exact same project in Studio.</p></div>
+    <div style="padding:36px;border-radius:28px;background:#fafdff;display:flex;flex-direction:column;gap:20px;">
+      <strong style="font-size:21px;font-weight:600;letter-spacing:-.02em;">Ask to change this</strong>
+      <span style="font-size:16px;color:#535862;line-height:1.5;">Pause anywhere and describe the change. You see a before and after, and nothing changes until you accept.</span>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:20px;background:#ebf5ff;">
+        <span style="align-self:flex-start;padding:3px 10px;border-radius:9999px;background:#fff;font-family:'DM Mono',monospace;font-size:12px;color:#0A6CFF;">Proposed · Scene 3 only</span>
+        <span style="font-size:15px;">Scene 3 duration: <span style="color:#93979f;text-decoration:line-through;">8s</span> → 10s</span>
+        <span style="font-size:15px;">Scene 4 duration: <span style="color:#93979f;text-decoration:line-through;">8s</span> → 6s</span>
+        <div style="display:flex;gap:6px;margin-top:6px;"><span style="padding:7px 14px;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;">Accept</span><span style="padding:7px 14px;border-radius:9999px;background:#fff;font-size:13px;">Reject</span></div>
+      </div>
+    </div>
+    <div style="padding:36px;border-radius:28px;background:#0a0d12;color:#fff;display:flex;flex-direction:column;gap:20px;">
+      <strong style="font-size:21px;font-weight:600;letter-spacing:-.02em;">Studio for the details</strong>
+      <span style="font-size:16px;color:#93979f;line-height:1.5;">Timeline, layers, keyframes, and scoped AI comments. Publish a composition as a locked template for your team.</span>
+      <div style="display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:20px;background:#181d27;">
+        <sc-for list="{{ studioTracks }}" as="t" hint-placeholder-count="4">
+          <div style="position:relative;height:22px;border-radius:6px;background:rgba(255,255,255,.04);"><span style="position:absolute;left:{{ t.l }};width:{{ t.w }};top:3px;bottom:3px;border-radius:5px;background:{{ t.c }};"></span></div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="padding:36px;border-radius:28px;background:linear-gradient(180deg,#F4EBFF,#E4CCFF);display:flex;flex-direction:column;gap:12px;"><strong style="font-size:21px;font-weight:600;letter-spacing:-.02em;">Brand kits in a minute</strong><span style="font-size:16px;color:#535862;line-height:1.5;">Import from your website. Every suggestion is editable before you save.</span></div>
+    <div style="padding:36px;border-radius:28px;background:linear-gradient(180deg,#E5F6FF,#C2E9FF);display:flex;flex-direction:column;gap:12px;"><strong style="font-size:21px;font-weight:600;letter-spacing:-.02em;">Honest render status</strong><span style="font-size:16px;color:#535862;line-height:1.5;">Real stages and frame counts. If a scene fails, you see why and how to fix it.</span></div>
+  </section>
+
+  <section id="pricing" style="max-width:1200px;margin:0 auto;padding:128px 24px 48px;display:flex;flex-direction:column;align-items:center;gap:36px;">
+    <h2 style="margin:0;font-weight:600;font-size:clamp(28px,3.4vw,44px);line-height:1.15;letter-spacing:-0.03em;text-align:center;">Simple pricing</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;width:100%;max-width:860px;">
+      <sc-for list="{{ plans }}" as="p" hint-placeholder-count="2">
+        <div style="padding:36px;border-radius:28px;background:{{ p.bg }};display:flex;flex-direction:column;gap:18px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:20px;font-weight:500;">{{ p.name }}</strong><sc-if value="{{ p.popular }}" hint-placeholder-val="{{ false }}"><span style="padding:3px 10px;border-radius:9999px;background:#D3F6E3;color:#0a5c35;font-size:12px;font-weight:600;">Most teams</span></sc-if></div>
+          <div style="display:flex;align-items:baseline;gap:6px;"><span style="font-size:44px;font-weight:600;letter-spacing:-.03em;">{{ p.price }}</span><span style="color:#535862;">{{ p.per }}</span></div>
+          <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;font-size:15px;color:#535862;">
+            <sc-for list="{{ p.items }}" as="it" hint-placeholder-count="4"><li style="display:flex;gap:10px;"><span style="color:#0A6CFF;">✓</span>{{ it }}</li></sc-for>
+          </ul>
+          <a href="Greedy Motion Auth.dc.html?mode=signup" style="margin-top:auto;text-align:center;padding:13px;border-radius:9999px;background:{{ p.ctaBg }};color:{{ p.ctaFg }};font-size:15px;font-weight:500;">{{ p.cta }}</a>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="padding:80px 0 40px;display:flex;flex-direction:column;gap:28px;">
+    <h2 style="margin:0;font-weight:600;font-size:clamp(26px,3vw,38px);letter-spacing:-0.03em;text-align:center;padding:0 24px;">Teams ship the update and the video the same day</h2>
+    {{ quoteMarquee }}
+  </section>
+
+  <section style="max-width:820px;margin:0 auto;padding:112px 24px 48px;display:flex;flex-direction:column;gap:12px;">
+    <h2 style="margin:0 0 16px;font-weight:600;font-size:clamp(26px,3vw,38px);letter-spacing:-0.03em;text-align:center;">FAQs</h2>
+    <sc-for list="{{ faqs }}" as="f" hint-placeholder-count="4">
+      <button type="button" onClick="{{ f.toggle }}" style="text-align:left;border:0;padding:28px 32px;border-radius:32px;background:#fafdff;cursor:pointer;display:flex;flex-direction:column;gap:0;">
+        <span style="display:flex;justify-content:space-between;gap:16px;font-size:17px;font-weight:600;">{{ f.q }}<span style="color:#93979f;transition:transform 300ms ease;transform:{{ f.rot }};">+</span></span>
+        <span style="display:grid;grid-template-rows:{{ f.rows }};transition:grid-template-rows 650ms ease;"><span style="overflow:hidden;font-size:16px;line-height:1.5;color:#93979f;"><span style="display:block;padding-top:12px;">{{ f.a }}</span></span></span>
+      </button>
+    </sc-for>
+  </section>
+
+  <section style="max-width:1200px;margin:0 auto;padding:80px 24px 60px;">
+    <div style="position:relative;overflow:hidden;padding:80px 32px;border-radius:40px;background:#0a0d12;color:#fff;display:flex;flex-direction:column;align-items:center;text-align:center;gap:20px;">
+      <div style="position:absolute;inset:0;background:radial-gradient(60% 80% at 20% 0%,rgba(22,139,255,.45),transparent 60%),radial-gradient(50% 70% at 90% 100%,rgba(255,90,31,.25),transparent 60%);"></div>
+      <img src="assets/gm-mark.svg" alt="" style="position:relative;height:44px;" />
+      <h2 style="position:relative;margin:0;font-weight:600;font-size:clamp(28px,3.4vw,44px);letter-spacing:-0.03em;line-height:1.12;">Ship your next update<br />with a video.</h2>
+      <a href="Greedy Motion Auth.dc.html?mode=signup" style="position:relative;padding:14px 30px;border-radius:9999px;background:#fff;color:#0a0d12;font-size:16px;font-weight:500;">Start free</a>
+    </div>
+    <footer style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:32px 8px 0;font-size:14px;color:#93979f;">
+      <span style="display:flex;align-items:center;gap:8px;"><img src="assets/gm-mark.svg" alt="" style="height:18px;" />© Greedy Motion 2026</span>
+      <span style="display:flex;gap:20px;"><a href="#pricing" style="color:#535862;">Pricing</a><a href="#" style="color:#535862;">Privacy</a><a href="#" style="color:#535862;">Terms</a><a href="#" style="color:#535862;">Contact</a></span>
+    </footer>
+  </section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const SCENES = [
+  { kind: "hook", headline: "Finally see what every sale is really worth.", copy: "" },
+  { kind: "problem", headline: "Fees, refunds, and shipping hide your actual margin.", copy: "Most dashboards stop at revenue." },
+  { kind: "product", headline: "Smart Profit Dashboard", copy: "", shot: "profit-dashboard.png" },
+  { kind: "benefit", headline: "See real profitability at a glance.", copy: "Tracks fees, refunds, shipping, and margin in one dashboard." },
+  { kind: "cta", headline: "See your real margins", copy: "acme.com/profit" }
+];
+const WORDS = ["product launches", "feature demos", "release notes", "social clips"];
+const LOGOS = ["Northwind", "Acme", "Lumen", "Halcyon", "Brightpath", "Fieldnote", "Orbit Labs", "Quarry", "Tessellate", "Waypoint"];
+const QUOTES = [
+  ["We used to wait two weeks for a launch video. Now marketing ships it with the release.", "Priya N.", "Head of Product Marketing"],
+  ["The storyboard step is the reason our brand team trusts it.", "Marcus L.", "Brand Director"],
+  ["I open the same project in Studio, tweak two keyframes, and publish it as our template.", "Mara C.", "Motion Designer"],
+  ["Ask-to-change shows me exactly what will move. No surprises.", "Jonah R.", "Growth Lead"],
+  ["Render status is honest. When a screenshot fails, it tells me which one.", "Elena S.", "Content Ops"]
+];
+class Component extends DCLogic {
+  state = { w: 0, s: 0, t: 0, faq: 0 };
+  componentDidMount() { this.timer = setInterval(() => this.setState(st => { const t = st.t + 1; return { t, s: Math.floor(t / 10) % 5, w: Math.floor(t / 24) % WORDS.length }; }), 250); }
+  componentWillUnmount() { clearInterval(this.timer); }
+  marquee(items, render, dur) {
+    const row = items.map(render);
+    return React.createElement("div", { style: { width: "100%", overflow: "hidden", maskImage: "linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent)", WebkitMaskImage: "linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent)" } },
+      React.createElement("div", { style: { display: "flex", gap: 16, width: "max-content", animation: `gmMarquee ${dur}s linear infinite` } }, ...row, ...items.map((x, i) => render(x, i + 1000))));
+  }
+  renderVals() {
+    const s = this.state;
+    if (!this._logos) this._logos = this.marquee(LOGOS, (n, i) => React.createElement("span", { key: i, style: { padding: "0 28px", fontSize: 22, fontWeight: 600, letterSpacing: "-.02em", color: "#93979f", whiteSpace: "nowrap" } }, n), 40);
+    if (!this._quotes) this._quotes = this.marquee(QUOTES, ([q, n, r], i) => React.createElement("div", { key: i, style: { width: 380, flex: "none", padding: 32, borderRadius: 32, background: "#fafdff", display: "flex", flexDirection: "column", gap: 20 } },
+      React.createElement("span", { style: { fontSize: 16, lineHeight: 1.55, color: "#535862" } }, `“${q}”`),
+      React.createElement("span", { style: { display: "flex", flexDirection: "column", gap: 2, borderTop: "1px solid #E1EAF4", paddingTop: 16 } }, React.createElement("strong", { style: { fontSize: 16, fontWeight: 500 } }, n), React.createElement("span", { style: { fontSize: 14, color: "#93979f" } }, r))), 60);
+    if (!this._ambient) {
+      const blob = (st) => React.createElement("div", { style: { position: "absolute", borderRadius: "50%", filter: "blur(60px)", ...st } });
+      this._ambient = React.createElement("div", { "aria-hidden": true, style: { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden" } },
+        blob({ width: "52vw", height: "52vw", right: "-14vw", top: "-20vw", background: "radial-gradient(circle,rgba(158,203,255,.85),rgba(158,203,255,0) 70%)", animation: "gmDriftA 24s ease-in-out infinite alternate" }),
+        blob({ width: "40vw", height: "40vw", left: "-14vw", top: "20vh", background: "radial-gradient(circle,rgba(228,204,255,.7),rgba(228,204,255,0) 70%)", animation: "gmDriftB 30s ease-in-out infinite alternate" }),
+        blob({ width: "34vw", height: "34vw", right: "12vw", bottom: "-18vw", background: "radial-gradient(circle,rgba(255,209,184,.6),rgba(255,209,184,0) 70%)", animation: "gmDriftC 34s ease-in-out infinite alternate" }),
+        blob({ width: "26vw", height: "26vw", left: "30vw", top: "45vh", background: "radial-gradient(circle,rgba(211,246,227,.7),rgba(211,246,227,0) 70%)", animation: "gmDriftA 40s ease-in-out infinite alternate-reverse" }));
+    }
+    const word = WORDS[s.w];
+    return {
+      ambient: this._ambient, logoMarquee: this._logos, quoteMarquee: this._quotes,
+      wordEl: React.createElement("span", { key: word, style: { display: "inline-block", background: "linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", animation: "gmWord 600ms cubic-bezier(.16,1,.3,1)" } }, word),
+      heroScene: SCENES[s.s], heroPct: `${((s.t % 50) / 50) * 100}%`, heroLabel: `Scene ${s.s + 1} of 5`,
+      steps: [
+        { n: "01", title: "Choose a goal", body: "Launch, feature spotlight, what’s new, or a stat. Length and format come recommended.", bg: "#F1E6FF" },
+        { n: "02", title: "Add screenshots and copy", body: "A short structured brief and your real product screenshots.", bg: "#CCE7FF" },
+        { n: "03", title: "Review the storyboard", body: "Five scenes before anything renders. Edit copy, timing, and motion safely.", bg: "#D3F6E3" },
+        { n: "04", title: "Approve and download", body: "Render a draft, request changes, approve the final, download the MP4.", bg: "#FFF2BE" }
+      ],
+      studioTracks: [{ l: "0%", w: "30%", c: "#168BFF" }, { l: "26%", w: "40%", c: "#9ECBFF" }, { l: "34%", w: "22%", c: "#FF5A1F" }, { l: "60%", w: "38%", c: "#E4CCFF" }],
+      plans: [
+        { name: "Creator", price: "$29", per: "per month", items: ["40 render minutes", "1 brand kit", "Guided editor", "1080p MP4"], cta: "Start free", ctaBg: "#fff", ctaFg: "#0a0d12", bg: "#fafdff", popular: false },
+        { name: "Team", price: "$99", per: "per month", items: ["200 render minutes", "Unlimited brand kits", "Studio + scoped AI comments", "Publish team templates"], cta: "Start free", ctaBg: "#181d27", ctaFg: "#fff", bg: "linear-gradient(180deg,#E5F6FF,#C2E9FF)", popular: true }
+      ],
+      faqs: [
+        ["Do I need video-editing skills?", "No. The guided flow asks for a goal, a short brief, and screenshots. Pros can open the same project in Studio."],
+        ["Will it change my video without asking?", "Never. Every requested change comes back as a proposal with a before and after. You accept or reject it."],
+        ["What formats can I export?", "MP4 in 16:9 and 9:16 today. Square 1:1 is coming soon."],
+        ["Is there a free trial?", "Yes. Try it free for 14 days, no credit card required."]
+      ].map(([q, a], i) => ({ q, a, rows: s.faq === i ? "1fr" : "0fr", rot: s.faq === i ? "rotate(45deg)" : "none", toggle: () => this.setState({ faq: s.faq === i ? -1 : i }) }))
+    };
+  }
+}
+</script>
+</body>
+</html>

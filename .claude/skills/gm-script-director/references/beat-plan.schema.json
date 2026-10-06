@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Greedy Motion beat plan",
+  "description": "The contract between the script director and every producer. See gm-script-director/SKILL.md and references/routing.md.",
+  "type": "object",
+  "required": ["version", "mode", "format", "canvas", "clock", "brand", "beats", "audio", "approvals"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": "1.0" },
+    "mode": { "enum": ["own-script", "problem-only"] },
+    "template": { "type": ["string", "null"], "pattern": "^gm-[a-z0-9-]+$" },
+    "format": { "enum": ["social", "launch", "explainer"] },
+    "canvas": { "enum": ["16:9", "9:16", "1:1"] },
+    "target_duration_s": { "type": "number" },
+    "clock": { "enum": ["voiceover", "beats", "ledger"] },
+    "brand": {
+      "type": "object",
+      "required": ["name", "motion_profile"],
+      "properties": {
+        "name": { "type": "string" },
+        "motion_profile": { "enum": ["snappy", "smooth", "springy"] },
+        "tokens": { "type": "object" },
+        "mark": { "type": "string" },
+        "style_frame": { "type": ["string", "null"] }
+      }
+    },
+    "characters": {
+      "type": "array",
+      "items": { "type": "object", "required": ["id", "description"], "properties": {
+        "id": { "type": "string" }, "description": { "type": "string" }, "sheet": { "type": ["string", "null"] } } }
+    },
+    "beats": {
+      "type": "array", "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "kind", "producer", "keyword", "energy", "motion", "transition_out"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "role": { "enum": ["hook", "problem", "reveal", "feature", "proof", "success", "cta"] },
+          "kind": { "enum": ["ui", "kinetic", "3d", "footage", "title"] },
+          "producer": { "enum": ["hyperframes", "threejs", "nanobanana+veo", "veo-footage"] },
+          "line": { "type": ["string", "null"], "description": "VO sentence, verbatim in own-script mode" },
+          "verb": { "type": ["string", "null"] },
+          "keyword": { "type": "string", "description": "kinetic key phrase on screen; last word accented" },
+          "on_screen": { "type": ["string", "null"] },
+          "success": { "type": "boolean" },
+          "energy": { "enum": ["calm", "medium", "high"] },
+          "ui": { "type": "object", "properties": {
+            "screen": { "type": "string" }, "action": { "enum": ["click", "type", "drag", "toggle", "count", "send", "scroll", "select"] },
+            "target": { "type": "string" } } },
+          "motion": { "type": "object", "required": ["camera", "entry", "exit"], "properties": {
+            "camera": { "type": "string" },
+            "entry": { "type": "object", "properties": { "axis": { "enum": ["x", "y", "z"] }, "dir": { "enum": [-1, 1] } } },
+            "exit": { "type": "object", "properties": { "axis": { "enum": ["x", "y", "z"] }, "dir": { "enum": [-1, 1] } } },
+            "text_effect": { "type": ["string", "null"] } } },
+          "generation": { "type": "object", "description": "kind 3d/footage only", "properties": {
+            "keyframe_prompt": { "type": "string" },
+            "end_frame": { "enum": ["none", "crop-push", "generated"] },
+            "veo_prompt": { "type": "string" },
+            "veo_vector": { "type": "string" },
+            "character": { "type": ["string", "null"] },
+            "screen": { "enum": ["replace", "blank", "away", "none"] },
+            "dialogue": { "type": ["string", "null"] },
+            "voice_modifier": { "type": ["string", "null"] },
+            "keep_s": { "type": "number" },
+            "skills_used": { "type": "array", "items": { "type": "string" } } } },
+          "fallback": { "type": ["object", "null"], "description": "required when kind is 3d or footage" },
+          "sfx": { "type": ["string", "null"] },
+          "transition_out": { "type": "object", "required": ["type"], "properties": {
+            "type": { "enum": ["j-cut", "match-cut", "push-through", "whip", "brand-field-wipe", "hard-cut-on-beat", "end"] },
+            "carrier": { "type": ["string", "null"] } } }
+        }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "required": ["voice", "music"],
+      "properties": {
+        "voice": { "type": ["object", "null"], "properties": { "engine": { "enum": ["kokoro", "gemini-tts"] }, "voice": { "type": "string" }, "speed": { "type": "number" }, "direction": { "type": "string" } } },
+        "music": { "type": "object", "properties": { "source": { "enum": ["lyria", "library"] }, "prompt": { "type": "string" }, "bpm": { "type": "number" } } },
+        "captions": { "enum": ["key-phrases", "full", "none"] }
+      }
+    },
+    "approvals": { "type": "array", "items": { "enum": ["script", "style-frame", "character-sheet", "storyboard", "motion-preview", "final"] } },
+    "suggestions": { "type": "array", "items": { "type": "object", "properties": {
+      "beat": { "type": "string" }, "problem": { "type": "string" }, "proposal": { "type": "string" }, "accepted": { "type": ["boolean", "null"] } } } },
+    "estimate": { "type": "object", "properties": { "generated_shots": { "type": "integer" }, "api_usd": { "type": "number" }, "render_s": { "type": "number" } } }
+  }
+}

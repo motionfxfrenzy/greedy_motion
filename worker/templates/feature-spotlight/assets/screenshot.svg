@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <!-- Placeholder product UI for the Feature spotlight template. Replaced by the user's screenshot. -->
+  <rect width="1600" height="1000" fill="#ffffff"/>
+  <rect width="280" height="1000" fill="#f3f4f6"/>
+  <rect x="40" y="48" width="140" height="28" rx="6" fill="#111827"/>
+  <g fill="#d1d5db"><rect x="40" y="130" width="190" height="18" rx="5"/><rect x="40" y="180" width="160" height="18" rx="5"/><rect x="40" y="230" width="175" height="18" rx="5"/><rect x="40" y="280" width="140" height="18" rx="5"/></g>
+  <rect x="340" y="48" width="420" height="36" rx="8" fill="#111827"/>
+  <g><rect x="340" y="130" width="380" height="180" rx="16" fill="#eef2ff"/><rect x="370" y="160" width="120" height="16" rx="4" fill="#6366f1"/><rect x="370" y="210" width="200" height="56" rx="8" fill="#1e1b4b"/></g>
+  <g><rect x="750" y="130" width="380" height="180" rx="16" fill="#ecfdf5"/><rect x="780" y="160" width="120" height="16" rx="4" fill="#10b981"/><rect x="780" y="210" width="170" height="56" rx="8" fill="#064e3b"/></g>
+  <g><rect x="1160" y="130" width="380" height="180" rx="16" fill="#fff7ed"/><rect x="1190" y="160" width="120" height="16" rx="4" fill="#f97316"/><rect x="1190" y="210" width="190" height="56" rx="8" fill="#7c2d12"/></g>
+  <rect x="340" y="350" width="1200" height="600" rx="16" fill="#f9fafb" stroke="#e5e7eb" stroke-width="2"/>
+  <polyline points="400,860 560,760 720,800 880,640 1040,680 1200,520 1360,560 1480,440" fill="none" stroke="#6366f1" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#e5e7eb"><rect x="400" y="400" width="260" height="20" rx="5"/><rect x="400" y="440" width="160" height="14" rx="4"/></g>
+</svg>

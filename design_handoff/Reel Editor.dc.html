@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<title>Greedy Motion — Reel editor</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+@font-face { font-family: "DM Mono"; src: url("fonts/dm-mono-400.woff2") format("woff2"); font-weight: 400; }
+@keyframes gmDriftA { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(-10vw,6vh) scale(1.12); } }
+@keyframes gmDriftB { 0% { transform: translate(0,0) scale(1.08); } 100% { transform: translate(8vw,-5vh) scale(.94); } }
+@keyframes gmSheen { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+@keyframes gmPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(10,108,255,.45); } 50% { box-shadow: 0 0 0 6px rgba(10,108,255,0); } }
+@keyframes gmPop { 0% { opacity: 0; transform: translateY(8px) scale(.96); } 100% { opacity: 1; transform: none; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #ebf5ff; color: #0a0d12; font-family: "Plus Jakarta Sans", Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+button, input, select { font: inherit; color: inherit; }
+button:disabled { opacity: .4; cursor: not-allowed !important; }
+a { color: #0A6CFF; text-decoration: none; } a:hover { color: #0050c8; }
+input[type=range] { accent-color: #0A6CFF; }
+</style>
+</helmet>
+<div style="position:relative;height:100vh;overflow:hidden;">
+{{ ambient }}
+<div style="position:relative;z-index:1;height:100vh;display:flex;flex-direction:column;">
+
+  <header style="height:60px;flex:none;display:flex;align-items:center;gap:14px;padding:0 20px;background:rgba(250,253,255,.72);backdrop-filter:blur(14px);border-bottom:1px solid #E1EAF4;">
+    <a href="Relay v3.dc.html" style="display:flex;align-items:center;gap:8px;flex:none;"><img src="assets/gm-mark.svg" alt="" style="height:22px;" /><span style="display:flex;gap:4px;font-size:15px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;"><span style="color:#0B1F4D;">Greedy</span><span style="color:#0A6CFF;">Motion</span></span></a>
+    <span style="width:1px;height:22px;background:#D6E4F2;"></span>
+    <div style="display:flex;flex-direction:column;line-height:1.2;min-width:0;"><strong style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ clipName }}</strong><span style="font-size:12px;color:#93979f;white-space:nowrap;">Reel editor · {{ formatLabel }}</span></div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+      <sc-if value="{{ isEdit }}" hint-placeholder-val="{{ false }}">
+        <a href="Comment Edit.dc.html" style="padding:8px 14px;font-size:13px;font-weight:500;color:#535862;white-space:nowrap;">Comment to edit</a>
+        <button type="button" onClick="{{ openRender }}" style="padding:9px 18px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;">Render reel</button>
+      </sc-if>
+    </div>
+  </header>
+
+  <sc-if value="{{ isUpload }}" hint-placeholder-val="{{ true }}">
+    <main style="flex:1;min-height:0;overflow:auto;display:grid;place-items:center;padding:24px;">
+      <div style="width:100%;max-width:880px;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;">
+        <div style="grid-column:1 / -1;text-align:center;margin-bottom:8px;"><h1 style="margin:0;font-size:clamp(26px,3vw,38px);font-weight:700;letter-spacing:-.03em;">Bring a talking-head video.</h1><p style="margin:8px 0 0;font-size:15px;color:#535862;">We add captions, motion graphics, and split screens with your product. You review every edit.</p></div>
+        <label style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:280px;padding:24px;border-radius:28px;border:2px dashed #9ECBFF;background:rgba(250,253,255,.85);cursor:pointer;text-align:center;transition:border-color 220ms ease,background 220ms ease;" style-hover="border-color:#168BFF;background:#fff;">
+          <input type="file" accept="video/mp4,video/quicktime,video/webm" onChange="{{ onFile }}" style="position:absolute;inset:0;opacity:0;cursor:pointer;" />
+          <span style="display:grid;place-items:center;width:56px;height:56px;border-radius:18px;background:linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%);color:#fff;font-size:22px;">↑</span>
+          <strong style="font-size:17px;font-weight:600;">Drop your video or browse</strong>
+          <span style="font-size:13px;color:#93979f;">MP4, MOV, or WebM · up to 3 minutes · one speaker works best</span>
+          <button type="button" onClick="{{ useSample }}" style="position:relative;z-index:2;margin-top:6px;padding:9px 16px;border:0;border-radius:9999px;background:#EBF5FF;color:#0058bd;font-size:13px;font-weight:600;cursor:pointer;">Use a sample clip</button>
+        </label>
+        <div style="padding:20px;border-radius:28px;background:#fafdff;display:flex;flex-direction:column;gap:16px;">
+          <div style="display:flex;flex-direction:column;gap:8px;"><span style="font-size:13px;font-weight:600;">Format</span>
+            <div style="display:flex;gap:4px;padding:4px;border-radius:9999px;background:#EDF3FA;">
+              <sc-for list="{{ formats }}" as="f" hint-placeholder-count="2"><button type="button" onClick="{{ f.pick }}" style="flex:1;border:0;padding:8px;border-radius:9999px;background:{{ f.bg }};font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">{{ f.label }}</button></sc-for>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;"><span style="font-size:13px;font-weight:600;">Motion style</span>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              <sc-for list="{{ styles }}" as="st" hint-placeholder-count="4"><button type="button" onClick="{{ st.pick }}" style="padding:7px 12px;border-radius:9999px;border:1.5px solid {{ st.line }};background:{{ st.bg }};font-size:12px;font-weight:600;cursor:pointer;">{{ st.label }}</button></sc-for>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;"><span style="font-size:13px;font-weight:600;">What should we add?</span>
+            <div style="display:flex;flex-direction:column;gap:2px;">
+              <sc-for list="{{ addOns }}" as="a" hint-placeholder-count="6">
+                <button type="button" onClick="{{ a.toggle }}" style="display:flex;align-items:center;gap:10px;padding:7px 4px;border:0;background:transparent;cursor:pointer;text-align:left;font-size:13px;">
+                  <span style="flex:none;display:grid;place-items:center;width:18px;height:18px;border-radius:6px;border:1.5px solid {{ a.line }};background:{{ a.bg }};color:#fff;font-size:10px;">{{ a.mark }}</span>
+                  <span style="flex:1;">{{ a.label }}</span><span style="font-size:11px;color:#93979f;">{{ a.sub }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ isProcessing }}" hint-placeholder-val="{{ false }}">
+    <main style="flex:1;min-height:0;display:grid;place-items:center;padding:24px;">
+      <div style="position:relative;overflow:hidden;width:100%;max-width:520px;padding:28px;border-radius:28px;background:#fafdff;display:flex;flex-direction:column;gap:16px;box-shadow:0 14px 20px 4px rgba(4,69,144,.08);">
+        <div><strong style="font-size:20px;font-weight:700;letter-spacing:-.02em;">Editing {{ clipName }}</strong><p style="margin:6px 0 0;font-size:14px;color:#535862;">Claude plans the edit and writes HyperFrames compositions. You review everything next.</p></div>
+        <sc-for list="{{ procStages }}" as="st" hint-placeholder-count="5">
+          <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:{{ st.fg }};"><span style="flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1.5px solid {{ st.ring }};background:{{ st.fill }};color:#fff;font-size:10px;animation:{{ st.anim }};">{{ st.mark }}</span><span style="flex:1;">{{ st.label }}</span><span style="font-family:'DM Mono',monospace;font-size:11px;color:#93979f;">{{ st.detail }}</span></div>
+        </sc-for>
+        {{ sheen }}
+      </div>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ isEdit }}" hint-placeholder-val="{{ false }}">
+    <main style="flex:1;min-height:0;display:grid;grid-template-columns:clamp(200px,22vw,290px) minmax(0,1fr) clamp(250px,26vw,340px);grid-template-rows:minmax(0,1fr) auto;gap:12px;padding:12px 16px 14px;">
+
+      <aside style="min-height:0;display:flex;flex-direction:column;border-radius:24px;background:#fafdff;overflow:hidden;">
+        <div style="flex:none;display:flex;justify-content:space-between;align-items:center;padding:14px 16px 10px;"><strong style="font-size:14px;font-weight:600;">Transcript</strong><span style="font-size:11px;color:#93979f;">Click to jump</span></div>
+        <div style="flex:none;display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px;">
+          <button type="button" onClick="{{ toggleFillers }}" style="padding:5px 10px;border-radius:9999px;border:0;background:{{ fillerBg }};color:{{ fillerFg }};font-size:11px;font-weight:600;cursor:pointer;">{{ fillerLabel }}</button>
+          <button type="button" onClick="{{ toggleSilence }}" style="padding:5px 10px;border-radius:9999px;border:0;background:{{ silenceBg }};color:{{ silenceFg }};font-size:11px;font-weight:600;cursor:pointer;">{{ silenceLabel }}</button>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:0 10px 12px;display:flex;flex-direction:column;gap:4px;">
+          <sc-for list="{{ segments }}" as="sg" hint-placeholder-count="5">
+            <button type="button" onClick="{{ sg.seek }}" style="text-align:left;border:0;padding:10px 10px;border-radius:16px;background:{{ sg.bg }};cursor:pointer;display:flex;flex-direction:column;gap:6px;transition:background 220ms ease;">
+              <span style="font-family:'DM Mono',monospace;font-size:10px;color:{{ sg.timeFg }};">{{ sg.range }}</span>
+              <span style="font-size:13px;line-height:1.5;color:#0a0d12;">
+                <sc-for list="{{ sg.words }}" as="w" hint-placeholder-count="6"><span style="color:{{ w.fg }};text-decoration:{{ w.deco }};background:{{ w.bg }};border-radius:4px;padding:0 1px;">{{ w.text }} </span></sc-for>
+              </span>
+              <span style="display:flex;flex-wrap:wrap;gap:4px;">
+                <sc-for list="{{ sg.tags }}" as="tg" hint-placeholder-count="2"><span style="padding:2px 7px;border-radius:9999px;background:{{ tg.bg }};color:{{ tg.fg }};font-size:10px;font-weight:600;white-space:nowrap;">{{ tg.label }}</span></sc-for>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </aside>
+
+      <section style="min-width:0;min-height:0;display:flex;flex-direction:column;gap:10px;">
+        <div style="position:relative;flex:1;min-height:0;container-type:size;overflow:hidden;display:grid;place-items:center;border-radius:24px;background:radial-gradient(70% 60% at 50% 40%,rgba(22,139,255,.10),transparent 70%),#E3EEFA;">
+          <div style="position:relative;width:{{ frameW }};aspect-ratio:{{ aspect }};border-radius:18px;overflow:hidden;background:#0a0d12;box-shadow:0 14px 20px 4px rgba(4,69,144,.14);container-type:inline-size;">
+            <div style="position:absolute;left:{{ spk.l }};top:{{ spk.t }};width:{{ spk.w }};height:{{ spk.h }};border-radius:{{ spk.r }};overflow:hidden;transition:all 420ms cubic-bezier(.16,1,.3,1);box-shadow:{{ spk.shadow }};z-index:{{ spk.z }};">
+              <div style="position:absolute;inset:0;transform:scale({{ punch }});transition:transform 600ms cubic-bezier(.16,1,.3,1);filter:{{ grade }};">
+                <sc-if value="{{ hasVideo }}" hint-placeholder-val="{{ false }}">{{ videoEl }}</sc-if>
+                <sc-if value="{{ noVideo }}" hint-placeholder-val="{{ true }}">
+                  <div style="position:absolute;inset:0;background:radial-gradient(60% 50% at 50% 38%,#d9a58a 0,#b9826a 22%,transparent 46%),radial-gradient(90% 60% at 50% 100%,#2c3a52 0,#1d2635 60%,transparent 61%),linear-gradient(160deg,#c8b8a6,#8e7f73 55%,#5b5047);"></div>
+                  <span style="position:absolute;left:50%;bottom:8%;transform:translateX(-50%);padding:3px 8px;border-radius:6px;background:rgba(10,13,18,.55);color:#fff;font-family:'DM Mono',monospace;font-size:10px;white-space:nowrap;">talking-head.mp4</span>
+                </sc-if>
+              </div>
+            </div>
+            <sc-if value="{{ showScreen }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ scr.l }};top:{{ scr.t }};width:{{ scr.w }};height:{{ scr.h }};background:#ebf5ff;display:grid;place-items:center;transition:all 420ms cubic-bezier(.16,1,.3,1);z-index:1;">
+                <div style="width:88%;border-radius:8px;overflow:hidden;box-shadow:0 10px 24px rgba(4,69,144,.2);background-image:url(assets/templates/feature-spotlight.jpg);background-size:cover;background-position:center;aspect-ratio:16/10;"></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ gCosts }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:6%;right:6%;top:12%;display:flex;flex-direction:column;gap:2.4cqw;z-index:3;">
+                <sc-for list="{{ costs }}" as="c" hint-placeholder-count="3"><span style="align-self:{{ c.align }};padding:2.4cqw 4cqw;border-radius:3cqw;background:rgba(250,253,255,.94);font-size:4.2cqw;font-weight:700;color:#0a0d12;box-shadow:0 2cqw 4cqw rgba(0,0,0,.18);animation:gmPop 420ms cubic-bezier(.16,1,.3,1) both;animation-delay:{{ c.delay }};">{{ c.label }} <span style="color:#C2410C;">{{ c.value }}</span></span></sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ gLower }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:5%;top:{{ lowerTop }};z-index:3;display:flex;align-items:center;gap:2cqw;padding:2cqw 3.4cqw 2cqw 2cqw;border-radius:3cqw;background:rgba(250,253,255,.95);box-shadow:0 2cqw 4cqw rgba(0,0,0,.18);animation:gmPop 420ms cubic-bezier(.16,1,.3,1) both;">
+                <span style="width:1.2cqw;align-self:stretch;border-radius:1cqw;background:linear-gradient(180deg,#168BFF,#0A6CFF);"></span>
+                <span style="display:flex;flex-direction:column;gap:.4cqw;"><strong style="font-size:3.6cqw;font-weight:700;color:#0a0d12;">Olivia Evans</strong><span style="font-size:2.8cqw;color:#535862;">Founder, Acme</span></span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ gStat }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ statL }};top:{{ statT }};z-index:3;padding:3cqw 4.4cqw;border-radius:4cqw;background:rgba(250,253,255,.96);box-shadow:0 2cqw 5cqw rgba(0,0,0,.2);display:flex;flex-direction:column;gap:.6cqw;animation:gmPop 420ms cubic-bezier(.16,1,.3,1) both;">
+                <span style="font-size:12cqw;line-height:1;font-weight:800;letter-spacing:-.04em;background:linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%);-webkit-background-clip:text;background-clip:text;color:transparent;">{{ statValue }}%</span>
+                <span style="font-size:3.2cqw;color:#535862;max-width:40cqw;">found hidden costs in week one</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ gCta }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:50%;top:{{ ctaTop }};transform:translateX(-50%);z-index:3;display:flex;flex-direction:column;align-items:center;gap:2cqw;animation:gmPop 420ms cubic-bezier(.16,1,.3,1) both;">
+                <span style="display:flex;align-items:center;gap:1.6cqw;padding:2cqw 3.4cqw;border-radius:9999px;background:rgba(250,253,255,.96);font-size:3.6cqw;font-weight:700;color:#0a0d12;"><span style="display:grid;place-items:center;width:5cqw;height:5cqw;border-radius:1.4cqw;background:#4F46E5;color:#fff;font-size:2.8cqw;">A</span>acme.com/profit</span>
+                <span style="padding:2.4cqw 5cqw;border-radius:9999px;background:#4F46E5;color:#fff;font-size:4cqw;font-weight:700;white-space:nowrap;">See your real margins</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ showCaptions }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:6%;right:6%;top:{{ capTop }};z-index:4;display:flex;flex-wrap:wrap;justify-content:center;gap:0 1.6cqw;text-align:center;">
+                <sc-for list="{{ capWords }}" as="w" hint-placeholder-count="4"><span style="font-size:{{ capSize }};font-weight:{{ capWeight }};line-height:1.2;color:{{ w.fg }};background:{{ w.bg }};padding:0 1cqw;border-radius:1.6cqw;text-transform:{{ capCase }};text-shadow:{{ capShadow }};transition:color 120ms ease,background 120ms ease;">{{ w.text }}</span></sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ comparing }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:3%;top:3%;z-index:6;padding:1cqw 2.4cqw;border-radius:9999px;background:rgba(10,13,18,.7);color:#fff;font-size:2.6cqw;font-weight:600;">Original</span></sc-if>
+          </div>
+        </div>
+        <div style="flex:none;display:flex;align-items:center;gap:10px;">
+          <button type="button" onClick="{{ togglePlay }}" aria-label="Play or pause" style="flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;border:0;background:#181d27;color:#fff;font-size:11px;cursor:pointer;">{{ playGlyph }}</button>
+          <span style="flex:none;font-family:'DM Mono',monospace;font-size:12px;color:#535862;white-space:nowrap;"><span style="color:#0a0d12;">{{ timeNow }}</span> / {{ timeTotal }}</span>
+          <span style="flex:1 1 0;min-width:0;font-size:12px;color:#93979f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ segTitle }}</span>
+          <button type="button" onMouseDown="{{ compareOn }}" onMouseUp="{{ compareOff }}" onMouseLeave="{{ compareOff }}" title="Hold to compare with the original" style="flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;padding:7px 12px;border:0;border-radius:9999px;background:#fafdff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">Compare</button>
+        </div>
+      </section>
+
+      <aside style="min-height:0;display:flex;flex-direction:column;border-radius:24px;background:#fafdff;overflow:hidden;">
+        <div style="flex:none;display:flex;gap:2px;padding:8px;border-bottom:1px solid #EDF3FA;">
+          <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5"><button type="button" onClick="{{ t.go }}" style="flex:1;border:0;padding:7px 4px;border-radius:9999px;background:{{ t.bg }};color:{{ t.fg }};font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">{{ t.label }}</button></sc-for>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px;">
+          <sc-if value="{{ tabEdits }}" hint-placeholder-val="{{ true }}">
+            <span style="font-size:13px;color:#535862;line-height:1.5;">Claude planned {{ editCount }} edits from your transcript. Untick any you don’t want.</span>
+            <sc-for list="{{ edits }}" as="e" hint-placeholder-count="6">
+              <div style="display:flex;gap:10px;padding:10px 12px;border-radius:16px;background:{{ e.bg }};">
+                <button type="button" onClick="{{ e.toggle }}" style="flex:none;display:grid;place-items:center;width:18px;height:18px;margin-top:2px;border-radius:6px;border:1.5px solid {{ e.line }};background:{{ e.box }};color:#fff;font-size:10px;cursor:pointer;">{{ e.mark }}</button>
+                <button type="button" onClick="{{ e.seek }}" style="flex:1;min-width:0;border:0;padding:0;background:transparent;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:3px;">
+                  <span style="display:flex;justify-content:space-between;gap:8px;"><strong style="font-size:13px;font-weight:600;">{{ e.title }}</strong><span style="font-family:'DM Mono',monospace;font-size:10px;color:#93979f;">{{ e.at }}</span></span>
+                  <span style="font-size:12px;color:#535862;line-height:1.4;">{{ e.detail }}</span>
+                </button>
+              </div>
+            </sc-for>
+          </sc-if>
+
+          <sc-if value="{{ tabLayout }}" hint-placeholder-val="{{ false }}">
+            <span style="font-size:13px;color:#535862;">Layout for {{ segShort }}</span>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+              <sc-for list="{{ layouts }}" as="l" hint-placeholder-count="3">
+                <button type="button" onClick="{{ l.pick }}" style="display:flex;flex-direction:column;gap:6px;padding:8px;border-radius:16px;border:2px solid {{ l.line }};background:#fff;cursor:pointer;">
+                  <span style="position:relative;display:block;aspect-ratio:{{ aspect }};border-radius:8px;background:#EDF3FA;overflow:hidden;">
+                    <span style="position:absolute;left:{{ l.a.l }};top:{{ l.a.t }};width:{{ l.a.w }};height:{{ l.a.h }};border-radius:{{ l.a.r }};background:#C9A48E;"></span>
+                    <span style="position:absolute;left:{{ l.b.l }};top:{{ l.b.t }};width:{{ l.b.w }};height:{{ l.b.h }};background:#9ECBFF;border-radius:2px;"></span>
+                  </span>
+                  <span style="font-size:11px;font-weight:600;">{{ l.label }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <label style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;"><span>Screen content</span><select style="padding:6px 10px;border:1px solid #E1EAF4;border-radius:12px;background:#fff;font-size:12px;"><option>profit-dashboard.png</option><option>connect-store.png</option><option>Screen recording…</option></select></label>
+            <label style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;"><span>Punch-in on speaker</span><input type="checkbox" checked="{{ punchOn }}" onChange="{{ togglePunch }}" style="accent-color:#0A6CFF;width:16px;height:16px;" /></label>
+          </sc-if>
+
+          <sc-if value="{{ tabCaptions }}" hint-placeholder-val="{{ false }}">
+            <label style="display:flex;justify-content:space-between;align-items:center;font-size:13px;"><span style="font-weight:600;">Show captions</span><input type="checkbox" checked="{{ capsOn }}" onChange="{{ toggleCaps }}" style="accent-color:#0A6CFF;width:16px;height:16px;" /></label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <sc-for list="{{ capStyles }}" as="cs" hint-placeholder-count="4">
+                <button type="button" onClick="{{ cs.pick }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:16px;border:2px solid {{ cs.line }};background:#0a0d12;cursor:pointer;">
+                  <span style="font-size:14px;font-weight:{{ cs.weight }};text-transform:{{ cs.case }};color:#fff;"><span style="background:{{ cs.hiBg }};color:{{ cs.hiFg }};padding:0 3px;border-radius:4px;">real</span> margins</span>
+                  <span style="font-size:11px;color:#93979f;">{{ cs.label }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:13px;">Position</span>
+              <div style="display:flex;gap:4px;padding:4px;border-radius:9999px;background:#EDF3FA;">
+                <sc-for list="{{ capPos }}" as="p" hint-placeholder-count="3"><button type="button" onClick="{{ p.pick }}" style="flex:1;border:0;padding:6px;border-radius:9999px;background:{{ p.bg }};font-size:12px;font-weight:600;cursor:pointer;">{{ p.label }}</button></sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabColor }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:13px;font-weight:600;">Look</span><button type="button" onClick="{{ autoColor }}" style="padding:5px 11px;border:0;border-radius:9999px;background:#EBF5FF;color:#0058bd;font-size:12px;font-weight:600;cursor:pointer;">Auto-correct</button></div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+              <sc-for list="{{ looks }}" as="lk" hint-placeholder-count="6">
+                <button type="button" onClick="{{ lk.pick }}" style="display:flex;flex-direction:column;gap:5px;padding:5px;border-radius:14px;border:2px solid {{ lk.line }};background:#fff;cursor:pointer;">
+                  <span style="display:block;aspect-ratio:1;border-radius:9px;background:radial-gradient(60% 50% at 50% 40%,#d9a58a 0,#b9826a 30%,transparent 55%),linear-gradient(160deg,#c8b8a6,#8e7f73 55%,#5b5047);filter:{{ lk.filter }};"></span>
+                  <span style="font-size:11px;font-weight:600;">{{ lk.label }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <sc-for list="{{ sliders }}" as="sl" hint-placeholder-count="5">
+              <label style="display:flex;flex-direction:column;gap:4px;"><span style="display:flex;justify-content:space-between;font-size:12px;"><span>{{ sl.label }}</span><span style="font-family:'DM Mono',monospace;color:#93979f;">{{ sl.val }}</span></span><input type="range" min="{{ sl.min }}" max="{{ sl.max }}" step="1" value="{{ sl.value }}" onChange="{{ sl.onChange }}" /></label>
+            </sc-for>
+            <span style="font-size:11px;color:#93979f;line-height:1.5;">Grades apply to your video only, never to text or graphics. Hold “compare” under the player to see the original.</span>
+          </sc-if>
+
+          <sc-if value="{{ tabAudio }}" hint-placeholder-val="{{ false }}">
+            <sc-for list="{{ audio }}" as="au" hint-placeholder-count="4">
+              <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:16px;background:#F4F8FD;"><span style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:13px;font-weight:600;">{{ au.label }}</span><span style="font-size:11px;color:#93979f;">{{ au.sub }}</span></span><input type="checkbox" checked="{{ au.on }}" onChange="{{ au.toggle }}" style="accent-color:#0A6CFF;width:16px;height:16px;" /></label>
+            </sc-for>
+            <label style="display:flex;flex-direction:column;gap:4px;"><span style="display:flex;justify-content:space-between;font-size:12px;"><span>Music level</span><span style="font-family:'DM Mono',monospace;color:#93979f;">{{ musicLvl }} dB</span></span><input type="range" min="-30" max="-6" step="1" value="{{ musicLvl }}" onChange="{{ setMusicLvl }}" /></label>
+          </sc-if>
+        </div>
+      </aside>
+
+      <section style="grid-column:1 / -1;padding:10px 14px 12px;border-radius:20px;background:#fafdff;display:grid;grid-template-columns:70px minmax(0,1fr);gap:4px 10px;">
+        <sc-for list="{{ tracks }}" as="tr" hint-placeholder-count="5">
+          <span style="font-size:10px;font-weight:600;color:#93979f;letter-spacing:.06em;display:flex;align-items:center;height:20px;">{{ tr.label }}</span>
+          <div onClick="{{ scrub }}" style="position:relative;height:20px;border-radius:6px;background:#F4F8FD;cursor:pointer;">
+            <sc-for list="{{ tr.clips }}" as="c" hint-placeholder-count="3"><span title="{{ c.title }}" style="position:absolute;left:{{ c.l }};width:{{ c.w }};top:2px;bottom:2px;border-radius:5px;background:{{ c.bg }};color:{{ c.fg }};font-size:9px;font-weight:600;padding:0 5px;display:flex;align-items:center;white-space:nowrap;overflow:hidden;opacity:{{ c.op }};">{{ c.label }}</span></sc-for>
+            <span style="position:absolute;left:{{ playPct }};top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:#0a0d12;border-radius:2px;pointer-events:none;"></span>
+          </div>
+        </sc-for>
+      </section>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ renderOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeRender }}" style="position:fixed;inset:0;z-index:40;background:rgba(10,13,18,.3);backdrop-filter:blur(6px);display:grid;place-items:center;padding:24px;">
+      <div onClick="{{ stop }}" style="position:relative;overflow:hidden;width:100%;max-width:440px;padding:24px;border-radius:28px;background:#fafdff;display:flex;flex-direction:column;gap:14px;box-shadow:0 14px 20px 4px rgba(4,69,144,.15);">
+        <strong style="font-size:18px;font-weight:700;">{{ renderTitle }}</strong>
+        <sc-for list="{{ renderStages }}" as="st" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:{{ st.fg }};"><span style="flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1.5px solid {{ st.ring }};background:{{ st.fill }};color:#fff;font-size:10px;animation:{{ st.anim }};">{{ st.mark }}</span><span style="flex:1;">{{ st.label }}</span><span style="font-family:'DM Mono',monospace;font-size:11px;color:#93979f;">{{ st.detail }}</span></div>
+        </sc-for>
+        <sc-if value="{{ renderDone }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:8px;"><button type="button" onClick="{{ download }}" style="flex:1;padding:11px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Download MP4</button><button type="button" onClick="{{ closeRender }}" style="flex:1;padding:11px;border:0;border-radius:9999px;background:#EBF5FF;font-size:13px;font-weight:600;cursor:pointer;">Keep editing</button></div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:50;padding:11px 18px;border-radius:9999px;background:#181d27;color:#fff;font-size:14px;">{{ toast }}</div>
+  </sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;format&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;portrait&quot;,&quot;landscape&quot;],&quot;default&quot;:&quot;portrait&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+const SEGS = [
+  { id: "g1", start: 0, end: 4, text: "Ever wondered what each sale actually makes you?", layout: "full", fx: ["punch"], label: "Hook" },
+  { id: "g2", start: 4, end: 10, text: "Between fees, refunds, and shipping, um, most of it just disappears.", layout: "full", fx: ["costs"], label: "Problem", fillers: ["um,"] },
+  { id: "g3", start: 10, end: 18, text: "So we built Smart Profit Dashboard. Here’s, uh, my real store.", layout: "split", fx: ["lower"], label: "Product", fillers: ["uh,"] },
+  { id: "g4", start: 18, end: 24, text: "Seventy-two percent of our customers found hidden costs in week one.", layout: "pip", fx: ["stat"], label: "Proof" },
+  { id: "g5", start: 24, end: 30, text: "The link is below. Go see your real margins.", layout: "full", fx: ["cta"], label: "CTA" }
+];
+const LOOKS = { natural: [0, 0, 0, 0, 0], warm: [5, 8, 30, 10, 0], cool: [0, 10, -28, 0, 0], punchy: [4, 26, 6, 28, 0], film: [-4, -10, 14, -18, 20], mono: [0, 12, 0, -100, 0] };
+const LOOK_LABEL = { natural: "Natural", warm: "Warm studio", cool: "Cool tech", punchy: "Punchy", film: "Soft film", mono: "Mono" };
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const stg = (i, cur, label, detail) => { const done = i < cur, on = i === cur; return { label, detail: detail || "", mark: done ? "✓" : "", fg: done || on ? "#0a0d12" : "#93979f", ring: done ? "#16803C" : on ? "#0A6CFF" : "#C9D6E4", fill: done ? "#16803C" : on ? "#EBF5FF" : "#fff", anim: on ? "gmPulse 1.6s ease-in-out infinite" : "none" }; };
+
+class Component extends DCLogic {
+  state = { mode: "upload", format: this.props.format || "portrait", style: "Soft gradient", clipName: "olivia-profit-dashboard.mp4", videoUrl: null,
+    adds: { captions: true, graphics: true, split: true, fillers: true, color: true, music: true },
+    pStage: 0, pT: 0, t: 11, playing: false, tab: "Edits",
+    layouts: { g1: "full", g2: "full", g3: "split", g4: "pip", g5: "full" }, off: {}, punchOn: true,
+    capsOn: true, capStyle: "pop", capPos: "low", fillersCut: true, silenceCut: true,
+    look: "warm", grade: { exp: 5, con: 8, warm: 30, sat: 10, fade: 0 }, strength: 80, comparing: false,
+    au: { enhance: true, music: true, duck: true, loud: true }, musicLvl: -18,
+    renderOpen: false, rStage: 0, rT: 0, toast: null, toastT: 0 };
+  componentDidMount() { this.timer = setInterval(() => this.tick(), 100); }
+  componentWillUnmount() { clearInterval(this.timer); if (this.state.videoUrl) URL.revokeObjectURL(this.state.videoUrl); }
+  tick() {
+    const s = this.state, p = {}; let d = false;
+    if (s.mode === "processing") { const n = s.pT + 1; p.pT = n; p.pStage = Math.floor(n / 9); if (p.pStage >= 5) { p.mode = "edit"; p.t = 0.2; } d = true; }
+    if (s.mode === "edit" && s.playing) { const v = this.vid; if (v && s.videoUrl && !isNaN(v.duration)) { p.t = Math.min(29.9, v.currentTime % 30); } else { p.t = s.t + 0.1 >= 30 ? 0 : s.t + 0.1; } d = true; }
+    if (s.renderOpen && s.rStage < 4) { const n = s.rT + 1; p.rT = n; if (n >= 10) { p.rStage = s.rStage + 1; p.rT = 0; } d = true; }
+    if (s.toast) { p.toastT = s.toastT + 1; if (p.toastT > 30) p.toast = null; d = true; }
+    if (d) this.setState(p);
+  }
+  say(m) { this.setState({ toast: m, toastT: 0 }); }
+  seek(t) { this.setState({ t }); if (this.vid) { try { this.vid.currentTime = t; } catch (e) {} } }
+
+  renderVals() {
+    const s = this.state, portrait = s.format === "portrait";
+    if (!this._amb) {
+      const blob = (st) => React.createElement("div", { style: { position: "absolute", borderRadius: "50%", filter: "blur(60px)", ...st } });
+      this._amb = React.createElement("div", { "aria-hidden": true, style: { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden" } },
+        blob({ width: "46vw", height: "46vw", right: "-14vw", top: "-18vw", background: "radial-gradient(circle,rgba(158,203,255,.8),rgba(158,203,255,0) 70%)", animation: "gmDriftA 26s ease-in-out infinite alternate" }),
+        blob({ width: "36vw", height: "36vw", left: "-14vw", bottom: "-10vw", background: "radial-gradient(circle,rgba(255,209,184,.55),rgba(255,209,184,0) 70%)", animation: "gmDriftB 32s ease-in-out infinite alternate" }));
+      this._sheen = React.createElement("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, height: 3, overflow: "hidden", background: "#EBF5FF" } }, React.createElement("div", { style: { width: "40%", height: "100%", background: "linear-gradient(90deg,transparent,#168BFF,#0A6CFF,transparent)", animation: "gmSheen 1.4s ease-in-out infinite" } }));
+    }
+    const seg = SEGS.find(g => s.t >= g.start && s.t < g.end) || SEGS[4];
+    const on = (key) => !s.off[`${seg.id}.${key}`];
+    const layout = s.adds.split ? s.layouts[seg.id] : "full";
+    // geometry
+    const L = portrait
+      ? { full: { spk: ["0", "0", "100%", "100%", "0"], scr: null }, split: { spk: ["0", "50%", "100%", "50%", "0"], scr: ["0", "0", "100%", "50%"] }, pip: { spk: ["6%", "62%", "36%", "20.25%", "50%"], scr: ["0", "0", "100%", "100%"] } }
+      : { full: { spk: ["0", "0", "100%", "100%", "0"], scr: null }, split: { spk: ["0", "0", "50%", "100%", "0"], scr: ["50%", "0", "50%", "100%"] }, pip: { spk: ["4%", "58%", "20%", "35.5%", "50%"], scr: ["0", "0", "100%", "100%"] } };
+    const g = L[layout];
+    const spk = { l: g.spk[0], t: g.spk[1], w: g.spk[2], h: g.spk[3], r: g.spk[4], z: layout === "pip" ? 2 : 0, shadow: layout === "pip" ? "0 0 0 3px #fff, 0 8px 20px rgba(0,0,0,.3)" : "none" };
+    const scr = g.scr ? { l: g.scr[0], t: g.scr[1], w: g.scr[2], h: g.scr[3] } : { l: "0", t: "0", w: "0", h: "0" };
+    // grade → CSS filter
+    const k = s.adds.color ? s.strength / 100 : 0;
+    const G = s.grade;
+    const filterOf = (gr, kk) => `brightness(${(1 + gr.exp / 100 * kk).toFixed(3)}) contrast(${(1 + gr.con / 100 * kk).toFixed(3)}) saturate(${Math.max(0, 1 + gr.sat / 100 * kk).toFixed(3)}) sepia(${(Math.max(0, gr.warm) / 100 * 0.5 * kk + gr.fade / 100 * 0.3 * kk).toFixed(3)}) hue-rotate(${(gr.warm < 0 ? -gr.warm * 0.4 * kk : -gr.warm * 0.15 * kk).toFixed(1)}deg)`;
+    const grade = s.comparing ? "none" : filterOf(G, k);
+    // captions
+    const words = seg.text.split(" ").filter(w => !(s.fillersCut && (seg.fillers || []).includes(w)));
+    const per = (seg.end - seg.start) / words.length; const wi = Math.min(words.length - 1, Math.floor((s.t - seg.start) / per));
+    const winStart = Math.max(0, Math.floor(wi / 4) * 4);
+    const CS = { pop: { w: 800, case: "none", hiBg: "#FFD84D", hiFg: "#0a0d12", fg: "#fff", shadow: "0 .3cqw 1.4cqw rgba(0,0,0,.55)" }, clean: { w: 600, case: "none", hiBg: "transparent", hiFg: "#fff", fg: "rgba(255,255,255,.75)", shadow: "0 .3cqw 1.2cqw rgba(0,0,0,.5)" }, bold: { w: 800, case: "uppercase", hiBg: "#0A6CFF", hiFg: "#fff", fg: "#fff", shadow: "0 .3cqw 1.4cqw rgba(0,0,0,.55)" }, minimal: { w: 500, case: "none", hiBg: "rgba(10,13,18,.6)", hiFg: "#fff", fg: "#fff", shadow: "none" } };
+    const cs = CS[s.capStyle];
+    const capTopMap = portrait ? { high: "18%", mid: layout === "split" ? "44%" : "56%", low: layout === "split" ? "80%" : "74%" } : { high: "10%", mid: "44%", low: "78%" };
+    const total = 30, pct = (v) => `${(v / total) * 100}%`;
+    const edits = [];
+    SEGS.forEach(sg => {
+      sg.fx.forEach(f => {
+        if (f === "punch") edits.push({ key: `${sg.id}.punch`, title: "Punch-in on hook", detail: "Slow 1.12× zoom so the first line lands.", at: fmt(sg.start), seg: sg });
+        if (f === "costs" && s.adds.graphics) edits.push({ key: `${sg.id}.costs`, title: "Cost cards", detail: "Fees, refunds, and shipping pop in as the words are spoken.", at: fmt(sg.start), seg: sg });
+        if (f === "lower" && s.adds.graphics) edits.push({ key: `${sg.id}.lower`, title: "Lower third", detail: "Olivia Evans · Founder, Acme", at: fmt(sg.start), seg: sg });
+        if (f === "stat" && s.adds.graphics) edits.push({ key: `${sg.id}.stat`, title: "Stat count-up", detail: "72% counts up when “seventy-two percent” is said.", at: fmt(sg.start + 0.4), seg: sg });
+        if (f === "cta" && s.adds.graphics) edits.push({ key: `${sg.id}.cta`, title: "End card", detail: "Acme logo, URL, and “See your real margins”.", at: fmt(sg.start), seg: sg });
+      });
+      if (s.adds.split && sg.layout !== "full") edits.push({ key: `${sg.id}.layout`, title: sg.layout === "split" ? "Split screen" : "Picture in picture", detail: `Speaker with profit-dashboard.png while you mention the product.`, at: fmt(sg.start), seg: sg });
+    });
+    const capT = capTopMap[s.capPos];
+    const statCount = Math.round(Math.min(1, Math.max(0, (s.t - 18.4) / 1.2)) * 72);
+    const stage = ["Uploading video", "Transcribing speech to word timestamps", "Finding key moments and filler words", "Claude is planning graphics and layouts", "Applying brand kit and color correction"];
+    return {
+      ambient: this._amb, sheen: this._sheen,
+      clipName: s.clipName, formatLabel: portrait ? "Reel 9:16" : "Landscape 16:9",
+      isUpload: s.mode === "upload", isProcessing: s.mode === "processing", isEdit: s.mode === "edit",
+      onFile: (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const url = URL.createObjectURL(f); this.setState({ videoUrl: url, clipName: f.name, mode: "processing", pT: 0, pStage: 0 }); },
+      useSample: (e) => { e.preventDefault(); e.stopPropagation(); this.setState({ mode: "processing", pT: 0, pStage: 0 }); },
+      formats: [["portrait", "Reel 9:16"], ["landscape", "Landscape 16:9"]].map(([id, label]) => ({ label, bg: s.format === id ? "#fff" : "transparent", pick: () => this.setState({ format: id }) })),
+      styles: ["Clean product", "Soft gradient", "Glass and depth", "Bold kinetic"].map(l => ({ label: l, line: s.style === l ? "#168BFF" : "#E1EAF4", bg: s.style === l ? "#EBF5FF" : "#fff", pick: () => this.setState({ style: l }) })),
+      addOns: [["captions", "Captions", "Word-timed"], ["graphics", "Motion graphics", "Stats, lower thirds"], ["split", "Split screen with product", "Uses your screenshots"], ["fillers", "Cut filler words and silences", "um, uh, pauses"], ["color", "Color correction", "Auto look"], ["music", "Music and voice cleanup", "Ducked under voice"]].map(([k2, label, sub]) => ({ label, sub, line: s.adds[k2] ? "#0A6CFF" : "#C9D6E4", bg: s.adds[k2] ? "#0A6CFF" : "#fff", mark: s.adds[k2] ? "✓" : "", toggle: () => this.setState(st => ({ adds: { ...st.adds, [k2]: !st.adds[k2] } })) })),
+      procStages: stage.map((l, i) => stg(i, s.pStage, l, i === 1 && s.pStage > 1 ? "84 words" : i === 2 && s.pStage > 2 ? "5 moments · 2 fillers" : "")),
+
+      hasVideo: !!s.videoUrl, noVideo: !s.videoUrl,
+      videoEl: s.videoUrl ? (this._vEl && this._vSrc === s.videoUrl ? this._vEl : (this._vSrc = s.videoUrl, this._vEl = React.createElement("video", { ref: (el) => { this.vid = el; }, src: s.videoUrl, muted: true, playsInline: true, loop: true, style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" } }))) : null,
+      aspect: portrait ? "9 / 16" : "16 / 9", frameW: portrait ? "min(100cqw, calc(100cqh * 9 / 16))" : "min(100cqw, calc(100cqh * 16 / 9))",
+      spk, scr, showScreen: layout !== "full", grade, punch: seg.id === "g1" && s.punchOn && on("punch") ? 1.12 : 1,
+      gCosts: s.adds.graphics && seg.id === "g2" && on("costs") && s.t > 5, costs: [["Fees", "−$2,140", "flex-start", "0ms"], ["Refunds", "−$860", "center", "350ms"], ["Shipping", "−$1,310", "flex-end", "700ms"]].map(([label, value, align, delay]) => ({ label, value, align, delay })),
+      gLower: s.adds.graphics && seg.id === "g3" && on("lower"), lowerTop: portrait ? (layout === "split" ? "54%" : "60%") : "64%",
+      gStat: s.adds.graphics && seg.id === "g4" && on("stat") && s.t > 18.4, statValue: statCount, statL: portrait ? "50%" : "56%", statT: portrait ? "22%" : "24%",
+      gCta: s.adds.graphics && seg.id === "g5" && on("cta"), ctaTop: portrait ? "40%" : "30%",
+      showCaptions: s.adds.captions && s.capsOn,
+      capWords: words.slice(winStart, winStart + 4).map((w, i) => { const hi = winStart + i === wi; return { text: w, fg: hi ? cs.hiFg : cs.fg, bg: hi ? cs.hiBg : "transparent" }; }),
+      capTop: capT, capSize: portrait ? "6.4cqw" : "3.4cqw", capWeight: cs.w, capCase: cs.case, capShadow: cs.shadow,
+      comparing: s.comparing, compareOn: () => this.setState({ comparing: true }), compareOff: () => s.comparing && this.setState({ comparing: false }),
+      togglePlay: () => { const np = !s.playing; this.setState({ playing: np }); if (this.vid) { np ? this.vid.play().catch(() => {}) : this.vid.pause(); } },
+      playGlyph: s.playing ? "❚❚" : "▶", timeNow: fmt(s.t), timeTotal: fmt(total), segTitle: `${seg.label} · ${layout === "full" ? "Full frame" : layout === "split" ? "Split screen" : "Picture in picture"}`, segShort: `${seg.label} (${fmt(seg.start)}–${fmt(seg.end)})`,
+      toggleFillers: () => this.setState({ fillersCut: !s.fillersCut }), fillerLabel: s.fillersCut ? "✓ 2 filler words cut" : "Cut 2 filler words", fillerBg: s.fillersCut ? "#D3F6E3" : "#EDF3FA", fillerFg: s.fillersCut ? "#0a5c35" : "#535862",
+      toggleSilence: () => this.setState({ silenceCut: !s.silenceCut }), silenceLabel: s.silenceCut ? "✓ 3 pauses trimmed · −1.8s" : "Trim 3 pauses", silenceBg: s.silenceCut ? "#D3F6E3" : "#EDF3FA", silenceFg: s.silenceCut ? "#0a5c35" : "#535862",
+      segments: SEGS.map(sg => { const cur = sg.id === seg.id; const ws = sg.text.split(" "); const per2 = (sg.end - sg.start) / ws.length; return { range: `${fmt(sg.start)}–${fmt(sg.end)}`, bg: cur ? "#EBF5FF" : "transparent", timeFg: cur ? "#0A6CFF" : "#93979f", seek: () => this.seek(sg.start + 0.05),
+        words: ws.map((w, i) => { const filler = (sg.fillers || []).includes(w); const spoken = cur && s.t >= sg.start + i * per2; return { text: w, fg: filler ? "#C2410C" : spoken ? "#0a0d12" : cur ? "#93979f" : "#535862", deco: filler && s.fillersCut ? "line-through" : "none", bg: filler ? "#FFF1EA" : "transparent" }; }),
+        tags: [...(s.adds.split && s.layouts[sg.id] !== "full" ? [{ label: s.layouts[sg.id] === "split" ? "Split screen" : "PiP", bg: "#CCE7FF", fg: "#0058bd" }] : []), ...sg.fx.filter(f => f !== "punch" ? s.adds.graphics : true).map(f => ({ label: { punch: "Punch-in", costs: "Cost cards", lower: "Lower third", stat: "Count-up", cta: "End card" }[f], bg: "#F1E6FF", fg: "#5b2ca8" }))] }; }),
+      tabs: ["Edits", "Layout", "Captions", "Color", "Audio"].map(l => ({ label: l, bg: s.tab === l ? "#181d27" : "transparent", fg: s.tab === l ? "#fff" : "#535862", go: () => this.setState({ tab: l }) })),
+      tabEdits: s.tab === "Edits", tabLayout: s.tab === "Layout", tabCaptions: s.tab === "Captions", tabColor: s.tab === "Color", tabAudio: s.tab === "Audio",
+      editCount: edits.length,
+      edits: edits.map(e => { const offK = !!s.off[e.key]; return { ...e, bg: offK ? "transparent" : "#F4F8FD", line: offK ? "#C9D6E4" : "#0A6CFF", box: offK ? "#fff" : "#0A6CFF", mark: offK ? "" : "✓", toggle: () => this.setState(st => ({ off: { ...st.off, [e.key]: !st.off[e.key] }, layouts: e.key.endsWith(".layout") ? { ...st.layouts, [e.seg.id]: st.off[e.key] ? e.seg.layout : "full" } : st.layouts })), seek: () => this.seek(e.seg.start + 0.6) }; }),
+      layouts: [["full", "Full"], ["split", "Split"], ["pip", "PiP"]].map(([id, label]) => { const gg = L[id]; return { label, line: layout === id ? "#168BFF" : "#E1EAF4", a: { l: gg.spk[0], t: gg.spk[1], w: gg.spk[2], h: gg.spk[3], r: gg.spk[4] === "50%" ? "50%" : "2px" }, b: gg.scr ? { l: gg.scr[0], t: gg.scr[1], w: gg.scr[2], h: gg.scr[3] } : { l: "0", t: "0", w: "0", h: "0" }, pick: () => this.setState(st => ({ layouts: { ...st.layouts, [seg.id]: id }, adds: { ...st.adds, split: true } })) }; }),
+      punchOn: s.punchOn, togglePunch: () => this.setState({ punchOn: !s.punchOn }),
+      capsOn: s.capsOn, toggleCaps: () => this.setState({ capsOn: !s.capsOn }),
+      capStyles: [["pop", "Pop highlight"], ["clean", "Clean"], ["bold", "Bold caps"], ["minimal", "Minimal"]].map(([id, label]) => ({ label, line: s.capStyle === id ? "#168BFF" : "transparent", weight: CS[id].w, case: CS[id].case, hiBg: CS[id].hiBg, hiFg: CS[id].hiFg, pick: () => this.setState({ capStyle: id }) })),
+      capPos: [["high", "Top"], ["mid", "Middle"], ["low", "Bottom"]].map(([id, label]) => ({ label, bg: s.capPos === id ? "#fff" : "transparent", pick: () => this.setState({ capPos: id }) })),
+      looks: Object.keys(LOOKS).map(id => { const [exp, con, warm, sat, fade] = LOOKS[id]; return { label: LOOK_LABEL[id], line: s.look === id ? "#168BFF" : "transparent", filter: filterOf({ exp, con, warm, sat, fade }, 1), pick: () => this.setState({ look: id, grade: { exp, con, warm, sat, fade }, adds: { ...s.adds, color: true } }) }; }),
+      autoColor: () => { this.setState({ look: "natural", grade: { exp: 8, con: 10, warm: 6, sat: 8, fade: 0 }, strength: 100 }); this.say("Balanced exposure and skin tones. White balance shifted 6% warmer."); },
+      sliders: [["exp", "Exposure", -40, 40], ["con", "Contrast", -40, 40], ["warm", "Warmth", -50, 50], ["sat", "Saturation", -100, 60], ["fade", "Film fade", 0, 60]].map(([key, label, min, max]) => ({ label, min, max, value: G[key], val: `${G[key] > 0 ? "+" : ""}${G[key]}`, onChange: (e) => { const v = +e.target.value; this.setState(st => ({ grade: { ...st.grade, [key]: v }, look: "custom" })); } })).concat([{ label: "Strength", min: 0, max: 100, value: s.strength, val: `${s.strength}%`, onChange: (e) => this.setState({ strength: +e.target.value }) }]),
+      audio: [["enhance", "Enhance voice", "Removes room echo and hum"], ["music", "Background music", "Calm and minimal 01"], ["duck", "Duck music under voice", "−12 dB while speaking"], ["loud", "Match loudness", "−14 LUFS for social"]].map(([k2, label, sub]) => ({ label, sub, on: s.au[k2], toggle: () => this.setState(st => ({ au: { ...st.au, [k2]: !st.au[k2] } })) })),
+      musicLvl: s.musicLvl, setMusicLvl: (e) => this.setState({ musicLvl: +e.target.value }),
+      playPct: pct(s.t),
+      scrub: (e) => { const r = e.currentTarget.getBoundingClientRect(); this.seek(Math.max(0, Math.min(29.9, ((e.clientX - r.left) / r.width) * total))); },
+      tracks: [
+        { label: "VIDEO", clips: SEGS.map(sg => ({ l: pct(sg.start), w: `calc(${pct(sg.end - sg.start)} - 2px)`, bg: sg.id === seg.id ? "linear-gradient(180deg,#168BFF,#0A6CFF)" : "#D6E4F2", fg: sg.id === seg.id ? "#fff" : "#535862", label: sg.label, title: sg.text, op: 1 })) },
+        { label: "LAYOUT", clips: SEGS.filter(sg => s.adds.split && s.layouts[sg.id] !== "full").map(sg => ({ l: pct(sg.start), w: pct(sg.end - sg.start), bg: "#CCE7FF", fg: "#0058bd", label: s.layouts[sg.id] === "split" ? "Split" : "PiP", title: "", op: 1 })) },
+        { label: "GRAPHICS", clips: edits.filter(e => !e.key.endsWith(".layout") && !e.key.endsWith(".punch")).map(e => ({ l: pct(e.seg.start + 0.4), w: pct(e.seg.end - e.seg.start - 0.8), bg: "#F1E6FF", fg: "#5b2ca8", label: e.title, title: e.detail, op: s.off[e.key] ? 0.35 : 1 })) },
+        { label: "CAPTIONS", clips: s.adds.captions && s.capsOn ? [{ l: "0%", w: "100%", bg: "#FFF2BE", fg: "#6b4e00", label: "Word-timed captions", title: "", op: 1 }] : [] },
+        { label: "AUDIO", clips: [{ l: "0%", w: "100%", bg: "#D3F6E3", fg: "#0a5c35", label: `Voice${s.au.enhance ? " · enhanced" : ""}${s.au.music ? ` · music ${s.musicLvl} dB` : ""}${s.au.duck ? " · ducked" : ""}`, title: "", op: 1 }] },
+        { label: "CUTS", clips: (s.fillersCut ? [[7.4, "um"], [14.6, "uh"]] : []).concat(s.silenceCut ? [[3.9, "pause"], [17.8, "pause"], [23.8, "pause"]] : []).map(([at, l]) => ({ l: pct(at), w: "18px", bg: "#FFE0D1", fg: "#C2410C", label: "✂", title: `Cut ${l}`, op: 1 })) }
+      ],
+      openRender: () => this.setState({ renderOpen: true, rStage: 0, rT: 0, playing: false }), closeRender: () => this.setState({ renderOpen: false }), stop: (e) => e.stopPropagation(),
+      renderOpen: s.renderOpen, renderDone: s.rStage >= 4, renderTitle: s.rStage >= 4 ? "Reel ready for review" : "Rendering reel",
+      renderStages: ["Applying cuts and color grade", "Rendering frames", "Mixing voice and music", "Uploading draft"].map((l, i) => stg(i, s.rStage, l, i === 1 && s.rStage >= 1 ? `${s.rStage > 1 ? 900 : Math.min(900, s.rT * 90)} / 900 frames` : "")),
+      download: () => { this.setState({ renderOpen: false }); this.say(`Downloading ${s.clipName.replace(/\.\w+$/, "")}-reel.mp4`); },
+      toast: s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+/* Coral — generated from packages/contracts/src/themes.ts (frame-preset). Do not edit. */
+:root {
+  --bg: #F5F0E8;
+  --fg: #1A1A1A;
+  --muted: #5E5E5E;
+  --surface: #FFFFFF;
+  --border: #E8E0D4;
+  --brand: #D44A4A;
+  --accent: #E85D5D;
+  --accent-2: #1A1A1A;
+  --font-display: "Bebas Neue", Impact, sans-serif;
+  --font-body: Inter, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --radius: 0;
+  --space-1: 1.2cqmin;
+  --space-2: 2.4cqmin;
+  --space-3: 4cqmin;
+  --dur-beat: 0.4s;
+  --ease-standard: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-emphasis: cubic-bezier(0.19, 1, 0.22, 1);
+}

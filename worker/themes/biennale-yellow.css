@@ -1,0 +1,21 @@
+/* Biennale Yellow — generated from packages/contracts/src/themes.ts (frame-preset). Do not edit. */
+:root {
+  --bg: #E9E5DB;
+  --fg: #1B2566;
+  --muted: #4A5185;
+  --surface: #DCD6C4;
+  --border: #C2BBA4;
+  --brand: #1B2566;
+  --accent: #E26B4A;
+  --accent-2: #F1EE2E;
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-body: Archivo, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --radius: 0;
+  --space-1: 1.2cqmin;
+  --space-2: 2.4cqmin;
+  --space-3: 4cqmin;
+  --dur-beat: 0.4s;
+  --ease-standard: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-emphasis: cubic-bezier(0.19, 1, 0.22, 1);
+}

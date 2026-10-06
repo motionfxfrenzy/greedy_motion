@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en" data-composition-variables='[
+  {"id":"featureName","type":"string","label":"Feature name","description":"Name of the feature being shown.","maxLength":32,"default":"Profit dashboard"},
+  {"id":"headline","type":"string","label":"Headline","description":"What the feature lets the customer do, in one line.","maxLength":60,"default":"See your real profit in one glance."},
+  {"id":"screenshot","type":"image","label":"Screenshot","description":"Product screenshot of the feature, 16:10 or wider.","default":"assets/screenshot.svg"},
+  {"id":"callout","type":"string","label":"Callout","description":"Short label pointing at the key part of the screenshot.","maxLength":32,"default":"Live margin, after fees"},
+  {"id":"benefit","type":"string","label":"Benefit","description":"The outcome for the customer. Approved claims only.","maxLength":72,"default":"Stop guessing which orders actually make money."},
+  {"id":"ctaText","type":"string","label":"Call to action","maxLength":28,"default":"Try it free"},
+  {"id":"brandName","type":"string","label":"Product name","portrays":["subject_name"],"maxLength":28,"default":"Relay"},
+  {"id":"logo","type":"image","label":"Logo","description":"Brand logo from the brand kit (set by the renderer).","default":""},
+  {"id":"logoWordmark","type":"boolean","label":"Logo includes the name","description":"True when the logo already spells the product name, so the name text is hidden next to it.","default":false}
+]'>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <title>Feature spotlight</title>
+  <script src="vendor/gsap.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg, #0b1220); }
+    #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg, #0b1220); color: var(--fg, #f8fafc); font-family: var(--font-body, Arial, sans-serif); }
+    .scene { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 180px; }
+    .scene.center { align-items: center; text-align: center; }
+    .eyebrow { font-family: var(--font-mono, monospace); font-size: 26px; letter-spacing: 6px; text-transform: uppercase; color: var(--brand, #a7f3d0); margin-bottom: 32px; }
+    .display { font-family: var(--font-display, Arial, sans-serif); font-weight: 700; letter-spacing: -2px; line-height: 1.08; max-width: 1500px; }
+    .headline { font-size: 100px; }
+    .stage { position: absolute; inset: 0; display: grid; place-items: center; }
+    .window { position: relative; width: 1440px; height: 900px; border-radius: var(--radius, 20px); overflow: hidden; background: var(--surface, #18263b); border: 2px solid var(--border, #334155); box-shadow: 0 40px 90px rgba(0, 0, 0, 0.28); }
+    .chrome { height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 22px; background: var(--surface, #18263b); border-bottom: 2px solid var(--border, #334155); }
+    .chrome span { width: 16px; height: 16px; border-radius: 50%; background: var(--border, #334155); }
+    .shot { display: block; width: 100%; height: calc(100% - 52px); object-fit: cover; object-position: top left; }
+    .caption { position: absolute; left: 180px; bottom: 64px; font-size: 34px; font-weight: 700; color: var(--muted, #cbd5e1); }
+    .callout { position: absolute; right: 230px; top: 330px; max-width: 560px; padding: 26px 34px; border-radius: var(--radius, 18px); background: var(--brand, #a7f3d0); color: var(--bg, #0b1220); font-size: 40px; font-weight: 700; line-height: 1.2; }
+    .ring { position: absolute; right: 640px; top: 470px; width: 220px; height: 220px; border-radius: 50%; border: 8px solid var(--brand, #a7f3d0); }
+    .benefit { font-size: 84px; }
+    .rule { width: 160px; height: 10px; margin-top: 48px; border-radius: var(--radius, 6px); background: var(--accent, #6ee7b7); transform-origin: left center; }
+    .cta-pill { margin-top: 56px; padding: 28px 64px; border-radius: 999px; background: var(--brand, #a7f3d0); color: var(--bg, #0b1220); font-size: 48px; font-weight: 700; }
+    .brand-logo { display: block; max-width: 640px; max-height: 150px; width: auto; height: auto; object-fit: contain; }
+    .center .brand-logo { margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="10" data-width="1920" data-height="1080" data-fps="30">
+    <section id="s1" class="scene clip" data-start="0" data-duration="2" data-track-index="1">
+      <p id="s1-name" class="eyebrow" data-var-text="featureName">Profit dashboard</p>
+      <h1 id="s1-headline" class="display headline" data-var-text="headline">See your real profit in one glance.</h1>
+    </section>
+
+    <section id="s2" class="stage clip" data-start="2" data-duration="4" data-track-index="1">
+      <div id="window" class="window">
+        <div class="chrome"><span></span><span></span><span></span></div>
+        <img id="shot" class="shot" data-var-src="screenshot" src="assets/screenshot.svg" alt="">
+      </div>
+    </section>
+
+    <div id="ring" class="ring clip" data-start="4" data-duration="2" data-track-index="2"></div>
+    <div id="callout" class="callout clip" data-start="4" data-duration="2" data-track-index="3" data-var-text="callout">Live margin, after fees</div>
+
+    <section id="s4" class="scene clip" data-start="6" data-duration="2" data-track-index="1">
+      <h2 id="s4-benefit" class="display benefit" data-var-text="benefit">Stop guessing which orders actually make money.</h2>
+      <div id="s4-rule" class="rule"></div>
+    </section>
+
+    <section id="s5" class="scene center clip" data-start="8" data-duration="2" data-track-index="1">
+      <img id="s5-logo" class="brand-logo" data-var-src="logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="">
+      <h2 id="s5-name" class="display headline name-beside-logo" data-var-text="brandName">Relay</h2>
+      <div id="s5-cta" class="cta-pill" data-var-text="ctaText">Try it free</div>
+    </section>
+  </div>
+  <script>
+    // Brand logo: removed when the brand kit has none; a wordmark logo replaces the name text next to it.
+    const brandVars = window.__hyperframes?.getVariables?.() ?? {};
+    const hasLogo = Boolean(brandVars.logo);
+    if (!hasLogo) document.querySelectorAll(".brand-logo").forEach((el) => el.remove());
+    if (hasLogo && brandVars.logoWordmark) document.querySelectorAll(".name-beside-logo").forEach((el) => el.remove());
+    const tl = gsap.timeline({ paused: true });
+    const up = (target, at, distance = 40) => tl.fromTo(target, { y: distance, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, at);
+    // Scene 1 — feature and headline
+    up("#s1-name", 0.1, 20); up("#s1-headline", 0.25);
+    // Scenes 2–3 — screenshot rises in, then a slow push-in while the callout appears
+    tl.fromTo("#window", { y: 120, scale: 0.9, opacity: 0 }, { y: 0, scale: 0.94, opacity: 1, duration: 0.8, ease: "power3.out" }, 2.05);
+    tl.to("#window", { scale: 1.04, duration: 3.1, ease: "power1.inOut" }, 2.85);
+    tl.fromTo("#ring", { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.8)" }, 4.05);
+    tl.fromTo("#callout", { x: 40, opacity: 0 }, { x: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 4.2);
+    // Scene 4 — benefit
+    up("#s4-benefit", 6.1);
+    tl.fromTo("#s4-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "power2.inOut" }, 6.5);
+    // Scene 5 — CTA
+    if (hasLogo) up("#s5-logo", 7.95, 20);
+    if (document.getElementById("s5-name")) up("#s5-name", 8.05, 24);
+    tl.fromTo("#s5-cta", { scale: 0.85, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.6)" }, 8.3);
+    tl.to({}, { duration: 0.1 }, 9.9);
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

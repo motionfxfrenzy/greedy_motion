@@ -1,0 +1,21 @@
+/* Editorial Forest — generated from packages/contracts/src/themes.ts (frame-preset). Do not edit. */
+:root {
+  --bg: #2e4a2a;
+  --fg: #efe7d4;
+  --muted: #CFC6AE;
+  --surface: #243a21;
+  --border: #4A6B45;
+  --brand: #e89cb1;
+  --accent: #e89cb1;
+  --accent-2: #efe7d4;
+  --font-display: "Source Serif 4", Georgia, serif;
+  --font-body: "Source Serif 4", Georgia, serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --radius: 0.8cqmin;
+  --space-1: 1.2cqmin;
+  --space-2: 2.4cqmin;
+  --space-3: 4cqmin;
+  --dur-beat: 0.4s;
+  --ease-standard: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-emphasis: cubic-bezier(0.19, 1, 0.22, 1);
+}

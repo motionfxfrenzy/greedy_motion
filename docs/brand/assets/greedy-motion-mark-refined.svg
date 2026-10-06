@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 160" role="img" aria-labelledby="title desc">
+  <title id="title">Greedy Motion refined logo mark</title>
+  <desc id="desc">A blue motion droplet with three blue speed dashes and an orange forward play wedge.</desc>
+  <g fill="#168BFF">
+    <rect x="18" y="55" width="42" height="12" rx="6"/>
+    <rect x="8" y="74" width="58" height="12" rx="6"/>
+    <rect x="20" y="93" width="34" height="12" rx="6"/>
+    <path d="M76 49C76 31 96 20 114 28c26 12 46 32 64 52-18 20-38 40-64 52-18 8-38-3-38-21V49Z"/>
+  </g>
+  <path fill="#FF5A1F" d="M192 54c0-9 10-14 18-9l31 20c8 5 8 16 0 21l-31 20c-8 5-18 0-18-9V54Z"/>
+</svg>

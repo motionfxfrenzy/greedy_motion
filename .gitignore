@@ -1,0 +1,27 @@
+node_modules/
+.npm-cache/
+var/
+.DS_Store
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local IDE / tool config that may contain hardcoded API keys
+.continue/
+.cursor/
+.windsurf/
+
+# Local experiments — not part of the shipped product
+experiments/
+
+# Env files: real values never enter Git; only *.example templates are committed.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+validation/**/renders/
+validation/**/frames/
+validation/**/.hyperframes/
+validation/smoke/vendor/
+validation/generated/

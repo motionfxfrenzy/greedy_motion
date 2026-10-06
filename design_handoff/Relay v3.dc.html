@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<title>Greedy Motion — Product video studio</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+@font-face { font-family: "Hanken Grotesk"; src: url("fonts/hanken-grotesk-400.woff2") format("woff2"); font-weight: 400 500; }
+@font-face { font-family: "Hanken Grotesk"; src: url("fonts/hanken-grotesk-700.woff2") format("woff2"); font-weight: 600 800; }
+@font-face { font-family: "Instrument Serif"; src: url("fonts/instrument-serif-400.woff2") format("woff2"); font-weight: 400; }
+@font-face { font-family: "DM Mono"; src: url("fonts/dm-mono-400.woff2") format("woff2"); font-weight: 400; }
+@keyframes relayDriftA { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(-12vw,8vh) scale(1.15); } }
+@keyframes relayDriftB { 0% { transform: translate(0,0) scale(1.1); } 100% { transform: translate(10vw,-6vh) scale(.95); } }
+@keyframes relayDriftC { 0% { transform: translate(0,0) rotate(0deg); } 100% { transform: translate(6vw,10vh) rotate(40deg); } }
+@keyframes relaySheen { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+@keyframes relayPulse { 0%,100% {  } 50% {  } }
+@keyframes relayHue { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #ebf5ff; color: #0a0d12; font-family: "Plus Jakarta Sans", "Hanken Grotesk", Helvetica, Arial, sans-serif; letter-spacing: 0; -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button:disabled { cursor: not-allowed !important; opacity: .45; }
+a { color: #0A6CFF; text-decoration: none; } a:hover { color: #004fa8; }
+</style>
+</helmet>
+<div style="position:relative;min-height:100vh;overflow-x:clip;">
+{{ ambient }}
+<div style="position:relative;z-index:1;min-height:100vh;height:{{ shellH }};display:flex;flex-direction:column;">
+
+<sc-if value="{{ showTopbar }}" hint-placeholder-val="{{ true }}">
+  <header style="height:60px;flex:none;display:flex;align-items:center;gap:20px;padding:0 24px;border-bottom:1px solid rgba(228,228,231,.8);background:rgba(235,245,255,.72);backdrop-filter:blur(16px) saturate(1.4);position:sticky;top:0;z-index:20;">
+    <button type="button" onClick="{{ goProjects }}" style="display:flex;align-items:center;gap:9px;border:0;background:transparent;padding:0;cursor:pointer;font-size:17px;font-weight:700;letter-spacing:-.02em;">
+      <img src="assets/gm-mark.svg" alt="" style="height:26px;width:auto;display:block;" /><span style="display:flex;gap:5px;white-space:nowrap;font-size:17px;font-weight:700;letter-spacing:-.02em;"><span style="color:#0B1F4D;">Greedy</span><span style="color:#0A6CFF;">Motion</span></span>
+    </button>
+    <nav style="display:flex;gap:4px;">
+      <sc-for list="{{ nav }}" as="n" hint-placeholder-count="4">
+        <button type="button" onClick="{{ n.go }}" style="white-space:nowrap;border:0;background:{{ n.bg }};color:{{ n.fg }};padding:7px 12px;border-radius:9999px;font-size:14px;font-weight:600;cursor:pointer;transition:background 200ms ease,color 200ms ease;" style-hover="color:#18181B;">{{ n.label }}</button>
+      </sc-for>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:18px;">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#71717A;white-space:nowrap;">
+        <span style="display:block;width:64px;height:4px;border-radius:4px;background:#E4E4E7;overflow:hidden;"><span style="display:block;width:45%;height:100%;background:linear-gradient(90deg,#168BFF,#0A6CFF);"></span></span>18 of 40 render min
+      </div>
+      <button type="button" style="border:0;background:transparent;font-size:14px;font-weight:600;color:#71717A;cursor:pointer;" style-hover="color:#18181B;">Settings</button>
+      <div style="position:relative;">
+        <button type="button" aria-label="Account menu" onClick="{{ toggleAcct }}" style="width:32px;height:32px;border-radius:50%;border:0;background:linear-gradient(180deg,#168BFF,#0A6CFF);color:#fff;font-size:11px;font-weight:700;cursor:pointer;">OE</button>
+        <sc-if value="{{ acctOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;right:0;top:42px;z-index:30;width:240px;padding:8px;border-radius:20px;background:#fafdff;box-shadow:0 14px 20px 4px rgba(4,69,144,.12);display:flex;flex-direction:column;">
+            <div style="padding:10px 12px;display:flex;flex-direction:column;gap:2px;border-bottom:1px solid #E1EAF4;margin-bottom:4px;"><strong style="font-size:14px;font-weight:500;">Olivia Evans</strong><span style="font-size:12px;color:#93979f;">olivia@acme.com · Acme workspace</span></div>
+            <a href="#" style="padding:9px 12px;border-radius:12px;color:#0a0d12;font-size:14px;">Account settings</a>
+            <a href="#" style="padding:9px 12px;border-radius:12px;color:#0a0d12;font-size:14px;">Usage and billing</a>
+            <a href="Greedy Motion Landing.dc.html" style="padding:9px 12px;border-radius:12px;color:#0a0d12;font-size:14px;">Marketing site</a>
+            <a href="Greedy Motion Auth.dc.html?mode=signin" style="padding:9px 12px;border-radius:12px;color:#C2410C;font-size:14px;">Sign out</a>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </header>
+</sc-if>
+
+<sc-if value="{{ isProjects }}" hint-placeholder-val="{{ true }}">
+  <sc-if value="{{ noProjects }}" hint-placeholder-val="{{ true }}">
+    <main style="flex:1;display:grid;place-items:center;padding:48px 24px 96px;">
+      <div style="max-width:900px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:24px;">
+        <span style="display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 6px;border-radius:999px;background:rgba(255,255,255,.7);border:1px solid #CCE7FF;font-size:13px;font-weight:600;color:#0058bd;backdrop-filter:blur(8px);"><span style="width:8px;height:8px;margin-left:4px;border-radius:50%;background:#0A6CFF;"></span>Projects · Ready to create</span>
+        <h1 style="margin:0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:clamp(36px,4.4vw,60px);line-height:1.1;letter-spacing:-0.022em;">Make your next <span style="background:linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:700;padding-bottom:.08em;">product video<span style="margin-left:-.07em;">.</span></span></h1>
+        <p style="margin:0;font-size:17px;line-height:1.55;color:#52525B;max-width:560px;text-wrap:balance;">Start with your product screenshots and approved message. Greedy Motion handles the storyboard, motion, and export.</p>
+        <div style="display:flex;gap:10px;margin-top:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center;"><button type="button" onClick="{{ createVideo }}" style="padding:13px 22px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:transform 200ms ease,box-shadow 200ms ease;" style-hover="transform:translateY(-1px);">Create a video</button><a href="Reel Editor.dc.html" style="padding:12px 20px;border-radius:9999px;background:#fff;color:#0a0d12;font-size:14px;font-weight:600;white-space:nowrap;line-height:1.2;">Edit a talking-head reel</a></div>
+          <button type="button" onClick="{{ loadSamples }}" style="padding:13px 20px;border:1px solid #E1EAF4;border-radius:9999px;background:rgba(255,255,255,.8);font-size:15px;font-weight:600;cursor:pointer;transition:border-color 200ms ease;" style-hover="border-color:#A1A1AA;">View sample projects</button>
+        </div>
+        <ol style="list-style:none;margin:44px 0 0;padding:20px 0 0;border-top:1px solid rgba(228,228,231,.9);display:flex;flex-wrap:wrap;justify-content:center;gap:28px;font-size:13px;color:#71717A;">
+          <li style="display:flex;gap:8px;"><span style="font-family:'DM Mono',monospace;color:#168BFF;">01</span>Choose a goal</li>
+          <li style="display:flex;gap:8px;"><span style="font-family:'DM Mono',monospace;color:#168BFF;">02</span>Add screenshots and copy</li>
+          <li style="display:flex;gap:8px;"><span style="font-family:'DM Mono',monospace;color:#168BFF;">03</span>Review the storyboard</li>
+          <li style="display:flex;gap:8px;"><span style="font-family:'DM Mono',monospace;color:#168BFF;">04</span>Approve and download</li>
+        </ol>
+      </div>
+    </main>
+  </sc-if>
+  <sc-if value="{{ hasProjects }}" hint-placeholder-val="{{ false }}">
+    <main style="flex:1;width:100%;max-width:1280px;margin:0 auto;padding:40px 28px 80px;">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;">
+        <div><h1 style="margin:0;font-size:30px;letter-spacing:-.03em;font-weight:700;">Projects</h1><p style="margin:6px 0 0;color:#71717A;font-size:14px;">Turn product updates into customer-ready videos.</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center;"><button type="button" onClick="{{ createVideo }}" style="padding:11px 18px;border:0;border-radius:9999px;background:#181d27;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:transform 200ms ease;" style-hover="transform:translateY(-1px);">Create a video</button><a href="Reel Editor.dc.html" style="padding:12px 20px;border-radius:9999px;background:#fff;color:#0a0d12;font-size:14px;font-weight:600;white-space:nowrap;line-height:1.2;">Edit a talking-head reel</a></div>
+      </div>
+      <div style="display:flex;gap:4px;margin:28px 0 22px;border-bottom:1px solid #E1EAF4;">
+        <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="5">
+          <button type="button" onClick="{{ tb.go }}" style="border:0;background:transparent;padding:10px 12px;margin-bottom:-1px;border-bottom:2px solid {{ tb.line }};color:{{ tb.fg }};font-size:14px;font-weight:600;cursor:pointer;display:flex;gap:6px;transition:color 200ms ease;">{{ tb.label }}<span style="color:#A1A1AA;font-weight:500;">{{ tb.count }}</span></button>
+        </sc-for>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px;">
+        <sc-for list="{{ projects }}" as="p" hint-placeholder-count="6">
+          <article style="position:relative;background:#fff;border:1px solid #E1EAF4;border-radius:24px;display:flex;flex-direction:column;transition:box-shadow 220ms ease,border-color 220ms ease,transform 220ms ease;" style-hover="border-color:#CCE7FF;transform:translateY(-2px);">
+            <button type="button" onClick="{{ p.open }}" style="border:0;padding:0;background:transparent;cursor:pointer;display:block;text-align:left;">
+              <div style="position:relative;aspect-ratio:16/9;border-radius:13px 13px 0 0;overflow:hidden;background:#F4F4F5;">
+                <div style="width:100%;height:100%;background-image:url({{ p.img }});background-size:cover;background-position:center;opacity:{{ p.imgOpacity }};"></div>
+                <span style="position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(24,24,27,.28));"></span>
+                <span style="position:absolute;right:10px;bottom:10px;padding:3px 8px;border-radius:6px;background:rgba(24,24,27,.72);backdrop-filter:blur(6px);color:#fff;font-family:'DM Mono',monospace;font-size:11px;">{{ p.meta }}</span>
+              </div>
+            </button>
+            <div style="padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px;">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+                <div style="min-width:0;"><strong style="display:block;font-size:15px;letter-spacing:-.01em;">{{ p.name }}</strong><span style="display:block;margin-top:3px;font-size:13px;color:#71717A;">{{ p.template }} · {{ p.kit }}</span></div>
+                <button type="button" onClick="{{ p.toggleMenu }}" aria-label="Project actions" style="flex:none;width:30px;height:30px;border-radius:9999px;border:1px solid #E1EAF4;background:#fff;cursor:pointer;color:#52525B;font-size:14px;line-height:1;">⋯</button>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600;background:{{ p.pillBg }};color:{{ p.pillFg }};"><span style="width:6px;height:6px;border-radius:50%;background:{{ p.pillFg }};"></span>{{ p.state }}</span>
+                <span style="font-size:12px;color:#A1A1AA;">{{ p.edited }}</span>
+              </div>
+              <sc-if value="{{ p.hasIssue }}" hint-placeholder-val="{{ false }}">
+                <p style="margin:0;padding:10px 12px;border-radius:10px;background:#FFF7ED;color:#9A3412;font-size:12px;line-height:1.45;">{{ p.issue }}</p>
+              </sc-if>
+            </div>
+            <sc-if value="{{ p.menuOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;right:14px;top:62%;z-index:5;width:220px;padding:6px;background:#fff;border:1px solid #E1EAF4;border-radius:12px;box-shadow:0 16px 32px rgba(24,24,27,.12);display:flex;flex-direction:column;">
+                <sc-for list="{{ p.actions }}" as="a" hint-placeholder-count="5">
+                  <button type="button" onClick="{{ a.run }}" disabled="{{ a.disabled }}" style="text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:9999px;font-size:13px;cursor:pointer;" style-hover="background:#F4F4F5;">{{ a.label }}</button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </article>
+        </sc-for>
+      </div>
+      <sc-if value="{{ projectsEmptyTab }}" hint-placeholder-val="{{ false }}">
+        <p style="margin:40px 0;text-align:center;color:#71717A;font-size:14px;">No projects here yet.</p>
+      </sc-if>
+    </main>
+  </sc-if>
+</sc-if>
+
+<sc-if value="{{ isOnboardBrand }}" hint-placeholder-val="{{ false }}">
+  <main style="flex:1;display:flex;justify-content:center;padding:56px 24px 96px;">
+    <div style="width:100%;max-width:680px;display:flex;flex-direction:column;gap:24px;">
+      <button type="button" onClick="{{ goProjects }}" style="align-self:flex-start;border:0;background:transparent;padding:0;color:#71717A;font-size:13px;font-weight:600;cursor:pointer;">← Projects</button>
+      <div>
+        <span style="font-size:13px;font-weight:600;color:#0A6CFF;">Brand kit</span>
+        <h1 style="margin:8px 0 0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:clamp(26px,2.8vw,36px);line-height:1.15;letter-spacing:-0.025em;">Should this video match an existing brand?</h1>
+      </div>
+      <sc-if value="{{ obChoose }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div style="background:linear-gradient(#fff,#fff) padding-box,linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%) border-box;border:1px solid transparent;border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:14px;">
+            <div><strong style="font-size:15px;">Import from website</strong><p style="margin:4px 0 0;font-size:13px;color:#71717A;">Greedy Motion suggests a logo, palette, fonts, and description. You check each one before saving.</p></div>
+            <div style="display:flex;gap:8px;">
+              <input type="text" value="{{ obUrl }}" onChange="{{ setObUrl }}" placeholder="yourproduct.com" style="flex:1;padding:11px 13px;border:1px solid #E1EAF4;border-radius:14px;background:#F6FAFE;font-size:14px;outline:none;transition:border-color 200ms ease,box-shadow 200ms ease;" style-focus="border-color:#0A6CFF;" />
+              <button type="button" onClick="{{ runImport }}" style="padding:11px 18px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Import</button>
+            </div>
+          </div>
+          <button type="button" onClick="{{ startUpload }}" style="text-align:left;background:rgba(255,255,255,.85);border:1px solid #E1EAF4;border-radius:24px;padding:18px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:border-color 200ms ease;" style-hover="border-color:#A1A1AA;"><span><strong style="display:block;font-size:15px;">Upload logo and colors</strong><span style="display:block;margin-top:4px;font-size:13px;color:#71717A;">Add a logo file and set colors and fonts by hand.</span></span><span style="color:#A1A1AA;">→</span></button>
+          <button type="button" onClick="{{ skipBrand }}" style="align-self:flex-start;margin-top:6px;border:0;background:transparent;padding:6px 0;color:#52525B;font-size:14px;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:#D4D4D8;">Skip for now</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ obReading }}" hint-placeholder-val="{{ false }}">
+        <div style="position:relative;overflow:hidden;background:#fff;border:1px solid #E1EAF4;border-radius:24px;padding:22px;display:flex;flex-direction:column;gap:14px;">
+          <strong style="font-size:15px;">Reading {{ obUrl }}</strong>
+          <sc-for list="{{ obStages }}" as="st" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:{{ st.fg }};"><span style="display:grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1.5px solid {{ st.ring }};background:{{ st.fill }};color:#fff;font-size:10px;">{{ st.mark }}</span>{{ st.label }}</div>
+          </sc-for>
+          {{ indeterminate }}
+        </div>
+      </sc-if>
+      <sc-if value="{{ obReview }}" hint-placeholder-val="{{ false }}">
+        <div style="background:#fff;border:1px solid #E1EAF4;border-radius:24px;overflow:hidden;box-shadow:0 18px 40px -24px rgba(24,24,27,.2);">
+          <div style="padding:18px 20px;border-bottom:1px solid #E1EAF4;display:flex;justify-content:space-between;align-items:center;gap:12px;background:linear-gradient(120deg,#EBF5FF 0%,#fff 45%,#F0FDFA 100%);">
+            <div><strong style="font-size:15px;">{{ obTitle }}</strong><p style="margin:3px 0 0;font-size:13px;color:#52525B;">{{ obSubtitle }}</p></div>
+            <div style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;"><span style="display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:{{ kitPrimary }};color:#fff;">A</span>{{ kitName }}</div>
+          </div>
+          <sc-for list="{{ kitRows }}" as="r" hint-placeholder-count="9">
+            <div style="display:grid;grid-template-columns:140px minmax(0,1fr) auto;gap:14px;align-items:center;padding:9px 20px;border-bottom:1px solid #F4F4F5;">
+              <span style="font-size:13px;color:#71717A;">{{ r.label }}</span>
+              <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                <sc-if value="{{ r.isColor }}" hint-placeholder-val="{{ false }}"><span style="flex:none;width:22px;height:22px;border-radius:6px;background:{{ r.value }};box-shadow:inset 0 0 0 1px rgba(0,0,0,.1);"></span></sc-if>
+                <input type="text" value="{{ r.value }}" onChange="{{ r.onChange }}" placeholder="{{ r.placeholder }}" style="flex:1;min-width:0;padding:7px 9px;border:1px solid transparent;border-radius:8px;background:transparent;font-size:14px;outline:none;transition:border-color 200ms ease,background 200ms ease;" style-hover="border-color:#E4E4E7;" style-focus="border-color:#0A6CFF;background:#fff;" />
+              </div>
+              <span style="font-size:12px;color:{{ r.noteFg }};white-space:nowrap;">{{ r.note }}</span>
+            </div>
+          </sc-for>
+          <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:#F6FAFE;">
+            <span style="font-size:13px;color:#71717A;">All text colors meet WCAG AA contrast.</span>
+            <div style="display:flex;gap:8px;">
+              <button type="button" onClick="{{ obBack }}" style="padding:10px 16px;border:1px solid #E1EAF4;border-radius:9999px;background:#fff;font-size:14px;font-weight:600;cursor:pointer;">Back</button>
+              <button type="button" onClick="{{ saveKit }}" style="padding:10px 18px;border:0;border-radius:9999px;background:#181d27;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Save brand kit</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </main>
+</sc-if>
+
+<sc-if value="{{ isCreate }}" hint-placeholder-val="{{ false }}">
+  <header style="min-height:64px;flex:none;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:20px;row-gap:6px;padding:10px 24px;border-bottom:1px solid rgba(228,228,231,.8);background:rgba(250,253,255,.75);backdrop-filter:blur(16px) saturate(1.4);position:sticky;top:0;z-index:20;">
+    <div style="display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 260px;">
+      <button type="button" onClick="{{ goProjects }}" style="flex:none;border:0;background:transparent;padding:6px 8px 6px 0;color:#71717A;font-size:13px;font-weight:600;cursor:pointer;" style-hover="color:#18181B;">← Projects</button>
+      <span style="width:1px;height:20px;background:#E4E4E7;"></span>
+      <strong style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ projectName }}</strong>
+      <span style="flex:none;display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600;background:{{ statePillBg }};color:{{ statePillFg }};"><span style="width:6px;height:6px;border-radius:50%;background:{{ statePillFg }};"></span>{{ stateLabel }}</span>
+    </div>
+    <ol style="list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px;order:3;flex:1 1 100%;justify-content:center;">
+      <sc-for list="{{ steps }}" as="s" hint-placeholder-count="6">
+        <li style="display:flex;align-items:center;gap:6px;">
+          <button type="button" onClick="{{ s.go }}" disabled="{{ s.locked }}" style="display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:6px 8px;border-radius:9999px;cursor:pointer;color:{{ s.fg }};font-size:13px;font-weight:{{ s.weight }};white-space:nowrap;transition:background 200ms ease;" style-hover="background:rgba(244,244,245,.9);">
+            <span style="display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:{{ s.dotBg }};border:1px solid {{ s.dotLine }};color:{{ s.dotFg }};font-size:11px;font-weight:700;box-shadow:{{ s.dotShadow }};">{{ s.mark }}</span>{{ s.label }}
+          </button>
+          <sc-if value="{{ s.notLast }}" hint-placeholder-val="{{ true }}"><span style="width:16px;height:1px;background:{{ s.lineColor }};"></span></sc-if>
+        </li>
+      </sc-for>
+    </ol>
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:12px;flex:0 0 auto;">
+      <span style="font-size:12px;color:#71717A;white-space:nowrap;">{{ revisionLabel }}</span>
+      <sc-if value="{{ canStudio }}" hint-placeholder-val="{{ false }}">
+        <sc-if value="{{ notReview }}" hint-placeholder-val="{{ true }}"><a href="Comment Edit.dc.html" style="padding:8px 13px;border-radius:9999px;background:#EBF5FF;color:#0058bd;font-size:13px;font-weight:600;white-space:nowrap;">Comment to edit</a></sc-if>
+        <a href="Relay Studio v3.dc.html" style="padding:8px 13px;border:1px solid #E1EAF4;border-radius:9px;background:#fff;color:#18181B;font-size:13px;font-weight:600;white-space:nowrap;transition:border-color 200ms ease;" style-hover="border-color:#9ECBFF;color:#18181B;">Open in Studio</a>
+      </sc-if>
+    </div>
+  </header>
+
+  <sc-if value="{{ isStep1 }}" hint-placeholder-val="{{ true }}">
+    <main style="flex:1;width:100%;max-width:1200px;margin:0 auto;padding:44px 28px 60px;display:flex;flex-direction:column;gap:28px;">
+      <div><h1 style="margin:0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:clamp(26px,2.8vw,36px);line-height:1.15;letter-spacing:-0.025em;">What are you making?</h1><p style="margin:8px 0 0;font-size:15px;color:#52525B;">Pick a goal. Greedy Motion recommends a length and format, and you can change the format below.</p></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px;">
+        <sc-for list="{{ goals }}" as="g" hint-placeholder-count="4">
+          <button type="button" onClick="{{ g.pick }}" style="text-align:left;padding:0;cursor:pointer;border-radius:32px;border:2px solid transparent;background:{{ g.cardBg }};box-shadow:{{ g.shadow }};display:flex;flex-direction:column;overflow:hidden;transition:box-shadow 220ms ease,transform 220ms ease;" style-hover="transform:translateY(-2px);">
+            <div style="position:relative;aspect-ratio:16/10;overflow:hidden;background:#F4F4F5;margin:6px 6px 0;border-radius:11px;">
+              <div role="img" aria-label="{{ g.name }} sample frame" style="width:100%;height:100%;background-image:url({{ g.img }});background-size:cover;background-position:center;"></div>
+              <span style="position:absolute;left:8px;top:8px;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.88);backdrop-filter:blur(6px);font-family:'DM Mono',monospace;font-size:11px;color:#18181B;">Sample frame</span>
+            </div>
+            <div style="padding:14px 16px 16px;display:flex;flex-direction:column;gap:8px;flex:1;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><strong style="font-size:16px;letter-spacing:-.01em;">{{ g.name }}</strong><span style="display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1.5px solid {{ g.radioLine }};background:{{ g.radioBg }};color:#fff;font-size:11px;">{{ g.radioMark }}</span></div>
+              <p style="margin:0;font-size:13px;line-height:1.45;color:#52525B;">{{ g.desc }}</p>
+              <div style="margin-top:auto;padding-top:10px;border-top:1px solid #F4F4F5;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#71717A;">
+                <span><span style="font-family:'DM Mono',monospace;color:#18181B;">{{ g.len }}</span> · {{ g.fmtLabel }}</span>
+                <span>Needs: {{ g.inputs }}</span>
+              </div>
+            </div>
+          </button>
+        </sc-for>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:18px 20px;background:rgba(255,255,255,.75);border:1px solid #E1EAF4;border-radius:24px;backdrop-filter:blur(8px);">
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <span style="font-size:14px;font-weight:600;">Starting format</span>
+          <div style="display:flex;gap:4px;padding:4px;background:#F4F4F5;border-radius:11px;">
+            <sc-for list="{{ formats }}" as="f" hint-placeholder-count="3">
+              <button type="button" onClick="{{ f.pick }}" disabled="{{ f.disabled }}" style="display:flex;align-items:center;gap:8px;border:0;padding:7px 12px;border-radius:9999px;background:{{ f.bg }};box-shadow:{{ f.shadow }};font-size:13px;font-weight:600;cursor:pointer;transition:background 200ms ease;"><span style="display:block;width:{{ f.w }};height:{{ f.h }};border:1.5px solid currentColor;border-radius:2px;"></span>{{ f.label }}<span style="font-family:'DM Mono',monospace;font-weight:400;color:#71717A;">{{ f.ratio }}</span></button>
+            </sc-for>
+          </div>
+          <span style="font-size:13px;color:#71717A;">{{ formatHint }}</span>
+        </div>
+        <button type="button" onClick="{{ next }}" style="padding:11px 20px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background 200ms ease;" style-hover="background:#2a3142;">Continue</button>
+      </div>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ isStep2 }}" hint-placeholder-val="{{ false }}">
+    <main style="flex:1;width:100%;max-width:1200px;margin:0 auto;padding:40px 28px 60px;display:flex;flex-direction:column;gap:24px;">
+      <div><h1 style="margin:0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:clamp(26px,2.8vw,36px);line-height:1.15;letter-spacing:-0.025em;">Start with a script.</h1><p style="margin:8px 0 0;font-size:15px;color:#535862;">Bring your own or describe the video and we’ll write one. You check it before anything is built.</p></div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,440px);gap:20px;align-items:start;">
+        <section style="background:#fff;border:1px solid #E1EAF4;border-radius:28px;padding:22px;display:flex;flex-direction:column;gap:18px;">
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <span style="font-size:13px;font-weight:600;color:#3F3F46;">What should the video have?</span>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <sc-for list="{{ outputs }}" as="o" hint-placeholder-count="2">
+                <button type="button" onClick="{{ o.toggle }}" style="display:flex;gap:10px;align-items:flex-start;text-align:left;padding:12px 14px;border-radius:18px;border:1.5px solid {{ o.line }};background:{{ o.bg }};cursor:pointer;transition:border-color 200ms ease,background 200ms ease;">
+                  <span style="flex:none;display:grid;place-items:center;width:18px;height:18px;margin-top:1px;border-radius:6px;border:1.5px solid {{ o.boxLine }};background:{{ o.boxBg }};color:#fff;font-size:10px;">{{ o.mark }}</span>
+                  <span style="display:flex;flex-direction:column;gap:2px;"><strong style="display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;"><span style="display:grid;place-items:center;min-width:20px;height:20px;padding:0 4px;border-radius:6px;background:{{ o.iconBg }};color:{{ o.iconFg }};font-size:10px;font-weight:700;">{{ o.icon }}</span>{{ o.label }}</strong><span style="font-size:12px;color:#71717A;line-height:1.4;">{{ o.sub }}</span></span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;padding:4px;border-radius:9999px;background:#EDF3FA;align-self:flex-start;">
+            <sc-for list="{{ srcTabs }}" as="t" hint-placeholder-count="2"><button type="button" onClick="{{ t.go }}" style="border:0;padding:8px 16px;border-radius:9999px;background:{{ t.bg }};color:{{ t.fg }};font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">{{ t.label }}</button></sc-for>
+          </div>
+          <sc-if value="{{ srcGenerate }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <textarea value="{{ prompt }}" onChange="{{ setPrompt }}" rows="3" placeholder="What is it, who is it for, and what should viewers do?" style="width:100%;resize:vertical;padding:12px 14px;border:1px solid #E1EAF4;border-radius:16px;background:#F6FAFE;font-size:14px;line-height:1.5;outline:none;" style-focus="border-color:#168BFF;background:#fff;box-shadow:0 0 0 4px rgba(22,139,255,.14);"></textarea>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <span style="font-size:12px;color:#93979f;">Only claims you approve end up on screen.</span>
+                <button type="button" onClick="{{ writeScript }}" disabled="{{ promptEmpty }}" style="padding:9px 16px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">{{ writeLabel }}</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ srcOwn }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <textarea value="{{ ownScript }}" onChange="{{ setOwnScript }}" rows="5" placeholder="Paste your script. One line per scene works best." style="width:100%;resize:vertical;padding:12px 14px;border:1px solid #E1EAF4;border-radius:16px;background:#F6FAFE;font-size:14px;line-height:1.5;outline:none;" style-focus="border-color:#168BFF;background:#fff;box-shadow:0 0 0 4px rgba(22,139,255,.14);"></textarea>
+              <button type="button" onClick="{{ splitScript }}" disabled="{{ ownEmpty }}" style="align-self:flex-end;padding:9px 16px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Split into scenes</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ scriptWriting }}" hint-placeholder-val="{{ false }}">
+            <div style="position:relative;overflow:hidden;padding:14px 16px;border-radius:16px;background:#EBF5FF;font-size:13px;color:#0058bd;">Writing a 5-scene script from your prompt…{{ indeterminate }}</div>
+          </sc-if>
+          <sc-if value="{{ hasScript }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;"><strong style="font-size:14px;font-weight:600;">Check your script</strong><span style="font-size:12px;color:#93979f;">{{ scriptMeta }}</span></div>
+              <sc-for list="{{ scriptLines }}" as="ln" hint-placeholder-count="5">
+                <div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px 10px;padding:10px 12px;border-radius:16px;background:#F6FAFE;">
+                  <span style="font-size:11px;font-weight:600;color:#0A6CFF;padding-top:8px;">{{ ln.label }}</span>
+                  <div style="display:flex;flex-direction:column;gap:6px;min-width:0;">
+                    <sc-if value="{{ showVisual }}" hint-placeholder-val="{{ true }}"><label style="display:flex;flex-direction:column;gap:3px;"><span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0058bd;"><span style="display:grid;place-items:center;width:16px;height:16px;border-radius:5px;background:#CCE7FF;font-size:8px;font-weight:700;padding:0 2px;width:auto;min-width:16px;">Aa</span>On screen · viewers read this</span><textarea value="{{ ln.onscreen }}" onChange="{{ ln.setOn }}" placeholder="On-screen text" rows="1" style="field-sizing:content;resize:none;width:100%;line-height:1.4;padding:7px 10px;border:1px solid transparent;border-radius:10px;background:#fff;font-size:14px;font-weight:600;outline:none;border-left:3px solid #168BFF;" style-focus="border-color:#168BFF;"></textarea></label></sc-if>
+                    <sc-if value="{{ showVo }}" hint-placeholder-val="{{ true }}"><label style="display:flex;flex-direction:column;gap:3px;"><span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#5b2ca8;"><span style="display:grid;place-items:center;width:16px;height:16px;border-radius:5px;background:#F1E6FF;font-size:9px;">♪</span>Voiceover · narrator says this</span><textarea value="{{ ln.vo }}" onChange="{{ ln.setVo }}" placeholder="Voiceover line" rows="1" style="field-sizing:content;resize:none;width:100%;line-height:1.45;padding:7px 10px;border:1px solid transparent;border-radius:10px;background:#fff;font-size:13px;color:#535862;font-style:italic;outline:none;border-left:3px solid #C9A7FF;" style-focus="border-color:#9B6BFF;"></textarea></label></sc-if>
+                  </div>
+                </div>
+              </sc-for>
+              <button type="button" onClick="{{ toggleReviewed }}" style="display:flex;align-items:center;gap:10px;padding:10px 4px;border:0;background:transparent;cursor:pointer;text-align:left;font-size:14px;">
+                <span style="flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:6px;border:1.5px solid {{ revLine }};background:{{ revBg }};color:#fff;font-size:11px;">{{ revMark }}</span>I’ve checked this script. Use it for the storyboard.
+              </button>
+            </div>
+          </sc-if>
+        </section>
+        <section style="background:#fff;border:1px solid #E1EAF4;border-radius:28px;padding:22px;display:flex;flex-direction:column;gap:14px;position:sticky;top:84px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;"><strong style="font-size:15px;">Screenshots</strong><span style="font-size:12px;color:#71717A;">Drag to reorder</span></div>
+          <button type="button" onClick="{{ addShot }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px;border:1.5px dashed #CCE7FF;border-radius:20px;background:linear-gradient(135deg,rgba(238,242,255,.8),rgba(245,243,255,.6));cursor:pointer;transition:border-color 200ms ease,background 200ms ease;" style-hover="border-color:#168BFF;">
+            <strong style="font-size:14px;">Drop screenshots here or <span style="color:#0A6CFF;">browse</span></strong>
+            <span style="font-size:12px;color:#71717A;">PNG, JPG, or JPEG · at least 1280 px wide</span>
+          </button>
+          <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;">
+            <sc-for list="{{ shots }}" as="sh" hint-placeholder-count="3">
+              <li draggable="true" onDragStart="{{ sh.onDragStart }}" onDragOver="{{ sh.onDragOver }}" onDrop="{{ sh.onDrop }}" style="display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid {{ sh.line }};border-radius:12px;background:{{ sh.bg }};">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="cursor:grab;color:#A1A1AA;font-size:14px;letter-spacing:-2px;">⋮⋮</span>
+                  <span style="flex:none;width:56px;height:36px;border-radius:6px;border:1px solid #E1EAF4;background:repeating-linear-gradient(135deg,#EEEFF2 0 5px,#F7F7F9 5px 10px);"></span>
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;">
+                    <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ sh.name }}</span>
+                    <span style="font-size:12px;color:{{ sh.statusFg }};">{{ sh.status }}</span>
+                  </div>
+                  <select value="{{ sh.purpose }}" onChange="{{ sh.onPurpose }}" aria-label="Screenshot purpose" style="flex:none;padding:6px 8px;border:1px solid #E1EAF4;border-radius:8px;background:#fff;font-size:12px;"><option>Dashboard</option><option>Setup</option><option>Report</option><option>Mobile</option></select>
+                  <button type="button" onClick="{{ sh.remove }}" aria-label="Remove" style="flex:none;width:26px;height:26px;border:0;border-radius:9999px;background:transparent;color:#A1A1AA;cursor:pointer;" style-hover="background:#F4F4F5;color:#18181B;">✕</button>
+                </div>
+                <sc-if value="{{ sh.uploading }}" hint-placeholder-val="{{ false }}">{{ sh.bar }}</sc-if>
+                <sc-if value="{{ sh.rejected }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:8px;background:#FFF7ED;">
+                    <span style="font-size:12px;line-height:1.45;color:#9A3412;">{{ sh.reason }}</span>
+                    <button type="button" onClick="{{ sh.replace }}" style="flex:none;padding:5px 10px;border:1px solid #FED7AA;border-radius:9999px;background:#fff;color:#C2410C;font-size:12px;font-weight:600;cursor:pointer;">Replace</button>
+                  </div>
+                </sc-if>
+              </li>
+            </sc-for>
+          </ul>
+        </section>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;background:rgba(255,255,255,.75);border:1px solid #E1EAF4;border-radius:24px;backdrop-filter:blur(8px);">
+        <span style="display:flex;align-items:center;gap:8px;font-size:14px;color:{{ briefStatusFg }};"><span style="width:8px;height:8px;border-radius:50%;background:{{ briefStatusFg }};"></span>{{ briefStatus }}</span>
+        <div style="display:flex;gap:8px;">
+          <button type="button" onClick="{{ back }}" style="padding:11px 16px;border:1px solid #E1EAF4;border-radius:9999px;background:#fff;font-size:14px;font-weight:600;cursor:pointer;">Back</button>
+          <button type="button" onClick="{{ next }}" disabled="{{ briefBlocked }}" style="padding:11px 20px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Continue</button>
+        </div>
+      </div>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ isStep3 }}" hint-placeholder-val="{{ false }}">
+    <main style="flex:1;width:100%;max-width:1200px;margin:0 auto;padding:40px 28px 60px;display:flex;flex-direction:column;gap:24px;">
+      <div><h1 style="margin:0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:clamp(26px,2.8vw,36px);line-height:1.15;letter-spacing:-0.025em;">Apply your brand.</h1><p style="margin:8px 0 0;font-size:15px;color:#52525B;">These are the only style choices you need. Timing and layout follow the template.</p></div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,520px);gap:24px;align-items:start;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <sc-if value="{{ hasKit }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:24px;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%) border-box;border:1px solid transparent;">
+              <span style="display:grid;place-items:center;width:40px;height:40px;border-radius:10px;background:#4F46E5;color:#fff;font-weight:700;">A</span>
+              <div style="flex:1;min-width:0;"><strong style="display:block;font-size:15px;">Using Acme</strong><span style="display:flex;align-items:center;gap:6px;margin-top:3px;font-size:13px;color:#52525B;"><span style="width:10px;height:10px;border-radius:3px;background:#4F46E5;"></span>Primary #4F46E5 · Inter · Light mode</span></div>
+              <button type="button" onClick="{{ toggleKitPicker }}" style="padding:7px 12px;border:1px solid #E1EAF4;border-radius:9999px;background:#fff;font-size:13px;font-weight:600;cursor:pointer;">Change</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ showKitOptions }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <sc-for list="{{ kitOptions }}" as="o" hint-placeholder-count="3">
+                <button type="button" onClick="{{ o.pick }}" style="text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:13px 16px;border:1px solid {{ o.line }};border-radius:18px;background:{{ o.bg }};cursor:pointer;transition:border-color 200ms ease;"><span><strong style="display:block;font-size:14px;">{{ o.label }}</strong><span style="display:block;margin-top:2px;font-size:12px;color:#71717A;">{{ o.sub }}</span></span><span style="color:#0A6CFF;font-weight:700;">{{ o.mark }}</span></button>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ showThemes }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#fff;border:1px solid #E1EAF4;border-radius:24px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
+              <span style="font-size:13px;font-weight:600;color:#3F3F46;">Greedy Motion theme</span>
+              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
+                <sc-for list="{{ themes }}" as="th" hint-placeholder-count="4">
+                  <button type="button" onClick="{{ th.pick }}" style="padding:5px;border-radius:14px;border:1.5px solid {{ th.line }};background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:5px;text-align:left;"><div style="width:100%;aspect-ratio:16/9;border-radius:9px;background-image:url({{ th.img }});background-size:cover;background-position:center;"></div><span style="font-size:12px;font-weight:600;padding:0 3px 3px;">{{ th.label }}</span></button>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+          <div style="background:#fff;border:1px solid #E1EAF4;border-radius:24px;padding:6px 18px;display:flex;flex-direction:column;">
+            <sc-for list="{{ brandControls }}" as="c" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid #F4F4F5;flex-wrap:wrap;">
+                <span style="font-size:14px;font-weight:600;">{{ c.label }}</span>
+                <div style="display:flex;gap:3px;padding:3px;background:#F4F4F5;border-radius:10px;">
+                  <sc-for list="{{ c.options }}" as="o" hint-placeholder-count="3">
+                    <button type="button" onClick="{{ o.pick }}" style="border:0;padding:6px 11px;border-radius:9999px;background:{{ o.bg }};box-shadow:{{ o.shadow }};color:{{ o.fg }};font-size:13px;font-weight:600;cursor:pointer;transition:background 200ms ease;">{{ o.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+            <sc-for list="{{ audioToggles }}" as="a" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid #F4F4F5;">
+                <span style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:14px;font-weight:600;">{{ a.label }}</span><span style="font-size:12px;color:#71717A;">{{ a.sub }}</span></span>
+                <button type="button" onClick="{{ a.toggle }}" aria-label="{{ a.label }}" style="flex:none;position:relative;width:40px;height:24px;border-radius:9999px;border:0;background:{{ a.track }};cursor:pointer;transition:background 200ms ease;"><span style="position:absolute;top:3px;left:{{ a.knob }};width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:left 200ms ease;"></span></button>
+              </div>
+            </sc-for>
+            <sc-if value="{{ voiceOn }}" hint-placeholder-val="{{ false }}">
+              <label style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;">
+                <span style="font-size:14px;font-weight:600;">Voice</span>
+                <select value="{{ voiceName }}" onChange="{{ setVoice }}" style="padding:7px 10px;border:1px solid #E1EAF4;border-radius:8px;background:#fff;font-size:13px;"><option>Kore · Warm, even</option><option>Puck · Upbeat</option><option>Charon · Low, informative</option></select>
+              </label>
+            </sc-if>
+          </div>
+        </div>
+        <div style="position:sticky;top:84px;display:flex;flex-direction:column;gap:10px;">
+          <div style="padding:12px;border-radius:18px;background:radial-gradient(100% 80% at 100% 0%,rgba(0,105,224,.4),transparent 60%),#0a0d12;">
+            <div style="max-width:{{ playerMax }};margin:0 auto;"><dc-import name="Scene Frame" scene="{{ previewScene }}" portrait="{{ portrait }}" branded="{{ branded }}" logo-place="{{ logoPlace }}" product-name="{{ projectName }}" hint-size="100%,280px"></dc-import></div>
+          </div>
+          <div style="display:flex;gap:6px;justify-content:center;">
+            <sc-for list="{{ previewPicks }}" as="pp" hint-placeholder-count="3">
+              <button type="button" onClick="{{ pp.pick }}" style="border:1px solid {{ pp.line }};background:{{ pp.bg }};padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;">{{ pp.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button type="button" onClick="{{ back }}" style="padding:11px 16px;border:1px solid #E1EAF4;border-radius:9999px;background:#fff;font-size:14px;font-weight:600;cursor:pointer;">Back</button>
+        <button type="button" onClick="{{ next }}" style="padding:11px 20px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Continue</button>
+      </div>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ sbIntro }}" hint-placeholder-val="{{ false }}">
+    <main style="flex:1;display:grid;place-items:center;padding:48px 24px 96px;">
+      <div style="width:100%;max-width:560px;display:flex;flex-direction:column;gap:20px;text-align:center;align-items:center;">
+        <h1 style="margin:0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:clamp(26px,2.8vw,36px);line-height:1.15;letter-spacing:-0.025em;">Plan the video first.</h1>
+        <p style="margin:0;font-size:15px;line-height:1.55;color:#52525B;max-width:440px;">Greedy Motion drafts five scenes from your brief. You review and edit them before anything renders.</p>
+        <div style="width:100%;text-align:left;background:#fff;border:1px solid #E1EAF4;border-radius:24px;padding:6px 18px;">
+          <sc-for list="{{ sbSummary }}" as="r" hint-placeholder-count="4">
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #F4F4F5;font-size:14px;"><span style="color:#71717A;">{{ r.k }}</span><span style="font-weight:600;text-align:right;">{{ r.v }}</span></div>
+          </sc-for>
+        </div>
+        <sc-if value="{{ sbIdle }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;gap:8px;">
+            <button type="button" onClick="{{ back }}" style="padding:13px 18px;border:1px solid #E1EAF4;border-radius:9999px;background:#fff;font-size:15px;font-weight:600;cursor:pointer;">Back</button>
+            <button type="button" onClick="{{ createStoryboard }}" style="padding:13px 24px;border:0;border-radius:9999px;background:#181d27;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:transform 200ms ease;" style-hover="transform:translateY(-1px);">Create storyboard</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ sbGenerating }}" hint-placeholder-val="{{ false }}">
+          <div style="position:relative;overflow:hidden;width:100%;text-align:left;background:#fff;border:1px solid #CCE7FF;border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:12px;">
+            <sc-for list="{{ sbStages }}" as="st" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:{{ st.fg }};"><span style="display:grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1.5px solid {{ st.ring }};background:{{ st.fill }};color:#fff;font-size:10px;">{{ st.mark }}</span>{{ st.label }}</div>
+            </sc-for>
+            {{ indeterminate }}
+          </div>
+        </sc-if>
+      </div>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ isReviewComments }}" hint-placeholder-val="{{ false }}">
+    <dc-import name="Comment Edit" style="flex:1;min-height:0;" embedded="{{ true }}" approved="{{ reviewApproved }}" on-approve="{{ onApproveReview }}" on-download="{{ downloadDraft }}" on-render="{{ goRenderFromReview }}" on-accept="{{ onCommentAccept }}" hint-size="100%,calc(100vh - 64px)"></dc-import>
+  </sc-if>
+  <sc-if value="{{ workspace }}" hint-placeholder-val="{{ false }}">
+    <main style="flex:1;width:100%;max-width:1440px;margin:0 auto;padding:24px 28px 48px;display:grid;grid-template-columns:minmax(0,1fr) clamp(280px,32vw,400px);gap:20px;align-items:start;min-width:0;box-sizing:border-box;">
+      <div style="display:flex;flex-direction:column;gap:14px;min-width:0;">
+        <sc-if value="{{ notice }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;font-size:13px;line-height:1.45;"><span>{{ notice }}</span><button type="button" onClick="{{ clearNotice }}" style="border:0;background:transparent;color:#B45309;cursor:pointer;">✕</button></div>
+        </sc-if>
+        <section style="border-radius:20px;padding:16px;background:radial-gradient(120% 80% at 100% 0%,rgba(0,105,224,.38),transparent 60%),radial-gradient(80% 70% at 0% 100%,rgba(255,209,184,.14),transparent 60%),#0a0d12;display:flex;flex-direction:column;gap:14px;">
+          <div style="width:100%;max-width:{{ playerMax }};margin:0 auto;"><dc-import name="Scene Frame" scene="{{ curScene }}" portrait="{{ portrait }}" branded="{{ branded }}" logo-place="{{ logoPlace }}" highlight="{{ highlight }}" product-name="{{ projectName }}" hint-size="100%,420px"></dc-import></div>
+          <div style="display:flex;align-items:center;gap:14px;color:#E4E4E7;">
+            <button type="button" onClick="{{ togglePlay }}" aria-label="Play or pause" style="flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;border:0;background:#fff;color:#18181B;font-size:12px;cursor:pointer;">{{ playGlyph }}</button>
+            <span style="flex:none;white-space:nowrap;font-family:'DM Mono',monospace;font-size:12px;color:#A1A1AA;"><span style="color:#fff;">{{ timeNow }}</span> / {{ timeTotal }}</span>
+            <div onClick="{{ scrub }}" style="position:relative;flex:1;height:22px;cursor:pointer;display:flex;align-items:center;">
+              <div style="position:relative;width:100%;height:4px;border-radius:4px;background:rgba(255,255,255,.14);overflow:hidden;"><div style="position:absolute;left:0;top:0;bottom:0;width:{{ playPct }};background:linear-gradient(90deg,#168BFF,#0099ff);"></div></div>
+              <sc-for list="{{ ticks }}" as="tk" hint-placeholder-count="4"><span style="position:absolute;left:{{ tk.left }};top:5px;width:1px;height:12px;background:rgba(255,255,255,.3);"></span></sc-for>
+              <span style="position:absolute;left:{{ playPct }};top:4px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:#fff;box-shadow:0 0 0 4px rgba(129,140,248,.35);"></span>
+            </div>
+            <span style="flex:none;font-size:12px;color:#A1A1AA;white-space:nowrap;">{{ curTitle }}</span>
+          </div>
+        </section>
+        <sc-if value="{{ hasProposal }}" hint-placeholder-val="{{ false }}">
+          <section style="background:linear-gradient(#fff,#fff) padding-box,linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%) border-box;border:1px solid transparent;border-radius:28px;padding:18px;display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+              <div><span style="font-size:12px;font-weight:600;color:#0A6CFF;">Proposed revision · {{ proposal.scope }}</span><p style="margin:5px 0 0;font-size:15px;line-height:1.45;font-weight:600;max-width:640px;">{{ proposal.summary }}</p></div>
+              <span style="flex:none;font-family:'DM Mono',monospace;font-size:12px;color:#71717A;">at {{ proposal.at }}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:12px;font-weight:600;color:#71717A;">Before</span><div style="max-width:{{ compareMax }};"><dc-import name="Scene Frame" scene="{{ proposal.before }}" portrait="{{ portrait }}" branded="{{ branded }}" logo-place="{{ proposal.logoBefore }}" product-name="{{ projectName }}" radius="8px" hint-size="100%,180px"></dc-import></div></div>
+              <div style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:12px;font-weight:600;color:#0A6CFF;">After</span><div style="max-width:{{ compareMax }};border-radius:10px;box-shadow:0 0 0 2px #168BFF;"><dc-import name="Scene Frame" scene="{{ proposal.after }}" portrait="{{ portrait }}" branded="{{ branded }}" logo-place="{{ proposal.logoAfter }}" product-name="{{ projectName }}" radius="8px" hint-size="100%,180px"></dc-import></div></div>
+            </div>
+            <ul style="margin:0;padding:12px 14px;list-style:none;border-radius:10px;background:#F6FAFE;display:flex;flex-direction:column;gap:6px;font-size:13px;">
+              <sc-for list="{{ proposal.changes }}" as="ch" hint-placeholder-count="3"><li style="display:flex;gap:8px;"><span style="color:#0A6CFF;">–</span>{{ ch }}</li></sc-for>
+            </ul>
+            <div style="display:flex;justify-content:flex-end;gap:8px;">
+              <button type="button" onClick="{{ rejectProposal }}" style="padding:10px 16px;border:1px solid #E1EAF4;border-radius:9999px;background:#fff;font-size:14px;font-weight:600;cursor:pointer;">Reject</button>
+              <button type="button" onClick="{{ acceptProposal }}" style="padding:10px 18px;border:0;border-radius:9999px;background:#181d27;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Accept change</button>
+            </div>
+          </section>
+        </sc-if>
+        <sc-if value="{{ noProposal }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;gap:6px;">
+            <sc-for list="{{ strip }}" as="s" hint-placeholder-count="5">
+              <button type="button" onClick="{{ s.onSeek }}" style="flex:{{ s.dur }} 1 0;min-width:0;overflow:hidden;text-align:left;display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:9999px;border:1px solid {{ s.line }};background:{{ s.bg }};cursor:pointer;transition:border-color 200ms ease,background 200ms ease;" style-hover="border-color:#9ECBFF;">
+                <span style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.n }} · {{ s.label }}</span>
+                <span style="font-family:'DM Mono',monospace;font-size:11px;color:#71717A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.range }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+
+      <aside style="display:flex;flex-direction:column;gap:14px;position:sticky;top:88px;max-height:calc(100vh - 104px);overflow:auto;padding-bottom:4px;">
+        <sc-if value="{{ isStep4 }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;"><strong style="font-size:15px;">Storyboard</strong><span style="font-size:12px;color:#71717A;">{{ sbMeta }}</span></div>
+          <span style="font-size:13px;color:#16803C;">Your storyboard is ready to review.</span>
+          <sc-for list="{{ sbCards }}" as="s" hint-placeholder-count="5">
+            <div style="background:#fff;border:1px solid {{ s.line }};border-radius:24px;opacity:{{ s.opacity }};box-shadow:{{ s.shadow }};transition:border-color 200ms ease,box-shadow 200ms ease;">
+              <button type="button" onClick="{{ s.onSeek }}" style="width:100%;text-align:left;border:0;background:transparent;padding:12px 14px;cursor:pointer;display:flex;flex-direction:column;gap:4px;">
+                <span style="display:flex;justify-content:space-between;gap:8px;"><strong style="font-size:13px;">{{ s.title }}</strong><span style="font-family:'DM Mono',monospace;font-size:11px;color:#71717A;">{{ s.range }}</span></span>
+                <span style="font-size:13px;color:#52525B;line-height:1.4;">{{ s.headline }}</span>
+              </button>
+              <sc-if value="{{ s.expanded }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:0 14px 14px;display:flex;flex-direction:column;gap:10px;border-top:1px solid #F4F4F5;padding-top:12px;">
+                  <label style="display:flex;flex-direction:column;gap:5px;"><span style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;color:#3F3F46;">Headline<span style="font-weight:500;color:{{ s.countFg }};">{{ s.count }}</span></span><input type="text" value="{{ s.headline }}" onChange="{{ s.onHeadline }}" style="padding:8px 10px;border:1px solid #E1EAF4;border-radius:8px;background:#F6FAFE;font-size:13px;outline:none;" style-focus="border-color:#0A6CFF;background:#fff;" /></label>
+                  <label style="display:flex;flex-direction:column;gap:5px;"><span style="font-size:12px;font-weight:600;color:#3F3F46;">Supporting copy</span><textarea value="{{ s.copy }}" onChange="{{ s.onCopy }}" rows="2" style="padding:8px 10px;border:1px solid #E1EAF4;border-radius:8px;background:#F6FAFE;font-size:13px;resize:vertical;outline:none;" style-focus="border-color:#0A6CFF;background:#fff;"></textarea></label>
+                  <sc-if value="{{ s.hasShot }}" hint-placeholder-val="{{ false }}"><label style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><span style="font-size:12px;font-weight:600;color:#3F3F46;">Screenshot</span><select value="{{ s.shot }}" onChange="{{ s.onShot }}" style="padding:6px 8px;border:1px solid #E1EAF4;border-radius:8px;background:#fff;font-size:12px;max-width:200px;"><sc-for list="{{ shotNames }}" as="nm" hint-placeholder-count="2"><option>{{ nm }}</option></sc-for></select></label></sc-if>
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                    <span style="font-size:12px;font-weight:600;color:#3F3F46;">Duration <span style="font-weight:500;color:#A1A1AA;">{{ s.limits }}</span></span>
+                    <div style="display:flex;align-items:center;border:1px solid #E1EAF4;border-radius:8px;overflow:hidden;"><button type="button" onClick="{{ s.onDurDown }}" disabled="{{ s.noDown }}" style="width:28px;height:28px;border:0;background:#fff;cursor:pointer;">−</button><span style="min-width:36px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;">{{ s.durLabel }}</span><button type="button" onClick="{{ s.onDurUp }}" disabled="{{ s.noUp }}" style="width:28px;height:28px;border:0;background:#fff;cursor:pointer;">+</button></div>
+                  </div>
+                  <label style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><span style="font-size:12px;font-weight:600;color:#3F3F46;">Motion</span><select value="{{ s.motion }}" onChange="{{ s.onMotion }}" style="padding:6px 8px;border:1px solid #E1EAF4;border-radius:8px;background:#fff;font-size:12px;"><option>Calm fade</option><option>Slide up</option><option>Push in</option><option>Wipe</option></select></label>
+                  <sc-if value="{{ s.removable }}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{ s.onRemove }}" style="align-self:flex-start;border:0;background:transparent;padding:0;font-size:12px;font-weight:600;color:#C2410C;cursor:pointer;">Remove scene</button></sc-if>
+                </div>
+              </sc-if>
+              <sc-if value="{{ s.removed }}" hint-placeholder-val="{{ false }}"><div style="padding:0 14px 12px;"><button type="button" onClick="{{ s.onRemove }}" style="border:0;background:transparent;padding:0;font-size:12px;font-weight:600;color:#0A6CFF;cursor:pointer;">Restore scene</button></div></sc-if>
+            </div>
+          </sc-for>
+          <button type="button" onClick="{{ startRender }}" style="padding:12px 18px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Submit video</button>
+          <span style="font-size:12px;color:#93979f;text-align:center;">Rendering takes about 2 minutes. You can leave this page.</span>
+        </sc-if>
+
+        <sc-if value="{{ isStep5 }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#fff;border:1px solid #E1EAF4;border-radius:28px;padding:16px;display:flex;flex-direction:column;gap:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;"><strong style="font-size:15px;">{{ curTitle }}</strong><span style="font-family:'DM Mono',monospace;font-size:11px;color:#71717A;">{{ cur.range }}</span></div>
+            <label style="display:flex;flex-direction:column;gap:5px;"><span style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;color:#3F3F46;">Headline<span style="font-weight:500;color:{{ cur.countFg }};">{{ cur.count }}</span></span><input type="text" value="{{ cur.headline }}" onChange="{{ cur.onHeadline }}" style="padding:9px 11px;border:1px solid #E1EAF4;border-radius:14px;background:#F6FAFE;font-size:14px;outline:none;" style-focus="border-color:#0A6CFF;background:#fff;" /></label>
+            <label style="display:flex;flex-direction:column;gap:5px;"><span style="font-size:12px;font-weight:600;color:#3F3F46;">Supporting copy</span><textarea value="{{ cur.copy }}" onChange="{{ cur.onCopy }}" rows="2" style="padding:9px 11px;border:1px solid #E1EAF4;border-radius:14px;background:#F6FAFE;font-size:14px;resize:vertical;outline:none;" style-focus="border-color:#0A6CFF;background:#fff;"></textarea></label>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+              <span style="font-size:12px;font-weight:600;color:#3F3F46;">Duration <span style="font-weight:500;color:#A1A1AA;">{{ cur.limits }}</span></span>
+              <div style="display:flex;align-items:center;border:1px solid #E1EAF4;border-radius:8px;overflow:hidden;"><button type="button" onClick="{{ cur.onDurDown }}" disabled="{{ cur.noDown }}" style="width:28px;height:28px;border:0;background:#fff;cursor:pointer;">−</button><span style="min-width:36px;text-align:center;font-family:'DM Mono',monospace;font-size:12px;">{{ cur.durLabel }}</span><button type="button" onClick="{{ cur.onDurUp }}" disabled="{{ cur.noUp }}" style="width:28px;height:28px;border:0;background:#fff;cursor:pointer;">+</button></div>
+            </div>
+            <label style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><span style="font-size:12px;font-weight:600;color:#3F3F46;">Motion</span><select value="{{ cur.motion }}" onChange="{{ cur.onMotion }}" style="padding:6px 8px;border:1px solid #E1EAF4;border-radius:8px;background:#fff;font-size:12px;"><option>Calm fade</option><option>Slide up</option><option>Push in</option><option>Wipe</option></select></label>
+          </div>
+
+          <sc-if value="{{ askClosed }}" hint-placeholder-val="{{ true }}">
+            <button type="button" onClick="{{ openAsk }}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-radius:24px;border:1px solid transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%) border-box;background-size:auto,200% 100%;cursor:pointer;text-align:left;transition:transform 200ms ease;" style-hover="transform:translateY(-1px);">
+              <span><strong style="display:block;font-size:14px;">Ask Greedy Motion to change this</strong><span style="display:block;margin-top:2px;font-size:12px;color:#71717A;">Pauses at {{ timeNow }}. You review every change first.</span></span><span style="color:#0A6CFF;">→</span>
+            </button>
+          </sc-if>
+          <sc-if value="{{ askOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#fff;border:1px solid #CCE7FF;border-radius:28px;padding:16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 0 0 4px rgba(204,231,255,.6);">
+              <span style="align-self:flex-start;display:inline-flex;gap:6px;padding:4px 9px;border-radius:7px;background:#EBF5FF;color:#0058bd;font-size:12px;font-weight:600;">Paused at {{ timeNow }} · {{ curTitle }}</span>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                <sc-for list="{{ targets }}" as="tg" hint-placeholder-count="3"><button type="button" onClick="{{ tg.pick }}" style="padding:5px 10px;border-radius:999px;border:1px solid {{ tg.line }};background:{{ tg.bg }};color:{{ tg.fg }};font-size:12px;font-weight:600;cursor:pointer;">{{ tg.label }}</button></sc-for>
+              </div>
+              <textarea value="{{ askText }}" onChange="{{ setAskText }}" rows="3" placeholder="Describe the change in plain language." style="padding:10px 12px;border:1px solid #E1EAF4;border-radius:14px;background:#F6FAFE;font-size:14px;line-height:1.45;resize:vertical;outline:none;" style-focus="border-color:#0A6CFF;background:#fff;"></textarea>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                <sc-for list="{{ examples }}" as="ex" hint-placeholder-count="5"><button type="button" onClick="{{ ex.use }}" style="padding:4px 9px;border-radius:9999px;border:1px dashed #D4D4D8;background:transparent;color:#52525B;font-size:12px;cursor:pointer;" style-hover="border-color:#168BFF;color:#18181B;">{{ ex.label }}</button></sc-for>
+              </div>
+              <div style="display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" onClick="{{ closeAsk }}" style="padding:9px 14px;border:1px solid #E1EAF4;border-radius:9999px;background:#fff;font-size:13px;font-weight:600;cursor:pointer;">Cancel</button>
+                <button type="button" onClick="{{ propose }}" disabled="{{ askEmpty }}" style="padding:9px 16px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Propose change</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ askThinking }}" hint-placeholder-val="{{ false }}">
+            <div style="position:relative;overflow:hidden;background:#fff;border:1px solid #CCE7FF;border-radius:28px;padding:16px;display:flex;flex-direction:column;gap:8px;">
+              <strong style="font-size:14px;">Preparing a proposed revision</strong>
+              <span style="font-size:13px;color:#52525B;">Scoped to {{ curTitle }}. Nothing changes until you accept.</span>
+              {{ indeterminate }}
+            </div>
+          </sc-if>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;background:rgba(255,255,255,.8);border:1px solid #E1EAF4;border-radius:24px;">
+            <span style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:12px;color:#71717A;">Render status</span><strong style="font-size:13px;">{{ renderShort }}</strong></span>
+            <button type="button" onClick="{{ goRender }}" style="padding:9px 16px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">{{ renderCta }}</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isStep6 }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#fff;border:1px solid #E1EAF4;border-radius:28px;padding:18px;display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;"><strong style="font-size:15px;">{{ renderTitle }}</strong><span style="font-size:12px;color:#71717A;">{{ renderSpec }}</span></div>
+            <sc-if value="{{ rNone }}" hint-placeholder-val="{{ true }}">
+              <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:13px;">
+                <sc-for list="{{ checks }}" as="c" hint-placeholder-count="3"><li style="display:flex;gap:8px;color:#3F3F46;"><span style="color:#16803C;">✓</span>{{ c }}</li></sc-for>
+              </ul>
+              <button type="button" onClick="{{ startRender }}" style="padding:12px 18px;border:0;border-radius:9999px;background:#181d27;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Render draft</button>
+            </sc-if>
+            <sc-if value="{{ rStale }}" hint-placeholder-val="{{ false }}">
+              <p style="margin:0;font-size:13px;line-height:1.5;color:#92400E;padding:10px 12px;border-radius:10px;background:#FFFBEB;">The last draft render is from an earlier revision. Render again to review {{ revisionName }}.</p>
+              <button type="button" onClick="{{ startRender }}" style="padding:12px 18px;border:0;border-radius:9999px;background:#181d27;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Render draft</button>
+            </sc-if>
+            <sc-if value="{{ rRunningFoot }}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{ goProjects }}" style="align-self:flex-start;padding:9px 16px;border:0;border-radius:9999px;background:#EBF5FF;color:#0058bd;font-size:13px;font-weight:600;cursor:pointer;">Go to projects</button></sc-if>
+            <sc-if value="{{ rRunning }}" hint-placeholder-val="{{ false }}">
+              <p style="margin:0;font-size:13px;line-height:1.5;color:#535862;">We’re making your video. When it’s ready we’ll open it in the comment editor, and email you if you’ve left.</p>
+              <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px;">
+                <sc-for list="{{ rStages }}" as="st" hint-placeholder-count="5">
+                  <li style="display:flex;flex-direction:column;gap:6px;">
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:{{ st.fg }};"><span style="display:grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1.5px solid {{ st.ring }};background:{{ st.fill }};color:#fff;font-size:10px;animation:{{ st.anim }};">{{ st.mark }}</span><span style="flex:1;">{{ st.label }}</span><span style="font-family:'DM Mono',monospace;font-size:11px;color:#71717A;">{{ st.detail }}</span></div>
+                    <sc-if value="{{ st.showBar }}" hint-placeholder-val="{{ false }}"><div style="padding-left:28px;">{{ frameBar }}</div></sc-if>
+                  </li>
+                </sc-for>
+              </ol>
+            </sc-if>
+            <sc-if value="{{ rFailed }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:12px 14px;border-radius:12px;background:#FFF7ED;border:1px solid #FED7AA;display:flex;flex-direction:column;gap:10px;">
+                <strong style="font-size:14px;color:#C2410C;">Render needs attention</strong>
+                <p style="margin:0;font-size:13px;line-height:1.5;color:#7C2D12;">We could not render Scene 3 because the uploaded screenshot could not be read. Replace the image and try again.</p>
+                <div style="display:flex;gap:8px;">
+                  <button type="button" onClick="{{ replaceFailed }}" style="padding:9px 14px;border:0;border-radius:9999px;background:#C2410C;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Replace image</button>
+                  <button type="button" onClick="{{ startRender }}" style="padding:9px 14px;border:1px solid #FED7AA;border-radius:9999px;background:#fff;color:#9A3412;font-size:13px;font-weight:600;cursor:pointer;">Try again</button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ rReady }}" hint-placeholder-val="{{ false }}">
+              <p style="margin:0;font-size:14px;color:#16803C;font-weight:600;">Draft render ready.</p>
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                <sc-for list="{{ readyActions }}" as="a" hint-placeholder-count="4">
+                  <button type="button" onClick="{{ a.run }}" style="display:flex;justify-content:space-between;align-items:center;padding:11px 14px;border:1px solid #E1EAF4;border-radius:9999px;background:#fff;font-size:14px;font-weight:600;cursor:pointer;text-align:left;transition:border-color 200ms ease;" style-hover="border-color:#9ECBFF;">{{ a.label }}<span style="font-size:12px;font-weight:500;color:#71717A;">{{ a.sub }}</span></button>
+                </sc-for>
+              </div>
+              <button type="button" onClick="{{ approve }}" style="padding:12px 18px;border:0;border-radius:9999px;background:#16803C;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Approve final</button>
+            </sc-if>
+            <sc-if value="{{ rApproved }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:14px;border-radius:12px;background:linear-gradient(135deg,#F0FDF4,#ECFDF5 60%,#F0FDFA);border:1px solid #BBF7D0;display:flex;flex-direction:column;gap:6px;">
+                <strong style="font-size:14px;color:#16803C;">Approved · {{ revisionName }} is locked</strong>
+                <span style="font-size:13px;line-height:1.5;color:#14532D;">Any further edit creates a new draft revision and removes approval from the working copy.</span>
+              </div>
+              <button type="button" onClick="{{ download }}" style="padding:12px 18px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Download MP4</button>
+              <button type="button" onClick="{{ duplicateFormat }}" style="padding:11px 18px;border:1px solid #E1EAF4;border-radius:9999px;background:#fff;font-size:14px;font-weight:600;cursor:pointer;">Duplicate for another format</button>
+            </sc-if>
+          </div>
+          <button type="button" onClick="{{ back }}" style="align-self:flex-start;border:0;background:transparent;padding:4px 0;color:#52525B;font-size:13px;font-weight:600;cursor:pointer;">← Back to review</button>
+        </sc-if>
+      </aside>
+    </main>
+  </sc-if>
+</sc-if>
+
+<sc-if value="{{ isTemplates }}" hint-placeholder-val="{{ false }}">
+  <main style="flex:1;width:100%;max-width:1280px;margin:0 auto;padding:40px 28px 80px;display:flex;flex-direction:column;gap:22px;">
+    <div><h1 style="margin:0;font-size:30px;letter-spacing:-.03em;font-weight:700;">Templates</h1><p style="margin:6px 0 0;color:#71717A;font-size:14px;">Each template sets the scenes, limits, and the fields your team can change.</p></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+      <sc-for list="{{ tplCats }}" as="c" hint-placeholder-count="9"><button type="button" onClick="{{ c.pick }}" style="padding:7px 13px;border-radius:999px;border:1px solid {{ c.line }};background:{{ c.bg }};color:{{ c.fg }};font-size:13px;font-weight:600;cursor:pointer;transition:background 200ms ease;">{{ c.label }}</button></sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:18px;">
+      <sc-for list="{{ tplList }}" as="t" hint-placeholder-count="4">
+        <article style="background:#fff;border:1px solid #E1EAF4;border-radius:28px;overflow:hidden;display:flex;flex-direction:column;transition:box-shadow 220ms ease,transform 220ms ease;" style-hover="transform:translateY(-2px);">
+          <div style="width:100%;aspect-ratio:16/9;background-image:url({{ t.img }});background-size:cover;background-position:center;"></div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px;flex:1;">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;"><strong style="font-size:16px;">{{ t.name }}</strong><span style="font-size:12px;color:{{ t.ownerFg }};font-weight:600;">{{ t.owner }}</span></div>
+            <p style="margin:0;font-size:13px;color:#52525B;line-height:1.45;">{{ t.bestFor }}</p>
+            <div style="display:flex;flex-wrap:wrap;gap:5px;">
+              <sc-for list="{{ t.scenes }}" as="sc" hint-placeholder-count="5"><span style="padding:3px 8px;border-radius:6px;background:#F4F4F5;font-size:11px;font-weight:600;color:#52525B;">{{ sc }}</span></sc-for>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:#71717A;padding-top:10px;border-top:1px solid #F4F4F5;margin-top:auto;">
+              <span>{{ t.formats }} · {{ t.lengths }}</span><span>{{ t.fields }}</span>
+            </div>
+            <button type="button" onClick="{{ t.use }}" style="align-self:flex-start;padding:9px 15px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Use template</button>
+          </div>
+        </article>
+      </sc-for>
+    </div>
+    <sc-if value="{{ tplEmpty }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:48px;text-align:center;border:1px dashed #D4D4D8;border-radius:28px;color:#71717A;font-size:14px;">No {{ tplCat }} templates yet. A pro can publish one from Studio.</div>
+    </sc-if>
+  </main>
+</sc-if>
+
+<sc-if value="{{ isBrandKits }}" hint-placeholder-val="{{ false }}">
+  <main style="flex:1;width:100%;max-width:1000px;margin:0 auto;padding:40px 28px 80px;display:flex;flex-direction:column;gap:22px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;"><div><h1 style="margin:0;font-size:30px;letter-spacing:-.03em;font-weight:700;">Brand kits</h1><p style="margin:6px 0 0;color:#71717A;font-size:14px;">Logos, colors, fonts, and approved language your videos follow.</p></div><button type="button" onClick="{{ newKit }}" style="padding:11px 18px;border:0;border-radius:9999px;background:#18181B;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">New brand kit</button></div>
+    <sc-if value="{{ hasKit }}" hint-placeholder-val="{{ true }}">
+      <article style="display:grid;grid-template-columns:220px minmax(0,1fr);background:#fff;border:1px solid #E1EAF4;border-radius:28px;overflow:hidden;">
+        <div style="display:grid;place-items:center;background:linear-gradient(140deg,#EBF5FF,#F5F3FF 55%,#F0FDFA);"><div style="display:flex;align-items:center;gap:10px;font-size:24px;font-weight:700;"><span style="display:grid;place-items:center;width:44px;height:44px;border-radius:11px;background:#4F46E5;color:#fff;font-size:20px;">A</span>Acme</div></div>
+        <div style="padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;">
+          <div style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:12px;color:#71717A;">Colors</span><div style="display:flex;gap:4px;"><span style="width:26px;height:26px;border-radius:7px;background:#4F46E5;"></span><span style="width:26px;height:26px;border-radius:7px;background:#14B8A6;"></span><span style="width:26px;height:26px;border-radius:7px;background:#FFFFFF;box-shadow:inset 0 0 0 1px #E4E4E7;"></span><span style="width:26px;height:26px;border-radius:7px;background:#0F172A;"></span></div></div>
+          <div style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:12px;color:#71717A;">Fonts</span><span style="font-size:14px;font-weight:600;">Inter · Inter</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:12px;color:#71717A;">Mode</span><span style="font-size:14px;font-weight:600;">Light</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:12px;color:#71717A;">Website</span><span style="font-size:14px;font-weight:600;">acme.com</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px;grid-column:1/-1;"><span style="font-size:12px;color:#71717A;">Prohibited claims</span><span style="font-size:14px;">“guaranteed”, “instant”, “#1”</span></div>
+        </div>
+      </article>
+    </sc-if>
+    <sc-if value="{{ noKit }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:48px;text-align:center;border:1px dashed #D4D4D8;border-radius:28px;color:#71717A;font-size:14px;">No brand kits yet. Import one from your website in under a minute.</div>
+    </sc-if>
+  </main>
+</sc-if>
+
+<sc-if value="{{ isLibrary }}" hint-placeholder-val="{{ false }}">
+  <main style="flex:1;width:100%;max-width:1280px;margin:0 auto;padding:40px 28px 80px;display:flex;flex-direction:column;gap:22px;">
+    <div><h1 style="margin:0;font-size:30px;letter-spacing:-.03em;font-weight:700;">Library</h1><p style="margin:6px 0 0;color:#71717A;font-size:14px;">Reusable assets for every project in this workspace.</p></div>
+    <div style="display:flex;gap:4px;border-bottom:1px solid #E1EAF4;">
+      <sc-for list="{{ libTabs }}" as="tb" hint-placeholder-count="7"><button type="button" onClick="{{ tb.go }}" style="border:0;background:transparent;padding:10px 12px;margin-bottom:-1px;border-bottom:2px solid {{ tb.line }};color:{{ tb.fg }};font-size:14px;font-weight:600;cursor:pointer;">{{ tb.label }}</button></sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;">
+      <sc-for list="{{ libItems }}" as="it" hint-placeholder-count="6">
+        <div style="background:#fff;border:1px solid #E1EAF4;border-radius:24px;overflow:hidden;">
+          <div style="position:relative;aspect-ratio:16/10;background:{{ it.thumb }};background-size:cover;background-position:center;display:grid;place-items:center;"><span style="font-family:'DM Mono',monospace;font-size:11px;color:#52525B;background:rgba(255,255,255,.85);padding:3px 7px;border-radius:5px;">{{ it.tag }}</span></div>
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:3px;"><strong style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ it.name }}</strong><span style="font-size:12px;color:#71717A;">{{ it.meta }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+  </main>
+</sc-if>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:50;padding:11px 16px;border-radius:12px;background:#18181B;color:#fff;font-size:14px;box-shadow:0 16px 40px rgba(24,24,27,.3);">{{ toast }}</div>
+</sc-if>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;newAccount&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Demo&quot;},&quot;failRender&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Demo&quot;}}">
+const GOALS = [
+  { id: "launch", name: "Product launch", desc: "Introduce a new product or major release.", len: "0:30", fmt: "landscape", fmtLabel: "Landscape 16:9", wash: "#F1E6FF", img: "assets/templates/product-launch.jpg", inputs: "product name, 3 features, 1+ screenshot" },
+  { id: "feature", name: "Feature spotlight", desc: "Explain one valuable workflow or feature.", len: "0:30", fmt: "landscape", fmtLabel: "Landscape 16:9", wash: "#CCE7FF", img: "assets/templates/feature-spotlight.jpg", inputs: "feature name, 1–3 screenshots" },
+  { id: "whatsnew", name: "What’s new", desc: "Turn release notes into a concise announcement.", len: "0:15", fmt: "portrait", fmtLabel: "Portrait 9:16", wash: "#D3F6E3", img: "assets/templates/whats-new.jpg", inputs: "release notes or 3 updates" },
+  { id: "stat", name: "Stat highlight", desc: "Make a customer result, metric, or report shareable.", len: "0:15", fmt: "portrait", fmtLabel: "Portrait 9:16", wash: "#FFF2BE", img: "assets/templates/stat-highlight.jpg", inputs: "one metric and its source" }
+];
+const PILL = { "Ready to create": ["#F4F4F5", "#52525B"], "Finish your brief": ["#FEF3C7", "#B45309"], "Draft storyboard": ["#F4F4F5", "#3F3F46"], "Rendering draft": ["#EBF5FF", "#4F46E5"], "Ready for review": ["#EDE9FE", "#5B21B6"], "Revisions needed": ["#FFEDD5", "#B45309"], "Approved": ["#DCFCE7", "#16803C"], "Render needs attention": ["#FFEDD5", "#C2410C"] };
+const SAMPLES = [
+  { id: "p1", name: "Smart Profit Dashboard", template: "Feature spotlight", kit: "Acme", edited: "2 min ago", state: "Draft storyboard", meta: "16:9 · 0:30", img: "assets/templates/feature-spotlight.jpg" },
+  { id: "p2", name: "October release", template: "What’s new", kit: "Acme", edited: "Yesterday", state: "Ready for review", meta: "9:16 · 0:15", img: "assets/templates/whats-new.jpg" },
+  { id: "p3", name: "Acme launch film", template: "Product launch", kit: "Acme", edited: "Sep 28", state: "Approved", meta: "16:9 · 0:30", img: "assets/templates/product-launch.jpg" },
+  { id: "p4", name: "Refund savings stat", template: "Stat highlight", kit: "Acme", edited: "Sep 26", state: "Render needs attention", meta: "9:16 · 0:15", img: "assets/templates/stat-highlight.jpg", issue: "We could not render Scene 3 because the uploaded screenshot could not be read. Replace the image and try again." },
+  { id: "p5", name: "Inventory sync spotlight", template: "Feature spotlight", kit: "No brand kit", edited: "Sep 20", state: "Finish your brief", meta: "16:9 · 0:30", img: "assets/templates/feature-spotlight.jpg" },
+  { id: "p6", name: "Q2 customer report", template: "Stat highlight", kit: "Acme", edited: "Jul 2", state: "Approved", meta: "1:1 · 0:15", img: "assets/templates/stat-highlight.jpg", archived: true }
+];
+const SCENES = () => [
+  { id: "s1", kind: "hook", label: "Hook", headline: "Finally see what every sale is really worth.", copy: "", dur: 3, min: 2, max: 4, limit: 60, motion: "Calm fade", removable: false, removed: false },
+  { id: "s2", kind: "problem", label: "Problem", headline: "Fees, refunds, and shipping hide your actual margin.", copy: "Most dashboards stop at revenue.", dur: 5, min: 4, max: 6, limit: 70, motion: "Slide up", removable: true, removed: false },
+  { id: "s3", kind: "product", label: "Product", headline: "Smart Profit Dashboard", copy: "Dashboard screenshot with animated profit breakdown.", shot: "profit-dashboard.png", dur: 8, min: 6, max: 10, limit: 40, motion: "Push in", removable: false, removed: false },
+  { id: "s4", kind: "benefit", label: "Benefit", headline: "See real profitability at a glance.", copy: "Tracks fees, refunds, shipping, and margin in one dashboard.", dur: 8, min: 4, max: 8, limit: 60, motion: "Calm fade", removable: true, removed: false },
+  { id: "s5", kind: "cta", label: "CTA", headline: "See your real margins", copy: "acme.com/profit", dur: 6, min: 4, max: 6, limit: 28, motion: "Calm fade", removable: false, removed: false }
+];
+const SHORTER = { s1: "See what every sale is worth.", s2: "Hidden costs eat your margin.", s3: "Profit, after everything.", s4: "Real profit, at a glance.", s5: "See your margins" };
+const SHOTS = () => [
+  { id: "sh1", name: "profit-dashboard.png", purpose: "Dashboard", status: "verified", info: "2880 × 1800 · 1.6 MB" },
+  { id: "sh2", name: "connect-store.png", purpose: "Setup", status: "uploading", progress: 22, info: "2560 × 1600 · 1.1 MB" },
+  { id: "sh3", name: "margin-report.jpg", purpose: "Report", status: "rejected", reason: "This image is 480 × 300. Use a screenshot at least 1280 px wide so text stays sharp at 1080p." }
+];
+const TEMPLATES = [
+  { name: "Product launch", cat: "Product launch", img: "assets/templates/product-launch.jpg", bestFor: "Announcing a new product or a major relaunch.", scenes: ["Hook", "Product reveal", "Three features", "Benefit", "CTA"], formats: "16:9, 9:16", lengths: "30 or 45 sec", fields: "8 editable fields · headlines up to 64 characters", owner: "Greedy Motion", goal: "launch" },
+  { name: "Feature spotlight", cat: "Feature spotlight", img: "assets/templates/feature-spotlight.jpg", bestFor: "Showing one feature with a real product screenshot.", scenes: ["Hook", "Problem", "Product", "Benefit", "CTA"], formats: "16:9, 9:16", lengths: "30 sec", fields: "6 editable fields · 1–3 screenshots", owner: "Greedy Motion", goal: "feature" },
+  { name: "What’s new", cat: "Release announcement", img: "assets/templates/whats-new.jpg", bestFor: "Release notes, monthly updates, and changelogs.", scenes: ["Version", "Release title", "Three updates", "Closing line", "CTA"], formats: "9:16, 16:9", lengths: "15 sec", fields: "7 editable fields · updates up to 44 characters", owner: "Greedy Motion", goal: "whatsnew" },
+  { name: "Stat highlight", cat: "Stat highlight", img: "assets/templates/stat-highlight.jpg", bestFor: "Leading with one proof point or metric.", scenes: ["Setup", "Count-up", "Why it matters", "Source", "CTA"], formats: "9:16, 1:1", lengths: "15 sec", fields: "6 editable fields · number must come from your data", owner: "Greedy Motion", goal: "stat" },
+  { name: "Acme spotlight", cat: "Feature spotlight", img: "assets/templates/feature-spotlight.jpg", bestFor: "Acme’s house style for feature videos. Layout and timing locked.", scenes: ["Hook", "Product", "Benefit", "CTA"], formats: "16:9", lengths: "20 sec", fields: "4 editable fields · published from Studio", owner: "Team · Mara Chen", goal: "feature" }
+];
+const CATS = ["All", "Product launch", "Feature spotlight", "Release announcement", "Stat highlight", "Customer story", "Sales follow-up", "Social teaser", "Webinar promo"];
+const STRIPES = "repeating-linear-gradient(135deg,#EEEFF2 0 8px,#F7F7F9 8px 16px)";
+const LIB = {
+  "Screenshots": [["profit-dashboard.png", "2880 × 1800 · Dashboard", "png"], ["connect-store.png", "2560 × 1600 · Setup", "png"], ["orders-table.png", "2880 × 1800 · Report", "png"], ["mobile-summary.png", "1170 × 2532 · Mobile", "png"]],
+  "Logos": [["acme-logo.svg", "Primary · light backgrounds", "svg"], ["acme-logo-white.svg", "Reversed · dark backgrounds", "svg"]],
+  "Brand kits": [["Acme", "Inter · #4F46E5 · Light", "kit"]],
+  "Voiceovers": [["Smart Profit — Kore", "0:27 · Revision 3", "wav"], ["October release — Puck", "0:14 · Approved", "wav"]],
+  "Music tracks": [["Calm and minimal 01", "0:30 · Generated", "wav"], ["Bright and modern 02", "0:15 · Generated", "wav"]],
+  "Approved clips": [["Acme launch film", "16:9 · 0:30 · Rev 6", "mp4", "assets/templates/product-launch.jpg"], ["Q2 customer report", "1:1 · 0:15 · Rev 2", "mp4", "assets/templates/stat-highlight.jpg"]],
+  "Templates": [["Acme spotlight", "Published by Mara Chen", "tpl", "assets/templates/feature-spotlight.jpg"]]
+};
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const stage = (i, cur, label, detail) => {
+  const done = i < cur, active = i === cur;
+  return { label, detail: detail || "", mark: done ? "✓" : "", fg: done || active ? "#18181B" : "#A1A1AA", ring: done ? "#16803C" : active ? "#4F46E5" : "#D4D4D8", fill: done ? "#16803C" : active ? "#EBF5FF" : "#fff", anim: active ? "relayPulse 1.6s ease-in-out infinite" : "none", showBar: false };
+};
+
+class Component extends DCLogic {
+  state = {
+    screen: "projects", hasProjects: !(this.props.newAccount ?? true), tab: "all", menuFor: null, projects: SAMPLES.map(p => ({ ...p })),
+    toast: null, toastT: 0,
+    projectName: "Smart Profit Dashboard", step: 1, maxStep: 1, goal: "feature", format: "landscape",
+    brief: { name: "Smart Profit Dashboard", audience: "Ecommerce operators and finance teams", message: "See true profit after fees, refunds, and shipping.", cta: "See your real margins", claims: "Tracks fees, refunds, shipping, and margin in one dashboard.", url: "acme.com/profit", notes: "" },
+    voPref: "No voiceover", musicPref: "Calm and minimal", out: { vo: true, visual: true }, src: "generate", prompt: "Feature video for Acme’s Smart Profit Dashboard. For ecommerce operators. It shows true profit after fees, refunds, and shipping. End with: See your real margins.", ownScript: "", scr: "idle", scrT: 0, lines: [], reviewed: false, shots: SHOTS(), dragId: null,
+    kit: null, kitPicker: false, theme: "neutral", motionStyle: "Calm", logoPlace: "open-end", music: true, voice: false, voiceName: "Kore · Warm, even", previewKind: "hook",
+    ob: "choose", obMode: "import", obStage: 0, obT: 0, obUrl: "acme.com",
+    kd: { name: "Acme", url: "acme.com", primary: "#4F46E5", accent: "#14B8A6", background: "#FFFFFF", text: "#0F172A", heading: "Inter", body: "Inter", mode: "Light", description: "Acme helps ecommerce teams see the real profit of every order.", approved: "Smart Profit Dashboard, true profit", prohibited: "guaranteed, instant, #1" },
+    sb: "idle", sbStage: 0, sbT: 0, scenes: SCENES(), t: 9, playing: false,
+    ask: "closed", askText: "", askTarget: "Whole scene", askT: 0, proposal: null,
+    revision: 3, approved: false, render: "none", rStage: 0, rT: 0, frames: 0, failedOnce: false, notice: null,
+    tplCat: "All", libTab: "Screenshots"
+  };
+
+  componentDidMount() { this.timer = setInterval(() => this.tick(), 100); }
+  componentWillUnmount() { clearInterval(this.timer); }
+  componentDidUpdate(prev) { if (prev.newAccount !== this.props.newAccount) this.setState({ hasProjects: !(this.props.newAccount ?? true), screen: "projects" }); }
+
+  timeline(scenes) { let acc = 0; return scenes.filter(s => !s.removed).map(s => { const st = acc; acc += s.dur; return { ...s, start: st, end: acc }; }); }
+  total(scenes) { return scenes.filter(s => !s.removed).reduce((a, s) => a + s.dur, 0); }
+
+  tick() {
+    const s = this.state, p = {};
+    let dirty = false;
+    if (s.playing) { const tot = this.total(s.scenes); const nt = s.t + 0.1; p.t = nt >= tot ? 0 : nt; if (nt >= tot) p.playing = false; dirty = true; }
+    if (s.shots.some(x => x.status === "uploading")) { p.shots = s.shots.map(x => x.status !== "uploading" ? x : (x.progress + 4 >= 100 ? { ...x, status: "verified", progress: 100 } : { ...x, progress: x.progress + 4 })); dirty = true; }
+    if (s.screen === "onboard-brand" && s.ob === "reading") { const n = s.obT + 1; p.obT = n; p.obStage = Math.floor(n / 6); if (p.obStage >= 4) { p.ob = "review"; } dirty = true; }
+    if (s.sb === "generating") { const n = s.sbT + 1; p.sbT = n; p.sbStage = Math.floor(n / 7); if (p.sbStage >= 4) { p.sb = "ready"; p.t = 0; } dirty = true; }
+    if (s.scr === "writing") { const n = s.scrT + 1; p.scrT = n; if (n >= 14) { p.scr = "ready"; p.lines = [["Hook", "Finally see what every sale is really worth.", "Ever wondered what each sale actually makes you?"], ["Problem", "Fees, refunds, and shipping hide your margin.", "Fees, refunds, and shipping quietly eat into it."], ["Product", "Smart Profit Dashboard", "Smart Profit Dashboard shows what’s left after all of it."], ["Benefit", "See real profit at a glance.", "Real profit, for every order, in one place."], ["CTA", "See your real margins", "Go see your real margins at acme.com."]].map(([label, onscreen, vo]) => ({ label, onscreen, vo })); p.reviewed = false; } dirty = true; }
+    if (s.ask === "thinking") { const n = s.askT + 1; p.askT = n; if (n >= 12) { p.ask = "closed"; p.proposal = this.buildProposal(s); } dirty = true; }
+    if (s.render === "rendering") {
+      dirty = true; const n = s.rT + 1; p.rT = n;
+      const totalFrames = this.total(s.scenes) * 30;
+      if (s.rStage === 0 && n >= 8) { p.rStage = 1; p.rT = 0; }
+      if (s.rStage === 1) {
+        const f = Math.min(totalFrames, s.frames + 24); p.frames = f;
+        const failAt = (this.timeline(s.scenes).find(x => x.id === "s3") || { start: 8 }).start * 30 + 40;
+        if ((this.props.failRender ?? false) && !s.failedOnce && f >= failAt) { p.render = "failed"; p.failedOnce = true; }
+        else if (f >= totalFrames) { p.rStage = 2; p.rT = 0; }
+      }
+      if (s.rStage === 2 && n >= (s.music || s.voice ? 8 : 1)) { p.rStage = 3; p.rT = 0; }
+      if (s.rStage === 3 && n >= 7) { p.rStage = 4; p.render = "ready"; p.t = 0; if (s.step === 5) { p.step = 6; p.maxStep = 6; } p.toast = `Draft ready. Leave comments on the timeline to edit.`; p.toastT = 0; }
+    }
+    if (s.toast) { const n = s.toastT + 1; p.toastT = n; if (n > 32) p.toast = null; dirty = true; }
+    if (dirty) this.setState(p);
+  }
+
+  say(msg) { this.setState({ toast: msg, toastT: 0 }); }
+  afterEdit(s) {
+    if (s.approved) return { approved: false, revision: s.revision + 1, render: "stale", notice: `Revision ${s.revision} stays approved and locked. This edit started Revision ${s.revision + 1} as a new draft. Render and approve it again.` };
+    if (s.render === "ready") return { render: "stale", revision: s.revision + 1 };
+    return {};
+  }
+  editScene(id, patch) { this.setState(s => ({ scenes: s.scenes.map(x => x.id === id ? { ...x, ...patch } : x), ...this.afterEdit(s) })); }
+  seek(t) { this.setState({ t: Math.max(0, t) }); }
+
+  buildProposal(s) {
+    const tl = this.timeline(s.scenes);
+    const cur = tl.find(x => s.t >= x.start && s.t < x.end) || tl[tl.length - 1];
+    const n = tl.indexOf(cur) + 1, txt = s.askText.toLowerCase(), at = fmt(s.t);
+    const base = { at, logoBefore: s.logoPlace, logoAfter: s.logoPlace };
+    if (/long|dashboard|hold|linger/.test(txt)) {
+      const s3 = s.scenes.find(x => x.id === "s3"), s4 = s.scenes.find(x => x.id === "s4");
+      const add = Math.min(2, s3.max - s3.dur, s4.dur - s4.min);
+      return { ...base, type: "dur", scope: "Scenes 3 and 4", summary: `The dashboard stays on screen ${add} seconds longer. Scene 4 is ${add} seconds shorter, so the video stays ${fmt(this.total(s.scenes))}.`, before: s3, after: s3, changes: [`Scene 3 duration: ${s3.dur}s → ${s3.dur + add}s`, `Scene 4 duration: ${s4.dur}s → ${s4.dur - add}s`, "Copy, screenshots, and motion unchanged"], patch: [["s3", { dur: s3.dur + add }], ["s4", { dur: s4.dur - add }]] };
+    }
+    if (/calm|transition|smooth|slow/.test(txt)) {
+      return { ...base, type: "motion", scope: `Scene ${n} only`, summary: `Scene ${n} now enters with a slower, softer fade.`, before: cur, after: cur, changes: [`Scene ${n} motion: ${cur.motion} → Calm fade`, "Transition length: 0.35s → 0.6s", "Easing: standard → ease-in-out"], patch: [[cur.id, { motion: "Calm fade" }]] };
+    }
+    if (/green|colou?r|teal/.test(txt)) {
+      const s5 = s.scenes.find(x => x.id === "s5");
+      return { ...base, type: "color", scope: "Scene 5 only", summary: "Acme’s kit has no green. Greedy Motion used your approved accent, Teal #14B8A6, for the button and switched its text to dark ink to keep contrast.", before: s5, after: { ...s5, ctaColor: "#14B8A6", ctaFg: "#0F172A" }, changes: ["Scene 5 button: Primary #4F46E5 → Accent #14B8A6", "Button text: white → #0F172A (contrast 7.9:1, passes AA)"], patch: [["s5", { ctaColor: "#14B8A6", ctaFg: "#0F172A" }]] };
+    }
+    if (/logo/.test(txt)) {
+      const next = s.logoPlace === "corner" ? "open-end" : "corner";
+      const s1 = s.scenes.find(x => x.id === "s1");
+      return { ...base, type: "logo", scope: "All scenes", summary: next === "corner" ? "The Acme logo now appears from 0:00 in the top-left corner of every scene." : "The logo appears in the opening and closing scenes.", before: s1, after: s1, logoAfter: next, changes: [`Logo placement: ${this.logoLabel(s.logoPlace)} → ${this.logoLabel(next)}`, "No copy or timing changed"], logo: next };
+    }
+    const short = SHORTER[cur.id];
+    return { ...base, type: "copy", scope: `Scene ${n} only`, summary: `Shortened the Scene ${n} headline so it reads in under a second.`, before: cur, after: { ...cur, headline: short }, changes: [`Scene ${n} headline: “${cur.headline}” → “${short}”`, `${cur.headline.length} → ${short.length} characters (limit ${cur.limit})`, "Timing, screenshot, and motion unchanged"], patch: [[cur.id, { headline: short }]] };
+  }
+  logoLabel(v) { return { "open-end": "Opening and end", end: "End only", corner: "Corner throughout" }[v]; }
+
+  openProject(p) {
+    const base = { screen: "create", projectName: p.name, menuFor: null, scenes: SCENES(), kit: p.kit === "Acme" ? "acme" : null, proposal: null, ask: "closed", notice: null, approved: false, failedOnce: false, t: 9, playing: false };
+    const map = {
+      "Draft storyboard": { step: 4, maxStep: 4, sb: "ready", render: "none" },
+      "Ready for review": { step: 6, maxStep: 6, sb: "ready", render: "ready", format: "portrait" },
+      "Approved": { step: 6, maxStep: 6, sb: "ready", render: "ready", approved: true, revision: 6 },
+      "Render needs attention": { step: 5, maxStep: 5, sb: "ready", render: "failed", failedOnce: true, format: "portrait" },
+      "Finish your brief": { step: 2, maxStep: 2, sb: "idle", render: "none", brief: { ...this.state.brief, name: "Inventory sync", cta: "", message: "" } }
+    };
+    this.setState({ format: "landscape", revision: 3, ...base, ...(map[p.state] || {}) });
+  }
+
+  renderVals() {
+    const s = this.state, P = this.props;
+    const set = (k) => (e) => this.setState({ [k]: e.target.value });
+    const go = (screen) => () => this.setState({ screen, menuFor: null });
+    const isCreate = s.screen === "create";
+    const branded = s.kit === "acme";
+    const portrait = s.format === "portrait";
+    const tl = this.timeline(s.scenes), total = this.total(s.scenes);
+    const curRaw = tl.find(x => s.t >= x.start && s.t < x.end) || tl[tl.length - 1];
+    const curIdx = tl.indexOf(curRaw);
+
+    // projects
+    const visible = s.projects.filter(p => {
+      if (s.tab === "archived") return p.archived;
+      if (p.archived) return false;
+      if (s.tab === "drafts") return ["Draft storyboard", "Finish your brief", "Revisions needed", "Render needs attention", "Rendering draft"].includes(p.state);
+      if (s.tab === "review") return p.state === "Ready for review";
+      if (s.tab === "approved") return p.state === "Approved";
+      return true;
+    });
+    const tabDefs = [["all", "All projects"], ["drafts", "Drafts"], ["review", "Ready for review"], ["approved", "Approved"], ["archived", "Archived"]];
+    const countFor = (k) => s.projects.filter(p => k === "archived" ? p.archived : !p.archived && (k === "all" || (k === "drafts" && ["Draft storyboard", "Finish your brief", "Render needs attention"].includes(p.state)) || (k === "review" && p.state === "Ready for review") || (k === "approved" && p.state === "Approved"))).length;
+    const projects = visible.map(p => {
+      const [bg, fg] = PILL[p.state] || PILL["Draft storyboard"];
+      const isApproved = p.state === "Approved";
+      return { ...p, pillBg: bg, pillFg: fg, hasIssue: !!p.issue, imgOpacity: p.archived ? 0.55 : 1, menuOpen: s.menuFor === p.id,
+        open: () => this.openProject(p),
+        toggleMenu: () => this.setState({ menuFor: s.menuFor === p.id ? null : p.id }),
+        actions: [
+          { label: "Open", run: () => this.openProject(p) },
+          { label: "Duplicate", run: () => this.setState(st => ({ menuFor: null, projects: [{ ...p, id: p.id + "c" + Date.now(), name: p.name + " copy", state: "Draft storyboard", edited: "Just now", archived: false, issue: null }, ...st.projects] })) },
+          { label: "Rename", run: () => { const n = window.prompt("Rename project", p.name); if (n) this.setState(st => ({ menuFor: null, projects: st.projects.map(x => x.id === p.id ? { ...x, name: n } : x) })); else this.setState({ menuFor: null }); } },
+          { label: "Download approved video", disabled: !isApproved, run: () => { this.setState({ menuFor: null }); this.say(`Downloading ${p.name.toLowerCase().replace(/\s+/g, "-")}.mp4`); } },
+          { label: p.archived ? "Restore" : "Archive", run: () => this.setState(st => ({ menuFor: null, projects: st.projects.map(x => x.id === p.id ? { ...x, archived: !x.archived } : x) })) }
+        ] };
+    });
+
+    // project state label
+    let stateLabel = "Ready to create";
+    if (s.approved) stateLabel = "Approved";
+    else if (s.render === "rendering") stateLabel = "Rendering draft";
+    else if (s.render === "failed") stateLabel = "Render needs attention";
+    else if (s.render === "ready") stateLabel = "Ready for review";
+    else if (s.render === "stale") stateLabel = "Revisions needed";
+    else if (s.sb === "ready") stateLabel = "Draft storyboard";
+    else if (s.step >= 2) stateLabel = "Finish your brief";
+    const [spBg, spFg] = PILL[stateLabel];
+
+    // stepper
+    const labels = ["Goal", "Script", "Brand", "Storyboard", "Render", "Review"];
+    const steps = labels.map((label, i) => {
+      const n = i + 1, done = n < s.step && n <= s.maxStep, current = n === s.step;
+      return { label, mark: done ? "✓" : String(n), locked: n > s.maxStep, notLast: n < 6,
+        fg: current ? "#18181B" : done ? "#52525B" : "#A1A1AA", weight: current ? 700 : 600,
+        dotBg: current ? "linear-gradient(180deg,#168BFF,#0A6CFF)" : done ? "#18181B" : "#fff", dotFg: current || done ? "#fff" : "#A1A1AA",
+        dotLine: current || done ? "transparent" : "#E4E4E7", dotShadow: current ? "0 0 0 4px rgba(71,157,255,.25)" : "none",
+        lineColor: done ? "#18181B" : "#E4E4E7", go: () => this.setState({ step: n, ask: "closed" }) };
+    });
+    const next = () => this.setState(st => ({ step: st.step + 1, maxStep: Math.max(st.maxStep, st.step + 1) }));
+    const back = () => this.setState(st => ({ step: Math.max(1, st.step - 1) }));
+
+    // brief
+    const b = s.brief;
+    const bf = (key, label, req, placeholder, multiline) => ({ key, label, tag: req ? (b[key].trim() ? "Required" : "Required · missing") : "Optional", tagFg: req && !b[key].trim() ? "#B45309" : "#A1A1AA", placeholder, multiline: !!multiline, single: !multiline, value: b[key], line: req && !b[key].trim() ? "#FCD34D" : "#E4E4E7", onChange: (e) => { const v = e.target.value; this.setState(st => ({ brief: { ...st.brief, [key]: v } })); } });
+    const briefFields = [
+      bf("name", "Product or feature name", true, "Smart Profit Dashboard"),
+      bf("audience", "Who is it for?", true, "Ecommerce operators and finance teams"),
+      bf("message", "What should viewers remember?", true, "One sentence, in your customer’s words", true),
+      bf("cta", "Call to action", true, "See your real margins"),
+      bf("claims", "Approved claims", false, "Only these claims can appear on screen", true),
+      bf("url", "Product URL", false, "acme.com/profit"),
+      bf("notes", "Release notes", false, "Paste notes and Greedy Motion picks the key points", true)
+    ];
+    const verified = s.shots.filter(x => x.status === "verified");
+    const missing = [["name", "product name"], ["audience", "audience"], ["message", "main message"], ["cta", "call to action"]].filter(([k]) => !b[k].trim()).map(([, l]) => l);
+    if (!verified.length) missing.push("a verified screenshot");
+    const scriptMissing = [];
+    if (!s.out.vo && !s.out.visual) scriptMissing.push("choose voiceover or on-screen text");
+    if (!s.lines.length) scriptMissing.push("a script");
+    else if (!s.reviewed) scriptMissing.push("confirm the script");
+    if (!verified.length) scriptMissing.push("a verified screenshot");
+    const briefOk = scriptMissing.length === 0;
+    const shots = s.shots.map(x => ({ ...x,
+      uploading: x.status === "uploading", rejected: x.status === "rejected",
+      status: x.status === "verified" ? `✓ Verified · ${x.info}` : x.status === "uploading" ? `Uploading · ${x.progress}%` : "Could not use this image",
+      statusFg: x.status === "verified" ? "#16803C" : x.status === "uploading" ? "#4F46E5" : "#C2410C",
+      line: x.status === "rejected" ? "#FED7AA" : s.dragId === x.id ? "#168BFF" : "#E4E4E7", bg: x.status === "rejected" ? "#FFFCF8" : "#fff",
+      bar: this.bar(x.progress, false),
+      onPurpose: (e) => { const v = e.target.value; this.setState(st => ({ shots: st.shots.map(y => y.id === x.id ? { ...y, purpose: v } : y) })); },
+      remove: () => this.setState(st => ({ shots: st.shots.filter(y => y.id !== x.id) })),
+      replace: () => this.setState(st => ({ shots: st.shots.map(y => y.id === x.id ? { ...y, name: "margin-report@2x.png", status: "uploading", progress: 8, info: "2880 × 1800 · 1.4 MB" } : y) })),
+      onDragStart: (e) => { e.dataTransfer.effectAllowed = "move"; this.setState({ dragId: x.id }); },
+      onDragOver: (e) => e.preventDefault(),
+      onDrop: (e) => { e.preventDefault(); this.setState(st => { const from = st.shots.findIndex(y => y.id === st.dragId), to = st.shots.findIndex(y => y.id === x.id); if (from < 0 || from === to) return { dragId: null }; const arr = [...st.shots]; const [m] = arr.splice(from, 1); arr.splice(to, 0, m); return { shots: arr, dragId: null }; }); }
+    }));
+
+    // brand step
+    const opt = (cur, v, label, key) => ({ label, bg: cur === v ? "#fff" : "transparent", fg: cur === v ? "#18181B" : "#71717A", shadow: cur === v ? "0 1px 2px rgba(24,24,27,.12)" : "none", pick: () => this.setState({ [key]: v }) });
+    const kitOptions = [
+      { label: "Acme brand kit", sub: "Logo, #4F46E5, Inter, light mode", v: "acme" },
+      { label: "Use a Greedy Motion theme", sub: "Pick from Greedy Motion’s tested themes", v: "theme" },
+      { label: "Continue without branding", sub: "Neutral styling. You can add a kit later.", v: "none" },
+      { label: "Add a brand kit", sub: "Import from your website", v: "add" }
+    ].map(o => { const on = (o.v === "acme" && s.kit === "acme") || (o.v === "theme" && s.kit === "theme") || (o.v === "none" && s.kit === null); return { ...o, mark: on ? "✓" : "", line: on ? "#168BFF" : "#E4E4E7", bg: on ? "#F2F8FF" : "#fff", pick: () => { if (o.v === "add") return this.setState({ screen: "onboard-brand", ob: "choose" }); this.setState({ kit: o.v === "none" ? null : o.v, kitPicker: false }); } }; });
+    const themes = [["neutral", "Neutral"], ["editorial", "Editorial"], ["blue-professional", "Blue pro"], ["code-editorial", "Code"]].map(([id, label]) => ({ label, img: `assets/themes/${id}.jpg`, line: s.theme === id ? "#4F46E5" : "#E4E4E7", pick: () => this.setState({ theme: id }) }));
+    const brandControls = [
+      { label: "Motion style", options: [opt(s.motionStyle, "Calm", "Calm", "motionStyle"), opt(s.motionStyle, "Kinetic", "Kinetic", "motionStyle"), opt(s.motionStyle, "Editorial", "Editorial", "motionStyle")] },
+      { label: "Logo placement", options: [opt(s.logoPlace, "open-end", "Opening and end", "logoPlace"), opt(s.logoPlace, "end", "End only", "logoPlace"), opt(s.logoPlace, "corner", "Corner", "logoPlace")] }
+    ];
+    const tg = (on, label, sub, key) => ({ label, sub, track: on ? "linear-gradient(180deg,#168BFF,#0A6CFF)" : "#D4D4D8", knob: on ? "19px" : "3px", toggle: () => this.setState(st => ({ [key]: !st[key] })) });
+    const pk = ["hook", "product", "cta"];
+    const previewScene = s.scenes.find(x => x.kind === s.previewKind);
+    const previewPicks = [["hook", "Opening"], ["product", "Product"], ["cta", "End card"]].map(([k, l]) => ({ label: l, line: s.previewKind === k ? "#18181B" : "#E4E4E7", bg: s.previewKind === k ? "#fff" : "transparent", pick: () => this.setState({ previewKind: k }) }));
+
+    // scenes
+    const vm = (x) => {
+      const t = tl.find(y => y.id === x.id);
+      const n = t ? tl.indexOf(t) + 1 : null;
+      const over = x.headline.length > x.limit;
+      return { ...x, n: n ? String(n).padStart(2, "0") : "—", title: n ? `Scene ${n} — ${x.label}` : `${x.label} · removed`, range: t ? `${fmt(t.start)}–${fmt(t.end)}` : "Not in video",
+        isCur: curRaw && x.id === curRaw.id, hasShot: x.kind === "product", count: `${x.headline.length}/${x.limit}`, countFg: over ? "#C2410C" : "#A1A1AA",
+        durLabel: `${x.dur}s`, limits: `${x.min}–${x.max}s`, noUp: x.dur >= x.max, noDown: x.dur <= x.min,
+        onSeek: () => t && this.seek(t.start + 0.01),
+        onHeadline: (e) => this.editScene(x.id, { headline: e.target.value }),
+        onCopy: (e) => this.editScene(x.id, { copy: e.target.value }),
+        onShot: (e) => this.editScene(x.id, { shot: e.target.value }),
+        onMotion: (e) => this.editScene(x.id, { motion: e.target.value }),
+        onDurUp: () => this.editScene(x.id, { dur: Math.min(x.max, x.dur + 1) }),
+        onDurDown: () => this.editScene(x.id, { dur: Math.max(x.min, x.dur - 1) }),
+        onRemove: () => this.editScene(x.id, { removed: !x.removed })
+      };
+    };
+    const sbCards = s.scenes.map(x => { const v = vm(x); return { ...v, expanded: v.isCur && !x.removed, removable: x.removable && !x.removed, line: v.isCur ? "#168BFF" : "#E4E4E7", shadow: v.isCur ? "0 14px 30px -18px rgba(79,70,229,.5)" : "none", opacity: x.removed ? 0.55 : 1 }; });
+    const cur = curRaw ? vm(s.scenes.find(x => x.id === curRaw.id)) : {};
+    const strip = tl.map(x => { const v = vm(x); return { ...v, line: v.isCur ? "#168BFF" : "#E4E4E7", bg: v.isCur ? "linear-gradient(135deg,#EBF5FF,#F5F3FF)" : "rgba(255,255,255,.85)" }; });
+
+    // render
+    const totalFrames = total * 30;
+    const rStageList = ["Preparing composition", "Rendering frames", "Adding audio", "Uploading draft", "Ready for review"].map((l, i) => {
+      const st = stage(i, s.rStage, l);
+      if (i === 1 && s.rStage >= 1) st.detail = `${s.frames} / ${totalFrames} frames`;
+      if (i === 1 && s.rStage === 1) st.showBar = true;
+      if (i === 2 && !(s.music || s.voice) && s.rStage > 2) st.detail = "Skipped · no audio";
+      return st;
+    });
+    const startRender = () => this.setState(st => ({ step: 5, maxStep: Math.max(st.maxStep, 5), render: "rendering", rStage: 0, rT: 0, frames: 0, playing: false, notice: null }));
+    const renderTitle = { none: "Render draft", stale: "Render draft", rendering: "Rendering draft", failed: "Render needs attention", ready: "Draft ready", approved: "Approved" }[s.approved ? "approved" : s.render];
+    const renderShort = s.approved ? `Approved · Revision ${s.revision}` : { none: "Not rendered yet", stale: "Out of date · changes since last render", rendering: "Rendering draft", failed: "Render needs attention", ready: `Ready for review · Revision ${s.revision}` }[s.render];
+
+    return {
+      ambient: this.ambient(), acctOpen: !!s.acctOpen, toggleAcct: () => this.setState({ acctOpen: !s.acctOpen }),
+      indeterminate: React.createElement("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, height: 2, overflow: "hidden", background: "rgba(199,210,254,.4)" } }, React.createElement("div", { style: { width: "40%", height: "100%", background: "linear-gradient(90deg,transparent,#168BFF,#0A6CFF,transparent)", animation: "relaySheen 1.4s ease-in-out infinite" } })),
+      showTopbar: !isCreate && s.screen !== "onboard-brand",
+      nav: [["projects", "Projects"], ["templates", "Templates"], ["brandkits", "Brand kits"], ["library", "Library"]].map(([k, label]) => ({ label, bg: s.screen === k ? "rgba(255,255,255,.9)" : "transparent", fg: s.screen === k ? "#18181B" : "#71717A", go: go(k) })),
+      goProjects: go("projects"),
+      isProjects: s.screen === "projects", noProjects: !s.hasProjects, hasProjects: s.hasProjects,
+      createVideo: () => this.setState({ screen: s.kit ? "create" : "onboard-brand", ob: "choose", step: 1, maxStep: 1, sb: "idle", sbStage: 0, sbT: 0, render: "none", approved: false, proposal: null, notice: null, scenes: SCENES(), shots: SHOTS(), projectName: "Smart Profit Dashboard", revision: 1, failedOnce: false, t: 0 }),
+      loadSamples: () => this.setState({ hasProjects: true, kit: "acme" }),
+      tabs: tabDefs.map(([k, label]) => ({ label, count: countFor(k), line: s.tab === k ? "#18181B" : "transparent", fg: s.tab === k ? "#18181B" : "#71717A", go: () => this.setState({ tab: k, menuFor: null }) })),
+      projects, projectsEmptyTab: projects.length === 0,
+
+      isOnboardBrand: s.screen === "onboard-brand", obChoose: s.ob === "choose", obReading: s.ob === "reading", obReview: s.ob === "review",
+      obUrl: s.obUrl, setObUrl: set("obUrl"),
+      runImport: () => this.setState({ ob: "reading", obT: 0, obStage: 0, obMode: "import" }),
+      startUpload: () => this.setState({ ob: "review", obMode: "upload" }),
+      skipBrand: () => this.setState({ screen: "create", kit: null }),
+      obBack: () => this.setState({ ob: "choose" }),
+      obStages: [`Opening ${s.obUrl}`, "Finding your logo", "Sampling colors", "Detecting fonts"].map((l, i) => stage(i, s.obStage, l)),
+      obTitle: s.obMode === "import" ? "We found your logo, colors, and heading font." : "Set up your brand kit",
+      obSubtitle: s.obMode === "import" ? "These are suggestions. Edit anything before saving." : "Upload a logo, then set colors and fonts.",
+      kitPrimary: s.kd.primary, kitName: s.kd.name || "Your brand",
+      kitRows: [["name", "Name"], ["url", "Website"], ["logo", "Logo"], ["primary", "Primary"], ["accent", "Accent"], ["background", "Background"], ["text", "Text"], ["heading", "Heading"], ["body", "Body"], ["mode", "Light / dark"], ["description", "Description"], ["approved", "Approved terms"], ["prohibited", "Prohibited claims"]].map(([k, label]) => {
+        const isColor = ["primary", "accent", "background", "text"].includes(k);
+        const imp = s.obMode === "import";
+        const value = k === "logo" ? (imp ? "acme-logo.svg" : "") : s.kd[k];
+        const note = k === "logo" ? (imp ? "✓ Found in site header" : "Upload PNG or SVG") : imp ? (["approved", "prohibited"].includes(k) ? "Optional" : isColor ? "From site CSS" : ["heading", "body"].includes(k) ? "Google font" : "Suggested") : (["approved", "prohibited", "description", "accent"].includes(k) ? "Optional" : "");
+        return { label, isColor, value, note, placeholder: label, noteFg: note.startsWith("✓") ? "#16803C" : "#A1A1AA", onChange: (e) => { const v = e.target.value; if (k !== "logo") this.setState(st => ({ kd: { ...st.kd, [k]: v } })); } };
+      }),
+      saveKit: () => { this.setState({ kit: "acme", screen: "create", step: 1, maxStep: Math.max(1, s.maxStep) }); this.say(`${s.kd.name || "Your"} brand kit saved.`); },
+
+      isCreate, projectName: s.projectName, stateLabel, statePillBg: spBg, statePillFg: spFg,
+      revisionLabel: s.approved ? `Revision ${s.revision} · Locked` : `Draft revision ${s.revision} · Saved`,
+      canStudio: s.step >= 4 && s.sb === "ready", steps, next, back,
+      isStep1: isCreate && s.step === 1, isStep2: isCreate && s.step === 2, isStep3: isCreate && s.step === 3,
+      goals: GOALS.map(g => { const on = s.goal === g.id; return { ...g, cardBg: on ? `linear-gradient(${g.wash},${g.wash}) padding-box,linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%) border-box` : `linear-gradient(${g.wash},${g.wash}) padding-box,linear-gradient(${g.wash},${g.wash}) border-box`, shadow: on ? "0 22px 44px -22px rgba(79,70,229,.55)" : "none", radioLine: on ? "#4F46E5" : "#D4D4D8", radioBg: on ? "#4F46E5" : "#fff", radioMark: on ? "✓" : "", pick: () => this.setState({ goal: g.id, format: g.fmt }) }; }),
+      formats: [["landscape", "Landscape", "16:9", "16px", "10px"], ["portrait", "Portrait", "9:16", "9px", "14px"], ["square", "Square", "Soon", "12px", "12px"]].map(([id, label, ratio, w, h]) => ({ label, ratio, w, h, disabled: id === "square", bg: s.format === id ? "#fff" : "transparent", shadow: s.format === id ? "0 1px 2px rgba(24,24,27,.12)" : "none", pick: () => this.setState({ format: id }) })),
+      formatHint: (() => { const g = GOALS.find(x => x.id === s.goal); return `Recommended for ${g.name}: ${g.fmtLabel}, ${g.len}`; })(),
+      briefFields, shots,
+      outputs: [["vo", "Voiceover script", "A narrator reads it aloud. Pick a voice in the next step.", "♪", "#F1E6FF", "#5b2ca8"], ["visual", "On-screen text", "Short lines viewers read in each scene.", "Aa", "#CCE7FF", "#0058bd"]].map(([k, label, sub, icon, iconBg, iconFg]) => { const on = s.out[k]; return { label, sub, icon, iconBg, iconFg, line: on ? "#168BFF" : "#E1EAF4", bg: on ? "#F2F8FF" : "#fff", boxLine: on ? "#0A6CFF" : "#C9D6E4", boxBg: on ? "#0A6CFF" : "#fff", mark: on ? "✓" : "", toggle: () => this.setState(st => ({ out: { ...st.out, [k]: !st.out[k] }, voice: k === "vo" ? !st.out.vo : st.voice })) }; }),
+      srcTabs: [["generate", "Write it for me"], ["own", "I have a script"]].map(([k, label]) => ({ label, bg: s.src === k ? "#181d27" : "transparent", fg: s.src === k ? "#fff" : "#535862", go: () => this.setState({ src: k }) })),
+      srcGenerate: s.src === "generate", srcOwn: s.src === "own",
+      prompt: s.prompt, setPrompt: set("prompt"), promptEmpty: !s.prompt.trim() || s.scr === "writing", writeLabel: s.lines.length ? "Rewrite script" : "Write script",
+      writeScript: () => this.setState({ scr: "writing", scrT: 0 }), scriptWriting: s.scr === "writing",
+      ownScript: s.ownScript, setOwnScript: set("ownScript"), ownEmpty: !s.ownScript.trim(),
+      splitScript: () => { const parts = s.ownScript.split(/\n+|(?<=[.!?])\s+/).map(x => x.trim()).filter(Boolean).slice(0, 5); const names = ["Hook", "Problem", "Product", "Benefit", "CTA"]; this.setState({ lines: parts.map((t, i) => ({ label: names[i] || "Scene " + (i + 1), onscreen: t.length > 60 ? t.slice(0, 57) + "…" : t, vo: t })), reviewed: false, scr: "ready" }); },
+      hasScript: s.lines.length > 0 && s.scr !== "writing", showVo: s.out.vo, showVisual: s.out.visual,
+      scriptMeta: `${s.lines.length} scenes · ~${Math.round(s.lines.reduce((a2, l) => a2 + l.vo.split(" ").length, 0) / 2.6)}s spoken`,
+      scriptLines: s.lines.map((ln, i) => ({ ...ln, setOn: (e) => { const v = e.target.value; this.setState(st => ({ lines: st.lines.map((x, j) => j === i ? { ...x, onscreen: v } : x), reviewed: false })); }, setVo: (e) => { const v = e.target.value; this.setState(st => ({ lines: st.lines.map((x, j) => j === i ? { ...x, vo: v } : x), reviewed: false })); } })),
+      toggleReviewed: () => this.setState({ reviewed: !s.reviewed }), revLine: s.reviewed ? "#16803C" : "#C9D6E4", revBg: s.reviewed ? "#16803C" : "#fff", revMark: s.reviewed ? "✓" : "", voPref: s.voPref, setVoPref: set("voPref"), musicPref: s.musicPref, setMusicPref: set("musicPref"),
+      addShot: () => this.setState(st => ({ shots: [...st.shots, { id: "sh" + Date.now(), name: "mobile-summary.png", purpose: "Mobile", status: "uploading", progress: 4, info: "1170 × 2532 · 0.9 MB" }] })),
+      briefStatus: briefOk ? "Script confirmed. Ready to plan the storyboard." : `Still needed: ${scriptMissing.join(", ")}.`, briefStatusFg: briefOk ? "#16803C" : "#B45309", briefBlocked: !briefOk,
+      hasKit: s.kit === "acme", noKit: s.kit !== "acme", showKitOptions: s.kit !== "acme" || s.kitPicker, kitOptions, toggleKitPicker: () => this.setState({ kitPicker: !s.kitPicker }),
+      showThemes: s.kit === "theme", themes, brandControls,
+      audioToggles: [tg(s.music, "Music", "An original track generated for this video", "music"), tg(s.voice, "Voiceover", "Greedy Motion writes a short script from your brief", "voice")],
+      voiceOn: s.voice, voiceName: s.voiceName, setVoice: set("voiceName"),
+      previewScene, previewPicks, branded, portrait, logoPlace: s.logoPlace,
+      playerMax: portrait ? "300px" : "100%", compareMax: portrait ? "160px" : "100%",
+
+      sbIntro: isCreate && s.step === 4 && s.sb !== "ready", sbIdle: s.sb === "idle", sbGenerating: s.sb === "generating",
+      sbSummary: [{ k: "Goal", v: GOALS.find(g => g.id === s.goal).name }, { k: "Format", v: portrait ? "Portrait 9:16 · 0:30" : "Landscape 16:9 · 0:30" }, { k: "Brand", v: branded ? "Acme" : s.kit === "theme" ? "Greedy Motion theme" : "No branding" }, { k: "Screenshots", v: `${verified.length} verified` }],
+      createStoryboard: () => this.setState({ sb: "generating", sbT: 0, sbStage: 0 }),
+      sbStages: ["Reading your brief", "Matching screenshots to scenes", "Writing scene copy within template limits", "Checking copy against approved claims"].map((l, i) => stage(i, s.sbStage, l)),
+      workspace: isCreate && s.step >= 4 && s.step !== 6 && s.sb === "ready",
+      isReviewComments: isCreate && s.step === 6 && s.sb === "ready", notReview: s.step !== 6, shellH: isCreate && s.step === 6 && s.sb === "ready" ? "100vh" : "auto", reviewApproved: s.approved, onApproveReview: () => { this.setState({ approved: true }); this.say(`Revision ${s.revision} approved and locked.`); }, downloadDraft: () => this.say("Downloading smart-profit-dashboard.mp4"),
+      goRenderFromReview: () => startRender(),
+      onCommentAccept: () => this.setState(st => ({ revision: st.revision + 1, approved: false, render: st.render === "none" ? "none" : "stale" })),
+      isStep4: s.step === 4, isStep5: false, isStep6: s.step === 5,
+      sbMeta: `${tl.length} scenes · ${fmt(total)}`, sbCards, shotNames: verified.map(x => x.name),
+      curScene: curRaw, cur, curTitle: curRaw ? `Scene ${curIdx + 1} — ${curRaw.label}` : "",
+      strip, ticks: tl.slice(1).map(x => ({ left: `${(x.start / total) * 100}%` })),
+      playGlyph: s.playing ? "❚❚" : "▶", togglePlay: () => this.setState({ playing: !s.playing }),
+      timeNow: fmt(s.t), timeTotal: fmt(total), playPct: `${Math.min(100, (s.t / total) * 100)}%`,
+      scrub: (e) => { const r = e.currentTarget.getBoundingClientRect(); this.seek(((e.clientX - r.left) / r.width) * total); },
+      highlight: s.ask === "open" && s.askTarget !== "Whole scene",
+      notice: s.notice, clearNotice: () => this.setState({ notice: null }),
+
+      askClosed: s.ask === "closed", askOpen: s.ask === "open", askThinking: s.ask === "thinking",
+      openAsk: () => this.setState({ ask: "open", playing: false, askTarget: "Whole scene", proposal: null }),
+      closeAsk: () => this.setState({ ask: "closed" }),
+      askText: s.askText, setAskText: set("askText"), askEmpty: !s.askText.trim(),
+      targets: ["Whole scene", "Headline", curRaw && curRaw.kind === "product" ? "Screenshot" : "Supporting copy"].map(l => ({ label: l, line: s.askTarget === l ? "#168BFF" : "#E4E4E7", bg: s.askTarget === l ? "#EBF5FF" : "#fff", fg: s.askTarget === l ? "#0058bd" : "#52525B", pick: () => this.setState({ askTarget: l }) })),
+      examples: ["Make this headline shorter.", "Use our green for this button.", "Show the dashboard for longer.", "Make the transition calmer.", "Move the logo earlier."].map(l => ({ label: l, use: () => this.setState({ askText: l }) })),
+      propose: () => this.setState({ ask: "thinking", askT: 0 }),
+      hasProposal: !!s.proposal, noProposal: !s.proposal, proposal: s.proposal || { changes: [] },
+      acceptProposal: () => this.setState(st => {
+        const pr = st.proposal; let scenes = st.scenes;
+        (pr.patch || []).forEach(([id, patch]) => { scenes = scenes.map(x => x.id === id ? { ...x, ...patch } : x); });
+        const extra = st.approved ? { approved: false, revision: st.revision + 1, render: "stale", notice: `Revision ${st.revision} stays approved and locked. The accepted change started Revision ${st.revision + 1} as a new draft.` } : { revision: st.revision + 1, render: st.render === "none" ? "none" : "stale" };
+        return { scenes, proposal: null, askText: "", ...(pr.logo ? { logoPlace: pr.logo } : {}), ...extra, toast: `Revision ${st.revision + 1} saved. This change affects ${pr.scope}.`, toastT: 0 };
+      }),
+      rejectProposal: () => { this.setState({ proposal: null }); this.say(`Kept revision ${s.revision} unchanged.`); },
+      renderShort, renderCta: s.render === "ready" || s.approved ? "View draft" : "Render draft",
+      goRender: () => (s.render === "ready" || s.approved || s.render === "rendering") ? this.setState({ step: 6, maxStep: 6 }) : startRender(),
+
+      renderTitle, renderSpec: `${portrait ? "1080 × 1920" : "1920 × 1080"} · ${fmt(total)}`, revisionName: `Revision ${s.revision}`,
+      rNone: !s.approved && s.render === "none", rStale: !s.approved && s.render === "stale", rRunning: s.render === "rendering", rRunningFoot: s.render === "rendering", rFailed: s.render === "failed", rReady: !s.approved && s.render === "ready", rApproved: s.approved,
+      checks: ["All text fits template limits", "Text contrast meets WCAG AA", `${verified.length} screenshots readable`], startRender, rStages: rStageList,
+      frameBar: this.bar(Math.round((s.frames / totalFrames) * 100), true),
+      replaceFailed: () => { this.setState(st => ({ shots: st.shots.map(y => y.id === "sh1" ? { ...y, name: "profit-dashboard-v2.png" } : y), scenes: st.scenes.map(x => x.id === "s3" ? { ...x, shot: "profit-dashboard-v2.png" } : x) })); this.say("Image replaced. Ready to try again."); },
+      readyActions: [
+        { label: "Play draft", sub: fmt(total), run: () => this.setState({ t: 0, playing: true }) },
+        { label: "Download MP4", sub: "Draft · watermark", run: () => this.say("Downloading smart-profit-dashboard-draft.mp4") },
+        { label: "Duplicate for another format", sub: portrait ? "→ 16:9" : "→ 9:16", run: () => this.say(`Duplicated as ${portrait ? "Landscape 16:9" : "Portrait 9:16"}. Find it in Drafts.`) },
+        { label: "Request changes", sub: "Back to review", run: () => this.setState({ step: 5, ask: "open", playing: false }) }
+      ],
+      approve: () => { this.setState({ approved: true }); this.say(`Revision ${s.revision} approved and locked.`); },
+      download: () => this.say("Downloading smart-profit-dashboard.mp4"),
+      duplicateFormat: () => this.say(`Duplicated as ${portrait ? "Landscape 16:9" : "Portrait 9:16"}. Find it in Drafts.`),
+
+      isTemplates: s.screen === "templates", tplCat: s.tplCat,
+      tplCats: CATS.map(c => ({ label: c, line: s.tplCat === c ? "#18181B" : "#E4E4E7", bg: s.tplCat === c ? "#18181B" : "rgba(255,255,255,.8)", fg: s.tplCat === c ? "#fff" : "#3F3F46", pick: () => this.setState({ tplCat: c }) })),
+      tplList: TEMPLATES.filter(t => s.tplCat === "All" || t.cat === s.tplCat).map(t => ({ ...t, ownerFg: t.owner === "Greedy Motion" ? "#A1A1AA" : "#4F46E5", use: () => this.setState({ screen: s.kit ? "create" : "onboard-brand", ob: "choose", goal: t.goal, format: GOALS.find(g => g.id === t.goal).fmt, step: 1, maxStep: 1, sb: "idle", render: "none", approved: false, scenes: SCENES(), revision: 1 }) })),
+      tplEmpty: !TEMPLATES.some(t => s.tplCat === "All" || t.cat === s.tplCat),
+      isBrandKits: s.screen === "brandkits", newKit: () => this.setState({ screen: "onboard-brand", ob: "choose" }),
+      isLibrary: s.screen === "library",
+      libTabs: Object.keys(LIB).map(k => ({ label: k, line: s.libTab === k ? "#18181B" : "transparent", fg: s.libTab === k ? "#18181B" : "#71717A", go: () => this.setState({ libTab: k }) })),
+      libItems: LIB[s.libTab].map(([name, meta, tag, img]) => ({ name, meta, tag, thumb: img ? `url(${img})` : tag === "wav" ? "linear-gradient(135deg,#EBF5FF,#F5F3FF 50%,#F0FDFA)" : tag === "kit" || tag === "svg" ? "linear-gradient(140deg,#EBF5FF,#F5F3FF 55%,#F0FDFA)" : STRIPES })),
+      toast: s.toast
+    };
+  }
+
+  bar(pct, sheen) {
+    return React.createElement("div", { style: { position: "relative", height: 4, borderRadius: 4, background: "#EBF5FF", overflow: "hidden" } },
+      React.createElement("div", { style: { position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, borderRadius: 4, background: "linear-gradient(90deg,#168BFF,#0A6CFF)", transition: "width 180ms linear", overflow: "hidden" } },
+        React.createElement("div", { style: { position: "absolute", inset: 0, width: "40%", background: "linear-gradient(90deg,transparent,rgba(255,255,255,.65),transparent)", animation: "relaySheen 1.3s ease-in-out infinite" } })));
+  }
+
+  ambient() {
+    if (this._ambient) return this._ambient;
+    const blob = (style) => React.createElement("div", { style: { position: "absolute", borderRadius: "50%", filter: "blur(70px)", ...style } });
+    this._ambient = React.createElement("div", { "aria-hidden": true, style: { position: "fixed", inset: 0, zIndex: 0, overflow: "hidden", pointerEvents: "none" } },
+      blob({ width: "46vw", height: "46vw", right: "-12vw", top: "-22vw", background: "radial-gradient(circle,rgba(158,203,255,.75),rgba(158,203,255,0) 70%)", animation: "relayDriftA 26s ease-in-out infinite alternate" }),
+      blob({ width: "38vw", height: "38vw", left: "-14vw", top: "18vh", background: "radial-gradient(circle,rgba(228,204,255,.65),rgba(228,204,255,0) 70%)", animation: "relayDriftB 32s ease-in-out infinite alternate" }),
+      blob({ width: "30vw", height: "30vw", right: "10vw", bottom: "-16vw", background: "radial-gradient(circle,rgba(255,209,184,.55),rgba(255,209,184,0) 70%)", animation: "relayDriftC 38s ease-in-out infinite alternate" }),
+      React.createElement("div", { style: { position: "absolute", inset: 0, backgroundImage: "none", backgroundSize: "22px 22px", maskImage: "linear-gradient(180deg,rgba(0,0,0,.6),transparent 60%)", WebkitMaskImage: "linear-gradient(180deg,rgba(0,0,0,.6),transparent 60%)" } }));
+    return this._ambient;
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,514 @@
+[
+  {
+    "template": "product-launch",
+    "theme": "biennale-yellow",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 11.2
+  },
+  {
+    "template": "product-launch",
+    "theme": "blockframe",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.5
+  },
+  {
+    "template": "product-launch",
+    "theme": "blue-professional",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.7
+  },
+  {
+    "template": "product-launch",
+    "theme": "bold",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.7
+  },
+  {
+    "template": "product-launch",
+    "theme": "bold-poster",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 11.7
+  },
+  {
+    "template": "product-launch",
+    "theme": "broadside",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 10.3
+  },
+  {
+    "template": "product-launch",
+    "theme": "capsule",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.9
+  },
+  {
+    "template": "product-launch",
+    "theme": "cartesian",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.6
+  },
+  {
+    "template": "product-launch",
+    "theme": "cobalt-grid",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.3
+  },
+  {
+    "template": "product-launch",
+    "theme": "code-editorial",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.8
+  },
+  {
+    "template": "product-launch",
+    "theme": "coral",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 12.8
+  },
+  {
+    "template": "product-launch",
+    "theme": "creative-mode",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.5
+  },
+  {
+    "template": "product-launch",
+    "theme": "daisy-days",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.2
+  },
+  {
+    "template": "product-launch",
+    "theme": "editorial",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 9.7
+  },
+  {
+    "template": "product-launch",
+    "theme": "editorial-forest",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 10.3
+  },
+  {
+    "template": "product-launch",
+    "theme": "neutral",
+    "check": "passed",
+    "contrast": "14/14",
+    "issues": [],
+    "seconds": 17.6
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "biennale-yellow",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 7.1
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "blockframe",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.2
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "blue-professional",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 13.8
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "bold",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.2
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "bold-poster",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "broadside",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "capsule",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "cartesian",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 5.9
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "cobalt-grid",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 7.8
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "code-editorial",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.3
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "coral",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "creative-mode",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.3
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "daisy-days",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.2
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "editorial",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "editorial-forest",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "feature-spotlight",
+    "theme": "neutral",
+    "check": "passed",
+    "contrast": "6/6",
+    "issues": [],
+    "seconds": 6
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "biennale-yellow",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6.2
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "blockframe",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 5.9
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "blue-professional",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 5.8
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "bold",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 13.2
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "bold-poster",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 5.9
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "broadside",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "capsule",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "cartesian",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "cobalt-grid",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "code-editorial",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "coral",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "creative-mode",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6.2
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "daisy-days",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "editorial",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 5.7
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "editorial-forest",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 6
+  },
+  {
+    "template": "stat-highlight",
+    "theme": "neutral",
+    "check": "passed",
+    "contrast": "5/5",
+    "issues": [],
+    "seconds": 7.6
+  },
+  {
+    "template": "whats-new",
+    "theme": "biennale-yellow",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 7.6
+  },
+  {
+    "template": "whats-new",
+    "theme": "blockframe",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 6.7
+  },
+  {
+    "template": "whats-new",
+    "theme": "blue-professional",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "whats-new",
+    "theme": "bold",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 6.1
+  },
+  {
+    "template": "whats-new",
+    "theme": "bold-poster",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 6.2
+  },
+  {
+    "template": "whats-new",
+    "theme": "broadside",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 6.7
+  },
+  {
+    "template": "whats-new",
+    "theme": "capsule",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 7.4
+  },
+  {
+    "template": "whats-new",
+    "theme": "cartesian",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 7.3
+  },
+  {
+    "template": "whats-new",
+    "theme": "cobalt-grid",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 7.7
+  },
+  {
+    "template": "whats-new",
+    "theme": "code-editorial",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 14.3
+  },
+  {
+    "template": "whats-new",
+    "theme": "coral",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 5.9
+  },
+  {
+    "template": "whats-new",
+    "theme": "creative-mode",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 5.9
+  },
+  {
+    "template": "whats-new",
+    "theme": "daisy-days",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 5.8
+  },
+  {
+    "template": "whats-new",
+    "theme": "editorial",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 5.9
+  },
+  {
+    "template": "whats-new",
+    "theme": "editorial-forest",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 6.3
+  },
+  {
+    "template": "whats-new",
+    "theme": "neutral",
+    "check": "passed",
+    "contrast": "9/9",
+    "issues": [],
+    "seconds": 6.6
+  }
+]

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-composition-variables='[
+  {"id":"brandName","type":"string","label":"Product name","description":"Name of the product this video launches.","portrays":["subject_name"],"maxLength":28,"default":"Relay"},
+  {"id":"hook","type":"string","label":"Hook","description":"Opening line naming the problem the audience has.","maxLength":64,"default":"Your product updates deserve an audience."},
+  {"id":"tagline","type":"string","label":"Tagline","description":"The product’s positioning line, shown under its name.","portrays":["subject_tagline"],"maxLength":64,"default":"Turn every release into a story people watch."},
+  {"id":"screenshot","type":"image","label":"Product screenshot","description":"A verified product screenshot shown during the reveal.","default":"assets/screenshot.svg"},
+  {"id":"feature1","type":"string","label":"Feature 1","description":"First approved feature, a short noun phrase.","maxLength":36,"default":"Screenshots become scenes"},
+  {"id":"feature2","type":"string","label":"Feature 2","description":"Second approved feature, a short noun phrase.","maxLength":36,"default":"On-brand motion, automatically"},
+  {"id":"feature3","type":"string","label":"Feature 3","description":"Third approved feature, a short noun phrase.","maxLength":36,"default":"Edit any scene in seconds"},
+  {"id":"benefit","type":"string","label":"Benefit","description":"One sentence on the outcome for the customer. Approved claims only.","maxLength":72,"default":"Ship the update and the video on the same day."},
+  {"id":"ctaText","type":"string","label":"Call to action","maxLength":28,"default":"Start free today"},
+  {"id":"url","type":"string","label":"Website","description":"Domain or URL shown with the call to action.","portrays":["subject_domain"],"maxLength":40,"default":"relay.video"},
+  {"id":"logo","type":"image","label":"Logo","description":"Brand logo from the brand kit (set by the renderer).","default":""},
+  {"id":"logoWordmark","type":"boolean","label":"Logo includes the name","description":"True when the logo already spells the product name, so the name text is hidden next to it.","default":false}
+]'>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <title>Product launch</title>
+  <script src="vendor/gsap.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg, #0b1220); }
+    #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg, #0b1220); color: var(--fg, #f8fafc); font-family: var(--font-body, Arial, sans-serif); }
+    .scene { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 180px; }
+    .scene.center { align-items: center; text-align: center; }
+    .eyebrow { font-family: var(--font-mono, monospace); font-size: 26px; letter-spacing: 6px; text-transform: uppercase; color: var(--brand, #a7f3d0); margin-bottom: 36px; }
+    .display { font-family: var(--font-display, Arial, sans-serif); font-weight: 700; letter-spacing: -2px; line-height: 1.08; max-width: 1500px; }
+    .hook { font-size: 96px; }
+    .name { font-size: 168px; letter-spacing: -5px; line-height: 1; }
+    .reveal { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); align-items: center; gap: 84px; }
+    .reveal-copy { min-width: 0; }
+    .reveal .name { font-size: 112px; }
+    .shot-window { width: 100%; overflow: hidden; border: 2px solid var(--border, #334155); border-radius: var(--radius, 24px); background: var(--surface, #18263b); box-shadow: 0 40px 90px rgba(0,0,0,.26); }
+    .shot-chrome { height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 16px; border-bottom: 2px solid var(--border, #334155); }
+    .shot-chrome i { width: 12px; height: 12px; border-radius: 50%; background: var(--border, #334155); }
+    .product-shot { display: block; width: 100%; aspect-ratio: 16/10; object-fit: cover; object-position: top left; }
+    .tagline { margin-top: 32px; font-size: 40px; line-height: 1.3; color: var(--muted, #cbd5e1); max-width: 1300px; }
+    .rule { width: 160px; height: 10px; margin-top: 48px; border-radius: var(--radius, 6px); background: var(--accent, #6ee7b7); transform-origin: left center; }
+    .center .rule { transform-origin: center; }
+    .features { display: grid; gap: 28px; max-width: 1400px; }
+    .feature { display: flex; align-items: center; gap: 32px; padding: 30px 40px; background: var(--surface, #18263b); border: 2px solid var(--border, #334155); border-radius: var(--radius, 24px); font-size: 46px; font-weight: 700; }
+    .feature-num { flex: none; width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; background: var(--brand, #a7f3d0); color: var(--bg, #0b1220); font-family: var(--font-mono, monospace); font-size: 28px; }
+    .benefit { font-size: 84px; }
+    .cta-pill { margin-top: 56px; padding: 28px 64px; border-radius: 999px; background: var(--brand, #a7f3d0); color: var(--bg, #0b1220); font-size: 48px; font-weight: 700; }
+    .url { margin-top: 36px; font-family: var(--font-mono, monospace); font-size: 32px; color: var(--muted, #cbd5e1); }
+    #orb { position: absolute; width: 900px; height: 900px; right: -320px; top: -260px; border-radius: 50%; background: var(--accent, #6ee7b7); opacity: 0.12; }
+    .brand-logo { display: block; max-width: 640px; max-height: 150px; width: auto; height: auto; object-fit: contain; }
+    .center .brand-logo { margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="10" data-width="1920" data-height="1080" data-fps="30">
+    <div id="orb" class="clip" data-start="0" data-duration="10" data-track-index="0"></div>
+
+    <section id="s1" class="scene clip" data-start="0" data-duration="2" data-track-index="1">
+      <p id="s1-eyebrow" class="eyebrow">Introducing</p>
+      <h1 id="s1-hook" class="display hook" data-var-text="hook">Your product updates deserve an audience.</h1>
+    </section>
+
+    <section id="s2" class="scene reveal clip" data-start="2" data-duration="2" data-track-index="1">
+      <div class="reveal-copy">
+        <img id="s2-logo" class="brand-logo" data-var-src="logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="">
+        <h1 id="s2-name" class="display name name-beside-logo" data-var-text="brandName">Relay</h1>
+        <p id="s2-tagline" class="tagline" data-var-text="tagline">Turn every release into a story people watch.</p>
+        <div id="s2-rule" class="rule"></div>
+      </div>
+      <div id="s2-shot-window" class="shot-window"><div class="shot-chrome"><i></i><i></i><i></i></div><img id="s2-shot" class="product-shot" data-var-src="screenshot" src="assets/screenshot.svg" alt=""></div>
+    </section>
+
+    <section id="s3" class="scene clip" data-start="4" data-duration="2" data-track-index="1">
+      <div class="features">
+        <div id="f1" class="feature"><span class="feature-num">01</span><span data-var-text="feature1">Screenshots become scenes</span></div>
+        <div id="f2" class="feature"><span class="feature-num">02</span><span data-var-text="feature2">On-brand motion, automatically</span></div>
+        <div id="f3" class="feature"><span class="feature-num">03</span><span data-var-text="feature3">Edit any scene in seconds</span></div>
+      </div>
+    </section>
+
+    <section id="s4" class="scene clip" data-start="6" data-duration="2" data-track-index="1">
+      <h2 id="s4-benefit" class="display benefit" data-var-text="benefit">Ship the update and the video on the same day.</h2>
+      <div id="s4-rule" class="rule"></div>
+    </section>
+
+    <section id="s5" class="scene center clip" data-start="8" data-duration="2" data-track-index="1">
+      <img id="s5-logo" class="brand-logo" data-var-src="logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="">
+      <h2 id="s5-name" class="display hook name-beside-logo" data-var-text="brandName">Relay</h2>
+      <div id="s5-cta" class="cta-pill" data-var-text="ctaText">Start free today</div>
+      <p id="s5-url" class="url" data-var-text="url">relay.video</p>
+    </section>
+  </div>
+  <script>
+    // Brand logo: removed when the brand kit has none; a wordmark logo replaces the name text next to it.
+    const brandVars = window.__hyperframes?.getVariables?.() ?? {};
+    const hasLogo = Boolean(brandVars.logo);
+    if (!hasLogo) document.querySelectorAll(".brand-logo").forEach((el) => el.remove());
+    if (hasLogo && brandVars.logoWordmark) document.querySelectorAll(".name-beside-logo").forEach((el) => el.remove());
+    const tl = gsap.timeline({ paused: true });
+    const up = (target, at, distance = 40) => tl.fromTo(target, { y: distance, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, at);
+    // Background orb drifts for the whole film.
+    tl.fromTo("#orb", { x: 0, y: 0 }, { x: -260, y: 180, duration: 10, ease: "none" }, 0);
+    // Scene 1 — hook
+    up("#s1-eyebrow", 0.1, 20); up("#s1-hook", 0.25);
+    // Scene 2 — name and tagline
+    if (hasLogo) tl.fromTo("#s2-logo", { scale: 0.9, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.6, ease: "power3.out" }, 2.0);
+    if (document.getElementById("s2-name")) tl.fromTo("#s2-name", { scale: 0.92, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.6, ease: "power3.out" }, 2.05);
+    up("#s2-tagline", 2.35, 24);
+    tl.fromTo("#s2-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "power2.inOut" }, 2.6);
+    tl.fromTo("#s2-shot-window", { x: 100, scale: 0.9, opacity: 0 }, { x: 0, scale: 1, opacity: 1, duration: 0.72, ease: "power3.out" }, 2.08);
+    // Scene 3 — features, staggered
+    ["#f1", "#f2", "#f3"].forEach((id, index) => tl.fromTo(id, { x: -60, opacity: 0 }, { x: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 4.1 + index * 0.25));
+    // Scene 4 — benefit
+    up("#s4-benefit", 6.1);
+    tl.fromTo("#s4-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "power2.inOut" }, 6.5);
+    // Scene 5 — CTA
+    if (hasLogo) up("#s5-logo", 7.95, 20);
+    if (document.getElementById("s5-name")) up("#s5-name", 8.05, 24);
+    tl.fromTo("#s5-cta", { scale: 0.85, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.6)" }, 8.3);
+    up("#s5-url", 8.55, 16);
+    tl.to({}, { duration: 0.1 }, 9.9);
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

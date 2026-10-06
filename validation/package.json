@@ -1,0 +1,14 @@
+{
+  "name": "videosaas-local-validation",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Pinned HyperFrames runtime for local feasibility experiments",
+  "scripts": {
+    "doctor": "hyperframes doctor",
+    "render:smoke": "node run-smoke.mjs"
+  },
+  "devDependencies": {
+    "gsap": "3.14.2",
+    "hyperframes": "0.8.111"
+  }
+}

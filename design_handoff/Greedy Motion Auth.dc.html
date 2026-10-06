@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<title>Greedy Motion — Sign in</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+@keyframes gmDriftA { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(-10vw,6vh) scale(1.12); } }
+@keyframes gmDriftB { 0% { transform: translate(0,0) scale(1.08); } 100% { transform: translate(8vw,-5vh) scale(.94); } }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #ebf5ff; color: #0a0d12; font-family: "Plus Jakarta Sans", Helvetica, Arial, sans-serif; letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+a { color: #0A6CFF; text-decoration: none; } a:hover { color: #0050c8; }
+</style>
+</helmet>
+<div style="position:relative;min-height:100vh;overflow:hidden;">
+{{ ambient }}
+<div style="position:relative;z-index:1;min-height:100vh;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));">
+  <section style="display:flex;flex-direction:column;padding:28px 40px;">
+    <a href="Greedy Motion Landing.dc.html" style="display:flex;align-items:center;gap:8px;align-self:flex-start;"><img src="assets/gm-mark.svg" alt="" style="height:24px;" /><span style="display:flex;gap:5px;font-size:17px;font-weight:600;letter-spacing:-.02em;"><span style="color:#0B1F4D;">Greedy</span><span style="color:#0A6CFF;">Motion</span></span></a>
+    <div style="flex:1;display:grid;place-items:center;padding:40px 0;">
+      <div style="width:100%;max-width:400px;display:flex;flex-direction:column;gap:22px;">
+        <div style="display:flex;gap:4px;padding:4px;border-radius:9999px;background:rgba(250,253,255,.8);align-self:flex-start;">
+          <sc-for list="{{ modes }}" as="m" hint-placeholder-count="2"><button type="button" onClick="{{ m.go }}" style="border:0;padding:8px 18px;border-radius:9999px;background:{{ m.bg }};color:{{ m.fg }};font-size:14px;font-weight:500;cursor:pointer;transition:background 220ms ease;">{{ m.label }}</button></sc-for>
+        </div>
+        <div><h1 style="margin:0;font-weight:600;font-size:34px;letter-spacing:-0.03em;line-height:1.1;">{{ title }}</h1><p style="margin:10px 0 0;font-size:16px;color:#535862;">{{ subtitle }}</p></div>
+        <sc-if value="{{ sent }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:24px;border-radius:24px;background:#fafdff;display:flex;flex-direction:column;gap:10px;">
+            <strong style="font-size:18px;font-weight:500;">Check your inbox</strong>
+            <span style="font-size:15px;color:#535862;line-height:1.5;">We sent a sign-in link to {{ email }}. It expires in 15 minutes.</span>
+            <a href="Relay v3.dc.html" style="align-self:flex-start;margin-top:6px;padding:11px 20px;border-radius:9999px;background:#181d27;color:#fff;font-size:15px;font-weight:500;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;">Open the app (demo)</a>
+            <button type="button" onClick="{{ reset }}" style="align-self:flex-start;border:0;background:transparent;padding:4px 0;color:#535862;font-size:14px;cursor:pointer;">Use a different email</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ form }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <a href="Relay v3.dc.html" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:13px;border-radius:9999px;background:#fafdff;color:#0a0d12;font-size:15px;font-weight:500;"><span style="display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#ebf5ff;font-size:12px;font-weight:600;color:#0A6CFF;">G</span>Continue with Google</a>
+            <a href="Relay v3.dc.html" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:13px;border-radius:9999px;background:#fafdff;color:#0a0d12;font-size:15px;font-weight:500;"><span style="display:grid;place-items:center;width:20px;height:20px;border-radius:5px;background:#ebf5ff;font-size:11px;font-weight:600;color:#0A6CFF;">⌘</span>Continue with SSO</a>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;font-size:13px;color:#93979f;"><span style="flex:1;height:1px;background:#D6E4F2;"></span>or with email<span style="flex:1;height:1px;background:#D6E4F2;"></span></div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ false }}">
+              <label style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:14px;font-weight:500;">Full name</span><input type="text" value="{{ name }}" onChange="{{ setName }}" placeholder="Olivia Evans" style="padding:13px 16px;border:1px solid transparent;border-radius:16px;background:#fafdff;font-size:15px;outline:none;transition:border-color 220ms ease,box-shadow 220ms ease;" style-focus="border-color:#168BFF;box-shadow:0 0 0 4px rgba(22,139,255,.15);" /></label>
+            </sc-if>
+            <label style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:14px;font-weight:500;">Work email</span><input type="email" value="{{ email }}" onChange="{{ setEmail }}" placeholder="you@company.com" style="padding:13px 16px;border:1px solid {{ emailLine }};border-radius:16px;background:#fafdff;font-size:15px;outline:none;transition:border-color 220ms ease,box-shadow 220ms ease;" style-focus="border-color:#168BFF;box-shadow:0 0 0 4px rgba(22,139,255,.15);" /></label>
+            <sc-if value="{{ emailError }}" hint-placeholder-val="{{ false }}"><span style="font-size:13px;color:#C2410C;">Enter a work email like you@company.com.</span></sc-if>
+            <button type="button" onClick="{{ submit }}" style="margin-top:4px;padding:14px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:15px;font-weight:500;cursor:pointer;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;transition:background 220ms ease;" style-hover="background:#2a3142;">{{ cta }}</button>
+            <span style="font-size:13px;color:#93979f;line-height:1.5;">{{ legal }}</span>
+          </div>
+        </sc-if>
+        <span style="font-size:14px;color:#535862;">{{ switchText }} <button type="button" onClick="{{ toggleMode }}" style="border:0;background:transparent;padding:0;color:#0A6CFF;font-size:14px;font-weight:500;cursor:pointer;">{{ switchCta }}</button></span>
+      </div>
+    </div>
+  </section>
+  <aside style="padding:16px;display:flex;">
+    <div style="position:relative;flex:1;overflow:hidden;border-radius:36px;background:#0a0d12;color:#fff;display:flex;flex-direction:column;justify-content:space-between;padding:44px;">
+      <div style="position:absolute;inset:0;background:radial-gradient(70% 60% at 100% 0%,rgba(22,139,255,.5),transparent 60%),radial-gradient(60% 60% at 0% 100%,rgba(255,90,31,.22),transparent 60%);"></div>
+      <span style="position:relative;align-self:flex-start;padding:5px 12px;border-radius:9999px;background:rgba(255,255,255,.08);font-size:13px;color:#C9D3E0;">Product motion, without the production maze</span>
+      <div style="position:relative;width:100%;max-width:520px;align-self:center;display:flex;flex-direction:column;gap:14px;">
+        <div style="padding:10px;border-radius:24px;background:rgba(255,255,255,.06);"><dc-import name="Scene Frame" scene="{{ scene }}" branded="{{ true }}" logo-place="open-end" radius="16px" hint-size="100%,280px"></dc-import></div>
+        <div style="display:flex;gap:6px;">
+          <sc-for list="{{ dots }}" as="d" hint-placeholder-count="5"><span style="flex:1;height:4px;border-radius:4px;background:{{ d.bg }};transition:background 400ms ease;"></span></sc-for>
+        </div>
+      </div>
+      <div style="position:relative;display:flex;flex-direction:column;gap:14px;max-width:460px;">
+        <span style="font-size:19px;line-height:1.45;font-weight:500;letter-spacing:-.02em;">“We ship the release and the launch video on the same day now.”</span>
+        <span style="font-size:14px;color:#93979f;">Priya N. · Head of Product Marketing, Northwind</span>
+      </div>
+    </div>
+  </aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;signin&quot;,&quot;signup&quot;],&quot;default&quot;:&quot;signin&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+const SCENES = [
+  { kind: "hook", headline: "Finally see what every sale is really worth.", copy: "" },
+  { kind: "problem", headline: "Fees, refunds, and shipping hide your actual margin.", copy: "Most dashboards stop at revenue." },
+  { kind: "product", headline: "Smart Profit Dashboard", copy: "", shot: "profit-dashboard.png" },
+  { kind: "benefit", headline: "See real profitability at a glance.", copy: "Tracks fees, refunds, shipping, and margin in one dashboard." },
+  { kind: "cta", headline: "See your real margins", copy: "acme.com/profit" }
+];
+class Component extends DCLogic {
+  state = { mode: (new URLSearchParams(location.search).get("mode") || this.props.mode || "signin"), email: "", name: "", sent: false, tried: false, s: 0 };
+  componentDidMount() { this.timer = setInterval(() => this.setState(st => ({ s: (st.s + 1) % 5 })), 2600); }
+  componentWillUnmount() { clearInterval(this.timer); }
+  renderVals() {
+    const s = this.state, up = s.mode === "signup";
+    const valid = /.+@.+\..+/.test(s.email);
+    if (!this._ambient) {
+      const blob = (st) => React.createElement("div", { style: { position: "absolute", borderRadius: "50%", filter: "blur(60px)", ...st } });
+      this._ambient = React.createElement("div", { "aria-hidden": true, style: { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" } },
+        blob({ width: "44vw", height: "44vw", left: "-14vw", top: "-16vw", background: "radial-gradient(circle,rgba(158,203,255,.85),rgba(158,203,255,0) 70%)", animation: "gmDriftA 26s ease-in-out infinite alternate" }),
+        blob({ width: "34vw", height: "34vw", left: "18vw", bottom: "-14vw", background: "radial-gradient(circle,rgba(228,204,255,.7),rgba(228,204,255,0) 70%)", animation: "gmDriftB 32s ease-in-out infinite alternate" }));
+    }
+    return {
+      ambient: this._ambient,
+      modes: [["signin", "Sign in"], ["signup", "Create account"]].map(([k, label]) => ({ label, bg: s.mode === k ? "#181d27" : "transparent", fg: s.mode === k ? "#fff" : "#535862", go: () => this.setState({ mode: k, sent: false, tried: false }) })),
+      title: up ? "Make your first video." : "Welcome back.",
+      subtitle: up ? "Free for 14 days. No credit card." : "Sign in to your workspace.",
+      isSignup: up, form: !s.sent, sent: s.sent,
+      email: s.email, name: s.name,
+      setEmail: (e) => this.setState({ email: e.target.value }), setName: (e) => this.setState({ name: e.target.value }),
+      emailError: s.tried && !valid, emailLine: s.tried && !valid ? "#FDBA8C" : "transparent",
+      submit: () => valid ? this.setState({ sent: true }) : this.setState({ tried: true }),
+      reset: () => this.setState({ sent: false, email: "", tried: false }),
+      cta: up ? "Create account" : "Email me a sign-in link",
+      legal: up ? "By creating an account you agree to the Terms and Privacy Policy." : "We’ll email you a magic link. No password needed.",
+      switchText: up ? "Already have an account?" : "New to Greedy Motion?", switchCta: up ? "Sign in" : "Create an account",
+      toggleMode: () => this.setState({ mode: up ? "signin" : "signup", sent: false, tried: false }),
+      scene: SCENES[s.s], dots: SCENES.map((_, i) => ({ bg: i === s.s ? "#168BFF" : "rgba(255,255,255,.14)" }))
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Greedy Motion skill slots",
+  "description": "Declares every piece of content a style skill needs. The backend validates Claude's fill against it, the editor renders the form from it, and fill-mode templates read the values as HyperFrames variables.",
+  "type": "object",
+  "required": ["skill", "version", "canvas", "slots"],
+  "additionalProperties": false,
+  "properties": {
+    "skill": { "type": "string", "pattern": "^gm-[a-z0-9-]+$" },
+    "version": { "type": "string" },
+    "canvas": { "type": "array", "items": { "enum": ["16:9", "9:16", "1:1"] }, "minItems": 1 },
+    "duration": {
+      "type": "object",
+      "properties": { "min": { "type": "number" }, "max": { "type": "number" } }
+    },
+    "clock": { "enum": ["ledger", "voiceover", "beats"] },
+    "slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "purpose"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "type": { "enum": ["text", "text_list", "number", "image", "screenshot", "logo", "color_token", "audio", "choice"] },
+          "purpose": { "type": "string" },
+          "maxChars": { "type": "integer" },
+          "count": {
+            "type": "object",
+            "properties": { "min": { "type": "integer" }, "max": { "type": "integer" } }
+          },
+          "options": { "type": "array", "items": { "type": "string" } },
+          "mustBeReal": { "type": "boolean", "description": "true = a product fact (a number, a nav label, an output); Claude may not invent it and must ask for it or source it" },
+          "aiFillable": { "type": "boolean", "description": "true = Claude may write it from the brief" },
+          "default": {}
+        }
+      }
+    }
+  }
+}

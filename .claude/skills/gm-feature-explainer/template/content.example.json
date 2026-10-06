@@ -1,0 +1,287 @@
+{
+  "_about": "Example slot values (Greedy Motion, the v2 pacing build in experiments/skills/gm-feature-explainer/gm-v2). Validated against references/slots.json. Optional pacing slots: problem_chip_words, beats[].keyword {text, word}, pacing {...}.",
+  "product_name": "Greedy Motion",
+  "wordmark_accent": "Motion",
+  "positioning_line": "Turn product updates into customer-ready videos.",
+  "problem_lines": [
+    "Your team ships new features every week.",
+    "But every launch video means a script, a storyboard, brand checks, and another export."
+  ],
+  "problem_chips": "Write the script|Plan five scenes|Match the brand kit|Record a voiceover|Export 16:9 and 9:16",
+  "reveal_line": "Meet Greedy Motion. It turns the screenshots you already have into product videos.",
+  "reveal_name_word": "Greedy",
+  "cta_line": "Built for product teams. Greedy Motion. Create your next product video today.",
+  "cta_name_word": "Greedy",
+  "cta_verb": "Create",
+  "cta_label": "Create a video",
+  "cta_url": "",
+  "disclaimer": "",
+  "avatars": "OE|JK|MP|SR|AL|TB",
+  "persona_initials": "You",
+  "app_nav": "Projects|Templates|Brand kits|Library|Settings",
+  "app_steps": "Goal|Script|Brand|Storyboard|Render|Review",
+  "mark_src": "assets/brand/greedy-motion-mark-refined.svg",
+  "mascot_src": "assets/brand/greedy-motion-mascot-momo.png",
+  "font_ui": "hanken",
+  "font_display": "space",
+  "voice": "af_heart",
+  "color_ground": "#EBF5FF",
+  "color_field": "#0A6CFF",
+  "color_bright": "#168BFF",
+  "color_ink": "#0a0d12",
+  "color_body": "#535862",
+  "color_button": "#181d27",
+  "color_button_ink": "#ffffff",
+  "color_line": "#D6E4F2",
+  "color_subtle": "#F4F8FD",
+  "color_subtle2": "#FAFDFF",
+  "color_soft": "#EBF5FF",
+  "color_softink": "#0058bd",
+  "color_ok": "#16803C",
+  "color_void": "#0a0d12",
+  "color_wordmark": "#102A5C",
+  "color_wordmark2": "#168BFF",
+  "beats": [
+    {
+      "chip": "Goal",
+      "line": "Start with a goal, and pick a thirty-second feature spotlight.",
+      "verb": "pick",
+      "action": "select",
+      "target": 1,
+      "screen": {
+        "chrome": "stepper",
+        "step": 0,
+        "status": "Ready to create",
+        "kind": "tiles",
+        "title": "What are you making?",
+        "subtitle": "Pick a goal. Greedy Motion recommends a length and format.",
+        "button": "Continue",
+        "tiles": [
+          {
+            "title": "Product launch",
+            "desc": "Introduce a new product or major release.",
+            "meta": "0:30 · Landscape 16:9",
+            "img": "assets/screens/product-launch.jpg"
+          },
+          {
+            "title": "Feature spotlight",
+            "desc": "Explain one valuable workflow or feature.",
+            "meta": "0:30 · Landscape 16:9",
+            "img": "assets/screens/feature-spotlight.jpg"
+          },
+          {
+            "title": "What's new",
+            "desc": "Turn release notes into a concise announcement.",
+            "meta": "0:15 · Portrait 9:16",
+            "img": "assets/screens/whats-new.jpg"
+          }
+        ]
+      },
+      "keyword": {
+        "text": "Pick a spotlight.",
+        "word": "pick"
+      }
+    },
+    {
+      "chip": "Script",
+      "line": "Give it one line about the video, and it writes the script for you.",
+      "verb": "writes",
+      "action": "click",
+      "target": "button",
+      "screen": {
+        "chrome": "stepper",
+        "step": 1,
+        "status": "Finish your brief",
+        "kind": "rows",
+        "title": "Start with a script.",
+        "subtitle": "Bring your own or describe the video and we'll write one.",
+        "field": "Feature video for our storyboard editor. For product marketers.",
+        "button": "Write script",
+        "rows": [
+          {
+            "tag": "Hook",
+            "text": "See every scene before it renders.",
+            "sub": "What if you could check the whole video first?"
+          },
+          {
+            "tag": "Problem",
+            "text": "Changes arrive after the export.",
+            "sub": "Feedback lands when it is hardest to act on."
+          },
+          {
+            "tag": "Product",
+            "text": "Five scenes on one storyboard.",
+            "sub": "Headline, screenshot and duration, side by side."
+          },
+          {
+            "tag": "CTA",
+            "text": "Make your next product video.",
+            "sub": "Start with the screenshots you have."
+          }
+        ]
+      },
+      "keyword": {
+        "text": "It writes the script.",
+        "word": "writes"
+      }
+    },
+    {
+      "chip": "Brand",
+      "line": "Apply your brand kit, then switch on a voiceover with one click.",
+      "verb": "switch",
+      "action": "toggle",
+      "target": 3,
+      "screen": {
+        "chrome": "stepper",
+        "step": 2,
+        "status": "Finish your brief",
+        "kind": "toggles",
+        "title": "Apply your brand.",
+        "subtitle": "These are the only style choices you need.",
+        "kit": {
+          "name": "Using Greedy Motion",
+          "meta": "Primary #0A6CFF · Hanken Grotesk · Light mode",
+          "swatch": "#0A6CFF",
+          "button": "Change"
+        },
+        "rows": [
+          {
+            "label": "Motion style",
+            "options": [
+              "Calm",
+              "Kinetic",
+              "Editorial"
+            ],
+            "sel": 1
+          },
+          {
+            "label": "Logo placement",
+            "options": [
+              "Opening and end",
+              "End only",
+              "Corner"
+            ],
+            "sel": 0
+          },
+          {
+            "label": "Music",
+            "sub": "An original track for this video",
+            "on": true
+          },
+          {
+            "label": "Voiceover",
+            "sub": "Greedy Motion writes a short script from your brief",
+            "on": false
+          }
+        ]
+      },
+      "keyword": {
+        "text": "Switch it on.",
+        "word": "switch"
+      }
+    },
+    {
+      "chip": "Storyboard",
+      "line": "On the storyboard, edit any headline and the preview updates live.",
+      "verb": "edit",
+      "action": "type",
+      "target": "field",
+      "screen": {
+        "chrome": "stepper",
+        "step": 3,
+        "status": "Draft storyboard",
+        "kind": "editor",
+        "kicker": "STORYBOARD EDITOR",
+        "from": "Every scene, before export.",
+        "to": "See every scene first.",
+        "panel_title": "Scene 1 — Hook",
+        "field_label": "Headline",
+        "notes": [
+          "Duration 2–4s · 3s",
+          "Motion · Calm fade"
+        ],
+        "scenes": [
+          "01 Hook",
+          "02 Problem",
+          "03 Product",
+          "04 Benefit",
+          "05 CTA"
+        ],
+        "open": 0
+      },
+      "keyword": {
+        "text": "Edit it live.",
+        "word": "edit"
+      }
+    },
+    {
+      "chip": "Render",
+      "line": "When it looks right, submit it, and nine hundred frames render while you keep working.",
+      "verb": "submit",
+      "action": "click",
+      "target": "button",
+      "screen": {
+        "chrome": "stepper",
+        "step": 4,
+        "status": "Rendering draft",
+        "kind": "stages",
+        "kicker": "STORYBOARD EDITOR",
+        "headline": "See every scene first.",
+        "panel_title": "Rendering draft",
+        "panel_note": "You can leave this page.",
+        "stages": [
+          "Preparing composition",
+          "Rendering frames",
+          "Adding audio",
+          "Uploading draft",
+          "Ready for review"
+        ],
+        "counter": {
+          "to": 900,
+          "unit": "frames",
+          "dur": 2.2
+        },
+        "counter_stage": 1,
+        "button": "Submit video"
+      },
+      "keyword": {
+        "text": "900 frames.",
+        "word": "nine|900"
+      }
+    },
+    {
+      "chip": "Review",
+      "line": "When feedback comes in, click the exact moment and say what should change.",
+      "verb": "click",
+      "action": "click",
+      "target": "frame",
+      "screen": {
+        "chrome": "stepper",
+        "step": 5,
+        "status": "Ready for review",
+        "kind": "player",
+        "kicker": "",
+        "headline": "Five scenes on one storyboard.",
+        "segments": [
+          "01 Hook",
+          "02 Problem",
+          "03 Product",
+          "04 Benefit",
+          "05 CTA"
+        ],
+        "playhead": 0.5,
+        "sel_label": "Screenshot",
+        "panel_title": "Comment to edit",
+        "placeholder": "What should change here?",
+        "comment": "Hold this screenshot a beat longer.",
+        "button": "Add"
+      },
+      "keyword": {
+        "text": "Click the moment.",
+        "word": "click"
+      }
+    }
+  ],
+  "voice_speed": 1.1,
+  "problem_chip_words": "script|storyboard|brand|checks|export"
+}

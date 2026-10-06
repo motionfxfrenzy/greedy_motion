@@ -1,0 +1,21 @@
+/* Daisy Days — generated from packages/contracts/src/themes.ts (frame-preset). Do not edit. */
+:root {
+  --bg: #F5F0E6;
+  --fg: #2D2D2D;
+  --muted: #5E5E5E;
+  --surface: #FFFFFF;
+  --border: #F7C8D4;
+  --brand: #D64541;
+  --accent: #7ECDC0;
+  --accent-2: #D4A5E8;
+  --font-display: Fredoka, Arial, sans-serif;
+  --font-body: Quicksand, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --radius: 3.2cqmin;
+  --space-1: 1.2cqmin;
+  --space-2: 2.4cqmin;
+  --space-3: 4cqmin;
+  --dur-beat: 0.4s;
+  --ease-standard: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-emphasis: cubic-bezier(0.19, 1, 0.22, 1);
+}

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<title>Greedy Motion Studio — Smart Profit Dashboard</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+@font-face { font-family: "Hanken Grotesk"; src: url("fonts/hanken-grotesk-700.woff2") format("woff2"); font-weight: 600 800; }
+@font-face { font-family: "DM Mono"; src: url("fonts/dm-mono-400.woff2") format("woff2"); font-weight: 400; }
+@keyframes relaySheen { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #ebf5ff; color: #0a0d12; font-family: "Plus Jakarta Sans", Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button:disabled { opacity: .35; cursor: not-allowed !important; }
+a { color: #0A6CFF; text-decoration: none; } a:hover { color: #0A6CFF; }
+::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #C9D6E4; border-radius: 8px; } ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</helmet>
+<div style="height:100vh;min-height:760px;display:grid;grid-template-rows:64px minmax(0,1fr) 340px;grid-template-columns:minmax(0,1fr);gap:14px;padding:0 16px 16px;background:transparent;">
+
+  <header style="display:flex;align-items:center;gap:18px;padding:0 8px;border-bottom:1px solid #E1EAF4;">
+    <a href="Relay v3.dc.html" style="flex:none;display:flex;align-items:center;gap:10px;">
+      <img src="assets/gm-mark.svg" alt="" style="height:24px;display:block;" />
+      <span style="display:flex;flex-direction:column;line-height:1.15;"><span style="display:flex;gap:4px;font-size:15px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;"><span style="color:#0B1F4D;">Greedy</span><span style="color:#0A6CFF;">Motion</span></span><span style="font-size:11px;color:#93979f;">Studio</span></span>
+    </a>
+    <span style="width:1px;height:22px;background:#D6E4F2;"></span>
+    <span style="flex:1 1 0;min-width:0;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.22em;color:#535862;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">SMART PROFIT DASHBOARD · FEATURE SPOTLIGHT · {{ revCaps }}</span>
+    <div style="margin-left:auto;flex:none;display:flex;align-items:center;gap:6px;">
+      <span style="font-size:12px;color:#16803C;margin-right:6px;white-space:nowrap;">● Autosaved</span>
+      <a href="Relay v3.dc.html" style="padding:8px 12px;font-size:13px;font-weight:600;color:#535862;white-space:nowrap;">Guided view</a>
+      <button type="button" onClick="{{ share }}" style="padding:8px 12px;border:1px solid #D6E4F2;border-radius:9999px;background:#ffffff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;" style-hover="border-color:#C9D6E4;">Share for review</button>
+      <button type="button" onClick="{{ openPublish }}" style="padding:8px 12px;border:1px solid #D6E4F2;border-radius:9999px;background:#ffffff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;" style-hover="border-color:#C9D6E4;">Publish template</button>
+      <button type="button" onClick="{{ openValidate }}" style="padding:8px 18px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;box-shadow:0 8px 22px -8px rgba(10,108,255,.8);">Render {{ revShort }}</button>
+    </div>
+  </header>
+
+  <div style="display:grid;grid-template-columns:{{ cols }};gap:14px;min-height:0;">
+    <aside style="display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:#fafdff;border:1px solid #E1EAF4;border-radius:24px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 14px 10px;"><span style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.28em;color:#93979f;">SCENES</span><button type="button" onClick="{{ addScene }}" style="border:0;background:transparent;color:#0A6CFF;font-size:12px;font-weight:600;cursor:pointer;">+ Add</button></div>
+      <div style="flex:1;overflow:auto;padding:0 10px 10px;display:flex;flex-direction:column;gap:6px;">
+        <sc-for list="{{ sceneRows }}" as="r" hint-placeholder-count="5">
+          <button type="button" onClick="{{ r.go }}" draggable="true" style="display:grid;grid-template-columns:30px 1fr;gap:6px;padding:11px 12px;border-radius:16px;border:1px solid {{ r.line }};background:{{ r.bg }};box-shadow:{{ r.shadow }};cursor:pointer;text-align:left;transition:border-color 200ms ease,background 200ms ease;">
+            <span style="font-family:'DM Mono',monospace;font-size:17px;color:{{ r.numFg }};">{{ r.n }}</span>
+            <span style="display:flex;flex-direction:column;gap:5px;min-width:0;">
+              <span style="font-size:13px;font-weight:700;line-height:1.3;color:{{ r.fg }};">{{ r.label }}</span>
+              <span style="font-size:12px;line-height:1.35;color:#93979f;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ r.headline }}</span>
+              <sc-if value="{{ r.hasRevs }}" hint-placeholder-val="{{ false }}">
+                <span style="display:flex;gap:4px;">
+                  <sc-for list="{{ r.revs }}" as="v" hint-placeholder-count="2"><span style="padding:1px 6px;border-radius:5px;border:1px solid {{ v.line }};background:{{ v.bg }};color:{{ v.fg }};font-family:'DM Mono',monospace;font-size:10px;">{{ v.label }}</span></sc-for>
+                </span>
+              </sc-if>
+              <span style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:11px;color:#93979f;"><span>{{ r.dur }}</span><span style="color:#0A6CFF;">{{ r.badge }}</span></span>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="padding:12px 14px;border-top:1px solid #E1EAF4;display:flex;flex-direction:column;gap:8px;">
+        <span style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.28em;color:#93979f;">BLOCKS</span>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;">
+          <sc-for list="{{ blocks }}" as="bk" hint-placeholder-count="4"><span style="padding:5px 8px;border-radius:7px;border:1px solid #D6E4F2;background:#F4F8FD;font-size:11px;font-weight:600;color:#535862;cursor:grab;">{{ bk }}</span></sc-for>
+        </div>
+      </div>
+    </aside>
+
+    <section style="display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;">
+      <div style="position:relative;flex:1;min-height:0;display:grid;place-items:center;border-radius:24px;border:1px solid #E1EAF4;background:radial-gradient(80% 70% at 50% 30%,rgba(22,139,255,.08),transparent 70%),#F4F8FD;padding:34px 16px 16px;overflow:hidden;">
+        <div style="position:relative;width:100%;max-width:{{ canvasMax }};">
+          <div style="position:relative;border-radius:10px;box-shadow:0 14px 20px 4px rgba(4,69,144,.10);">
+            <dc-import name="Scene Frame" scene="{{ curScene }}" branded="{{ true }}" logo-place="open-end" hint-size="100%,360px"></dc-import>
+            <sc-if value="{{ safeArea }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:5% 5%;border:1px dashed rgba(22,139,255,.6);border-radius:4px;pointer-events:none;"></div></sc-if>
+            <sc-if value="{{ showSel }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ sel.box.l }};top:{{ sel.box.t }};width:{{ sel.box.w }};height:{{ sel.box.h }};border:1.5px solid #168BFF;border-radius:3px;pointer-events:none;">
+                <span style="position:absolute;left:-1px;top:-21px;padding:2px 6px;border-radius:4px;background:#0A6CFF;color:#fff;font-size:11px;font-weight:600;white-space:nowrap;">{{ sel.name }}</span>
+                <span style="position:absolute;left:-4px;top:-4px;width:7px;height:7px;background:#fff;border:1.5px solid #0A6CFF;"></span><span style="position:absolute;right:-4px;top:-4px;width:7px;height:7px;background:#fff;border:1.5px solid #0A6CFF;"></span><span style="position:absolute;left:-4px;bottom:-4px;width:7px;height:7px;background:#fff;border:1.5px solid #0A6CFF;"></span><span style="position:absolute;right:-4px;bottom:-4px;width:7px;height:7px;background:#fff;border:1.5px solid #0A6CFF;"></span>
+              </div>
+            </sc-if>
+          </div>
+          <span style="position:absolute;left:0;top:-24px;padding:3px 8px;border-radius:6px;background:linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%);color:#fff;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;">{{ curBadge }}</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <button type="button" onClick="{{ togglePlay }}" style="display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #D6E4F2;border-radius:9999px;background:#ffffff;font-size:13px;font-weight:600;cursor:pointer;">{{ playGlyph }} {{ playLabel }}<span style="padding:1px 6px;border:1px solid #C9D6E4;border-radius:5px;font-size:10px;color:#535862;">Space</span></button>
+        <button type="button" onClick="{{ toggleSafe }}" style="display:flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #D6E4F2;border-radius:9999px;background:#ffffff;font-size:13px;font-weight:600;cursor:pointer;color:{{ safeFg }};"><span style="display:grid;place-items:center;width:14px;height:14px;border-radius:3px;background:{{ safeBox }};color:#fff;font-size:9px;">{{ safeMark }}</span>Safe area</button>
+        <button type="button" onClick="{{ cycleSpeed }}" style="padding:7px 11px;border:0;border-radius:9999px;background:linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%);color:#fff;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;">{{ speed }}×</button>
+        <button type="button" onClick="{{ fullscreen }}" style="display:flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid #D6E4F2;border-radius:9999px;background:#ffffff;font-size:13px;font-weight:600;cursor:pointer;">Full screen<span style="padding:1px 6px;border:1px solid #C9D6E4;border-radius:5px;font-size:10px;color:#535862;">F</span></button>
+        <span style="margin-left:auto;font-family:'DM Mono',monospace;font-size:13px;color:#fff;white-space:nowrap;">{{ timeNow }} <span style="color:#93979f;">/ 0:30.0</span></span>
+      </div>
+    </section>
+
+    <sc-if value="{{ showInsp }}" hint-placeholder-val="{{ true }}"><aside style="display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:#fafdff;border:1px solid #E1EAF4;border-radius:24px;">
+      <div style="display:flex;gap:16px;padding:14px 14px 0;border-bottom:1px solid #E1EAF4;">
+        <sc-for list="{{ inspTabs }}" as="t" hint-placeholder-count="2"><button type="button" onClick="{{ t.go }}" style="border:0;background:transparent;padding:0 0 10px;border-bottom:2px solid {{ t.line }};font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.28em;color:{{ t.fg }};cursor:pointer;">{{ t.label }}</button></sc-for>
+      </div>
+      <div style="flex:1;overflow:auto;">
+        <sc-if value="{{ tabScript }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:14px;display:flex;flex-direction:column;gap:14px;">
+            <sc-for list="{{ script }}" as="sc" hint-placeholder-count="5">
+              <div style="display:flex;flex-direction:column;gap:6px;opacity:{{ sc.opacity }};">
+                <span style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;color:{{ sc.labelFg }};"><span>{{ sc.tag }}</span><span>{{ sc.range }}</span></span>
+                <textarea value="{{ sc.headline }}" onChange="{{ sc.onHeadline }}" rows="2" style="width:100%;resize:none;border:1px solid transparent;border-radius:8px;background:transparent;padding:4px 6px;font-size:15px;font-weight:600;line-height:1.4;color:#0a0d12;outline:none;" style-hover="border-color:#D6E4F2;" style-focus="border-color:#168BFF;background:#F4F8FD;"></textarea>
+                <sc-if value="{{ sc.hasVo }}" hint-placeholder-val="{{ false }}"><span style="padding:0 6px;font-size:13px;line-height:1.55;color:#535862;"><span style="font-family:'DM Mono',monospace;font-size:10px;color:#93979f;margin-right:6px;">VO</span>{{ sc.vo }}</span></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ tabProps }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:4px;">
+            <span style="font-size:12px;color:#93979f;">Layer</span>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
+              <sc-for list="{{ layerPicks }}" as="l" hint-placeholder-count="5"><button type="button" onClick="{{ l.go }}" style="padding:4px 8px;border-radius:6px;border:1px solid {{ l.line }};background:{{ l.bg }};color:{{ l.fg }};font-size:11px;font-weight:600;cursor:pointer;">{{ l.name }}</button></sc-for>
+            </div>
+          </div>
+          <sc-for list="{{ propGroups }}" as="g" hint-placeholder-count="4">
+            <div style="padding:10px 14px;border-top:1px solid #E1EAF4;display:flex;flex-direction:column;gap:8px;">
+              <span style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.24em;color:#93979f;">{{ g.title }}</span>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <sc-for list="{{ g.fields }}" as="f" hint-placeholder-count="2">
+                  <label style="display:flex;flex-direction:column;gap:3px;grid-column:{{ f.span }};"><span style="font-size:11px;color:#93979f;">{{ f.label }}</span>
+                    <input type="text" value="{{ f.value }}" onChange="{{ f.onChange }}" style="padding:6px 8px;border:1px solid {{ f.line }};border-radius:7px;background:{{ f.bg }};font-family:'DM Mono',monospace;font-size:12px;color:#0a0d12;outline:none;transition:border-color 200ms ease,background 300ms ease;" style-focus="border-color:#168BFF;" />
+                  </label>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+          <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid #E1EAF4;font-size:13px;"><span style="display:flex;flex-direction:column;gap:2px;"><span>Expose in guided editor</span><span style="font-size:11px;color:#93979f;">{{ sel.varNote }}</span></span><input type="checkbox" checked="{{ sel.exposed }}" onChange="{{ toggleExposed }}" style="accent-color:#168BFF;width:16px;height:16px;" /></label>
+        </sc-if>
+      </div>
+    </aside></sc-if>
+
+    <sc-if value="{{ showComments }}" hint-placeholder-val="{{ true }}"><aside style="display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:#fafdff;border:1px solid #E1EAF4;border-radius:24px;">
+      <sc-if value="{{ narrow }}" hint-placeholder-val="{{ false }}"><div style="display:flex;gap:16px;padding:14px 14px 0;border-bottom:1px solid #E1EAF4;"><sc-for list="{{ inspTabs }}" as="t" hint-placeholder-count="3"><button type="button" onClick="{{ t.go }}" style="border:0;background:transparent;padding:0 0 10px;border-bottom:2px solid {{ t.line }};font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.2em;color:{{ t.fg }};cursor:pointer;">{{ t.label }}</button></sc-for></div></sc-if>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #E1EAF4;">
+        <span style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.28em;color:#93979f;">COMMENTS</span>
+        <button type="button" onClick="{{ approve }}" style="padding:6px 11px;border:1px solid {{ approveLine }};border-radius:8px;background:{{ approveBg }};color:#16803C;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">{{ approveLabel }}</button>
+      </div>
+      <button type="button" onClick="{{ toggleResolved }}" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border:0;border-bottom:1px solid #E1EAF4;background:transparent;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.22em;color:#93979f;text-align:left;">{{ resolvedCaret }} ✓ RESOLVED IN R3 <span style="display:grid;place-items:center;min-width:18px;height:18px;border-radius:9999px;background:#D6E4F2;color:#535862;letter-spacing:0;">4</span></button>
+      <div style="flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:12px;">
+        <sc-if value="{{ showResolved }}" hint-placeholder-val="{{ false }}">
+          <sc-for list="{{ resolved }}" as="rc" hint-placeholder-count="4"><div style="font-size:12px;color:#93979f;line-height:1.45;text-decoration:line-through;text-decoration-color:#C9D6E4;"><span style="font-family:'DM Mono',monospace;">{{ rc.at }}</span> · {{ rc.text }}</div></sc-for>
+        </sc-if>
+        <div style="display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:12px;border:1px solid transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%) border-box;">
+          <div style="display:flex;align-items:center;gap:8px;"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:linear-gradient(180deg,#168BFF,#0A6CFF);color:#fff;font-size:10px;font-weight:700;">MC</span><span style="font-size:12px;"><strong>Mara Chen</strong> <span style="color:#93979f;">· 4 min ago</span></span></div>
+          <span style="align-self:flex-start;padding:2px 7px;border-radius:5px;background:rgba(22,139,255,.14);color:#0A6CFF;font-family:'DM Mono',monospace;font-size:11px;">0:10–0:12 · Chart, Profit number</span>
+          <span style="font-size:13px;line-height:1.5;color:#0a0d12;">Between 10 and 12 seconds, make the dashboard reveal feel more deliberate and bring the profit number in after the chart settles.</span>
+          <sc-if value="{{ aiIdle }}" hint-placeholder-val="{{ true }}">
+            <button type="button" onClick="{{ applyAI }}" style="align-self:flex-start;padding:7px 12px;border:0;border-radius:8px;background:linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%);color:#fff;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 6px 16px -6px rgba(10,108,255,.8);">Apply with AI</button>
+          </sc-if>
+          <sc-if value="{{ aiThinking }}" hint-placeholder-val="{{ false }}">
+            <div style="position:relative;overflow:hidden;padding:9px 10px;border-radius:8px;background:rgba(22,139,255,.12);font-size:12px;color:#0A6CFF;">Reading 2 layers in 0:10–0:12. Other timings stay locked.{{ sheen }}</div>
+          </sc-if>
+          <sc-if value="{{ aiProposed }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:7px;padding:10px;border-radius:9999px;background:#F4F8FD;">
+              <strong style="font-size:12px;">Updated Scene 3</strong>
+              <sc-for list="{{ aiChanges }}" as="ch" hint-placeholder-count="3">
+                <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.4;color:#535862;cursor:pointer;"><input type="checkbox" checked="{{ ch.on }}" onChange="{{ ch.toggle }}" disabled="{{ ch.fixed }}" style="margin-top:2px;accent-color:#168BFF;" /><span>{{ ch.label }}</span></label>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:5px;">
+              <button type="button" onClick="{{ acceptNone }}" style="flex:1;padding:7px;border:1px solid #D6E4F2;border-radius:7px;background:transparent;font-size:11px;font-weight:600;cursor:pointer;">None</button>
+              <button type="button" onClick="{{ acceptSelected }}" style="flex:1;padding:7px;border:1px solid rgba(22,139,255,.5);border-radius:7px;background:rgba(22,139,255,.15);color:#0A6CFF;font-size:11px;font-weight:600;cursor:pointer;">Selected</button>
+              <button type="button" onClick="{{ acceptAll }}" style="flex:1;padding:7px;border:0;border-radius:7px;background:#181d27;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">Accept all</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ aiDone }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:9px 10px;border-radius:8px;background:rgba(22,128,60,.1);color:#16803C;font-size:12px;line-height:1.45;">{{ aiDoneMsg }}</div>
+          </sc-if>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:12px;background:#F4F8FD;border:1px solid #E1EAF4;">
+          <div style="display:flex;align-items:center;gap:8px;"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#C9D6E4;color:#fff;font-size:10px;font-weight:700;">OE</span><span style="font-size:12px;"><strong>You</strong> <span style="color:#93979f;">· 0:25</span></span></div>
+          <span style="font-size:13px;line-height:1.5;color:#535862;">CTA reads well. Keep the URL in mono.</span>
+        </div>
+      </div>
+      <div style="padding:12px 14px;border-top:1px solid #E1EAF4;display:flex;flex-direction:column;gap:6px;">
+        <span style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.28em;color:#93979f;">NOTES</span>
+        <textarea rows="2" placeholder="Anything not tied to one moment" style="width:100%;resize:vertical;border:1px solid #E1EAF4;border-radius:8px;background:#F4F8FD;padding:8px 10px;font-size:13px;outline:none;" style-focus="border-color:#168BFF;"></textarea>
+      </div>
+    </aside></sc-if>
+  </div>
+
+  <section style="display:flex;flex-direction:column;min-height:0;background:#fafdff;border:1px solid #E1EAF4;border-radius:24px;overflow:hidden;">
+    <div style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid #E1EAF4;">
+      <span style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.28em;color:#93979f;margin-right:10px;">TIMELINE</span>
+      <button type="button" onClick="{{ undo }}" disabled="{{ noUndo }}" style="padding:5px 9px;border:0;border-radius:7px;background:transparent;font-size:12px;font-weight:600;cursor:pointer;" style-hover="background:#E1EAF4;">↶ Undo</button>
+      <button type="button" onClick="{{ redo }}" disabled="{{ noRedo }}" style="padding:5px 9px;border:0;border-radius:7px;background:transparent;font-size:12px;font-weight:600;cursor:pointer;" style-hover="background:#E1EAF4;">↷ Redo</button>
+      <button type="button" onClick="{{ split }}" style="display:flex;align-items:center;gap:6px;padding:5px 9px;border:0;border-radius:7px;background:transparent;font-size:12px;font-weight:600;cursor:pointer;" style-hover="background:#E1EAF4;">Split at playhead<span style="padding:0 5px;border:1px solid #C9D6E4;border-radius:4px;font-size:10px;color:#535862;">S</span></button>
+      <span style="width:1px;height:18px;background:#D6E4F2;margin:0 4px;"></span>
+      <button type="button" onClick="{{ addComment }}" style="padding:5px 9px;border:0;border-radius:7px;background:transparent;font-size:12px;font-weight:600;cursor:pointer;" style-hover="background:#E1EAF4;">+ Comment</button>
+      <button type="button" onClick="{{ toggleKeys }}" style="padding:5px 9px;border:0;border-radius:7px;background:transparent;font-size:12px;font-weight:600;cursor:pointer;color:{{ keysFg }};" style-hover="background:#E1EAF4;">{{ keysLabel }}</button>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-family:'DM Mono',monospace;font-size:11px;color:#93979f;">
+        <span>SCENE <span style="font-size:13px;color:#0a0d12;">{{ sceneTime }}</span></span>
+        <span>EDIT <span style="font-size:13px;color:#0a0d12;">{{ timeNow }}</span></span>
+        <div style="display:flex;align-items:center;gap:2px;"><button type="button" onClick="{{ zoomOut }}" style="width:24px;height:24px;border:0;border-radius:6px;background:transparent;cursor:pointer;color:#0a0d12;">−</button><button type="button" onClick="{{ zoomFit }}" style="padding:3px 7px;border:0;border-radius:6px;background:#E1EAF4;cursor:pointer;color:#0a0d12;font-size:11px;">Fit</button><button type="button" onClick="{{ zoomIn }}" style="width:24px;height:24px;border:0;border-radius:6px;background:transparent;cursor:pointer;color:#0a0d12;">+</button></div>
+      </div>
+    </div>
+    <div style="flex:1;display:grid;grid-template-columns:64px minmax(0,1fr);min-height:0;overflow-y:auto;">
+      <div style="display:flex;flex-direction:column;border-right:1px solid #E1EAF4;">
+        <sc-for list="{{ rowLabels }}" as="rl" hint-placeholder-count="9"><span style="height:{{ rl.h }};flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid #EDF3FA;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.14em;color:{{ rl.fg }};">{{ rl.label }}</span></sc-for>
+      </div>
+      <div style="overflow-x:auto;overflow-y:hidden;">
+        <div onClick="{{ scrub }}" style="position:relative;width:{{ zoomWidth }};min-width:100%;cursor:text;">
+          <div style="position:relative;height:26px;border-bottom:1px solid #EDF3FA;">
+            <sc-for list="{{ ruler }}" as="r" hint-placeholder-count="7"><span style="position:absolute;left:{{ r.left }};top:0;height:100%;border-left:1px solid #D6E4F2;padding:6px 0 0 5px;font-family:'DM Mono',monospace;font-size:10px;color:#93979f;">{{ r.label }}</span></sc-for>
+          </div>
+          <div style="position:relative;height:26px;border-bottom:1px solid #EDF3FA;">
+            <sc-for list="{{ pins }}" as="cp" hint-placeholder-count="2"><button type="button" onClick="{{ cp.open }}" title="{{ cp.title }}" style="position:absolute;left:{{ cp.left }};top:3px;margin-left:-10px;width:20px;height:20px;border-radius:50% 50% 50% 2px;border:1.5px solid #fafdff;background:{{ cp.bg }};color:#fff;font-size:9px;font-weight:700;cursor:pointer;">{{ cp.initials }}</button></sc-for>
+          </div>
+          <div style="position:relative;height:24px;border-bottom:1px solid #EDF3FA;">
+            <sc-for list="{{ sceneMarks }}" as="m" hint-placeholder-count="5"><span style="position:absolute;left:{{ m.left }};width:{{ m.width }};top:5px;height:14px;border-left:1.5px solid {{ m.line }};background:{{ m.bg }};padding-left:5px;font-family:'DM Mono',monospace;font-size:10px;color:{{ m.fg }};white-space:nowrap;overflow:hidden;">{{ m.label }}</span></sc-for>
+          </div>
+          <div style="position:relative;height:28px;border-bottom:1px solid #EDF3FA;background:repeating-linear-gradient(135deg,rgba(10,13,18,.035) 0 6px,transparent 6px 12px);">
+            <sc-for list="{{ keyDots }}" as="k" hint-placeholder-count="6"><span title="{{ k.title }}" style="position:absolute;left:{{ k.left }};top:8px;margin-left:-6px;width:12px;height:12px;border-radius:50%;border:1.5px solid {{ k.ring }};background:{{ k.fill }};box-shadow:{{ k.glow }};transition:left 260ms ease;"></span></sc-for>
+          </div>
+          <div style="position:relative;height:58px;border-bottom:1px solid #EDF3FA;background:repeating-linear-gradient(135deg,rgba(10,13,18,.035) 0 6px,transparent 6px 12px);">
+            <sc-for list="{{ frames }}" as="fr" hint-placeholder-count="5">
+              <div onClick="{{ fr.go }}" style="position:absolute;left:{{ fr.left }};width:{{ fr.width }};top:5px;bottom:5px;border-radius:7px;overflow:hidden;border:1.5px solid {{ fr.line }};background-image:url({{ fr.img }});background-size:auto 100%;background-repeat:repeat-x;box-shadow:{{ fr.glow }};cursor:pointer;">
+                <span style="position:absolute;left:4px;bottom:4px;padding:1px 6px;border-radius:4px;background:rgba(10,13,18,.72);color:#fff;font-size:10px;font-weight:700;white-space:nowrap;">{{ fr.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <sc-for list="{{ layerTracks }}" as="tr" hint-placeholder-count="4">
+            <div style="position:relative;height:26px;border-bottom:1px solid #EDF3FA;">
+              <div onClick="{{ tr.go }}" style="position:absolute;left:{{ tr.left }};width:{{ tr.width }};top:4px;bottom:4px;border-radius:5px;background:{{ tr.bg }};border:1px solid {{ tr.line }};display:flex;align-items:center;padding:0 7px;font-size:10px;font-weight:600;color:{{ tr.fg }};white-space:nowrap;overflow:hidden;cursor:pointer;transition:left 260ms ease,width 260ms ease;">{{ tr.label }}</div>
+            </div>
+          </sc-for>
+          <div style="position:relative;height:40px;border-bottom:1px solid #EDF3FA;display:flex;align-items:center;gap:1px;padding:0 2px;">
+            <sc-for list="{{ wave }}" as="w" hint-placeholder-count="40"><span style="flex:1;height:{{ w.h }};min-width:1px;border-radius:1px;background:{{ w.c }};"></span></sc-for>
+          </div>
+          <div style="position:absolute;left:{{ range.left }};width:{{ range.width }};top:26px;bottom:0;background:rgba(22,139,255,.10);border-left:1px solid rgba(22,139,255,.7);border-right:1px solid rgba(22,139,255,.7);pointer-events:none;"></div>
+          <div style="position:absolute;left:{{ playPct }};top:0;bottom:0;width:2px;margin-left:-1px;background:linear-gradient(180deg,#168BFF,#0A6CFF);pointer-events:none;z-index:4;box-shadow:0 0 12px rgba(22,139,255,.8);"><span style="position:absolute;top:4px;left:-6px;width:14px;height:14px;border-radius:50%;background:#168BFF;border:2px solid #fff;"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <sc-if value="{{ modal }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeModal }}" style="position:fixed;inset:0;z-index:40;background:rgba(10,13,18,.3);backdrop-filter:blur(6px);display:grid;place-items:center;padding:24px;">
+      <div onClick="{{ stop }}" style="width:100%;max-width:520px;background:#ffffff;border:1px solid #D6E4F2;border-radius:18px;box-shadow:0 14px 20px 4px rgba(4,69,144,.12);overflow:hidden;">
+        <sc-if value="{{ modalValidate }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:20px 22px;display:flex;flex-direction:column;gap:12px;">
+            <div><strong style="font-size:17px;">Check composition before render</strong><p style="margin:4px 0 0;font-size:13px;color:#93979f;">{{ revLabel }} · 1920 × 1080 · 0:30</p></div>
+            <sc-for list="{{ checks }}" as="c" hint-placeholder-count="4">
+              <div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;background:{{ c.bg }};">
+                <span style="color:{{ c.fg }};font-weight:700;">{{ c.mark }}</span>
+                <div style="flex:1;display:flex;flex-direction:column;gap:2px;"><span style="font-size:13px;font-weight:600;">{{ c.label }}</span><span style="font-size:12px;color:#535862;">{{ c.detail }}</span></div>
+                <sc-if value="{{ c.fixable }}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{ c.fix }}" style="flex:none;padding:5px 10px;border:1px solid rgba(180,83,9,.4);border-radius:7px;background:transparent;font-size:12px;font-weight:600;color:#B45309;cursor:pointer;">Go to element</button></sc-if>
+              </div>
+            </sc-for>
+          </div>
+          <div style="padding:14px 22px;border-top:1px solid #D6E4F2;display:flex;justify-content:flex-end;gap:8px;">
+            <button type="button" onClick="{{ closeModal }}" style="padding:9px 14px;border:1px solid #D6E4F2;border-radius:9999px;background:transparent;font-size:13px;font-weight:600;cursor:pointer;">Cancel</button>
+            <button type="button" onClick="{{ doRender }}" style="padding:9px 16px;border:0;border-radius:9999px;background:linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%);color:#fff;font-size:13px;font-weight:700;cursor:pointer;">Render new revision</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ modalPublish }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:20px 22px;display:flex;flex-direction:column;gap:12px;">
+            <div><strong style="font-size:17px;">Publish as template</strong><p style="margin:4px 0 0;font-size:13px;color:#93979f;">Choose what your team can change in the guided editor. Everything else stays locked.</p></div>
+            <label style="display:flex;flex-direction:column;gap:4px;"><span style="font-size:12px;font-weight:600;">Template name</span><input type="text" value="Acme spotlight" style="padding:9px 11px;border:1px solid #D6E4F2;border-radius:9999px;background:#F4F8FD;font-size:14px;outline:none;" /></label>
+            <div style="border:1px solid #D6E4F2;border-radius:12px;overflow:hidden;">
+              <sc-for list="{{ exposeRows }}" as="x" hint-placeholder-count="7">
+                <label style="display:grid;grid-template-columns:20px 1fr auto;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid #E1EAF4;font-size:13px;cursor:pointer;"><input type="checkbox" checked="{{ x.on }}" onChange="{{ x.toggle }}" style="accent-color:#168BFF;" /><span>{{ x.label }}</span><span style="font-family:'DM Mono',monospace;font-size:11px;color:#93979f;">{{ x.limit }}</span></label>
+              </sc-for>
+            </div>
+          </div>
+          <div style="padding:14px 22px;border-top:1px solid #D6E4F2;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span style="font-size:12px;color:#93979f;">{{ exposeCount }}</span>
+            <button type="button" onClick="{{ doPublish }}" style="padding:9px 16px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;font-weight:700;cursor:pointer;">Publish to team</button>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:50;padding:10px 16px;border-radius:12px;background:#181d27;color:#fff;font-size:13px;font-weight:600;box-shadow:0 14px 20px 4px rgba(4,69,144,.12);">{{ toast }}</div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const SCENES = [
+  { id: "s1", kind: "hook", label: "Hook", headline: "Finally see what every sale is really worth.", copy: "", vo: "Every sale has a story your revenue chart won’t tell.", start: 0, end: 3, img: "assets/templates/product-launch.jpg", revs: [] },
+  { id: "s2", kind: "problem", label: "Problem", headline: "Fees, refunds, and shipping hide your actual margin.", copy: "Most dashboards stop at revenue.", vo: "Fees, refunds, and shipping quietly eat into it.", start: 3, end: 8, img: "assets/templates/whats-new.jpg", revs: ["R2", "R3"] },
+  { id: "s3", kind: "product", label: "Product", headline: "Smart Profit Dashboard", copy: "", shot: "profit-dashboard.png", vo: "Smart Profit Dashboard shows what’s left after all of it.", start: 8, end: 16, img: "assets/templates/feature-spotlight.jpg", revs: ["R3", "R4"] },
+  { id: "s4", kind: "benefit", label: "Benefit", headline: "See real profitability at a glance.", copy: "Tracks fees, refunds, shipping, and margin in one dashboard.", vo: "Real profit, for every order, at a glance.", start: 16, end: 24, img: "assets/templates/stat-highlight.jpg", revs: [] },
+  { id: "s5", kind: "cta", label: "CTA", headline: "See your real margins", copy: "acme.com/profit", vo: "", start: 24, end: 30, img: "assets/templates/product-launch.jpg", revs: [] }
+];
+const LAYERS = {
+  headline: { name: "Headline", kind: "Text", color: "#0a0d12", x: 0, y: -168, scale: 100, font: "Inter", size: 44, weight: 700, preset: "Fade up", delay: 0.0, dur: 0.4, easing: "ease-out", start: 8, end: 16, box: { l: "24%", t: "16%", w: "52%", h: "9%" }, exposed: true, varNote: "Guided users can edit this text, up to 40 characters." },
+  screenshot: { name: "Screenshot", kind: "Image", color: "#535862", x: 0, y: 24, scale: 100, font: "—", size: 0, weight: 0, preset: "Push in", delay: 0.2, dur: 0.6, easing: "ease-in-out", start: 8.2, end: 16, box: { l: "13%", t: "28%", w: "74%", h: "60%" }, exposed: true, varNote: "Guided users can swap the image." },
+  chart: { name: "Chart reveal", kind: "Mask", color: "#5EEAD4", x: 0, y: 40, scale: 100, font: "—", size: 0, weight: 0, preset: "Wipe right", delay: 2.0, dur: 0.35, easing: "ease-out", start: 10, end: 16, box: { l: "16%", t: "44%", w: "56%", h: "36%" }, exposed: false, varNote: "Locked. Only Studio can change this layer." },
+  profit: { name: "Profit number", kind: "Text", color: "#0A6CFF", x: 310, y: 190, scale: 100, font: "Inter", size: 36, weight: 700, preset: "Count up", delay: 2.1, dur: 0.5, easing: "ease-out", start: 10.1, end: 16, box: { l: "64%", t: "68%", w: "27%", h: "24%" }, exposed: false, varNote: "Locked. The value comes from approved claims." },
+  logo: { name: "Logo", kind: "Brand", color: "#C4B5FD", x: -820, y: -460, scale: 100, font: "—", size: 0, weight: 0, preset: "Fade", delay: 0, dur: 0.3, easing: "ease-out", start: 0, end: 3, box: { l: "3%", t: "5%", w: "14%", h: "8%" }, exposed: false, varNote: "Placement is set by the brand kit." }
+};
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}.${Math.floor((s % 1) * 10)}`;
+const pct = (s) => `${(s / 30) * 100}%`;
+const WAVE = Array.from({ length: 160 }, (_, i) => { const t = i / 160 * 30; const env = t < 0.6 ? t / 0.6 : t > 29 ? (30 - t) : 1; return Math.max(8, Math.round((0.35 + 0.35 * Math.abs(Math.sin(i * 0.7)) + 0.3 * Math.abs(Math.sin(i * 2.3 + 1))) * env * 100)); });
+
+class Component extends DCLogic {
+  state = { vw: 1440, t: 11, playing: false, speed: 1, safe: false, keys: true, zoom: 1, insp: "Script", sel: "profit", layers: JSON.parse(JSON.stringify(LAYERS)), heads: Object.fromEntries(SCENES.map(s => [s.id, s.headline])), past: [], future: [], rev: 4,
+    ai: "idle", aiT: 0, picks: [true, true, true], changed: {}, approved: false, showResolved: false, modal: null, toast: null, toastT: 0,
+    expose: { headline: true, copy: true, screenshot: true, cta: true, duration: false, motion: false, colors: false } };
+  componentDidMount() { this.onResize = () => this.setState({ vw: window.innerWidth }); window.addEventListener("resize", this.onResize); this.onResize(); this.timer = setInterval(() => this.tick(), 100); this.key = (e) => { if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return; if (e.code === "Space") { e.preventDefault(); this.setState(s => ({ playing: !s.playing })); } }; window.addEventListener("keydown", this.key); }
+  componentWillUnmount() { clearInterval(this.timer); window.removeEventListener("resize", this.onResize); window.removeEventListener("keydown", this.key); }
+  tick() {
+    const s = this.state, p = {}; let d = false;
+    if (s.playing) { const n = s.t + 0.1 * s.speed; p.t = n >= 30 ? 0 : n; d = true; }
+    if (s.ai === "thinking") { p.aiT = s.aiT + 1; if (p.aiT > 14) p.ai = "proposed"; d = true; }
+    if (s.toast) { p.toastT = s.toastT + 1; if (p.toastT > 30) p.toast = null; d = true; }
+    if (d) this.setState(p);
+  }
+  say(m) { this.setState({ toast: m, toastT: 0 }); }
+  commit(mut, extra) {
+    this.setState(s => { const snap = { layers: s.layers, heads: s.heads }; const layers = JSON.parse(JSON.stringify(s.layers)); const heads = { ...s.heads }; mut(layers, heads); return { layers, heads, past: [...s.past, snap], future: [], rev: s.past.length ? s.rev : s.rev + 1, approved: false, ...(extra ? extra(s) : {}) }; });
+  }
+  renderVals() {
+    const s = this.state, L = s.layers, sel = L[s.sel]; const narrow = s.vw < 1280; if (!narrow && s.insp === "Comments") setTimeout(() => this.setState({ insp: "Script" }));
+    const curBase = SCENES.find(x => s.t >= x.start && s.t < x.end) || SCENES[4];
+    const cur = { ...curBase, headline: s.heads[curBase.id] };
+    const curIdx = SCENES.indexOf(curBase);
+    const f = (label, k, unit, span) => ({ label, value: `${sel[k]}${unit || ""}`, span: span || "auto", line: s.changed[`${s.sel}.${k}`] ? "#168BFF" : "#D6E4F2", bg: s.changed[`${s.sel}.${k}`] ? "rgba(22,139,255,.18)" : "#F4F8FD", onChange: (e) => { const raw = e.target.value; this.commit(ls => { const n = parseFloat(raw.replace(/[a-z%]+$/i, "")); ls[s.sel][k] = isNaN(n) ? raw : n; }); } });
+    const propGroups = [
+      { title: "TRANSFORM", fields: [f("X", "x", "px"), f("Y", "y", "px"), f("Scale", "scale", "%", "1 / -1")] },
+      ...(sel.kind === "Text" ? [{ title: "TYPOGRAPHY", fields: [f("Font", "font", "", "1 / -1"), f("Size", "size", "px"), f("Weight", "weight")] }] : []),
+      { title: "ANIMATION", fields: [f("Entrance", "preset", "", "1 / -1"), f("Delay", "delay", "s"), f("Duration", "dur", "s"), f("Easing", "easing", "", "1 / -1")] },
+      { title: "TIMING", fields: [f("In", "start", "s"), f("Out", "end", "s")] }
+    ];
+    const apply = (which) => {
+      this.commit(ls => { if (which[0]) { ls.profit.start = 10.55; ls.profit.delay = 2.55; } if (which[1]) { ls.chart.dur = 0.65; ls.chart.easing = "ease-in-out"; } },
+        () => ({ ai: "done", insp: "Properties", sel: which[0] ? "profit" : "chart", changed: { ...(which[0] ? { "profit.start": 1, "profit.delay": 1 } : {}), ...(which[1] ? { "chart.dur": 1, "chart.easing": 1 } : {}) } }));
+      this.say(which[0] || which[1] ? `Revision ${s.rev + 1} saved. Updated Scene 3 only.` : "No changes applied.");
+    };
+    const layerKeys = ["headline", "screenshot", "chart", "profit", "logo"];
+    const keyDots = s.keys ? layerKeys.flatMap(k => { const l = L[k], on = s.sel === k, ch = s.changed[`${k}.start`] || s.changed[`${k}.dur`]; return [l.start, l.start + l.dur].map((v, i) => ({ left: pct(v), title: `${l.name} ${i ? "settle" : "in"} · ${v.toFixed(2)}s`, ring: ch ? "#A78BFA" : on ? "#168BFF" : "#C9D6E4", fill: on || ch ? "#168BFF" : "#F4F8FD", glow: ch ? "0 0 0 4px rgba(167,139,250,.25)" : "none" })); }) : [];
+    const tracks = [
+      { label: "TEXT", fg: "#93979f" }, { label: "IMAGE", fg: "#93979f" }, { label: "CHART", fg: "#93979f" }, { label: "NUMBER", fg: "#93979f" }
+    ];
+    const rowLabels = [["SEC", "26px"], ["PINS", "26px"], ["SCENE", "24px"], ["KEYS", "28px"], ["V1", "58px"], ["TEXT", "26px"], ["IMAGE", "26px"], ["CHART", "26px"], ["NUMBER", "26px"], ["A1", "40px"]].map(([label, h]) => ({ label, h, fg: (label === "TEXT" && s.sel === "headline") || (label === "IMAGE" && s.sel === "screenshot") || (label === "CHART" && s.sel === "chart") || (label === "NUMBER" && s.sel === "profit") ? "#0A6CFF" : "#93979f" }));
+    const ex = [["headline", "Headline", "≤ 40 chars"], ["copy", "Supporting copy", "≤ 90 chars"], ["screenshot", "Screenshot", "PNG, JPG"], ["cta", "Call to action", "≤ 28 chars"], ["duration", "Scene duration", "6–10s"], ["motion", "Motion preset", "4 presets"], ["colors", "Brand colors", "From kit"]];
+    return {
+      revLabel: `Revision ${s.rev} · draft`, revCaps: `REVISION ${s.rev}`, revShort: `R${s.rev}`,
+      share: () => this.say("Review link copied. Viewers can pin comments to the timeline."),
+      openPublish: () => this.setState({ modal: "publish" }), openValidate: () => this.setState({ modal: "validate" }), closeModal: () => this.setState({ modal: null }), stop: (e) => e.stopPropagation(),
+      addScene: () => this.say("Scene added after Scene 5. Drag a block in to fill it."),
+      sceneRows: SCENES.map((x, i) => { const on = curBase.id === x.id; return { n: String(i).padStart(2, "0"), label: `${i + 1}. ${x.label}`, headline: s.heads[x.id], dur: `${(x.end - x.start).toFixed(1)}s`, badge: x.id === "s3" ? "1 open" : "", hasRevs: x.revs.length > 0, revs: x.revs.map((r, j) => { const last = j === x.revs.length - 1; return { label: r, line: last ? "transparent" : "#C9D6E4", bg: last ? "linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%)" : "transparent", fg: last ? "#fff" : "#535862" }; }), line: on ? "rgba(22,139,255,.8)" : "#E1EAF4", bg: on ? "#EBF5FF" : "#F4F8FD", shadow: on ? "0 10px 30px -14px rgba(10,108,255,.7)" : "none", numFg: on ? "#0A6CFF" : "#C9D6E4", fg: on ? "#0A6CFF" : "#0a0d12", go: () => this.setState({ t: x.start + 0.5 }) }; }),
+      blocks: ["Browser frame", "Metric count-up", "Feature list", "Acme end card"],
+      curScene: cur, curBadge: `SCENE ${curIdx + 1} · ${curBase.label.toUpperCase()}`,
+      canvasMax: "760px", safeArea: s.safe, showSel: curBase.id === "s3" || (s.sel === "logo" && curBase.id === "s1"),
+      sel: { name: sel.name, box: sel.box, exposed: sel.exposed, varNote: sel.varNote },
+      togglePlay: () => this.setState({ playing: !s.playing }), playGlyph: s.playing ? "❚❚" : "▶", playLabel: s.playing ? "Pause" : "Play",
+      toggleSafe: () => this.setState({ safe: !s.safe }), safeFg: s.safe ? "#0A6CFF" : "#0a0d12", safeBox: s.safe ? "#0A6CFF" : "#D6E4F2", safeMark: s.safe ? "✓" : "",
+      speed: s.speed, cycleSpeed: () => this.setState({ speed: s.speed === 1 ? 1.5 : s.speed === 1.5 ? 2 : s.speed === 2 ? 0.5 : 1 }),
+      fullscreen: () => document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}),
+      timeNow: fmt(s.t), sceneTime: fmt(s.t - curBase.start),
+      inspTabs: (narrow ? ["Script", "Properties", "Comments"] : ["Script", "Properties"]).map(l => ({ label: l.toUpperCase(), line: s.insp === l ? "#168BFF" : "transparent", fg: s.insp === l ? "#0a0d12" : "#93979f", go: () => this.setState({ insp: l }) })),
+      tabScript: s.insp === "Script", tabProps: s.insp === "Properties",
+      narrow, cols: narrow ? "minmax(170px,220px) minmax(0,1fr) minmax(280px,320px)" : "minmax(200px,250px) minmax(0,1fr) 320px 320px",
+      showInsp: !narrow || s.insp !== "Comments", showComments: !narrow || s.insp === "Comments",
+      script: SCENES.map((x, i) => { const on = curBase.id === x.id; return { tag: `S${i + 1} · ${x.label.toUpperCase()}`, range: `${fmt(x.start).slice(0, -2)}–${fmt(x.end).slice(0, -2)}`, headline: s.heads[x.id], vo: x.vo, hasVo: !!x.vo, opacity: on ? 1 : 0.55, labelFg: on ? "#0A6CFF" : "#93979f", onHeadline: (e) => { const v = e.target.value; this.commit((ls, h) => { h[x.id] = v; }); } }; }),
+      layerPicks: layerKeys.map(k => ({ name: L[k].name, line: s.sel === k ? "#168BFF" : "#D6E4F2", bg: s.sel === k ? "rgba(22,139,255,.2)" : "transparent", fg: s.sel === k ? "#0A6CFF" : "#535862", go: () => this.setState({ sel: k }) })),
+      propGroups, toggleExposed: () => this.commit(ls => { ls[s.sel].exposed = !ls[s.sel].exposed; ls[s.sel].varNote = ls[s.sel].exposed ? "Guided users can edit this within template limits." : "Locked. Only Studio can change this layer."; }),
+      approve: () => { if (!s.approved) { this.setState({ approved: true }); this.say(`Revision ${s.rev} approved and locked.`); } },
+      approveLabel: s.approved ? `✓ R${s.rev} approved` : `✓ Approve R${s.rev}`, approveLine: s.approved ? "transparent" : "rgba(22,128,60,.6)", approveBg: s.approved ? "rgba(22,128,60,.14)" : "transparent",
+      toggleResolved: () => this.setState({ showResolved: !s.showResolved }), showResolved: s.showResolved, resolvedCaret: s.showResolved ? "▾" : "▸",
+      resolved: [{ at: "0:02", text: "Hook headline too long" }, { at: "0:05", text: "Use Acme’s danger orange for costs" }, { at: "0:14", text: "Screenshot slightly blurry" }, { at: "0:26", text: "CTA should match site copy" }],
+      aiIdle: s.ai === "idle", aiThinking: s.ai === "thinking", aiProposed: s.ai === "proposed", aiDone: s.ai === "done",
+      applyAI: () => this.setState({ ai: "thinking", aiT: 0, t: 10.5, sel: "profit" }),
+      sheen: React.createElement("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, height: 2, overflow: "hidden" } }, React.createElement("div", { style: { width: "40%", height: "100%", background: "linear-gradient(90deg,transparent,#168BFF,#0A6CFF,transparent)", animation: "relaySheen 1.4s ease-in-out infinite" } })),
+      aiChanges: [{ label: "Delayed profit-number entrance from 10.1s to 10.55s" }, { label: "Increased chart reveal from 0.35s to 0.65s" }, { label: "Kept all other scene timings unchanged", fixed: true }].map((c, i) => ({ ...c, fixed: !!c.fixed, on: s.picks[i], toggle: () => this.setState(st => ({ picks: st.picks.map((v, j) => j === i ? !v : v) })) })),
+      acceptAll: () => apply([true, true]), acceptSelected: () => apply(s.picks), acceptNone: () => { this.setState({ ai: "idle" }); this.say("Kept the current timing."); },
+      aiDoneMsg: `Applied to Revision ${s.rev}. Changed keyframes glow on the timeline. Undo reverts it.`,
+      undo: () => this.setState(st => st.past.length ? { ...st.past[st.past.length - 1], past: st.past.slice(0, -1), future: [{ layers: st.layers, heads: st.heads }, ...st.future], changed: {} } : {}),
+      redo: () => this.setState(st => st.future.length ? { ...st.future[0], future: st.future.slice(1), past: [...st.past, { layers: st.layers, heads: st.heads }] } : {}),
+      noUndo: !s.past.length, noRedo: !s.future.length,
+      split: () => this.say(`Split ${curBase.label} at ${fmt(s.t)}. Both halves keep the same layers.`),
+      addComment: () => this.say(`Comment pinned at ${fmt(s.t)}. Drag on the timeline to set a range.`),
+      toggleKeys: () => this.setState({ keys: !s.keys }), keysLabel: s.keys ? "Hide keyframes" : "Show keyframes", keysFg: s.keys ? "#0a0d12" : "#93979f",
+      zoomWidth: `${s.zoom * 100}%`, zoomIn: () => this.setState({ zoom: Math.min(3, s.zoom + 0.5) }), zoomOut: () => this.setState({ zoom: Math.max(1, s.zoom - 0.5) }), zoomFit: () => this.setState({ zoom: 1 }),
+      rowLabels,
+      ruler: [0, 5, 10, 15, 20, 25].map(v => ({ left: pct(v), label: `0:${String(v).padStart(2, "0")}` })),
+      pins: [{ left: pct(10), initials: "MC", title: "Mara Chen · 0:10–0:12", bg: "linear-gradient(180deg,#168BFF,#0A6CFF)", open: (e) => { e.stopPropagation(); this.setState({ t: 10 }); } }, { left: pct(25), initials: "OE", title: "You · 0:25", bg: "#C9D6E4", open: (e) => { e.stopPropagation(); this.setState({ t: 25 }); } }],
+      sceneMarks: SCENES.map((x, i) => { const on = curBase.id === x.id; return { left: pct(x.start), width: pct(x.end - x.start), label: `S${i + 1} ${x.label}`, line: on ? "#168BFF" : "#C9D6E4", bg: on ? "rgba(22,139,255,.12)" : "rgba(255,255,255,.03)", fg: on ? "#0A6CFF" : "#93979f" }; }),
+      keyDots,
+      frames: SCENES.map((x, i) => { const on = curBase.id === x.id; return { left: `calc(${pct(x.start)} + 2px)`, width: `calc(${pct(x.end - x.start)} - 4px)`, img: x.img, label: `${i + 1} · ${(x.end - x.start).toFixed(1)}s`, line: on ? "#168BFF" : "#D6E4F2", glow: on ? "0 0 0 3px rgba(22,139,255,.25)" : "none", go: () => this.setState({ t: x.start + 0.5 }) }; }),
+      layerTracks: ["headline", "screenshot", "chart", "profit"].map(k => { const l = L[k], on = s.sel === k; return { label: `${l.name} · ${l.preset}`, left: pct(l.start), width: pct(l.end - l.start), bg: on ? "#CCE7FF" : "#EDF3FA", line: on ? "#168BFF" : "#D6E4F2", fg: on ? "#0a0d12" : "#535862", go: (e) => { e.stopPropagation(); this.setState({ sel: k, insp: "Properties" }); } }; }),
+      wave: WAVE.map((h, i) => ({ h: `${h * 0.32}px`, c: (i / 160) * 30 <= s.t ? "#0A6CFF" : "#C9D6E4" })),
+      range: { left: pct(10), width: pct(2) }, playPct: pct(s.t),
+      scrub: (e) => { const r = e.currentTarget.getBoundingClientRect(); const v = ((e.clientX - r.left) / r.width) * 30; this.setState({ t: Math.max(0, Math.min(29.9, v)) }); },
+      modal: !!s.modal, modalValidate: s.modal === "validate", modalPublish: s.modal === "publish",
+      checks: [
+        { mark: "✓", label: "Layout", detail: "No layers overflow the safe area in 16:9.", bg: "rgba(22,128,60,.08)", fg: "#16803C" },
+        { mark: "✓", label: "Contrast", detail: "All text meets WCAG AA on its background.", bg: "rgba(22,128,60,.08)", fg: "#16803C" },
+        { mark: "!", label: "Scene 2 · Headline", detail: "Wraps to 3 lines at 9:16. Shorten it or reduce the size to 38px.", bg: "rgba(180,83,9,.08)", fg: "#B45309", fixable: true, fix: () => this.setState({ modal: null, t: 4, insp: "Script" }) },
+        { mark: "✓", label: "Assets", detail: "4 screenshots readable · fonts bundled.", bg: "rgba(22,128,60,.08)", fg: "#16803C" }
+      ],
+      doRender: () => { this.setState({ modal: null }); this.say(`Rendering Revision ${s.rev}. Edits from now go into the next revision.`); },
+      exposeRows: ex.map(([k, label, limit]) => ({ label, limit, on: s.expose[k], toggle: () => this.setState(st => ({ expose: { ...st.expose, [k]: !st.expose[k] } })) })),
+      exposeCount: `${Object.values(s.expose).filter(Boolean).length} fields exposed · layout and timing locked`,
+      doPublish: () => { this.setState({ modal: null }); this.say("Acme spotlight published. Your team sees it in Templates."); },
+      toast: s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>

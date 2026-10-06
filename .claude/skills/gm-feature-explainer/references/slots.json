@@ -1,0 +1,414 @@
+{
+  "skill": "gm-feature-explainer",
+  "version": "1.1.0",
+  "canvas": [
+    "16:9",
+    "9:16"
+  ],
+  "duration": {
+    "min": 30,
+    "max": 120
+  },
+  "clock": "voiceover",
+  "slots": [
+    {
+      "id": "product_name",
+      "type": "text",
+      "purpose": "The product's name, as spoken and as the wordmark. Reference wordmark: one word, ~12% of frame height.",
+      "maxChars": 24,
+      "mustBeReal": true
+    },
+    {
+      "id": "wordmark_accent",
+      "type": "text",
+      "purpose": "The part of the name drawn in the second wordmark colour (e.g. 'Motion'); empty for a one-colour wordmark.",
+      "maxChars": 16,
+      "mustBeReal": true,
+      "default": ""
+    },
+    {
+      "id": "mark",
+      "type": "logo",
+      "purpose": "The product's mark (SVG preferred). The only logo in the film. Becomes the mark_src variable.",
+      "mustBeReal": true
+    },
+    {
+      "id": "positioning_line",
+      "type": "text",
+      "purpose": "On-screen line under the wordmark in the reveal. Reference measured 48 chars, readable ~4 s.",
+      "maxChars": 56,
+      "aiFillable": true
+    },
+    {
+      "id": "problem_lines",
+      "type": "text_list",
+      "purpose": "VO only. The pain, in short sentences. Reference: 3 sentences in 17 s (15% of runtime).",
+      "count": {
+        "min": 1,
+        "max": 3
+      },
+      "maxChars": 90,
+      "aiFillable": true
+    },
+    {
+      "id": "problem_chips",
+      "type": "text_list",
+      "purpose": "The jobs that pile up around the persona in act 1. Reference bubbles ran ~50 chars and were unreadable at 720p; budget is set for video scale.",
+      "count": {
+        "min": 3,
+        "max": 6
+      },
+      "maxChars": 24,
+      "aiFillable": true
+    },
+    {
+      "id": "problem_chip_words",
+      "type": "text_list",
+      "purpose": "Optional. The spoken word in the problem lines each chip pops on, in chip order, '|'-separated (one plain word per chip that the transcriber hears as written). Empty = chips spread over the lines' stressed words. Chips never arrive on a timer.",
+      "count": {
+        "min": 3,
+        "max": 6
+      },
+      "maxChars": 16,
+      "aiFillable": true,
+      "default": ""
+    },
+    {
+      "id": "reveal_line",
+      "type": "text",
+      "purpose": "VO: 'Meet <name>. <what it does>.' Must contain the name; the lockup lands on it.",
+      "maxChars": 100,
+      "aiFillable": true
+    },
+    {
+      "id": "reveal_name_word",
+      "type": "text",
+      "purpose": "The word the lockup lands on, plus '|' aliases for how the transcriber hears an invented name (e.g. 'Tidyslot|Tidislot|Tidy').",
+      "maxChars": 60
+    },
+    {
+      "id": "beat_lines",
+      "type": "text_list",
+      "purpose": "VO: one sentence per feature beat. Must contain its verb at least 0.7 s after the sentence starts (about 3+ words in). Reference: 10–25 words at ~124 wpm, median shot 6.5 s. End the line on a stressed word that comes after the action's result: the scene's exit starts on the last stressed word (J-cut).",
+      "count": {
+        "min": 5,
+        "max": 10
+      },
+      "maxChars": 95,
+      "aiFillable": true
+    },
+    {
+      "id": "beat_verbs",
+      "type": "text_list",
+      "purpose": "The word in each beat line that names the action. The cursor's press lands on its onset (±0.25 s gate).",
+      "count": {
+        "min": 5,
+        "max": 10
+      },
+      "maxChars": 16,
+      "aiFillable": true
+    },
+    {
+      "id": "beat_actions",
+      "type": "text_list",
+      "purpose": "What the cursor does on the verb. select = tile/row gets selected; click = button press with a visible result; toggle = switch flips; type = field is clicked and text types in (and a mirror preview updates).",
+      "count": {
+        "min": 5,
+        "max": 10
+      },
+      "options": [
+        "select",
+        "click",
+        "toggle",
+        "type"
+      ],
+      "aiFillable": true
+    },
+    {
+      "id": "beat_targets",
+      "type": "text_list",
+      "purpose": "The real control the action hits (tile title, button label, toggle label, field). Must exist on the real screen.",
+      "count": {
+        "min": 5,
+        "max": 10
+      },
+      "maxChars": 28,
+      "mustBeReal": true
+    },
+    {
+      "id": "beat_chips",
+      "type": "text_list",
+      "purpose": "Feature chip on the brand field, top-left, naming the feature for silent viewing. Reference chips: 'SEO', 'Social Media'.",
+      "count": {
+        "min": 5,
+        "max": 10
+      },
+      "maxChars": 16,
+      "aiFillable": true
+    },
+    {
+      "id": "beat_keywords",
+      "type": "text_list",
+      "purpose": "Optional, one per beat: the kinetic keyword ({text, word} in beats[].keyword). Big display type on a white slab along the bottom, word-by-word waterfall, last word in the brand colour ('Pick a spotlight.'). Enters on `word` (default: the beat's verb; '|' aliases for numbers, e.g. 'nine|900'). Must echo the line and land >= 0.6 s before the beat's exit starts.",
+      "count": {
+        "min": 0,
+        "max": 10
+      },
+      "maxChars": 22,
+      "maxWords": 4,
+      "aiFillable": true,
+      "default": ""
+    },
+    {
+      "id": "beat_screens",
+      "type": "screenshot",
+      "purpose": "The product's real screen for each beat, redrawn at video scale as a screen spec: kind tiles | rows | toggles | editor | stages | player, with its real titles, labels, nav and status. Never a third-party UI.",
+      "count": {
+        "min": 5,
+        "max": 10
+      },
+      "mustBeReal": true
+    },
+    {
+      "id": "app_nav",
+      "type": "text_list",
+      "purpose": "The product's real sidebar navigation (sidebar chrome).",
+      "count": {
+        "min": 0,
+        "max": 7
+      },
+      "maxChars": 16,
+      "mustBeReal": true
+    },
+    {
+      "id": "app_steps",
+      "type": "text_list",
+      "purpose": "The product's real step names (stepper chrome), if its flow is a stepper.",
+      "count": {
+        "min": 0,
+        "max": 7
+      },
+      "maxChars": 14,
+      "mustBeReal": true
+    },
+    {
+      "id": "cta_line",
+      "type": "text",
+      "purpose": "VO: '<short opener>. <name>. <verb phrase>.' The name must come >= 1.2 s after the CTA cut and the verb >= 0.9 s after the name.",
+      "maxChars": 90,
+      "aiFillable": true
+    },
+    {
+      "id": "cta_name_word",
+      "type": "text",
+      "purpose": "The word the CTA lockup lands on, with '|' aliases like reveal_name_word.",
+      "maxChars": 60
+    },
+    {
+      "id": "cta_verb",
+      "type": "text",
+      "purpose": "The word in cta_line the cursor presses the CTA pill on.",
+      "maxChars": 16,
+      "aiFillable": true
+    },
+    {
+      "id": "cta_label",
+      "type": "text",
+      "purpose": "CTA pill label: a real call to action the product supports. Reference: 'Get Started Today' + URL.",
+      "maxChars": 22,
+      "mustBeReal": true
+    },
+    {
+      "id": "cta_url",
+      "type": "text",
+      "purpose": "The product's real URL. Leave empty rather than guess a domain.",
+      "maxChars": 32,
+      "mustBeReal": true,
+      "default": ""
+    },
+    {
+      "id": "disclaimer",
+      "type": "text",
+      "purpose": "Small end-card note (e.g. 'Sample product…', 'Concept film…'). Empty for a shipping product.",
+      "maxChars": 80,
+      "default": ""
+    },
+    {
+      "id": "mascot",
+      "type": "image",
+      "purpose": "The brand's own mascot (transparent PNG) for the problem persona and the CTA cloud. Empty = initials avatars only. Never stock faces.",
+      "mustBeReal": true,
+      "default": ""
+    },
+    {
+      "id": "persona_initials",
+      "type": "text",
+      "purpose": "Shown in act 1 when there is no mascot.",
+      "maxChars": 4,
+      "default": "You"
+    },
+    {
+      "id": "avatars",
+      "type": "text_list",
+      "purpose": "Initials for the CTA people cloud (illustrated stand-ins for customers; never real people's names or faces).",
+      "count": {
+        "min": 3,
+        "max": 8
+      },
+      "maxChars": 3,
+      "aiFillable": true
+    },
+    {
+      "id": "color_ground",
+      "type": "color_token",
+      "purpose": "Soft page ground behind the cards (brand kit canvas)."
+    },
+    {
+      "id": "color_field",
+      "type": "color_token",
+      "purpose": "THE brand colour: the full/part-bleed field, shapes, chip text, selection ring. White text on it must pass AA."
+    },
+    {
+      "id": "color_bright",
+      "type": "color_token",
+      "purpose": "Second brand tone: shapes, toggles-on, focus ring."
+    },
+    {
+      "id": "color_ink",
+      "type": "color_token",
+      "purpose": "Primary text."
+    },
+    {
+      "id": "color_body",
+      "type": "color_token",
+      "purpose": "Secondary text (must pass AA on white; muted web greys usually fail)."
+    },
+    {
+      "id": "color_button",
+      "type": "color_token",
+      "purpose": "The product's real primary button fill."
+    },
+    {
+      "id": "color_button_ink",
+      "type": "color_token",
+      "purpose": "Text on the primary button."
+    },
+    {
+      "id": "color_line",
+      "type": "color_token",
+      "purpose": "Hairlines and borders."
+    },
+    {
+      "id": "color_subtle",
+      "type": "color_token",
+      "purpose": "Inner tile / row fill."
+    },
+    {
+      "id": "color_soft",
+      "type": "color_token",
+      "purpose": "Status pill / badge fill."
+    },
+    {
+      "id": "color_softink",
+      "type": "color_token",
+      "purpose": "Text on soft fills; row tags."
+    },
+    {
+      "id": "color_ok",
+      "type": "color_token",
+      "purpose": "Success tick."
+    },
+    {
+      "id": "color_void",
+      "type": "color_token",
+      "purpose": "Dark preview-frame bezel."
+    },
+    {
+      "id": "color_wordmark",
+      "type": "color_token",
+      "purpose": "Wordmark main colour."
+    },
+    {
+      "id": "color_wordmark2",
+      "type": "color_token",
+      "purpose": "Wordmark accent colour (wordmark_accent)."
+    },
+    {
+      "id": "font_ui",
+      "type": "choice",
+      "purpose": "UI face (bundled OFL files).",
+      "options": [
+        "hanken",
+        "inter",
+        "archivo"
+      ],
+      "default": "hanken"
+    },
+    {
+      "id": "font_display",
+      "type": "choice",
+      "purpose": "Wordmark / preview-headline face (bundled OFL files).",
+      "options": [
+        "space",
+        "archivo-black",
+        "hanken"
+      ],
+      "default": "space"
+    },
+    {
+      "id": "voice",
+      "type": "choice",
+      "purpose": "Local Kokoro voice for `hyperframes tts`, read at speed 1.1 (voice_speed). af_heart measured the widest pitch range of the voices tried.",
+      "options": [
+        "af_heart",
+        "af_nova",
+        "af_sky",
+        "am_adam",
+        "am_michael",
+        "bf_emma",
+        "bf_isabella",
+        "bm_george"
+      ],
+      "default": "af_heart"
+    },
+    {
+      "id": "voice_speed",
+      "type": "number",
+      "purpose": "Kokoro speed multiplier.",
+      "default": 1.1,
+      "min": 1.0,
+      "max": 1.2
+    },
+    {
+      "id": "pacing",
+      "type": "object",
+      "purpose": "Optional overrides for the pacing clock: gap_in_act (0.25-0.4 s, default 0.3), gap_between_acts (<= 0.6 s, default 0.45), tail (default 1.2 s), jcut_lead (0.04 s), beat_snap (0.15 s), result_hold (0.35 s), late_cut_max (0.25 s). Out-of-range gaps print a PROBLEM.",
+      "default": {}
+    },
+    {
+      "id": "music",
+      "type": "audio",
+      "purpose": "A bed the caller owns or licenses (~120 BPM, no drops). Ducked 7 dB only under words (attack 50 ms, release 150 ms) so it fills every gap; cuts snap to its beats (hyperframes beats) within ±0.15 s.",
+      "mustBeReal": true
+    }
+  ],
+  "pacing": {
+    "vo_gap_in_act_s": [
+      0.25,
+      0.4
+    ],
+    "vo_gap_between_acts_max_s": 0.6,
+    "freeze_gate": {
+      "n": 0.002,
+      "d": 0.6,
+      "scale_px": 480,
+      "max_hold_s": 0.6,
+      "declared_stillness_max_s": 1.0
+    },
+    "keyword_budget": {
+      "max_chars": 22,
+      "max_words": 4,
+      "per_beat": 1
+    }
+  }
+}

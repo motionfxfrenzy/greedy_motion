@@ -1,0 +1,21 @@
+/* Blue Professional — generated from packages/contracts/src/themes.ts (frame-preset). Do not edit. */
+:root {
+  --bg: #fdfae7;
+  --fg: #111111;
+  --muted: #5f5f5f;
+  --surface: #F3F1E8;
+  --border: #C6C9F2;
+  --brand: #1e2bfa;
+  --accent: #1e2bfa;
+  --accent-2: #059669;
+  --font-display: "Space Grotesk", Arial, sans-serif;
+  --font-body: Inter, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --radius: 1.6cqmin;
+  --space-1: 1.2cqmin;
+  --space-2: 2.4cqmin;
+  --space-3: 4cqmin;
+  --dur-beat: 0.4s;
+  --ease-standard: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-emphasis: cubic-bezier(0.19, 1, 0.22, 1);
+}

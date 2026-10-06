@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face { font-family: "Inter"; src: url("fonts/inter-400.woff2") format("woff2"); font-weight: 400; }
+@font-face { font-family: "Inter"; src: url("fonts/inter-700.woff2") format("woff2"); font-weight: 700; }
+@font-face { font-family: "Instrument Serif"; src: url("fonts/instrument-serif-400.woff2") format("woff2"); font-weight: 400; }
+@font-face { font-family: "DM Mono"; src: url("fonts/dm-mono-400.woff2") format("woff2"); font-weight: 400; }
+</style>
+</helmet>
+<div style="width:100%;container-type:inline-size;">
+  <div style="position:relative;width:100%;aspect-ratio:{{ aspect }};overflow:hidden;border-radius:{{ radius }};background:{{ bg }};color:{{ fg }};font-family:{{ font }};--k:{{ k }};">
+    <div style="position:absolute;inset:0;background:{{ glow }};pointer-events:none;"></div>
+    <sc-if value="{{ isHook }}" hint-placeholder-val="{{ true }}">
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:calc(2.2cqw * var(--k));padding:0 9cqw;">
+        <span style="font-size:calc(1.5cqw * var(--k));font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:{{ brand }};">{{ eyebrow }}</span>
+        <span style="font-size:calc(5.4cqw * var(--k));line-height:1.06;letter-spacing:-.03em;font-weight:{{ headWeight }};text-wrap:balance;max-width:16em;">{{ scene.headline }}</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isProblem }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;gap:calc(2.4cqw * var(--k));padding:0 8cqw;">
+        <span style="font-size:calc(4.2cqw * var(--k));line-height:1.08;letter-spacing:-.03em;font-weight:{{ headWeight }};max-width:13em;text-wrap:balance;">{{ scene.headline }}</span>
+        <span style="font-size:calc(1.9cqw * var(--k));line-height:1.4;color:{{ muted }};max-width:30em;">{{ scene.copy }}</span>
+        <div style="display:flex;flex-wrap:wrap;gap:calc(1.2cqw * var(--k));margin-top:calc(1cqw * var(--k));">
+          <sc-for list="{{ costs }}" as="c" hint-placeholder-count="3">
+            <div style="display:flex;flex-direction:column;gap:.3em;padding:calc(1.2cqw * var(--k)) calc(1.6cqw * var(--k));border-radius:calc(1cqw * var(--k));background:{{ surface }};border:1px solid {{ line }};font-size:calc(1.5cqw * var(--k));">
+              <span style="color:{{ muted }};">{{ c.label }}</span><strong style="font-size:1.5em;color:{{ danger }};font-weight:700;">{{ c.value }}</strong>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isProduct }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(2cqw * var(--k));padding:0 7cqw;">
+        <span style="font-size:calc(2.6cqw * var(--k));letter-spacing:-.02em;font-weight:{{ headWeight }};text-align:center;text-wrap:balance;">{{ scene.headline }}</span>
+        <div style="position:relative;width:{{ shotWidth }};">
+          <div style="border-radius:calc(.9cqw * var(--k));overflow:hidden;border:1px solid {{ line }};background:#fff;box-shadow:0 2cqw 4cqw rgba(15,23,42,.10);">
+            <div style="display:flex;gap:.5cqw;padding:calc(.8cqw * var(--k));border-bottom:1px solid {{ line }};background:#F4F4F5;"><span style="width:calc(.8cqw * var(--k));height:calc(.8cqw * var(--k));border-radius:50%;background:#D4D4D8;"></span><span style="width:calc(.8cqw * var(--k));height:calc(.8cqw * var(--k));border-radius:50%;background:#D4D4D8;"></span><span style="width:calc(.8cqw * var(--k));height:calc(.8cqw * var(--k));border-radius:50%;background:#D4D4D8;"></span></div>
+            <div style="aspect-ratio:16/9.4;background:repeating-linear-gradient(135deg,#EEEFF2 0 10px,#F7F7F9 10px 20px);display:grid;place-items:center;">
+              <span style="font-family:'DM Mono',monospace;font-size:calc(1.3cqw * var(--k));color:#71717A;background:rgba(255,255,255,.85);padding:.3em .7em;border-radius:4px;">{{ shotLabel }}</span>
+            </div>
+          </div>
+          <div style="position:absolute;right:-3cqw;bottom:-2.5cqw;display:flex;flex-direction:column;gap:.35em;padding:calc(1.4cqw * var(--k)) calc(1.8cqw * var(--k));border-radius:calc(1cqw * var(--k));background:{{ surface }};border:1px solid {{ line }};box-shadow:0 1.5cqw 3cqw rgba(15,23,42,.14);font-size:calc(1.3cqw * var(--k));">
+            <span style="color:{{ muted }};">Net profit · after fees</span>
+            <strong style="font-size:2.1em;letter-spacing:-.02em;font-weight:700;">$18,420</strong>
+            <span style="display:block;height:.45em;width:9em;border-radius:1em;background:linear-gradient(90deg,{{ accent }} 0 64%,{{ line }} 64%);"></span>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isBenefit }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;gap:calc(2.2cqw * var(--k));padding:0 9cqw;">
+        <span style="display:block;width:calc(7cqw * var(--k));height:calc(.6cqw * var(--k));background:{{ accent }};border-radius:1cqw;"></span>
+        <span style="font-size:calc(5cqw * var(--k));line-height:1.06;letter-spacing:-.03em;font-weight:{{ headWeight }};max-width:12em;text-wrap:balance;">{{ scene.headline }}</span>
+        <span style="font-size:calc(1.9cqw * var(--k));line-height:1.4;color:{{ muted }};max-width:28em;">{{ scene.copy }}</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isCta }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(2.4cqw * var(--k));text-align:center;padding:0 8cqw;">
+        <div style="display:flex;align-items:center;gap:calc(1cqw * var(--k));font-size:calc(2.6cqw * var(--k));font-weight:700;letter-spacing:-.02em;">
+          <span style="display:grid;place-items:center;width:1.5em;height:1.5em;border-radius:.35em;background:{{ brand }};color:#fff;font-size:.9em;">{{ logoLetter }}</span>{{ logoName }}
+        </div>
+        <span style="display:inline-flex;padding:calc(1.2cqw * var(--k)) calc(2.6cqw * var(--k));border-radius:10cqw;background:{{ ctaBg }};color:{{ ctaFg }};font-size:calc(2cqw * var(--k));font-weight:700;">{{ scene.headline }}</span>
+        <span style="font-size:calc(1.5cqw * var(--k));color:{{ muted }};font-family:'DM Mono',monospace;">{{ scene.copy }}</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{ showCornerLogo }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;left:3cqw;top:3cqw;display:flex;align-items:center;gap:.5em;font-size:calc(1.4cqw * var(--k));font-weight:700;">
+        <span style="display:grid;place-items:center;width:1.6em;height:1.6em;border-radius:.4em;background:{{ brand }};color:#fff;font-size:.85em;">{{ logoLetter }}</span>{{ logoName }}
+      </div>
+    </sc-if>
+    <sc-if value="{{ highlightHeadline }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:2cqw;border:2px dashed #4F46E5;border-radius:1cqw;pointer-events:none;"></div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:640,&quot;height&quot;:360},&quot;scene&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;{kind:string,headline:string,copy:string,shot?:string}&quot;},&quot;portrait&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;branded&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;logoPlace&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;open-end&quot;,&quot;end&quot;,&quot;corner&quot;],&quot;default&quot;:&quot;open-end&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;highlight&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;radius&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;10px&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;eyebrow&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Smart Profit Dashboard&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;productName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Your product&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.props.scene || { kind: "hook", headline: "", copy: "" };
+    const branded = this.props.branded ?? true;
+    const portrait = !!this.props.portrait;
+    const lp = this.props.logoPlace || "open-end";
+    const k = portrait ? 1.9 : 1;
+    const theme = branded
+      ? { bg: "#FFFFFF", fg: "#0F172A", muted: "#475569", brand: "#4F46E5", accent: "#14B8A6", surface: "#FFFFFF", line: "#E2E8F0", font: "Inter, sans-serif", headWeight: 700, logoLetter: "A", logoName: "Acme" }
+      : { bg: "#F7F7F5", fg: "#18181B", muted: "#52525B", brand: "#18181B", accent: "#4F46E5", surface: "#FFFFFF", line: "#E4E4E7", font: "'Instrument Serif', Georgia, serif", headWeight: 400, logoLetter: "P", logoName: this.props.productName || "Your product" };
+    const corner = lp === "corner" ? s.kind !== "cta" : lp === "open-end" ? s.kind === "hook" : false;
+    return {
+      ...theme, k,
+      aspect: portrait ? "9 / 16" : "16 / 9",
+      radius: this.props.radius ?? "10px",
+      danger: "#C2410C",
+      isHook: s.kind === "hook", isProblem: s.kind === "problem", isProduct: s.kind === "product", isBenefit: s.kind === "benefit", isCta: s.kind === "cta",
+      eyebrow: this.props.eyebrow || "Smart Profit Dashboard",
+      shotLabel: s.shot || "dashboard.png",
+      shotWidth: portrait ? "100%" : "74%",
+      costs: [{ label: "Fees", value: "−$2,140" }, { label: "Refunds", value: "−$860" }, { label: "Shipping", value: "−$1,310" }],
+      showCornerLogo: corner,
+      highlightHeadline: !!this.props.highlight,
+      ctaBg: s.ctaColor || theme.brand,
+      ctaFg: s.ctaFg || "#fff",
+      glow: branded ? "radial-gradient(70% 60% at 100% 0%, #EEF2FF 0, transparent 70%), radial-gradient(50% 50% at 0% 100%, #F0FDFA 0, transparent 70%)" : "radial-gradient(70% 60% at 100% 0%, #EDE9FE 0, transparent 70%)",
+      scene: s
+    };
+  }
+}
+</script>
+</body>
+</html>

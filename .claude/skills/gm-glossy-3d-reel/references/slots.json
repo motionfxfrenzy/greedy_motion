@@ -1,0 +1,20 @@
+{
+  "skill": "gm-glossy-3d-reel",
+  "version": "0.1.0-draft",
+  "canvas": ["16:9", "9:16"],
+  "duration": { "min": 15, "max": 20 },
+  "clock": "beats",
+  "slots": [
+    { "id": "verb", "type": "text", "purpose": "Keycap word in shot 2: the product's action, uppercase", "maxChars": 5, "aiFillable": true, "default": "MOVE" },
+    { "id": "inputs", "type": "text_list", "purpose": "Orbiting 3D words in shot 3: what goes into the product", "count": { "min": 4, "max": 5 }, "maxChars": 12, "mustBeReal": true, "aiFillable": true },
+    { "id": "headline", "type": "text", "purpose": "Shot 4 line; the last word takes the accent gradient", "maxChars": 26, "aiFillable": true, "default": "Meet {product}" },
+    { "id": "cards", "type": "screenshot", "purpose": "Real product screens or outputs on the shot 4 cards; no invented metrics", "count": { "min": 2, "max": 4 }, "mustBeReal": true },
+    { "id": "pills_left", "type": "text_list", "purpose": "Shot 5 left column: what you can make", "count": { "min": 3, "max": 4 }, "maxChars": 18, "mustBeReal": true, "aiFillable": true },
+    { "id": "pills_right", "type": "text_list", "purpose": "Shot 5 right column: how it works / formats", "count": { "min": 3, "max": 6 }, "maxChars": 18, "mustBeReal": true, "aiFillable": true },
+    { "id": "before_label", "type": "text", "purpose": "Shot 6 left card label", "maxChars": 12, "aiFillable": true, "default": "Screenshot" },
+    { "id": "after_label", "type": "text", "purpose": "Shot 6 right card label", "maxChars": 12, "aiFillable": true, "default": "Motion" },
+    { "id": "closing_line", "type": "text", "purpose": "Under the lockup in shot 7", "maxChars": 40, "aiFillable": true },
+    { "id": "logo", "type": "logo", "purpose": "Lockup in shot 7; the mark is also extruded in shot 3", "mustBeReal": true },
+    { "id": "track", "type": "audio", "purpose": "110–128 BPM with a hit for the lockup; licensed or generated (logged)" }
+  ]
+}

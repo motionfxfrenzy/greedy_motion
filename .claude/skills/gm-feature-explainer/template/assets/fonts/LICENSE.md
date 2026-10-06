@@ -1,0 +1,1 @@
+All fonts in this directory are from Google Fonts and licensed under the SIL Open Font License 1.1 (https://openfontlicense.org). Each family's copyright and license text: https://fonts.google.com/specimen/<Family+Name>/license

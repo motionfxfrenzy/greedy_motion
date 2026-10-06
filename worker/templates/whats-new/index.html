@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en" data-composition-variables='[
+  {"id":"version","type":"string","label":"Version or date","description":"Release identifier, e.g. v2.4 or October release.","maxLength":20,"default":"v2.4"},
+  {"id":"title","type":"string","label":"Release title","description":"One line summarising the release.","maxLength":56,"default":"Faster edits, sharper exports."},
+  {"id":"update1","type":"string","label":"Update 1","description":"First shipped change, a short phrase.","maxLength":44,"default":"Comment on any moment to edit it"},
+  {"id":"update2","type":"string","label":"Update 2","description":"Second shipped change, a short phrase.","maxLength":44,"default":"16 new themes with live previews"},
+  {"id":"update3","type":"string","label":"Update 3","description":"Third shipped change, a short phrase.","maxLength":44,"default":"4K exports for every plan"},
+  {"id":"closing","type":"string","label":"Closing line","description":"What customers should do or feel next.","maxLength":64,"default":"Available to every workspace today."},
+  {"id":"ctaText","type":"string","label":"Call to action","maxLength":28,"default":"Read the changelog"},
+  {"id":"brandName","type":"string","label":"Product name","portrays":["subject_name"],"maxLength":28,"default":"Relay"},
+  {"id":"logo","type":"image","label":"Logo","description":"Brand logo from the brand kit (set by the renderer).","default":""},
+  {"id":"logoWordmark","type":"boolean","label":"Logo includes the name","description":"True when the logo already spells the product name, so the name text is hidden next to it.","default":false}
+]'>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <title>What's new</title>
+  <script src="vendor/gsap.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg, #0b1220); }
+    #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg, #0b1220); color: var(--fg, #f8fafc); font-family: var(--font-body, Arial, sans-serif); }
+    .scene { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 180px; }
+    .scene.center { align-items: center; text-align: center; }
+    .display { font-family: var(--font-display, Arial, sans-serif); font-weight: 700; letter-spacing: -2px; line-height: 1.08; max-width: 1500px; }
+    .badge { align-self: flex-start; padding: 18px 34px; border-radius: 999px; border: 3px solid var(--brand, #a7f3d0); color: var(--brand, #a7f3d0); font-family: var(--font-mono, monospace); font-size: 40px; }
+    .center .badge { align-self: center; }
+    .whats { margin-top: 36px; font-size: 128px; letter-spacing: -4px; }
+    .title { font-size: 96px; }
+    .list { display: grid; gap: 30px; max-width: 1500px; }
+    .row { display: flex; align-items: center; gap: 34px; font-size: 56px; font-weight: 700; }
+    .check { flex: none; width: 76px; height: 76px; display: grid; place-items: center; border-radius: var(--radius, 18px); background: var(--brand, #a7f3d0); color: var(--bg, #0b1220); }
+    .closing { font-size: 84px; }
+    .rule { width: 160px; height: 10px; margin-top: 48px; border-radius: var(--radius, 6px); background: var(--accent, #6ee7b7); transform-origin: left center; }
+    .cta-pill { margin-top: 56px; padding: 28px 64px; border-radius: 999px; background: var(--brand, #a7f3d0); color: var(--bg, #0b1220); font-size: 48px; font-weight: 700; }
+    #sweep { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: var(--surface, #18263b); transform-origin: left center; }
+    .brand-logo { display: block; max-width: 640px; max-height: 150px; width: auto; height: auto; object-fit: contain; }
+    .center .brand-logo { margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="10" data-width="1920" data-height="1080" data-fps="30">
+    <section id="s1" class="scene center clip" data-start="0" data-duration="2" data-track-index="1">
+      <span id="s1-badge" class="badge" data-var-text="version">v2.4</span>
+      <h1 id="s1-whats" class="display whats">What’s new</h1>
+    </section>
+
+    <div id="sweep" class="clip" data-start="1.6" data-duration="0.8" data-track-index="2"></div>
+
+    <section id="s2" class="scene clip" data-start="2" data-duration="2" data-track-index="1">
+      <h2 id="s2-title" class="display title" data-var-text="title">Faster edits, sharper exports.</h2>
+      <div id="s2-rule" class="rule"></div>
+    </section>
+
+    <section id="s3" class="scene clip" data-start="4" data-duration="2.5" data-track-index="1">
+      <div class="list">
+        <div id="u1" class="row"><span class="check"><svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span data-var-text="update1">Comment on any moment to edit it</span></div>
+        <div id="u2" class="row"><span class="check"><svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span data-var-text="update2">16 new themes with live previews</span></div>
+        <div id="u3" class="row"><span class="check"><svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span data-var-text="update3">4K exports for every plan</span></div>
+      </div>
+    </section>
+
+    <section id="s4" class="scene clip" data-start="6.5" data-duration="1.5" data-track-index="1">
+      <h2 id="s4-closing" class="display closing" data-var-text="closing">Available to every workspace today.</h2>
+    </section>
+
+    <section id="s5" class="scene center clip" data-start="8" data-duration="2" data-track-index="1">
+      <img id="s5-logo" class="brand-logo" data-var-src="logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="">
+      <h2 id="s5-name" class="display title name-beside-logo" data-var-text="brandName">Relay</h2>
+      <div id="s5-cta" class="cta-pill" data-var-text="ctaText">Read the changelog</div>
+    </section>
+  </div>
+  <script>
+    // Brand logo: removed when the brand kit has none; a wordmark logo replaces the name text next to it.
+    const brandVars = window.__hyperframes?.getVariables?.() ?? {};
+    const hasLogo = Boolean(brandVars.logo);
+    if (!hasLogo) document.querySelectorAll(".brand-logo").forEach((el) => el.remove());
+    if (hasLogo && brandVars.logoWordmark) document.querySelectorAll(".name-beside-logo").forEach((el) => el.remove());
+    const tl = gsap.timeline({ paused: true });
+    const up = (target, at, distance = 40) => tl.fromTo(target, { y: distance, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, at);
+    // Scene 1 — version badge and "What's new"
+    tl.fromTo("#s1-badge", { scale: 0.8, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.45, ease: "back.out(1.8)" }, 0.1);
+    up("#s1-whats", 0.3);
+    // Wipe between scene 1 and 2
+    tl.fromTo("#sweep", { scaleX: 0 }, { scaleX: 1, duration: 0.4, ease: "power2.in" }, 1.6);
+    tl.to("#sweep", { scaleX: 0, transformOrigin: "right center", duration: 0.4, ease: "power2.out" }, 2.0);
+    // Scene 2 — title
+    up("#s2-title", 2.2);
+    tl.fromTo("#s2-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "power2.inOut" }, 2.6);
+    // Scene 3 — updates tick in
+    ["#u1", "#u2", "#u3"].forEach((id, index) => tl.fromTo(id, { x: -50, opacity: 0 }, { x: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, 4.1 + index * 0.35));
+    // Scene 4 — closing
+    up("#s4-closing", 6.6);
+    // Scene 5 — CTA
+    if (hasLogo) up("#s5-logo", 7.95, 20);
+    if (document.getElementById("s5-name")) up("#s5-name", 8.05, 24);
+    tl.fromTo("#s5-cta", { scale: 0.85, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.6)" }, 8.3);
+    tl.to({}, { duration: 0.1 }, 9.9);
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

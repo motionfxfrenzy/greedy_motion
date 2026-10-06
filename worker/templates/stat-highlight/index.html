@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en" data-composition-variables='[
+  {"id":"setup","type":"string","label":"Setup","description":"The question or context the number answers.","maxLength":60,"default":"Teams using Relay last quarter"},
+  {"id":"statValue","type":"number","label":"Number","description":"The headline figure. Must come from the customer’s approved data.","min":0,"max":100000000,"default":72},
+  {"id":"statPrefix","type":"string","label":"Before the number","description":"Optional, e.g. $ or +.","maxLength":3,"default":""},
+  {"id":"statSuffix","type":"string","label":"After the number","description":"Optional unit, e.g. % or x or K.","maxLength":4,"default":"%"},
+  {"id":"statLabel","type":"string","label":"What the number means","maxLength":48,"default":"less time spent on launch videos"},
+  {"id":"context","type":"string","label":"Context","description":"One sentence on why the number matters. Approved claims only.","maxLength":72,"default":"From a two-day edit to a ten-minute review."},
+  {"id":"source","type":"string","label":"Source","description":"Where the number comes from, shown as a citation.","portrays":["authority_badge"],"maxLength":56,"default":"Source: internal customer survey, Q3"},
+  {"id":"ctaText","type":"string","label":"Call to action","maxLength":28,"default":"See how it works"},
+  {"id":"brandName","type":"string","label":"Product name","portrays":["subject_name"],"maxLength":28,"default":"Relay"},
+  {"id":"logo","type":"image","label":"Logo","description":"Brand logo from the brand kit (set by the renderer).","default":""},
+  {"id":"logoWordmark","type":"boolean","label":"Logo includes the name","description":"True when the logo already spells the product name, so the name text is hidden next to it.","default":false}
+]'>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <title>Stat highlight</title>
+  <script src="vendor/gsap.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg, #0b1220); }
+    #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg, #0b1220); color: var(--fg, #f8fafc); font-family: var(--font-body, Arial, sans-serif); }
+    .scene { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 180px; }
+    .scene.center { align-items: center; text-align: center; }
+    .display { font-family: var(--font-display, Arial, sans-serif); font-weight: 700; letter-spacing: -2px; line-height: 1.08; max-width: 1500px; }
+    .setup { font-size: 92px; }
+    .stat { font-family: var(--font-display, Arial, sans-serif); font-weight: 700; font-size: 340px; line-height: 0.95; letter-spacing: -8px; color: var(--brand, #a7f3d0); font-variant-numeric: tabular-nums; }
+    .stat-label { margin-top: 24px; font-size: 52px; font-weight: 700; color: var(--fg, #f8fafc); max-width: 1300px; }
+    .bar { position: absolute; left: 0; bottom: 0; width: 1920px; height: 18px; background: var(--accent, #6ee7b7); transform-origin: left center; }
+    .context { font-size: 80px; }
+    .source { font-family: var(--font-mono, monospace); font-size: 34px; color: var(--muted, #cbd5e1); max-width: 1400px; }
+    .source-mark { display: block; width: 90px; height: 10px; margin-bottom: 36px; border-radius: var(--radius, 6px); background: var(--brand, #a7f3d0); transform-origin: left center; }
+    .cta-pill { margin-top: 56px; padding: 28px 64px; border-radius: 999px; background: var(--brand, #a7f3d0); color: var(--bg, #0b1220); font-size: 48px; font-weight: 700; }
+    .brand-logo { display: block; max-width: 640px; max-height: 150px; width: auto; height: auto; object-fit: contain; }
+    .center .brand-logo { margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="10" data-width="1920" data-height="1080" data-fps="30">
+    <section id="s1" class="scene clip" data-start="0" data-duration="2" data-track-index="1">
+      <h1 id="s1-setup" class="display setup" data-var-text="setup">Teams using Relay last quarter</h1>
+    </section>
+
+    <section id="s2" class="scene center clip" data-start="2" data-duration="3" data-track-index="1">
+      <p id="stat" class="stat">72%</p>
+      <p id="s2-label" class="stat-label" data-var-text="statLabel">less time spent on launch videos</p>
+    </section>
+    <div id="bar" class="bar clip" data-start="2" data-duration="3" data-track-index="2"></div>
+
+    <section id="s3" class="scene clip" data-start="5" data-duration="2" data-track-index="1">
+      <h2 id="s3-context" class="display context" data-var-text="context">From a two-day edit to a ten-minute review.</h2>
+    </section>
+
+    <section id="s4" class="scene clip" data-start="7" data-duration="1" data-track-index="1">
+      <span id="s4-mark" class="source-mark"></span>
+      <p id="s4-source" class="source" data-var-text="source">Source: internal customer survey, Q3</p>
+    </section>
+
+    <section id="s5" class="scene center clip" data-start="8" data-duration="2" data-track-index="1">
+      <img id="s5-logo" class="brand-logo" data-var-src="logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="">
+      <h2 id="s5-name" class="display setup name-beside-logo" data-var-text="brandName">Relay</h2>
+      <div id="s5-cta" class="cta-pill" data-var-text="ctaText">See how it works</div>
+    </section>
+  </div>
+  <script>
+    // Number formatting needs logic, so read the variables once at build time (see hyperframes-core variables rules).
+    const vars = window.__hyperframes?.getVariables?.() ?? {};
+    const value = Number(vars.statValue ?? 72);
+    const prefix = vars.statPrefix ?? "";
+    const suffix = vars.statSuffix ?? "%";
+    const statEl = document.getElementById("stat");
+    const format = (n) => `${prefix}${Math.round(n).toLocaleString("en-US")}${suffix}`;
+    statEl.textContent = format(value);
+
+    // Build after fonts load so the number can be sized to fit on one line at its final (widest) value.
+    document.fonts.ready.then(() => {
+    const style = getComputedStyle(statEl);
+    const fit = window.__hyperframes?.fitTextFontSize?.(format(value), { baseFontSize: 340, minFontSize: 120, step: 10, maxWidth: 1500, fontFamily: style.fontFamily, fontWeight: style.fontWeight });
+    if (fit) statEl.style.fontSize = `${fit.fontSize}px`;
+
+    // Brand logo: removed when the brand kit has none; a wordmark logo replaces the name text next to it.
+    const brandVars = window.__hyperframes?.getVariables?.() ?? {};
+    const hasLogo = Boolean(brandVars.logo);
+    if (!hasLogo) document.querySelectorAll(".brand-logo").forEach((el) => el.remove());
+    if (hasLogo && brandVars.logoWordmark) document.querySelectorAll(".name-beside-logo").forEach((el) => el.remove());
+    const tl = gsap.timeline({ paused: true });
+    const up = (target, at, distance = 40) => tl.fromTo(target, { y: distance, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, at);
+    // Scene 1 — setup
+    up("#s1-setup", 0.2);
+    // Scene 2 — count-up driven by the timeline, so every seek shows the right number
+    const counter = { n: 0 };
+    tl.fromTo("#stat", { scale: 0.9, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.4, ease: "power3.out" }, 2.05);
+    tl.fromTo(counter, { n: 0 }, { n: value, duration: 1.6, ease: "power2.out", onUpdate: () => { statEl.textContent = format(counter.n); } }, 2.1);
+    tl.fromTo("#bar", { scaleX: 0 }, { scaleX: 1, duration: 1.6, ease: "power2.out" }, 2.1);
+    up("#s2-label", 3.2, 24);
+    // Scene 3 — context
+    up("#s3-context", 5.1);
+    // Scene 4 — source
+    tl.fromTo("#s4-mark", { scaleX: 0 }, { scaleX: 1, duration: 0.4, ease: "power2.out" }, 7.05);
+    up("#s4-source", 7.1, 16);
+    // Scene 5 — CTA
+    if (hasLogo) up("#s5-logo", 7.95, 20);
+    if (document.getElementById("s5-name")) up("#s5-name", 8.05, 24);
+    tl.fromTo("#s5-cta", { scale: 0.85, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.6)" }, 8.3);
+    tl.to({}, { duration: 0.1 }, 9.9);
+    window.__timelines["main"] = tl;
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "videosaas",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "packages/contracts"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:frontend": "npm run dev -w @videosaas/frontend",
+    "dev:backend": "npm run dev -w @videosaas/backend",
+    "dev:worker": "docker compose up --build worker",
+    "build:frontend": "npm run build -w @videosaas/frontend",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "themes:build": "node scripts/build-themes.ts",
+    "previews": "node scripts/build-previews.ts",
+    "templates:verify": "node scripts/verify-templates.ts",
+    "fonts:fetch": "node worker/scripts/fetch-fonts.mjs",
+    "director:prompt": "node scripts/build-director-prompt.mjs"
+  }
+}

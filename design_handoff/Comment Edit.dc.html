@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<title>Greedy Motion — Comment to edit</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+@font-face { font-family: "DM Mono"; src: url("fonts/dm-mono-400.woff2") format("woff2"); font-weight: 400; }
+@keyframes gmDriftA { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(-10vw,6vh) scale(1.12); } }
+@keyframes gmDriftB { 0% { transform: translate(0,0) scale(1.08); } 100% { transform: translate(8vw,-5vh) scale(.94); } }
+@keyframes gmSheen { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+@keyframes gmPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(10,108,255,.45); } 50% { box-shadow: 0 0 0 6px rgba(10,108,255,0); } }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #ebf5ff; color: #0a0d12; font-family: "Plus Jakarta Sans", Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+button, input, textarea { font: inherit; color: inherit; }
+button:disabled { opacity: .4; cursor: not-allowed !important; }
+a { color: #0A6CFF; text-decoration: none; } a:hover { color: #0050c8; }
+</style>
+</helmet>
+<div style="position:relative;height:{{ rootH }};overflow:hidden;">
+{{ ambient }}
+<div style="position:relative;z-index:1;height:{{ rootH }};overflow:hidden;display:flex;flex-direction:column;">
+
+  <sc-if value="{{ showHeader }}" hint-placeholder-val="{{ true }}"><header style="height:64px;flex:none;display:flex;align-items:center;gap:16px;padding:0 24px;background:rgba(250,253,255,.72);backdrop-filter:blur(14px);border-bottom:1px solid #E1EAF4;z-index:20;">
+    <a href="Relay v3.dc.html" style="display:flex;align-items:center;gap:8px;flex:none;"><img src="assets/gm-mark.svg" alt="" style="height:22px;" /><span style="display:flex;gap:4px;font-size:15px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;"><span style="color:#0B1F4D;">Greedy</span><span style="color:#0A6CFF;">Motion</span></span></a>
+    <span style="width:1px;height:22px;background:#D6E4F2;"></span>
+    <div style="display:flex;flex-direction:column;line-height:1.2;min-width:0;"><strong style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Smart Profit Dashboard</strong><span style="font-size:12px;color:#93979f;white-space:nowrap;">{{ revLabel }}</span></div>
+    <span style="flex:none;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:9999px;background:{{ pillBg }};color:{{ pillFg }};font-size:12px;font-weight:600;white-space:nowrap;"><span style="width:6px;height:6px;border-radius:50%;background:{{ pillFg }};"></span>{{ pillLabel }}</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+      <a href="Relay v3.dc.html" style="padding:9px 14px;font-size:14px;font-weight:500;color:#535862;white-space:nowrap;">Back to project</a>
+      <a href="Relay Studio v3.dc.html" style="padding:9px 16px;border-radius:9999px;background:#fff;color:#0a0d12;font-size:14px;font-weight:500;white-space:nowrap;">Open in Studio</a>
+    </div>
+  </header></sc-if>
+
+  <main style="flex:1;min-height:0;width:100%;max-width:1440px;margin:0 auto;padding:16px 24px;display:grid;grid-template-columns:minmax(0,1fr) 380px;grid-template-rows:minmax(0,1fr);gap:20px;">
+    <section style="display:flex;flex-direction:column;gap:12px;min-width:0;min-height:0;">
+      <div style="flex:none;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+        <div style="flex:1 1 0;min-width:0;"><h1 style="margin:0;font-size:20px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Comment on the video</h1><p style="margin:2px 0 0;font-size:13px;color:#535862;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Pause, click what you mean, and say what to change. Nothing changes until you accept.</p></div>
+        <sc-if value="{{ embedActions }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:none;display:flex;gap:6px;align-items:center;">
+            <button type="button" onClick="{{ onDownload }}" style="padding:8px 14px;border:0;border-radius:9999px;background:#fafdff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">Download draft</button>
+            <sc-if value="{{ notApproved }}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ onApprove }}" style="padding:8px 16px;border:0;border-radius:9999px;background:#16803C;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">Approve final</button></sc-if>
+            <sc-if value="{{ isApprovedProp }}" hint-placeholder-val="{{ false }}"><span style="padding:8px 14px;border-radius:9999px;background:#D3F6E3;color:#0a5c35;font-size:13px;font-weight:600;white-space:nowrap;">✓ Approved · locked</span></sc-if>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showHowto }}" hint-placeholder-val="{{ true }}"><div style="flex:0 1 auto;min-width:0;display:flex;gap:6px;overflow:hidden;justify-content:flex-end;">
+          <sc-for list="{{ howto }}" as="h" hint-placeholder-count="3"><span style="display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:9999px;background:rgba(250,253,255,.8);font-size:12px;color:#535862;white-space:nowrap;"><span style="font-family:'DM Mono',monospace;color:#0A6CFF;">{{ h.n }}</span>{{ h.label }}</span></sc-for>
+        </div></sc-if>
+      </div>
+
+      <div style="flex:1;min-height:0;padding:12px;border-radius:24px;background:#0a0d12;box-shadow:0 14px 20px 4px rgba(4,69,144,.10);display:flex;flex-direction:column;gap:10px;">
+        <div style="position:relative;flex:1;min-height:0;overflow:hidden;container-type:size;display:grid;place-items:center;">
+        <div style="position:relative;width:min(100cqw, calc(100cqh * 16 / 9));border-radius:14px;overflow:hidden;cursor:crosshair;" onClick="{{ frameClick }}">
+          <dc-import name="Scene Frame" scene="{{ curScene }}" branded="{{ true }}" logo-place="open-end" radius="16px" hint-size="100%,460px"></dc-import>
+          <sc-for list="{{ hotspots }}" as="hs" hint-placeholder-count="2">
+            <div onClick="{{ hs.pick }}" title="{{ hs.name }}" style="position:absolute;left:{{ hs.l }};top:{{ hs.t }};width:{{ hs.w }};height:{{ hs.h }};border-radius:10px;border:{{ hs.border }};background:{{ hs.bg }};cursor:pointer;transition:border-color 200ms ease,background 200ms ease;" style-hover="border:1.5px dashed #168BFF;background:rgba(22,139,255,.06);">
+              <sc-if value="{{ hs.on }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:4px;top:4px;padding:2px 8px;border-radius:6px;background:#0A6CFF;color:#fff;font-size:11px;font-weight:600;white-space:nowrap;">{{ hs.name }}</span></sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ hasPoint }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:{{ point.x }};top:{{ point.y }};width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:#0A6CFF;border:3px solid #fff;animation:gmPulse 1.6s ease-in-out infinite;pointer-events:none;"></span></sc-if>
+          <sc-if value="{{ showHint }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:12px;bottom:12px;padding:5px 11px;border-radius:9999px;background:rgba(10,13,18,.72);color:#fff;font-size:12px;pointer-events:none;">Paused · click the part you mean</span></sc-if>
+        </div>
+        </div>
+        <div style="flex:none;display:flex;align-items:center;gap:12px;padding:0 4px;">
+          <button type="button" onClick="{{ togglePlay }}" aria-label="Play or pause" style="flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;border:0;background:#fff;color:#0a0d12;font-size:11px;cursor:pointer;">{{ playGlyph }}</button>
+          <span style="flex:none;font-family:'DM Mono',monospace;font-size:12px;color:#93979f;white-space:nowrap;"><span style="color:#fff;">{{ timeNow }}</span> / {{ timeTotal }}</span>
+          <span style="flex:1;font-size:12px;color:#93979f;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ curTitle }}</span>
+        </div>
+      </div>
+
+      <div style="flex:none;padding:12px 16px 14px;border-radius:20px;background:#fafdff;display:flex;flex-direction:column;gap:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;"><span style="font-size:13px;font-weight:600;">Timeline</span><span style="font-size:12px;color:#93979f;">Click to jump · drag to mark a range</span></div>
+        <div onMouseDown="{{ tlDown }}" onMouseMove="{{ tlMove }}" onMouseUp="{{ tlUp }}" onMouseLeave="{{ tlUp }}" style="position:relative;user-select:none;cursor:pointer;">
+          <div style="position:relative;height:18px;">
+            <sc-for list="{{ ruler }}" as="r" hint-placeholder-count="7"><span style="position:absolute;left:{{ r.left }};top:0;font-family:'DM Mono',monospace;font-size:10px;color:#93979f;transform:translateX(-50%);">{{ r.label }}</span></sc-for>
+          </div>
+          <div style="position:relative;height:30px;margin-top:2px;">
+            <sc-for list="{{ pins }}" as="p" hint-placeholder-count="2">
+              <span title="{{ p.body }}" style="position:absolute;left:{{ p.left }};top:2px;margin-left:-12px;display:grid;place-items:center;width:24px;height:24px;border-radius:50% 50% 50% 3px;background:{{ p.bg }};color:#fff;font-size:10px;font-weight:700;border:2px solid #fafdff;">{{ p.n }}</span>
+            </sc-for>
+          </div>
+          <div style="position:relative;height:44px;display:flex;gap:4px;">
+            <sc-for list="{{ strip }}" as="s" hint-placeholder-count="5">
+              <div style="flex:{{ s.dur }};min-width:0;border-radius:12px;background:{{ s.bg }};padding:6px 9px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">
+                <span style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ s.fg }};">{{ s.n }} · {{ s.label }}</span>
+                <span style="font-family:'DM Mono',monospace;font-size:10px;color:{{ s.sub }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.range }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ hasRange }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:{{ range.left }};width:{{ range.width }};top:20px;bottom:0;border-radius:8px;background:rgba(22,139,255,.14);border:1.5px solid #168BFF;pointer-events:none;"><span style="position:absolute;left:4px;top:-1px;transform:translateY(-100%);font-family:'DM Mono',monospace;font-size:10px;color:#0A6CFF;white-space:nowrap;">{{ range.label }}</span></div></sc-if>
+          <div style="position:absolute;left:{{ playPct }};top:18px;bottom:0;width:2px;margin-left:-1px;background:#0a0d12;pointer-events:none;border-radius:2px;"><span style="position:absolute;top:-4px;left:-5px;width:12px;height:12px;border-radius:50%;background:#0a0d12;border:2px solid #fafdff;"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <aside style="min-height:0;height:100%;display:flex;flex-direction:column;gap:12px;overflow-y:{{ asideOverflow }};padding-bottom:2px;">
+      <sc-if value="{{ notice }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:12px 14px;border-radius:18px;background:#FFF2BE;font-size:13px;line-height:1.5;color:#6b4e00;">{{ notice }}</div>
+      </sc-if>
+
+      <sc-if value="{{ modeCompose }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:none;padding:14px;border-radius:24px;background:#fafdff;display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="display:inline-flex;gap:6px;padding:4px 10px;border-radius:9999px;background:#EBF5FF;color:#0058bd;font-family:'DM Mono',monospace;font-size:12px;">{{ anchorTime }}</span>
+            <span style="display:inline-flex;gap:6px;padding:4px 10px;border-radius:9999px;background:{{ anchorElBg }};color:{{ anchorElFg }};font-size:12px;font-weight:500;">{{ anchorEl }}</span>
+            <sc-if value="{{ canClearAnchor }}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{ clearAnchor }}" style="border:0;background:transparent;padding:4px 6px;font-size:12px;color:#93979f;cursor:pointer;">Clear</button></sc-if>
+            <button type="button" onClick="{{ addComment }}" disabled="{{ draftEmpty }}" style="margin-left:auto;padding:6px 14px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Add</button>
+          </div>
+          <textarea value="{{ draft }}" onChange="{{ setDraft }}" rows="2" placeholder="What should change here?" style="width:100%;resize:vertical;padding:12px 14px;border:1px solid #E1EAF4;border-radius:16px;background:#fff;font-size:14px;line-height:1.5;outline:none;transition:border-color 220ms ease,box-shadow 220ms ease;" style-focus="border-color:#168BFF;box-shadow:0 0 0 4px rgba(22,139,255,.14);"></textarea>
+          <div style="display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -2px;padding:0 2px;">
+            <sc-for list="{{ examples }}" as="ex" hint-placeholder-count="5"><button type="button" onClick="{{ ex.use }}" style="flex:none;white-space:nowrap;padding:5px 10px;border-radius:9999px;border:1px dashed #C9D6E4;background:transparent;color:#535862;font-size:12px;cursor:pointer;transition:border-color 200ms ease,color 200ms ease;" style-hover="border-color:#168BFF;color:#0a0d12;">{{ ex.label }}</button></sc-for>
+          </div>
+                  </div>
+
+        <div style="flex:1;min-height:0;padding:6px;border-radius:24px;background:#fafdff;display:flex;flex-direction:column;">
+          <div style="flex:none;display:flex;justify-content:space-between;align-items:center;padding:12px 12px 8px;"><strong style="font-size:14px;font-weight:600;">Comments</strong><span style="font-size:12px;color:#93979f;">{{ openCount }}</span></div>
+          <div style="flex:1;min-height:120px;overflow-y:auto;display:flex;flex-direction:column;">
+          <sc-for list="{{ comments }}" as="c" hint-placeholder-count="2">
+            <div style="display:flex;gap:10px;padding:12px;border-radius:18px;background:{{ c.bg }};">
+              <button type="button" onClick="{{ c.toggle }}" disabled="{{ c.locked }}" aria-label="Include in AI edit" style="flex:none;display:grid;place-items:center;width:20px;height:20px;margin-top:2px;border-radius:6px;border:1.5px solid {{ c.boxLine }};background:{{ c.boxBg }};color:#fff;font-size:11px;cursor:pointer;">{{ c.boxMark }}</button>
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;">
+                <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;">
+                  <span style="display:grid;place-items:center;width:20px;height:20px;border-radius:50% 50% 50% 3px;background:{{ c.pinBg }};color:#fff;font-size:10px;font-weight:700;">{{ c.n }}</span>
+                  <button type="button" onClick="{{ c.seek }}" style="border:0;padding:2px 8px;border-radius:9999px;background:#EBF5FF;color:#0058bd;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;">{{ c.when }}</button>
+                  <span style="font-size:12px;color:#535862;">{{ c.target }}</span>
+                  <span style="margin-left:auto;font-size:11px;font-weight:600;color:{{ c.statusFg }};">{{ c.status }}</span>
+                </div>
+                <span style="font-size:14px;line-height:1.45;">{{ c.body }}</span>
+              </div>
+              <sc-if value="{{ c.removable }}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{ c.remove }}" aria-label="Delete comment" style="flex:none;align-self:flex-start;width:24px;height:24px;border:0;border-radius:50%;background:transparent;color:#93979f;cursor:pointer;" style-hover="background:#EBF5FF;">✕</button></sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noComments }}" hint-placeholder-val="{{ false }}"><p style="margin:0;padding:12px 12px 16px;font-size:13px;color:#93979f;">No comments yet. Pause the video and add one.</p></sc-if>
+          </div>
+          <div style="flex:none;padding:10px 6px 6px;border-top:1px solid #EDF3FA;">
+            <button type="button" onClick="{{ applyAI }}" disabled="{{ noneSelected }}" style="width:100%;padding:13px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;">{{ applyLabel }}</button>
+            <span style="display:block;text-align:center;margin-top:6px;font-size:11px;color:#93979f;">Each comment becomes one proposed change.</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ modeWorking }}" hint-placeholder-val="{{ false }}">
+        <div style="position:relative;overflow:hidden;padding:20px;border-radius:24px;background:#fafdff;display:flex;flex-direction:column;gap:14px;">
+          <div><strong style="font-size:15px;font-weight:600;">Preparing {{ selCount }} proposed changes</strong><p style="margin:4px 0 0;font-size:13px;color:#535862;">Claude reads each comment against Revision {{ rev }} and writes HyperFrames edits.</p></div>
+          <sc-for list="{{ stages }}" as="st" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:{{ st.fg }};"><span style="display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1.5px solid {{ st.ring }};background:{{ st.fill }};color:#fff;font-size:10px;animation:{{ st.anim }};">{{ st.mark }}</span>{{ st.label }}</div>
+          </sc-for>
+          {{ sheen }}
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ modeReview }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px;"><strong style="font-size:16px;font-weight:600;">Proposed revision</strong><span style="font-size:12px;color:#93979f;">Planned by Claude</span></div>
+        <sc-for list="{{ proposals }}" as="p" hint-placeholder-count="2">
+          <div style="padding:16px;border-radius:24px;border:{{ p.border }};background:#fafdff;display:flex;flex-direction:column;gap:12px;">
+            <div style="display:flex;gap:10px;align-items:flex-start;">
+              <button type="button" onClick="{{ p.toggle }}" disabled="{{ p.blocked }}" style="flex:none;display:grid;place-items:center;width:20px;height:20px;margin-top:1px;border-radius:6px;border:1.5px solid {{ p.boxLine }};background:{{ p.boxBg }};color:#fff;font-size:11px;cursor:pointer;">{{ p.boxMark }}</button>
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;">
+                <span style="display:flex;gap:6px;align-items:center;font-size:12px;color:#93979f;"><span style="display:grid;place-items:center;width:18px;height:18px;border-radius:50% 50% 50% 3px;background:{{ p.pinBg }};color:#fff;font-size:9px;font-weight:700;">{{ p.n }}</span>“{{ p.comment }}”</span>
+                <span style="font-size:14px;font-weight:600;line-height:1.4;">{{ p.summary }}</span>
+              </div>
+            </div>
+            <sc-if value="{{ p.isAsk }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:12px;border-radius:16px;background:#FFF2BE;display:flex;flex-direction:column;gap:8px;">
+                <span style="font-size:13px;color:#6b4e00;">{{ p.question }}</span>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;"><sc-for list="{{ p.choices }}" as="ch" hint-placeholder-count="2"><button type="button" onClick="{{ ch.pick }}" style="padding:6px 12px;border:0;border-radius:9999px;background:#fff;font-size:12px;font-weight:600;cursor:pointer;">{{ ch.label }}</button></sc-for></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ p.isBlocked }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:12px;border-radius:16px;background:#FFF1EA;display:flex;flex-direction:column;gap:8px;">
+                <span style="font-size:13px;line-height:1.5;color:#7c2d12;">{{ p.reason }}</span>
+                <a href="Relay Studio v3.dc.html" style="align-self:flex-start;padding:6px 12px;border-radius:9999px;background:#fff;font-size:12px;font-weight:600;color:#0a0d12;">Open in Studio</a>
+              </div>
+            </sc-if>
+            <sc-if value="{{ p.isReady }}" hint-placeholder-val="{{ true }}">
+              <sc-if value="{{ p.hasFrames }}" hint-placeholder-val="{{ false }}">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                  <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-size:11px;color:#93979f;">Before · {{ p.at }}</span><dc-import name="Scene Frame" scene="{{ p.before }}" branded="{{ true }}" radius="10px" hint-size="100%,96px"></dc-import></div>
+                  <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-size:11px;color:#0A6CFF;font-weight:600;">After · {{ p.at }}</span><div style="border-radius:11px;box-shadow:0 0 0 2px #168BFF;"><dc-import name="Scene Frame" scene="{{ p.after }}" branded="{{ true }}" radius="10px" hint-size="100%,96px"></dc-import></div></div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ p.hasBars }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:14px;background:#F4F8FD;">
+                  <sc-for list="{{ p.bars }}" as="b" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:center;gap:8px;"><span style="width:44px;font-size:11px;color:#93979f;">{{ b.label }}</span><div style="position:relative;flex:1;height:14px;"><sc-for list="{{ b.segs }}" as="sg" hint-placeholder-count="5"><span style="position:absolute;left:{{ sg.l }};width:{{ sg.w }};top:0;bottom:0;border-radius:4px;background:{{ sg.c }};border:1px solid #fafdff;transition:left 400ms ease,width 400ms ease;"></span></sc-for></div></div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <div style="display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:14px;background:#0a0d12;">
+                <sc-for list="{{ p.ops }}" as="op" hint-placeholder-count="2"><span style="font-family:'DM Mono',monospace;font-size:11px;line-height:1.55;color:#C9D6E4;word-break:break-word;">{{ op }}</span></sc-for>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                <sc-for list="{{ p.checks }}" as="ck" hint-placeholder-count="3"><span style="padding:3px 9px;border-radius:9999px;background:#D3F6E3;color:#0a5c35;font-size:11px;font-weight:600;">✓ {{ ck }}</span></sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+        <div style="position:sticky;bottom:0;padding:14px;border-radius:24px;background:rgba(250,253,255,.92);backdrop-filter:blur(10px);display:flex;flex-direction:column;gap:8px;box-shadow:0 14px 20px 4px rgba(4,69,144,.08);">
+          <div style="display:flex;gap:8px;">
+            <button type="button" onClick="{{ rejectAll }}" style="flex:1;padding:11px;border:0;border-radius:9999px;background:#fff;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 0 0 1px #D6E4F2;">Reject all</button>
+            <button type="button" onClick="{{ acceptSelected }}" disabled="{{ noAccept }}" style="flex:1.4;padding:11px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;">{{ acceptLabel }}</button>
+          </div>
+          <span style="text-align:center;font-size:12px;color:#93979f;">Accepting creates Revision {{ nextRev }} and clears approval.</span>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ modeDone }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px;border-radius:24px;background:linear-gradient(180deg,#E5F6FF,#C2E9FF);display:flex;flex-direction:column;gap:10px;">
+          <strong style="font-size:16px;font-weight:600;">Revision {{ rev }} saved</strong>
+          <span style="font-size:14px;line-height:1.5;color:#3b4a5c;">{{ doneMsg }}</span>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <button type="button" onClick="{{ renderDraft }}" style="padding:10px 16px;border:0;border-radius:9999px;background:#181d27;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Render draft</button>
+            <button type="button" onClick="{{ backToCompose }}" style="padding:10px 16px;border:0;border-radius:9999px;background:#fff;font-size:13px;font-weight:600;cursor:pointer;">Add more comments</button>
+          </div>
+        </div>
+      </sc-if>
+    </aside>
+  </main>
+
+  <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:50;padding:11px 18px;border-radius:9999px;background:#181d27;color:#fff;font-size:14px;box-shadow:0 14px 20px 4px rgba(4,69,144,.15);">{{ toast }}</div>
+  </sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const BASE = [
+  { id: "s1", kind: "hook", label: "Hook", headline: "Finally see what every sale is really worth.", copy: "", dur: 3, min: 2, max: 4 },
+  { id: "s2", kind: "problem", label: "Problem", headline: "Fees, refunds, and shipping hide your actual margin.", copy: "Most dashboards stop at revenue.", dur: 5, min: 4, max: 6 },
+  { id: "s3", kind: "product", label: "Product", headline: "Smart Profit Dashboard", copy: "", shot: "profit-dashboard.png", dur: 8, min: 6, max: 10 },
+  { id: "s4", kind: "benefit", label: "Benefit", headline: "See real profitability at a glance.", copy: "Tracks fees, refunds, shipping, and margin in one dashboard.", dur: 8, min: 4, max: 8 },
+  { id: "s5", kind: "cta", label: "CTA", headline: "See your real margins", copy: "acme.com/profit", dur: 6, min: 4, max: 6 }
+];
+const HOT = {
+  hook: [["Eyebrow", 35, 30, 30, 7], ["Headline", 14, 39, 72, 22]],
+  problem: [["Headline", 7, 20, 60, 28], ["Cost cards", 7, 60, 58, 20]],
+  product: [["Headline", 26, 9, 48, 9], ["Screenshot", 13, 22, 74, 68], ["Profit card", 64, 62, 30, 30]],
+  benefit: [["Headline", 8, 28, 64, 30], ["Supporting copy", 8, 62, 60, 12]],
+  cta: [["Logo", 37, 27, 26, 11], ["Button", 32, 45, 36, 13]]
+};
+const SHORT = { s1: "See what every sale is worth.", s2: "Hidden costs eat your margin.", s3: "Profit, after everything.", s4: "Real profit, at a glance.", s5: "See your margins" };
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const COLORS = ["#168BFF", "#FF5A1F", "#7C5CFF", "#16803C", "#B45309", "#0B1F4D"];
+const PILL = { "Approved": ["#D3F6E3", "#16803C"], "Revisions needed": ["#FFF2BE", "#8a5a00"], "Proposal ready": ["#EBF5FF", "#0A6CFF"] };
+
+class Component extends DCLogic {
+  state = {
+    scenes: BASE.map(s => ({ ...s })), t: 11.2, playing: false, rev: 4, approved: true,
+    anchorEl: "Screenshot", point: null, range: null, drag: null, draft: "",
+    comments: [
+      { id: "c1", time: 11.2, element: "Screenshot", body: "Show the dashboard for longer.", status: "open", sel: true },
+      { id: "c2", time: 3.4, range: [3.2, 5.6], element: null, body: "This part feels slow.", status: "open", sel: true },
+      { id: "c3", time: 26, element: null, body: "Change the color to our green.", status: "open", sel: true }
+    ],
+    mode: "compose", stage: 0, stageT: 0, proposals: [], notice: null, doneMsg: "", toast: null, toastT: 0
+  };
+  componentDidMount() { this.timer = setInterval(() => this.tick(), 100); }
+  componentWillUnmount() { clearInterval(this.timer); }
+  tl(scenes) { let a = 0; return scenes.map(s => { const st = a; a += s.dur; return { ...s, start: st, end: a }; }); }
+  total(scenes) { return scenes.reduce((a, s) => a + s.dur, 0); }
+  sceneAt(t, scenes) { const tl = this.tl(scenes); return tl.find(x => t >= x.start && t < x.end) || tl[tl.length - 1]; }
+  tick() {
+    const s = this.state, p = {}; let d = false;
+    if (s.playing) { const tot = this.total(s.scenes); p.t = s.t + 0.1 >= tot ? 0 : s.t + 0.1; d = true; }
+    if (s.mode === "working") { const n = s.stageT + 1; p.stageT = n; p.stage = Math.floor(n / 8); if (p.stage >= 4) { p.mode = "review"; p.proposals = this.plan(s); } d = true; }
+    if (s.toast) { p.toastT = s.toastT + 1; if (p.toastT > 30) p.toast = null; d = true; }
+    if (d) this.setState(p);
+  }
+  say(m) { this.setState({ toast: m, toastT: 0 }); }
+
+  plan(s) {
+    return s.comments.filter(c => c.sel && c.status === "open").map(c => {
+      const sc = this.sceneAt(c.time, s.scenes); const n = this.tl(s.scenes).findIndex(x => x.id === sc.id) + 1;
+      const txt = c.body.toLowerCase(); const at = fmt(c.time);
+      const base = { id: c.id, comment: c.body, at, scene: `Scene ${n} · ${sc.label}`, accepted: true };
+      if (/longer|hold|dashboard/.test(txt)) {
+        const s3 = s.scenes.find(x => x.id === "s3"), s4 = s.scenes.find(x => x.id === "s4");
+        const add = Math.min(2, s3.max - s3.dur, s4.dur - s4.min);
+        return { ...base, kind: "ready", summary: `Scene 3 holds the dashboard ${add}s longer. Scene 4 gives up ${add}s so the video stays ${fmt(this.total(s.scenes))}.`, ops: [`setTiming("scene-3", { duration: ${s3.dur} → ${s3.dur + add} })`, `setTiming("scene-4", { duration: ${s4.dur} → ${s4.dur - add} })`], checks: ["In scope: Scenes 3–4", "Within 6–10s limit", "hyperframes check"], bars: true, patch: [["s3", { dur: s3.dur + add }], ["s4", { dur: s4.dur - add }]] };
+      }
+      if (/slow|faster|quick|speed/.test(txt)) {
+        return { ...base, kind: "ready", summary: `Sped up the ${sc.label.toLowerCase()} headline entrance from 0.6s to 0.35s and the cost cards from 0.5s to 0.3s.`, ops: [`setGsapTween("#${sc.id}-headline", { duration: 0.6 → 0.35, ease: "power2.out" })`, `setGsapTween("#${sc.id}-costs", { duration: 0.5 → 0.3, stagger: 0.12 → 0.08 })`], checks: [`In scope: Scene ${n}`, "Motion preset: Calm → Brisk", "hyperframes check"], frames: true, before: sc, after: sc, patch: [] };
+      }
+      if (/green|colou?r|teal/.test(txt)) {
+        if (!c.element && !c.resolved) return { ...base, kind: "ask", summary: "Which part should turn green?", question: "Two colored parts are on screen at " + at + ". Acme’s closest approved green is Accent #14B8A6.", choices: ["Button", "Logo"] };
+        const s5 = s.scenes.find(x => x.id === "s5");
+        return { ...base, kind: "ready", summary: "The button now uses Acme’s approved accent, Teal #14B8A6. Its text switched to dark ink to keep AA contrast.", ops: [`setVariableValue("scene5.cta.background", "token:accent")`, `setVariableValue("scene5.cta.text", "token:ink")`], checks: ["In scope: Scene 5 · Button", "Approved brand color", "Contrast 7.9:1"], frames: true, before: s5, after: { ...s5, ctaColor: "#14B8A6", ctaFg: "#0F172A" }, patch: [["s5", { ctaColor: "#14B8A6", ctaFg: "#0F172A" }]] };
+      }
+      if (/bigger|larger|move|add|remove|resize/.test(txt)) {
+        return { ...base, kind: "blocked", accepted: false, summary: "This change needs Studio.", reason: "The guided editor can’t resize, move, add, or remove elements in this template. A designer can do it in Studio, or try a shorter headline instead." };
+      }
+      const short = SHORT[sc.id];
+      return { ...base, kind: "ready", summary: `Shortened the Scene ${n} headline so it reads in under a second.`, ops: [`setVariableValue("scene${n}.headline", "${short}")`, `// ${sc.headline.length} → ${short.length} characters`], checks: [`In scope: Scene ${n} · Headline`, "Approved claims only", "hyperframes check"], frames: true, before: sc, after: { ...sc, headline: short }, patch: [[sc.id, { headline: short }]] };
+    });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const tl = this.tl(s.scenes), total = this.total(s.scenes);
+    const cur = this.sceneAt(s.t, s.scenes), curIdx = tl.findIndex(x => x.id === cur.id);
+    const pct = (v) => `${(v / total) * 100}%`;
+    if (!this._amb) {
+      const blob = (st) => React.createElement("div", { style: { position: "absolute", borderRadius: "50%", filter: "blur(60px)", ...st } });
+      this._amb = React.createElement("div", { "aria-hidden": true, style: { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden" } },
+        blob({ width: "46vw", height: "46vw", right: "-14vw", top: "-18vw", background: "radial-gradient(circle,rgba(158,203,255,.8),rgba(158,203,255,0) 70%)", animation: "gmDriftA 26s ease-in-out infinite alternate" }),
+        blob({ width: "36vw", height: "36vw", left: "-14vw", bottom: "-10vw", background: "radial-gradient(circle,rgba(228,204,255,.65),rgba(228,204,255,0) 70%)", animation: "gmDriftB 32s ease-in-out infinite alternate" }));
+      this._sheen = React.createElement("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, height: 3, overflow: "hidden", background: "#EBF5FF" } }, React.createElement("div", { style: { width: "40%", height: "100%", background: "linear-gradient(90deg,transparent,#168BFF,#0A6CFF,transparent)", animation: "gmSheen 1.4s ease-in-out infinite" } }));
+    }
+    const pickAt = (clientX, el) => { const r = el.getBoundingClientRect(); return Math.max(0, Math.min(total - 0.05, ((clientX - r.left) / r.width) * total)); };
+    const cn = (c) => s.comments.indexOf(c) + 1;
+    const statusMap = { open: ["Open", "#0A6CFF"], proposed: ["Proposed", "#7C5CFF"], applied: ["Applied", "#16803C"], rejected: ["Rejected", "#93979f"], needs_clarification: ["Needs answer", "#B45309"] };
+    const pillLabel = s.mode === "review" ? "Proposal ready" : s.approved ? "Approved" : "Revisions needed";
+    const [pBg, pFg] = PILL[pillLabel];
+    const accepted = s.proposals.filter(p => p.kind === "ready" && p.accepted);
+    const selComments = s.comments.filter(c => c.sel && c.status === "open");
+    const anchorLabel = s.range ? `${fmt(s.range[0])}–${fmt(s.range[1])}` : fmt(s.t);
+    return {
+      ambient: this.props.embedded ? null : this._amb, sheen: this._sheen, showHeader: !this.props.embedded, embedActions: !!this.props.embedded, showHowto: !this.props.embedded, notApproved: !this.props.approved, isApprovedProp: !!this.props.approved, onApprove: () => this.props.onApprove && this.props.onApprove(), onDownload: () => this.props.onDownload && this.props.onDownload(), rootH: this.props.embedded ? "100%" : "100vh", renderDraft: () => { if (this.props.onRender) this.props.onRender(); else location.href = "Relay v3.dc.html"; },
+      revLabel: `Revision ${s.rev}${s.approved ? " · approved" : " · draft"}`, pillLabel, pillBg: pBg, pillFg: pFg,
+      howto: [{ n: "1", label: "Pause" }, { n: "2", label: "Click or drag" }, { n: "3", label: "Comment" }],
+      curScene: cur, curTitle: `Scene ${curIdx + 1} — ${cur.label}`,
+      hotspots: (s.playing ? [] : HOT[cur.kind]).map(([name, l, t, w, h]) => { const on = s.anchorEl === name; return { name, l: `${l}%`, t: `${t}%`, w: `${w}%`, h: `${h}%`, on, border: on ? "2px solid #168BFF" : "1.5px dashed transparent", bg: on ? "rgba(22,139,255,.08)" : "transparent", pick: (e) => { e.stopPropagation(); this.setState({ anchorEl: on ? null : name, point: null }); } }; }),
+      frameClick: (e) => { if (s.playing) return this.setState({ playing: false }); const r = e.currentTarget.getBoundingClientRect(); this.setState({ point: { x: `${((e.clientX - r.left) / r.width) * 100}%`, y: `${((e.clientY - r.top) / r.height) * 100}%` }, anchorEl: null }); },
+      hasPoint: !!s.point && !s.anchorEl, point: s.point || { x: "0", y: "0" }, showHint: !s.playing && !s.anchorEl && !s.point,
+      togglePlay: () => this.setState({ playing: !s.playing }), playGlyph: s.playing ? "❚❚" : "▶",
+      timeNow: fmt(s.t), timeTotal: fmt(total),
+      ruler: [0, 5, 10, 15, 20, 25, 30].filter(v => v <= total).map(v => ({ left: pct(v), label: fmt(v) })),
+      strip: tl.map((x, i) => { const on = x.id === cur.id; return { ...x, n: String(i + 1).padStart(2, "0"), range: `${fmt(x.start)}–${fmt(x.end)}`, bg: on ? "linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%)" : "#EBF5FF", fg: on ? "#fff" : "#0a0d12", sub: on ? "rgba(255,255,255,.8)" : "#93979f" }; }),
+      pins: s.comments.filter(c => c.status !== "rejected").map(c => ({ left: pct(c.time), n: cn(c), body: c.body, bg: c.status === "applied" ? "#16803C" : COLORS[(cn(c) - 1) % COLORS.length] })),
+      tlDown: (e) => { const v = pickAt(e.clientX, e.currentTarget); this.setState({ drag: v, t: v, playing: false, range: null }); },
+      tlMove: (e) => { if (s.drag == null) return; const v = pickAt(e.clientX, e.currentTarget); if (Math.abs(v - s.drag) > 0.3) this.setState({ range: [Math.min(s.drag, v), Math.max(s.drag, v)], t: Math.min(s.drag, v) }); },
+      tlUp: () => { if (s.drag != null) this.setState({ drag: null }); },
+      hasRange: !!s.range, range: s.range ? { left: pct(s.range[0]), width: pct(s.range[1] - s.range[0]), label: `${fmt(s.range[0])}–${fmt(s.range[1])}` } : { left: "0", width: "0", label: "" },
+      playPct: pct(s.t),
+      notice: s.notice,
+      modeCompose: s.mode === "compose", asideOverflow: s.mode === "compose" ? "hidden" : "auto", modeWorking: s.mode === "working", modeReview: s.mode === "review", modeDone: s.mode === "done",
+      anchorTime: s.range ? `Range ${anchorLabel}` : `At ${anchorLabel}`,
+      anchorEl: s.anchorEl ? `On: ${s.anchorEl}` : s.point ? "On: clicked point" : "Whole scene", anchorElBg: s.anchorEl || s.point ? "#F1E6FF" : "#F4F8FD", anchorElFg: s.anchorEl || s.point ? "#5b2ca8" : "#535862",
+      canClearAnchor: !!(s.anchorEl || s.point || s.range), clearAnchor: () => this.setState({ anchorEl: null, point: null, range: null }),
+      draft: s.draft, setDraft: (e) => this.setState({ draft: e.target.value }), draftEmpty: !s.draft.trim(),
+      examples: ["Make this headline shorter.", "Use our green for this button.", "Show the dashboard for longer.", "Make this part faster.", "Make the logo bigger."].map(l => ({ label: l, use: () => this.setState({ draft: l }) })),
+      addComment: () => { const c = { id: "c" + Date.now(), time: s.range ? s.range[0] : s.t, range: s.range, element: s.anchorEl || (s.point ? "Point" : null), body: s.draft.trim(), status: "open", sel: true }; this.setState({ comments: [...s.comments, c], draft: "", range: null, point: null }); this.say(`Comment ${s.comments.length + 1} pinned at ${fmt(c.time)}.`); },
+      comments: s.comments.map(c => { const sc = this.sceneAt(c.time, s.scenes); const n = this.tl(s.scenes).findIndex(x => x.id === sc.id) + 1; const [st, fg] = statusMap[c.status]; const open = c.status === "open"; return { n: cn(c), body: c.body, when: c.range ? `${fmt(c.range[0])}–${fmt(c.range[1])}` : fmt(c.time), target: `Scene ${n}${c.element ? " · " + c.element : ""}`, status: st, statusFg: fg, locked: !open, removable: open, bg: c.sel && open ? "#F4F8FD" : "transparent", pinBg: c.status === "applied" ? "#16803C" : COLORS[(cn(c) - 1) % COLORS.length], boxLine: c.sel && open ? "#0A6CFF" : "#C9D6E4", boxBg: c.sel && open ? "#0A6CFF" : "#fff", boxMark: c.sel && open ? "✓" : "", toggle: () => this.setState(st2 => ({ comments: st2.comments.map(x => x.id === c.id ? { ...x, sel: !x.sel } : x) })), remove: () => this.setState(st2 => ({ comments: st2.comments.filter(x => x.id !== c.id) })), seek: () => this.setState({ t: c.time + 0.01, playing: false, anchorEl: c.element && c.element !== "Point" ? c.element : null }) }; }),
+      noComments: s.comments.length === 0, openCount: `${s.comments.filter(c => c.status === "open").length} open`,
+      noneSelected: selComments.length === 0, applyLabel: selComments.length ? `Apply ${selComments.length} with AI` : "Select comments to apply",
+      applyAI: () => this.setState({ mode: "working", stage: 0, stageT: 0, playing: false }),
+      selCount: selComments.length, rev: s.rev, nextRev: s.rev + 1,
+      stages: ["Resolving each comment to its scene and element", "Reading element timings, tweens, and variables", "Claude is drafting HyperFrames edit operations", "Validating scope, template limits, and hyperframes check"].map((l, i) => { const done = i < s.stage, on = i === s.stage; return { label: l, mark: done ? "✓" : "", fg: done || on ? "#0a0d12" : "#93979f", ring: done ? "#16803C" : on ? "#0A6CFF" : "#C9D6E4", fill: done ? "#16803C" : on ? "#EBF5FF" : "#fff", anim: on ? "gmPulse 1.6s ease-in-out infinite" : "none" }; }),
+      proposals: s.proposals.map(p => {
+        const c = s.comments.find(x => x.id === p.id); const n = cn(c);
+        const ready = p.kind === "ready", on = ready && p.accepted;
+        const barsFor = (sc) => { let a = 0; const t2 = sc.reduce((x, y) => x + y.dur, 0); return sc.map((y, i) => { const st = a; a += y.dur; return { l: `${(st / t2) * 100}%`, w: `${(y.dur / t2) * 100}%`, c: y.id === "s3" || y.id === "s4" ? (i === 2 ? "#168BFF" : "#9ECBFF") : "#D6E4F2" }; }); };
+        let after = s.scenes; (p.patch || []).forEach(([id, pt]) => { after = after.map(x => x.id === id ? { ...x, ...pt } : x); });
+        return { ...p, n, pinBg: COLORS[(n - 1) % COLORS.length], isReady: ready, isAsk: p.kind === "ask", isBlocked: p.kind === "blocked", blocked: !ready,
+          hasFrames: !!p.frames, hasBars: !!p.bars, bars: p.bars ? [{ label: "Before", segs: barsFor(s.scenes) }, { label: "After", segs: barsFor(after) }] : [],
+          before: p.before || s.scenes[0], after: p.after || s.scenes[0], ops: p.ops || [], checks: p.checks || [], choices: (p.choices || []).map(l => ({ label: l, pick: () => this.setState(st2 => { const cs = st2.comments.map(x => x.id === p.id ? { ...x, element: l, resolved: true } : x); const np = this.plan({ ...st2, comments: cs.map(x => ({ ...x, sel: x.id === p.id })) })[0]; return { comments: cs, proposals: st2.proposals.map(x => x.id === p.id ? np : x) }; }) })),
+          border: on ? "2px solid #168BFF" : "2px solid transparent", boxLine: on ? "#0A6CFF" : "#C9D6E4", boxBg: on ? "#0A6CFF" : "#fff", boxMark: on ? "✓" : "",
+          toggle: () => this.setState(st2 => ({ proposals: st2.proposals.map(x => x.id === p.id ? { ...x, accepted: !x.accepted } : x) })) };
+      }),
+      noAccept: accepted.length === 0, acceptLabel: accepted.length ? `Accept ${accepted.length} change${accepted.length > 1 ? "s" : ""}` : "Nothing selected",
+      acceptSelected: () => this.setState(st2 => {
+        let scenes = st2.scenes; const acc = st2.proposals.filter(p => p.kind === "ready" && p.accepted);
+        acc.forEach(p => (p.patch || []).forEach(([id, pt]) => { scenes = scenes.map(x => x.id === id ? { ...x, ...pt } : x); }));
+        const ids = new Set(acc.map(p => p.id)); const proposedIds = new Set(st2.proposals.map(p => p.id));
+        const comments = st2.comments.map(x => !proposedIds.has(x.id) ? x : ids.has(x.id) ? { ...x, status: "applied", sel: false } : st2.proposals.find(p => p.id === x.id).kind === "ask" ? { ...x, status: "needs_clarification", sel: false } : { ...x, status: "rejected", sel: false });
+        const wasApproved = st2.approved; if (this.props.onAccept) setTimeout(() => this.props.onAccept(acc.length));
+        return { scenes, comments, rev: st2.rev + 1, approved: false, mode: "done", proposals: [], doneMsg: `${acc.length} change${acc.length > 1 ? "s" : ""} applied. Other scenes are unchanged. Render a draft to review the new MP4.`, notice: wasApproved ? `Revision ${st2.rev} stays approved and locked. Your accepted changes started Revision ${st2.rev + 1} as a new draft.` : null };
+      }),
+      rejectAll: () => { this.setState(st2 => ({ mode: "compose", proposals: [], comments: st2.comments.map(x => st2.proposals.some(p => p.id === x.id) ? { ...x, status: "rejected", sel: false } : x) })); this.say(`Kept Revision ${s.rev} unchanged.`); },
+      doneMsg: s.doneMsg, backToCompose: () => this.setState({ mode: "compose" }),
+      toast: s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>

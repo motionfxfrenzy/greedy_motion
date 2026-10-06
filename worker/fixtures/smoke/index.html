@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <script src="vendor/gsap.min.js"></script>
+  <style>
+    @font-face { font-family: "RendererSans"; src: url("fonts/LiberationSans-Regular.ttf") format("truetype"); }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg, #0b1220); }
+    #root { width: 1920px; height: 1080px; color: var(--fg, #f8fafc); font-family: var(--font-body, "RendererSans", Arial, sans-serif); position: relative; background: var(--bg, #0b1220); }
+    #eyebrow { position: absolute; top: 160px; line-height: 1.2; left: 160px; font-size: 28px; letter-spacing: 6px; color: var(--brand, #a7f3d0); font-family: var(--font-mono, monospace); }
+    #title { position: absolute; top: 228px; left: 160px; width: 1600px; font-size: 84px; line-height: 1.12; letter-spacing: -3px; font-family: var(--font-display, "RendererSans", Arial, sans-serif); }
+    #subtitle { position: absolute; top: 438px; left: 160px; width: 1600px; font-size: 32px; line-height: 1.3; color: var(--muted, #cbd5e1); }
+    #card { position: absolute; top: 540px; left: 160px; width: 1600px; height: 300px; background: var(--surface, #18263b); border: 2px solid var(--border, #334155); border-radius: var(--radius, 32px); padding: 44px 56px; }
+    #label { font-size: 28px; color: var(--muted, #cbd5e1); } #counter { font-size: 112px; font-weight: 700; line-height: 1.25; color: var(--brand, #a7f3d0); }
+    #track { position: absolute; left: 470px; top: 151px; width: 1040px; height: 24px; border-radius: var(--radius, 12px); background: var(--border, #334155); overflow: hidden; }
+    #bar { height: 100%; width: 100%; transform-origin: left center; background: var(--accent, #6ee7b7); } #badge { position: absolute; left: 160px; top: 890px; font-size: 30px; color: var(--brand, #a7f3d0); opacity: 0; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="10" data-width="1920" data-height="1080" data-fps="30">
+    <p id="eyebrow" class="clip" data-start="0" data-duration="10" data-track-index="0">VIDEOSAAS / CONTAINER VALIDATION</p>
+    <h1 id="title" class="clip" data-start="0" data-duration="10" data-track-index="1">A portable render worker.</h1>
+    <p id="subtitle" class="clip" data-start="0" data-duration="10" data-track-index="2">Linux image. Local assets. Isolated runtime.</p>
+    <div id="card" class="clip" data-start="0" data-duration="10" data-track-index="3"><p id="label">Container render progress</p><p id="counter">0</p><div id="track"><div id="bar"></div></div></div>
+    <p id="badge" class="clip" data-start="0" data-duration="10" data-track-index="4">READY FOR STAGING BENCHMARKS</p>
+  </div>
+  <script>
+    const progress = { value: 0 }; const counter = document.getElementById("counter"); const tl = gsap.timeline({ paused: true });
+    // 10-second timeline: entrances 0–1 s, progress 1–7 s, badge 7.5 s, hold until 10 s.
+    tl.fromTo("#title", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0);
+    tl.fromTo("#subtitle", { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0.25);
+    tl.fromTo("#card", { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0.4);
+    tl.to(progress, { value: 100, duration: 6, ease: "none", onUpdate: () => { counter.textContent = String(Math.round(progress.value)); } }, 1);
+    tl.fromTo("#bar", { scaleX: 0 }, { scaleX: 1, duration: 6, ease: "none" }, 1); tl.to("#badge", { opacity: 1, duration: 0.4 }, 7.5); tl.to({}, { duration: 2.1 }, 7.9);
+    window.__timelines = window.__timelines || {}; window.__timelines.main = tl; tl.seek(0);
+  </script>
+</body>
+</html>

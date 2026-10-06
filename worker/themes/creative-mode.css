@@ -1,0 +1,21 @@
+/* Creative Mode — generated from packages/contracts/src/themes.ts (frame-preset). Do not edit. */
+:root {
+  --bg: #EFE9D9;
+  --fg: #0F0F0F;
+  --muted: #3F3F3F;
+  --surface: #E4DCC4;
+  --border: #0F0F0F;
+  --brand: #136636;
+  --accent: #F06CA8;
+  --accent-2: #F5C518;
+  --font-display: "Archivo Black", Arial, sans-serif;
+  --font-body: "Space Grotesk", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --radius: 0;
+  --space-1: 1.2cqmin;
+  --space-2: 2.4cqmin;
+  --space-3: 4cqmin;
+  --dur-beat: 0.4s;
+  --ease-standard: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-emphasis: cubic-bezier(0.19, 1, 0.22, 1);
+}

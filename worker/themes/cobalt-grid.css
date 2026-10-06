@@ -1,0 +1,21 @@
+/* Cobalt Grid — generated from packages/contracts/src/themes.ts (frame-preset). Do not edit. */
+:root {
+  --bg: #F0EBDE;
+  --fg: #1F2BE0;
+  --muted: #3F49D6;
+  --surface: #E6E0CE;
+  --border: #C3C1DA;
+  --brand: #1F2BE0;
+  --accent: #1F2BE0;
+  --accent-2: #5560E5;
+  --font-display: Newsreader, Georgia, serif;
+  --font-body: "Hanken Grotesk", Arial, sans-serif;
+  --font-mono: "DM Mono", Consolas, monospace;
+  --radius: 0;
+  --space-1: 1.2cqmin;
+  --space-2: 2.4cqmin;
+  --space-3: 4cqmin;
+  --dur-beat: 0.4s;
+  --ease-standard: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-emphasis: cubic-bezier(0.19, 1, 0.22, 1);
+}

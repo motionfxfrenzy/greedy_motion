@@ -1,0 +1,21 @@
+/* Broadside — generated from packages/contracts/src/themes.ts (frame-preset). Do not edit. */
+:root {
+  --bg: #111111;
+  --fg: #F0ECE5;
+  --muted: #9A9A92;
+  --surface: #1A1A18;
+  --border: #33332F;
+  --brand: #E85D26;
+  --accent: #E85D26;
+  --accent-2: #F0ECE5;
+  --font-display: Barlow, Arial, sans-serif;
+  --font-body: Barlow, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", Consolas, monospace;
+  --radius: 0;
+  --space-1: 1.2cqmin;
+  --space-2: 2.4cqmin;
+  --space-3: 4cqmin;
+  --dur-beat: 0.4s;
+  --ease-standard: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-emphasis: cubic-bezier(0.19, 1, 0.22, 1);
+}

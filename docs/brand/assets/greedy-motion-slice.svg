@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30" role="img" aria-labelledby="title desc">
+  <title id="title">Greedy Motion Slice</title>
+  <desc id="desc">A compact blue motion seed cut by an orange forward slice.</desc>
+  <path fill="#168BFF" d="M0 16C0 7 8 0 18 0c8 0 16 4 22 12-6 8-14 13-22 13C8 25 0 21 0 16Z"/>
+  <path fill="#FF5A1F" d="M3 24C13 22 24 16 35 6c-2 10-9 18-20 21Z"/>
+</svg>

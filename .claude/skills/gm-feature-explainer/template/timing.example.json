@@ -1,0 +1,377 @@
+{
+ "fps": 30,
+ "total": 41.7,
+ "problem": {
+  "start": 0.0,
+  "chips": [
+   4.255,
+   4.92,
+   5.955,
+   6.34,
+   7.28
+  ]
+ },
+ "reveal": {
+  "start": 7.8667,
+  "name_t": 8.42,
+  "pos_t": 9.796,
+  "end": 12.3667
+ },
+ "beats": [
+  {
+   "verb_t": 14.183,
+   "kw_t": 14.183,
+   "evidence": {
+    "full": 14.32,
+    "line": 14.106,
+    "est": 14.213,
+    "bracket": [
+     14.163,
+     14.203
+    ],
+    "how": "grid probe, connected speech (\u00b10.02 s)",
+    "probe_first_word_after": "pick",
+    "probe_last_word_before": "and..."
+   },
+   "line_start": 13.056,
+   "line_end": 16.022,
+   "start": 12.3667,
+   "end": 15.7667
+  },
+  {
+   "verb_t": 18.285,
+   "kw_t": 18.285,
+   "evidence": {
+    "full": 18.46,
+    "line": 18.33,
+    "est": 18.395,
+    "bracket": [
+     18.265,
+     18.305
+    ],
+    "how": "grid probe, connected speech (\u00b10.02 s)",
+    "probe_first_word_after": "writes",
+    "probe_last_word_before": "it"
+   },
+   "line_start": 16.322,
+   "line_end": 19.473,
+   "start": 15.7667,
+   "end": 19.8333
+  },
+  {
+   "verb_t": 21.242,
+   "kw_t": 21.242,
+   "evidence": {
+    "full": 21.43,
+    "line": 21.275,
+    "est": 21.352,
+    "bracket": [
+     21.223,
+     21.262
+    ],
+    "how": "grid probe, connected speech (\u00b10.02 s)",
+    "probe_first_word_after": "switch",
+    "probe_last_word_before": "then"
+   },
+   "line_start": 19.773,
+   "line_end": 23.141,
+   "start": 19.8333,
+   "end": 23.1667
+  },
+  {
+   "verb_t": 24.58,
+   "kw_t": 24.58,
+   "evidence": {
+    "full": 24.68,
+    "line": 24.581,
+    "est": 24.63,
+    "bracket": [
+     23.741,
+     23.78
+    ],
+    "how": "grid probe + speech onset after pause (\u00b10.01 s)",
+    "probe_first_word_after": "edit",
+    "probe_last_word_before": "story."
+   },
+   "line_start": 23.441,
+   "line_end": 27.025,
+   "start": 23.1667,
+   "end": 27.0667
+  },
+  {
+   "verb_t": 28.24,
+   "kw_t": 29.227,
+   "evidence": {
+    "full": 28.56,
+    "line": 28.443,
+    "est": 28.502,
+    "bracket": [
+     27.892,
+     27.931
+    ],
+    "how": "grid probe + speech onset after pause (\u00b10.01 s)",
+    "probe_first_word_after": "Submit",
+    "probe_last_word_before": "right."
+   },
+   "line_start": 27.325,
+   "line_end": 31.448,
+   "start": 27.0667,
+   "end": 31.2667
+  },
+  {
+   "verb_t": 33.07,
+   "kw_t": 33.07,
+   "evidence": {
+    "full": 33.18,
+    "line": 33.13,
+    "est": 33.155,
+    "bracket": [
+     32.625,
+     32.665
+    ],
+    "how": "grid probe + speech onset after pause (\u00b10.01 s)",
+    "probe_first_word_after": "click",
+    "probe_last_word_before": "in."
+   },
+   "line_start": 31.748,
+   "line_end": 35.473,
+   "start": 31.2667,
+   "end": 35.5333
+  }
+ ],
+ "cta": {
+  "start": 35.5333,
+  "name_t": 37.54,
+  "verb_t": 38.63,
+  "words": [
+   35.974,
+   36.504,
+   36.964
+  ],
+  "evidence": {
+   "full": 38.26,
+   "line": 38.629,
+   "est": 38.444,
+   "bracket": [
+    38.114,
+    38.154
+   ],
+   "how": "grid probe + speech onset after pause (\u00b10.01 s)",
+   "probe_first_word_after": "Create",
+   "probe_last_word_before": "motion."
+  }
+ },
+ "stillness": null,
+ "cuts": [
+  {
+   "after": "problem2",
+   "cut": 7.8667,
+   "exit_start": 7.547,
+   "word_t": 7.28,
+   "how": "last stressed word 'export', held for the result",
+   "beat_snap": null,
+   "under_speech": true,
+   "next_line_start": 8.018,
+   "lead_into_next": 0.151
+  },
+  {
+   "after": "reveal",
+   "cut": 12.3667,
+   "exit_start": 12.047,
+   "word_t": 12.083,
+   "how": "last stressed word 'videos'",
+   "beat_snap": null,
+   "under_speech": true,
+   "next_line_start": 13.056,
+   "lead_into_next": 0.689
+  },
+  {
+   "after": "beat1",
+   "cut": 15.7667,
+   "exit_start": 15.447,
+   "word_t": 15.588,
+   "how": "last stressed word 'spotlight'",
+   "beat_snap": -0.092,
+   "under_speech": true,
+   "next_line_start": 16.322,
+   "lead_into_next": 0.555
+  },
+  {
+   "after": "beat2",
+   "cut": 19.8333,
+   "exit_start": 19.513,
+   "word_t": 19.085,
+   "how": "last stressed word 'script', held for the result",
+   "beat_snap": 0.014,
+   "under_speech": false,
+   "next_line_start": 19.773,
+   "lead_into_next": -0.06
+  },
+  {
+   "after": "beat3",
+   "cut": 23.1667,
+   "exit_start": 22.847,
+   "word_t": 22.872,
+   "how": "last stressed word 'click'",
+   "beat_snap": 0.005,
+   "under_speech": true,
+   "next_line_start": 23.441,
+   "lead_into_next": 0.274
+  },
+  {
+   "after": "beat4",
+   "cut": 27.0667,
+   "exit_start": 26.747,
+   "word_t": 26.811,
+   "how": "last stressed word 'live'",
+   "beat_snap": -0.008,
+   "under_speech": true,
+   "next_line_start": 27.325,
+   "lead_into_next": 0.258
+  },
+  {
+   "after": "beat5",
+   "cut": 31.2667,
+   "exit_start": 30.947,
+   "word_t": 31.112,
+   "how": "last stressed word 'working'",
+   "beat_snap": -0.117,
+   "under_speech": true,
+   "next_line_start": 31.748,
+   "lead_into_next": 0.481
+  },
+  {
+   "after": "beat6",
+   "cut": 35.5333,
+   "exit_start": 35.213,
+   "word_t": 35.265,
+   "how": "last stressed word 'change', held for the result",
+   "beat_snap": null,
+   "under_speech": true,
+   "next_line_start": 35.923,
+   "lead_into_next": 0.39
+  }
+ ],
+ "spans": [
+  {
+   "id": "problem1",
+   "start": 0.5,
+   "end": 2.549,
+   "asm": [
+    0.5,
+    2.549
+   ],
+   "w0": 0.53,
+   "w1": 2.84
+  },
+  {
+   "id": "problem2",
+   "start": 2.849,
+   "end": 7.569,
+   "asm": [
+    2.849,
+    7.569
+   ],
+   "w0": 2.88,
+   "w1": 8.18
+  },
+  {
+   "id": "reveal",
+   "start": 8.018,
+   "end": 12.606,
+   "asm": [
+    8.018,
+    12.606
+   ],
+   "w0": 8.18,
+   "w1": 12.72
+  },
+  {
+   "id": "beat1",
+   "start": 13.056,
+   "end": 16.022,
+   "asm": [
+    13.056,
+    16.022
+   ],
+   "w0": 13.36,
+   "w1": 16.47
+  },
+  {
+   "id": "beat2",
+   "start": 16.322,
+   "end": 19.473,
+   "asm": [
+    16.322,
+    19.473
+   ],
+   "w0": 16.48,
+   "w1": 19.98
+  },
+  {
+   "id": "beat3",
+   "start": 19.773,
+   "end": 23.141,
+   "asm": [
+    19.773,
+    23.141
+   ],
+   "w0": 19.56,
+   "w1": 23.5
+  },
+  {
+   "id": "beat4",
+   "start": 23.441,
+   "end": 27.025,
+   "asm": [
+    23.441,
+    27.025
+   ],
+   "w0": 23.56,
+   "w1": 27.44
+  },
+  {
+   "id": "beat5",
+   "start": 27.325,
+   "end": 31.448,
+   "asm": [
+    27.325,
+    31.448
+   ],
+   "w0": 27.44,
+   "w1": 31.86
+  },
+  {
+   "id": "beat6",
+   "start": 31.748,
+   "end": 35.473,
+   "asm": [
+    31.748,
+    35.473
+   ],
+   "w0": 31.88,
+   "w1": 36
+  },
+  {
+   "id": "cta",
+   "start": 35.923,
+   "end": 40.495,
+   "asm": [
+    35.923,
+    40.495
+   ],
+   "w0": 36,
+   "w1": 40.42
+  }
+ ],
+ "pacing": {
+  "gap_in_act": 0.3,
+  "gap_between_acts": 0.45,
+  "tail": 1.2,
+  "voice_speed": 1.1,
+  "jcut_lead": 0.04,
+  "beat_snap": 0.15,
+  "result_hold": 0.35,
+  "late_cut_max": 0.25
+ }
+}
