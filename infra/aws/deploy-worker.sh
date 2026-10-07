@@ -20,8 +20,8 @@ secret() { # name value
 case "${1:-up}" in
   secrets)
     secret "$PROJECT/$ENV/worker/database-url" "$SUPABASE_STAGING_DATABASE_URL"
-    secret "$PROJECT/$ENV/worker/r2-access-key-id" "$R2_ACCESS_KEY_ID"
-    secret "$PROJECT/$ENV/worker/r2-secret-access-key" "$R2_SECRET_ACCESS_KEY" ;;
+    secret "$PROJECT/$ENV/worker/r2-access-key-id" "$R2_STAGING_ACCESS_KEY_ID"
+    secret "$PROJECT/$ENV/worker/r2-secret-access-key" "$R2_STAGING_SECRET_ACCESS_KEY" ;;
   logs) aws logs filter-log-events --region "$REGION" --log-group-name "/ecs/$N-worker" --limit 60 --query 'events[].message' --output text | tr '\t' '\n' | tail -40 ;;
   stop) aws ecs update-service --region "$REGION" --cluster "$N" --service worker --desired-count 0 --query 'service.[serviceName,desiredCount]' --output text ;;
   up)
