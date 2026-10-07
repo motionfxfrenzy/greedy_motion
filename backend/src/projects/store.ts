@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import {
@@ -14,26 +14,29 @@ import {
   type VideoProject
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
+import { query, withRowLock } from "../db/database.ts";
 
 const projectDir = (id: string) => join(config.projectsDir, id);
-const projectPath = (id: string) => join(projectDir(id), "project.json");
 const screenshotsDir = (id: string) => join(projectDir(id), "screenshots");
 const idPattern = /^[0-9a-f-]{36}$/i;
 const states: ProjectState[] = ["Ready to create", "Finish your brief", "Draft storyboard", "Rendering draft", "Ready for review", "Revisions needed", "Approved", "Render needs attention"];
-const writeChains = new Map<string, Promise<unknown>>();
 
 export class ProjectInvalid extends Error {}
+
+/** Records written before ownership existed belong to config.legacyOwnerId (nobody, unless an operator adopts them). */
+export const projectOwner = (project: Pick<VideoProject, "ownerId">) => project.ownerId ?? config.legacyOwnerId;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 /**
- * A project can be updated by the API request and the asynchronous render job at
- * nearly the same time. Serialising read-modify-write operations per project
- * prevents lost fields as well as staging-file collisions.
+ * A project can be updated by the API request and the asynchronous render job at nearly the same time.
+ * Each read-modify-write runs under a row lock; the in-process chain keeps same-replica callers from each
+ * holding a pooled connection while they wait on that lock.
  */
+const writeChains = new Map<string, Promise<unknown>>();
 function serializeProject<T>(id: string, operation: () => Promise<T>) {
   const previous = writeChains.get(id) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(operation);
+  const next = previous.catch(() => undefined).then(() => withRowLock("app.projects", id, operation));
   writeChains.set(id, next);
   void next.finally(() => {
     if (writeChains.get(id) === next) writeChains.delete(id);
@@ -42,17 +45,24 @@ function serializeProject<T>(id: string, operation: () => Promise<T>) {
 }
 
 async function save(project: VideoProject) {
-  await mkdir(projectDir(project.id), { recursive: true });
-  const staged = projectPath(project.id) + "." + randomUUID() + ".tmp";
-  await writeFile(staged, JSON.stringify(project, null, 2) + "\n");
-  await rename(staged, projectPath(project.id));
+  await query(
+    `insert into app.projects (id, owner_id, name, state, data, created_at, updated_at)
+     values ($1, $2, $3, $4, $5, $6, $7)
+     on conflict (id) do update set name = excluded.name, state = excluded.state, data = excluded.data, updated_at = excluded.updated_at`,
+    [project.id, project.ownerId ?? null, project.name, project.state, project, project.createdAt, project.updatedAt]
+  );
   return project;
 }
 
-export async function listProjects() {
-  const entries = await readdir(config.projectsDir, { withFileTypes: true }).catch(() => []);
-  const projects = await Promise.all(entries.filter((entry) => entry.isDirectory()).map((entry) => getProject(entry.name)));
-  return projects.filter((project): project is VideoProject => project !== null).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+export async function listProjects(ownerId?: string) {
+  // Unowned (pre-ownership) rows belong to config.legacyOwnerId, matching projectOwner().
+  const { rows } = ownerId === undefined
+    ? await query<{ data: unknown }>("select data from app.projects order by updated_at desc")
+    : await query<{ data: unknown }>(
+        "select data from app.projects where owner_id = $1 or (owner_id is null and $1 = $2) order by updated_at desc",
+        [ownerId, config.legacyOwnerId || null]
+      );
+  return rows.map((row) => normalizeProject(row.data));
 }
 
 /**
@@ -77,25 +87,27 @@ function normalizeStudioDraft(project: Pick<VideoProject, "request" | "screensho
   return { revision, values: checked.values, assets, updatedAt };
 }
 
-export async function getProject(id: string) {
-  if (!idPattern.test(id)) return null;
-  return readFile(projectPath(id), "utf8").then((text) => {
-    const parsed = JSON.parse(text) as VideoProject;
-    const { studio: rawStudio, screenshots: rawScreenshots, comments: rawComments, ...project } = parsed;
-    const screenshots = Array.isArray(rawScreenshots) ? rawScreenshots : [];
-    const comments = Array.isArray(rawComments) ? rawComments : [];
-    const base = { ...project, screenshots, comments } as VideoProject;
-    const studio = normalizeStudioDraft(base, rawStudio);
-    return { ...base, ...(studio ? { studio } : {}) };
-  }, () => null);
+function normalizeProject(raw: unknown): VideoProject {
+  const { studio: rawStudio, screenshots: rawScreenshots, comments: rawComments, ...project } = raw as VideoProject;
+  const screenshots = Array.isArray(rawScreenshots) ? rawScreenshots : [];
+  const comments = Array.isArray(rawComments) ? rawComments : [];
+  const base = { ...project, screenshots, comments } as VideoProject;
+  const studio = normalizeStudioDraft(base, rawStudio);
+  return { ...base, ...(studio ? { studio } : {}) };
 }
 
-export async function createProject(input: { name?: unknown; request?: unknown }) {
+export async function getProject(id: string) {
+  if (!idPattern.test(id)) return null;
+  const { rows } = await query<{ data: unknown }>("select data from app.projects where id = $1", [id]);
+  return rows[0] ? normalizeProject(rows[0].data) : null;
+}
+
+export async function createProject(input: { name?: unknown; request?: unknown }, ownerId: string) {
   const request = parseRenderRequest(input.request);
   if (!request) throw new ProjectInvalid("Choose a template, format, and motion style before creating the project.");
   const name = typeof input.name === "string" ? input.name.trim().replace(/\s+/g, " ").slice(0, 80) : "";
   const now = new Date().toISOString();
-  return save({ id: randomUUID(), name: name || "Untitled video", state: "Ready to create", createdAt: now, updatedAt: now, request, screenshots: [], comments: [] });
+  return save({ id: randomUUID(), ownerId, name: name || "Untitled video", state: "Ready to create", createdAt: now, updatedAt: now, request, screenshots: [], comments: [] });
 }
 
 type ProjectUpdate = { name?: unknown; request?: unknown; state?: unknown; script?: unknown; renderJobId?: unknown; approvedAt?: unknown };

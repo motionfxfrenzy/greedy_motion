@@ -25,8 +25,8 @@ const messageOf = (error: unknown, fallback: string) => error instanceof Error ?
  */
 export class RenderService {
   /** Pass `id` when the caller must record the job id (e.g. on the project) before the job can finish. */
-  async create(request: RenderRequest, options: { projectId?: string; plannedRevision?: Plan; id?: string } = {}) {
-    const { projectId, plannedRevision } = options;
+  async create(request: RenderRequest, options: { projectId?: string; ownerId?: string; plannedRevision?: Plan; id?: string } = {}) {
+    const { projectId, ownerId, plannedRevision } = options;
     const job: RenderJob = {
       id: options.id ?? randomUUID(),
       state: "queued",
@@ -34,7 +34,7 @@ export class RenderService {
       createdAt: new Date().toISOString(),
       revision: { id: randomUUID(), title: "Planning your product story…", scenes: [] }
     };
-    return renderJobRepository.createAndEnqueue(job, { request, ...(projectId ? { projectId } : {}), ...(plannedRevision ? { plannedRevision } : {}) });
+    return renderJobRepository.createAndEnqueue(job, { request, ...(projectId ? { projectId } : {}), ...(ownerId ? { ownerId } : {}), ...(plannedRevision ? { plannedRevision } : {}) });
   }
 
   /**
@@ -42,7 +42,7 @@ export class RenderService {
    * prepareBeatPlanRender (composition, variables, fonts, shots, voice, music, SFX), so nothing is
    * planned or generated here: the job goes straight to the render queue.
    */
-  async createBeatPlanRender(project: VideoProject, jobId: string, prepared: { workerDir: string; durationSeconds: number; canvas: string }) {
+  async createBeatPlanRender(project: VideoProject, jobId: string, prepared: { workerDir: string; projectPrefix?: string; durationSeconds: number; canvas: string }) {
     const plan = project.beatPlan!;
     const timing = projectTiming(project);
     const times = timing ? beatTimes(timing) : {};
@@ -63,7 +63,7 @@ export class RenderService {
       request: project.request,
       projectId: project.id,
       // The worker's whole input: a prepared folder on the shared renders volume. No API keys, no planning.
-      renderInput: { kind: "beat-plan", id: jobId, workerDir: prepared.workerDir, durationSeconds: prepared.durationSeconds, canvas: prepared.canvas }
+      renderInput: { kind: "beat-plan", id: jobId, workerDir: prepared.workerDir, ...(prepared.projectPrefix ? { projectPrefix: prepared.projectPrefix } : {}), durationSeconds: prepared.durationSeconds, canvas: prepared.canvas }
     });
   }
 

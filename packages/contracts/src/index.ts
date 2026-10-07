@@ -133,6 +133,8 @@ export type ProjectStudioDraft = {
 /** A persisted video brief. Project data deliberately stores inputs and references, never a mock preview. */
 export type VideoProject = {
   id: string;
+  /** Supabase user id of the creator; set by the backend, never trusted from a client body. */
+  ownerId?: string;
   name: string;
   state: ProjectState;
   createdAt: string;

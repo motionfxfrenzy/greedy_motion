@@ -6,6 +6,7 @@ import { access, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PgBoss } from "pg-boss";
 import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
+import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
 import { QUEUES, claim, createPool, finish, noteRetry, progress } from "./jobs.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
@@ -74,6 +75,30 @@ const RENDER_FLAGS = ["--fps", "30", "--workers", "1", "--quality", "standard", 
  * fonts, shots, voice, music, SFX) to /renders/<id>/project. Render it as is; nothing is generated here.
  */
 async function renderBeatPlan(id, input, attempt, signal, reporter) {
+  // Object storage: pull the prepared folder from R2 into a private scratch directory, render there, upload the MP4.
+  if (storageEnabled) {
+    const scratch = join("/tmp", `render-${id}-a${attempt}`);
+    const folder = join(scratch, "project");
+    const output = join(scratch, "out.mp4");
+    const key = `renders/${id}/a${attempt}.mp4`;
+    if (input.projectPrefix !== `jobs/${id}/project`) throw new PermanentError("The prepared storyboard location is missing or invalid.");
+    try {
+      try {
+        await rm(scratch, { recursive: true, force: true });
+        await downloadProject(input.projectPrefix, folder);
+        await access(join(folder, "index.html"));
+        await access(join(folder, "variables.json"));
+      } catch (error) {
+        if (error?.code === "ENOENT" || /missing in storage|Invalid project prefix/.test(error?.message ?? "")) throw new PermanentError("The prepared storyboard folder is incomplete. Submit the storyboard again.");
+        throw error;
+      }
+      await run(HYPERFRAMES, ["render", folder, "--variables-file", join(folder, "variables.json"), "--output", output, ...RENDER_FLAGS], { onLine: reporter.line, signal });
+      await uploadOutput(output, key);
+      return { url: `/v1/renders/${id}`, format: "mp4", durationSeconds: Number(input.durationSeconds) || 10, file: `${id}-a${attempt}.mp4`, key };
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  }
   const folder = join(RENDERS_DIR, id, "project");
   // Only the job's own folder: a row can never point the renderer elsewhere.
   if (input.workerDir !== folder) throw new PermanentError("The prepared storyboard folder is missing or invalid.");
@@ -98,6 +123,7 @@ async function renderVideo(input, attempt, signal, reporter) {
   const id = typeof input.id === "string" && /^[a-f0-9-]{36}$/i.test(input.id) ? input.id : "";
   if (!id) throw new PermanentError("A valid render id is required.");
   if (input.kind === "beat-plan") return renderBeatPlan(id, input, attempt, signal, reporter);
+  if (storageEnabled) throw new PermanentError("Template renders are not available with object storage yet; render the approved storyboard instead.");
   const template = idOrDefault(input.template, "product-launch");
   const theme = idOrDefault(input.theme, "neutral");
   const variables = input.variables && typeof input.variables === "object" && !Array.isArray(input.variables) ? { ...input.variables } : {};
@@ -137,6 +163,10 @@ async function renderVideo(input, attempt, signal, reporter) {
  */
 async function removeEarlierAttempts(jobId, attempt) {
   if (attempt < 2) return;
+  if (storageEnabled) {
+    await deleteOutputs(await otherAttempts(jobId, `renders/${jobId}/a${attempt}.mp4`).then((keys) => keys.filter((key) => Number(/a(\d+)\.mp4$/.exec(key)?.[1]) < attempt))).catch(() => undefined);
+    return;
+  }
   const earlier = new RegExp(`^\\.?${jobId}-a(\\d+)(\\.mp4|\\.hf-transaction-.+)$`);
   for (const name of await readdir(RENDERS_DIR).catch(() => [])) {
     const match = earlier.exec(name);
@@ -165,7 +195,10 @@ async function handle(job) {
     const output = await renderVideo(input, attempt, signal, reporter);
     await reporter.flush();
     const committed = await finish(pool, boss, jobId, attempt, { output });
-    if (!committed) await rm(join(RENDERS_DIR, output.file), { force: true });
+    if (!committed) {
+      if (output.key) await deleteOutputs([output.key]).catch(() => undefined);
+      else await rm(join(RENDERS_DIR, output.file), { force: true });
+    }
     log("info", committed ? "render_completed" : "render_superseded", { jobId, attempt, seconds: Math.round((Date.now() - started) / 1000) });
   } catch (error) {
     await reporter.flush();

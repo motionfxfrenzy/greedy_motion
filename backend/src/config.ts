@@ -41,7 +41,51 @@ const positiveInt = (name: string, fallback: number) => {
   return value;
 };
 
+// Object storage. "filesystem" keeps everything on local disk shared with the worker (local dev). "r2" puts
+// the worker's inputs and outputs in Cloudflare R2 (S3 API) so backend and worker share no volume.
+const storageDriver = process.env.STORAGE_DRIVER ?? "filesystem";
+if (storageDriver !== "filesystem" && storageDriver !== "r2") throw new Error(`STORAGE_DRIVER must be "filesystem" or "r2"; got "${storageDriver}".`);
+const r2 = storageDriver === "r2"
+  ? (() => {
+      const need = (name: string) => process.env[name] || (() => { throw new Error(`${name} is required when STORAGE_DRIVER=r2.`); })();
+      return {
+        endpoint: need("R2_ENDPOINT"),
+        accessKeyId: need("R2_ACCESS_KEY_ID"),
+        secretAccessKey: need("R2_SECRET_ACCESS_KEY"),
+        uploadsBucket: need("R2_UPLOADS_BUCKET"),
+        outputsBucket: need("R2_OUTPUTS_BUCKET")
+      };
+    })()
+  : null;
+
+// The single user when AUTH_MODE=none (local development). A uuid so it fits the owner_id columns.
+export const LOCAL_USER_ID = "00000000-0000-4000-8000-000000000000";
+
+// Authentication. "supabase" verifies Supabase access tokens on every /v1 call; "none" is local development only.
+const authMode = process.env.AUTH_MODE ?? "none";
+if (authMode !== "none" && authMode !== "supabase") throw new Error(`AUTH_MODE must be "none" or "supabase"; got "${authMode}".`);
+if (env !== "local" && authMode !== "supabase") throw new Error(`AUTH_MODE=supabase is required when APP_ENV=${env}.`);
+const auth = authMode === "supabase"
+  ? (() => {
+      const supabaseUrl = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
+      if (!supabaseUrl) throw new Error("SUPABASE_URL is required when AUTH_MODE=supabase.");
+      const ref = process.env.EXPECTED_SUPABASE_PROJECT_REF;
+      // Guards against staging pointing at the production project (or the reverse).
+      if (ref && new URL(supabaseUrl).hostname !== `${ref}.supabase.co`) throw new Error(`SUPABASE_URL does not match EXPECTED_SUPABASE_PROJECT_REF (${ref}).`);
+      return { mode: "supabase" as const, supabaseUrl, jwksUrl: process.env.SUPABASE_JWKS_URL || `${supabaseUrl}/auth/v1/.well-known/jwks.json` };
+    })()
+  : { mode: "none" as const };
+
+// Projects and brand kits saved before ownership existed have no owner. In local development (no auth) they
+// stay visible to the local user; with auth on they are hidden from everyone unless LEGACY_OWNER_ID names the
+// Supabase user id that should adopt them.
+const legacyOwnerId = auth.mode === "none" ? LOCAL_USER_ID : (process.env.LEGACY_OWNER_ID ?? "");
+
 export const config = {
+  auth,
+  legacyOwnerId,
+  storageDriver: storageDriver as "filesystem" | "r2",
+  r2,
   planner: planner as "anthropic" | "deterministic",
   appEnv: env,
   // Railway injects PORT; locally the backend defaults to 4000.

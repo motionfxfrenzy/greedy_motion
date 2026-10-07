@@ -25,3 +25,4 @@ validation/**/frames/
 validation/**/.hyperframes/
 validation/smoke/vendor/
 validation/generated/
+.env.credentials

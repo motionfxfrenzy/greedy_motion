@@ -19,6 +19,8 @@ export type BrandKitInput = {
 
 export type BrandKit = Omit<BrandKitInput, "logoAssetId"> & {
   id: string;
+  /** Supabase user id of the creator; set by the backend. */
+  ownerId?: string;
   hasLogo: boolean;
   createdAt: string;
   /** Adjustments made so text stays readable, shown to the user. */
