@@ -1,12 +1,15 @@
 # Applies supabase/migrations to the Supabase project that matches the branch.
-#   testing    -> greedymotion-staging    (ltaxhznuixoslbbcjkts)
+#   staging    -> greedymotion-staging    (ltaxhznuixoslbbcjkts)
 #   production -> greedymotion-production (bwwquxhexwyodsavsjar)
-# Backend deploys are handled by Railway's own branch triggers (testing -> staging, production -> production).
+# `main` is for commits only and deploys nothing. Backend deploys are handled by Railway's own branch
+# triggers (staging -> Railway staging, production -> Railway production).
+# Needs SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD in the matching GitHub environment; until both
+# are set the job warns and skips instead of failing.
 name: supabase-migrate
 
 on:
   push:
-    branches: [testing, production]
+    branches: [staging, production]
     paths:
       - "supabase/**"
       - ".github/workflows/supabase-migrate.yml"
@@ -25,9 +28,19 @@ jobs:
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       PROJECT_REF: ${{ github.ref_name == 'production' && 'bwwquxhexwyodsavsjar' || 'ltaxhznuixoslbbcjkts' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: supabase/setup-cli@v1
+      - id: guard
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::warning::SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD are not set for the ${{ github.ref_name }} environment; skipping migrations."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.guard.outputs.skip != 'true'
+        uses: actions/checkout@v4
+      - if: steps.guard.outputs.skip != 'true'
+        uses: supabase/setup-cli@v1
         with:
           version: latest
-      - run: supabase link --project-ref "$PROJECT_REF"
-      - run: supabase db push
+      - if: steps.guard.outputs.skip != 'true'
+        run: supabase link --project-ref "$PROJECT_REF"
+      - if: steps.guard.outputs.skip != 'true'
+        run: supabase db push
