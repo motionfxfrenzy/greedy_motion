@@ -1,0 +1,33 @@
+# Applies supabase/migrations to the Supabase project that matches the branch.
+#   testing    -> greedymotion-staging    (ltaxhznuixoslbbcjkts)
+#   production -> greedymotion-production (bwwquxhexwyodsavsjar)
+# Backend deploys are handled by Railway's own branch triggers (testing -> staging, production -> production).
+name: supabase-migrate
+
+on:
+  push:
+    branches: [testing, production]
+    paths:
+      - "supabase/**"
+      - ".github/workflows/supabase-migrate.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-migrate-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'production' && 'production' || 'staging' }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_REF: ${{ github.ref_name == 'production' && 'bwwquxhexwyodsavsjar' || 'ltaxhznuixoslbbcjkts' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase link --project-ref "$PROJECT_REF"
+      - run: supabase db push

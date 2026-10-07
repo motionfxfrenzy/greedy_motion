@@ -6,6 +6,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { findTemplate, parseRenderRequest, type RenderJob } from "@videosaas/contracts";
 import { config } from "./config.ts";
+import { registerAuth } from "./auth.ts";
 import { renderService } from "./render/service.ts";
 import { renderJobRepository } from "./render/repository.ts";
 import { NotReady, prepareBeatPlanRender } from "./plan/readiness.ts";
@@ -17,13 +18,15 @@ import { AssetRejected, readStaged, stageFont, stageLogo } from "./brand/assets.
 import { extractBrand } from "./brand/extract.ts";
 import { registerPlanRoutes } from "./plan/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
+import { presignOutput } from "./storage.ts";
 import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, validateBrandInput } from "./brand/store.ts";
 import { addReviewComment, addScreenshot, applyReviewComments, createProject, getProject, listProjects, ProjectInvalid, removeReviewComment, removeScreenshot, screenshotFile, updateProject, updateProjectStudio } from "./projects/store.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
 
-await app.register(cors, { origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "X-File-Type", "X-File-Name", "X-Screenshot-Purpose"] });
+await app.register(cors, { origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "X-File-Type", "X-File-Name", "X-Screenshot-Purpose", "Authorization"] });
+registerAuth(app);
 // Raw uploads (logo and font files) arrive as bytes; the route validates the content itself.
 app.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLimit: 20_000_000 }, (_request, body, done) => done(null, body));
 
@@ -332,7 +335,13 @@ app.get<{ Params: { id: string } }>("/v1/renders/:id", async (request, reply) =>
   const { id } = request.params;
   if (!uuid.test(id)) return reply.code(404).send({ error: { code: "not_found", message: "Rendered video not found." } });
   // Each render attempt writes its own file; the job row records the attempt that won. Older jobs used <id>.mp4.
-  const stored = (await renderJobRepository.row(id))?.output?.file;
+  const row = await renderJobRepository.row(id);
+  const stored = row?.output?.file;
+  // Object storage: the worker committed an R2 key; hand the player a short-lived signed URL (R2 serves ranges).
+  const key = (row?.output as { key?: unknown } | undefined)?.key;
+  if (config.storageDriver === "r2" && typeof key === "string" && /^renders\/[a-f0-9-]{36}\/a\d+\.mp4$/i.test(key)) {
+    return reply.header("Cache-Control", "no-store").redirect(await presignOutput(key), 302);
+  }
   const file = join(config.renderOutputDir, stored && /^[a-f0-9-]{36}(-a\d+)?\.mp4$/i.test(stored) ? stored : `${id}.mp4`);
   const size = await stat(file).then((info) => info.size).catch(() => null);
   if (size === null) return reply.code(503).send({ error: { code: "video_unavailable", message: "The worker did not leave an output file." } });
