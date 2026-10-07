@@ -1,18 +1,18 @@
-// Filesystem brand-kit store (local adapter; R2 + Postgres later). Layout per kit, shared read-only with
-// the worker at /brands/<id>/:
-//   brand.json   BrandKit metadata
+// Brand-kit store. Metadata lives in Postgres (app.brand_kits); the files the renderer reads stay on disk,
+// shared read-only with the worker at /brands/<id>/:
 //   logo.png     normalized logo (optional)
 //   theme.css    18-token theme derived from the brand colors and fonts
 //   fonts.css    @font-face rules for downloaded or uploaded fonts, relative to brand-fonts/
 //   fonts/       font files
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   BRAND_NAME_MAX, FONT_FAMILY_PATTERN, bundledFonts, deriveBrandTheme, parseColor, themeToCss, uploadedFamily,
   type BrandFont, type BrandKit, type BrandKitInput
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
+import { query } from "../db/database.ts";
 import sharp from "sharp";
 import { readStaged } from "./assets.ts";
 import { downloadGoogleFont } from "./fonts.ts";
@@ -87,7 +87,7 @@ async function materializeFont(dir: string, font: BrandFont): Promise<string[]> 
   return [`@font-face { font-family: "${family}"; font-weight: 100 900; font-display: block; src: url("brand-fonts/${file}") format("${format}"); }`];
 }
 
-export async function createBrand(input: BrandKitInput): Promise<BrandKit> {
+export async function createBrand(input: BrandKitInput, ownerId: string): Promise<BrandKit> {
   const id = randomUUID();
   const dir = brandDir(id);
   await mkdir(dir, { recursive: true });
@@ -111,8 +111,8 @@ export async function createBrand(input: BrandKitInput): Promise<BrandKit> {
     await writeFile(join(dir, "fonts.css"), `${fontRules.join("\n")}\n`);
     await writeFile(join(dir, "theme.css"), themeToCss(theme));
     const { logoAssetId: _logo, ...rest } = input;
-    const kit: BrandKit = { ...rest, id, hasLogo, adjustments, createdAt: new Date().toISOString() };
-    await writeFile(join(dir, "brand.json"), `${JSON.stringify(kit, null, 2)}\n`);
+    const kit: BrandKit = { ...rest, id, ownerId, hasLogo, adjustments, createdAt: new Date().toISOString() };
+    await query("insert into app.brand_kits (id, owner_id, name, data, created_at) values ($1, $2, $3, $4, $5)", [id, ownerId, kit.name, kit, kit.createdAt]);
     return kit;
   } catch (error) {
     await rm(dir, { recursive: true, force: true });
@@ -122,13 +122,20 @@ export async function createBrand(input: BrandKitInput): Promise<BrandKit> {
 
 export async function getBrand(id: string): Promise<BrandKit | null> {
   if (!BRAND_ID.test(id)) return null;
-  return readFile(join(brandDir(id), "brand.json"), "utf8").then((text) => JSON.parse(text) as BrandKit, () => null);
+  const { rows } = await query<{ data: BrandKit }>("select data from app.brand_kits where id = $1", [id]);
+  return rows[0]?.data ?? null;
 }
 
-export async function listBrands(): Promise<BrandKit[]> {
-  const entries = await readdir(config.brandsDir, { withFileTypes: true }).catch(() => []);
-  const kits = await Promise.all(entries.filter((entry) => entry.isDirectory() && BRAND_ID.test(entry.name)).map((entry) => getBrand(entry.name)));
-  return kits.filter((kit): kit is BrandKit => kit !== null).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export const brandOwner = (kit: Pick<BrandKit, "ownerId">) => kit.ownerId ?? config.legacyOwnerId;
+
+export async function listBrands(ownerId?: string): Promise<BrandKit[]> {
+  const { rows } = ownerId === undefined
+    ? await query<{ data: BrandKit }>("select data from app.brand_kits order by created_at desc")
+    : await query<{ data: BrandKit }>(
+        "select data from app.brand_kits where owner_id = $1 or (owner_id is null and $1 = $2) order by created_at desc",
+        [ownerId, config.legacyOwnerId || null]
+      );
+  return rows.map((row) => row.data);
 }
 
 /** The logo as uploaded, for the app UI; the renderer uses logo.png, which may be inverted for the theme. */

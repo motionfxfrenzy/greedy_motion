@@ -58,6 +58,9 @@ const r2 = storageDriver === "r2"
     })()
   : null;
 
+// The single user when AUTH_MODE=none (local development). A uuid so it fits the owner_id columns.
+export const LOCAL_USER_ID = "00000000-0000-4000-8000-000000000000";
+
 // Authentication. "supabase" verifies Supabase access tokens on every /v1 call; "none" is local development only.
 const authMode = process.env.AUTH_MODE ?? "none";
 if (authMode !== "none" && authMode !== "supabase") throw new Error(`AUTH_MODE must be "none" or "supabase"; got "${authMode}".`);
@@ -73,8 +76,14 @@ const auth = authMode === "supabase"
     })()
   : { mode: "none" as const };
 
+// Projects and brand kits saved before ownership existed have no owner. In local development (no auth) they
+// stay visible to the local user; with auth on they are hidden from everyone unless LEGACY_OWNER_ID names the
+// Supabase user id that should adopt them.
+const legacyOwnerId = auth.mode === "none" ? LOCAL_USER_ID : (process.env.LEGACY_OWNER_ID ?? "");
+
 export const config = {
   auth,
+  legacyOwnerId,
   storageDriver: storageDriver as "filesystem" | "r2",
   r2,
   planner: planner as "anthropic" | "deterministic",

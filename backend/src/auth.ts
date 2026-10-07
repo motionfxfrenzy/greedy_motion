@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, errors, jwtVerify } from "jose";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { config } from "./config.ts";
+import { config, LOCAL_USER_ID } from "./config.ts";
 
 export type AuthUser = { id: string; email?: string };
 declare module "fastify" {
@@ -19,7 +19,7 @@ const openGets = [
   /^\/v1\/brands\/assets\/[^/]+\/preview$/
 ];
 
-const isOpen = (request: FastifyRequest) => {
+export const isOpen = (request: FastifyRequest) => {
   const path = request.url.split("?")[0];
   if (request.method === "OPTIONS" || !path.startsWith("/v1/")) return true;
   return request.method === "GET" && openGets.some((pattern) => pattern.test(path));
@@ -49,3 +49,6 @@ export function registerAuth(app: FastifyInstance) {
     }
   });
 }
+
+/** The signed-in user's id; the fixed local user when AUTH_MODE=none. Only call on routes the auth hook covers. */
+export const callerId = (request: FastifyRequest) => request.user?.id ?? LOCAL_USER_ID;

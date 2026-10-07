@@ -1,5 +1,6 @@
 // Postgres access for the backend: one shared pool plus a tiny forward-only migration runner.
 // pg-boss manages its own schema ("pgboss"); application tables live in schema "app".
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,5 +49,35 @@ export async function databaseReady() {
     return true;
   } catch {
     return false;
+  }
+}
+
+// ---------- Row-locked read-modify-write ----------
+
+const transaction = new AsyncLocalStorage<pg.PoolClient>();
+
+/** Runs a query on the current `withRowLock` transaction if there is one, otherwise on the pool. */
+export function query<R extends pg.QueryResultRow>(text: string, params?: unknown[]) {
+  return (transaction.getStore() ?? pool).query<R>(text, params);
+}
+
+/**
+ * Runs `operation` in a transaction that holds `select … for update` on one row, so concurrent writers to the
+ * same record (API requests, render consumers, other replicas) apply in turn and none loses another's fields.
+ * Queries made through `query()` inside `operation` join the transaction.
+ */
+export async function withRowLock<T>(table: "app.projects", id: string, operation: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    await client.query(`select 1 from ${table} where id = $1 for update`, [id]);
+    const result = await transaction.run(client, operation);
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
   }
 }
