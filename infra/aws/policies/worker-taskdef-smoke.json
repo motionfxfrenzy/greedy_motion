@@ -1,0 +1,50 @@
+{
+  "family": "@PROJECT@-@ENV@-worker",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "networkMode": "awsvpc",
+  "cpu": "2048",
+  "memory": "4096",
+  "runtimePlatform": {
+    "cpuArchitecture": "ARM64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::@ACCOUNT@:role/@PROJECT@-@ENV@-worker-exec",
+  "taskRoleArn": "arn:aws:iam::@ACCOUNT@:role/@PROJECT@-@ENV@-worker-task",
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "@ACCOUNT@.dkr.ecr.@REGION@.amazonaws.com/@PROJECT@-@ENV@-worker:@IMAGE_TAG@",
+      "essential": true,
+      "stopTimeout": 30,
+      "environment": [
+        {
+          "name": "APP_ENV",
+          "value": "@ENV@"
+        },
+        {
+          "name": "HYPERFRAMES_NO_TELEMETRY",
+          "value": "1"
+        },
+        {
+          "name": "HYPERFRAMES_NO_UPDATE_CHECK",
+          "value": "1"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/@PROJECT@-@ENV@-worker",
+          "awslogs-region": "@REGION@",
+          "awslogs-stream-prefix": "worker"
+        }
+      },
+      "command": [
+        "sh",
+        "-c",
+        "node src/self-test.mjs; code=$?; echo SELFTEST_EXIT=$code; sleep 900"
+      ]
+    }
+  ]
+}

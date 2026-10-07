@@ -39,7 +39,10 @@ export default function ComingSoonPage() {
             <span style={{ color: "#0A6CFF" }}>Motion</span>
           </span>
         </Link>
-        <Link href="/" style={{ color: "#535862", fontSize: "14px", fontWeight: 600, textDecoration: "none" }}>
+        <Link
+          href="/"
+          style={{ color: "#535862", fontSize: "14px", fontWeight: 600, textDecoration: "none" }}
+        >
           Back to home
         </Link>
       </header>
@@ -114,14 +117,20 @@ export default function ComingSoonPage() {
 
         <div
           aria-hidden="true"
-          style={{ padding: "14px", borderRadius: "30px", background: "#0c1320", boxShadow: "0 28px 70px rgba(28, 80, 142, .24)" }}
+          style={{
+            padding: "14px",
+            borderRadius: "30px",
+            background: "#0c1320",
+            boxShadow: "0 28px 70px rgba(28, 80, 142, .24)"
+          }}
         >
           <div
             style={{
               minHeight: "420px",
               padding: "30px",
               borderRadius: "20px",
-              background: "radial-gradient(circle at 75% 15%, rgba(21,125,255,.48), transparent 28%), linear-gradient(140deg, #102451, #1b376e)",
+              background:
+                "radial-gradient(circle at 75% 15%, rgba(21,125,255,.48), transparent 28%), linear-gradient(140deg, #102451, #1b376e)",
               color: "#fff"
             }}
           >

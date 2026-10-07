@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@hyperframes/player": "0.8.111",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.2",
     "@videosaas/contracts": "*",
     "next": "16.1.6",
     "react": "19.2.3",
