@@ -41,7 +41,26 @@ const positiveInt = (name: string, fallback: number) => {
   return value;
 };
 
+// Object storage. "filesystem" keeps everything on local disk shared with the worker (local dev). "r2" puts
+// the worker's inputs and outputs in Cloudflare R2 (S3 API) so backend and worker share no volume.
+const storageDriver = process.env.STORAGE_DRIVER ?? "filesystem";
+if (storageDriver !== "filesystem" && storageDriver !== "r2") throw new Error(`STORAGE_DRIVER must be "filesystem" or "r2"; got "${storageDriver}".`);
+const r2 = storageDriver === "r2"
+  ? (() => {
+      const need = (name: string) => process.env[name] || (() => { throw new Error(`${name} is required when STORAGE_DRIVER=r2.`); })();
+      return {
+        endpoint: need("R2_ENDPOINT"),
+        accessKeyId: need("R2_ACCESS_KEY_ID"),
+        secretAccessKey: need("R2_SECRET_ACCESS_KEY"),
+        uploadsBucket: need("R2_UPLOADS_BUCKET"),
+        outputsBucket: need("R2_OUTPUTS_BUCKET")
+      };
+    })()
+  : null;
+
 export const config = {
+  storageDriver: storageDriver as "filesystem" | "r2",
+  r2,
   planner: planner as "anthropic" | "deterministic",
   appEnv: env,
   // Railway injects PORT; locally the backend defaults to 4000.

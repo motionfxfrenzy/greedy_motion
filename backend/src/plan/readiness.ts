@@ -1,6 +1,8 @@
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { beatPlanProblems, type VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
+import { uploadDirectory } from "../storage.ts";
 import { audioStatus } from "./audio.ts";
 import { projectTiming } from "./preview.ts";
 import { buildPlanRenderProject } from "./render-project.ts";
@@ -68,5 +70,13 @@ export async function prepareBeatPlanRender(project: VideoProject, jobId: string
   if (!readiness.ok) throw new NotReady(readiness);
   const dir = join(config.renderOutputDir, jobId, "project");
   const built = await buildPlanRenderProject(project, dir);
-  return { dir, workerDir: `/renders/${jobId}/project`, durationSeconds: built.durationSeconds, canvas: project.beatPlan!.canvas, tracks: built.tracks.length };
+  // Object storage: the worker has no shared disk, so the finished folder goes to the uploads bucket and the
+  // job carries only its key prefix. The local copy is then redundant.
+  let projectPrefix: string | undefined;
+  if (config.storageDriver === "r2") {
+    projectPrefix = `jobs/${jobId}/project`;
+    await uploadDirectory(dir, projectPrefix);
+    await rm(join(config.renderOutputDir, jobId), { recursive: true, force: true });
+  }
+  return { dir, workerDir: `/renders/${jobId}/project`, projectPrefix, durationSeconds: built.durationSeconds, canvas: project.beatPlan!.canvas, tracks: built.tracks.length };
 }
