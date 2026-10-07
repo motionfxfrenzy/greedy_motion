@@ -6,6 +6,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { findTemplate, parseRenderRequest, type RenderJob } from "@videosaas/contracts";
 import { config } from "./config.ts";
+import { registerAuth } from "./auth.ts";
 import { renderService } from "./render/service.ts";
 import { renderJobRepository } from "./render/repository.ts";
 import { NotReady, prepareBeatPlanRender } from "./plan/readiness.ts";
@@ -24,7 +25,8 @@ import { addReviewComment, addScreenshot, applyReviewComments, createProject, ge
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
 
-await app.register(cors, { origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "X-File-Type", "X-File-Name", "X-Screenshot-Purpose"] });
+await app.register(cors, { origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "X-File-Type", "X-File-Name", "X-Screenshot-Purpose", "Authorization"] });
+registerAuth(app);
 // Raw uploads (logo and font files) arrive as bytes; the route validates the content itself.
 app.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLimit: 20_000_000 }, (_request, body, done) => done(null, body));
 

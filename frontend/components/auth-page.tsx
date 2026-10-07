@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "../utils/supabase/client";
 import { SceneFrame, type SceneItem } from "./scene-frame";
 
 const SCENES: SceneItem[] = [
@@ -19,9 +20,17 @@ export function AuthPage() {
   const [mode, setMode] = useState<"signin" | "signup">(initialMode);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
   const [sent, setSent] = useState(false);
   const [tried, setTried] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [authError, setAuthError] = useState(searchParams.get("error") ? "Sign-in failed. Please try again." : "");
   const [sceneIdx, setSceneIdx] = useState(0);
+  const router = useRouter();
+  // Only same-origin relative paths are honoured, so ?next= can't redirect off-site.
+  const requestedNext = searchParams.get("next") ?? "";
+  const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/studio";
+  const callbackUrl = () => `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -32,11 +41,48 @@ export function AuthPage() {
 
   const isValidEmail = /.+@.+\..+/.test(email);
   const emailError = tried && !isValidEmail;
+  const passwordError = tried && password.length < 8;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTried(true);
+    setAuthError("");
+    if (!isValidEmail || password.length < 8) return;
+    setBusy(true);
+    const supabase = createClient();
+    if (mode === "signup") {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: name }, emailRedirectTo: callbackUrl() }
+      });
+      setBusy(false);
+      if (error) return setAuthError(error.message);
+      // Supabase returns an obfuscated user with no identities when the email is already registered.
+      if (data.user && data.user.identities?.length === 0) return setAuthError("An account with this email already exists. Sign in instead.");
+      if (data.session) return router.replace(next);
+      setSent(true);
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      setBusy(false);
+      if (error) return setAuthError(error.message);
+      router.replace(next);
+      router.refresh();
+    }
+  };
+
+  const handleGoogle = async () => {
+    setAuthError("");
+    const { error } = await createClient().auth.signInWithOAuth({ provider: "google", options: { redirectTo: callbackUrl() } });
+    if (error) setAuthError(error.message);
+  };
+
+  const handleForgot = async () => {
+    setTried(true);
+    setAuthError("");
     if (!isValidEmail) return;
+    const { error } = await createClient().auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
+    if (error) return setAuthError(error.message);
     setSent(true);
   };
 
@@ -126,6 +172,7 @@ export function AuthPage() {
                   type="button"
                   onClick={() => {
                     setMode("signin");
+                    setAuthError("");
                     setSent(false);
                     setTried(false);
                   }}
@@ -171,7 +218,7 @@ export function AuthPage() {
                   {isSignup ? "Create your account" : "Welcome back"}
                 </h1>
                 <p style={{ margin: "10px 0 0", fontSize: "16px", color: "#535862" }}>
-                  {isSignup ? "Create your workspace and start making product videos." : "Enter your email to open your workspace."}
+                  {isSignup ? "Create your workspace and start making product videos." : "Sign in to open your workspace."}
                 </p>
               </div>
 
@@ -189,25 +236,8 @@ export function AuthPage() {
                 >
                   <strong style={{ fontSize: "18px", fontWeight: 600 }}>Check your inbox</strong>
                   <span style={{ fontSize: "15px", color: "#535862", lineHeight: 1.5 }}>
-                    We sent a sign-in link to <strong>{email}</strong>. It expires in 15 minutes.
+                    We sent a link to <strong>{email}</strong>. {isSignup ? "Open it to confirm your email and finish creating your account." : "Open it to choose a new password."}
                   </span>
-                  <Link
-                    href="/studio"
-                    style={{
-                      alignSelf: "flex-start",
-                      marginTop: "6px",
-                      padding: "11px 22px",
-                      borderRadius: "9999px",
-                      background: "#181d27",
-                      color: "#fff",
-                      fontSize: "15px",
-                      fontWeight: 500,
-                      textDecoration: "none",
-                      boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
-                    }}
-                  >
-                    Open the app (demo)
-                  </Link>
                   <button
                     type="button"
                     onClick={() => {
@@ -231,8 +261,9 @@ export function AuthPage() {
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <Link
-                      href="/studio"
+                    <button
+                      type="button"
+                      onClick={() => void handleGoogle()}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -245,7 +276,7 @@ export function AuthPage() {
                         fontSize: "15px",
                         fontWeight: 500,
                         border: "1px solid #E1EAF4",
-                        textDecoration: "none"
+                        cursor: "pointer"
                       }}
                     >
                       <span
@@ -264,41 +295,7 @@ export function AuthPage() {
                         G
                       </span>
                       Continue with Google
-                    </Link>
-                    <Link
-                      href="/studio"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "10px",
-                        padding: "13px",
-                        borderRadius: "9999px",
-                        background: "#fafdff",
-                        color: "#0a0d12",
-                        fontSize: "15px",
-                        fontWeight: 500,
-                        border: "1px solid #E1EAF4",
-                        textDecoration: "none"
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: "grid",
-                          placeItems: "center",
-                          width: "20px",
-                          height: "20px",
-                          borderRadius: "5px",
-                          background: "#ebf5ff",
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          color: "#0A6CFF"
-                        }}
-                      >
-                        ⌘
-                      </span>
-                      Continue with SSO
-                    </Link>
+                    </button>
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", gap: "12px", fontSize: "13px", color: "#93979f" }}>
@@ -307,7 +304,7 @@ export function AuthPage() {
                     <span style={{ flex: 1, height: "1px", background: "#D6E4F2" }} />
                   </div>
 
-                  <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <form onSubmit={(e) => void handleSubmit(e)} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                     {isSignup && (
                       <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                         <span style={{ fontSize: "14px", fontWeight: 500 }}>Full name</span>
@@ -353,8 +350,46 @@ export function AuthPage() {
                       </span>
                     )}
 
+                    <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <span style={{ fontSize: "14px", fontWeight: 500 }}>Password</span>
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder={isSignup ? "At least 8 characters" : "Your password"}
+                        autoComplete={isSignup ? "new-password" : "current-password"}
+                        style={{
+                          padding: "13px 16px",
+                          border: passwordError ? "1px solid #C2410C" : "1px solid #D6E4F2",
+                          borderRadius: "16px",
+                          background: "#fafdff",
+                          fontSize: "15px",
+                          outline: "none"
+                        }}
+                      />
+                    </label>
+
+                    {passwordError && (
+                      <span style={{ fontSize: "13px", color: "#C2410C" }}>Use at least 8 characters.</span>
+                    )}
+
+                    {authError && (
+                      <span role="alert" style={{ fontSize: "13px", color: "#C2410C" }}>{authError}</span>
+                    )}
+
+                    {!isSignup && (
+                      <button
+                        type="button"
+                        onClick={() => void handleForgot()}
+                        style={{ alignSelf: "flex-start", border: 0, background: "transparent", padding: 0, color: "#535862", fontSize: "13px", cursor: "pointer", textDecoration: "underline" }}
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+
                     <button
                       type="submit"
+                      disabled={busy}
                       style={{
                         marginTop: "4px",
                         padding: "14px",
@@ -368,7 +403,7 @@ export function AuthPage() {
                         boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
                       }}
                     >
-                      {isSignup ? "Create account" : "Send magic link"}
+                      {busy ? "Please wait…" : isSignup ? "Create account" : "Sign in"}
                     </button>
 
                     <span style={{ fontSize: "13px", color: "#93979f", lineHeight: 1.5, textAlign: "center" }}>

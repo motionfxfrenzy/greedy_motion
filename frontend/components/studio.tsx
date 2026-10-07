@@ -5,6 +5,7 @@ import { aspectToFormat, bundledFonts, defaultTemplateId, deriveBrandTheme, find
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, type FrameLook } from "./beat-storyboard";
+import { createClient } from "../utils/supabase/client";
 import { addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
 
 type View = "projects" | "templates" | "brand-kits" | "library" | "create" | "studio";
@@ -311,7 +312,7 @@ export function Studio() {
 }
 
 function AppHeader({ view, setView }: { view: View; setView: (view: View) => void }) {
-  return <header className="relay-topbar"><button className="gm-brand" onClick={() => setView("projects")}><img src="/brand/gm-mark.svg" alt="" /><span><b>Greedy</b> <em>Motion</em></span></button><nav>{(["projects", "templates", "brand-kits", "library"] as const).map((item) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => setView(item)}>{item === "brand-kits" ? "Brand kits" : item[0].toUpperCase() + item.slice(1)}</button>)}</nav></header>;
+  return <header className="relay-topbar"><button className="gm-brand" onClick={() => setView("projects")}><img src="/brand/gm-mark.svg" alt="" /><span><b>Greedy</b> <em>Motion</em></span></button><nav>{(["projects", "templates", "brand-kits", "library"] as const).map((item) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => setView(item)}>{item === "brand-kits" ? "Brand kits" : item[0].toUpperCase() + item.slice(1)}</button>)}</nav><button onClick={async () => { await createClient().auth.signOut(); window.location.href = "/auth"; }}>Sign out</button></header>;
 }
 
 function CreationHeader({ name, state, step, reachable, back, go, openStudio }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void }) {

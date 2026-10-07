@@ -1,7 +1,18 @@
+import { createClient } from "../utils/supabase/client";
 import type { BrandExtraction, BrandKit, BrandKitInput, ScriptBrief, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
 
 // Public by design: the backend origin, e.g. https://api.<domain>. The frontend holds no secrets.
 const apiOrigin = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
+
+// Every backend call carries the signed-in user's Supabase access token; a 401 sends them back to sign in.
+async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const { data } = await createClient().auth.getSession();
+  const headers = new Headers(init.headers);
+  if (data.session) headers.set("Authorization", `Bearer ${data.session.access_token}`);
+  const response = await fetch(input, { ...init, headers });
+  if (response.status === 401 && typeof window !== "undefined") window.location.href = "/auth?next=" + encodeURIComponent(window.location.pathname);
+  return response;
+}
 
 type ApiError = { error?: { message?: string } };
 
@@ -12,7 +23,7 @@ async function parse<T>(response: Response, fallback: string): Promise<T> {
 }
 
 export async function createRenderJob(request: RenderRequest) {
-  const response = await fetch(`${apiOrigin}/v1/render-jobs`, {
+  const response = await apiFetch(`${apiOrigin}/v1/render-jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request)
@@ -23,7 +34,7 @@ export async function createRenderJob(request: RenderRequest) {
 }
 
 export async function getRenderJob(id: string) {
-  const response = await fetch(`${apiOrigin}/v1/render-jobs/${id}`, { cache: "no-store" });
+  const response = await apiFetch(`${apiOrigin}/v1/render-jobs/${id}`, { cache: "no-store" });
   return parse<RenderJob>(response, "Could not load the render job.");
 }
 
@@ -35,17 +46,17 @@ export function outputUrl(path: string) {
 // ---------- Persisted projects ----------
 
 export async function listProjects() {
-  const response = await fetch(apiOrigin + "/v1/projects", { cache: "no-store" });
+  const response = await apiFetch(apiOrigin + "/v1/projects", { cache: "no-store" });
   return (await parse<{ projects: VideoProject[] }>(response, "Could not load projects.")).projects;
 }
 
 export async function createProject(input: { name?: string; request: RenderRequest }) {
-  const response = await fetch(apiOrigin + "/v1/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const response = await apiFetch(apiOrigin + "/v1/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return parse<VideoProject>(response, "Could not create the project.");
 }
 
 export async function updateProject(id: string, input: Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "approvedAt">>) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return parse<VideoProject>(response, "Could not save the project.");
 }
 
@@ -56,7 +67,7 @@ export async function updateProject(id: string, input: Partial<Pick<VideoProject
 export type SaveProjectStudioInput = Pick<ProjectStudioDraft, "values" | "assets">;
 
 export async function saveProjectStudio(id: string, input: SaveProjectStudioInput) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + encodeURIComponent(id) + "/studio", {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(id) + "/studio", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input)
@@ -65,42 +76,42 @@ export async function saveProjectStudio(id: string, input: SaveProjectStudioInpu
 }
 
 export async function generateProjectScript(id: string) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + id + "/script", { method: "POST" });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + id + "/script", { method: "POST" });
   return parse<VideoProject>(response, "Could not generate the script.");
 }
 
 export async function renderProject(id: string) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + id + "/render", { method: "POST" });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + id + "/render", { method: "POST" });
   return parse<RenderJob>(response, "Could not start the render.");
 }
 
 export async function approveProject(id: string) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + id + "/approve", { method: "PUT" });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + id + "/approve", { method: "PUT" });
   return parse<VideoProject>(response, "Could not approve the project.");
 }
 
 export async function addProjectReviewComment(projectId: string, input: { body: string; timestampSeconds: number }) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + projectId + "/comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + projectId + "/comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return parse<VideoProject>(response, "Could not save the review comment.");
 }
 
 export async function removeProjectReviewComment(projectId: string, commentId: string) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + projectId + "/comments/" + commentId, { method: "DELETE" });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + projectId + "/comments/" + commentId, { method: "DELETE" });
   return parse<VideoProject>(response, "Could not remove the review comment.");
 }
 
 export async function applyProjectReviewComments(projectId: string) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + projectId + "/comments/apply", { method: "POST" });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + projectId + "/comments/apply", { method: "POST" });
   return parse<{ project: VideoProject; job: RenderJob }>(response, "Could not apply the review comments.");
 }
 
 export async function uploadProjectScreenshot(projectId: string, file: File, purpose: "Dashboard" | "Setup" | "Report" | "Mobile" = "Dashboard") {
-  const response = await fetch(apiOrigin + "/v1/projects/" + projectId + "/screenshots", { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-File-Type": file.type, "X-File-Name": file.name, "X-Screenshot-Purpose": purpose }, body: file });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + projectId + "/screenshots", { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-File-Type": file.type, "X-File-Name": file.name, "X-Screenshot-Purpose": purpose }, body: file });
   return parse<VideoProject>(response, "Could not upload the screenshot.");
 }
 
 export async function removeProjectScreenshot(projectId: string, screenshotId: string) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + projectId + "/screenshots/" + screenshotId, { method: "DELETE" });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + projectId + "/screenshots/" + screenshotId, { method: "DELETE" });
   return parse<VideoProject>(response, "Could not remove the screenshot.");
 }
 
@@ -155,20 +166,20 @@ export type PlanAudioResult = { project: VideoProject; audio: PlanAudioStatus; d
 
 /** Voices each line (cached by text) and makes the music bed. 5–8 s for voice, ~30 s with new music. */
 export async function generatePlanAudio(projectId: string, parts?: ("voice" | "music")[]) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan/audio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(parts ? { parts } : {}) });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan/audio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(parts ? { parts } : {}) });
   return parse<PlanAudioResult>(response, "Could not make the voice and music.");
 }
 
 /** Runs the script director (30–60 s): saves the brief, beat plan, and a matching script on the project. */
 export async function planProject(projectId: string, brief: ScriptBrief) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(brief) }).catch(() => {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(brief) }).catch(() => {
     throw new Error("The backend is not reachable. Start it with npm run dev:backend.");
   });
   return parse<PlanResult>(response, "Could not write the script.");
 }
 
 export async function editPlan(projectId: string, patch: PlanPatch) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
   if (response.status === 422) {
     const payload = (await response.json().catch(() => ({}))) as { problems?: string[]; error?: { message?: string } };
     throw new PlanProblems(payload.problems?.length ? payload.problems : [payload.error?.message ?? "That change breaks a storyboard rule."]);
@@ -178,7 +189,7 @@ export async function editPlan(projectId: string, patch: PlanPatch) {
 
 export async function getComposition(projectId: string, beatId?: string) {
   const query = beatId ? "?beat=" + encodeURIComponent(beatId) : "";
-  const response = await fetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/composition" + query, { cache: "no-store" });
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/composition" + query, { cache: "no-store" });
   return parse<Composition>(response, "Could not load the composition.");
 }
 
@@ -197,7 +208,7 @@ export type SiteResult = {
 
 /** Reads the product's site (20–30 s): facts for the script, a brand to review, and section screenshots. */
 export async function readProductSite(projectId: string, url: string) {
-  const response = await fetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/site", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) }).catch(() => {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/site", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) }).catch(() => {
     throw new Error("The backend is not reachable. Start it with npm run dev:backend.");
   });
   return parse<SiteResult>(response, "Could not read that website.");
@@ -208,22 +219,22 @@ export async function readProductSite(projectId: string, url: string) {
 export type StagedAsset = { assetId: string; kind: "logo" | "font"; format: string; width?: number; height?: number; tone?: "dark" | "light" | "color" };
 
 export async function extractBrandFromUrl(url: string) {
-  const response = await fetch(`${apiOrigin}/v1/brands/extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+  const response = await apiFetch(`${apiOrigin}/v1/brands/extract`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
   return parse<BrandExtraction>(response, "Could not read that website.");
 }
 
 export async function uploadBrandAsset(kind: "logo" | "font", file: File) {
-  const response = await fetch(`${apiOrigin}/v1/brands/assets/${kind}`, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: file });
+  const response = await apiFetch(`${apiOrigin}/v1/brands/assets/${kind}`, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: file });
   return parse<StagedAsset>(response, `Could not upload that ${kind}.`);
 }
 
 export async function saveBrandKit(input: BrandKitInput) {
-  const response = await fetch(`${apiOrigin}/v1/brands`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const response = await apiFetch(`${apiOrigin}/v1/brands`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return parse<BrandKit>(response, "Could not save the brand kit.");
 }
 
 export async function listBrandKits() {
-  const response = await fetch(`${apiOrigin}/v1/brands`, { cache: "no-store" });
+  const response = await apiFetch(`${apiOrigin}/v1/brands`, { cache: "no-store" });
   return (await parse<{ brands: BrandKit[] }>(response, "Could not load brand kits.")).brands;
 }
 

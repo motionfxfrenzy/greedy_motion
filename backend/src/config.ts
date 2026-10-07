@@ -58,7 +58,23 @@ const r2 = storageDriver === "r2"
     })()
   : null;
 
+// Authentication. "supabase" verifies Supabase access tokens on every /v1 call; "none" is local development only.
+const authMode = process.env.AUTH_MODE ?? "none";
+if (authMode !== "none" && authMode !== "supabase") throw new Error(`AUTH_MODE must be "none" or "supabase"; got "${authMode}".`);
+if (env !== "local" && authMode !== "supabase") throw new Error(`AUTH_MODE=supabase is required when APP_ENV=${env}.`);
+const auth = authMode === "supabase"
+  ? (() => {
+      const supabaseUrl = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
+      if (!supabaseUrl) throw new Error("SUPABASE_URL is required when AUTH_MODE=supabase.");
+      const ref = process.env.EXPECTED_SUPABASE_PROJECT_REF;
+      // Guards against staging pointing at the production project (or the reverse).
+      if (ref && new URL(supabaseUrl).hostname !== `${ref}.supabase.co`) throw new Error(`SUPABASE_URL does not match EXPECTED_SUPABASE_PROJECT_REF (${ref}).`);
+      return { mode: "supabase" as const, supabaseUrl, jwksUrl: process.env.SUPABASE_JWKS_URL || `${supabaseUrl}/auth/v1/.well-known/jwks.json` };
+    })()
+  : { mode: "none" as const };
+
 export const config = {
+  auth,
   storageDriver: storageDriver as "filesystem" | "r2",
   r2,
   planner: planner as "anthropic" | "deterministic",
