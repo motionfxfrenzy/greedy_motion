@@ -52,12 +52,36 @@
         {
           "name": "HYPERFRAMES_NO_UPDATE_CHECK",
           "value": "1"
+        },
+        {
+          "name": "STORAGE_DRIVER",
+          "value": "r2"
+        },
+        {
+          "name": "R2_ENDPOINT",
+          "value": "@R2_ENDPOINT@"
+        },
+        {
+          "name": "R2_UPLOADS_BUCKET",
+          "value": "@PROJECT@-@ENV@-uploads"
+        },
+        {
+          "name": "R2_OUTPUTS_BUCKET",
+          "value": "@PROJECT@-@ENV@-outputs"
         }
       ],
       "secrets": [
         {
           "name": "DATABASE_URL",
           "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/database-url"
+        },
+        {
+          "name": "R2_ACCESS_KEY_ID",
+          "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/r2-access-key-id"
+        },
+        {
+          "name": "R2_SECRET_ACCESS_KEY",
+          "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/r2-secret-access-key"
         }
       ],
       "healthCheck": {
