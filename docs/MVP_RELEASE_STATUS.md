@@ -1,30 +1,44 @@
 # MVP production release — October 8, 2026
 
-Status: rollout paused pending production-scoped AWS access. Public MVP navigation has not been enabled and no new production Git push has been made.
+Status: live at https://www.greedymotion.com. Staging was merged into production and the public MVP entry points are enabled.
 
-## Verified and configured
+## Release and deployments
 
-- Remote staging `587d185` is already contained in production `6523818`; their frontend trees match. Both currently use coming-soon navigation. A merge alone will not enable the MVP.
-- Production Railway project `lively-presence` (`5298f20e-3531-44a5-a32e-7b99b0cb5b09`), environment `production`, backend service `df6c5746-6c6e-4275-897d-75bb0cd6370b`.
-- Added HTTPS API domain: `https://backend-production-1e413.up.railway.app`.
-- HTTP checks: `/healthz` 200, `/readyz` 200 with database ready, unauthenticated `/v1/projects` 401, browser CORS preflight 204 for `https://www.greedymotion.com`.
-- Set production Vercel project's Production-scoped `NEXT_PUBLIC_API_URL` to that API domain as Config. The pre-existing Preview value remains unchanged. A new frontend build is required for the new Production value to take effect.
-- Supabase production `bwwquxhexwyodsavsjar` is ACTIVE_HEALTHY. App projects, brand kits and render jobs have RLS enabled. This is a schema check, not a complete tenant-isolation test.
-- Corrected Supabase production Site URL from localhost to `https://www.greedymotion.com`; added explicit callback URLs for www/apex origins, Studio and password reset. Read-back showed no remaining differences for those settings. SMTP, Google provider, MFA, password and other remote settings were preserved.
-- Requested Railway production deployment healthcheck `/readyz` to gate traffic on database readiness.
-- Existing AWS staging worker is running, desired count 1, task definition `greedymotion-staging-worker:2`, region `ap-southeast-1`.
+- Release change: `d141278` (sign-in, signup and Studio navigation; protect `/app` and `/studio`; MVP availability and AWS processing disclosures).
+- Main integration: `d4fa781`. Concurrent creative-library and CI work on main was preserved; it was not included in this staging promotion.
+- Tested staging: `6bdfad6`; production merge: `c71ef789fd5278d484f8454254f44d7b5f92c211`.
+- Vercel production: `dpl_F8HMM1RAxxsASdnqAAo7K6z2jGer`, Ready, with www and apex production domains assigned.
+- Railway production backend: `a0513050-c7c3-4c23-b504-1a458974e23a`, SUCCESS, running production commit `c71ef78`.
+- API: https://backend-production-1e413.up.railway.app.
+- AWS region: `ap-southeast-1`; cluster `greedymotion-production`; service `worker`; task definition `greedymotion-production-worker:1`. One RUNNING, HEALTHY task; deployment COMPLETED.
+- Worker image: `369904858685.dkr.ecr.ap-southeast-1.amazonaws.com/greedymotion-production-worker:587d185`, digest `sha256:9a032f013f1274fd3c445fe7ef09539b7e053fa21d8c44a9e4567f0d57c93126`. Built from committed staging; worker code is unchanged in the promoted release.
 
-## Blocker and remaining acceptance checks
+## Infrastructure completed
 
-The credentials in `infra/aws/.env` identify `greedymotion-staging-worker-deployer`. AWS denied `ecs:DescribeServices` on `greedymotion-production/worker`. Do not widen this staging identity or point production at staging's database/worker. Obtain an explicitly authorized production-scoped AWS profile or credential source. Do not put secrets in this document or Git.
+- Created production ECR repository, ECS cluster/service, worker task/execution roles, CloudWatch log group (30-day retention), security group with no inbound rules, and production database/R2 Secrets Manager entries.
+- Enabled ECS deployment circuit breaker with rollback.
+- Fixed production Railway `/data` ownership to `node:node` (1000:1000). Before this fix, screenshot uploads failed with EACCES; afterward, upload and render passed.
+- Verified production backend variables, production frontend API/Supabase bundle values, and production Supabase callback configuration. Credentials remain outside Git.
+- Railway API read-back reports `/readyz` with a 120-second timeout. Deployment metadata still reports a null healthcheck path, so platform gating is not claimed as verified. Live `/readyz` and `/healthz` checks both pass.
 
-Before promoting the MVP:
+## Verification completed
 
-1. Verify or deploy production ECS worker with production database and storage credentials; verify healthy task and completed test render.
-2. Test real staging sign-in, project creation, planning, upload, render and download; then equivalent production smoke checks with an authorized test account. Do not claim auth email delivery or Google consent-screen readiness without testing them.
-3. Verify model availability, R2 read/write, tenant isolation and error handling. Check the worker's committed code matches backend render inputs.
-4. Restore sign-in/create-account/Studio navigation and update coming-soon policy wording accurately; keep unimplemented checkout/pricing disabled.
-5. Protect `/app` as well as `/studio`; check both signed-out paths.
-6. Commit only release-owned changes, promote main → staging, test the deployed staging commit, merge → production, rebuild and verify production assets reference its own API/Supabase project.
+- Locked dependency install, TypeScript checks across workspaces, optimized Next.js production build, and diff whitespace checks.
+- Public landing/auth/policy pages return 200; public MVP navigation appears on the deployed site.
+- Signed-out `/app` and `/studio` redirect to authentication; both return 200 with a valid production session cookie.
+- Deployed auth and Studio bundles reference production Supabase and API, without staging endpoints.
+- API readiness/liveness return 200, unauthenticated project requests return 401, and production browser CORS preflight returns 204 with the correct origin.
+- In both staging and production: temporary users signed in with passwords, created projects, uploaded screenshots, generated real AI plans, queued renders, and downloaded completed MP4s. Cross-user project reads, writes, listing and render requests were checked for isolation.
+- Staging render `98a82cf8-6377-4681-8466-287ec00b8907`: 7,087,076 bytes. Production render `303bd83a-130c-4354-ae37-28f0033b9bad`: 7,183,362 bytes. ffprobe verified both as 1920×1080 H.264, 15.033 seconds.
+- Removed all six temporary release test accounts and their project/render database records. Render samples remain in the private local release artifact directory; remote smoke media may remain for normal retention.
 
-The main working tree contains unrelated active backend, editor, contract and template changes. They have not been committed or deployed by this release task.
+## Practical limits
+
+- Render smoke tests used audio mode `none`; voice/music generation was not exercised.
+- Test accounts were administratively confirmed; signup email delivery, password-reset delivery and Google consent/login were not exercised.
+- Checkout remains disabled. The backend remains at one replica because non-output media uses its persistent volume.
+- These checks verify the exercised flows at release time; they are not a load test or an uptime guarantee.
+
+## Rollback references
+
+Previous production Git commit: `65238189be586d222e075299a2ceb147e5639bef`. Previous Railway deployment: `08272df8-8859-4e17-a511-29eee2973f15`. Roll back frontend/backend deployments if required; do not reverse database migrations. No schema migrations were added by this release.
