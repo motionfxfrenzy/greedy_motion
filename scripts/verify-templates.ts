@@ -9,7 +9,9 @@ const root = join(import.meta.dirname, "..", "worker", "templates");
 type Declared = { id: string; type: string; default: unknown; maxLength?: number; min?: number; max?: number };
 const problems: string[] = [];
 
-const folders = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+// `beat-plan` is the storyboard engine (one composition driven by the beat plan), not a gallery template.
+const ENGINES = new Set(["beat-plan"]);
+const folders = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory() && !ENGINES.has(entry.name)).map((entry) => entry.name);
 for (const folder of folders) if (!templates.some((template) => template.id === folder)) problems.push(`${folder}: folder has no catalog entry`);
 
 for (const template of templates) {
