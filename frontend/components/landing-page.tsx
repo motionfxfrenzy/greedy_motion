@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { SceneFrame, type SceneItem } from "./scene-frame";
 
@@ -67,10 +67,6 @@ const FAQS = [
   {
     q: "What formats can I export?",
     a: "MP4 in 16:9 and 9:16 today. Square 1:1 is coming soon."
-  },
-  {
-    q: "Is there a free trial?",
-    a: "Yes. Try it free for 14 days, no credit card required."
   }
 ];
 
@@ -113,6 +109,24 @@ export function LandingPage() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
   const [proposalState, setProposalState] = useState<"pending" | "accepted" | "rejected">("pending");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!headerRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
 
   // Timer loop for auto-playing scenes and word rotation
   useEffect(() => {
@@ -177,6 +191,33 @@ export function LandingPage() {
         .gm-btn-light:hover {
           background: #eef5fc !important;
           transform: translateY(-1px);
+        }
+        .gm-landing-nav, .gm-landing-actions { display: flex; }
+        .gm-landing-menu-toggle, .gm-landing-mobile-menu { display: none; }
+        @media (max-width: 1050px) {
+          .gm-landing-nav, .gm-landing-actions { display: none !important; }
+          .gm-landing-header-inner { position: relative; justify-content: space-between; min-width: 0; }
+          .gm-landing-menu-toggle {
+            display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center;
+            gap: 4px; width: 40px; height: 40px; padding: 0; border: 1px solid #d8e6f4;
+            border-radius: 50%; background: #fff; color: #0a0d12; cursor: pointer;
+          }
+          .gm-landing-menu-toggle span { width: 16px; height: 2px; border-radius: 2px; background: currentColor; }
+          .gm-landing-menu-toggle:focus-visible, .gm-landing-mobile-menu a:focus-visible {
+            outline: 3px solid #168bff; outline-offset: 3px;
+          }
+          .gm-landing-mobile-menu {
+            position: absolute; top: calc(100% + 10px); right: 0; left: 0;
+            display: grid; gap: 2px; padding: 12px; border: 1px solid #dbe8f5;
+            border-radius: 22px; background: rgba(250,253,255,.98);
+            box-shadow: 0 18px 32px rgba(4,69,144,.16);
+          }
+          .gm-landing-mobile-menu a {
+            padding: 12px 14px; border-radius: 12px; color: #0a0d12;
+            font-size: 15px; font-weight: 600; text-decoration: none;
+          }
+          .gm-landing-mobile-menu a:hover { background: #ebf5ff; }
+          .gm-landing-mobile-menu a:last-child { margin-top: 4px; background: #181d27; color: #fff; text-align: center; }
         }
       `}</style>
 
@@ -248,6 +289,7 @@ export function LandingPage() {
       <div style={{ position: "relative", zIndex: 1 }}>
         {/* Sticky Header Navigation */}
         <header
+          ref={headerRef}
           style={{
             position: "sticky",
             top: 0,
@@ -258,6 +300,7 @@ export function LandingPage() {
           }}
         >
           <div
+            className="gm-landing-header-inner"
             style={{
               width: "100%",
               maxWidth: "1200px",
@@ -303,8 +346,8 @@ export function LandingPage() {
             </Link>
 
             <nav
+              className="gm-landing-nav"
               style={{
-                display: "flex",
                 gap: "22px",
                 marginLeft: "12px"
               }}
@@ -339,21 +382,6 @@ export function LandingPage() {
               >
                 Features
               </a>
-              <a
-                href="#pricing"
-                style={{
-                  color: "#535862",
-                  fontSize: "15px",
-                  fontWeight: 500,
-                  whiteSpace: "nowrap",
-                  textDecoration: "none",
-                  transition: "color 180ms ease"
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#0a0d12")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#535862")}
-              >
-                Pricing
-              </a>
               <Link
                 href="/coming-soon"
                 style={{
@@ -368,7 +396,7 @@ export function LandingPage() {
               </Link>
             </nav>
 
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
+            <div className="gm-landing-actions" style={{ marginLeft: "auto", alignItems: "center", gap: "10px" }}>
               <Link
                 href="/coming-soon"
                 style={{
@@ -400,6 +428,25 @@ export function LandingPage() {
                 View coming soon
               </Link>
             </div>
+            <button
+              type="button"
+              className="gm-landing-menu-toggle"
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+              aria-controls="gm-landing-mobile-menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+            {menuOpen && (
+              <nav id="gm-landing-mobile-menu" className="gm-landing-mobile-menu" aria-label="Mobile navigation">
+                <a href="#how" onClick={() => setMenuOpen(false)}>How it works</a>
+                <a href="#features" onClick={() => setMenuOpen(false)}>Features</a>
+                <Link href="/coming-soon" onClick={() => setMenuOpen(false)}>Coming soon</Link>
+              </nav>
+            )}
           </div>
         </header>
 
@@ -530,9 +577,6 @@ export function LandingPage() {
             </a>
           </div>
 
-          <span style={{ fontSize: "13px", color: "#93979f" }}>
-            Free for 14 days · No credit card
-          </span>
 
           {/* Interactive Hero Video Preview Showcase */}
           <div style={{ position: "relative", width: "100%", maxWidth: "880px", marginTop: "44px" }}>
@@ -1145,188 +1189,6 @@ export function LandingPage() {
           </div>
         </section>
 
-        {/* Pricing Section */}
-        <section
-          id="pricing"
-          style={{
-            maxWidth: "1200px",
-            margin: "0 auto",
-            padding: "120px 24px 48px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "36px"
-          }}
-        >
-          <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: "8px" }}>
-            <h2
-              style={{
-                margin: 0,
-                fontWeight: 600,
-                fontSize: "clamp(28px, 3.4vw, 44px)",
-                lineHeight: 1.15,
-                letterSpacing: "-0.03em"
-              }}
-            >
-              Simple pricing
-            </h2>
-            <p style={{ margin: 0, color: "#535862", fontSize: "16px" }}>
-              Start free for 14 days. Scale as your team produces more.
-            </p>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-              gap: "20px",
-              width: "100%",
-              maxWidth: "860px"
-            }}
-          >
-            {/* Creator Plan */}
-            <div
-              className="gm-hover-card"
-              style={{
-                padding: "36px",
-                borderRadius: "28px",
-                background: "#fafdff",
-                border: "1px solid #E1EAF4",
-                display: "flex",
-                flexDirection: "column",
-                gap: "18px"
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <strong style={{ fontSize: "20px", fontWeight: 600 }}>Creator</strong>
-              </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                <span style={{ fontSize: "44px", fontWeight: 700, letterSpacing: "-.03em" }}>$29</span>
-                <span style={{ color: "#535862" }}>per month</span>
-              </div>
-              <ul
-                style={{
-                  listStyle: "none",
-                  margin: 0,
-                  padding: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "12px",
-                  fontSize: "15px",
-                  color: "#535862"
-                }}
-              >
-                {[
-                  "40 render minutes",
-                  "1 brand kit",
-                  "Guided editor",
-                  "1080p MP4 export"
-                ].map((item, i) => (
-                  <li key={i} style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                    <span style={{ color: "#0A6CFF", fontWeight: 700 }}>✓</span>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/coming-soon"
-                className="gm-btn-light"
-                style={{
-                  marginTop: "auto",
-                  textAlign: "center",
-                  padding: "13px",
-                  borderRadius: "9999px",
-                  background: "#fff",
-                  color: "#0a0d12",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  textDecoration: "none",
-                  border: "1px solid #E1EAF4"
-                }}
-              >
-                Coming soon
-              </Link>
-            </div>
-
-            {/* Team Plan */}
-            <div
-              className="gm-hover-card"
-              style={{
-                padding: "36px",
-                borderRadius: "28px",
-                background: "linear-gradient(180deg,#E5F6FF,#C2E9FF)",
-                border: "1px solid rgba(22,139,255,.3)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "18px",
-                position: "relative"
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <strong style={{ fontSize: "20px", fontWeight: 600 }}>Team</strong>
-                <span
-                  style={{
-                    padding: "3px 10px",
-                    borderRadius: "9999px",
-                    background: "#D3F6E3",
-                    color: "#0a5c35",
-                    fontSize: "12px",
-                    fontWeight: 600
-                  }}
-                >
-                  Most teams
-                </span>
-              </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                <span style={{ fontSize: "44px", fontWeight: 700, letterSpacing: "-.03em" }}>$99</span>
-                <span style={{ color: "#535862" }}>per month</span>
-              </div>
-              <ul
-                style={{
-                  listStyle: "none",
-                  margin: 0,
-                  padding: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "12px",
-                  fontSize: "15px",
-                  color: "#535862"
-                }}
-              >
-                {[
-                  "200 render minutes",
-                  "Unlimited brand kits",
-                  "Studio + scoped AI comments",
-                  "Publish team templates"
-                ].map((item, i) => (
-                  <li key={i} style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                    <span style={{ color: "#0A6CFF", fontWeight: 700 }}>✓</span>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/coming-soon"
-                className="gm-btn-primary"
-                style={{
-                  marginTop: "auto",
-                  textAlign: "center",
-                  padding: "13px",
-                  borderRadius: "9999px",
-                  background: "#181d27",
-                  color: "#fff",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  textDecoration: "none",
-                  boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
-                }}
-              >
-                Coming soon
-              </Link>
-            </div>
-          </div>
-        </section>
-
         {/* Quotes Marquee Section */}
         <section
           style={{
@@ -1575,9 +1437,6 @@ export function LandingPage() {
               © Greedy Motion 2026
             </span>
             <span style={{ display: "flex", gap: "22px" }}>
-              <a href="#pricing" style={{ color: "#535862", textDecoration: "none" }}>
-                Pricing
-              </a>
               <a href="#" style={{ color: "#535862", textDecoration: "none" }}>
                 Privacy
               </a>
