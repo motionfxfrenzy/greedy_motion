@@ -343,7 +343,7 @@ export function LandingPage() {
                 Features
               </a>
               <Link
-                href="/coming-soon"
+                href="/studio"
                 style={{
                   color: "#0A6CFF",
                   fontSize: "15px",
@@ -352,13 +352,13 @@ export function LandingPage() {
                   textDecoration: "none"
                 }}
               >
-                Coming soon
+                Studio
               </Link>
             </nav>
 
             <div className="gm-landing-actions" style={{ marginLeft: "auto", alignItems: "center", gap: "10px" }}>
               <Link
-                href="/coming-soon"
+                href="/auth"
                 style={{
                   padding: "9px 16px",
                   color: "#0a0d12",
@@ -368,10 +368,10 @@ export function LandingPage() {
                   textDecoration: "none"
                 }}
               >
-                Coming soon
+                Sign in
               </Link>
               <Link
-                href="/coming-soon"
+                href="/auth?mode=signup"
                 className="gm-btn-primary"
                 style={{
                   padding: "9px 20px",
@@ -385,7 +385,7 @@ export function LandingPage() {
                   boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
                 }}
               >
-                View coming soon
+                Create account
               </Link>
             </div>
             <button
@@ -404,7 +404,7 @@ export function LandingPage() {
               <nav id="gm-landing-mobile-menu" className="gm-landing-mobile-menu" aria-label="Mobile navigation">
                 <a href="#how" onClick={() => setMenuOpen(false)}>How it works</a>
                 <a href="#features" onClick={() => setMenuOpen(false)}>Features</a>
-                <Link href="/coming-soon" onClick={() => setMenuOpen(false)}>Coming soon</Link>
+                <Link href="/studio" onClick={() => setMenuOpen(false)}>Studio</Link>
               </nav>
             )}
           </div>
@@ -503,7 +503,7 @@ export function LandingPage() {
           {/* CTA Buttons */}
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", justifyContent: "center" }}>
             <Link
-              href="/coming-soon"
+              href="/studio"
               className="gm-btn-primary"
               style={{
                 padding: "13px 26px",
@@ -516,7 +516,7 @@ export function LandingPage() {
                 boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
               }}
             >
-              See what’s coming
+              Create a video
             </Link>
             <a
               href="#how"
@@ -1235,7 +1235,7 @@ export function LandingPage() {
               with a video.
             </h2>
             <Link
-              href="/coming-soon"
+              href="/studio"
               className="gm-btn-light"
               style={{
                 position: "relative",
@@ -1249,7 +1249,7 @@ export function LandingPage() {
                 boxShadow: "0 4px 14px rgba(0,0,0,.3)"
               }}
             >
-              View coming soon
+              Open Studio
             </Link>
           </div>
 
