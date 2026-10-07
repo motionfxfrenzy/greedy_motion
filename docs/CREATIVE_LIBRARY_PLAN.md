@@ -1,7 +1,7 @@
 # Creative library plan: reference packs and animation libraries
 
-Date: 2026-10-07. Status: phases 0 and 1 built, the Sketch look (phase 4, first look) built; phases 2, 3 and 5 not
-started. Owner confirmed on 2026-10-07 that every pack is free to use in the product, and accepted the recommendations
+Date: 2026-10-07, updated 2026-10-08. Status: phases 0 and 1 built, the Sketch look (phase 4, first look) built, phase 2
+1 of 3 formats built; phases 3 and 5 not started. Owner confirmed on 2026-10-07 that every pack is free to use in the product, and accepted the recommendations
 in section 8 (move the packs; formats in the order velocity sting → chat to result → everywhere reel; Anime.js only where
 it beats GSAP; Sketch first).
 
@@ -13,7 +13,7 @@ it beats GSAP; Sketch first).
 | 1. Library spikes | Done | `validation/creative-libraries/{anime-motion-path,rough-sketch,p5-brush}`; libraries pinned in `backend/package.json`; `scripts/creative-vendor.mjs`; notices in `third_party/creative-libraries-NOTICE.md` | `npm run check:creative`: each spike renders identical frames twice and different frames under two brands; frames inspected by eye; a real MP4 render of the Rough.js spike draws its ink |
 | 4. Looks: Sketch | Done | `look` in the brief (`packages/contracts/src/looks.ts`, "Drawing style" in Script & Style, saved without replanning via `PATCH /plan { look }`); Rough.js inlined in the engine page; hand-drawn underline on the accent word and a ring around the clicked target, in brand tokens | Engine fixtures `engine-clean` / `engine-sketch` in `check:creative`; a real project rendered in both looks |
 | Brand consistency | Done | Brand files rebuilt from the kit row (`restoreBrandFiles`); brand-token lint; brand-binding check; readiness warning for a website project without a kit | `test:brand-files`, `check:brand-tokens`, `check:creative`; see [Brand kits → Keeping the brand consistent](BRAND_AND_AUDIO.md) |
-| 2. HyperFrames formats | Not started | — | Each needs a test build on a real product and review by eye |
+| 2. HyperFrames formats | 1 of 3 done | `gm-velocity-sting` library-ready: fill-mode template (every string a variable, every colour/font a theme token, no pasted measurements), `scripts/build-format.mjs` (template + slot values + brand kit), `scripts/verify-seams.mjs` (seam ledger checked by seeking the timeline); in `check:creative`. Not yet wired into the app's render path. Next: chat-to-result, everywhere reel | Builds #1 Greedy Motion and #2 Ledgerly (sample): check 0 findings, 6/6 seams, pacing pass after 2 fixes, −14.2 LUFS; see the skill's CHANGELOG and COST |
 | 3. Shot direction | Not started | — | Needs paid Nano Banana / Veo runs (Motion pipeline T2, T4, T6) |
 | 5. Ad formats | Not started | — | Product decision per format |
 

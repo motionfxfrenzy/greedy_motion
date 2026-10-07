@@ -1,0 +1,104 @@
+{
+  "_": "Seam ledger for gm-velocity-sting: one row per cut. exit/entry must agree on axis and dir (x -1 = leftward, y -1 = upward, z -1 = shrinking). Checked by scripts/verify-seams.mjs. F(n) = (n-1)/30; each cut sits just below the incoming scene's first frame time.",
+  "fps": 30,
+  "seams": [
+    {
+      "id": "A lockup → B entry surface",
+      "cut": 1.333,
+      "frames": "f40 | f41",
+      "technique": "velocity-matched cut, downward (EI 0.36s ↔ EO 0.36s, 160px each side, blur 10px)",
+      "exit": {
+        "selector": "#a-cam",
+        "axis": "y",
+        "dir": 1
+      },
+      "entry": {
+        "selector": "#b-cam",
+        "axis": "y",
+        "dir": 1
+      }
+    },
+    {
+      "id": "B entry surface → C same surface, closer",
+      "cut": 2.633,
+      "frames": "f79 | f80",
+      "technique": "velocity-matched cut, leftward (EI 0.36s ↔ EO 0.36s, 160px, blur 10px)",
+      "exit": {
+        "selector": "#b-cam",
+        "axis": "x",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#c-cam",
+        "axis": "x",
+        "dir": -1
+      }
+    },
+    {
+      "id": "C closer surface → D one number",
+      "cut": 4.133,
+      "frames": "f124 | f125",
+      "technique": "velocity-matched cut, upward, ignited by the 'Email me a sign-in link' press (EI ↔ EO, 160px, blur 10px)",
+      "exit": {
+        "selector": "#c-cam",
+        "axis": "y",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#d-cam",
+        "axis": "y",
+        "dir": -1
+      }
+    },
+    {
+      "id": "D one number → E navigation",
+      "cut": 5.633,
+      "frames": "f169 | f170",
+      "technique": "velocity-matched cut, rightward (EI ↔ EO, 160px, blur 10px)",
+      "exit": {
+        "selector": "#d-cam",
+        "axis": "x",
+        "dir": 1
+      },
+      "entry": {
+        "selector": "#e-cam",
+        "axis": "x",
+        "dir": 1
+      }
+    },
+    {
+      "id": "E navigation (first row chosen) → F create action",
+      "cut": 7.533,
+      "frames": "f226 | f227",
+      "technique": "push-through z+1: exit scales 1→1.25 about the Projects row (EI), entry 0.8→1 (EO), blur 18px full-frame",
+      "exit": {
+        "selector": "#e-cam",
+        "axis": "z",
+        "dir": 1
+      },
+      "entry": {
+        "selector": "#f-cam",
+        "axis": "z",
+        "dir": 1,
+        "scanRoot": "#f-cam"
+      }
+    },
+    {
+      "id": "F choice made → G endcard",
+      "cut": 10.633,
+      "frames": "f319 | f320",
+      "technique": "pull-back z-1: exit scales 1→0.8 (EI), entry 1.25→1 (EO), blur 18px full-frame",
+      "exit": {
+        "selector": "#f-cam",
+        "axis": "z",
+        "dir": -1
+      },
+      "entry": {
+        "selector": "#g-cam",
+        "axis": "z",
+        "dir": -1,
+        "scanRoot": "#g-cam"
+      }
+    }
+  ]
+}

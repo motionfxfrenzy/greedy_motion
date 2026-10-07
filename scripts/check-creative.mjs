@@ -17,10 +17,16 @@ const root = resolve(import.meta.dirname, "..");
 const specRoot = join(root, "validation/creative-libraries");
 const THEMES = ["blue-professional", "biennale-yellow"]; // two brands with different palettes and fonts
 // Spikes run 4 s; engine fixtures 12.5 s (hook underline, click ring, success underline, closing title).
-const AT_FOR = (name) => (name.startsWith("engine-") ? "1.6,4.6,8.6,11.5" : "0.5,1.5,2.5,3.5");
+const AT_FOR = (name) => (name.startsWith("engine-") ? "1.6,4.6,8.6,11.5" : name === "gm-velocity-sting" ? "0.6,3.2,4.8,6.9,9.75,11.6" : "0.5,1.5,2.5,3.5");
 
+// gm-* formats are built fresh from their frozen template with the default slot values (scripts/build-format.mjs).
+const FORMATS = ["gm-velocity-sting"];
 async function stage(name, theme) {
   const dir = await mkdtemp(join(tmpdir(), `creative-${name}-`));
+  if (FORMATS.includes(name)) {
+    await run("node", [join(root, "scripts/build-format.mjs"), "--skill", name, "--theme", theme, "--out", dir], { cwd: root });
+    return dir;
+  }
   await cp(join(specRoot, name), dir, { recursive: true });
   const html = await readFile(join(dir, "index.html"), "utf8");
   await cp(join(root, "worker/themes", `${theme}.css`), join(dir, "theme.css"));
@@ -35,7 +41,7 @@ async function frames(dir, label) {
   return Promise.all(files.map(async (f) => createHash("sha256").update(await readFile(join(out, f))).digest("hex")));
 }
 
-const names = process.argv.slice(2).length ? process.argv.slice(2) : (await readdir(specRoot, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+const names = process.argv.slice(2).length ? process.argv.slice(2) : [...(await readdir(specRoot, { withFileTypes: true })).filter((d) => d.isDirectory() && d.name !== "last-failure").map((d) => d.name), ...FORMATS];
 let failed = 0;
 const report = [];
 for (const name of names) {
