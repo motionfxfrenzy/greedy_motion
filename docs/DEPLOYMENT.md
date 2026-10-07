@@ -1,6 +1,6 @@
 # Deployment map
 
-Date: 2026-10-02. Each top-level folder is one deployable unit with its own env files. Nothing is provisioned yet; see [Environments](ENVIRONMENTS.md) for staging/production resources and branches.
+Date: 2026-10-02, updated 2026-10-07. Each top-level folder is one deployable unit with its own env files. Staging and production are provisioned; the actual project names, URLs and variables are in [Environments → Live resources](ENVIRONMENTS.md#live-resources-2026-10-07). The render worker is planned for AWS ECS Fargate (`infra/aws/`), not Railway.
 
 ```text
 frontend/            → Vercel                  Next.js UI, no secrets
@@ -46,6 +46,14 @@ Offline worker proof (no network at all):
 docker compose run --rm worker-selftest
 ```
 
-## Known gap before hosted rendering works
+## Hosted state and remaining gaps (2026-10-07)
 
-Locally, worker and backend share `var/renders`. On Railway they are separate containers with separate disks, so the backend cannot serve the worker's MP4. Hosted rendering needs the worker to upload outputs to R2 and the backend to return presigned URLs (MEDIA-02), (the HTTP call between them was already replaced by the pg-boss queue in JOB-01, 2026-10-04). Brand kits (`var/brands`) and generated audio (`var/audio`) have the same shared-disk dependency (BRAND-02). Both services also need `DATABASE_URL` (Supabase session pooler). Until then, only the frontend and backend health endpoints are meaningful on staging.
+- Frontend on Vercel (two projects, each building only its own branch) and backend on Railway are live for staging and
+  production. The backend runs migrations at startup; auth is enforced (`AUTH_MODE=supabase`).
+- Projects and brand kits are in Supabase Postgres ([Authentication, ownership and data](AUTH_AND_DATA.md)). Render
+  outputs go to R2. Screenshots, logos, fonts, theme CSS, plan audio and site snapshots are still on the backend's
+  `/data` volume, so the backend must stay at one replica until they move to R2.
+- Production's backend has no public domain yet; add one (and set `NEXT_PUBLIC_API_URL` on the `greedy-motion` Vercel
+  project) before production leaves "Coming soon".
+- Deploy order when a change needs new variables: set the variables first (Railway with "skip deploy"), then push the
+  branch. Example: the frontend crashes on every page if the Supabase variables are missing when the auth code ships.

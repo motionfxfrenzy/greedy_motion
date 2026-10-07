@@ -126,6 +126,8 @@ export type PlanPatch = {
   beats?: { id: string; keyword?: string; on_screen?: string; line?: string }[];
   order?: string[];
   suggestions?: { index: number; accepted: boolean }[];
+  /** Drawing style (contracts looks.ts); saved without replanning. */
+  look?: string;
 };
 /** A rejected storyboard edit: `problems` lists every rule it broke, in user-facing words. */
 export class PlanProblems extends Error {

@@ -5,7 +5,7 @@
 //   fonts.css    @font-face rules for downloaded or uploaded fonts, relative to brand-fonts/
 //   fonts/       font files
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   BRAND_NAME_MAX, FONT_FAMILY_PATTERN, bundledFonts, deriveBrandTheme, parseColor, themeToCss, uploadedFamily,
@@ -118,6 +118,37 @@ export async function createBrand(input: BrandKitInput, ownerId: string): Promis
     await rm(dir, { recursive: true, force: true });
     throw error;
   }
+}
+
+/**
+ * The kit row in Postgres is the source of truth for a brand (colours, fonts, mode). The files beside it are
+ * derived from that row, so when they are missing (a fresh volume, another replica) they are rebuilt here
+ * instead of the brand silently dropping out of a video: theme.css always, fonts.css and Google font files
+ * by downloading them again. Only an uploaded font and the logo cannot be rebuilt; they are reported.
+ */
+export async function restoreBrandFiles(kit: BrandKit): Promise<{ restored: string[]; missing: string[] }> {
+  const dir = brandDir(kit.id);
+  const exists = (file: string) => access(join(dir, file)).then(() => true, () => false);
+  const restored: string[] = [];
+  const missing: string[] = [];
+  if (!(await exists("theme.css"))) {
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "theme.css"), themeToCss(deriveBrandTheme(kit, `brand-${kit.id}`).theme));
+    restored.push("theme.css");
+  }
+  if (!(await exists("fonts.css"))) {
+    const sameFace = kit.fonts.body.family === kit.fonts.heading.family && kit.fonts.body.source === kit.fonts.heading.source;
+    const faces = sameFace ? [kit.fonts.heading] : [kit.fonts.heading, kit.fonts.body];
+    if (faces.some((font) => font.source === "upload")) missing.push("uploaded font");
+    else {
+      const rules: string[] = [];
+      for (const font of faces) rules.push(...(await materializeFont(dir, font)));
+      await writeFile(join(dir, "fonts.css"), `${rules.join("\n")}\n`);
+      restored.push("fonts.css");
+    }
+  }
+  if (kit.hasLogo && !(await exists("logo.png"))) missing.push("logo");
+  return { restored, missing };
 }
 
 export async function getBrand(id: string): Promise<BrandKit | null> {

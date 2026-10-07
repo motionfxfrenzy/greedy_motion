@@ -97,9 +97,11 @@ Create packages when their first implementation is needed; this is the target la
 
 Current state (2026-10-02): the prompt-based prototype has been split into `frontend`, `backend`, and `worker`. Its backend logic (in-memory job store, prompt planner, HTTP call to the worker) is still prototype code; JOB-01 replaces the HTTP call with pg-boss, DB-01 replaces the in-memory store, and the storyboard contracts replace the prompt contract (see [Frontend plan](WEB_APP_IMPLEMENTATION.md)).
 
-Update (2026-10-04): JOB-01 is implemented for local use. Render jobs are rows in Postgres (`app.render_jobs`), and the HTTP call to the worker is replaced by pg-boss queues (`render-plan` → `render-video` → `render-finished`). See §12 "Implementation status" and [Render queue](RENDER_QUEUE.md). The in-memory job store is gone; projects and brand kits are still JSON files until DB-01.
+Update (2026-10-04): JOB-01 is implemented for local use. Render jobs are rows in Postgres (`app.render_jobs`), and the HTTP call to the worker is replaced by pg-boss queues (`render-plan` → `render-video` → `render-finished`). See §12 "Implementation status" and [Render queue](RENDER_QUEUE.md). The in-memory job store is gone. Projects and brand kits moved from JSON files to Postgres on 2026-10-07 (see §9).
 
 ## 5. Authentication and authorization
+
+> Implementation status (2026-10-07): sign-in, JWT verification, per-user ownership (404 for others' records) and RLS are built and deployed; see [Authentication, ownership and data](AUTH_AND_DATA.md). Not yet built from this section: `users`/workspaces/memberships (ownership is per Supabase user id), `X-Workspace-Id`, and the Data API privilege revokes (RLS read-only policies are in place instead).
 
 ### Sign-in and token flow
 
@@ -255,6 +257,8 @@ Require an `Idempotency-Key` header for planning, revision-change, and render mu
 Rate-limit per user and workspace with `@fastify/rate-limit`; stricter limits on planning and render routes.
 
 ## 9. Persistence model
+
+> Implementation status (2026-10-07): built tables are `app.render_jobs`, `app.projects` and `app.brand_kits` (jsonb documents with `owner_id`), migrated by the backend's own runner (`backend/src/db/migrations`), not Drizzle. See [Authentication, ownership and data](AUTH_AND_DATA.md#data-model-postgres-schema-app).
 
 Supabase Postgres, schema `app` for application tables, schema `pgboss` for the queue. Drizzle defines the schema in `packages/db`; generated SQL migrations are reviewed and committed, and applied by the `backend` service's Railway pre-deploy command. Migrations are backward compatible (expand first, contract only after old versions are drained), so a rollback never meets an incompatible schema.
 

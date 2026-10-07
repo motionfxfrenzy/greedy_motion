@@ -6,7 +6,7 @@ import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, type FrameLook } from "./beat-storyboard";
 import { createClient } from "../utils/supabase/client";
-import { addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
+import { addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
 
 type View = "projects" | "templates" | "brand-kits" | "library" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
@@ -95,6 +95,14 @@ export function Studio() {
     setProject(saved);
     setProjects((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
   }, []);
+  // A drawing-style change on an existing storyboard is saved straight away (visual only, no replanning), so the
+  // preview and the render use it.
+  const savedLook = project?.brief?.look ?? "clean";
+  const chosenLook = brief.look ?? "clean";
+  useEffect(() => {
+    if (!project?.beatPlan || !project.brief || chosenLook === savedLook) return;
+    void editPlan(project.id, { look: chosenLook }).then(replaceProject).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not save the drawing style."));
+  }, [project?.id, project?.beatPlan, project?.brief, chosenLook, savedLook, replaceProject]);
 
   const saveProject = useCallback(async (patch: Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "approvedAt">>) => {
     if (!project) return null;

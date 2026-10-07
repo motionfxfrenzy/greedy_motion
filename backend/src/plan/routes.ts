@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { BEAT_LIMITS, aspectToFormat, beatPlanProblems, parseScriptBrief, plainText, type BeatPlan, type ProjectScript, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { getBrand } from "../brand/store.ts";
 import { getProject, ProjectInvalid, updateProjectPlan } from "../projects/store.ts";
 import { config } from "../config.ts";
@@ -28,7 +28,13 @@ function scriptFromPlan(plan: BeatPlan, source: ProjectScript["source"]): Projec
 }
 
 type BeatEdit = { id?: unknown; keyword?: unknown; on_screen?: unknown; line?: unknown };
-type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[] };
+/** "clean" is the default, so it is stored as no look at all (same as parseScriptBrief). */
+const withLook = (brief: ScriptBrief, look: LookId): ScriptBrief => {
+  const { look: _old, ...rest } = brief;
+  return look === "clean" ? rest : { ...rest, look };
+};
+
+type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown };
 
 /** Applies storyboard edits. Returns the edited plan, or the problems that block it. */
 export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan: BeatPlan } | { problems: string[] } {
@@ -126,10 +132,17 @@ export async function registerPlanRoutes(app: FastifyInstance) {
   app.patch<{ Params: { id: string } }>("/v1/projects/:id/plan", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
-    const result = applyPlanEdits(project, (request.body ?? {}) as PlanPatch);
+    const patch = (request.body ?? {}) as PlanPatch;
+    // The drawing style is visual only (colours and fonts stay the brand's), so it changes without replanning.
+    if (patch.look !== undefined && !isLook(patch.look)) return reply.code(400).send({ error: { code: "invalid_look", message: "Unknown look." } });
+    const result = applyPlanEdits(project, patch);
     if ("problems" in result) return reply.code(422).send({ error: { code: "plan_problems", message: result.problems[0] }, problems: result.problems });
     try {
-      const updated = await updateProjectPlan(project.id, (current) => ({ brief: current.brief, beatPlan: result.plan, script: scriptFromPlan(result.plan, current.script?.source ?? "generated") }));
+      const updated = await updateProjectPlan(project.id, (current) => ({
+        brief: current.brief && isLook(patch.look) ? withLook(current.brief, patch.look) : current.brief,
+        beatPlan: result.plan,
+        script: scriptFromPlan(result.plan, current.script?.source ?? "generated")
+      }));
       return updated ?? reply.code(404).send(notFound);
     } catch (error) {
       if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });

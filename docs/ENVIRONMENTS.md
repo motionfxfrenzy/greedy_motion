@@ -1,6 +1,39 @@
 # Environments
 
-Date: 2026-10-02. Status: defined; only `local` exists. No Railway, Supabase, Cloudflare, or Vercel resources have been created.
+Date: 2026-10-02, updated 2026-10-07. Status: all three environments exist. Staging runs the full app; production runs the
+backend and serves the "Coming soon" site. Live resources are listed below; the tables after them are the original design
+(names such as `videosaas-staging` and `app.staging.<domain>` became the names in "Live resources").
+
+## Live resources (2026-10-07)
+
+| | local | staging | production |
+| --- | --- | --- | --- |
+| Git branch | working tree (`main`) | `staging` | `production` |
+| Frontend | `next dev`, `localhost:3000` | Vercel project `greedy-motion-staging` (team `greddy-motion`), Production Branch `staging`, <https://greedy-motion-staging.vercel.app> | Vercel project `greedy-motion`, Production Branch `production`, <https://www.greedymotion.com> (also `greedymotion.com`) |
+| Frontend build rule | — | Ignored Build Step: builds only branch `staging` | Ignored Build Step: builds only branch `production` |
+| What the site shows | Full app | Full app (landing → sign-in → studio) | "Coming soon" (the page exists only on `production`) |
+| Backend | `npm run dev:backend`, `localhost:4000` | Railway project `lively-presence`, environment `staging`, service `backend`, <https://backend-staging-aec6.up.railway.app>, volume `/data` | Same project, environment `production`, service `backend`, **no public domain yet**, volume `/data` |
+| Postgres | Docker `videosaas-local-postgres-1` (Postgres 17), `127.0.0.1:55432` | Supabase `ltaxhznuixoslbbcjkts` (greedymotion-staging), session pooler `aws-0-ap-southeast-1.pooler.supabase.com:5432` | Supabase `bwwquxhexwyodsavsjar` (greedymotion-production), same pooler host |
+| Auth | Supabase **staging** project (the local frontend signs in against staging) | Supabase staging | Supabase production |
+| Auth emails | Resend SMTP via Supabase staging | Resend SMTP | Resend SMTP (to confirm) |
+| Render outputs | `var/renders` (filesystem) | R2 (`STORAGE_DRIVER=r2`) | R2 (`STORAGE_DRIVER=r2`) |
+| Other media | `var/` folders | Railway volume `/data` | Railway volume `/data` |
+| Render worker | Docker Compose `worker` | AWS ECS Fargate scripts in `infra/aws/` (deployment state not recorded here) | same |
+
+Branch flow in practice: work lands on `main` (no deploy); `main` is merged into `staging` (deploys staging) and into
+`production` (deploys production, keeping the coming-soon page). Pushes to other branches are skipped by both Vercel
+projects. The Supabase migrate workflow (`.github/workflows/supabase-migrate.yml`) runs on `staging`/`production` pushes
+that touch `supabase/**` and skips until its GitHub secrets are set; app tables are migrated by the backend at startup.
+
+Hosted variables set on 2026-10-07 (values live only in Railway/Vercel):
+
+| Where | Variables |
+| --- | --- |
+| Railway `backend` (both environments) | `AUTH_MODE=supabase`, `SUPABASE_URL`, `EXPECTED_SUPABASE_PROJECT_REF`; staging also `CORS_ORIGINS=https://greedy-motion-staging.vercel.app,http://localhost:3000`. Production `CORS_ORIGINS` is the two `greedymotion.com` origins. |
+| Vercel (both projects) | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_API_URL` |
+
+Auth, ownership and the data model: [Authentication, ownership and data](AUTH_AND_DATA.md).
+
 
 There are exactly three environments. Each has its own resources and credentials; nothing is shared between them.
 
@@ -94,12 +127,18 @@ npm run dev:frontend
 
 ## Setup checklist
 
-Hosted resources are created in INFRA-01, after the M2 decision. For each of `staging` and `production`:
+State on 2026-10-07 (S = staging, P = production).
 
-- [ ] Supabase project in the chosen region; Data API lockdown applied; auth redirect URLs set; backups confirmed.
-- [ ] Railway environment with `backend` and `worker` services, pre-deploy migration command, restart policy, replica count, draining time, custom domain.
-- [ ] R2 bucket pair, lifecycle rule on `incoming/`, CORS, separate `backend` and `worker` tokens.
-- [ ] Vercel environment variables (Preview → staging, Production → production), Production Branch `production`, `app.staging.<domain>` on branch `staging`.
-- [ ] GitHub branches `main`, `staging`, `production` with protection rules; Railway environments connected to `staging` and `production`.
-- [ ] Model API key with spend limit; Sentry environment; Stripe mode (M5).
-- [ ] Startup configuration check passes; QA-02 isolation tests pass.
+- [x] Supabase projects created (S, P); app migrations 001–003 applied; RLS on `app.projects`, `app.brand_kits`, `app.render_jobs` (S, P).
+- [x] Supabase Auth: Google provider and Resend SMTP (S). Redirect URLs (S).
+- [ ] Supabase Auth for P: confirm redirect URLs, Google client, SMTP; enable leaked-password protection (S, P).
+- [x] Railway `backend` service with `/data` volume, branch auto-deploy, auth variables (S, P); public domain (S).
+- [ ] Railway production public domain for the API (needed before production leaves "Coming soon").
+- [ ] Render worker hosted (AWS ECS scripts in `infra/aws/`); DB-03 worker role.
+- [x] R2 for render outputs (`STORAGE_DRIVER=r2`, S and P).
+- [ ] R2 for screenshots, logos, fonts, audio and snapshots; lifecycle rule on `incoming/`; bucket CORS.
+- [x] Vercel projects with Supabase/API variables and branch-only builds (S, P).
+- [x] GitHub branches `main`, `staging`, `production`.
+- [ ] GitHub branch protection rules; CI required checks.
+- [ ] Sentry environments; Stripe mode (M5).
+- [x] Startup configuration check (`APP_ENV`, `AUTH_MODE`, project-ref match, production CORS) passes on S and P.

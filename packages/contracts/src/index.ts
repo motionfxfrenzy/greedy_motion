@@ -7,6 +7,7 @@ import { defaultThemeId, themeIds } from "./themes.ts";
 export * from "./audio.ts";
 export * from "./beat-plan.ts";
 export * from "./brand.ts";
+export * from "./looks.ts";
 export * from "./templates.ts";
 export * from "./themes.ts";
 

@@ -26,3 +26,7 @@ validation/**/.hyperframes/
 validation/smoke/vendor/
 validation/generated/
 .env.credentials
+
+# check:creative failure captures
+validation/creative-libraries/last-failure/
+validation/creative-libraries/last-check.json

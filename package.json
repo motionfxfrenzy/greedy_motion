@@ -21,6 +21,8 @@
     "previews": "node scripts/build-previews.ts",
     "templates:verify": "node scripts/verify-templates.ts",
     "fonts:fetch": "node worker/scripts/fetch-fonts.mjs",
-    "director:prompt": "node scripts/build-director-prompt.mjs"
+    "director:prompt": "node scripts/build-director-prompt.mjs",
+    "check:brand-tokens": "node scripts/check-brand-tokens.mjs",
+    "check:creative": "node scripts/check-brand-tokens.mjs && node worker/templates/beat-plan/build.mjs --check && node scripts/build-engine-fixtures.mjs --check && node scripts/check-creative.mjs"
   }
 }

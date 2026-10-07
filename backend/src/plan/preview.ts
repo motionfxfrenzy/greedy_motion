@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { themeIds, type VideoProject } from "@videosaas/contracts";
-import { getBrand } from "../brand/store.ts";
+import { getBrand, restoreBrandFiles } from "../brand/store.ts";
 import { config } from "../config.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
 import { ENGINE_TEMPLATE, engineVariables, fillTextBlock, scriptJson, stampCanvas, textValues } from "./composition.ts";
@@ -40,6 +40,11 @@ export async function projectLook(project: VideoProject) {
   const brandId = project.brief?.brandId ?? project.request.brandId;
   const brand = brandId ? await getBrand(brandId) : null;
   if (brandId && !brand) throw new PreviewUnavailable("The project brand kit is no longer available.");
+  // Rebuild derived brand files (theme, fonts) from the kit row if they are missing, so the brand never drops out.
+  if (brand) {
+    const health = await restoreBrandFiles(brand);
+    if (health.restored.length || health.missing.length) console.warn(JSON.stringify({ level: "warn", event: "brand_files", brandId: brand.id, ...health }));
+  }
   const theme = project.brief?.theme && themeIds.includes(project.brief.theme) ? project.brief.theme : project.request.theme;
   if (!brand) return { brand: null, theme, themeCss: await requiredText(join(config.themesDir, `${theme}.css`), "The selected preview theme"), brandFontsCss: "", logo: null };
   const themeCss = await requiredText(join(config.brandsDir, brand.id, "theme.css"), "The project brand theme");
@@ -82,7 +87,8 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
     screenSizes: Object.fromEntries(used.map((id) => [id, { width: screens.get(id)!.width, height: screens.get(id)!.height }])),
     brandName: brandNameFor(project, brand),
     logo,
-    logoWordmark
+    logoWordmark,
+    look: project.brief?.look
   });
 
   // Bootstrap: the runtime and GSAP replace the template's vendor line; the editable text block

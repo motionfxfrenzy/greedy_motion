@@ -8,12 +8,13 @@ This is the operating record for the project. The backlog remains the source of 
 | --- | --- | --- | --- |
 | Product direction | Validated enough to prototype | PDF review; product, architecture, and stack decisions documented | Run five customer trials after the screenshot workflow exists |
 | Local rendering | Basic feasibility passed | `validation/smoke/renders/smoke.mp4`, metadata, sampled frames | Build screenshot fixture and repeatability matrix |
-| App split | frontend / backend / worker separated | `frontend/`, `backend/`, `worker/`, `packages/contracts/`; browser render verified end to end | Initialize Git and GitHub (rest of CORE-01) |
+| App split | frontend / backend / worker separated; in Git | GitHub `motionfxfrenzy/greedy_motion`, branches `main`, `staging`, `production` | Branch protection and CI checks |
 | Worker container | Passed locally | `validation/renderer-container/self-test.json`; image `videosaas-worker:local` | Done: HTTP call replaced by pg-boss (JOB-01) |
 | Render queue | Working locally, scales by replicas; JOB-01 done | `docs/RENDER_QUEUE.md` verification table: 3 concurrent renders on 1 worker, parallel renders on 2 replicas, worker killed mid-render → clean retry | Next: JOB-03 cancellation (local). Before any hosted worker: DB-03 role, then MEDIA-02 + BRAND-02 (R2) before more than 1 replica |
+| Auth and data | Built and deployed (staging, production) | [Authentication, ownership and data](AUTH_AND_DATA.md); `npm run test:ownership -w backend` 10/10; RLS verified on both Supabase projects | Leaked-password protection; signed media URLs |
 | Design fidelity | Review screen rebuilt to handoff; other gaps listed | `design_handoff/` compared against localhost at 1440×900 | Fix logo mark, headings and project grid; rebuild Templates page |
-| Environments | Defined; local running | `docs/ENVIRONMENTS.md`, `env/*.env.example`, `compose.yaml` | Create staging/production resources in INFRA-01 |
-| Railway deployment | Not started | No project, service, environment, variables, or deployment created. `.railway/railway.ts` declares the queue variables and holds `worker` at 1 replica | Stage only after M3/M4 gates and container validation; worker also needs DB-03, MEDIA-02, BRAND-02 |
+| Environments | Local, staging and production exist | [Environments → Live resources](ENVIRONMENTS.md#live-resources-2026-10-07) | Production API domain; production auth settings before launch |
+| Hosted deployment | Backend on Railway (staging + production) and frontend on Vercel are live; worker hosting is AWS ECS (`infra/aws/`) | Staging: <https://greedy-motion-staging.vercel.app>, `backend-staging-aec6.up.railway.app` healthy; production: <https://www.greedymotion.com> shows Coming soon, backend healthy without a public domain | Move media to R2 (one-replica limit); production API domain |
 
 ## Execution log
 
@@ -43,6 +44,14 @@ This is the operating record for the project. The backlog remains the source of 
 | 2026-10-05 | UI-V2-05 | Brand kit filled from the product website (user feedback: the Look card still said "No brand kit" after reading a site) | Reading a site now: (1) selects a kit already saved for that site, unless the user picked one, with "From linear.app · Change"; (2) otherwise shows the found brand filled in inside the Brand kit box (logo, name, swatches) with one-click "Save and use", Review, and Other kit; (3) never overrides a kit the user chose, offering "linear.app has a different kit, Linear. Use it". A kit auto-selected by a previous read gives way when another site is read. Verified all three cases plus the one-click save in the browser (test kit and projects deleted afterwards). Reported: site brand names can include the page-title tail ("Resend · Email for developer"). | Complete |
 | 2026-10-05 | UI-V2-06 | Fixed a false storyboard error reported by the user | Timing warnings returned with a successful voice/music run (e.g. "b1: the hook runs 4.3s…") were shown as an audio error with "Try again", which could never fix them. Now a successful run always reads "Voice & music ready"; its warnings join the non-blocking "Check before you submit" list and appear on the beat they name; the error box is only for failed requests. Backend (other session): voiceover word budget allows +10% before blocking; hook-line word limit by pace; line edits clear a dropped verb instead of failing; the user's project fixed (hook 2.0 s, film 31.2 s, no problems). Verified the project opens clean with Submit enabled. | Complete |
 | 2026-10-05 | JOB-04 | Render the approved storyboard exactly as previewed (user report: Submit failed with "The voiceover runs 9.5 s, longer than the video allows"; rule: nothing may fail after the storyboard) | Cause: `POST /render` still ran the old path (fixed 10 s template + fresh TTS capped at 9.4 s) for beat-plan projects. Now projects with a beat plan skip planning and generation: the backend checks readiness (`backend/src/plan/readiness.ts`, by the "ad script" session) and writes the complete render folder, then queues straight to `render-video` (new `createReadyAndEnqueue`, row and message in one transaction); 409 `not_ready` with reasons otherwise. The worker renders kind `beat-plan` from `/renders/<jobId>/project` only, with the same fencing, retries and progress. The storyboard gates Submit on server readiness, refreshed after every saved edit, with blocking items on their beat. Review's timeline uses each beat's real duration. Verified on the user's project: Submit → 937 frames → Review; MP4 H.264 1920×1080 30 fps, 31.234 s (plan 31.233 s), AAC, −13.7 LUFS. Not-ready project refused with 409 and state unchanged; UI showed the same reasons with Submit disabled. Open: prepared folders are not yet cleaned up; hosted rendering still needs MEDIA-02 (shared disk). | Complete locally |
+| 2026-10-07 | AUTH-01 | Supabase Auth in the app: Google and email+password sign-in, `/auth/callback`, password reset, session refresh and route guard (`frontend/proxy.ts`), sign-out; bearer token on every API call | Local and staging: `/studio` signed out → `/auth?next=/studio`; Google redirect reaches Google with the staging client and callback; a real Google session for the owner's account called `GET /v1/projects` and `/v1/brands` on staging → 200, no token → 401. Email sign-up and reset not exercised by the agent (accounts are created by the owner) | Complete |
+| 2026-10-07 | AUTH-02 | Backend JWT verification (`jose`, JWKS), `AUTH_MODE` config, project-ref guard | Local and staging: `/healthz` 200, `/v1/projects` 401 without token, 401 `invalid_token` with a fake token, CORS preflight allows `Authorization` | Complete |
+| 2026-10-07 | ENV-04 | Staging and production wiring | Vercel `greedy-motion-staging` and `greedy-motion` given Supabase variables and branch-only Ignored Build Steps; Railway auth and CORS variables (staging, production). Staging returned 500 on every page until the Supabase variables were set (proxy threw "URL and Key are required"); production variables were set before its deploy and it stayed up. Coming-soon page kept only on `production`; `main` and `staging` show the app | Complete |
+| 2026-10-07 | DB-01 (partial) | Projects and brand kits moved to Postgres (`app.projects`, `app.brand_kits`, jsonb + `owner_id`), per-user ownership (404 for others' records), row-locked writes, RLS read-only policies, file import script | `test:ownership` 10/10 (fails 2 with the ownership hook disabled); migrations 002–003 applied on local, staging and production; RLS on for all three tables on staging and production; imports: local 8 projects + 5 kits (unowned), staging 1 project (owner's Google account), production none | Complete for metadata; binary media still on disk |
+| 2026-10-07 | CREATIVE-00 | Moved the 14 reference packs from `templates/` to `third_party/creative-packs/` with `PROVENANCE.md` (owner: free to use); `bs-hyperframes-*` skills also in `.claude/skills/` | Folder gone; provenance table lists every skill and what it writes | Complete |
+| 2026-10-07 | CREATIVE-01 | Library spikes: Anime.js 4.5.0 motion path + drawable, Rough.js 4.6.6 seeded annotations with boil, p5.js 2.3.4 + p5.brush 2.2.3 drawn on seek | `npm run check:creative`: each renders byte-identical frames twice (software GPU) and different frames under two brand themes; frames checked by eye; real MP4 render of the Rough.js spike draws its ink. Found and fixed: p5.brush dropped the last stroke when drawn outside `p.redraw()`. p5.js is LGPL-2.1 (notice added) | Complete |
+| 2026-10-07 | LOOK-01 | Sketch look in the beat-plan engine (Rough.js inlined): hand-drawn underline on the accent word, ring around the clicked target; `look` in the brief, "Drawing style" control, `PATCH /plan { look }` without replanning | Real project (`9d77f4cd`, Linear screenshots) rendered in Clean and Sketch; the first ring was a muted tan invisible on a dark screenshot, fixed to the brand's loud accent over a card-colour halo; engine fixtures pass determinism and brand binding under two brands | Complete |
+| 2026-10-07 | BRAND-03 | Keep the website-derived brand: `restoreBrandFiles` rebuilds theme/fonts from the kit row; brand-token lint; readiness warning for a website project without a kit | `test:brand-files`: all 5 local kits rebuild byte-identical themes, deleted files come back; `check:brand-tokens` clean on engine, templates and spikes | Complete |
 
 ## Container validation sequence
 
@@ -56,11 +65,23 @@ This is the operating record for the project. The backlog remains the source of 
 
 ## Current blocker
 
-None for local work. Hosted staging/production resources are intentionally not created until INFRA-01 (after the M2 decision).
-
-Hosted rendering has three known prerequisites, all planned: DB-03 (worker database role), MEDIA-02 (render outputs in R2), and BRAND-02 (brand kits and audio in R2). Until they are done, the worker stays at one replica and needs a disk shared with the backend.
+None. The backend must stay at one replica on Railway until screenshots, logos, fonts, plan audio and site snapshots
+move from its `/data` volume to R2 (MEDIA-03 below).
 
 ## Next actions in dependency order
+
+Updated 2026-10-07 (the older list below is kept for the render-pipeline items it still tracks):
+
+1. Enable Supabase leaked-password protection on staging and production.
+2. MEDIA-03: screenshots, brand logos/fonts/theme CSS, plan audio and site snapshots to R2 keyed by owner and project;
+   ownership-checked routes or short-lived signed URLs instead of open-by-id links; copy existing volume files; then
+   allow more than one backend replica.
+3. Production API: Railway public domain, `NEXT_PUBLIC_API_URL` on Vercel `greedy-motion`, production Supabase Auth
+   settings, publish the Google consent screen. Only before launch.
+4. GitHub branch protection and CI (typecheck, `test:ownership`, templates:verify).
+5. Render worker hosting (AWS ECS, `infra/aws/`) and DB-03.
+
+Earlier list:
 
 1. Finish CORE-01: initialize Git, create the GitHub repo with `main`, `staging`, and `production` branches and protection rules, and verify a clean-clone install.
 2. Execute CORE-02 and DATA-01 together: shared schemas plus a non-sensitive screenshot fixture.

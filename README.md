@@ -122,8 +122,12 @@ instead of embedding a full open-source timeline editor, is in
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Deployment map](docs/DEPLOYMENT.md)
+- [Environments and live resources](docs/ENVIRONMENTS.md)
+- [Authentication, ownership and data](docs/AUTH_AND_DATA.md)
+- [Progress log](docs/PROGRESS.md)
 - [Render queue](docs/RENDER_QUEUE.md)
 - [Starter templates](docs/TEMPLATES.md)
+- [Creative library plan](docs/CREATIVE_LIBRARY_PLAN.md) — reference packs, Anime.js, Rough.js, p5.js
 - [Brand kits, music, and voiceover](docs/BRAND_AND_AUDIO.md)
 - [Studio editor decision](docs/STUDIO_EDITOR_DECISION.md)
 - [Editing and AI revisions](docs/EDITING.md) — longer-term design exploration

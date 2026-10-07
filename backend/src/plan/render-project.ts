@@ -71,7 +71,8 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
       screenSizes: Object.fromEntries(Object.keys(shots).map((id) => [id, { width: screens.get(id)!.width, height: screens.get(id)!.height }])),
       brandName: brandNameFor(project, look.brand),
       logo: look.logo ? "brand/logo.png" : null,
-      logoWordmark: look.logo?.wordmark
+      logoWordmark: look.logo?.wordmark,
+      look: project.brief?.look
     }),
     ...textValues(plan.beats)
   };
