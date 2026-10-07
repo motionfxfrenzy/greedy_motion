@@ -5,7 +5,7 @@ export async function proxy(request: NextRequest) {
   const { response, signedIn } = await updateSession(request);
   const { pathname } = request.nextUrl;
 
-  if (pathname.startsWith("/studio") && !signedIn) {
+  if ((pathname === "/studio" || pathname.startsWith("/studio/") || pathname === "/app" || pathname.startsWith("/app/")) && !signedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
     url.search = `?next=${encodeURIComponent(pathname)}`;
