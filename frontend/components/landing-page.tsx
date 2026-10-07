@@ -355,7 +355,7 @@ export function LandingPage() {
                 Pricing
               </a>
               <Link
-                href="/coming-soon"
+                href="/studio"
                 style={{
                   color: "#0A6CFF",
                   fontSize: "15px",
@@ -364,13 +364,13 @@ export function LandingPage() {
                   textDecoration: "none"
                 }}
               >
-                Coming soon
+                Studio
               </Link>
             </nav>
 
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
               <Link
-                href="/coming-soon"
+                href="/auth?mode=signin"
                 style={{
                   padding: "9px 16px",
                   color: "#0a0d12",
@@ -380,10 +380,10 @@ export function LandingPage() {
                   textDecoration: "none"
                 }}
               >
-                Coming soon
+                Sign in
               </Link>
               <Link
-                href="/coming-soon"
+                href="/studio"
                 className="gm-btn-primary"
                 style={{
                   padding: "9px 20px",
@@ -397,7 +397,7 @@ export function LandingPage() {
                   boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
                 }}
               >
-                View coming soon
+                Start free
               </Link>
             </div>
           </div>
@@ -496,7 +496,7 @@ export function LandingPage() {
           {/* CTA Buttons */}
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", justifyContent: "center" }}>
             <Link
-              href="/coming-soon"
+              href="/studio"
               className="gm-btn-primary"
               style={{
                 padding: "13px 26px",
@@ -509,7 +509,7 @@ export function LandingPage() {
                 boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
               }}
             >
-              See what’s coming
+              Make your first video
             </Link>
             <a
               href="#how"
@@ -1229,7 +1229,7 @@ export function LandingPage() {
                 ))}
               </ul>
               <Link
-                href="/coming-soon"
+                href="/studio"
                 className="gm-btn-light"
                 style={{
                   marginTop: "auto",
@@ -1244,7 +1244,7 @@ export function LandingPage() {
                   border: "1px solid #E1EAF4"
                 }}
               >
-                Coming soon
+                Start free
               </Link>
             </div>
 
@@ -1306,7 +1306,7 @@ export function LandingPage() {
                 ))}
               </ul>
               <Link
-                href="/coming-soon"
+                href="/studio"
                 className="gm-btn-primary"
                 style={{
                   marginTop: "auto",
@@ -1321,7 +1321,7 @@ export function LandingPage() {
                   boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
                 }}
               >
-                Coming soon
+                Start free
               </Link>
             </div>
           </div>
@@ -1539,7 +1539,7 @@ export function LandingPage() {
               with a video.
             </h2>
             <Link
-              href="/coming-soon"
+              href="/studio"
               className="gm-btn-light"
               style={{
                 position: "relative",
@@ -1553,7 +1553,7 @@ export function LandingPage() {
                 boxShadow: "0 4px 14px rgba(0,0,0,.3)"
               }}
             >
-              View coming soon
+              Start free
             </Link>
           </div>
 
@@ -1587,8 +1587,8 @@ export function LandingPage() {
               <a href="#" style={{ color: "#535862", textDecoration: "none" }}>
                 Contact
               </a>
-              <Link href="/coming-soon" style={{ color: "#0A6CFF", textDecoration: "none", fontWeight: 600 }}>
-                Coming soon
+              <Link href="/studio" style={{ color: "#0A6CFF", textDecoration: "none", fontWeight: 600 }}>
+                Launch Studio
               </Link>
             </span>
           </footer>
