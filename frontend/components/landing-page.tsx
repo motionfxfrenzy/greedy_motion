@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { PublicLinks } from "./public-links";
 import { SceneFrame, type SceneItem } from "./scene-frame";
 
 const SCENES: SceneItem[] = [
@@ -13,47 +14,6 @@ const SCENES: SceneItem[] = [
 ];
 
 const WORDS = ["product launches", "feature demos", "release notes", "social clips"];
-
-const LOGOS = [
-  "Northwind",
-  "Acme",
-  "Lumen",
-  "Halcyon",
-  "Brightpath",
-  "Fieldnote",
-  "Orbit Labs",
-  "Quarry",
-  "Tessellate",
-  "Waypoint"
-];
-
-const QUOTES = [
-  {
-    quote: "We used to wait two weeks for a launch video. Now marketing ships it with the release.",
-    name: "Priya N.",
-    role: "Head of Product Marketing"
-  },
-  {
-    quote: "The storyboard step is the reason our brand team trusts it.",
-    name: "Marcus L.",
-    role: "Brand Director"
-  },
-  {
-    quote: "I open the same project in Studio, tweak two keyframes, and publish it as our template.",
-    name: "Mara C.",
-    role: "Motion Designer"
-  },
-  {
-    quote: "Ask-to-change shows me exactly what will move. No surprises.",
-    name: "Jonah R.",
-    role: "Growth Lead"
-  },
-  {
-    quote: "Render status is honest. When a screenshot fails, it tells me which one.",
-    name: "Elena S.",
-    role: "Content Ops"
-  }
-];
 
 const FAQS = [
   {
@@ -801,55 +761,6 @@ export function LandingPage() {
           </div>
         </section>
 
-        {/* Logo Marquee Section */}
-        <section
-          style={{
-            padding: "48px 0 24px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "20px"
-          }}
-        >
-          <span style={{ fontSize: "14px", fontWeight: 500, color: "#93979f" }}>
-            SaaS teams shipping updates with Greedy Motion
-          </span>
-
-          <div
-            style={{
-              width: "100%",
-              overflow: "hidden",
-              maskImage: "linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)",
-              WebkitMaskImage: "linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)"
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                gap: "20px",
-                width: "max-content",
-                animation: "gmMarquee 40s linear infinite"
-              }}
-            >
-              {[...LOGOS, ...LOGOS].map((name, i) => (
-                <span
-                  key={i}
-                  style={{
-                    padding: "0 28px",
-                    fontSize: "22px",
-                    fontWeight: 600,
-                    letterSpacing: "-.02em",
-                    color: "#93979f",
-                    whiteSpace: "nowrap"
-                  }}
-                >
-                  {name}
-                </span>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {/* How It Works Section */}
         <section
           id="how"
@@ -1189,83 +1100,6 @@ export function LandingPage() {
           </div>
         </section>
 
-        {/* Quotes Marquee Section */}
-        <section
-          style={{
-            padding: "80px 0 40px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "28px"
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              fontWeight: 600,
-              fontSize: "clamp(26px, 3vw, 38px)",
-              letterSpacing: "-0.03em",
-              textAlign: "center",
-              padding: "0 24px"
-            }}
-          >
-            Teams ship the update and the video the same day
-          </h2>
-
-          <div
-            style={{
-              width: "100%",
-              overflow: "hidden",
-              maskImage: "linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent)",
-              WebkitMaskImage: "linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent)"
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                gap: "20px",
-                width: "max-content",
-                animation: "gmMarquee 55s linear infinite"
-              }}
-            >
-              {[...QUOTES, ...QUOTES].map((item, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    width: "380px",
-                    flex: "none",
-                    padding: "32px",
-                    borderRadius: "32px",
-                    background: "#fafdff",
-                    border: "1px solid #E1EAF4",
-                    boxShadow: "0 8px 18px rgba(4,69,144,.04)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "20px"
-                  }}
-                >
-                  <span style={{ fontSize: "16px", lineHeight: 1.55, color: "#535862" }}>
-                    “{item.quote}”
-                  </span>
-                  <span
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "2px",
-                      borderTop: "1px solid #E1EAF4",
-                      paddingTop: "16px"
-                    }}
-                  >
-                    <strong style={{ fontSize: "16px", fontWeight: 600, color: "#0a0d12" }}>
-                      {item.name}
-                    </strong>
-                    <span style={{ fontSize: "14px", color: "#93979f" }}>{item.role}</span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {/* FAQs Accordion */}
         <section
           style={{
@@ -1436,20 +1270,7 @@ export function LandingPage() {
               <img src="/brand/gm-mark.svg" alt="" style={{ height: "18px", width: "auto" }} />
               © Greedy Motion 2026
             </span>
-            <span style={{ display: "flex", gap: "22px" }}>
-              <a href="#" style={{ color: "#535862", textDecoration: "none" }}>
-                Privacy
-              </a>
-              <a href="#" style={{ color: "#535862", textDecoration: "none" }}>
-                Terms
-              </a>
-              <a href="#" style={{ color: "#535862", textDecoration: "none" }}>
-                Contact
-              </a>
-              <Link href="/coming-soon" style={{ color: "#0A6CFF", textDecoration: "none", fontWeight: 600 }}>
-                Coming soon
-              </Link>
-            </span>
+            <PublicLinks />
           </footer>
         </section>
       </div>

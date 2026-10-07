@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { PublicLinks } from "../../components/public-links";
 import "./coming-soon.css";
 
 export const metadata: Metadata = {
@@ -147,6 +148,7 @@ export default function ComingSoonPage() {
           </div>
         </div>
       </section>
+      <footer style={{ maxWidth: 1100, margin: "auto", padding: "24px" }}><PublicLinks /></footer>
     </main>
   );
 }
