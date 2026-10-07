@@ -25,8 +25,8 @@ const messageOf = (error: unknown, fallback: string) => error instanceof Error ?
  */
 export class RenderService {
   /** Pass `id` when the caller must record the job id (e.g. on the project) before the job can finish. */
-  async create(request: RenderRequest, options: { projectId?: string; plannedRevision?: Plan; id?: string } = {}) {
-    const { projectId, plannedRevision } = options;
+  async create(request: RenderRequest, options: { projectId?: string; ownerId?: string; plannedRevision?: Plan; id?: string } = {}) {
+    const { projectId, ownerId, plannedRevision } = options;
     const job: RenderJob = {
       id: options.id ?? randomUUID(),
       state: "queued",
@@ -34,7 +34,7 @@ export class RenderService {
       createdAt: new Date().toISOString(),
       revision: { id: randomUUID(), title: "Planning your product story…", scenes: [] }
     };
-    return renderJobRepository.createAndEnqueue(job, { request, ...(projectId ? { projectId } : {}), ...(plannedRevision ? { plannedRevision } : {}) });
+    return renderJobRepository.createAndEnqueue(job, { request, ...(projectId ? { projectId } : {}), ...(ownerId ? { ownerId } : {}), ...(plannedRevision ? { plannedRevision } : {}) });
   }
 
   /**

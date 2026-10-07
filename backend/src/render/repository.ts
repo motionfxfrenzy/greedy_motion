@@ -8,6 +8,7 @@ import type { Plan } from "./planner.ts";
 type Row = {
   id: string;
   project_id: string | null;
+  owner_id: string | null;
   state: RenderJob["state"];
   stage: RenderStage;
   progress: number;
@@ -46,14 +47,14 @@ function toView(row: Row, queuePosition?: number): RenderJob {
 
 export const renderJobRepository = {
   /** Inserts the job and its planning message in one transaction: no job without a message, and vice versa. */
-  async createAndEnqueue(job: RenderJob, input: { request: RenderRequest; projectId?: string; plannedRevision?: Plan }) {
+  async createAndEnqueue(job: RenderJob, input: { request: RenderRequest; projectId?: string; ownerId?: string; plannedRevision?: Plan }) {
     const client = await pool.connect();
     try {
       await client.query("begin");
       await client.query(
-        `insert into app.render_jobs (id, project_id, state, stage, progress, request, planned_revision, revision, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [job.id, input.projectId ?? null, job.state, "queued", job.progress, input.request, input.plannedRevision ?? null, job.revision, job.createdAt]
+        `insert into app.render_jobs (id, project_id, owner_id, state, stage, progress, request, planned_revision, revision, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [job.id, input.projectId ?? null, input.ownerId ?? null, job.state, "queued", job.progress, input.request, input.plannedRevision ?? null, job.revision, job.createdAt]
       );
       await boss.send(QUEUES.plan, { jobId: job.id }, { db: inTransaction(client) });
       await client.query("commit");
