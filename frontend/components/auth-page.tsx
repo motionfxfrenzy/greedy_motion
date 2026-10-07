@@ -407,7 +407,7 @@ export function AuthPage() {
                     </button>
 
                     <span style={{ fontSize: "13px", color: "#93979f", lineHeight: 1.5, textAlign: "center" }}>
-                      By continuing, you agree to our Terms and Privacy Policy.
+                      By continuing, you agree to our <Link href="/terms">Terms</Link> and acknowledge our <Link href="/privacy">Privacy Policy</Link>.
                     </span>
                   </form>
                 </div>
@@ -516,10 +516,10 @@ export function AuthPage() {
 
             <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: "10px", maxWidth: "460px" }}>
               <span style={{ fontSize: "19px", lineHeight: 1.45, fontWeight: 500, letterSpacing: "-.02em" }}>
-                “We ship the release and the launch video on the same day now.”
+                Plan your story. Review the motion. Refine the result.
               </span>
               <span style={{ fontSize: "14px", color: "#93979f" }}>
-                Priya N. · Head of Product Marketing, Northwind
+                Illustrative product demo · Not a customer endorsement
               </span>
             </div>
           </div>
