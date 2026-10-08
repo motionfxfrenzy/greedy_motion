@@ -138,7 +138,9 @@ State on 2026-10-07 (S = staging, P = production).
 - [ ] Railway production public domain for the API (needed before production leaves "Coming soon").
 - [ ] Render worker hosted (AWS ECS scripts in `infra/aws/`); DB-03 worker role.
 - [x] R2 for render outputs (`STORAGE_DRIVER=r2`, S and P).
-- [ ] R2 for screenshots, logos, fonts, audio and snapshots; lifecycle rule on `incoming/`; bucket CORS.
+- [x] R2 for screenshots, logos, fonts, audio and snapshots (S): `greedymotion-staging-media`, `R2_MEDIA_BUCKET`, staging key scoped to it (2026-10-08). P: create `greedymotion-production-media`, add it to the production key, set `R2_MEDIA_BUCKET`, run `scripts/backfill-media.ts`.
+- [x] Lifecycle: `media/brands/_staging/` expires after 1 day (S, rule `expire-pending-brand-uploads`; P to do).
+- [ ] Lifecycle on `jobs/` in the uploads buckets; bucket CORS.
 - [x] Vercel projects with Supabase/API variables and branch-only builds (S, P).
 - [x] GitHub branches `main`, `staging`, `production`.
 - [ ] GitHub branch protection rules; CI required checks.

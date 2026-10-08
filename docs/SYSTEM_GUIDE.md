@@ -33,7 +33,7 @@ Greedy Motion turns a brief, screenshots and brand settings into a storyboard, a
 | Video worker | AWS ECS Fargate | Queue consumption, HyperFrames, Chromium, FFmpeg, rendering progress and output upload |
 | Authentication and database | Supabase | User identities/sessions, application records and pg-boss queues |
 | Render object storage | Cloudflare R2 | Prepared render folders and finished MP4 files |
-| Original media and generated working assets | Railway backend volume at `/data` | Screenshots, brand logos/fonts/CSS, site snapshots and generated audio |
+| Original media and generated working assets | Cloudflare R2 media bucket (`media/`), cached on the backend disk at `/data` | Screenshots, brand logos/fonts/CSS, site snapshots and generated audio. **Staging since 2026-10-08 (MEDIA-03); production still keeps them only on its volume until this release reaches it.** |
 | Application source and reusable creative definitions | GitHub repository | Code, templates, theme presets, bundled fonts, prompt rules and deployment definitions |
 
 ```mermaid
@@ -43,7 +43,8 @@ flowchart LR
     U -->|HTTPS API calls with JWT| A[Railway: Fastify backend]
     A -->|Validate JWT via JWKS| S
     A -->|Projects, brands, jobs, queues| D[(Supabase Postgres)]
-    A -->|Original media and audio| P[(Railway /data volume)]
+    A -->|Original media and audio| M[(R2 media bucket)]
+    A -.->|Cache| P[(Backend disk /data)]
     A -->|Script and beat plan| C[Anthropic]
     A -->|Voice and music| G[Google generation APIs]
     A -->|Prepared composition files| I[(R2 uploads bucket)]
@@ -245,7 +246,9 @@ The prepared composition includes everything the worker needs. No shared Railway
 | Worker runtime logs | CloudWatch | `/ecs/greedymotion-<environment>-worker` | ECS logging / operator |
 | Backend and frontend logs | Railway and Vercel | Platform deployment/runtime logs | Runtime / operator |
 
-**The R2 bucket named `uploads` is currently a render-transfer store.** It does not mean every original user upload is stored there. Original screenshots, brand media and generated audio remain on Railway; copies of the inputs needed for a particular render are placed in that render's R2 folder.
+**The R2 bucket named `uploads` is a render-transfer store.** Original user media lives in the separate **media bucket** (`greedymotion-<env>-media`, set by `R2_MEDIA_BUCKET`). Every media write goes through `backend/src/media.ts`, which writes the file to the local directory and to R2 under `media/<projects|brands|audio>/<same path>`; every read fetches a file the local disk lacks back from R2. The `/data` rows in the table above are therefore the **cache layout**; the durable copy is the same path under `media/` in R2. Copies of the inputs a particular render needs still go to that render's folder in the uploads bucket.
+
+Status: staging runs this (all 7 existing volume files backfilled and MD5-verified with `scripts/backfill-media.ts`; files deleted from the volume came back byte-identical through the public routes). Production keeps media only on its volume until the release, its `greedymotion-production-media` bucket and the backfill reach it.
 
 ### Production filesystem layouts
 
@@ -281,6 +284,11 @@ jobs/<jobId>/project/
   audio/vo/*
   audio/music/*
   sfx/*
+
+R2 media bucket (durable; mirrors the /data layout above)
+media/projects/<projectId>/screenshots/*, site/*
+media/brands/<brandId>/*, media/brands/_staging/*
+media/audio/plans/<projectId>/vo/*, music/*
 
 R2 outputs bucket
 renders/<jobId>/a1.mp4
@@ -536,7 +544,7 @@ Railway's service API read-back reported `/readyz` and timeout 120 seconds, whil
 
 ### Durability and recovery boundaries
 
-A complete application recovery needs **all three** of the database, original media volume and R2 objects, plus a compatible source/image release and configuration. A database backup alone cannot restore a missing uploaded logo or screenshot. An R2 output alone cannot restore an editable project and its original sources.
+A complete application recovery needs the database and the R2 buckets (media and outputs), plus a compatible source/image release and configuration. Where MEDIA-03 is deployed (staging), the backend volume is only a cache: losing it costs re-downloads, not data. Where it is not yet deployed (production until release), the original media volume is still a third requirement: a database backup alone cannot restore a missing uploaded logo or screenshot.
 
 | Loss/restart | What survives | What may be lost or unavailable |
 | --- | --- | --- |
