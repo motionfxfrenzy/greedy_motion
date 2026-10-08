@@ -68,8 +68,9 @@ This is the operating record for the project. The backlog remains the source of 
 
 ## Current blocker
 
-None. The backend must stay at one replica on Railway until screenshots, logos, fonts, plan audio and site snapshots
-move from its `/data` volume to R2 (MEDIA-03 below).
+None. MEDIA-03 is half done (2026-10-08): on staging, user media is stored in the R2 media bucket and `/data` is only a
+cache. The backend still runs one replica until the remaining MEDIA-03 steps (signed media URLs, 2 replicas without the
+volume) pass, and production keeps media on its volume until the release reaches it.
 
 ## Next actions in dependency order
 
