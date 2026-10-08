@@ -35,7 +35,8 @@ export function AuthPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       setSceneIdx((s) => (s + 1) % SCENES.length);
-    }, 2800);
+      // Long enough for each scene's entrance motion (scene-frame.tsx) to finish and be read.
+    }, 3600);
     return () => clearInterval(timer);
   }, []);
 
