@@ -323,7 +323,35 @@ export function Studio() {
 }
 
 function AppHeader({ view, setView }: { view: View; setView: (view: View) => void }) {
-  return <header className="relay-topbar"><button className="gm-brand" onClick={() => setView("projects")}><img src="/brand/gm-mark.svg" alt="" /><span><b>Greedy</b> <em>Motion</em></span></button><nav>{(["projects", "templates", "brand-kits", "library"] as const).map((item) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => setView(item)}>{item === "brand-kits" ? "Brand kits" : item[0].toUpperCase() + item.slice(1)}</button>)}</nav><button onClick={async () => { await createClient().auth.signOut(); window.location.href = "/auth"; }}>Sign out</button></header>;
+  return <header className="relay-topbar"><button className="gm-brand" onClick={() => setView("projects")}><img src="/brand/gm-mark.svg" alt="" /><span><b>Greedy</b> <em>Motion</em></span></button><nav>{(["projects", "templates", "brand-kits", "library"] as const).map((item) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => setView(item)}>{item === "brand-kits" ? "Brand kits" : item[0].toUpperCase() + item.slice(1)}</button>)}</nav><SignOutButton /></header>;
+}
+
+/** Sign out behind a confirmation, so a stray click does not end the session. */
+function SignOutButton() {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [leaving, setLeaving] = useState(false);
+  const close = () => { if (!leaving) dialogRef.current?.close(); };
+  const signOut = async () => {
+    setLeaving(true);
+    await createClient().auth.signOut().catch(() => undefined);
+    window.location.href = "/auth";
+  };
+  return (
+    <>
+      <button className="sign-out" onClick={() => dialogRef.current?.showModal()}>Sign out</button>
+      <dialog ref={dialogRef} className="confirm-dialog" aria-labelledby="sign-out-title" onCancel={(event) => { if (leaving) event.preventDefault(); }} onClick={(event) => { if (event.target === dialogRef.current) close(); }}>
+        <h2 id="sign-out-title">Sign out of Greedy Motion?</h2>
+        <p>Your projects are saved. You can sign back in at any time.</p>
+        <footer>
+          <button className="secondary-button" onClick={close} disabled={leaving}>Cancel</button>
+          <button className="primary-button" onClick={() => void signOut()} disabled={leaving} aria-busy={leaving} autoFocus>
+            {leaving && <span className="gm-spinner" aria-hidden="true" />}
+            {leaving ? "Signing out…" : "Sign out"}
+          </button>
+        </footer>
+      </dialog>
+    </>
+  );
 }
 
 function CreationHeader({ name, state, step, reachable, back, go, openStudio }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void }) {
