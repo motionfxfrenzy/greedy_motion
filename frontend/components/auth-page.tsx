@@ -64,8 +64,11 @@ export function AuthPage() {
       setSent(true);
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      setBusy(false);
-      if (error) return setAuthError(error.message);
+      // On success the button keeps its spinner until the workspace replaces this page.
+      if (error) {
+        setBusy(false);
+        return setAuthError(error.message);
+      }
       router.replace(next);
       router.refresh();
     }
@@ -390,7 +393,12 @@ export function AuthPage() {
                     <button
                       type="submit"
                       disabled={busy}
+                      aria-busy={busy}
                       style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "10px",
                         marginTop: "4px",
                         padding: "14px",
                         border: 0,
@@ -399,11 +407,13 @@ export function AuthPage() {
                         color: "#fff",
                         fontSize: "15px",
                         fontWeight: 500,
-                        cursor: "pointer",
+                        cursor: busy ? "progress" : "pointer",
+                        opacity: busy ? 0.85 : 1,
                         boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
                       }}
                     >
-                      {busy ? "Please wait…" : isSignup ? "Create account" : "Sign in"}
+                      {busy && <span className="gm-spinner" aria-hidden="true" />}
+                      {busy ? (isSignup ? "Creating account…" : "Signing in…") : isSignup ? "Create account" : "Sign in"}
                     </button>
 
                     <span style={{ fontSize: "13px", color: "#93979f", lineHeight: 1.5, textAlign: "center" }}>
