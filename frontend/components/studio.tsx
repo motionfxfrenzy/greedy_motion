@@ -6,6 +6,7 @@ import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, type FrameLook } from "./beat-storyboard";
 import { createClient } from "../utils/supabase/client";
+import { useMediaToken } from "../lib/use-media-token";
 import { addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
 
 type View = "projects" | "templates" | "brand-kits" | "library" | "create" | "studio";
@@ -47,6 +48,8 @@ function lookFor(brief: ScriptBrief, brands: BrandKit[]): FrameLook {
 }
 
 export function Studio() {
+  // Re-renders the workspace (screenshots, logos, videos) when the media token arrives or renews.
+  useMediaToken();
   const [view, setView] = useState<View>("projects");
   const [step, setStep] = useState<Step>(0);
   const [projects, setProjects] = useState<VideoProject[]>([]);

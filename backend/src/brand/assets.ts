@@ -13,7 +13,8 @@ export const FONT_MAX_BYTES = 3_000_000;
 export type FontFormat = "woff2" | "woff" | "ttf" | "otf";
 /** Monochrome logos can be inverted for backgrounds they would vanish on; colored logos are never altered. */
 export type LogoTone = "dark" | "light" | "color";
-export type StagedAsset = { assetId: string; kind: "logo" | "font"; format: "png" | FontFormat; width?: number; height?: number; tone?: LogoTone };
+// ownerId: the user who uploaded or extracted it; only they can preview it or build a kit from it.
+export type StagedAsset = { assetId: string; kind: "logo" | "font"; format: "png" | FontFormat; width?: number; height?: number; tone?: LogoTone; ownerId?: string };
 
 export class AssetRejected extends Error {}
 
@@ -67,15 +68,15 @@ export function detectFont(input: Buffer): FontFormat {
   throw new AssetRejected("Fonts must be WOFF2, WOFF, TTF, or OTF files.");
 }
 
-export async function stageLogo(input: Buffer): Promise<StagedAsset> {
+export async function stageLogo(input: Buffer, ownerId?: string): Promise<StagedAsset> {
   const { data, width, height, tone } = await normalizeLogo(input);
-  const asset: StagedAsset = { assetId: randomUUID(), kind: "logo", format: "png", width, height, tone };
+  const asset: StagedAsset = { assetId: randomUUID(), kind: "logo", format: "png", width, height, tone, ...(ownerId ? { ownerId } : {}) };
   await writeStaged(asset, data);
   return asset;
 }
 
-export async function stageFont(input: Buffer): Promise<StagedAsset> {
-  const asset: StagedAsset = { assetId: randomUUID(), kind: "font", format: detectFont(input) };
+export async function stageFont(input: Buffer, ownerId?: string): Promise<StagedAsset> {
+  const asset: StagedAsset = { assetId: randomUUID(), kind: "font", format: detectFont(input), ...(ownerId ? { ownerId } : {}) };
   await writeStaged(asset, input);
   return asset;
 }
@@ -85,11 +86,13 @@ async function writeStaged(asset: StagedAsset, data: Buffer) {
   await saveMedia(join(stagingDir(), `${asset.assetId}.json`), JSON.stringify(asset));
 }
 
-export async function readStaged(assetId: string, kind: StagedAsset["kind"]) {
+/** A staged asset; with `ownerId`, one staged by another user is reported as unknown. */
+export async function readStaged(assetId: string, kind: StagedAsset["kind"], ownerId?: string) {
   if (!ASSET_ID.test(assetId)) throw new AssetRejected("Unknown asset.");
   const metaBytes = await readMedia(join(stagingDir(), `${assetId}.json`));
   if (!metaBytes) throw new AssetRejected("Unknown or expired asset.");
   const meta = JSON.parse(metaBytes.toString("utf8")) as StagedAsset;
+  if (ownerId && meta.ownerId && meta.ownerId !== ownerId) throw new AssetRejected("Unknown or expired asset.");
   if (meta.kind !== kind) throw new AssetRejected(`Asset is not a ${kind}.`);
   const data = await readMedia(join(stagingDir(), `${assetId}.${meta.format}`));
   if (!data) throw new AssetRejected("Unknown or expired asset.");

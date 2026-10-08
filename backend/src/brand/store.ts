@@ -65,7 +65,7 @@ export function validateBrandInput(body: unknown): BrandKitInput {
 }
 
 /** Writes font files for non-bundled fonts and returns the @font-face rules. */
-async function materializeFont(dir: string, font: BrandFont): Promise<string[]> {
+async function materializeFont(dir: string, font: BrandFont, ownerId?: string): Promise<string[]> {
   if (font.source === "bundled") return [];
   await mkdir(join(dir, "fonts"), { recursive: true });
   const slug = font.family.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -79,7 +79,7 @@ async function materializeFont(dir: string, font: BrandFont): Promise<string[]> 
     }
     return rules;
   }
-  const { meta, data } = await readStaged(font.assetId!, "font");
+  const { meta, data } = await readStaged(font.assetId!, "font", ownerId);
   const family = uploadedFamily(font);
   const file = `${family.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.${meta.format}`;
   await writeFile(join(dir, "fonts", file), data);
@@ -96,7 +96,7 @@ export async function createBrand(input: BrandKitInput, ownerId: string): Promis
     let hasLogo = false;
     const { theme, adjustments } = deriveBrandTheme(input, `brand-${id}`);
     if (input.logoAssetId) {
-      const { data, meta } = await readStaged(input.logoAssetId, "logo");
+      const { data, meta } = await readStaged(input.logoAssetId, "logo", ownerId);
       await writeFile(join(dir, "logo-original.png"), data);
       // A one-color logo that matches the background would vanish: store an inverted copy for this theme.
       const vanishes = (meta.tone === "dark" && theme.mode === "dark") || (meta.tone === "light" && theme.mode === "light");
@@ -106,8 +106,8 @@ export async function createBrand(input: BrandKitInput, ownerId: string): Promis
       hasLogo = true;
     }
     const fontRules = [
-      ...(await materializeFont(dir, input.fonts.heading)),
-      ...(input.fonts.body.family === input.fonts.heading.family && input.fonts.body.source === input.fonts.heading.source ? [] : await materializeFont(dir, input.fonts.body))
+      ...(await materializeFont(dir, input.fonts.heading, ownerId)),
+      ...(input.fonts.body.family === input.fonts.heading.family && input.fonts.body.source === input.fonts.heading.source ? [] : await materializeFont(dir, input.fonts.body, ownerId))
     ];
     await writeFile(join(dir, "fonts.css"), `${fontRules.join("\n")}\n`);
     await writeFile(join(dir, "theme.css"), themeToCss(theme));

@@ -36,7 +36,8 @@ Frontend variables (all public by design): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUB
 | Piece | File | Behaviour |
 | --- | --- | --- |
 | Token check | `backend/src/auth.ts` | `onRequest` hook on `/v1/*`. Verifies the Supabase access token against the project JWKS (`jose`), issuer `<SUPABASE_URL>/auth/v1`, audience `authenticated`. Missing → 401 `unauthenticated`; bad/expired → 401 `invalid_token`. Sets `request.user = { id, email }`. |
-| Open routes | `backend/src/auth.ts` (`openGets`) | GETs used by `<img>`, `<video>` and iframes, which cannot send a header: `/v1/preview/*`, `/v1/renders/:id`, `/v1/projects/:id/screenshots/:sid`, `/v1/brands/:id/logo`, `/v1/brands/assets/:id/preview`. Protected only by unguessable UUIDs (see open items). |
+| Open routes | `backend/src/auth.ts` (`openGets`) | Shared preview files with no user data: `/v1/preview/runtime.js`, `gsap.js`, `fonts/*`, `templates/*/assets/*`, `plan-sfx/*`. |
+| Media links | `backend/src/auth.ts` (`mediaGets`), `backend/src/media-links.ts` | GETs used by `<img>`, `<video>` and the preview iframe, which cannot send a header: `/v1/preview/(projects\|plans\|brands)/*`, `/v1/renders/:id`, `/v1/projects/:id/screenshots/:sid`, `/v1/brands/:id/logo`, `/v1/brands/assets/:id/preview`. They take `?t=<media token>` instead of the Bearer header: `<userId>.<expiry>.<HMAC>` signed with `MEDIA_URL_SECRET`, 12–13 h life, from `GET /v1/media-token`. The ownership hook then applies as for any request, so another user's link is a 404 and an expired or forged one a 401. The backend adds the token to private asset URLs inside preview pages (`signPreviewUrls`); the frontend adds it with `withMediaToken` and renews it via `useMediaToken`. Staged brand uploads record their owner. |
 | Ownership | `backend/src/access.ts` | `preHandler` hook. Another user's project, brand kit or render job returns 404 (same as "does not exist", so ids cannot be probed). Requests that reference a brand kit (`brandId` or `request.brandId` in the body) are refused unless the caller owns it. |
 | Owner on create | `server.ts`, stores | `ownerId` comes from the verified token (`callerId(request)`), never from the request body. |
 | Config | `backend/src/config.ts` | `AUTH_MODE=none` (local only) or `supabase` (required when `APP_ENV` is staging or production). `SUPABASE_URL` must match `EXPECTED_SUPABASE_PROJECT_REF`, so staging cannot point at production by mistake. |
@@ -115,10 +116,10 @@ in [Test users](TEST_USERS.md).
 ## Open items
 
 1. Turn on leaked-password protection in both Supabase projects (security advisor warning).
-2. Media links are open by id (screenshots, logos, previews, rendered video). Fix with R2 + short-lived signed URLs
-   (the storage step below).
-3. Move screenshots, logos, fonts, theme CSS, plan audio and site snapshots to R2, keyed by owner and project; then the
-   backend can run more than one replica and the Railway volume becomes optional.
+2. ~~Media links open by id~~: done on staging 2026-10-08 (media tokens, see "Media links" above). Production needs
+   `MEDIA_URL_SECRET` set **before** this code reaches it, or the backend will not start.
+3. Media in R2: done on staging 2026-10-08 (MEDIA-03, `backend/src/media.ts`). Remaining: two replicas without the
+   volume on staging, then production.
 4. Production backend has no public domain, so the production frontend cannot reach the API (fine while production
    shows "Coming soon").
 5. Production auth settings marked "to confirm" above, and publishing the Google consent screen, before launch.

@@ -2,10 +2,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { BEAT_LIMITS, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
 import { getProject, ProjectInvalid, updateProjectPlan } from "../projects/store.ts";
 import { config } from "../config.ts";
 import { readMedia } from "../media.ts";
+import { mediaToken, signPreviewUrls } from "../media-links.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
 import { director } from "./director.ts";
 import { SFX } from "./sound.ts";
@@ -247,7 +249,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (!project) return reply.code(404).send(notFound);
     if (!project.beatPlan) return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
     try {
-      const html = await planPreviewHtml(project);
+      const html = signPreviewUrls(await planPreviewHtml(project), mediaToken(callerId(request)).token);
       return reply
         .header("Content-Type", "text/html; charset=utf-8")
         .header("Cache-Control", "no-store")

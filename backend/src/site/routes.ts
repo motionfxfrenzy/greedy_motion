@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { BrandExtraction, BrandKit, SiteCapture, SiteSection } from "@videosaas/contracts";
+import { callerId } from "../auth.ts";
 import { extractBrand } from "../brand/extract.ts";
 import { listBrands } from "../brand/store.ts";
 import { FetchRefused } from "../brand/safe-fetch.ts";
@@ -46,7 +47,7 @@ export async function registerSiteRoutes(app: FastifyInstance) {
       return await serial(project.id, async () => {
         const [read, brand, savedBrand] = await Promise.all([
           readSite(full),
-          extractBrand(full).then((value): BrandExtraction | null => value, () => null),
+          extractBrand(full, callerId(request)).then((value): BrandExtraction | null => value, () => null),
           savedKitFor(full)
         ]);
         // The rendered page's own colours (CTA fills, logo, accents) beat CSS-frequency guesses: they lead the

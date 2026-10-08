@@ -85,8 +85,13 @@ const auth = authMode === "supabase"
 // Supabase user id that should adopt them.
 const legacyOwnerId = auth.mode === "none" ? LOCAL_USER_ID : (process.env.LEGACY_OWNER_ID ?? "");
 
+// Signs the short-lived media tokens in media links (media-links.ts). Every replica must share it.
+const mediaUrlSecret = process.env.MEDIA_URL_SECRET ?? (auth.mode === "none" ? "local-development-media-url-secret" : "");
+if (mediaUrlSecret.length < 32) throw new Error("MEDIA_URL_SECRET (32+ random characters) is required when AUTH_MODE=supabase.");
+
 export const config = {
   auth,
+  mediaUrlSecret,
   legacyOwnerId,
   storageDriver: storageDriver as "filesystem" | "r2",
   r2,

@@ -6,9 +6,10 @@ import { renderJobRepository } from "./render/repository.ts";
 import { config } from "./config.ts";
 
 const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const projectPath = new RegExp(`^/v1/projects/(${uuid})(?:/|$)`, "i");
-const brandPath = new RegExp(`^/v1/brands/(${uuid})(?:/|$)`, "i");
-const jobPath = new RegExp(`^/v1/render-jobs/(${uuid})$`, "i");
+// The preview/ forms are the media routes the storyboard iframe loads (auth.ts mediaGets).
+const projectPath = new RegExp(`^/v1/(?:preview/)?(?:projects|plans)/(${uuid})(?:/|$)`, "i");
+const brandPath = new RegExp(`^/v1/(?:preview/)?brands/(${uuid})(?:/|$)`, "i");
+const jobPath = new RegExp(`^/v1/(?:render-jobs|renders)/(${uuid})$`, "i");
 
 const notFound = (reply: FastifyReply, message: string) => reply.code(404).send({ error: { code: "not_found", message } });
 

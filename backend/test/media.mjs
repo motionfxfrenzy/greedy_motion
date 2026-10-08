@@ -59,6 +59,19 @@ try {
       assert.equal(await readMedia(shot), null);
     });
   }
+  await check("preview pages sign private asset URLs only", async () => {
+    const { signPreviewUrls, mediaToken, verifyMediaToken } = await import("../src/media-links.ts");
+    const user = "00000000-0000-4000-8000-00000000000a";
+    const { token } = mediaToken(user);
+    assert.equal(verifyMediaToken(token), user);
+    assert.equal(verifyMediaToken(token, Date.now() + 14 * 3600_000), null, "expired");
+    const html = `<img src="/api/preview/projects/p1/screenshots/s1"><style>@font-face{src:url("/api/preview/brands/b1/fonts/x.woff2")}</style>` +
+      `<script src="/api/preview/runtime.js"></script><script>{"src":"/api/preview/plans/p1/audio/vo/a.wav"}</script><audio src="/api/preview/plan-sfx/whoosh.mp3">`;
+    const signed = signPreviewUrls(html, token);
+    const t = `t=${encodeURIComponent(token)}`;
+    for (const url of ["/api/preview/projects/p1/screenshots/s1", "/api/preview/brands/b1/fonts/x.woff2", "/api/preview/plans/p1/audio/vo/a.wav"]) assert.ok(signed.includes(`${url}?${t}`), url);
+    assert.ok(signed.includes('"/api/preview/runtime.js"') && signed.includes('"/api/preview/plan-sfx/whoosh.mp3"'), "shared files stay bare");
+  });
   console.log(`${passed} checks passed (${mediaInR2 ? "R2" : "filesystem"})`);
 } finally {
   await rm(scratch, { recursive: true, force: true });
