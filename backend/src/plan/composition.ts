@@ -107,15 +107,18 @@ export type EngineInputs = {
   brandName: string;
   logo?: string | null;
   logoWordmark?: boolean;
+  /** Drawing style (contracts looks.ts); the engine reads it as the `look` variable. */
+  look?: string;
 };
 
-/** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`. */
+/** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `look`. */
 export function engineVariables(input: EngineInputs): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {
     plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes)),
     brandName: input.brandName,
     logo: input.logo ?? "",
-    logoWordmark: Boolean(input.logo && input.logoWordmark)
+    logoWordmark: Boolean(input.logo && input.logoWordmark),
+    look: input.look ?? "clean"
   };
   for (const [id, url] of Object.entries(input.shots)) values[`shot.${id}`] = url;
   return values;

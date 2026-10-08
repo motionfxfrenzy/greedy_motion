@@ -20,7 +20,7 @@ so a saved Studio revision—not browser-only state—is what gets rendered.
 ## Stack
 
 - **Frontend:** Next.js + React (`frontend/`)
-- **Backend:** Fastify, persisted project JSON, and PostgreSQL/pg-boss render jobs (`backend/`)
+- **Backend:** Fastify, PostgreSQL project/brand records, and pg-boss render jobs (`backend/`)
 - **Renderer:** Docker worker using HyperFrames (`worker/`)
 - **Preview/editor:** `@hyperframes/player`, with product-owned scene,
   timeline, review, and inspector UI
@@ -120,10 +120,15 @@ instead of embedding a full open-source timeline editor, is in
 
 ## Documentation
 
+- [Complete application, infrastructure and storage guide](docs/SYSTEM_GUIDE.md) — current system map, templates/presets, data locations, deployment flow and operating limits.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Deployment map](docs/DEPLOYMENT.md)
+- [Environments and live resources](docs/ENVIRONMENTS.md)
+- [Authentication, ownership and data](docs/AUTH_AND_DATA.md)
+- [Progress log](docs/PROGRESS.md)
 - [Render queue](docs/RENDER_QUEUE.md)
 - [Starter templates](docs/TEMPLATES.md)
+- [Creative library plan](docs/CREATIVE_LIBRARY_PLAN.md) — reference packs, Anime.js, Rough.js, p5.js
 - [Brand kits, music, and voiceover](docs/BRAND_AND_AUDIO.md)
 - [Studio editor decision](docs/STUDIO_EDITOR_DECISION.md)
 - [Editing and AI revisions](docs/EDITING.md) — longer-term design exploration

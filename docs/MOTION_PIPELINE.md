@@ -150,12 +150,44 @@ so they are treated like code review.
 | # | Test | Pass criteria | Est. cost |
 |---|---|---|---|
 | T1 ✅ | **Hybrid film.** 2D HyperFrames + two new Nano Banana → Veo shots | Seams verified on both sides; clip vs HTML ground within ΔE 5 **and no visible clip edge in `seams.jpg`**; `check` 0 findings | Passed after one fix (clip edge showed during the seam move). $2.81 for the whole test |
-| T2 | **Clip length.** Veo at 4s / 6s / 8s at 720p and 1080p, with and without a last frame | A table of which combinations are allowed, and wasted seconds per shot | ~$3 |
+| T2 ✅ | **Clip length.** Veo at 4s / 6s / 8s at 720p and 1080p, with and without a last frame | A table of which combinations are allowed, and wasted seconds per shot | Passed 2026-10-08 ($2.20 billed; rejected requests are free). See the T2 table below |
 | T3 ✅ | **Brand fidelity.** Keyframes with the mark and palette as references; then Veo animates around a blank space where HyperFrames puts the real logo | Brand colour within ΔE 10 of the token on the keyframe and through the clip | Passed: blue ΔE 5.5–7.9, orange ΔE 4.0–8.5; Veo drifts ≤ 1.6 ΔE. ΔE 5 is not reachable by prompting alone |
-| T4 | **Continuity.** Chain two shots (last frame → first frame) | No visible jump in light or materials at the join | ~$3 |
+| T4 ✅ | **Continuity.** Chain two shots (last frame → first frame) | No visible jump in light or materials at the join | Passed 2026-10-08 ($0.40): no visible jump; join SSIM 0.976 vs 0.998 between neighbouring frames (re-encoded first frame). Clip 2's action drifted from its prompt |
 | T5 ✅ | **Seam match.** A Veo camera move matching a ledger row (e.g. truck left at the cut) | Measured motion vector at the cut has the same axis and sign as the 2D side | Passed on both clips. Veo gets the direction right but moves 10–40× slower than the cut, so the HTML layer carries the speed |
-| T6 | **Fallback.** Force a 3D shot to fail | The video still renders using the 2D fallback slot | $0 |
+| T6 ✅ | **Fallback.** Force a 3D shot to fail | The video still renders using the 2D fallback slot | Passed 2026-10-08 ($0): a `3d` and a `footage` beat with no clip render as their kinetic fallbacks; full 8.5 s timeline, no errors (`experiments/shot-direction/t6.mjs`) |
 
+
+### Results, 2026-10-08 (phase 3: shot direction, T2, T4, T6)
+
+Spend $4.69 against a $12 cap: Claude prompt writing $0.47, 9 Nano Banana Pro keyframes $1.21, Gemini judge $0.003,
+Veo 3.1 fast $3.00. All test media stays in `experiments/shot-direction/`; nothing touched production.
+
+**T2: what Veo 3.1 fast accepts** (image-to-video)
+
+| Request | Result | Billed |
+|---|---|---|
+| 720p, 4 s / 6 s / 8 s, first frame only | Allowed; all usable | $0.40 / $0.60 / $0.80 |
+| 1080p, 4 s | **Rejected** ("1080p is not supported for a duration of 4 seconds") | $0 |
+| Last frame at 4 s or 6 s (720p) | **Rejected** ("use case not supported") | $0 |
+| Last frame at 8 s (720p; 1080p on 2026-10-04) | Allowed | $0.80 |
+
+- **Cost lever:** a shot whose action fits in ~4 s and needs no end frame costs $0.40 (720p, 4 s) instead of
+  $0.96 (1080p, 8 s): the 4 s clip was action from first frame to last, while the 8 s clip ended in a 2.5 s
+  still hold that the pacing gate would cut. Only shots that need a fixed end frame pay for 8 s.
+- **A last frame must be a later state of the action.** A "crop-push" end frame (a tighter crop of a mid-pour
+  first frame) made Veo pour, set the carton down, pick it up and pour again to land on it. Use crop-push only
+  on shots where only the camera moves.
+
+**Shot-direction A/B.** Claude wrote the prompts for three sample briefs twice, with the director's old
+one-line rule and with `gm-script-director/references/shot-direction.md` (curated from The Ad Director pack).
+The first curated version, which led with the product as hero, turned an action beat into a static CGI
+packshot; the third version (lead with the action, NO TEXT block second, lenses by beat role, a keyframe is a
+still, the product performs its own action) matched or beat the baseline on all three: clearly better action
+fidelity on the person shot (she closes the laptop; the baseline had her typing), more photographic material on
+the product shots, no text in any image. The automatic Gemini judge was inconsistent between near-identical
+images, so review by eye decided. The director now compiles the reference into its prompt (with prompt caching);
+a real director run produced two generated beats that lead with the action, carry the NO TEXT block and chose
+4 s clips with no end frame.
 
 ### Results so far (2026-10-04 hybrid test)
 

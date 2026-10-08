@@ -1,0 +1,75 @@
+# Quality gates for every push and pull request to main, staging and production.
+# - checks:   types, template catalog, brand-token lint, engine/fixture freshness (no services needed)
+# - ownership: per-user isolation and concurrent writes against a real Postgres (backend/test/ownership.mjs)
+# - creative: renders every library/engine composition twice (identical frames) and under two brands (different
+#             frames), software GPU (scripts/check-creative.mjs)
+name: ci
+
+on:
+  push:
+    branches: [main, staging, production]
+  pull_request:
+    branches: [main, staging, production]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run templates:verify
+      - run: npm run check:brand-tokens
+      - run: node worker/templates/beat-plan/build.mjs --check
+      - run: node scripts/build-engine-fixtures.mjs --check
+
+  ownership:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: videosaas
+          POSTGRES_PASSWORD: videosaas
+          POSTGRES_DB: videosaas
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U videosaas" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://videosaas:videosaas@127.0.0.1:5432/videosaas
+      APP_ENV: local
+      PLANNER: deterministic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:ownership -w backend
+
+  creative:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx --no-install hyperframes browser ensure
+      - run: node scripts/check-creative.mjs
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: creative-failure-captures
+          path: validation/creative-libraries/last-failure/
+          if-no-files-found: ignore

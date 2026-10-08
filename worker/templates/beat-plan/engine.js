@@ -170,9 +170,52 @@
       });
     });
     var lines = kf.phrases ? kf.phrases.length : lineCount(String(str).split(/\s+/).filter(Boolean), fs, (maxW || W) * 0.94, K);
-    var ul = null;
-    if (spans.length) { ul = mk("i", "ul", spans[spans.length - 1]); tl.set(ul, { scaleX: 0 }, 0); }
-    return { el: el, spans: spans, ul: ul, fs: fs, lines: lines };
+    var ul = null, ink = null;
+    if (spans.length && SKETCH) ink = sketchUnderline(spans[spans.length - 1], str);
+    else if (spans.length) { ul = mk("i", "ul", spans[spans.length - 1]); tl.set(ul, { scaleX: 0 }, 0); }
+    return { el: el, spans: spans, ul: ul, ink: ink, fs: fs, lines: lines };
+  }
+
+  // ---------- Sketch look (Rough.js): hand-drawn ink that draws on through the timeline ----------
+  // Every shape is seeded from the beat, so each frame (and every re-render) draws the same ink; the
+  // colour is a theme token (currentColor of the accent word, or --bp-accent), never a literal.
+  var SKETCH = V.look === "sketch" && !!window.rough;
+  var SVGNS = "http://www.w3.org/2000/svg";
+  function seedOf(s) { var h = 2166136261; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h >>> 1) % 2147483646) + 1; }
+  function inkSvg(parent, css, w, h) {
+    var s = document.createElementNS(SVGNS, "svg");
+    s.setAttribute("viewBox", "0 0 " + w + " " + h); s.setAttribute("preserveAspectRatio", "none"); s.setAttribute("class", "ink");
+    Object.assign(s.style, { position: "absolute", overflow: "visible", pointerEvents: "none" }, css);
+    parent.appendChild(s); return free(s);
+  }
+  function inkPaths(svgEl, color, width) {
+    var ps = Array.prototype.slice.call(svgEl.querySelectorAll("path"));
+    ps.forEach(function (p) {
+      p.style.stroke = color; p.style.fill = "none"; p.style.strokeWidth = px(width);
+      p.setAttribute("vector-effect", "non-scaling-stroke"); p.setAttribute("stroke-linecap", "round");
+      var n = Math.ceil(p.getTotalLength()) + 2; p.style.strokeDasharray = n; p.style.strokeDashoffset = n; p.__len = n;
+    });
+    return ps;
+  }
+  function inkDraw(ps, t, d) {
+    if (!ps || !ps.length) return;
+    tl.fromTo(ps, { strokeDashoffset: function (i, el) { return el.__len; } }, { strokeDashoffset: 0, duration: d, ease: "power2.inOut", stagger: d * 0.15 }, snap(t));
+  }
+  function sketchUnderline(span, str) {
+    var sv = inkSvg(span, { left: "-0.04em", width: "calc(100% + 0.08em)", bottom: "-0.2em", height: "0.3em" }, 100, 12);
+    sv.appendChild(rough.svg(sv).line(2, 7, 98, 5, { seed: seedOf("ul|" + str), roughness: 1.2, bowing: 1.6 }));
+    return inkPaths(sv, "currentColor", clamp(Math.min(W, H) * 0.005, 4, 8));
+  }
+  // The ring sits on a screenshot that may be light or dark, so it is drawn in the loud brand accent over a
+  // halo in the card colour: the same seeded ellipse twice, so the two always line up.
+  function sketchRing(parent, x, y, w, h, key, t) {
+    var pad = 16, ww = w + 2 * pad, hh = h + 2 * pad, box = { left: px(x - w / 2 - pad), top: px(y - h / 2 - pad), width: px(ww), height: px(hh) };
+    var weight = clamp(Math.min(W, H) * 0.005, 4, 7), opts = { seed: seedOf("ring|" + key), roughness: 1.5, bowing: 1.1 };
+    var halo = inkSvg(parent, Object.assign({ opacity: "0.75" }, box), ww, hh), ink = inkSvg(parent, box, ww, hh);
+    halo.appendChild(rough.svg(halo).ellipse(ww / 2, hh / 2, w, h, opts));
+    ink.appendChild(rough.svg(ink).ellipse(ww / 2, hh / 2, w, h, opts));
+    inkDraw(inkPaths(halo, "var(--bp-card)", weight + 5), t, 0.55);
+    inkDraw(inkPaths(ink, "var(--bp-accent-on-brand)", weight), t, 0.55);
   }
   function waterfall(kw, t) {
     var gap = P.gap, at = t, lift = clamp(kw.fs * 0.42, 40, 80);
@@ -184,7 +227,10 @@
     });
     return at + P.wordD;
   }
-  function underline(kw, t) { if (kw.ul) tl.fromTo(kw.ul, { scaleX: 0 }, { scaleX: 1, duration: 0.42, ease: "power3.out" }, snap(t)); }
+  function underline(kw, t) {
+    if (kw.ink) inkDraw(kw.ink, t, 0.45);
+    else if (kw.ul) tl.fromTo(kw.ul, { scaleX: 0 }, { scaleX: 1, duration: 0.42, ease: "power3.out" }, snap(t));
+  }
   function rise(e, t, dist) { hide(e); showAt(e, t); tl.fromTo(e, { y: dist || 30 }, { y: 0, duration: P.popD, ease: P.inE }, snap(t)); }
   function checkPop(parent, x, y, size, t) {
     var burst = free(mk("div", "burst", parent, { left: x - size / 2, top: y - size / 2, width: size, height: size }));
@@ -442,6 +488,9 @@
     var aim = act === "select" ? [tx - 0.14 * iw, ty - 0.09 * ih] : [tx, ty];
     var arrive = tv - 0.1, travel = clamp(arrive - (s + 0.16), 0.45, 0.9);
     go(cx + aim[0], cy + aim[1], arrive - travel, travel, P.travelE === "expo.out" ? "expo.out" : "power3.out");
+    // Sketch look: a hand-drawn ring lands around the target as the cursor arrives (in camera space, so it
+    // moves with the card and is never clipped by it)
+    if (SKETCH && act !== "type" && act !== "scroll") sketchRing(sh.cam, cx + aim[0], cy + aim[1], clamp(0.24 * iw, 150, 420), clamp(0.18 * ih, 96, 240), b.id, tv - 0.05);
     var done = tv + 0.3, sz = Math.min(W, H);
     if (act === "type") {
       var str = onScreen && onScreen.length <= 32 ? onScreen : kwText;
@@ -671,5 +720,6 @@
   });
   LOG.total = TOTAL;
   tl.set({}, {}, snap(TOTAL));
+  window.__timelines = window.__timelines || {};
   window.__timelines["main"] = tl;
 })();
