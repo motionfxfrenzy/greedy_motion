@@ -5,6 +5,7 @@ import { BEAT_LIMITS, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief
 import { getBrand } from "../brand/store.ts";
 import { getProject, ProjectInvalid, updateProjectPlan } from "../projects/store.ts";
 import { config } from "../config.ts";
+import { readMedia } from "../media.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
 import { director } from "./director.ts";
 import { SFX } from "./sound.ts";
@@ -187,7 +188,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
   app.get<{ Params: { projectId: string; folder: string; file: string } }>("/v1/preview/plans/:projectId/audio/:folder/:file", async (request, reply) => {
     const { projectId, folder, file } = request.params;
     if (!/^[0-9a-f-]{36}$/i.test(projectId) || (folder !== "vo" && folder !== "music") || !/^[0-9a-f]{20}\.(wav|mp3)$/.test(file)) return reply.code(404).send(notFound);
-    const bytes = await readFile(join(planAudioDir(projectId), folder, file)).catch(() => null);
+    const bytes = await readMedia(join(planAudioDir(projectId), folder, file)).catch(() => null);
     if (!bytes) return reply.code(404).send({ error: { code: "not_found", message: "Audio not found." } });
     return sendMedia(request, reply, bytes, audioType(file));
   });

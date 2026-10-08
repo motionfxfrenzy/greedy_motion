@@ -2,10 +2,10 @@
 // run and nothing but pixels reaches the renderer); fonts are accepted only by their binary signature.
 // Uploads are staged until a brand kit is saved.
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { config } from "../config.ts";
+import { readMedia, saveMedia } from "../media.ts";
 
 export const LOGO_MAX_BYTES = 5_000_000;
 export const FONT_MAX_BYTES = 3_000_000;
@@ -81,14 +81,17 @@ export async function stageFont(input: Buffer): Promise<StagedAsset> {
 }
 
 async function writeStaged(asset: StagedAsset, data: Buffer) {
-  await mkdir(stagingDir(), { recursive: true });
-  await writeFile(join(stagingDir(), `${asset.assetId}.${asset.format}`), data);
-  await writeFile(join(stagingDir(), `${asset.assetId}.json`), JSON.stringify(asset));
+  await saveMedia(join(stagingDir(), `${asset.assetId}.${asset.format}`), data);
+  await saveMedia(join(stagingDir(), `${asset.assetId}.json`), JSON.stringify(asset));
 }
 
 export async function readStaged(assetId: string, kind: StagedAsset["kind"]) {
   if (!ASSET_ID.test(assetId)) throw new AssetRejected("Unknown asset.");
-  const meta = JSON.parse(await readFile(join(stagingDir(), `${assetId}.json`), "utf8").catch(() => { throw new AssetRejected("Unknown or expired asset."); })) as StagedAsset;
+  const metaBytes = await readMedia(join(stagingDir(), `${assetId}.json`));
+  if (!metaBytes) throw new AssetRejected("Unknown or expired asset.");
+  const meta = JSON.parse(metaBytes.toString("utf8")) as StagedAsset;
   if (meta.kind !== kind) throw new AssetRejected(`Asset is not a ${kind}.`);
-  return { meta, data: await readFile(join(stagingDir(), `${assetId}.${meta.format}`)) };
+  const data = await readMedia(join(stagingDir(), `${assetId}.${meta.format}`));
+  if (!data) throw new AssetRejected("Unknown or expired asset.");
+  return { meta, data };
 }

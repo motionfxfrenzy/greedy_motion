@@ -42,7 +42,8 @@ const positiveInt = (name: string, fallback: number) => {
 };
 
 // Object storage. "filesystem" keeps everything on local disk shared with the worker (local dev). "r2" puts
-// the worker's inputs and outputs in Cloudflare R2 (S3 API) so backend and worker share no volume.
+// the worker's inputs and outputs in Cloudflare R2 (S3 API) so backend and worker share no volume, and
+// makes R2 the durable home of user media; the local media directories are then only a cache (media.ts).
 const storageDriver = process.env.STORAGE_DRIVER ?? "filesystem";
 if (storageDriver !== "filesystem" && storageDriver !== "r2") throw new Error(`STORAGE_DRIVER must be "filesystem" or "r2"; got "${storageDriver}".`);
 const r2 = storageDriver === "r2"
@@ -53,7 +54,10 @@ const r2 = storageDriver === "r2"
         accessKeyId: need("R2_ACCESS_KEY_ID"),
         secretAccessKey: need("R2_SECRET_ACCESS_KEY"),
         uploadsBucket: need("R2_UPLOADS_BUCKET"),
-        outputsBucket: need("R2_OUTPUTS_BUCKET")
+        outputsBucket: need("R2_OUTPUTS_BUCKET"),
+        // Durable user media (screenshots, brand files, generated audio, site snapshots) under media/.
+        // Defaults to the uploads bucket, whose key is already scoped to this environment.
+        mediaBucket: process.env.R2_MEDIA_BUCKET || need("R2_UPLOADS_BUCKET")
       };
     })()
   : null;

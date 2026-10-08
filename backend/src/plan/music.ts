@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { BeatPlan, MotionProfile, Pace, ScriptBrief } from "@videosaas/contracts";
 import { wavDuration } from "../audio/wav.ts";
+import { readMedia, saveMedia } from "../media.ts";
 
 /**
  * The plan's music bed: one Lyria 3 track per film (gemini-tts style request on the Interactions
@@ -62,7 +63,6 @@ export function mp3Duration(mp3: Buffer): number {
   return ((mp3.length - offset) * 8) / bitrate;
 }
 
-const exists = (path: string) => access(path).then(() => true, () => false);
 
 export type MusicTrack = { model: string; prompt: string; file: string; seconds: number; spentUsd: number };
 
@@ -73,8 +73,8 @@ export async function produceMusic(apiKey: string, dir: string, prompt: string, 
   await mkdir(join(dir, "music"), { recursive: true });
   for (const ext of ["mp3", "wav"]) {
     const file = `music/${key}.${ext}`;
-    if (await exists(join(dir, file))) {
-      const bytes = await readFile(join(dir, file));
+    const bytes = await readMedia(join(dir, file));
+    if (bytes) {
       return { model, prompt, file, seconds: ext === "wav" ? wavDuration(bytes) : mp3Duration(bytes), spentUsd: 0 };
     }
   }
@@ -96,6 +96,6 @@ export async function produceMusic(apiKey: string, dir: string, prompt: string, 
   const bytes = Buffer.from(audio.data, "base64");
   const wav = audio.mime_type?.includes("wav") || bytes.toString("ascii", 0, 4) === "RIFF";
   const file = `music/${key}.${wav ? "wav" : "mp3"}`;
-  await writeFile(join(dir, file), bytes);
+  await saveMedia(join(dir, file), bytes);
   return { model, prompt, file, seconds: wav ? wavDuration(bytes) : mp3Duration(bytes), spentUsd: MUSIC_RULES.usd[model] ?? 0.08 };
 }
