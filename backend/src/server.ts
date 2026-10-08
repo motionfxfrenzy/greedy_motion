@@ -415,7 +415,7 @@ app.get<{ Params: { id: string } }>("/v1/brands/:id", async (request, reply) => 
 });
 
 app.get<{ Params: { id: string } }>("/v1/brands/:id/logo", async (request, reply) => {
-  const path = brandLogoPath(request.params.id);
+  const path = await brandLogoPath(request.params.id);
   const size = path ? await stat(path).then((info) => info.size).catch(() => null) : null;
   if (!path || size === null) return reply.code(404).send({ error: { code: "not_found", message: "This brand kit has no logo." } });
   return reply.header("Content-Type", "image/png").header("Content-Length", size).header("X-Content-Type-Options", "nosniff").send(createReadStream(path));

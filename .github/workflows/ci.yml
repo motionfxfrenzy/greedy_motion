@@ -1,5 +1,5 @@
 # Quality gates for every push and pull request to main, staging and production.
-# - checks:   types, template catalog, brand-token lint, engine/fixture freshness (no services needed)
+# - checks:   types, template catalog, brand-token lint, engine/fixture freshness, media layer (no services needed)
 # - ownership: per-user isolation and concurrent writes against a real Postgres (backend/test/ownership.mjs)
 # - creative: renders every library/engine composition twice (identical frames) and under two brands (different
 #             frames), software GPU (scripts/check-creative.mjs)
@@ -30,6 +30,7 @@ jobs:
       - run: npm run check:brand-tokens
       - run: node worker/templates/beat-plan/build.mjs --check
       - run: node scripts/build-engine-fixtures.mjs --check
+      - run: npm run test:media -w backend
 
   ownership:
     runs-on: ubuntu-latest

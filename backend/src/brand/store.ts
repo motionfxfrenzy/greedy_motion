@@ -1,5 +1,5 @@
-// Brand-kit store. Metadata lives in Postgres (app.brand_kits); the files the renderer reads stay on disk,
-// shared read-only with the worker at /brands/<id>/:
+// Brand-kit store. Metadata lives in Postgres (app.brand_kits); the files the renderer reads are kept in
+// R2 (media.ts) and cached on disk at <brandsDir>/<id>/ (shared read-only with the worker at /brands locally):
 //   logo.png     normalized logo (optional)
 //   theme.css    18-token theme derived from the brand colors and fonts
 //   fonts.css    @font-face rules for downloaded or uploaded fonts, relative to brand-fonts/
@@ -14,6 +14,7 @@ import {
 import { config } from "../config.ts";
 import { query } from "../db/database.ts";
 import sharp from "sharp";
+import { ensureMedia, ensureMediaDir, persistMedia, removeMedia } from "../media.ts";
 import { readStaged } from "./assets.ts";
 import { downloadGoogleFont } from "./fonts.ts";
 
@@ -110,12 +111,13 @@ export async function createBrand(input: BrandKitInput, ownerId: string): Promis
     ];
     await writeFile(join(dir, "fonts.css"), `${fontRules.join("\n")}\n`);
     await writeFile(join(dir, "theme.css"), themeToCss(theme));
+    await persistMedia(dir);
     const { logoAssetId: _logo, ...rest } = input;
     const kit: BrandKit = { ...rest, id, ownerId, hasLogo, adjustments, createdAt: new Date().toISOString() };
     await query("insert into app.brand_kits (id, owner_id, name, data, created_at) values ($1, $2, $3, $4, $5)", [id, ownerId, kit.name, kit, kit.createdAt]);
     return kit;
   } catch (error) {
-    await rm(dir, { recursive: true, force: true });
+    await removeMedia(dir).catch(() => rm(dir, { recursive: true, force: true }));
     throw error;
   }
 }
@@ -128,6 +130,7 @@ export async function createBrand(input: BrandKitInput, ownerId: string): Promis
  */
 export async function restoreBrandFiles(kit: BrandKit): Promise<{ restored: string[]; missing: string[] }> {
   const dir = brandDir(kit.id);
+  await ensureMediaDir(dir);
   const exists = (file: string) => access(join(dir, file)).then(() => true, () => false);
   const restored: string[] = [];
   const missing: string[] = [];
@@ -148,6 +151,7 @@ export async function restoreBrandFiles(kit: BrandKit): Promise<{ restored: stri
     }
   }
   if (kit.hasLogo && !(await exists("logo.png"))) missing.push("logo");
+  if (restored.length) await persistMedia(dir);
   return { restored, missing };
 }
 
@@ -170,6 +174,11 @@ export async function listBrands(ownerId?: string): Promise<BrandKit[]> {
 }
 
 /** The logo as uploaded, for the app UI; the renderer uses logo.png, which may be inverted for the theme. */
-export function brandLogoPath(id: string) {
-  return BRAND_ID.test(id) ? join(brandDir(id), "logo-original.png") : null;
+export async function brandLogoPath(id: string) {
+  if (!BRAND_ID.test(id)) return null;
+  const path = join(brandDir(id), "logo-original.png");
+  return (await ensureMedia(path)) ? path : null;
 }
+
+/** Makes the brand's files (logo, CSS, fonts) present in the local cache. */
+export const ensureBrandFiles = (id: string) => (BRAND_ID.test(id) ? ensureMediaDir(brandDir(id)) : Promise.resolve());

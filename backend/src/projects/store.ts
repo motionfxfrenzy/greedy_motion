@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import {
@@ -15,6 +14,7 @@ import {
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { query, withRowLock } from "../db/database.ts";
+import { readMedia, removeMedia, saveMedia } from "../media.ts";
 
 const projectDir = (id: string) => join(config.projectsDir, id);
 const screenshotsDir = (id: string) => join(projectDir(id), "screenshots");
@@ -238,8 +238,7 @@ export async function addScreenshot(projectId: string, name: string, mime: strin
   return serializeProject(projectId, async () => {
     const project = await getProject(projectId);
     if (!project) return null;
-    await mkdir(screenshotsDir(projectId), { recursive: true });
-    await writeFile(join(screenshotsDir(projectId), screenshot.id + extension), bytes);
+    await saveMedia(join(screenshotsDir(projectId), screenshot.id + extension), bytes);
     return save({ ...project, screenshots: [...project.screenshots, screenshot], state: project.state === "Ready to create" ? "Finish your brief" : project.state, updatedAt: new Date().toISOString() });
   });
 }
@@ -251,7 +250,7 @@ export async function removeScreenshot(projectId: string, screenshotId: string) 
     if (!project) return null;
     const screenshot = project.screenshots.find((item) => item.id === screenshotId);
     if (!screenshot) return project;
-    await Promise.all([".png", ".jpg"].map((extension) => unlink(join(screenshotsDir(projectId), screenshotId + extension)).catch(() => undefined)));
+    await Promise.all([".png", ".jpg"].map((extension) => removeMedia(join(screenshotsDir(projectId), screenshotId + extension)).catch(() => undefined)));
     const screenshots = project.screenshots.filter((item) => item.id !== screenshotId);
     const draftAssets = project.studio?.assets;
     const assets = draftAssets && Object.fromEntries(Object.entries(draftAssets).filter(([, assetId]) => assetId !== screenshotId));
@@ -334,7 +333,7 @@ export async function screenshotFile(projectId: string, screenshotId: string) {
   if (!idPattern.test(projectId) || !idPattern.test(screenshotId)) return null;
   for (const extension of [".png", ".jpg"]) {
     const file = join(screenshotsDir(projectId), screenshotId + extension);
-    const data = await readFile(file).catch(() => null);
+    const data = await readMedia(file).catch(() => null);
     if (data) return { file, data, mime: extension === ".png" ? "image/png" : "image/jpeg" };
   }
   return null;
