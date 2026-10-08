@@ -1,5 +1,7 @@
 # Environments
 
+> Current implementation and live infrastructure: [Application, infrastructure and storage guide](SYSTEM_GUIDE.md). This document also contains historical plans; consult the guide and [release status](MVP_RELEASE_STATUS.md) for the October 8, 2026 production topology.
+
 Date: 2026-10-02, updated 2026-10-07. Status: all three environments exist. Staging runs the full app; production runs the
 backend and serves the "Coming soon" site. Live resources are listed below; the tables after them are the original design
 (names such as `videosaas-staging` and `app.staging.<domain>` became the names in "Live resources").

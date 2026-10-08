@@ -720,5 +720,6 @@
   });
   LOG.total = TOTAL;
   tl.set({}, {}, snap(TOTAL));
+  window.__timelines = window.__timelines || {};
   window.__timelines["main"] = tl;
 })();

@@ -1,5 +1,7 @@
 # Deployment map
 
+> Current implementation and live infrastructure: [Application, infrastructure and storage guide](SYSTEM_GUIDE.md). This document also contains historical plans; consult the guide and [release status](MVP_RELEASE_STATUS.md) for the October 8, 2026 production topology.
+
 Date: 2026-10-02, updated 2026-10-07. Each top-level folder is one deployable unit with its own env files. Staging and production are provisioned; the actual project names, URLs and variables are in [Environments → Live resources](ENVIRONMENTS.md#live-resources-2026-10-07). The render worker is planned for AWS ECS Fargate (`infra/aws/`), not Railway.
 
 ```text
