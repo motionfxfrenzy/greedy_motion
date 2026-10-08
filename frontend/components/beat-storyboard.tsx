@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HyperframesPlayer } from "@hyperframes/player";
 import { BEAT_LIMITS, beatPlanProblems, type Beat, type BeatPlan, type VideoProject } from "@videosaas/contracts";
-import { editPlan, generatePlanAudio, getComposition, PlanProblems, projectScreenshotUrl, type Composition, type PlanAudioStatus, type PlanPatch } from "../lib/api";
+import { useMediaToken } from "../lib/use-media-token";
+import { editPlan, ensureMediaToken, generatePlanAudio, getComposition, PlanProblems, projectScreenshotUrl, type Composition, type PlanAudioStatus, type PlanPatch } from "../lib/api";
 import { HyperframesPreview } from "./studio-editor";
 
 /** Colours and type the frame cards are drawn with: the brand kit's, or the gallery theme's. */
@@ -92,6 +93,7 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
   // A newer plan from the server (e.g. regenerated) replaces local edits.
   useEffect(() => { setPlan(project.beatPlan); }, [project.beatPlan]);
 
+  const mediaToken = useMediaToken();
   const screenshotFor = useMemo(() => {
     const ordered = project.brief?.screenshotIds?.length ? project.brief.screenshotIds.map((id) => project.screenshots.find((shot) => shot.id === id)).filter(Boolean) : project.screenshots;
     let next = 0;
@@ -103,7 +105,8 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
       next += 1;
     }
     return map;
-  }, [plan.beats, project.brief?.screenshotIds, project.id, project.screenshots]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mediaToken changes the URLs projectScreenshotUrl builds
+  }, [plan.beats, project.brief?.screenshotIds, project.id, project.screenshots, mediaToken]);
 
   // Local validation with the same rules the server applies, so problems show while typing.
   const localProblems = useMemo(() => beatPlanProblems(plan, project.brief), [plan, project.brief]);
@@ -207,7 +210,8 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
     try {
       const next = await getComposition(project.id);
       // Same-origin through the Next proxy, which the player needs to inspect the frame.
-      const response = await fetch(next.baseUrl.replace(/^\/v1\/preview\//, "/api/preview/"), { cache: "no-store", signal });
+      const media = encodeURIComponent(await ensureMediaToken());
+      const response = await fetch(`${next.baseUrl.replace(/^\/v1\/preview\//, "/api/preview/")}?t=${media}`, { cache: "no-store", signal });
       if (!response.ok) throw new Error(`The preview service returned ${response.status}.`);
       const html = await response.text();
       if (signal?.aborted) return null;

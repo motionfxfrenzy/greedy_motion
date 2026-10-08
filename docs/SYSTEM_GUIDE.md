@@ -445,15 +445,15 @@ Supabase manages passwords, provider login and sessions. The frontend uses Supab
 
 `backend/src/access.ts` checks project, brand and render-job ownership after authentication. Lists filter by the user. References to another user's brand are also checked. The release exercised cross-user project listing, read, update and render requests with temporary accounts.
 
-**Media has a different access model from project records.** The current API deliberately allows certain GET routes without a bearer token so image, iframe and video elements can load them:
+**Media routes authenticate with a media token instead of the Bearer header** (staging since 2026-10-08; production until it receives this release still serves them open by id). Image, iframe and video elements cannot send a header, so these GET routes accept `?t=<media token>`:
 
-- `/v1/preview/*`
+- `/v1/preview/projects/*`, `/v1/preview/plans/*`, `/v1/preview/brands/*`
 - `/v1/renders/<id>`
 - `/v1/projects/<projectId>/screenshots/<screenshotId>`
 - `/v1/brands/<brandId>/logo`
 - `/v1/brands/assets/<assetId>/preview`
 
-These are possession-of-link paths, not equivalent to per-user authorization on JSON records. R2 downloads are signed, but someone holding a valid application media link can request that media under the current design. The output presigning helper defaults to 3,600 seconds. This distinction matters when describing privacy or sharing behavior.
+The token (`GET /v1/media-token`, `backend/src/media-links.ts`) names the user and an expiry 12–13 hours ahead, signed with `MEDIA_URL_SECRET`. The usual ownership check then runs, so a link only opens its owner's media, and only until the token expires; a forged or expired token is a 401. The backend writes the token into the private asset URLs of the preview pages it serves. Only shared files with no user data stay open: `/v1/preview/runtime.js`, `gsap.js`, `fonts/*`, `templates/*/assets/*`, `plan-sfx/*`. The rendered-video route then redirects to an R2 URL presigned for 3,600 seconds.
 
 Production CORS permits the www and apex `greedymotion.com` origins. Auth callbacks are configured in the corresponding Supabase project. Resend SMTP and Google provider settings belong to Supabase Auth configuration; email delivery, password-reset delivery and the Google consent flow were not validated by the MVP release smoke test.
 

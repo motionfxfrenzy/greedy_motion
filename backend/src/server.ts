@@ -7,6 +7,7 @@ import Fastify from "fastify";
 import { findTemplate, parseRenderRequest, type RenderJob } from "@videosaas/contracts";
 import { config } from "./config.ts";
 import { callerId, registerAuth } from "./auth.ts";
+import { mediaToken, signPreviewUrls } from "./media-links.ts";
 import { registerOwnership } from "./access.ts";
 import { renderService } from "./render/service.ts";
 import { renderJobRepository } from "./render/repository.ts";
@@ -78,7 +79,7 @@ app.get<{ Params: { id: string } }>("/v1/preview/projects/:id", async (request, 
   const project = await getProject(request.params.id);
   if (!project) return previewNotFound(reply, "Project not found.");
   try {
-    const html = await projectPreviewHtml(project);
+    const html = signPreviewUrls(await projectPreviewHtml(project), mediaToken(callerId(request)).token);
     return reply
       .header("Content-Type", "text/html; charset=utf-8")
       .header("Cache-Control", "no-store")
@@ -144,6 +145,9 @@ app.get<{ Params: { id: string; name: string } }>("/v1/preview/brands/:id/fonts/
 // ---------- Persisted projects ----------
 // Product flow v2: Script & Style → beat plan, storyboard edits, live composition (backend/src/plan).
 await registerPlanRoutes(app);
+
+// The token the browser adds as ?t= to media URLs (<img>, <video>, the preview iframe); see media-links.ts.
+app.get("/v1/media-token", async (request, reply) => reply.header("Cache-Control", "no-store").send(mediaToken(callerId(request))));
 
 app.get("/v1/projects", async (request) => ({ projects: await listProjects(callerId(request)) }));
 
@@ -371,7 +375,7 @@ app.post<{ Body: { url?: string } }>("/v1/brands/extract", async (request, reply
   const url = typeof request.body?.url === "string" ? request.body.url.trim() : "";
   if (!url || url.length > 300) return reply.code(400).send({ error: { code: "invalid_request", message: "Enter your product's website URL." } });
   try {
-    return await extractBrand(url);
+    return await extractBrand(url, callerId(request));
   } catch (error) {
     if (error instanceof Error && /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET/.test(error.message)) return reply.code(400).send({ error: { code: "unreachable", message: "That website could not be reached." } });
     return brandError(reply, error);
@@ -382,8 +386,8 @@ app.put<{ Params: { kind: string } }>("/v1/brands/assets/:kind", async (request,
   const body = request.body;
   if (!Buffer.isBuffer(body) || body.length === 0) return reply.code(400).send({ error: { code: "invalid_request", message: "Send the file bytes as application/octet-stream." } });
   try {
-    if (request.params.kind === "logo") return reply.code(201).send(await stageLogo(body));
-    if (request.params.kind === "font") return reply.code(201).send(await stageFont(body));
+    if (request.params.kind === "logo") return reply.code(201).send(await stageLogo(body, callerId(request)));
+    if (request.params.kind === "font") return reply.code(201).send(await stageFont(body, callerId(request)));
     return reply.code(404).send({ error: { code: "not_found", message: "Unknown asset kind." } });
   } catch (error) {
     return brandError(reply, error);
@@ -392,7 +396,7 @@ app.put<{ Params: { kind: string } }>("/v1/brands/assets/:kind", async (request,
 
 app.get<{ Params: { assetId: string } }>("/v1/brands/assets/:assetId/preview", async (request, reply) => {
   try {
-    const { data } = await readStaged(request.params.assetId, "logo");
+    const { data } = await readStaged(request.params.assetId, "logo", callerId(request));
     return reply.header("Content-Type", "image/png").header("Cache-Control", "no-store").header("X-Content-Type-Options", "nosniff").send(data);
   } catch {
     return reply.code(404).send({ error: { code: "not_found", message: "Logo not found." } });

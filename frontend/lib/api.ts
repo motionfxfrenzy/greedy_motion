@@ -16,6 +16,45 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
 
 type ApiError = { error?: { message?: string } };
 
+// ---------- Media links ----------
+// <img>, <video> and the preview iframe cannot send the Authorization header, so media URLs carry a
+// short-lived media token as ?t= (backend/src/media-links.ts). It is fetched once, shared, and renewed an
+// hour before it expires; useMediaToken() re-renders a component when it changes.
+
+type MediaToken = { token: string; expiresAt: string };
+let mediaTokenValue: MediaToken | null = null;
+let mediaTokenRequest: Promise<string> | null = null;
+const mediaTokenListeners = new Set<() => void>();
+const freshFor = (token: MediaToken | null, ms: number) => Boolean(token && Date.parse(token.expiresAt) - Date.now() > ms);
+
+/** The current media token ("" until the first one arrives). */
+export const currentMediaToken = () => mediaTokenValue?.token ?? "";
+
+export function subscribeMediaToken(listener: () => void) {
+  mediaTokenListeners.add(listener);
+  return () => { mediaTokenListeners.delete(listener); };
+}
+
+/** A media token valid for at least another hour, fetching a new one when needed. */
+export function ensureMediaToken(): Promise<string> {
+  if (freshFor(mediaTokenValue, 3_600_000)) return Promise.resolve(mediaTokenValue!.token);
+  mediaTokenRequest ??= apiFetch(`${apiOrigin}/v1/media-token`, { cache: "no-store" })
+    .then((response) => parse<MediaToken>(response, "Could not authorize media."))
+    .then((next) => {
+      mediaTokenValue = next;
+      mediaTokenListeners.forEach((listener) => listener());
+      return next.token;
+    })
+    .finally(() => { mediaTokenRequest = null; });
+  return mediaTokenRequest;
+}
+
+/** Adds the media token to a backend media URL. */
+export function withMediaToken(url: string) {
+  const token = currentMediaToken();
+  return token ? `${url}${url.includes("?") ? "&" : "?"}t=${encodeURIComponent(token)}` : url;
+}
+
 async function parse<T>(response: Response, fallback: string): Promise<T> {
   const payload = (await response.json().catch(() => ({}))) as T & ApiError;
   if (!response.ok) throw new Error(payload.error?.message ?? fallback);
@@ -40,7 +79,7 @@ export async function getRenderJob(id: string) {
 
 /** Output URLs from the backend are paths; resolve them against the backend origin. */
 export function outputUrl(path: string) {
-  return new URL(path, apiOrigin).toString();
+  return withMediaToken(new URL(path, apiOrigin).toString());
 }
 
 // ---------- Persisted projects ----------
@@ -116,7 +155,7 @@ export async function removeProjectScreenshot(projectId: string, screenshotId: s
 }
 
 export function projectScreenshotUrl(projectId: string, screenshotId: string) {
-  return apiOrigin + "/v1/projects/" + projectId + "/screenshots/" + screenshotId;
+  return withMediaToken(apiOrigin + "/v1/projects/" + projectId + "/screenshots/" + screenshotId);
 }
 
 // ---------- Script & Style plan (script director) ----------
@@ -240,5 +279,5 @@ export async function listBrandKits() {
   return (await parse<{ brands: BrandKit[] }>(response, "Could not load brand kits.")).brands;
 }
 
-export const stagedLogoUrl = (assetId: string) => `${apiOrigin}/v1/brands/assets/${assetId}/preview`;
-export const brandLogoUrl = (brandId: string) => `${apiOrigin}/v1/brands/${brandId}/logo`;
+export const stagedLogoUrl = (assetId: string) => withMediaToken(`${apiOrigin}/v1/brands/assets/${assetId}/preview`);
+export const brandLogoUrl = (brandId: string) => withMediaToken(`${apiOrigin}/v1/brands/${brandId}/logo`);

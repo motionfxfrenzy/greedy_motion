@@ -74,7 +74,7 @@ async function absoluteLinks(html: string, base: URL, predicate: (tag: string) =
   return tags(html, "link").filter(predicate).map((tag) => attr(tag, "href")).filter((href): href is string => Boolean(href)).map((href) => new URL(decode(href), base).toString());
 }
 
-export async function extractBrand(input: string): Promise<BrandExtraction> {
+export async function extractBrand(input: string, ownerId?: string): Promise<BrandExtraction> {
   const notes: string[] = [];
   const page = await safeFetch(validateUrl(input).toString(), { maxBytes: 2_000_000 });
   if (page.status >= 400) throw new Error(`The site returned HTTP ${page.status}.`);
@@ -185,7 +185,7 @@ export async function extractBrand(input: string): Promise<BrandExtraction> {
         if (response.status >= 400) continue;
         bytes = response.body;
       }
-      const asset = await stageLogo(bytes);
+      const asset = await stageLogo(bytes, ownerId);
       logo = { assetId: asset.assetId, source: candidate.kind === "svg" ? source : `${source} (${candidate.label})`, tone: asset.tone };
       break;
     } catch {

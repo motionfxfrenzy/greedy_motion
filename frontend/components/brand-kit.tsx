@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bundledFonts, deriveBrandTheme, parseColor, uploadedFamily, type BrandExtraction, type BrandFont, type BrandKit, type BrandKitInput } from "@videosaas/contracts";
+import { useMediaToken } from "../lib/use-media-token";
 import { brandLogoUrl, extractBrandFromUrl, listBrandKits, saveBrandKit, stagedLogoUrl, uploadBrandAsset } from "../lib/api";
 
 type BrandKitFieldProps = {
@@ -147,6 +148,7 @@ function FontField({ label, value, onChange, candidates, onFile }: { label: stri
 }
 
 export function BrandKitField({ value, disabled, onChange, found, suggested, source, fromSite }: BrandKitFieldProps) {
+  useMediaToken();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [kits, setKits] = useState<BrandKit[]>([]);
   const [view, setView] = useState<"list" | "edit">("list");
