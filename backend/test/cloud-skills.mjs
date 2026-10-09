@@ -54,3 +54,8 @@ await proposeCompositionEdit("Retitle","title",html,async(_,init)=>{
  return {ok:true,json:async()=>({content:[{type:"text",text:JSON.stringify({summary:"Retitle",edits})}]})};
 },"animation");
 assert.equal(lintCalls,2);
+
+const {seekWarnings}=await import("../src/pro/seek-warnings.ts");
+assert.equal(seekWarnings('<script>tl.fromTo(".a",{opacity:0},{opacity:1},1)</script>').length,1);
+assert.ok(seekWarnings('<script>tl.set(".a",{opacity:1},1)</script>').some(w=>w.includes("bare GSAP")));
+assert.ok(proposal.warnings.some(w=>w.includes("not verified")));

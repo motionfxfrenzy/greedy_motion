@@ -1,10 +1,11 @@
+import { seekWarnings } from "./seek-warnings.ts";
 import { createHash } from "node:crypto";
 import { lintHyperframeHtml } from "@hyperframes/lint";
 import { config } from "../config.ts";
 import { authorContext, type AuthorStage } from "../author-skills/bundle.ts";
 
 export type SourceEdit = { find: string; replace: string };
-export type AgentProposal = { summary: string; edits: SourceEdit[]; beforeHash: string; afterHash: string; stage: string; skills: string[]; bundleHash: string; attempts: number };
+export type AgentProposal = { summary: string; edits: SourceEdit[]; beforeHash: string; afterHash: string; stage: string; skills: string[]; bundleHash: string; attempts: number; warnings: string[] };
 export const sourceHash = (s: string) => createHash("sha256").update(s).digest("hex");
 export function applySourceEdits(html: string, edits: SourceEdit[]): string {
   if (!Array.isArray(edits) || edits.length < 1 || edits.length > 6) throw new Error("Claude returned an invalid edit set.");
@@ -50,7 +51,7 @@ export async function proposeCompositionEdit(task: string, target: string, html:
   const next=applySourceEdits(html,parsed.edits);
   const lint=await lintHyperframeHtml(next,{filePath:"index.html",host:"studio"});
   if(lint.errorCount>0)throw new Error(`HyperFrames lint errors: ${lint.findings.filter(f => f.severity === "error").map(f => `${f.code}: ${f.message}${f.line ? ` (line ${f.line})` : ""}`).join("\n")}`);
-  return {summary:parsed.summary.slice(0,300),edits:parsed.edits,beforeHash:sourceHash(html),afterHash:sourceHash(next),stage:context.stage,skills:context.skills,bundleHash:context.bundleHash,attempts:attempt};
+  return {summary:parsed.summary.slice(0,300),edits:parsed.edits,beforeHash:sourceHash(html),afterHash:sourceHash(next),stage:context.stage,skills:context.skills,bundleHash:context.bundleHash,attempts:attempt,warnings:seekWarnings(next)};
   } catch (error) {
     if (attempt === 3) throw error;
     messages.push({ role: "assistant", content: raw }, { role: "user", content: `The proposed edits failed validation: ${error instanceof Error ? error.message : String(error)}
