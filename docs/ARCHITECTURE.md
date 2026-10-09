@@ -281,6 +281,7 @@ All tenant-owned rows carry `workspace_id`. Use foreign keys, unique constraints
 | `render_outputs` | Successful attempt, object keys, probe metadata, hashes |
 | `usage_ledger` | Reservation, settlement, release; unique operation IDs |
 | `billing_accounts`, `webhook_events` | Provider IDs and processed-event deduplication |
+| `entitlements`, `entitlement_events` | What a user may use. Built 2026-10-09 **per user** (no workspaces yet), see [Entitlements](ENTITLEMENTS.md); it moves to the workspace when workspaces exist, behind `entitlementsFor()` |
 | `idempotency_records` | Workspace, key, request hash, response/job reference |
 | `outbox_events` | Only if pg-boss cannot enqueue inside the app transaction |
 

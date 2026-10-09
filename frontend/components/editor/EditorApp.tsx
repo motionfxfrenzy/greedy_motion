@@ -77,18 +77,24 @@ export function EditorApp({ projectId }: { projectId: string }) {
   const openProject = useCallback(async () => {
     setLoad({ phase: "loading" });
     try {
-      const pro = await getPro(projectId);
-      if (!pro) return setLoad({ phase: "closed" });
+      const { pro, access } = await getPro(projectId);
+      if (!pro) {
+        return setLoad(access === "view"
+          ? { phase: "blocked", message: "Your Pro plan has ended, so new projects can’t be opened in the Pro editor. Projects you already opened stay available to view." }
+          : { phase: "closed" });
+      }
       const [file, base, name] = await Promise.all([readProFile(projectId, pro.entry), previewFrame(projectId), projectName(projectId)]);
       useEditor.getState().reset({
         doc: { layers: [], html: file.content, markers: [], workArea: [0, pro.durationSeconds], comments: [], vars: {} },
         projectName: name ?? projectId.slice(0, 8), compName: pro.entry.replace(/\.html$/, ""),
         duration: pro.durationSeconds, canvas: pro.canvas, mode: "clips", hfOnly: true, pro: true,
-        remote: { projectId, rev: pro.rev, entry: pro.entry, status: "idle", frameSrc: base }
+        remote: { projectId, rev: pro.rev, entry: pro.entry, status: access === "view" ? "readonly" : "idle", frameSrc: base }, readOnly: access === "view"
       });
-      const autosave = createAutosave(writeProFiles);
-      autosave.attach(file.content);
-      setActiveAutosave(autosave);
+      if (access === "edit") {
+        const autosave = createAutosave(writeProFiles);
+        autosave.attach(file.content);
+        setActiveAutosave(autosave);
+      }
       setLoad({ phase: "ready" });
     } catch (error) {
       if (error instanceof ProApiError && error.code === "not_pro") return setLoad({ phase: "blocked", message: error.message });
@@ -199,7 +205,8 @@ export function EditorApp({ projectId }: { projectId: string }) {
           <Timeline />
           {s.tlOpen && !compact ? <Resizer axis="y" edge="top" start={() => tlRow} apply={(b, d) => useEditor.getState().ui({ tlH: Math.max(170, Math.min(480, b - d)) })} /> : null}
         </div>
-        {s.remote?.status === "conflict" ? <div className="ed-banner" role="alert"><b>This project changed somewhere else.</b><span>Your edits here were not saved, so nothing was overwritten.</span><button type="button" className="ed-btn small" onClick={() => window.location.reload()}>Reload</button></div> : null}
+        {s.readOnly ? <div className="ed-banner" role="status"><b>View only.</b><span>Your Pro plan has ended. You can look at this project and its checks, but not change or render it. Your files are kept.</span></div> : null}
+        {!s.readOnly && s.remote?.status === "conflict" ? <div className="ed-banner" role="alert"><b>This project changed somewhere else.</b><span>Your edits here were not saved, so nothing was overwritten.</span><button type="button" className="ed-btn small" onClick={() => window.location.reload()}>Reload</button></div> : null}
         <Overlays />
       </div>
     </RegistryContext.Provider>

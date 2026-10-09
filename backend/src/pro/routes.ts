@@ -2,11 +2,13 @@ import { randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join, sep } from "node:path";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { lintHyperframeHtml } from "@hyperframes/lint";
-import { frameShellHtml, isPreviewQuality, previewSize, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
+import { frameShellHtml, isPreviewQuality, previewSize, type PreviewQuality, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
+import { NotEntitled, requireProEdit, type ProEditAccess } from "../entitlements/access.ts";
+import { EntitlementsUnavailable, entitlementsFor } from "../entitlements/resolve.ts";
 import { ensureMedia, ensureMediaDir, persistMedia, readMedia, removeMedia, saveMedia } from "../media.ts";
 import { buildPlanRenderProject } from "../plan/render-project.ts";
 import { getProject, updateProject, updateProjectPro } from "../projects/store.ts";
@@ -28,16 +30,13 @@ const proDir = (projectId: string) => join(config.projectsDir, projectId, "pro")
 const historyDir = (projectId: string, rev: number) => join(proDir(projectId), ".history", String(rev));
 const TEXT = new Set([".html", ".css", ".js", ".json"]);
 
-/** Pro entitlement. No billing exists yet: local dev is always pro; otherwise an allowlist in PRO_USER_IDS ("*" for everyone). */
-export function isPro(userId: string): boolean {
-  if (config.auth.mode === "none") return true;
-  const allowed = (process.env.PRO_USER_IDS ?? "").split(",").map((id) => id.trim().toLowerCase()).filter(Boolean);
-  return allowed.includes("*") || allowed.includes(userId.toLowerCase());
-}
+const NOT_PRO = "The Pro editor is not part of your plan yet.";
+const READ_ONLY = "Your Pro plan has ended. Your files are safe and you can still view them, but not change them.";
 
 const fail = (reply: FastifyReply, status: number, code: string, message: string, extra: object = {}) => reply.code(status).send({ error: { code, message, ...extra } });
 
 function mapError(reply: FastifyReply, error: unknown) {
+  if (error instanceof NotEntitled) return fail(reply, 403, "read_only", READ_ONLY);
   if (error instanceof ProConflict) return fail(reply, 409, "conflict", error.message, { rev: error.currentRev });
   if (error instanceof ProInvalid) return fail(reply, error.code === "too_large" ? 413 : 400, error.code, error.message);
   throw error;
@@ -80,7 +79,8 @@ async function buildSnapshot(project: VideoProject, source: "beat-plan" | "blank
   return { durationSeconds: blank.durationSeconds };
 }
 
-export async function openPro(project: VideoProject, source: "beat-plan" | "blank", options: { aspect?: "16:9" | "9:16" | "1:1"; durationSeconds?: number } = {}) {
+/** Snapshots a project into an editable folder. Changes Pro state, so it needs the edit capability (requireProEdit). */
+export async function openPro(_access: ProEditAccess, project: VideoProject, source: "beat-plan" | "blank", options: { aspect?: "16:9" | "9:16" | "1:1"; durationSeconds?: number } = {}) {
   const scratch = await mkdtemp(join(tmpdir(), "pro-open-"));
   try {
     const built = await buildSnapshot(project, source, scratch, options);
@@ -102,22 +102,118 @@ export async function openPro(project: VideoProject, source: "beat-plan" | "blan
   }
 }
 
-export async function registerProRoutes(app: FastifyInstance) {
-  // The editor routes need the pro entitlement; the preview GET below does not (it only serves the owner's own folder).
-  app.addHook("preHandler", async (request, reply) => {
-    const path = request.url.split("?")[0];
-    if (!/^\/v1\/projects\/[^/]+\/pro(?:\/|$)/.test(path)) return;
-    if (!isPro(callerId(request))) return fail(reply, 403, "not_pro", "The Pro editor is not part of this plan yet.");
+/** Writes a batch of files into the Pro folder under the project's lock. Changes Pro state, so it needs the edit capability. */
+export async function writeProFiles(_access: ProEditAccess, id: string, body: { baseRev?: unknown; files?: unknown }) {
+  let result: ProManifest | undefined;
+  const saved = await updateProjectPro(id, async (current) => {
+    const manifest = current.pro;
+    if (!manifest) throw new ProInvalid("Open the project in the Pro editor first.", "not_open");
+    requireRev(manifest, body.baseRev);
+    const writes = checkWrites(manifest.files, body.files);
+    // Keep what these writes replace, so a bad edit can be recovered. Only the touched files are copied.
+    const previous = historyDir(id, manifest.rev);
+    for (const w of writes) {
+      const old = await readMedia(join(proDir(id), w.path));
+      if (old) await saveMedia(join(previous, w.path), old);
+    }
+    const files = { ...manifest.files };
+    for (const w of writes) {
+      await saveMedia(join(proDir(id), w.path), w.content);
+      files[w.path] = { size: Buffer.byteLength(w.content), sha256: sha256(w.content) };
+    }
+    const rev = manifest.rev + 1;
+    if (rev > HISTORY_KEEP) await removeMedia(historyDir(id, rev - HISTORY_KEEP - 1));
+    const html = writes.find((w) => w.path === manifest.entry)?.content;
+    const canvas = html ? canvasOf(html) : null;
+    result = { ...manifest, rev, files, updatedAt: new Date().toISOString(), ...(canvas ? { canvas: { width: canvas.width, height: canvas.height }, durationSeconds: canvas.duration } : {}) };
+    return result;
   });
+  return { saved, result };
+}
 
-  app.get<{ Params: { id: string } }>("/v1/projects/:id/pro", async (request, reply) => {
+/** Copies the saved folder to where the worker reads it and queues a render job. Spends compute, so it needs the edit capability. */
+export async function enqueueProRender(_access: ProEditAccess, project: VideoProject & { pro: ProManifest }, quality: PreviewQuality) {
+  const pro = project.pro;
+  const jobId = randomUUID();
+  await ensureMediaDir(proDir(project.id));
+  const staged = join(config.renderOutputDir, jobId, "project");
+  await cp(proDir(project.id), staged, { recursive: true, filter: (source) => !source.includes(`${sep}.history`) });
+  let projectPrefix: string | undefined;
+  if (config.storageDriver === "r2") {
+    projectPrefix = `jobs/${jobId}/project`;
+    await uploadDirectory(staged, projectPrefix);
+    await rm(join(config.renderOutputDir, jobId), { recursive: true, force: true });
+  }
+
+  const size = previewSize(pro.canvas, quality);
+  const job: RenderJob = {
+    id: jobId, state: "rendering", progress: 45, createdAt: new Date().toISOString(),
+    revision: { id: randomUUID(), title: project.name, scenes: [{ id: "composition", label: "Composition", detail: quality === "final" ? "Full render" : `Preview ${size.height}p`, duration: pro.durationSeconds }] }
+  };
+  // The job is recorded on the project first, so a render that finishes quickly always finds its project.
+  if (quality === "final") await updateProject(project.id, { state: "Rendering draft", renderJobId: jobId });
+  else await updateProjectPro(project.id, async (current) => (current.pro ? { ...current.pro, previews: [{ jobId, quality, rev: current.pro.rev, createdAt: job.createdAt }, ...current.pro.previews].slice(0, 10) } : undefined));
+  const created = await renderJobRepository.createReadyAndEnqueue(job, {
+    request: project.request,
+    projectId: project.id,
+    renderInput: { kind: "pro", id: jobId, workerDir: `/renders/${jobId}/project`, ...(projectPrefix ? { projectPrefix } : {}), durationSeconds: pro.durationSeconds, quality, previewWidth: size.width, previewHeight: size.height }
+  });
+  return { created, size };
+}
+
+/** Registering a route on `instance` without `config.proAccess` throws, so a forgotten declaration fails the boot, not production. */
+export function requireDeclarations(instance: FastifyInstance) {
+  instance.addHook("onRoute", (route) => {
+    const level = route.config?.proAccess;
+    if (level !== "view" && level !== "edit") throw new Error(`Pro route ${String(route.method)} ${route.url} must declare config.proAccess ("view" or "edit").`);
+  });
+}
+
+/** Who may do what in the Pro editor, decided on every request from the entitlement table (backend/src/entitlements). */
+async function proGate(request: FastifyRequest, reply: FastifyReply) {
+  // A route that does not declare a level is treated as an edit route: the safe reading of "unlisted".
+  const needed = request.routeOptions.config?.proAccess === "view" ? "view" : "edit";
+  const userId = callerId(request);
+  let access;
+  try {
+    access = (await entitlementsFor(userId)).features.proEditor;
+  } catch (error) {
+    if (!(error instanceof EntitlementsUnavailable)) throw error;
+    request.log.error({ err: error }, "entitlement lookup failed");
+    return reply.header("Retry-After", "5").code(503).send({ error: { code: "entitlements_unavailable", message: "Could not check your plan right now. Try again in a moment." } });
+  }
+  if (access === "none") return fail(reply, 403, "not_pro", NOT_PRO);
+  if (needed === "edit" && access !== "edit") return fail(reply, 403, "read_only", READ_ONLY);
+  request.proAccess = access;
+  request.proUserId = userId;
+}
+
+export async function registerProRoutes(app: FastifyInstance) {
+  if (process.env.PRO_USER_IDS) app.log.warn("PRO_USER_IDS is no longer read. Grant access with `npm run grant:pro -w backend -- <email|uuid>` (docs/PRO_EDITOR.md).");
+
+  // Every route in this plugin goes through the gate below, however its URL is spelled (a regex over request.url can be
+  // sidestepped by percent-encoding; a hook scoped to the routes themselves cannot), and must say what it needs.
+  await app.register(async (pro) => {
+    requireDeclarations(pro);
+    pro.addHook("onRequest", proGate);
+    registerEditorRoutes(pro);
+  });
+  registerPreviewRoute(app);
+}
+
+const VIEW = { config: { proAccess: "view" as const } };
+const EDIT = { config: { proAccess: "edit" as const } };
+
+function registerEditorRoutes(app: FastifyInstance) {
+  app.get<{ Params: { id: string } }>("/v1/projects/:id/pro", VIEW, async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return fail(reply, 404, "not_found", "Project not found.");
-    return { pro: project.pro ?? null };
+    return { pro: project.pro ?? null, access: request.proAccess };
   });
 
-  app.post<{ Params: { id: string }; Body: { source?: unknown; aspect?: unknown; durationSeconds?: unknown } | undefined }>("/v1/projects/:id/pro/open", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { source?: unknown; aspect?: unknown; durationSeconds?: unknown } | undefined }>("/v1/projects/:id/pro/open", EDIT, async (request, reply) => {
     try {
+      const access = requireProEdit(request);
       const project = await getProject(request.params.id);
       if (!project) return fail(reply, 404, "not_found", "Project not found.");
       if (project.pro) return { pro: project.pro, created: false };
@@ -125,7 +221,7 @@ export async function registerProRoutes(app: FastifyInstance) {
       const source = body.source === "blank" || !project.beatPlan ? "blank" : "beat-plan";
       const aspect = body.aspect === "9:16" || body.aspect === "1:1" ? body.aspect : "16:9";
       const durationSeconds = typeof body.durationSeconds === "number" && body.durationSeconds >= 1 && body.durationSeconds <= 120 ? body.durationSeconds : 10;
-      const manifest = await openPro(project, source, { aspect, durationSeconds });
+      const manifest = await openPro(access, project, source, { aspect, durationSeconds });
       // Re-check under the lock: a second tab may have opened the project while this one built its snapshot.
       let created = false;
       const saved = await updateProjectPro(project.id, async (current) => {
@@ -141,7 +237,7 @@ export async function registerProRoutes(app: FastifyInstance) {
     }
   });
 
-  app.get<{ Params: { id: string }; Querystring: { path?: string } }>("/v1/projects/:id/pro/file", async (request, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { path?: string } }>("/v1/projects/:id/pro/file", VIEW, async (request, reply) => {
     try {
       const project = await getProject(request.params.id);
       if (!project?.pro) return fail(reply, 404, "not_found", "Open the project in the Pro editor first.");
@@ -155,34 +251,11 @@ export async function registerProRoutes(app: FastifyInstance) {
   });
 
   // A batch may hold several files up to PRO_LIMITS.fileBytes each; Fastify's default 1 MB body limit would cut that short.
-  app.put<{ Params: { id: string }; Body: { baseRev?: unknown; files?: unknown } }>("/v1/projects/:id/pro/files", { bodyLimit: 6_000_000 }, async (request, reply) => {
+  app.put<{ Params: { id: string }; Body: { baseRev?: unknown; files?: unknown } }>("/v1/projects/:id/pro/files", { ...EDIT, bodyLimit: 6_000_000 }, async (request, reply) => {
     try {
       const id = request.params.id;
       const body = (request.body ?? {}) as { baseRev?: unknown; files?: unknown };
-      let result: ProManifest | undefined;
-      const saved = await updateProjectPro(id, async (current) => {
-        const manifest = current.pro;
-        if (!manifest) throw new ProInvalid("Open the project in the Pro editor first.", "not_open");
-        requireRev(manifest, body.baseRev);
-        const writes = checkWrites(manifest.files, body.files);
-        // Keep what these writes replace, so a bad edit can be recovered. Only the touched files are copied.
-        const previous = historyDir(id, manifest.rev);
-        for (const w of writes) {
-          const old = await readMedia(join(proDir(id), w.path));
-          if (old) await saveMedia(join(previous, w.path), old);
-        }
-        const files = { ...manifest.files };
-        for (const w of writes) {
-          await saveMedia(join(proDir(id), w.path), w.content);
-          files[w.path] = { size: Buffer.byteLength(w.content), sha256: sha256(w.content) };
-        }
-        const rev = manifest.rev + 1;
-        if (rev > HISTORY_KEEP) await removeMedia(historyDir(id, rev - HISTORY_KEEP - 1));
-        const html = writes.find((w) => w.path === manifest.entry)?.content;
-        const canvas = html ? canvasOf(html) : null;
-        result = { ...manifest, rev, files, updatedAt: new Date().toISOString(), ...(canvas ? { canvas: { width: canvas.width, height: canvas.height }, durationSeconds: canvas.duration } : {}) };
-        return result;
-      });
+      const { saved, result } = await writeProFiles(requireProEdit(request), id, body);
       if (!saved) return fail(reply, 404, "not_found", "Project not found.");
       return { rev: result!.rev, files: result!.files, updatedAt: result!.updatedAt };
     } catch (error) {
@@ -191,7 +264,7 @@ export async function registerProRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { id: string }; Body: { path?: unknown } | undefined }>("/v1/projects/:id/pro/lint", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { path?: unknown } | undefined }>("/v1/projects/:id/pro/lint", VIEW, async (request, reply) => {
     try {
       const project = await getProject(request.params.id);
       if (!project?.pro) return fail(reply, 404, "not_found", "Open the project in the Pro editor first.");
@@ -210,8 +283,9 @@ export async function registerProRoutes(app: FastifyInstance) {
    * and is scaled down; `final` renders the composition as written and is gated by lint errors. Only a final render becomes the
    * project's render (Review shows it): a preview never touches `renderJobId`, so syncProject ignores it.
    */
-  app.post<{ Params: { id: string }; Body: { quality?: unknown } | undefined }>("/v1/projects/:id/pro/render", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { quality?: unknown } | undefined }>("/v1/projects/:id/pro/render", EDIT, async (request, reply) => {
     try {
+      const access = requireProEdit(request);
       const project = await getProject(request.params.id);
       if (!project?.pro) return fail(reply, 404, "not_found", "Open the project in the Pro editor first.");
       const pro = project.pro;
@@ -225,36 +299,15 @@ export async function registerProRoutes(app: FastifyInstance) {
         if (lint.errorCount > 0) return fail(reply, 409, "lint_errors", `${lint.errorCount} error${lint.errorCount === 1 ? "" : "s"} block a full render. Fix them in Checks.`, { findings: lint.findings.filter((f) => f.severity === "error").map((f) => ({ code: f.code, message: f.message, elementId: f.elementId, fixHint: f.fixHint })) });
       }
 
-      const jobId = randomUUID();
-      await ensureMediaDir(proDir(project.id));
-      const staged = join(config.renderOutputDir, jobId, "project");
-      await cp(proDir(project.id), staged, { recursive: true, filter: (source) => !source.includes(`${sep}.history`) });
-      let projectPrefix: string | undefined;
-      if (config.storageDriver === "r2") {
-        projectPrefix = `jobs/${jobId}/project`;
-        await uploadDirectory(staged, projectPrefix);
-        await rm(join(config.renderOutputDir, jobId), { recursive: true, force: true });
-      }
-
-      const size = previewSize(pro.canvas, quality);
-      const job: RenderJob = {
-        id: jobId, state: "rendering", progress: 45, createdAt: new Date().toISOString(),
-        revision: { id: randomUUID(), title: project.name, scenes: [{ id: "composition", label: "Composition", detail: quality === "final" ? "Full render" : `Preview ${size.height}p`, duration: pro.durationSeconds }] }
-      };
-      // The job is recorded on the project first, so a render that finishes quickly always finds its project.
-      if (quality === "final") await updateProject(project.id, { state: "Rendering draft", renderJobId: jobId });
-      else await updateProjectPro(project.id, async (current) => (current.pro ? { ...current.pro, previews: [{ jobId, quality, rev: current.pro.rev, createdAt: job.createdAt }, ...current.pro.previews].slice(0, 10) } : undefined));
-      const created = await renderJobRepository.createReadyAndEnqueue(job, {
-        request: project.request,
-        projectId: project.id,
-        renderInput: { kind: "pro", id: jobId, workerDir: `/renders/${jobId}/project`, ...(projectPrefix ? { projectPrefix } : {}), durationSeconds: pro.durationSeconds, quality, previewWidth: size.width, previewHeight: size.height }
-      });
+      const { created, size } = await enqueueProRender(access, { ...project, pro }, quality);
       return reply.code(202).send({ job: created, quality, size, rev: pro.rev });
     } catch (error) {
       return mapError(reply, error);
     }
   });
+}
 
+function registerPreviewRoute(app: FastifyInstance) {
   /**
    * Serves the folder to the preview frame. The frame runs on THIS origin, which is not the app's, so it can load its own
    * scripts, images and fonts but cannot reach the app's cookies, storage or DOM (the iframe is sandboxed without top

@@ -15,7 +15,12 @@
     "test:brand-files": "node --env-file-if-exists=.env test/brand-files.mjs",
     "test:media": "node test/media.mjs",
     "backfill:media": "node --env-file-if-exists=.env scripts/backfill-media.ts",
-    "test:pro": "node test/pro.mjs"
+    "test:pro": "node test/pro.mjs",
+    "test:entitlements-eval": "node test/entitlements-eval.mjs",
+    "test:entitlements": "node --env-file-if-exists=.env test/entitlements.mjs",
+    "entitlements": "node --env-file-if-exists=.env scripts/entitlements.ts",
+    "grant:pro": "node --env-file-if-exists=.env scripts/entitlements.ts grant",
+    "revoke:pro": "node --env-file-if-exists=.env scripts/entitlements.ts revoke"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1147.0",

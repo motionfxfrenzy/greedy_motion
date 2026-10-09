@@ -15,7 +15,7 @@ const ENGINE: Record<EngineState, { label: string; cls: string }> = {
 
 export function TopBar() {
   const registry = useRegistry();
-  const { mode, hfOnly, pro, engine, jobs, dirty, projectName, compName, canvas, duration, doc, historyRev, checks } = useEditorState();
+  const { mode, hfOnly, pro, readOnly, engine, jobs, dirty, projectName, compName, canvas, duration, doc, historyRev, checks } = useEditorState();
   const ui = useEditor((s) => s.ui);
   const history = useEditor.getState().history();
   void historyRev;
@@ -62,7 +62,7 @@ export function TopBar() {
       <button type="button" className="ed-btn" onClick={() => registry.run("check")}>
         <Icon name="check2" size={14} />Check{issues ? <span className="ed-badge">{issues}</span> : null}
       </button>
-      <button type="button" className="ed-btn primary" onClick={() => ui({ renderOpen: !useEditor.getState().renderOpen })} aria-haspopup="dialog">
+      <button type="button" className="ed-btn primary" disabled={readOnly} title={readOnly ? "View only: your Pro plan has ended" : undefined} onClick={() => ui({ renderOpen: !useEditor.getState().renderOpen })} aria-haspopup="dialog">
         <Icon name="render" size={13} />Render{pending ? <span className="ed-badge light">{pending}</span> : null}
       </button>
     </header>

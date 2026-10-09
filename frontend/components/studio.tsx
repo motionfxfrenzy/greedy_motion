@@ -8,6 +8,7 @@ import { BeatStoryboardStep, type FrameLook } from "./beat-storyboard";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
 import { addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
+import { proMenuEntry, useEntitlements } from "../lib/entitlements";
 
 type View = "projects" | "templates" | "brand-kits" | "library" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
@@ -365,6 +366,8 @@ function Projects({ projects, busy, create, open, openStudio }: { projects: Vide
 
 function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void }) {
   const actionsRef = useRef<HTMLDivElement>(null);
+  const { state: planState, retry: retryPlan } = useEntitlements();
+  const proEntry = proMenuEntry(planState);
   const template = findTemplate(project.request.template);
   const image = project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : imageFor(template ?? templates[0]);
   const status = project.state === "Approved" ? "approved" : project.state === "Ready for review" ? "review" : "draft";
@@ -377,7 +380,7 @@ function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { pro
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [menuOpen, setMenuOpen]);
-  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}><img src={image} alt="" /><span>{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{process.env.NEXT_PUBLIC_PRO_EDITOR === "1" && <button type="button" role="menuitem" onClick={() => choose(() => window.location.assign(`/editor/${project.id}`))}>Open in Pro editor</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
+  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}><img src={image} alt="" /><span>{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
 }
 
 function Templates({ create }: { create: (id: string) => void }) {

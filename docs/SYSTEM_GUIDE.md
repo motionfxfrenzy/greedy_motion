@@ -116,6 +116,7 @@ The release enabled the ECS deployment circuit breaker and rollback. Production 
 | `backend/src/render/` | Render-job repository, legacy planner and queue consumers | Railway backend |
 | `backend/src/jobs/queues.ts` | Queue definitions and retry settings | Railway backend; persisted in Postgres |
 | `backend/src/pro/` | Pro Editor store: open a project into an editable HyperFrames folder, revisioned file writes, lint, low-res or final render, preview frame ([Pro Editor](PRO_EDITOR.md)) | Railway backend + `/data` cache + R2 media |
+| `backend/src/entitlements/` | Plans a user may use: evaluation, lifecycle rules, store with audit, per-replica cache, `GET /v1/me/entitlements`; `scripts/entitlements.ts` grants and revokes without a deploy ([Entitlements](ENTITLEMENTS.md)) | Railway backend + Supabase |
 | `backend/src/db/` | Connection pool, SQL migrations and row locking | Railway backend + Supabase |
 | `backend/src/storage.ts` | R2 render-input upload and signed output URLs | Railway backend |
 | `worker/src/worker.mjs` | Worker lifecycle and job execution | ECS Fargate; Docker locally |
@@ -159,7 +160,8 @@ After authentication, the browser calls the Railway API with a Supabase bearer t
 | `GET /v1/projects/:id/composition` | Obtain composition/preview information |
 | `PATCH /v1/projects/:id/studio` | Persist editable template values and selected assets |
 | `POST /v1/projects/:id/render` | Validate and queue a project render |
-| `/v1/projects/:id/pro/*`, `/v1/preview/projects/:id/pro/@<token>/*` | Pro Editor open, files (409 on a stale revision), lint, render, preview frame; needs `PRO_USER_IDS` (see [Pro Editor](PRO_EDITOR.md)) |
+| `/v1/projects/:id/pro/*`, `/v1/preview/projects/:id/pro/@<token>/*` | Pro Editor open, files (409 on a stale revision), lint, render, preview frame; needs an active plan in `app.entitlements`; a lapsed plan is view-only (see [Pro Editor](PRO_EDITOR.md), [Entitlements](ENTITLEMENTS.md)) |
+| `GET /v1/me/entitlements` | The caller's plan and Pro editor access (`edit`, `view`, `none`); always read from the database |
 | `GET /v1/render-jobs/:id` | Read authorized render status |
 | `GET /v1/renders/:id` | Redirect to the output or serve a local file |
 | `GET/POST /v1/brands` | List/create brand kits |
@@ -333,6 +335,7 @@ The active application schema lives in `backend/src/db/migrations/`:
 1. `001_render_jobs.sql`: durable render jobs.
 2. `002_render_job_owner.sql`: initial render ownership column.
 3. `003_projects_and_brand_kits.sql`: project/brand records, owner updates and RLS.
+4. `004_entitlements.sql`: `app.entitlements` and `app.entitlement_events` (who may use the Pro editor; [Entitlements](ENTITLEMENTS.md)).
 
 The backend applies these at startup, serializes migration execution with a Postgres advisory lock and records completed filenames. pg-boss owns its queue schema separately.
 

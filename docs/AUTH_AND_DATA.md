@@ -51,10 +51,12 @@ Frontend variables (all public by design): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUB
 | `app.projects` | One project: brief, script, beat plan, studio draft, comments, screenshot metadata (`data jsonb`, same shape as the API's `VideoProject`) | `id`, `owner_id uuid`, `name`, `state`, `created_at`, `updated_at`; index `(owner_id, updated_at desc)` |
 | `app.brand_kits` | One brand kit's metadata (`data jsonb`, the API's `BrandKit`) | `id`, `owner_id uuid`, `name`, `created_at`; index `(owner_id, created_at desc)` |
 | `app.render_jobs` | Render job state (existing) | `owner_id uuid` for jobs with no project; project jobs are owned through their project |
+| `app.entitlements` | What a user may use (Pro editor): one row per manual grant or provider subscription | `user_id uuid`, `plan`, `status`, `source`, `source_ref`, `valid_from`, `expires_at`; see [Entitlements](ENTITLEMENTS.md) |
+| `app.entitlement_events` | Append-only audit of entitlement changes | `user_id`, `actor`, `action`, `before`, `after` |
 | `pgboss.*` | Job queue (pg-boss) | — |
 
 Migrations (applied by the backend at startup, each once, under an advisory lock): `001_render_jobs.sql`,
-`002_render_job_owner.sql`, `003_projects_and_brand_kits.sql`.
+`002_render_job_owner.sql`, `003_projects_and_brand_kits.sql`, `004_entitlements.sql`.
 
 Writes to one project run in a transaction holding `select … for update` on its row (`withRowLock` in
 `backend/src/db/database.ts`), so concurrent writers (API requests, render consumers, several replicas) cannot lose each

@@ -37,9 +37,12 @@ async function proFetch(path: string, init: RequestInit = {}): Promise<unknown> 
   return body;
 }
 
-export async function getPro(projectId: string): Promise<ProManifest | null> {
-  const body = (await proFetch(`/projects/${projectId}/pro`)) as { pro: ProManifest | null };
-  return body.pro;
+/** `edit`: full use. `view`: the plan has ended; the project opens read-only (the backend refuses every write). */
+export type ProAccess = "edit" | "view";
+
+export async function getPro(projectId: string): Promise<{ pro: ProManifest | null; access: ProAccess }> {
+  const body = (await proFetch(`/projects/${projectId}/pro`)) as { pro: ProManifest | null; access?: ProAccess };
+  return { pro: body.pro, access: body.access === "view" ? "view" : "edit" };
 }
 
 export async function openPro(projectId: string, input: { source?: "beat-plan" | "blank"; aspect?: "16:9" | "9:16" | "1:1"; durationSeconds?: number } = {}): Promise<ProManifest> {
