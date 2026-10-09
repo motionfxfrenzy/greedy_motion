@@ -2,7 +2,7 @@
 // HyperFrames, reports real progress into app.render_jobs, and publishes `render-finished`.
 // Scale out by adding replicas; each one runs RENDER_CONCURRENCY renders at a time (default 1).
 import http from "node:http";
-import { access, readdir, rm } from "node:fs/promises";
+import { access, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PgBoss } from "pg-boss";
 import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
@@ -69,6 +69,36 @@ function progressReporter(jobId, attempt, onLost) {
 }
 
 const RENDER_FLAGS = ["--fps", "30", "--workers", "1", "--quality", "standard", "--no-browser-gpu"];
+// Previews (Pro Editor): fewer frames and a cheaper encode, then scaled down. They are for checking timing, never delivered.
+const PREVIEW_FLAGS = ["--fps", "24", "--workers", "1", "--quality", "draft", "--no-browser-gpu"];
+const isPreview = (input) => input.quality === "draft540" || input.quality === "preview720";
+
+/** The preview's pixel size. The backend computes it (contracts previewSize); a row is never trusted: even integers in range, or no scaling. */
+function previewScale(input) {
+  if (!isPreview(input)) return null;
+  const width = Number(input.previewWidth);
+  const height = Number(input.previewHeight);
+  return [width, height].every((v) => Number.isInteger(v) && v >= 2 && v <= 3840 && v % 2 === 0) ? { width, height } : null;
+}
+
+/**
+ * Renders a prepared folder. A folder without variables.json (a Pro Editor project) renders as written; a preview is
+ * rendered cheaply at the composition's own size, then scaled to 540p / 720p with ffmpeg.
+ */
+async function renderFolder(folder, output, input, options) {
+  const variables = join(folder, "variables.json");
+  const hasVariables = await access(variables).then(() => true, () => false);
+  await run(HYPERFRAMES, ["render", folder, ...(hasVariables ? ["--variables-file", variables] : []), "--output", output, ...(isPreview(input) ? PREVIEW_FLAGS : RENDER_FLAGS)], options);
+  const scale = previewScale(input);
+  if (!scale) return;
+  const scaled = `${output}.scaled.mp4`;
+  try {
+    await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", output, "-vf", `scale=${scale.width}:${scale.height}`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", scaled], { signal: options.signal });
+    await rename(scaled, output);
+  } finally {
+    await rm(scaled, { force: true });
+  }
+}
 
 /**
  * An approved storyboard: the backend wrote the complete HyperFrames project (stamped canvas, variables,
@@ -87,12 +117,12 @@ async function renderBeatPlan(id, input, attempt, signal, reporter) {
         await rm(scratch, { recursive: true, force: true });
         await downloadProject(input.projectPrefix, folder);
         await access(join(folder, "index.html"));
-        await access(join(folder, "variables.json"));
+        if (input.kind === "beat-plan") await access(join(folder, "variables.json"));
       } catch (error) {
         if (error?.code === "ENOENT" || /missing in storage|Invalid project prefix/.test(error?.message ?? "")) throw new PermanentError("The prepared storyboard folder is incomplete. Submit the storyboard again.");
         throw error;
       }
-      await run(HYPERFRAMES, ["render", folder, "--variables-file", join(folder, "variables.json"), "--output", output, ...RENDER_FLAGS], { onLine: reporter.line, signal });
+      await renderFolder(folder, output, input, { onLine: reporter.line, signal });
       await uploadOutput(output, key);
       return { url: `/v1/renders/${id}`, format: "mp4", durationSeconds: Number(input.durationSeconds) || 10, file: `${id}-a${attempt}.mp4`, key };
     } finally {
@@ -104,14 +134,14 @@ async function renderBeatPlan(id, input, attempt, signal, reporter) {
   if (input.workerDir !== folder) throw new PermanentError("The prepared storyboard folder is missing or invalid.");
   try {
     await access(join(folder, "index.html"));
-    await access(join(folder, "variables.json"));
+    if (input.kind === "beat-plan") await access(join(folder, "variables.json"));
   } catch {
     throw new PermanentError("The prepared storyboard folder is incomplete. Submit the storyboard again.");
   }
   const file = `${id}-a${attempt}.mp4`;
   const output = join(RENDERS_DIR, file);
   try {
-    await run(HYPERFRAMES, ["render", folder, "--variables-file", join(folder, "variables.json"), "--output", output, ...RENDER_FLAGS], { onLine: reporter.line, signal });
+    await renderFolder(folder, output, input, { onLine: reporter.line, signal });
     return { url: `/v1/renders/${id}`, format: "mp4", durationSeconds: Number(input.durationSeconds) || 10, file };
   } catch (error) {
     await rm(output, { force: true });
@@ -122,7 +152,7 @@ async function renderBeatPlan(id, input, attempt, signal, reporter) {
 async function renderVideo(input, attempt, signal, reporter) {
   const id = typeof input.id === "string" && /^[a-f0-9-]{36}$/i.test(input.id) ? input.id : "";
   if (!id) throw new PermanentError("A valid render id is required.");
-  if (input.kind === "beat-plan") return renderBeatPlan(id, input, attempt, signal, reporter);
+  if (input.kind === "beat-plan" || input.kind === "pro") return renderBeatPlan(id, input, attempt, signal, reporter);
   if (storageEnabled) throw new PermanentError("Template renders are not available with object storage yet; render the approved storyboard instead.");
   const template = idOrDefault(input.template, "product-launch");
   const theme = idOrDefault(input.theme, "neutral");

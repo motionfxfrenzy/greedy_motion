@@ -115,6 +115,7 @@ The release enabled the ECS deployment circuit breaker and rollback. Production 
 | `backend/src/plan/` | Director, beat-plan editing, preview, audio, timing, readiness and composition assembly | Railway backend |
 | `backend/src/render/` | Render-job repository, legacy planner and queue consumers | Railway backend |
 | `backend/src/jobs/queues.ts` | Queue definitions and retry settings | Railway backend; persisted in Postgres |
+| `backend/src/pro/` | Pro Editor store: open a project into an editable HyperFrames folder, revisioned file writes, lint, low-res or final render, preview frame ([Pro Editor](PRO_EDITOR.md)) | Railway backend + `/data` cache + R2 media |
 | `backend/src/db/` | Connection pool, SQL migrations and row locking | Railway backend + Supabase |
 | `backend/src/storage.ts` | R2 render-input upload and signed output URLs | Railway backend |
 | `worker/src/worker.mjs` | Worker lifecycle and job execution | ECS Fargate; Docker locally |
@@ -158,6 +159,7 @@ After authentication, the browser calls the Railway API with a Supabase bearer t
 | `GET /v1/projects/:id/composition` | Obtain composition/preview information |
 | `PATCH /v1/projects/:id/studio` | Persist editable template values and selected assets |
 | `POST /v1/projects/:id/render` | Validate and queue a project render |
+| `/v1/projects/:id/pro/*`, `/v1/preview/projects/:id/pro/@<token>/*` | Pro Editor open, files (409 on a stale revision), lint, render, preview frame; needs `PRO_USER_IDS` (see [Pro Editor](PRO_EDITOR.md)) |
 | `GET /v1/render-jobs/:id` | Read authorized render status |
 | `GET /v1/renders/:id` | Redirect to the output or serve a local file |
 | `GET/POST /v1/brands` | List/create brand kits |

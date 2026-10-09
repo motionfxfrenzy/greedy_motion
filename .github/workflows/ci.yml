@@ -30,7 +30,9 @@ jobs:
       - run: npm run check:brand-tokens
       - run: node worker/templates/beat-plan/build.mjs --check
       - run: node scripts/build-engine-fixtures.mjs --check
+      - run: npm run test:pro -w backend
       - run: npm run test:media -w backend
+      - run: npm test -w frontend
 
   ownership:
     runs-on: ubuntu-latest

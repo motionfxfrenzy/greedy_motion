@@ -5,7 +5,9 @@ export async function proxy(request: NextRequest) {
   const { response, signedIn } = await updateSession(request);
   const { pathname } = request.nextUrl;
 
-  if ((pathname === "/studio" || pathname.startsWith("/studio/") || pathname === "/app" || pathname.startsWith("/app/")) && !signedIn) {
+  // /editor/<project id> needs a session. The demo (fixtures, no backend) and the editor's own files (frame.html, gsap.min.js) are public.
+  const guarded = pathname === "/studio" || pathname.startsWith("/studio/") || pathname === "/app" || pathname.startsWith("/app/") || /^\/editor\/(?!demo$)[^/.]+$/.test(pathname);
+  if (guarded && !signedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
     url.search = `?next=${encodeURIComponent(pathname)}`;
