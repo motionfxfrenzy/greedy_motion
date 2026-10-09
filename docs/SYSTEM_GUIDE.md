@@ -620,3 +620,5 @@ Update this guide whenever a promotion changes service placement, a storage path
 ### Skill delivery revision — October 9
 
 Director, formats and author references now share one `backend/skills/manifest.json` and loader. `cloud-author/stages.json` controls ordered stage sources. Explicit stages bypass the Claude classifier; IDs never steer routing. Pro edits have two validation repairs and static seek warnings. See [Skill delivery](SKILL_DELIVERY.md) for the current build/release contract. No deployment was performed.
+
+The October 9 release gate now checks every sting frame in CI. Explicit from/to flips alone have not established pixel-equivalent reverse/shuffled seeks; `gm-velocity-sting@1.1.2` retains its seek-safety known gap. Consult the evidence and continuation notes in SKILL_DELIVERY.md before claiming the gap is closed.

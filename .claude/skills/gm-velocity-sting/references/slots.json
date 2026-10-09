@@ -1,11 +1,11 @@
 {
   "skill": "gm-velocity-sting",
-  "version": "1.0.0",
+  "version": "1.1.2",
   "canvas": ["1:1"],
   "duration": { "min": 11.933, "max": 11.933 },
   "clock": "ledger",
   "slots": [
-    { "id": "brand_word_1", "type": "text", "purpose": "A and G: the wordmark (whole, or its first part). From the brand kit name.", "maxChars": 12, "mustBeReal": true, "aiFillable": false },
+    { "id": "brand_word_1", "type": "text", "purpose": "A and G: the wordmark (whole, or its first part). From the brand kit name.", "from": "brand.name", "maxChars": 12, "mustBeReal": true, "aiFillable": false },
     { "id": "brand_word_2", "type": "text", "purpose": "A and G: the wordmark's second part, drawn in the accent. Empty for a one-word brand (the mark and the wordmark are already the two counter-bouncing parts).", "maxChars": 12, "mustBeReal": true, "aiFillable": false, "default": "" },
     { "id": "logo", "type": "logo", "purpose": "The brand mark (brand kit logo). Empty = a monogram in the accent.", "mustBeReal": true, "aiFillable": false, "default": "" },
     { "id": "b_title", "type": "text", "purpose": "B: the entry surface's title (sign-in, onboarding or first run).", "maxChars": 16, "aiFillable": true },
@@ -30,7 +30,7 @@
     { "id": "f_create", "type": "text", "purpose": "F: the product's real primary create button.", "maxChars": 16, "mustBeReal": true, "aiFillable": false },
     { "id": "f_secondary", "type": "text", "purpose": "F: a second real button beside it. Empty = none.", "maxChars": 24, "mustBeReal": true, "aiFillable": false, "default": "" },
     { "id": "f_menu_title", "type": "text", "purpose": "F: the heading of what the create button opens.", "maxChars": 22, "aiFillable": true },
-    { "id": "f_menu_rows", "type": "text_list", "purpose": "F: exactly 4 real choices as {name, meta}; the second is chosen. name ≤ 18 chars, meta ≤ 14.", "count": { "min": 4, "max": 4 }, "mustBeReal": true, "aiFillable": false },
+    { "id": "f_menu_rows", "type": "text_list", "purpose": "F: exactly 4 real choices as {name, meta}; the second is chosen. name ≤ 18 chars, meta ≤ 14.", "count": { "min": 4, "max": 4 }, "itemFields": { "name": 18, "meta": 14 }, "mustBeReal": true, "aiFillable": false },
     { "id": "f_needs", "type": "text", "purpose": "F: what the choice asks for next.", "maxChars": 40, "aiFillable": true },
     { "id": "g_line", "type": "text", "purpose": "G: at most one closing line. Empty = the lockup alone.", "maxChars": 34, "aiFillable": true, "default": "" }
   ]

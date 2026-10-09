@@ -120,3 +120,7 @@ User requested stopping implementation and documenting progress. Added local gen
 ## 2026-10-09 — Skill delivery hardening
 
 Steps 1–5: task-only structured stage classification with explicit override; bounded source/lint repairs; nonblocking static seek warnings; shared Anthropic transport with retry/usage logging; unified director/formats/author bundle with one hash. All four requested checks pass using offline model fakes. No live Anthropic calls or deployment. Dynamic seek proof and release CI gate work are tracked as step 6. The backend has no Chromium, so per-proposal seek validation cannot claim frame equivalence. See SKILL_DELIVERY.md.
+
+### Skill delivery step 6 — partial, with evidence
+
+CI now runs the full format release gates and the seek gate samples every 30 fps frame. Sting 1.1.2 has explicit from/to state flips and preserves all 358 forward sample frames, but reverse/shuffled equivalence remains failing (221 reverse, 232 shuffled mismatches in the retained report). Linux reproduces failures too. The seek-safety known gap remains; removal is not justified. No deployment or live Anthropic call. See SKILL_DELIVERY.md and validation/skill-delivery/sting-1.1.2-frame-proof.json. A local backend Docker build succeeded with the unified bundle verified inside it.

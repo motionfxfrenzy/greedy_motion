@@ -1,14 +1,14 @@
 {
   "gm-velocity-sting": {
-    "version": "1.1.1",
+    "version": "1.1.2",
     "description": "Build a 12-second square product sting where every cut is velocity-matched, so seven product surfaces read as one continuous camera move instead of a stack of screens. Delivered as a rendered MP4 plus the editable project and its seam ledger, so it can be re-branded or re-filled later without the motion coming apart.",
-    "sha256": "d0f0ae5826da9c32991f837b3b5fc1f63a766c073eb6388e2ec157a8535d631a",
+    "sha256": "fdb8e9774f1c0049d2ff0e793274bd545f90c112f51cd7c401121e3ca92eb0ea",
     "files": {
       "fill-guidance.md": "047bfcb4fffa456c476e25c2854a93c2671c0124139e2d8b1bb7eeffa1053736",
       "sample-values.json": "ca34b5715f52bb21514f100c644a3a212a61145a75f46b23f35230405acba85e",
-      "slots.json": "e4118bace6c7aac823b5a0be6c2432ba08fcac55efdfc0219d345458066471a5",
+      "slots.json": "c31b669f191d91fbe721c74a6874ea9ec80ecfbfe7782bdd0049e87a9050ea27",
       "template/assets/audio/sting-mix.wav": "9185268e4c430e42df8a2e77ec4f3f0e5f5f3fdfde0da8d4803b4fb3f385414e",
-      "template/index.html": "bacb3d7a633013899adbb46495bc27d885bebc26438adcc5d9b105594240803c",
+      "template/index.html": "584b6520a508ee47295a8fb4e8c59c4c36126ba066849e0cb9ae518e256ac0d6",
       "vendor/gsap.min.js": "c174bfce53a729418d57a8ad8625e7247c793a22fef8e2851e3cfa3de9cd8280"
     }
   }

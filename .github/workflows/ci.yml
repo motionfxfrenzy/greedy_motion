@@ -78,6 +78,7 @@ jobs:
       - run: npm ci
       - run: npx --no-install hyperframes browser ensure
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: node scripts/build-skill-bundle.mjs --gates
       - run: npm run styles:verify
       - run: npm run styles:ui
       - run: npm run styles:media

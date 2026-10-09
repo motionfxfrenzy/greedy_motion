@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "bundle": "134a0604f71c3018bbfd0497f16806226fc190a4bc48f46d3271063111027f91",
+  "bundle": "414afcc49819f60eabbbd3efab42f7e771516a341861bd1ae23fc7efdde46a42",
   "files": {
     "author/sources/SOURCES.json": "a1939deb7b80141affe85b41d4cf67d49be32beecaceeb388ceb4838004991f5",
     "author/sources/emil-animation/LICENSE": "4ff5bdb7887ec1435c9cab0e8d1a7caee704d894d65c2a008ccc68b1cc2f260b",
@@ -90,12 +90,12 @@
     "director/SCRIPT_FOR_MOTION.md": "652a2967b299d7eee9ee801a3ce8888ce3725155d6952afc660a7b2932b1b28c",
     "director/SHOT_DIRECTION.md": "f8047cea50a0a307835e6b447526dac3cf3ab00ec4bdf846626eb411a3b99d6c",
     "director/WATCHABILITY.md": "2d1194ff28b962cb4de3f41828e0684bd20e8b53665905f334619455527e10a7",
-    "formats/catalog.json": "38b0465dad0bb9d558719fa599f3f35f6a7401a24c2ce3efd5310ed608fcab56",
+    "formats/catalog.json": "cc3cc0d72cf37b3c021242b0eb177ecc695c337350271eaf1a9db5bbe3c87f36",
     "formats/gm-velocity-sting/fill-guidance.md": "047bfcb4fffa456c476e25c2854a93c2671c0124139e2d8b1bb7eeffa1053736",
     "formats/gm-velocity-sting/sample-values.json": "ca34b5715f52bb21514f100c644a3a212a61145a75f46b23f35230405acba85e",
-    "formats/gm-velocity-sting/slots.json": "e4118bace6c7aac823b5a0be6c2432ba08fcac55efdfc0219d345458066471a5",
+    "formats/gm-velocity-sting/slots.json": "c31b669f191d91fbe721c74a6874ea9ec80ecfbfe7782bdd0049e87a9050ea27",
     "formats/gm-velocity-sting/template/assets/audio/sting-mix.wav": "9185268e4c430e42df8a2e77ec4f3f0e5f5f3fdfde0da8d4803b4fb3f385414e",
-    "formats/gm-velocity-sting/template/index.html": "bacb3d7a633013899adbb46495bc27d885bebc26438adcc5d9b105594240803c",
+    "formats/gm-velocity-sting/template/index.html": "584b6520a508ee47295a8fb4e8c59c4c36126ba066849e0cb9ae518e256ac0d6",
     "formats/gm-velocity-sting/vendor/gsap.min.js": "c174bfce53a729418d57a8ad8625e7247c793a22fef8e2851e3cfa3de9cd8280"
   }
 }
