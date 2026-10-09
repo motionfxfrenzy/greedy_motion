@@ -1,6 +1,6 @@
 # Pro Editor
 
-Documented: October 9, 2026. Status: built on `main`, **not deployed**. It implements the design handoff in `Design/design_handoff_pro_editor/` and is off for customers unless `NEXT_PUBLIC_PRO_EDITOR=1` (a menu entry in Studio) and the user is in `PRO_USER_IDS`.
+Documented: October 9, 2026. Status: built on `main`, **not deployed**. It implements the design handoff in `Design/design_handoff_pro_editor/`. Who may use it is decided by the database ([Entitlements](ENTITLEMENTS.md)): nobody sees the Studio menu entry until someone is granted a plan with `npm run grant:pro`.
 
 ## What it is
 
@@ -33,7 +33,11 @@ A pro user opens a project: its render folder (or a blank composition) is snapsh
 | `POST …/pro/render` | `{quality: draft540 \| preview720 \| final}`. `final` is blocked by lint errors; only a final render becomes `renderJobId`. A preview never touches project state |
 | `GET /v1/preview/projects/:id/pro/@<token>/<file>` | Serves the folder to the preview frame. `__frame.html` is the shell |
 
-Limits: editable files are `.html/.css/.js/.json`, 2 MB each, 200 files, 50 MB per project, paths confined (no `..`, no absolute). Entitlement is `PRO_USER_IDS` (comma-separated, `*` for all; always on with `AUTH_MODE=none`). No billing exists.
+Limits: editable files are `.html/.css/.js/.json`, 2 MB each, 200 files, 50 MB per project, paths confined (no `..`, no absolute).
+
+## Plans and view-only mode
+
+Access comes from `app.entitlements` ([Entitlements](ENTITLEMENTS.md)); `PRO_USER_IDS` and `NEXT_PUBLIC_PRO_EDITOR` are gone. Every route in the table declares `config.proAccess` and is gated inside one Fastify plugin (a route that does not declare it fails the boot; an unlisted one counts as `edit`). `GET`, `…/file` and `…/lint` are `view`; `…/open`, `…/files` and `…/render` are `edit`. A user whose plan has ended gets `access: "view"` from `GET /v1/projects/:id/pro`: the editor opens read-only (every change is refused in the store, no autosave, Render disabled, a banner), and the backend answers the writes with **403 `read_only`**. A user who never had a plan gets **403 `not_pro`** (the "isn't on your plan" screen); a failed entitlement lookup is **503** and shows the retry card. Nothing is ever deleted when a plan ends. If the plan ends while the editor is open, the next save's 403 switches it to view-only and keeps the unsaved edit on screen.
 
 ## The preview frame (read this before changing it)
 

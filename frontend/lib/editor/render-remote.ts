@@ -44,6 +44,7 @@ export async function startRemoteRender(kind: string): Promise<void> {
   if (!remote) return;
   const quality = QUALITY[kind];
   if (quality === null || quality === undefined) return s.say("Transparent renders are not available for server projects yet.");
+  if (s.readOnly || remote.status === "readonly") return s.say("This project is view-only: your Pro plan has ended.");
   if (remote.status === "conflict") return s.say("This project changed somewhere else. Reload before rendering.");
   if (!(await activeAutosave()?.flush())) return s.say("Your latest edit is not saved yet, so the render would miss it. Try again in a moment.");
   try {
@@ -58,6 +59,7 @@ export async function startRemoteRender(kind: string): Promise<void> {
       get().ui({ checks: toIssues(findings.map((f) => ({ ...f, severity: "error" }))), rightTab: "checks", rightOpen: true });
       return get().say(error.message);
     }
+    if (error instanceof ProApiError && error.code === "read_only") get().ui({ readOnly: true });
     get().say(error instanceof Error ? error.message : "Could not start the render.");
   }
 }

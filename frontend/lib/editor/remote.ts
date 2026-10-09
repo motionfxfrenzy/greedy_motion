@@ -9,6 +9,7 @@ import { useEditor } from "./store.ts";
 export type WriteFiles = (projectId: string, baseRev: number, files: { path: string; content: string }[]) => Promise<{ rev: number }>;
 
 const status = (error: unknown) => (error as { status?: number } | null)?.status;
+const codeOf = (error: unknown) => (error as { code?: string } | null)?.code;
 
 export function createAutosave(write: WriteFiles, delayMs = 800) {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -21,7 +22,7 @@ export function createAutosave(write: WriteFiles, delayMs = 800) {
 
   async function once(): Promise<void> {
     const remote = state().remote;
-    if (!remote || remote.status === "conflict") return;
+    if (!remote || remote.status === "conflict" || remote.status === "readonly") return;
     const html = state().doc.html;
     if (html === saved) { state().ui({ dirty: false }); return; }
     setRemote({ status: "saving" });
@@ -31,7 +32,12 @@ export function createAutosave(write: WriteFiles, delayMs = 800) {
       setRemote({ rev: result.rev, status: "idle" });
       state().ui({ dirty: state().doc.html !== html });
     } catch (error) {
-      if (status(error) === 409) {
+      if (status(error) === 403 && codeOf(error) === "read_only") {
+        // The plan ended while the editor was open. Keep what is on screen, stop saving, and say so; nothing is lost on the server.
+        setRemote({ status: "readonly" });
+        state().ui({ readOnly: true });
+        state().say("Your Pro plan has ended, so this project is now view-only. Your last edit was not saved.");
+      } else if (status(error) === 409) {
         setRemote({ status: "conflict" });
         state().say("This project changed somewhere else. Reload to continue; nothing was overwritten.");
       } else {
@@ -43,7 +49,7 @@ export function createAutosave(write: WriteFiles, delayMs = 800) {
   }
 
   async function run(): Promise<void> {
-    while (state().remote && state().remote!.status !== "conflict" && state().doc.html !== saved) {
+    while (state().remote && state().remote!.status !== "conflict" && state().remote!.status !== "readonly" && state().doc.html !== saved) {
       if (inFlight) { await inFlight; continue; }
       inFlight = once().finally(() => { inFlight = null; });
       await inFlight;

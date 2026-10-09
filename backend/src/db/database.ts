@@ -52,27 +52,34 @@ export async function databaseReady() {
   }
 }
 
-// ---------- Row-locked read-modify-write ----------
+// ---------- Transactions ----------
 
-const transaction = new AsyncLocalStorage<pg.PoolClient>();
+type Transaction = { client: pg.PoolClient; afterCommit: Array<() => void> };
+const transaction = new AsyncLocalStorage<Transaction>();
 
-/** Runs a query on the current `withRowLock` transaction if there is one, otherwise on the pool. */
+/** Runs a query on the current transaction (`withTransaction` / `withRowLock`) if there is one, otherwise on the pool. */
 export function query<R extends pg.QueryResultRow>(text: string, params?: unknown[]) {
-  return (transaction.getStore() ?? pool).query<R>(text, params);
+  return (transaction.getStore()?.client ?? pool).query<R>(text, params);
 }
 
-/**
- * Runs `operation` in a transaction that holds `select … for update` on one row, so concurrent writers to the
- * same record (API requests, render consumers, other replicas) apply in turn and none loses another's fields.
- * Queries made through `query()` inside `operation` join the transaction.
- */
-export async function withRowLock<T>(table: "app.projects", id: string, operation: () => Promise<T>): Promise<T> {
+/** Runs `callback` once the current transaction has committed (never if it rolls back); at once outside a transaction. */
+export function afterCommit(callback: () => void) {
+  const current = transaction.getStore();
+  if (current) current.afterCommit.push(callback);
+  else callback();
+}
+
+async function runInTransaction<T>(operation: () => Promise<T>, prepare?: (client: pg.PoolClient) => Promise<void>): Promise<T> {
   const client = await pool.connect();
+  const current: Transaction = { client, afterCommit: [] };
   try {
     await client.query("begin");
-    await client.query(`select 1 from ${table} where id = $1 for update`, [id]);
-    const result = await transaction.run(client, operation);
+    await prepare?.(client);
+    const result = await transaction.run(current, operation);
     await client.query("commit");
+    for (const callback of current.afterCommit) {
+      try { callback(); } catch (error) { console.error(JSON.stringify({ level: "error", event: "after_commit_failed", message: error instanceof Error ? error.message : String(error) })); }
+    }
     return result;
   } catch (error) {
     await client.query("rollback").catch(() => undefined);
@@ -80,4 +87,22 @@ export async function withRowLock<T>(table: "app.projects", id: string, operatio
   } finally {
     client.release();
   }
+}
+
+/**
+ * Runs `operation` in one transaction: `query()` calls inside it share the connection and commit or roll back together.
+ * Called inside an existing transaction it joins that one, so helpers can be composed (a webhook handler wraps its
+ * dedupe row and the entitlement change in one).
+ */
+export function withTransaction<T>(operation: () => Promise<T>): Promise<T> {
+  return transaction.getStore() ? operation() : runInTransaction(operation);
+}
+
+/**
+ * Runs `operation` in a transaction that holds `select … for update` on one row, so concurrent writers to the
+ * same record (API requests, render consumers, other replicas) apply in turn and none loses another's fields.
+ * Queries made through `query()` inside `operation` join the transaction.
+ */
+export function withRowLock<T>(table: "app.projects", id: string, operation: () => Promise<T>): Promise<T> {
+  return runInTransaction(operation, async (client) => { await client.query(`select 1 from ${table} where id = $1 for update`, [id]); });
 }

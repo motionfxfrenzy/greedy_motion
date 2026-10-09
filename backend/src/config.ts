@@ -41,6 +41,12 @@ const positiveInt = (name: string, fallback: number) => {
   return value;
 };
 
+const nonNegativeInt = (name: string, fallback: number) => {
+  const value = Number.parseInt(process.env[name] ?? String(fallback), 10);
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${name} must be zero or a positive integer; got "${process.env[name]}".`);
+  return value;
+};
+
 // Object storage. "filesystem" keeps everything on local disk shared with the worker (local dev). "r2" puts
 // the worker's inputs and outputs in Cloudflare R2 (S3 API) so backend and worker share no volume, and
 // makes R2 the durable home of user media; the local media directories are then only a cache (media.ts).
@@ -103,6 +109,9 @@ export const config = {
   corsOrigins,
   databaseUrl,
   databasePoolSize: positiveInt("DATABASE_POOL_SIZE", 10),
+  // How long one replica remembers a user's entitlement rows (0 turns the cache off). A grant or revoke made on another
+  // replica or by a script is seen within this long; GET /v1/me/entitlements always reads the database.
+  entitlementCacheSeconds: nonNegativeInt("ENTITLEMENT_CACHE_SECONDS", 30),
   // Planning jobs (Claude + audio) this backend replica runs at once.
   planConcurrency: positiveInt("PLAN_CONCURRENCY", 4),
   // A render attempt that runs longer than this is abandoned and retried (pg-boss expireInSeconds).

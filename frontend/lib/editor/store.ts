@@ -17,7 +17,7 @@ export type AgentState = "idle" | "thinking" | "proposed";
 export type LeftTab = "layers" | "comps" | "assets" | "library" | "history" | "clips";
 export type RightTab = "properties" | "source" | "variables" | "review" | "checks";
 /** A project opened from the backend (not the demo): where its composition is saved, and the last revision we hold. */
-export type RemoteState = { projectId: string; rev: number; entry: string; status: "idle" | "saving" | "error" | "conflict"; /** URL of the preview frame shell, on the backend's origin. */ frameSrc: string };
+export type RemoteState = { projectId: string; rev: number; entry: string; status: "idle" | "saving" | "error" | "conflict" | "readonly"; /** URL of the preview frame shell, on the backend's origin. */ frameSrc: string };
 export type MenuState = null | { kind: "project" | "layer"; x: number; y: number; id?: string };
 
 export type EditorState = {
@@ -36,6 +36,11 @@ export type EditorState = {
   fps: number;
   dirty: boolean;
   remote: RemoteState | null;
+  /**
+   * The plan has ended: the project opens for viewing only. Every change to the document is refused here, at the one
+   * place edits go through, so no panel can forget to check. (The backend refuses writes as well; this is the interface.)
+   */
+  readOnly: boolean;
 
   /** Selected layers. The first is the primary one the inspector shows. */
   sel: string[];
@@ -115,7 +120,7 @@ let engineTimer: ReturnType<typeof setTimeout> | null = null;
 
 const initial: EditorState = {
   doc: EMPTY_DOC, historyRev: 0, mode: "layers", hfOnly: false, pro: true,
-  projectName: "Untitled", compName: "main", duration: 12, canvas: { width: 1920, height: 1080 }, fps: 30, dirty: false, remote: null,
+  projectName: "Untitled", compName: "main", duration: 12, canvas: { width: 1920, height: 1080 }, fps: 30, dirty: false, remote: null, readOnly: false,
   sel: [], clipSel: [], keySel: [], anchor: null, t: 0, playing: false,
   leftW: 328, rightW: 336, tlH: 290, spW: 380,
   leftOpen: true, leftFloat: false, rightOpen: true, tlOpen: true, speedOpen: false,
@@ -128,6 +133,11 @@ const initial: EditorState = {
 
 export const useEditor = create<EditorState & Actions>((set, get) => {
   const bump = () => set((s) => ({ historyRev: s.historyRev + 1 }));
+  const refused = () => {
+    if (!get().readOnly) return false;
+    get().say("This project is view-only: your Pro plan has ended.");
+    return true;
+  };
   const markBusy = () => {
     set({ engine: get().engine === "stopped" ? "stopped" : "updating", frameStale: true, dirty: true });
     if (engineTimer) clearTimeout(engineTimer);
@@ -168,6 +178,7 @@ export const useEditor = create<EditorState & Actions>((set, get) => {
     },
 
     edit(label, fn) {
+      if (refused()) return;
       if (txBase) return; // a drag is in flight; the drag owns the history step
       const draft = structuredClone(get().doc);
       fn(draft);
@@ -176,15 +187,16 @@ export const useEditor = create<EditorState & Actions>((set, get) => {
       bump();
       markBusy();
     },
-    begin(label) { if (!txBase) txBase = { doc: get().doc, label }; },
+    begin(label) { if (refused()) return; if (!txBase) txBase = { doc: get().doc, label }; },
     update(fn) {
+      if (get().readOnly) return;
       const draft = structuredClone(get().doc);
       fn(draft);
       set({ doc: draft });
       markBusy();
     },
     updateFromBase(fn) {
-      if (!txBase) return;
+      if (!txBase || get().readOnly) return;
       const draft = structuredClone(txBase.doc);
       fn(draft);
       set({ doc: draft });
@@ -207,6 +219,7 @@ export const useEditor = create<EditorState & Actions>((set, get) => {
     load(doc) { history = new History(doc, 80); txBase = null; set({ doc, historyRev: 0, dirty: false }); },
 
     undo() {
+      if (refused()) return;
       const step = history.undo();
       if (!step) return;
       set({ doc: step.state, keySel: [] });
@@ -214,14 +227,15 @@ export const useEditor = create<EditorState & Actions>((set, get) => {
       get().say(`Undid ${step.label}.`);
     },
     redo() {
+      if (refused()) return;
       const step = history.redo();
       if (!step) return;
       set({ doc: step.state });
       bump(); markBusy();
       get().say(`Redid ${step.label}.`);
     },
-    jumpTo(index) { const doc = history.jumpTo(index); if (doc) { set({ doc }); bump(); markBusy(); } },
-    switchBranch(id) { const doc = history.switchBranch(id); if (doc) { set({ doc }); bump(); markBusy(); get().say("Switched branch."); } },
+    jumpTo(index) { if (refused()) return; const doc = history.jumpTo(index); if (doc) { set({ doc }); bump(); markBusy(); } },
+    switchBranch(id) { if (refused()) return; const doc = history.switchBranch(id); if (doc) { set({ doc }); bump(); markBusy(); get().say("Switched branch."); } },
     history() { return history; },
     markEngineBusy: markBusy
   };
