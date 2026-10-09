@@ -376,3 +376,18 @@ export async function updateProjectSite(id: string, site: VideoProject["site"]) 
     return save({ ...current, site, updatedAt: new Date().toISOString() });
   });
 }
+
+/**
+ * Pro Editor (backend/src/pro): records the editable folder's manifest. `mutate` runs under the project's row lock,
+ * so the file writes it performs and the revision bump are one step against every other writer. Returning
+ * `undefined` leaves the project unchanged.
+ */
+export async function updateProjectPro(id: string, mutate: (current: VideoProject) => Promise<VideoProject["pro"] | undefined>) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return null;
+    const pro = await mutate(current);
+    if (!pro) return current;
+    return save({ ...current, pro, updatedAt: new Date().toISOString() });
+  });
+}
