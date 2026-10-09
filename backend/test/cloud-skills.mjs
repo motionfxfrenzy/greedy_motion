@@ -35,3 +35,22 @@ let calls=0;
 await proposeCompositionEdit("Change the title", "threejs-logo-toggle", html, async (url,init)=>{calls++;const body=JSON.parse(init.body); if(calls===1){assert.equal(body.messages[0].content,"Change the title");return {ok:true,json:async()=>({content:[{type:"text",text:'{"stage":"design"}'}]})};}return fake(url,init);});
 assert.equal(calls,2);
 assert.equal(await routeAuthorStage("unclear",async()=>({ok:true,json:async()=>({content:[{type:"text",text:'{"stage":"invalid"}'}]})})),"animation");
+
+let repairCalls=0;
+const repaired=await proposeCompositionEdit("Change the title","title",html,async(_,init)=>{
+ const body=JSON.parse(init.body);repairCalls++;
+ if(repairCalls===2)assert.match(body.messages.at(-1).content,/one exact source location/);
+ return {ok:true,json:async()=>({content:[{type:"text",text:JSON.stringify({summary:"Retitle",edits:repairCalls===1?[{find:"missing target",replace:"New"}]:[edit]})}]})};
+},"animation");
+assert.equal(repaired.attempts,2);
+let failedCalls=0;
+await assert.rejects(()=>proposeCompositionEdit("Retitle","title",html,async()=>{failedCalls++;return {ok:true,json:async()=>({content:[{type:"text",text:JSON.stringify({summary:"bad",edits:[{find:"missing",replace:"other"}]})}]})};},"animation"),/one exact source location/);
+assert.equal(failedCalls,3);
+let lintCalls=0;
+await proposeCompositionEdit("Retitle","title",html,async(_,init)=>{
+ const body=JSON.parse(init.body);lintCalls++;
+ if(lintCalls===2)assert.match(body.messages.at(-1).content,/HyperFrames lint errors:/);
+ const edits=lintCalls===1?[{find:'const tl = gsap.timeline({ paused: true });',replace:'const tl = gsap.timeline({ paused: true }); Math.random();'}]:[edit];
+ return {ok:true,json:async()=>({content:[{type:"text",text:JSON.stringify({summary:"Retitle",edits})}]})};
+},"animation");
+assert.equal(lintCalls,2);
