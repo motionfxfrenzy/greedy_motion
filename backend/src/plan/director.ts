@@ -15,7 +15,7 @@ import {
   type Vector
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
-import { MOTION_DIRECTION, ROUTING, SCRIPT_FOR_MOTION, SHOT_DIRECTION, WATCHABILITY } from "./director-prompt.generated.ts";
+import { MOTION_DIRECTION, ROUTING, SCRIPT_FOR_MOTION, SHOT_DIRECTION, WATCHABILITY } from "../skills/director.ts";
 
 /** What the director knows besides the brief: the brand and the screenshots the user uploaded. */
 export type DirectorContext = {

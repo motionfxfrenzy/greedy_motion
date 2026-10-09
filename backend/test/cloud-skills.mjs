@@ -60,3 +60,10 @@ assert.equal(seekWarnings('<script>tl.fromTo(".a",{opacity:0},{opacity:1},1)</sc
 assert.ok(seekWarnings('<script>tl.set(".a",{opacity:1},1)</script>').some(w=>w.includes("bare GSAP")));
 assert.ok(proposal.warnings.some(w=>w.includes("not verified")));
 await import('./anthropic.mjs');
+const {loadBundle}=await import('../src/formats/bundle.ts');
+assert.equal((await loadBundle()).bundle,proposal.bundleHash,'formats and proposals share one bundle identity');
+const {skillBundle}=await import('../src/skills/loader.ts');
+const unified=await skillBundle();
+assert.ok(unified.text('director/SCRIPT_FOR_MOTION.md').length>100);
+const stages=JSON.parse(unified.text('author/stages.json'));
+for(const [stage,entry] of Object.entries(stages)) for(const path of [...entry.sources,...(entry.select??[]).flatMap(r=>r.sources)]) assert.ok(docs.has(path),`${stage}: missing ${path}`);

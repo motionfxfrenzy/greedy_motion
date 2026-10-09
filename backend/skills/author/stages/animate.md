@@ -1,0 +1,5 @@
+# Animation of text and elements
+
+Read the Lottie typography and microinteraction references and the Rive interaction skill as options before choosing the output. For deterministic film typography and DOM layers, use the HyperFrames GSAP timeline. For a reusable vector animation, produce local Lottie JSON and verify player compatibility and seeking. For actual editor interaction, use a Rive state machine with explicit inputs and a fallback/captured render path. Apply the GSAP and motion craft references to timing, easing, exits, interruption and inspection. Never depend on requestAnimationFrame or wall-clock animation to render the film.
+
+Use movement only when it explains a relationship or gives feedback. Favor transform and opacity for common UI motion, define a meaningful easing and duration, and test how the motion exits or is interrupted. Respect reduced-motion settings in interactive UI. These principles were also reviewed against the linked `delphi-ai/animate-skill` repository; its source is not redistributed because the inspected checkout provided no license.

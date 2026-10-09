@@ -120,10 +120,15 @@ export const config = {
   templatesDir: resolve(process.env.TEMPLATES_DIR ?? resolve(workerAssetsDir, "templates")),
   themesDir: resolve(process.env.THEMES_DIR ?? resolve(workerAssetsDir, "themes")),
   fontsDir: resolve(process.env.FONTS_DIR ?? resolve(workerAssetsDir, "fonts")),
+  // The gm-* skills shipped with this release (scripts/build-skill-bundle.mjs): templates, slot schemas, fill guidance.
+  skillsBundleDir: resolve(process.env.SKILLS_BUNDLE_DIR ?? resolve(backendSourceDir, "../skills")),
   hyperframesRuntimePath: resolve(process.env.HYPERFRAMES_RUNTIME_PATH ?? resolve(repositoryDir, "node_modules", "hyperframes", "dist", "hyperframe-runtime.js")),
   gsapPath: resolve(process.env.GSAP_PATH ?? resolve(repositoryDir, "node_modules", "gsap", "dist", "gsap.min.js")),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
   // Google Gemini API: Lyria background music and Gemini TTS voiceover. Optional; audio options need it.
+  visualImageModel: process.env.VISUAL_IMAGE_MODEL || "gemini-3.1-flash-image",
+  visualVideoModel: process.env.VISUAL_VIDEO_MODEL || "veo-3.1-fast-generate-preview",
+  visualMaxBudgetUsd: positiveInt("VISUAL_MAX_BUDGET_USD", 50),
   geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
   // Generated audio per job; shared read-only with the worker at /audio locally.
   audioDir: storagePath(process.env.AUDIO_DIR, "audio"),

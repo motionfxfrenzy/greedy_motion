@@ -14,13 +14,19 @@
     "import:file-records": "node --env-file=.env scripts/import-file-records.ts",
     "test:brand-files": "node --env-file-if-exists=.env test/brand-files.mjs",
     "test:media": "node test/media.mjs",
-    "backfill:media": "node --env-file-if-exists=.env scripts/backfill-media.ts"
+    "backfill:media": "node --env-file-if-exists=.env scripts/backfill-media.ts",
+    "test:formats": "node test/formats.mjs",
+    "test:pro": "node test/pro.mjs",
+    "test:visuals": "node --test test/visuals.mjs && node test/rough-seeds.mjs",
+    "test:visuals-db": "node test/visuals-db.mjs",
+    "test:cloud-skills": "node test/cloud-skills.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1147.0",
     "@aws-sdk/s3-request-presigner": "^3.1147.0",
     "@fastify/cors": "^11.0.0",
     "@google/genai": "^2.27.0",
+    "@hyperframes/lint": "0.8.111",
     "@videosaas/contracts": "*",
     "animejs": "4.5.0",
     "fastify": "^5.0.0",
