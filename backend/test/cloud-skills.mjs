@@ -59,3 +59,4 @@ const {seekWarnings}=await import("../src/pro/seek-warnings.ts");
 assert.equal(seekWarnings('<script>tl.fromTo(".a",{opacity:0},{opacity:1},1)</script>').length,1);
 assert.ok(seekWarnings('<script>tl.set(".a",{opacity:1},1)</script>').some(w=>w.includes("bare GSAP")));
 assert.ok(proposal.warnings.some(w=>w.includes("not verified")));
+await import('./anthropic.mjs');
