@@ -81,6 +81,20 @@ railway ssh --project <id> --environment staging --service backend -- node /app/
 
 Outside `APP_ENV=local` a change is a **dry run** unless `--yes` is given, and `--by` is required. The script prints its target (environment, database host, Supabase project), resolves emails through `auth.users` (the person must have signed in once), never runs migrations (the backend does at start), and records every change in `entitlement_events`. A bare date in `--until` means the end of that day in UTC. Revoking ends manual grants only; a subscription would keep access.
 
+### Copy-paste commands (Railway)
+
+Replace `someone@example.com` with the account's email (it must have signed in once). The project id is `lively-presence`. For production use `--environment production` instead of `staging`, and only after the backend with migration 004 is deployed there. Leave out `--yes` to see what would happen without changing anything.
+
+```bash
+# Give someone the Pro editor (no end date)
+railway ssh --project 5298f20e-3531-44a5-a32e-7b99b0cb5b09 --environment staging --service backend -- node /app/backend/scripts/entitlements.ts grant someone@example.com --by osama --yes
+
+# Take it away (their projects open read-only; nothing is deleted)
+railway ssh --project 5298f20e-3531-44a5-a32e-7b99b0cb5b09 --environment staging --service backend -- node /app/backend/scripts/entitlements.ts revoke someone@example.com --by osama --yes
+```
+
+Useful variations, same prefix: add `--days 30` or `--until 2026-12-31` (end of that day, UTC) to `grant` for a plan that ends by itself and `--note "tester"` to say why; run `show someone@example.com` to see their rows and what they get now; run `list --active` to see everyone with a plan. A grant is seen within about 30 seconds on a running backend (the Studio's own check is immediate). Replace the email with the user id (a uuid) if there is no email, e.g. on local Postgres.
+
 ## Billing contract (BILL-03)
 
 Stripe code is not written. The webhook handler only converts a Stripe object to a `SubscriptionSnapshot`, calls `rowFromSubscription` and `upsertEntitlement`:
