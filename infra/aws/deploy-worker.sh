@@ -6,11 +6,22 @@
 #                                (WORKER_LAUNCH=ecs) starts tasks per render and they exit when idle
 #   ./deploy-worker.sh logs|stop
 # Reads infra/aws/.env (AWS deployer keys) and the repo-root .env.credentials (gitignored).
+# Staging by default; ENV=production ./deploy-worker.sh … targets production and reads that environment's deployer
+# keys from infra/aws/.env.production (gitignored) on top of .env.
 set -euo pipefail
 cd "$(dirname "$0")"
-set -a; . ./.env; . ../../.env.credentials; set +a
+ENV="${ENV:-staging}"
+case "$ENV" in staging|production) ;; *) echo "ENV must be staging or production" >&2; exit 2 ;; esac
+set -a; . ./.env; . ../../.env.credentials
+if [ "$ENV" = production ]; then
+  [ -f ./.env.production ] || { echo "ENV=production needs infra/aws/.env.production with the production deployer keys" >&2; exit 2; }
+  . ./.env.production
+fi
+set +a
 export AWS_PAGER=""
-PROJECT=greedymotion ENV=staging REGION=ap-southeast-1
+PROJECT=greedymotion REGION=ap-southeast-1
+UPPER="$(printf %s "$ENV" | tr '[:lower:]' '[:upper:]')"
+from_env() { local name="${1/@/$UPPER}"; printf %s "${!name:-}"; }  # from_env SUPABASE_@_DATABASE_URL
 N="$PROJECT-$ENV"
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 REG="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
@@ -21,9 +32,9 @@ secret() { # name value
 }
 case "${1:-up}" in
   secrets)
-    secret "$PROJECT/$ENV/worker/database-url" "$SUPABASE_STAGING_DATABASE_URL"
-    secret "$PROJECT/$ENV/worker/r2-access-key-id" "$R2_STAGING_ACCESS_KEY_ID"
-    secret "$PROJECT/$ENV/worker/r2-secret-access-key" "$R2_STAGING_SECRET_ACCESS_KEY" ;;
+    secret "$PROJECT/$ENV/worker/database-url" "$(from_env SUPABASE_@_DATABASE_URL)"
+    secret "$PROJECT/$ENV/worker/r2-access-key-id" "$(from_env R2_@_ACCESS_KEY_ID)"
+    secret "$PROJECT/$ENV/worker/r2-secret-access-key" "$(from_env R2_@_SECRET_ACCESS_KEY)" ;;
   logs) aws logs filter-log-events --region "$REGION" --log-group-name "/ecs/$N-worker" --limit 60 --query 'events[].message' --output text | tr '\t' '\n' | tail -40 ;;
   stop) aws ecs update-service --region "$REGION" --cluster "$N" --service worker --desired-count 0 --query 'service.[serviceName,desiredCount]' --output text ;;
   up|ondemand)
