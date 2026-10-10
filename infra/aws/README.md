@@ -83,6 +83,26 @@ steps:
 ```
 4. Scale: start with 1 task, then add Application Auto Scaling on a custom metric for the pg-boss queue depth (a small scheduled job that publishes it), min 1, max set by the Supabase connection budget (each replica uses about 8 connections).
 
+## Scale to zero (recommended): workers only exist while rendering
+
+An always-on task (2 vCPU / 4 GB ARM) bills about $57/month per environment even when nobody renders. With
+`WORKER_LAUNCH=ecs` on the backend nothing runs while idle:
+
+- **Queue a render** → the backend (`backend/src/jobs/worker-launcher.ts`) counts queued + active `render-video` jobs, counts the worker family's ECS tasks, and `RunTask`s the shortfall (2 renders per task, max `ECS_WORKER_MAX_TASKS`). Fargate **Spot** first (~70% cheaper; an interruption is a normal queue retry), on-demand if Spot has no capacity.
+- **A worker with nothing to do for `IDLE_EXIT_SECONDS` (600)** and an empty queue exits; the task stops billing. Ten minutes keeps a user's next iteration warm.
+- **A 30 s sweep** on the backend repeats the check. With an empty queue it is one Postgres query and no AWS call. It covers the one race: a worker exiting just as a job arrives.
+- **Watching a finished video, reopening a project, editing the storyboard, adding comments** never start a worker. The MP4 streams from R2 through a signed URL; the project, prompt, script, plan and comments are Postgres rows; screenshots, brand files, voice/music takes, generated visuals and Pro Editor files are in R2 under `media/` (`backend/src/media.ts`). Only a new render or a Pro preview render starts one.
+- Cost of the trade: a cold start (image pull + Chromium) of roughly a minute when no worker is warm.
+
+Switching on (per environment):
+
+1. `python3 render-policies.py …` now also writes `<N>-backend-launcher.json`. Create an IAM user `greedymotion-<env>-backend-launcher`, attach it, create an access key. It can only start and list this environment's worker tasks and pass the two worker roles to ECS.
+2. `./deploy-worker.sh ondemand`: builds, pushes and registers the task definition (now with `IDLE_EXIT_SECONDS=600`), scales the always-on service to 0 and enables `FARGATE_SPOT` on the cluster (one-time; needs the provisioner policy).
+3. Railway backend variables: `WORKER_LAUNCH=ecs`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ECS_REGION`, `ECS_CLUSTER`, `ECS_WORKER_TASK_DEFINITION` (the family name, so every deploy is picked up), `ECS_SUBNETS`, `ECS_SECURITY_GROUPS` (see `backend/.env.staging.example`).
+4. R2: staging and production uploads buckets already expire the per-render input folders (`jobs/`) after 3 days (rule `expire-job-inputs`). `node infra/r2/lifecycle.mjs <bucket>` checks a bucket and adds the rule only if it is missing; it never touches `media/` or the outputs bucket.
+
+Rolling back: unset `WORKER_LAUNCH` and run `./deploy-worker.sh up` (service back to 1 always-on task; set `IDLE_EXIT_SECONDS=0` in the task definition first, or the service will just restart tasks that exit).
+
 ## Security checklist
 
 - Run the bootstrap with your own SSO/admin identity; never as root; delete any temporary admin keys afterwards.

@@ -1,3 +1,5 @@
+import { isAuthorStage } from "../author-skills/bundle.ts";
+import { proposeCompositionEdit } from "./assistant.ts";
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -261,6 +263,24 @@ function registerEditorRoutes(app: FastifyInstance) {
     } catch (error) {
       if (error instanceof ProInvalid && error.code === "not_open") return fail(reply, 409, "not_open", error.message);
       return mapError(reply, error);
+    }
+  });
+
+  // Claude proposes exact edits against the browser's current (possibly unsaved) source; the editor shows
+  // the diff and its normal revisioned PUT saves only after the user applies it. Spends model calls, so it needs edit access.
+  app.post<{ Params: { id: string }; Body: { baseRev?: unknown; task?: unknown; target?: unknown; html?: unknown; stage?: unknown } }>("/v1/projects/:id/pro/assist", { ...EDIT, bodyLimit: 2_200_000 }, async (request, reply) => {
+    try {
+      requireProEdit(request);
+      const project = await getProject(request.params.id);
+      if (!project?.pro) return fail(reply, 404, "not_found", "Open the project in the Pro editor first.");
+      requireRev(project.pro, request.body?.baseRev);
+      const { task, target, html, stage } = request.body ?? {};
+      if (stage !== undefined && !isAuthorStage(stage)) return fail(reply, 400, "invalid_request", "Unknown author stage.");
+      if (typeof task !== "string" || typeof target !== "string" || typeof html !== "string" || task.length > 1200 || target.length > 200 || html.length > 2_000_000) return fail(reply, 400, "invalid_request", "Send a task, selected target and current composition HTML.");
+      return await proposeCompositionEdit(task, target, html, fetch, stage);
+    } catch (error) {
+      if (error instanceof ProConflict || error instanceof ProInvalid || error instanceof NotEntitled) return mapError(reply, error);
+      return fail(reply, 422, "author_failed", error instanceof Error ? error.message : "Could not propose an edit.");
     }
   });
 

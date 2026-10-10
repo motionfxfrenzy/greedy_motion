@@ -1,5 +1,6 @@
 # Quality gates for every push and pull request to main, staging and production.
-# - checks:   types, template catalog, brand-token lint, engine/fixture freshness, media layer (no services needed)
+# - checks:   types, template catalog, brand-token lint, engine/fixture freshness, unified director/formats/author bundle
+#             freshness (skills:check), format builder (test:formats), media layer (no services needed)
 # - ownership: per-user isolation and concurrent writes against a real Postgres (backend/test/ownership.mjs), and
 #             entitlements: grant/revoke, view-only enforcement, fail-closed, billing contract (backend/test/entitlements.mjs)
 # - creative: renders every library/engine composition twice (identical frames) and under two brands (different
@@ -31,9 +32,16 @@ jobs:
       - run: npm run check:brand-tokens
       - run: node worker/templates/beat-plan/build.mjs --check
       - run: node scripts/build-engine-fixtures.mjs --check
+      - run: npm run styles:check
+      - run: npm run skills:check
+      - run: npm run test:cloud-skills -w backend
+      - run: npm run test:formats -w backend
       - run: npm run test:pro -w backend
       - run: npm run test:entitlements-eval -w backend
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm run test:visuals -w backend
       - run: npm run test:media -w backend
+      - run: npm run test:worker-launcher -w backend
       - run: npm test -w frontend
 
   ownership:
@@ -60,6 +68,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:ownership -w backend
+      - run: npm run test:visuals-db -w backend
       - run: npm run test:entitlements -w backend
 
   creative:
@@ -72,6 +81,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx --no-install hyperframes browser ensure
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: node scripts/build-skill-bundle.mjs --gates
+      - run: npm run styles:verify
+      - run: npm run styles:ui
+      - run: npm run styles:media
       - run: node scripts/check-creative.mjs
       - if: failure()
         uses: actions/upload-artifact@v4

@@ -1,3 +1,4 @@
+import { anthropicMessage, responseText } from "../anthropic.ts";
 import {
   defaultVoice,
   hookWordLimit,
@@ -14,7 +15,7 @@ import {
   type Vector
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
-import { MOTION_DIRECTION, ROUTING, SCRIPT_FOR_MOTION, SHOT_DIRECTION, WATCHABILITY } from "./director-prompt.generated.ts";
+import { MOTION_DIRECTION, ROUTING, SCRIPT_FOR_MOTION, SHOT_DIRECTION, WATCHABILITY } from "../skills/director.ts";
 
 /** What the director knows besides the brief: the brand and the screenshots the user uploaded. */
 export type DirectorContext = {
@@ -329,6 +330,9 @@ function toPlan(output: ModelOutput, brief: ScriptBrief, context: DirectorContex
 }
 
 export class AnthropicDirector implements Director {
+  private readonly httpRequest: typeof fetch;
+  constructor(request = fetch) { this.httpRequest = request; }
+
   async plan(brief: ScriptBrief, context: DirectorContext): Promise<DirectorResult> {
     const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userMessage(brief, context) }];
     let plan: BeatPlan | null = null;
@@ -350,26 +354,15 @@ export class AnthropicDirector implements Director {
   }
 
   private async request(messages: { role: "user" | "assistant"; content: string }[]): Promise<string> {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": config.anthropicApiKey ?? "", "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
+    const payload = await anthropicMessage({
         model: config.anthropicModel,
         max_tokens: 16000,
         // The system prompt is long and identical on every call: cache it (Anthropic prompt caching).
         system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
         messages,
         output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } }
-      }),
-      signal: AbortSignal.timeout(180_000)
-    });
-    if (!response.ok) {
-      const detail = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
-      throw new Error(`Script director request failed (${response.status})${detail.error?.message ? `: ${detail.error.message}` : "."}`);
-    }
-    const payload = (await response.json()) as { content?: { type?: string; text?: string }[]; stop_reason?: string };
-    if (payload.stop_reason === "refusal") throw new Error("The script director declined this brief.");
-    if (payload.stop_reason === "max_tokens") throw new Error("The beat plan was too long; shorten the duration or the script.");
+
+    }, { request: this.httpRequest, timeoutMs: 180000, errorPrefix: "Script director request failed", includeErrorDetail: true, stopErrors: {"refusal": "The script director declined this brief.", "max_tokens": "The beat plan was too long; shorten the duration or the script."} });
     const text = payload.content?.filter((block) => block.type === "text").map((block) => block.text ?? "").join("") ?? "";
     if (!text) throw new Error("The script director returned no plan.");
     return text;

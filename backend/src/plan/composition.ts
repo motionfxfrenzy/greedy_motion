@@ -152,7 +152,7 @@ const encodeAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(
  * the template's own declarations. With `asDefaults`, the values also become the declared defaults:
  * that is the "check twin" for `hyperframes check` and `snapshot`, which take no variables flag.
  */
-export function declareVariables(html: string, values: Record<string, string | boolean>, { asDefaults = false } = {}): string {
+export function declareVariables(html: string, values: Record<string, string | number | boolean>, { asDefaults = false } = {}): string {
   const match = DECLARATIONS.exec(html);
   if (!match) throw new Error("The beat-plan template has no variable declarations.");
   type Declaration = { id: string; type: string; label: string; default: unknown; [key: string]: unknown };

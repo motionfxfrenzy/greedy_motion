@@ -15,7 +15,12 @@
     "test:brand-files": "node --env-file-if-exists=.env test/brand-files.mjs",
     "test:media": "node test/media.mjs",
     "backfill:media": "node --env-file-if-exists=.env scripts/backfill-media.ts",
+    "test:formats": "node test/formats.mjs",
     "test:pro": "node test/pro.mjs",
+    "test:visuals": "node --test test/visuals.mjs && node test/rough-seeds.mjs",
+    "test:visuals-db": "node test/visuals-db.mjs",
+    "test:cloud-skills": "node test/cloud-skills.mjs",
+    "test:worker-launcher": "node test/worker-launcher.mjs",
     "test:entitlements-eval": "node test/entitlements-eval.mjs",
     "test:entitlements": "node --env-file-if-exists=.env test/entitlements.mjs",
     "entitlements": "node --env-file-if-exists=.env scripts/entitlements.ts",
@@ -23,6 +28,7 @@
     "revoke:pro": "node --env-file-if-exists=.env scripts/entitlements.ts revoke"
   },
   "dependencies": {
+    "@aws-sdk/client-ecs": "^3.1149.0",
     "@aws-sdk/client-s3": "^3.1147.0",
     "@aws-sdk/s3-request-presigner": "^3.1147.0",
     "@fastify/cors": "^11.0.0",
