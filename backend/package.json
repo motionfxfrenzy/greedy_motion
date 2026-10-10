@@ -20,7 +20,12 @@
     "test:visuals": "node --test test/visuals.mjs && node test/rough-seeds.mjs",
     "test:visuals-db": "node test/visuals-db.mjs",
     "test:cloud-skills": "node test/cloud-skills.mjs",
-    "test:worker-launcher": "node test/worker-launcher.mjs"
+    "test:worker-launcher": "node test/worker-launcher.mjs",
+    "test:entitlements-eval": "node test/entitlements-eval.mjs",
+    "test:entitlements": "node --env-file-if-exists=.env test/entitlements.mjs",
+    "entitlements": "node --env-file-if-exists=.env scripts/entitlements.ts",
+    "grant:pro": "node --env-file-if-exists=.env scripts/entitlements.ts grant",
+    "revoke:pro": "node --env-file-if-exists=.env scripts/entitlements.ts revoke"
   },
   "dependencies": {
     "@aws-sdk/client-ecs": "^3.1149.0",

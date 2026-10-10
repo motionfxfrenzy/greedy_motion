@@ -82,6 +82,15 @@ export function outputUrl(path: string) {
   return withMediaToken(new URL(path, apiOrigin).toString());
 }
 
+// ---------- Plan ----------
+
+/** What the caller's plan allows (backend/src/entitlements). A failed lookup throws; it is never read as "no plan". */
+export async function getMyEntitlements(): Promise<unknown> {
+  const response = await apiFetch(apiOrigin + "/v1/me/entitlements", { cache: "no-store" });
+  if (!response.ok) throw new Error(`Could not check the plan (${response.status}).`);
+  return response.json();
+}
+
 // ---------- Persisted projects ----------
 
 export async function listProjects() {

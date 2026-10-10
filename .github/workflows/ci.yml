@@ -1,7 +1,8 @@
 # Quality gates for every push and pull request to main, staging and production.
 # - checks:   types, template catalog, brand-token lint, engine/fixture freshness, unified director/formats/author bundle
 #             freshness (skills:check), format builder (test:formats), media layer (no services needed)
-# - ownership: per-user isolation and concurrent writes against a real Postgres (backend/test/ownership.mjs)
+# - ownership: per-user isolation and concurrent writes against a real Postgres (backend/test/ownership.mjs), and
+#             entitlements: grant/revoke, view-only enforcement, fail-closed, billing contract (backend/test/entitlements.mjs)
 # - creative: renders every library/engine composition twice (identical frames) and under two brands (different
 #             frames), software GPU (scripts/check-creative.mjs)
 name: ci
@@ -36,6 +37,7 @@ jobs:
       - run: npm run test:cloud-skills -w backend
       - run: npm run test:formats -w backend
       - run: npm run test:pro -w backend
+      - run: npm run test:entitlements-eval -w backend
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm run test:visuals -w backend
       - run: npm run test:media -w backend
@@ -67,6 +69,7 @@ jobs:
       - run: npm ci
       - run: npm run test:ownership -w backend
       - run: npm run test:visuals-db -w backend
+      - run: npm run test:entitlements -w backend
 
   creative:
     runs-on: ubuntu-latest

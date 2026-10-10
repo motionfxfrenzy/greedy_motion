@@ -20,6 +20,8 @@ import { startWorkerSweep } from "./jobs/worker-launcher.ts";
 import { AssetRejected, readStaged, stageFont, stageLogo } from "./brand/assets.ts";
 import { extractBrand } from "./brand/extract.ts";
 import { registerPlanRoutes } from "./plan/routes.ts";
+import { registerEntitlementRoutes } from "./entitlements/routes.ts";
+import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
 import { presignOutput } from "./storage.ts";
 import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, validateBrandInput } from "./brand/store.ts";
@@ -146,6 +148,8 @@ app.get<{ Params: { id: string; name: string } }>("/v1/preview/brands/:id/fonts/
 // ---------- Persisted projects ----------
 // Product flow v2: Script & Style → beat plan, storyboard edits, live composition (backend/src/plan).
 await registerPlanRoutes(app);
+await registerProRoutes(app);
+await registerEntitlementRoutes(app);
 
 // The token the browser adds as ?t= to media URLs (<img>, <video>, the preview iframe); see media-links.ts.
 app.get("/v1/media-token", async (request, reply) => reply.header("Cache-Control", "no-store").send(mediaToken(callerId(request))));

@@ -34,9 +34,19 @@ export const isOpen = (request: FastifyRequest) => {
   return request.method === "GET" && openGets.some((pattern) => pattern.test(path));
 };
 
+// The Pro Editor's sandboxed preview loads relative assets, which cannot carry `?t=`: its token rides in the path.
+const pathToken = /^\/v1\/preview\/projects\/[0-9a-f-]{36}\/pro\/@([A-Za-z0-9_.~-]+)\//i;
+
+/** The media token a GET to `path` carries: in the path for pro previews, else in `?t=`. */
+export const mediaTokenIn = (path: string, query: { t?: unknown } | undefined) => pathToken.exec(path)?.[1] ?? query?.t;
+
+/** True for the GET routes that accept a media token instead of a Bearer header. */
+export const isMediaGet = (method: string, path: string) => method === "GET" && mediaGets.some((pattern) => pattern.test(path));
+
 const mediaTokenUser = (request: FastifyRequest) => {
-  if (request.method !== "GET" || !mediaGets.some((pattern) => pattern.test(request.url.split("?")[0]))) return null;
-  return verifyMediaToken((request.query as { t?: unknown } | undefined)?.t);
+  const path = request.url.split("?")[0];
+  if (!isMediaGet(request.method, path)) return null;
+  return verifyMediaToken(mediaTokenIn(path, request.query as { t?: unknown } | undefined));
 };
 
 /** Gate the API on a Supabase access token (asymmetric JWT, verified against the project's JWKS). */
