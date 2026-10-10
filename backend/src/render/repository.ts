@@ -3,6 +3,7 @@
 import type { RenderJob, RenderRequest, RenderStage } from "@videosaas/contracts";
 import { pool } from "../db/database.ts";
 import { boss, inTransaction, QUEUES } from "../jobs/queues.ts";
+import { kickWorkers } from "../jobs/worker-launcher.ts";
 import type { Plan } from "./planner.ts";
 
 type Row = {
@@ -88,6 +89,7 @@ export const renderJobRepository = {
     } finally {
       client.release();
     }
+    void kickWorkers();
     return { ...job, state: "rendering" as const, stage: "waiting" as const, progress: 45 };
   },
 
@@ -148,6 +150,7 @@ export const renderJobRepository = {
       );
       if (moved.rowCount === 1) await boss.send(QUEUES.video, { jobId: id }, { db: inTransaction(client) });
       await client.query("commit");
+      if (moved.rowCount === 1) void kickWorkers();
       return moved.rowCount === 1;
     } catch (error) {
       await client.query("rollback");

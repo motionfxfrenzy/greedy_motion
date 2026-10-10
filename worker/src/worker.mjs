@@ -17,9 +17,14 @@ const concurrency = Number.parseInt(process.env.RENDER_CONCURRENCY ?? "1", 10);
 // Seconds to let in-flight renders finish on SIGTERM before handing them back to the queue.
 const drainSeconds = Number.parseInt(process.env.DRAIN_SECONDS ?? "25", 10);
 const RENDERS_DIR = "/renders";
+// Scale to zero (WORKER_LAUNCH=ecs on the backend): exit after this many seconds with nothing running and
+// nothing queued, so the task stops billing. The backend starts a new one when a render is queued.
+// 0 (the default) keeps the worker running, as a long-lived service or local Docker needs.
+const idleExitSeconds = Number.parseInt(process.env.IDLE_EXIT_SECONDS ?? "0", 10);
 
 if (!databaseUrl) throw new Error("DATABASE_URL is not set; the worker reads render jobs from Postgres.");
 if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("RENDER_CONCURRENCY must be a positive integer.");
+if (!Number.isInteger(idleExitSeconds) || idleExitSeconds < 0) throw new Error("IDLE_EXIT_SECONDS must be 0 or a positive integer.");
 
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 const pool = createPool(databaseUrl);
@@ -30,6 +35,7 @@ boss.on("error", (error) => log("error", "queue_error", { message: error.message
 let ready = false;
 let shuttingDown = false;
 let active = 0;
+let lastBusy = Date.now();
 
 /** Errors that would fail the same way on every attempt: fail now instead of retrying. */
 class PermanentError extends Error {}
@@ -184,6 +190,7 @@ async function handle(job) {
     return;
   }
   active += 1;
+  lastBusy = Date.now();
   const started = Date.now();
   await removeEarlierAttempts(jobId, attempt);
   // Abort when pg-boss reports the claim is gone (heartbeat lost, expired) or the row moved to a newer attempt.
@@ -217,6 +224,7 @@ async function handle(job) {
     throw error;
   } finally {
     active -= 1;
+    lastBusy = Date.now();
   }
 }
 
@@ -235,7 +243,22 @@ async function startConsuming() {
   }
   await boss.work(QUEUES.video, { localConcurrency: concurrency, pollingIntervalSeconds: 1 }, async ([job]) => handle(job));
   ready = true;
-  log("info", "worker_consuming", { queue: QUEUES.video, concurrency });
+  log("info", "worker_consuming", { queue: QUEUES.video, concurrency, idleExitSeconds });
+  if (idleExitSeconds > 0) watchIdle();
+}
+
+/** Exits once the worker has had nothing to do for idleExitSeconds and the queue is empty. */
+function watchIdle() {
+  const timer = setInterval(async () => {
+    if (shuttingDown || active > 0 || Date.now() - lastBusy < idleExitSeconds * 1000) return;
+    const [stats] = await boss.getQueueStats(QUEUES.video).catch(() => []);
+    // Unknown queue state: stay up rather than strand a job; the next tick asks again.
+    if (!stats) return;
+    if (stats.queuedCount + stats.activeCount > 0) { lastBusy = Date.now(); return; }
+    clearInterval(timer);
+    void shutdown("idle");
+  }, 15_000);
+  timer.unref();
 }
 
 function send(response, status, payload) {

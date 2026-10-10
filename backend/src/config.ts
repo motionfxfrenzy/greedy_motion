@@ -62,6 +62,33 @@ const r2 = storageDriver === "r2"
     })()
   : null;
 
+// How render workers come to exist. "external" (default): something else keeps them running (local Docker,
+// a Railway service). "ecs": the backend starts Fargate tasks on demand (jobs/worker-launcher.ts) and each
+// worker exits when idle, so nothing runs on AWS while nobody is rendering. Watching a finished video never
+// needs a worker: it streams from R2 through a signed URL.
+const workerLaunchMode = process.env.WORKER_LAUNCH ?? "external";
+if (workerLaunchMode !== "external" && workerLaunchMode !== "ecs") throw new Error(`WORKER_LAUNCH must be "external" or "ecs"; got "${workerLaunchMode}".`);
+const workerLaunch = workerLaunchMode === "ecs"
+  ? (() => {
+      const need = (name: string) => process.env[name] || (() => { throw new Error(`${name} is required when WORKER_LAUNCH=ecs.`); })();
+      const list = (name: string) => need(name).split(",").map((item) => item.trim()).filter(Boolean);
+      return {
+        mode: "ecs" as const,
+        region: need("ECS_REGION"),
+        cluster: need("ECS_CLUSTER"),
+        // A family name ("greedymotion-staging-worker") runs its latest ACTIVE revision, so a deploy needs no backend change.
+        taskDefinition: need("ECS_WORKER_TASK_DEFINITION"),
+        subnets: list("ECS_SUBNETS"),
+        securityGroups: list("ECS_SECURITY_GROUPS"),
+        // Must match the worker's RENDER_CONCURRENCY: renders one task takes at once.
+        perTask: positiveInt("ECS_WORKER_CONCURRENCY", 2),
+        maxTasks: positiveInt("ECS_WORKER_MAX_TASKS", 3),
+        // Spot is ~70% cheaper; an interrupted render is retried by the queue. "0" uses on-demand only.
+        spot: process.env.ECS_USE_SPOT !== "0"
+      };
+    })()
+  : { mode: "external" as const };
+
 // The single user when AUTH_MODE=none (local development). A uuid so it fits the owner_id columns.
 export const LOCAL_USER_ID = "00000000-0000-4000-8000-000000000000";
 
@@ -95,6 +122,7 @@ export const config = {
   legacyOwnerId,
   storageDriver: storageDriver as "filesystem" | "r2",
   r2,
+  workerLaunch,
   planner: planner as "anthropic" | "deterministic",
   appEnv: env,
   // Railway injects PORT; locally the backend defaults to 4000.

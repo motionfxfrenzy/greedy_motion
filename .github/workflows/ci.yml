@@ -39,6 +39,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm run test:visuals -w backend
       - run: npm run test:media -w backend
+      - run: npm run test:worker-launcher -w backend
       - run: npm test -w frontend
 
   ownership:
