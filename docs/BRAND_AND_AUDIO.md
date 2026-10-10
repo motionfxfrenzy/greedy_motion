@@ -49,14 +49,26 @@ Verified: `hyperframes check` passes for all four templates with a light kit (St
 ### Storage
 
 ```text
-var/brands/<id>/
-  brand.json          kit metadata and adjustments
+app.brand_kits       kit metadata and adjustments (Postgres, source of truth since 2026-10-07)
+var/brands/<id>/      files derived from the kit (the Railway /data volume when hosted)
   logo-original.png   as uploaded (UI)
   logo.png            renderer copy, inverted when needed
   theme.css           derived 18-token theme
   fonts.css, fonts/   downloaded Google or uploaded font files
 var/brands/_staging/  uploads and extracted logos awaiting save
 ```
+
+### Keeping the brand consistent (2026-10-07)
+
+The brand read from a customer's website must reach every video unchanged. What enforces that:
+
+| Guarantee | How | Check |
+| --- | --- | --- |
+| The brand survives disk loss | The kit row in Postgres is the source of truth; `theme.css` and Google-font files are rebuilt from it on demand (`restoreBrandFiles`, called before every preview and render). Only an uploaded logo or font cannot be rebuilt; it is logged as `brand_files` with `missing`. | `npm run test:brand-files -w backend`: the theme rebuilt from every kit row is byte-identical to the saved one; deleted files come back |
+| A brand never changes under a project | Kits are create-only (no update endpoint); a project points at one kit id | — |
+| Every colour and typeface comes from the brand | Compositions use theme tokens only (`--bg`, `--brand`, `--accent`, `--font-display`, …); the engine picks contrast-safe inks from them (`--bp-*`) | `npm run check:brand-tokens`: fails on any hard-coded colour or font in the engine, templates or creative compositions |
+| New looks and libraries follow the brand | A look changes how marks are drawn, never their colour or font | `npm run check:creative`: every composition is rendered under two brands and must differ; rendered twice under one brand and must be identical |
+| Nobody ships a gallery theme by accident | Readiness warns when a project made from a website has no brand kit | Storyboard readiness warnings |
 
 ## 2. Music and voiceover
 

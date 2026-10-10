@@ -1,8 +1,9 @@
 // Generates a job's audio (Lyria music + Gemini TTS voiceover) into <audioDir>/<jobId>/ for the worker.
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AudioOptions, AudioResult } from "@videosaas/contracts";
 import { config } from "../config.ts";
+import { saveMedia } from "../media.ts";
 import { synthesizeVoiceover } from "./gemini-tts.ts";
 import { generateMusic } from "./lyria.ts";
 
@@ -26,7 +27,7 @@ export async function produceAudio(jobId: string, options: AudioOptions, plan: {
 
   const music = options.music && plan.musicPrompt
     ? generateMusic(config.geminiApiKey, { prompt: plan.musicPrompt, seconds: 10, bpm: tempo.bpm, density: tempo.density, brightness: tempo.brightness })
-      .then((wav) => writeFile(join(dir, "music.wav"), wav)).then(() => ({ prompt: plan.musicPrompt! }))
+      .then((wav) => saveMedia(join(dir, "music.wav"), wav)).then(() => ({ prompt: plan.musicPrompt! }))
     : Promise.resolve(undefined);
 
   const voice = options.voiceover && plan.narration
@@ -36,7 +37,7 @@ export async function produceAudio(jobId: string, options: AudioOptions, plan: {
         // One retry with a brisker read; never cut speech mid-word.
         if (take.seconds > VOICE_MAX) take = await synthesizeVoiceover(config.geminiApiKey, { text: plan.narration!, voice: voiceId, style: `${tempo.delivery}, brisk fast pace, no pauses` });
         if (take.seconds > VOICE_MAX) throw new Error(`The voiceover runs ${take.seconds.toFixed(1)} s, longer than the video allows. Try a shorter brief.`);
-        await writeFile(join(dir, "voiceover.wav"), take.wav);
+        await saveMedia(join(dir, "voiceover.wav"), take.wav);
         return { text: plan.narration!, voice: voiceId, seconds: Math.round(take.seconds * 100) / 100 };
       })()
     : Promise.resolve(undefined);

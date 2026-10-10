@@ -1,12 +1,16 @@
 export const formats = ["landscape", "portrait"] as const;
 import { parseAudioOptions, type AudioOptions, type AudioResult } from "./audio.ts";
 import type { BeatPlan, PlanAudio, ScriptBrief, SiteCapture } from "./beat-plan.ts";
+import type { ProManifest } from "./engine.ts";
 import { defaultTemplateId, templateIds, type TemplateValues } from "./templates.ts";
 import { defaultThemeId, themeIds } from "./themes.ts";
 
 export * from "./audio.ts";
 export * from "./beat-plan.ts";
 export * from "./brand.ts";
+export * from "./engine.ts";
+export * from "./frame.ts";
+export * from "./looks.ts";
 export * from "./templates.ts";
 export * from "./themes.ts";
 
@@ -154,6 +158,8 @@ export type VideoProject = {
   planAudio?: PlanAudio;
   /** The product website read for this project (backend/src/site). */
   site?: SiteCapture;
+  /** Present once a pro user has opened the project in the Pro Editor (backend/src/pro). */
+  pro?: ProManifest;
 };
 
 export function parseRenderRequest(value: unknown): RenderRequest | null {

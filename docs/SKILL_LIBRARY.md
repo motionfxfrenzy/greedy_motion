@@ -132,13 +132,14 @@ drives a reel). We never copy a reference's footage, copy, logo, characters, mus
 |---|---|---|---|---|---|
 | `gm-glossy-3d-reel` | On hold. To be rewritten for the Nano Banana + Veo 3D path ([MOTION_PIPELINE.md](MOTION_PIPELINE.md)) | 15–20s, 16:9 | Music beat grid | — | — |
 | `gm-feature-explainer` | **Library-ready** (2 builds + fill mode, 2026-10-04). 9:16 not yet built | 30–120s, 16:9 | Voiceover transcript (verb onsets probed, ±0.25s gate) | [GM 50.0s](../experiments/skills/gm-feature-explainer/gm/) · [sample 44.4s](../experiments/skills/gm-feature-explainer/sample/) · [fill](../experiments/skills/gm-feature-explainer/fill/) | $0 API; CPU render 112s ≈ $0.006; ≈ $4 tokens/build (fill ≈ $0.05/video) |
+| `gm-velocity-sting` | **Library-ready** (2 builds + fill mode, 2026-10-08). 1:1 only | 11.933s, 1:1 | Seam ledger (6 cuts, verified by `scripts/verify-seams.mjs`) | GM and Ledgerly sample in `experiments/skills/gm-velocity-sting/` (built by `scripts/build-format.mjs`) | $0 API; render ≈ 14s; fill ≈ $0.02/video (estimate) |
 | `gm-3d-shot` | Planned (next to author) | One 3D shot as a video layer | Ledger row | — | ≈ $1.25–2.30 per shot in API fees |
 
-Third-party skills we have tested (in `~/Downloads`, not vendored):
+Third-party skills we have tested (raw copies in `third_party/creative-packs/`, also usable from `.claude/skills/bs-hyperframes-*`):
 
 | Skill | Test build | Result |
 |---|---|---|
-| `bs-hyperframes-velocity-sting` | `experiments/gm-ad-test/velocity-sting/` | Passed: 6/6 seams verified, check 0 findings, 16s render, ~$3 tokens |
+| `bs-hyperframes-velocity-sting` | `experiments/gm-ad-test/velocity-sting/` | Passed: 6/6 seams verified, check 0 findings, 16s render, ~$3 tokens. Now our `gm-velocity-sting` |
 | `bs-hyperframes-chat-to-result-launch` | `experiments/gm-ad-test/chat-launch/` | In progress |
 | `bs-hyperframes-agent-chorus-reel` | — | Not yet; needs 8–12 real Greedy Motion outputs and a track with a drop |
 

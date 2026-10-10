@@ -29,6 +29,7 @@ plan = [
     ("execution-secrets.json", f"{N}-worker-exec-secrets", "ROLE {N}-worker-exec (inline policy). Not the user."),
     ("ecs-trust.json", f"{N}-ecs-trust", "ROLE trust policy for both worker roles. Not the user."),
     ("worker-taskdef.json", f"{N}-worker-taskdef", "ECS task definition JSON (Create new task definition > JSON). Not a policy."),
+    ("backend-launcher.json", f"{N}-backend-launcher", "IAM USER {N}-backend-launcher (managed policy). Its key goes to the Railway backend (WORKER_LAUNCH=ecs)."),
 ]
 if a.with_s3:
     plan[2:2] = [("provisioner-s3.json", f"{N}-worker-provisioner-s3", "IAM USER (managed policy). Only for the one-time bucket setup; detach afterwards.")]

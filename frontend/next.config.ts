@@ -9,7 +9,10 @@ const nextConfig: NextConfig = {
   // proxy relative makes the preview same-origin with the Next application, without exposing
   // arbitrary preview URLs to the browser.
   async rewrites() {
-    return [{ source: "/api/preview/:path*", destination: `${backendOrigin}/v1/preview/:path*` }];
+    return [
+      { source: "/api/preview/:path*", destination: `${backendOrigin}/v1/preview/:path*` },
+      { source: "/api/backend/:path*", destination: `${backendOrigin}/v1/:path*` }
+    ];
   }
 };
 

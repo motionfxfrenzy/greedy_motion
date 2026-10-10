@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, errors, jwtVerify } from "jose";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { config, LOCAL_USER_ID } from "./config.ts";
+import { verifyMediaToken } from "./media-links.ts";
 
 export type AuthUser = { id: string; email?: string };
 declare module "fastify" {
@@ -9,10 +10,18 @@ declare module "fastify" {
   }
 }
 
-// Reached by <img>/<video>/<iframe> tags, which cannot send an Authorization header. These stay open;
-// the ids in the path are unguessable UUIDs. Everything else under /v1 requires a signed-in user.
+// Shared files the preview loads that hold no user data. Everything else under /v1 requires a signed-in user.
 const openGets = [
-  /^\/v1\/preview\//,
+  /^\/v1\/preview\/(?:runtime|gsap)\.js$/,
+  /^\/v1\/preview\/fonts\/[^/]+$/,
+  /^\/v1\/preview\/templates\/[^/]+\/assets\/[^/]+$/,
+  /^\/v1\/preview\/plan-sfx\/[^/]+$/
+];
+
+// User media reached by <img>/<video>/<audio> tags and the preview iframe, which cannot send an Authorization
+// header: these also accept a media token in `?t=` (media-links.ts). Ownership is then checked as usual.
+const mediaGets = [
+  /^\/v1\/preview\/(?:projects|plans|brands)\//,
   /^\/v1\/renders\/[^/]+$/,
   /^\/v1\/projects\/[^/]+\/screenshots\/[^/]+$/,
   /^\/v1\/brands\/[^/]+\/logo$/,
@@ -23,6 +32,21 @@ export const isOpen = (request: FastifyRequest) => {
   const path = request.url.split("?")[0];
   if (request.method === "OPTIONS" || !path.startsWith("/v1/")) return true;
   return request.method === "GET" && openGets.some((pattern) => pattern.test(path));
+};
+
+// The Pro Editor's sandboxed preview loads relative assets, which cannot carry `?t=`: its token rides in the path.
+const pathToken = /^\/v1\/preview\/projects\/[0-9a-f-]{36}\/pro\/@([A-Za-z0-9_.~-]+)\//i;
+
+/** The media token a GET to `path` carries: in the path for pro previews, else in `?t=`. */
+export const mediaTokenIn = (path: string, query: { t?: unknown } | undefined) => pathToken.exec(path)?.[1] ?? query?.t;
+
+/** True for the GET routes that accept a media token instead of a Bearer header. */
+export const isMediaGet = (method: string, path: string) => method === "GET" && mediaGets.some((pattern) => pattern.test(path));
+
+const mediaTokenUser = (request: FastifyRequest) => {
+  const path = request.url.split("?")[0];
+  if (!isMediaGet(request.method, path)) return null;
+  return verifyMediaToken(mediaTokenIn(path, request.query as { t?: unknown } | undefined));
 };
 
 /** Gate the API on a Supabase access token (asymmetric JWT, verified against the project's JWKS). */
@@ -38,6 +62,11 @@ export function registerAuth(app: FastifyInstance) {
     if (isOpen(request)) return;
     const header = request.headers.authorization ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    const mediaUser = token ? null : mediaTokenUser(request);
+    if (mediaUser) {
+      request.user = { id: mediaUser };
+      return;
+    }
     if (!token) return reply.code(401).send({ error: { code: "unauthenticated", message: "Sign in to continue." } });
     try {
       const { payload } = await jwtVerify(token, jwks, { issuer, audience: "authenticated" });

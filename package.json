@@ -21,6 +21,15 @@
     "previews": "node scripts/build-previews.ts",
     "templates:verify": "node scripts/verify-templates.ts",
     "fonts:fetch": "node worker/scripts/fetch-fonts.mjs",
-    "director:prompt": "node scripts/build-director-prompt.mjs"
+    "check:brand-tokens": "node scripts/check-brand-tokens.mjs",
+    "check:creative": "node scripts/check-brand-tokens.mjs && node worker/templates/beat-plan/build.mjs --check && node scripts/build-engine-fixtures.mjs --check && node scripts/check-creative.mjs",
+    "skills:check": "node scripts/build-skill-bundle.mjs --check",
+    "styles:build": "node scripts/build-style-library.mjs && node worker/templates/beat-plan/build.mjs && node scripts/build-engine-fixtures.mjs",
+    "styles:check": "node scripts/build-style-library.mjs --check && node worker/templates/beat-plan/build.mjs --check && node scripts/build-engine-fixtures.mjs --check && node backend/test/styles.mjs",
+    "styles:verify": "node scripts/verify-styles.mjs",
+    "styles:previews": "node scripts/verify-styles.mjs --previews",
+    "styles:ui": "node scripts/verify-style-picker.mjs",
+    "styles:media": "node scripts/verify-material-playback.mjs",
+    "skills:build": "node scripts/build-skill-bundle.mjs"
   }
 }

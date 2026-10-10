@@ -1,0 +1,29 @@
+built backend/skills: 103 files; bundle 88ad0a9cee99
+
+== gm-velocity-sting: hyperframes check (exit 0)
+    1. Use a mapped font name instead (see list above)
+    2. Add a @font-face block in your HTML with a local or hosted font file
+    3. Install the font locally on the render machine (Docker: add to Dockerfile)
+    4. Add an alias to FONT_ALIAS_MAP in packages/core/src/fonts/aliases.ts (for contributors)
+  Docs: https://hyperframes.heygen.com/docs/fonts
+[hyperframes] browserGpuMode probe → hardware (WebGL renderer vendor="Google Inc. (Apple)" renderer="ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Unspecified Version)")
+
+== gm-velocity-sting: seek safety (exit 1)
+  FAIL  shuffled   t=4.033333333333333s  forward 956083c356f0  got 20ea890eb9a9
+  FAIL  shuffled   t=2.2666666666666666s  forward 7179e7ba6a3f  got 3413e1659be3
+  FAIL  shuffled   t=1.0666666666666667s  forward 40dbbe87d37b  got 711b4e3f5a8c
+  FAIL  fresh-page t=11.9s  forward 6c6ff3a32546  got 3a5c0b29da22
+  FAIL  fresh-page t=5.966666666666667s  forward 1dbae047540a  got 28df5a0fdb61
+GATE: FAIL  452 frame(s) depend on how the playhead arrived. Typical causes: relative (+=) tweens, from() without immediateRender control, onUpdate/onComplete side effects, Math.random, CSS transitions.
+
+== gm-velocity-sting: text-size floors (exit 1)
+  FAIL  supporting 9.00-11.00s  20.4px < 32px  "#1042"  div#f-r2 > span.mt
+  FAIL  supporting 9.00-11.00s  20.4px < 32px  "3 open"  div#f-r3 > span.mt
+  FAIL  supporting 9.50-11.00s  17.5px < 32px  "✓"  span#f-rd-on
+  FAIL  supporting 10.00-11.00s  25.2px < 32px  "Next: client, amount, due date"  div#f-needs
+  FAIL  supporting 10.50-11.00s  31.1px < 32px  "New invoice"  div#f-btn
+GATE: FAIL  23 text run(s) under the floor. Enlarge the type, or declare data-text-role="decorative" only if it is truly not meant to be read.
+
+Known gaps (recorded in .claude/skills/BUNDLE.json, not blocking): gm-velocity-sting: seek-safety; gm-velocity-sting: text-size
+
+GATES: PASS (every gate passes or is a recorded known gap)

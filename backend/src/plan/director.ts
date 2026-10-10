@@ -1,3 +1,4 @@
+import { anthropicMessage, responseText } from "../anthropic.ts";
 import {
   defaultVoice,
   hookWordLimit,
@@ -14,7 +15,7 @@ import {
   type Vector
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
-import { MOTION_DIRECTION, ROUTING, SCRIPT_FOR_MOTION, WATCHABILITY } from "./director-prompt.generated.ts";
+import { MOTION_DIRECTION, ROUTING, SCRIPT_FOR_MOTION, SHOT_DIRECTION, WATCHABILITY } from "../skills/director.ts";
 
 /** What the director knows besides the brief: the brand and the screenshots the user uploaded. */
 export type DirectorContext = {
@@ -229,11 +230,12 @@ const SYSTEM = [
   "=== WATCHABILITY ===", WATCHABILITY,
   "=== ROUTING (which producer builds each beat kind, what it must be told) ===", ROUTING,
   "=== MOTION DIRECTION: typography (set text_effect on every kinetic and title beat, null on ui beats; use only the effect ids in the table) ===", MOTION_DIRECTION,
+  "=== SHOT DIRECTION (how to write generation.keyframe_prompt and generation.veo_prompt for '3d' and 'footage' beats) ===", SHOT_DIRECTION,
   "=== OUTPUT RULES ===",
   "- Return JSON matching the schema. Beat order is film order: first beat role 'hook', last beat role 'cta', exactly one beat with success=true placed before the CTA.",
   "- Consecutive beats: beat N's exit vector must equal beat N+1's entry vector (axis and dir). Vary directions; don't repeat the same vector three times in a row.",
   "- kind 'ui' requires ui.screenshot_index pointing at one of the provided screenshots (0-based). With no screenshots, use 'kinetic' instead of 'ui'.",
-  "- Prefer 'ui' and 'kinetic'. Use '3d' or 'footage' only when the story needs it, at most 2–3 per film, each with generation prompts written with the visual-skills rules (no text, logos or product UI drawn by the model; blank surfaces; laptop screens blank or away) and a fallback_keyword.",
+  "- Prefer 'ui' and 'kinetic'. Use '3d' or 'footage' only when the story needs it, at most 2–3 per film, each with generation prompts written exactly as SHOT DIRECTION says (lead with the action; the NO TEXT block second; no text, logos or product UI drawn by the model; laptop screens blank or away) and a fallback_keyword. keep_s: 4 when the action fits in 4 s and no end frame is needed (cheapest clip); end_frame 'generated' only with 8 s clips, and never 'crop-push' on a shot whose subject moves.",
   "- keyword: ≤ 4 words and ≤ 28 characters; the last word is the one that takes the brand accent (the engine colours it; never mark it). on_screen ≤ 60 characters. line ≤ 24 words.",
   "- Every text field is plain text: no markdown, no asterisks, underscores or backticks for emphasis, no quotes around the words.",
   "- Own-script mode: every 'line' must be copied verbatim from the user's script (you may split it into sentences; never reword). Put any improvement in 'suggestions' with beat_index, problem and proposal.",
@@ -328,6 +330,9 @@ function toPlan(output: ModelOutput, brief: ScriptBrief, context: DirectorContex
 }
 
 export class AnthropicDirector implements Director {
+  private readonly httpRequest: typeof fetch;
+  constructor(request = fetch) { this.httpRequest = request; }
+
   async plan(brief: ScriptBrief, context: DirectorContext): Promise<DirectorResult> {
     const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userMessage(brief, context) }];
     let plan: BeatPlan | null = null;
@@ -349,25 +354,15 @@ export class AnthropicDirector implements Director {
   }
 
   private async request(messages: { role: "user" | "assistant"; content: string }[]): Promise<string> {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": config.anthropicApiKey ?? "", "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
+    const payload = await anthropicMessage({
         model: config.anthropicModel,
         max_tokens: 16000,
-        system: SYSTEM,
+        // The system prompt is long and identical on every call: cache it (Anthropic prompt caching).
+        system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
         messages,
         output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } }
-      }),
-      signal: AbortSignal.timeout(180_000)
-    });
-    if (!response.ok) {
-      const detail = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
-      throw new Error(`Script director request failed (${response.status})${detail.error?.message ? `: ${detail.error.message}` : "."}`);
-    }
-    const payload = (await response.json()) as { content?: { type?: string; text?: string }[]; stop_reason?: string };
-    if (payload.stop_reason === "refusal") throw new Error("The script director declined this brief.");
-    if (payload.stop_reason === "max_tokens") throw new Error("The beat plan was too long; shorten the duration or the script.");
+
+    }, { request: this.httpRequest, timeoutMs: 180000, errorPrefix: "Script director request failed", includeErrorDetail: true, stopErrors: {"refusal": "The script director declined this brief.", "max_tokens": "The beat plan was too long; shorten the duration or the script."} });
     const text = payload.content?.filter((block) => block.type === "text").map((block) => block.text ?? "").join("") ?? "";
     if (!text) throw new Error("The script director returned no plan.");
     return text;

@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "sources": {
+    "threejs": {
+      "url": "https://github.com/cloudai-x/threejs-skills",
+      "commit": "b1c623076c661fc9b03dac19292e825a5d106823",
+      "license": "MIT as stated in upstream README (no separate LICENSE file)",
+      "files": [
+        "threejs/README.md",
+        "threejs/threejs-animation/SKILL.md",
+        "threejs/threejs-fundamentals/SKILL.md",
+        "threejs/threejs-geometry/SKILL.md",
+        "threejs/threejs-interaction/SKILL.md",
+        "threejs/threejs-lighting/SKILL.md",
+        "threejs/threejs-loaders/SKILL.md",
+        "threejs/threejs-materials/SKILL.md",
+        "threejs/threejs-postprocessing/SKILL.md",
+        "threejs/threejs-shaders/SKILL.md",
+        "threejs/threejs-textures/SKILL.md"
+      ]
+    },
+    "lottie": {
+      "url": "https://github.com/diffusionstudio/lottie",
+      "commit": "3c72912fad543897f90045ed4d355813837927fc",
+      "license": "MIT",
+      "files": [
+        "lottie/LICENSE",
+        "lottie/text-to-lottie/SKILL.md",
+        "lottie/text-to-lottie/references/chapterization-transition-grammar.md",
+        "lottie/text-to-lottie/references/design-taste.md",
+        "lottie/text-to-lottie/references/lottie-spec-map.md",
+        "lottie/text-to-lottie/references/motion-taste.md",
+        "lottie/text-to-lottie/references/player-contract.md",
+        "lottie/text-to-lottie/references/recipe-camera-scene-motion.md",
+        "lottie/text-to-lottie/references/recipe-data-stats.md",
+        "lottie/text-to-lottie/references/recipe-diagram-technical.md",
+        "lottie/text-to-lottie/references/recipe-loaders-icons.md",
+        "lottie/text-to-lottie/references/recipe-logo.md",
+        "lottie/text-to-lottie/references/recipe-lower-thirds.md",
+        "lottie/text-to-lottie/references/recipe-product-promo.md",
+        "lottie/text-to-lottie/references/recipe-starter-projects.md",
+        "lottie/text-to-lottie/references/recipe-svg-animation.md",
+        "lottie/text-to-lottie/references/recipe-typography.md",
+        "lottie/text-to-lottie/references/recipe-ui-microinteractions.md",
+        "lottie/text-to-lottie/references/recipe-visual-effects.md",
+        "lottie/text-to-lottie/references/svg-compatibility.md"
+      ]
+    },
+    "remotion-craft": {
+      "url": "https://github.com/haidrrrry/claude-remotion-skill",
+      "commit": "1dcbe5e3fc6cf970bd10d3cc05f0a8a5d19d0383",
+      "license": "MIT",
+      "files": [
+        "remotion-craft/LICENSE",
+        "remotion-craft/remotion-motion-graphics/SKILL.md",
+        "remotion-craft/remotion-motion-graphics/references/design-rules.md",
+        "remotion-craft/remotion-motion-graphics/references/motion-patterns.md"
+      ]
+    },
+    "wiggle-logo": {
+      "url": "https://github.com/talknerdytome-labs/wiggle-claude-skill",
+      "commit": "134544b0d56272781a7585abdeb781417d2bdb8e",
+      "license": "Apache-2.0",
+      "files": [
+        "wiggle-logo/LICENSE.txt",
+        "wiggle-logo/wiggle/SKILL.md",
+        "wiggle-logo/wiggle/references/animation_theory.md",
+        "wiggle-logo/wiggle/references/anti_patterns.md",
+        "wiggle-logo/wiggle/references/detailed_examples.md",
+        "wiggle-logo/wiggle/references/lottie_spec.md",
+        "wiggle-logo/wiggle/references/preset_library.md",
+        "wiggle-logo/wiggle/references/real-world-examples/README.md",
+        "wiggle-logo/wiggle/references/real-world-examples/discord-hover-wink.json",
+        "wiggle-logo/wiggle/references/real-world-examples/flickr-hover-shutter.json",
+        "wiggle-logo/wiggle/references/real-world-examples/indie-hackers-hover-draw.json",
+        "wiggle-logo/wiggle/references/real-world-examples/medium-hover-pinch.json",
+        "wiggle-logo/wiggle/references/real-world-examples/reddit-hover-pinch.json",
+        "wiggle-logo/wiggle/references/real-world-examples/renren-hover-cycle.json",
+        "wiggle-logo/wiggle/references/real-world-examples/slack-hover-pinch.json",
+        "wiggle-logo/wiggle/references/real-world-examples/snapchat-hover-pinch.json",
+        "wiggle-logo/wiggle/references/real-world-examples/soundcloud-hover-pinch.json",
+        "wiggle-logo/wiggle/references/script_usage.md",
+        "wiggle-logo/wiggle/references/text_animation_guide.md",
+        "wiggle-logo/wiggle/references/troubleshooting.md"
+      ]
+    },
+    "scene-design": {
+      "url": "https://github.com/freshtechbro/claudedesignskills",
+      "commit": "1da73febff0c3e1dfefc07f8a5ef8f7d1dfdb6cd",
+      "license": "MIT",
+      "files": [
+        "scene-design/LICENSE",
+        "scene-design/modern-web-design/skills/modern-web-design/SKILL.md",
+        "scene-design/modern-web-design/skills/modern-web-design/references/accessibility_guide.md",
+        "scene-design/modern-web-design/skills/modern-web-design/references/design_trends_2024.md",
+        "scene-design/modern-web-design/skills/modern-web-design/references/interaction_patterns.md",
+        "scene-design/modern-web-design/skills/modern-web-design/references/performance_checklist.md",
+        "scene-design/rive-interactive/skills/rive-interactive/SKILL.md",
+        "scene-design/rive-interactive/skills/rive-interactive/references/api_reference.md",
+        "scene-design/web3d-integration-patterns/skills/web3d-integration-patterns/SKILL.md"
+      ]
+    },
+    "gsap": {
+      "url": "https://github.com/greensock/gsap-skills",
+      "commit": "aed9cfd3277740755f6bfc1155c7aa645403b760",
+      "license": "MIT",
+      "files": [
+        "gsap/LICENSE",
+        "gsap/gsap-core/SKILL.md",
+        "gsap/gsap-performance/SKILL.md",
+        "gsap/gsap-plugins/SKILL.md",
+        "gsap/gsap-timeline/SKILL.md",
+        "gsap/gsap-utils/SKILL.md"
+      ]
+    },
+    "emil-animation": {
+      "url": "https://github.com/emilkowalski/skills",
+      "commit": "e8a175de22ae1e49370fc144c1f3bb9aeedf988d",
+      "license": "MIT",
+      "files": [
+        "emil-animation/LICENSE",
+        "emil-animation/animate/SKILL.md",
+        "emil-animation/review-animations/SKILL.md"
+      ]
+    },
+    "animate-skill": {
+      "url": "https://github.com/delphi-ai/animate-skill",
+      "commit": "71bc617e7000e69b679549f13ea132e696420d6c",
+      "license": "No license file found in inspected checkout; concepts reviewed, source not redistributed",
+      "files": []
+    }
+  }
+}

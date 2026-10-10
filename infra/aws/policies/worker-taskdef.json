@@ -42,6 +42,10 @@
           "value": "300"
         },
         {
+          "name": "IDLE_EXIT_SECONDS",
+          "value": "600"
+        },
+        {
           "name": "DRAIN_SECONDS",
           "value": "25"
         },

@@ -107,15 +107,18 @@ export type EngineInputs = {
   brandName: string;
   logo?: string | null;
   logoWordmark?: boolean;
+  /** Drawing style (contracts looks.ts); the engine reads it as the `look` variable. */
+  look?: string;
 };
 
-/** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`. */
+/** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `look`. */
 export function engineVariables(input: EngineInputs): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {
     plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes)),
     brandName: input.brandName,
     logo: input.logo ?? "",
-    logoWordmark: Boolean(input.logo && input.logoWordmark)
+    logoWordmark: Boolean(input.logo && input.logoWordmark),
+    look: input.look ?? "clean"
   };
   for (const [id, url] of Object.entries(input.shots)) values[`shot.${id}`] = url;
   return values;
@@ -149,7 +152,7 @@ const encodeAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(
  * the template's own declarations. With `asDefaults`, the values also become the declared defaults:
  * that is the "check twin" for `hyperframes check` and `snapshot`, which take no variables flag.
  */
-export function declareVariables(html: string, values: Record<string, string | boolean>, { asDefaults = false } = {}): string {
+export function declareVariables(html: string, values: Record<string, string | number | boolean>, { asDefaults = false } = {}): string {
   const match = DECLARATIONS.exec(html);
   if (!match) throw new Error("The beat-plan template has no variable declarations.");
   type Declaration = { id: string; type: string; label: string; default: unknown; [key: string]: unknown };

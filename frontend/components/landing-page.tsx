@@ -97,10 +97,12 @@ export function LandingPage() {
     return () => clearInterval(timer);
   }, [isPlaying]);
 
-  const sceneIndex = Math.floor(t / 10) % 5;
+  // 14 ticks of 250 ms per scene: room for each scene's entrance motion (scene-frame.tsx) to finish and be read.
+  const SCENE_TICKS = 14;
+  const sceneIndex = Math.floor(t / SCENE_TICKS) % 5;
   const wordIndex = Math.floor(t / 24) % WORDS.length;
   const currentWord = WORDS[wordIndex];
-  const heroPct = `${((t % 10) / 10) * 100}%`;
+  const heroPct = `${((t % SCENE_TICKS) / SCENE_TICKS) * 100}%`;
   const activeScene = SCENES[sceneIndex];
 
   return (

@@ -8,6 +8,7 @@ import { defaultVoice, paceWpm, voiceIds, voiceText, type Pace, type PlanVoiceLi
 import { synthesizeVoiceover, TTS_MODEL } from "../audio/gemini-tts.ts";
 import { joinWithGaps, pcmSeconds, readWav, trimSilence, writeWav, type Pcm } from "./pcm.ts";
 import { estimateLineSeconds } from "./timing.ts";
+import { readMedia, saveMedia } from "../media.ts";
 
 /**
  * The plan's voiceover: one Gemini TTS take per beat line, so each line is measured on its own and
@@ -46,6 +47,7 @@ export function voiceSettings(project: Pick<VideoProject, "brief" | "beatPlan" |
 export const takeKey = (settings: VoiceSettings, text: string) =>
   createHash("sha256").update([TTS_MODEL, settings.voice, settings.direction, settings.pace, text].join("\u0000")).digest("hex").slice(0, 20);
 
+
 const exists = (path: string) => access(path).then(() => true, () => false);
 
 async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R>): Promise<R[]> {
@@ -70,8 +72,9 @@ async function voiceTakes(apiKey: string, dir: string, settings: VoiceSettings, 
   return pool(jobs, VOICE_RULES.concurrency, async ({ beat, text }) => {
     const file = `vo/${takeKey(settings, text)}.wav`;
     const path = join(dir, file);
-    if (await exists(path)) {
-      const pcm = readWav(await readFile(path));
+    const cached = await readMedia(path);
+    if (cached) {
+      const pcm = readWav(cached);
       return { beat, text, file, pcm, seconds: pcmSeconds(pcm), spentSeconds: 0 };
     }
     const read = async (extra = "") => {
@@ -86,7 +89,7 @@ async function voiceTakes(apiKey: string, dir: string, settings: VoiceSettings, 
       spent += brisk.billed;
       if (pcmSeconds(brisk.pcm) < pcmSeconds(take.pcm)) take = brisk;
     }
-    await writeFile(path, writeWav(take.pcm));
+    await saveMedia(path, writeWav(take.pcm));
     return { beat, text, file, pcm: take.pcm, seconds: pcmSeconds(take.pcm), spentSeconds: spent };
   });
 }

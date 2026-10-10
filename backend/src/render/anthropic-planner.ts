@@ -1,3 +1,4 @@
+import { anthropicMessage, responseText } from "../anthropic.ts";
 import { MUSIC_PROMPT_MAX, NARRATION_MAX, templateValueProblems, validateTemplateValues, type AudioOptions, type BrandKit, type PlannerInfo, type RenderRequest, type Template } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { planFromValues, requireTemplate, type PromptPlanner, type ReviewRevision } from "./planner.ts";
@@ -45,6 +46,9 @@ function fillTool(template: Template, audio?: AudioOptions, includeMotionStyle =
 }
 
 export class AnthropicPromptPlanner implements PromptPlanner {
+  private readonly httpRequest: typeof fetch;
+  constructor(request = fetch) { this.httpRequest = request; }
+
   readonly info: PlannerInfo = { provider: "anthropic", model: config.anthropicModel };
 
   async plan(request: RenderRequest, brand?: BrandKit, revision?: ReviewRevision) {
@@ -87,10 +91,7 @@ export class AnthropicPromptPlanner implements PromptPlanner {
   private async request(template: Template, messages: object[], audio?: AudioOptions, includeMotionStyle = false): Promise<ClaudeResponse> {
     const apiKey = config.anthropicApiKey;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured on the backend.");
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
+    const payload = await anthropicMessage({
         model: config.anthropicModel,
         max_tokens: 1024,
         // Mirrors .claude/skills/gm-skill-authoring/references/script-for-motion.md (the single source of truth for scripts); keep them in step.
@@ -106,13 +107,8 @@ export class AnthropicPromptPlanner implements PromptPlanner {
         tools: [fillTool(template, audio, includeMotionStyle)],
         tool_choice: { type: "tool", name: FILL_TOOL },
         messages
-      }),
-      signal: AbortSignal.timeout(60_000)
-    });
-    if (!response.ok) {
-      const detail = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
-      throw new Error(`Claude planning request failed (${response.status})${detail.error?.message ? `: ${detail.error.message}` : "."}`);
-    }
-    return await response.json() as ClaudeResponse;
+
+    }, { request: this.httpRequest, timeoutMs: 60000, errorPrefix: "Claude planning request failed", includeErrorDetail: true, stopErrors: {} });
+    return payload as ClaudeResponse;
   }
 }

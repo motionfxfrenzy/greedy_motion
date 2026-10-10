@@ -9,6 +9,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import pg from "pg";
+import sharp from "sharp";
 
 const { publicKey, privateKey } = await generateKeyPair("ES256");
 const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256", use: "sig" };
@@ -20,7 +21,7 @@ const sign = (sub, extra = {}) => new SignJWT({ email: `${sub}@example.test`, ..
 
 const data = await mkdtemp(join(tmpdir(), "ownership-"));
 const server = spawn("node", ["src/server.ts"], {
-  env: { ...process.env, PORT: String(apiPort), HOST: "127.0.0.1", APP_ENV: "local", AUTH_MODE: "supabase", SUPABASE_URL: issuerBase, SUPABASE_JWKS_URL: `${issuerBase}/jwks`, EXPECTED_SUPABASE_PROJECT_REF: "", LEGACY_OWNER_ID: "", PROJECTS_DIR: join(data, "projects"), BRANDS_DIR: join(data, "brands"), LOG_LEVEL: "error" },
+  env: { ...process.env, PORT: String(apiPort), HOST: "127.0.0.1", APP_ENV: "local", AUTH_MODE: "supabase", SUPABASE_URL: issuerBase, SUPABASE_JWKS_URL: `${issuerBase}/jwks`, EXPECTED_SUPABASE_PROJECT_REF: "", LEGACY_OWNER_ID: "", MEDIA_URL_SECRET: "ownership-test-media-url-secret-0123456789", STORAGE_DRIVER: "filesystem", AUDIO_DIR: join(data, "audio"), PROJECTS_DIR: join(data, "projects"), BRANDS_DIR: join(data, "brands"), LOG_LEVEL: "error" },
   stdio: ["ignore", "inherit", "inherit"]
 });
 const ALICE = "00000000-0000-4000-8000-00000000000a", BOB = "00000000-0000-4000-8000-00000000000b";
@@ -102,6 +103,33 @@ test("concurrent writes to one project keep every change (row lock)", async () =
   const final = (await call(alice, "GET", `/v1/projects/${project.id}`)).body;
   assert.equal(final.state, "Approved", "approval was lost to a concurrent rename");
   assert.match(final.name, /^Renamed \d$/, "a rename was lost to the concurrent approval");
+});
+const raw = (path, init = {}) => fetch(api + path, init).then((response) => response.status);
+const mediaTokenFor = async (token) => (await call(token, "GET", "/v1/media-token")).body.token;
+const png = (width) => sharp({ create: { width, height: Math.round(width / 2), channels: 3, background: "#635bff" } }).png().toBuffer();
+test("media links: only the owner's media token opens a screenshot or staged logo", async () => {
+  const upload = await fetch(`${api}/v1/projects/${project.id}/screenshots`, { method: "POST", headers: { Authorization: `Bearer ${alice}`, "Content-Type": "application/octet-stream", "X-File-Type": "image/png", "X-File-Name": "a.png" }, body: await png(800) });
+  assert.equal(upload.status, 201);
+  const shot = (await upload.json()).screenshots.at(-1).id;
+  const path = `/v1/projects/${project.id}/screenshots/${shot}`;
+  const [aliceMedia, bobMedia] = [await mediaTokenFor(alice), await mediaTokenFor(bob)];
+  assert.equal(await raw(path), 401, "no token");
+  assert.equal(await raw(`${path}?t=${aliceMedia}`), 200, "owner's media token");
+  assert.equal(await raw(`${path}?t=${bobMedia}`), 404, "another user's media token");
+  const [user, expires, signature] = aliceMedia.split(".");
+  assert.equal(await raw(`${path}?t=${user}.${Number(expires) + 3600}.${signature}`), 401, "extended expiry");
+  assert.equal(await raw(`${path}?t=${bobMedia.split(".")[0]}.${expires}.${signature}`), 401, "swapped user");
+  assert.equal(await raw(`/v1/preview/projects/${project.id}/screenshots/${shot}?t=${aliceMedia}`), 200);
+  assert.equal(await raw(`/v1/preview/projects/${project.id}/screenshots/${shot}?t=${bobMedia}`), 404);
+  assert.equal(await raw(`/v1/projects?t=${aliceMedia}`), 401, "a media token is not an API token");
+  assert.equal(await raw("/v1/preview/runtime.js"), 200, "shared preview files stay open");
+  const staged = await fetch(`${api}/v1/brands/assets/logo`, { method: "PUT", headers: { Authorization: `Bearer ${alice}`, "Content-Type": "application/octet-stream" }, body: await png(400) });
+  assert.equal(staged.status, 201);
+  const { assetId } = await staged.json();
+  assert.equal(await raw(`/v1/brands/assets/${assetId}/preview?t=${aliceMedia}`), 200);
+  assert.equal(await raw(`/v1/brands/assets/${assetId}/preview?t=${bobMedia}`), 404);
+  const steal = await call(bob, "POST", "/v1/brands", { name: "Bob brand", logoAssetId: assetId, colors: { primary: "#635BFF" }, fonts: { heading: { source: "bundled", family: "Inter" }, body: { source: "bundled", family: "Inter" } } });
+  assert.notEqual(steal.status, 201, "bob must not build a kit from alice's staged logo");
 });
 test("render jobs: unknown id is 404 for everyone", async () => assert.equal((await call(bob, "GET", "/v1/render-jobs/00000000-0000-4000-8000-0000000000ff")).status, 404));
 

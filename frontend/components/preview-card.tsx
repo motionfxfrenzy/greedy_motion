@@ -1,10 +1,12 @@
 import type { RenderJob, Template } from "@videosaas/contracts";
 import { outputUrl } from "../lib/api";
+import { useMediaToken } from "../lib/use-media-token";
 import { templatePreview } from "./template-picker";
 
 type PreviewCardProps = { job: RenderJob | null; template: Template };
 
 export function PreviewCard({ job, template }: PreviewCardProps) {
+  useMediaToken();
   const output = job?.state === "ready" ? job.output : undefined;
   return (
     <section className="preview-shell" aria-labelledby="preview-title">

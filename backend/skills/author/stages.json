@@ -1,0 +1,123 @@
+{
+  "design": {
+    "sources": [
+      "stages/contract.md",
+      "stages/design.md",
+      "sources/scene-design/modern-web-design/skills/modern-web-design/SKILL.md",
+      "sources/remotion-craft/remotion-motion-graphics/references/design-rules.md"
+    ]
+  },
+  "animation": {
+    "sources": [
+      "stages/contract.md",
+      "stages/animate.md",
+      "sources/gsap/gsap-core/SKILL.md",
+      "sources/gsap/gsap-timeline/SKILL.md",
+      "sources/lottie/text-to-lottie/SKILL.md",
+      "sources/lottie/text-to-lottie/references/recipe-typography.md",
+      "sources/scene-design/rive-interactive/skills/rive-interactive/SKILL.md",
+      "sources/emil-animation/animate/SKILL.md",
+      "sources/remotion-craft/remotion-motion-graphics/references/design-rules.md"
+    ],
+    "select": [
+      {
+        "pattern": "\\b(icon|button|element)\\b",
+        "sources": [
+          "sources/lottie/text-to-lottie/references/recipe-ui-microinteractions.md"
+        ]
+      }
+    ]
+  },
+  "threejs": {
+    "sources": [
+      "stages/contract.md",
+      "stages/threejs.md",
+      "sources/threejs/threejs-fundamentals/SKILL.md",
+      "sources/gsap/gsap-core/SKILL.md",
+      "sources/scene-design/web3d-integration-patterns/skills/web3d-integration-patterns/SKILL.md"
+    ],
+    "select": [
+      {
+        "pattern": "mesh|geometry|model",
+        "sources": [
+          "sources/threejs/threejs-geometry/SKILL.md"
+        ]
+      },
+      {
+        "pattern": "material|pbr|surface",
+        "sources": [
+          "sources/threejs/threejs-materials/SKILL.md"
+        ]
+      },
+      {
+        "pattern": "light|shadow|environment",
+        "sources": [
+          "sources/threejs/threejs-lighting/SKILL.md"
+        ]
+      },
+      {
+        "pattern": "animate|motion|move|camera",
+        "sources": [
+          "sources/threejs/threejs-animation/SKILL.md"
+        ]
+      },
+      {
+        "pattern": "shader|glsl",
+        "sources": [
+          "sources/threejs/threejs-shaders/SKILL.md"
+        ]
+      },
+      {
+        "pattern": "gltf|glb|load",
+        "sources": [
+          "sources/threejs/threejs-loaders/SKILL.md"
+        ]
+      },
+      {
+        "pattern": "post|bloom|dof",
+        "sources": [
+          "sources/threejs/threejs-postprocessing/SKILL.md"
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "sources": [
+      "stages/contract.md",
+      "stages/logo.md",
+      "sources/wiggle-logo/wiggle/SKILL.md",
+      "sources/wiggle-logo/wiggle/references/text_animation_guide.md",
+      "sources/lottie/text-to-lottie/SKILL.md",
+      "sources/lottie/text-to-lottie/references/recipe-logo.md",
+      "sources/gsap/gsap-core/SKILL.md",
+      "sources/remotion-craft/remotion-motion-graphics/references/design-rules.md"
+    ]
+  },
+  "interaction": {
+    "sources": [
+      "stages/contract.md",
+      "stages/interaction.md",
+      "sources/scene-design/rive-interactive/skills/rive-interactive/SKILL.md",
+      "sources/lottie/text-to-lottie/references/recipe-ui-microinteractions.md",
+      "sources/gsap/gsap-core/SKILL.md",
+      "sources/emil-animation/animate/SKILL.md"
+    ]
+  },
+  "skill-authoring": {
+    "sources": [
+      "stages/contract.md",
+      "stages/skill-authoring.md",
+      "sources/scene-design/modern-web-design/skills/modern-web-design/SKILL.md",
+      "sources/remotion-craft/remotion-motion-graphics/references/design-rules.md"
+    ]
+  },
+  "audit": {
+    "sources": [
+      "stages/contract.md",
+      "stages/audit.md",
+      "sources/emil-animation/review-animations/SKILL.md",
+      "sources/gsap/gsap-performance/SKILL.md",
+      "sources/remotion-craft/remotion-motion-graphics/references/design-rules.md"
+    ]
+  }
+}

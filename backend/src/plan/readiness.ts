@@ -44,6 +44,12 @@ export function planReadiness(project: VideoProject): Readiness {
     if (/the hook runs/.test(message) && blocking.some((item) => /hook line is/.test(item.message))) continue;
     (hard ? blocking : warnings).push({ beat: beatOf(message), message });
   }
+  // Brand consistency: a project made from a product website should wear that website's brand kit. Without one
+  // it renders in a gallery theme, which is allowed but almost never intended.
+  const brandId = project.brief?.brandId ?? project.request.brandId;
+  if (!brandId && (project.brief?.productUrl || project.site)) {
+    warnings.push({ beat: null, message: "This video uses a gallery theme, not your brand. Choose the brand kit read from your website so its colours, fonts and logo are used." });
+  }
   const target = plan.target_duration_s;
   if (Math.abs(timing.total - target) > target * TIMING_RULES.tolerance + 0.05 && !blocking.some((item) => /10%|too short/.test(item.message))) {
     blocking.push({ beat: null, message: `The film runs ${timing.total.toFixed(1)}s; the brief asks for ${target}s (±10%).` });

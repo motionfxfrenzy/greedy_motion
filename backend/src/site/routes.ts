@@ -1,11 +1,12 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { BrandExtraction, BrandKit, SiteCapture, SiteSection } from "@videosaas/contracts";
+import { callerId } from "../auth.ts";
 import { extractBrand } from "../brand/extract.ts";
 import { listBrands } from "../brand/store.ts";
 import { FetchRefused } from "../brand/safe-fetch.ts";
 import { config } from "../config.ts";
+import { removeMedia, saveMedia } from "../media.ts";
 import { addScreenshot, getProject, removeScreenshot, updateProjectSite } from "../projects/store.ts";
 import { readSite, SiteUnavailable } from "./capture.ts";
 
@@ -46,7 +47,7 @@ export async function registerSiteRoutes(app: FastifyInstance) {
       return await serial(project.id, async () => {
         const [read, brand, savedBrand] = await Promise.all([
           readSite(full),
-          extractBrand(full).then((value): BrandExtraction | null => value, () => null),
+          extractBrand(full, callerId(request)).then((value): BrandExtraction | null => value, () => null),
           savedKitFor(full)
         ]);
         // The rendered page's own colours (CTA fills, logo, accents) beat CSS-frequency guesses: they lead the
@@ -65,8 +66,7 @@ export async function registerSiteRoutes(app: FastifyInstance) {
         const inPlan = new Set((latest?.beatPlan?.beats ?? []).flatMap((beat) => (beat.ui ? [beat.ui.screen] : [])));
         for (const old of latest?.site?.sections ?? []) if (old.screenshotId && !inPlan.has(old.screenshotId)) await removeScreenshot(project.id, old.screenshotId);
         const siteDir = join(config.projectsDir, project.id, "site");
-        await rm(siteDir, { recursive: true, force: true });
-        await mkdir(siteDir, { recursive: true });
+        await removeMedia(siteDir);
 
         const sections: SiteSection[] = [];
         const added: { id: string; name: string; section: string }[] = [];
@@ -77,7 +77,7 @@ export async function registerSiteRoutes(app: FastifyInstance) {
           let snapshot: string | null = null;
           if (section.snapshot) {
             snapshot = `site/section-${i + 1}.html`;
-            await writeFile(join(config.projectsDir, project.id, snapshot), `<!doctype html><meta charset="utf-8"><!-- Snapshot of ${full.replace(/--/g, "")} (untrusted page content; styles inlined) -->\n${section.snapshot}\n`);
+            await saveMedia(join(config.projectsDir, project.id, snapshot), `<!doctype html><meta charset="utf-8"><!-- Snapshot of ${full.replace(/--/g, "")} (untrusted page content; styles inlined) -->\n${section.snapshot}\n`);
           }
           sections.push({ heading: section.heading, screenshotId: shot?.id ?? null, snapshot });
           if (shot) added.push({ id: shot.id, name: shot.name, section: section.heading });

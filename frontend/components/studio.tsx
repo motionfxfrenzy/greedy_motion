@@ -6,7 +6,9 @@ import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, type FrameLook } from "./beat-storyboard";
 import { createClient } from "../utils/supabase/client";
-import { addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
+import { useMediaToken } from "../lib/use-media-token";
+import { addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
+import { proMenuEntry, useEntitlements } from "../lib/entitlements";
 
 type View = "projects" | "templates" | "brand-kits" | "library" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
@@ -47,6 +49,8 @@ function lookFor(brief: ScriptBrief, brands: BrandKit[]): FrameLook {
 }
 
 export function Studio() {
+  // Re-renders the workspace (screenshots, logos, videos) when the media token arrives or renews.
+  useMediaToken();
   const [view, setView] = useState<View>("projects");
   const [step, setStep] = useState<Step>(0);
   const [projects, setProjects] = useState<VideoProject[]>([]);
@@ -95,6 +99,14 @@ export function Studio() {
     setProject(saved);
     setProjects((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
   }, []);
+  // A drawing-style change on an existing storyboard is saved straight away (visual only, no replanning), so the
+  // preview and the render use it.
+  const savedLook = project?.brief?.look ?? "clean";
+  const chosenLook = brief.look ?? "clean";
+  useEffect(() => {
+    if (!project?.beatPlan || !project.brief || chosenLook === savedLook) return;
+    void editPlan(project.id, { look: chosenLook }).then(replaceProject).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not save the drawing style."));
+  }, [project?.id, project?.beatPlan, project?.brief, chosenLook, savedLook, replaceProject]);
 
   const saveProject = useCallback(async (patch: Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "approvedAt">>) => {
     if (!project) return null;
@@ -312,7 +324,35 @@ export function Studio() {
 }
 
 function AppHeader({ view, setView }: { view: View; setView: (view: View) => void }) {
-  return <header className="relay-topbar"><button className="gm-brand" onClick={() => setView("projects")}><img src="/brand/gm-mark.svg" alt="" /><span><b>Greedy</b> <em>Motion</em></span></button><nav>{(["projects", "templates", "brand-kits", "library"] as const).map((item) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => setView(item)}>{item === "brand-kits" ? "Brand kits" : item[0].toUpperCase() + item.slice(1)}</button>)}</nav><button onClick={async () => { await createClient().auth.signOut(); window.location.href = "/auth"; }}>Sign out</button></header>;
+  return <header className="relay-topbar"><button className="gm-brand" onClick={() => setView("projects")}><img src="/brand/gm-mark.svg" alt="" /><span><b>Greedy</b> <em>Motion</em></span></button><nav>{(["projects", "templates", "brand-kits", "library"] as const).map((item) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => setView(item)}>{item === "brand-kits" ? "Brand kits" : item[0].toUpperCase() + item.slice(1)}</button>)}</nav><SignOutButton /></header>;
+}
+
+/** Sign out behind a confirmation, so a stray click does not end the session. */
+function SignOutButton() {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [leaving, setLeaving] = useState(false);
+  const close = () => { if (!leaving) dialogRef.current?.close(); };
+  const signOut = async () => {
+    setLeaving(true);
+    await createClient().auth.signOut().catch(() => undefined);
+    window.location.href = "/auth";
+  };
+  return (
+    <>
+      <button className="sign-out" onClick={() => dialogRef.current?.showModal()}>Sign out</button>
+      <dialog ref={dialogRef} className="confirm-dialog" aria-labelledby="sign-out-title" onCancel={(event) => { if (leaving) event.preventDefault(); }} onClick={(event) => { if (event.target === dialogRef.current) close(); }}>
+        <h2 id="sign-out-title">Sign out of Greedy Motion?</h2>
+        <p>Your projects are saved. You can sign back in at any time.</p>
+        <footer>
+          <button className="secondary-button" onClick={close} disabled={leaving}>Cancel</button>
+          <button className="primary-button" onClick={() => void signOut()} disabled={leaving} aria-busy={leaving} autoFocus>
+            {leaving && <span className="gm-spinner" aria-hidden="true" />}
+            {leaving ? "Signing out…" : "Sign out"}
+          </button>
+        </footer>
+      </dialog>
+    </>
+  );
 }
 
 function CreationHeader({ name, state, step, reachable, back, go, openStudio }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void }) {
@@ -326,6 +366,8 @@ function Projects({ projects, busy, create, open, openStudio }: { projects: Vide
 
 function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void }) {
   const actionsRef = useRef<HTMLDivElement>(null);
+  const { state: planState, retry: retryPlan } = useEntitlements();
+  const proEntry = proMenuEntry(planState);
   const template = findTemplate(project.request.template);
   const image = project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : imageFor(template ?? templates[0]);
   const status = project.state === "Approved" ? "approved" : project.state === "Ready for review" ? "review" : "draft";
@@ -338,7 +380,7 @@ function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { pro
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [menuOpen, setMenuOpen]);
-  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}><img src={image} alt="" /><span>{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
+  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}><img src={image} alt="" /><span>{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
 }
 
 function Templates({ create }: { create: (id: string) => void }) {

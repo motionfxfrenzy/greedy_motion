@@ -4,6 +4,8 @@ import { createElement, useCallback, useEffect, useMemo, useRef, useState, type 
 import type { HyperframesPlayer } from "@hyperframes/player";
 import { create } from "zustand";
 import { temporal } from "zundo";
+import { ensureMediaToken, projectScreenshotUrl } from "../lib/api";
+import { useMediaToken } from "../lib/use-media-token";
 import { findTemplate, templateValue, type TemplateScene, type TemplateValues, type TemplateVariable, type VideoProject } from "@videosaas/contracts";
 
 export type StudioDraftInput = {
@@ -96,10 +98,7 @@ function sceneAt(scenes: readonly TemplateScene[], currentTime: number) {
   return scenes.find((scene) => currentTime >= scene.start && currentTime < scene.start + scene.duration) ?? scenes[scenes.length - 1];
 }
 
-function defaultScreenshotUrl(projectId: string, screenshotId: string) {
-  const origin = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
-  return `${origin}/v1/projects/${encodeURIComponent(projectId)}/screenshots/${encodeURIComponent(screenshotId)}`;
-}
+const defaultScreenshotUrl = projectScreenshotUrl;
 
 /**
  * Small adapter around the HyperFrames custom element. The fetched composition
@@ -226,6 +225,7 @@ function PreviewPlaceholder({ message }: { message: string }) {
 }
 
 export function StudioEditor({ project, initialValues, onSave, onRender, onBack, screenshotUrl = defaultScreenshotUrl }: StudioEditorProps) {
+  useMediaToken();
   const template = findTemplate(project.request.template);
   const stored = (project as StudioProject).studio;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -322,7 +322,8 @@ export function StudioEditor({ project, initialValues, onSave, onRender, onBack,
 
   const loadPreview = useCallback(async (signal?: AbortSignal) => {
     setPreviewError(null);
-    const response = await fetch(`/api/preview/projects/${encodeURIComponent(project.id)}?revision=${previewVersion}`, { cache: "no-store", signal });
+    const media = encodeURIComponent(await ensureMediaToken());
+    const response = await fetch(`/api/preview/projects/${encodeURIComponent(project.id)}?revision=${previewVersion}&t=${media}`, { cache: "no-store", signal });
     if (!response.ok) throw new Error(`The preview service returned ${response.status}.`);
     return response.text();
   }, [previewVersion, project.id]);

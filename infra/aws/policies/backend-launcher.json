@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StartWorkerTasksOnly",
+      "Effect": "Allow",
+      "Action": ["ecs:RunTask"],
+      "Resource": "arn:aws:ecs:@REGION@:@ACCOUNT@:task-definition/@PROJECT@-@ENV@-worker:*",
+      "Condition": { "ArnEquals": { "ecs:cluster": "arn:aws:ecs:@REGION@:@ACCOUNT@:cluster/@PROJECT@-@ENV@" } }
+    },
+    {
+      "Sid": "CountWorkerTasks",
+      "Effect": "Allow",
+      "Action": ["ecs:ListTasks"],
+      "Resource": "*",
+      "Condition": { "ArnEquals": { "ecs:cluster": "arn:aws:ecs:@REGION@:@ACCOUNT@:cluster/@PROJECT@-@ENV@" } }
+    },
+    {
+      "Sid": "HandWorkerRolesToEcsOnly",
+      "Effect": "Allow",
+      "Action": ["iam:PassRole"],
+      "Resource": [
+        "arn:aws:iam::@ACCOUNT@:role/@PROJECT@-@ENV@-worker-task",
+        "arn:aws:iam::@ACCOUNT@:role/@PROJECT@-@ENV@-worker-exec"
+      ],
+      "Condition": { "StringEquals": { "iam:PassedToService": "ecs-tasks.amazonaws.com" } }
+    }
+  ]
+}

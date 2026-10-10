@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Spike: Rough.js sketch annotations</title>
+    <link rel="stylesheet" href="theme.css" />
+    <script src="vendor/gsap.min.js"></script>
+    <script src="vendor/rough.js"></script>
+    <style>
+      body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-display, sans-serif); }
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+      #shot { position: absolute; left: 360px; top: 200px; width: 1200px; height: 680px; border-radius: 24px; background: var(--surface, var(--bg));
+              box-shadow: 0 30px 80px rgba(0,0,0,.18); }
+      .row { position: absolute; left: 80px; height: 28px; border-radius: 8px; background: var(--fg); opacity: .12; }
+      #cta { position: absolute; left: 820px; top: 520px; width: 260px; height: 84px; border-radius: 16px; background: var(--brand); }
+      #ink { position: absolute; inset: 0; overflow: visible; }
+      #ink path { stroke-linecap: round; stroke-linejoin: round; }
+      h1 { position: absolute; left: 120px; top: 70px; margin: 0; font-size: 64px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-width="1920" data-height="1080" data-duration="4">
+      <h1 id="title">Click <span id="kw">here</span></h1>
+      <div id="shot">
+        <div class="row" style="top:90px;width:520px"></div><div class="row" style="top:150px;width:760px"></div><div class="row" style="top:210px;width:640px"></div>
+      </div>
+      <div id="cta"></div>
+      <svg id="ink" viewBox="0 0 1920 1080"></svg>
+    </div>
+    <script>
+      // Every color is a theme token; every shape is seeded, so each frame draws identical ink.
+      const css = getComputedStyle(document.documentElement);
+      const ink = (css.getPropertyValue("--accent") || css.getPropertyValue("--brand")).trim();
+      const svgEl = document.getElementById("ink");
+      const rc = rough.svg(svgEl);
+      const opts = (seed) => ({ seed, stroke: ink, strokeWidth: 5, roughness: 1.6, bowing: 1.2, disableMultiStroke: false });
+      // Three pre-seeded variants of the circle for a hand-drawn "boil" at a fixed 10 fps step.
+      const variants = [11, 12, 13].map((seed) => svgEl.appendChild(rc.ellipse(950, 562, 380, 170, opts(seed))));
+      const underline = svgEl.appendChild(rc.line(318, 152, 470, 146, opts(21)));
+      const arrow = svgEl.appendChild(rc.path("M560 760 Q 680 700 760 610 M 728 612 L 760 610 L 752 645", opts(31)));
+
+      function prepare(g) { g.querySelectorAll("path").forEach((p) => { const n = p.getTotalLength(); p.style.strokeDasharray = n; p.style.strokeDashoffset = n; }); return g.querySelectorAll("path"); }
+      const tl = gsap.timeline({ paused: true });
+      tl.from("#title", { y: 40, opacity: 0, duration: 0.6, ease: "power3.out" }, 0.1);
+      tl.to(prepare(underline), { strokeDashoffset: 0, duration: 0.45, ease: "power2.out" }, 0.7);
+      variants.forEach((g, i) => { tl.set(g, { autoAlpha: i === 0 ? 1 : 0 }, 0); });
+      tl.to(prepare(variants[0]), { strokeDashoffset: 0, duration: 0.7, ease: "power2.inOut" }, 1.2);
+      variants.slice(1).forEach(prepare);
+      variants.slice(1).forEach((g) => g.querySelectorAll("path").forEach((p) => { p.style.strokeDashoffset = 0; }));
+      // Boil: after the circle lands, swap variants every 0.1 s (deterministic: driven by the timeline, not a clock).
+      for (let t = 2.0, k = 0; t < 4; t += 0.1, k++) variants.forEach((g, i) => tl.set(g, { autoAlpha: i === k % 3 ? 1 : 0 }, Math.round(t * 30) / 30));
+      tl.to(prepare(arrow), { strokeDashoffset: 0, duration: 0.5, ease: "power2.out" }, 1.9);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

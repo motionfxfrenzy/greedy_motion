@@ -2,8 +2,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { findTemplate, type VideoProject } from "@videosaas/contracts";
-import { getBrand } from "../brand/store.ts";
+import { ensureBrandFiles, getBrand } from "../brand/store.ts";
 import { config } from "../config.ts";
+import { readMedia } from "../media.ts";
 
 const studioAssetBase = "/api/preview";
 const idPattern = /^[0-9a-f-]{36}$/i;
@@ -52,6 +53,7 @@ export async function projectPreviewHtml(project: VideoProject) {
   if (project.request.brandId && !brand) throw new PreviewUnavailable("The project brand kit is no longer available.");
 
   if (brand) {
+    await ensureBrandFiles(brand.id);
     themeCss = await requiredText(join(config.brandsDir, brand.id, "theme.css"), "The project brand theme");
     const savedBrandFonts = await readFile(join(config.brandsDir, brand.id, "fonts.css"), "utf8").catch(() => "");
     brandFonts = rewriteFontUrls(savedBrandFonts, "brand-fonts", `${studioAssetBase}/brands/${brand.id}/fonts`);
@@ -117,11 +119,11 @@ export async function previewBrandLogo(brandId: string) {
   if (!idPattern.test(brandId)) return null;
   const brand = await getBrand(brandId);
   if (!brand?.hasLogo) return null;
-  return readFile(join(config.brandsDir, brandId, "logo.png")).catch(() => null);
+  return readMedia(join(config.brandsDir, brandId, "logo.png")).catch(() => null);
 }
 
 export async function previewBrandFont(brandId: string, name: string) {
   if (!idPattern.test(brandId) || !fontFilePattern.test(name)) return null;
   if (!await getBrand(brandId)) return null;
-  return readFile(join(config.brandsDir, brandId, "fonts", name)).catch(() => null);
+  return readMedia(join(config.brandsDir, brandId, "fonts", name)).catch(() => null);
 }

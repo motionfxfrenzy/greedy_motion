@@ -2,6 +2,7 @@ import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
+import { ensureMedia } from "../media.ts";
 import { screenshotFile } from "../projects/store.ts";
 import { audioMode, planAudioDir } from "./audio.ts";
 import { declareVariables, ENGINE_TEMPLATE, engineVariables, fillTextBlock, stampCanvas, textValues } from "./composition.ts";
@@ -59,6 +60,7 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   });
   for (const track of tracks) {
     const from = track.src.startsWith("sfx/") ? join(config.templatesDir, ENGINE_TEMPLATE, track.src) : join(planAudioDir(project.id), track.src.slice("audio/".length));
+    if (!track.src.startsWith("sfx/") && !(await ensureMedia(from))) throw new Error(`Audio file ${track.src} is missing; generate the audio again.`);
     await mkdir(join(dir, track.src, ".."), { recursive: true });
     await cp(from, join(dir, track.src));
   }
@@ -71,7 +73,8 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
       screenSizes: Object.fromEntries(Object.keys(shots).map((id) => [id, { width: screens.get(id)!.width, height: screens.get(id)!.height }])),
       brandName: brandNameFor(project, look.brand),
       logo: look.logo ? "brand/logo.png" : null,
-      logoWordmark: look.logo?.wordmark
+      logoWordmark: look.logo?.wordmark,
+      look: project.brief?.look
     }),
     ...textValues(plan.beats)
   };

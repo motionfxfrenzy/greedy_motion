@@ -1,5 +1,7 @@
 # Render queue
 
+> Current implementation and live infrastructure: [Application, infrastructure and storage guide](SYSTEM_GUIDE.md). This document also contains historical plans; consult the guide and [release status](MVP_RELEASE_STATUS.md) for the October 8, 2026 production topology.
+
 Date: 2026-10-04. Status: implemented and verified locally (JOB-01, local scope). Supersedes the synchronous `backend → POST worker:8080/renders` call.
 
 ## Why it changed
