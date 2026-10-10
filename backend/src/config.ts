@@ -148,6 +148,8 @@ export const config = {
   renderRetries: positiveInt("RENDER_RETRIES", 2),
   // Directory shared with the worker locally (mounted at /renders in the worker container).
   renderOutputDir: storagePath(process.env.RENDER_OUTPUT_DIR, "renders"),
+  // Template preview clips and posters (local dev store; with STORAGE_DRIVER=r2 they are read from `gallery/` in the media bucket).
+  galleryDir: storagePath(process.env.GALLERY_DIR, "gallery"),
   // Brand kits; shared read-only with the worker at /brands locally.
   brandsDir: storagePath(process.env.BRANDS_DIR, "brands"),
   // Persisted creation briefs and uploaded screenshots. This local adapter can later be

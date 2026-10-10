@@ -1,0 +1,777 @@
+[
+ {
+  "slug": "itsolelehmann-762215",
+  "author": "itsolelehmann",
+  "post_url": "https://x.com/itsolelehmann/status/2103124033365762215",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "4 seasons passing outside a train window, a cozy carriage, a cup of coffee on the table, Grand Budapest Hotel style"
+ },
+ {
+  "slug": "itsuki-dev-618392",
+  "author": "itsuki_dev",
+  "post_url": "https://x.com/itsuki_dev/status/2103438087204618392",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "particles"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "itsyashf-692347",
+  "author": "itsyashf",
+  "post_url": "https://x.com/itsyashf/status/2104227261142692347",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "Made this small video for a linkedin post with Opus 5.5 + Remotion and 2 screenshots of reference"
+ },
+ {
+  "slug": "jackfriks-338762",
+  "author": "jackfriks",
+  "post_url": "https://x.com/jackfriks/status/2103132260589338762",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "can you help me use the pig assets on new branch of lovelee to make a 9:16 short story animation with sound effects about the pig sending his partner love notes in the mailbox and make it fun and good tease app at end?"
+ },
+ {
+  "slug": "jake11moran-414633",
+  "author": "jake11moran",
+  "post_url": "https://x.com/jake11moran/status/2103237884564414633",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap",
+   "ai-image"
+  ],
+  "prompt": "Using HyperFrames, make a hype teaser for the product in this post - [link]. Landscape, around 27 seconds. Match the product UI, wallpaper and copy from the post's video \n\nMotion should feel slow and polished - one continuous camera over one Mac desktop, no hard cuts. Camera pushes, pulls and pans run like 1.5 to 3 seconds on gentle ease-in-out curves, nothing snappy - aim for half the speed you'd default to. Add motion blur on fast moves and a light film grain finish. Use an oversized macOS cursor. No audio. All on-screen copy lowercase like the post.\n\n1. Open on a big centered line - \"in the AI era, the hard part is\" - entering word by word from the right with an orange colorama text wipe over it (the `colorama-wipe` registry component). Hold it about a second, then scale it down into place above a spinning list.\n2. The list rotates through 30 hard things about working in the AI era - spending tokens wisely, picking the right model, managing context windows, etc - each with a real app icon. Go fast, it's not meant to be read, then land slowly on \"managing your desktop\". 0.2s after it lands a question mark pops on after it.\n3. Pull the camera back to reveal the Mac desktop as windows pile in on top of each other, arriving from behind the camera - Claude, ChatGPT, Grok, Linear, Chrome, Spotify, Slack and Claude Code in a terminal. Build these as accurate recreations of the real apps with real icons. \n4. Push back in so the windows fly past the camera, back to text - \"don't make your browser / one of them\".\n5. Pan up to a really tight framing of just the notch and the top of the wallpaper. A cursor comes up and hovers - the notch morphs into a pill with the name \"NotchBrowser\", then opens into the browser panel exactly like in the video. \n6. Click through the tabs like the video does, then click the collapse chevron so the panel retracts into the notch.\n7. End on a checklist of the post's claims with rings and ticks drawing on"
+ },
+ {
+  "slug": "jake11moran-825416",
+  "author": "jake11moran",
+  "post_url": "https://x.com/jake11moran/status/2103247490237825416",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "/session-story\n\ncreated a skill for opus 5.5 using @HyperFrames_ - claude reads your local claude code history, finds what an average session with you looks like and animates it start to finish with your messages\n\ntry here: https://github.com/heygen-com/hyperframes-community-skills/tree/master/skills/session-story"
+ },
+ {
+  "slug": "jasonzhou1993-515541",
+  "author": "jasonzhou1993",
+  "post_url": "https://x.com/jasonzhou1993/status/2103663364958515541",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "javi-llofriu-059888",
+  "author": "Javi_llofriu",
+  "post_url": "https://x.com/Javi_llofriu/status/2103372534922059888",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "css"
+  ],
+  "prompt": "@gonahmias Le pedi un video para mostar un servicio de mi Agencia de IA (Opus 5.5 + Hyperframe) en 20 minutos tenía esto montado, coste un 20% del consumo de 5h del plan Max."
+ },
+ {
+  "slug": "jayjohnsonai-117305",
+  "author": "jayjohnsonai",
+  "post_url": "https://x.com/jayjohnsonai/status/2104188140718117305",
+  "category": "motion",
+  "tech_tags": [
+   "shader",
+   "canvas",
+   "svg"
+  ],
+  "prompt": "AI video editing has been improving quite a bit. Claude made this in about 5 mins with the hyperframes skill. I used Opus 5.5 with effort on the highest (ultracode)"
+ },
+ {
+  "slug": "jesscaroline7-955094",
+  "author": "jesscaroline7",
+  "post_url": "https://x.com/jesscaroline7/status/2104336637752955094",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "canvas",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "motion reel do http://ondefica.app inspirada no @gabrielbuzziv e @condzxyz, segui o tutorial e prompt deles e fui aparando as arestas\n\n1. skill hyperframes\n\n2. mesmo prompt: \"make a dynamic motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out\"\n\n3. referencie a pasta do projeto. o que tinha nela fez a diferença:\n> app real: o Claude navegou no simulador do iOS e gravou as telas\n> dados reais: ele escreveu as queries, eu rodei no banco.\n> 3D: dioramas criados no ChatGPT 6 (Astra), animados pelo claude com Higgsfield\n> trilha no Suno + efeitos do Soundly\n\nmodelo: opus 5.5 (effort: max), plano Max 5x"
+ },
+ {
+  "slug": "jetbrains-754812",
+  "author": "jetbrains",
+  "post_url": "https://x.com/jetbrains/status/2102459650125754812",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "This product video was generated entirely by Claude Opus 5.5.\n\nOur colleague @kristel_tech gave it @HeyGen’s HyperFrames skills and pointed it at https://kotlinlang.org – out came this Kotlin promo.\n\nTry it in JetBrains Air or Junie."
+ },
+ {
+  "slug": "jhylee95-452427",
+  "author": "jhylee95",
+  "post_url": "https://x.com/jhylee95/status/2103604431627452427",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "You're a world-class motion designer building a Supademo launch video. Research and land our core value and narrative. Scenes should be dynamic and confident: hook in the first second, then distinct beats for product proof and AI. Brand-accurate UI, type, color, and motion. Score the music so every cut, animation hit, and scene change lands on a beat or drop; retimed until synced. Social energy, quick cuts"
+ },
+ {
+  "slug": "joao-felixl-809438",
+  "author": "joao_felixl",
+  "post_url": "https://x.com/joao_felixl/status/2104273407818809438",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "Não tava botando fé no hyperframes + opus 5.5 max effort, mas isso aqui ficou sensacional."
+ },
+ {
+  "slug": "johnsavage-ai-041677",
+  "author": "johnsavage_ai",
+  "post_url": "https://x.com/johnsavage_ai/status/2103600308010041677",
+  "category": "motion",
+  "tech_tags": [
+   "shader",
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a resume. go all out. use only code"
+ },
+ {
+  "slug": "johnsavage-ai-427263",
+  "author": "johnsavage_ai",
+  "post_url": "https://x.com/johnsavage_ai/status/2103792769982427263",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "shader",
+   "canvas"
+  ],
+  "prompt": "use this image only as a style/vibe refference image and create a Opus 5.5 launch video (20 sec long) add film grain and CRT effect, make it mesmerizing, and show off your skills as a motion designer for a retro/futuristic style launch video 16:9"
+ },
+ {
+  "slug": "jrayon-054015",
+  "author": "jrayon",
+  "post_url": "https://x.com/jrayon/status/2102861376184054015",
+  "category": "motion",
+  "tech_tags": [
+   "shader",
+   "webgl",
+   "canvas"
+  ],
+  "prompt": "build an art project which is a fractal visulizer (mandelbrot, etc), but the styles look like handcrafted with paper, cardboard and such. Add post-procesing so it looks cinematic. Also want to use beautitful elaborated animations and transitions and a beautiful UX. Plan it first, show me a preview before coding everything"
+ },
+ {
+  "slug": "justincooperman-188876",
+  "author": "justincooperman",
+  "post_url": "https://x.com/justincooperman/status/2103201167367188876",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "css"
+  ],
+  "prompt": "Make an animated clip about Tented's image gen capabilities where users ask for branded images and see them added to content"
+ },
+ {
+  "slug": "kamstudiolabs-100086",
+  "author": "KamStudioLabs",
+  "post_url": "https://x.com/KamStudioLabs/status/2102908742518100086",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "audio"
+  ],
+  "prompt": "Make a 45-second silent short film with no dialogue, where sound tells half the story. Invent the story."
+ },
+ {
+  "slug": "kamstudiolabs-440893",
+  "author": "KamStudioLabs",
+  "post_url": "https://x.com/KamStudioLabs/status/2102899866762440893",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "physics",
+   "audio"
+  ],
+  "prompt": "Build a 45-second machine that plays an original piece of music, where every note comes from a visible collision."
+ },
+ {
+  "slug": "kamstudiolabs-877996",
+  "author": "KamStudioLabs",
+  "post_url": "https://x.com/KamStudioLabs/status/2102903173161877996",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "particles"
+  ],
+  "prompt": "Make a 90-second animated short film about a bug that doesn't want to be fixed."
+ },
+ {
+  "slug": "kangaroohere-818789",
+  "author": "KangarooHere",
+  "post_url": "https://x.com/KangarooHere/status/2103617278671818789",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a dynamic 20-second motion graphics video for my newsletter that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "kantamk-176511",
+  "author": "kantamk",
+  "post_url": "https://x.com/kantamk/status/2103148907228176511",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "physics",
+   "audio"
+  ],
+  "prompt": "make a video that could go viral."
+ },
+ {
+  "slug": "karanb192-032177",
+  "author": "karanb192",
+  "post_url": "https://x.com/karanb192/status/2103690266633032177",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "css"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "kenn-937232",
+  "author": "kenn",
+  "post_url": "https://x.com/kenn/status/2103337314021937232",
+  "category": "motion",
+  "tech_tags": [
+   "shader",
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "kentcdodds-858193",
+  "author": "kentcdodds",
+  "post_url": "https://x.com/kentcdodds/status/2103638102333858193",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a dynamic 30-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out. Topic: Kody. Goal: make it click for people. \n\nStart with research. You make all decisions. Feel free to make multiple videos. Output to my Dropbox and message me on discord with links."
+ },
+ {
+  "slug": "kgonia7-746268",
+  "author": "kgonia7",
+  "post_url": "https://x.com/kgonia7/status/2103835848575746268",
+  "category": "explainer",
+  "tech_tags": [
+   "threejs",
+   "shader",
+   "canvas",
+   "particles"
+  ],
+  "prompt": "From Cabo da Roca to observable universe.\n\nI gave opus 5.5 old prompt I prepared for Fable but I was not satisfied with the results. I asked model to create a cinematic film that zooms out from a hillside on Earth to the full observable universe using @threejs No external assets. \n\nTime: ~3h\nOutput tokens: 662,769\nCache: 125.6M read, 2.0M written; \nAPI-equivalent cost: about $54.52: output $13.26, cache reads $25.12, cache writes $16.14"
+ },
+ {
+  "slug": "kikelopezdesign-173471",
+  "author": "kikelopezdesign",
+  "post_url": "https://x.com/kikelopezdesign/status/2103527289619173471",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "Make a 20 second video about my portfolio from scratch, using only the portfolio's own resources"
+ },
+ {
+  "slug": "kingokings-992769",
+  "author": "KingOKings",
+  "post_url": "https://x.com/KingOKings/status/2103874453687992769",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "css"
+  ],
+  "prompt": "I thought the Opus 5.5 design posts were all jokes.\n\nThey're not. It's GOATed at design.\n\nI asked it to make a product showreel for Reactive Resume. It built this entire video in Remotion, in ONE prompt.\n\nThe setup:\n→ Opus 5.5, max effort\n→ Claude desktop app\n→ No skills, no templates, no design brief\n→ Just my project repo\n\nIt read the codebase, figured out what the product does, and decided what was worth showing.\n\nA launch video like this used to mean days in After Effects or paying a motion designer. Now a solo open-source maintainer can do it in an afternoon.\n\nFull prompt in the replies ⬇️"
+ },
+ {
+  "slug": "kloss-xyz-067876",
+  "author": "kloss_xyz",
+  "post_url": "https://x.com/kloss_xyz/status/2103652674336067876",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "css"
+  ],
+  "prompt": "make a video highlighting key moments in the history of AI."
+ },
+ {
+  "slug": "kloss-xyz-941143",
+  "author": "kloss_xyz",
+  "post_url": "https://x.com/kloss_xyz/status/2103664956482941143",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "audio"
+  ],
+  "prompt": "Use Python to generate a 9:16 chaotic brain rot video with excellent motion + sound design and render it using ffmpeg. Put your own personal spin on it so it’s aligned with Anthropic’s new launch. Also fully express what it’s like to be a very creative LLM used by me every day from your POV to give it some extra personality."
+ },
+ {
+  "slug": "kmasiff-549880",
+  "author": "KmAsiff",
+  "post_url": "https://x.com/KmAsiff/status/2103810247131549880",
+  "category": "motion",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "make a dynamic 20-second motion graphics video that shows what an incredible our email verify tool is, put all the use case you can imagine. go all out'\ni want you to make it really modern and saas style. inspiration is yc videos and claude social videos"
+ },
+ {
+  "slug": "koldo2k-778767",
+  "author": "koldo2k",
+  "post_url": "https://x.com/koldo2k/status/2103129343253778767",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas",
+   "ai-image"
+  ],
+  "prompt": "Build a looping \"infinite zoom\" animation, After Effects style: the camera\ntravels from landscape to landscape by flying through vintage objects.\n\nLOOK: vintage collage realistic photo landscapes + black & white newspaper\ncutout objects (halftone, white paper border, soft shadow). Film grain,\nvignette, light flicker.\n\nWORLDS (loop): snowy mountains → pocket watch (swinging on its chain) →\nsea cliffs → box camera lens → desert dunes → magnifying glass →\nmisty lake → hand mirror → back to start.\nExtras: floating hat, phone, umbrella, gramophone, key; a 1950s man walking\ntoward the watch; a whale swimming across the cliffs sky.\n\nHOW:\n- Generate everything via the Magnific MCP (Seedream 5 Pro landscapes,\n  GPT 2.5 transparent cutouts, depth maps, Kling 2.5 animation, Lyria 3\n  music). List the generations + credit cost and wait for my OK first.\n- Split each landscape into 3 depth layers from its depth map and fill the\n  hidden areas. Parallax: layer scale = camera^Z, Z between 0.45 and 1.22.\n- Each portal's glass holds the next world; cut seamlessly when it fills\n  the frame.\n- Constant speed: exponential zoom to a fixed point, each segment's duration\n  proportional to log(zoom). Verify the cuts frame by frame.\n- Man & whale: generate on pure green (#00B140), animate in place with\n  Kling, key out every frame, build a seamless loop (ping-pong if needed).\n- Cutouts animate at 15 fps (on twos).\n- 20 s loop, 1920×1080, 30 fps. Music: 96 BPM, cut to exactly 8 bars = 20 s.\n\nDELIVER: an interactive artifact (viewer, AE-style timeline, music +\nMP4 download) and a rendered MP4 with music under 30 MB.\nShow me screenshots before each expensive step."
+ },
+ {
+  "slug": "konstantinsaifo-501736",
+  "author": "konstantinsaifo",
+  "post_url": "https://x.com/konstantinsaifo/status/2104094723887501736",
+  "category": "explainer",
+  "tech_tags": [
+   "threejs",
+   "shader"
+  ],
+  "prompt": "I asked Claude Opus 5.5 to explain how a rocket engine works by building an interactive Raptor 3 you can take apart in your browser.\n\nCut it open, follow the oxygen and the methane through both turbopumps, then throttle it and watch the shock diamonds move.\n\nhttp://airsup.ai/rocket-engine"
+ },
+ {
+  "slug": "konstantinsaifo-587629",
+  "author": "konstantinsaifo",
+  "post_url": "https://x.com/konstantinsaifo/status/2104216976801587629",
+  "category": "explainer",
+  "tech_tags": [
+   "threejs",
+   "shader"
+  ],
+  "prompt": "I asked Claude Opus 5.5 to explain how a fusion reactor works by building one you can take apart in your browser.\n\nDrag the plasma from 15 million °C, the heat of the Sun's core, to 150 million and watch a city light up.\n\nhttps://airsup.ai/lab"
+ },
+ {
+  "slug": "kureshirfan-386691",
+  "author": "kureshirfan",
+  "post_url": "https://x.com/kureshirfan/status/2103788564840386691",
+  "category": "explainer",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "I asked Claude Opus 5.5 to explain the earthquake physics as an animation. This is what it built, physically accurate strain profile included. \n#opus5 @AnthropicAI @claudeai"
+ },
+ {
+  "slug": "kyonax-on-tech-049316",
+  "author": "kyonax_on_tech",
+  "post_url": "https://x.com/kyonax_on_tech/status/2103482598144049316",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out.\n\nMake sure to showcase properly the usecases, the flow, properly show everything on how it works, also the ascii logo of this is on the kyo-web-online, keep in mind also the color palette."
+ },
+ {
+  "slug": "l3d1c-632524",
+  "author": "l3d1c",
+  "post_url": "https://x.com/l3d1c/status/2104649028193632524",
+  "category": "motion",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "I made a launch ad for @grouped_news in an hour with Opus 5.5 and Remotion, and I never opened a video editor. I added the voiceover and music with ElevenLabs.\n\nThe ad is a React app. It imports my site's CSS tokens and fonts, so it uses the same design system as the site.\n\nI didn't review it by watching renders. It rendered about 20 stills and tiled them into one contact sheet, so I could check a whole cut at a glance before rendering any video.\n\nCaptions are measured in the real font and shrink to fit the 9:16 safe zone, so nothing hides under TikTok's buttons. Every cut lands on a 120 BPM grid, which made the music easy to line up.\n\nIt's one codebase, so the 30s, 15s and 6s cuts in 16:9 and 9:16 are each a different list of scenes.\n\nMy part was saying what felt wrong."
+ },
+ {
+  "slug": "l3d1c-752011",
+  "author": "l3d1c",
+  "post_url": "https://x.com/l3d1c/status/2103536553930752011",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "create a motion design prompt for an ad for our site\n\nPrompt 2: now apply it"
+ },
+ {
+  "slug": "leadnotifi-960983",
+  "author": "leadnotifi",
+  "post_url": "https://x.com/leadnotifi/status/2103628028391960983",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "leanzubrezki-766171",
+  "author": "LeanZubrezki",
+  "post_url": "https://x.com/LeanZubrezki/status/2103502063950766171",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "I want you to create a highly professional SaaS product launch video. Go and find some SaaS, preferably just one that people know, so it's easier to identify with it. Pick that, and then make sure to get actual assets and images and all of that stuff from the internet. Turn it into these typical, very professionally edited, motion-graphics-styled product launch videos that you see people making on Twitter when they launch new SaaS products (which are showing off the features, the benefits, and all of these things)."
+ },
+ {
+  "slug": "leonabboud-358051",
+  "author": "leonabboud",
+  "post_url": "https://x.com/leonabboud/status/2103576084499358051",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "leonkohli-191220",
+  "author": "LeonKohli",
+  "post_url": "https://x.com/LeonKohli/status/2103517696038191220",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "canvas",
+   "svg"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "lepadev-475414",
+  "author": "lepadev",
+  "post_url": "https://x.com/lepadev/status/2103101681806475414",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "make a modern slick and punchy video for a modern startup that works on inference\n\nno video gen model, no additional libraries."
+ },
+ {
+  "slug": "lester-tyy-480587",
+  "author": "lester_tyy",
+  "post_url": "https://x.com/lester_tyy/status/2103733819568480587",
+  "category": "motion",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "Study how this https://experiments.cloudjoi.com works and use Remotion to make a product showcase video."
+ },
+ {
+  "slug": "levabashidze-184909",
+  "author": "levabashidze",
+  "post_url": "https://x.com/levabashidze/status/2103786742520184909",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out. dont ask just make"
+ },
+ {
+  "slug": "linearuncle-971663",
+  "author": "LinearUncle",
+  "post_url": "https://x.com/LinearUncle/status/2103128559174971663",
+  "category": "explainer",
+  "tech_tags": [
+   "svg",
+   "audio"
+  ],
+  "prompt": "请用Manim给我制作一个导数概念学习的视频，要求通俗易懂，并且有例子，引人思考。配音使用edge-tts"
+ },
+ {
+  "slug": "lnkiai-544254",
+  "author": "lnkiai",
+  "post_url": "https://x.com/lnkiai/status/2103759350330544254",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "svg",
+   "gsap",
+   "css"
+  ],
+  "prompt": "Claude Opus 5.5が凄すぎる…！\nRemotion × three.jsでM3E Canvasの動画を作ってみた👇️"
+ },
+ {
+  "slug": "localjulius-625706",
+  "author": "localjulius",
+  "post_url": "https://x.com/localjulius/status/2102725361922625706",
+  "category": "motion",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "Okay Opus 5.5 + Remotion and a solid concept for what you want is producing amazing results right now.\n\nHere's my ad for Audivo. \n\nI told Opus 5.5 to create an ad from excerpts of popular podcasts and with it make a story explaining what Audivo does. \n\nThe results were amazing!"
+ },
+ {
+  "slug": "loicrambo-980558",
+  "author": "loicRambo",
+  "post_url": "https://x.com/loicRambo/status/2103428454355980558",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a dynamic 20-second motion graphics and animation video that shows what an incredible motion designer and animator you are, like it's your showreel for a résumé. make it about the cycle of life showing the same individual going from childhood to adolescence to the 9-5 cycle, to family life to elder life and death, then cutting ready to loop to the beginning.  go all out , use whatever you need."
+ },
+ {
+  "slug": "m1n9-k7-295601",
+  "author": "m1n9_k7",
+  "post_url": "https://x.com/m1n9_k7/status/2103580011882295601",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out'"
+ },
+ {
+  "slug": "m1n9-k7-466682",
+  "author": "m1n9_k7",
+  "post_url": "https://x.com/m1n9_k7/status/2103579630045466682",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "ai-image"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out'"
+ },
+ {
+  "slug": "macrohou-733862",
+  "author": "macrohou",
+  "post_url": "https://x.com/macrohou/status/2103545787875733862",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "audio"
+  ],
+  "prompt": "[gave access to Ren repo] Make a dynamic 30-second motion graphics video for Ren that shows off your motion and sound design. Go crazy."
+ },
+ {
+  "slug": "madebyjmayala-649220",
+  "author": "madebyjmayala",
+  "post_url": "https://x.com/madebyjmayala/status/2103578285892649220",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video promo about gene spectra, use assets from the current live site where relevant. go all out.'"
+ },
+ {
+  "slug": "madhav-xo-524440",
+  "author": "Madhav_XO",
+  "post_url": "https://x.com/Madhav_XO/status/2103605007396524440",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "shader",
+   "canvas"
+  ],
+  "prompt": "make a 10 sec video on whatever you know about me"
+ },
+ {
+  "slug": "madpencil-753990",
+  "author": "madpencil_",
+  "post_url": "https://x.com/madpencil_/status/2103449418460753990",
+  "category": "motion",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "fun motion graphic, comic book style, 10s"
+ },
+ {
+  "slug": "majidmanzarpour-927543",
+  "author": "majidmanzarpour",
+  "post_url": "https://x.com/majidmanzarpour/status/2102476258948927543",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "Create a single self-contained HTML file that renders an animated pixel art wizard casting a spell, using vanilla JavaScript and Canvas 2D. No external assets, libraries, or network requests.\n\nRENDERING\n- Draw everything to an offscreen canvas at a fixed logical resolution of 128x96, then blit to a fullscreen display canvas scaled by the largest integer factor that fits the window, centered, with imageSmoothingEnabled = false and CSS image-rendering: pixelated.\n- All drawing snaps to integer coordinates on the logical canvas. No sub-pixel positions, anti-aliasing, gradients, or shadowBlur.\n- Fixed palette of ~24 hex colors: deep blues/purples for night sky, warm robe tones, 3-4 bright magic colors. Every pixel comes from this palette.\n\nCHARACTER\n- Build the wizard procedurally from filled rects and pixel runs, ~24x32 logical pixels: pointed hat with a bend, long beard, two-shade robe with darker outline, staff with a gem at the tip.\n- Parameterize the pose (staff angle, arm raise, head tilt, robe sway). Animate parameters smoothly, then quantize to the pixel grid each frame so motion reads at an 8-12 fps pixel animation feel even though the loop runs at 60fps.\n\nANIMATION\n- Looping state machine: IDLE (2-frame bob, beard sway) -> CHARGE (staff raises, gem flickers, sparks spiral inward) -> CAST (bright burst, projectile fires across the scene, 1-2 pixel screen shake) -> RECOVER (settle back). Ease pose parameters between keyframes.\n- Pooled allocation-free particle system: preallocate and reuse. Sparks orbit the gem during CHARGE, explode outward on CAST, each particle stepping its palette index from white to magic color to dark before despawn. Snap particle positions to the grid when drawing.\n- Fixed 60hz timestep update with rAF rendering. Zero object allocation inside the loop.\n\nSCENE\n- Minimal background: dark sky, a few twinkling 1px stars, moon, stone floor line. Character silhouette must read clearly.\n- Subtle 1px rim light on the wizard from the gem, brightening during CHARGE and CAST.\n\nQUALITY BAR\n- Crisp pixels at any window size, seamless loop, stable 60fps, readable silhouette. Should look like a polished 16-bit sprite animation, not vector shapes scaled down."
+ },
+ {
+  "slug": "majin-appsheet-693327",
+  "author": "Majin_AppSheet",
+  "post_url": "https://x.com/Majin_AppSheet/status/2103497319899693327",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "流行ってることは一回試しとくマン。\n\nClaude Code（Opus 5.5）でモーショングラフィックスを作るのが面白いみたいなので、「シンまじん式のPV作って」と頼んだだけで、これが出てきた。\n\n動画生成AIはゼロ。\n・映像：HTML＋コードで1コマずつ描画（HyperFrames）\n・BGM：GeminiのLyriaで生成\n・効果音：拍を解析して、着地やハンコの瞬間に音ハメ\n\n自分がやったのは、スキルを入れて「おまかせ」って返事したくらい。\nしかもClaude自身は音が聴けないのに、波形を数値で解析して音ハメしてるのがヤバい。\n\n何なのもう…日々革命が起こりすぎて 頭ガンガンするわ"
+ },
+ {
+  "slug": "majorbaguette-834228",
+  "author": "MajorBaguette",
+  "post_url": "https://x.com/MajorBaguette/status/2103849602826834228",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a presentation video for Brieform, 30 seconds long"
+ },
+ {
+  "slug": "manuelogomigo-052364",
+  "author": "manuelogomigo",
+  "post_url": "https://x.com/manuelogomigo/status/2103614667038052364",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a flowdrive. go all out."
+ },
+ {
+  "slug": "marklaunches-041046",
+  "author": "marklaunches",
+  "post_url": "https://x.com/marklaunches/status/2103811146411041046",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "build me an incredible video for my app. make it emotional."
+ },
+ {
+  "slug": "marouanegazouzi-131257",
+  "author": "marouanegazouzi",
+  "post_url": "https://x.com/marouanegazouzi/status/2103608571435131257",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "mattbean-917572",
+  "author": "mattbean",
+  "post_url": "https://x.com/mattbean/status/2103146389412917572",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "build me a 30s drawing style animated clip about submitting a product to AppSumo via your agent.\n\nsteps are:\n1. connect your agent\n2. your agent fills out your listing and sets up redemption\n3. go live!"
+ },
+ {
+  "slug": "mattiapomelli-229129",
+  "author": "mattiapomelli",
+  "post_url": "https://x.com/mattiapomelli/status/2103757371357229129",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "shader",
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "mattworkman-309357",
+  "author": "mattworkman",
+  "post_url": "https://x.com/mattworkman/status/2104662818742309357",
+  "category": "explainer",
+  "tech_tags": [
+   "threejs",
+   "shader",
+   "canvas"
+  ],
+  "prompt": "messing around with Opus 5.5\n- HyperFrames staging, edit\n- JavaScript, ThreeJS,\n- fal GPT Image 2.5 and Seedance 2.5\n\nvery blah text design, I need a fal design skill/guideline ideally"
+ },
+ {
+  "slug": "maxalexweber-459784",
+  "author": "maxalexweber",
+  "post_url": "https://x.com/maxalexweber/status/2103118009535459784",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "Make a ODATANO edit that goes hard"
+ },
+ {
+  "slug": "mehul4795-417532",
+  "author": "mehul4795",
+  "post_url": "https://x.com/mehul4795/status/2103420457110417532",
+  "category": "motion",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "Create a product launch video for ocrX Android app."
+ },
+ {
+  "slug": "melvynx-638493",
+  "author": "melvynx",
+  "post_url": "https://x.com/melvynx/status/2103714680577638493",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are for <website url>"
+ },
+ {
+  "slug": "miaai-lab-774895",
+  "author": "MiaAI_lab",
+  "post_url": "https://x.com/MiaAI_lab/status/2103837519615774895",
+  "category": "motion",
+  "tech_tags": [
+   "shader",
+   "webgl",
+   "canvas"
+  ],
+  "prompt": "Build me something when people see it, they will say \"Wow\". Must be immersive, when people see it, they will be stunned by what they see.\n\nThis can be a video, or anything else you can think of.\n\nBe creative. Go wild. Dig deep.\n\nNo AI slop. Something unique, think outside of the box. Think big. Think amazing. Something no other model done before.\n\nBe proud. Show your best. Don't disappoint."
+ },
+ {
+  "slug": "micheleharmonic-244175",
+  "author": "MicheleHarmonic",
+  "post_url": "https://x.com/MicheleHarmonic/status/2103111448352244175",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "Make a GravityDEX x Gojo Satoru edit that goes hard"
+ },
+ {
+  "slug": "miguel07code-091611",
+  "author": "Miguel07Code",
+  "post_url": "https://x.com/Miguel07Code/status/2103626582896091611",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas",
+   "audio",
+   "ai-image"
+  ],
+  "prompt": "fourier series were hard to learn back in university (2 years ago) and they are fun! \n\nwhat unlocks @HyperFrames_ + @claudeai Opus 5.5 is that you can get the best explainer videos just with 1 prompt\n\nyou are curious about something? ask claude!"
+ }
+]

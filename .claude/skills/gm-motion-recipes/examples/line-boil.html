@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Line boil: a living hold for ink title cards</title>
+    <script src="vendor/gsap.min.js"></script>
+    <!--
+      Recipe: line-boil (gm-motion-recipes/rules/line-boil.md)
+      A hand-drawn hold: the outlines are re-traced every 3 frames (10 Hz) while nothing moves. Ink-on-paper
+      styles only. The filter exists ONLY inside the boil window, so before and after it the layer is clean.
+
+        0.00 - 0.60s   ink layer writes in (mask wipe, no filter yet)
+        0.60 - 5.40s   BOIL: feTurbulence seed steps every 3 frames, displacement 8
+        5.40 - 6.00s   filter removed; the outlines snap clean (0.6 s, the same limit as any hold)
+    -->
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #f3eee2; }
+      #root { position: relative; width: 1920px; height: 1080px; background: #f3eee2; color: #1c1b19; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+      /* the layer that boils: ink only (type + outlines). Never put photos, screenshots or the logo inside it. */
+      #ink { position: absolute; inset: 0; will-change: filter; }
+      .line { position: absolute; left: 0; width: 100%; text-align: center; overflow: hidden; }
+      .line > span { display: inline-block; }
+      #h1 { top: 188px; height: 190px; font-size: 168px; font-weight: 800; letter-spacing: 4px; line-height: 190px; }
+      #h2 { top: 392px; height: 80px; font-size: 54px; font-weight: 500; letter-spacing: 1px; line-height: 80px; }
+      .card { position: absolute; left: 600px; top: 560px; width: 720px; height: 330px; border: 4px solid #1c1b19; border-radius: 26px; padding: 44px 52px; }
+      .bar { height: 18px; border-radius: 9px; background: #1c1b19; margin-bottom: 30px; }
+      .dot { position: absolute; right: 52px; bottom: 44px; width: 46px; height: 46px; border: 4px solid #1c1b19; border-radius: 50%; }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <filter id="boil" x="-4%" y="-4%" width="108%" height="108%" color-interpolation-filters="sRGB">
+          <feTurbulence id="boil-noise" type="fractalNoise" baseFrequency="0.015" numOctaves="2" seed="1" result="noise" />
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="8" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </defs>
+    </svg>
+
+    <div id="root" data-composition-id="main" data-start="0" data-duration="6" data-width="1920" data-height="1080">
+      <div id="scene" class="clip" data-start="0" data-duration="6" data-track-index="0">
+        <div id="ink">
+          <div id="h1" class="line"><span>MADE BY HAND</span></div>
+          <div id="h2" class="line"><span>Every outline re-drawn, never reused.</span></div>
+          <div class="card" id="card">
+            <div class="bar" style="width: 62%"></div>
+            <div class="bar" style="width: 88%; height: 14px; opacity: .55"></div>
+            <div class="bar" style="width: 74%; height: 14px; opacity: .55"></div>
+            <div class="dot"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const FPS = 30;
+      const BOIL_START = 0.6;       // s: first re-trace
+      const BOIL_END = 5.4;         // s: filter removed
+      const STEP_FRAMES = 3;        // re-trace every 3 frames (10 Hz). /2 reads as electrical noise, /4+ as dropped frames
+      const STEP = STEP_FRAMES / FPS;
+
+      const tl = gsap.timeline({ paused: true });
+
+      // --- entrance: a mask wipe, no filter yet ---
+      tl.fromTo("#h1 > span", { yPercent: 110 }, { yPercent: 0, duration: 0.5, ease: "power3.out" }, 0);
+      tl.fromTo("#h2 > span", { yPercent: 110 }, { yPercent: 0, duration: 0.45, ease: "power3.out" }, 0.1);
+      tl.fromTo("#card", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.1);
+
+      // --- the boil window ---
+      // Initial states owned explicitly at t=0 so a seek to any time is correct.
+      tl.set("#ink", { filter: "none" }, 0);
+      tl.set("#boil-noise", { attr: { seed: 1 } }, 0);
+
+      // The filter is attached for the window only (not opacity 0: an unused filter still never settles).
+      tl.fromTo("#ink", { filter: "none" }, { filter: "url(#boil)", duration: 0, immediateRender: false }, BOIL_START);
+      tl.fromTo("#ink", { filter: "url(#boil)" }, { filter: "none", duration: 0, immediateRender: false }, BOIL_END);
+
+      // Baked, deterministic seed steps: each step is an explicit from->to so seeking backwards restores the
+      // previous seed. No Math.random, no onUpdate, nothing depends on the path the playhead took.
+      let prev = 1;
+      for (let k = 0, t = BOIL_START; t < BOIL_END - 1e-6; k++, t += STEP) {
+        const seed = 2 + k;
+        tl.fromTo("#boil-noise", { attr: { seed: prev } }, { attr: { seed }, duration: 0, immediateRender: false }, t);
+        prev = seed;
+      }
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

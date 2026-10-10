@@ -1,10 +1,14 @@
 // Render jobs in Postgres (app.render_jobs). The backend writes the planning half of a job's life;
 // the render worker writes the rendering half, fenced by `attempt` (see worker/src/jobs.mjs).
-import type { RenderJob, RenderRequest, RenderStage } from "@videosaas/contracts";
+import { motionBlur, type RenderJob, type RenderRequest, type RenderStage } from "@videosaas/contracts";
+import { config } from "../config.ts";
 import { pool } from "../db/database.ts";
 import { boss, inTransaction, QUEUES } from "../jobs/queues.ts";
 import { kickWorkers } from "../jobs/worker-launcher.ts";
 import type { Plan } from "./planner.ts";
+
+/** A motion-blur render captures several times the frames, so its queue expiry (and the worker's claim) is stretched by the same factor. */
+const blurExpiry = (renderInput: Record<string, unknown>) => (renderInput.motionBlur === true ? { expireInSeconds: config.renderTimeoutSeconds * motionBlur.slowdown } : {});
 
 type Row = {
   id: string;
@@ -81,7 +85,32 @@ export const renderJobRepository = {
          values ($1, $2, 'rendering', 'waiting', 45, $3, $4, $5, now(), $6)`,
         [job.id, input.projectId, input.request, job.revision, input.renderInput, job.createdAt]
       );
-      await boss.send(QUEUES.video, { jobId: job.id }, { db: inTransaction(client) });
+      await boss.send(QUEUES.video, { jobId: job.id }, { db: inTransaction(client), ...blurExpiry(input.renderInput) });
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+    void kickWorkers();
+    return { ...job, state: "rendering" as const, stage: "waiting" as const, progress: 45 };
+  },
+
+  /**
+   * A format render (formats/routes.ts): ready for the worker, owned by a user, with no project behind it. Same queue,
+   * same worker input as an approved storyboard.
+   */
+  async createFormatAndEnqueue(job: RenderJob, input: { request: Record<string, unknown>; ownerId: string; renderInput: Record<string, unknown> }) {
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      await client.query(
+        `insert into app.render_jobs (id, owner_id, state, stage, progress, request, revision, render_input, render_queued_at, created_at)
+         values ($1, $2, 'rendering', 'waiting', 45, $3, $4, $5, now(), $6)`,
+        [job.id, input.ownerId, input.request, job.revision, input.renderInput, job.createdAt]
+      );
+      await boss.send(QUEUES.video, { jobId: job.id }, { db: inTransaction(client), ...blurExpiry(input.renderInput) });
       await client.query("commit");
     } catch (error) {
       await client.query("rollback");

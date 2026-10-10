@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Token bucket limiter</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0e141f}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#0e141f;background-image:radial-gradient(rgba(148,163,184,.12) 1.2px,transparent 1.3px);background-size:32px 32px;font-family:'Space Grotesk',sans-serif;color:#f1f5f9}
+#cap{position:absolute;left:0;right:0;top:36px;text-align:center;font-size:66px;font-weight:700;letter-spacing:-1px}
+#cap span{color:#fbbf24}
+svg{position:absolute;inset:0}
+.m{font-family:'JetBrains Mono',monospace;font-weight:700}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div id="cap">Spend a token, <span>or wait</span></div>
+<svg width="1280" height="720" viewBox="0 0 1280 720">
+<defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="gl2" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="10"/></filter></defs>
+<!-- lane -->
+<path d="M40 620 H1000" stroke="#334155" stroke-width="3" stroke-dasharray="3 12" stroke-linecap="round"/>
+<text class="m" x="40" y="684" font-size="26" fill="#64748b" letter-spacing="3">REQUESTS</text>
+<!-- bucket -->
+<g id="bucket">
+<path d="M500 250 L520 490 Q522 500 534 500 H746 Q758 500 760 490 L780 250" fill="rgba(251,191,36,.05)" stroke="#fbbf24" stroke-width="4" stroke-linejoin="round" stroke-linecap="round" stroke-opacity=".85"/>
+<path id="bglow" d="M500 250 L520 490 Q522 500 534 500 H746 Q758 500 760 490 L780 250" fill="none" stroke="#fbbf24" stroke-width="10" opacity="0" filter="url(#gl2)"/>
+</g>
+<text class="m" x="640" y="554" font-size="34" fill="#e2e8f0" text-anchor="middle" letter-spacing="2" id="cnt">TOKENS 3</text>
+<g id="tokens"></g>
+<!-- drip -->
+<rect x="628" y="150" width="24" height="34" rx="6" fill="#334155"/>
+<g id="drops"></g>
+<!-- gate -->
+<g id="gate"><rect id="gbar" x="634" y="566" width="12" height="108" rx="6" fill="#334155"/><rect id="gglow" x="634" y="566" width="12" height="108" rx="6" fill="#f43f5e" opacity="0" filter="url(#glow)"/></g>
+<text id="rej" class="m" x="640" y="700" font-size="36" fill="#f43f5e" text-anchor="middle" opacity="0" letter-spacing="2">429 TOO MANY</text>
+<!-- server -->
+<g id="srv"><rect id="sglow" x="1030" y="578" width="200" height="84" rx="18" fill="#a3e635" opacity="0" filter="url(#gl2)"/><rect x="1030" y="578" width="200" height="84" rx="18" fill="#111a2b" stroke="#a3e635" stroke-width="2.5" stroke-opacity=".6"/><text class="m" x="1130" y="630" font-size="28" fill="#e2e8f0" text-anchor="middle">SERVER</text></g>
+<g id="reqs"></g>
+</svg></div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const mk=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+const AC="#fbbf24";
+const slotPos=i=>({x:[570,640,710][i%3],y:i<3?458:400});
+const tl=gsap.timeline({paused:true});const _s=tl.set.bind(tl);tl.set=(t,v,p)=>_s(t,Object.assign({immediateRender:false},v),p);
+tl.from("#cap",{opacity:0,y:-12,duration:.45,ease:"power3.out"},0);
+tl.from("#bucket",{opacity:0,duration:.4},0);
+function mkToken(){const g=mk("g",{},document.getElementById("tokens"));
+ mk("circle",{r:28,fill:AC,opacity:.35,filter:"url(#glow)"},g);mk("circle",{r:24,fill:"#2a2110",stroke:AC,"stroke-width":4},g);
+ const t=mk("text",{class:"m","font-size":22,fill:AC,"text-anchor":"middle",y:8},g);t.textContent="T";return g}
+let stack=[];
+function place(g,i){const p=slotPos(i);gsap.set(g,{x:p.x,y:p.y})}
+// initial 3 tokens
+for(let i=0;i<3;i++){const g=mkToken();place(g,i);stack.push(g);tl.from(g,{opacity:0,scale:.3,transformOrigin:"0 0",duration:.4,ease:"back.out(2)"},0.1+i*.1)}
+const setCnt=(n,t)=>tl.set("#cnt",{textContent:"TOKENS "+n},t);
+// events
+const drips=[1.2,2.5,3.8];
+const reqs=[[0.9,1],[1.7,1],[2.4,1],[2.9,1],[3.2,1],[3.55,0],[4.15,1]]; // arrive time at gate, accept?
+const ev=[];drips.forEach(t=>ev.push({t,k:"add"}));reqs.forEach(([t,a])=>ev.push({t,k:"req",a}));
+ev.sort((a,b)=>a.t-b.t||(a.k==="add"?-1:1));
+let n=3;
+ev.forEach(e=>{
+  if(e.k==="add"){
+    const g=mkToken();const p=slotPos(n);
+    // drop falls from faucet
+    const d=mk("circle",{r:12,fill:AC,filter:"url(#glow)",opacity:0},document.getElementById("drops"));
+    tl.set(d,{opacity:1,attr:{cx:640,cy:190}},e.t-0.55);
+    tl.fromTo(d,{attr:{cy:190}},{attr:{cy:p.y-14},duration:.55,ease:"power2.in",immediateRender:false},e.t-0.55);
+    tl.set(d,{opacity:0},e.t);
+    gsap.set(g,{x:p.x,y:p.y,opacity:0});
+    tl.fromTo(g,{opacity:0,scale:.2,transformOrigin:"0 0"},{opacity:1,scale:1,duration:.35,ease:"back.out(3)",immediateRender:false},e.t);
+    tl.fromTo("#bglow",{opacity:.7},{opacity:0,duration:.5,immediateRender:false},e.t);
+    stack.push(g);n++;setCnt(n,e.t);
+  } else {
+    const r=mk("g",{opacity:0},document.getElementById("reqs"));
+    const col=e.a?"#e2e8f0":"#e2e8f0";
+    const box=mk("rect",{x:-44,y:-30,width:88,height:60,rx:12,fill:"#1a2233",stroke:"#94a3b8","stroke-width":3},r);
+    const tx=mk("text",{class:"m","font-size":28,fill:"#e2e8f0","text-anchor":"middle",y:10},r);tx.textContent="REQ";
+    const t0=e.t-0.75;
+    gsap.set(r,{x:40,y:620});
+    tl.set(r,{opacity:1},t0);
+    tl.fromTo(r,{x:40},{x:640-60,duration:.75,ease:"power1.in",immediateRender:false},t0);
+    if(e.a&&n>0){
+      const tk=stack.pop();n--;setCnt(n,e.t);
+      // token flies to request
+      tl.fromTo(tk,{x:slotPos(n).x,y:slotPos(n).y,scale:1},{x:640-60,y:620,scale:.55,duration:.28,ease:"power2.in",immediateRender:false},e.t-0.3);
+      tl.set(tk,{opacity:0},e.t);
+      tl.to(box,{stroke:"#a3e635",duration:.15},e.t-0.05);
+      tl.fromTo("#bglow",{opacity:.6},{opacity:0,duration:.4,immediateRender:false},e.t-0.1);
+      tl.to(r,{x:1130-0,duration:.5,ease:"power2.out"},e.t+0.05);
+      tl.set(r,{opacity:0},e.t+0.58);
+      tl.fromTo("#sglow",{opacity:.8},{opacity:0,duration:.5,immediateRender:false},e.t+0.5);
+      tl.fromTo("#srv",{scale:1.05,svgOrigin:"1130 620"},{scale:1,svgOrigin:"1130 620",duration:.4,ease:"back.out(2)",immediateRender:false},e.t+0.5);
+    } else {
+      tl.to(box,{stroke:"#f43f5e",fill:"#3a1420",duration:.1},e.t);
+      tl.fromTo("#gglow",{opacity:1},{opacity:0,duration:.7,immediateRender:false},e.t);
+      tl.fromTo("#rej",{opacity:1,scale:1.12,svgOrigin:"640 690"},{opacity:0,scale:1,duration:.9,ease:"power2.out",immediateRender:false},e.t);
+      tl.set("#rej",{opacity:1},e.t);tl.to("#rej",{opacity:0,duration:.5},e.t+.7);
+      tl.to(r,{x:"-=22",duration:.07,yoyo:true,repeat:3,ease:"none"},e.t);
+      tl.to(r,{y:700,rotation:25,opacity:0,duration:.5,ease:"power2.in"},e.t+0.3);
+    }
+  }
+});
+// final accent: nothing else; hold
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

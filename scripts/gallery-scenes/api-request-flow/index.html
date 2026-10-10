@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>API request flow</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0d1117}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#0d1117;background-image:radial-gradient(rgba(148,163,184,.13) 1.2px,transparent 1.3px);background-size:32px 32px;font-family:'Space Grotesk',sans-serif;color:#f1f5f9}
+#cap{position:absolute;left:0;right:0;top:84px;text-align:center;font-size:68px;font-weight:700;letter-spacing:-1px}
+#cap span{color:#22d3ee}
+svg{position:absolute;inset:0}
+.lbl{font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;fill:#e2e8f0;text-anchor:middle}
+.sub{font-family:'JetBrains Mono',monospace;font-size:20px;fill:#7b8aa3;text-anchor:middle}
+#chip{font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;text-anchor:middle}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div id="cap">One call, <span>one answer</span></div>
+<svg width="1280" height="720" viewBox="0 0 1280 720">
+<defs><filter id="glow" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="glow2" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="8"/></filter></defs>
+<g id="nodes"></g>
+<path id="req" d="M280 330 H370 M590 330 H680 M900 330 H990" fill="none" stroke="#22d3ee" stroke-width="3" opacity="0"/>
+<g id="arrows"></g>
+<g id="pk"></g>
+<g id="chipg" transform="translate(640 580)"><rect id="chipbg" x="-190" y="-34" width="380" height="68" rx="34" fill="rgba(251,191,36,.12)" stroke="#fbbf24" stroke-width="2.5"/><text id="chip" y="11" fill="#fbbf24">PENDING</text></g>
+</svg>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const mk=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+const names=[["CLIENT","app"],["GATEWAY","auth"],["SERVICE","logic"],["DATABASE","rows"]];
+const xs=[60,370,680,990],W=220,Y=270,H=120,AC="#22d3ee";
+const nodes=[];
+xs.forEach((x,i)=>{
+  const g=mk("g",{},document.getElementById("nodes"));
+  const glow=mk("rect",{x,y:Y,width:W,height:H,rx:20,fill:AC,opacity:0,filter:"url(#glow2)"},g);
+  mk("rect",{x,y:Y,width:W,height:H,rx:20,fill:"#111a2b",stroke:AC,"stroke-width":2,"stroke-opacity":.55},g);
+  const hot=mk("rect",{x,y:Y,width:W,height:H,rx:20,fill:"none",stroke:AC,"stroke-width":4,opacity:0},g);
+  const t=mk("text",{x:x+W/2,y:Y+54,class:"lbl"},g);t.textContent=names[i][0];
+  const s=mk("text",{x:x+W/2,y:Y+90,class:"sub"},g);s.textContent=names[i][1];
+  nodes.push({g,glow,hot,cx:x+W/2,cy:Y+H/2});
+});
+// paths
+const reqD="M280 310 H370 M590 310 H680 M900 310 H990";
+const mkPath=(d,col,pre)=>{return mk("path",{d,fill:"none",stroke:col,"stroke-width":3,"stroke-linecap":"round"},document.getElementById("arrows"))};
+const segs=[[280,370],[590,680],[900,990]];
+const reqArrows=segs.map(([a,b])=>{const p=mkPath(`M${a} 308 H${b-8}`,AC);const h=mk("path",{d:`M${b-14} 300 L${b-2} 308 L${b-14} 316`,fill:"none",stroke:AC,"stroke-width":3,"stroke-linecap":"round","stroke-linejoin":"round"},document.getElementById("arrows"));return{p,h}});
+const resArrows=segs.map(([a,b])=>{const p=mkPath(`M${b} 352 H${a+8}`,"#a3e635");const h=mk("path",{d:`M${a+14} 344 L${a+2} 352 L${a+14} 360`,fill:"none",stroke:"#a3e635","stroke-width":3,"stroke-linecap":"round","stroke-linejoin":"round"},document.getElementById("arrows"));return{p,h}});
+// packet paths (invisible)
+const reqP=mk("path",{d:"M170 308 H1100",fill:"none"},document.getElementById("pk"));
+const resP=mk("path",{d:"M1100 352 H170",fill:"none"},document.getElementById("pk"));
+function packet(col,label){
+  const g=mk("g",{opacity:0},document.getElementById("pk"));
+  [18,12,6].forEach((l,i)=>mk("circle",{r:[8,10,12][i],fill:col,opacity:[.25,.45,.7][i]},g));
+  const c=mk("circle",{r:14,fill:"#fff",filter:"url(#glow)"},g);
+  mk("circle",{r:14,fill:col,opacity:.9},g);
+  return g;
+}
+const pk1=packet(AC),pk2=packet("#a3e635");
+function place(g,path,p){const L=path.getTotalLength();const kids=g.children;
+  [18,12,6].forEach((lag,i)=>{const q=path.getPointAtLength(Math.max(0,p*L-lag*(i+0)-(i?lag:0)));kids[i].setAttribute("cx",q.x);kids[i].setAttribute("cy",q.y)});
+  const q=path.getPointAtLength(p*L);for(let k=3;k<5;k++){kids[k].setAttribute("cx",q.x);kids[k].setAttribute("cy",q.y)}}
+// positions along path: node centers at x=170,480,790,1100 -> arrive at node edges
+const tl=gsap.timeline({paused:true});
+function fly(g,path,start,dur,ease){const o={p:0};tl.set(g,{opacity:1},start);tl.to(o,{p:1,duration:dur,ease,onUpdate:()=>place(g,path,o.p)},start);tl.set(g,{opacity:0},start+dur+0.02);}
+function pulse(n,t){tl.fromTo(n.glow,{opacity:.75},{opacity:0,duration:.6,ease:"power2.out"},t);
+ tl.fromTo(n.hot,{opacity:1},{opacity:.0,duration:.6,ease:"power2.out"},t);
+ tl.fromTo(n.g,{scale:1.06,svgOrigin:`${n.cx} ${n.cy}`},{scale:1,svgOrigin:`${n.cx} ${n.cy}`,duration:.5,ease:"back.out(2)"},t);}
+// intro
+place(pk1,reqP,0);place(pk2,resP,0);
+tl.from("#cap",{opacity:0,y:-14,duration:.5,ease:"power3.out"},0.05);
+nodes.forEach((n,i)=>tl.from(n.g,{opacity:0,y:14,duration:.45,ease:"power3.out"},0.0+i*0.08));
+const draw=(arr,t)=>arr.forEach(({p,h},i)=>{const L=p.getTotalLength();gsap.set(p,{strokeDasharray:L,strokeDashoffset:L});gsap.set(h,{opacity:0});});
+draw(reqArrows);draw(resArrows);
+// request: total path 930 px from 170..1100, time map: arrive node centers at x=480 (t), 790, 1100
+const T0=0.7,dur=1.9;
+// draw arrows slightly ahead of packet
+reqArrows.forEach(({p,h},i)=>{const t=T0+ (segs[i][0]-170)/930*dur-0.05;const L=p.getTotalLength();tl.to(p,{strokeDashoffset:0,duration:.3,ease:"power2.out"},t);tl.to(h,{opacity:1,duration:.1},t+.22)});
+fly(pk1,reqP,T0,dur,"none");
+const arr=i=>T0+(xs[i]+W/2-170)/930*dur;
+pulse(nodes[1],arr(1));pulse(nodes[2],arr(2));pulse(nodes[3],arr(3));
+tl.fromTo(nodes[0].glow,{opacity:.7},{opacity:0,duration:.5},0.55);
+// chip: processing
+tl.call(()=>{},null,0);
+const chipT=(txt,col,bg)=>{};
+tl.to("#chip",{duration:.2,onStart:()=>{}},0);
+// response
+const R0=arr(3)+0.15,rd=1.55;
+resArrows.slice().reverse().forEach(({p,h},k)=>{const i=2-k;const t=R0+(1100-segs[i][1])/930*rd-0.05;const L=p.getTotalLength();tl.to(p,{strokeDashoffset:0,duration:.3,ease:"power2.out"},t);tl.to(h,{opacity:1,duration:.1},t+.22)});
+fly(pk2,resP,R0,rd,"none");
+const rarr=i=>R0+(1100-(xs[i]+W/2))/930*rd;
+pulse(nodes[2],rarr(2));pulse(nodes[1],rarr(1));pulse(nodes[0],rarr(0));
+// chip state (deterministic via set)
+tl.set("#chip",{textContent:"PENDING"},0);
+tl.set("#chip",{textContent:"WORKING..."},arr(1)-0.05);
+tl.set("#chip",{textContent:"200 OK"},rarr(0));
+tl.set("#chip",{fill:"#a3e635"},rarr(0));
+tl.set("#chipbg",{stroke:"#a3e635",fill:"rgba(163,230,53,.14)"},rarr(0));
+tl.fromTo("#chipg",{scale:1.15,svgOrigin:"640 580"},{scale:1,svgOrigin:"640 580",duration:.5,ease:"back.out(2)"},rarr(0));
+tl.to("#cap",{duration:.01},4.99);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

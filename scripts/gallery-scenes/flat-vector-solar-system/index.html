@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Flat vector solar system</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#141043}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,#2a1d73 0%,#171152 55%,#0e0a33 100%)}
+svg{position:absolute;inset:0}
+text{font-family:"Fredoka","Space Grotesk",sans-serif;font-weight:600}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="stage" class="clip" data-start="0" data-duration="5" data-track-index="1" width="1280" height="720" viewBox="0 0 1280 720">
+<defs>
+<radialGradient id="glow"><stop offset="0" stop-color="#ffb84d" stop-opacity=".75"/><stop offset=".5" stop-color="#ff8a3d" stop-opacity=".22"/><stop offset="1" stop-color="#ff8a3d" stop-opacity="0"/></radialGradient>
+<filter id="sh" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#05031a" flood-opacity=".45"/></filter>
+</defs>
+<g id="far"></g><g id="near"></g>
+<g id="orbits"></g>
+<g id="sun-g" transform="translate(640 320)"><g id="sun-s">
+ <circle id="halo" r="170" fill="url(#glow)"/>
+ <circle r="62" fill="#ff9a2e" filter="url(#sh)"/><circle r="52" fill="#ffc83d"/>
+ <circle cx="-17" cy="-6" r="7" fill="#7a3b12"/><circle cx="17" cy="-6" r="7" fill="#7a3b12"/>
+ <circle cx="-14" cy="-8" r="2.5" fill="#fff"/><circle cx="20" cy="-8" r="2.5" fill="#fff"/>
+ <path d="M-16 14 Q0 30 16 14" fill="none" stroke="#7a3b12" stroke-width="5" stroke-linecap="round"/>
+ <circle cx="-34" cy="12" r="8" fill="#ff7a59" opacity=".6"/><circle cx="34" cy="12" r="8" fill="#ff7a59" opacity=".6"/>
+</g></g>
+<g id="planets"></g>
+<g id="tag" transform="translate(0 0)"><g id="tag-s">
+ <rect x="0" y="-20" width="132" height="44" rx="22" fill="#fff"/>
+ <text x="66" y="12" font-size="30" text-anchor="middle" fill="#2a1d73">Earth</text>
+</g></g>
+<text id="cap" x="640" y="682" font-size="64" text-anchor="middle" fill="#fff">Our solar system</text>
+</svg>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg",$=id=>document.getElementById(id);
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p.appendChild(e);return e};
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+const CX=640,CY=320;
+// starfield
+const COLS=["#ffffff","#8fd3ff","#ffd1f0","#ffe88a"];
+const far=$("far"),near=$("near");
+for(let i=0;i<46;i++)el("circle",{cx:rnd()*1400-60,cy:rnd()*720,r:1.5+rnd()*1.5,fill:COLS[i%4],opacity:.55},far);
+const twinkle=[];
+for(let i=0;i<22;i++){const g=el("g",{transform:`translate(${rnd()*1400-60} ${rnd()*640})`},near);const s=el("path",{d:"M0 -9 Q1 -1 9 0 Q1 1 0 9 Q-1 1 -9 0 Q-1 -1 0 -9Z",fill:COLS[i%4],opacity:.9},g);twinkle.push(s)}
+// orbits
+const OR=[95,145,200,255];
+OR.forEach(r=>el("circle",{cx:CX,cy:CY,r:r,fill:"none",stroke:"#ffffff","stroke-opacity":.16,"stroke-width":2},$("orbits")));
+// planets: radius, orbit, revs in 5s, start angle, colour
+const PL=[
+ {r:12,o:95,v:1.25,a:200,c:"#ff7a59"},
+ {r:19,o:145,v:.8,a:20,c:"#ff8fc4"},
+ {r:25,o:200,v:.5,a:-35,c:"#35c2ff",earth:1,moon:{r:7,d:40,v:3}},
+ {r:27,o:255,v:.3,a:140,c:"#9b7bff",ring:1,moon:{r:8,d:46,v:2}}
+];
+PL.forEach(p=>{
+ p.pos=el("g",{},$("planets"));p.sc=el("g",{},p.pos);
+ if(p.ring)el("ellipse",{rx:p.r*1.9,ry:p.r*.5,fill:"#ffd25c",transform:"rotate(-18)",opacity:1},p.sc);
+ const body=el("circle",{r:p.r,fill:p.c,filter:"url(#sh)"},p.sc);
+ if(p.ring)el("path",{d:`M${-p.r*1.9} ${-p.r*.16} Q0 ${p.r*.55} ${p.r*1.9} ${p.r*.16}`,fill:"none","stroke":"#ffd25c","stroke-width":9,"stroke-linecap":"round",transform:"rotate(-18)"},p.sc);
+ if(p.earth){el("path",{d:"M-14 -6 Q-8 -18 2 -12 Q8 -6 -2 0 Q-10 4 -14 -6Z",fill:"#7be07b"},p.sc);el("path",{d:"M6 6 Q16 2 16 12 Q10 20 4 14Z",fill:"#7be07b"},p.sc)}
+ else el("circle",{cx:-p.r*.3,cy:-p.r*.3,r:p.r*.28,fill:"#fff",opacity:.28},p.sc);
+ if(p.moon){p.m=el("g",{},p.pos);p.ms=el("g",{},p.m);el("circle",{r:p.moon.r,fill:"#e6e9f5",filter:"url(#sh)"},p.ms);el("circle",{cx:-2,cy:-2,r:2.5,fill:"#b9bfd6"},p.ms)}
+});
+function render(t){
+ // star parallax
+ far.setAttribute("transform",`translate(${-t*8} 0)`);
+ near.setAttribute("transform",`translate(${-t*22} 0)`);
+ PL.forEach(p=>{
+  const a=(p.a+p.v*360*t/5)*Math.PI/180;
+  const x=CX+Math.cos(a)*p.o,y=CY+Math.sin(a)*p.o;
+  p.pos.setAttribute("transform",`translate(${x} ${y})`);
+  if(p.moon){const b=t*p.moon.v*2*Math.PI/1.9;p.m.setAttribute("transform",`translate(${x+Math.cos(b)*p.moon.d} ${y+Math.sin(b)*p.moon.d})`);p.x=x}
+  p.X=x;p.Y=y;
+ });
+ const e=PL[2];
+ const tg=$("tag");tg.setAttribute("transform",`translate(${e.X+34} ${e.Y-44})`);
+}
+render(0);
+const tl=gsap.timeline({paused:true});
+const S={t:0};
+tl.to(S,{t:5,duration:5,ease:"none",onUpdate:()=>render(S.t)},0);
+tl.fromTo("#sun-s",{scale:0,transformOrigin:"0 0"},{scale:1,transformOrigin:"0 0",duration:.7,ease:"back.out(2)"},0);
+tl.to("#halo",{scale:1.12,duration:1.25,ease:"sine.inOut",repeat:3,yoyo:true,transformOrigin:"0 0"},0.4);
+PL.forEach((p,i)=>{
+ tl.fromTo(p.sc,{scale:0},{scale:1,duration:.6,ease:"back.out(2.4)",transformOrigin:"0 0"},.15+i*.22);
+ if(p.ms)tl.fromTo(p.ms,{scale:0},{scale:1,duration:.5,ease:"back.out(2.6)",transformOrigin:"0 0"},.7+i*.22);
+});
+tl.fromTo("#tag-s",{scale:0},{scale:1,duration:.55,ease:"back.out(2.4)",transformOrigin:"0 0"},2.0);
+tl.to(PL[2].sc,{scale:1.35,duration:.35,ease:"back.out(3)",transformOrigin:"0 0"},2.0);
+tl.fromTo("#cap",{opacity:0,y:30},{opacity:1,y:0,duration:.6,ease:"back.out(1.6)"},.3);
+twinkle.forEach((s,i)=>tl.to(s,{scale:.4,duration:.6+(i%4)*.15,ease:"sine.inOut",repeat:5,yoyo:true,transformOrigin:"center"},i*.07));
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

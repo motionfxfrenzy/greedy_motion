@@ -11,6 +11,12 @@ Watchability (`watchability.md`) says what makes a film watchable; this file mak
 spoken or on-screen line with one visible event. If a line has nothing to show, cut it or give it
 something to show.
 
+**Every beat earns its place.** A beat has an entry state (what the viewer already knows), an exit state (what they
+know now) and one reason to exist. If you cannot say what the viewer learns or feels in beat four that they did not in
+beat three, cut beat four. For a product-UI sequence, write the state chain before any transition ("search, result,
+detail, action, confirmation") so one component can change size, colour, content and position across the chain while
+staying recognisably the same object.
+
 ## Structure (per format)
 
 | Format | Length | Beats | Shape |
@@ -35,6 +41,31 @@ something to show.
 - **CTA line:** a short opener, then the product name ≥ 1.2s into the line, then the action.
 - **No invented results:** no %, multipliers, customer names or figures the brief can't support.
   Banned words: "magic", "revolutionary", "seamless", "game-changing".
+- **Write for the ear.** A voiced line is read by a speech engine, not displayed. No colons (they turn into odd pauses; write
+  two sentences), no parentheses or slashes. Spell out anything the engine can misread: acronyms the way they are said ("A I",
+  "A P I"), symbols and units as words ("percent" only if the brief supports the number). A list of more than three items
+  becomes one short sentence per item, each its own beat. Never open on a character or the product name, always on the viewer's
+  problem or outcome.
+
+## Music-led films (a track with a beat)
+
+When the film has a music bed, plan on a beat grid, not on seconds. State the track's BPM and the beat of its first strong
+drop (`music_prompt`: tempo in BPM and "a clear drop", instrumental). Start the track a whole number of beats before the drop
+so the drop lands on the success moment. Give every beat a position on the grid; cuts and hits land on beats (within 0.15 s)
+and the hook lands on the opening hit. The film's energy rises toward the drop and resolves after it. Count beats, not
+seconds, when writing: at 130 BPM a beat is 0.46 s, so a 15-second film is 32 beats.
+
+## One story, three compositions
+
+A 16:9 film, a 9:16 cut and a 1:1 cut are different compositions of the same story, never a crop. Keep the same beats,
+states and copy; change the layout. 9:16: fewer simultaneous elements, one idea per frame, a stronger vertical hierarchy,
+key phrases of 3 words or fewer, nothing important in the platform strips (top 13% and bottom 22%). 1:1: tighter type and
+shorter holds. 16:9: more spatial context for the product. Say which format a beat is written for when it differs.
+
+## The last frame is a poster
+
+The final state must work as a still: the product name or mark and the call to action readable, nothing mid-transition,
+one focal point. It is the thumbnail, the poster frame and the share image.
 
 ## On-screen copy rules
 
@@ -113,4 +144,7 @@ The motion designer (skill or agent) must be able to animate every beat from the
 - [ ] Exactly one success moment, before the CTA.
 - [ ] Length fits the format.
 - [ ] No invented results; no banned words.
-- [ ] Muted test: the key phrases alone tell the story.
+- [ ] Muted test: the key phrases alone tell the story. Eyes-closed test: the voice and music alone carry the shape.
+- [ ] Every beat has a reason you can say in one sentence; no beat repeats what the previous one taught.
+- [ ] Voiced lines have no colons, no unspoken symbols, and acronyms are written as they are said.
+- [ ] The last frame works as a poster.

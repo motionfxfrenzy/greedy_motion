@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Cocktail recipe</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #fff3d4; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #fff3d4; font-family: "Fredoka", sans-serif; }
+  svg { position: absolute; inset: 0; }
+
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+var R = rng(11);
+var tl = gsap.timeline({ paused: true });
+var defs = el("defs", {});
+function wob(pts, amp, step) {
+  var out = [pts[0]], i, k;
+  for (i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+    for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+  }
+  var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+  for (i = 0; i < out.length - 1; i++) {
+    var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+    d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+  }
+  return d;
+}
+function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .06; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+function box(x, y, w, h) { return [[x - 6, y + 1], [x + w + 4, y - 1], [x + w + 1, y + h + 3], [x - 3, y + h - 1], [x + 1, y - 9]]; }
+// draw-on stroke. o: parent, amp, single, raw(d string), ease, fill (fades in), op (opacity), cap
+function stroke(pts, color, w, t, dur, o) {
+  o = o || {}; var par = o.parent || art;
+  var d = o.raw ? pts : wob(pts, o.amp == null ? 2.2 : o.amp, 34), made = [];
+  var passes = o.single ? [[w, 1, d]] : [[w, 1, d], [w * .5, .75, o.raw ? pts : wob(pts, (o.amp == null ? 2.2 : o.amp) * 1.2, 30)]];
+  passes.forEach(function (p, i) {
+    var path = el("path", { d: p[2], fill: "none", stroke: color, "stroke-width": p[0], "stroke-linecap": "round", "stroke-linejoin": "round", opacity: (o.op == null ? 1 : o.op) * p[1] }, par);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30); path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur * (i ? 1.12 : 1), ease: o.ease || "power1.inOut" }, t + (i ? .05 : 0));
+    made.push(path);
+  });
+  if (o.fill) {
+    var f = el("path", { d: d, fill: o.fill, stroke: "none", opacity: 0 }, par);
+    par.insertBefore(f, made[0]);
+    tl.to(f, { opacity: o.fillOp == null ? 1 : o.fillOp, duration: Math.max(.15, dur * .5) }, t + dur * .55);
+    made.push(f);
+  }
+  return made;
+}
+var cid = 0;
+function write(str, x, y, size, color, t, dur, rot, weight, font, par, anchor) {
+  par = par || art;
+  var g = el("g", rot ? { transform: "rotate(" + rot + " " + x + " " + y + ")" } : {}, par);
+  var id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+  var w = str.length * size * .6 + 30, x0 = anchor === "middle" ? x - w / 2 : x;
+  var rc = el("rect", { x: x0 - 10, y: y - size * 1.1, width: 0, height: size * 1.5 }, cp);
+  var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": weight || 600, fill: color, "clip-path": "url(#" + id + ")", "font-family": font || "Fredoka, Quicksand, sans-serif", "text-anchor": anchor || "start" }, g);
+  tx.textContent = str;
+  tl.to(rc, { attr: { width: w + 20 }, duration: dur, ease: "none" }, t);
+  return g;
+}
+function pop(node, t, dur, ox, oy, ease, rot) {
+  tl.fromTo(node, { scale: 0, rotation: rot == null ? -14 : rot, svgOrigin: ox + " " + oy }, { scale: 1, rotation: 0, svgOrigin: ox + " " + oy, duration: dur || .4, ease: ease || "back.out(2.6)" }, t);
+}
+function fadeIn(node, t, dur) { tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: dur || .3, ease: "power1.out" }, t); }
+function finish() { window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl; tl.set({}, {}, 5); }
+
+var INK = "#3a2530", GOLD = "#ffc83d", PINK = "#ff86b0", AQUA = "#9fe3d6", CORAL = "#ff6b4a", GREEN = "#3fae6b";
+// paper
+el("rect", { width: 1280, height: 720, fill: "#fff3d4" });
+var dots = "";
+for (var i = 0; i < 46; i++) dots += "M" + (R() * 1280).toFixed(0) + " " + (R() * 720).toFixed(0) + "h.1";
+el("path", { d: dots, stroke: "#f0d9a0", "stroke-width": 7, "stroke-linecap": "round", fill: "none" });
+// big sun-daisy behind glass
+var bg = el("g", {});
+el("circle", { cx: 380, cy: 440, r: 250, fill: "#ffe9a8" }, bg);
+pop(bg, 0, .6, 380, 440, "back.out(1.6)", 0);
+var art = el("g", {});
+// glass geometry
+var TOP = 230, BOT = 650, GL = [250, 510], GB = [292, 468];
+var clip = el("clipPath", { id: "gl" }, defs);
+el("path", { d: "M258 232 L502 232 L462 648 L298 648 Z" }, clip);
+var liq = el("g", { "clip-path": "url(#gl)" });
+var layers = [
+  { c: GOLD, y0: 650, y1: 560, t: .35, name: "Elderflower", m: "1 oz", ly: 605 },
+  { c: PINK, y0: 560, y1: 450, t: 1.15, name: "Hibiscus", m: "1 oz", ly: 505 },
+  { c: AQUA, y0: 450, y1: 300, t: 1.95, name: "Soda", m: "3 oz", ly: 375 }
+];
+var BOTTLE_COL = [GOLD, PINK, AQUA];
+layers.forEach(function (L, k) {
+  var r = el("rect", { x: 240, y: L.y0, width: 280, height: 0, fill: L.c }, liq);
+  tl.fromTo(r, { attr: { y: L.y0, height: 0 } }, { attr: { y: L.y1, height: L.y0 - L.y1 }, duration: .62, ease: "power1.inOut" }, L.t + .12);
+  // wavy surface line
+  var wv = el("path", { d: "M240 0 q 20 -9 40 0 t 40 0 t 40 0 t 40 0 t 40 0 t 40 0 t 40 0", fill: "none", stroke: INK, "stroke-width": 3, opacity: .55 }, liq);
+  tl.fromTo(wv, { y: L.y0, opacity: 0 }, { y: L.y1, opacity: .5, duration: .62, ease: "power1.inOut" }, L.t + .12);
+  // bottle
+  var mx = 440, my = 170;
+  var w1 = el("g", {}, art), w = el("g", {}, w1);
+  var g = el("g", { transform: "translate(" + mx + " " + (my + 60) + ")" }, w);
+  var body = "M-34 20 Q-38 0 -16 -4 L-16 -60 L16 -60 L16 -4 Q38 0 34 20 L34 130 Q34 148 16 148 L-16 148 Q-34 148 -34 130 Z";
+  el("path", { d: body, fill: BOTTLE_COL[k], stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, g);
+  el("circle", { cx: 0, cy: 80, r: 17, fill: "#fff3d4", stroke: INK, "stroke-width": 3 }, g);
+  el("rect", { x: -13, y: -70, width: 26, height: 12, rx: 5, fill: INK }, g);
+  el("path", { d: "M-22 30 L-22 110", stroke: "#fff", "stroke-width": 6, "stroke-linecap": "round", opacity: .7 }, g);
+  var so = mx + " " + my;
+  tl.fromTo(w, { svgOrigin: so, rotation: -70 }, { svgOrigin: so, rotation: -127, duration: .3, ease: "power2.out" }, L.t - .1);
+  tl.fromTo(w1, { x: 380, y: -40, opacity: 0 }, { x: 0, y: 0, opacity: 1, duration: .3, ease: "power2.out" }, L.t - .1);
+  tl.to(w, { svgOrigin: so, rotation: -70, duration: .3, ease: "power2.in" }, L.t + .72);
+  tl.to(w1, { x: 420, y: -80, opacity: 0, duration: .3, ease: "power2.in" }, L.t + .72);
+  // stream
+  var st = el("rect", { x: mx - 7, y: my + 8, width: 14, height: 0, rx: 7, fill: L.c, stroke: INK, "stroke-width": 0 }, art);
+  tl.fromTo(st, { attr: { y: my + 8, height: 0 } }, { attr: { height: L.y1 - my - 6 }, duration: .16, ease: "none" }, L.t + .12);
+  tl.to(st, { attr: { y: L.y1, height: 0 }, duration: .2, ease: "none" }, L.t + .74);
+});
+// glass outline (over liquid)
+var glass = [[246, 226], [514, 228], [470, 650], [290, 652], [246, 226]];
+stroke(glass, INK, 8, 0, .8, { amp: 2.4 });
+stroke([[272, 262], [300, 520]], "#ffffff", 9, .7, .3, { amp: 1, single: true, op: .8 });
+stroke([[286, 646], [474, 648]], INK, 10, .4, .3, { amp: 1.5, single: true });
+// ingredient labels + arrows
+layers.forEach(function (L, k) {
+  var ry = [590, 478, 358][k], x = 690;
+  var dot = el("circle", { cx: x, cy: ry - 17, r: 20, fill: L.c, stroke: INK, "stroke-width": 5 }, art);
+  pop(dot, L.t + .1, .35, x, ry - 17);
+  write(L.name, x + 38, ry, 58, INK, L.t + .15, .38, 0, 600);
+  var wlen = L.name.length * 58 * .53 + x + 62;
+  el("g", {});
+  write(L.m, wlen, ry, 58, CORAL, L.t + .5, .3, 0, 700);
+  stroke([[wlen - 6, ry + 14], [wlen + 150, ry + 10]], CORAL, 5, L.t + .72, .2, { amp: 1.4, single: true });
+  stroke([[x - 20, ry - 20], [600, L.ly - 30 + (k - 1) * 10], [522, L.ly]], INK, 4, L.t + .3, .3, { amp: 2, single: true });
+  stroke([[536, L.ly - 14], [520, L.ly], [538, L.ly + 12]], INK, 4, L.t + .55, .14, { amp: .6, single: true });
+});
+// bubbles in soda
+for (var b = 0; b < 7; b++) {
+  var bx = 310 + R() * 150, by = 440 - R() * 60;
+  var bc = el("circle", { cx: bx, cy: by, r: 5 + R() * 5, fill: "none", stroke: "#fff", "stroke-width": 3 }, liq);
+  tl.fromTo(bc, { opacity: 0, y: 0 }, { opacity: .95, y: -70 - R() * 40, duration: 1.4, ease: "none" }, 2.2 + b * .12);
+}
+// ice cubes
+[[346, 292, -10], [418, 300, 12], [384, 232, 6]].forEach(function (c, i) {
+  var g = el("g", { transform: "translate(" + c[0] + " " + c[1] + ")" }, art), h = el("g", {}, g);
+  el("rect", { x: -34, y: -34, width: 68, height: 68, rx: 14, fill: "#d9f3ff", stroke: INK, "stroke-width": 5, transform: "rotate(" + c[2] + ")" }, h);
+  el("path", { d: "M-18 -14 l14 0 M-18 -2 l6 0", stroke: "#fff", "stroke-width": 6, "stroke-linecap": "round", transform: "rotate(" + c[2] + ")" }, h);
+  tl.fromTo(h, { y: -330, opacity: 0 }, { y: 0, opacity: 1, duration: .5, ease: "bounce.out" }, 2.72 + i * .17);
+});
+// straw + daisy
+var straw = stroke([[404, 400], [440, 250], [474, 126]], PINK, 15, 3.35, .35, { amp: 1.2, single: true });
+stroke([[404, 400], [440, 250], [474, 126]], INK, 4, 3.35, .35, { amp: 1.2, single: true, op: .0 });
+var dai = el("g", {}, art);
+for (var pI = 0; pI < 9; pI++) el("ellipse", { cx: 0, cy: -38, rx: 14, ry: 28, fill: "#fff", stroke: INK, "stroke-width": 4, transform: "rotate(" + pI * 40 + ")" }, dai);
+el("circle", { r: 20, fill: GOLD, stroke: INK, "stroke-width": 4 }, dai);
+dai.setAttribute("transform", "translate(474 120)");
+var daiW = el("g", {}, art); daiW.appendChild(dai);
+pop(daiW, 3.6, .55, 474, 120, "back.out(2.6)", -80);
+// lemon wheel on rim
+var lem = el("g", {}, art);
+el("circle", { cx: 520, cy: 234, r: 52, fill: "#ffe45e", stroke: INK, "stroke-width": 5 }, lem);
+el("circle", { cx: 520, cy: 234, r: 38, fill: "#fff6b0", stroke: INK, "stroke-width": 3 }, lem);
+for (var q = 0; q < 6; q++) { var an = q * Math.PI / 3; el("path", { d: "M520 234 L" + (520 + Math.cos(an) * 38) + " " + (234 + Math.sin(an) * 38), stroke: INK, "stroke-width": 3 }, lem); }
+pop(lem, 3.25, .5, 520, 234, "back.out(2.4)", 40);
+// title
+var shadow = write("Daisy Fizz", 664, 205, 128, "#f4a6c1", 3.7, .6, -3, 700);
+var main = write("Daisy Fizz", 658, 199, 128, INK, 3.7, .6, -3, 700);
+tl.fromTo([shadow, main], { y: 24 }, { y: 0, duration: .6, ease: "back.out(2)" }, 3.7);
+stroke([[664, 232], [840, 226], [1000, 236], [1170, 226]], CORAL, 8, 4.25, .4, { amp: 2.5, single: true });
+[[1225, 52, 22], [1225, 292, 14], [650, 80, 16]].forEach(function (c, i) {
+  var sp = el("path", { d: "M0 -" + c[2] + " L" + c[2] * .3 + " -" + c[2] * .3 + " L" + c[2] + " 0 L" + c[2] * .3 + " " + c[2] * .3 + " L0 " + c[2] + " L-" + c[2] * .3 + " " + c[2] * .3 + " L-" + c[2] + " 0 L-" + c[2] * .3 + " -" + c[2] * .3 + " Z", fill: GOLD, stroke: INK, "stroke-width": 3, transform: "translate(" + c[0] + " " + c[1] + ")" }, art);
+  var wr = el("g", {}, art); wr.appendChild(sp);
+  pop(wr, 4.2 + i * .1, .4, c[0], c[1], "back.out(3)", 0);
+});
+
+finish();
+})();
+</script>
+</body>
+</html>

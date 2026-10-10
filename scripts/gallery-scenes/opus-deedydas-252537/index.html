@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1280, height=720"><title>Punchy startup launch</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0c0c0d}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#0c0c0d;font-family:"Archivo Black","Inter",sans-serif}
+.card{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;text-align:center;line-height:.9;letter-spacing:-.03em}
+.w{display:block;transform-origin:50% 60%}
+#c1{background:#0c0c0d;color:#f6f2e8;opacity:1}
+#c1 .w{font-size:250px}
+#c1 .s{font-size:150px;color:#c6ff2e;margin-top:6px}
+#strike{position:absolute;left:150px;top:222px;width:980px;height:30px;background:#c6ff2e;transform-origin:0 50%;}
+#c2{background:#f3efe4;color:#0c0c0d}
+#c3{background:#c6ff2e;color:#0c0c0d}
+#c4{background:#0c0c0d;color:#f3efe4}
+.card .w.b{font-size:300px}#w3{font-size:235px!important}
+.lines{position:absolute;inset:0;overflow:hidden}
+.lines i{position:absolute;height:6px;background:currentColor;opacity:.25;left:-400px;width:360px}
+#c5{background:#f3efe4;color:#0c0c0d}
+#wipe{position:absolute;left:640px;top:360px;width:60px;height:60px;margin:-30px;border-radius:50%;background:#c6ff2e;opacity:0}
+#logo{display:flex;align-items:center;gap:36px}
+#mark{width:170px;height:170px;border-radius:44px;background:#0c0c0d;display:flex;align-items:center;justify-content:center}
+#name{font-size:210px;letter-spacing:-.05em}
+#cta{margin-top:50px;background:#0c0c0d;color:#c6ff2e;font-family:"Inter";font-weight:800;font-size:46px;letter-spacing:0;padding:24px 56px;border-radius:60px}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+ <div class="card" id="c1"><span class="w" id="w1">WAITING</span><span class="w s" id="w1b">FOR AI?</span><div id="strike"></div></div>
+ <div class="card" id="c2"><div class="lines" id="l2"></div><span class="w b" id="w2">ASK.</span></div>
+ <div class="card" id="c3"><div class="lines" id="l3"></div><span class="w b" id="w3">ANSWER.</span></div>
+ <div class="card" id="c4"><div class="lines" id="l4"></div><span class="w b" id="w4">GO.</span></div>
+ <div class="card" id="c5"><div id="wipe"></div>
+  <div id="logo"><div id="mark"><svg width="110" height="130" viewBox="0 0 110 130"><path id="bolt" d="M66 6 L12 76 H50 L40 124 L98 50 H60 Z" fill="none" stroke="#c6ff2e" stroke-width="9" stroke-linejoin="round"/></svg></div><span id="name">zippa</span></div>
+  <div id="cta">Try it free &rarr;</div></div>
+</div>
+<script>
+(function(){
+var tl=gsap.timeline({paused:true});
+function lines(id,seed){var el=document.getElementById(id),s=seed;for(var i=0;i<9;i++){s=(s*9301+49297)%233280;var r=s/233280;var d=document.createElement("i");d.style.top=(40+i*76+r*20)+"px";d.style.width=(260+r*420)+"px";el.appendChild(d);}}
+lines("l2",3);lines("l3",11);lines("l4",7);
+// card 1: slam, strike
+tl.fromTo("#w1",{scale:1.5,opacity:0},{scale:1,opacity:1,duration:.18,ease:"power4.out"},0);
+tl.fromTo("#w1b",{scale:1.4,opacity:0},{scale:1,opacity:1,duration:.18,ease:"power4.out"},.12);
+tl.fromTo("#strike",{scaleX:0,scaleY:1,rotation:-3},{scaleX:1,scaleY:1,rotation:-3,duration:.22,ease:"power3.out"},.5);
+tl.to("#w1",{x:-14,duration:.05,yoyo:true,repeat:3},.5);
+// hard cuts
+function cut(a,b,t){tl.set(a,{opacity:0},t);tl.set(b,{opacity:1},t);}
+cut("#c1","#c2",1.0);cut("#c2","#c3",1.4);cut("#c3","#c4",1.8);cut("#c4","#c5",2.3);
+function beat(w,l,t){tl.fromTo(w,{scale:1.15,opacity:1,x:-40},{scale:1,opacity:1,x:0,duration:.16,ease:"power4.out"},t);
+ tl.fromTo(l+" i",{x:0},{x:1900,duration:.38,ease:"power2.in",stagger:.012},t);}
+beat("#w2","#l2",1.0);beat("#w3","#l3",1.4);beat("#w4","#l4",1.8);
+tl.to("#w3",{rotation:-3,duration:.3,ease:"none"},1.45);
+// card 5: wipe + logo
+tl.set("#wipe",{opacity:1},2.3);
+tl.fromTo("#wipe",{scale:1},{scale:40,duration:.5,ease:"power3.in"},2.3);
+tl.set("#wipe",{opacity:0},2.85);
+tl.fromTo("#mark",{scale:0,rotation:-40},{scale:1,rotation:0,duration:.5,ease:"back.out(2)"},2.5);
+tl.set("#bolt",{strokeDasharray:400,strokeDashoffset:400},0);
+tl.to("#bolt",{strokeDashoffset:0,duration:.5,ease:"power2.out"},2.75);
+tl.fromTo("#name",{x:-120,opacity:0},{x:0,opacity:1,duration:.5,ease:"power4.out"},2.65);
+tl.fromTo("#cta",{scale:.4,opacity:0,y:30},{scale:1,opacity:1,y:0,duration:.45,ease:"back.out(2.4)"},3.45);
+tl.set("#c5",{opacity:1},2.3);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+})();
+</script></body></html>

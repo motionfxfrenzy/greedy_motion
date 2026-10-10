@@ -1,4 +1,4 @@
-import type { Aspect, Beat, BeatPlan } from "@videosaas/contracts";
+import { resolveSceneRoute, type SceneRoute, type Aspect, type Beat, type BeatPlan } from "@videosaas/contracts";
 import type { PlanTiming } from "./timing.ts";
 
 /**
@@ -29,6 +29,7 @@ export const scriptJson = (value: unknown) => JSON.stringify(value)
   .replace(/\u2029/g, "\\u2029");
 
 type EngineBeat = {
+  route: SceneRoute;
   id: string;
   role: Beat["role"];
   kind: Beat["kind"];
@@ -59,7 +60,7 @@ export type EnginePlan = {
 };
 
 /** The `plan` variable: the beats the engine draws, with their clock from `planTiming`. */
-export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Record<string, { width: number; height: number }> = {}): EnginePlan {
+export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Record<string, { width: number; height: number }> = {}, look = "clean"): EnginePlan {
   const times = new Map(timing.beats.map((beat) => [beat.id, beat]));
   return {
     canvas: plan.canvas,
@@ -70,6 +71,7 @@ export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Reco
       const size = beat.ui ? screenSizes[beat.ui.screen] : undefined;
       return {
         id: beat.id,
+        route: resolveSceneRoute(beat, look),
         role: beat.role,
         kind: beat.kind,
         keyword: beat.keyword,
@@ -114,7 +116,7 @@ export type EngineInputs = {
 /** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `look`. */
 export function engineVariables(input: EngineInputs): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {
-    plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes)),
+    plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes, input.look)),
     brandName: input.brandName,
     logo: input.logo ?? "",
     logoWordmark: Boolean(input.logo && input.logoWordmark),

@@ -1,0 +1,17 @@
+{
+  "id": "gradient-descent",
+  "name": "Gradient Descent Explainer",
+  "group": "Math",
+  "summary": "A calm 3Blue1Brown-style walk-through: a ball rolls down a loss curve in shrinking steps on a navy grid.",
+  "bestFor": "Teaching how machine learning models learn",
+  "prompt": "Explain gradient descent in the style of a math channel. Start with a bowl-shaped loss curve drawn on thin axes. Drop a ball on the slope, show the tangent that points uphill, and step the opposite way. Let each step get smaller as the slope flattens until the ball settles at the minimum. Finish by writing the update rule, w becomes w minus eta times the gradient, and say what the learning rate controls.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 60,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 3.0,
+  "source": {"label": "Remade from @anirockshady", "url": "https://x.com/anirockshady/status/2103195903012032809"}
+}

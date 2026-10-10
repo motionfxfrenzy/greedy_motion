@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Flat vector cell division</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#1b0f45}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:radial-gradient(ellipse at 50% 42%,#3a1c7a 0%,#25125c 55%,#170a3d 100%)}
+svg{position:absolute;inset:0}
+text{font-family:"Fredoka","Space Grotesk",sans-serif;font-weight:600}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="stage" class="clip" data-start="0" data-duration="5" data-track-index="1" width="1280" height="720" viewBox="0 0 1280 720">
+<defs>
+<filter id="goo" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur in="SourceGraphic" stdDeviation="13" result="b"/><feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 26 -11"/></filter>
+<filter id="sh" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#08021f" flood-opacity=".5"/></filter>
+<filter id="sh2" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#3a0f4a" flood-opacity=".35"/></filter>
+</defs>
+<g id="bub"></g>
+<g id="cellwrap" filter="url(#sh)"><g filter="url(#goo)"><g id="mem"></g></g></g>
+<g filter="url(#goo)"><g id="cyt"></g></g>
+<g filter="url(#goo)"><g id="nuc"></g></g>
+<g id="nucl"></g>
+<g id="orgs" filter="url(#sh2)"></g>
+<text id="cap" x="640" y="672" font-size="66" text-anchor="middle" fill="#fff">One cell becomes two</text>
+</svg>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg",$=id=>document.getElementById(id);
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p.appendChild(e);return e};
+let seed=11;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+const CX=640,CY=325,R=150;
+// background bubbles
+const bubs=[];
+for(let i=0;i<22;i++){const r=6+rnd()*22;bubs.push({x:rnd()*1280,y:rnd()*720,r:r,s:6+rnd()*14,c:["#6a3fd6","#8a52ff","#ff6fa8","#3fd0c9"][i%4],o:.22+rnd()*.2,e:el("circle",{r:r,fill:"#fff"},$("bub"))});bubs[i].e.setAttribute("fill",bubs[i].c);bubs[i].e.setAttribute("opacity",bubs[i].o)}
+const mk=(g,col,r)=>[0,1].map(()=>el("circle",{r:r,fill:col},$(g)));
+const mem=mk("mem","#ff7eb6",R+14),cyt=mk("cyt","#ffc2dc",R),nuc=mk("nuc","#7c5cff",56);
+const nl=[0,1].map(()=>el("circle",{r:15,fill:"#ffd23f"},$("nucl")));
+// organelles: bean shapes and dots
+const ORG=[];
+const cols=["#2ec4b6","#ff9f1c","#5b8cff","#ff5d73","#2ec4b6","#ff9f1c","#5b8cff","#ff5d73","#2ec4b6","#5b8cff"];
+for(let i=0;i<10;i++){
+ const bean=i<4,side=i%2?1:-1;
+ const g=el("g",{},$("orgs"));
+ if(bean)el("rect",{x:-17,y:-8,width:34,height:16,rx:8,fill:cols[i]},g);else el("circle",{r:7+(i%3)*1.5,fill:cols[i]},g);
+ ORG.push({g,side,ax:50+rnd()*50,ay:38+rnd()*50,fx:.8+rnd()*.7,fy:.7+rnd()*.8,px:rnd()*6.28,py:rnd()*6.28,rot:rnd()*180});
+}
+const S={d:0,q:0,sc:0,t:0};
+function render(){
+ const t=S.t,s=S.sc;
+ const bob=Math.sin(t*2.2)*4;
+ const cy=CY+bob;
+ const lobes=[-1,1].map(k=>({x:CX+k*S.d,y:cy}));
+ [mem,cyt].forEach((arr,j)=>arr.forEach((c,i)=>{c.setAttribute("cx",lobes[i].x);c.setAttribute("cy",lobes[i].y);
+   c.setAttribute("r",(j?R:R+14)*s*(1+.015*Math.sin(t*3+i)))}));
+ nuc.forEach((c,i)=>{c.setAttribute("cx",CX+(i?1:-1)*S.d*S.q*.78);c.setAttribute("cy",cy-4);c.setAttribute("r",58*s)});
+ nl.forEach((c,i)=>{c.setAttribute("cx",CX+(i?1:-1)*S.d*S.q*.78);c.setAttribute("cy",cy-4);c.setAttribute("r",17*s)});
+ ORG.forEach(o=>{
+  const lx=CX+o.side*S.d,sp=1;
+  const x=lx+Math.sin(t*o.fx+o.px)*o.ax*(1-.18*(S.d/200)),y=cy+Math.cos(t*o.fy+o.py)*o.ay*.8+ 6;
+  o.g.setAttribute("transform",`translate(${x} ${y}) rotate(${o.rot+t*20}) scale(${s})`);
+ });
+ bubs.forEach(b=>{const y=((b.y-t*b.s)%780+780)%780-30;b.e.setAttribute("cx",b.x+Math.sin(t+b.r)*10);b.e.setAttribute("cy",y)});
+}
+render();
+const tl=gsap.timeline({paused:true});
+tl.to(S,{t:5,duration:5,ease:"none",onUpdate:render},0);
+tl.fromTo(S,{sc:.0},{sc:1,duration:.8,ease:"back.out(2.2)",onUpdate:render},0);
+tl.to(S,{d:65,duration:1.0,ease:"sine.inOut",onUpdate:render},1.0);
+tl.to(S,{q:1,duration:.9,ease:"sine.inOut",onUpdate:render},1.5);
+tl.to(S,{d:182,duration:1.5,ease:"power2.inOut",onUpdate:render},2.0);
+tl.to(S,{d:200,duration:1.2,ease:"sine.out",onUpdate:render},3.6);
+tl.fromTo("#cap",{opacity:0,y:30},{opacity:1,y:0,duration:.6,ease:"back.out(1.6)"},.3);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

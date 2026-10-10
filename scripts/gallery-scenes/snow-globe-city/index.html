@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Snow globe city</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0b1030}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:radial-gradient(ellipse at 50% 38%,#4a5fb0 0%,#2a2f76 45%,#0d1033 100%)}
+canvas{position:absolute;inset:0;width:1280px;height:720px}
+#cap{position:absolute;left:0;right:0;bottom:30px;text-align:center;font-family:'Playfair Display','Georgia',serif;font-weight:700;font-size:62px;color:#fff;text-shadow:0 4px 24px rgba(5,5,40,.7)}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<canvas id="c" width="1280" height="720"></canvas>
+<div id="cap">Winter in miniature</div>
+</div>
+<script type="module">
+import * as THREE from "./vendor/three/three.module.js";
+const canvas=document.getElementById("c");
+const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(1);renderer.setSize(1280,720,false);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;
+const scene=new THREE.Scene();
+const env=new THREE.Scene();
+env.add(new THREE.Mesh(new THREE.SphereGeometry(10,32,16),new THREE.MeshBasicMaterial({color:0x303a80,side:THREE.BackSide})));
+function panel(w,h,x,y,z,c,i){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({color:new THREE.Color(c).multiplyScalar(i),side:THREE.DoubleSide}));m.position.set(x,y,z);m.lookAt(0,0,0);env.add(m);}
+panel(3,8,-7,3,3,0xffe6c8,5);panel(8,2,0,8,0,0xffffff,4);panel(2,8,7,2,-3,0x9cc0ff,5);panel(6,1,0,-2,-8,0xffffff,3);
+scene.environment=new THREE.PMREMGenerator(renderer).fromScene(env,0.03).texture;
+let sd=11;const rnd=()=>{sd=(sd*1664525+1013904223)>>>0;return sd/4294967296;};
+// window texture
+const wc=document.createElement("canvas");wc.width=64;wc.height=128;const wg=wc.getContext("2d");wg.fillStyle="#12142a";wg.fillRect(0,0,64,128);
+for(let y=0;y<8;y++)for(let x=0;x<4;x++){const lit=rnd()<0.62;wg.fillStyle=lit?(rnd()<0.2?"#ffd9a0":"#ffc25a"):"#262a4a";wg.fillRect(x*16+3,y*16+3,10,10);}
+const wt=new THREE.CanvasTexture(wc);wt.colorSpace=THREE.SRGBColorSpace;wt.wrapS=wt.wrapT=THREE.RepeatWrapping;wt.magFilter=THREE.NearestFilter;
+const globe=new THREE.Group();scene.add(globe);
+const C=0.6,R=2.2,TH=Math.acos(-C/R),GR=R*Math.sin(TH);
+// ground
+const ground=new THREE.Mesh(new THREE.CylinderGeometry(GR-0.02,GR-0.02,0.14,64),new THREE.MeshStandardMaterial({color:0xf4f8ff,roughness:0.9}));ground.position.y=0.07;globe.add(ground);
+// buildings
+const roofMat=new THREE.MeshStandardMaterial({color:0xf4f8ff,roughness:0.9});
+const palette=[0x3a2a6e,0x2a3f8f,0x7a2a55,0x1f5f78,0x5a3a52,0x2f4aa0];
+const placed=[];
+for(let i=0;i<60&&placed.length<34;i++){
+ const a=rnd()*Math.PI*2,r=Math.sqrt(rnd())*1.55;const w=0.22+rnd()*0.22,d=0.22+rnd()*0.22;
+ const dist=(1.55-r)/1.55;const h=0.4+rnd()*0.7+dist*dist*1.1;
+ const x=Math.cos(a)*r,z=Math.sin(a)*r;
+ if(placed.some(p=>Math.hypot(p.x-x,p.z-z)<(p.s+Math.max(w,d))*0.62))continue;
+ placed.push({x,z,s:Math.max(w,d)});
+ const g=new THREE.BoxGeometry(w,h,d);const uv=g.attributes.uv;
+ for(let k=0;k<uv.count;k++){uv.setXY(k,uv.getX(k)*Math.max(1,Math.round(w*4)),uv.getY(k)*Math.max(1,Math.round(h*4)));}
+ const m=new THREE.MeshStandardMaterial({color:palette[(rnd()*palette.length)|0],emissive:0xffffff,emissiveMap:wt,emissiveIntensity:0.9,map:wt,roughness:0.6});
+ const b=new THREE.Mesh(g,m);b.position.set(x,0.14+h/2,z);globe.add(b);
+ const cap=new THREE.Mesh(new THREE.BoxGeometry(w+0.04,0.05,d+0.04),roofMat);cap.position.set(x,0.14+h+0.025,z);globe.add(cap);
+ if(rnd()<0.4){const sp=new THREE.Mesh(new THREE.ConeGeometry(Math.min(w,d)*0.5,0.3,4),new THREE.MeshStandardMaterial({color:0xf4f8ff,roughness:0.8}));sp.position.set(x,0.14+h+0.2,z);sp.rotation.y=Math.PI/4;globe.add(sp);}
+}
+// little trees
+for(let i=0;i<14;i++){const a=rnd()*6.28,r=0.3+rnd()*1.7;const x=Math.cos(a)*r,z=Math.sin(a)*r;if(placed.some(p=>Math.hypot(p.x-x,p.z-z)<p.s*0.9))continue;
+ const t=new THREE.Mesh(new THREE.ConeGeometry(0.1,0.28,6),new THREE.MeshStandardMaterial({color:0x2e6b5e,roughness:0.8}));t.position.set(x,0.28,z);globe.add(t);}
+const glow=new THREE.PointLight(0xffb868,8,5,1.5);glow.position.set(0,1.0,0);globe.add(glow);
+// snow
+const NS=520;const sp=new Float32Array(NS*3),seed=[];
+for(let i=0;i<NS;i++){const a=rnd()*6.28,r=Math.sqrt(rnd())*(R-0.25);seed.push({x:Math.cos(a)*r,z:Math.sin(a)*r,y0:rnd(),sp:0.12+rnd()*0.12,ph:rnd()*6.28,amp:0.04+rnd()*0.08});}
+const sg=new THREE.BufferGeometry();sg.setAttribute("position",new THREE.BufferAttribute(sp,3));
+const dc=document.createElement("canvas");dc.width=dc.height=32;const dg=dc.getContext("2d");const rr=dg.createRadialGradient(16,16,0,16,16,16);rr.addColorStop(0,"rgba(255,255,255,1)");rr.addColorStop(0.5,"rgba(255,255,255,.8)");rr.addColorStop(1,"rgba(255,255,255,0)");dg.fillStyle=rr;dg.fillRect(0,0,32,32);
+const snow=new THREE.Points(sg,new THREE.PointsMaterial({size:0.16,map:new THREE.CanvasTexture(dc),transparent:true,depthWrite:false,sizeAttenuation:true,color:0xffffff}));snow.frustumCulled=false;globe.add(snow);
+// glass dome
+const glassMat=new THREE.MeshPhysicalMaterial({color:0xcfe4ff,metalness:0,roughness:0.02,transparent:true,opacity:0.16,envMapIntensity:2.2,clearcoat:1,clearcoatRoughness:0,side:THREE.DoubleSide,depthWrite:false});
+const dome=new THREE.Mesh(new THREE.SphereGeometry(R,64,48,0,Math.PI*2,0,TH),glassMat);dome.position.y=C;dome.renderOrder=2;globe.add(dome);
+// base
+const bp=[[0,-0.9],[2.75,-0.9],[2.8,-0.8],[2.8,-0.4],[2.55,-0.1],[2.42,0],[GR+0.12,0],[GR+0.12,0.1],[GR+0.02,0.12],[GR-0.02,0.1]];
+const baseG=new THREE.LatheGeometry(bp.map(p=>new THREE.Vector2(p[0],p[1])),96);
+const base=new THREE.Mesh(baseG,new THREE.MeshPhysicalMaterial({color:0x6b1f2c,metalness:0.4,roughness:0.3,clearcoat:1,clearcoatRoughness:0.15,side:THREE.DoubleSide}));globe.add(base);
+const ring=new THREE.Mesh(new THREE.TorusGeometry(GR+0.1,0.05,12,96),new THREE.MeshStandardMaterial({color:0xe0b45a,metalness:1,roughness:0.25}));ring.rotation.x=Math.PI/2;ring.position.y=0.08;globe.add(ring);
+const band=new THREE.Mesh(new THREE.CylinderGeometry(2.78,2.78,0.12,96,1,true),new THREE.MeshStandardMaterial({color:0xe0b45a,metalness:1,roughness:0.3}));band.position.y=-0.55;globe.add(band);
+// shadow
+const hc=document.createElement("canvas");hc.width=hc.height=128;const hg=hc.getContext("2d");const g2=hg.createRadialGradient(64,64,10,64,64,62);g2.addColorStop(0,"rgba(0,0,10,.65)");g2.addColorStop(1,"rgba(0,0,10,0)");hg.fillStyle=g2;hg.fillRect(0,0,128,128);
+const sh=new THREE.Mesh(new THREE.PlaneGeometry(8,8),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(hc),transparent:true,depthWrite:false}));sh.rotation.x=-Math.PI/2;sh.position.y=-0.91;scene.add(sh);
+scene.add(new THREE.AmbientLight(0x8090d0,0.5));
+const key=new THREE.DirectionalLight(0xffe8d0,2.2);key.position.set(-4,6,5);scene.add(key);
+const rim=new THREE.DirectionalLight(0x80a8ff,3);rim.position.set(5,3,-5);scene.add(rim);
+const cam=new THREE.PerspectiveCamera(32,1280/720,0.1,100);
+function draw(t){
+ globe.rotation.y=0.3+t*0.45;
+ const pa=snow.geometry.attributes.position;
+ for(let i=0;i<NS;i++){const s=seed[i];const f=((s.y0-t*s.sp)%1+1)%1;const y=0.2+f*2.2;
+  const rad=Math.hypot(s.x,s.z);const lim=Math.sqrt(Math.max(0,(R-0.15)**2-(y-C)**2));const k=Math.min(1,lim/(R-0.25));
+  pa.setXYZ(i,s.x*k+Math.sin(t*1.1+s.ph)*s.amp,y,s.z*k+Math.cos(t*0.9+s.ph)*s.amp);}
+ pa.needsUpdate=true;
+ const e=t/5;
+ cam.position.set(0,3.4-0.3*e,11.2-1.4*e);cam.lookAt(0,0.6,0);
+ renderer.render(scene,cam);
+}
+window.addEventListener("hf-seek",e=>draw(e.detail.time));
+draw(window.__hfThreeTime||0);
+window.__timelines=window.__timelines||{};
+const tl=gsap.timeline({paused:true});
+tl.fromTo("#cap",{opacity:0,y:26},{opacity:1,y:0,duration:0.7,ease:"power3.out"},0.3);
+tl.to({}, {duration:5},0);
+window.__timelines["main"]=tl;
+</script></body></html>

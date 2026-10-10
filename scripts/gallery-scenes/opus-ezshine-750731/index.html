@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Feature tour promo</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#f3f6fc}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#f3f6fc;font-family:'Inter',sans-serif;color:#0b1b3a}
+.abs{position:absolute}
+#bgblob{left:-240px;top:-300px;width:760px;height:760px;border-radius:50%;background:#dbe7fb}
+#bar{left:80px;top:96px;width:6px;height:480px;background:#cfdcf5;border-radius:3px}
+#barfill{left:80px;top:96px;width:6px;height:0;background:#2563eb;border-radius:3px}
+.dot{left:80px;width:18px;height:18px;margin-left:-6px;border-radius:50%;background:#fff;border:4px solid #2563eb}
+#kick{left:124px;top:150px;font-size:26px;font-weight:700;letter-spacing:4px;color:#2563eb}
+.wc{left:124px;top:190px;width:470px;height:150px;overflow:hidden}
+.w{left:0;top:0;font-size:108px;font-weight:800;letter-spacing:-4px;line-height:150px;white-space:nowrap}
+#sub{left:124px;top:360px;font-size:34px;font-weight:500;color:#41557e;width:420px;line-height:1.3}
+#name{left:124px;top:240px;font-size:100px;font-weight:800;letter-spacing:-5px}
+#name b{color:#2563eb}
+#tag{left:128px;top:380px;font-size:30px;font-weight:600;color:#41557e}
+#cta{left:128px;top:480px;padding:18px 40px;border-radius:16px;background:#2563eb;color:#fff;font-size:34px;font-weight:700;box-shadow:0 14px 30px rgba(37,99,235,.35)}
+#win{left:610px;top:96px;width:610px;height:528px;border-radius:22px;background:#fff;box-shadow:0 40px 80px rgba(11,27,58,.22),0 0 0 2px #e3ebf8;overflow:hidden}
+#tb{left:0;top:0;width:610px;height:54px;background:#eef3fb}
+.tdot{top:20px;width:14px;height:14px;border-radius:50%}
+.layer{left:0;top:54px;width:610px;height:474px}
+.col{top:20px;width:184px;height:430px;border-radius:14px;background:#f1f5fc}
+.ch{left:14px;top:14px;height:16px;border-radius:8px}
+.card{width:156px;height:78px;border-radius:12px;background:#fff;box-shadow:0 4px 12px rgba(11,27,58,.12);border:2px solid #e3ebf8}
+.card i{position:absolute;left:14px;height:10px;border-radius:5px;background:#cfdcf5}
+.row{left:20px;height:2px;width:570px;background:#e3ebf8}
+.rl{left:20px;font-size:20px;font-weight:700;color:#41557e}
+.gb{height:38px;border-radius:19px}
+#ph{left:0;top:6px;width:4px;height:450px;background:#f59e0b}
+#phh{left:-8px;top:0;width:20px;height:20px;border-radius:50%;background:#f59e0b}
+#sh{left:60px;top:70px;width:490px;height:330px;border-radius:24px;background:#fff;box-shadow:0 20px 50px rgba(11,27,58,.2);border:2px solid #e3ebf8}
+.av{top:36px;width:72px;height:72px;border-radius:50%;border:5px solid #fff;font-size:28px;font-weight:800;color:#fff;text-align:center;line-height:62px}
+#lnk{left:34px;top:150px;width:422px;height:64px;border-radius:14px;background:#eef3fb;font-size:26px;font-weight:600;color:#2563eb;line-height:64px;padding-left:20px}
+#btn{left:34px;top:236px;width:422px;height:64px;border-radius:14px;background:#2563eb;color:#fff;font-size:28px;font-weight:700;text-align:center;line-height:64px}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div id="bgblob" class="abs"></div>
+<div id="bar" class="abs"></div><div id="barfill" class="abs"></div>
+<div class="dot abs" id="d1" style="top:150px"></div><div class="dot abs" id="d2" style="top:320px"></div><div class="dot abs" id="d3" style="top:490px"></div>
+<div id="kick" class="abs">FEATURE 01</div>
+<div class="wc abs"><div class="w abs" id="w1">Board</div><div class="w abs" id="w2">Timeline</div><div class="w abs" id="w3">Share</div></div>
+<div id="sub" class="abs">Every task, in its lane.</div>
+<div id="name" class="abs">Plan<b>loop</b></div>
+<div id="tag" class="abs">Plan it. Ship it. Together.</div>
+<div id="cta" class="abs">Start free</div>
+<div id="win" class="abs">
+ <div id="tb" class="abs"><div class="tdot abs" style="left:22px;background:#ff6b6b"></div><div class="tdot abs" style="left:46px;background:#fbbf24"></div><div class="tdot abs" style="left:70px;background:#34d399"></div></div>
+ <div id="L1" class="layer abs"></div><div id="L2" class="layer abs"></div><div id="L3" class="layer abs"></div>
+</div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const mk=(cls,st,p,html)=>{const e=document.createElement('div');e.className=cls;Object.assign(e.style,st);if(html)e.innerHTML=html;p.appendChild(e);return e};
+const L1=$('#L1'),L2=$('#L2'),L3=$('#L3');
+// board
+const cols=[[20,'#2563eb',3],[213,'#f59e0b',2],[406,'#10b981',1]];
+const cards=[];
+cols.forEach(([x,c,n],ci)=>{mk('col abs',{left:x+'px'},L1);mk('ch abs',{left:(x+14)+'px',width:'70px',background:c},L1);
+ for(let i=0;i<n;i++){const k=mk('card abs',{left:(x+14)+'px',top:(66+i*96)+'px'},L1,'<i style="top:18px;width:100px"></i><i style="top:40px;width:64px"></i><i style="top:58px;width:36px;background:'+c+'"></i>');cards.push(k)}});
+const mover=cards[2];mover.style.borderColor='#2563eb';
+// timeline
+const bars=[[0,150,'#2563eb',0],[110,200,'#f59e0b',1],[250,180,'#10b981',2],[190,300,'#8b5cf6',3]];
+const gb=[];
+['Plan','Build','Test','Ship'].forEach((t,i)=>{mk('row abs',{top:(70+i*100)+'px'},L2);mk('rl abs',{top:(32+i*100)+'px'},L2,t)});
+bars.forEach(([s,w,c,i])=>{gb.push(mk('gb abs',{left:(90+s*.8)+'px',top:(36+i*100)+'px',width:(w*.8)+'px',background:c,transformOrigin:'0 50%'},L2))});
+const ph=mk('abs',{left:'40px',top:'12px',width:'4px',height:'440px'},L2);ph.id='ph';mk('abs',{},ph).id='phh';
+// share
+const sh=mk('abs',{},L3);sh.id='sh';
+const avs=[['#2563eb','A'],['#f59e0b','M'],['#10b981','J'],['#8b5cf6','R']].map(([c,t],i)=>mk('av abs',{left:(60+i*62)+'px',background:c},sh,t));
+const lk=mk('abs',{},sh,'planloop.app/x7k2');lk.id='lnk';const bt=mk('abs',{},sh,'Share board');bt.id='btn';
+const tl=gsap.timeline({paused:true});
+gsap.set([L2,L3],{opacity:0});gsap.set('.w',{yPercent:100});gsap.set(['#name','#tag','#cta'],{opacity:0});
+// beat A board 0-1.6
+tl.from('#win',{y:40,opacity:0,duration:.5,ease:'power3.out'},0);
+tl.from('#bgblob',{scale:.6,duration:1.6,ease:'power2.out'},0);
+tl.from(['#bar','#kick','#sub'],{opacity:0,duration:.4},.05);
+tl.to('#barfill',{height:0,duration:.01},0).to('#barfill',{height:0},0);
+tl.fromTo('#w1',{yPercent:100},{yPercent:0,duration:.5,ease:'power4.out'},.05);
+tl.from('#d1',{scale:0,duration:.4,ease:'back.out(3)'},.1);
+tl.from(cards,{y:30,opacity:0,duration:.45,stagger:.06,ease:'power3.out'},.15);
+tl.to(mover,{scale:1.08,rotation:-4,duration:.2,ease:'power2.out',boxShadow:'0 18px 30px rgba(37,99,235,.35)'},.7);
+tl.to(mover,{x:193,y:96,duration:.55,ease:'power3.inOut'},.8);
+tl.to(mover,{scale:1,rotation:0,duration:.25,ease:'back.out(3)'},1.3);
+// beat B timeline 1.6-3.2
+tl.to('#barfill',{height:170,duration:.5,ease:'power2.inOut'},1.5);
+tl.to('#w1',{yPercent:-100,duration:.4,ease:'power3.in'},1.55);
+tl.fromTo('#w2',{yPercent:100},{yPercent:0,duration:.5,ease:'power4.out'},1.75);
+tl.set('#kick',{textContent:'FEATURE 02'},1.7).set('#sub',{textContent:'See the whole plan at once.'},1.7);
+tl.from('#d2',{scale:0,duration:.4,ease:'back.out(3)'},1.8);
+tl.to(L1,{opacity:0,x:-60,duration:.35,ease:'power2.in'},1.55);
+tl.fromTo(L2,{opacity:0,x:60},{opacity:1,x:0,duration:.4,ease:'power3.out'},1.7);
+gb.forEach((g,i)=>tl.from(g,{scaleX:0,duration:.55,ease:'power3.out'},1.85+i*.12));
+tl.fromTo(ph,{x:0},{x:520,duration:1.1,ease:'power1.inOut'},1.95);
+// beat C share 3.2-4.4
+tl.to('#barfill',{height:340,duration:.5,ease:'power2.inOut'},3.1);
+tl.to('#w2',{yPercent:-100,duration:.4,ease:'power3.in'},3.15);
+tl.fromTo('#w3',{yPercent:100},{yPercent:0,duration:.5,ease:'power4.out'},3.35);
+tl.set('#kick',{textContent:'FEATURE 03'},3.3).set('#sub',{textContent:'One link brings everyone in.'},3.3);
+tl.from('#d3',{scale:0,duration:.4,ease:'back.out(3)'},3.4);
+tl.to(L2,{opacity:0,x:-60,duration:.35,ease:'power2.in'},3.15);
+tl.fromTo(L3,{opacity:0,x:60},{opacity:1,x:0,duration:.4,ease:'power3.out'},3.3);
+tl.from('#sh',{scale:.85,duration:.5,ease:'back.out(2)'},3.3);
+tl.from('.av',{scale:0,duration:.4,stagger:.1,ease:'back.out(3)'},3.55);
+tl.from('#lnk',{scaleX:.2,opacity:0,transformOrigin:'0 50%',duration:.4,ease:'power3.out'},3.6);
+tl.to('#btn',{scale:.95,duration:.1},4.05).to('#btn',{scale:1,background:'#10b981',duration:.2},4.15).set('#btn',{textContent:'Link copied'},4.15);
+// end card
+tl.to(['#w3','#kick','#sub'],{opacity:0,duration:.25},4.2);
+tl.to('#barfill',{height:480,duration:.3},4.2);
+tl.fromTo('#name',{opacity:0,y:20},{opacity:1,y:0,duration:.4,ease:'power3.out'},4.3);
+tl.fromTo('#tag',{opacity:0,y:20},{opacity:1,y:0,duration:.4,ease:'power3.out'},4.4);
+tl.fromTo('#cta',{opacity:0,scale:.8},{opacity:1,scale:1,duration:.3,ease:'back.out(3)'},4.5);
+tl.to({},{duration:.01},4.99);
+window.__timelines={main:tl};
+</script></body></html>

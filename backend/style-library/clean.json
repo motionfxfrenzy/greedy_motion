@@ -1,0 +1,36 @@
+{
+  "id": "clean",
+  "name": "Clean",
+  "group": "Essentials",
+  "description": "Crisp geometry, bold type and smooth movement.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "clean",
+  "renderMode": "native",
+  "preview": {
+    "src": "/previews/looks/clean.png",
+    "kind": "image",
+    "label": "Rendered graphic treatment"
+  },
+  "source": "worker/templates/beat-plan/engine.js",
+  "referenceAssets": [],
+  "instructions": {
+    "image": "Crisp vector geometry; restrained surfaces and clear hierarchy.",
+    "motion": "Smooth purposeful entrances; one focal action per beat.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script"
+    ],
+    "acceptance": [
+      "Style remains visible in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme"
+    ]
+  },
+  "sourceSha256": "afe5619a6e4585b6dbe1027ce2ade5fd6cdf8b5fdda5748256008e3c0dd2e4f2"
+}

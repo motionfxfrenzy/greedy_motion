@@ -1,0 +1,730 @@
+[
+ {
+  "id": "opus-mounnna-497266",
+  "name": "Shard logo assembly",
+  "group": "Showreel",
+  "summary": "A logo draws as wireframe, then faceted shards fly in and lock it together.",
+  "bestFor": "App launches and brand intros",
+  "prompt": "Open with a fictional app logo drawn as a thin wireframe outline. Then faceted low-poly shards fly in one by one, each landing with a small settle, until the full logo is assembled. Finish by bringing in the app icon background and typing out the brand name letter by letter. Slow, confident reveal.",
+  "look": "hairline",
+  "theme": "bold",
+  "aspect": "16:9",
+  "durationSeconds": 15,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @Mounnna",
+   "url": "https://x.com/Mounnna/status/2103802871934497266"
+  },
+  "plan": {
+   "brand": "Facet",
+   "poster": 3.0,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Draw the outline",
+     "on_screen": "wireframe first",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Shards fly in",
+     "on_screen": "piece by piece",
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Logo locks in",
+     "on_screen": "icon appears",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "app icon",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Facet",
+     "on_screen": "Meet the new app",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-nezbuilds-294391",
+  "name": "One-shape UI morph",
+  "group": "Product",
+  "summary": "A single shape morphs through UI states on every beat and loops back to its start.",
+  "bestFor": "UI kits, design tools and app teasers",
+  "prompt": "Show one rounded shape that never cuts away. A cursor clicks it and it morphs from a button into a loader, a check, a music player, a slider, a toggle, tabs and a chart, then a command palette and a toast. Content swaps with a short blur. Light warm canvas, black and white parts, one accent, ending on the first frame so it loops.",
+  "look": "clean",
+  "theme": "neutral",
+  "aspect": "1:1",
+  "durationSeconds": 30,
+  "motionProfile": "springy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @nezbuilds",
+   "url": "https://x.com/nezbuilds/status/2103487427365294391"
+  },
+  "plan": {
+   "brand": "Morphkit",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "One shape",
+     "on_screen": "every state, no cuts",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Button to loader",
+     "on_screen": "click starts it",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "button",
+      "aspect": 1.6
+     },
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Toggle flips",
+     "on_screen": "on the beat",
+     "verb": "toggle",
+     "ui": {
+      "screen": "s1",
+      "action": "toggle",
+      "target": "toggle",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Morphkit",
+     "on_screen": "One element, endless UI",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-nikolajankovic-616097",
+  "name": "Stop-motion product story",
+  "group": "Story",
+  "summary": "A hand-drawn stop-motion first-person story where the product explains itself.",
+  "bestFor": "Fintech apps and personable explainers",
+  "prompt": "Tell a first-person story where a fictional savings app introduces itself in a hand-drawn stop-motion style, with slightly jittery lines and paper cutouts. It states the problem people have with idle money, shows what it does about it, and signs off with a friendly line. Warm, honest voice and simple drawn props.",
+  "look": "doodle",
+  "theme": "creative-mode",
+  "aspect": "16:9",
+  "durationSeconds": 40,
+  "motionProfile": "snappy",
+  "pace": "balanced",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @_nikolajankovic",
+   "url": "https://x.com/_nikolajankovic/status/2102867033100616097"
+  },
+  "plan": {
+   "brand": "Pennywise",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Hi, I'm Pennywise",
+     "on_screen": "your savings buddy",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Idle money bugs me",
+     "on_screen": "so I put it to work",
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Watch it grow",
+     "on_screen": "tap to save",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "save button",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Pennywise",
+     "on_screen": "Start saving today",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-nummanali-340931",
+  "name": "Capability progression timeline",
+  "group": "Data",
+  "summary": "A rapid month-by-month timeline showing a technology leaping forward and where it heads next.",
+  "bestFor": "Tech recaps, roadmaps and trend reviews",
+  "prompt": "Build a fast timeline of one year of progress in a fictional product line. Each month slams in as a big label with a new release and one capability it unlocked, with hard cuts on the beat. Build momentum, then end on a forward-looking trajectory arrow pointing at what comes next. Bang, bang, boom pacing, no dead space.",
+  "look": "clean",
+  "theme": "bold",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @nummanali",
+   "url": "https://x.com/nummanali/status/2103565570310340931"
+  },
+  "plan": {
+   "brand": "Nova Labs",
+   "poster": 2.5,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "January begins",
+     "on_screen": "first release lands",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Month by month",
+     "on_screen": "each one smarter",
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "The curve climbs",
+     "on_screen": "faster every time",
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "What's next",
+     "on_screen": "Here we go",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-pankajkumar-dev-718609",
+  "name": "Poster breaks frame",
+  "group": "Showreel",
+  "summary": "A poster design that cracks its border and spills its elements out of the frame.",
+  "bestFor": "Event promos, brand teasers and design showreels",
+  "prompt": "Start on a neatly framed poster for a fictional music night with a bold headline, border and shapes. Then the elements push against the border, the frame cracks, and the headline, shapes and details burst out past the edges and take over the full screen. Finish on a clean full-bleed lockup of the event name and date.",
+  "look": "clean",
+  "theme": "bold-poster",
+  "aspect": "9:16",
+  "durationSeconds": 15,
+  "motionProfile": "springy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @pankajkumar_dev",
+   "url": "https://x.com/pankajkumar_dev/status/2103502614134718609"
+  },
+  "plan": {
+   "brand": "Night Signal",
+   "poster": 3.0,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "A perfect poster",
+     "on_screen": "framed and still",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "It pushes back",
+     "on_screen": "the border cracks",
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Break out",
+     "on_screen": "everything escapes",
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Night Signal",
+     "on_screen": "Doors open Friday",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-parkerrex-701462",
+  "name": "Rate limiter explainer",
+  "group": "Explainer",
+  "summary": "A clear technical explainer of a token bucket rate limiter with tokens dripping into a bucket.",
+  "bestFor": "Developer docs, API teams and engineering education",
+  "prompt": "Explain how a token bucket rate limiter works. Show a bucket that refills with tokens at a steady rate, requests arriving and each taking one token, a burst draining the bucket, and extra requests being turned away until tokens return. Label the refill rate and capacity with simple callouts, calm pacing and clear diagrams.",
+  "look": "hairline",
+  "theme": "cartesian",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @ParkerRex",
+   "url": "https://x.com/ParkerRex/status/2103206747846701462"
+  },
+  "plan": {
+   "brand": "Throttle",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "A bucket of tokens",
+     "on_screen": "refills at a steady rate",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Requests arrive",
+     "on_screen": "each takes one",
+     "verb": "count",
+     "ui": {
+      "screen": "s1",
+      "action": "count",
+      "target": "token count",
+      "aspect": 1.6
+     },
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Burst drains it",
+     "on_screen": "extras wait their turn",
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Throttle",
+     "on_screen": "Rate limiting, explained",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-petert-350098",
+  "name": "Budget app promo",
+  "group": "Product",
+  "summary": "A smooth promo for a fictional household budget app with clean screens and one cursor action per beat.",
+  "bestFor": "Personal finance apps and consumer app launches",
+  "prompt": "Make a short promo for a fictional household budget app. Show the problem of scattered receipts, then clean app screens where a cursor adds an expense, categories sort themselves, and the monthly overview fills in. Calm, soft colours, each screen arriving with a gentle slide, and a closing line about knowing where money goes.",
+  "look": "clean",
+  "theme": "coral",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @_petert",
+   "url": "https://x.com/_petert/status/2103878940100350098"
+  },
+  "plan": {
+   "brand": "Kakeibo",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Where did it go?",
+     "on_screen": "receipts everywhere",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Add an expense",
+     "on_screen": "one tap logs it",
+     "verb": "type",
+     "ui": {
+      "screen": "s1",
+      "action": "type",
+      "target": "expense field",
+      "aspect": 1.6
+     },
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "See your month",
+     "on_screen": "categories fill in",
+     "verb": "count",
+     "ui": {
+      "screen": "s1",
+      "action": "count",
+      "target": "monthly total",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Kakeibo",
+     "on_screen": "Know where money goes",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-ratheejaisal-154698",
+  "name": "Fast feature launch",
+  "group": "Product",
+  "summary": "A quick launch video that flashes each key feature in a fast, brand-coloured sequence.",
+  "bestFor": "SaaS launches and feature announcements",
+  "prompt": "Create a fast-paced launch video under twenty seconds for a fictional project tool. Open with a one-line hook, then flash four key features in quick succession, each with a big label and a tiny UI action such as a click or toggle. Keep every beat short, use bold brand colour, and end on the product name with a call to action.",
+  "look": "clean",
+  "theme": "bold",
+  "aspect": "16:9",
+  "durationSeconds": 18,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @RatheeJaisal",
+   "url": "https://x.com/RatheeJaisal/status/2103774864742154698"
+  },
+  "plan": {
+   "brand": "Tasklane",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Work, simplified",
+     "on_screen": "meet Tasklane",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Plan in seconds",
+     "on_screen": "drag to schedule",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "task card",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Automate repeats",
+     "on_screen": "switch it on",
+     "verb": "toggle",
+     "ui": {
+      "screen": "s1",
+      "action": "toggle",
+      "target": "automation toggle",
+      "aspect": 1.6
+     },
+     "start": 2.6,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Tasklane",
+     "on_screen": "Try it free today",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-rneayan-406275",
+  "name": "Oscilloscope studio intro",
+  "group": "Showreel",
+  "summary": "A glowing line-trace studio intro where waveforms draw the name and services.",
+  "bestFor": "Design studios and creative agencies",
+  "prompt": "Introduce a fictional design studio in an oscilloscope style. Glowing thin lines trace across a dark grid, wobbling like waveforms before settling into the studio name. Then each service appears as a line-drawn icon traced by the signal, with soft scanline flicker. End on a steady lockup with the studio name and a contact line.",
+  "look": "hairline",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 20,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @rneayan",
+   "url": "https://x.com/rneayan/status/2103401461837406275"
+  },
+  "plan": {
+   "brand": "Signal Studio",
+   "poster": 3.0,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Signal on",
+     "on_screen": "a line starts to trace",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Signal Studio",
+     "on_screen": "the name resolves",
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Brand, motion, web",
+     "on_screen": "drawn in waveforms",
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Signal Studio",
+     "on_screen": "Let's make something",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-rneayan-441493",
+  "name": "Risograph studio intro",
+  "group": "Showreel",
+  "summary": "A grainy two-colour risograph studio intro with offset print layers and stamped type.",
+  "bestFor": "Creative studios and print-minded brands",
+  "prompt": "Introduce a fictional creative studio in a risograph print style. Two spot colours overprint with slight misregistration, paper grain and halftone dots. Type stamps in with offset layers, shapes slide in like separate print passes, and each service gets a printed label. Close on the studio name and a simple call to get in touch.",
+  "look": "sketch",
+  "theme": "biennale-yellow",
+  "aspect": "16:9",
+  "durationSeconds": 20,
+  "motionProfile": "snappy",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @rneayan",
+   "url": "https://x.com/rneayan/status/2103401006281441493"
+  },
+  "plan": {
+   "brand": "Inkpress",
+   "poster": 2.9,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Two inks, one studio",
+     "on_screen": "overprint on paper",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Stamped in layers",
+     "on_screen": "one pass at a time",
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Print, brand, motion",
+     "on_screen": "all made by hand",
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Inkpress",
+     "on_screen": "Say hello",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-ror-fly-880547",
+  "name": "Cocktail recipe how-to",
+  "group": "How-to",
+  "summary": "A step-by-step cocktail build from empty glass to garnish with ingredients and measures labelled.",
+  "bestFor": "Recipe creators, bars and food brands",
+  "prompt": "Show a full cocktail recipe from an empty glass to the finished drink in explainer style. Each ingredient pours or drops in with its name and measurement shown beside it, then a stir, ice and a garnish land to complete it. Warm, simple illustrated shapes, a clear order of steps, and a final title card with the drink name.",
+  "look": "doodle",
+  "theme": "daisy-days",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @Ror_Fly",
+   "url": "https://x.com/Ror_Fly/status/2102853258582880547"
+  },
+  "plan": {
+   "brand": "Sunset Spritz",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Empty glass",
+     "on_screen": "let's build it",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Pour in the spirit",
+     "on_screen": "measure it out",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "measure marker",
+      "aspect": 1.6
+     },
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Top with ice",
+     "on_screen": "stir and garnish",
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Sunset Spritz",
+     "on_screen": "Cheers",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-rpa-dake-593915",
+  "name": "Neon history timeline",
+  "group": "Data",
+  "summary": "A year-by-year company history where neon dates slam in and line drawings add each milestone.",
+  "bestFor": "Company histories, anniversaries and brand stories",
+  "prompt": "Tell the short history of a fictional company as a timeline. Each year appears as a large neon number that spins in with a springy 3D turn and lands hard. A simple line drawing then sketches in the milestone for that year, from a small workshop to a larger group. Close on a single line about what comes next. Fast and punchy.",
+  "look": "hairline",
+  "theme": "blockframe",
+  "aspect": "16:9",
+  "durationSeconds": 15,
+  "motionProfile": "springy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @rpa_dake",
+   "url": "https://x.com/rpa_dake/status/2104466394859593915"
+  },
+  "plan": {
+   "brand": "Brightline",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "1996 lands",
+     "on_screen": "a workshop opens",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Year by year",
+     "on_screen": "each drawn in lines",
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Growing up",
+     "on_screen": "bigger every chapter",
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Brightline",
+     "on_screen": "From one idea to many",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ }
+]

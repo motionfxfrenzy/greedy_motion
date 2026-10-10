@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Developer tool launch</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f6f2e9; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f6f2e9; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(5);
+  var INK = "#141414", ACC = "#e0451f", GREY = "#9a948a", MONO = "JetBrains Mono, DM Mono, monospace", SERIF = "Playfair Display, Libre Baskerville, serif";
+  var tl = gsap.timeline({ paused: true });
+  var defs = el("defs", {}), cid = 0;
+  function draw(d, t, dur, o) {
+    o = o || {};
+    var p = el("path", { d: d, fill: "none", stroke: o.c || INK, "stroke-width": o.w || 2, "stroke-linecap": "round", "stroke-linejoin": "round" }, o.g);
+    var L = p.getTotalLength(); p.style.strokeDasharray = L + " " + (L + 10); p.style.strokeDashoffset = L + 2;
+    tl.to(p, { strokeDashoffset: 0, duration: dur, ease: o.ease || "power2.inOut" }, t); return p;
+  }
+  function clipRect(x, y, w, h) { var id = "k" + (cid++), cp = el("clipPath", { id: id }, defs), r = el("rect", { x: x, y: y, width: w, height: h }, cp); return { id: id, r: r }; }
+  function txt(str, x, y, size, fam, w, fill, extra, parent) { var a = { x: x, y: y, "font-size": size, "font-family": fam, "font-weight": w, fill: fill }; for (var k in extra) a[k] = extra[k]; var t = el("text", a, parent); t.textContent = str; return t; }
+
+  // editorial frame with tick marks
+  draw("M36 36 H1244 V684 H36 Z", 0, .7, { w: 1.5, c: GREY });
+  for (var i = 0; i <= 24; i++) { var tx = 36 + i * 50.33; draw("M" + tx + " 36 v" + (i % 4 ? 8 : 16), .1 + i * .015, .2, { w: 1.5, c: GREY }); }
+  txt("A LIBRARY FOR CHAT", 70, 84, 22, MONO, 500, ACC, { "letter-spacing": "0.16em" });
+  tl.fromTo(s.lastChild, { opacity: 0 }, { opacity: 1, duration: .3 }, .05);
+
+  // ---- the editor
+  var ED = el("g", {}), EX = 70, EY = 112, EW = 600, EH = 440;
+  draw("M" + EX + " " + EY + " H" + (EX + EW) + " V" + (EY + EH) + " H" + EX + " Z", 0, .45, { w: 2, g: ED });
+  draw("M" + EX + " " + (EY + 54) + " H" + (EX + EW), .2, .3, { w: 1.5, g: ED });
+  [0, 1, 2].forEach(function (k) { var c = el("circle", { cx: EX + 30 + k * 26, cy: EY + 27, r: 7, fill: k === 0 ? ACC : "none", stroke: k === 0 ? ACC : INK, "stroke-width": 1.5 }, ED); tl.fromTo(c, { scale: 0, transformOrigin: "50% 50%" }, { scale: 1, duration: .25, ease: "back.out(3)" }, .4 + k * .06); });
+  txt("app.ts", EX + EW - 28, EY + 35, 22, MONO, 400, GREY, { "text-anchor": "end" }, ED);
+  var lines = [["import { chat } from \"parley\"", 0], ["const room = chat(\"help\")", 0], ["room.use(", 1]], LH = 62, LX = EX + 62, LY = EY + 130, CW = 17.6;
+  var typed = [.45, 1.0, 1.55];
+  lines.forEach(function (ln, i) {
+    var y = LY + i * LH;
+    txt(String(i + 1), EX + 30, y, 24, MONO, 400, GREY, {}, ED);
+    var ck = clipRect(LX - 4, y - 34, 0, 50);
+    var g = el("g", { "clip-path": "url(#" + ck.id + ")" }, ED);
+    if (i === 0) { txt("import", LX, y, 30, MONO, 500, ACC, {}, g); txt("{ chat } from \"parley\"", LX + 7 * CW, y, 30, MONO, 400, INK, {}, g); }
+    if (i === 1) { txt("const", LX, y, 30, MONO, 500, ACC, {}, g); txt("room = chat(\"help\")", LX + 6 * CW, y, 30, MONO, 400, INK, {}, g); }
+    if (i === 2) { txt("room.use(", LX, y, 30, MONO, 400, INK, {}, g); txt(")", LX + 14 * CW, y, 30, MONO, 400, INK, {}, g); }
+    var len = [30, 25, 15][i];
+    tl.to(ck.r, { attr: { width: len * CW + 12 }, duration: .5, ease: "steps(" + len + ")" }, typed[i]);
+  });
+  // provider word, swapped by the toggle
+  var wk = clipRect(LX + 9 * CW - 2, LY + 2 * LH - 36, 5 * CW + 6, 52), wg = el("g", { "clip-path": "url(#" + wk.id + ")" }, ED);
+  var wA = txt("north", LX + 9 * CW, LY + 2 * LH, 30, MONO, 700, ACC, {}, wg), wB = txt("south", LX + 9 * CW, LY + 2 * LH, 30, MONO, 700, ACC, {}, wg);
+  tl.set(wA, { opacity: 0 }, 0); tl.set(wA, { opacity: 1 }, 1.9); tl.set(wB, { y: 46 }, 0);
+  tl.to(wA, { y: -46, duration: .3, ease: "power3.inOut" }, 3.0); tl.to(wB, { y: 0, duration: .3, ease: "power3.inOut" }, 3.0);
+  // caret
+  var caret = el("rect", { x: LX + 3, y: LY - 28, width: 3, height: 36, fill: ACC }, ED);
+  tl.set(caret, { opacity: 0 }, 0);
+  tl.set(caret, { opacity: 1 }, .45);
+  tl.to(caret, { x: 30 * CW, duration: .5, ease: "steps(30)" }, .45);
+  tl.set(caret, { x: 0, y: LH }, 1.0); tl.to(caret, { x: 25 * CW, duration: .5, ease: "steps(25)" }, 1.0);
+  tl.set(caret, { y: LH * 2, x: 0 }, 1.55); tl.to(caret, { x: 15 * CW, duration: .5, ease: "steps(15)" }, 1.55);
+  tl.set(caret, { opacity: 0 }, 2.1);
+  // toggle
+  var TG = el("g", {}, ED), TX = LX - 4, TY = EY + 330;
+  draw("M" + (TX + 28) + " " + TY + " H" + (TX + 222) + " a28 28 0 0 1 0 56 H" + (TX + 28) + " a28 28 0 0 1 0 -56 Z", 2.0, .5, { w: 2, g: TG });
+  txt("north", TX + 32, TY + 36, 24, MONO, 500, INK, {}, TG); txt("south", TX + 152, TY + 36, 24, MONO, 500, GREY, {}, TG);
+  var knob = el("rect", { x: TX + 8, y: TY + 6, width: 112, height: 44, rx: 22, fill: "none", stroke: ACC, "stroke-width": 3 }, TG);
+  tl.fromTo(knob, { opacity: 0 }, { opacity: 1, duration: .2 }, 2.5);
+  tl.to(knob, { x: 120, duration: .4, ease: "expo.inOut" }, 3.0);
+  // a hand-less click ring on the toggle
+  var ring = el("circle", { cx: TX + 183, cy: TY + 28, r: 8, fill: "none", stroke: ACC, "stroke-width": 2 }, TG);
+  tl.set(ring, { opacity: 0 }, 0);
+  tl.fromTo(ring, { attr: { r: 8 }, opacity: 1 }, { attr: { r: 44 }, opacity: 0, duration: .5, ease: "power2.out" }, 2.95);
+
+  // ---- right half: chat bubbles in hairline, then the name
+  var RG = el("g", {});
+  draw("M758 180 H1120 a28 28 0 0 1 28 28 V250 a28 28 0 0 1 -28 28 H775 L735 314 L740 270 a28 28 0 0 1 -10 -20 V208 a28 28 0 0 1 28 -28 Z", 1.0, .7, { w: 2, g: RG });
+  draw("M772 214 H1000 M772 246 H920", 1.5, .5, { w: 3, g: RG, c: GREY });
+  draw("M768 372 H1132 a28 28 0 0 1 28 28 V440 a28 28 0 0 1 -28 28 H1162 L1180 500 L1128 468 H768 a28 28 0 0 1 -28 -28 V400 a28 28 0 0 1 28 -28 Z", 1.5, .7, { w: 2, g: RG, c: ACC });
+  draw("M786 408 H1060 M786 440 H980", 2.0, .5, { w: 3, g: RG, c: ACC });
+  var tag = txt("via north", 1160, 540, 24, MONO, 500, GREY, { "text-anchor": "end" }, RG);
+  var tag2 = txt("via south", 1160, 540, 24, MONO, 700, ACC, { "text-anchor": "end", opacity: 0 }, RG);
+  tl.fromTo(tag, { opacity: 0 }, { opacity: 1, duration: .3 }, 2.3);
+  tl.to(tag, { opacity: 0, duration: .1 }, 3.2); tl.to(tag2, { opacity: 1, duration: .2 }, 3.25);
+  tl.to(RG, { y: -50, opacity: 0, duration: .35, ease: "power3.in" }, 3.45);
+
+  // name
+  var NG = el("g", {}), nk = clipRect(660, 190, 600, 205), NC = el("g", { "clip-path": "url(#" + nk.id + ")" }, NG), nm = txt("Parley", 690, 340, 168, SERIF, 700, INK, { "letter-spacing": "-0.03em" }, NC);
+  tl.fromTo(nm, { y: 200 }, { y: 0, duration: .6, ease: "power4.out" }, 3.85);
+  draw("M694 372 H1220", 4.0, .6, { w: 2, c: ACC, g: NG });
+  var tg = txt("Chat features, in one line.", 694, 430, 36, SERIF, 400, INK, { "font-style": "italic" }, NG);
+  tl.fromTo(tg, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: .45, ease: "power2.out" }, 4.15);
+
+  // electronic pulse along the foot
+  var PG = el("g", {}), n = 56;
+  for (var b = 0; b < n; b++) {
+    var x = 70 + b * 21.4, amp = 8 + R() * 26, bar = el("line", { x1: x, x2: x, y1: 650, y2: 620, stroke: b % 8 === 0 ? ACC : INK, "stroke-width": 2 }, PG);
+    tl.fromTo(bar, { attr: { y2: 648 } }, { attr: { y2: 650 - amp }, duration: .25, ease: "power2.out" }, .2 + b * .05);
+    tl.to(bar, { attr: { y2: 650 - amp - R() * 30 }, duration: .35, yoyo: true, repeat: 1, ease: "sine.inOut" }, 3.0 + (b % 12) * .05);
+    tl.to(bar, { attr: { y2: 650 - (5 + 22 * Math.abs(Math.sin(b * .45))) }, duration: .5, ease: "power2.inOut" }, 4.2);
+  }
+  // editor settles left as the name lands
+  tl.to(ED, { scale: .94, transformOrigin: "70px 112px", duration: .5, ease: "power2.inOut" }, 3.6);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

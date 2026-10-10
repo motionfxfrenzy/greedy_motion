@@ -141,3 +141,5 @@ ignored by Git. Do not place API keys in the frontend environment: only
 `NEXT_PUBLIC_*` values belong there. The backend needs the database URL and
 planner credentials; the worker intentionally receives neither model keys nor
 user credentials.
+
+Visual styles, previews, reproduction recipes, verification and adding new styles: [Style library](docs/STYLE_LIBRARY.md).

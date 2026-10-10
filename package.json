@@ -30,6 +30,9 @@
     "styles:previews": "node scripts/verify-styles.mjs --previews",
     "styles:ui": "node scripts/verify-style-picker.mjs",
     "styles:media": "node scripts/verify-material-playback.mjs",
-    "skills:build": "node scripts/build-skill-bundle.mjs"
+    "skills:build": "node scripts/build-skill-bundle.mjs",
+    "test:scene-rendering": "node backend/test/scene-rendering.mjs",
+    "scenes:verify": "node scripts/build-mixed-renderer-fixtures.mjs && node scripts/verify-mixed-renderer.mjs",
+    "gallery:previews": "node scripts/build-gallery-previews.mjs"
   }
 }

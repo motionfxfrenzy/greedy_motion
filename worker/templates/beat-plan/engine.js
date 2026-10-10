@@ -13,7 +13,9 @@
   var wipes = document.getElementById("wipes");
   var capLayer = document.getElementById("captions");
   var tl = gsap.timeline({ paused: true, defaults: { immediateRender: false } });
-  var LOG = window.__bp = { beats: [], warnings: [] };
+  var LOG = window.__bp = { beats: [], warnings: [], canvas: [] };
+  var CANVAS_LAYERS = [];
+  /* CANVAS_LAYER */
 
   // ---------- variables ----------
   var HF = window.__hyperframes, V = {};
@@ -179,8 +181,75 @@
   // ---------- Sketch look (Rough.js): hand-drawn ink that draws on through the timeline ----------
   // Every shape is seeded from the beat, so each frame (and every re-render) draws the same ink; the
   // colour is a theme token (currentColor of the accent word, or --bp-accent), never a literal.
-  var SKETCH = V.look === "sketch" && !!window.rough;
+  var STYLE_CATALOG = /* STYLE_CATALOG */ [];
+  var STYLE = STYLE_CATALOG.find(function (item) { return item.id === V.look; }) || STYLE_CATALOG[0];
+  var MATERIAL = STYLE && STYLE.renderMode === "generated";
+  var DOODLE = STYLE && STYLE.renderer === "doodle";
+  var SKETCH = (V.look === "sketch" || DOODLE || (STYLE && STYLE.renderer === "collage")) && !!window.rough;
+  LOG.look = STYLE ? STYLE.id : "clean";
+  LOG.styleVersion = STYLE ? STYLE.version : 1;
+  var HAIRLINE = V.look === "hairline";
+  var HAIRLINE_PLATES = /* HAIRLINE_GEOMETRY */ [];
+  var hs = document.createElement("style");
+  hs.textContent = ".look-hairline .ul{height:2px}.look-hairline .card{border:2px solid var(--fg);box-shadow:none}.look-hairline .pill{background:transparent;color:var(--fg);border:2px solid var(--bp-accent)}.look-hairline .disc,.look-hairline .panel{background:transparent;border:2px solid var(--bp-accent)}";
+  root.appendChild(hs);
+  function sceneStyle(id, host) {
+    STYLE = STYLE_CATALOG.find(function(item){return item.id === id;}) || STYLE_CATALOG[0];
+    MATERIAL = STYLE && STYLE.renderMode === "generated";
+    DOODLE = STYLE && STYLE.renderer === "doodle";
+    SKETCH = (id === "sketch" || DOODLE || (STYLE && STYLE.renderer === "collage")) && !!window.rough;
+    HAIRLINE = id === "hairline";
+    if(host){host.classList.add("look-"+STYLE.id);if(MATERIAL)host.classList.add("look-material");if(DOODLE)host.classList.add("look-drawn");if(STYLE.renderer === "clay")host.classList.add("look-clay");}
+  }
   var SVGNS = "http://www.w3.org/2000/svg";
+  // Original Hairline plate geometry, vendored at build time; MIT notice is embedded in the page.
+  function hairlineFigure(parent, s, e) {
+    var wide = MODE === "wide", size = Math.min(W * (wide ? 0.27 : 0.62), H * (wide ? 0.66 : 0.34));
+    var svg = document.createElementNS(SVGNS, "svg");
+    svg.setAttribute("viewBox", "20 20 320 290");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("class", "hairline-figure");
+    Object.assign(svg.style, { position: "absolute", left: px(wide ? W * 0.68 : (W - size) / 2), top: px(wide ? (H - size) / 2 : H * 0.59), width: px(size), height: px(size), overflow: "visible" });
+    parent.appendChild(svg);
+    var duration = e - s;
+    HAIRLINE_PLATES.forEach(function (markup, i) {
+      var plate = document.createElementNS(SVGNS, "g");
+      plate.innerHTML = markup; svg.appendChild(plate);
+      Array.prototype.forEach.call(plate.querySelectorAll("path"), function (p) {
+        p.style.fill = p.classList.contains("silhouette") ? "var(--bg)" : "none";
+        p.style.stroke = "var(--fg)";
+        p.style.strokeWidth = p.classList.contains("silhouette") ? "0.8" : "0.55";
+      });
+      var lift = -40 * i;
+      tl.fromTo(plate, { y: 0 }, { y: lift, duration: duration * 0.25, ease: "sine.inOut" }, snap(s + duration * (0.06 + i * 0.025)));
+      tl.fromTo(plate, { y: lift }, { y: 0, duration: duration * 0.25, ease: "sine.inOut" }, snap(s + duration * (0.61 + (3 - i) * 0.025)));
+      var edge = plate.querySelector(".silhouette");
+      tl.fromTo(edge, { stroke: "var(--fg)" }, { stroke: "var(--bp-accent)", duration: duration * 0.1, ease: "none" }, snap(s + duration * (0.3 + i * 0.05)));
+      tl.fromTo(edge, { stroke: "var(--bp-accent)" }, { stroke: "var(--fg)", duration: duration * 0.1, ease: "none" }, snap(s + duration * (0.55 + i * 0.05)));
+    });
+  }
+  // Native graphic adaptations: all positions are deterministic; motion reuses the engine timeline.
+  // These are intentionally described as graphic treatments, not photoreal material footage.
+  function styleFigure(parent, b, s, e) {
+    var wide = MODE === "wide", size = Math.min(W * (wide ? 0.27 : 0.53), H * (wide ? 0.62 : 0.28));
+    var host = free(mk("div", "style-figure", parent, { left: wide ? W * 0.69 : (W - size) / 2, top: wide ? (H - size) / 2 : H * 0.62, width: size, height: size }));
+    var parts = [[.02,.18,.68,.64,-9],[.29,.03,.60,.53,8],[.26,.44,.60,.49,-4]];
+    if (STYLE.renderer === "diorama" || STYLE.id === "paper") parts = [[.02,.04,.9,.86,-4],[.12,.16,.74,.69,3],[.25,.31,.50,.47,-2]];
+    parts.forEach(function (v, i) {
+      var piece;
+      if (DOODLE && window.rough) {
+        piece = inkSvg(host, { left: px(v[0]*size), top: px(v[1]*size), width: px(v[2]*size), height: px(v[3]*size) }, 200, 160);
+        var opts = { seed: seedOf(STYLE.id + "|" + b.id + "|" + i), fill: tok("--brand"), stroke: tok("--fg"), fillStyle: STYLE.fillStyle, roughness: 1.6, hachureGap: 9, strokeWidth: 2 };
+        piece.appendChild(i === 1 ? rough.svg(piece).ellipse(100,80,178,138,opts) : rough.svg(piece).rectangle(10,10,178,138,opts));
+      } else piece = mk("div", "style-piece", host, { left:v[0]*size, top:v[1]*size, width:v[2]*size, height:v[3]*size });
+      tl.set(piece, { rotation: v[4] }, 0);
+      var at = s + i * Math.min(.16, (e-s)*.05), duration = Math.min(.6,(e-s)*.22);
+      hide(piece); showAt(piece, at);
+      var stepped = MATERIAL && STYLE.renderer !== "collage" && STYLE.renderer !== "diorama";
+      tl.fromTo(piece, { y: size*.2 }, { y: 0, duration: duration, ease: stepped ? "steps(7)" : P.inE }, snap(at));
+      tl.fromTo(piece, { x: 0 }, { x: (i-1)*size*.06, duration: Math.max(.2,e-at-duration), ease: stepped ? "steps(" + Math.max(2,Math.round((e-at-duration)*12)) + ")" : "none" }, snap(at+duration));
+    });
+  }
   function seedOf(s) { var h = 2166136261; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h >>> 1) % 2147483646) + 1; }
   function inkSvg(parent, css, w, h) {
     var s = document.createElementNS(SVGNS, "svg");
@@ -329,7 +398,8 @@
   var lastFlood = false;
   function kinetic(i, b, sh, s, e, kwText, onScreen, successAt) {
     var L = LAY.kin, dur = e - s;
-    var flood = !lastFlood && (b.role === "hook" || b.role === "reveal" || b.success || b.energy === "high");
+    var procedural = b.route && b.route.renderer === "canvas2d" && !b.has_visual;
+    var flood = !procedural && !b.has_visual && !MATERIAL && !DOODLE && !HAIRLINE && !lastFlood && (b.role === "hook" || b.role === "reveal" || b.success || b.energy === "high");
     lastFlood = flood;
     if (flood) {
       sh.cam.classList.add("flood");
@@ -340,8 +410,13 @@
       var halo = free(mk("div", "halo", sh.cam, { left: (MODE === "wide" ? 0.82 * W : 0.7 * W) - hd / 2, top: 0.86 * H - hd / 2, width: hd, height: hd, borderWidth: px(Math.min(W, H) * 0.05) }));
       carry(halo, sh.vout, s, e, 1.4);
       f.setAttribute("data-bp", "flood");
-    } else discs(sh.cam, i, sh.vout, s, e);
+    } else if (b.has_visual) { /* generated footage owns the scene */ }
+    else if (procedural) canvasFigure(sh.cam, b, s, e);
+    else if (MATERIAL || DOODLE) styleFigure(sh.cam, b, s, e);
+    else if (HAIRLINE) hairlineFigure(sh.cam, s, e);
+    else discs(sh.cam, i, sh.vout, s, e);
     var col = mk("div", "col" + (L.align === "center" ? " center" : ""), sh.cam, { left: L.col[0], top: L.col[1], width: L.col[2], height: L.col[3] });
+    if ((procedural || HAIRLINE || MATERIAL || DOODLE) && MODE !== "wide") col.style.height = px(H * 0.48);
     var badge = null;
     var bs = 0.13 * Math.min(W, H);
     if (b.success) { badge = mk("div", "", col, { position: "relative", width: bs, height: bs, marginBottom: px(0.03 * H), flex: "none" }); }
@@ -429,7 +504,8 @@
     var L = LAY.ui, dur = e - s, ui = b.ui;
     // brand field behind the card
     var fld = free(mk("div", "field panel", sh.cam, { left: L.field[0], top: L.field[1], width: L.field[2], height: L.field[3] }));
-    carry(fld, sh.vout, s + 0.3, e, 0.8);
+    if (b.has_visual) fld.style.display = "none";
+    else carry(fld, sh.vout, s + 0.3, e, 0.8);
     // key phrase in its corner, never over the screen
     var col = mk("div", "col" + (L.top ? " top" : ""), sh.cam, { left: L.col[0], top: L.col[1], width: L.col[2], height: L.col[3] });
     var words = kwText.split(/\s+/).filter(Boolean).length;
@@ -448,6 +524,15 @@
     var maxH = MODE === "wide" ? 0.7 * H : MODE === "tall" ? 0.44 * H : 0.46 * H;
     if (chei > maxH) { chei = maxH; cwid = chei * cardAr; }
     var cx = L.card[0] - cwid / 2, cy = L.card[1] - chei / 2;
+    if (HAIRLINE) {
+      fld.style.borderRadius = "0";
+      [2, 1].forEach(function (depth) {
+        var plate = mk("div", "hairline-screen-layer", sh.cam, { position: "absolute", left: cx, top: cy, width: cwid, height: chei, border: "2px solid var(--bp-accent)", borderRadius: "12px" });
+        var shift = 14 * depth;
+        tl.fromTo(plate, { x: 0, y: 0 }, { x: shift, y: shift, duration: Math.min(0.65, dur * 0.2), ease: "sine.inOut" }, snap(s));
+        tl.fromTo(plate, { x: shift, y: shift }, { x: 0, y: 0, duration: Math.min(0.6, dur * 0.2), ease: "sine.inOut" }, snap(e - Math.min(0.8, dur * 0.3)));
+      });
+    }
     var card = free(mk("div", "card", sh.cam, { left: cx, top: cy, width: cwid, height: chei }));
     var shot = mk("div", "shot", card);
     var img = mk("img", null, shot);
@@ -686,12 +771,15 @@
   BEATS.forEach(function (b, i) {
     var s = +b.start || 0, e = +b.end || s + 2, last = i === BEATS.length - 1;
     TOTAL = Math.max(TOTAL, e);
+    b.has_visual = Boolean(V["visual." + b.id]);
+    var media = document.getElementById("visual-" + b.id);
+    if (media) { tl.set(media, { visibility: "visible" }, s); tl.set(media, { visibility: "hidden" }, e); }
     var kind = b.kind, kwText = text(b, "keyword"), onScreen = text(b, "on_screen") || null, line = text(b, "line") || null;
     if (kind === "3d" || kind === "footage") {
       // 2D fallback until the generated clip exists; a storyboard edit to the keyword still wins
       var fb = b.fallback || {};
       var edited = has(b.id + ".keyword") && V[b.id + ".keyword"] !== b.keyword;
-      if (!edited && fb.keyword) kwText = String(fb.keyword);
+      if (!b.has_visual && !edited && fb.keyword) kwText = String(fb.keyword);
       kind = fb.kind === "ui" && b.ui ? "ui" : "kinetic";
     }
     var src = kind === "ui" && b.ui ? V["shot." + b.ui.screen] : null;
@@ -700,10 +788,13 @@
     if (kind === "title" && !last) LOG.warnings.push(b.id + ": a title beat that is not last still exits on its vector");
     if (!kwText) kwText = onScreen || String(V.brandName || "");
     var sh = shell(i, b, s, e, last);
+    sceneStyle(b.route ? b.route.treatment : V.look, sh.beat);
+    sh.beat.setAttribute("data-renderer", b.route ? b.route.renderer : "legacy");
+    if (b.has_visual) sh.beat.classList.add("has-material-video");
     var dur = e - s;
     var successAt = b.success ? (typeof b.success_at === "number" ? b.success_at : s + Math.max(0.9, 0.5 * dur)) : null;
     var actAt = typeof b.act_at === "number" ? b.act_at : s + Math.max(0.9, 0.38 * dur);
-    var info = { id: b.id, kind: kind, start: s, end: e };
+    var info = { id: b.id, kind: kind, start: s, end: e, route: b.route || null };
     if (kind === "ui") Object.assign(info, uiBeat(i, b, sh, s, e, kwText, onScreen, src, actAt, successAt || 0));
     else if (kind === "title") Object.assign(info, titleBeat(i, b, sh, s, e, kwText, onScreen));
     else Object.assign(info, kinetic(i, b, sh, s, e, kwText, onScreen, successAt));
@@ -720,6 +811,8 @@
   });
   LOG.total = TOTAL;
   tl.set({}, {}, snap(TOTAL));
+  tl.eventCallback("onUpdate", function(){var t=tl.time();CANVAS_LAYERS.forEach(function(draw){draw(t);});});
+  CANVAS_LAYERS.forEach(function(draw){draw(0);});
   window.__timelines = window.__timelines || {};
   window.__timelines["main"] = tl;
 })();

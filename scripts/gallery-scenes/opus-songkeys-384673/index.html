@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Doodle civilisation story</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f4ead0; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f4ead0; font-family: "Fredoka", sans-serif; }
+  svg { position: absolute; inset: 0; }
+
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+var R = rng(21);
+var tl = gsap.timeline({ paused: true });
+var defs = el("defs", {});
+function wob(pts, amp, step) {
+  var out = [pts[0]], i, k;
+  for (i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+    for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+  }
+  var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+  for (i = 0; i < out.length - 1; i++) {
+    var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+    d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+  }
+  return d;
+}
+function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .06; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+function box(x, y, w, h) { return [[x - 6, y + 1], [x + w + 4, y - 1], [x + w + 1, y + h + 3], [x - 3, y + h - 1], [x + 1, y - 9]]; }
+// draw-on stroke. o: parent, amp, single, raw(d string), ease, fill (fades in), op (opacity), cap
+function stroke(pts, color, w, t, dur, o) {
+  o = o || {}; var par = o.parent || art;
+  var d = o.raw ? pts : wob(pts, o.amp == null ? 2.2 : o.amp, 34), made = [];
+  var passes = o.single ? [[w, 1, d]] : [[w, 1, d], [w * .5, .75, o.raw ? pts : wob(pts, (o.amp == null ? 2.2 : o.amp) * 1.2, 30)]];
+  passes.forEach(function (p, i) {
+    var path = el("path", { d: p[2], fill: "none", stroke: color, "stroke-width": p[0], "stroke-linecap": "round", "stroke-linejoin": "round", opacity: (o.op == null ? 1 : o.op) * p[1] }, par);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30); path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur * (i ? 1.12 : 1), ease: o.ease || "power1.inOut" }, t + (i ? .05 : 0));
+    made.push(path);
+  });
+  if (o.fill) {
+    var f = el("path", { d: d, fill: o.fill, stroke: "none", opacity: 0 }, par);
+    par.insertBefore(f, made[0]);
+    tl.to(f, { opacity: o.fillOp == null ? 1 : o.fillOp, duration: Math.max(.15, dur * .5) }, t + dur * .55);
+    made.push(f);
+  }
+  return made;
+}
+var cid = 0;
+function write(str, x, y, size, color, t, dur, rot, weight, font, par, anchor) {
+  par = par || art;
+  var g = el("g", rot ? { transform: "rotate(" + rot + " " + x + " " + y + ")" } : {}, par);
+  var id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+  var w = str.length * size * .6 + 30, x0 = anchor === "middle" ? x - w / 2 : x;
+  var rc = el("rect", { x: x0 - 10, y: y - size * 1.1, width: 0, height: size * 1.5 }, cp);
+  var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": weight || 600, fill: color, "clip-path": "url(#" + id + ")", "font-family": font || "Fredoka, Quicksand, sans-serif", "text-anchor": anchor || "start" }, g);
+  tx.textContent = str;
+  tl.to(rc, { attr: { width: w + 20 }, duration: dur, ease: "none" }, t);
+  return g;
+}
+function pop(node, t, dur, ox, oy, ease, rot) {
+  tl.fromTo(node, { scale: 0, rotation: rot == null ? -14 : rot, svgOrigin: ox + " " + oy }, { scale: 1, rotation: 0, svgOrigin: ox + " " + oy, duration: dur || .4, ease: ease || "back.out(2.6)" }, t);
+}
+function fadeIn(node, t, dur) { tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: dur || .3, ease: "power1.out" }, t); }
+function finish() { window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl; tl.set({}, {}, 5); }
+
+var INK = "#23382c", FOREST = "#2f6b45", MOSS = "#8fb56a", OCHRE = "#e0a02e", RUST = "#c4582c", PAPER = "#f4ead0", SKY = "#dfe8c6";
+el("rect", { width: 1280, height: 720, fill: PAPER });
+var flt = el("filter", { id: "rough", x: -100, y: 0, width: 3400, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+el("feTurbulence", { type: "fractalNoise", baseFrequency: "0.04", numOctaves: 2, seed: 12, result: "n" }, flt);
+el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: 3.4 }, flt);
+// paper speckle
+var sp = "";
+for (var i = 0; i < 60; i++) sp += "M" + (R() * 1280).toFixed(0) + " " + (R() * 720).toFixed(0) + "h.1";
+el("path", { d: sp, stroke: "#e2d3a8", "stroke-width": 6, "stroke-linecap": "round", fill: "none" });
+function ease(name, u) { return gsap.parseEase(name)(u); }
+function drive(t, dur, name, fn, extra) { var o = { u: 0 }; fn(0); tl.to(o, Object.assign({ u: 1, duration: dur, ease: "none", onUpdate: function () { fn(ease(name, o.u)); } }, extra || {}), t); }
+// sun (fixed)
+var sunG = el("g", {});
+var sun = el("g", { filter: "url(#rough)" }, sunG);
+stroke(arc(1090, 150, 52, 52, 0, 360, 16), OCHRE, 6, .05, .5, { parent: sun, amp: 1.5, fill: "#f8d676" });
+for (var r = 0; r < 10; r++) { var a = r * Math.PI / 5; stroke([[1090 + Math.cos(a) * 70, 150 + Math.sin(a) * 70], [1090 + Math.cos(a) * 98, 150 + Math.sin(a) * 98]], OCHRE, 5, .35 + r * .03, .15, { parent: sun, amp: 1, single: true }); }
+// far hills (parallax)
+var far = el("g", { filter: "url(#rough)" });
+var hillPts = [[-100, 470]]; for (var hx = 0; hx <= 2400; hx += 200) hillPts.push([hx, 400 + Math.sin(hx / 260) * 50 + (hx % 400 ? 18 : -10)]);
+stroke(hillPts, FOREST, 5, .0, 1.4, { parent: far, amp: 2, fill: SKY, fillOp: 1, ease: "none" });
+// trees on hills
+[[120, 410], [420, 380], [800, 395], [1250, 380], [1700, 405], [2050, 385]].forEach(function (p, i) {
+  stroke([[p[0], p[1] + 40], [p[0], p[1]]], INK, 5, .3 + i * .1, .2, { parent: far, amp: 1, single: true });
+  stroke(arc(p[0], p[1] - 22, 30, 36, 0, 360, 12), FOREST, 5, .4 + i * .1, .3, { parent: far, amp: 1.6, fill: MOSS });
+});
+// world
+var world = el("g", { filter: "url(#rough)" });
+var W = el("g", {}, world);
+var GY = 560;
+// ground
+stroke([[-100, GY + 4], [400, GY - 3], [900, GY + 5], [1400, GY]], INK, 7, 0, .7, { parent: W, amp: 2.4 });
+stroke([[1400, GY], [1900, GY + 5], [2500, GY - 2]], INK, 7, 1.2, 1.1, { parent: W, amp: 2.4, ease: "none" });
+for (var gg = 0; gg < 18; gg++) { var gxx = 80 + gg * 130; stroke([[gxx, GY + 24 + (gg % 3) * 14], [gxx + 40, GY + 26 + (gg % 3) * 14]], "#a89868", 4, .2 + gg * .12, .2, { parent: W, amp: 1, single: true, op: gg < 8 ? 1 : 1 }); }
+function G(x, y) { return el("g", { transform: "translate(" + x + " " + y + ")" }, W); }
+// 1 SPARK / fire  (x=240)
+var f1 = G(240, GY);
+stroke([[-70, -8], [60, -26]], INK, 12, .15, .3, { parent: f1, amp: 1.2, single: true });
+stroke([[-60, -28], [64, -6]], "#6b4a2a", 12, .22, .3, { parent: f1, amp: 1.2, single: true });
+var flame = el("g", {}, f1);
+stroke([[0, -26], [-34, -60], [-26, -112], [-2, -150], [10, -112], [34, -80], [26, -40], [0, -26]], RUST, 6, .35, .5, { parent: flame, amp: 2, fill: OCHRE });
+stroke([[0, -32], [-14, -58], [0, -92], [14, -58], [0, -32]], RUST, 4, .6, .3, { parent: flame, amp: 1, fill: "#f8d676" });
+drive(.35, .45, "back.out(2)", function (u) { flame.setAttribute("transform", "scale(" + (.7 + .3 * u) + " " + (.3 + .7 * u) + ")"); flame.setAttribute("opacity", Math.min(1, u * 3)); });
+[[-50, -170], [30, -190], [58, -150], [-12, -214]].forEach(function (p, i) {
+  var s = el("path", { d: "M0 -9 L3 -3 L9 0 L3 3 L0 9 L-3 3 L-9 0 L-3 -3 Z", fill: OCHRE, stroke: INK, "stroke-width": 2.5 }, f1);
+  drive(.6 + i * .12, .9, "power1.out", function (u) { s.setAttribute("transform", "translate(" + p[0] + " " + (p[1] + 14 - 28 * u) + ") scale(" + (.3 + .7 * Math.min(1, u * 3)) + ")"); s.setAttribute("opacity", u < .6 ? Math.min(1, u * 5) : 1 - (u - .6) / .4); });
+});
+// 2 FIGURE with a hammer (x=660)
+var f2 = G(660, GY);
+stroke(arc(0, -178, 26, 26, 0, 360, 12), INK, 6, .6, .3, { parent: f2, amp: 1.2, fill: "#f2c9a0" });
+stroke([[0, -150], [0, -66]], INK, 7, .75, .25, { parent: f2, amp: 1.2, single: true });
+stroke([[0, -66], [-26, 0]], INK, 7, .85, .2, { parent: f2, amp: 1, single: true });
+stroke([[0, -66], [30, 0]], INK, 7, .88, .2, { parent: f2, amp: 1, single: true });
+stroke([[0, -134], [-32, -96], [-52, -60]], INK, 7, .9, .2, { parent: f2, amp: 1, single: true });
+var arm = el("g", {}, f2);
+stroke([[0, -134], [38, -108], [56, -134]], INK, 7, .95, .2, { parent: arm, amp: 1, single: true });
+stroke([[56, -134], [44, -206]], "#8a5a2c", 8, 1.0, .2, { parent: arm, amp: 1, single: true });
+stroke([[24, -222], [70, -200], [76, -184], [32, -196], [24, -222]], INK, 5, 1.05, .2, { parent: arm, amp: 1, fill: "#9aa39a" });
+[0, 1, 2, 3].forEach(function (k) {
+  drive(1.15 + k * .38, .16, "power2.in", function (u) { arm.setAttribute("transform", "rotate(" + (-50 + 70 * u) + " 0 -134)"); });
+  drive(1.31 + k * .38, .22, "power1.inOut", function (u) { arm.setAttribute("transform", "rotate(" + (20 - 70 * u) + " 0 -134)"); });
+});
+// anvil log + stone
+stroke([[100, -44], [100, 0]], INK, 5, 1.1, .2, { parent: f2, amp: 1, single: true });
+stroke([[78, -44], [160, -44], [160, 0], [78, 0], [78, -44]], INK, 6, 1.1, .3, { parent: f2, amp: 1.4, fill: "#a67c52" });
+// 3 TOWN (x=1080)
+var f3 = G(1080, GY);
+function house(x, w, h, col, t, door) {
+  stroke([[x, 0], [x, -h], [x + w, -h], [x + w, 0]], INK, 6, t, .45, { parent: f3, amp: 1.5, fill: "#fbf3d9" });
+  stroke([[x - 14, -h + 4], [x + w / 2, -h - 64], [x + w + 14, -h + 4], [x - 14, -h + 4]], INK, 6, t + .2, .35, { parent: f3, amp: 1.5, fill: col });
+  stroke([[x + w / 2 - 18, 0], [x + w / 2 - 18, -48], [x + w / 2 + 18, -48], [x + w / 2 + 18, 0]], INK, 5, t + .35, .25, { parent: f3, amp: 1, single: true, fill: door });
+  if (w > 100) stroke([[x + 16, -h + 36], [x + 46, -h + 36], [x + 46, -h + 66], [x + 16, -h + 66], [x + 16, -h + 36]], INK, 4, t + .4, .2, { parent: f3, amp: 1, single: true, fill: "#f8d676" });
+}
+house(-170, 100, 110, RUST, 1.05);
+house(-40, 120, 160, FOREST, 1.25, "#8a5a2c");
+house(110, 90, 100, OCHRE, 1.45);
+stroke([[-120, -176], [-120, -230]], INK, 5, 1.2, .2, { parent: f3, amp: 1, single: true });
+stroke(arc(-110, -250, 14, 12, 0, 330, 8), INK, 3, 1.5, .3, { parent: f3, amp: .8, single: true, op: .5 });
+// 4 MACHINE (x=1500)
+var f4 = G(1500, GY);
+function gear(cx, cy, ro, ri, n) {
+  var p = [];
+  for (var k = 0; k < n * 2; k++) { var a0 = k * Math.PI / n; var rr = k % 2 ? ri : ro; p.push([cx + Math.cos(a0 - .12) * rr, cy + Math.sin(a0 - .12) * rr], [cx + Math.cos(a0 + .12) * rr, cy + Math.sin(a0 + .12) * rr]); }
+  return p.concat([p[0]]);
+}
+var gA = el("g", {}, f4), gB = el("g", {}, f4);
+stroke(gear(-20, -150, 96, 74, 10), INK, 6, 1.6, .7, { parent: gA, amp: .8, single: true, fill: OCHRE, raw: false });
+stroke(arc(-20, -150, 26, 26, 0, 360, 10), INK, 5, 2.0, .3, { parent: gA, amp: .8, single: true, fill: PAPER });
+stroke(gear(110, -60, 52, 40, 7), INK, 6, 1.9, .55, { parent: gB, amp: .8, single: true, fill: RUST });
+stroke(arc(110, -60, 14, 14, 0, 360, 8), INK, 5, 2.2, .25, { parent: gB, amp: .8, single: true, fill: PAPER });
+drive(1.6, 3.2, "none", function (u) { gA.setAttribute("transform", "rotate(" + (150 * u) + " -20 -150)"); gB.setAttribute("transform", "rotate(" + (-214 * u) + " 110 -60)"); });
+stroke([[-140, 0], [-140, -60], [-70, -60], [-70, 0]], INK, 5, 1.9, .4, { parent: f4, amp: 1.2, fill: MOSS });
+stroke([[-190, -40], [-150, -40]], INK, 5, 2.3, .2, { parent: f4, amp: 1, single: true });
+stroke([[-140, 0], [200, 0]], INK, 5, 1.6, .3, { parent: f4, amp: 1, single: true });
+// 5 EGG hatches (x=1920)
+var f5 = G(1920, GY);
+var bulbW = el("g", {}, f5), bulb = el("g", {}, bulbW);
+function eggPt(t) { return [84 * Math.sin(t) * (1 + .18 * Math.cos(t)), -125 + 125 * Math.cos(t)]; }
+var tc = 1.65, lowerPts = [], capPts = [], i2;
+for (i2 = 0; i2 <= 10; i2++) lowerPts.push(eggPt(tc - (2 * tc) * i2 / 10));
+for (i2 = 0; i2 <= 10; i2++) capPts.push(eggPt(tc + (2 * Math.PI - 2 * tc) * i2 / 10));
+var zz = []; for (i2 = 0; i2 <= 7; i2++) zz.push([-83 + i2 * 166 / 7, -135 + (i2 % 2 ? 16 : -16)]);
+var lowerAll = lowerPts.concat(zz.slice().reverse()), capAll = capPts.concat(zz);
+// bulb idea (behind the shell)
+stroke(arc(0, -130, 46, 50, 0, 360, 14), INK, 6, 3.7, .4, { parent: bulb, amp: 1.5, fill: "#ffe27a" });
+stroke([[-16, -82], [16, -82], [14, -66], [-14, -66], [-16, -82]], INK, 5, 3.9, .2, { parent: bulb, amp: 1, single: true, fill: "#bfc4b5" });
+stroke([[-12, -142], [0, -112], [12, -142]], RUST, 4, 4.0, .25, { parent: bulb, amp: .8, single: true });
+for (var rr = 0; rr < 7; rr++) { var ra = (-160 + rr * 23) * Math.PI / 180; stroke([[Math.cos(ra) * 70, -130 + Math.sin(ra) * 70], [Math.cos(ra) * 98, -130 + Math.sin(ra) * 98]], OCHRE, 5, 4.1 + rr * .03, .15, { parent: bulb, amp: .8, single: true }); }
+tl.fromTo(bulbW, { y: 30 }, { y: -92, duration: .85, ease: "back.out(1.5)" }, 3.75);
+var shell = el("g", {}, f5);
+var lowerG = el("g", {}, shell), capG = el("g", {}, shell);
+stroke(lowerAll, INK, 7, 1.9, .6, { parent: lowerG, amp: 1.2, fill: "#fbf3d9" });
+stroke(capAll, INK, 7, 2.3, .6, { parent: capG, amp: 1.2, fill: "#fbf3d9" });
+[[-34, -60], [28, -40], [-10, -100]].forEach(function (p, i) { stroke(arc(p[0], p[1], 9 + i % 2 * 4, 7, 0, 360, 8), "#b9a77a", 4, 2.8 + i * .06, .15, { parent: lowerG, amp: .6, single: true }); });
+[[34, -190], [-26, -170]].forEach(function (p, i) { stroke(arc(p[0], p[1], 10, 8, 0, 360, 8), "#b9a77a", 4, 3.0 + i * .06, .15, { parent: capG, amp: .6, single: true }); });
+tl.fromTo(shell, { rotation: -1.5 }, { rotation: 1.5, duration: .09, yoyo: true, repeat: 5, ease: "sine.inOut" }, 3.2);
+tl.to(capG, { x: -140, y: -150, rotation: -48, duration: .6, ease: "power2.out" }, 3.72);
+tl.to(capG, { opacity: 0, duration: .4 }, 4.15);
+// camera
+var CAM = -1000;
+tl.fromTo(W, { x: 0 }, { x: CAM, duration: 4, ease: "power1.inOut" }, .3);
+tl.fromTo(far, { x: 0 }, { x: CAM * .45, duration: 4, ease: "power1.inOut" }, .3);
+// name card at the end
+var nm = el("g", {});
+write("Nestwork", 640, 676, 64, FOREST, 4.2, .5, 0, 600, "Fredoka, sans-serif", nm, "middle");
+stroke([[490, 684], [640, 680], [790, 685]], OCHRE, 6, 4.55, .3, { parent: nm, amp: 1.5, single: true });
+nm.setAttribute("filter", "url(#rough)");
+
+finish();
+})();
+</script>
+</body>
+</html>

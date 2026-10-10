@@ -22,6 +22,7 @@ export function AuthPage() {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [sent, setSent] = useState(false);
+  const [forgot, setForgot] = useState(false);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [authError, setAuthError] = useState(searchParams.get("error") ? "Sign-in failed. Please try again." : "");
@@ -46,54 +47,76 @@ export function AuthPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setTried(true);
     setAuthError("");
     if (!isValidEmail || password.length < 8) return;
     setBusy(true);
-    const supabase = createClient();
-    if (mode === "signup") {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: name }, emailRedirectTo: callbackUrl() }
-      });
-      setBusy(false);
-      if (error) return setAuthError(error.message);
-      // Supabase returns an obfuscated user with no identities when the email is already registered.
-      if (data.user && data.user.identities?.length === 0) return setAuthError("An account with this email already exists. Sign in instead.");
-      if (data.session) return router.replace(next);
-      setSent(true);
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      // On success the button keeps its spinner until the workspace replaces this page.
-      if (error) {
+    try {
+      const supabase = createClient();
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: name }, emailRedirectTo: callbackUrl() }
+        });
         setBusy(false);
-        return setAuthError(error.message);
+        if (error) return setAuthError(error.message);
+        // Supabase returns an obfuscated user with no identities when the email is already registered.
+        if (data.user && data.user.identities?.length === 0) return setAuthError("An account with this email already exists. Sign in instead.");
+        if (data.session) return router.replace(next);
+        setSent(true);
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        // On success the button keeps its spinner until the workspace replaces this page.
+        if (error) {
+          setBusy(false);
+          return setAuthError(error.message);
+        }
+        router.replace(next);
+        router.refresh();
       }
-      router.replace(next);
-      router.refresh();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not connect. Please try again.");
+      setBusy(false);
     }
   };
 
   const handleGoogle = async () => {
+    if (busy) return;
+    setBusy(true);
     setAuthError("");
-    const { error } = await createClient().auth.signInWithOAuth({ provider: "google", options: { redirectTo: callbackUrl() } });
-    if (error) setAuthError(error.message);
+    try {
+      const { error } = await createClient().auth.signInWithOAuth({ provider: "google", options: { redirectTo: callbackUrl() } });
+      if (error) throw error;
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not connect. Please try again.");
+      setBusy(false);
+    }
   };
 
   const handleForgot = async () => {
+    if (busy) return;
     setTried(true);
     setAuthError("");
     if (!isValidEmail) return;
-    const { error } = await createClient().auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
-    if (error) return setAuthError(error.message);
-    setSent(true);
+    setBusy(true);
+    try {
+      const { error } = await createClient().auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
+      if (error) throw error;
+      setForgot(false);
+      setSent(true);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not send the reset link. Please try again.");
+    } finally { setBusy(false); }
   };
 
   const isSignup = mode === "signup";
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", overflow: "hidden", background: "#ebf5ff", color: "#0a0d12" }}>
+      {/* Hide the showcase when the columns wrap (both need 460px), so it doesn't drop below the form */}
+      <style>{"@media (max-width: 919px) { .auth-showcase { display: none !important; } }"}</style>
       {/* Ambient background blobs */}
       <div
         aria-hidden="true"
@@ -174,7 +197,10 @@ export function AuthPage() {
               >
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
+                    setForgot(false);
+                    setAuthError("");
                     setMode("signin");
                     setAuthError("");
                     setSent(false);
@@ -196,7 +222,10 @@ export function AuthPage() {
                 </button>
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
+                    setForgot(false);
+                    setAuthError("");
                     setMode("signup");
                     setSent(false);
                     setTried(false);
@@ -226,7 +255,17 @@ export function AuthPage() {
                 </p>
               </div>
 
-              {sent ? (
+              {forgot ? (
+                <form onSubmit={(event) => { event.preventDefault(); void handleForgot(); }} style={{ display: "grid", gap: 16 }}>
+                  <h2>Reset your password</h2>
+                  <p>Enter your email and we’ll send you a reset link.</p>
+                  <label htmlFor="reset-email">Email address</label>
+                  <input style={{ padding: "13px 16px", border: "1px solid #D6E4F2", borderRadius: 16, background: "#fff", color: "#0a0d12", fontSize: 15 }} id="reset-email" type="email" autoComplete="email" autoFocus required value={email} onChange={(event) => setEmail(event.target.value)} />
+                  {authError && <p role="alert">{authError}</p>}
+                  <button className="primary-button" type="submit" disabled={busy} aria-busy={busy}>{busy ? "Sending reset link…" : "Send reset link"}</button>
+                  <button type="button" disabled={busy} onClick={() => { setForgot(false); setTried(false); setAuthError(""); }}>Back to sign in</button>
+                </form>
+              ) : sent ? (
                 <div
                   style={{
                     padding: "24px",
@@ -268,6 +307,8 @@ export function AuthPage() {
                     <button
                       type="button"
                       onClick={() => void handleGoogle()}
+                      disabled={busy}
+                      aria-busy={busy}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -384,7 +425,8 @@ export function AuthPage() {
                     {!isSignup && (
                       <button
                         type="button"
-                        onClick={() => void handleForgot()}
+                        disabled={busy}
+                        onClick={() => { setForgot(true); setTried(false); setAuthError(""); }}
                         style={{ alignSelf: "flex-start", border: 0, background: "transparent", padding: 0, color: "#535862", fontSize: "13px", cursor: "pointer", textDecoration: "underline" }}
                       >
                         Forgot password?
@@ -428,7 +470,10 @@ export function AuthPage() {
                 {isSignup ? "Already have an account? " : "New to Greedy Motion? "}
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
+                    setForgot(false);
+                    setAuthError("");
                     setMode(isSignup ? "signin" : "signup");
                     setSent(false);
                     setTried(false);
@@ -451,7 +496,7 @@ export function AuthPage() {
         </section>
 
         {/* Right column: Dark Stage Showcase */}
-        <aside style={{ padding: "16px", display: "flex" }}>
+        <aside className="auth-showcase" style={{ padding: "16px", display: "flex" }}>
           <div
             style={{
               position: "relative",

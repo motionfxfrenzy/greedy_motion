@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Zoom into chip</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#03060c}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#03060c;font-family:'Space Grotesk',Arial,sans-serif}
+canvas{position:absolute;inset:0;width:1280px;height:720px;display:block}
+#cap{position:absolute;left:0;right:0;bottom:0;padding:60px 0 54px;background:linear-gradient(transparent,rgba(2,5,10,.8));text-align:center;color:#f2f8ff;font-size:70px;font-weight:700;letter-spacing:-1px;text-shadow:0 0 30px rgba(255,140,40,.6)}
+#cap b{color:#ffb24a}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<canvas id="c" width="1280" height="720"></canvas>
+<div id="cap">Power starts <b>here</b></div>
+</div>
+<script type="module">
+import * as THREE from "./vendor/three/three.module.js";
+function prng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd=prng(21);
+const renderer=new THREE.WebGLRenderer({canvas:document.getElementById("c"),antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(1);renderer.setSize(1280,720,false);
+const BG=0x03060c;
+const scene=new THREE.Scene();scene.background=new THREE.Color(BG);scene.fog=new THREE.FogExp2(BG,0.022);
+const camera=new THREE.PerspectiveCamera(60,1280/720,0.1,100);
+scene.add(new THREE.AmbientLight(0x4060a0,1.5));
+const dl=new THREE.DirectionalLight(0xffffff,1.2);dl.position.set(3,10,4);scene.add(dl);
+
+// layers: y, extent (cells), cell size, color, segments, trace width
+const layers=[
+ {y:8, n:34, cs:1.4, col:0x2b6bff, seg:260, w:.14},
+ {y:6, n:34, cs:1.1, col:0x2fd3ff, seg:300, w:.11},
+ {y:4, n:34, cs:.8,  col:0x38ffc8, seg:340, w:.08},
+ {y:2, n:34, cs:.55, col:0xff9a3a, seg:380, w:.055},
+ {y:0.2, n:34, cs:.35, col:0xffd06a, seg:420, w:.035},
+];
+const m=new THREE.Matrix4(), q=new THREE.Quaternion(), sc=new THREE.Vector3(), pos=new THREE.Vector3();
+const pulses=[];
+const boxGeo=new THREE.BoxGeometry(1,1,1);
+for(const L of layers){
+  const segs=[];
+  for(let i=0;i<L.seg;i++){
+    let gx=Math.floor(rnd()*L.n)-L.n/2, gz=Math.floor(rnd()*L.n)-L.n/2;
+    const horiz=rnd()<.5, len=2+Math.floor(rnd()*7);
+    segs.push({x:(gx+len/2)*L.cs*(horiz?1:0)+gx*L.cs*(horiz?0:1), z:0,horiz,len,gx,gz});
+  }
+  const mat=new THREE.MeshStandardMaterial({color:L.col,emissive:L.col,emissiveIntensity:1.6,roughness:.4,metalness:.5});
+  const inst=new THREE.InstancedMesh(boxGeo,mat,L.seg*2);
+  let k=0;
+  for(const s of segs){
+    const cx=(s.gx+(s.horiz?s.len/2:0))*L.cs, cz=(s.gz+(s.horiz?0:s.len/2))*L.cs;
+    sc.set(s.horiz?s.len*L.cs:L.w,L.w*.6,s.horiz?L.w:s.len*L.cs);
+    m.compose(pos.set(cx,L.y,cz),q,sc);inst.setMatrixAt(k++,m);
+    // pad at the end
+    const ex=(s.gx+(s.horiz?s.len:0))*L.cs, ez=(s.gz+(s.horiz?0:s.len))*L.cs;
+    sc.set(L.w*2.4,L.w*.8,L.w*2.4);
+    m.compose(pos.set(ex,L.y,ez),q,sc);inst.setMatrixAt(k++,m);
+    if(pulses.length<400&&rnd()<.22)pulses.push({s,L,sp:.3+rnd()*.7,o:rnd(),cx,cz});
+  }
+  scene.add(inst);
+  // translucent glowing plate under traces
+  const plate=new THREE.Mesh(new THREE.PlaneGeometry(L.n*L.cs,L.n*L.cs),new THREE.MeshBasicMaterial({color:L.col,transparent:true,opacity:.05,depthWrite:false,blending:THREE.AdditiveBlending}));
+  plate.rotation.x=-Math.PI/2;plate.position.y=L.y-.05;scene.add(plate);
+}
+// pulse instances
+const pulseMat=new THREE.MeshBasicMaterial({color:0xffffff});
+const pul=new THREE.InstancedMesh(boxGeo,pulseMat,pulses.length);scene.add(pul);
+
+// chip package on top
+const chipMat=new THREE.MeshStandardMaterial({color:0x1a2640,roughness:.35,metalness:.85,transparent:true,opacity:1});
+const chip=new THREE.Mesh(new THREE.BoxGeometry(9,1.2,9),chipMat);chip.position.y=9.2;scene.add(chip);
+const edgeMat=new THREE.MeshBasicMaterial({color:0x3ee6ff,transparent:true});
+const edges=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(9,1.2,9)),new THREE.LineBasicMaterial({color:0x6af0ff,transparent:true}));edges.position.y=9.2;scene.add(edges);
+const lid=new THREE.Mesh(new THREE.PlaneGeometry(5,5),new THREE.MeshBasicMaterial({color:0x1f6bff,transparent:true,opacity:.35}));
+lid.rotation.x=-Math.PI/2;lid.position.y=9.82;scene.add(lid);
+const pins=new THREE.InstancedMesh(boxGeo,new THREE.MeshStandardMaterial({color:0xc8d8ff,emissive:0x4060ff,emissiveIntensity:.6,transparent:true}),4*24);
+let pk=0;for(let s=0;s<4;s++)for(let i=0;i<24;i++){
+  const a=-4+i*(8/23), out=5.1; const horizontal=s<2;
+  pos.set(horizontal?a:(s===2?-out:out),9.2,horizontal?(s===0?-out:out):a);
+  sc.set(horizontal?.18:.9,.2,horizontal?.9:.18);m.compose(pos,q,sc);pins.setMatrixAt(pk++,m);
+}
+scene.add(pins);
+// core
+const core=new THREE.Mesh(new THREE.BoxGeometry(2.6,.25,2.6),new THREE.MeshBasicMaterial({color:0xfff2c0}));core.position.y=-1.6;scene.add(core);
+const coreGlow=new THREE.Mesh(new THREE.PlaneGeometry(7,7),new THREE.MeshBasicMaterial({color:0xff8a1f,transparent:true,opacity:.3,depthWrite:false,blending:THREE.AdditiveBlending}));
+coreGlow.rotation.x=-Math.PI/2;coreGlow.position.y=-1.5;scene.add(coreGlow);
+const coreHalo=new THREE.Mesh(new THREE.PlaneGeometry(36,36),new THREE.MeshBasicMaterial({color:0xff5a1f,transparent:true,opacity:.05,depthWrite:false,blending:THREE.AdditiveBlending}));
+coreHalo.rotation.x=-Math.PI/2;coreHalo.position.y=-1.4;scene.add(coreHalo);
+const cl=new THREE.PointLight(0xff9a40,200,30);cl.position.y=0;scene.add(cl);
+
+function draw(t){
+  const k=Math.min(Math.max(t/5,0),1);
+  const e=1-Math.pow(1-k,1.6); // fast then gentle settle
+  const y=30-e*28.5;
+  const roll=t*.1;
+  camera.position.set(Math.sin(t*.5)*1.2*(1-k),y,Math.cos(t*.5)*1.2*(1-k)+ (1-k)*9);
+  camera.up.set(Math.sin(roll),0,-Math.cos(roll)).normalize();
+  camera.lookAt(0,-2,0);
+  const f=THREE.MathUtils.smoothstep(y,15,21);
+  chipMat.opacity=f;edges.material.opacity=f;pins.material.opacity=f;lid.material.opacity=.35*f;
+  chip.visible=f>.01;edges.visible=f>.01;pins.visible=f>.01;lid.visible=f>.01;
+  core.scale.setScalar(1+.06*Math.sin(t*6));
+  coreGlow.material.opacity=.28+.08*Math.sin(t*5);
+  pulses.forEach((p,i)=>{
+    const u=((t*p.sp+p.o)%1), s=p.s, L=p.L;
+    const x=(s.gx+(s.horiz?s.len*u:0))*L.cs, z=(s.gz+(s.horiz?0:s.len*u))*L.cs;
+    sc.set(L.w*2.2*(s.horiz?2.5:1),L.w,L.w*2.2*(s.horiz?1:2.5));
+    m.compose(pos.set(x,L.y+L.w*.4,z),q,sc);pul.setMatrixAt(i,m);
+  });
+  pul.instanceMatrix.needsUpdate=true;
+  renderer.render(scene,camera);
+}
+window.addEventListener("hf-seek",e=>draw(e.detail.time));
+draw(window.__hfThreeTime||0);
+window.__timelines=window.__timelines||{};
+const tl=gsap.timeline({paused:true});
+tl.from("#cap",{opacity:0,y:30,duration:.7,ease:"power3.out"},.4);
+tl.to({},{duration:5},0);
+window.__timelines["main"]=tl;
+</script></body></html>

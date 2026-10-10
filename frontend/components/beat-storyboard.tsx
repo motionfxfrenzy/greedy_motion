@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HyperframesPlayer } from "@hyperframes/player";
-import { BEAT_LIMITS, beatPlanProblems, type Beat, type BeatPlan, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, beatPlanProblems, motionBlurCopy, motionBlurProblem, type Beat, type BeatPlan, type VideoProject } from "@videosaas/contracts";
 import { useMediaToken } from "../lib/use-media-token";
 import { editPlan, ensureMediaToken, generatePlanAudio, getComposition, PlanProblems, projectScreenshotUrl, type Composition, type PlanAudioStatus, type PlanPatch } from "../lib/api";
+import { MaterialGeneration } from "./material-generation";
 import { HyperframesPreview } from "./studio-editor";
 
 /** Colours and type the frame cards are drawn with: the brand kit's, or the gallery theme's. */
@@ -54,7 +55,7 @@ function Budget({ text, chars, max }: { text: string; chars: number; max?: numbe
   return <small className={over ? "budget over" : "budget"}>{text.length}/{chars}{max !== undefined ? ` · ${words(text)}/${max} words` : ""}</small>;
 }
 
-export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, back, submit, openStudio }: {
+export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, back, submit, openStudio, motionBlur, setMotionBlur }: {
   project: VideoProject & { beatPlan: BeatPlan };
   look: FrameLook;
   /** Non-blocking warnings from the last plan generation. */
@@ -64,6 +65,9 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
   back: () => void;
   submit: () => void;
   openStudio: () => void;
+  /** Final-render option, chosen here at submission. The player above is always a fast draft. */
+  motionBlur: boolean;
+  setMotionBlur: (on: boolean) => void;
 }) {
   const [plan, setPlan] = useState<BeatPlan>(project.beatPlan);
   const [active, setActive] = useState(project.beatPlan.beats[0]?.id ?? "");
@@ -282,6 +286,7 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
   const blockingCount = new Set([...localProblems, ...(readiness?.blocking ?? []).map((item) => item.message)]).size;
 
   return <div className="beat-storyboard">
+    <MaterialGeneration project={project} onReady={loadComposition} />
     <header className="bs-head">
       <div><h1>Storyboard</h1><p>{plan.beats.length} beats · {clock(lengthSeconds)} · {plan.canvas} · {plan.mode === "own-script" ? "your script, word for word" : "written from your brief"}. Edit any frame; nothing renders until you submit.</p></div>
       <span className={"bs-save " + saveState}>{saveState === "saving" ? "Saving…" : saveState === "error" ? "Not saved" : "All changes saved"}</span>
@@ -329,6 +334,9 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
         {activeBeat && <section className="bs-detail"><header><b>Beat {plan.beats.indexOf(activeBeat) + 1} · {roleLabel[activeBeat.role]}</b><span>{activeBeat.energy} energy</span></header><dl><div><dt>Camera</dt><dd>{activeBeat.motion.camera}</dd></div>{activeBeat.motion.text_effect && <div><dt>Text effect</dt><dd>{activeBeat.motion.text_effect}</dd></div>}<div><dt>Into next</dt><dd>{activeBeat.transition_out.type}{activeBeat.transition_out.carrier ? ` · ${activeBeat.transition_out.carrier}` : ""}</dd></div>{activeBeat.sfx && <div><dt>Sound</dt><dd>{activeBeat.sfx}</dd></div>}</dl></section>}
         <div className="bs-submit">
           {blockingCount > 0 && <p className="bs-blocking">{blockingCount === 1 ? "1 frame breaks a rule." : `${blockingCount} rules are broken.`} Fix them to submit.</p>}
+          {(() => { const tooLong = motionBlurProblem(lengthSeconds); return (
+            <label className="bs-blur"><input type="checkbox" checked={motionBlur && !tooLong} disabled={busy || Boolean(tooLong)} onChange={(event) => setMotionBlur(event.target.checked)} /><span><b>{motionBlurCopy.label}</b><small>{tooLong ?? motionBlurCopy.help}</small></span></label>
+          ); })()}
           <div><button className="secondary-button" onClick={back}>Back</button><button className="secondary-button" onClick={openStudio}>Open Studio</button><button className="primary-button" disabled={busy || blockingCount > 0 || saveState === "saving"} onClick={() => { flush(); submit(); }}>{busy ? "Starting render…" : "Submit video"}</button></div>
           <small>Submitting locks the script and storyboard. Rendering continues if you leave the page.</small>
         </div>

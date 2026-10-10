@@ -1,0 +1,40 @@
+{
+  "id": "vox-collage",
+  "name": "Vox · Editorial collage",
+  "group": "Editorial",
+  "description": "Paper borders, halftone details and cutout compositions.",
+  "libraries": [
+    "gsap",
+    "roughjs"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "collage",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/vox-collage.png",
+    "kind": "image",
+    "label": "Layout draft — not generated footage"
+  },
+  "source": "third_party/creative-packs/Vox Animations/.claude/skills/vox-animation/references/vox-prompts.md",
+  "referenceAssets": [],
+  "instructions": {
+    "image": "Editorial mixed-media collage; archival photographic cutouts with rough paper borders; bold fields, halftone, tape and marker annotations. Never a live-action frame.",
+    "motion": "Snappy ease-out entrances, restrained overshoot, slow parallax push; one focal action at a time.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "Consistent hero/product references when present"
+    ],
+    "acceptance": [
+      "Style remains visible in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme",
+      "Generated material reference is distinct from the shipped graphic adaptation"
+    ]
+  },
+  "sourceSha256": "365a30655cc653488f577745f5d2c74ef91cf4279df8c905cfc96cf75af5b7e8"
+}

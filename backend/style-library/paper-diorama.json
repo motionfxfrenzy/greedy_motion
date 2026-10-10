@@ -1,0 +1,39 @@
+{
+  "id": "paper-diorama",
+  "name": "Paper diorama",
+  "group": "Editorial",
+  "description": "Dimensional paper layers with a dramatic documentary feel.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "diorama",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/paper-diorama.png",
+    "kind": "image",
+    "label": "Layout draft — not generated footage"
+  },
+  "source": "third_party/creative-packs/Vox Animations/.claude/skills/vox-animation/references/diorama-doc.md",
+  "referenceAssets": [],
+  "instructions": {
+    "image": "Vintage paper documentary world; aged newsprint texture, cardboard depth, archival cutouts, letterpress treatment, warm directional light and macro depth. Use brand accent instead of a fixed orange.",
+    "motion": "Layered parallax, purposeful camera carries; stamp or reveal on the narrative turn.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "Consistent hero/product references when present"
+    ],
+    "acceptance": [
+      "Style remains visible in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme",
+      "Generated material reference is distinct from the shipped graphic adaptation"
+    ]
+  },
+  "sourceSha256": "05c44cd81b9ea788f894afcf1e067154662eb66ae0c4e74bce37b7ad55983fe9"
+}

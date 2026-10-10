@@ -1,0 +1,17 @@
+{
+ "id": "storybook-raindrop-journey",
+ "name": "Storybook science explainer",
+ "group": "Storybook",
+ "summary": "A whimsical storybook explainer that follows one character with personality through a long journey.",
+ "bestFor": "Educators and science channels explaining a process as a tale",
+ "prompt": "Make a 60-second storybook explainer about a raindrop's journey from cloud to sea. Give the raindrop a charming personality, little visual gags, and onomatopoeia. Show a few honest facts along the way, with a side timeline of what else was happening in the world. Narrated voiceover, burned-in captions, and a gentle score that shifts with each chapter.",
+ "look": "doodle",
+ "theme": "editorial",
+ "aspect": "16:9",
+ "durationSeconds": 60,
+ "motionProfile": "smooth",
+ "pace": "calm",
+ "audio": "both",
+ "poster": 2.0,
+ "source": { "label": "Remade from @AstroTheWizard", "url": "https://x.com/AstroTheWizard/status/2103629247751618782" }
+}

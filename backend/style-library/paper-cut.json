@@ -1,0 +1,50 @@
+{
+  "id": "paper-cut",
+  "name": "Paper-cut assembly",
+  "group": "Paper",
+  "description": "A scene that builds from individual torn-paper pieces.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 2,
+  "renderer": "assembly",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/paper-cut.png",
+    "kind": "image",
+    "label": "Layout draft — not generated footage"
+  },
+  "source": "third_party/creative-packs/motion-design-prompts/skills/motion-design/SKILL.md",
+  "referenceAssets": [
+    {
+      "path": "references/paper-cut-style.jpg",
+      "source": "third_party/creative-packs/motion-design-prompts/style-reference/paper-cut-style.jpg",
+      "sha256": "fd1da1e9b73347be9bfcc9c453592a651e1c3c89196bfa369d3bcab2840f1bbb",
+      "bytes": 221323
+    }
+  ],
+  "instructions": {
+    "image": "Torn-paper mosaic with rough edge slivers, grain, hard cast shadows and overlapping flat facets. Match the source composition.",
+    "motion": "Build far-to-near: background, floor, environment, props, hero last. Rigid pieces enter from outside; no folding, morphing or in-place drawing.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "Consistent hero/product references when present",
+      "Nine-panel far-to-near assembly planning sheet per shot",
+      "Single-panel opening frame and matching finished-scene end frame"
+    ],
+    "acceptance": [
+      "Style remains visible in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme",
+      "Generated material reference is distinct from the shipped graphic adaptation",
+      "No grid or contact sheet visible in the final video",
+      "Background, floor, environment, props and hero assemble far-to-near"
+    ]
+  },
+  "sourceSha256": "02df43e66af0d62fc529ed2c8150f5728c9820932e8cd00ddea66b92b0e541b8"
+}

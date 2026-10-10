@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Capability progression timeline</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0b0b10; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #0b0b10; font-family: "Archivo Black", "Inter", sans-serif; }
+  .beat { position: absolute; inset: 0; opacity: 0; overflow: hidden; }
+  .mon { position: absolute; left: 50px; top: 8px; font-size: 400px; line-height: 1; letter-spacing: -0.04em; white-space: nowrap; }
+  .ver { position: absolute; left: 62px; top: 384px; font-size: 52px; letter-spacing: .02em; font-family: "JetBrains Mono", monospace; font-weight: 700; padding: 6px 18px; border: 5px solid currentColor; }
+  .cap { position: absolute; left: 62px; top: 500px; font-size: 100px; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
+  .cap small { display: block; font-size: 30px; font-family: "Inter", sans-serif; font-weight: 700; letter-spacing: .24em; margin-bottom: 14px; opacity: .8; }
+  .step { position: absolute; right: 0; bottom: 0; width: 330px; transform-origin: 100% 100%; }
+  #rail { position: absolute; left: 0; right: 0; bottom: 0; height: 46px; }
+  #fin { position: absolute; inset: 0; opacity: 0; background: #0b0b10; }
+  svg { position: absolute; inset: 0; }
+  #nxt { position: absolute; right: 90px; top: 56px; font-size: 132px; color: #ffe600; letter-spacing: -0.04em; opacity: 0; }
+  #ttl { position: absolute; left: 60px; top: 56px; font-size: 92px; color: #f4f4f0; letter-spacing: -0.04em; line-height: .95; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <div class="beat" id="b0" style="background:#0b0b10;color:#ffe600"><div class="mon">JAN</div><div class="ver">NOVA 1</div><div class="cap"><small>UNLOCKED</small>Reads.</div></div>
+  <div class="beat" id="b1" style="background:#ffe600;color:#0b0b10"><div class="mon">MAR</div><div class="ver">NOVA 2</div><div class="cap"><small>UNLOCKED</small>Sees.</div></div>
+  <div class="beat" id="b2" style="background:#ff3b2e;color:#fff7ee"><div class="mon">MAY</div><div class="ver">NOVA 3</div><div class="cap"><small>UNLOCKED</small>Speaks.</div></div>
+  <div class="beat" id="b3" style="background:#f4f4f0;color:#0b0b10"><div class="mon">AUG</div><div class="ver">NOVA 4</div><div class="cap"><small>UNLOCKED</small>Plans.</div></div>
+  <div class="beat" id="b4" style="background:#1f4bff;color:#fff"><div class="mon">DEC</div><div class="ver">NOVA 5</div><div class="cap"><small>UNLOCKED</small>Acts.</div></div>
+  <div id="fin"><div id="ttl">ONE YEAR.<br>5 LEAPS.</div><svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg><div id="nxt">NEXT?</div></div>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  var tl = gsap.timeline({ paused: true });
+  var T = [0, 0.62, 1.24, 1.86, 2.48], FIN = 3.1;
+  // each beat: a hard cut, then the month slams in; staircase block grows from the corner
+  T.forEach(function (t, i) {
+    var id = "#b" + i;
+    tl.set(id, { opacity: 1 }, t);
+    tl.set(id, { opacity: 0 }, i < 4 ? T[i + 1] : FIN);
+    tl.fromTo(id + " .mon", { scale: 1.35, x: -60, opacity: 0.0, transformOrigin: "0% 50%" }, { scale: 1, x: 0, opacity: 1, duration: 0.16, ease: "expo.out" }, t);
+    tl.fromTo(id + " .ver", { x: -300, opacity: 0 }, { x: 0, opacity: 1, duration: 0.2, ease: "power4.out" }, t + 0.08);
+    tl.fromTo(id + " .cap", { x: -400, opacity: 0 }, { x: 0, opacity: 1, duration: 0.24, ease: "power4.out" }, t + 0.14);
+    // bar: grows up on the right, taller each month
+    var b = document.createElement("div"); b.className = "step";
+    b.style.height = (150 + i * 120) + "px"; b.style.width = "300px"; b.style.right = (i * 40) + "px";
+    b.style.background = "currentColor"; b.style.opacity = 0.28;
+    var bb = document.getElementById("b" + i); bb.insertBefore(b, bb.firstChild);
+    tl.fromTo(b, { scaleY: 0 }, { scaleY: 1, duration: 0.3, ease: "back.out(2)" }, t + 0.06);
+  });
+  // finale: staircase of the five leaps + trajectory arrow
+  var cols = ["#ffe600", "#ff3b2e", "#f4f4f0", "#1f4bff", "#ffe600"], names = ["JAN", "MAR", "MAY", "AUG", "DEC"];
+  var X0 = 60, BW = 170, base = 640, bars = [];
+  for (var i = 0; i < 5; i++) {
+    var h = 70 + i * 58, x = X0 + i * (BW + 30);
+    var g = el("g", {}, s);
+    el("rect", { x: x, y: base - h, width: BW, height: h, fill: cols[i] }, g);
+    var tx = el("text", { x: x + BW / 2, y: base - 14, "text-anchor": "middle", "font-size": 34, "font-family": "Archivo Black, Inter, sans-serif", fill: i === 0 || i === 2 || i === 4 ? "#0b0b10" : "#fff" }, g);
+    tx.textContent = names[i];
+    bars.push(g);
+    tl.fromTo(g, { scaleY: 0, svgOrigin: x + " " + base }, { scaleY: 1, duration: 0.28, ease: "back.out(1.8)" }, FIN + 0.1 + i * 0.12);
+  }
+  // arrow curve from the last step upwards off to the right
+  var ap = "M1052 336 C 1110 330 1160 290 1196 222";
+  var arrow = el("path", { d: ap, fill: "none", stroke: "#ffe600", "stroke-width": 14, "stroke-linecap": "round", "stroke-dasharray": "2 26" }, s);
+  var arrow2 = el("path", { d: ap, fill: "none", stroke: "#ffe600", "stroke-width": 14, "stroke-linecap": "round" }, s);
+  var head = el("path", { d: "M-34 40 L0 -30 L34 40 L0 22Z", fill: "#ffe600" }, s);
+  var L = arrow2.getTotalLength();
+  arrow2.style.strokeDasharray = L; arrow2.style.strokeDashoffset = L; arrow.style.opacity = 0;
+  tl.set("#fin", { opacity: 1 }, FIN);
+  tl.fromTo("#ttl", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.3, ease: "power4.out" }, FIN + 0.05);
+  var hp = { u: 0 };
+  function place() {
+    var pt = arrow2.getPointAtLength(L * Math.min(hp.u, 0.999)), p2 = arrow2.getPointAtLength(Math.min(L, L * hp.u + 2));
+    var ang = Math.atan2(p2.y - pt.y, p2.x - pt.x) * 180 / Math.PI + 90;
+    head.setAttribute("transform", "translate(" + pt.x + " " + pt.y + ") rotate(" + ang + ")");
+    head.setAttribute("opacity", hp.u > 0.001 ? 1 : 0);
+  }
+  tl.to(arrow2, { strokeDashoffset: 0, duration: 0.8, ease: "power2.in" }, FIN + 0.75);
+  tl.to(hp, { u: 1, duration: 0.8, ease: "power2.in", onUpdate: place }, FIN + 0.75);
+  tl.fromTo("#nxt", { opacity: 0, scale: 0.4, transformOrigin: "100% 0%" }, { opacity: 1, scale: 1, duration: 0.3, ease: "back.out(2.4)" }, FIN + 1.45);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+  place();
+})();
+</script>
+</body>
+</html>

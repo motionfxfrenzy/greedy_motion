@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Festival story explainer</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #fff3d3; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #fff3d3; font-family: "Fredoka", "Quicksand", sans-serif; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(345137);
+  var PAPER = "#fff3d3", INK = "#5b3a52", YEL = "#ffc83d", ORG = "#f58a2e", RED = "#e8504a", GRN = "#6cb86c", PINK = "#f29bbd", CREAM = "#fffaf0", BROWN = "#c98a5a";
+  function wob(pts, amp, step) {
+    var out = [pts[0]], i, k;
+    for (i = 1; i < pts.length; i++) {
+      var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+      for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+    }
+    var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+    for (i = 0; i < out.length - 1; i++) {
+      var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+      d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+    }
+    return d;
+  }
+  function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .05; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+
+  var defs = el("defs", {});
+  var flt = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+  el("feTurbulence", { type: "fractalNoise", baseFrequency: "0.04", numOctaves: 2, seed: 3, result: "n" }, flt);
+  el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: 3.5 }, flt);
+  el("rect", { width: 1280, height: 720, fill: PAPER });
+  var art = el("g", { filter: "url(#rough)" });
+  var tl = gsap.timeline({ paused: true });
+
+  function ln(pts, color, w, t, dur, o, parent) {
+    o = o || {};
+    var path = el("path", { d: wob(pts, o.amp == null ? 2 : o.amp, 28), fill: "none", stroke: color, "stroke-width": w, "stroke-linecap": "round", "stroke-linejoin": "round" }, parent || art);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30); path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur, ease: o.ease || "power1.inOut" }, t);
+    return path;
+  }
+  // filled doodle: coloured fill offset a little from the marker outline, pops in
+  function blob(pts, fill, line, w, t, dur, o, parent) {
+    o = o || {};
+    var d = wob(pts, o.amp == null ? 2 : o.amp, 28);
+    var g = el("g", {}, parent || art);
+    var f = el("path", { d: d + "Z", fill: fill, transform: "translate(" + (o.ox == null ? 4 : o.ox) + " 3)" }, g);
+    f.style.opacity = 0;
+    var bb = f.getBBox();
+    tl.fromTo(f, { opacity: 0, scale: .6, svgOrigin: (bb.x + bb.width / 2) + " " + (bb.y + bb.height / 2) }, { opacity: 1, scale: 1, duration: .32, ease: "back.out(2)", svgOrigin: (bb.x + bb.width / 2) + " " + (bb.y + bb.height / 2) }, t + dur * .55);
+    var path = el("path", { d: d, fill: "none", stroke: line, "stroke-width": w, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30); path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur, ease: "power1.inOut" }, t);
+    return g;
+  }
+  function circ(cx, cy, r, fill, line, w, t, dur, o, parent) { return blob(arc(cx, cy, r, r, -100, 270, Math.max(10, Math.round(r / 3))), fill, line, w, t, dur, o, parent); }
+  var cid = 0;
+  function write(str, x, y, size, color, t, dur, wt) {
+    var id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+    var rc = el("rect", { x: x - 12, y: y - size * 1.05, width: 0, height: size * 1.4 }, cp);
+    var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": wt || 600, fill: color, "clip-path": "url(#" + id + ")", "font-family": "Fredoka, Quicksand, sans-serif" }, art);
+    tx.textContent = str;
+    tl.to(rc, { attr: { width: str.length * size * .6 + 30 }, duration: dur, ease: "power1.out" }, t);
+  }
+
+  // ---------- stars (tiny doodle sparkles)
+  [[120, 270], [520, 98], [980, 60], [1180, 250], [60, 480], [760, 120]].forEach(function (p, i) {
+    var g = el("g", {}, art);
+    ln([[p[0] - 10, p[1]], [p[0] + 10, p[1]]], YEL, 5, 3.9 + i * .08, .12, { amp: .3 }, g); ln([[p[0], p[1] - 10], [p[0], p[1] + 10]], YEL, 5, 3.95 + i * .08, .12, { amp: .3 }, g);
+  });
+
+  // ---------- the moon (right)
+  var MX = 960, MY = 322, MR = 175;
+  var moonG = circ(MX, MY, MR, YEL, ORG, 8, 0.0, .7, { amp: 2.5, ox: 5 });
+  // inner glow ring
+  ln(arc(MX, MY, MR - 28, MR - 28, 200, 340, 12), "#fff0b8", 7, .55, .5, { amp: 2 });
+  // craters + smile
+  circ(MX - 70, MY - 60, 32, "#ffe08a", ORG, 4.5, .9, .22, { amp: 1 });
+  circ(MX + 80, MY - 20, 22, "#ffe08a", ORG, 4.5, 1.0, .2, { amp: 1 });
+  circ(MX - 10, MY + 78, 16, "#ffe08a", ORG, 4.5, 1.1, .16, { amp: 1 });
+  [-1, 1].forEach(function (k, i) { circ(MX + k * 58, MY + 14, 9, INK, INK, 3, 1.15 + i * .06, .12, { amp: .3, ox: 0 }); });
+  ln(arc(MX, MY + 8, 38, 28, 25, 155, 10), INK, 6, 1.25, .3, { amp: 1 });
+  circ(MX - 92, MY + 48, 13, "#ffa8a0", "#ffa8a0", 2, 1.3, .12, { amp: .5, ox: 0 }); circ(MX + 92, MY + 48, 13, "#ffa8a0", "#ffa8a0", 2, 1.34, .12, { amp: .5, ox: 0 });
+
+  // ---------- lantern string + lanterns
+  var sp = [[-20, 70], [300, 125], [640, 90], [990, 135], [1300, 80]];
+  ln(sp, INK, 5, 0.0, .7, { amp: 1.2 });
+  function lantern(x, y, sz, col, t, delay) {
+    var pos = el("g", { transform: "translate(" + x + " " + y + ")" }, art), g = el("g", {}, pos);
+    var inn = el("g", {}, g);
+    ln([[0, 0], [0, 26 * sz]], INK, 4, t, .12, { amp: .3 }, inn);
+    var cap = blob([[-16 * sz, 26 * sz], [16 * sz, 26 * sz], [16 * sz, 38 * sz], [-16 * sz, 38 * sz]], INK, INK, 3, t + .06, .15, { amp: .8, ox: 0 }, inn);
+    var body = blob(arc(0, 82 * sz, 46 * sz, 46 * sz, -100, 270, 16), col, INK, 5, t + .1, .35, { amp: 1.5 }, inn);
+    ln(arc(0, 82 * sz, 20 * sz, 45 * sz, -80, 80, 6), INK, 3.5, t + .3, .2, { amp: 1, single: true }, inn);
+    ln(arc(0, 82 * sz, 20 * sz, 45 * sz, 100, 260, 6), INK, 3.5, t + .34, .2, { amp: 1 }, inn);
+    blob([[-14 * sz, 126 * sz], [14 * sz, 126 * sz], [14 * sz, 138 * sz], [-14 * sz, 138 * sz]], INK, INK, 3, t + .4, .14, { amp: .8, ox: 0 }, inn);
+    ln([[0, 138 * sz], [-3, 160 * sz]], col, 6, t + .45, .14, { amp: .4 }, inn); ln([[6, 138 * sz], [8, 156 * sz]], col, 6, t + .47, .14, { amp: .4 }, inn);
+    tl.fromTo(inn, { scale: .2, rotation: 0, svgOrigin: x + " " + y }, { scale: 1, duration: .45, ease: "back.out(2.4)", svgOrigin: x + " " + y }, t);
+    // swing like a pendulum, damped
+    tl.to(g, { keyframes: [{ rotation: -12, duration: .3, ease: "sine.inOut" }, { rotation: 8, duration: .34, ease: "sine.inOut" }, { rotation: -5, duration: .34, ease: "sine.inOut" }, { rotation: 3, duration: .34, ease: "sine.inOut" }, { rotation: -1.5, duration: .34, ease: "sine.inOut" }, { rotation: 0, duration: .3, ease: "sine.inOut" }], svgOrigin: x + " " + y }, t + .45 + delay);
+    // lit glow
+    var gl = el("circle", { cx: 0, cy: 82 * sz, r: 70 * sz, fill: "#ffd46b", opacity: 0 }, g); g.insertBefore(gl, g.firstChild);
+    tl.to(gl, { opacity: .45, duration: .5 }, t + .5);
+  }
+  lantern(300, 118, .95, RED, .45, 0); lantern(500, 107, .75, ORG, .65, .1); lantern(640, 93, 1.0, PINK, .8, 0); lantern(130, 90, .8, ORG, 1.0, .05); lantern(1195, 112, .85, RED, 1.15, 0);
+
+  // ---------- title
+  write("Harvest", 62, 390, 150, INK, 0.9, .55, 700);
+  write("Moon", 62, 530, 150, ORG, 1.4, .5, 700);
+  
+
+  // ---------- hills
+  var hill = [[-20, 640], [200, 590], [420, 610], [700, 575], [980, 612], [1300, 585]];
+  var hg = blob(hill.concat([[1300, 760], [-20, 760]]), "#b9d98a", GRN, 6, 2.2, .7, { amp: 2.5 });
+  // ---------- table with moon cakes (bottom right) and family (bottom left-center)
+  var TX = 880, TY = 584;
+  ln([[TX, TY], [TX + 350, TY - 3]], INK, 8, 2.8, .3, { amp: 1.5 });
+  ln([[TX + 30, TY + 3], [TX + 24, TY + 70]], INK, 8, 2.9, .16, { amp: 1 }); ln([[TX + 320, TY], [TX + 326, TY + 70]], INK, 8, 2.94, .16, { amp: 1 });
+  [[TX + 90, 0], [TX + 170, 0], [TX + 250, 0]].forEach(function (c, i) {
+    var cx = c[0], cy = TY - 30;
+    circ(cx, cy, 31, "#f0b86e", INK, 5, 3.05 + i * .17, .3, { amp: 1.2 });
+    ln([[cx - 14, cy], [cx + 14, cy]], INK, 3.5, 3.3 + i * .17, .1, { amp: .4 }); ln([[cx, cy - 14], [cx, cy + 14]], INK, 3.5, 3.34 + i * .17, .1, { amp: .4 });
+  });
+  // family: four figures holding hands
+  var figs = [[560, 0.9], [630, 0.66], [698, 0.7], [768, 0.94]];
+  figs.forEach(function (f, i) {
+    var x = f[0], k = f[1], base = 662 - (i % 2 ? 6 : 0), t = 3.2 + i * .2;
+    var head = [x, base - 120 * k - 24 * k];
+    var body = blob([[x - 22 * k, base], [x - 14 * k, base - 90 * k], [x + 14 * k, base - 90 * k], [x + 22 * k, base]], [RED, YEL, PINK, GRN][i], INK, 5, t, .3, { amp: 1.2 });
+    circ(head[0], head[1], 28 * k, "#f6c9a0", INK, 5, t + .1, .26, { amp: 1 });
+    ln(arc(head[0], head[1] + 4 * k, 12 * k, 8 * k, 20, 160, 5), INK, 3.5, t + .26, .1, { amp: .3 });
+  });
+  // hands connecting arms
+  ln([[574, 586], [618, 610]], INK, 5, 3.9, .15, { amp: .6 }); ln([[642, 612], [686, 606]], INK, 5, 3.95, .15, { amp: .6 }); ln([[710, 606], [754, 584]], INK, 5, 4.0, .15, { amp: .6 });
+  // heart over the family
+  var hx = 662, hy = 470;
+  var heart = blob([[hx, hy + 30], [hx - 34, hy - 6], [hx - 22, hy - 30], [hx, hy - 12], [hx + 22, hy - 30], [hx + 34, hy - 6]], RED, INK, 5, 4.05, .3, { amp: .8 });
+  tl.fromTo(heart, { y: 26 }, { y: 0, duration: .45, ease: "back.out(2)" }, 4.05);
+  // daisies
+  [[110, 640], [440, 628], [860, 624], [1210, 628]].forEach(function (d, i) {
+    var t = 2.9 + i * .1, x = d[0], y = d[1];
+    ln([[x, y], [x + 2, y + 34]], GRN, 5, t, .15, { amp: .5 });
+    for (var a = 0; a < 6; a++) { var an = a * 60 * Math.PI / 180; circ(x + Math.cos(an) * 14, y + Math.sin(an) * 14, 8, CREAM, INK, 2.5, t + .1 + a * .02, .1, { amp: .3, ox: 0 }); }
+    circ(x, y, 7, YEL, INK, 2.5, t + .25, .1, { amp: .3, ox: 0 });
+  });
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

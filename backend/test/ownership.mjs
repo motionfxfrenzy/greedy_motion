@@ -2,13 +2,14 @@
 // locally generated signing key, then checks that user B cannot see or touch user A's data.
 // Run: node --env-file=.env test/ownership.mjs   (needs DATABASE_URL; creates no render jobs)
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import pg from "pg";
+import { createHash } from "node:crypto";
 import sharp from "sharp";
 
 const { publicKey, privateKey } = await generateKeyPair("ES256");
@@ -69,7 +70,7 @@ test("alice sees her project, bob sees only his own", async () => {
   assert.deepEqual(his, ["Forged"]);
 });
 test("bob gets 404 on alice's project for read, write, delete-style routes", async () => {
-  for (const [method, path, body] of [["GET", `/v1/projects/${project.id}`], ["PUT", `/v1/projects/${project.id}`, { name: "pwned" }], ["PUT", `/v1/projects/${project.id}/approve`], ["POST", `/v1/projects/${project.id}/script`], ["POST", `/v1/projects/${project.id}/render`], ["POST", `/v1/projects/${project.id}/comments`, { text: "x" }], ["GET", `/v1/projects/${project.id}/composition`], ["PATCH", `/v1/projects/${project.id}/studio`, { values: {} }]]) {
+  for (const [method, path, body] of [["GET", `/v1/projects/${project.id}`], ["PUT", `/v1/projects/${project.id}`, { name: "pwned" }], ["PUT", `/v1/projects/${project.id}/approve`], ["POST", `/v1/projects/${project.id}/script`], ["POST", `/v1/projects/${project.id}/render`], ["POST", `/v1/projects/${project.id}/comments`, { text: "x" }], ["GET", `/v1/projects/${project.id}/visuals`], ["POST", `/v1/projects/${project.id}/visuals`, { budgetUsd: 25 }], ["GET", `/v1/projects/${project.id}/composition`], ["PATCH", `/v1/projects/${project.id}/studio`, { values: {} }]]) {
     assert.equal((await call(bob, method, path, body)).status, 404, `${method} ${path}`);
   }
   assert.equal((await call(alice, "GET", `/v1/projects/${project.id}`)).body.name, "Alice project");
@@ -130,6 +131,19 @@ test("media links: only the owner's media token opens a screenshot or staged log
   assert.equal(await raw(`/v1/brands/assets/${assetId}/preview?t=${bobMedia}`), 404);
   const steal = await call(bob, "POST", "/v1/brands", { name: "Bob brand", logoAssetId: assetId, colors: { primary: "#635BFF" }, fonts: { heading: { source: "bundled", family: "Inter" }, body: { source: "bundled", family: "Inter" } } });
   assert.notEqual(steal.status, 201, "bob must not build a kit from alice's staged logo");
+});
+test("material media: ownership, exact ranges, missing and corrupt assets", async () => {
+  const bytes=Buffer.from('synthetic material media bytes'),hash=createHash('sha256').update(bytes).digest('hex'),file=hash+'.mp4';
+  const dir=join(data,'projects',project.id,'visuals');await mkdir(dir,{recursive:true});await writeFile(join(dir,file),bytes);
+  await db.query("update app.projects set data=jsonb_set(data, '{planVisuals}', $2::jsonb) where id=$1",[project.id,JSON.stringify({styleKey:{file,sha256:hash,mime:'video/mp4'},shots:{}})]);
+  const aliceMedia=await mediaTokenFor(alice),bobMedia=await mediaTokenFor(bob),path=`/v1/preview/plans/${project.id}/visuals/${file}`;
+  assert.equal(await raw(path),401);assert.equal(await raw(path+'?t='+bobMedia),404);
+  for(const [range,start,end] of [['bytes=0-3',0,4],['bytes=5-',5,bytes.length],['bytes=-4',bytes.length-4,bytes.length]]) {
+    const response=await fetch(api+path+'?t='+aliceMedia,{headers:{Range:range}});assert.equal(response.status,206);assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes.subarray(start,end));
+  }
+  assert.equal(await raw(path+'?t='+aliceMedia,{headers:{Range:'bytes=999-'}}),416);
+  assert.equal(await raw(path.replace(file,'0'.repeat(64)+'.mp4')+'?t='+aliceMedia),404);
+  await writeFile(join(dir,file),'corrupt');assert.equal(await raw(path+'?t='+aliceMedia),404);
 });
 test("render jobs: unknown id is 404 for everyone", async () => assert.equal((await call(bob, "GET", "/v1/render-jobs/00000000-0000-4000-8000-0000000000ff")).status, 404));
 

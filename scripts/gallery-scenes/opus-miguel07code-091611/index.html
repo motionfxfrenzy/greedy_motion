@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Series builds a shape</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f5f7ff; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f5f7ff; font-family: "Playfair Display", "Bodoni 72", serif; color: #0d1b4f; }
+  svg { position: absolute; inset: 0; }
+  .h { position: absolute; left: 140px; top: 52px; height: 110px; width: 1000px; overflow: hidden; }
+  .h span { position: absolute; left: 0; top: 0; font-size: 84px; font-weight: 400; letter-spacing: -0.02em; white-space: nowrap; }
+  .h em { color: #1f3fd1; font-style: italic; }
+  .lab { position: absolute; right: 70px; font-style: italic; font-size: 40px; color: #1f3fd1; opacity: 0; white-space: nowrap; }
+  .lab b { font-weight: 400; font-style: normal; color: #0d1b4f; font-size: 22px; letter-spacing: .24em; margin-right: 14px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+<div class="h">
+  <span id="h1">One wave. <em>Smooth.</em></span>
+  <span id="h2">Add <em>another.</em></span>
+  <span id="h3">And <em>another.</em></span>
+  <span id="h4">Now it's a <em>square.</em></span>
+</div>
+<div class="lab" id="l1" style="top:190px"><b>1</b>sin x</div>
+<div class="lab" id="l2" style="top:238px"><b>2</b>+ sin 3x</div>
+<div class="lab" id="l3" style="top:286px"><b>3</b>+ sin 5x</div>
+<div class="lab" id="l4" style="top:334px"><b>4+</b>and on</div>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  var INK = "#0d1b4f", CB = "#1f3fd1";
+  // cobalt hairline grid
+  var d = "", i;
+  for (i = 0; i <= 1280; i += 40) d += "M" + i + " 0V720";
+  for (i = 0; i <= 720; i += 40) d += "M0 " + i + "H1280";
+  el("path", { d: d, stroke: CB, "stroke-width": 0.6, opacity: 0.12, fill: "none" });
+  var X0 = 140, X1 = 1140, MID = 470, A = 140;
+  el("path", { d: "M" + X0 + " " + MID + "H" + X1, stroke: INK, "stroke-width": 0.8, opacity: 0.55 });
+  el("path", { d: "M" + X0 + " " + (MID - A - 40) + "V" + (MID + A + 40), stroke: INK, "stroke-width": 0.8, opacity: 0.55 });
+  // target square (dashed)
+  var sq = "M" + X0 + " " + (MID - A);
+  for (i = 0; i < 2; i++) { var xa = X0 + i * 500; sq += "H" + (xa + 250) + "V" + (MID + A) + "H" + (xa + 500) + (i < 1 ? "V" + (MID - A) : ""); }
+  el("path", { d: sq, stroke: CB, "stroke-width": 1, "stroke-dasharray": "3 7", fill: "none", opacity: 0.8, id: "target" });
+  var comps = [], ks = [1, 3, 5, 7, 9];
+  ks.forEach(function (k, j) { comps.push(el("path", { fill: "none", stroke: CB, "stroke-width": 1, opacity: 0.0 })); });
+  var sum = el("path", { fill: "none", stroke: INK, "stroke-width": 2.6, "stroke-linejoin": "round", "stroke-linecap": "round" });
+  var dot = el("circle", { r: 6, fill: CB });
+  var P = { d: 0, w: [1, 0, 0, 0, 0], pulse: 0 };
+  function make(upto, fn) {
+    var p = "", n = 220, last;
+    for (var q = 0; q <= n; q++) { var f = q / n; if (f * 1 > upto) break; var x = X0 + f * (X1 - X0), th = f * 4 * Math.PI, v = fn(th); last = [x, MID - A * v]; p += (q ? "L" : "M") + x.toFixed(1) + " " + last[1].toFixed(1); }
+    return [p, last];
+  }
+  function render() {
+    var r = make(P.d, function (th) { var v = 0; ks.forEach(function (k, j) { v += P.w[j] * 4 / Math.PI * Math.sin(k * th) / k; }); return v; });
+    sum.setAttribute("d", r[0] || "M0 0");
+    dot.setAttribute("cx", r[1] ? r[1][0] : -20); dot.setAttribute("cy", r[1] ? r[1][1] : -20);
+    dot.setAttribute("opacity", P.d < 1 ? 1 : 0);
+    ks.forEach(function (k, j) {
+      var c = make(P.d, function (th) { return 4 / Math.PI * Math.sin(k * th) / k; });
+      comps[j].setAttribute("d", c[0] || "M0 0");
+      comps[j].setAttribute("opacity", j === 0 ? 0 : Math.min(1, P.w[j] * 1.4) * 0.55 * (1 - P.pulse * 0));
+      comps[j].setAttribute("transform", "translate(0 0)");
+    });
+  }
+  var tl = gsap.timeline({ paused: true });
+  tl.fromTo(P, { d: 0.02 }, { d: 1, duration: 1.0, ease: "power1.inOut" }, 0);
+  // wave additions: each in its own window, with its own heading and label
+  tl.to(P.w, { 1: 1, duration: 0.8, ease: "power2.inOut" }, 1.25);
+  tl.to(P.w, { 2: 1, duration: 0.8, ease: "power2.inOut" }, 2.2);
+  tl.to(P.w, { 3: 1, 4: 1, duration: 1.0, ease: "power2.inOut" }, 3.15);
+  // headline sequence
+  var H = ["#h1", "#h2", "#h3", "#h4"], T = [0, 1.15, 2.1, 3.1];
+  H.forEach(function (h, j) {
+    tl.fromTo(h, { yPercent: j ? 110 : 0 }, { yPercent: 0, duration: 0.45, ease: "power3.out" }, T[j]);
+    if (j < 3) tl.to(h, { yPercent: -110, duration: 0.3, ease: "power2.in" }, T[j + 1] - 0.3);
+  });
+  tl.set("#h1", { yPercent: 0 }, 0);
+  ["#l1", "#l2", "#l3", "#l4"].forEach(function (l, j) {
+    tl.fromTo(l, { opacity: 0, x: 24 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, j === 0 ? 0.2 : [0, 1.3, 2.25, 3.2][j]);
+  });
+  // target square fades in as the destination
+  tl.fromTo("#target", { opacity: 0 }, { opacity: 0.8, duration: 0.5 }, 0.0);
+  tl.fromTo(sum, { attr: { "stroke-width": 2.6 } }, { attr: { "stroke-width": 3.6 }, duration: 0.5, ease: "power2.out" }, 4.1);
+  tl.to(P, { pulse: 1, duration: 5, ease: "none", onUpdate: render }, 0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+  render();
+})();
+</script>
+</body>
+</html>

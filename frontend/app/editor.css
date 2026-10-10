@@ -410,6 +410,7 @@ body.ed-dragging, body.ed-dragging * { user-select: none !important; -webkit-use
 .ed-renderpop { position: absolute; right: 8px; top: 68px; z-index: 60; width: 380px; max-width: calc(100% - 16px); max-height: calc(100% - 90px); overflow: auto; padding: 16px; border-radius: 20px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); display: grid; gap: 8px; }
 .ed-ropts { display: grid; gap: 6px; }
 .ed-ropts button { display: grid; gap: 1px; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.ed-blur { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; } .ed-blur input { margin-top: 3px; } .ed-blur span { display: grid; gap: 1px; } .ed-blur i { font-style: normal; color: var(--body); font-size: 11.5px; } .ed-blur input:disabled + span { opacity: .6; }
 .ed-ropts button:hover { border-color: var(--b5); } .ed-ropts span { color: var(--body); font-size: 11.5px; }
 .ed-job { padding: 10px 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 6px; }
 .ed-job-h { display: flex; justify-content: space-between; } .ed-job-s { font-size: 11.5px; color: var(--body); } .ed-job-a { display: flex; gap: 8px; }

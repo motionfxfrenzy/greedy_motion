@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=720, height=720">
+<title>Typographic speech film</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 720px; height: 720px; overflow: hidden; background: #0f2a1e; }
+  #root { position: relative; width: 720px; height: 720px; overflow: hidden; background: #0f2a1e; }
+  svg { position: absolute; inset: 0; }
+  .ab { font-family: "Archivo Black", "Inter", sans-serif; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="720" data-height="720" data-fps="30">
+<svg id="s" width="720" height="720" viewBox="0 0 720 720">
+  <defs>
+    <clipPath id="above"><rect x="0" y="0" width="720" height="610"/></clipPath>
+    <clipPath id="below"><rect x="0" y="218" width="720" height="500"/></clipPath>
+  </defs>
+  <rect width="720" height="720" fill="#0f2a1e"/>
+  <g stroke="#cfe0c8" stroke-opacity=".07" stroke-width="1"><path id="g1" d=""/></g>
+  <!-- pillar: the word HOLD turned upright, rising out of the floor -->
+  <g clip-path="url(#above)"><g id="pillar"><g transform="translate(132 610) rotate(-90)"><text class="ab" x="0" y="0" font-size="124" fill="#f3ead2" textLength="392" lengthAdjust="spacingAndGlyphs">HOLD</text></g></g></g>
+  <!-- beam + hanging weight -->
+  <g id="beam">
+    <text class="ab" x="104" y="198" font-size="124" fill="#f3ead2" textLength="520" lengthAdjust="spacingAndGlyphs">TRUST</text>
+    <rect x="40" y="204" width="640" height="14" fill="#f3ead2"/>
+    <g clip-path="url(#below)"><g id="weight"><g id="wt">
+      <path d="M500 218 L388 336 M500 218 L612 336" stroke="#f3ead2" stroke-width="5" fill="none"/>
+      <text class="ab" x="500" y="414" font-size="92" fill="#f2a33a" text-anchor="middle" textLength="270" lengthAdjust="spacingAndGlyphs">WEIGHT</text></g>
+    </g></g>
+  </g>
+  <!-- floor -->
+  <g id="floor"><rect x="20" y="610" width="680" height="110" fill="#f3ead2"/>
+    <text class="ab" x="360" y="684" font-size="66" fill="#0f2a1e" text-anchor="middle" textLength="560" lengthAdjust="spacing">GROUND</text></g>
+  <!-- last line stands on the floor -->
+  <g clip-path="url(#above)"><g id="line"><text x="196" y="592" font-family="'Instrument Serif', serif" font-style="italic" font-size="84" fill="#f3ead2">we stand on <tspan fill="#f2a33a">it.</tspan></text></g></g>
+  <path id="ul" d="M552 603 C575 597 596 607 620 601" stroke="#f2a33a" stroke-width="7" fill="none" stroke-linecap="round"/>
+</svg>
+</div>
+<script>
+(function () {
+  var tl = gsap.timeline({ paused: true });
+  var ul = document.getElementById("ul"), L = ul.getTotalLength();
+  ul.style.strokeDasharray = L + " " + L; ul.style.strokeDashoffset = L;
+  // floor, pillar, beam: the frame assembles itself from the first frame
+  tl.fromTo("#floor", { y: 130 }, { y: 0, duration: .45, ease: "power3.out" }, 0);
+  tl.fromTo("#pillar", { y: 440 }, { y: 0, duration: .65, ease: "power3.out" }, .15);
+  tl.fromTo("#beam", { x: -760 }, { x: 0, duration: .7, ease: "power4.out" }, .75);
+  // the weight is lowered from the beam, the beam takes the load
+  tl.fromTo("#weight", { y: -340 }, { y: 0, duration: .5, ease: "power2.in" }, 1.5);
+  tl.to("#beam", { rotation: 1.4, svgOrigin: "104 210", duration: .14, ease: "power2.out" }, 2.0);
+  tl.fromTo("#wt", { rotation: 16, svgOrigin: "500 218" }, { rotation: 0, svgOrigin: "500 218", duration: 1.1, ease: "elastic.out(1,.35)" }, 2.0);
+  // the final line stands up out of the floor
+  tl.fromTo("#line", { y: 130 }, { y: 0, duration: .55, ease: "back.out(1.3)" }, 2.9);
+  tl.set(ul, { opacity: 0 }, 0); tl.set(ul, { opacity: 1 }, 3.55);
+  tl.to(ul, { strokeDashoffset: 0, duration: .35, ease: "power2.inOut" }, 3.55);
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+  tl.set({}, {}, 5);
+})();
+</script>
+</body>
+</html>

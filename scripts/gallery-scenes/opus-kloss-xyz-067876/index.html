@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Key moments timeline</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #faf8f3; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #faf8f3; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+var CFG = { paper: "#faf8f3", ink: "#141414", font: "Playfair Display, Bodoni Moda, serif", rough: null, seed: 3, bg: function () {
+  el("rect", { x: 24, y: 24, width: 1232, height: 672, fill: "none", stroke: "#141414", "stroke-width": 1, opacity: .5 });
+} };
+var INK = CFG.ink, ACC = "#d63a1f";
+var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) if (a[k] !== undefined) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+var R = rng(CFG.seed || 11);
+function wob(pts, amp, step) {
+  var out = [pts[0]], i, k;
+  for (i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+    for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+  }
+  var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+  for (i = 0; i < out.length - 1; i++) {
+    var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+    d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+  }
+  return d;
+}
+function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .05; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+function box(x, y, w, h) { return [[x - 5, y + 1], [x + w + 3, y - 1], [x + w + 1, y + h + 3], [x - 3, y + h - 1], [x + 1, y - 7]]; }
+function rbox(x, y, w, h, r) { return [[x + r, y], [x + w - r, y], [x + w, y + r], [x + w, y + h - r], [x + w - r, y + h], [x + r, y + h], [x, y + h - r], [x, y + r], [x + r, y]]; }
+function straight(pts) { return "M" + pts.map(function (p) { return p[0].toFixed(1) + " " + p[1].toFixed(1); }).join("L"); }
+var defs = el("defs", {});
+if (CFG.rough) {
+  var flt = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+  el("feTurbulence", { type: "fractalNoise", baseFrequency: CFG.rough[0], numOctaves: 2, seed: 8, result: "n" }, flt);
+  el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: CFG.rough[1] }, flt);
+}
+el("rect", { width: 1280, height: 720, fill: CFG.paper });
+if (CFG.bg) CFG.bg();
+var art = el("g", CFG.rough ? { filter: "url(#rough)" } : {});
+var tl = gsap.timeline({ paused: true });
+function stroke(pts, color, w, t, dur, o) {
+  o = o || {}; var P = o.p || art, paths = [];
+  var amp = o.amp == null ? 2 : o.amp;
+  var d = o.raw ? pts : (o.straight ? straight(pts) : wob(pts, amp, 34));
+  var passes = (o.single || o.straight) ? [[w, 1, d]] : [[w, 1, d], [w * .5, .7, wob(pts, amp * 1.2, 30)]];
+  passes.forEach(function (p, i) {
+    var path = el("path", { d: p[2], fill: "none", stroke: color, "stroke-width": p[0], "stroke-linecap": o.cap || "round", "stroke-linejoin": "round", opacity: p[1] }, P);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30);
+    path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur * (i ? 1.12 : 1), ease: o.ease || "power1.inOut" }, t + (i ? .05 : 0));
+    paths.push(path);
+  });
+  return paths;
+}
+// closed shape: marker fill (misregistered) + outline drawn on
+function shape(pts, o) {
+  var P = o.p || art, amp = o.amp == null ? 1.6 : o.amp, d = wob(pts, amp, 34), fe = null;
+  if (o.fill) {
+    fe = el("path", { d: d + "Z", fill: o.fill, stroke: o.fill, "stroke-width": 3, "stroke-linejoin": "round", opacity: 0, transform: "translate(" + (o.dx == null ? 4 : o.dx) + " " + (o.dy == null ? 3 : o.dy) + ")" }, P);
+    tl.to(fe, { opacity: o.fo == null ? 1 : o.fo, duration: .25 }, o.t + o.dur * .55);
+  }
+  var out = stroke(d, o.stroke || CFG.ink, o.w || 5, o.t, o.dur, { raw: true, p: P, single: true, ease: o.ease });
+  return { fill: fe, line: out[0] };
+}
+var cid = 0;
+function write(str, x, y, size, color, t, dur, o) {
+  o = o || {};
+  var g = el("g", o.rot ? { transform: "rotate(" + o.rot + " " + x + " " + y + ")" } : {}, o.p || art);
+  var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": o.weight || 600, fill: color, "text-anchor": o.anchor || "start", "font-family": o.font || CFG.font, "font-style": o.italic ? "italic" : "normal", "letter-spacing": o.ls }, g);
+  tx.textContent = str;
+  var bb = tx.getBBox(), id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+  var rc = el("rect", { x: bb.x - 8, y: bb.y - 8, width: 0, height: bb.height + 16 }, cp);
+  tx.setAttribute("clip-path", "url(#" + id + ")");
+  tl.to(rc, { attr: { width: bb.width + 20 }, duration: dur, ease: "none" }, t);
+  return { g: g, w: bb.width, bb: bb };
+}
+function pop(node, cx, cy, t, dur, from) {
+  tl.fromTo(node, { scale: from || 0, svgOrigin: cx + " " + cy, opacity: 0 }, { scale: 1, opacity: 1, duration: dur || .35, ease: "back.out(2.2)", immediateRender: true }, t);
+}
+function grp(attrs, P) { return el("g", attrs || {}, P || art); }
+function L(pts, c, w, t, dur, o, p) { return stroke(pts, c || INK, w || 2, t, dur || .4, Object.assign({ straight: true, p: p, cap: "butt" }, o || {})); }
+function circ(cx, cy, r, n) { var a = []; n = n || 56; for (var i = 0; i <= n; i++) a.push([cx + Math.cos(i / n * 6.2832) * r, cy + Math.sin(i / n * 6.2832) * r]); return a; }
+function txt(str, x, y, size, color, t, o) {
+  o = o || {};
+  var e = el("text", { x: x, y: y, "font-size": size, fill: color, "text-anchor": o.anchor || "middle", "font-family": o.font || CFG.font, "font-style": o.italic ? "italic" : "normal", "font-weight": o.weight || 400, "letter-spacing": o.ls }, o.p || art);
+  e.textContent = str;
+  tl.fromTo(e, { opacity: 0, y: o.dy == null ? 22 : o.dy }, { opacity: 1, y: 0, duration: o.dur || .5, ease: "power3.out" }, t);
+  return e;
+}
+txt("Computing, in five moments", 60, 100, 54, INK, .05, { anchor: "start", italic: true });
+L([[60, 124], [420, 124]], ACC, 2, .1, .5);
+var Y = 392, X = [190, 420, 650, 880, 1110], TT = [.75, 1.6, 2.35, 2.95, 3.5], yrs = ["1947", "1971", "1991", "2007", "?"];
+var labs = ["Transistor", "Microchip", "The Web", "Smartphone", "What next?"];
+// the line, drawn in stretches that get shorter in time (pace quickens)
+var prev = 60, pt = 0;
+for (var i = 0; i < 5; i++) { L([[prev, Y], [X[i], Y]], INK, 2.5, pt, TT[i] - pt - .05, { ease: i ? "power2.out" : "power2.in" }); prev = X[i]; pt = TT[i] - .05; }
+L([[1110, Y], [1236, Y]], ACC, 2.5, 3.5, .5, { ease: "power2.out" });
+L([[1214, Y - 14], [1238, Y], [1214, Y + 14]], ACC, 2.5, 3.85, .2);
+for (i = 0; i < 5; i++) {
+  var x = X[i], t = TT[i] - .1, up = i % 2 === 0, last = i === 4, col = last ? ACC : INK;
+  var dot = el("circle", { cx: x, cy: Y, r: 11, fill: CFG.paper, stroke: last ? ACC : INK, "stroke-width": 2.5 }, art);
+  tl.fromTo(dot, { scale: 0, svgOrigin: x + " " + Y }, { scale: 1, duration: .35, ease: "back.out(2.5)" }, t);
+  var core = el("circle", { cx: x, cy: Y, r: 4, fill: ACC }, art);
+  tl.fromTo(core, { scale: 0, svgOrigin: x + " " + Y }, { scale: 1, duration: .3, ease: "back.out(2.5)" }, t + .1);
+  // stem + icon on one side, year + label on the other
+  var iy = up ? 250 : 540, yy = up ? 520 : 290;
+  L([[x, Y + (up ? -14 : 14)], [x, up ? 318 : 466]], INK, 1.5, t + .1, .3);
+  if (up) L([[x, Y + 14], [x, 436]], INK, 1.5, t + .1, .3);
+  if (!last) txt(yrs[i], x, up ? yy + 20 : yy + 20, last ? 100 : 80, last ? ACC : INK, t + .2, { weight: last ? 500 : 400, italic: last });
+  txt(labs[i], x, up ? yy + 62 : yy + 62, 28, INK, t + .35, { italic: true, weight: 400 });
+  var g = grp({ transform: "translate(" + x + " " + iy + ")" }), q = t + .15;
+  if (i === 0) { // transistor
+    L(circ(0, -6, 40), INK, 3, q, .6, {}, g); L(circ(0, -6, 18), ACC, 2, q + .2, .4, {}, g);
+    [-18, 0, 18].forEach(function (d, k) { L([[d, 30], [d, 66]], INK, 3, q + .3 + k * .06, .25, {}, g); });
+  } else if (i === 1) { // chip
+    L([[-34, -34], [34, -34], [34, 34], [-34, 34], [-34, -34]], INK, 3, q, .6, {}, g);
+    L([[-16, -16], [16, -16], [16, 16], [-16, 16], [-16, -16]], ACC, 2, q + .25, .4, {}, g);
+    [-18, 0, 18].forEach(function (d, k) { L([[d, -34], [d, -52]], INK, 2, q + .3 + k * .05, .2, {}, g); L([[d, 34], [d, 52]], INK, 2, q + .35 + k * .05, .2, {}, g); L([[-34, d], [-52, d]], INK, 2, q + .4 + k * .05, .2, {}, g); L([[34, d], [52, d]], INK, 2, q + .45 + k * .05, .2, {}, g); });
+  } else if (i === 2) { // globe
+    L(circ(0, 0, 44), INK, 3, q, .6, {}, g);
+    var el2 = []; for (var k = 0; k <= 40; k++) el2.push([Math.cos(k / 40 * 6.2832) * 18, Math.sin(k / 40 * 6.2832) * 44]);
+    L(el2, ACC, 2, q + .2, .5, {}, g); L([[-44, 0], [44, 0]], INK, 1.5, q + .3, .3, {}, g);
+    L([[-38, -22], [38, -22]], INK, 1.5, q + .35, .3, {}, g); L([[-38, 22], [38, 22]], INK, 1.5, q + .4, .3, {}, g);
+  } else if (i === 3) { // phone
+    L(rbox(-26, -46, 52, 92, 9), INK, 3, q, .6, {}, g);
+    L([[-17, -34], [17, -34], [17, 26], [-17, 26], [-17, -34]], ACC, 1.8, q + .25, .4, {}, g);
+    L(circ(0, 36, 4, 20), INK, 2, q + .5, .2, {}, g);
+  } else { // question mark replaces icon
+    txt("?", x, iy + 70, 190, ACC, t + .15, { weight: 400, italic: true });
+  }
+}
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+  tl.set({}, {}, 5);
+})();
+</script>
+</body>
+</html>

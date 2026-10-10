@@ -1,0 +1,16 @@
+{
+  "id": "pubsub-queue",
+  "name": "Pub/Sub Queue Explainer",
+  "group": "Tech",
+  "summary": "Publishers drop messages in a queue and each message fans out to three subscribers that light up in turn.",
+  "bestFor": "Explaining message queues and publish-subscribe systems",
+  "prompt": "Explain how publish and subscribe messaging works. Publishers send messages into a queue without knowing who will read them. The queue holds each message, then fans it out so every subscriber receives its own copy. Explain why this keeps the sending and receiving sides independent of each other.",
+  "look": "clean",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "snappy",
+  "pace": "balanced",
+  "audio": "both",
+  "poster": 3.0
+}

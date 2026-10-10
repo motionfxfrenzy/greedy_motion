@@ -48,7 +48,8 @@ export async function startRemoteRender(kind: string): Promise<void> {
   if (remote.status === "conflict") return s.say("This project changed somewhere else. Reload before rendering.");
   if (!(await activeAutosave()?.flush())) return s.say("Your latest edit is not saved yet, so the render would miss it. Try again in a moment.");
   try {
-    const job = await renderPro(remote.projectId, quality);
+    // Motion blur is chosen in the render popover and only ever rides a final render; previews stay fast.
+    const job = await renderPro(remote.projectId, quality, { motionBlur: quality === "final" && s.motionBlur });
     const entry: Job = { id: job.id, kind, pct: 0, state: "queued", rate: 0, frames: 0 };
     get().ui({ jobs: [entry, ...get().jobs].slice(0, 12), renderOpen: true, engine: "rendering" });
     get().say(`${kind} queued.`);

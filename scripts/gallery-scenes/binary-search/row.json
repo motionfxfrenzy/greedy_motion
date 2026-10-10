@@ -1,0 +1,16 @@
+{
+  "id": "binary-search",
+  "name": "Binary Search Explainer",
+  "group": "Math",
+  "summary": "A precise math-channel explainer: a highlighted range halves three times until the target number is found.",
+  "bestFor": "Teaching algorithms and why halving is fast",
+  "prompt": "Explain binary search with sixteen sorted number boxes. Ask for one target value, point at the middle box, and say whether the target is higher or lower. Dim the half that cannot contain it and let the highlighted range shrink. Repeat until one box is left and it lights up green. Close by contrasting the few steps taken with checking every box in turn.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 2.6
+}

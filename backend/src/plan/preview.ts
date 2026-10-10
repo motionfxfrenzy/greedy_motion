@@ -1,3 +1,5 @@
+import { visualVariables, withVisuals } from "./visual-composition.ts";
+import { verifyVisualAssets, requireCurrentPalette } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -65,6 +67,7 @@ export const brandNameFor = (project: VideoProject, brand: { name: string } | nu
 export async function planPreviewHtml(project: VideoProject): Promise<string> {
   const plan = project.beatPlan;
   if (!plan) throw new PreviewUnavailable("Generate the plan first.");
+  await verifyVisualAssets(project);
   const [templateHtml, bundledFonts] = await Promise.all([
     requiredText(join(config.templatesDir, ENGINE_TEMPLATE, "index.html"), "The beat-plan engine"),
     requiredText(join(config.fontsDir, "fonts.css"), "Bundled preview fonts")
@@ -72,6 +75,7 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
 
   // Brand kit or gallery theme: same rules as projectPreviewHtml (a kit owns the name and the logo).
   const look = await projectLook(project);
+  requireCurrentPalette(project, look.brand);
   const { brand, theme, themeCss } = look;
   const brandFonts = brand ? rewriteFontUrls(look.brandFontsCss, "brand-fonts", `${studioAssetBase}/brands/${brand.id}/fonts`) : "";
   const logo = brand && look.logo ? `${studioAssetBase}/brands/${brand.id}/logo` : null;
@@ -80,7 +84,7 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
   const timing = projectTiming(project)!;
   const screens = new Map(project.screenshots.map((shot) => [shot.id, shot]));
   const used = [...new Set(plan.beats.flatMap((beat) => (beat.ui && screens.has(beat.ui.screen) ? [beat.ui.screen] : [])))];
-  const variables = engineVariables({
+  const variables = { ...visualVariables(project), ...engineVariables({
     plan,
     timing,
     shots: Object.fromEntries(used.map((id) => [id, `${studioAssetBase}/projects/${project.id}/screenshots/${id}`])),
@@ -89,7 +93,7 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
     logo,
     logoWordmark,
     look: project.brief?.look
-  });
+  }) };
 
   // Bootstrap: the runtime and GSAP replace the template's vendor line; the editable text block
   // follows and is merged into window.__hfVariables before the engine builds the timeline.
@@ -115,6 +119,7 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
     mode: audioMode(project)
   });
   html = withSoundtrack(html, tracks);
+  html = withVisuals(html, project, timing, file => `${studioAssetBase}/plans/${project.id}/visuals/${file}`);
   const fontCss = rewriteFontUrls(bundledFonts, "fonts", `${studioAssetBase}/fonts`);
   return html.replace(
     "</head>",

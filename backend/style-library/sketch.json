@@ -1,0 +1,37 @@
+{
+  "id": "sketch",
+  "name": "Sketch",
+  "group": "Drawn",
+  "description": "Hand-drawn underlines and circles around the action.",
+  "libraries": [
+    "gsap",
+    "roughjs"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "sketch",
+  "renderMode": "native",
+  "preview": {
+    "src": "/previews/looks/sketch.png",
+    "kind": "image",
+    "label": "Rendered graphic treatment"
+  },
+  "source": "docs/CREATIVE_LIBRARY_PLAN.md",
+  "referenceAssets": [],
+  "instructions": {
+    "image": "Seeded hand-drawn ink annotations over real screenshots; imperfect double strokes.",
+    "motion": "Draw emphasis strokes after the keyword lands; circle the clicked target.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script"
+    ],
+    "acceptance": [
+      "Style remains visible in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme"
+    ]
+  },
+  "sourceSha256": "9e7967cee17413657e8f39b24b028b8e4a14206babb3f1d70e3633919dc3972b"
+}

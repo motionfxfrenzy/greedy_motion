@@ -1,5 +1,5 @@
 import { anthropicMessage, responseText } from "../anthropic.ts";
-import { seekWarnings } from "./seek-warnings.ts";
+import { craftWarnings, seekWarnings } from "./seek-warnings.ts";
 import { createHash } from "node:crypto";
 import { lintHyperframeHtml } from "@hyperframes/lint";
 import { config } from "../config.ts";
@@ -49,7 +49,7 @@ export async function proposeCompositionEdit(task: string, target: string, html:
   const next=applySourceEdits(html,parsed.edits);
   const lint=await lintHyperframeHtml(next,{filePath:"index.html",host:"studio"});
   if(lint.errorCount>0)throw new Error(`HyperFrames lint errors: ${lint.findings.filter(f => f.severity === "error").map(f => `${f.code}: ${f.message}${f.line ? ` (line ${f.line})` : ""}`).join("\n")}`);
-  return {summary:parsed.summary.slice(0,300),edits:parsed.edits,beforeHash:sourceHash(html),afterHash:sourceHash(next),stage:context.stage,skills:context.skills,bundleHash:context.bundleHash,attempts:attempt,warnings:seekWarnings(next)};
+  return {summary:parsed.summary.slice(0,300),edits:parsed.edits,beforeHash:sourceHash(html),afterHash:sourceHash(next),stage:context.stage,skills:context.skills,bundleHash:context.bundleHash,attempts:attempt,warnings:[...seekWarnings(next),...craftWarnings(next)]};
   } catch (error) {
     if (attempt === 3) throw error;
     messages.push({ role: "assistant", content: raw }, { role: "user", content: `The proposed edits failed validation: ${error instanceof Error ? error.message : String(error)}

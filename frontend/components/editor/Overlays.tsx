@@ -1,4 +1,5 @@
 "use client";
+import { motionBlurCopy, motionBlurProblem } from "@videosaas/contracts";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatShortcut } from "../../lib/editor/actions.ts";
 import { runCheck, startRender } from "../../lib/editor/commands.ts";
@@ -76,7 +77,8 @@ function Palette({ onClose }: { onClose: () => void }) {
 
 function RenderPopover() {
   const registry = useRegistry();
-  const { mode, jobs, renderOpen, canvas } = useEditorState();
+  const { mode, jobs, renderOpen, canvas, remote, motionBlur, duration } = useEditorState();
+  const blurProblem = motionBlurProblem(duration);
   const ui = useEditor((s) => s.ui);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -107,6 +109,7 @@ function RenderPopover() {
     <div className="ed-renderpop" ref={ref} role="dialog" aria-label="Render">
       <div className="ed-cap">Render</div>
       <div className="ed-ropts">{options.map(([id, label, sub]) => <button key={id} type="button" onClick={() => registry.run(id!)}><b>{label}</b><span>{sub}</span></button>)}</div>
+      {remote ? <label className="ed-blur" title={blurProblem ?? motionBlurCopy.help}><input type="checkbox" checked={motionBlur && !blurProblem} disabled={Boolean(blurProblem)} onChange={(e) => ui({ motionBlur: e.target.checked })} /><span><b>{motionBlurCopy.label}</b><i>{blurProblem ?? "Full render only. Previews stay fast."}</i></span></label> : null}
       {active.length ? <><div className="ed-cap">Queue</div>{active.map(job)}</> : null}
       {history.length ? <><div className="ed-cap">History</div>{history.map(job)}</> : null}
       {!jobs.length ? <p className="ed-note">Renders run in the background. You can keep editing.</p> : null}

@@ -2,9 +2,10 @@
 
 import { useState, type ReactNode } from "react";
 import type { BrandExtraction, BrandKit, SiteCapture } from "@videosaas/contracts";
-import { aspects, beatCountRange, DEFAULT_LOOK, looks, DURATION_MAX, DURATION_MIN, durationPresets, OWN_SCRIPT_MAX, parseScriptBrief, PROBLEM_TEXT_MAX, voices, wordBudget, type Aspect, type AudioMode, type CaptionMode, type LookId, type MotionProfile, type Pace, type ScriptBrief } from "@videosaas/contracts";
+import { aspects, beatCountRange, DEFAULT_LOOK, DURATION_MAX, DURATION_MIN, durationPresets, OWN_SCRIPT_MAX, parseScriptBrief, PROBLEM_TEXT_MAX, voices, wordBudget, type Aspect, type AudioMode, type CaptionMode, type MotionProfile, type Pace, type ScriptBrief } from "@videosaas/contracts";
 import { BrandKitField } from "./brand-kit";
 import { ThemePicker } from "./theme-picker";
+import { StylePicker } from "./style-picker";
 
 export const defaultBrief: ScriptBrief = {
   scriptMode: "problem",
@@ -19,8 +20,6 @@ export const defaultBrief: ScriptBrief = {
   theme: "neutral"
 };
 
-// Drawing style on top of the brand; colours and fonts always stay the brand kit's (contracts looks.ts).
-const lookOptions: { id: LookId; label: string; hint: string }[] = looks.filter((look) => look.available).map((look) => ({ id: look.id, label: look.name, hint: look.description }));
 
 const motionOptions: { id: MotionProfile; label: string; hint: string }[] = [
   { id: "snappy", label: "Snappy", hint: "Quick cuts, crisp stops" },
@@ -114,7 +113,7 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
           <div className="ss-look">
             <div className="ss-field"><b>Brand kit</b><BrandKitField value={brief.brandId} found={siteInUse && !site.savedBrand ? site.brand : null} suggested={siteInUse ? site.savedBrand : null} source={siteInUse ? readHost : null} fromSite={Boolean(site.autoKit && site.savedBrand && brief.brandId === site.savedBrand.id)} onChange={(kit) => update({ brandId: kit?.id })} /><small className="ss-note">Saved kit, website import (paste a URL), or colours and a logo.</small></div>
             <div className={brief.brandId ? "ss-field muted" : "ss-field"}><b>Theme</b><ThemePicker value={brief.theme ?? "neutral"} disabled={Boolean(brief.brandId)} onChange={(theme) => update({ theme })} /></div>
-            <div className="ss-field"><b>Drawing style</b><Segmented label="Drawing style" value={brief.look ?? DEFAULT_LOOK} options={lookOptions} onChange={(look) => update({ look })} /></div>
+            <StylePicker value={brief.look ?? DEFAULT_LOOK} onChange={(look) => update({ look })} />
           </div>
         </section>
 

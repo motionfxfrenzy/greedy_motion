@@ -1,0 +1,17 @@
+{
+  "id": "whiteboard-concept-explainer",
+  "name": "Whiteboard Concept Explainer",
+  "group": "Whiteboard",
+  "summary": "A hand draws a magnifier over a question mark, an arrow to a lightbulb, then underlines Why?",
+  "bestFor": "Explaining one idea from scratch to a non-expert audience",
+  "prompt": "Explain one concept from scratch to someone who has never heard of it. On a whiteboard a hand draws a magnifying glass over a question mark, then an arrow to a lightbulb to show the moment it clicks, then writes the word Why and underlines it. Narrate in a warm, curious voice and keep the language simple.",
+  "look": "sketch",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 4.0,
+  "source": { "label": "Remade from @tak3sh8", "url": "https://x.com/tak3sh8/status/2103667481139441895" }
+}

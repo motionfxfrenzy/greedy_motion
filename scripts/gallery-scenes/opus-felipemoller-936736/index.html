@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=720, height=1280">
+<title>Everyday spending reel</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 720px; height: 1280px; overflow: hidden; background: #0a2a6e; }
+  #root { position: relative; width: 720px; height: 1280px; overflow: hidden; background: #0a2a6e; font-family: "Inter", "Helvetica Neue", Arial, sans-serif; }
+  svg { position: absolute; inset: 0; }
+  text { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="720" data-height="1280" data-fps="30">
+<svg id="s" width="720" height="1280" viewBox="0 0 720 1280"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function T(str, x, y, size, w, fill, p, anchor) { var t = el("text", { x: x, y: y, "font-size": size, "font-weight": w, fill: fill, "text-anchor": anchor || "start", "letter-spacing": size > 100 ? "-0.04em" : "-0.01em" }, p); t.textContent = str; return t; }
+  var tl = gsap.timeline({ paused: true });
+  var defs = el("defs", {});
+  var g1 = el("linearGradient", { id: "bg", x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el("stop", { offset: 0, "stop-color": "#0d3a9c" }, g1); el("stop", { offset: 1, "stop-color": "#071c52" }, g1);
+  el("rect", { width: 720, height: 1280, fill: "url(#bg)" });
+  // drifting rings
+  var rings = el("g", {});
+  [[640, 120, 300], [60, 1100, 380]].forEach(function (c, i) { [0, 1, 2].forEach(function (k) { el("circle", { cx: c[0], cy: c[1], r: c[2] - k * 80, fill: "none", stroke: "#3b82f6", "stroke-width": 2, opacity: .28 - k * .06 }, rings); }); });
+  tl.fromTo(rings, { scale: 1, transformOrigin: "360px 640px" }, { scale: 1.12, duration: 5, ease: "none" }, 0);
+
+  // header
+  var hdr = el("g", {});
+  el("rect", { x: 48, y: 74, width: 150, height: 46, rx: 23, fill: "#1c57d6" }, hdr);
+  T("TODAY", 123, 106, 22, 700, "#cfe0ff", hdr, "middle");
+  var tot = T("$0.00", 48, 300, 168, 800, "#ffffff", hdr);
+  T("spent so far", 52, 350, 30, 500, "#8fb4f5", hdr);
+  tl.fromTo(hdr, { y: -30, opacity: 0 }, { y: 0, opacity: 1, duration: .4, ease: "power3.out" }, 0);
+
+  var stops = [
+    { t: .15, name: "Greenleaf", sub: "Groceries", amt: 54.20, icon: "basket", col: "#22c55e" },
+    { t: 1.3, name: "Pump & Go", sub: "Fuel", amt: 38.00, icon: "fuel", col: "#f59e0b" },
+    { t: 2.45, name: "Casa Lumo", sub: "Dinner", amt: 86.50, icon: "dinner", col: "#ec4899" }
+  ];
+  var sums = [0], run = 0;
+  var obj = { v: 0 };
+  function fmt(v) { return "$" + v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+  function icon(kind, g) {
+    var o = { fill: "none", stroke: "#fff", "stroke-width": 5, "stroke-linecap": "round", "stroke-linejoin": "round" };
+    if (kind === "basket") { el("path", { d: "M-22 -4 H22 L16 24 H-16 Z", ...o }, g); el("path", { d: "M-12 -4 L-6 -22 H6 L12 -4", ...o }, g); }
+    else if (kind === "fuel") { el("path", { d: "M-16 24 V-22 H8 V24 M-20 24 H12 M-16 -8 H8 M8 -12 L20 -2 V16 q0 6 6 6", ...o }, g); }
+    else { el("path", { d: "M-14 -24 V24 M-22 -24 V-6 q0 8 8 8 q8 0 8 -8 V-24", ...o }, g); el("path", { d: "M14 24 V-24 q-12 8 -12 26 H14", ...o }, g); }
+  }
+  stops.forEach(function (st, i) {
+    var y = 395 + i * 190;
+    var card = el("g", {});
+    el("rect", { x: 40, y: y + 8, width: 640, height: 164, rx: 34, fill: "#04123a", opacity: .45 }, card);
+    el("rect", { x: 40, y: y, width: 640, height: 164, rx: 34, fill: "#ffffff" }, card);
+    el("circle", { cx: 128, cy: y + 82, r: 46, fill: st.col }, card);
+    var ig = el("g", { transform: "translate(128 " + (y + 82) + ")" }, card); icon(st.icon, ig);
+    T(st.name, 198, y + 76, 36, 700, "#0b1f4d", card);
+    T(st.sub, 198, y + 118, 28, 500, "#6a7ba3", card);
+    T("$" + st.amt.toFixed(2), 646, y + 100, 44, 800, "#0b1f4d", card, "end");
+    // check badge
+    var badge = el("g", { transform: "translate(618 " + (y + 36) + ")" }, card), bp = el("g", {}, badge);
+    el("circle", { r: 20, fill: "#16a34a" }, bp); var ck = el("path", { d: "M-9 1 L-3 8 L10 -7", fill: "none", stroke: "#fff", "stroke-width": 5, "stroke-linecap": "round", "stroke-linejoin": "round" }, bp);
+    var L = ck.getTotalLength(); ck.style.strokeDasharray = L; ck.style.strokeDashoffset = L;
+    // ripple
+    var rp = el("circle", { cx: 128, cy: y + 82, r: 46, fill: "none", stroke: st.col, "stroke-width": 4, opacity: 0 }, card);
+    tl.fromTo(card, { x: 780, rotation: 4, transformOrigin: "40px " + (y + 80) + "px" }, { x: 0, rotation: 0, duration: .6, ease: "expo.out" }, st.t);
+    tl.fromTo(rp, { attr: { r: 46 }, opacity: .9 }, { attr: { r: 98 }, opacity: 0, duration: .55, ease: "power2.out" }, st.t + .35);
+    tl.fromTo(bp, { scale: 0, transformOrigin: "0px 0px" }, { scale: 1, duration: .35, ease: "back.out(3)" }, st.t + .55);
+    tl.to(ck, { strokeDashoffset: 0, duration: .25, ease: "power2.out" }, st.t + .6);
+    run += st.amt;
+    tl.to(obj, { v: run, duration: .55, ease: "power2.out", onUpdate: function () { tot.textContent = fmt(obj.v); } }, st.t + .55);
+    tl.fromTo(tot, { scale: 1.06, transformOrigin: "48px 300px" }, { scale: 1, duration: .3, ease: "power2.out" }, st.t + .55);
+  });
+  // closing: app name + download pill
+  var cl = el("g", {});
+  T("Kiteline", 360, 1062, 112, 800, "#ffffff", cl, "middle");
+  var pill = el("g", {}, cl);
+  el("rect", { x: 160, y: 1112, width: 400, height: 84, rx: 42, fill: "#ffffff" }, pill);
+  T("Download free", 360, 1166, 36, 700, "#0d3a9c", pill, "middle");
+  tl.fromTo(cl, { y: 70, opacity: 0 }, { y: 0, opacity: 1, duration: .55, ease: "power3.out" }, 3.75);
+  tl.fromTo(pill, { scale: .6, transformOrigin: "360px 1154px" }, { scale: 1, duration: .45, ease: "back.out(2.5)" }, 4.0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

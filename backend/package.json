@@ -20,6 +20,7 @@
     "test:visuals": "node --test test/visuals.mjs && node test/rough-seeds.mjs",
     "test:visuals-db": "node test/visuals-db.mjs",
     "test:cloud-skills": "node test/cloud-skills.mjs",
+    "test:script-rules": "node test/script-rules.mjs",
     "test:worker-launcher": "node test/worker-launcher.mjs",
     "test:entitlements-eval": "node test/entitlements-eval.mjs",
     "test:entitlements": "node --env-file-if-exists=.env test/entitlements.mjs",

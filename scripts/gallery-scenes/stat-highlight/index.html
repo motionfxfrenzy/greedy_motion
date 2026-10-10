@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Stat highlight</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#04110b}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:radial-gradient(ellipse at 30% 50%,#0b2a1a 0%,#05150d 55%,#020805 100%);color:#e9fbd8;font-family:'Space Grotesk',sans-serif}
+svg{position:absolute;left:0;top:0}
+#num{position:absolute;left:380px;top:360px;transform:translate(-50%,-50%);display:flex;align-items:flex-end;font-family:'Archivo Black',sans-serif;color:#c6ff2e}
+.win{width:150px;height:210px;overflow:hidden;position:relative}
+.strip{position:absolute;left:0;top:0;width:100%}
+.strip div{height:210px;line-height:210px;font-size:210px;text-align:center}
+#pct{font-size:100px;line-height:100px;margin:0 0 22px 6px;color:#e9fbd8}
+#setup{position:absolute;left:760px;top:130px;font-weight:700;font-size:26px;letter-spacing:7px;color:#7fae8c;text-transform:uppercase;line-height:1.4}
+#cap{position:absolute;left:760px;top:230px;width:460px;font-weight:700;font-size:62px;line-height:1.08;letter-spacing:-1px;min-height:140px}
+#caret{display:inline-block;width:6px;height:52px;background:#c6ff2e;vertical-align:-6px;margin-left:4px}
+#barwrap{position:absolute;left:760px;top:440px;width:440px;height:60px}
+#src{position:absolute;left:760px;top:540px;font-size:20px;letter-spacing:3px;color:#6f9a7c;text-transform:uppercase}
+#src b{display:inline-block;width:28px;height:3px;background:#c6ff2e;vertical-align:middle;margin-right:12px}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="bg" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+<div id="num"><div class="win"><div class="strip" id="s1"></div></div><div class="win"><div class="strip" id="s2"></div></div><div id="pct">%</div></div>
+<div id="setup">Launch videos<br>by the numbers</div>
+<div id="cap"><span id="ct"></span><span id="caret"></span></div>
+<svg id="bar" style="left:760px;top:440px" width="440" height="60" viewBox="0 0 440 60"></svg>
+<div id="src"><b></b>Customer survey</div>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+function mk(p,t,a){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p.appendChild(e);return e}
+let seed=7;function rnd(){seed=(seed*16807)%2147483647;return seed/2147483647}
+const bg=document.getElementById("bg"),CX=380,CY=360,R=270,C=2*Math.PI*R,V=0.72;
+// ambient dots
+const amb=[];
+for(let i=0;i<40;i++){const d=mk(bg,"circle",{cx:rnd()*1280,cy:rnd()*720,r:1+rnd()*2.2,fill:"#7fae8c",opacity:.12+rnd()*.25});amb.push({d,dy:-(20+rnd()*40)})}
+// ticks
+const ticks=[];
+for(let i=0;i<60;i++){const a=i/60*Math.PI*2-Math.PI/2,long=i%5==0,r1=R+22,r2=R+(long?44:32);
+ ticks.push({a:i/60,e:mk(bg,"line",{x1:CX+Math.cos(a)*r1,y1:CY+Math.sin(a)*r1,x2:CX+Math.cos(a)*r2,y2:CY+Math.sin(a)*r2,stroke:"#2c5a40","stroke-width":long?3:2,"stroke-linecap":"round"})})}
+mk(bg,"circle",{cx:CX,cy:CY,r:R,fill:"none",stroke:"#143a27","stroke-width":10});
+const arc=mk(bg,"circle",{cx:CX,cy:CY,r:R,fill:"none",stroke:"#c6ff2e","stroke-width":10,"stroke-linecap":"round","stroke-dasharray":C,"stroke-dashoffset":C,transform:`rotate(-90 ${CX} ${CY})`});
+const head=mk(bg,"circle",{cx:CX,cy:CY-R,r:12,fill:"#c6ff2e"});
+const halo=mk(bg,"circle",{cx:CX,cy:CY-R,r:12,fill:"none",stroke:"#c6ff2e","stroke-width":3,opacity:0});
+// burst particles at ring head end
+const hAng=V*Math.PI*2-Math.PI/2,hx=CX+Math.cos(hAng)*R,hy=CY+Math.sin(hAng)*R;
+const parts=[];
+for(let i=0;i<22;i++){const a=hAng+(rnd()-.5)*2.4,dist=40+rnd()*90;
+ parts.push({e:mk(bg,"circle",{cx:hx,cy:hy,r:2+rnd()*3.5,fill:i%3?"#c6ff2e":"#e9fbd8",opacity:0}),x:Math.cos(a)*dist,y:Math.sin(a)*dist})}
+// horizontal bar with ticks
+const bar=document.getElementById("bar");
+for(let i=0;i<=10;i++)mk(bar,"line",{x1:4+i*43.2,y1:34,x2:4+i*43.2,y2:i%5==0?52:46,stroke:"#2c5a40","stroke-width":2});
+mk(bar,"rect",{x:0,y:8,width:440,height:14,rx:7,fill:"#143a27"});
+const fill=mk(bar,"rect",{x:0,y:8,width:0,height:14,rx:7,fill:"#c6ff2e"});
+// odometer strips
+function fillStrip(id,n){const s=document.getElementById(id);for(let i=0;i<n;i++){const d=document.createElement("div");d.textContent=i%10;s.appendChild(d)}}
+fillStrip("s1",30);fillStrip("s2",40);
+const H=210,tl=gsap.timeline({paused:true});
+const st={p:0};
+// count 0 -> 72 with easing, ring + bar + ticks follow
+tl.to(st,{p:1,duration:2.0,ease:"power3.out",onUpdate(){
+  const p=st.p;
+  arc.setAttribute("stroke-dashoffset",C*(1-V*p));
+  const ang=V*p*Math.PI*2-Math.PI/2;
+  head.setAttribute("cx",CX+Math.cos(ang)*R);head.setAttribute("cy",CY+Math.sin(ang)*R);
+  fill.setAttribute("width",440*V*p);
+  ticks.forEach(t=>t.e.setAttribute("stroke",t.a<=V*p+.001?"#c6ff2e":"#2c5a40"));
+}},0.3);
+// tens: 0->7 ; ones: 0 -> 32 (rolls three cycles, ends on 2)
+tl.fromTo("#s2",{y:0},{y:-H*32,duration:2.0,ease:"power3.out"},0.3);
+tl.fromTo("#s1",{y:0},{y:-H*7,duration:2.0,ease:"power3.out"},0.3);
+// slam at rest: overshoot of number block + ring halo
+tl.fromTo("#num",{scale:1.14},{scale:1,duration:.55,ease:"back.out(2.6)",transformOrigin:"50% 50%"},2.3);
+tl.fromTo("#s2",{y:-H*32.35},{y:-H*32,duration:.4,ease:"back.out(3)",immediateRender:false},2.3);
+tl.fromTo(halo,{attr:{r:12},opacity:.9},{attr:{r:46},opacity:0,duration:.7,ease:"power2.out"},2.3);
+parts.forEach(p=>{tl.fromTo(p.e,{attr:{cx:hx,cy:hy},opacity:1},{attr:{cx:hx+p.x,cy:hy+p.y},opacity:0,duration:.9,ease:"power3.out"},2.3)});
+// intro of static bits
+tl.fromTo("#setup",{opacity:0,y:14},{opacity:1,y:0,duration:.5,ease:"power3.out"},0);
+tl.fromTo("#num",{opacity:0},{opacity:1,duration:.25,ease:"none"},0);
+amb.forEach(a=>tl.to(a.d,{attr:{cy:"+="+a.dy},duration:5,ease:"none"},0));
+// caption types in
+const txt="less time on launch videos",ty={n:0},ct=document.getElementById("ct");
+tl.to(ty,{n:txt.length,duration:1.3,ease:"none",onUpdate(){ct.textContent=txt.slice(0,Math.round(ty.n))}},2.6);
+tl.fromTo("#caret",{opacity:1},{opacity:0,duration:.2},4.2);
+tl.fromTo("#src",{opacity:0,x:-12},{opacity:1,x:0,duration:.5,ease:"power3.out"},3.9);
+tl.set({},{},5);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

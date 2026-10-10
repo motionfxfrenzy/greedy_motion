@@ -67,6 +67,8 @@ export type EditorState = {
   frameStale: boolean;
   jobs: Job[];
   renderOpen: boolean;
+  /** Final-render option chosen in the render popover. Previews never use it. */
+  motionBlur: boolean;
   checks: CheckIssue[] | null;
   modal: Modal;
   theme: "light" | "dark";
@@ -127,7 +129,7 @@ const initial: EditorState = {
   leftTab: "layers", rightTab: "properties", spAll: false,
   snapOn: true, rippleOn: false, safeOn: false, rulersOn: false,
   pxPerSecond: 64, grpClosed: {},
-  engine: "ready", frameStale: false, jobs: [], renderOpen: false, checks: null,
+  engine: "ready", frameStale: false, jobs: [], renderOpen: false, motionBlur: false, checks: null,
   modal: null, theme: "light", menu: null, toast: null, agent: { state: "idle", q: "", open: false }
 };
 

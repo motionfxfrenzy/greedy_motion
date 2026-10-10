@@ -1,0 +1,16 @@
+{
+  "id": "git-branching",
+  "name": "Git Branching Explainer",
+  "group": "Tech",
+  "summary": "A branch splits off the main line, collects its own commits, then merges back with a merge commit.",
+  "bestFor": "Teaching branches and merges to new developers",
+  "prompt": "Explain how git branching works. Start with a main line of commits, then branch off to work on a feature without touching main. Show the branch collecting its own commits while main moves on. Finish by merging the branch back with a merge commit that joins both histories.",
+  "look": "clean",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "snappy",
+  "pace": "balanced",
+  "audio": "both",
+  "poster": 3.6
+}

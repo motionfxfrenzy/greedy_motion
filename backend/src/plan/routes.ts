@@ -1,3 +1,5 @@
+import { enqueueVisuals, visualStatus } from "./visuals.ts";
+import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -93,6 +95,30 @@ const audioType = (file: string) => (file.endsWith(".wav") ? "audio/wav" : "audi
 
 export async function registerPlanRoutes(app: FastifyInstance) {
   await registerSiteRoutes(app);
+  app.get<{ Params: { id: string } }>("/v1/projects/:id/visuals", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    const status = visualStatus(project);
+    try { await verifyVisualAssets(project); }
+    catch (error) { return { ...status, status: "failed", error: error instanceof Error ? error.message : "Material asset unavailable." }; }
+    return status;
+  });
+  app.post<{ Params: { id: string }; Body: { budgetUsd?: number } }>("/v1/projects/:id/visuals", async (request, reply) => {
+    try {
+      const project = await enqueueVisuals(request.params.id, Number(request.body?.budgetUsd));
+      return project ? reply.code(202).send(visualStatus(project)) : reply.code(404).send(notFound);
+    } catch (error) { return reply.code(409).send({ error: { code: "visual_generation", message: error instanceof Error ? error.message : "Generation unavailable." } }); }
+  });
+  app.get<{ Params: { id: string; file: string } }>("/v1/preview/plans/:id/visuals/:file", async (request, reply) => {
+    const { id, file } = request.params;
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !/^[0-9a-f]{64}\.(png|mp4)$/.test(file)) return reply.code(404).send(notFound);
+    const project = await getProject(id);
+    const assets = [project?.planVisuals?.styleKey, ...Object.values(project?.planVisuals?.shots ?? {}).flatMap(s => [s.clip, s.keyframe, s.assemblySheet, s.startFrame])];
+    const asset = assets.find(a => a?.file === file);
+    if (!asset) return reply.code(404).send(notFound);
+    const bytes = await readMedia(join(visualDir(id), file));
+    return bytes && digest(bytes) === asset.sha256 ? sendMedia(request, reply, bytes, file.endsWith(".mp4") ? "video/mp4" : "image/png") : reply.code(404).send(notFound);
+  });
   /** Script & Style → the director → beat plan, script and suggestions. */
   app.post<{ Params: { id: string } }>("/v1/projects/:id/plan", async (request, reply) => {
     const project = await getProject(request.params.id);
@@ -229,6 +255,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       beatTimes: Object.fromEntries(beats.map((beat) => [beat.id, times[beat.id]])),
       // The plan's sound: which lines have takes (the rest play silent on estimated timing) and the bed.
       audio: audioStatus(project),
+      visuals: visualStatus(project),
       // What Submit needs: blocking items (each with the beat to fix) and non-blocking notes (readiness.ts).
       readiness: planReadiness(project),
       slots: beats.flatMap((beat) => [

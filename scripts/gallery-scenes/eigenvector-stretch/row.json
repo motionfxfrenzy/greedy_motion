@@ -1,0 +1,16 @@
+{
+  "id": "eigenvector-stretch",
+  "name": "Eigenvectors Visual Explainer",
+  "group": "Math",
+  "summary": "A 3Blue1Brown-style grid transform where most arrows turn but two special ones only stretch along their line.",
+  "bestFor": "Linear algebra lessons and data science intros",
+  "prompt": "Explain eigenvectors visually. Show a flat coordinate grid with a handful of arrows, then apply a linear transformation and watch the grid shear and stretch. Point out that most arrows are knocked off their original line, while two special arrows stay on theirs and only change length. Name the stretch factors, write the equation A v equals lambda v, and say why these directions are useful for understanding the matrix.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 75,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 2.4
+}

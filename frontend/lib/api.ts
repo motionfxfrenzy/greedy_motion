@@ -1,5 +1,5 @@
 import { createClient } from "../utils/supabase/client";
-import type { BrandExtraction, BrandKit, BrandKitInput, ScriptBrief, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
+import type { BrandExtraction, BrandKit, BrandKitInput, GalleryPage, ScriptBrief, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
 
 // Public by design: the backend origin, e.g. https://api.<domain>. The frontend holds no secrets.
 const apiOrigin = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
@@ -9,7 +9,16 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
   const { data } = await createClient().auth.getSession();
   const headers = new Headers(init.headers);
   if (data.session) headers.set("Authorization", `Bearer ${data.session.access_token}`);
-  const response = await fetch(input, { ...init, headers });
+  let response: Response;
+  try {
+    // Browser API calls share the app origin; the server rewrite reaches the configured backend.
+    const url = input.startsWith(apiOrigin + "/v1/") ? input.replace(apiOrigin + "/v1/", "/api/backend/") : input;
+    response = await fetch(url, { ...init, headers, signal: init.signal ?? ((init.method ?? "GET") === "GET" ? AbortSignal.timeout(15_000) : undefined) });
+  } catch (error) {
+    if (init.signal?.aborted) throw error;
+    throw new Error("We couldn't reach the service. Your changes are still here. Check your connection and try again.");
+  }
+  if ([502, 503, 504].includes(response.status)) throw new Error("The service is temporarily unavailable. Please try again shortly.");
   if (response.status === 401 && typeof window !== "undefined") window.location.href = "/auth?next=" + encodeURIComponent(window.location.pathname);
   return response;
 }
@@ -66,8 +75,6 @@ export async function createRenderJob(request: RenderRequest) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request)
-  }).catch(() => {
-    throw new Error("The backend is not reachable. Start it with npm run dev:backend.");
   });
   return parse<RenderJob>(response, "Could not create the render job.");
 }
@@ -128,8 +135,9 @@ export async function generateProjectScript(id: string) {
   return parse<VideoProject>(response, "Could not generate the script.");
 }
 
-export async function renderProject(id: string) {
-  const response = await apiFetch(apiOrigin + "/v1/projects/" + id + "/render", { method: "POST" });
+/** `motionBlur` is the person's choice at final submission; a preview never takes it. */
+export async function renderProject(id: string, options: { motionBlur?: boolean } = {}) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + id + "/render", options.motionBlur ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ motionBlur: true }) } : { method: "POST" });
   return parse<RenderJob>(response, "Could not start the render.");
 }
 
@@ -290,3 +298,46 @@ export async function listBrandKits() {
 
 export const stagedLogoUrl = (assetId: string) => withMediaToken(`${apiOrigin}/v1/brands/assets/${assetId}/preview`);
 export const brandLogoUrl = (brandId: string) => withMediaToken(`${apiOrigin}/v1/brands/${brandId}/logo`);
+
+export async function getPlanVisuals(projectId: string): Promise<import("@videosaas/contracts").VisualStatus> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/visuals`), "Could not load material generation.");
+}
+export async function generatePlanVisuals(projectId: string, budgetUsd: number): Promise<import("@videosaas/contracts").VisualStatus> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/visuals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ budgetUsd }) }), "Could not start material generation.");
+}
+
+// ---------- Template gallery (public; paging, filtering and search run on the backend) ----------
+/** `reference` is the hand-built clip's source code (plain text), when the template has one: the author can reuse its structure and components. */
+export type GalleryTemplateBrief = { id: string; name: string; starterId?: string; brief: Partial<ScriptBrief>; reference?: { name: string; url: string } };
+
+export async function listGalleryTemplates(params: { useCase?: string; q?: string; cursor?: string | null; limit?: number; featured?: boolean }, signal?: AbortSignal): Promise<GalleryPage> {
+  const query = new URLSearchParams();
+  if (params.useCase && params.useCase !== "all") query.set("use_case", params.useCase);
+  if (params.q?.trim()) query.set("q", params.q.trim());
+  if (params.cursor) query.set("cursor", params.cursor);
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.featured) query.set("featured", "1");
+  const response = await fetch(`${apiOrigin}/v1/gallery/templates${query.size ? `?${query}` : ""}`, { signal });
+  if (!response.ok) throw new Error("Could not load templates.");
+  return response.json() as Promise<GalleryPage>;
+}
+
+/** The starting values for a chosen template: example prompt, structure skill, look, length and sound. */
+export async function getGalleryTemplate(id: string): Promise<GalleryTemplateBrief> {
+  const response = await fetch(`${apiOrigin}/v1/gallery/templates/${encodeURIComponent(id)}`);
+  if (!response.ok) throw new Error("Could not open that template.");
+  return response.json() as Promise<GalleryTemplateBrief>;
+}
+
+// ---------- Library (screenshots across projects, paged by the backend) ----------
+export type LibraryItem = { id: string; projectId: string; projectName: string; name: string; purpose: string; width: number; height: number; createdAt: string };
+export type LibraryPage = { items: LibraryItem[]; total: number; nextCursor: string | null };
+
+export async function listLibrary(params: { cursor?: string | null; limit?: number }): Promise<LibraryPage> {
+  const query = new URLSearchParams();
+  if (params.cursor) query.set("cursor", params.cursor);
+  if (params.limit) query.set("limit", String(params.limit));
+  const response = await apiFetch(`${apiOrigin}/v1/library${query.size ? `?${query}` : ""}`);
+  if (!response.ok) throw new Error("Could not load the library.");
+  return response.json() as Promise<LibraryPage>;
+}

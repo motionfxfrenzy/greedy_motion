@@ -1,0 +1,16 @@
+{
+ "id": "stick-figure-lesson",
+ "name": "Stick Figure Lesson",
+ "group": "Whiteboard",
+ "summary": "A stick figure walks in, points at a hand-drawn bar chart as it draws on, and says a three-word line.",
+ "bestFor": "Friendly explainers for training and school topics",
+ "prompt": "Teach why regular practice matters using a simple stick figure. The figure walks in, then points at a hand-drawn chart while four bars are drawn one after another, each taller than the last. A trend arrow is drawn across the bars. The figure ends with a short speech bubble that sums up the lesson. Keep the narration warm, plain and encouraging.",
+ "look": "sketch",
+ "theme": "neutral",
+ "aspect": "16:9",
+ "durationSeconds": 35,
+ "motionProfile": "smooth",
+ "pace": "calm",
+ "audio": "voiceover",
+ "poster": 4.4
+}

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { extname, join, sep } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { lintHyperframeHtml } from "@hyperframes/lint";
-import { frameShellHtml, isPreviewQuality, previewSize, type PreviewQuality, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
+import { frameShellHtml, isPreviewQuality, motionBlurProblem, parseMotionBlur, previewSize, type PreviewQuality, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
 import { NotEntitled, requireProEdit, type ProEditAccess } from "../entitlements/access.ts";
@@ -134,7 +134,8 @@ export async function writeProFiles(_access: ProEditAccess, id: string, body: { 
 }
 
 /** Copies the saved folder to where the worker reads it and queues a render job. Spends compute, so it needs the edit capability. */
-export async function enqueueProRender(_access: ProEditAccess, project: VideoProject & { pro: ProManifest }, quality: PreviewQuality) {
+/** `motionBlur` is for a final render only; the route validates it (parseMotionBlur, motionBlurProblem) before calling. */
+export async function enqueueProRender(_access: ProEditAccess, project: VideoProject & { pro: ProManifest }, quality: PreviewQuality, options: { motionBlur?: boolean } = {}) {
   const pro = project.pro;
   const jobId = randomUUID();
   await ensureMediaDir(proDir(project.id));
@@ -158,7 +159,7 @@ export async function enqueueProRender(_access: ProEditAccess, project: VideoPro
   const created = await renderJobRepository.createReadyAndEnqueue(job, {
     request: project.request,
     projectId: project.id,
-    renderInput: { kind: "pro", id: jobId, workerDir: `/renders/${jobId}/project`, ...(projectPrefix ? { projectPrefix } : {}), durationSeconds: pro.durationSeconds, quality, previewWidth: size.width, previewHeight: size.height }
+    renderInput: { kind: "pro", id: jobId, workerDir: `/renders/${jobId}/project`, ...(projectPrefix ? { projectPrefix } : {}), durationSeconds: pro.durationSeconds, quality, previewWidth: size.width, previewHeight: size.height, ...(options.motionBlur ? { motionBlur: true } : {}) }
   });
   return { created, size };
 }
@@ -303,7 +304,7 @@ function registerEditorRoutes(app: FastifyInstance) {
    * and is scaled down; `final` renders the composition as written and is gated by lint errors. Only a final render becomes the
    * project's render (Review shows it): a preview never touches `renderJobId`, so syncProject ignores it.
    */
-  app.post<{ Params: { id: string }; Body: { quality?: unknown } | undefined }>("/v1/projects/:id/pro/render", EDIT, async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { quality?: unknown; motionBlur?: unknown } | undefined }>("/v1/projects/:id/pro/render", EDIT, async (request, reply) => {
     try {
       const access = requireProEdit(request);
       const project = await getProject(request.params.id);
@@ -311,6 +312,11 @@ function registerEditorRoutes(app: FastifyInstance) {
       const pro = project.pro;
       const quality = request.body?.quality === undefined ? "draft540" : request.body.quality;
       if (!isPreviewQuality(quality)) return fail(reply, 400, "invalid_request", "`quality` must be draft540, preview720 or final.");
+      const blur = parseMotionBlur(request.body?.motionBlur);
+      if (!blur.ok) return fail(reply, 400, "invalid_request", blur.message);
+      // A preview is for checking timing and must stay cheap; blur belongs to the final render only.
+      if (blur.on && quality !== "final") return fail(reply, 400, "invalid_request", "Motion blur is only for the final render; previews never use it.");
+      if (blur.on) { const tooLong = motionBlurProblem(pro.durationSeconds); if (tooLong) return fail(reply, 400, "motion_blur_too_long", tooLong); }
 
       if (quality === "final") {
         const entry = await readMedia(join(proDir(project.id), pro.entry));
@@ -319,7 +325,7 @@ function registerEditorRoutes(app: FastifyInstance) {
         if (lint.errorCount > 0) return fail(reply, 409, "lint_errors", `${lint.errorCount} error${lint.errorCount === 1 ? "" : "s"} block a full render. Fix them in Checks.`, { findings: lint.findings.filter((f) => f.severity === "error").map((f) => ({ code: f.code, message: f.message, elementId: f.elementId, fixHint: f.fixHint })) });
       }
 
-      const { created, size } = await enqueueProRender(access, { ...project, pro }, quality);
+      const { created, size } = await enqueueProRender(access, { ...project, pro }, quality, { motionBlur: blur.on });
       return reply.code(202).send({ job: created, quality, size, rev: pro.rev });
     } catch (error) {
       return mapError(reply, error);

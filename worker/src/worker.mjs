@@ -1,3 +1,4 @@
+import { preflightRender, RenderContractError, RENDER_CAPABILITIES } from "./render-preflight.mjs";
 // Render worker (Railway service "worker"). Consumes `render-video` from pg-boss, renders with
 // HyperFrames, reports real progress into app.render_jobs, and publishes `render-finished`.
 // Scale out by adding replicas; each one runs RENDER_CONCURRENCY renders at a time (default 1).
@@ -8,6 +9,7 @@ import { PgBoss } from "pg-boss";
 import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
 import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
 import { QUEUES, claim, createPool, finish, noteRetry, progress } from "./jobs.mjs";
+import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 // Railway private networking needs "::"; local Docker uses 0.0.0.0.
@@ -74,9 +76,9 @@ function progressReporter(jobId, attempt, onLost) {
   };
 }
 
-const RENDER_FLAGS = ["--fps", "30", "--workers", "1", "--quality", "standard", "--no-browser-gpu"];
+const RENDER_FLAGS = ["--fps", "30", "--no-best-effort", "--workers", "1", "--quality", "standard", "--no-browser-gpu"];
 // Previews (Pro Editor): fewer frames and a cheaper encode, then scaled down. They are for checking timing, never delivered.
-const PREVIEW_FLAGS = ["--fps", "24", "--workers", "1", "--quality", "draft", "--no-browser-gpu"];
+const PREVIEW_FLAGS = ["--fps", "24", "--no-best-effort", "--workers", "1", "--quality", "draft", "--no-browser-gpu"];
 const isPreview = (input) => input.quality === "draft540" || input.quality === "preview720";
 
 /** The preview's pixel size. The backend computes it (contracts previewSize); a row is never trusted: even integers in range, or no scaling. */
@@ -92,9 +94,20 @@ function previewScale(input) {
  * rendered cheaply at the composition's own size, then scaled to 540p / 720p with ffmpeg.
  */
 async function renderFolder(folder, output, input, options) {
+  try {
+    if (input.renderContractVersion !== undefined && input.renderContractVersion !== 1) throw new RenderContractError("Unsupported render contract version");
+    // Pro source is intentionally editable; a manifest copied from its initial snapshot is stale.
+    if (input.kind === "beat-plan") await preflightRender(folder, { requireManifest: input.renderContractVersion === 1 });
+  } catch (error) {
+    if (error instanceof RenderContractError || error?.code === "ENOENT") throw new PermanentError(`Prepared project failed preflight: ${error.message}`);
+    throw error;
+  }
   const variables = join(folder, "variables.json");
   const hasVariables = await access(variables).then(() => true, () => false);
-  await run(HYPERFRAMES, ["render", folder, ...(hasVariables ? ["--variables-file", variables] : []), "--output", output, ...(isPreview(input) ? PREVIEW_FLAGS : RENDER_FLAGS)], options);
+  const args = (to, fps) => ["render", folder, ...(hasVariables ? ["--variables-file", variables] : []), "--output", to, ...(isPreview(input) ? PREVIEW_FLAGS : fps ? ["--fps", String(fps), ...RENDER_FLAGS.slice(2)] : RENDER_FLAGS)];
+  // Motion blur is the person's choice at final submission and never touches a preview.
+  if (wantsMotionBlur(input, isPreview)) await renderWithMotionBlur({ run, hyperframes: HYPERFRAMES, hyperframesArgs: args, output, options });
+  else await run(HYPERFRAMES, args(output), options);
   const scale = previewScale(input);
   if (!scale) return;
   const scaled = `${output}.scaled.mp4`;
@@ -298,6 +311,7 @@ function send(response, status, payload) {
 
 // Health only. Renders arrive through the queue, never over HTTP.
 const server = http.createServer((request, response) => {
+  if (request.method === "GET" && request.url === "/capabilities") return send(response, 200, RENDER_CAPABILITIES);
   if (request.method === "GET" && request.url === "/healthz") return send(response, 200, { status: "ok", service: "worker" });
   if (request.method === "GET" && request.url === "/readyz") return send(response, ready && !shuttingDown ? 200 : 503, { ready: ready && !shuttingDown, active, concurrency });
   return send(response, 404, { error: { code: "not_found", message: "Not found." } });

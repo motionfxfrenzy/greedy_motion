@@ -1,0 +1,16 @@
+{
+  "id": "whiteboard-idea-to-launch",
+  "name": "Whiteboard Idea to Launch",
+  "group": "Whiteboard",
+  "summary": "A hand sketches doodle icons of a lightbulb, a laptop and a rocket joined by arrows, each labelled.",
+  "bestFor": "Showing a journey from idea to product launch in three steps",
+  "prompt": "Show how a product goes from idea to launch on a whiteboard. A hand draws a lightbulb and labels it Idea, then an arrow to a simple laptop labelled Build, then an arrow to a rocket labelled Launch. Add a short voiceover for each step, explaining what happens at that stage in plain, friendly language.",
+  "look": "sketch",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 35,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 4.0
+}

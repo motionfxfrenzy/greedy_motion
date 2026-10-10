@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Bayes boxes</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0b0d12}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:linear-gradient(180deg,#0b0d12,#101420)}
+svg{position:absolute;inset:0}
+text{font-family:"Source Serif 4","EB Garamond",serif;fill:#e8ecf4}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="stage" class="clip" data-start="0" data-duration="5" data-track-index="1" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg",svg=document.getElementById("stage");
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||svg).appendChild(e);return e};
+const X0=110,Y0=110,Z=500;
+const pH=0.2,eH=0.8,eN=0.25;
+// rect state in unit coords
+const R={
+ H:{x:0,w:1,y:0,h:1,c:"#58C4DD",fo:0.0},
+ N:{x:0.2,w:0.8,y:0,h:1,c:"#B189C6",fo:0.0}};
+const rects={};
+const mk=(id,c)=>{rects[id]=el("rect",{fill:c,"fill-opacity":0,stroke:c,"stroke-width":3});return rects[id]};
+const st={
+ H_E:{x:0,w:pH,y:0,h:1,c:"#58C4DD",fo:0}, N_E:{x:pH,w:1-pH,y:0,h:1,c:"#B189C6",fo:0},
+ H_n:{x:0,w:pH,y:0,h:0,c:"#58C4DD",fo:0}, N_n:{x:pH,w:1-pH,y:0,h:0,c:"#B189C6",fo:0}};
+for(const k in st)mk(k,st[k].c);
+// we animate st values; rect order: non-E first so E on top
+const frame=el("rect",{x:X0,y:Y0,width:Z,height:Z,fill:"none",stroke:"#8a93a8","stroke-width":3,pathLength:1,"stroke-dasharray":"1 1","stroke-dashoffset":1});
+// initial: entire square empty. Phase 1: vertical split -> both columns, full height as "not E" (we show E share at bottom)
+function put(k){const s=st[k],r=rects[k];
+ r.setAttribute("x",X0+s.x*Z);r.setAttribute("width",Math.max(0,s.w*Z));
+ r.setAttribute("y",Y0+s.y*Z);r.setAttribute("height",Math.max(0,s.h*Z));
+ r.setAttribute("fill-opacity",s.fo);r.setAttribute("stroke-opacity",s.so===undefined?1:s.so)}
+for(const k in st){st[k].so=0}
+// E at bottom, not-E on top within each column
+st.H_n={x:0,w:pH,y:0,h:1,c:"#58C4DD",fo:0,so:0};st.N_n={x:pH,w:1-pH,y:0,h:1,c:"#B189C6",fo:0,so:0};
+st.H_E={x:0,w:pH,y:1,h:0,c:"#58C4DD",fo:0,so:0};st.N_E={x:pH,w:1-pH,y:1,h:0,c:"#B189C6",fo:0,so:0};
+const cap=el("text",{x:700,y:190,"font-size":58,opacity:0});cap.textContent="Evidence";
+const cap2=el("text",{x:700,y:256,"font-size":58,opacity:0,"font-style":"italic"});cap2.textContent="rescales belief";
+const rd=el("text",{x:700,y:430,"font-size":72,"font-style":"italic",opacity:0});
+const rl=el("tspan",{},rd);rl.textContent="P(H) = ";const rn=el("tspan",{"font-style":"normal"},rd);rn.style.fill="#58C4DD";rn.textContent="0.20";
+const note=el("text",{x:700,y:495,"font-size":42,opacity:0,"font-style":"italic"});note.textContent="prior";note.style.fill="#7d8598";
+const lH=el("text",{x:X0+0.1*Z,y:Y0+Z+44,"text-anchor":"middle","font-size":38,"font-style":"italic",opacity:0});lH.textContent="H";lH.style.fill="#58C4DD";
+const lN=el("text",{x:X0+0.6*Z,y:Y0+Z+44,"text-anchor":"middle","font-size":38,"font-style":"italic",opacity:0});lN.textContent="not H";lN.style.fill="#B189C6";
+const lEv=el("text",{x:X0-18,y:Y0+Z*0.9+12,"text-anchor":"end","font-size":38,"font-style":"italic",opacity:0});lEv.textContent="E";lEv.style.fill="#FFD166";
+const sh=el("rect",{x:X0,y:Y0,width:Z,height:Z,fill:"#0b0d12","fill-opacity":0}); // unused
+sh.remove();
+const S={post:0,show:0};
+function render(){for(const k in st)put(k);
+ const P=0.2+(0.4444-0.2)*S.post;rn.textContent=P.toFixed(2);}
+// bring H_E, N_E above
+svg.appendChild(rects.H_E);svg.appendChild(rects.N_E);svg.appendChild(frame);
+const tl=gsap.timeline({paused:true,defaults:{ease:"power2.inOut"}});
+tl.to(frame,{attr:{"stroke-dashoffset":0},duration:0.8},0)
+  .to([cap,cap2],{opacity:1,duration:0.5,stagger:0.12},0.3)
+  // split into H and not H
+  .to([st.H_n,st.N_n],{fo:0.22,so:1,duration:0.7,onUpdate:render},0.7)
+  .to([rd,note,lH,lN],{opacity:1,duration:0.5},1.0)
+  // evidence: E share grows from bottom in each column
+  .to(st.H_E,{y:1-eH,h:eH,fo:0.7,so:1,duration:0.8,onUpdate:render},1.7)
+  .to(st.N_E,{y:1-eN,h:eN,fo:0.7,so:1,duration:0.8,onUpdate:render},1.7)
+  .to(st.H_n,{y:0,h:1-eH,duration:0.8,onUpdate:render},1.7)
+  .to(st.N_n,{y:0,h:1-eN,duration:0.8,onUpdate:render},1.7)
+  .to(lEv,{opacity:1,duration:0.4},2.0)
+  // evidence arrives: non-E collapses away, E regions rescale to fill the square
+  .to([st.H_n,st.N_n],{fo:0,so:0,duration:0.5,onUpdate:render},2.7)
+  .to(note,{opacity:0,duration:0.2},2.9);
+// post positions: HE width .16/.36, NE .2/.36 ; full height
+const w1=0.16/0.36;
+tl.to(st.H_E,{x:0,w:w1,y:0,h:1,fo:0.55,duration:1.1,ease:"power3.inOut",onUpdate:render},2.9)
+  .to(st.N_E,{x:w1,w:1-w1,y:0,h:1,fo:0.55,duration:1.1,ease:"power3.inOut",onUpdate:render},2.9)
+  .to(S,{post:1,duration:1.1,ease:"power3.inOut",onUpdate:render},2.9)
+  .to(lH,{attr:{x:X0+w1/2*Z},duration:1.1,ease:"power3.inOut"},2.9)
+  .to(lN,{attr:{x:X0+(w1+(1-w1)/2)*Z},duration:1.1,ease:"power3.inOut"},2.9)
+  .to(lEv,{opacity:0,duration:0.3},2.7)
+  .add(()=>{rl.textContent=S.post>0.5?"P(H | E) = ":"P(H) = "},3.0)
+  .to(note,{opacity:1,duration:0.4,onStart(){note.textContent="posterior"}},3.9);
+const upd=()=>{rl.textContent=S.post>0.02?"P(H | E) = ":"P(H) = ";note.textContent=S.post>0.02?"posterior":"prior"};
+tl.eventCallback("onUpdate",upd);
+render();upd();
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>
