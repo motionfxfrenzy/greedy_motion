@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Bar chart race</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0f1b2d; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: linear-gradient(160deg, #13233b 0%, #0b1626 100%); font-family: "Inter", sans-serif; }
+  svg { position: absolute; inset: 0; }
+  .cap { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 60px; fill: #f2f6fc; }
+  .lab { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 34px; fill: #f2f6fc; }
+  .num { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 30px; fill: #f2f6fc; }
+  .year { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 120px; fill: #2b4466; }
+  .tag { font-family: "Inter", sans-serif; font-size: 22px; fill: #7f97b8; letter-spacing: 3px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function txt(str, a, p) { var e = el("text", a, p); e.textContent = str; return e; }
+  var names = ["A", "B", "C", "D", "E", "F"];
+  var cols = ["#4f9dff", "#2dd4bf", "#fbbf24", "#f472b6", "#a78bfa", "#fb923c"];
+  // example values per step (6 steps = years 2010..2015)
+  var data = [
+    [30, 52, 41, 22, 15, 36],
+    [44, 58, 55, 34, 28, 40],
+    [60, 57, 72, 46, 47, 45],
+    [82, 63, 78, 62, 70, 49],
+    [101, 70, 80, 88, 83, 58],
+    [124, 79, 84, 109, 92, 71]
+  ];
+  var MAXV = 130, X0 = 150, BW = 800, TOP = 205, ROW = 74, BH = 56;
+  txt("Rankings on the move", { x: 70, y: 100, class: "cap" });
+  txt("EXAMPLE DATA", { x: 72, y: 140, class: "tag" });
+  var yr = txt("2010", { x: 1210, y: 640, "text-anchor": "end", class: "year" });
+  for (var g = 0; g <= 120; g += 40) {
+    var gx = X0 + g / MAXV * BW;
+    el("line", { x1: gx, y1: 185, x2: gx, y2: 660, stroke: "#22385a", "stroke-width": 1.5 });
+  }
+  var bars = [];
+  names.forEach(function (n, i) {
+    var gr = el("g", {});
+    var r = el("rect", { x: X0, y: 0, width: 10, height: BH, rx: 10, fill: cols[i] }, gr);
+    var glow = el("rect", { x: X0 - 4, y: -4, width: 10, height: BH + 8, rx: 12, fill: "none", stroke: "#ffffff", "stroke-width": 4, opacity: 0 }, gr);
+    txt(n, { x: X0 - 22, y: 40, "text-anchor": "end", class: "lab" }, gr);
+    var v = txt("0", { x: X0 + 16, y: 39, class: "num" }, gr);
+    bars.push({ g: gr, r: r, glow: glow, v: v });
+  });
+  var crown = el("text", { "font-size": 30, "text-anchor": "middle", "font-family": "Space Grotesk", "font-weight": 700, fill: "#fbbf24", opacity: 0 }); crown.textContent = "LEADER";
+  function vals(p) { // p in [0, 5]
+    var k = Math.min(4, Math.floor(p)), f = p - k, e = f * f * (3 - 2 * f);
+    return data[k].map(function (a, i) { return a + (data[k + 1][i] - a) * e; });
+  }
+  function draw(p) {
+    var v = vals(p), SOFT = 3.5, lead = 0;
+    var ranks = v.map(function (a, i) {
+      var r = 0;
+      v.forEach(function (b, j) { if (j !== i) r += 1 / (1 + Math.exp(-(b - a) / SOFT)); });
+      return r;
+    });
+    v.forEach(function (a, i) { if (a > v[lead]) lead = i; });
+    bars.forEach(function (b, i) {
+      var w = Math.max(14, a2w(v[i]));
+      b.r.setAttribute("width", w);
+      b.glow.setAttribute("width", w + 8);
+      b.glow.setAttribute("opacity", i === lead ? 1 : 0);
+      b.v.textContent = Math.round(v[i]);
+      b.v.setAttribute("x", X0 + w + 14);
+      b.g.setAttribute("transform", "translate(0 " + (TOP + ranks[i] * ROW - 0) + ")");
+      b.g.setAttribute("opacity", 1);
+    });
+    var cx = X0 + a2w(v[lead]) / 2;
+    crown.setAttribute("x", X0 + a2w(v[lead]) + 160);
+    crown.setAttribute("y", TOP + 40);
+    yr.textContent = String(2010 + Math.min(5, Math.round(p)));
+  }
+  function a2w(a) { return a / MAXV * BW; }
+  var st = { p: 0, a: 0 };
+  draw(0);
+  var tl = gsap.timeline({ paused: true });
+  tl.fromTo("#s", { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, 0);
+  tl.to(st, { p: 5, duration: 4.1, ease: "power1.inOut", onUpdate: function () { draw(st.p); } }, 0.2);
+  tl.to(st, { a: 1, duration: 0.01, onUpdate: function () { draw(st.p); } }, 4.4);
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 **Documented: October 8, 2026.** This is the current system map for developers and operators: what runs where, how a video is made, where records and files live, and how templates and presets reach the app.
 
-**Scope and evidence.** Production facts below come from the October 8 rollout and its recorded live checks in [MVP release status](MVP_RELEASE_STATUS.md). The production application release is `c71ef78`; its worker image was built from `587d185`, whose worker code is identical to that release. Repository details were inspected on `main` at `bc62297`. Main contains additional creative tooling that was not promoted with the MVP; those differences are marked below. This document does not claim that every feature visible on main is deployed, or that cloud settings were audited again while writing it.
+**Scope and evidence.** Production facts below come from the October 8 rollout and its recorded live checks in [MVP release status](MVP_RELEASE_STATUS.md). The production application release is `c71ef78`; its worker image was built from `587d185`, whose worker code is identical to that release. Repository details were inspected on `main` at `bc62297`. Main contains additional creative tooling that was not promoted with the MVP; those differences are marked below. This document does not claim that every feature visible on main is deployed, or that cloud settings were audited again while writing it. **Fill-mode formats and the skill bundle (added 2026-10-08, [Skill delivery](SKILL_DELIVERY.md)) are on main only: not on staging or production.**
 
 ## Contents
 
@@ -116,6 +116,9 @@ The release enabled the ECS deployment circuit breaker and rollback. Production 
 | `backend/src/render/` | Render-job repository, legacy planner and queue consumers | Railway backend |
 | `backend/src/jobs/queues.ts` | Queue definitions and retry settings | Railway backend; persisted in Postgres |
 | `backend/src/pro/` | Pro Editor store: open a project into an editable HyperFrames folder, revisioned file writes, lint, low-res or final render, preview frame ([Pro Editor](PRO_EDITOR.md)) | Railway backend + `/data` cache + R2 media |
+| `backend/src/formats/` | Fill-mode formats: bundle verification, slot validation, model fill, render-folder builder, `/v1/formats` routes (main only) | Railway backend |
+| `backend/skills/author/` | Pinned stage-routed references for Claude Pro Editor proposals, hash-verified at startup | Copied into the backend image with `backend/` |
+| `backend/skills/` | The gm-* skills the app can run, built from `.claude/skills` by `npm run skills:build`, hash-verified at startup (main only) | Copied into the backend image with `backend/` |
 | `backend/src/entitlements/` | Plans a user may use: evaluation, lifecycle rules, store with audit, per-replica cache, `GET /v1/me/entitlements`; `scripts/entitlements.ts` grants and revokes without a deploy ([Entitlements](ENTITLEMENTS.md)) | Railway backend + Supabase |
 | `backend/src/db/` | Connection pool, SQL migrations and row locking | Railway backend + Supabase |
 | `backend/src/storage.ts` | R2 render-input upload and signed output URLs | Railway backend |
@@ -125,7 +128,8 @@ The release enabled the ECS deployment circuit breaker and rollback. Production 
 | `worker/src/storage.mjs` | Download render inputs, upload outputs, clean losing attempts | Render worker + R2 |
 | `worker/templates/`, `themes/`, `fonts/` | Reusable rendering source assets | Copied into backend and worker images |
 | `packages/contracts/src/` | Shared types, validators and catalogs | Frontend/backend; supporting generation scripts |
-| `.claude/skills/` | Authoring instructions, selected prompt sources and creative formats | Developer tools; selected rules compiled into backend |
+| `.claude/skills/` | Authoring instructions, selected prompt sources and creative formats. `BUNDLE.json` lists the skills shipped to the app | Developer tools; selected rules compiled into the backend (director prompt) and listed skills bundled into it (`backend/skills/`) |
+| `third_party/cloud-author-skills/` | Reviewed upstream skill references, licenses, URLs and commit provenance for the cloud bundle | Built into `backend/skills/author/` |
 | `third_party/creative-packs/`, `third_party/visual-skills/` | Reference material and provenance | Development/authoring; not automatically part of the live UI |
 | `scripts/` | Theme, prompt, preview, format and validation generators | Developer machine or applicable CI job |
 | `validation/` | Fixtures, render experiments and verification artifacts | Development/CI |
@@ -161,6 +165,8 @@ After authentication, the browser calls the Railway API with a Supabase bearer t
 | `PATCH /v1/projects/:id/studio` | Persist editable template values and selected assets |
 | `POST /v1/projects/:id/render` | Validate and queue a project render |
 | `/v1/projects/:id/pro/*`, `/v1/preview/projects/:id/pro/@<token>/*` | Pro Editor open, files (409 on a stale revision), lint, render, preview frame; needs an active plan in `app.entitlements`; a lapsed plan is view-only (see [Pro Editor](PRO_EDITOR.md), [Entitlements](ENTITLEMENTS.md)) |
+| `GET /v1/formats` | List the shipped fill-mode formats and their slot schemas (main only) |
+| `POST /v1/formats/:skill/render` | Fill a format's slots (caller facts + model-written copy), validate, build and queue a render (main only) |
 | `GET /v1/me/entitlements` | The caller's plan and Pro editor access (`edit`, `view`, `none`); always read from the database |
 | `GET /v1/render-jobs/:id` | Read authorized render status |
 | `GET /v1/renders/:id` | Redirect to the output or serve a local file |
@@ -252,7 +258,7 @@ The prepared composition includes everything the worker needs. No shared Railway
 
 **The R2 bucket named `uploads` is a render-transfer store.** Original user media lives in the separate **media bucket** (`greedymotion-<env>-media`, set by `R2_MEDIA_BUCKET`). Every media write goes through `backend/src/media.ts`, which writes the file to the local directory and to R2 under `media/<projects|brands|audio>/<same path>`; every read fetches a file the local disk lacks back from R2. The `/data` rows in the table above are therefore the **cache layout**; the durable copy is the same path under `media/` in R2. Copies of the inputs a particular render needs still go to that render's folder in the uploads bucket.
 
-Status: staging runs this (all 7 existing volume files backfilled and MD5-verified with `scripts/backfill-media.ts`; files deleted from the volume came back byte-identical through the public routes). Production keeps media only on its volume until the release, its `greedymotion-production-media` bucket and the backfill reach it.
+Status: staging runs this (all 7 existing volume files backfilled and MD5-verified with `scripts/backfill-media.ts`; files deleted from the volume came back byte-identical through the public routes). Production setup remains pending: deploy the media release with `greedymotion-production-media` and scoped credentials, then verify fresh uploads and recovery. **2026-10-09: no retained user media; backfill intentionally skipped.** See [MEDIA-03 production setup](MEDIA_R2_ROLLOUT.md) for the external prerequisites and rollout. Old release-test media is disposable. The two-replica gate remains open because existing cache files are not revalidated after another replica updates or deletes them.
 
 ### Production filesystem layouts
 
@@ -408,14 +414,16 @@ Backend Docker builds copy `worker/templates`, `worker/themes` and `worker/fonts
 
 Anthropic calls originate in the backend. The director in `backend/src/plan/director.ts` generates structured beat plans; the earlier planner remains in `backend/src/render/anthropic-planner.ts`. The worker has no model-generation responsibility and is not supplied an Anthropic/Gemini key by the task definition.
 
-The director's rule text is compiled by `scripts/build-director-prompt.mjs` into `backend/src/plan/director-prompt.generated.ts`. Its inputs are:
+The director's rule text is compiled by `scripts/build-director-prompt.mjs` into `backend/skills/director/`. Its inputs are:
 
 - `.claude/skills/gm-skill-authoring/references/script-for-motion.md`
 - `.claude/skills/gm-skill-authoring/references/watchability.md`
 - `.claude/skills/gm-script-director/references/routing.md`
 - `.claude/skills/gm-script-director/references/motion-direction.md`
 
-Run `npm run director:prompt` after editing those sources. The generated TypeScript ships in the backend image. Copying another Markdown file into `.claude/skills/` does not automatically send it to Claude at runtime.
+Run `npm run skills:build` after editing those sources. The verified Markdown ships in the backend image. Copying another Markdown file into `.claude/skills/` does not automatically send it to Claude at runtime. Authoring-only text in those sources is fenced with `<!-- director:skip -->` markers so it never reaches the director.
+
+**Skills that run in the app (main only).** A skill listed in `.claude/skills/BUNDLE.json` is packaged by `npm run skills:build` into `backend/skills/` (template, slot schema, fill guidance, pinned vendor files, hashed manifest). The backend verifies the bundle at startup and serves it through `/v1/formats`: the caller supplies product facts, Claude writes the remaining slots, the slot schema validates everything, and the finished folder goes to the same render queue and worker as any other render. CI fails if the bundle or the director prompt is stale (`npm run skills:check`). Author mode (an agent building a new composition) is not hosted. Details, API, release steps and test evidence: [Skill delivery](SKILL_DELIVERY.md).
 
 Third-party creative packs live under `third_party/creative-packs/`; provenance and notices are in that directory and `third_party/creative-libraries-NOTICE.md`. Main also contains library experiments under `validation/creative-libraries/` and dependency mapping in `scripts/creative-vendor.mjs`. GSAP is part of the established rendering path; main adds Sketch/Rough.js integration and other creative-library experiments. The additional main code and velocity-sting tooling were not in production `c71ef78`.
 
@@ -500,7 +508,7 @@ Railway builds the backend from the repository root with `backend/Dockerfile`, b
 
 The AWS worker is released separately: build the worker image from the selected source, push it to the environment-specific ECR repository, register/update the task definition and update ECS. The inspected GitHub workflows do not establish an automatic worker release on every Git push. A production branch push alone should not be assumed to update ECS.
 
-Main's `.github/workflows/ci.yml` defines type/catalog checks, database ownership checks and creative render checks. That CI addition is newer than the MVP production code. Check workflow presence on the target branch and actual run results before claiming a release is gated by it.
+Main's `.github/workflows/ci.yml` defines type/catalog checks, database ownership checks and creative render checks. That CI addition is newer than the MVP production code. On main it also runs `npm run skills:check` (skill bundle and director prompt freshness) and the format builder test. Check workflow presence on the target branch and actual run results before claiming a release is gated by it.
 
 ### Local topology
 
@@ -586,8 +594,9 @@ The document records storage locations, not a verified backup service-level agre
 | Change offered duration, aspect, pace or motion options | `packages/contracts/src/beat-plan.ts` | Match frontend, director, validation and engine behavior |
 | Change user branding | Brand API/store and saved brand kit | Postgres metadata and volume assets; future renders use the selected kit |
 | Change voice options/provider | `packages/contracts/src/audio.ts`, backend audio/plan files | Backend/provider configuration and frontend catalog |
-| Improve director instructions | Four prompt source files in section 8 | Regenerate `director-prompt.generated.ts`; backend deploy |
+| Improve director instructions | Four prompt source files in section 8 | Regenerate `backend/skills/`; backend deploy |
 | Add a reusable developer format | `.claude/skills/<skill>/template/` + slot/ledger references | Main's `scripts/build-format.mjs`; requires product integration to become a live user option |
+| Make a format run in the app, or change one that does | Skill folder, then list it in `.claude/skills/BUNDLE.json`; `npm run skills:build` and `node scripts/build-skill-bundle.mjs --gates` | Backend image only (the worker is unchanged); [Skill delivery](SKILL_DELIVERY.md) has the release steps (main only) |
 | Move original media off Railway | Projects/brand/audio/site storage implementations | Data migration and URL/read-path changes; existing files must remain reachable |
 | Change database schema | `backend/src/db/migrations/` for current app runner | Compatible forward migration, staging first |
 | Increase render capacity | ECS service/task configuration and DB connection budget | More tasks/concurrency; measure memory and queue time |
@@ -604,8 +613,15 @@ Primary implementation references:
 - [Backend R2 adapter](../backend/src/storage.ts), [worker](../worker/src/worker.mjs), [worker job handling](../worker/src/jobs.mjs), [worker R2 adapter](../worker/src/storage.mjs).
 - [Template catalog](../packages/contracts/src/templates.ts), [theme catalog](../packages/contracts/src/themes.ts), [brief/beat contracts](../packages/contracts/src/beat-plan.ts), [voice catalog](../packages/contracts/src/audio.ts).
 - [Backend Dockerfile](../backend/Dockerfile), [worker Dockerfile](../worker/Dockerfile), [local Compose](../compose.yaml), [AWS task template](../infra/aws/policies/worker-taskdef.json).
-- [Production release evidence](MVP_RELEASE_STATUS.md), [authentication/data detail](AUTH_AND_DATA.md), [creative library plan](CREATIVE_LIBRARY_PLAN.md).
+- [Production release evidence](MVP_RELEASE_STATUS.md), [authentication/data detail](AUTH_AND_DATA.md), [creative library plan](CREATIVE_LIBRARY_PLAN.md), [skill delivery](SKILL_DELIVERY.md), [skill library](SKILL_LIBRARY.md), [Remotion vs HyperFrames](REMOTION_VS_HYPERFRAMES.md).
+- [Format routes](../backend/src/formats/routes.ts), [bundle verification](../backend/src/formats/bundle.ts), [slot validation](../backend/src/formats/slots.ts), [skill bundle builder](../scripts/build-skill-bundle.mjs).
 
 Older [architecture](ARCHITECTURE.md), [deployment](DEPLOYMENT.md), [environment](ENVIRONMENTS.md), [queue](RENDER_QUEUE.md) and [template](TEMPLATES.md) documents contain useful design history but also outdated statements. Examples include “nothing deployed,” a Railway-hosted renderer, disk-only hosted outputs, production coming-soon status, no audio and proposed workspace membership. Use this guide and the release record for current topology, and source code for implemented behavior.
 
 Update this guide whenever a promotion changes service placement, a storage path, a schema, template distribution, access control or environment names. Record the exact deployed commit/task revision and distinguish source-code capability from a verified live workflow.
+
+### Skill delivery revision — October 9
+
+Director, formats and author references now share one `backend/skills/manifest.json` and loader. `cloud-author/stages.json` controls ordered stage sources. Explicit stages bypass the Claude classifier; IDs never steer routing. Pro edits have two validation repairs and static seek warnings. See [Skill delivery](SKILL_DELIVERY.md) for the current build/release contract. No deployment was performed.
+
+The October 9 release gate now checks every sting frame in CI. Explicit from/to flips alone have not established pixel-equivalent reverse/shuffled seeks; `gm-velocity-sting@1.1.2` retains its seek-safety known gap. Consult the evidence and continuation notes in SKILL_DELIVERY.md before claiming the gap is closed.

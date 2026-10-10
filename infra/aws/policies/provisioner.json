@@ -17,7 +17,7 @@
     {
       "Sid": "EcsCreateCluster",
       "Effect": "Allow",
-      "Action": ["ecs:CreateCluster", "ecs:DescribeClusters", "ecs:TagResource"],
+      "Action": ["ecs:CreateCluster", "ecs:DescribeClusters", "ecs:TagResource", "ecs:PutClusterCapacityProviders"],
       "Resource": "*",
       "Condition": { "StringEquals": { "aws:RequestedRegion": "@REGION@" } }
     },

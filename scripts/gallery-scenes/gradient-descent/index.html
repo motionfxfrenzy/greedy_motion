@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Gradient descent</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0b0d12; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: radial-gradient(ellipse at 50% 40%, #151a28 0%, #0b0d12 75%); font-family: "Source Serif 4", "EB Garamond", serif; }
+  svg { position: absolute; inset: 0; }
+  text { font-family: "Source Serif 4", "EB Garamond", serif; fill: #e8ecf4; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function txt(str, a, p) { var e = el("text", a, p); e.textContent = str; return e; }
+  var BLUE = "#58C4DD", TEAL = "#83C167", YEL = "#FFD166", RED = "#FC6255", GRID = "#7b8499";
+  function sx(x) { return 640 + x * 150; }
+  function L(x) { return 0.25 * x * x + 0.15; }
+  function sy(l) { return 590 - l * 150; }
+  // faint grid
+  var g = el("g", { opacity: 0.12 });
+  for (var i = -4; i <= 4; i++) el("line", { x1: sx(i), y1: 150, x2: sx(i), y2: 590, stroke: GRID, "stroke-width": 1 }, g);
+  for (var j = 0; j <= 3; j++) el("line", { x1: 120, y1: sy(j), x2: 1160, y2: sy(j), stroke: GRID, "stroke-width": 1 }, g);
+  // axes
+  var ax = el("g", {});
+  var xa = el("line", { x1: 120, y1: 590, x2: 1160, y2: 590, stroke: "#9aa3b8", "stroke-width": 2.5, pathLength: 1, "stroke-dasharray": 1, "stroke-dashoffset": 1 }, ax);
+  var ya = el("line", { x1: 120, y1: 590, x2: 120, y2: 140, stroke: "#9aa3b8", "stroke-width": 2.5, pathLength: 1, "stroke-dasharray": 1, "stroke-dashoffset": 1 }, ax);
+  var ticks = el("g", { opacity: 0 });
+  for (i = -3; i <= 3; i++) { el("line", { x1: sx(i), y1: 590, x2: sx(i), y2: 600, stroke: "#9aa3b8", "stroke-width": 2 }, ticks); txt(String(i).replace("-", "−"), { x: sx(i), y: 634, "text-anchor": "middle", "font-size": 28, "font-style": "italic", fill: "#9aa3b8" }, ticks).style.fill = "#9aa3b8"; }
+  var xl = txt("w", { x: 1176, y: 598, "font-size": 30, "font-style": "italic", opacity: 0 });
+  var yl = txt("loss", { x: 128, y: 134, "font-size": 28, "font-style": "italic", opacity: 0 });
+  // curve
+  var d = ""; for (i = 0; i <= 60; i++) { var x = -3 + i * 0.1; d += (i ? "L" : "M") + sx(x).toFixed(1) + " " + sy(L(x)).toFixed(1); }
+  var curve = el("path", { d: d, fill: "none", stroke: BLUE, "stroke-width": 6, "stroke-linecap": "round", pathLength: 1, "stroke-dasharray": 1, "stroke-dashoffset": 1 });
+  // descent
+  var pts = [-2.6]; for (i = 0; i < 4; i++) pts.push(pts[i] - 1.2 * 0.5 * pts[i]);
+  var trailG = el("g", {}), segs = [], rings = [], tans = [];
+  function seg(a, b) { var dd = "", n = 24; for (var k = 0; k <= n; k++) { var xx = a + (b - a) * k / n; dd += (k ? "L" : "M") + sx(xx).toFixed(1) + " " + sy(L(xx)).toFixed(1); } return dd; }
+  for (i = 0; i < 4; i++) segs.push(el("path", { d: seg(pts[i], pts[i + 1]), fill: "none", stroke: YEL, "stroke-width": 9, "stroke-linecap": "round", opacity: 0.85, pathLength: 1, "stroke-dasharray": 1, "stroke-dashoffset": 1 }, trailG));
+  for (i = 0; i < 5; i++) rings.push(el("circle", { cx: sx(pts[i]), cy: sy(L(pts[i])), r: 9, fill: "#0b0d12", stroke: YEL, "stroke-width": 4, opacity: 0 }, trailG));
+  for (i = 0; i < 4; i++) { var sl = pts[i] * 0.5, len = 80, nx = 1 / Math.sqrt(1 + sl * sl); tans.push(el("line", { x1: sx(pts[i]) - len * nx, y1: sy(L(pts[i])) + len * nx * sl, x2: sx(pts[i]) + len * nx, y2: sy(L(pts[i])) - len * nx * sl, stroke: TEAL, "stroke-width": 4, "stroke-linecap": "round", opacity: 0 })); }
+  var glow = el("circle", { cx: sx(0), cy: sy(L(0)), r: 14, fill: "none", stroke: TEAL, "stroke-width": 5, opacity: 0 });
+  var ball = el("g", { opacity: 0 });
+  el("circle", { r: 26, fill: RED, opacity: 0.22 }, ball);
+  el("circle", { r: 16, fill: RED }, ball);
+  var P = { x: pts[0] };
+  function place() { ball.setAttribute("transform", "translate(" + sx(P.x).toFixed(1) + " " + (sy(L(P.x)) - 16).toFixed(1) + ")"); }
+  place();
+  var cap = txt("Step downhill, smaller each time", { x: 120, y: 92, "font-size": 54, "font-weight": 600, opacity: 0 });
+  var eq = txt("w ← w − η ∇L", { x: 640, y: 300, "text-anchor": "middle", "font-size": 66, "font-style": "italic", opacity: 0 }); eq.style.fill = YEL;
+  var tl = gsap.timeline({ paused: true });
+  tl.to(cap, { opacity: 1, duration: 0.5, ease: "power2.out" }, 0.05);
+  tl.to(xa, { strokeDashoffset: 0, duration: 0.8, ease: "power2.inOut" }, 0);
+  tl.to(ya, { strokeDashoffset: 0, duration: 0.8, ease: "power2.inOut" }, 0.1);
+  tl.to([ticks, xl, yl], { opacity: 1, duration: 0.5, ease: "power2.out" }, 0.5);
+  tl.to(curve, { strokeDashoffset: 0, duration: 1.3, ease: "power2.inOut" }, 0.2);
+  tl.to(eq, { opacity: 1, duration: 0.6, ease: "power2.out" }, 1.0);
+  tl.to(ball, { opacity: 1, duration: 0.3 }, 1.4);
+  tl.to(rings[0], { opacity: 1, duration: 0.3 }, 1.5);
+  var t0 = 1.8;
+  for (i = 0; i < 4; i++) {
+    var st = t0 + i * 0.7;
+    tl.to(tans[i], { opacity: 0.9, duration: 0.25, ease: "power2.out" }, st);
+    tl.to(tans[i], { opacity: 0, duration: 0.25, ease: "power2.in" }, st + 0.35);
+    tl.to(P, { x: pts[i + 1], duration: 0.55, ease: "power3.inOut", onUpdate: place }, st + 0.15);
+    tl.to(segs[i], { strokeDashoffset: 0, duration: 0.55, ease: "power3.inOut" }, st + 0.15);
+    tl.to(rings[i + 1], { opacity: 1, duration: 0.2 }, st + 0.65);
+  }
+  tl.to(glow, { opacity: 1, attr: { r: 36 }, duration: 0.6, ease: "power2.out" }, 4.45);
+  tl.to(glow, { opacity: 0.0, duration: 0.01 }, 5);
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

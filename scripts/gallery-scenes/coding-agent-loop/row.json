@@ -1,0 +1,17 @@
+{
+  "id": "coding-agent-loop",
+  "name": "Coding Agent Loop Explainer",
+  "group": "Tech",
+  "summary": "An agent loop lights up in turn: read goal, plan, use tools, check, report.",
+  "bestFor": "Explaining how AI coding agents work in a loop",
+  "prompt": "Explain how a coding agent works. Walk around the loop one step at a time: it reads the goal, makes a plan, uses tools such as reading files and running tests, checks its own work, and reports back. Make clear that the loop repeats until the goal is met and the checks pass.",
+  "look": "clean",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "snappy",
+  "pace": "balanced",
+  "audio": "both",
+  "poster": 2.3,
+  "source": { "label": "Remade from @arthurkatcher", "url": "https://x.com/arthurkatcher/status/2104198927549604161" }
+}

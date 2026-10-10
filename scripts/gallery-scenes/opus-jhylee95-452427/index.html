@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Hook proof AI launch</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #2a3cff; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #2a3cff; font-family: "Archivo Black", "Inter", sans-serif; }
+  .abs { position: absolute; }
+  .sc { position: absolute; inset: 0; overflow: hidden; }
+  .mk { overflow: hidden; line-height: .95; padding-bottom: 10px; }
+  .mk > span { display: block; }
+  /* s1 */
+  #s1 { background: #2a3cff; color: #fff; }
+  #s1 .h { white-space: nowrap; font-size: 160px; letter-spacing: -.045em; text-transform: uppercase; }
+  #lime { left: 70px; top: 392px; width: 600px; height: 150px; background: #c6ff3d; transform-origin: 0 50%; }
+  /* s2 */
+  #s2 { background: #c6ff3d; color: #111; }
+  #s2 .h { font-size: 124px; letter-spacing: -.04em; text-transform: uppercase; left: 70px; }
+  #win { left: 640px; top: 120px; width: 580px; height: 470px; background: #fff; border: 5px solid #111; border-radius: 22px; box-shadow: 14px 14px 0 #111; }
+  #win .bar { position: absolute; left: 0; top: 0; right: 0; height: 52px; border-bottom: 5px solid #111; background: #f1f1f1; border-radius: 16px 16px 0 0; }
+  #win .bar i { position: absolute; top: 15px; width: 18px; height: 18px; border-radius: 50%; background: #111; }
+  .blk { position: absolute; background: #111; border-radius: 8px; }
+  .blk.g { background: #d9d9d9; }
+  .hot { width: 64px; height: 64px; border-radius: 50%; background: #2a3cff; color: #fff; font-size: 34px; text-align: center; line-height: 64px; border: 5px solid #111; z-index: 4; }
+  .ripple { width: 64px; height: 64px; border-radius: 50%; border: 5px solid #2a3cff; z-index: 3; }
+  #cur2 { z-index: 9; }
+  /* s3 */
+  #s3 { background: #0b0b14; color: #fff; }
+  #s3 .h { white-space: nowrap; font-size: 98px; letter-spacing: -.04em; text-transform: uppercase; left: 70px; }
+  #s3 .h b { color: #c6ff3d; font-weight: 400; }
+  .step { position: absolute; left: 700px; width: 520px; height: 112px; border-radius: 20px; background: #161626; border: 3px solid #2e2e4a; }
+  .step .n { position: absolute; left: 22px; top: 26px; width: 58px; height: 58px; border-radius: 50%; background: #c6ff3d; color: #0b0b14; font-size: 30px; text-align: center; line-height: 58px; }
+  .step .l1 { position: absolute; left: 104px; top: 30px; height: 16px; border-radius: 8px; background: #fff; }
+  .step .l2 { position: absolute; left: 104px; top: 62px; height: 12px; border-radius: 6px; background: #4a4a72; }
+  #prompt { left: 70px; top: 470px; width: 560px; height: 92px; border-radius: 46px; border: 4px solid #c6ff3d; font-family: "JetBrains Mono", monospace; font-size: 32px; color: #c6ff3d; line-height: 84px; padding-left: 34px; white-space: nowrap; overflow: hidden; }
+  .spark { color: #c6ff3d; z-index: 5; }
+  /* s4 */
+  #s4 { background: #ff2e93; color: #fff; }
+  #nm { left: 0; width: 1280px; top: 150px; text-align: center; font-size: 230px; letter-spacing: -.05em; line-height: 1; text-shadow: 10px 10px 0 #111; }
+  #cta { left: 410px; top: 450px; width: 460px; height: 120px; border-radius: 60px; background: #c6ff3d; color: #111; font-size: 46px; text-align: center; line-height: 120px; box-shadow: 8px 8px 0 #111; }
+  #wipe { left: 0; top: 0; width: 1280px; height: 720px; z-index: 30; transform: translateX(-1300px); }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <div class="sc" id="s1">
+    <div class="abs" id="lime"></div>
+    <div class="abs" style="left:90px;top:40px;width:1100px">
+      <div class="mk"><span class="h">Your demo</span></div>
+      <div class="mk"><span class="h">builds</span></div>
+      <div class="mk"><span class="h" style="color:#111">itself.</span></div>
+    </div>
+  </div>
+  <div class="sc" id="s2">
+    <div class="abs" style="left:0;top:90px;width:600px">
+      <div class="mk"><span class="h abs" style="position:relative;left:70px">Click.</span></div>
+      <div class="mk"><span class="h" style="position:relative;left:70px">Click.</span></div>
+      <div class="mk"><span class="h" style="position:relative;left:70px;color:#2a3cff">Done.</span></div>
+    </div>
+    <div class="abs" id="win">
+      <div class="bar"><i style="left:20px"></i><i style="left:48px"></i><i style="left:76px"></i></div>
+      <div class="blk" style="left:30px;top:86px;width:240px;height:26px"></div>
+      <div class="blk g" style="left:30px;top:128px;width:360px;height:14px"></div>
+      <div class="blk g" style="left:30px;top:228px;width:230px;height:150px"></div>
+      <div class="blk g" style="left:290px;top:228px;width:230px;height:150px"></div>
+      <div class="blk" style="left:30px;top:398px;width:150px;height:44px;border-radius:22px;background:#2a3cff"></div>
+      <svg class="abs" style="left:0;top:0" width="570" height="460" viewBox="0 0 570 460"><path id="trail" d="M 124 392 C 150 330 190 290 260 270 C 330 250 420 300 420 190" fill="none" stroke="#111" stroke-width="5" stroke-dasharray="3 14" stroke-linecap="round"/></svg>
+      <div class="abs ripple" id="rp1" style="left:92px;top:360px"></div><div class="abs hot" id="h1" style="left:92px;top:360px">1</div>
+      <div class="abs ripple" id="rp2" style="left:228px;top:238px"></div><div class="abs hot" id="h2" style="left:228px;top:238px">2</div>
+      <div class="abs ripple" id="rp3" style="left:388px;top:158px"></div><div class="abs hot" id="h3" style="left:388px;top:158px">3</div>
+    </div>
+    <svg id="cur2" class="abs" width="64" height="80" viewBox="0 0 24 30"><path d="M3 2 L3 24 L9 18.5 L13 27 L17 25 L13 17 L21 17Z" fill="#111" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
+  </div>
+  <div class="sc" id="s3">
+    <div class="abs" style="left:0;top:70px;width:680px">
+      <div class="mk"><span class="h" style="position:relative;left:70px">AI writes</span></div>
+      <div class="mk"><span class="h" style="position:relative;left:70px"><b>the steps.</b></span></div>
+    </div>
+    <div class="abs" id="prompt"></div>
+    <div class="abs step" style="top:90px" id="st1"><div class="n">1</div><div class="l1" style="width:300px"></div><div class="l2" style="width:240px"></div></div>
+    <div class="abs step" style="top:225px" id="st2"><div class="n">2</div><div class="l1" style="width:340px"></div><div class="l2" style="width:200px"></div></div>
+    <div class="abs step" style="top:360px" id="st3"><div class="n">3</div><div class="l1" style="width:260px"></div><div class="l2" style="width:290px"></div></div>
+    <div class="abs step" style="top:495px" id="st4"><div class="n">4</div><div class="l1" style="width:320px"></div><div class="l2" style="width:170px"></div></div>
+    <div class="abs spark" id="sp1" style="left:600px;top:60px;font-size:90px">&#10022;</div>
+    <div class="abs spark" id="sp2" style="left:1190px;top:30px;font-size:56px">&#10022;</div>
+    <div class="abs spark" id="sp3" style="left:640px;top:600px;font-size:48px">&#10022;</div>
+  </div>
+  <div class="sc" id="s4">
+    <div class="abs" id="nm">clickthru</div>
+    <div class="abs" id="cta">Try it free &rarr;</div>
+    <svg id="cur4" class="abs" width="64" height="80" viewBox="0 0 24 30" style="z-index:9"><path d="M3 2 L3 24 L9 18.5 L13 27 L17 25 L13 17 L21 17Z" fill="#111" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
+  </div>
+  <div class="abs" id="wipe"></div>
+</div>
+<script>
+(function () {
+  var tl = gsap.timeline({ paused: true });
+  var CUT = [0, 0.95, 2.2, 3.6], COL = ["#2a3cff", "#c6ff3d", "#0b0b14", "#ff2e93"];
+  tl.set("#s2,#s3,#s4", { autoAlpha: 0 }, 0);
+  for (var i = 1; i < 4; i++) {
+    var c = CUT[i];
+    tl.set("#wipe", { backgroundColor: COL[i], x: -1300 }, c - .2);
+    tl.to("#wipe", { x: 0, duration: .15, ease: "power3.in" }, c - .17);
+    tl.set("#s" + i, { autoAlpha: 0 }, c);
+    tl.set("#s" + (i + 1), { autoAlpha: 1 }, c);
+    tl.to("#wipe", { x: 1300, duration: .17, ease: "power3.out" }, c);
+  }
+  // s1: hook slams
+  tl.fromTo("#s1 .mk > span", { yPercent: 0 }, { yPercent: 0, duration: .01 }, 0);
+  tl.from("#s1 .mk > span", { yPercent: 105, duration: .3, ease: "power4.out", stagger: .08 }, 0);
+  tl.fromTo("#lime", { scaleX: 0 }, { scaleX: 1, duration: .35, ease: "power4.out" }, .22);
+  tl.fromTo("#s1 .abs[style*='left:90px;top:40px']", { scale: 1.08, transformOrigin: "0 50%" }, { scale: 1, duration: .8, ease: "power2.out" }, 0);
+  // s2: click-through proof
+  var t2 = CUT[1] + .1;
+  tl.from("#s2 .mk > span", { yPercent: 105, duration: .3, ease: "power4.out", stagger: .1 }, t2);
+  tl.fromTo("#win", { y: 80, rotation: 4, opacity: 0 }, { y: 0, rotation: -2, opacity: 1, duration: .45, ease: "back.out(1.6)" }, t2);
+  tl.set("#cur2", { x: 1250, y: 650 }, 0);
+  var hp = [[92, 360], [228, 238], [388, 158]];
+  tl.set("#h1,#h2,#h3,#rp1,#rp2,#rp3", { opacity: 0 }, 0);
+  tl.fromTo("#trail", { strokeDasharray: "3 14", opacity: 0 }, { opacity: 1, duration: .2 }, t2 + .2);
+  hp.forEach(function (p, i) {
+    var tt = t2 + .38 + i * .34, ox = 640 + 2 + p[0] + 8, oy = 120 + 2 + p[1] + 8;
+    tl.to("#cur2", { x: ox + 8, y: oy + 6, duration: .26, ease: "power3.inOut" }, tt - .26 + .1);
+    tl.fromTo("#h" + (i + 1), { opacity: 1, scale: 0 }, { opacity: 1, scale: 1, duration: .28, ease: "back.out(3)" }, tt + .1);
+    tl.fromTo("#rp" + (i + 1), { opacity: 1, scale: 1 }, { opacity: 0, scale: 2.8, duration: .45, ease: "power2.out" }, tt + .1);
+    tl.to("#cur2", { scale: .8, duration: .06 }, tt + .1).to("#cur2", { scale: 1, duration: .12 }, tt + .16);
+  });
+  // s3: AI writes steps
+  var t3 = CUT[2] + .1, ptxt = "write the steps_";
+  tl.from("#s3 .mk > span", { yPercent: 105, duration: .3, ease: "power4.out", stagger: .1 }, t3);
+  tl.fromTo("#prompt", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: .3, ease: "power3.out" }, t3 + .1);
+  var pp = { n: 0 };
+  tl.to(pp, { n: ptxt.length, duration: .4, ease: "none", onUpdate: function () { document.getElementById("prompt").textContent = "> " + ptxt.slice(0, Math.round(pp.n)); } }, t3 + .2);
+  ["#st1", "#st2", "#st3", "#st4"].forEach(function (id, i) {
+    tl.fromTo(id, { opacity: 0, x: 120, scale: .9 }, { opacity: 1, x: 0, scale: 1, duration: .32, ease: "back.out(1.8)" }, t3 + .4 + i * .13);
+    tl.fromTo(id + " .l1," + id + " .l2", { scaleX: 0, transformOrigin: "0 50%" }, { scaleX: 1, duration: .25, ease: "power2.out", stagger: .05 }, t3 + .5 + i * .13);
+    tl.fromTo(id, { borderColor: "#c6ff3d" }, { borderColor: "#2e2e4a", duration: .4 }, t3 + .55 + i * .13);
+  });
+  ["#sp1", "#sp2", "#sp3"].forEach(function (id, i) { tl.fromTo(id, { scale: 0, rotation: -90, opacity: 1 }, { scale: 1, rotation: 0, duration: .45, ease: "back.out(3)" }, t3 + .3 + i * .22); });
+  // s4: name + CTA
+  var t4 = CUT[3] + .08;
+  tl.fromTo("#nm", { scale: 1.35, opacity: 0, y: -40 }, { scale: 1, opacity: 1, y: 0, duration: .4, ease: "power4.out" }, t4);
+  tl.fromTo("#cta", { scale: 0, opacity: 0 }, { scale: 1, opacity: 1, duration: .4, ease: "back.out(2.4)" }, t4 + .22);
+  tl.set("#cur4", { x: 1200, y: 640 }, 0);
+  tl.to("#cur4", { x: 800, y: 535, duration: .5, ease: "power3.inOut" }, t4 + .45);
+  tl.to("#cta", { scale: .94, duration: .08 }, t4 + .98).to("#cta", { scale: 1, duration: .25, ease: "back.out(3)" }, t4 + 1.06);
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

@@ -1,3 +1,4 @@
+import { preflightRender, RenderContractError, RENDER_CAPABILITIES } from "./render-preflight.mjs";
 // Render worker (Railway service "worker"). Consumes `render-video` from pg-boss, renders with
 // HyperFrames, reports real progress into app.render_jobs, and publishes `render-finished`.
 // Scale out by adding replicas; each one runs RENDER_CONCURRENCY renders at a time (default 1).
@@ -8,6 +9,7 @@ import { PgBoss } from "pg-boss";
 import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
 import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
 import { QUEUES, claim, createPool, finish, noteRetry, progress } from "./jobs.mjs";
+import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 // Railway private networking needs "::"; local Docker uses 0.0.0.0.
@@ -17,9 +19,14 @@ const concurrency = Number.parseInt(process.env.RENDER_CONCURRENCY ?? "1", 10);
 // Seconds to let in-flight renders finish on SIGTERM before handing them back to the queue.
 const drainSeconds = Number.parseInt(process.env.DRAIN_SECONDS ?? "25", 10);
 const RENDERS_DIR = "/renders";
+// Scale to zero (WORKER_LAUNCH=ecs on the backend): exit after this many seconds with nothing running and
+// nothing queued, so the task stops billing. The backend starts a new one when a render is queued.
+// 0 (the default) keeps the worker running, as a long-lived service or local Docker needs.
+const idleExitSeconds = Number.parseInt(process.env.IDLE_EXIT_SECONDS ?? "0", 10);
 
 if (!databaseUrl) throw new Error("DATABASE_URL is not set; the worker reads render jobs from Postgres.");
 if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("RENDER_CONCURRENCY must be a positive integer.");
+if (!Number.isInteger(idleExitSeconds) || idleExitSeconds < 0) throw new Error("IDLE_EXIT_SECONDS must be 0 or a positive integer.");
 
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 const pool = createPool(databaseUrl);
@@ -30,6 +37,7 @@ boss.on("error", (error) => log("error", "queue_error", { message: error.message
 let ready = false;
 let shuttingDown = false;
 let active = 0;
+let lastBusy = Date.now();
 
 /** Errors that would fail the same way on every attempt: fail now instead of retrying. */
 class PermanentError extends Error {}
@@ -68,9 +76,9 @@ function progressReporter(jobId, attempt, onLost) {
   };
 }
 
-const RENDER_FLAGS = ["--fps", "30", "--workers", "1", "--quality", "standard", "--no-browser-gpu"];
+const RENDER_FLAGS = ["--fps", "30", "--no-best-effort", "--workers", "1", "--quality", "standard", "--no-browser-gpu"];
 // Previews (Pro Editor): fewer frames and a cheaper encode, then scaled down. They are for checking timing, never delivered.
-const PREVIEW_FLAGS = ["--fps", "24", "--workers", "1", "--quality", "draft", "--no-browser-gpu"];
+const PREVIEW_FLAGS = ["--fps", "24", "--no-best-effort", "--workers", "1", "--quality", "draft", "--no-browser-gpu"];
 const isPreview = (input) => input.quality === "draft540" || input.quality === "preview720";
 
 /** The preview's pixel size. The backend computes it (contracts previewSize); a row is never trusted: even integers in range, or no scaling. */
@@ -86,9 +94,20 @@ function previewScale(input) {
  * rendered cheaply at the composition's own size, then scaled to 540p / 720p with ffmpeg.
  */
 async function renderFolder(folder, output, input, options) {
+  try {
+    if (input.renderContractVersion !== undefined && input.renderContractVersion !== 1) throw new RenderContractError("Unsupported render contract version");
+    // Pro source is intentionally editable; a manifest copied from its initial snapshot is stale.
+    if (input.kind === "beat-plan") await preflightRender(folder, { requireManifest: input.renderContractVersion === 1 });
+  } catch (error) {
+    if (error instanceof RenderContractError || error?.code === "ENOENT") throw new PermanentError(`Prepared project failed preflight: ${error.message}`);
+    throw error;
+  }
   const variables = join(folder, "variables.json");
   const hasVariables = await access(variables).then(() => true, () => false);
-  await run(HYPERFRAMES, ["render", folder, ...(hasVariables ? ["--variables-file", variables] : []), "--output", output, ...(isPreview(input) ? PREVIEW_FLAGS : RENDER_FLAGS)], options);
+  const args = (to, fps) => ["render", folder, ...(hasVariables ? ["--variables-file", variables] : []), "--output", to, ...(isPreview(input) ? PREVIEW_FLAGS : fps ? ["--fps", String(fps), ...RENDER_FLAGS.slice(2)] : RENDER_FLAGS)];
+  // Motion blur is the person's choice at final submission and never touches a preview.
+  if (wantsMotionBlur(input, isPreview)) await renderWithMotionBlur({ run, hyperframes: HYPERFRAMES, hyperframesArgs: args, output, options });
+  else await run(HYPERFRAMES, args(output), options);
   const scale = previewScale(input);
   if (!scale) return;
   const scaled = `${output}.scaled.mp4`;
@@ -214,6 +233,7 @@ async function handle(job) {
     return;
   }
   active += 1;
+  lastBusy = Date.now();
   const started = Date.now();
   await removeEarlierAttempts(jobId, attempt);
   // Abort when pg-boss reports the claim is gone (heartbeat lost, expired) or the row moved to a newer attempt.
@@ -247,6 +267,7 @@ async function handle(job) {
     throw error;
   } finally {
     active -= 1;
+    lastBusy = Date.now();
   }
 }
 
@@ -265,7 +286,22 @@ async function startConsuming() {
   }
   await boss.work(QUEUES.video, { localConcurrency: concurrency, pollingIntervalSeconds: 1 }, async ([job]) => handle(job));
   ready = true;
-  log("info", "worker_consuming", { queue: QUEUES.video, concurrency });
+  log("info", "worker_consuming", { queue: QUEUES.video, concurrency, idleExitSeconds });
+  if (idleExitSeconds > 0) watchIdle();
+}
+
+/** Exits once the worker has had nothing to do for idleExitSeconds and the queue is empty. */
+function watchIdle() {
+  const timer = setInterval(async () => {
+    if (shuttingDown || active > 0 || Date.now() - lastBusy < idleExitSeconds * 1000) return;
+    const [stats] = await boss.getQueueStats(QUEUES.video).catch(() => []);
+    // Unknown queue state: stay up rather than strand a job; the next tick asks again.
+    if (!stats) return;
+    if (stats.queuedCount + stats.activeCount > 0) { lastBusy = Date.now(); return; }
+    clearInterval(timer);
+    void shutdown("idle");
+  }, 15_000);
+  timer.unref();
 }
 
 function send(response, status, payload) {
@@ -275,6 +311,7 @@ function send(response, status, payload) {
 
 // Health only. Renders arrive through the queue, never over HTTP.
 const server = http.createServer((request, response) => {
+  if (request.method === "GET" && request.url === "/capabilities") return send(response, 200, RENDER_CAPABILITIES);
   if (request.method === "GET" && request.url === "/healthz") return send(response, 200, { status: "ok", service: "worker" });
   if (request.method === "GET" && request.url === "/readyz") return send(response, ready && !shuttingDown ? 200 : 503, { ready: ready && !shuttingDown, active, concurrency });
   return send(response, 404, { error: { code: "not_found", message: "Not found." } });

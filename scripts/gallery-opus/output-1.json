@@ -1,0 +1,630 @@
+[
+ {
+  "id": "opus-alex-prompter-997524",
+  "name": "Five-scene business explainer",
+  "group": "Explainer",
+  "summary": "A bold five-scene explainer: problem, solution, three steps, one proof, name.",
+  "bestFor": "Small businesses explaining what they do in half a minute",
+  "prompt": "Build a 30-second explainer for a fictional bookkeeping studio in five scenes. Scene one states the customer's problem in big bold text. Scene two says what the studio does. Scene three shows how it works in three numbered steps. Scene four gives one proof point as a quote. The last scene ends on the studio name. Smooth transitions, brand colours.",
+  "look": "clean",
+  "theme": "bold",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @alex_prompter",
+   "url": "https://x.com/alex_prompter/status/2103499977632997524"
+  },
+  "plan": {
+   "brand": "Ledgerly",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Receipts everywhere?",
+     "on_screen": "The problem, said plainly",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "We sort it all",
+     "on_screen": "One studio, one tidy book",
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Three simple steps",
+     "on_screen": "Upload, review, done",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Upload button",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Ledgerly",
+     "on_screen": "Book a free intro",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-annacher-433425",
+  "name": "One-shape UI morph promo",
+  "group": "Product",
+  "summary": "A single shape morphs through every product state while a cursor clicks and drags it.",
+  "bestFor": "SaaS teams showing a full workflow in one unbroken shot",
+  "prompt": "Make a loopable square product promo for a fictional ad-launch tool using one shape that never cuts. The same rounded element morphs in size, radius and colour as its content swaps with a short blur. A large cursor drives each change: connect accounts, type a prompt, approve, drag a budget slider, flip a toggle. Camera zooms so each state fills the frame, and the last frame matches the first.",
+  "look": "clean",
+  "theme": "neutral",
+  "aspect": "1:1",
+  "durationSeconds": 30,
+  "motionProfile": "springy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @AnnaCher___",
+   "url": "https://x.com/AnnaCher___/status/2103571096549433425"
+  },
+  "plan": {
+   "brand": "Launchpad",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "One shape",
+     "on_screen": "Every state is the same card",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Connect accounts",
+     "on_screen": "Cursor drives every change",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Connect button",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Launch in one tap",
+     "on_screen": "Approve and go live",
+     "verb": "toggle",
+     "ui": {
+      "screen": "s1",
+      "action": "toggle",
+      "target": "Autopilot switch",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Launchpad",
+     "on_screen": "Try it free",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-aschapmann-724497",
+  "name": "Story-led launch film",
+  "group": "Product",
+  "summary": "A 30-second launch film that moves from why it matters to pain, fix and payoff, ending on a logo reveal.",
+  "bestFor": "SaaS founders launching a product from a landing page",
+  "prompt": "Create a 30-second launch film for a fictional project-tracking app in four or five scenes, each with one short title. Tell it as one story: why teams care, why it hurts today, how the app fixes it, what you get. Kinetic typography word by word, springy easing, gentle camera pushes, and elements that build in on the beat. Hold each scene long enough to read, then end on an animated logo, tagline and web address.",
+  "look": "clean",
+  "theme": "bold",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "springy",
+  "pace": "balanced",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @aschapmann",
+   "url": "https://x.com/aschapmann/status/2104230888812724497"
+  },
+  "plan": {
+   "brand": "Trackwise",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Work gets lost",
+     "on_screen": "Updates scattered everywhere",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Trackwise fixes it",
+     "on_screen": "One board, one truth",
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Everything in sight",
+     "on_screen": "Tasks fall into place",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Task card",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Trackwise",
+     "on_screen": "Plan calmer, ship faster",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-astrothewizard-618782",
+  "name": "Storybook science explainer",
+  "group": "Story",
+  "summary": "A whimsical storybook explainer that follows one character with personality through a long journey.",
+  "bestFor": "Educators and science channels explaining a process as a tale",
+  "prompt": "Make a 60-second storybook explainer about a raindrop's journey from cloud to sea. Give the raindrop a charming personality, little visual gags, and onomatopoeia. Show a few honest facts along the way, with a side timeline of what else was happening in the world. Narrated voiceover, burned-in captions, and a gentle score that shifts with each chapter.",
+  "look": "doodle",
+  "theme": "editorial",
+  "aspect": "16:9",
+  "durationSeconds": 60,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @AstroTheWizard",
+   "url": "https://x.com/AstroTheWizard/status/2103629247751618782"
+  },
+  "plan": {
+   "brand": "Little Drop",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Meet the raindrop",
+     "on_screen": "A very small traveller",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Splash, bounce, drift",
+     "on_screen": "Every step has a sound",
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Follow the journey",
+     "on_screen": "Cloud to river to sea",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "River path",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Little Drop",
+     "on_screen": "Watch the full story",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-charlesmendez-476517",
+  "name": "Campaign workflow demo",
+  "group": "How-to",
+  "summary": "A punchy walkthrough of one user going from campaign setup through to results, screen by screen.",
+  "bestFor": "Marketing and analytics tools showing an end-to-end workflow",
+  "prompt": "Make a slick, punchy 45-second walkthrough for a fictional marketing analytics tool. One user creates an ad campaign, connects their metrics, sees where results come from, then connects a voice assistant that replies to a lead and follows up. A person approves the reply before it goes out. Finish on the analytics dashboard. Show each step on a clean UI screen with a cursor.",
+  "look": "clean",
+  "theme": "blue-professional",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @charlesmendez",
+   "url": "https://x.com/charlesmendez/status/2102847039415476517"
+  },
+  "plan": {
+   "brand": "Signalboard",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Create a campaign",
+     "on_screen": "Start with one prompt",
+     "verb": "type",
+     "ui": {
+      "screen": "s1",
+      "action": "type",
+      "target": "Prompt field",
+      "aspect": 1.6
+     },
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Connect your metrics",
+     "on_screen": "One click to link",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Connect button",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Human approves",
+     "on_screen": "Reply held for review",
+     "verb": "toggle",
+     "ui": {
+      "screen": "s1",
+      "action": "toggle",
+      "target": "Approve switch",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Signalboard",
+     "on_screen": "See the full picture",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-daniel-haida-636937",
+  "name": "Premium brand showreel",
+  "group": "Showreel",
+  "summary": "A restrained, expensive-feeling 15-second film that presents a product with calm editorial polish.",
+  "bestFor": "Finance or utility apps wanting a mature, high-end image",
+  "prompt": "Create a 15-second premium brand film for a fictional invoicing app. Treat it as a quiet editorial showreel, not a feature walkthrough. Use large still compositions, fine type, generous negative space, and a few real-feeling UI cards that slide in and settle. Cuts land on a soft beat. The viewer should think this is a surprisingly elegant tool. End on the wordmark.",
+  "look": "hairline",
+  "theme": "editorial",
+  "aspect": "16:9",
+  "durationSeconds": 15,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @daniel_haida",
+   "url": "https://x.com/daniel_haida/status/2104139720829636937"
+  },
+  "plan": {
+   "brand": "Folio",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Quietly precise",
+     "on_screen": "Invoices, made elegant",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Everything in order",
+     "on_screen": "Cards settle into place",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Invoice card",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Calm by design",
+     "on_screen": "Less noise, more clarity",
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Folio",
+     "on_screen": "Invoicing, refined",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-advait-jayant-712107",
+  "name": "Bold manifesto typography",
+  "group": "Typography",
+  "summary": "A 20-second type-only manifesto where one statement builds word by word with hard, confident beats.",
+  "bestFor": "Mission-driven startups and campaigns stating a belief",
+  "prompt": "Make a 20-second manifesto video for a fictional open-science collective. One belief, \"knowledge should belong to everyone\", is built in big typography across short scenes. Words slam in on the beat, key words change colour, and a final line holds still before the name appears. No images, only text and simple shapes, with sound hits matching each word.",
+  "look": "clean",
+  "theme": "bold-poster",
+  "aspect": "16:9",
+  "durationSeconds": 20,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @advait_jayant",
+   "url": "https://x.com/advait_jayant/status/2103565104243712107"
+  },
+  "plan": {
+   "brand": "Open Atlas",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Knowledge belongs to",
+     "on_screen": "Open to all",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Everyone, always",
+     "on_screen": "No gates. No exceptions.",
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Build it open",
+     "on_screen": "Share what you learn",
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Open Atlas",
+     "on_screen": "Join the collective",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-arthurkatcher-604161",
+  "name": "Concept explainer on beat",
+  "group": "Explainer",
+  "summary": "A 40-second explainer that breaks a technical idea into a clear loop of animated steps cut to the beat.",
+  "bestFor": "Developer tools and technical teams explaining how something works",
+  "prompt": "Make a 40-second animated explainer of how an automated code reviewer works, for a fictional developer tool. Show a loop in clear steps: a change arrives, the reviewer reads it, runs checks, suggests fixes, and the developer merges. Each step is a simple diagram with a short label, and every cut lands on a beat. Voiceover keeps it plain and friendly.",
+  "look": "sketch",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 40,
+  "motionProfile": "snappy",
+  "pace": "balanced",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @arthurkatcher",
+   "url": "https://x.com/arthurkatcher/status/2104198927549604161"
+  },
+  "plan": {
+   "brand": "Reviewbot",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "How it works",
+     "on_screen": "Four steps, one loop",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Read, check, suggest",
+     "on_screen": "The reviewer does the legwork",
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Merge with confidence",
+     "on_screen": "Approve the clean change",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Merge button",
+      "aspect": 1.6
+     },
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Reviewbot",
+     "on_screen": "See it on your repo",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-amberpromptai-345137",
+  "name": "Festival story explainer",
+  "group": "Story",
+  "summary": "A warm short story explaining a festival, from old tradition to family reunion.",
+  "bestFor": "Cultural, seasonal and educational content",
+  "prompt": "Make a 30-second animated story explaining a harvest moon festival. Start with how the tradition began long ago, move through the foods and lanterns, and arrive at families gathering. Soft hand-drawn moon, lanterns and tables, gentle narration, and a closing line that no distance should keep us from the people we miss.",
+  "look": "doodle",
+  "theme": "daisy-days",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @AmberPromptai",
+   "url": "https://x.com/AmberPromptai/status/2103793821012345137"
+  },
+  "plan": {
+   "brand": "Moon Table",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Long ago, a moon",
+     "on_screen": "The story begins",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Lanterns and sweets",
+     "on_screen": "Tradition on every table",
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Come home",
+     "on_screen": "Family under one moon",
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Moon Table",
+     "on_screen": "Make time for them",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-dale-vaz-879074",
+  "name": "Zoom-through product reveal",
+  "group": "Product",
+  "summary": "A camera-led reveal that grows from one dot into a workspace, then dives into a phone.",
+  "bestFor": "Trading, analytics and dashboard products with several panels",
+  "prompt": "Make a 30-second product reveal for a fictional trading workspace. Start with a single dot on a black screen. Panels open one by one: charts, positions, a watchlist. The camera zooms in and out at different scales, then pulls back until the desktop is a point in space, and dives into a phone screen showing the same chart. End on the line that everything fits on one screen.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @dale_vaz",
+   "url": "https://x.com/dale_vaz/status/2103290592679879074"
+  },
+  "plan": {
+   "brand": "Northpane",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "One dot",
+     "on_screen": "Then the whole market",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Panels open",
+     "on_screen": "Charts, positions, watchlist",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Chart panel",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Zoom out, zoom in",
+     "on_screen": "Same view on your phone",
+     "start": 2.5,
+     "end": 3.7
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Northpane",
+     "on_screen": "Trade from one screen",
+     "start": 3.7,
+     "end": 5
+    }
+   ]
+  }
+ }
+]

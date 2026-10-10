@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Stop-motion product story</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f6e7c8; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f6e7c8; font-family: "Fredoka", "Quicksand", sans-serif; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(4242);
+  var INK = "#2b2233", CORAL = "#ff6b4a", TEAL = "#2ec4b6", YEL = "#ffc93c", PAPER = "#fffaf0", GREEN = "#5cb85c", PURPLE = "#7b5cff";
+  function wobPts(pts, amp, closed) {
+    var o = pts.map(function (p) { return [p[0] + (R() - .5) * amp, p[1] + (R() - .5) * amp]; });
+    var d = "M" + o[0][0].toFixed(1) + " " + o[0][1].toFixed(1), n = o.length;
+    for (var i = 0; i < (closed ? n : n - 1); i++) {
+      var p0 = o[(i - 1 + n) % n], p1 = o[i], p2 = o[(i + 1) % n], p3 = o[(i + 2) % n];
+      if (!closed) { p0 = o[Math.max(0, i - 1)]; p3 = o[Math.min(n - 1, i + 2)]; }
+      d += "C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+    }
+    return d + (closed ? "Z" : "");
+  }
+  function ell(cx, cy, rx, ry, n, amp) { var p = []; for (var i = 0; i < n; i++) { var a = i / n * Math.PI * 2 + R() * .2; p.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]); } return wobPts(p, amp, true); }
+  var tl = gsap.timeline({ paused: true });
+  var boils = [];
+  function grp(parent, boil) { var o = el("g", {}, parent); if (!boil) return [o, o]; var i = el("g", {}, o); boils.push(i); return [o, i]; }
+  function stepPop(g, t, dur, org) { tl.fromTo(g, { scale: 0, svgOrigin: org }, { scale: 1, duration: dur || 0.3, ease: "steps(4)" }, t); }
+
+  // paper cutout ground
+  var ground = "M-20 600";
+  for (var x = -20; x <= 1300; x += 40) ground += "L" + x + " " + (x / 40 % 2 === 0 ? 596 : 612);
+  ground += "L1300 740L-20 740Z";
+  var G = grp(s, true);
+  el("path", { d: ground, fill: TEAL, stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, G[1]);
+  el("path", { d: "M-20 650Q300 640 640 656T1300 650", fill: "none", stroke: INK, "stroke-width": 3, opacity: .35 }, G[1]);
+
+  // coin helper
+  function coin(parent, cx, cy, r, awake) {
+    var c = grp(parent, true);
+    el("path", { d: ell(cx + 6, cy + 8, r, r, 9, 3), fill: INK, opacity: .22 }, c[1]);
+    var body = el("path", { d: ell(cx, cy, r, r, 9, 3), fill: YEL, stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, c[1]);
+    el("path", { d: ell(cx, cy, r * .6, r * .6, 7, 2), fill: "none", stroke: INK, "stroke-width": 3, opacity: .55 }, c[1]);
+    el("path", { d: wobPts([[cx - 7, cy - 4], [cx, cy + 8], [cx + 8, cy - 5]], 2), fill: "none", stroke: INK, "stroke-width": 4, "stroke-linecap": "round", "stroke-linejoin": "round" }, c[1]);
+    return c[0];
+  }
+  // jar (behind coins), drawn later glass
+  var J = grp(s, true);
+  var jarPath = wobPts([[880, 392], [900, 392], [904, 372], [1056, 372], [1060, 392], [1080, 392], [1086, 420], [1086, 570], [1070, 600], [894, 600], [878, 570], [878, 420], [880, 392]], 4, false);
+  el("path", { d: jarPath, fill: "#bff2ee", "fill-opacity": .55, stroke: INK, "stroke-width": 6, "stroke-linejoin": "round", "stroke-linecap": "round" }, J[1]);
+  el("path", { d: wobPts([[900, 430], [900, 520]], 3), stroke: "#fff", "stroke-width": 8, "stroke-linecap": "round", fill: "none", opacity: .7 }, J[1]);
+  tl.fromTo(J[0], { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.3, ease: "steps(3)" }, 0.05);
+  // jar label tag
+  // coins in pile (left)
+  var pile = [[150, 560], [230, 566], [310, 560], [190, 505], [270, 510]];
+  var cs = pile.map(function (p, i) { var c = coin(s, p[0], p[1], 30); return c; });
+  // z z z over the pile
+  var Z = [];
+  [[160, 440, 40], [215, 395, 54], [275, 350, 66]].forEach(function (z, i) {
+    var g = el("g", {}, s), t = el("text", { x: z[0], y: z[1], "font-size": z[2], "font-weight": 700, fill: PURPLE, stroke: INK, "stroke-width": 1.5, "font-family": "Fredoka, Quicksand, sans-serif" }, g);
+    t.textContent = "z"; Z.push(g);
+    tl.fromTo(g, { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.2, ease: "steps(3)" }, 0.1 + i * 0.25);
+    tl.to(g, { opacity: 0, y: -30, duration: 0.2, ease: "steps(3)" }, 1.2 + i * 0.05);
+  });
+
+  // Nest the creature
+  var N = grp(s, false), NI = grp(N[0], true);
+  el("path", { d: ell(606, 502, 130, 112, 11, 5), fill: INK, opacity: .22 }, NI[1]).setAttribute("transform", "translate(10 12)");
+  var armL = el("path", { d: wobPts([[490, 500], [450, 520], [440, 560]], 3), fill: "none", stroke: INK, "stroke-width": 8, "stroke-linecap": "round" }, NI[1]);
+  var armR = el("path", { d: wobPts([[722, 500], [760, 470], [790, 430]], 3), fill: "none", stroke: INK, "stroke-width": 8, "stroke-linecap": "round" }, NI[1]);
+  el("path", { d: wobPts([[570, 604], [566, 640]], 2), stroke: INK, "stroke-width": 8, "stroke-linecap": "round", fill: "none" }, NI[1]);
+  el("path", { d: wobPts([[640, 604], [646, 640]], 2), stroke: INK, "stroke-width": 8, "stroke-linecap": "round", fill: "none" }, NI[1]);
+  el("path", { d: ell(606, 500, 130, 112, 11, 5), fill: CORAL, stroke: INK, "stroke-width": 6, "stroke-linejoin": "round" }, NI[1]);
+  // belly patch + ear tuft (leaf)
+  el("path", { d: ell(606, 548, 74, 48, 9, 4), fill: "#ffd1bf", opacity: .9 }, NI[1]);
+  el("path", { d: wobPts([[606, 392], [590, 352], [622, 336]], 3), stroke: INK, "stroke-width": 6, fill: "none", "stroke-linecap": "round" }, NI[1]);
+  el("path", { d: wobPts([[622, 336], [660, 330], [666, 360], [640, 372], [622, 336]], 3), fill: GREEN, stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, NI[1]);
+  // eyes + smile
+  [[570, 470], [645, 470]].forEach(function (e) {
+    el("path", { d: ell(e[0], e[1], 24, 28, 8, 2), fill: PAPER, stroke: INK, "stroke-width": 5 }, NI[1]);
+    el("circle", { cx: e[0] + 5, cy: e[1] + 4, r: 10, fill: INK }, NI[1]);
+    el("circle", { cx: e[0] + 9, cy: e[1] - 1, r: 3, fill: "#fff" }, NI[1]);
+  });
+  el("path", { d: wobPts([[570, 520], [606, 546], [646, 520]], 3), stroke: INK, "stroke-width": 7, fill: "none", "stroke-linecap": "round" }, NI[1]);
+  el("path", { d: ell(548, 508, 14, 9, 6, 2), fill: "#ff9a86" }, NI[1]);
+  el("path", { d: ell(668, 508, 14, 9, 6, 2), fill: "#ff9a86" }, NI[1]);
+  stepPop(N[0], 1.15, 0.4, "606 612");
+  // wave
+  tl.to(armR, { rotation: -22, svgOrigin: "722 500", duration: 0.2, ease: "steps(2)", repeat: 3, yoyo: true }, 1.7);
+
+  // labels (paper cutout banners)
+  function label(str, t0, t1, rot, col) {
+    var g = el("g", {}, s), inner = el("g", { transform: "rotate(" + rot + " 640 120)" }, g);
+    var w = str.length * 44 + 80;
+    el("rect", { x: 640 - w / 2 + 8, y: 56 + 10, width: w, height: 128, rx: 22, fill: INK, opacity: .22 }, inner);
+    el("path", { d: wobPts([[640 - w / 2, 58], [640 + w / 2, 54], [640 + w / 2 + 2, 180], [640 - w / 2 - 2, 184], [640 - w / 2, 58]], 6, false), fill: col, stroke: INK, "stroke-width": 6, "stroke-linejoin": "round" }, inner);
+    var t = el("text", { x: 640, y: 142, "text-anchor": "middle", "font-size": 84, "font-weight": 700, fill: col === PAPER ? INK : PAPER, "font-family": "Fredoka, Quicksand, sans-serif" }, inner);
+    t.textContent = str;
+    boils.push(inner);
+    tl.fromTo(g, { scale: 0, svgOrigin: "640 120" }, { scale: 1, duration: 0.3, ease: "steps(4)", immediateRender: true }, t0);
+    if (t1) tl.to(g, { scale: 0, duration: 0.2, ease: "steps(3)" }, t1 - 0.2);
+    return g;
+  }
+  label("Idle money?", 0, 1.35, -2, PAPER);
+  label("Hi, I'm Nest!", 1.35, 3.7, 2, CORAL);
+  label("Let it grow.", 3.7, 0, -2, GREEN);
+
+  // coins hop into the jar (stop-motion steps)
+  var tgt = [[940, 565], [1020, 565], [940, 505], [1020, 505], [980, 445]];
+  cs.forEach(function (c, i) {
+    var t0 = 1.95 + i * 0.36, dx = tgt[i][0] - pile[i][0], dy = tgt[i][1] - pile[i][1];
+    tl.to(c, { rotation: 8, duration: 0.1, ease: "steps(1)" }, t0 - 0.12);
+    tl.to(c, { x: dx, duration: 0.55, ease: "steps(7)" }, t0);
+    tl.to(c, { y: dy - 230, duration: 0.27, ease: "steps(4)" }, t0);
+    tl.to(c, { y: dy, duration: 0.28, ease: "steps(4)" }, t0 + 0.27);
+  });
+  // sprout grows out of the jar
+  var SP = grp(s, true);
+  var stem = el("path", { d: wobPts([[980, 380], [972, 330], [986, 280], [980, 236]], 3), fill: "none", stroke: INK, "stroke-width": 8, "stroke-linecap": "round" }, SP[1]);
+  var stemG = el("path", { d: wobPts([[980, 380], [972, 330], [986, 280], [980, 236]], 3), fill: "none", stroke: GREEN, "stroke-width": 3, "stroke-linecap": "round" }, SP[1]);
+  var L = 170; [stem, stemG].forEach(function (p) { p.style.strokeDasharray = L; p.style.strokeDashoffset = L; tl.to(p, { strokeDashoffset: 0, duration: 0.6, ease: "steps(6)" }, 3.55); });
+  var lf1 = el("path", { d: wobPts([[984, 290], [1040, 246], [1060, 286], [1020, 312], [984, 290]], 3), fill: GREEN, stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, SP[1]);
+  var lf2 = el("path", { d: wobPts([[978, 250], [924, 214], [904, 254], [944, 276], [978, 250]], 3), fill: "#7fd36a", stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, SP[1]);
+  tl.fromTo(lf1, { scale: 0, svgOrigin: "984 290" }, { scale: 1, duration: 0.3, ease: "steps(4)" }, 4.1);
+  tl.fromTo(lf2, { scale: 0, svgOrigin: "978 250" }, { scale: 1, duration: 0.3, ease: "steps(4)" }, 4.3);
+  // sparkle marks
+  [[1060, 220], [850, 250], [1090, 300]].forEach(function (p, i) {
+    var sp = el("path", { d: "M" + p[0] + " " + (p[1] - 18) + "V" + (p[1] + 18) + "M" + (p[0] - 18) + " " + p[1] + "H" + (p[0] + 18), stroke: INK, "stroke-width": 6, "stroke-linecap": "round" }, s);
+    tl.fromTo(sp, { scale: 0, svgOrigin: p[0] + " " + p[1] }, { scale: 1, duration: 0.2, ease: "steps(3)" }, 4.35 + i * 0.12);
+  });
+
+  // 8 fps boil
+  for (var t = 0; t < 5; t += 0.125) {
+    tl.set(boils, { x: function () { return (R() - .5) * 5; }, y: function () { return (R() - .5) * 5; }, rotation: function () { return (R() - .5) * 2.4; } }, t);
+  }
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

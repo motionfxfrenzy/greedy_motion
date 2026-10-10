@@ -36,6 +36,10 @@
         "required": ["id", "role", "kind", "producer", "keyword", "energy", "motion", "transition_out"],
         "additionalProperties": false,
         "properties": {
+          "render": { "type": "object", "additionalProperties": false, "properties": {
+            "treatment": { "enum": ["clean", "sketch", "doodle", "hairline"] },
+            "graphic": { "enum": ["auto", "dom", "orbits", "particles"] }
+          } },
           "id": { "type": "string" },
           "role": { "enum": ["hook", "problem", "reveal", "feature", "proof", "success", "cta"] },
           "kind": { "enum": ["ui", "kinetic", "3d", "footage", "title"] },

@@ -1,0 +1,41 @@
+/* Brand-token-only graphic treatments. No fonts, remote assets, timers or CSS animation. */
+.look-material .card { border: 8px solid var(--bp-card); border-radius: 3px; box-shadow: 10px 14px 0 color-mix(in srgb,var(--bp-shade) 22%,transparent); }
+.look-material .pill { border-radius: 4px; box-shadow: 5px 6px 0 color-mix(in srgb,var(--bp-shade) 20%,transparent); }
+.look-material .disc { border-radius: 7%; box-shadow: 12px 15px 0 color-mix(in srgb,var(--bp-shade) 16%,transparent); }
+.look-material .ul { height: 5px; }
+.style-figure { position:absolute; pointer-events:none; }
+.style-piece { position:absolute; background:var(--brand); color:var(--bp-on-brand); box-shadow:8px 12px 0 color-mix(in srgb,var(--bp-shade) 18%,transparent); border:3px solid color-mix(in srgb,var(--fg) 20%,transparent); }
+.style-piece:nth-child(even) { background:var(--bp-accent); }
+.style-piece::after { content:""; position:absolute; inset:0; opacity:.16; background:repeating-linear-gradient(18deg,transparent 0 5px,var(--bp-shade) 6px,transparent 7px); }
+.look-vox-collage .style-piece { border:9px solid var(--bp-card); }
+.look-vox-collage .style-piece::after { background:radial-gradient(var(--bp-shade) 1.6px,transparent 2px); background-size:8px 8px; opacity:.32; }
+.look-vox-collage .style-piece:nth-child(3) { border-radius:50%; }
+.look-vox-collage .card::after,.look-paper-collage .card::after { content:""; position:absolute; width:26%; height:24px; top:0; left:37%; background:color-mix(in srgb,var(--accent) 65%,transparent); }
+.look-paper-diorama .style-piece { border-width:7px; border-color:color-mix(in srgb,var(--bg) 60%,var(--brand)); box-shadow:14px 20px 0 color-mix(in srgb,var(--bp-shade) 35%,transparent); }
+.look-paper-diorama .style-piece::after { background:repeating-linear-gradient(0deg,transparent 0 8px,var(--bp-shade) 9px 11px,transparent 12px 16px); }
+.look-paper .style-piece { border-width:6px; border-color:color-mix(in srgb,var(--bg) 75%,var(--brand)); box-shadow:5px 5px 0 var(--brand),13px 18px 0 color-mix(in srgb,var(--bp-shade) 23%,transparent); }
+.look-paper-cutout .style-piece { box-shadow:4px 5px 0 color-mix(in srgb,var(--bp-shade) 18%,transparent); border-width:0; }
+.look-paper-cutout .style-piece:nth-child(2) { border-radius:50%; }
+.look-paper-stop-motion .style-piece,.look-paper-cut .style-piece { clip-path:polygon(2% 2%,20% 0,39% 3%,62% 0,81% 3%,98% 0,100% 25%,97% 48%,100% 76%,98% 100%,77% 97%,55% 100%,29% 97%,0 100%,3% 70%,0 40%); }
+.look-paper-stop-motion .style-piece { border:8px dashed color-mix(in srgb,var(--bg) 70%,var(--brand)); }
+.look-paper-collage .style-piece:nth-child(odd) { border:8px solid var(--bp-card); }
+.look-paper-collage .style-piece:nth-child(even)::after { background:repeating-linear-gradient(45deg,transparent 0 12px,var(--bp-shade) 13px 18px); opacity:.35; }
+.look-origami .style-piece { clip-path:polygon(50% 0,100% 35%,78% 100%,0 73%); box-shadow:none; }
+.look-origami .style-piece::after { opacity:.35; background:conic-gradient(from 30deg at 50% 45%,transparent 0 90deg,var(--bp-shade) 90deg 180deg,transparent 180deg 270deg,var(--bg) 270deg); }
+.look-paper-cut .style-piece { border:6px solid var(--bg); }
+.look-clay .style-piece { border:0; border-radius:38% 43% 35% 42%; box-shadow:inset -10px -14px 15px color-mix(in srgb,var(--bp-shade) 30%,transparent),inset 8px 10px 12px color-mix(in srgb,var(--bg) 40%,transparent),9px 14px 8px color-mix(in srgb,var(--bp-shade) 20%,transparent); }
+.look-clay .style-piece::after { inset:16%; border-radius:50%; background:repeating-radial-gradient(ellipse at 40% 50%,transparent 0 5px,var(--bp-shade) 6px,transparent 7px 11px); opacity:.1; }
+.look-clay .card,.look-clay .pill { border-radius:28px; }
+.look-clay .disc { border-radius:40% 45% 36% 48%; }
+.look-clay-goofy .style-piece:nth-child(3) { border-radius:48% 28% 42% 33%; }
+.look-clay-clean .style-piece { border-radius:25%; }
+.look-clay-clean .style-piece::after { opacity:.035; }
+.look-clay-puppet .style-piece { border:5px dashed var(--bp-on-brand); border-radius:20%; }
+.look-clay-puppet .style-piece::after { background:repeating-linear-gradient(0deg,transparent 0 6px,var(--bp-shade) 7px),repeating-linear-gradient(90deg,transparent 0 6px,var(--bp-shade) 7px); }
+.look-claymation .style-piece { border-radius:42%; }
+.look-claymation .style-piece::after { opacity:.055; }
+.look-drawn .card { border:3px solid var(--fg); box-shadow:7px 9px 0 color-mix(in srgb,var(--brand) 30%,transparent); }
+.look-drawn .pill { border:3px solid var(--fg); border-radius:12px 5px 16px 7px; }
+
+/* Text remains native, legible, and brand-colored over generated material footage. */
+.has-material-video .w, .has-material-video .sub { background: var(--bg); color: var(--fg); box-decoration-break: clone; -webkit-box-decoration-break: clone; }

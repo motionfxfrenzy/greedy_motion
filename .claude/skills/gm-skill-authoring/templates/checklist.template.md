@@ -23,12 +23,18 @@ Work top to bottom. Stop where it says stop. Paste the filled list into `HANDOFF
 - [ ] Rule one: <how it is verified>.
 - [ ] Rule two: <how it is verified>.
 - [ ] The shared-craft determinism rules are followed (from/to, immediateRender, no random, finite repeat).
+- [ ] Impact budget: at most 3 whole-frame/camera slams (listed with frames), no shake on a light UI film, at most one clipped glint per shot.
 
 ## 6 · Measurement
 - [ ] Every text-width-dependent number was measured from a rendered frame, and the frame is recorded.
 
 ## 7 · Gates
 - [ ] `lint` clean; `check` at zero findings, including contrast.
+- [ ] `text_size_gate.mjs` passes (captions ≥ 5.2%, other text ≥ 3.0% of the shorter edge); every `decorative` subtree is listed in the handoff.
+- [ ] `pop_gate.mjs <render.mp4> --max-cuts <designed cuts>` passes; `seam_sheet.mjs <render.mp4> --auto` viewed at phone size with the safe boxes (shared-craft: Review).
+- [ ] Weight classes: each class of object has one setting, nothing overshoots opacity, one camera per scene with at most one zoom reversal (shared-craft: Camera, springs and weight).
+- [ ] Every handoff carries a shared element; the last frame works as a poster; every format reviewed as its own composition.
+- [ ] Critic pass done on the rendered frames only: the three largest defects named (timestamp, evidence, fix), fixed, and re-rendered; close-your-eyes sound test passed.
 - [ ] The invariant has been verified, with the evidence saved.
 - [ ] -14 LUFS / ≤ -2 dBTP after encode; audio stream present.
 - [ ] Watched at full speed.

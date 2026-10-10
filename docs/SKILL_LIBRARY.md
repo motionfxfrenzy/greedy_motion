@@ -83,6 +83,10 @@ everywhere.
 
 **House pacing standard (user-approved 2026-10-04):** every film, music- or voice-led, has no dead space: no still hold > 0.6s, no VO gap > 0.65s, cuts under speech, music filling gaps, kinetic keywords on beats. Gated by `pacing_gate.py`; rules in `gm-skill-authoring/references/shared-craft.md` → Pacing.
 
+**House legibility standard (2026-10-08):** text meant to be read is at least 5.2% (captions) or 3.0% (everything else) of the shorter canvas edge, measured on final pixels for 0.4s or more. Gated by `gm-skill-authoring/scripts/text_size_gate.mjs`; rules in `shared-craft.md` → Legibility; the impact budget, no-shake and glint rules are in `watchability.md` §4b.
+
+> **Known gap:** `gm-feature-explainer` and `gm-velocity-sting` were built before this gate. Measured 2026-10-08 with the gate, 103 and 80 text runs (explainer `gm-v2` and `sample`) and 23 and 22 (sting `gm` and `sample`) sit under the floor, almost all faux-UI product-surface copy at 16–29 px. The retrofit is to declare product-surface subtrees `data-text-role="decorative"` where the copy is texture and to enlarge any text the story depends on. Not done yet; both skills stay "library-ready" against the gates that existed when they were frozen.
+
 
 | Convention | Why |
 |---|---|
@@ -134,6 +138,7 @@ drives a reel). We never copy a reference's footage, copy, logo, characters, mus
 | `gm-feature-explainer` | **Library-ready** (2 builds + fill mode, 2026-10-04). 9:16 not yet built | 30–120s, 16:9 | Voiceover transcript (verb onsets probed, ±0.25s gate) | [GM 50.0s](../experiments/skills/gm-feature-explainer/gm/) · [sample 44.4s](../experiments/skills/gm-feature-explainer/sample/) · [fill](../experiments/skills/gm-feature-explainer/fill/) | $0 API; CPU render 112s ≈ $0.006; ≈ $4 tokens/build (fill ≈ $0.05/video) |
 | `gm-velocity-sting` | **Library-ready** (2 builds + fill mode, 2026-10-08). 1:1 only | 11.933s, 1:1 | Seam ledger (6 cuts, verified by `scripts/verify-seams.mjs`) | GM and Ledgerly sample in `experiments/skills/gm-velocity-sting/` (built by `scripts/build-format.mjs`) | $0 API; render ≈ 14s; fill ≈ $0.02/video (estimate) |
 | `gm-3d-shot` | Planned (next to author) | One 3D shot as a video layer | Ledger row | — | ≈ $1.25–2.30 per shot in API fees |
+| `gm-motion-recipes` | **Recipe library, not a film** (6 recipes; first three verified 2026-10-08, last three 2026-10-09): `line-boil`, `glow-flyline`, `scroll-brake`, `camera-rig` (one log-space camera per scene), `spring-settle` (closed-form springs and motion-weight classes), `flood-handoff` (a colour flood that carries the words between objects). The last three come from ideas in two public posts on code-rendered video (see `ATTRIBUTION.md`); they and the other recipes are also sent to the hosted author (`docs/SKILL_DELIVERY.md`). Our own home for atomic effects that the vendored `hyperframes-animation/rules/` lack (that folder is re-copied on upgrade) | 3–6s examples, 16:9 | None (each recipe is placed by the scene that uses it) | `.claude/skills/gm-motion-recipes/examples/`, verified by `scripts/verify_example.mjs` (check · seek safety · text floors) plus the pacing gate on a render | $0 API; example renders 5.6–8.5s each |
 
 Third-party skills we have tested (raw copies in `third_party/creative-packs/`, also usable from `.claude/skills/bs-hyperframes-*`):
 
@@ -143,11 +148,16 @@ Third-party skills we have tested (raw copies in `third_party/creative-packs/`, 
 | `bs-hyperframes-chat-to-result-launch` | `experiments/gm-ad-test/chat-launch/` | In progress |
 | `bs-hyperframes-agent-chorus-reel` | — | Not yet; needs 8–12 real Greedy Motion outputs and a track with a drop |
 
+Evaluated and **not adopted**: `iart-ai/motion-skills` (2026-10-08). Remotion-based, restates rules we already enforce, and contradicts the pacing standard. Only its Manim pack adds a capability (math typesetting); that is gated on a spike. See [IART_MOTION_SKILLS_EVALUATION.md](IART_MOTION_SKILLS_EVALUATION.md).
+
+Evaluated and **mined, not adopted**: `Vincentwei1021/video-shotcraft` (Apache-2.0, 2026-10-08). Remotion-based, and its "hold lockups at least 1 s, always slow down" rules contradict the pacing standard. From it we took the minimum-text-size rule (now `text_size_gate.mjs`), three aesthetic budgets (`watchability.md` §4b) and three recipes we lacked (line boil, glow fly-line, scroll brake) in `.claude/skills/gm-motion-recipes/`, rewritten for HyperFrames with attribution. Its audio files are not used: the repo itself marks six sound effects as unknown provenance.
+
 ## 7. Script and watchability standards (single source of truth)
 
 - `gm-skill-authoring/references/script-for-motion.md`: how every script is written (beats not paragraphs; one line = one visible action; hook by 3s; a success moment; key phrases that work muted; one brand motion profile). The backend planner's system prompt (`backend/src/render/anthropic-planner.ts`) mirrors it; change both together.
 - `gm-skill-authoring/references/watchability.md`: correct time, correct transitions, and research-backed rules.
 - `gm-skill-authoring/references/shared-craft.md` → Pacing: the no-dead-space gates.
+- `gm-skill-authoring/references/shared-craft.md` → Legibility: the text-size floors and `text_size_gate.mjs`. `watchability.md` §4b: the impact, shake and glint budgets.
 
 Research sources (2026-10-04): [advids](https://advids.co/blog/saas-product-launch-videos), [What A Story](https://www.whatastory.agency/blog/saas-explainer-video-examples), [Wemotion](https://www.wemotionistanbul.com/post/motion-design-for-saas-brands-explaining-complex-products-with-clarity), [OpusClip retention data](https://www.opus.pro/blog/ideal-youtube-shorts-length-format-retention), [Animoto](https://animoto.com/blog/video-marketing/why-first-3-seconds-matter), [Magic Motion Studio](https://magicmotionstudio.com/how-long-should-an-explainer-video-be/), [DEmotion Apple-style motion](https://trydemotion.com/blog/apple-style-animation-guide).
 
@@ -169,3 +179,5 @@ Brief or own script ──► /gm-script-director ──► beat-plan.json (+ SC
 - **Own script:** kept verbatim; the director only splits it into beats and proposes edits as accept/reject suggestions.
 - **Problem only:** the director writes the script by script-for-motion.
 - The routing table (which skill builds which beat, with which instructions) is `gm-script-director/references/routing.md`; the contract is `beat-plan.schema.json`.
+
+Mined 2026-10-09 from two public X posts on code-rendered product films (a one-take launch-film prompt and a studio-engineering article; ideas only, no code or text copied): log-space camera and closed-form springs (`camera-rig`, `spring-settle`), the colour-flood handoff (`flood-handoff`), motion-weight classes, the beat-grid plan for music-led films, beats with an entry state, exit state and reason, one story as separate compositions per aspect, the last frame as a poster, the critic loop over rendered frames, voiced-line rules for text-to-speech, and three new gates (`pop_gate.mjs`, `seam_sheet.mjs`, `scripts/subframe-render.mjs`). All are in `shared-craft.md`, so every skill and the hosted author follow them. Not adopted: "fix length with pauses, never words" (contradicts the pacing standard) and the seven-scene educational spine (right for explainers only).

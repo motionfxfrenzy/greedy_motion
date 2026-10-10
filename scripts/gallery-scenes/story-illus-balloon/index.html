@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Crayon balloon lifts off</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  html, body { margin: 0; background: #f5f2e2; }
+  #root { position: relative; width: 720px; height: 720px; overflow: hidden; background: #f5f2e2; }
+  #scene { position: absolute; left: 0; top: 0; width: 720px; height: 720px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="3.2" data-width="720" data-height="720" data-fps="30">
+<canvas id="scene" class="clip" width="720" height="720" data-start="0" data-duration="3.2" data-track-index="0"></canvas>
+</div>
+<script>
+  window.__timelines = window.__timelines || {};
+  const tl = gsap.timeline({ paused: true });
+  const S = 720 / 540;
+  const cv = document.getElementById("scene"), ctx = cv.getContext("2d");
+  const names = ["art", "plate", "sprite", "spr-sun", "spr-cloudA", "spr-cloudB", "spr-cloudC", "spr-small"];
+  const META = {
+    sprite: { x: 130, y: 45, w: 285, h: 420 },
+    sun: { x: 14, y: 8, w: 120, h: 126 }, cloudA: { x: 381, y: 45, w: 112, h: 48 },
+    cloudB: { x: 65, y: 197, w: 90, h: 68 }, cloudC: { x: 419, y: 255, w: 94, h: 38 }, small: { x: 407, y: 133, w: 54, h: 76 }
+  };
+  const IMG = {}; let loaded = 0, cur = 0;
+  for (const n of names) { const im = new Image(); im.onload = () => { if (++loaded === names.length) draw(cur); }; im.src = n + ".png"; IMG[n] = im; }
+
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const ramp = (v, a, b) => clamp01((v - a) / (b - a));
+  const sm = (v) => v * v * (3 - 2 * v);
+  const T0 = 0.2, TL = 0.55, TEND = 3.2;
+  const BASE = { x: 270, y: 430 }, END = { x: 341, y: 191 }, SEND = 0.42;
+  // hash noise: seeded, pure
+  const hash = (n) => { let x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+  function lift(t) { const u = ramp(t, TL, TEND); return sm(u) * 0.9 + u * 0.1 * sm(u); } // soft start, steady middle
+  function pose(t) {
+    const f = lift(t), amp = ramp(t, T0, 0.7);
+    const dip = 4.5 * Math.sin(Math.PI * ramp(t, T0, TL));
+    const sway = 3.2 * Math.sin(2.3 * (t - T0)) * amp * (0.4 + 0.6 * ramp(t, TL, 1.6));
+    const s = 1 + (SEND - 1) * Math.pow(f, 0.9);
+    const rot = (0.052 * Math.sin(2.6 * (t - T0) + 0.4) * amp + 0.035 * sm(ramp(t, 0.8, 2.4))) ;
+    const sq = 1 - 0.012 * Math.sin(Math.PI * ramp(t, T0, TL)); // anticipation squash
+    return { x: BASE.x + (END.x - BASE.x) * f + sway, y: BASE.y + (END.y - BASE.y) * f + dip, s, rot, sq };
+  }
+  function spr(name, dx, dy, sc, rot, px, py) {
+    const m = META[name], im = IMG["spr-" + name];
+    ctx.save();
+    ctx.translate(m.x + (px ?? m.w / 2) + dx, m.y + (py ?? m.h / 2) + dy);
+    if (rot) ctx.rotate(rot);
+    if (sc !== 1) ctx.scale(sc, sc);
+    ctx.drawImage(im, -(px ?? m.w / 2), -(py ?? m.h / 2));
+    ctx.restore();
+  }
+  // crayon hatched ellipse shadow on the hills
+  function shadow(cx, cy, rx, ry, a) {
+    if (a <= 0.01) return;
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.clip();
+    ctx.lineCap = "round";
+    for (let i = -14; i <= 14; i++) {
+      const j = hash(i + 9) - 0.5, off = i * (rx / 11) * 0.62 + j * 2;
+      ctx.strokeStyle = "rgba(18,64,28," + (a * (0.7 + 0.3 * hash(i + 40))).toFixed(3) + ")";
+      ctx.lineWidth = Math.max(1.2, 2.6 * (rx / 62));
+      ctx.beginPath(); ctx.moveTo(cx + off - ry * 1.3, cy + ry * 1.3); ctx.lineTo(cx + off + ry * 1.3, cy - ry * 1.3); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = "rgba(18,64,28," + (a * 0.9).toFixed(3) + ")"; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0.1, Math.PI * 2 - 0.35); ctx.stroke();
+  }
+  const SPECK = ["#d8362b", "#f08a1f", "#f4c81f", "#3b7fd0", "#7a3fa0", "#3da24a"];
+  const flameTear = (cx, base, h, w, col) => {
+    ctx.fillStyle = col; ctx.beginPath();
+    ctx.moveTo(cx - w, base);
+    ctx.quadraticCurveTo(cx - w * 1.05, base - h * 0.55, cx + (hash(Math.round(h * 7)) - 0.5) * w * 0.8, base - h);
+    ctx.quadraticCurveTo(cx + w * 1.1, base - h * 0.5, cx + w, base);
+    ctx.closePath(); ctx.fill();
+  };
+
+  function draw(t) {
+    if (loaded < names.length) return;
+    ctx.setTransform(S, 0, 0, S, 0, 0);
+    ctx.clearRect(0, 0, 540, 540);
+    if (t <= T0) { ctx.drawImage(IMG.art, 0, 0, 540, 540); ctx.setTransform(1, 0, 0, 1, 0, 0); return; }
+    const e = t - T0, amp = ramp(t, T0, 0.6);
+    ctx.drawImage(IMG.plate, 0, 0, 540, 540);
+    // sun with pulsing rays
+    { const sc = 1 + 0.03 * Math.sin(2.6 * e) * amp; spr("sun", 0, 0, sc, 0.012 * Math.sin(1.7 * e) * amp, 54, 63); }
+    // clouds drift
+    spr("cloudA", 8.5 * e / 3, 0.8 * Math.sin(0.9 * e), 1, 0);
+    spr("cloudB", 6 * e / 3, 0.6 * Math.sin(0.8 * e + 1), 1, 0);
+    spr("cloudC", -7 * e / 3, 0.7 * Math.sin(1.1 * e + 2), 1, 0);
+    // small balloon bobs and drifts, swinging from its basket
+    spr("small", 9 * e / 3 + 1.2 * Math.sin(1.9 * e), 2.2 * Math.sin(2.1 * e + 0.5) - 6 * e / 3, 1, 0.045 * Math.sin(1.8 * e) * amp, 27, 72);
+    const P = pose(t), f = lift(t);
+    // ground shadow gets smaller and fainter as the balloon climbs
+    { const k = 1 - 0.7 * Math.pow(f, 0.7), a = 0.55 * sm(ramp(t, 0.35, 0.9)) * (1 - 0.65 * f);
+      shadow(270 + (P.x - 270) * 0.85 + 6 * f, 468, 62 * k, 9 * k, a); }
+    // trailing crayon specks
+    for (let i = 0; i < 16; i++) {
+      const ts = 0.65 + i * 0.15 + hash(i + 3) * 0.08, age = t - ts;
+      if (age < 0 || age > 0.85) continue;
+      const Ps = pose(ts), ca = Math.cos(Ps.rot), sa = Math.sin(Ps.rot);
+      const ox = (hash(i + 11) - 0.5) * 34, oy = 18 + hash(i + 21) * 10;
+      const bx = Ps.x + (ox * ca - oy * sa) * Ps.s, by = Ps.y + (ox * sa + oy * ca) * Ps.s;
+      const px = bx + (hash(i + 31) - 0.5) * 26 * age, py = by + 26 * age * age + 14 * age;
+      const al = Math.min(1, age / 0.12) * (1 - ramp(age, 0.35, 0.85));
+      ctx.save(); ctx.translate(px, py); ctx.rotate(-0.9 + hash(i + 51) * 1.6);
+      ctx.strokeStyle = SPECK[i % SPECK.length]; ctx.globalAlpha = al * 0.9; ctx.lineCap = "round";
+      ctx.lineWidth = 2.6 * (0.6 + 0.4 * Ps.s); const L = (4 + hash(i + 61) * 5) * (0.5 + 0.5 * Ps.s);
+      ctx.beginPath(); ctx.moveTo(-L, 0); ctx.lineTo(L, 0); ctx.stroke(); ctx.restore();
+    }
+    // balloon: rotate about the basket, envelope breathes above the skirt
+    ctx.save();
+    ctx.translate(P.x, P.y); ctx.rotate(P.rot); ctx.scale(P.s, P.s * P.sq); ctx.translate(-BASE.x, -BASE.y);
+    const M = META.sprite, SY = 345 - M.y;
+    ctx.drawImage(IMG.sprite, 0, SY - 4, M.w, M.h - SY + 4, M.x, 345 - 4, M.w, M.h - SY + 4);
+    { const br = Math.sin(3.1 * e) * amp;
+      ctx.save(); ctx.translate(270, 345); ctx.scale(1 + 0.009 * br, 1 + 0.014 * br); ctx.translate(-270, -345);
+      ctx.drawImage(IMG.sprite, 0, 0, M.w, SY, M.x, M.y, M.w, SY); ctx.restore(); }
+    // burner flame flicker: seeded, stepped hash blended between ticks
+    { const n = e * 16, i0 = Math.floor(n), fr = n - i0, h = (k) => hash(i0 + k) * (1 - fr) + hash(i0 + 1 + k) * fr;
+      const fh = 15 + 9 * h(1) * amp, fw = 5 + 1.6 * h(2) * amp, lean = (h(3) - 0.5) * 3 * amp;
+      ctx.save(); ctx.translate(lean * 0.3, 0);
+      ctx.globalAlpha = 0.85 * amp; flameTear(270, 396, fh + 5, fw + 3, "#f08a1f");
+      ctx.globalAlpha = 0.9 * amp; flameTear(270 + lean * 0.4, 396, fh, fw, "#f9d23a");
+      ctx.globalAlpha = 0.75 * amp; flameTear(270 + lean * 0.5, 396, fh * 0.55, fw * 0.5, "#fff3a8");
+      ctx.globalAlpha = 0.55 * amp; ctx.strokeStyle = "#f6b02a"; ctx.lineWidth = 1.5; ctx.lineCap = "round";
+      for (let k = 0; k < 5; k++) { const a = -1.9 + k * 0.5 + (h(4 + k) - 0.5) * 0.3, r0 = 12, r1 = 14 + 5 * h(9 + k);
+        ctx.beginPath(); ctx.moveTo(270 + Math.cos(a) * r0 * 0.7, 385 + Math.sin(a) * r0); ctx.lineTo(270 + Math.cos(a) * r1 * 0.8, 385 + Math.sin(a) * r1); ctx.stroke(); }
+      ctx.restore(); }
+    ctx.restore();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  window.addEventListener("hf-seek", (e) => { cur = e.detail.time; draw(cur); });
+  const f = { t: 0 };
+  tl.to(f, { t: 3.2, duration: 3.2, ease: "none", onUpdate: () => { cur = f.t; draw(cur); } }, 0);
+  window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

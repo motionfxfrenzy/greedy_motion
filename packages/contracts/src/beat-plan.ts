@@ -1,3 +1,4 @@
+import { resolveSceneRoute, type SceneRendering } from "./scene-rendering.ts";
 // Product flow v2 (docs/PRODUCT_FLOW_V2.md): the Script & Style brief and the beat plan.
 // The beat plan mirrors .claude/skills/gm-script-director/references/beat-plan.schema.json;
 // change both together. Budgets come from gm-skill-authoring/references/script-for-motion.md.
@@ -84,6 +85,8 @@ export const energies = ["calm", "medium", "high"] as const;
 export type Vector = { axis: "x" | "y" | "z"; dir: -1 | 1 };
 
 export type Beat = {
+  /** Optional per-scene native art direction; omitted values inherit the project look. */
+  render?: SceneRendering;
   id: string;
   role: (typeof beatRoles)[number];
   kind: (typeof beatKinds)[number];
@@ -221,6 +224,7 @@ export function beatPlanProblems(plan: BeatPlan, brief?: ScriptBrief): string[] 
     const at = `beat ${index + 1} (${beat.id})`;
     if (!beat.id || ids.has(beat.id)) problems.push(`${at}: needs a unique id.`);
     ids.add(beat.id);
+    try { resolveSceneRoute(beat, brief?.look); } catch (error) { problems.push(`${at}: ${error instanceof Error ? error.message : "invalid scene rendering"}`); }
     if (!oneOf(beatRoles, beat.role)) problems.push(`${at}: unknown role.`);
     if (!oneOf(beatKinds, beat.kind)) problems.push(`${at}: unknown kind.`);
     if (!beat.keyword?.trim()) problems.push(`${at}: needs a kinetic key phrase.`);
@@ -288,7 +292,13 @@ export type PlanAudio = {
 };
 
 /** Normalises a line for take matching (whitespace only; any wording change needs a new take). */
-export const voiceText = (line: string | null | undefined) => (line ?? "").trim().replace(/\s+/g, " ");
+/**
+ * The text the narrator reads. A colon makes text-to-speech engines drop their pitch and pause oddly mid-sentence, and a
+ * line is read, not displayed, so a colon (before a space or at the end) becomes a comma (a full stop at the end). Times
+ * ("3:45") and addresses ("https://") have no space after the colon and are left alone.
+ */
+export const voiceText = (line: string | null | undefined) =>
+  (line ?? "").trim().replace(/\s+/g, " ").replace(/\s*:\s*$/, ".").replace(/\s*:(?=\s)/g, ",");
 
 /** The take for a beat, only when it still speaks the beat's current line. */
 export function currentTake(audio: PlanAudio | null | undefined, beat: Pick<Beat, "id" | "line">): PlanVoiceLine | null {

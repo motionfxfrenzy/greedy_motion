@@ -1,0 +1,16 @@
+{
+ "id": "pythagorean-rearrangement",
+ "name": "Pythagorean Proof Animation",
+ "group": "Math",
+ "summary": "Four triangles inside a square slide into new places to reveal a squared plus b squared equals c squared.",
+ "bestFor": "Geometry lessons, proof-without-words shorts",
+ "prompt": "Prove the Pythagorean theorem with a rearrangement. Draw a square with four copies of one right triangle around a tilted inner square, then slide the triangles into the corners to leave two smaller squares. Show that the same area is left over, and end on the equation a squared plus b squared equals c squared.",
+ "look": "clean",
+ "theme": "cobalt-grid",
+ "aspect": "16:9",
+ "durationSeconds": 60,
+ "motionProfile": "smooth",
+ "pace": "calm",
+ "audio": "voiceover",
+ "poster": 4.6
+}

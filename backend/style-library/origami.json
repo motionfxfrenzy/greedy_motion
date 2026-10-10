@@ -1,0 +1,46 @@
+{
+  "id": "origami",
+  "name": "Origami",
+  "group": "Paper",
+  "description": "Angular folded forms and crisp crease lines.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "origami",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/origami.png",
+    "kind": "image",
+    "label": "Layout draft — not generated footage"
+  },
+  "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/paper-animation/SKILL.md",
+  "referenceAssets": [
+    {
+      "path": "references/paper-animation-styles.webp",
+      "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/paper-animation/reference/paper-animation-styles.webp",
+      "sha256": "264497a45bd5c224a856d16b3f2c4c050c0d4bcbf9613d5eca74cdbec9da8c3a",
+      "bytes": 593240
+    }
+  ],
+  "instructions": {
+    "image": "Physical folded paper, angular creases, pleats, visible edge thickness and gentle fold shadows. Quiet tints of the brand palette; camera inside the world.",
+    "motion": "Fold or unfold at explicit hinges; pop-up reveals; gentle stepped parallax, no melting.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "Consistent hero/product references when present"
+    ],
+    "acceptance": [
+      "Style remains visible in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme",
+      "Generated material reference is distinct from the shipped graphic adaptation"
+    ]
+  },
+  "sourceSha256": "7023656616304211e3607a1683c9ef67eb8dcca7ec9ef51457f41b13a8108a90"
+}

@@ -1,0 +1,1 @@
+  TR["whip-x"] = (o, i, t, d) => { tl.fromTo(o, { x: 0, filter: blur(0) }, { x: -1980, filter: blur(P.blur), duration: d, ease: E.io }, t); tl.fromTo(i, { x: 1980, filter: blur(P.blur) }, { x: 0, filter: blur(0), duration: d, ease: E.io }, t); };   // same easing on both: they stay exactly one frame-width apart, never overlapping

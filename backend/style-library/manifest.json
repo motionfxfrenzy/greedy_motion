@@ -1,0 +1,471 @@
+{
+  "schemaVersion": 1,
+  "styles": [
+    {
+      "id": "clean",
+      "version": 1,
+      "recipe": "clean.json",
+      "sourceSha256": "afe5619a6e4585b6dbe1027ce2ade5fd6cdf8b5fdda5748256008e3c0dd2e4f2"
+    },
+    {
+      "id": "sketch",
+      "version": 1,
+      "recipe": "sketch.json",
+      "sourceSha256": "9e7967cee17413657e8f39b24b028b8e4a14206babb3f1d70e3633919dc3972b"
+    },
+    {
+      "id": "hairline",
+      "version": 1,
+      "recipe": "hairline.json",
+      "sourceSha256": "ffe702c0aa0e88c5967802e61cb6fef132f3dc64960f159b7370a7a3fcb4a659"
+    },
+    {
+      "id": "doodle",
+      "version": 1,
+      "recipe": "doodle.json",
+      "sourceSha256": "9e7967cee17413657e8f39b24b028b8e4a14206babb3f1d70e3633919dc3972b"
+    },
+    {
+      "id": "doodle-crosshatch",
+      "version": 1,
+      "recipe": "doodle-crosshatch.json",
+      "sourceSha256": "9e7967cee17413657e8f39b24b028b8e4a14206babb3f1d70e3633919dc3972b"
+    },
+    {
+      "id": "doodle-zigzag",
+      "version": 1,
+      "recipe": "doodle-zigzag.json",
+      "sourceSha256": "9e7967cee17413657e8f39b24b028b8e4a14206babb3f1d70e3633919dc3972b"
+    },
+    {
+      "id": "vox-collage",
+      "version": 1,
+      "recipe": "vox-collage.json",
+      "sourceSha256": "365a30655cc653488f577745f5d2c74ef91cf4279df8c905cfc96cf75af5b7e8"
+    },
+    {
+      "id": "paper-diorama",
+      "version": 1,
+      "recipe": "paper-diorama.json",
+      "sourceSha256": "05c44cd81b9ea788f894afcf1e067154662eb66ae0c4e74bce37b7ad55983fe9"
+    },
+    {
+      "id": "paper",
+      "version": 1,
+      "recipe": "paper.json",
+      "sourceSha256": "7023656616304211e3607a1683c9ef67eb8dcca7ec9ef51457f41b13a8108a90"
+    },
+    {
+      "id": "paper-cutout",
+      "version": 1,
+      "recipe": "paper-cutout.json",
+      "sourceSha256": "7023656616304211e3607a1683c9ef67eb8dcca7ec9ef51457f41b13a8108a90"
+    },
+    {
+      "id": "paper-stop-motion",
+      "version": 1,
+      "recipe": "paper-stop-motion.json",
+      "sourceSha256": "7023656616304211e3607a1683c9ef67eb8dcca7ec9ef51457f41b13a8108a90"
+    },
+    {
+      "id": "paper-collage",
+      "version": 1,
+      "recipe": "paper-collage.json",
+      "sourceSha256": "7023656616304211e3607a1683c9ef67eb8dcca7ec9ef51457f41b13a8108a90"
+    },
+    {
+      "id": "origami",
+      "version": 1,
+      "recipe": "origami.json",
+      "sourceSha256": "7023656616304211e3607a1683c9ef67eb8dcca7ec9ef51457f41b13a8108a90"
+    },
+    {
+      "id": "paper-cut",
+      "version": 2,
+      "recipe": "paper-cut.json",
+      "sourceSha256": "02df43e66af0d62fc529ed2c8150f5728c9820932e8cd00ddea66b92b0e541b8"
+    },
+    {
+      "id": "clay-goofy",
+      "version": 1,
+      "recipe": "clay-goofy.json",
+      "sourceSha256": "4bd36597408b6af60a2b099f811a76ac1c2828c0da313e62d0b56a0a092e0033"
+    },
+    {
+      "id": "clay-clean",
+      "version": 1,
+      "recipe": "clay-clean.json",
+      "sourceSha256": "4bd36597408b6af60a2b099f811a76ac1c2828c0da313e62d0b56a0a092e0033"
+    },
+    {
+      "id": "clay-puppet",
+      "version": 1,
+      "recipe": "clay-puppet.json",
+      "sourceSha256": "4bd36597408b6af60a2b099f811a76ac1c2828c0da313e62d0b56a0a092e0033"
+    },
+    {
+      "id": "claymation",
+      "version": 1,
+      "recipe": "claymation.json",
+      "sourceSha256": "4bd36597408b6af60a2b099f811a76ac1c2828c0da313e62d0b56a0a092e0033"
+    },
+    {
+      "id": "illus-balloon",
+      "version": 1,
+      "recipe": "illus-balloon.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-blueprint",
+      "version": 1,
+      "recipe": "illus-blueprint.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-broken-colour",
+      "version": 1,
+      "recipe": "illus-broken-colour.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-charcoal-erasure",
+      "version": 1,
+      "recipe": "illus-charcoal-erasure.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-coloured-pencil",
+      "version": 1,
+      "recipe": "illus-coloured-pencil.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-embroidery",
+      "version": 1,
+      "recipe": "illus-embroidery.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-flat-vector",
+      "version": 1,
+      "recipe": "illus-flat-vector.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-folk-tale",
+      "version": 1,
+      "recipe": "illus-folk-tale.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-fox",
+      "version": 1,
+      "recipe": "illus-fox.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-halftone",
+      "version": 1,
+      "recipe": "illus-halftone.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-isometric",
+      "version": 1,
+      "recipe": "illus-isometric.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-koi",
+      "version": 1,
+      "recipe": "illus-koi.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-lighthouse",
+      "version": 1,
+      "recipe": "illus-lighthouse.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-low-poly",
+      "version": 1,
+      "recipe": "illus-low-poly.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-mellan",
+      "version": 1,
+      "recipe": "illus-mellan.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-mid-century",
+      "version": 1,
+      "recipe": "illus-mid-century.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-moon-phases",
+      "version": 1,
+      "recipe": "illus-moon-phases.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-painted-oil",
+      "version": 1,
+      "recipe": "illus-painted-oil.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-paper-craft",
+      "version": 1,
+      "recipe": "illus-paper-craft.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-pixel-art",
+      "version": 1,
+      "recipe": "illus-pixel-art.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-pocket-watch",
+      "version": 1,
+      "recipe": "illus-pocket-watch.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-ranunculus",
+      "version": 1,
+      "recipe": "illus-ranunculus.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-rubber-hose",
+      "version": 1,
+      "recipe": "illus-rubber-hose.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-scrapbook",
+      "version": 1,
+      "recipe": "illus-scrapbook.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-scratchboard",
+      "version": 1,
+      "recipe": "illus-scratchboard.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-stipple",
+      "version": 1,
+      "recipe": "illus-stipple.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-storybook",
+      "version": 1,
+      "recipe": "illus-storybook.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-sumi-e",
+      "version": 1,
+      "recipe": "illus-sumi-e.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-toy-brick",
+      "version": 1,
+      "recipe": "illus-toy-brick.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-woodcut",
+      "version": 1,
+      "recipe": "illus-woodcut.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "illus-wren",
+      "version": 1,
+      "recipe": "illus-wren.json",
+      "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    }
+  ],
+  "assets": {
+    "paper-animation-styles.webp": {
+      "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/paper-animation/reference/paper-animation-styles.webp",
+      "sha256": "264497a45bd5c224a856d16b3f2c4c050c0d4bcbf9613d5eca74cdbec9da8c3a",
+      "bytes": 593240
+    },
+    "claymation-styles.webp": {
+      "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/claymation/reference/claymation-styles.webp",
+      "sha256": "5fd0c8137ffc25729eac5da0498cf9686d12592b975ba1adf2bf6ce68c5aa4e6",
+      "bytes": 471126
+    },
+    "paper-cut-style.jpg": {
+      "source": "third_party/creative-packs/motion-design-prompts/style-reference/paper-cut-style.jpg",
+      "sha256": "fd1da1e9b73347be9bfcc9c453592a651e1c3c89196bfa369d3bcab2840f1bbb",
+      "bytes": 221323
+    },
+    "illus-balloon.jpg": {
+      "source": "third_party/anidoodle/references/illus-balloon.jpg",
+      "sha256": "d657161df28c431a7e70e7e0caf5bfdbf7be0453e42dac186395511ed687db22",
+      "bytes": 144685
+    },
+    "illus-blueprint.jpg": {
+      "source": "third_party/anidoodle/references/illus-blueprint.jpg",
+      "sha256": "2854206fa6c3298b7c2af05f38afd1b6f1d7fe9ac986082fa8d45c985ca3d1b2",
+      "bytes": 65119
+    },
+    "illus-broken-colour.jpg": {
+      "source": "third_party/anidoodle/references/illus-broken-colour.jpg",
+      "sha256": "6cec07203a0ed360a8b8f12fb8f25dd2931fc47daa553c85de8cb85460a2e030",
+      "bytes": 77637
+    },
+    "illus-charcoal-erasure.jpg": {
+      "source": "third_party/anidoodle/references/illus-charcoal-erasure.jpg",
+      "sha256": "70e6457f4be41d29740649f255f926de82f5bae4fa327e5f4a5d458fd8f4963a",
+      "bytes": 49041
+    },
+    "illus-coloured-pencil.jpg": {
+      "source": "third_party/anidoodle/references/illus-coloured-pencil.jpg",
+      "sha256": "5c90fbf3fc49e4a9af5235ac1d1ab6afc438d6b46ec22d0aaf9dce5d34f03989",
+      "bytes": 99796
+    },
+    "illus-embroidery.jpg": {
+      "source": "third_party/anidoodle/references/illus-embroidery.jpg",
+      "sha256": "12a0234946fb20665dc4f806d7dff4a74ab078c44e842e98530d9354823e6b21",
+      "bytes": 103720
+    },
+    "illus-flat-vector.jpg": {
+      "source": "third_party/anidoodle/references/illus-flat-vector.jpg",
+      "sha256": "64682949da6587d6d80a6adff58a54aeb7fab4eb866d9342f1c2f97c513250d0",
+      "bytes": 36028
+    },
+    "illus-folk-tale.jpg": {
+      "source": "third_party/anidoodle/references/illus-folk-tale.jpg",
+      "sha256": "630c90e7b27df7012ab5db0f5487558503e51ec1c4d2da5071cac31595b563ff",
+      "bytes": 46467
+    },
+    "illus-fox.jpg": {
+      "source": "third_party/anidoodle/references/illus-fox.jpg",
+      "sha256": "db8f0428c00f93e804bb0cf71887d81bff1b2a8a32b27419aa2698026c1bab6f",
+      "bytes": 43552
+    },
+    "illus-halftone.jpg": {
+      "source": "third_party/anidoodle/references/illus-halftone.jpg",
+      "sha256": "b53257d55071c0e2c2f95090842f8b0188f895d001895d4ba91ad6631d77785b",
+      "bytes": 177111
+    },
+    "illus-isometric.jpg": {
+      "source": "third_party/anidoodle/references/illus-isometric.jpg",
+      "sha256": "368ff1cd8d88875655dd8775c1493e43b79fee27d004887163e892bb6e62a641",
+      "bytes": 32934
+    },
+    "illus-koi.jpg": {
+      "source": "third_party/anidoodle/references/illus-koi.jpg",
+      "sha256": "4d08234154e2c882e73979d92e3f0fb7bc1606586c27625b1795e19237ad8b36",
+      "bytes": 49934
+    },
+    "illus-lighthouse.jpg": {
+      "source": "third_party/anidoodle/references/illus-lighthouse.jpg",
+      "sha256": "64e274aa7017cecca2d32fd93a2e3c051a10b7788dbaf6b407c367f352e71258",
+      "bytes": 346938
+    },
+    "illus-low-poly.jpg": {
+      "source": "third_party/anidoodle/references/illus-low-poly.jpg",
+      "sha256": "a209c15beb9b8edc9d4e1f2c6bccfd39af821886db27c694b0429d2ffa1ad445",
+      "bytes": 30120
+    },
+    "illus-mellan.jpg": {
+      "source": "third_party/anidoodle/references/illus-mellan.jpg",
+      "sha256": "d46f2772bc54debd3f8905e587873f0b60befdfa374ebe0c1788d64b2aa04cdc",
+      "bytes": 128225
+    },
+    "illus-mid-century.jpg": {
+      "source": "third_party/anidoodle/references/illus-mid-century.jpg",
+      "sha256": "86205b128913cd191f5bc84ac939038b7bba5f0ebb66e93d00e1923e70bd0eca",
+      "bytes": 40959
+    },
+    "illus-moon-phases.jpg": {
+      "source": "third_party/anidoodle/references/illus-moon-phases.jpg",
+      "sha256": "56af27d8a810dc12904f3267dca01ef2621b4783d68aab581da861801b9c7cb1",
+      "bytes": 39670
+    },
+    "illus-painted-oil.jpg": {
+      "source": "third_party/anidoodle/references/illus-painted-oil.jpg",
+      "sha256": "1fa7afd508ad3b00ec1e42430e9c7421059a411cdfea1d70ec7bc982b77827bb",
+      "bytes": 25460
+    },
+    "illus-paper-craft.jpg": {
+      "source": "third_party/anidoodle/references/illus-paper-craft.jpg",
+      "sha256": "2944d4018a7457168aaac57466ec5b030fde35d4bcd1a1643dcfda44989928f7",
+      "bytes": 71628
+    },
+    "illus-pixel-art.jpg": {
+      "source": "third_party/anidoodle/references/illus-pixel-art.jpg",
+      "sha256": "eafe4c2d8a2166be9ca27b9945191b7e81ef8863bca60a14f4c2c5940fc63ba3",
+      "bytes": 33448
+    },
+    "illus-pocket-watch.jpg": {
+      "source": "third_party/anidoodle/references/illus-pocket-watch.jpg",
+      "sha256": "0abd9bafcf81a30981f936a3c75a53246a1e5b344a86241d2e0b10a30a26955a",
+      "bytes": 43951
+    },
+    "illus-ranunculus.jpg": {
+      "source": "third_party/anidoodle/references/illus-ranunculus.jpg",
+      "sha256": "0840b8834b485aa451fdebb802b233d2892934d026b8a4b06df9608aee00a076",
+      "bytes": 21946
+    },
+    "illus-rubber-hose.jpg": {
+      "source": "third_party/anidoodle/references/illus-rubber-hose.jpg",
+      "sha256": "b74dfd46793901e8bf84a926ee8f545895f754974d3b7443d64e41e82d215af1",
+      "bytes": 96734
+    },
+    "illus-scrapbook.jpg": {
+      "source": "third_party/anidoodle/references/illus-scrapbook.jpg",
+      "sha256": "ceedd060ce60f75cee082052597d1be0b88e1e9c1d91bac4afa690b0e6f2d889",
+      "bytes": 53370
+    },
+    "illus-scratchboard.jpg": {
+      "source": "third_party/anidoodle/references/illus-scratchboard.jpg",
+      "sha256": "0260b309b1a856baf07167e46ad874277c47ab93cd0cf45fa7e125c2b2136687",
+      "bytes": 44954
+    },
+    "illus-stipple.jpg": {
+      "source": "third_party/anidoodle/references/illus-stipple.jpg",
+      "sha256": "6e51968ee146cd742b1c1e7e2928e209318b10ad239bb9ffd012da043f1c8aca",
+      "bytes": 57147
+    },
+    "illus-storybook.jpg": {
+      "source": "third_party/anidoodle/references/illus-storybook.jpg",
+      "sha256": "44fedda7834e505080412dd3b00cb26d151f25a4eeabe7f39f78090d76ed8217",
+      "bytes": 46044
+    },
+    "illus-sumi-e.jpg": {
+      "source": "third_party/anidoodle/references/illus-sumi-e.jpg",
+      "sha256": "3262d38a2225ec4c476c95d284dd0e1180258dbd1632e8c13b9e6040f8737c52",
+      "bytes": 26290
+    },
+    "illus-toy-brick.jpg": {
+      "source": "third_party/anidoodle/references/illus-toy-brick.jpg",
+      "sha256": "eb3fae56f2b49e7e1fcdc242db77d8cbfcf132a1c799b3d6d62e69e263c06bd8",
+      "bytes": 28724
+    },
+    "illus-woodcut.jpg": {
+      "source": "third_party/anidoodle/references/illus-woodcut.jpg",
+      "sha256": "24cfb181ff29ae17ac756ff049e733e6066fab1454653576d5cfe4ed923a5bf0",
+      "bytes": 79738
+    },
+    "illus-wren.jpg": {
+      "source": "third_party/anidoodle/references/illus-wren.jpg",
+      "sha256": "9ba82d245dbd52e3419ce9b8cf5a826b5556a5bc0d2663600247e56bce392d36",
+      "bytes": 26780
+    }
+  }
+}

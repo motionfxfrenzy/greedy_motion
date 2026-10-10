@@ -3,7 +3,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PublicLinks } from "./public-links";
+import { createClient } from "../utils/supabase/client";
 import { SceneFrame, type SceneItem } from "./scene-frame";
+import { GalleryGrid, startHref, useGalleryShelf } from "./template-gallery";
 
 const SCENES: SceneItem[] = [
   { kind: "hook", headline: "Finally see what every sale is really worth.", copy: "" },
@@ -64,7 +66,27 @@ const STUDIO_TRACKS = [
   { l: "60%", w: "38%", c: "#E4CCFF" }
 ];
 
+/** Whether a session exists. `null` until the browser has checked, so the page never flashes the wrong buttons. */
+function useSignedIn() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let unsubscribe = () => {};
+    try {
+      const supabase = createClient();
+      supabase.auth.getSession().then(({ data }) => { if (alive) setSignedIn(Boolean(data.session)); }).catch(() => { if (alive) setSignedIn(false); });
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => { if (alive) setSignedIn(Boolean(session)); });
+      unsubscribe = () => data.subscription.unsubscribe();
+    } catch { setSignedIn(false); }
+    return () => { alive = false; unsubscribe(); };
+  }, []);
+  return signedIn;
+}
+
 export function LandingPage() {
+  const signedIn = useSignedIn();
+  // The curated starting points come from the backend, like the Templates page, so the landing bundle carries no catalog.
+  const featured = useGalleryShelf({ featured: true, limit: 4 });
   const [t, setT] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
@@ -344,51 +366,52 @@ export function LandingPage() {
               >
                 Features
               </a>
-              <Link
-                href="/studio"
-                style={{
-                  color: "#0A6CFF",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  whiteSpace: "nowrap",
-                  textDecoration: "none"
-                }}
-              >
-                Studio
-              </Link>
             </nav>
 
             <div className="gm-landing-actions" style={{ marginLeft: "auto", alignItems: "center", gap: "10px" }}>
-              <Link
-                href="/auth"
-                style={{
-                  padding: "9px 16px",
-                  color: "#0a0d12",
-                  fontSize: "15px",
-                  fontWeight: 500,
-                  whiteSpace: "nowrap",
-                  textDecoration: "none"
-                }}
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/auth?mode=signup"
-                className="gm-btn-primary"
-                style={{
-                  padding: "9px 20px",
-                  borderRadius: "9999px",
-                  background: "#181d27",
-                  color: "#fff",
-                  fontSize: "15px",
-                  fontWeight: 500,
-                  whiteSpace: "nowrap",
-                  textDecoration: "none",
-                  boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
-                }}
-              >
-                Create account
-              </Link>
+              {signedIn === true ? (
+                <Link
+                  href="/studio"
+                  className="gm-btn-primary"
+                  style={{ padding: "9px 20px", borderRadius: "9999px", background: "#181d27", color: "#fff", fontSize: "15px", fontWeight: 500, whiteSpace: "nowrap", textDecoration: "none", boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12" }}
+                >
+                  Open Studio
+                </Link>
+              ) : (
+                // Hidden (not removed) until the session is known, so a signed-in visitor never sees Sign in flash.
+                <span style={{ display: "contents", visibility: signedIn === null ? "hidden" : "visible" }} aria-hidden={signedIn === null}>
+                <Link
+                  href="/auth"
+                  style={{
+                    padding: "9px 16px",
+                    color: "#0a0d12",
+                    fontSize: "15px",
+                    fontWeight: 500,
+                    whiteSpace: "nowrap",
+                    textDecoration: "none"
+                  }}
+                >
+                  Sign in
+                </Link>
+                <Link
+                  href="/auth?mode=signup"
+                  className="gm-btn-primary"
+                  style={{
+                    padding: "9px 20px",
+                    borderRadius: "9999px",
+                    background: "#181d27",
+                    color: "#fff",
+                    fontSize: "15px",
+                    fontWeight: 500,
+                    whiteSpace: "nowrap",
+                    textDecoration: "none",
+                    boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
+                  }}
+                >
+                  Create account
+                </Link>
+                </span>
+              )}
             </div>
             <button
               type="button"
@@ -406,7 +429,6 @@ export function LandingPage() {
               <nav id="gm-landing-mobile-menu" className="gm-landing-mobile-menu" aria-label="Mobile navigation">
                 <a href="#how" onClick={() => setMenuOpen(false)}>How it works</a>
                 <a href="#features" onClick={() => setMenuOpen(false)}>Features</a>
-                <Link href="/studio" onClick={() => setMenuOpen(false)}>Studio</Link>
               </nav>
             )}
           </div>
@@ -857,6 +879,34 @@ export function LandingPage() {
               </div>
             ))}
           </div>
+        </section>
+
+        {/* Start creating: real templates, each going to sign-up with its brief prefilled */}
+        <section
+          id="templates"
+          style={{
+            maxWidth: "1200px",
+            margin: "0 auto",
+            padding: "72px 24px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px"
+          }}
+        >
+          <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: "12px", alignItems: "center" }}>
+            <h2 style={{ margin: 0, fontWeight: 600, fontSize: "clamp(28px, 3.4vw, 44px)", lineHeight: 1.15, letterSpacing: "-0.03em", maxWidth: "760px" }}>
+              Start creating.
+            </h2>
+            <p style={{ margin: 0, fontSize: "16px", color: "#535862", maxWidth: "620px" }}>
+              Pick a starting point. We fill in the script prompt, structure and style, so you edit an example instead of a blank page.
+            </p>
+          </div>
+          <GalleryGrid items={featured.items} loading={featured.loading} skeletons={4} hrefFor={(item) => signedIn ? `/studio?template=${item.id}` : startHref(item.id)} action={signedIn ? "Use this template" : "Start with this template"} />
+          <p style={{ margin: "20px 0 0", textAlign: "center", fontSize: "14px", color: "#535862" }}>
+            {signedIn
+              ? <><Link href="/studio" style={{ color: "#0A6CFF", fontWeight: 600 }}>Open Studio</Link> to see every template and style.</>
+              : <><Link href="/auth?mode=signup" style={{ color: "#0A6CFF", fontWeight: 600 }}>Create a free account</Link> to see every template and style.</>}
+          </p>
         </section>
 
         {/* Features Section */}

@@ -1,0 +1,16 @@
+{
+  "id": "bar-chart-race",
+  "name": "Animated Bar Chart Race",
+  "group": "Data & maps",
+  "summary": "Six example bars overtake each other as a year counter ticks, with the current leader highlighted.",
+  "bestFor": "Showing how rankings change over time",
+  "prompt": "Make a bar chart race about how six made-up groups, labelled A to F, rank over six years. Start with all bars short and sorted, then let a year counter tick forward while the bars grow and slide past each other. Highlight whichever bar leads at each moment, call out the biggest overtake, and finish on the final ranking with a one-line takeaway.",
+  "look": "clean",
+  "theme": "blue-professional",
+  "aspect": "16:9",
+  "durationSeconds": 40,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "both",
+  "poster": 3.0
+}

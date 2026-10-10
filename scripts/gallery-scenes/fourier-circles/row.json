@@ -1,0 +1,16 @@
+{
+  "id": "fourier-circles",
+  "name": "Fourier Circles Explainer",
+  "group": "Math",
+  "summary": "Rotating circles chained end to end trace a wave that unrolls to the right, in calm 3Blue1Brown style.",
+  "bestFor": "Signal processing and music-math explainers",
+  "prompt": "Show how a square wave can be built from rotating circles. Start with one large circle, chain smaller faster circles onto its tip, and let the final tip trace a wave that unrolls to the right. Narrate how adding more circles makes the corners sharper and the wave closer to the target shape.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 75,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 3.0
+}

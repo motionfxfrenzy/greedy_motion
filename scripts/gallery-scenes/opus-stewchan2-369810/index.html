@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Concept flow explainer</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0b1230; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #0b1230; font-family: "Fredoka", sans-serif; }
+  svg { position: absolute; inset: 0; }
+#root{font-family:'Space Grotesk',sans-serif}
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+var R = rng(9);
+var tl = gsap.timeline({ paused: true });
+var defs = el("defs", {});
+function wob(pts, amp, step) {
+  var out = [pts[0]], i, k;
+  for (i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+    for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+  }
+  var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+  for (i = 0; i < out.length - 1; i++) {
+    var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+    d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+  }
+  return d;
+}
+function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .06; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+function box(x, y, w, h) { return [[x - 6, y + 1], [x + w + 4, y - 1], [x + w + 1, y + h + 3], [x - 3, y + h - 1], [x + 1, y - 9]]; }
+// draw-on stroke. o: parent, amp, single, raw(d string), ease, fill (fades in), op (opacity), cap
+function stroke(pts, color, w, t, dur, o) {
+  o = o || {}; var par = o.parent || art;
+  var d = o.raw ? pts : wob(pts, o.amp == null ? 2.2 : o.amp, 34), made = [];
+  var passes = o.single ? [[w, 1, d]] : [[w, 1, d], [w * .5, .75, o.raw ? pts : wob(pts, (o.amp == null ? 2.2 : o.amp) * 1.2, 30)]];
+  passes.forEach(function (p, i) {
+    var path = el("path", { d: p[2], fill: "none", stroke: color, "stroke-width": p[0], "stroke-linecap": "round", "stroke-linejoin": "round", opacity: (o.op == null ? 1 : o.op) * p[1] }, par);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30); path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur * (i ? 1.12 : 1), ease: o.ease || "power1.inOut" }, t + (i ? .05 : 0));
+    made.push(path);
+  });
+  if (o.fill) {
+    var f = el("path", { d: d, fill: o.fill, stroke: "none", opacity: 0 }, par);
+    par.insertBefore(f, made[0]);
+    tl.to(f, { opacity: o.fillOp == null ? 1 : o.fillOp, duration: Math.max(.15, dur * .5) }, t + dur * .55);
+    made.push(f);
+  }
+  return made;
+}
+var cid = 0;
+function write(str, x, y, size, color, t, dur, rot, weight, font, par, anchor) {
+  par = par || art;
+  var g = el("g", rot ? { transform: "rotate(" + rot + " " + x + " " + y + ")" } : {}, par);
+  var id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+  var w = str.length * size * .6 + 30, x0 = anchor === "middle" ? x - w / 2 : x;
+  var rc = el("rect", { x: x0 - 10, y: y - size * 1.1, width: 0, height: size * 1.5 }, cp);
+  var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": weight || 600, fill: color, "clip-path": "url(#" + id + ")", "font-family": font || "Fredoka, Quicksand, sans-serif", "text-anchor": anchor || "start" }, g);
+  tx.textContent = str;
+  tl.to(rc, { attr: { width: w + 20 }, duration: dur, ease: "none" }, t);
+  return g;
+}
+function pop(node, t, dur, ox, oy, ease, rot) {
+  tl.fromTo(node, { scale: 0, rotation: rot == null ? -14 : rot, svgOrigin: ox + " " + oy }, { scale: 1, rotation: 0, svgOrigin: ox + " " + oy, duration: dur || .4, ease: ease || "back.out(2.6)" }, t);
+}
+function fadeIn(node, t, dur) { tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: dur || .3, ease: "power1.out" }, t); }
+function finish() { window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl; tl.set({}, {}, 5); }
+
+var BG = "#0b1230", INK = "#eaf0ff", TEAL = "#3de0c8", AMBER = "#ffb547", PERI = "#8fa6ff", GRIDC = "#6f86d6";
+var art = el("g", {});
+// cartesian grid + axes
+var gd = "";
+for (var gx = 0; gx <= 1280; gx += 40) gd += "M" + gx + " 0V720";
+for (var gy = 0; gy <= 720; gy += 40) gd += "M0 " + gy + "H1280";
+var grid = el("path", { d: gd, stroke: GRIDC, "stroke-width": 1, opacity: .16, fill: "none" }, art);
+tl.fromTo(grid, { opacity: 0 }, { opacity: .16, duration: .5 }, 0);
+var ax = stroke("M0 400 H1280 M560 0 V720", GRIDC, 1.8, 0, .9, { raw: true, single: true, op: .5, ease: "power2.out" });
+function curve(a, b, bend) { var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy); return [a, [mx - dy / L * bend, my + dx / L * bend], b]; }
+function qd(c) { return "M" + c[0][0] + " " + c[0][1] + " Q" + c[1][0] + " " + c[1][1] + " " + c[2][0] + " " + c[2][1]; }
+function qpt(c, u) { var v = 1 - u; return [v * v * c[0][0] + 2 * v * u * c[1][0] + u * u * c[2][0], v * v * c[0][1] + 2 * v * u * c[1][1] + u * u * c[2][1]]; }
+var T = [560, 400], S = [1050, 400];
+// nodes
+var tHalo = el("circle", { cx: T[0], cy: T[1], r: 56, fill: TEAL, opacity: .18 }, art);
+var tNode = el("circle", { cx: T[0], cy: T[1], r: 56, fill: "#0e2a40", stroke: TEAL, "stroke-width": 5 }, art);
+var tCore = el("circle", { cx: T[0], cy: T[1], r: 26, fill: TEAL }, art);
+// the lonely page appears first
+tl.fromTo([tHalo, tNode, tCore], { attr: { r: 0 } }, { attr: { r: function (i) { return [56, 56, 26][i]; } }, duration: .55, ease: "back.out(2)" }, .05);
+tl.fromTo(tHalo, { opacity: 0 }, { opacity: .18, duration: .3 }, .05);
+// supporting pages
+var P = [[150, 250], [140, 520], [330, 640], [560, 640 + 20 * 0], [330, 160 + 0]];
+P = [[190, 270], [150, 520], [370, 625], [700, 600], [800, 190]];
+var growT = { r: 56 };
+P.forEach(function (p, i) {
+  var t = .75 + i * .32;
+  var c = curve(p, [T[0] + (p[0] < T[0] ? -1 : 1) * 0, T[1]], (i % 2 ? 40 : -40));
+  // end the link at the node's rim
+  var ang = Math.atan2(T[1] - p[1], T[0] - p[0]);
+  var end = [T[0] - Math.cos(ang) * 74, T[1] - Math.sin(ang) * 74];
+  c = curve(p, end, i % 2 ? 40 : -40);
+  var n = el("circle", { cx: p[0], cy: p[1], r: 0, fill: "#141f4d", stroke: PERI, "stroke-width": 4 }, art);
+  var ic = el("circle", { cx: p[0], cy: p[1], r: 0, fill: PERI }, art);
+  tl.to(n, { attr: { r: 30 }, duration: .35, ease: "back.out(2.5)" }, t);
+  tl.to(ic, { attr: { r: 10 }, duration: .35, ease: "back.out(2.5)" }, t + .05);
+  var link = el("path", { d: qd(c), fill: "none", stroke: PERI, "stroke-width": 2, "stroke-linecap": "round" }, art);
+  var L = link.getTotalLength(); link.style.strokeDasharray = L + " " + (L + 4); link.style.strokeDashoffset = L + 2;
+  tl.to(link, { strokeDashoffset: 0, duration: .45, ease: "power2.inOut" }, t + .22);
+  tl.to(link, { attr: { "stroke-width": 5 + (i % 3) * 3 }, duration: .8, ease: "power1.out" }, t + .7);
+  // arrowhead
+  var ah = el("path", { d: "M-14 -9 L2 0 L-14 9", fill: "none", stroke: PERI, "stroke-width": 3.5, "stroke-linecap": "round", "stroke-linejoin": "round" }, art);
+  var tang = Math.atan2(end[1] - c[1][1], end[0] - c[1][0]) * 180 / Math.PI;
+  ah.setAttribute("transform", "translate(" + end[0] + " " + end[1] + ") rotate(" + tang + ")");
+  tl.fromTo(ah, { opacity: 0 }, { opacity: 1, duration: .1 }, t + .62);
+  // credit dots travelling to T
+  [0, 1].forEach(function (k) {
+    var d = el("circle", { r: 6, fill: TEAL, opacity: 0 }, art), o = { u: 0 };
+    tl.to(o, { u: 1, duration: .7, ease: "power1.in", onUpdate: function () { var q = qpt(c, o.u); d.setAttribute("cx", q[0]); d.setAttribute("cy", q[1]); d.setAttribute("opacity", o.u > 0 && o.u < 1 ? 1 : 0); } }, t + .7 + k * .4);
+  });
+  // trusted node swells as credit arrives
+  tl.to(tNode, { attr: { r: 62 + i * 9 }, duration: .35, ease: "back.out(2)" }, t + 1.0);
+  tl.to(tHalo, { attr: { r: 84 + i * 12 }, duration: .35, ease: "back.out(2)" }, t + 1.0);
+  tl.to(tCore, { attr: { r: 30 + i * 6 }, duration: .35, ease: "back.out(2)" }, t + 1.0);
+});
+// pass credit onward to the smaller site
+var sHalo = el("circle", { cx: S[0], cy: S[1], r: 0, fill: AMBER, opacity: .2 }, art);
+var sNode = el("circle", { cx: S[0], cy: S[1], r: 0, fill: "#2a2036", stroke: AMBER, "stroke-width": 5 }, art);
+var sCore = el("circle", { cx: S[0], cy: S[1], r: 0, fill: AMBER }, art);
+tl.to(sNode, { attr: { r: 34 }, duration: .4, ease: "back.out(2.5)" }, 2.55);
+tl.to(sHalo, { attr: { r: 34 }, duration: .4, ease: "back.out(2.5)" }, 2.55);
+tl.to(sCore, { attr: { r: 12 }, duration: .4, ease: "back.out(2.5)" }, 2.6);
+var big = curve([T[0] + 100, T[1]], [S[0] - 64, S[1]], -60);
+var bl = el("path", { d: qd(big), fill: "none", stroke: AMBER, "stroke-width": 4, "stroke-linecap": "round" }, art);
+var BL = bl.getTotalLength(); bl.style.strokeDasharray = BL + " " + (BL + 4); bl.style.strokeDashoffset = BL + 2;
+tl.to(bl, { strokeDashoffset: 0, duration: .55, ease: "power2.inOut" }, 2.7);
+tl.to(bl, { attr: { "stroke-width": 14 }, duration: 1, ease: "power1.out" }, 3.2);
+var ah2 = el("path", { d: "M-22 -14 L4 0 L-22 14", fill: "none", stroke: AMBER, "stroke-width": 6, "stroke-linecap": "round", "stroke-linejoin": "round" }, art);
+ah2.setAttribute("transform", "translate(" + (S[0] - 64) + " " + S[1] + ") rotate(" + (Math.atan2(S[1] - big[1][1], S[0] - 64 - big[1][0]) * 180 / Math.PI) + ")");
+tl.fromTo(ah2, { opacity: 0 }, { opacity: 1, duration: .1 }, 3.2);
+for (var k = 0; k < 7; k++) {
+  var d = el("circle", { r: 8, fill: AMBER, opacity: 0 }, art), o = { u: 0 };
+  (function (d, o) { tl.to(o, { u: 1, duration: .7, ease: "none", onUpdate: function () { var q = qpt(big, o.u); d.setAttribute("cx", q[0]); d.setAttribute("cy", q[1]); d.setAttribute("opacity", o.u > 0 && o.u < 1 ? 1 : 0); } }, 3.15 + k * .2); })(d, o);
+}
+tl.to(sNode, { attr: { r: 70 }, duration: 1.1, ease: "power2.out" }, 3.3);
+tl.to(sHalo, { attr: { r: 98 }, duration: 1.1, ease: "power2.out" }, 3.3);
+tl.to(sCore, { attr: { r: 34 }, duration: 1.1, ease: "power2.out" }, 3.3);
+tl.fromTo(sHalo, { opacity: .2 }, { opacity: .35, duration: .5 }, 3.8);
+[3.8, 4.05].forEach(function (t0) {
+  var ring = el("circle", { cx: S[0], cy: S[1], r: 70, fill: "none", stroke: AMBER, "stroke-width": 3, opacity: 0 }, art);
+  tl.fromTo(ring, { attr: { r: 72 }, opacity: .8 }, { attr: { r: 150 }, opacity: 0, duration: .6, ease: "power2.out", immediateRender: false }, t0);
+});
+// headline
+var hd = el("g", {});
+var head = el("text", { x: 70, y: 112, "font-family": "Space Grotesk, Inter, sans-serif", "font-size": 92, "font-weight": 700, fill: INK, "letter-spacing": "-2" }, hd);
+head.textContent = "Links ";
+var h2 = el("tspan", { fill: TEAL }, head); h2.textContent = "pass credit";
+var hcp = el("clipPath", { id: "hcp" }, defs), hr = el("rect", { x: 40, y: 20, width: 0, height: 120 }, hcp);
+hd.setAttribute("clip-path", "url(#hcp)");
+tl.to(hr, { attr: { width: 900 }, duration: .8, ease: "power2.inOut" }, 3.6);
+tl.fromTo(head, { y: 22 }, { y: 0, duration: .7, ease: "power3.out" }, 3.6);
+
+finish();
+})();
+</script>
+</body>
+</html>

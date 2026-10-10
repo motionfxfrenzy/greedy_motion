@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Neural network learns</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0f1420}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#0f1420;background-image:radial-gradient(rgba(148,163,184,.12) 1.2px,transparent 1.3px);background-size:32px 32px;font-family:'Space Grotesk',sans-serif;color:#f1f5f9}
+#cap{position:absolute;left:0;right:0;top:40px;text-align:center;font-size:66px;font-weight:700;letter-spacing:-1px}
+#cap span{color:#a78bfa}
+svg{position:absolute;inset:0}
+.lbl{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;fill:#94a3b8;text-anchor:middle;letter-spacing:3px}
+#err{font-family:'JetBrains Mono',monospace;font-size:44px;font-weight:700;fill:#f8fafc}
+.el{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;fill:#94a3b8;letter-spacing:3px}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div id="cap">Error shrinks, <span>weights learn</span></div>
+<svg width="1280" height="720" viewBox="0 0 1280 720">
+<defs><filter id="glow" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="gl2" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="9"/></filter></defs>
+<g id="lines"></g><g id="nodes"></g><g id="pk"></g>
+<text class="lbl" x="250" y="660" >INPUT</text><text class="lbl" x="640" y="660">HIDDEN</text><text class="lbl" x="1030" y="660">OUTPUT</text>
+<g transform="translate(0 0)">
+<text class="el" x="90" y="214">ERROR</text>
+<text id="err" x="250" y="218">0.92</text>
+<rect x="390" y="196" width="800" height="14" rx="7" fill="#1e2740"/>
+<rect id="bar" x="390" y="196" width="800" height="14" rx="7" fill="#a78bfa"/>
+</g>
+</svg></div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const mk=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+const AC="#a78bfa";
+const layers=[[250,[290,410,530]],[640,[260,350,440,530]],[1030,[340,470]]];
+const LY=[[300,420,540],[260,360,460,560],[360,500]].map(a=>a.map(y=>y+30));
+const cols=[250,640,1030];
+const net=cols.map((x,i)=>LY[i].map(y=>({x,y})));
+const lines=[];
+for(let l=0;l<2;l++)net[l].forEach(a=>net[l+1].forEach(b=>{
+  const d=`M${a.x} ${a.y} L${b.x} ${b.y}`;
+  const el=mk("path",{d,fill:"none",stroke:AC,"stroke-width":1.5,"stroke-opacity":.25,"stroke-linecap":"round"},document.getElementById("lines"));
+  // final weight: a few strong, rest faint
+  const strong=rnd()<.4;
+  lines.push({el,l,a,b,w0:1.5,w1:strong?9+rnd()*3:1.2+rnd()*1.2,o1:strong?1:.18});
+}));
+const nodeEls=[];
+net.forEach((col,l)=>col.forEach(n=>{
+  const g=mk("g",{},document.getElementById("nodes"));
+  const glow=mk("circle",{cx:n.x,cy:n.y,r:44,fill:AC,opacity:0,filter:"url(#gl2)"},g);
+  mk("circle",{cx:n.x,cy:n.y,r:30,fill:"#141b2e",stroke:AC,"stroke-width":3,"stroke-opacity":.8},g);
+  const core=mk("circle",{cx:n.x,cy:n.y,r:12,fill:AC,opacity:.25},g);
+  n.glow=glow;n.core=core;n.g=g;
+}));
+function packet(){const g=mk("g",{opacity:0},document.getElementById("pk"));
+ mk("circle",{r:9,fill:"#fff",filter:"url(#glow)"},g);mk("circle",{r:7,fill:"#fff"},g);return g}
+const tl=gsap.timeline({paused:true});
+const errEl=document.getElementById("err"),bar=document.getElementById("bar");
+tl.from("#cap",{opacity:0,y:-12,duration:.5,ease:"power3.out"},0);
+net.flat().forEach((n,i)=>tl.from(n.g,{opacity:0,scale:.6,svgOrigin:`${n.x} ${n.y}`,duration:.4,ease:"back.out(2)"},i*0.03));
+lines.forEach((L,i)=>{const len=L.el.getTotalLength();gsap.set(L.el,{strokeDasharray:len,strokeDashoffset:len});tl.to(L.el,{strokeDashoffset:0,duration:.5,ease:"power2.out"},0.05+i*0.02)});
+const errs=[0.92,0.55,0.26,0.06];
+const passes=[0.55,1.8,3.05];const PD=1.2;
+const e={v:errs[0]};
+function setErr(){errEl.textContent=e.v.toFixed(2);bar.setAttribute("width",800*Math.min(1,e.v/0.92)+14*0)}
+setErr();
+passes.forEach((t0,pi)=>{
+  const half=PD*0.45;
+  [0,1].forEach(l=>{
+    const ts=t0+l*half;
+    const ls=lines.filter(x=>x.l===l);
+    ls.forEach((L,j)=>{
+      const pk=packet();const o={p:0};
+      const st=ts+(j%4)*0.03;
+      tl.set(pk,{opacity:1},st);
+      tl.to(o,{p:1,duration:half-0.08,ease:"power1.inOut",onUpdate:()=>{const len=L.el.getTotalLength();const q=L.el.getPointAtLength(o.p*len);pk.setAttribute("transform",`translate(${q.x} ${q.y})`)}},st);
+      tl.set(pk,{opacity:0},st+half-0.06);
+      // thickness update after arrival
+    });
+    // node pulse
+    net[l+1].forEach(n=>{tl.fromTo(n.glow,{opacity:.8},{opacity:0,duration:.5,ease:"power2.out",immediateRender:false},ts+half-0.08);tl.fromTo(n.core,{opacity:1},{opacity:.35+pi*.15,duration:.5,immediateRender:false},ts+half-0.08)});
+  });
+  // error value shrinks and lines adapt
+  const tb=t0+PD+0.0;
+  tl.to(e,{v:errs[pi+1],duration:.6,ease:"power3.out",onUpdate:setErr},tb);
+  const f=(pi+1)/3;
+  lines.forEach(L=>{tl.to(L.el,{strokeWidth:L.w0+(L.w1-L.w0)*f,strokeOpacity:.25+(L.o1-.25)*f,duration:.6,ease:"power2.out"},tb)});
+});
+// final: output nodes lock in
+net[2].forEach(n=>tl.fromTo(n.glow,{opacity:0},{opacity:.7,duration:.5,ease:"power2.out",immediateRender:false},4.2));
+tl.to("#bar",{fill:"#a3e635",duration:.4},4.2);tl.to("#err",{fill:"#a3e635",duration:.4},4.2);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

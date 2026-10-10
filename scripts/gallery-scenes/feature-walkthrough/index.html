@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Feature walkthrough</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #fbeedd; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #fbeedd;
+    background-image: radial-gradient(#f0d6b4 2px, transparent 2.5px); background-size: 32px 32px;
+    font-family: "Quicksand", "Inter", sans-serif; color: #3a2616; }
+  .abs { position: absolute; }
+  #win { left: 120px; top: 30px; width: 1040px; height: 596px; border-radius: 22px; background: #fffaf3;
+    box-shadow: 0 30px 70px rgba(150,80,20,.28), 0 0 0 2px #ecd3b0; overflow: hidden; }
+  #bar { left: 120px; top: 30px; width: 1040px; height: 48px; background: #f6e3c8; border-radius: 22px 22px 0 0; }
+  .dot { width: 16px; height: 16px; border-radius: 8px; top: 47px; }
+  #side { left: 120px; top: 78px; width: 200px; height: 548px; background: #f9ead3; border-right: 2px solid #efd7b6; border-radius: 0 0 0 22px; }
+  .nav { left: 136px; width: 168px; height: 46px; border-radius: 12px; font-weight: 700; font-size: 20px; line-height: 46px; padding-left: 16px; color: #8a6a4a; }
+  .nav.on { background: #ff8a2b; color: #fff; }
+  h1 { font-size: 40px; font-weight: 700; left: 356px; top: 98px; line-height: 56px; }
+  #newbtn { left: 836px; top: 96px; width: 288px; height: 60px; border-radius: 30px; background: #ff7a1a; color: #fff;
+    font-weight: 700; font-size: 24px; line-height: 60px; text-align: center; box-shadow: 0 8px 0 #d85f05; }
+  .card { top: 190px; width: 236px; height: 200px; border-radius: 20px; background: #fff; border: 3px solid #f0d9b9; padding: 22px; }
+  .card b { display: block; font-size: 26px; line-height: 32px; }
+  .card i { display: block; font-style: normal; font-size: 20px; color: #9a7a58; margin-top: 8px; font-weight: 600; }
+  .pill { display: inline-block; margin-top: 18px; padding: 6px 16px; border-radius: 16px; background: #ffe2c2; color: #c4570a; font-weight: 700; font-size: 20px; }
+  .strip { top: 424px; height: 164px; border-radius: 18px; background: #fff3e0; border: 3px dashed #f0cf9f; }
+  #form { left: 356px; top: 186px; width: 768px; height: 414px; border-radius: 22px; background: #fff; border: 3px solid #f0d9b9; box-shadow: 0 14px 0 #f5e2c6; }
+  .lab { font-size: 18px; font-weight: 700; color: #a07c58; letter-spacing: 1.5px; text-transform: uppercase; }
+  #input { left: 388px; top: 244px; width: 704px; height: 66px; border-radius: 16px; border: 4px solid #ff8a2b; background: #fffaf3; font-size: 32px; font-weight: 700; line-height: 58px; padding-left: 20px; }
+  .dur { top: 354px; height: 52px; width: 96px; border-radius: 26px; border: 3px solid #f0d9b9; text-align: center; line-height: 46px; font-weight: 700; font-size: 22px; color: #9a7a58; }
+  #track { left: 1000px; top: 438px; width: 92px; height: 50px; border-radius: 25px; background: #e8d9c3; }
+  #knob { left: 1006px; top: 444px; width: 38px; height: 38px; border-radius: 19px; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+  #copy { left: 960px; top: 520px; width: 132px; height: 52px; border-radius: 26px; background: #ff7a1a; color: #fff; font-weight: 700; font-size: 22px; line-height: 52px; text-align: center; box-shadow: 0 6px 0 #d85f05; }
+  #link { left: 388px; top: 520px; width: 556px; height: 52px; border-radius: 14px; background: #fff3e0; font-size: 24px; font-weight: 700; line-height: 52px; padding-left: 18px; color: #c4570a; }
+  #chips { left: 0; top: 640px; width: 1280px; height: 64px; }
+  .chip { left: 400px; top: 640px; width: 480px; height: 64px; border-radius: 32px; background: #3a2616; color: #fff6e8; box-shadow: 0 8px 0 #1f130a; }
+  .chip .n { position: absolute; left: 8px; top: 8px; width: 48px; height: 48px; border-radius: 24px; background: #ff8a2b; font-size: 30px; font-weight: 700; text-align: center; line-height: 48px; color: #fff; }
+  .chip .t { position: absolute; left: 72px; top: 0; font-size: 30px; font-weight: 700; line-height: 64px; }
+  .chip .s { position: absolute; right: 26px; top: 0; font-size: 20px; font-weight: 600; line-height: 64px; color: #e8b98a; }
+  #ripple { width: 90px; height: 90px; border-radius: 45px; border: 6px solid #ff7a1a; left: -45px; top: -45px; opacity: 0; }
+  #cursor { left: 0; top: 0; width: 80px; height: 90px; filter: drop-shadow(0 8px 10px rgba(90,40,0,.35)); }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <div id="win" class="abs"></div>
+  <div id="bar" class="abs"></div>
+  <div class="abs dot" style="left:146px;background:#ff6b57"></div>
+  <div class="abs dot" style="left:174px;background:#ffc23d"></div>
+  <div class="abs dot" style="left:202px;background:#3fc765"></div>
+  <div class="abs" style="left:0;width:1280px;top:40px;text-align:center;font-weight:700;font-size:20px;color:#9a7a58">Tidyslot</div>
+  <div id="side" class="abs"></div>
+  <div class="abs" style="left:140px;top:96px;width:36px;height:36px;border-radius:11px;background:#ff8a2b"></div>
+  <div class="abs" style="left:186px;top:94px;font-size:28px;font-weight:700;line-height:40px">Tidyslot</div>
+  <div class="abs nav on" style="top:150px">Meeting types</div>
+  <div class="abs nav" style="top:204px">Bookings</div>
+  <div class="abs nav" style="top:258px">Teammates</div>
+  <div class="abs nav" style="top:312px">Settings</div>
+
+  <h1 class="abs">Meeting types</h1>
+  <div id="newbtn" class="abs">+ New meeting type</div>
+
+  <div id="list">
+    <div class="abs card" style="left:356px"><b>Quick chat</b><i>15 min · Video</i><span class="pill">Live</span></div>
+    <div class="abs card" style="left:622px"><b>Team sync</b><i>30 min · Phone</i><span class="pill">Live</span></div>
+    <div class="abs card" style="left:888px"><b>Demo call</b><i>45 min · Video</i><span class="pill">Live</span></div>
+    <div class="abs strip" style="left:356px;width:768px"></div>
+    <div class="abs" style="left:384px;top:442px;font-size:26px;font-weight:700">This week</div>
+    <div class="abs" style="left:384px;top:490px;font-size:22px;font-weight:600;color:#9a7a58">Mon 3 booked · Tue 5 booked · Wed 2 booked</div>
+    <div class="abs" style="left:384px;top:530px;width:200px;height:24px;border-radius:12px;background:#ffc58a"></div>
+    <div class="abs" style="left:600px;top:530px;width:300px;height:24px;border-radius:12px;background:#ff9a45"></div>
+    <div class="abs" style="left:916px;top:530px;width:170px;height:24px;border-radius:12px;background:#ffd9ae"></div>
+  </div>
+
+  <div id="form" class="abs" style="opacity:0">
+  </div>
+  <div id="formin" style="opacity:0">
+    <div class="abs lab" style="left:388px;top:208px">Name</div>
+    <div id="input" class="abs"><span id="typed"></span><span id="caret" style="display:inline-block;width:4px;height:36px;background:#ff7a1a;vertical-align:-6px;margin-left:3px"></span></div>
+    <div class="abs lab" style="left:388px;top:326px">Length</div>
+    <div class="abs dur" style="left:388px">15m</div>
+    <div class="abs dur" id="d30" style="left:496px;background:#ffe2c2;border-color:#ff8a2b;color:#c4570a">30m</div>
+    <div class="abs dur" style="left:604px">60m</div>
+    <div class="abs lab" style="left:388px;top:446px">Hours</div>
+    <div class="abs" id="hrs" style="left:500px;top:436px;font-size:28px;font-weight:700;line-height:68px;color:#b89a78">Mon to Fri, 9 to 5</div>
+    <div id="track" class="abs"></div>
+    <div id="knob" class="abs"></div>
+    <div id="link" class="abs">tidyslot.app/intro-call</div>
+    <div id="copy" class="abs"><span id="cp1">Copy link</span><span id="cp2" style="position:absolute;left:0;right:0;top:0;opacity:0">Copied!</span></div>
+    <div class="abs lab" style="left:388px;top:490px">Share</div>
+  </div>
+
+  <div class="abs chip" id="c1"><div class="n">1</div><div class="t">Create</div><div class="s">step 1 of 3</div></div>
+  <div class="abs chip" id="c2" style="opacity:0"><div class="n">2</div><div class="t">Set hours</div><div class="s">step 2 of 3</div></div>
+  <div class="abs chip" id="c3" style="opacity:0"><div class="n">3</div><div class="t">Share</div><div class="s">step 3 of 3</div></div>
+
+  <div id="rip" class="abs" style="left:0;top:0"><div id="ripple" class="abs"></div></div>
+  <svg id="cursor" class="abs" viewBox="0 0 40 45"><path d="M2 2 L2 35 L11 27 L17 41 L24 38 L18 25 L30 25 Z" fill="#fff" stroke="#3a2616" stroke-width="3" stroke-linejoin="round"/></svg>
+</div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var tl = gsap.timeline({ paused: true });
+  var cur = $("cursor"), rip = $("rip"), ripple = $("ripple");
+  function setC(x, y) { gsap.set(cur, { x: x, y: y }); }
+  // curved glide: quadratic bezier with a perpendicular bend
+  function move(t0, dur, a, b, bend) {
+    var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
+    var cx = mx - dy / L * bend, cy = my + dx / L * bend, o = { p: 0 };
+    tl.to(o, { p: 1, duration: dur, ease: "power2.inOut", onUpdate: function () {
+      var p = o.p, q = 1 - p;
+      setC(q * q * a[0] + 2 * q * p * cx + p * p * b[0], q * q * a[1] + 2 * q * p * cy + p * p * b[1]);
+    } }, t0);
+  }
+  function click(t, x, y) {
+    tl.set(rip, { x: x, y: y }, t);
+    tl.fromTo(ripple, { scale: .2, opacity: .9 }, { scale: 1.6, opacity: 0, duration: .5, ease: "power2.out" }, t);
+    tl.to(cur, { scale: .86, duration: .07, transformOrigin: "3px 3px" }, t - .04);
+    tl.to(cur, { scale: 1, duration: .14, transformOrigin: "3px 3px" }, t + .03);
+  }
+  gsap.set(cur, { transformOrigin: "3px 3px" });
+  gsap.set(cur, { scale: 1.9 });
+  gsap.set(ripple, { scale: .2 });
+  // cursor scale 1.9 is baked in; pulse tweens relative values
+  tl.eventCallback; 
+  var S = 1.9;
+  function click2(t, x, y) {
+    tl.set(rip, { x: x, y: y }, t);
+    tl.fromTo(ripple, { scale: .2, opacity: .9 }, { scale: 1.8, opacity: 0, duration: .55, ease: "power2.out" }, t);
+    tl.to(cur, { scale: S * .85, duration: .07 }, t - .04);
+    tl.to(cur, { scale: S, duration: .15 }, t + .03);
+  }
+  function btnPress(el, t) { tl.to(el, { y: 5, duration: .07 }, t - .04); tl.to(el, { y: 0, duration: .15 }, t + .03); }
+
+  var P0 = [1000, 590], B = [1010, 124], IN = [620, 280], TG = [1046, 466], CP = [1030, 548];
+  setC(P0[0], P0[1]);
+  // 1 create
+  move(.2, 1.1, P0, B, 120);
+  click2(1.4, B[0], B[1]); btnPress($("newbtn"), 1.4);
+  tl.to($("list"), { opacity: 0, y: 14, duration: .25 }, 1.45);
+  tl.fromTo($("form"), { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: .35, ease: "power3.out" }, 1.5);
+  tl.fromTo($("formin"), { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: .35, ease: "power3.out" }, 1.5);
+  move(1.55, .6, B, IN, -90);
+  click2(2.2, IN[0], IN[1]);
+  // type
+  var TXT = "30 min intro call", o = { n: 0 };
+  tl.to(o, { n: TXT.length, duration: .85, ease: "none", onUpdate: function () { $("typed").textContent = TXT.slice(0, Math.round(o.n)); } }, 2.3);
+  // 2 set hours
+  tl.to($("c1"), { opacity: 0, y: -14, duration: .2 }, 3.1);
+  tl.fromTo($("c2"), { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: .25, ease: "power3.out" }, 3.15);
+  move(3.15, .75, IN, TG, 70);
+  click2(3.95, TG[0], TG[1]);
+  tl.to($("knob"), { x: 54, duration: .22, ease: "back.out(2)" }, 3.97);
+  tl.to($("track"), { backgroundColor: "#ff8a2b", duration: .2 }, 3.97);
+  tl.to($("hrs"), { color: "#3a2616", duration: .2 }, 3.97);
+  // 3 share
+  tl.to($("c2"), { opacity: 0, y: -14, duration: .2 }, 4.1);
+  tl.fromTo($("c3"), { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: .25, ease: "power3.out" }, 4.15);
+  move(4.1, .35, TG, CP, -40);
+  click2(4.5, CP[0], CP[1]); btnPress($("copy"), 4.5);
+  tl.add(function () {}, 4.5);
+  tl.to($("copy"), { backgroundColor: "#2fa36b", duration: .1 }, 4.5);
+  tl.to($("cp1"), { opacity: 0, duration: .08 }, 4.5);
+  tl.to($("cp2"), { opacity: 1, duration: .08 }, 4.5);
+
+  gsap.set($("caret"), { opacity: 1 });
+  tl.to($("caret"), { opacity: 0, duration: .01 }, 3.2);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

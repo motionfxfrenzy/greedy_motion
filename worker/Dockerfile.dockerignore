@@ -1,0 +1,20 @@
+# Only the browser runtime's inputs enter its build context.
+**
+!worker/
+!worker/package.json
+!worker/package-lock.json
+!worker/src/
+!worker/src/**
+!worker/templates/
+!worker/templates/**
+!worker/fonts/
+!worker/fonts/**
+!worker/themes/
+!worker/themes/**
+!worker/fixtures/
+!worker/fixtures/**
+**/node_modules
+**/.env*
+**/.DS_Store
+**/__pycache__
+**/renders

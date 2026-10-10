@@ -1,3 +1,7 @@
+import { renderManifest } from "./render-manifest.ts";
+import { visualVariables, withVisuals } from "./visual-composition.ts";
+import { currentClips, visualDir, digest, requireReadyVisuals, requireCurrentPalette } from "./visual-state.ts";
+import { readMedia } from "../media.ts";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { VideoProject } from "@videosaas/contracts";
@@ -22,11 +26,13 @@ import { soundTracks, withSoundtrack, type SfxName } from "./sound.ts";
 export async function buildPlanRenderProject(project: VideoProject, dir: string, { check = false } = {}) {
   const plan = project.beatPlan;
   if (!plan) throw new Error("Generate the plan first.");
+  requireReadyVisuals(project);
   const [template, fontCss] = await Promise.all([
     readFile(join(config.templatesDir, ENGINE_TEMPLATE, "index.html"), "utf8"),
     readFile(join(config.fontsDir, "fonts.css"), "utf8")
   ]);
   const look = await projectLook(project);
+  requireCurrentPalette(project, look.brand);
   const timing = projectTiming(project)!;
 
   await mkdir(join(dir, "vendor"), { recursive: true });
@@ -65,7 +71,14 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
     await cp(from, join(dir, track.src));
   }
 
+  for (const clip of Object.values(currentClips(project))) {
+    const bytes = await readMedia(join(visualDir(project.id), clip.file));
+    if (!bytes || digest(bytes) !== clip.sha256) throw new Error("A generated scene is missing or corrupt; restore it before rendering.");
+    await mkdir(join(dir, "visuals"), { recursive: true });
+    await writeFile(join(dir, "visuals", clip.file), bytes);
+  }
   const values = {
+    ...visualVariables(project),
     ...engineVariables({
       plan,
       timing,
@@ -82,8 +95,11 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   html = declareVariables(html, values, { asDefaults: check });
   html = fillTextBlock(html, {});
   html = withSoundtrack(html, tracks);
+  html = withVisuals(html, project, timing, file => `visuals/${file}`);
   html = html.replace("</head>", () => `  <style id="fonts">\n${fontCss}\n  </style>${look.brandFontsCss ? `\n  <style id="brand-fonts">\n${look.brandFontsCss}\n  </style>` : ""}\n  <style id="theme" data-theme="${look.brand ? "brand" : look.theme}">\n${look.themeCss}\n  </style>\n</head>`);
   await writeFile(join(dir, "index.html"), html);
   await writeFile(join(dir, "variables.json"), JSON.stringify(values, null, 2));
+  const manifest = await renderManifest(dir, JSON.parse(String(values.plan)), shots, currentClips(project));
+  await writeFile(join(dir, "render-manifest.json"), JSON.stringify(manifest, null, 2));
   return { timing, tracks, durationSeconds: timing.total };
 }

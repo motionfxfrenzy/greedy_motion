@@ -15,7 +15,9 @@ const openGets = [
   /^\/v1\/preview\/(?:runtime|gsap)\.js$/,
   /^\/v1\/preview\/fonts\/[^/]+$/,
   /^\/v1\/preview\/templates\/[^/]+\/assets\/[^/]+$/,
-  /^\/v1\/preview\/plan-sfx\/[^/]+$/
+  /^\/v1\/preview\/plan-sfx\/[^/]+$/,
+  /^\/v1\/gallery\/[^/]+$/,
+  /^\/v1\/gallery\/templates\/[^/]+$/
 ];
 
 // User media reached by <img>/<video>/<audio> tags and the preview iframe, which cannot send an Authorization

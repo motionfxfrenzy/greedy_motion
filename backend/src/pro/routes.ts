@@ -1,10 +1,12 @@
+import { isAuthorStage } from "../author-skills/bundle.ts";
+import { proposeCompositionEdit } from "./assistant.ts";
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join, sep } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { lintHyperframeHtml } from "@hyperframes/lint";
-import { frameShellHtml, isPreviewQuality, previewSize, type PreviewQuality, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
+import { frameShellHtml, isPreviewQuality, motionBlurProblem, parseMotionBlur, previewSize, type PreviewQuality, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
 import { NotEntitled, requireProEdit, type ProEditAccess } from "../entitlements/access.ts";
@@ -132,7 +134,8 @@ export async function writeProFiles(_access: ProEditAccess, id: string, body: { 
 }
 
 /** Copies the saved folder to where the worker reads it and queues a render job. Spends compute, so it needs the edit capability. */
-export async function enqueueProRender(_access: ProEditAccess, project: VideoProject & { pro: ProManifest }, quality: PreviewQuality) {
+/** `motionBlur` is for a final render only; the route validates it (parseMotionBlur, motionBlurProblem) before calling. */
+export async function enqueueProRender(_access: ProEditAccess, project: VideoProject & { pro: ProManifest }, quality: PreviewQuality, options: { motionBlur?: boolean } = {}) {
   const pro = project.pro;
   const jobId = randomUUID();
   await ensureMediaDir(proDir(project.id));
@@ -156,7 +159,7 @@ export async function enqueueProRender(_access: ProEditAccess, project: VideoPro
   const created = await renderJobRepository.createReadyAndEnqueue(job, {
     request: project.request,
     projectId: project.id,
-    renderInput: { kind: "pro", id: jobId, workerDir: `/renders/${jobId}/project`, ...(projectPrefix ? { projectPrefix } : {}), durationSeconds: pro.durationSeconds, quality, previewWidth: size.width, previewHeight: size.height }
+    renderInput: { kind: "pro", id: jobId, workerDir: `/renders/${jobId}/project`, ...(projectPrefix ? { projectPrefix } : {}), durationSeconds: pro.durationSeconds, quality, previewWidth: size.width, previewHeight: size.height, ...(options.motionBlur ? { motionBlur: true } : {}) }
   });
   return { created, size };
 }
@@ -264,6 +267,24 @@ function registerEditorRoutes(app: FastifyInstance) {
     }
   });
 
+  // Claude proposes exact edits against the browser's current (possibly unsaved) source; the editor shows
+  // the diff and its normal revisioned PUT saves only after the user applies it. Spends model calls, so it needs edit access.
+  app.post<{ Params: { id: string }; Body: { baseRev?: unknown; task?: unknown; target?: unknown; html?: unknown; stage?: unknown } }>("/v1/projects/:id/pro/assist", { ...EDIT, bodyLimit: 2_200_000 }, async (request, reply) => {
+    try {
+      requireProEdit(request);
+      const project = await getProject(request.params.id);
+      if (!project?.pro) return fail(reply, 404, "not_found", "Open the project in the Pro editor first.");
+      requireRev(project.pro, request.body?.baseRev);
+      const { task, target, html, stage } = request.body ?? {};
+      if (stage !== undefined && !isAuthorStage(stage)) return fail(reply, 400, "invalid_request", "Unknown author stage.");
+      if (typeof task !== "string" || typeof target !== "string" || typeof html !== "string" || task.length > 1200 || target.length > 200 || html.length > 2_000_000) return fail(reply, 400, "invalid_request", "Send a task, selected target and current composition HTML.");
+      return await proposeCompositionEdit(task, target, html, fetch, stage);
+    } catch (error) {
+      if (error instanceof ProConflict || error instanceof ProInvalid || error instanceof NotEntitled) return mapError(reply, error);
+      return fail(reply, 422, "author_failed", error instanceof Error ? error.message : "Could not propose an edit.");
+    }
+  });
+
   app.post<{ Params: { id: string }; Body: { path?: unknown } | undefined }>("/v1/projects/:id/pro/lint", VIEW, async (request, reply) => {
     try {
       const project = await getProject(request.params.id);
@@ -283,7 +304,7 @@ function registerEditorRoutes(app: FastifyInstance) {
    * and is scaled down; `final` renders the composition as written and is gated by lint errors. Only a final render becomes the
    * project's render (Review shows it): a preview never touches `renderJobId`, so syncProject ignores it.
    */
-  app.post<{ Params: { id: string }; Body: { quality?: unknown } | undefined }>("/v1/projects/:id/pro/render", EDIT, async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { quality?: unknown; motionBlur?: unknown } | undefined }>("/v1/projects/:id/pro/render", EDIT, async (request, reply) => {
     try {
       const access = requireProEdit(request);
       const project = await getProject(request.params.id);
@@ -291,6 +312,11 @@ function registerEditorRoutes(app: FastifyInstance) {
       const pro = project.pro;
       const quality = request.body?.quality === undefined ? "draft540" : request.body.quality;
       if (!isPreviewQuality(quality)) return fail(reply, 400, "invalid_request", "`quality` must be draft540, preview720 or final.");
+      const blur = parseMotionBlur(request.body?.motionBlur);
+      if (!blur.ok) return fail(reply, 400, "invalid_request", blur.message);
+      // A preview is for checking timing and must stay cheap; blur belongs to the final render only.
+      if (blur.on && quality !== "final") return fail(reply, 400, "invalid_request", "Motion blur is only for the final render; previews never use it.");
+      if (blur.on) { const tooLong = motionBlurProblem(pro.durationSeconds); if (tooLong) return fail(reply, 400, "motion_blur_too_long", tooLong); }
 
       if (quality === "final") {
         const entry = await readMedia(join(proDir(project.id), pro.entry));
@@ -299,7 +325,7 @@ function registerEditorRoutes(app: FastifyInstance) {
         if (lint.errorCount > 0) return fail(reply, 409, "lint_errors", `${lint.errorCount} error${lint.errorCount === 1 ? "" : "s"} block a full render. Fix them in Checks.`, { findings: lint.findings.filter((f) => f.severity === "error").map((f) => ({ code: f.code, message: f.message, elementId: f.elementId, fixHint: f.fixHint })) });
       }
 
-      const { created, size } = await enqueueProRender(access, { ...project, pro }, quality);
+      const { created, size } = await enqueueProRender(access, { ...project, pro }, quality, { motionBlur: blur.on });
       return reply.code(202).send({ job: created, quality, size, rev: pro.rev });
     } catch (error) {
       return mapError(reply, error);

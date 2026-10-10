@@ -1,4 +1,4 @@
-import type { Aspect, Beat, BeatPlan } from "@videosaas/contracts";
+import { resolveSceneRoute, type SceneRoute, type Aspect, type Beat, type BeatPlan } from "@videosaas/contracts";
 import type { PlanTiming } from "./timing.ts";
 
 /**
@@ -29,6 +29,7 @@ export const scriptJson = (value: unknown) => JSON.stringify(value)
   .replace(/\u2029/g, "\\u2029");
 
 type EngineBeat = {
+  route: SceneRoute;
   id: string;
   role: Beat["role"];
   kind: Beat["kind"];
@@ -59,7 +60,7 @@ export type EnginePlan = {
 };
 
 /** The `plan` variable: the beats the engine draws, with their clock from `planTiming`. */
-export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Record<string, { width: number; height: number }> = {}): EnginePlan {
+export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Record<string, { width: number; height: number }> = {}, look = "clean"): EnginePlan {
   const times = new Map(timing.beats.map((beat) => [beat.id, beat]));
   return {
     canvas: plan.canvas,
@@ -70,6 +71,7 @@ export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Reco
       const size = beat.ui ? screenSizes[beat.ui.screen] : undefined;
       return {
         id: beat.id,
+        route: resolveSceneRoute(beat, look),
         role: beat.role,
         kind: beat.kind,
         keyword: beat.keyword,
@@ -114,7 +116,7 @@ export type EngineInputs = {
 /** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `look`. */
 export function engineVariables(input: EngineInputs): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {
-    plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes)),
+    plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes, input.look)),
     brandName: input.brandName,
     logo: input.logo ?? "",
     logoWordmark: Boolean(input.logo && input.logoWordmark),
@@ -152,7 +154,7 @@ const encodeAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(
  * the template's own declarations. With `asDefaults`, the values also become the declared defaults:
  * that is the "check twin" for `hyperframes check` and `snapshot`, which take no variables flag.
  */
-export function declareVariables(html: string, values: Record<string, string | boolean>, { asDefaults = false } = {}): string {
+export function declareVariables(html: string, values: Record<string, string | number | boolean>, { asDefaults = false } = {}): string {
   const match = DECLARATIONS.exec(html);
   if (!match) throw new Error("The beat-plan template has no variable declarations.");
   type Declaration = { id: string; type: string; label: string; default: unknown; [key: string]: unknown };

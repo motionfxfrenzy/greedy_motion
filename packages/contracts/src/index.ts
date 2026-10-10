@@ -1,3 +1,5 @@
+import type { PlanVisuals } from "./visuals.ts";
+export * from "./visuals.ts";
 export const formats = ["landscape", "portrait"] as const;
 import { parseAudioOptions, type AudioOptions, type AudioResult } from "./audio.ts";
 import type { BeatPlan, PlanAudio, ScriptBrief, SiteCapture } from "./beat-plan.ts";
@@ -10,7 +12,9 @@ export * from "./beat-plan.ts";
 export * from "./brand.ts";
 export * from "./engine.ts";
 export * from "./frame.ts";
+export * from "./gallery.ts";
 export * from "./looks.ts";
+export * from "./motion-blur.ts";
 export * from "./templates.ts";
 export * from "./themes.ts";
 
@@ -156,6 +160,10 @@ export type VideoProject = {
   beatPlan?: BeatPlan;
   /** The plan's voiceover takes and music bed (backend/src/plan/audio.ts). */
   planAudio?: PlanAudio;
+  /** Durable generated style keyframes, clips and provider operation checkpoints. */
+  planVisuals?: PlanVisuals;
+  /** Loaded from the current brand row, never trusted from client input. */
+  visualBrandSignature?: string;
   /** The product website read for this project (backend/src/site). */
   site?: SiteCapture;
   /** Present once a pro user has opened the project in the Pro Editor (backend/src/pro). */
@@ -179,3 +187,5 @@ export function parseRenderRequest(value: unknown): RenderRequest | null {
   if (audio === null) return null;
   return { prompt, format: format as RenderRequest["format"], style: style as RenderRequest["style"], theme, template, ...(brandId ? { brandId } : {}), ...(audio ? { audio } : {}) };
 }
+
+export * from "./scene-rendering.ts";

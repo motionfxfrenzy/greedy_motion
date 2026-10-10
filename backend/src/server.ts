@@ -1,25 +1,31 @@
+import { loadAuthorSkills } from "./author-skills/bundle.ts";
+import { startVisualConsumers } from "./plan/visuals.ts";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
-import { findTemplate, parseRenderRequest, type RenderJob } from "@videosaas/contracts";
+import { findTemplate, motionBlurProblem, parseMotionBlur, parseRenderRequest, type RenderJob } from "@videosaas/contracts";
 import { config } from "./config.ts";
 import { callerId, registerAuth } from "./auth.ts";
 import { mediaToken, signPreviewUrls } from "./media-links.ts";
 import { registerOwnership } from "./access.ts";
 import { renderService } from "./render/service.ts";
 import { renderJobRepository } from "./render/repository.ts";
-import { NotReady, prepareBeatPlanRender } from "./plan/readiness.ts";
+import { NotReady, planReadiness, prepareBeatPlanRender } from "./plan/readiness.ts";
 import type { Plan } from "./render/planner.ts";
 import { PreviewUnavailable, previewBrandFont, previewBrandLogo, previewFont, previewGsap, previewRuntime, previewTemplateScreenshot, projectPreviewHtml } from "./preview/service.ts";
 import { databaseReady, migrate, pool } from "./db/database.ts";
 import { boss, startQueues } from "./jobs/queues.ts";
+import { startWorkerSweep } from "./jobs/worker-launcher.ts";
 import { AssetRejected, readStaged, stageFont, stageLogo } from "./brand/assets.ts";
 import { extractBrand } from "./brand/extract.ts";
 import { registerPlanRoutes } from "./plan/routes.ts";
 import { registerEntitlementRoutes } from "./entitlements/routes.ts";
+import { registerFormatRoutes } from "./formats/routes.ts";
+import { registerGalleryRoutes } from "./gallery.ts";
+import { registerLibraryRoutes } from "./library.ts";
 import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
 import { presignOutput } from "./storage.ts";
@@ -147,6 +153,9 @@ app.get<{ Params: { id: string; name: string } }>("/v1/preview/brands/:id/fonts/
 // ---------- Persisted projects ----------
 // Product flow v2: Script & Style → beat plan, storyboard edits, live composition (backend/src/plan).
 await registerPlanRoutes(app);
+await registerFormatRoutes(app);
+await registerGalleryRoutes(app);
+await registerLibraryRoutes(app);
 await registerProRoutes(app);
 await registerEntitlementRoutes(app);
 
@@ -199,14 +208,23 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/script", async (request, 
   }
 });
 
-app.post<{ Params: { id: string } }>("/v1/projects/:id/render", async (request, reply) => {
+app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>("/v1/projects/:id/render", async (request, reply) => {
   try {
     let project = await getProject(request.params.id);
     if (!project) return reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
+    // Motion blur is a choice made at final submission (never a preview): off unless the request says true.
+    const blur = parseMotionBlur(request.body?.motionBlur);
+    if (!blur.ok) return reply.code(400).send({ error: { code: "invalid_request", message: blur.message } });
+    if (blur.on && !project.beatPlan) return reply.code(400).send({ error: { code: "motion_blur_unavailable", message: "Motion blur is available for storyboard films only." } });
 
     // An approved storyboard renders exactly as previewed: no planner, no generation, nothing that can
     // fail after Submit. Readiness is checked again here; the storyboard already disables Submit.
     if (project.beatPlan) {
+      if (blur.on) {
+        const seconds = planReadiness(project).durationSeconds;
+        const tooLong = seconds === null ? null : motionBlurProblem(seconds);
+        if (tooLong) return reply.code(400).send({ error: { code: "motion_blur_too_long", message: tooLong } });
+      }
       const jobId = randomUUID();
       let prepared: Awaited<ReturnType<typeof prepareBeatPlanRender>>;
       try {
@@ -216,7 +234,7 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/render", async (request, 
         throw error;
       }
       await updateProject(project.id, { state: "Rendering draft", renderJobId: jobId });
-      return reply.code(202).send(await renderService.createBeatPlanRender(project, jobId, prepared));
+      return reply.code(202).send(await renderService.createBeatPlanRender(project, jobId, prepared, { motionBlur: blur.on }));
     }
 
     if (!project.script?.confirmed) return reply.code(400).send({ error: { code: "script_unconfirmed", message: "Check and confirm the script before rendering." } });
@@ -440,8 +458,11 @@ async function shutdown(signal: string) {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
+await loadAuthorSkills();
 await migrate();
 await startQueues();
 await renderService.startConsumers();
+await startVisualConsumers();
+startWorkerSweep();
 await app.listen({ port: config.port, host: config.host });
 app.log.info({ appEnv: config.appEnv, planner: config.anthropicApiKey ? "anthropic" : "deterministic", planConcurrency: config.planConcurrency }, "backend ready");

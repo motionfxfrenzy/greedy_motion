@@ -1,0 +1,16 @@
+{
+  "id": "blockchain-blocks",
+  "name": "Blockchain Explainer",
+  "group": "Tech",
+  "summary": "Blocks link by hash; tamper with one and every later link breaks red.",
+  "bestFor": "Teaching how hash-linked chains stay tamper-evident",
+  "prompt": "Explain how a blockchain keeps its records honest. Show blocks that each carry the hash of the block before them, forming a chain. Then change the data in one earlier block and watch its hash change, so every later link no longer matches. End on why that makes tampering easy to spot.",
+  "look": "clean",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 50,
+  "motionProfile": "snappy",
+  "pace": "balanced",
+  "audio": "both",
+  "poster": 3.6
+}

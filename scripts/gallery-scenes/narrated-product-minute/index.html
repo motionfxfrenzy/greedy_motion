@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Narrated product minute</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#f6f1e7}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#f6f1e7;font-family:'Inter',sans-serif;color:#1f2a24}
+.sc{position:absolute;inset:0}
+.k{position:absolute;left:0;right:0;top:64px;text-align:center;font-size:26px;font-weight:700;letter-spacing:5px;color:#3f7d5c}
+.h{position:absolute;left:0;right:0;text-align:center;font-family:'Instrument Serif',serif;font-size:96px;line-height:1.02;letter-spacing:-2px}
+.h i{color:#3f7d5c}
+.card{position:absolute;background:#fff;border-radius:28px;box-shadow:0 30px 70px rgba(40,60,45,.16),0 2px 0 rgba(0,0,0,.04)}
+.pill{position:absolute;height:92px;border-radius:46px;background:#fff;box-shadow:0 18px 44px rgba(40,60,45,.14);font-size:42px;font-weight:600;display:flex;align-items:center;gap:20px;padding:0 40px 0 14px;white-space:nowrap}
+.dot{width:64px;height:64px;border-radius:50%}
+.step{position:absolute;top:250px;width:300px;height:260px;border-radius:28px;background:#fff;box-shadow:0 24px 60px rgba(40,60,45,.15);text-align:center}
+.step b{display:block;margin:34px auto 0;width:72px;height:72px;border-radius:50%;background:#3f7d5c;color:#fff;font-size:40px;line-height:72px}
+.step span{display:block;margin-top:28px;font-family:'Instrument Serif',serif;font-size:60px}
+#bar{position:absolute;left:0;bottom:0;height:10px;width:1280px;background:#3f7d5c;transform-origin:0 0}
+#wave{position:absolute;left:520px;bottom:34px;width:240px;height:40px;display:flex;gap:7px;align-items:center;justify-content:center}
+#wave u{display:block;width:8px;height:36px;border-radius:4px;background:#3f7d5c;opacity:.75}
+#btn{position:absolute;left:400px;top:430px;width:480px;height:120px;border-radius:60px;background:#3f7d5c;color:#fff;font-size:50px;font-weight:700;text-align:center;line-height:120px;box-shadow:0 22px 50px rgba(63,125,92,.4)}
+#cur{position:absolute;left:0;top:0;width:44px;height:44px}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+
+<div class="sc" id="s1">
+ <div class="k" id="k1">MEET FERNLIGHT</div>
+ <div class="card" id="app" style="left:340px;top:380px;width:600px;height:250px">
+  <div style="position:absolute;left:40px;top:40px;width:200px;height:18px;border-radius:9px;background:#d9e6dd"></div>
+  <div style="position:absolute;left:40px;top:84px;width:520px;height:16px;border-radius:8px;background:#ece8de"></div>
+  <div style="position:absolute;left:40px;top:122px;width:470px;height:16px;border-radius:8px;background:#ece8de"></div>
+  <div style="position:absolute;left:40px;top:160px;width:500px;height:16px;border-radius:8px;background:#ece8de"></div>
+  <div id="hl" style="position:absolute;left:40px;top:196px;width:330px;height:16px;border-radius:8px;background:#9fd0b2"></div>
+ </div>
+ <div class="h" id="h1" style="top:140px">Articles that<br><i>read to you</i></div>
+</div>
+
+<div class="sc" id="s2">
+ <div class="k" id="k2">MADE FOR</div>
+ <div class="h" id="h2" style="top:120px;font-size:84px">Anyone short on time</div>
+ <div class="pill" id="p1" style="left:120px;top:360px"><div class="dot" style="background:#f2b95b"></div>Students</div>
+ <div class="pill" id="p2" style="left:450px;top:450px"><div class="dot" style="background:#7fb7d9"></div>Founders</div>
+ <div class="pill" id="p3" style="left:760px;top:360px"><div class="dot" style="background:#e58f8f"></div>Curious minds</div>
+</div>
+
+<div class="sc" id="s3">
+ <div class="k" id="k3">HOW IT WORKS</div>
+ <div class="h" id="h3" style="top:100px;font-size:84px">Three quiet steps</div>
+ <svg style="position:absolute;inset:0" width="1280" height="720"><path id="ln" d="M330 380 H470 M640 380 H780 M950 380 H980" stroke="#3f7d5c" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 14" fill="none"/></svg>
+ <div class="step" id="t1" style="left:70px"><b>1</b><span>Paste</span></div>
+ <div class="step" id="t2" style="left:490px"><b>2</b><span>Listen</span></div>
+ <div class="step" id="t3" style="left:910px"><b>3</b><span>Keep</span></div>
+</div>
+
+<div class="sc" id="s4">
+ <div class="k" id="k4">READY WHEN YOU ARE</div>
+ <div class="h" id="h4" style="top:130px">Start with<br><i>one article</i></div>
+ <div id="btn">Try it free</div>
+ <svg id="cur" viewBox="0 0 44 44"><path d="M6 3 L6 34 L14 27 L19 39 L25 36 L20 25 L31 25 Z" fill="#1f2a24" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>
+</div>
+
+<div id="wave"></div>
+<div id="bar"></div>
+</div>
+<script>
+const w=document.getElementById("wave");
+const hs=[.5,.9,.4,1,.6,.8,.35,.95,.55,.75,.45,.9,.6,.4,.85,.5,.7,.3,.95,.55];
+hs.forEach(()=>w.appendChild(document.createElement("u")));
+const tl=gsap.timeline({paused:true});
+const E="power3.out";
+// narration bar + waveform (deterministic)
+tl.fromTo("#bar",{scaleX:0},{scaleX:1,duration:5,ease:"none"},0);
+document.querySelectorAll("#wave u").forEach((u,i)=>{
+  tl.fromTo(u,{scaleY:.25},{scaleY:hs[i],duration:.18+((i*7)%5)*.03,ease:"sine.inOut",repeat:Math.floor(4.6/(.36+((i*7)%5)*.06)),yoyo:true},0);
+  tl.set(u,{opacity:0},4.6);
+});
+function out(id,t){tl.to(id,{opacity:0,y:-40,duration:.18,ease:"power2.in"},t);tl.set(id,{display:"none"},t+.18)}
+function hide(id,t){tl.set(id,{opacity:0,display:"none"},0);tl.set(id,{display:"block"},t);tl.to(id,{opacity:1,duration:.01},t)}
+// S1 0-1.25
+tl.from("#k1",{opacity:0,y:-20,duration:.4,ease:E},0);
+tl.from("#h1",{opacity:0,y:34,duration:.5,ease:E},0.05);
+tl.from("#app",{opacity:0,y:60,scale:.94,duration:.6,ease:"back.out(1.4)"},0.1);
+tl.fromTo("#hl",{scaleX:0,transformOrigin:"0 50%"},{scaleX:1,duration:.7,ease:"power2.inOut"},0.4);
+out("#s1",1.2);
+// S2 1.2-2.4
+hide("#s2",1.38);
+tl.from("#k2",{opacity:0,y:-20,duration:.35,ease:E},1.4);
+tl.from("#h2",{opacity:0,y:30,duration:.45,ease:E},1.4);
+["#p1","#p2","#p3"].forEach((p,i)=>tl.from(p,{opacity:0,y:50,scale:.85,duration:.45,ease:"back.out(1.6)"},1.5+i*.14));
+out("#s2",2.35);
+// S3 2.35-3.5
+hide("#s3",2.53);
+tl.from("#k3",{opacity:0,y:-20,duration:.35,ease:E},2.55);
+tl.from("#h3",{opacity:0,y:30,duration:.45,ease:E},2.55);
+["#t1","#t2","#t3"].forEach((p,i)=>tl.from(p,{opacity:0,x:60,duration:.45,ease:E},2.65+i*.18));
+tl.from("#ln",{opacity:0,duration:.4},2.85);
+out("#s3",3.5);
+// S4 3.5-5
+hide("#s4",3.68);
+tl.from("#k4",{opacity:0,y:-20,duration:.35,ease:E},3.7);
+tl.from("#h4",{opacity:0,y:34,duration:.5,ease:E},3.7);
+tl.from("#btn",{opacity:0,scale:.8,duration:.5,ease:"back.out(1.6)"},3.78);
+tl.set("#cur",{x:1180,y:700},0);
+tl.fromTo("#cur",{x:1180,y:700},{x:760,y:505,duration:.55,ease:"power3.inOut"},3.85);
+tl.to("#btn",{scale:.95,duration:.08},4.45);
+tl.to("#btn",{scale:1.04,duration:.25,ease:"back.out(3)"},4.53);
+tl.to("#cur",{scale:.85,duration:.08,transformOrigin:"6px 3px"},4.45);
+tl.to("#cur",{scale:1,duration:.2},4.53);
+tl.to("#root",{duration:.01},5);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

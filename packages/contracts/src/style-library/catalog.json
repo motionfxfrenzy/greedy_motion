@@ -1,0 +1,1910 @@
+[
+  {
+    "id": "clean",
+    "name": "Clean",
+    "group": "Essentials",
+    "description": "Crisp geometry, bold type and smooth movement.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "clean",
+    "renderMode": "native",
+    "preview": {
+      "src": "/previews/looks/clean.png",
+      "kind": "image",
+      "label": "Rendered graphic treatment"
+    },
+    "source": "worker/templates/beat-plan/engine.js",
+    "referenceAssets": [],
+    "instructions": {
+      "image": "Crisp vector geometry; restrained surfaces and clear hierarchy.",
+      "motion": "Smooth purposeful entrances; one focal action per beat.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "sketch",
+    "name": "Sketch",
+    "group": "Drawn",
+    "description": "Hand-drawn underlines and circles around the action.",
+    "libraries": [
+      "gsap",
+      "roughjs"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "sketch",
+    "renderMode": "native",
+    "preview": {
+      "src": "/previews/looks/sketch.png",
+      "kind": "image",
+      "label": "Rendered graphic treatment"
+    },
+    "source": "docs/CREATIVE_LIBRARY_PLAN.md",
+    "referenceAssets": [],
+    "instructions": {
+      "image": "Seeded hand-drawn ink annotations over real screenshots; imperfect double strokes.",
+      "motion": "Draw emphasis strokes after the keyword lands; circle the clicked target.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "hairline",
+    "name": "Line art · Hairline",
+    "group": "Drawn",
+    "description": "Fine outlines and isometric layers that separate and reassemble.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "hairline",
+    "renderMode": "native",
+    "preview": {
+      "src": "/previews/looks/hairline.png",
+      "kind": "image",
+      "label": "Rendered graphic treatment"
+    },
+    "source": "worker/templates/beat-plan/assets/README.md",
+    "referenceAssets": [],
+    "instructions": {
+      "image": "Fine monoline isometric plates; open whitespace; outline frames and CTA.",
+      "motion": "Separate and reassemble four plates; thin frames lift behind screenshots.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "doodle",
+    "name": "Doodle",
+    "group": "Drawn",
+    "description": "Playful hand-drawn shapes with diagonal pencil shading.",
+    "libraries": [
+      "gsap",
+      "roughjs"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "doodle",
+    "renderMode": "native",
+    "preview": {
+      "src": "/previews/looks/doodle.png",
+      "kind": "image",
+      "label": "Rendered graphic treatment"
+    },
+    "source": "docs/CREATIVE_LIBRARY_PLAN.md",
+    "referenceAssets": [],
+    "instructions": {
+      "image": "Loose seeded pencil shapes; diagonal hachure shading and playful imperfect contours.",
+      "motion": "Stroke reveals and small staggered shape arrivals; preserve readable type.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    },
+    "fillStyle": "hachure"
+  },
+  {
+    "id": "doodle-crosshatch",
+    "name": "Crosshatch",
+    "group": "Drawn",
+    "description": "Layered pencil strokes, rough contours and crosshatched shading.",
+    "libraries": [
+      "gsap",
+      "roughjs"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "doodle",
+    "renderMode": "native",
+    "preview": {
+      "src": "/previews/looks/doodle-crosshatch.png",
+      "kind": "image",
+      "label": "Rendered graphic treatment"
+    },
+    "source": "docs/CREATIVE_LIBRARY_PLAN.md",
+    "referenceAssets": [],
+    "instructions": {
+      "image": "Crosshatched ink shading with hand-drawn contours, sparse editorial composition.",
+      "motion": "Draw paired strokes sequentially; emphasis follows the spoken action.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    },
+    "fillStyle": "cross-hatch"
+  },
+  {
+    "id": "doodle-zigzag",
+    "name": "Zigzag",
+    "group": "Drawn",
+    "description": "Bold zigzag fills and energetic hand-drawn outlines.",
+    "libraries": [
+      "gsap",
+      "roughjs"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "doodle",
+    "renderMode": "native",
+    "preview": {
+      "src": "/previews/looks/doodle-zigzag.png",
+      "kind": "image",
+      "label": "Rendered graphic treatment"
+    },
+    "source": "docs/CREATIVE_LIBRARY_PLAN.md",
+    "referenceAssets": [],
+    "instructions": {
+      "image": "Loose zigzag ink fills, bold imperfect contours, playful hand-drawn diagram shapes.",
+      "motion": "Quick drawn arrivals; a single loud emphasis at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    },
+    "fillStyle": "zigzag"
+  },
+  {
+    "id": "vox-collage",
+    "name": "Vox · Editorial collage",
+    "group": "Editorial",
+    "description": "Paper borders, halftone details and cutout compositions.",
+    "libraries": [
+      "gsap",
+      "roughjs"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/vox-collage.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Vox Animations/.claude/skills/vox-animation/references/vox-prompts.md",
+    "referenceAssets": [],
+    "instructions": {
+      "image": "Editorial mixed-media collage; archival photographic cutouts with rough paper borders; bold fields, halftone, tape and marker annotations. Never a live-action frame.",
+      "motion": "Snappy ease-out entrances, restrained overshoot, slow parallax push; one focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "paper-diorama",
+    "name": "Paper diorama",
+    "group": "Editorial",
+    "description": "Dimensional paper layers with a dramatic documentary feel.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "diorama",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/paper-diorama.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Vox Animations/.claude/skills/vox-animation/references/diorama-doc.md",
+    "referenceAssets": [],
+    "instructions": {
+      "image": "Vintage paper documentary world; aged newsprint texture, cardboard depth, archival cutouts, letterpress treatment, warm directional light and macro depth. Use brand accent instead of a fixed orange.",
+      "motion": "Layered parallax, purposeful camera carries; stamp or reveal on the narrative turn.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "paper",
+    "name": "Layered papercraft",
+    "group": "Paper",
+    "description": "Stacked cardstock layers with visible depth and shadows.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "paper",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/paper.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/paper-animation/SKILL.md",
+    "referenceAssets": [
+      "paper-animation-styles.webp"
+    ],
+    "instructions": {
+      "image": "Physical stacked cardstock with edge thickness, grain, quilling details, deep foreground/midground/background layers and cast shadows; camera inside the world.",
+      "motion": "Rigid planar slides and layered parallax; subtle stepped timing; no organic deformation.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "paper-cutout",
+    "name": "Construction-paper cutout",
+    "group": "Paper",
+    "description": "Flat snipped shapes, bold fills and soft layer shadows.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "paper",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/paper-cutout.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/paper-animation/SKILL.md",
+    "referenceAssets": [
+      "paper-animation-styles.webp"
+    ],
+    "instructions": {
+      "image": "Flat construction-paper shapes, snipped edges, visible grain, jointed paper puppets and soft shadows. The scene fills the frame.",
+      "motion": "Pivot at joints; slide whole rigid pieces; 12 fps stop-motion cadence without motion blur.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "paper-stop-motion",
+    "name": "Handmade paper",
+    "group": "Paper",
+    "description": "Torn edges and an intentionally hand-placed finish.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "paper",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/paper-stop-motion.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/paper-animation/SKILL.md",
+    "referenceAssets": [
+      "paper-animation-styles.webp"
+    ],
+    "instructions": {
+      "image": "Torn paper edges, glue seams, crumpled fibers, hand-placed imperfections and practical lighting; camera inside the paper scene.",
+      "motion": "Stepped 12 fps motion, slight fixed misalignment, no motion blur; never squash paper.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "paper-collage",
+    "name": "Mixed-media paper",
+    "group": "Paper",
+    "description": "Layered scraps, tape and contrasting paper textures.",
+    "libraries": [
+      "gsap",
+      "roughjs"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/paper-collage.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/paper-animation/SKILL.md",
+    "referenceAssets": [
+      "paper-animation-styles.webp"
+    ],
+    "instructions": {
+      "image": "Coherent mixed-media world of photographic cutouts, ink details, patterned paper, cardboard, tape and magazine scraps; real product remains an accurate photo cutout.",
+      "motion": "Rigid pieces slide and pivot in depth; parallax; assemble or peel between ideas.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "origami",
+    "name": "Origami",
+    "group": "Paper",
+    "description": "Angular folded forms and crisp crease lines.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "origami",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/origami.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/paper-animation/SKILL.md",
+    "referenceAssets": [
+      "paper-animation-styles.webp"
+    ],
+    "instructions": {
+      "image": "Physical folded paper, angular creases, pleats, visible edge thickness and gentle fold shadows. Quiet tints of the brand palette; camera inside the world.",
+      "motion": "Fold or unfold at explicit hinges; pop-up reveals; gentle stepped parallax, no melting.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "paper-cut",
+    "name": "Paper-cut assembly",
+    "group": "Paper",
+    "description": "A scene that builds from individual torn-paper pieces.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 2,
+    "renderer": "assembly",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/paper-cut.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/motion-design-prompts/skills/motion-design/SKILL.md",
+    "referenceAssets": [
+      "paper-cut-style.jpg"
+    ],
+    "instructions": {
+      "image": "Torn-paper mosaic with rough edge slivers, grain, hard cast shadows and overlapping flat facets. Match the source composition.",
+      "motion": "Build far-to-near: background, floor, environment, props, hero last. Rigid pieces enter from outside; no folding, morphing or in-place drawing.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present",
+        "Nine-panel far-to-near assembly planning sheet per shot",
+        "Single-panel opening frame and matching finished-scene end frame"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation",
+        "No grid or contact sheet visible in the final video",
+        "Background, floor, environment, props and hero assemble far-to-near"
+      ]
+    }
+  },
+  {
+    "id": "clay-goofy",
+    "name": "Goofy clay",
+    "group": "Clay",
+    "description": "Wonky rounded forms and playful handmade details.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "clay",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/clay-goofy.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/claymation/SKILL.md",
+    "referenceAssets": [
+      "claymation-styles.webp"
+    ],
+    "instructions": {
+      "image": "Matte plasticine with thumb marks, wonky handmade forms; characters have oversized heads, white sclera, dark pupils, sculpted lids and neat playful hair.",
+      "motion": "Handmade 12 fps stop-motion; one gesture per shot, no motion blur or glossy CGI.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "clay-clean",
+    "name": "Simple clay",
+    "group": "Clay",
+    "description": "Tidy rounded forms with subtle sculpting marks.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "clay",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/clay-clean.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/claymation/SKILL.md",
+    "referenceAssets": [
+      "claymation-styles.webp"
+    ],
+    "instructions": {
+      "image": "Matte modeling clay, clean rounded forms with subtle tool marks, simple dot eyes and tidy compositions; camera inside the miniature world.",
+      "motion": "Restrained 12 fps stop-motion; simple physical gestures, no motion blur.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "clay-puppet",
+    "name": "Stop-motion puppet",
+    "group": "Clay",
+    "description": "Clay forms with stitched and mixed-craft details.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "clay",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/clay-puppet.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/claymation/SKILL.md",
+    "referenceAssets": [
+      "claymation-styles.webp"
+    ],
+    "instructions": {
+      "image": "Clay puppet world with thread hair, fabric scraps, wire and button details; sculpted sets and cinematic directional lighting.",
+      "motion": "Jointed puppet gestures at 12 fps; keep identity and attached craft details fixed.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "claymation",
+    "name": "Studio plasticine",
+    "group": "Clay",
+    "description": "Refined matte forms, soft depth and sculpted detail.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "clay",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/claymation.png",
+      "kind": "image",
+      "label": "Layout draft — not generated footage"
+    },
+    "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/claymation/SKILL.md",
+    "referenceAssets": [
+      "claymation-styles.webp"
+    ],
+    "instructions": {
+      "image": "Premium matte plasticine with refined tool marks, rounded geometry, macro depth and diffused rim light; natural proportions, combed clay hair, white sclera and colored irises.",
+      "motion": "Refined 12 fps stop-motion; one physical action, stable anchor across transition frames.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "Consistent hero/product references when present"
+      ],
+      "acceptance": [
+        "Style remains visible in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme",
+        "Generated material reference is distinct from the shipped graphic adaptation"
+      ]
+    }
+  },
+  {
+    "id": "illus-balloon",
+    "name": "Illustration · Crayon",
+    "group": "Illustration",
+    "description": "Wax crayon on toothed paper. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-balloon.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-balloon.jpg"
+    ],
+    "instructions": {
+      "image": "Wax crayon on toothed paper: back-and-forth scribble fills that skip the valleys, a darker crayon on the shade side, a white one burnishing the highlight, a fat contour gone over twice. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-blueprint",
+    "name": "Illustration · Cyanotype blueprint",
+    "group": "Illustration",
+    "description": "Ruling pen and spring-bow compass in white ink on Prussian-blue cyanotype stock. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-blueprint.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-blueprint.jpg"
+    ],
+    "instructions": {
+      "image": "Ruling pen and spring-bow compass in white ink on Prussian-blue cyanotype stock. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-broken-colour",
+    "name": "Illustration · Broken colour",
+    "group": "Illustration",
+    "description": "Opaque oil dabs from a loaded flat hog brush on primed linen, unmixed colours side by side for the eye to mix. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-broken-colour.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-broken-colour.jpg"
+    ],
+    "instructions": {
+      "image": "Opaque oil dabs from a loaded flat hog brush on primed linen, unmixed colours side by side for the eye to mix. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-charcoal-erasure",
+    "name": "Illustration · Charcoal, erased and redrawn",
+    "group": "Illustration",
+    "description": "Vine and compressed charcoal on heavy rag paper, stumped, lifted with a kneaded eraser, redrawn over its own residue. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-charcoal-erasure.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-charcoal-erasure.jpg"
+    ],
+    "instructions": {
+      "image": "Vine and compressed charcoal on heavy rag paper, stumped, lifted with a kneaded eraser, redrawn over its own residue. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-coloured-pencil",
+    "name": "Illustration · Coloured pencil",
+    "group": "Illustration",
+    "description": "Wax coloured pencils hatched in one diagonal on toothy cream cartridge paper, hues layered, darks cross-hatched. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-coloured-pencil.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-coloured-pencil.jpg"
+    ],
+    "instructions": {
+      "image": "Wax coloured pencils hatched in one diagonal on toothy cream cartridge paper, hues layered, darks cross-hatched. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-embroidery",
+    "name": "Illustration · Hand embroidery",
+    "group": "Illustration",
+    "description": "Stranded cotton floss stitched through natural plain-weave linen in a beech hoop. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-embroidery.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-embroidery.jpg"
+    ],
+    "instructions": {
+      "image": "Stranded cotton floss stitched through natural plain-weave linen in a beech hoop. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-flat-vector",
+    "name": "Illustration · Flat vector",
+    "group": "Illustration",
+    "description": "Pen-tool paths in a vector app, flat fills that land when a path closes, long-shadow shapes with a transparency ramp, a raster grain brush over the shade sides. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-flat-vector.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-flat-vector.jpg"
+    ],
+    "instructions": {
+      "image": "Pen-tool paths in a vector app, flat fills that land when a path closes, long-shadow shapes with a transparency ramp, a raster grain brush over the shade sides. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-folk-tale",
+    "name": "Illustration · Folk-tale storybook",
+    "group": "Illustration",
+    "description": "Gouache and watercolour over an HB pencil drawing on cream cartridge. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-folk-tale.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-folk-tale.jpg"
+    ],
+    "instructions": {
+      "image": "Gouache and watercolour over an HB pencil drawing on cream cartridge: opaque, dry-brushed paint in the foreground thinning to a pale wash and then to bare pencil in the distance. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-fox",
+    "name": "Illustration · Cut-paper collage",
+    "group": "Illustration",
+    "description": "Zero drawn lines. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-fox.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-fox.jpg"
+    ],
+    "instructions": {
+      "image": "Zero drawn lines: torn pieces with a white fibrous edge, scissor pieces crisp, each lifting a soft shadow off the piece below. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-halftone",
+    "name": "Illustration · Newsprint halftone",
+    "group": "Illustration",
+    "description": "Web-offset newspaper print. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-halftone.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-halftone.jpg"
+    ],
+    "instructions": {
+      "image": "Web-offset newspaper print: black on a 45 degree AM screen plus one orange spot at 15 degrees, oil ink gaining into unbleached groundwood newsprint. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-isometric",
+    "name": "Illustration · Isometric cutaway",
+    "group": "Illustration",
+    "description": "Flat vector planes on a true 2. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-isometric.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-isometric.jpg"
+    ],
+    "instructions": {
+      "image": "Flat vector planes on a true 2:1 isometric grid, three tones per material, crisp edges, pen-tool order. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-koi",
+    "name": "Illustration · Marker comic",
+    "group": "Illustration",
+    "description": "Alcohol-marker cel fills with a hard shadow edge under one heavy contour that thickens away from the light. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-koi.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-koi.jpg"
+    ],
+    "instructions": {
+      "image": "Alcohol-marker cel fills with a hard shadow edge under one heavy contour that thickens away from the light. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-lighthouse",
+    "name": "Illustration · Risograph",
+    "group": "Illustration",
+    "description": "Soy ink, one layer per drum multiplied through its own registration offset; every other colour an overprint, tone a halftone screen per ink angle, white is bare paper. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-lighthouse.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-lighthouse.jpg"
+    ],
+    "instructions": {
+      "image": "Soy ink, one layer per drum multiplied through its own registration offset; every other colour an overprint, tone a halftone screen per ink angle, white is bare paper. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-low-poly",
+    "name": "Illustration · Low-poly",
+    "group": "Illustration",
+    "description": "Triangle meshes projected by hand through a pinhole camera, each facet flat-shaded by its normal against one low sun, painter-sorted far to near; no 3D engine. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-low-poly.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-low-poly.jpg"
+    ],
+    "instructions": {
+      "image": "Triangle meshes projected by hand through a pinhole camera, each facet flat-shaded by its normal against one low sun, painter-sorted far to near; no 3D engine. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-mellan",
+    "name": "Illustration · Single-line engraving",
+    "group": "Illustration",
+    "description": "One unbroken engraved line whose width follows a procedural tone field. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-mellan.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-mellan.jpg"
+    ],
+    "instructions": {
+      "image": "One unbroken engraved line whose width follows a procedural tone field: the whole picture is a single stroke. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-mid-century",
+    "name": "Illustration · Mid-century gouache",
+    "group": "Illustration",
+    "description": "Opaque matte designer's gouache on warm illustration board, a dry brush dragged over the flats, a loose brush-and-ink line printed off register. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-mid-century.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-mid-century.jpg"
+    ],
+    "instructions": {
+      "image": "Opaque matte designer's gouache on warm illustration board, a dry brush dragged over the flats, a loose brush-and-ink line printed off register. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-moon-phases",
+    "name": "Illustration · Chalkboard",
+    "group": "Illustration",
+    "description": "Side-of-the-chalk scumble on a slate board, lit limbs worked twice, every stroke broken by the board's tooth with dust either side, ghosts of old lessons. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-moon-phases.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-moon-phases.jpg"
+    ],
+    "instructions": {
+      "image": "Side-of-the-chalk scumble on a slate board, lit limbs worked twice, every stroke broken by the board's tooth with dust either side, ghosts of old lessons. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-painted-oil",
+    "name": "Illustration · Oil on canvas",
+    "group": "Illustration",
+    "description": "Opaque oil paint with hog-bristle brushes on a toned linen canvas, lean block-in to fat impasto. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-painted-oil.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-painted-oil.jpg"
+    ],
+    "instructions": {
+      "image": "Opaque oil paint with hog-bristle brushes on a toned linen canvas, lean block-in to fat impasto. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-paper-craft",
+    "name": "Illustration · Toy-theatre paper collage",
+    "group": "Illustration",
+    "description": "A cardboard toy theatre. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-paper-craft.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-paper-craft.jpg"
+    ],
+    "instructions": {
+      "image": "A cardboard toy theatre: patterned and sugar papers cut and torn, gouache-painted cut-outs with a white sticker margin, every piece with a card edge and a gap to the flat behind. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-pixel-art",
+    "name": "Illustration · Pixel art",
+    "group": "Illustration",
+    "description": "A 120x120 grid of cells, each one of 16 declared palette colours, laid one cell at a time and blown up by a whole number, no smoothing. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-pixel-art.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-pixel-art.jpg"
+    ],
+    "instructions": {
+      "image": "A 120x120 grid of cells, each one of 16 declared palette colours, laid one cell at a time and blown up by a whole number, no smoothing. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-pocket-watch",
+    "name": "Illustration · Ballpoint sketch",
+    "group": "Illustration",
+    "description": "One blue ballpoint on cream cartridge, near-constant weight; tone only from where the hatching sits, plus the blob where a firm stroke stops. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-pocket-watch.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-pocket-watch.jpg"
+    ],
+    "instructions": {
+      "image": "One blue ballpoint on cream cartridge, near-constant weight; tone only from where the hatching sits, plus the blob where a firm stroke stops. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-ranunculus",
+    "name": "Illustration · Pencil & watercolour",
+    "group": "Illustration",
+    "description": "Graphite and pan watercolour on cold-press. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-ranunculus.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-ranunculus.jpg"
+    ],
+    "instructions": {
+      "image": "Graphite and pan watercolour on cold-press: washes that never quite fill their outline, form shaded toward one light, graphite over the paint. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-rubber-hose",
+    "name": "Illustration · Rubber hose",
+    "group": "Illustration",
+    "description": "India ink at one pressure on a clear cel over a blue-pencil rough, flat grey paint on the back, photographed and printed on black-and-white film. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-rubber-hose.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-rubber-hose.jpg"
+    ],
+    "instructions": {
+      "image": "India ink at one pressure on a clear cel over a blue-pencil rough, flat grey paint on the back, photographed and printed on black-and-white film. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-scrapbook",
+    "name": "Illustration · Archival scrapbook",
+    "group": "Illustration",
+    "description": "Foxed rag-paper album page; torn cards, cellulose tape, a clothespin on twine; copperplate engravings hand-tinted; typewriter, ransom-note cut letters, red pen, rubber stamp. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-scrapbook.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-scrapbook.jpg"
+    ],
+    "instructions": {
+      "image": "Foxed rag-paper album page; torn cards, cellulose tape, a clothespin on twine; copperplate engravings hand-tinted; typewriter, ransom-note cut letters, red pen, rubber stamp. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-scratchboard",
+    "name": "Illustration · Scratchboard",
+    "group": "Illustration",
+    "description": "White china clay under black India ink; every mark is ink scraped away with a knife or scratch nib. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-scratchboard.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-scratchboard.jpg"
+    ],
+    "instructions": {
+      "image": "White china clay under black India ink; every mark is ink scraped away with a knife or scratch nib. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-stipple",
+    "name": "Illustration · Pen-and-ink stipple",
+    "group": "Illustration",
+    "description": "One 0.25 mm technical pen dotted straight down onto hot-press bristol; tone is dot density only. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-stipple.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-stipple.jpg"
+    ],
+    "instructions": {
+      "image": "One 0.25 mm technical pen dotted straight down onto hot-press bristol; tone is dot density only. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-storybook",
+    "name": "Illustration · Storybook pencil + watercolour",
+    "group": "Illustration",
+    "description": "Storybook graphite and gentle pan watercolour, drawn for a recurring character. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-storybook.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-storybook.jpg"
+    ],
+    "instructions": {
+      "image": "Storybook graphite and gentle pan watercolour, drawn for a recurring character. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-sumi-e",
+    "name": "Illustration · Sumi-e ink painting",
+    "group": "Illustration",
+    "description": "One loaded soft brush of sumi ink, five dilutions, on unsized absorbent xuan paper, with a cinnabar seal. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-sumi-e.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-sumi-e.jpg"
+    ],
+    "instructions": {
+      "image": "One loaded soft brush of sumi ink, five dilutions, on unsized absorbent xuan paper, with a cinnabar seal. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-toy-brick",
+    "name": "Illustration · Toy brick",
+    "group": "Illustration",
+    "description": "Moulded ABS toy bricks, rendered flat-plastic in orthographic view. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-toy-brick.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-toy-brick.jpg"
+    ],
+    "instructions": {
+      "image": "Moulded ABS toy bricks, rendered flat-plastic in orthographic view: face tones by the cube rule, bevel highlights, seam hairlines, real studs, a soft ground shadow. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-woodcut",
+    "name": "Illustration · Ukiyo-e colour woodblock",
+    "group": "Illustration",
+    "description": "Water-based pigment printed by baren from hand-carved cherry blocks onto damp kozo washi. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-woodcut.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-woodcut.jpg"
+    ],
+    "instructions": {
+      "image": "Water-based pigment printed by baren from hand-carved cherry blocks onto damp kozo washi: a sumi keyblock, flat colour blocks, bokashi wipes. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  },
+  {
+    "id": "illus-wren",
+    "name": "Illustration · Ink & line-wash",
+    "group": "Illustration",
+    "description": "Wet washes first that flood past the line and settle along each shape's bottom edge, backruns, then a flexible nib thick on the press and hair-thin on the lift. Drawn as a finished illustration in one medium.",
+    "libraries": [
+      "gsap"
+    ],
+    "available": true,
+    "version": 1,
+    "renderer": "collage",
+    "renderMode": "generated",
+    "preview": {
+      "src": "/previews/looks/references/illus-wren.jpg",
+      "kind": "image",
+      "label": "Reference frame — not generated footage"
+    },
+    "source": "third_party/anidoodle/styles.gen.json",
+    "referenceAssets": [
+      "illus-wren.jpg"
+    ],
+    "instructions": {
+      "image": "Wet washes first that flood past the line and settle along each shape's bottom edge, backruns, then a flexible nib thick on the press and hair-thin on the lift. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+      "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+      "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+      "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+      "requiredAssets": [
+        "Approved brand/theme and script",
+        "One approved style key reused for every shot",
+        "The reference frame for this style"
+      ],
+      "acceptance": [
+        "The medium stays recognisable in hook, screenshot, success and CTA beats",
+        "Readable copy in landscape, portrait and square",
+        "Identical pixels after repeated and backward seeking",
+        "All visual marks follow the selected brand/theme"
+      ]
+    }
+  }
+]

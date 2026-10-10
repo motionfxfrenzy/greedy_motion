@@ -12,12 +12,17 @@ export default function ResetPassword() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     if (password.length < 8) return setError("Use at least 8 characters.");
     setBusy(true);
-    const { error } = await createClient().auth.updateUser({ password });
-    setBusy(false);
-    if (error) return setError(error.message);
-    router.replace("/studio");
+    setError("");
+    try {
+      const { error } = await createClient().auth.updateUser({ password });
+      if (error) throw error;
+      router.replace("/studio");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not connect. Please try again.");
+    } finally { setBusy(false); }
   };
 
   return (

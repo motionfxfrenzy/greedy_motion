@@ -1,3 +1,4 @@
+import { anthropicMessage, responseText } from "../anthropic.ts";
 import { MUSIC_PROMPT_MAX, NARRATION_MAX, templateValueProblems, validateTemplateValues, type AudioOptions, type BrandKit, type PlannerInfo, type RenderRequest, type Template } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { planFromValues, requireTemplate, type PromptPlanner, type ReviewRevision } from "./planner.ts";
@@ -45,6 +46,9 @@ function fillTool(template: Template, audio?: AudioOptions, includeMotionStyle =
 }
 
 export class AnthropicPromptPlanner implements PromptPlanner {
+  private readonly httpRequest: typeof fetch;
+  constructor(request = fetch) { this.httpRequest = request; }
+
   readonly info: PlannerInfo = { provider: "anthropic", model: config.anthropicModel };
 
   async plan(request: RenderRequest, brand?: BrandKit, revision?: ReviewRevision) {
@@ -87,10 +91,7 @@ export class AnthropicPromptPlanner implements PromptPlanner {
   private async request(template: Template, messages: object[], audio?: AudioOptions, includeMotionStyle = false): Promise<ClaudeResponse> {
     const apiKey = config.anthropicApiKey;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured on the backend.");
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
+    const payload = await anthropicMessage({
         model: config.anthropicModel,
         max_tokens: 1024,
         // Mirrors .claude/skills/gm-skill-authoring/references/script-for-motion.md (the single source of truth for scripts); keep them in step.
@@ -99,6 +100,7 @@ export class AnthropicPromptPlanner implements PromptPlanner {
           "Open with a hook in the first 3 seconds: the viewer's pain or the outcome, never \"Introducing…\" or a logo-first line. One problem, one outcome, one call to action.",
           "One line = one visible action (click, type, drag, toggle, count, send, export). Lead with the verb or place it early, so the motion can land on it. Concrete over abstract: name what the product does, never the abstraction.",
           "On-screen copy is readable in 2 seconds and carries the message with the sound off: short headlines, a kinetic key phrase (the verb or outcome) per scene that echoes the voiceover instead of repeating it.",
+          "Write voiceover for the ear: no colons, parentheses or slashes, acronyms written as they are said, and one short sentence per item in a list of more than three. The last scene must work as a poster frame: product name and call to action readable.",
           "Include exactly one success moment, where the result visibly lands, before the call to action. Voiceover: short sentences (6–14 words), no stage directions; the product name comes after a short opener in the closing line.",
           "Match the copy's tone to the motion style: clean = calm and assured, kinetic = terse and energetic, editorial = crafted and story-led. Use the product's own terms and the exact product name throughout.",
           "Respect every maxLength exactly. Never invent statistics, percentages, customer names, sources, or claims the brief does not support. Never use: magic, revolutionary, seamless, game-changing."
@@ -106,13 +108,8 @@ export class AnthropicPromptPlanner implements PromptPlanner {
         tools: [fillTool(template, audio, includeMotionStyle)],
         tool_choice: { type: "tool", name: FILL_TOOL },
         messages
-      }),
-      signal: AbortSignal.timeout(60_000)
-    });
-    if (!response.ok) {
-      const detail = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
-      throw new Error(`Claude planning request failed (${response.status})${detail.error?.message ? `: ${detail.error.message}` : "."}`);
-    }
-    return await response.json() as ClaudeResponse;
+
+    }, { request: this.httpRequest, timeoutMs: 60000, errorPrefix: "Claude planning request failed", includeErrorDetail: true, stopErrors: {} });
+    return payload as ClaudeResponse;
   }
 }

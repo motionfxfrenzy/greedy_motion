@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Ecosystem explainer</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #fff6df; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #fff6df; font-family: "Fredoka", "Quicksand", sans-serif; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(311);
+  var INK = "#3b2a1c", GREEN = "#3f9d4a", LEAF = "#7cc35a", BROWN = "#9a6234", GOLD = "#ffb81c", RED = "#e8473b", PINK = "#ff8fa3";
+  function smooth(out, closed) {
+    var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1), i, m = out.length, L = closed ? m : m - 1;
+    for (i = 0; i < L; i++) {
+      var p0 = out[closed ? (i + m - 1) % m : Math.max(0, i - 1)], p1 = out[i], p2 = out[(i + 1) % m], p3 = out[closed ? (i + 2) % m : Math.min(m - 1, i + 2)];
+      d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+    }
+    return d;
+  }
+  function wob(pts, amp, step) {
+    var out = [pts[0]], i, k;
+    for (i = 1; i < pts.length; i++) {
+      var a = pts[i - 1], b = pts[i], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.round(L / step));
+      for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + (b[0] - a[0]) * f + (R() - .5) * 2 * amp, a[1] + (b[1] - a[1]) * f + (R() - .5) * 2 * amp]); }
+    }
+    return smooth(out, false);
+  }
+  var tl = gsap.timeline({ paused: true });
+  // paper tint + soil
+  el("rect", { width: 1280, height: 720, fill: "#fff6df" });
+  var soil = el("path", { d: "M0 452 C 200 440 420 462 640 450 S 1060 442 1280 456 V720 H0 Z", fill: "#f1d9b3" });
+  var art = el("g", {});
+  function stroke(pts, color, w, t, dur, o) {
+    o = o || {};
+    var d = o.raw ? pts : wob(pts, o.amp == null ? 2 : o.amp, 36);
+    var path = el("path", { d: d, fill: "none", stroke: color, "stroke-width": w, "stroke-linecap": "round", "stroke-linejoin": "round" }, o.g || art);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30); path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur, ease: o.ease || "power1.inOut" }, t);
+    return path;
+  }
+  var cid = 0, defs = el("defs", {});
+  function write(str, x, y, size, color, t, dur, rot) {
+    var g = el("g", rot ? { transform: "rotate(" + rot + " " + x + " " + y + ")" } : {}, art), id = "c" + (cid++), cp = el("clipPath", { id: id }, defs);
+    var rc = el("rect", { x: x - 10, y: y - size * 1.1, width: 0, height: size * 1.5 }, cp);
+    var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": 600, fill: color, "clip-path": "url(#" + id + ")" }, g); tx.textContent = str;
+    tl.to(rc, { attr: { width: str.length * size * .6 + 30 }, duration: dur, ease: "none" }, t);
+  }
+  function pop(g, t, from, dur) { tl.fromTo(g, { scale: from == null ? 0 : from, opacity: 0, transformOrigin: "50% 100%" }, { scale: 1, opacity: 1, duration: dur || .4, ease: "back.out(2.4)" }, t); }
+  function leafPath(x, y, len, ang) { var a = ang * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a), w = len * .38; function P(u, v) { return [x + u * c - v * sn, y + u * sn + v * c]; } var p = [P(0, 0), P(len * .5, -w), P(len, 0), P(len * .5, w)]; return smooth(p, true); }
+
+  // ground line
+  stroke([[40, 452], [300, 446], [640, 454], [980, 446], [1240, 456]], INK, 6, 0, .55);
+  // soil dots/hatch
+  for (var h = 0; h < 14; h++) { var hx = 60 + h * 88 + R() * 30, hy = 490 + R() * 200; stroke([[hx, hy], [hx + 16, hy + 7]], "#c99c63", 4, .3 + h * .03, .15, { amp: .5 }); }
+
+  // trunk + branches
+  stroke([[432, 452], [440, 360], [430, 290], [440, 230]], INK, 7, 0, .4);
+  stroke([[512, 452], [506, 370], [514, 290], [500, 232]], INK, 7, .05, .4);
+  stroke([[512, 300], [640, 262], [770, 252], [872, 238]], INK, 7, .3, .45);
+  stroke([[440, 280], [350, 230], [290, 200]], INK, 6, .35, .3);
+  // crown: scalloped cloud
+  var crown = [], k;
+  for (k = 0; k < 40; k++) { var a = k / 40 * Math.PI * 2; var rr = 1 + .1 * Math.sin(a * 9 + .4); crown.push([472 + Math.cos(a) * 235 * rr, 168 + Math.sin(a) * 122 * rr]); }
+  var crownD = smooth(crown, true);
+  var cf = el("path", { d: crownD, fill: LEAF, opacity: 0 }, art);
+  tl.fromTo(cf, { opacity: 0 }, { opacity: .55, duration: .7, ease: "power1.out" }, .5);
+  var cp = el("path", { d: crownD, fill: "none", stroke: INK, "stroke-width": 7, "stroke-linejoin": "round" }, art), CL = cp.getTotalLength();
+  cp.style.strokeDasharray = CL + " " + (CL + 30); cp.style.strokeDashoffset = CL + 4; tl.to(cp, { strokeDashoffset: 0, duration: .8, ease: "power1.inOut" }, .2);
+  for (k = 0; k < 7; k++) { var lx = 300 + k * 50 + R() * 20; stroke([[lx, 120 + R() * 30], [lx + 26, 200 + R() * 30]], GREEN, 4, .6 + k * .05, .2, { amp: .8 }); }
+  // leaves on crown
+  for (k = 0; k < 9; k++) { var lg = el("path", { d: leafPath(300 + R() * 340, 90 + R() * 160, 34, -60 + R() * 120), fill: GREEN, stroke: INK, "stroke-width": 3 }, art); pop(lg, .8 + k * .07, 0, .3); }
+
+  // roots (paths kept for the nutrient flow)
+  var roots = [
+    [[470, 452], [440, 520], [330, 560], [210, 600]],
+    [[470, 452], [520, 530], [640, 560], [790, 580], [930, 620]],
+    [[1060, 452], [1040, 530], [990, 590], [930, 620]],
+    [[470, 452], [470, 540], [430, 640], [400, 668]]
+  ];
+  roots.forEach(function (r, i) { stroke(r, BROWN, i === 2 ? 5 : 8, .6 + i * .25, .8); });
+  // mushroom partner at the left root tip
+  var mush = el("g", {}, art);
+  el("path", { d: "M170 612 C 170 560 260 560 260 612 Z", fill: PINK, stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, mush);
+  el("path", { d: "M200 612 L 196 650 L 236 650 L 232 612", fill: "#fff6df", stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, mush);
+  el("circle", { cx: 200, cy: 588, r: 7, fill: "#fff6df" }, mush); el("circle", { cx: 232, cy: 584, r: 5, fill: "#fff6df" }, mush);
+  pop(mush, 1.9, 0, .45);
+  // sapling at right
+  var sap = el("g", {}, art);
+  el("path", { d: "M1060 452 C 1056 410 1066 385 1060 355", fill: "none", stroke: INK, "stroke-width": 6, "stroke-linecap": "round" }, sap);
+  el("path", { d: leafPath(1060, 372, 62, -150), fill: LEAF, stroke: INK, "stroke-width": 4 }, sap);
+  el("path", { d: leafPath(1060, 372, 62, -30), fill: LEAF, stroke: INK, "stroke-width": 4 }, sap);
+  el("path", { d: leafPath(1060, 395, 48, -165), fill: GREEN, stroke: INK, "stroke-width": 4 }, sap);
+  pop(sap, 1.8, 0, .5);
+  // nutrient flow: gold dots travelling along roots
+  var flows = [];
+  [roots[1], roots[2], roots[0], roots[3]].forEach(function (r, i) {
+    var f = el("path", { d: smooth(r, false), fill: "none", stroke: GOLD, "stroke-width": 9, "stroke-linecap": "round", opacity: 0 }, art);
+    f.style.strokeDasharray = "1 30"; flows.push(f);
+    tl.to(f, { opacity: 1, duration: .2 }, 2.2 + i * .1);
+    tl.fromTo(f, { strokeDashoffset: 0 }, { strokeDashoffset: i === 1 ? 155 : -155, duration: 2.8, ease: "none" }, 2.2);
+  });
+  write("roots share", 70, 700, 62, INK, 2.3, .8, -2);
+
+  // branch nest + bird
+  var nest = el("g", {}, art);
+  el("path", { d: "M836 228 C 842 272 902 272 910 228", fill: "#e7b66e", stroke: INK, "stroke-width": 6, "stroke-linecap": "round" }, nest);
+  el("path", { d: "M830 236 q40 12 90 -4 M844 252 q30 8 60 -2", fill: "none", stroke: INK, "stroke-width": 3.5, "stroke-linecap": "round" }, nest);
+  el("ellipse", { cx: 862, cy: 226, rx: 12, ry: 15, fill: "#fff", stroke: INK, "stroke-width": 4 }, nest);
+  pop(nest, 2.2, .3, .4);
+  var bird = el("g", { transform: "translate(0 0)" }, art), bi = el("g", {}, bird);
+  el("path", { d: "M-34 0 C -34 -30 20 -34 34 -8 C 40 8 10 24 -22 16 Z", fill: "#4aa8e8", stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, bi);
+  el("path", { d: "M-34 2 l-30 -12 l6 22 z", fill: "#4aa8e8", stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, bi);
+  el("path", { d: "M34 -8 l24 6 l-22 10 z", fill: GOLD, stroke: INK, "stroke-width": 4, "stroke-linejoin": "round" }, bi);
+  el("circle", { cx: 18, cy: -12, r: 5, fill: INK }, bi);
+  var wing = el("path", { d: "M-8 -4 C 0 -34 30 -26 26 -6 C 14 6 -2 6 -8 -4 Z", fill: "#9bd4f5", stroke: INK, "stroke-width": 4, "stroke-linejoin": "round" }, bi);
+  tl.set(bird, { x: 1340, y: 60 }, 0);
+  tl.to(bird, { keyframes: [{ x: 1130, y: 90, duration: .35, ease: "sine.out" }, { x: 1000, y: 200, duration: .3, ease: "sine.inOut" }, { x: 920, y: 195, duration: .3, ease: "sine.in" }, { x: 880, y: 200, duration: .22, ease: "back.out(2)" }] }, 2.4);
+  for (k = 0; k < 6; k++) tl.fromTo(wing, { rotation: -10, transformOrigin: "0px 0px" }, { rotation: 38, duration: .09, yoyo: true, repeat: 1, ease: "sine.inOut" }, 2.4 + k * .21);
+  write("nests", 905, 150, 64, INK, 3.0, .4, 2);
+
+  // ladybug creeping up the trunk
+  var bug = el("g", {}, art);
+  el("ellipse", { cx: 0, cy: 0, rx: 15, ry: 18, fill: RED, stroke: INK, "stroke-width": 3.5 }, bug);
+  el("path", { d: "M0 -18 V18", stroke: INK, "stroke-width": 3 }, bug);
+  el("circle", { cx: -6, cy: -4, r: 3, fill: INK }, bug); el("circle", { cx: 6, cy: 5, r: 3, fill: INK }, bug);
+  el("circle", { cx: 0, cy: -22, r: 7, fill: INK }, bug);
+  tl.set(bug, { scale: 1.45 }, 0);
+  tl.fromTo(bug, { x: 462, y: 440, opacity: 0 }, { x: 476, y: 330, opacity: 1, duration: 1.6, ease: "sine.inOut" }, 2.7);
+  tl.to(bug, { x: 470, y: 318, duration: .3 }, 4.3);
+
+  // falling leaves feeding the soil
+  [[600, 250, 150, 0], [660, 200, 220, .45], [560, 290, 90, .9]].forEach(function (L, i) {
+    var lf = el("path", { d: leafPath(-17, 0, 34, 0), fill: i === 1 ? GOLD : LEAF, stroke: INK, "stroke-width": 3.5, opacity: 0 }, art);
+    var t0 = 3.0 + L[3];
+    tl.set(lf, { x: L[0], y: L[1] }, 0);
+    tl.to(lf, { opacity: 1, duration: .05 }, t0);
+    tl.to(lf, { keyframes: [{ x: L[0] + 40, y: L[1] + 90, rotation: 80, duration: .5, ease: "sine.inOut" }, { x: L[0] - 20, y: 380, rotation: 200, duration: .5, ease: "sine.inOut" }, { x: L[0] + 20 + i * 14, y: 468 + i * 12, rotation: 330, duration: .45, ease: "sine.in" }] }, t0);
+  });
+  write("leaves feed soil", 560, 704, 56, INK, 3.5, .9, 0);
+  // daisies close the scene
+  [[170, 452, 1], [640, 454, .8], [1170, 456, 1.1]].forEach(function (D, i) {
+    var dz = el("g", { transform: "translate(" + D[0] + " " + D[1] + ") scale(" + D[2] + ")" }, art), dp = el("g", {}, dz);
+    el("path", { d: "M0 0 C -4 -26 4 -44 0 -64", fill: "none", stroke: GREEN, "stroke-width": 5, "stroke-linecap": "round" }, dp);
+    for (var q = 0; q < 8; q++) el("ellipse", { cx: 0, cy: -84, rx: 8, ry: 17, fill: "#fff", stroke: INK, "stroke-width": 3, transform: "rotate(" + q * 45 + " 0 -64)" }, dp);
+    el("circle", { cx: 0, cy: -64, r: 10, fill: GOLD, stroke: INK, "stroke-width": 3 }, dp);
+    pop(dp, 4.0 + i * .15, 0, .45);
+  });
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

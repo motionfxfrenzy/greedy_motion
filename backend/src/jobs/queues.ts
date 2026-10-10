@@ -12,6 +12,8 @@ import { PgBoss, type Db, type Queue } from "pg-boss";
 import { config } from "../config.ts";
 
 export const QUEUES = {
+  visuals: "plan-visuals",
+  visualsDead: "plan-visuals-dead",
   plan: "render-plan",
   planDead: "render-plan-dead",
   video: "render-video",
@@ -23,6 +25,9 @@ export type RenderMessage = { jobId: string };
 
 const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   // Dead-letter queues first: a queue can only name a dead-letter queue that already exists.
+  { name: QUEUES.visualsDead, retryLimit: 0 },
+  // Wait past the application's five-minute ownership lease after a worker crash.
+  { name: QUEUES.visuals, retryLimit: 2, retryDelay: 310, expireInSeconds: 3600, heartbeatSeconds: 30, deadLetter: QUEUES.visualsDead },
   { name: QUEUES.planDead, retryLimit: 0 },
   { name: QUEUES.videoDead, retryLimit: 0 },
   // Planning calls Claude and the audio APIs; one retry covers a transient API error without

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>One-shape product story</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0a1a45}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:linear-gradient(135deg,#0a1a45 0%,#123a8f 100%);font-family:'Space Grotesk',sans-serif;color:#fff}
+#grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);background-size:64px 64px}
+#hw{position:absolute;left:84px;top:210px;width:640px;height:230px;overflow:hidden}
+.w{position:absolute;left:0;top:0;font-size:176px;font-weight:700;letter-spacing:-6px;line-height:1.1;white-space:nowrap}
+.w i{font-style:normal;color:#5fb4ff}
+#step{position:absolute;left:90px;top:130px;font-family:'JetBrains Mono',monospace;font-size:24px;letter-spacing:.14em;color:#8fb2ee}
+#bar{position:absolute;left:90px;top:520px;width:420px;height:6px;border-radius:3px;background:rgba(255,255,255,.18)}
+#bar div{height:6px;border-radius:3px;background:#5fb4ff;width:0}
+#sh,#card{position:absolute;left:900px;top:360px}
+#sh{background:rgba(0,0,0,.35);filter:blur(34px)}
+#card{background:#fff;color:#0a1a45;overflow:hidden}
+.st{position:absolute;inset:0;opacity:0}
+.a{position:absolute}
+#cur{position:absolute;left:0;top:0;width:56px;height:56px;z-index:9;filter:drop-shadow(0 6px 8px rgba(0,0,0,.4))}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div id="grid"></div>
+<div id="step">STEP 1 / 5</div>
+<div id="hw"></div>
+<div id="bar"><div id="bf"></div></div>
+<div id="sh"></div>
+<div id="card">
+ <!-- A join -->
+ <div class="st" id="sA">
+  <div class="a" style="left:40px;top:34px;display:flex"><div style="width:58px;height:58px;border-radius:29px;background:#ffb454;border:4px solid #fff"></div><div style="width:58px;height:58px;border-radius:29px;background:#5fb4ff;border:4px solid #fff;margin-left:-16px"></div><div style="width:58px;height:58px;border-radius:29px;background:#7be0b0;border:4px solid #fff;margin-left:-16px"></div><div style="width:58px;height:58px;border-radius:29px;background:#0a1a45;border:4px solid #fff;margin-left:-16px;color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;font-weight:700">+9</div></div>
+  <div class="a" style="left:40px;top:118px;font-size:34px;font-weight:700;letter-spacing:-1px">Join the commons</div>
+  <div class="a" id="jb" style="left:40px;top:186px;width:380px;height:76px;border-radius:38px;background:#1e5cff;color:#fff;font-size:32px;font-weight:700;display:flex;align-items:center;justify-content:center">Join</div>
+ </div>
+ <!-- B handle -->
+ <div class="st" id="sB">
+  <div class="a" style="left:40px;top:30px;font-family:'JetBrains Mono',monospace;font-size:20px;color:#6b7aa6;letter-spacing:.1em">YOUR HANDLE</div>
+  <div class="a" style="left:40px;top:70px;width:380px;height:84px;border-radius:20px;border:4px solid #1e5cff;background:#eef3ff"></div>
+  <div class="a" id="hd" style="left:64px;top:86px;font-size:40px;font-weight:700;white-space:nowrap"></div>
+  <div class="a" id="ok" style="left:300px;top:172px;width:120px;height:46px;border-radius:23px;background:#1e5cff;color:#fff;font-size:22px;font-weight:700;display:flex;align-items:center;justify-content:center;opacity:0">Confirm</div>
+ </div>
+ <!-- C globe -->
+ <div class="st" id="sC" style="background:#0a1a45"><svg class="a" id="gl" style="left:50%;top:50%;margin:-185px 0 0 -185px" width="370" height="370" viewBox="-185 -185 370 370"></svg></div>
+ <!-- D list -->
+ <div class="st" id="sD">
+  <div class="a" style="left:30px;top:24px;display:flex;gap:34px;font-size:26px;font-weight:700;color:#8a96b8"><span>Feed</span><span id="tp" style="color:#0a1a45">People</span><span>Invites</span></div>
+  <div class="a" id="ul" style="left:30px;top:64px;width:84px;height:5px;border-radius:3px;background:#1e5cff"></div>
+  <div id="rows"></div>
+ </div>
+ <!-- E logo -->
+ <div class="st" id="sE"><svg class="a" style="left:50%;top:50%;margin:-85px 0 0 -85px" width="170" height="170" viewBox="-85 -85 170 170"><circle id="lc1" cx="-26" cy="14" r="46" fill="#fff" fill-opacity=".92"/><circle id="lc2" cx="26" cy="14" r="46" fill="#7be0b0" fill-opacity=".9"/><circle id="lc3" cx="0" cy="-30" r="46" fill="#ffb454" fill-opacity=".9"/></svg></div>
+</div>
+<svg id="cur" viewBox="0 0 60 60"><path d="M10 4L10 46L21 36L29 54L37 50L29 33L44 33Z" fill="#fff" stroke="#0a1a45" stroke-width="3.5" stroke-linejoin="round"/></svg>
+</div>
+<script>
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;var t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+var R=rng(31),NS="http://www.w3.org/2000/svg";
+var tl=gsap.timeline({paused:true});
+// headline words
+var words=[["Join",0],["Claim",.9],["Meet",1.8],["Reply",3.2],["Com<i>mons</i>",4.0]],hw=document.getElementById("hw"),wel=[];
+words.forEach(function(w,i){var d=document.createElement("div");d.className="w";d.innerHTML=w[0]+(i<4?"<i>.</i>":"");if(i==4){d.style.fontSize='134px';d.style.letterSpacing='-4px';d.style.paddingTop='28px'}hw.appendChild(d);wel.push(d);
+ if(i>0){tl.fromTo(d,{y:150,opacity:0},{y:0,opacity:1,duration:.42,ease:"power4.out"},w[1]+.08);tl.to(wel[i-1],{y:-150,opacity:0,duration:.3,ease:"power3.in"},w[1])}
+});
+gsap.set(wel.slice(1),{opacity:0});
+var steps=["STEP 1 / 5","STEP 2 / 5","STEP 3 / 5","STEP 4 / 5","DONE"];
+words.forEach(function(w,i){tl.set("#step",{textContent:steps[i]},w[1])});
+tl.to("#bf",{width:420,duration:5,ease:"none"},0);
+// card geometry
+var G=[{id:"#sA",w:460,h:300,r:40,at:0},{id:"#sB",w:460,h:250,r:40,at:.9},{id:"#sC",w:440,h:440,r:220,at:1.8},{id:"#sD",w:480,h:420,r:40,at:3.2},{id:"#sE",w:300,h:300,r:84,at:4.0}];
+gsap.set(["#card","#sh"],{xPercent:-50,yPercent:-50});
+gsap.set("#card",{width:460,height:300,borderRadius:40});gsap.set("#sh",{width:460,height:300,borderRadius:40,y:30});gsap.set("#sA",{opacity:1});
+G.forEach(function(g,i){if(!i)return;var p=G[i-1];
+ tl.to("#card",{width:g.w,height:g.h,borderRadius:g.r,duration:.55,ease:"back.out(1.3)"},g.at);
+ tl.to("#sh",{width:g.w,height:g.h,borderRadius:g.r,duration:.55,ease:"back.out(1.3)"},g.at);
+ tl.to(p.id,{opacity:0,duration:.14},g.at);tl.to(g.id,{opacity:1,duration:.22},g.at+.2)});
+tl.to("#card",{backgroundColor:"#1e5cff",duration:.3},4.0);
+// cursor + tap on Join
+gsap.set("#cur",{x:1180,y:640});
+tl.to("#cur",{x:872,y:512-78,duration:.55,ease:"power3.out"},0);
+tl.to("#jb",{scale:.94,duration:.08},.55).to("#jb",{scale:1,duration:.2,ease:"back.out(3)"},.63);
+tl.to("#cur",{x:1000,y:560,duration:.45,ease:"power2.inOut"},.9);
+// handle typing
+var h="@mira.k";h.split("").forEach(function(c,i){tl.set("#hd",{textContent:h.slice(0,i+1)+"|"},1.0+i*.07)});
+tl.set("#hd",{textContent:h},1.55);
+tl.to("#ok",{opacity:1,y:0,duration:.2},1.5);
+tl.to("#cur",{x:1010,y:492,duration:.3,ease:"power2.out"},1.45);
+tl.to("#cur",{scale:.85,duration:.07},1.75).to("#cur",{scale:1,duration:.12},1.82);
+// globe
+var gl=document.getElementById("gl");
+function mk(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);gl.appendChild(e);return e}
+var lines=[mk("circle",{r:150,fill:"none",stroke:"#5fb4ff","stroke-width":3,pathLength:1})];
+[.38,.72].forEach(function(k){lines.push(mk("ellipse",{rx:150*k,ry:150,fill:"none",stroke:"#5fb4ff","stroke-opacity":.6,"stroke-width":2.2,pathLength:1}))});
+[-90,-40,0,40,90].forEach(function(y){var hw2=Math.sqrt(150*150-y*y);lines.push(mk("path",{d:"M"+(-hw2)+" "+y+"H"+hw2,stroke:"#5fb4ff","stroke-opacity":.5,"stroke-width":2,fill:"none",pathLength:1}))});
+lines.forEach(function(l,i){l.style.strokeDasharray="1 1";l.style.strokeDashoffset=1;tl.to(l,{strokeDashoffset:0,duration:.5,ease:"power2.out"},2.0+i*.04)});
+gsap.set("#gl",{transformOrigin:"50% 50%"});
+tl.fromTo("#gl",{rotation:-40},{rotation:0,duration:1.4,ease:"power2.out"},1.95);
+var pts=[];for(var i=0;i<24;i++){var a=R()*Math.PI*2,r=Math.sqrt(R())*135;pts.push([Math.cos(a)*r,Math.sin(a)*r])}
+pts.forEach(function(p,i){var c=mk("circle",{cx:p[0],cy:p[1],r:i%5==0?9:6,fill:i%3==0?"#ffb454":(i%3==1?"#fff":"#7be0b0")});gsap.set(c,{transformOrigin:p[0]+"px "+p[1]+"px",scale:0});tl.to(c,{scale:1,duration:.3,ease:"back.out(3)"},2.3+i*.032)});
+// arcs between some members
+[[0,7],[3,12],[9,18],[14,21]].forEach(function(pr,i){var a=pts[pr[0]],b=pts[pr[1]];var p=mk("path",{d:"M"+a[0]+" "+a[1]+"Q"+((a[0]+b[0])/2*.5)+" "+((a[1]+b[1])/2*.5-30)+" "+b[0]+" "+b[1],stroke:"#fff","stroke-width":2.5,fill:"none",pathLength:1,"stroke-opacity":.8});p.style.strokeDasharray="1 1";p.style.strokeDashoffset=1;tl.to(p,{strokeDashoffset:0,duration:.35,ease:"power2.out"},2.7+i*.1)});
+// list rows
+var rows=document.getElementById("rows"),RC=["#ffb454","#5fb4ff","#7be0b0"];
+for(var i=0;i<3;i++){var r=document.createElement("div");r.style.cssText="position:absolute;left:30px;top:"+(98+i*98)+"px;width:420px;height:78px;border-radius:22px;background:"+(i==1?"#eaf0ff":"#f4f6fb")+";";
+ r.innerHTML='<div style="position:absolute;left:16px;top:15px;width:48px;height:48px;border-radius:24px;background:'+RC[i]+'"></div><div style="position:absolute;left:80px;top:20px;width:'+(150-i*20)+'px;height:13px;border-radius:7px;background:#0a1a45"></div><div style="position:absolute;left:80px;top:44px;width:'+(110+i*20)+'px;height:11px;border-radius:6px;background:#b9c2dc"></div>';
+ rows.appendChild(r);gsap.set(r,{opacity:0,x:40});tl.to(r,{opacity:1,x:0,duration:.3,ease:"power3.out"},3.4+i*.1);
+ if(i==1){var c=document.createElement("div");c.style.cssText="position:absolute;right:14px;top:18px;width:100px;height:42px;border-radius:21px;background:#1e5cff;color:#fff;font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center";c.textContent="Reply";r.appendChild(c);gsap.set(c,{scale:0});tl.to(c,{scale:1,duration:.3,ease:"back.out(3)"},3.85)}}
+tl.to("#ul",{x:76,duration:.3,ease:"power3.inOut"},3.45);
+tl.to("#cur",{opacity:0,duration:.2},4.05);
+tl.set({},{},5);
+// logo
+tl.fromTo(["#lc1","#lc2","#lc3"],{scale:0,transformOrigin:"0px 0px"},{scale:1,duration:.45,ease:"back.out(2.4)",stagger:.08},4.25);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

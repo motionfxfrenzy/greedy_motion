@@ -104,3 +104,22 @@ Variables: `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_
 - A `409` on save is recoverable without losing the user's edits.
 - The production bundle contains no database URL, R2 key, model key, or service-role key (checked in CI by scanning build output for known variable names).
 - Errors show a diagnostic ID and no server paths.
+
+## Workspace routes and endpoints (2026-10-10)
+
+The workspace is no longer one `/studio` component switching views. Each page is its own route with its own data:
+
+| Route | Page | Data it loads |
+| --- | --- | --- |
+| `/studio` | Projects, and the create flow (`?template=<id>` opens a template's prefilled brief) | `GET /v1/projects`, `GET /v1/brands` (the create flow needs the kits) |
+| `/templates` | The template gallery | `GET /v1/gallery/templates` (paged, filtered and searched on the backend) |
+| `/brand-kits` | Brand kits | `GET /v1/brands` |
+| `/library` | Screenshots from every project | `GET /v1/library?cursor=&limit=` (paged in SQL) |
+
+Why: a link, a bookmark and the back button work; a page loads only its own data and code; and the Library, which grows
+with use, is cut into pages by the database instead of being flattened in the browser. The shared header is
+`components/app-shell.tsx` (`AppShell`, `AppHeader`). `proxy.ts` guards `/templates`, `/brand-kits` and `/library` like `/studio`.
+
+`GET /v1/library` (`backend/src/library.ts`) returns `{ items, total, nextCursor }` for the signed-in user, newest first,
+reading each project's `screenshots` array with `jsonb_array_elements` and `limit/offset`. Not yet paged: `GET /v1/projects`
+returns every project (the filter tabs count them), so the next step for Projects is the same cursor treatment.

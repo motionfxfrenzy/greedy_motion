@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>How an earthquake happens</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #faf8f3; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #faf8f3; font-family: "Playfair Display", "Libre Baskerville", serif; color: #1a1a1a; }
+  svg { position: absolute; inset: 0; }
+  #words { position: absolute; left: 90px; top: 520px; height: 150px; width: 1100px; }
+  .wd { position: absolute; left: 0; top: 0; font-size: 124px; line-height: 150px; font-style: italic; font-weight: 400; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; }
+  .wd span { display: block; }
+  .acc { color: #d2391b; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <pattern id="hatch" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="9" stroke="#c9c3b5" stroke-width="1"/></pattern>
+    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="#e6e1d4" stroke-width="1"/></pattern>
+    <clipPath id="dclip"><rect x="680" y="100" width="540" height="380"/></clipPath>
+  </defs>
+  <rect x="90" y="110" width="490" height="350" fill="url(#grid)"/>
+  <g id="axes" fill="none" stroke="#1a1a1a" stroke-width="1.6" stroke-linecap="round">
+    <path id="ax1" d="M90 460 H590"/><path id="ax2" d="M90 460 V100"/>
+    <path d="M582 454 L592 460 L582 466" id="ah1"/><path d="M84 110 L90 100 L96 110" id="ah2"/>
+  </g>
+  <text x="104" y="120" font-size="26" font-style="italic" fill="#1a1a1a" id="lbY">strain</text>
+  <text x="520" y="490" font-size="26" font-style="italic" fill="#1a1a1a" id="lbX">time</text>
+  <path id="curve" d="" fill="none" stroke="#1a1a1a" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle id="mk" r="7" fill="#d2391b"/>
+  <g id="lblSlip" opacity="0"><path d="M470 232 L452 262" stroke="#d2391b" stroke-width="1.4" fill="none"/><text x="478" y="228" font-size="30" font-style="italic" fill="#d2391b">slip</text></g>
+  <g id="diag">
+    <g id="slabs">
+      <rect x="680" y="100" width="540" height="170" fill="url(#hatch)" stroke="#1a1a1a" stroke-width="1.6"/>
+      <rect x="680" y="310" width="540" height="170" fill="url(#hatch)" stroke="#1a1a1a" stroke-width="1.6"/>
+      <path id="flt" d="M680 290 H1220" stroke="#1a1a1a" stroke-width="1.2" stroke-dasharray="6 7" fill="none"/>
+      <text x="694" y="298" font-size="23" font-style="italic" fill="#1a1a1a" id="lbF">fault</text>
+    </g>
+    <g clip-path="url(#dclip)" fill="none" stroke="#d2391b" stroke-width="1.6">
+      <circle class="rg" cx="950" cy="290" r="10"/><circle class="rg" cx="950" cy="290" r="10"/><circle class="rg" cx="950" cy="290" r="10"/><circle class="rg" cx="950" cy="290" r="10"/>
+    </g>
+    <path id="fence" d="" fill="none" stroke="#d2391b" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <g stroke="#1a1a1a" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <g id="arT"><path d="M1190 230 H1100"/><path d="M1112 222 L1100 230 L1112 238"/></g>
+      <g id="arB"><path d="M710 350 H800"/><path d="M788 342 L800 350 L788 358"/></g>
+    </g>
+  </g>
+</svg>
+<div id="words">
+  <div class="wd" id="w1"><span>Strain</span></div>
+  <div class="wd acc" id="w2"><span>Snap!</span></div>
+  <div class="wd" id="w3"><span>Waves</span></div>
+</div>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  function $(id) { return document.getElementById(id); }
+  var X0 = 110, XW = 450;
+  function cy(u) {
+    if (u <= .62) { var s = u / .62; return 440 - 270 * Math.pow(s, 1.12); }
+    if (u <= .66) { var k = (u - .62) / .04; return 170 + 235 * k; }
+    var q = (u - .66) / .34; return 405 - 130 * Math.pow(q, .9);
+  }
+  var st = { u: 0, s: 0, slip: 0 };
+  function drawCurve() {
+    var d = "", n = Math.max(2, Math.round(st.u * 160));
+    for (var i = 0; i <= n; i++) { var u = st.u * i / n; d += (i ? "L" : "M") + (X0 + u * XW).toFixed(1) + " " + cy(u).toFixed(1); }
+    $("curve").setAttribute("d", d);
+    $("mk").setAttribute("cx", X0 + st.u * XW); $("mk").setAttribute("cy", cy(st.u));
+  }
+  function drawFence() {
+    var F = 46 * st.s, d = "";
+    for (var y = 100; y <= 480; y += 4) {
+      var t = Math.tanh((y - 290) / 55), sg = Math.max(-1, Math.min(1, (y - 290) / 3));
+      var x = 950 + F * ((1 - st.slip) * t + st.slip * sg);
+      d += (y === 100 ? "M" : "L") + x.toFixed(1) + " " + y;
+    }
+    $("fence").setAttribute("d", d);
+  }
+  var tl = gsap.timeline({ paused: true });
+  // axes and labels draw on
+  ["ax1", "ax2", "ah1", "ah2"].forEach(function (id, i) { var p = $(id), L = p.getTotalLength(); p.style.strokeDasharray = L; p.style.strokeDashoffset = L; tl.to(p, { strokeDashoffset: 0, duration: .5, ease: "power2.out" }, i < 2 ? 0 : .35); });
+  tl.from("#lbY,#lbX,#lbF", { opacity: 0, duration: .4 }, .2);
+  tl.from("#slabs rect", { opacity: 0, duration: .4, stagger: .1 }, 0);
+  tl.fromTo("#flt", { strokeDashoffset: 100 }, { strokeDashoffset: 0, duration: .6, ease: "none" }, 0);
+  tl.fromTo("#arT", { x: 60, opacity: 0 }, { x: 0, opacity: 1, duration: .5, ease: "power3.out" }, .3);
+  tl.fromTo("#arB", { x: -60, opacity: 0 }, { x: 0, opacity: 1, duration: .5, ease: "power3.out" }, .3);
+  // strain builds (slow), snaps, then the cycle begins again
+  tl.to(st, { u: .62, s: 1, duration: 2.5, ease: "none", onUpdate: function () { drawCurve(); drawFence(); } }, .3);
+  tl.to(st, { u: .66, duration: .15, ease: "power2.in", onUpdate: drawCurve }, 2.8);
+  tl.to(st, { slip: 1, duration: .14, ease: "power4.out", onUpdate: drawFence }, 2.8);
+  tl.to(st, { u: 1, duration: 1.6, ease: "power1.out", onUpdate: drawCurve }, 3.0);
+  drawCurve(); drawFence();
+  // shake at the slip
+  [[5, .05], [-4, .06], [3, .06], [-2, .07], [0, .08]].forEach(function (k, i) { tl.to("#diag", { x: k[0], y: k[0] * -.5, duration: k[1], ease: "none" }, 2.8 + i * .06); });
+  // waves
+  document.querySelectorAll(".rg").forEach(function (c, i) {
+    tl.set(c, { opacity: 0 }, 0);
+    tl.fromTo(c, { attr: { r: 10 }, opacity: 1, strokeWidth: 2.6 }, { attr: { r: 150 + i * 105 }, opacity: .55, strokeWidth: 1.2, duration: 1.7, ease: "power3.out", immediateRender: false }, 2.88 + i * .22);
+  });
+  tl.fromTo("#lblSlip", { opacity: 0 }, { opacity: 1, duration: .3 }, 3.0);
+  // words
+  tl.set("#w2,#w3", { opacity: 0 }, 0);
+  tl.fromTo("#w1 span", { yPercent: 105 }, { yPercent: 0, duration: .5, ease: "power3.out" }, .05);
+  tl.to("#w1 span", { yPercent: -105, duration: .22, ease: "power2.in" }, 2.6);
+  tl.set("#w2", { opacity: 1 }, 2.82);
+  tl.fromTo("#w2 span", { yPercent: 105 }, { yPercent: 0, duration: .18, ease: "power4.out" }, 2.82);
+  tl.to("#w2 span", { yPercent: -105, duration: .22, ease: "power2.in" }, 3.55);
+  tl.set("#w3", { opacity: 1 }, 3.77);
+  tl.fromTo("#w3 span", { yPercent: 105 }, { yPercent: 0, duration: .5, ease: "power3.out" }, 3.77);
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

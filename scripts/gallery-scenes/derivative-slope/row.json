@@ -1,0 +1,16 @@
+{
+  "id": "derivative-slope",
+  "name": "Derivative as Slope",
+  "group": "Math",
+  "summary": "A dark-navy graph where a curve is drawn and a point slides along it, its tangent and slope readout updating.",
+  "bestFor": "Calculus intros, tutoring channels, course teasers",
+  "prompt": "Explain what a derivative is. Draw a smooth curve on a graph, slide a point along it with its tangent line, and show the slope number changing from negative to positive. Then trace the slope itself as a second curve, so the idea that the derivative is the rate of change becomes visible.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 60,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 3.2
+}

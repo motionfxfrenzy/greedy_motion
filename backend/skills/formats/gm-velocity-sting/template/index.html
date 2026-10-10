@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en" data-composition-variables='[
+  {"id":"brand_word_1","type":"string","label":"Wordmark, first part","default":"Greedy"},
+  {"id":"brand_word_2","type":"string","label":"Wordmark, second part (accent)","default":"Motion"},
+  {"id":"logo","type":"image","label":"Brand mark (empty = monogram)","default":""},
+  {"id":"b_title","type":"string","label":"B surface title","default":"Welcome back."},
+  {"id":"b_sub","type":"string","label":"B subtitle","default":"Sign in to your workspace."},
+  {"id":"b_option_1","type":"string","label":"B option 1","default":"Continue with Google"},
+  {"id":"b_option_2","type":"string","label":"B option 2","default":"Continue with SSO"},
+  {"id":"b_divider","type":"string","label":"B divider","default":"or with email"},
+  {"id":"b_field_label","type":"string","label":"B field label","default":"Work email"},
+  {"id":"b_placeholder","type":"string","label":"B field placeholder","default":"you@company.com"},
+  {"id":"b_cta","type":"string","label":"B / C button","default":"Email me a sign-in link"},
+  {"id":"c_typed","type":"string","label":"C typed value","default":"mara@acme.com"},
+  {"id":"d_label","type":"string","label":"D number label","default":"Rendering frames"},
+  {"id":"d_from","type":"number","label":"D count from","default":312},
+  {"id":"d_to","type":"number","label":"D count to","default":900},
+  {"id":"d_of","type":"string","label":"D under the number","default":"/ 900 frames"},
+  {"id":"d_steps","type":"string","label":"D steps (JSON list, 0–4; first done, second active)","default":"[\"Preparing composition\",\"Rendering frames\",\"Adding audio\",\"Uploading draft\"]"},
+  {"id":"e_rows","type":"string","label":"E navigation rows (JSON list, 3–5; the first is chosen)","default":"[\"Projects\",\"Templates\",\"Brand kits\",\"Library\"]"},
+  {"id":"e_extra","type":"string","label":"E row after the divider (empty = none)","default":"Settings"},
+  {"id":"e_foot","type":"string","label":"E line under the list","default":"Turn product updates into customer-ready videos."},
+  {"id":"f_title","type":"string","label":"F page title","default":"Projects"},
+  {"id":"f_sub","type":"string","label":"F page subtitle","default":"Turn product updates into customer-ready videos."},
+  {"id":"f_create","type":"string","label":"F create button","default":"Create a video"},
+  {"id":"f_secondary","type":"string","label":"F second button (empty = none)","default":"Edit a talking-head reel"},
+  {"id":"f_menu_title","type":"string","label":"F menu heading","default":"What are you making?"},
+  {"id":"f_menu_rows","type":"string","label":"F menu rows (JSON list of {name, meta}, 4; the second is chosen)","default":"[{\"name\":\"Product launch\",\"meta\":\"0:30 · 16:9\"},{\"name\":\"Feature spotlight\",\"meta\":\"0:30 · 16:9\"},{\"name\":\"What’s new\",\"meta\":\"0:15 · 9:16\"},{\"name\":\"Stat highlight\",\"meta\":\"0:15 · 9:16\"}]"},
+  {"id":"f_needs","type":"string","label":"F line after the choice","default":"Needs: feature name, 1–3 screenshots"},
+  {"id":"g_line","type":"string","label":"G closing line (empty = none)","default":"Make every frame hit."}
+]'>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1080, height=1080">
+    <title>gm-velocity-sting · fill-mode template</title>
+    <!-- Brand: theme.css carries the 18 theme tokens (worker/themes/CONTRACT.md) from the brand kit or a gallery theme;
+         fonts.css its faces. Nothing below hard-codes a colour or a typeface. -->
+    <link rel="stylesheet" href="fonts.css">
+    <link rel="stylesheet" href="theme.css">
+    <script src="vendor/gsap.min.js"></script>
+    <style>
+      :root {
+        --shadow: 0 14px 20px 4px rgba(0, 0, 0, 0.08);
+        --shadow-lg: 0 24px 40px 6px rgba(0, 0, 0, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body, sans-serif); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
+      .scene { position: absolute; inset: 0; overflow: hidden; background: var(--bg); }
+      .cam { position: absolute; inset: 0; will-change: transform, filter; }
+
+      /* ---------- lockup (A + G): two parts that counter-bounce ---------- */
+      .lockup { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 34px; }
+      .mark { display: grid; place-items: center; width: 340px; height: 158px; }
+      .mark img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+      .mono { display: grid; place-items: center; width: 158px; height: 158px; border-radius: 40px; background: var(--accent); color: var(--on-accent); font-family: var(--font-display, sans-serif); font-weight: 700; font-size: 92px; line-height: 1; }
+      .wordmark { display: flex; gap: 0.24em; font-family: var(--font-display, sans-serif); font-weight: 700; font-size: var(--wm-size, 132px); line-height: 1; letter-spacing: -0.045em; white-space: nowrap; }
+      .wordmark span { display: block; }
+      .w-1 { color: var(--fg); }
+      .w-2 { color: var(--accent-ink); }
+
+      /* ---------- B: the entry surface ---------- */
+      .b-card { position: absolute; left: 190px; top: 216px; width: 700px; padding: 52px 56px; border-radius: 32px; background: var(--surface); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 18px; }
+      .b-title { margin: 0; font-family: var(--font-display, sans-serif); font-weight: 700; font-size: 50px; letter-spacing: -0.03em; line-height: 1.1; }
+      .b-sub { margin: -6px 0 10px; font-size: 22px; font-weight: 600; color: var(--muted-ink); }
+      .b-opt { display: flex; align-items: center; justify-content: center; height: 64px; border-radius: 9999px; background: var(--bg); font-size: 21px; font-weight: 600; }
+      .b-div { display: flex; align-items: center; gap: 16px; font-size: 18px; font-weight: 600; color: var(--muted-ink); }
+      .b-div::before, .b-div::after { content: ""; flex: 1; height: 2px; background: var(--border); }
+      .b-label { font-size: 20px; font-weight: 700; margin-bottom: -8px; }
+      .b-field { height: 64px; border-radius: 18px; border: 2px solid var(--border); background: var(--bg); padding: 0 20px; display: flex; align-items: center; font-size: 21px; font-weight: 600; color: var(--muted-ink); }
+      .b-cta { height: 66px; border-radius: 9999px; background: var(--fg); color: var(--bg); display: grid; place-items: center; font-size: 21px; font-weight: 700; margin-top: 4px; }
+
+      /* ---------- C: the same surface, closer ---------- */
+      .c-card { position: absolute; left: -80px; top: 120px; width: 1240px; height: 1100px; border-radius: 64px; background: var(--surface); box-shadow: var(--shadow-lg); }
+      .c-div { position: absolute; left: 190px; right: 190px; top: 70px; display: flex; align-items: center; gap: 28px; font-size: 34px; font-weight: 600; color: var(--muted-ink); }
+      .c-div::before, .c-div::after { content: ""; flex: 1; height: 3px; background: var(--border); }
+      .c-label { position: absolute; left: 190px; top: 200px; font-size: 44px; font-weight: 700; }
+      .c-field { position: absolute; left: 190px; top: 278px; width: 860px; height: 136px; border-radius: 36px; border: 4px solid var(--accent); background: var(--bg); padding: 0 44px; display: flex; align-items: center; font-size: 50px; font-weight: 600; white-space: nowrap; overflow: hidden; }
+      .c-ph { position: absolute; left: 48px; color: var(--muted-ink); }
+      .c-caret { display: inline-block; width: 5px; height: 60px; margin-left: 4px; background: var(--accent); border-radius: 3px; }
+      .c-cta { position: absolute; left: 190px; top: 470px; width: 860px; height: 136px; border-radius: 9999px; background: var(--fg); color: var(--bg); display: grid; place-items: center; font-size: 46px; font-weight: 700; white-space: nowrap; }
+      .c-cta.pressed { background: var(--accent); color: var(--on-accent); }
+
+      /* ---------- D: one number ---------- */
+      .d-panel { position: absolute; left: 110px; top: 130px; width: 860px; height: 820px; border-radius: 40px; background: var(--surface); box-shadow: var(--shadow); }
+      .d-label { position: absolute; left: 64px; top: 52px; font-family: var(--font-display, sans-serif); font-size: 44px; font-weight: 700; letter-spacing: -0.02em; }
+      .d-num { position: absolute; left: 54px; top: 112px; font-family: var(--font-display, sans-serif); font-weight: 800; letter-spacing: -0.05em; line-height: 1.32; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .d-of { position: absolute; left: 68px; top: 466px; font-family: var(--font-mono, monospace); font-size: 36px; color: var(--muted-ink); }
+      .d-bar { position: absolute; left: 64px; top: 540px; width: 732px; height: 16px; border-radius: 9999px; background: var(--border); overflow: hidden; }
+      .d-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 732px; border-radius: 9999px; background: var(--accent); transform-origin: 0 50%; }
+      .d-steps { position: absolute; left: 64px; top: 598px; display: flex; flex-direction: column; gap: 22px; }
+      .d-st { display: flex; align-items: center; gap: 18px; font-size: 27px; font-weight: 600; color: var(--muted-ink); height: 34px; }
+      .d-st b { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--border); font-size: 16px; color: var(--on-accent); }
+      .d-st.done b { background: var(--accent); border-color: var(--accent); }
+      .d-st.now { color: var(--fg); }
+      .d-st.now b { border-color: var(--accent); }
+
+      /* ---------- E: the real navigation. Each row carries its own highlight pill, sized by its own text,
+           so no text width is ever measured or pasted. ---------- */
+      .e-card { position: absolute; left: 120px; top: 110px; width: 840px; height: 860px; border-radius: 40px; background: var(--surface); box-shadow: var(--shadow); }
+      .e-head { position: absolute; left: 56px; top: 50px; display: flex; align-items: center; gap: 16px; }
+      .e-head .mark { width: 84px; height: 39px; }
+      .e-head .mono { width: 44px; height: 44px; border-radius: 12px; font-size: 26px; }
+      .e-head .wm { font-family: var(--font-display, sans-serif); font-weight: 700; font-size: 36px; letter-spacing: -0.04em; white-space: nowrap; }
+      .e-rule { position: absolute; left: 56px; right: 56px; top: 132px; height: 2px; background: var(--border); }
+      .e-list { position: absolute; left: 56px; top: 168px; width: 728px; height: 600px; overflow: hidden; }
+      .e-row { position: absolute; left: 0; height: 92px; line-height: 92px; padding: 0 28px; border-radius: 9999px; font-family: var(--font-display, sans-serif); font-size: 60px; font-weight: 700; letter-spacing: -0.025em; white-space: nowrap; }
+      .e-row.on { background: var(--accent); color: var(--on-accent); }
+      .e-sep { position: absolute; left: 28px; right: 0; height: 2px; background: var(--border); }
+      .e-foot { position: absolute; left: 56px; right: 56px; bottom: 52px; font-size: 26px; font-weight: 600; color: var(--muted-ink); }
+
+      /* ---------- F: the one action ---------- */
+      .f-page { position: absolute; inset: 0; }
+      .f-h1 { position: absolute; left: 90px; top: 140px; margin: 0; font-family: var(--font-display, sans-serif); font-size: 96px; font-weight: 800; letter-spacing: -0.035em; line-height: 1; white-space: nowrap; }
+      .f-sub { position: absolute; left: 92px; top: 256px; width: 900px; font-size: 28px; font-weight: 600; color: var(--muted-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .f-btns { position: absolute; left: 90px; top: 330px; display: flex; gap: 20px; }
+      .f-btn { height: 96px; padding: 0 46px; border-radius: 9999px; background: var(--fg); color: var(--bg); display: flex; align-items: center; font-size: 32px; font-weight: 700; white-space: nowrap; }
+      .f-btn2 { height: 96px; padding: 0 40px; border-radius: 9999px; background: var(--surface); display: flex; align-items: center; font-size: 30px; font-weight: 700; white-space: nowrap; }
+      .f-menu { position: absolute; left: 90px; top: 450px; width: 900px; padding: 28px; border-radius: 34px; background: var(--surface); box-shadow: var(--shadow-lg); }
+      .f-mh { height: 44px; margin: 0 0 16px 8px; font-family: var(--font-display, sans-serif); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+      .f-rows { position: relative; height: 452px; }
+      .f-row { position: absolute; left: 0; right: 0; height: 104px; border-radius: 24px; border: 3px solid var(--border); background: var(--surface); }
+      .f-row .rd { position: absolute; left: 26px; top: 32px; width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--border); }
+      .f-row .nm { position: absolute; left: 84px; top: 0; line-height: 98px; font-size: 34px; font-weight: 700; letter-spacing: -0.015em; white-space: nowrap; }
+      .f-row .mt { position: absolute; right: 28px; top: 0; line-height: 98px; font-family: var(--font-mono, monospace); font-size: 21px; color: var(--muted-ink); white-space: nowrap; }
+      .f-sel { position: absolute; inset: -3px; border-radius: 24px; border: 4px solid var(--accent); }
+      .f-hover { position: absolute; inset: 0; border-radius: 21px; background: var(--bg); }
+      .f-rd-on { position: absolute; inset: -3px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; color: var(--on-accent); font-size: 18px; font-weight: 800; }
+      .f-needs { position: absolute; left: 118px; top: 1050px; font-size: 26px; font-weight: 600; color: var(--muted-ink); white-space: nowrap; }
+      .cursor { position: absolute; left: 0; top: 0; width: 128px; height: 128px; z-index: 30; filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.3)); }
+      .cursor svg { display: block; width: 100%; height: 100%; }
+      .cursor path { fill: var(--fg); stroke: var(--bg); stroke-width: 1.4; stroke-linejoin: round; }
+
+      /* ---------- G ---------- */
+      .g-line { font-family: var(--font-display, sans-serif); font-size: 46px; font-weight: 700; letter-spacing: -0.02em; margin-top: 30px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-width="1080" data-height="1080" data-duration="11.933">
+      <section id="sc-a" class="scene">
+        <div id="a-cam" class="cam" data-layout-allow-overflow="">
+          <div class="lockup">
+            <div id="a-mark" class="mark brand-mark"></div>
+            <div id="a-word" class="wordmark"><span class="w-1 bw1"></span><span class="w-2 bw2"></span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="sc-b" class="scene">
+        <div id="b-cam" class="cam" data-layout-allow-overflow="">
+          <div class="b-card">
+            <h1 id="b-title" class="b-title"></h1>
+            <div id="b-sub" class="b-sub b-row"></div>
+            <div id="b-opt1" class="b-opt b-row"></div>
+            <div id="b-opt2" class="b-opt b-row"></div>
+            <div id="b-div" class="b-div b-row"></div>
+            <div id="b-label" class="b-label b-row"></div>
+            <div id="b-field" class="b-field b-row"></div>
+            <div id="b-cta" class="b-cta b-row"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="sc-c" class="scene">
+        <div id="c-cam" class="cam" data-layout-allow-overflow="">
+          <div class="c-card" data-layout-allow-overflow="">
+            <div id="c-div" class="c-div"></div>
+            <div id="c-label" class="c-label"></div>
+            <div class="c-field"><span id="c-ph" class="c-ph" data-layout-allow-overlap=""></span><span id="c-typed"></span><span id="c-caret" class="c-caret"></span></div>
+            <div id="c-cta" class="c-cta"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="sc-d" class="scene">
+        <div id="d-cam" class="cam" data-layout-allow-overflow="">
+          <div class="d-panel">
+            <div id="d-label" class="d-label"></div>
+            <div id="d-num" class="d-num"></div>
+            <div id="d-of" class="d-of"></div>
+            <div class="d-bar"><div id="d-fill" class="d-fill"></div></div>
+            <div id="d-steps" class="d-steps"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="sc-e" class="scene">
+        <div id="e-cam" class="cam" data-layout-allow-overflow="">
+          <div class="e-card">
+            <div class="e-head"><div class="mark brand-mark small"></div><span class="wm"><span class="w-1 bw1"></span> <span class="w-2 bw2"></span></span></div>
+            <div class="e-rule"></div>
+            <div id="e-list" class="e-list" data-layout-allow-overflow=""></div>
+            <div id="e-foot" class="e-foot"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="sc-f" class="scene">
+        <div id="f-cam" class="cam" data-layout-allow-overflow="">
+          <div id="f-page" class="f-page" data-layout-allow-overflow="">
+            <h1 id="f-h1" class="f-h1"></h1>
+            <div id="f-sub" class="f-sub"></div>
+            <div class="f-btns"><div id="f-btn" class="f-btn"></div><div id="f-btn2" class="f-btn2"></div></div>
+            <div id="f-menu" class="f-menu">
+              <div id="f-mh" class="f-mh"></div>
+              <div id="f-rows" class="f-rows"></div>
+            </div>
+            <div id="f-needs" class="f-needs"></div>
+          </div>
+          <div id="cursor" class="cursor" data-layout-allow-overflow="" data-layout-allow-overlap="" data-layout-allow-occlusion="">
+            <svg viewBox="0 0 24 24"><path d="M5 2.5v17.2l4.3-4.1 2.9 6.6 3-1.3-2.9-6.5h5.9z" /></svg>
+          </div>
+        </div>
+      </section>
+
+      <section id="sc-g" class="scene">
+        <div id="g-cam" class="cam" data-layout-allow-overflow="">
+          <div class="lockup">
+            <div id="g-mark" class="mark brand-mark"></div>
+            <div class="wordmark"><span id="g-w1" class="w-1 bw1"></span><span id="g-w2" class="w-2 bw2"></span></div>
+            <div id="g-line" class="g-line"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Music bed + SFX premixed to the fixed frame plan (references/ledger.json), so it fits every product. -->
+      <audio id="sting-mix" src="assets/audio/sting-mix.wav" data-start="0" data-duration="11.933" data-track-index="1" data-volume="1"></audio>
+    </div>
+
+    <script id="format-engine">
+(function(){const P=window.__hyperframes,st=(()=>{try{return JSON.parse(document.documentElement.getAttribute("data-composition-variables")||"[]")}catch(t){return[]}})(),b=Object.assign(Object.fromEntries(st.map(t=>[t.id,t.default])),P&&P.getVariables&&P.getVariables()||{}),n=t=>b[t]==null?"":String(b[t]).trim(),H=(t,e)=>Number.isFinite(Number(b[t]))?Number(b[t]):e,R=t=>{try{const e=typeof b[t]=="string"?JSON.parse(b[t]):b[t];return Array.isArray(e)?e:[]}catch(e){return[]}},m=t=>document.querySelector(t),x=t=>Array.from(document.querySelectorAll(t)),c=(t,e)=>{const o=m(t);return o&&(o.textContent=e),o},w=document.documentElement,nt=getComputedStyle(w),rt=t=>nt.getPropertyValue(t).trim();function ct(t){const e=document.createElement("canvas").getContext("2d");e.fillStyle="rgba(0, 0, 0, 0)",e.fillStyle=t||"rgba(0, 0, 0, 0)";const o=e.fillStyle;if(o[0]==="#")return[1,3,5].map(f=>parseInt(o.slice(f,f+2),16));const r=o.match(/\d+(\.\d+)?/g);return r?r.slice(0,3).map(Number):[0,0,0]}const J=t=>{const e=ct(rt(t)).map(o=>(o/=255,o<=.03928?o/12.92:Math.pow((o+.055)/1.055,2.4)));return .2126*e[0]+.7152*e[1]+.0722*e[2]},$=(t,e)=>{const o=J(t),r=J(e);return(Math.max(o,r)+.05)/(Math.min(o,r)+.05)},lt=(t,e)=>t.reduce((o,r)=>$(r,e)>$(o,e)?r:o,t[0]),Y=(t,e,o)=>t.find(r=>$(r,e)>=o)||null;w.style.setProperty("--on-accent",`var(${lt(["--bg","--fg","--surface"],"--accent")})`),w.style.setProperty("--accent-ink",`var(${Y(["--accent","--brand"],"--bg",3)||"--fg"})`),w.style.setProperty("--muted-ink",`var(${Y(["--muted"],"--surface",4.5)||"--fg"})`);const X=n("brand_word_1"),g=n("brand_word_2");x(".bw1").forEach(t=>t.textContent=X),x(".bw2").forEach(t=>t.textContent=g),g||x(".bw2").forEach(t=>t.remove());const it=(X+g).length;w.style.setProperty("--wm-size",Math.min(132,Math.floor(860/Math.max(1,it*.6+(g?.24:0))))+"px");const j=n("logo");x(".brand-mark").forEach(t=>{if(j){const e=document.createElement("img");e.src=j,e.alt="",t.appendChild(e)}else{const e=document.createElement("div");e.className="mono",e.textContent=(X||g||"\u2022").charAt(0).toUpperCase(),t.appendChild(e)}}),c("#b-title",n("b_title")),c("#b-sub",n("b_sub")),c("#b-opt1",n("b_option_1")),c("#b-opt2",n("b_option_2")),c("#b-div",n("b_divider")),c("#c-div",n("b_divider")),c("#b-label",n("b_field_label")),c("#c-label",n("b_field_label")),c("#b-field",n("b_placeholder")),c("#c-ph",n("b_placeholder")),c("#b-cta",n("b_cta")),c("#c-cta",n("b_cta")),["#b-opt1","#b-opt2","#b-div"].forEach(t=>{m(t).textContent||m(t).remove()}),c("#d-label",n("d_label")),c("#d-of",n("d_of"));const h=H("d_from",0),d=H("d_to",100),v=t=>Math.round(t).toLocaleString("en-US"),dt=v(d).length;m("#d-num").style.fontSize=Math.min(260,Math.floor(740/(dt*.62)))+"px";const F=R("d_steps").map(String).slice(0,4);F.forEach((t,e)=>{const o=document.createElement("div");o.className="d-st"+(e===0?" done":e===1?" now":""),o.id="d-st"+e;const r=document.createElement("b");if(r.id="d-st"+e+"b",e===0)r.textContent="\u2713";else{const f=document.createElement("i");f.textContent="\u2713",f.style.cssText="font-style:normal;opacity:0",r.appendChild(f)}o.appendChild(r),o.appendChild(document.createTextNode(t)),m("#d-steps").appendChild(o)});const S=R("e_rows").map(String).slice(0,5),z=n("e_extra"),I=104,p=S.map((t,e)=>{const o=document.createElement("div");return o.className="e-row",o.id="e-r"+e,o.textContent=t,o.style.top=e*I+"px",o.setAttribute("data-layout-allow-overlap",""),m("#e-list").appendChild(o),o});if(z){const t=document.createElement("div");t.className="e-sep",t.style.top=S.length*I+20+"px",m("#e-list").appendChild(t);const e=document.createElement("div");e.className="e-row",e.id="e-r"+S.length,e.textContent=z,e.style.top=S.length*I+44+"px",e.setAttribute("data-layout-allow-overlap",""),m("#e-list").appendChild(e),p.push(e)}c("#e-foot",n("e_foot")),c("#f-h1",n("f_title")),c("#f-sub",n("f_sub")),c("#f-btn",n("f_create")),c("#f-btn2",n("f_secondary")),n("f_secondary")||m("#f-btn2").remove(),c("#f-mh",n("f_menu_title")),R("f_menu_rows").slice(0,4).forEach((t,e)=>{const o=document.createElement("div");o.className="f-row",o.id="f-r"+e,o.style.top=e*116+"px",o.innerHTML=(e===1?'<div id="f-hover" class="f-hover"></div><div id="f-sel" class="f-sel"></div>':"")+'<span class="rd">'+(e===1?'<span id="f-rd-on" class="f-rd-on">\u2713</span>':"")+'</span><span class="nm"></span><span class="mt"></span>',o.querySelector(".nm").textContent=String(t&&t.name||""),o.querySelector(".mt").textContent=String(t&&t.meta||""),m("#f-rows").appendChild(o)}),c("#f-needs",n("f_needs")),c("#g-line",n("g_line"));const i=t=>t>=1?1:1-Math.pow(2,-10*t),y=t=>t<=0?0:Math.pow(2,10*(t-1)),T=t=>Math.exp(-t/.279)*Math.sin(2*Math.PI*t/.5),U=30,a=t=>(t-1)/U,E=.36,B=t=>a(t)-1/U-E,Z=160,s=gsap.timeline({paused:!0,defaults:{immediateRender:!1}}),l=(t,e,o,r)=>s.fromTo(t,e,{...o,duration:0,immediateRender:!1},r),M=(t,e,o,r,f)=>s.fromTo(t,{[e]:0,filter:"blur(0px)"},{[e]:o*Z,filter:`blur(${f}px)`,duration:E,ease:y},B(r)),A=(t,e,o,r,f)=>s.fromTo(t,{[e]:-o*Z,filter:`blur(${f}px)`},{[e]:0,filter:"blur(0px)",duration:E,ease:i},a(r)),k=(t,e,o,r)=>s.fromTo(t,{scale:1,filter:"blur(0px)"},{scale:e,filter:`blur(${r}px)`,duration:E,ease:y},B(o)),K=(t,e,o,r)=>s.fromTo(t,{scale:e,filter:`blur(${r}px)`},{scale:1,filter:"blur(0px)",duration:E,ease:i},a(o)),C=(t,e,o,r)=>s.fromTo(t,{opacity:0,y:o},{opacity:1,y:0,duration:r,ease:i},e);s.fromTo("#a-cam",{scale:.9},{scale:1,duration:.6,ease:i},0),s.fromTo("#a-mark",{y:0},{y:19,duration:1,ease:T},0),s.fromTo("#a-word",{y:0},{y:-19,duration:1,ease:T},0),M("#a-cam","y",1,41,10),A("#b-cam","y",1,41,10);const W=x("#sc-b .b-row");gsap.set(W,{opacity:0});const mt=[.14,.26,.37,.47,.56,.64,.71];W.forEach((t,e)=>C(t,a(41)+mt[e+(7-W.length)],40,.3)),l("#b-field",{borderColor:"var(--border)"},{borderColor:"var(--accent)"},a(74)),M("#b-cam","x",-1,80,10),A("#c-cam","x",-1,80,10);const O=n("c_typed"),Q=[1,1.6,.4,1.2,1,.3,1.4,.9,1.1,.5,1.3,.8],tt=Array.from(O,(t,e)=>Q[e%Q.length]),ft=tt.reduce((t,e)=>t+e,0)||1;let et=0;gsap.set("#c-typed",{textContent:""}),l("#c-ph",{opacity:1},{opacity:0},a(84)),Array.from(O).forEach((t,e)=>{et+=tt[e],l("#c-typed",{textContent:O.slice(0,e)},{textContent:O.slice(0,e+1)},a(84+Math.round(20*et/ft)))}),l("#c-cta",{attr:{class:"c-cta"},scale:1},{attr:{class:"c-cta pressed"},scale:.96},a(112)),l("#c-cta",{scale:.96},{scale:.98},a(114)),M("#c-cam","y",-1,125,10),A("#d-cam","y",-1,125,10);const ot=[0,.6,-.4,.3,-.7,.5,-.2,.8,-.5,.2],N=[];for(let t=0;t<32;t++){const e=t/31,o=1-Math.pow(1-e,2.2),r=t===31?d:h+(d-h)*Math.min(1,Math.max(0,o+ot[t%ot.length]*.012*(1-e)));N.push(t?Math.max(N[t-1],r):h)}gsap.set("#d-num",{textContent:v(h)}),gsap.set("#d-fill",{scaleX:d?Math.max(0,h/d):0}),N.forEach((t,e)=>{const o=e?N[e-1]:h;l("#d-num",{textContent:v(o)},{textContent:v(t)},a(125+e)),l("#d-fill",{scaleX:e?d?o/d:1:d?Math.max(0,h/d):0},{scaleX:d?t/d:1},a(125+e))}),F.length>1&&(s.fromTo("#d-st1b > i",{opacity:0},{opacity:1,duration:0,immediateRender:!1},a(158)),s.fromTo("#d-st1",{attr:{class:"d-st now"}},{attr:{class:"d-st done"},duration:0,immediateRender:!1},a(160)),F.length>2&&s.fromTo("#d-st2",{attr:{class:"d-st"}},{attr:{class:"d-st now"},duration:0,immediateRender:!1},a(160))),M("#d-cam","x",1,170,10),A("#e-cam","x",1,170,10);const pt=[-.14,-.1,-.04,-.01,.03,.06];p.forEach((t,e)=>s.fromTo(t,{xPercent:-100,x:-24},{xPercent:0,x:0,duration:.42,ease:i},a(170)+pt[e])),gsap.set(p,{xPercent:-100,x:-24});const q=p.map((t,e)=>p.length-1-e),at=[186,189,192,196,199,202].slice(-q.length);q.forEach((t,e)=>{l(p[t],{attr:{class:"e-row"}},{attr:{class:"e-row on"}},a(at[e])),e&&l(p[q[e-1]],{attr:{class:"e-row on"}},{attr:{class:"e-row"}},a(at[e]))}),gsap.set("#e-foot",{opacity:0}),C("#e-foot",a(204),40,.45),s.fromTo(p[0],{scale:1},{scale:.94,duration:.1,ease:y},a(209)),s.fromTo(p[0],{scale:.94},{scale:1,duration:.2,ease:i},a(209)+.1),gsap.set("#e-cam",{transformOrigin:"335px 324px"}),k("#e-cam",1.25,227,18),K("#f-cam",.8,227,18);const u={x:27,y:13},_={x:172,y:378},D={x:380,y:406};gsap.set("#cursor",{x:_.x-u.x,y:1180,transformOrigin:"21% 10%"}),s.fromTo("#cursor",{x:_.x-u.x,y:1180},{x:_.x-u.x,y:_.y-u.y,duration:.6,ease:i},a(234)),s.fromTo("#cursor",{scale:1},{scale:.84,duration:.1,ease:y},a(256)),s.fromTo("#cursor",{scale:.84},{scale:1,duration:.22,ease:i},a(256)+.1),s.fromTo("#f-btn",{scale:1},{scale:.94,duration:.1,ease:y},a(256)),s.fromTo("#f-btn",{scale:.94},{scale:1,duration:.22,ease:i},a(256)+.1),gsap.set("#f-menu",{opacity:0,transformOrigin:"0px 0px"}),s.fromTo("#f-menu",{opacity:0,scale:.9},{opacity:1,scale:1,duration:.36,ease:i},a(256));const L=x("#f-rows .f-row");gsap.set(L,{opacity:0}),[256,258,259,260].forEach((t,e)=>L[e]&&C(L[e],a(t),34,.3)),s.fromTo("#f-page",{y:0},{y:-40,duration:.12,ease:y},a(262)),s.fromTo("#f-page",{y:-40},{y:-300,duration:.6,ease:i},a(262)+.12),s.fromTo("#cursor",{x:_.x-u.x,y:_.y-u.y},{x:D.x-u.x,y:D.y-u.y,duration:.5,ease:i},a(266)),gsap.set(["#f-hover","#f-sel","#f-rd-on","#f-needs"],{opacity:0}),l("#f-hover",{opacity:0},{opacity:1},a(279)),s.fromTo("#cursor",{scale:1},{scale:.84,duration:.1,ease:y},a(286)),s.fromTo("#cursor",{scale:.84},{scale:1,duration:.22,ease:i},a(286)+.1),l(["#f-sel","#f-rd-on"],{opacity:0},{opacity:1},a(286)),l("#f-hover",{opacity:1},{opacity:0},a(286)),s.fromTo("#cursor",{y:D.y-u.y},{y:1240,duration:.4,ease:y},a(290)),C("#f-needs",a(295),40,.45),k("#f-cam",.8,320,18),K("#g-cam",1.25,320,18);const V=a(320);s.fromTo("#g-mark",{y:0},{y:19,duration:1,ease:T},V),s.fromTo("#g-w1",{y:0},{y:-19,duration:1,ease:T},V),g&&s.fromTo("#g-w2",{y:0},{y:-19,duration:1,ease:T},V+2/U),n("g_line")&&(gsap.set("#g-line",{opacity:0}),C("#g-line",a(332),36,.4));const G=["#sc-a","#sc-b","#sc-c","#sc-d","#sc-e","#sc-f","#sc-g"],ut=[1.333,2.633,4.133,5.633,7.533,10.633];gsap.set(G.slice(1),{autoAlpha:0}),ut.forEach((t,e)=>{l(G[e],{autoAlpha:1},{autoAlpha:0},t),l(G[e+1],{autoAlpha:0},{autoAlpha:1},t)}),window.__timelines=window.__timelines||{},window.__timelines.main=s})();
+</script>
+  </body>
+</html>

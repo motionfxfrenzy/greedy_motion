@@ -64,8 +64,9 @@ export async function lintPro(projectId: string): Promise<{ rev: number; ok: boo
   return (await proFetch(`/projects/${projectId}/pro/lint`, { method: "POST", body: JSON.stringify({}) })) as { rev: number; ok: boolean; errorCount: number; warningCount: number; findings: LintFinding[] };
 }
 
-export async function renderPro(projectId: string, quality: PreviewQuality): Promise<RenderJob> {
-  const body = (await proFetch(`/projects/${projectId}/pro/render`, { method: "POST", body: JSON.stringify({ quality }) })) as { job: RenderJob };
+/** `motionBlur` applies to a `final` render only (the server refuses it on a preview); the person chooses it at submission. */
+export async function renderPro(projectId: string, quality: PreviewQuality, options: { motionBlur?: boolean } = {}): Promise<RenderJob> {
+  const body = (await proFetch(`/projects/${projectId}/pro/render`, { method: "POST", body: JSON.stringify({ quality, ...(options.motionBlur ? { motionBlur: true } : {}) }) })) as { job: RenderJob };
   return body.job;
 }
 
@@ -90,4 +91,10 @@ export async function jobStatus(jobId: string): Promise<{ state: "queued" | "run
   if (job.state === "ready") return { state: "done", pct: 100, url: outputUrl(job.output?.url ?? `/v1/renders/${jobId}`) };
   if (job.state === "failed") return { state: "failed", pct: job.progress, error: job.error?.message ?? "The render failed." };
   return { state: waiting ? "queued" : "running", pct: job.frames ? (job.frames.done / Math.max(1, job.frames.total)) * 100 : job.progress, ...(job.frames ? { frames: job.frames } : {}) };
+}
+
+export type ProAgentProposal = { summary: string; edits: { find: string; replace: string }[]; beforeHash: string; afterHash: string; stage: string; skills: string[]; bundleHash: string; attempts: number; warnings: string[] };
+/** The hosted Claude author uses the reviewed stage-skill bundle and returns an unapplied diff. */
+export async function proposeProEdit(projectId: string, baseRev: number, task: string, target: string, html: string, stage?: "design" | "animation" | "threejs" | "logo" | "interaction" | "skill-authoring" | "audit"): Promise<ProAgentProposal> {
+  return (await proFetch(`/projects/${projectId}/pro/assist`, { method: "POST", body: JSON.stringify({ baseRev, task, target, html, stage }) })) as ProAgentProposal;
 }

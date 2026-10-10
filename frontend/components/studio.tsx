@@ -1,16 +1,20 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { optimisticUpdate } from "../lib/optimistic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aspectToFormat, bundledFonts, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, templates, themes, type BeatPlan, type BrandKit, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { aspectToFormat, bundledFonts, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, templates, themes, type BeatPlan, type BrandKit, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { GalleryGrid, useGalleryShelf } from "./template-gallery";
+import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, type FrameLook } from "./beat-storyboard";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
+import { getGalleryTemplate, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
 import { proMenuEntry, useEntitlements } from "../lib/entitlements";
 
-type View = "projects" | "templates" | "brand-kits" | "library" | "create" | "studio";
+type View = "projects" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
 // v2 flow (docs/PRODUCT_FLOW_V2.md): everything the film needs is chosen on Script & style.
 const stepNames = ["Script & style", "Storyboard", "Render", "Review"];
@@ -49,17 +53,26 @@ function lookFor(brief: ScriptBrief, brands: BrandKit[]): FrameLook {
 }
 
 export function Studio() {
+  const router = useRouter();
   // Re-renders the workspace (screenshots, logos, videos) when the media token arrives or renews.
   useMediaToken();
   const [view, setView] = useState<View>("projects");
   const [step, setStep] = useState<Step>(0);
   const [projects, setProjects] = useState<VideoProject[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const openingProject = useRef(0);
+  const mutationEpoch = useRef(0);
+  const pendingMutation = useRef(false);
   const [brands, setBrands] = useState<BrandKit[]>([]);
   const [project, setProject] = useState<VideoProject | null>(null);
   const [request, setRequest] = useState<RenderRequest>({ prompt: "", format: "landscape", style: "clean", theme: findTemplate(defaultTemplateId)!.defaultTheme, template: defaultTemplateId, audio: { music: false, voiceover: false, voice: "Kore" } });
   const [job, setJob] = useState<RenderJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Chosen on the storyboard's Submit; kept for a retry or a re-render. Previews never use it.
+  const [motionBlur, setMotionBlur] = useState(false);
   const [brief, setBrief] = useState<ScriptBrief>(defaultBrief);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
@@ -68,12 +81,20 @@ export function Studio() {
   const template = findTemplate(request.template) ?? findTemplate(defaultTemplateId)!;
 
   const refresh = useCallback(async () => {
-    const [savedProjects, savedBrands] = await Promise.all([listProjects(), listBrandKits()]);
-    setProjects(savedProjects);
-    setBrands(savedBrands);
-    // Keep the open project in step with the server (e.g. "Rendering draft" → "Ready for review").
-    setProject((current) => current ? savedProjects.find((item) => item.id === current.id && item.updatedAt !== current.updatedAt) ?? current : current);
-    setError(null);
+    const epoch = mutationEpoch.current;
+    const [projectResult, brandResult] = await Promise.allSettled([listProjects(), listBrandKits()]);
+    const failures: string[] = [];
+    if (projectResult.status === "fulfilled") {
+      const savedProjects = projectResult.value;
+      if (epoch === mutationEpoch.current && !pendingMutation.current) setProjects(savedProjects);
+      setProjectsLoaded(true);
+      // Keep the open project in step with the server (e.g. "Rendering draft" → "Ready for review").
+      if (epoch === mutationEpoch.current && !pendingMutation.current) setProject((current) => current ? savedProjects.find((item) => item.id === current.id && item.updatedAt !== current.updatedAt) ?? current : current);
+    } else failures.push(projectResult.reason instanceof Error ? projectResult.reason.message : "Could not load projects.");
+    if (brandResult.status === "fulfilled") setBrands(brandResult.value);
+    else failures.push("Could not refresh brand kits.");
+    setLoadError(failures.join(" ") || null);
+    setLoadingProjects(false);
   }, []);
   useEffect(() => { void refresh().catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load the workspace.")); }, [refresh]);
   useEffect(() => {
@@ -121,12 +142,14 @@ export function Studio() {
     replaceProject(saved);
     return saved;
   }, [project, replaceProject]);
-  const begin = async (templateId?: string) => {
+  /** Starts a new brief. A gallery entry or a style passes `preset`, so the prompt, skill, look, length and sound arrive filled in. */
+  const begin = async (templateId?: string, preset?: Partial<ScriptBrief>) => {
+    ++openingProject.current;
     const selected = templateId ? findTemplate(templateId) : template;
     if (!selected) return;
     const nextRequest = { ...request, template: selected.id, theme: selected.defaultTheme };
     setRequest(nextRequest);
-    setBrief({ ...defaultBrief, theme: selected.defaultTheme });
+    setBrief({ ...defaultBrief, theme: selected.defaultTheme, ...preset });
     setSite({ reading: false, shots: 0, warnings: [] });
     setPlanWarnings([]);
     setProject(null);
@@ -135,7 +158,29 @@ export function Studio() {
     setStep(SCRIPT_STYLE);
     setView("create");
   };
+  // A card carries no prompt: the backend returns the starting values (prompt, skill, look, length, sound) for the one chosen.
+  const [galleryBusy, setGalleryBusy] = useState(false);
+  const beginFromGallery = async (item: { id: string }) => {
+    setGalleryBusy(true);
+    try {
+      const picked = await getGalleryTemplate(item.id);
+      await begin(picked.starterId, picked.brief);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not open that template."); }
+    finally { setGalleryBusy(false); }
+  };
+  // The landing page sends visitors here as /studio?template=<id> after sign-up; open that template's brief once.
+  const startedFromUrl = useRef(false);
+  useEffect(() => {
+    if (startedFromUrl.current) return;
+    startedFromUrl.current = true;
+    const id = new URLSearchParams(window.location.search).get("template");
+    if (!id) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    void beginFromGallery({ id });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const openProject = async (saved: VideoProject) => {
+    const opening = ++openingProject.current;
     setProject(saved);
     setRequest(saved.request);
     setBrief(briefFrom(saved));
@@ -146,7 +191,8 @@ export function Studio() {
     setStep(statusStep(saved));
     setView("create");
     if (saved.renderJobId) {
-      try { setJob(await getRenderJob(saved.renderJobId)); } catch { setJob(null); }
+      setJob(null);
+      try { const nextJob = await getRenderJob(saved.renderJobId); if (opening === openingProject.current) setJob(nextJob); } catch { /* The project stays open while its render status is unavailable. */ }
     } else setJob(null);
   };
   const openStudio = () => {
@@ -162,7 +208,7 @@ export function Studio() {
       setError("Generate the script and storyboard before opening Studio.");
       return;
     }
-    await openProject(saved);
+    void openProject(saved);
     setView("studio");
   };
   /** The render request the current pipeline still reads, kept in step with the brief. */
@@ -249,9 +295,11 @@ export function Studio() {
   };
   const removeScreenshot = async (screenshotId: string) => {
     if (!project) return;
-    const saved = await removeProjectScreenshot(project.id, screenshotId);
-    setProject(saved);
-    setProjects((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
+    setBusy(true);
+    setError(null);
+    try { replaceProject(await removeProjectScreenshot(project.id, screenshotId)); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "Could not remove the screenshot."); }
+    finally { setBusy(false); }
   };
   const submit = async (): Promise<boolean> => {
     if (!project) return false;
@@ -259,7 +307,7 @@ export function Studio() {
     setError(null);
     try {
       if (project.script && !project.script.confirmed) replaceProject(await updateProject(project.id, { script: { ...project.script, confirmed: true, updatedAt: new Date().toISOString() } }));
-      setJob(await renderProject(project.id));
+      setJob(await renderProject(project.id, { motionBlur }));
       setStep(RENDER);
       return true;
     } catch (caught) {
@@ -275,17 +323,37 @@ export function Studio() {
     setProject(saved);
     setProjects((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
   };
+  // Patch only comments so a response cannot replace a newly opened project or newer editor fields.
+  const changeComments = async (comments: VideoProject["comments"], persist: () => Promise<VideoProject>) => {
+    if (!project) return;
+    if (pendingMutation.current) throw new Error("Please wait for the current save to finish.");
+    const before = project;
+    pendingMutation.current = true;
+    ++mutationEpoch.current;
+    const patch = (next: VideoProject["comments"], state?: VideoProject["state"]) => {
+      const apply = (item: VideoProject) => item.id === before.id ? { ...item, comments: next, ...(state ? { state } : {}) } : item;
+      setProject((current) => current ? apply(current) : current);
+      setProjects((current) => current.map(apply));
+    };
+    try {
+      await optimisticUpdate({
+        apply: () => patch(comments),
+        persist,
+        reconcile: (saved) => patch(saved.comments, saved.state),
+        rollback: () => patch(before.comments)
+      });
+    } finally {
+      pendingMutation.current = false;
+      ++mutationEpoch.current;
+    }
+  };
   const addReviewComment = async (input: { body: string; timestampSeconds: number }) => {
     if (!project) return;
-    const saved = await addProjectReviewComment(project.id, input);
-    setProject(saved);
-    setProjects((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
+    await changeComments([...project.comments, { ...input, id: "pending-" + crypto.randomUUID(), createdAt: new Date().toISOString() }], () => addProjectReviewComment(project.id, input));
   };
   const removeReviewComment = async (commentId: string) => {
     if (!project) return;
-    const saved = await removeProjectReviewComment(project.id, commentId);
-    setProject(saved);
-    setProjects((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
+    await changeComments(project.comments.filter((comment) => comment.id !== commentId), () => removeProjectReviewComment(project.id, commentId));
   };
   const applyReviewComments = async () => {
     if (!project) return;
@@ -309,59 +377,39 @@ export function Studio() {
     /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script ? openStudio : undefined} />
       {error && step !== SCRIPT_STYLE && <p className="workspace-error">{error}</p>}
       {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating} elapsed={elapsed} error={error} generate={() => void generatePlan()} back={() => setView("projects")} />}
-      {step === STORYBOARD && project?.beatPlan && <BeatStoryboardStep project={project as VideoProject & { beatPlan: BeatPlan }} look={lookFor(brief, brands)} warnings={planWarnings} busy={busy} onSaved={replaceProject} back={() => setStep(SCRIPT_STYLE)} submit={() => { void submit(); }} openStudio={openStudio} />}
+      {step === STORYBOARD && project?.beatPlan && <BeatStoryboardStep motionBlur={motionBlur} setMotionBlur={setMotionBlur} project={project as VideoProject & { beatPlan: BeatPlan }} look={lookFor(brief, brands)} warnings={planWarnings} busy={busy} onSaved={replaceProject} back={() => setStep(SCRIPT_STYLE)} submit={() => { void submit(); }} openStudio={openStudio} />}
       {step === STORYBOARD && !project?.beatPlan && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Generate the script and storyboard on Script &amp; style first.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to Script &amp; style</button></div>}
       {step === RENDER && project && <RenderStep project={project} job={job} error={error} busy={busy} retry={async () => { await submit(); }} back={() => setStep(STORYBOARD)} />}
       {step === REVIEW && project && <ReviewStep project={project} job={job} approve={approve} rerender={async () => { await submit(); }} addComment={addReviewComment} removeComment={removeReviewComment} applyChanges={applyReviewComments} openStudio={openStudio} />}
-    </> : <><AppHeader view={view} setView={setView} />
-      {error && <p className="workspace-error">{error}</p>}
-      {view === "projects" && <Projects projects={projects} busy={busy} create={() => void begin()} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} />}
-      {view === "templates" && <Templates create={(id) => void begin(id)} />}
-      {view === "brand-kits" && <BrandKits brands={brands} refresh={refresh} />}
-      {view === "library" && <Library projects={projects} />}
+    </> : <><AppHeader active="projects" />
+      {error && <p className="workspace-error" role="alert">{error}</p>}
+      {loadError && <div className="workspace-error" role="alert">{loadError} <button disabled={loadingProjects} onClick={() => { setLoadingProjects(true); void refresh(); }}>{loadingProjects ? "Retrying…" : "Try again"}</button></div>}
+      {view === "projects" && <Projects projects={projects} loading={loadingProjects} loaded={projectsLoaded} busy={busy} create={() => void begin()} startTemplate={(item) => void beginFromGallery(item)} browseTemplates={() => router.push("/templates")} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} />}
     </>}
   </main>;
-}
-
-function AppHeader({ view, setView }: { view: View; setView: (view: View) => void }) {
-  return <header className="relay-topbar"><button className="gm-brand" onClick={() => setView("projects")}><img src="/brand/gm-mark.svg" alt="" /><span><b>Greedy</b> <em>Motion</em></span></button><nav>{(["projects", "templates", "brand-kits", "library"] as const).map((item) => <button key={item} className={view === item ? "nav-active" : ""} onClick={() => setView(item)}>{item === "brand-kits" ? "Brand kits" : item[0].toUpperCase() + item.slice(1)}</button>)}</nav><SignOutButton /></header>;
-}
-
-/** Sign out behind a confirmation, so a stray click does not end the session. */
-function SignOutButton() {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const [leaving, setLeaving] = useState(false);
-  const close = () => { if (!leaving) dialogRef.current?.close(); };
-  const signOut = async () => {
-    setLeaving(true);
-    await createClient().auth.signOut().catch(() => undefined);
-    window.location.href = "/auth";
-  };
-  return (
-    <>
-      <button className="sign-out" onClick={() => dialogRef.current?.showModal()}>Sign out</button>
-      <dialog ref={dialogRef} className="confirm-dialog" aria-labelledby="sign-out-title" onCancel={(event) => { if (leaving) event.preventDefault(); }} onClick={(event) => { if (event.target === dialogRef.current) close(); }}>
-        <h2 id="sign-out-title">Sign out of Greedy Motion?</h2>
-        <p>Your projects are saved. You can sign back in at any time.</p>
-        <footer>
-          <button className="secondary-button" onClick={close} disabled={leaving}>Cancel</button>
-          <button className="primary-button" onClick={() => void signOut()} disabled={leaving} aria-busy={leaving} autoFocus>
-            {leaving && <span className="gm-spinner" aria-hidden="true" />}
-            {leaving ? "Signing out…" : "Sign out"}
-          </button>
-        </footer>
-      </dialog>
-    </>
-  );
 }
 
 function CreationHeader({ name, state, step, reachable, back, go, openStudio }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void }) {
   return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid #d6e4f2", borderRadius: 999, background: "#fff", color: "#0058bd" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{stepNames.map((label, index) => <li key={label}><button className={index === step ? "current" : index <= reachable ? "complete" : ""} disabled={index > reachable} onClick={() => go(index)}><b>{index !== step && index <= reachable ? "✓" : index + 1}</b>{label}</button>{index !== stepNames.length - 1 && <i />}</li>)}</ol></header>;
 }
 
-function Projects({ projects, busy, create, open, openStudio }: { projects: VideoProject[]; busy: boolean; create: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void }) {
+/** The first templates, shown under the empty Projects page. Fetched from the backend: one row that fades out, so it feels like a library. */
+function TemplateShelf({ startTemplate, browseTemplates, busy }: { startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; busy: boolean }) {
+  const { items, loading } = useGalleryShelf({ limit: 10 });
+  return <div className="gallery-shelf"><div className="gallery-shelf-head"><div><h2>Start from a template</h2><p>Each one fills in the script prompt, structure and style for you. Edit anything before you generate.</p></div><button className="secondary-button" onClick={browseTemplates}>Browse all templates</button></div><GalleryGrid row onMore={browseTemplates} items={items} onUse={startTemplate} busy={busy} loading={loading} skeletons={4} /></div>;
+}
+
+function Projects({ projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void }) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs"><button className="selected">All <span>{projects.length}</span></button><button>Drafts <span>{projects.filter((item) => !["Ready for review", "Approved"].includes(item.state)).length}</span></button><button>Review <span>{projects.filter((item) => item.state === "Ready for review").length}</span></button><button>Approved <span>{projects.filter((item) => item.state === "Approved").length}</span></button></div>{projects.length === 0 ? <div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history.</p><button className="primary-button" onClick={create}>Create a video</button></div> : <div className="project-grid">{projects.map((project) => <ProjectCard key={project.id} project={project} open={open} openStudio={openStudio} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}</section>;
+  const [filter, setFilter] = useState("All");
+  const groups = {
+    All: projects,
+    Drafts: projects.filter((item) => !["Ready for review", "Approved"].includes(item.state)),
+    Review: projects.filter((item) => item.state === "Ready for review"),
+    Approved: projects.filter((item) => item.state === "Approved")
+  };
+  const visibleProjects = groups[filter as keyof typeof groups];
+  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} <span>{items.length}</span></button>)}</div>{projects.length === 0 && !loaded ? <div className="workspace-message" role="status" aria-busy={loading}>{loading ? "Loading your projects…" : "Projects could not be loaded. Use Try again above."}</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard key={project.id} project={project} open={open} openStudio={openStudio} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}</section>;
 }
 
 function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void }) {
@@ -382,42 +430,6 @@ function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { pro
   }, [menuOpen, setMenuOpen]);
   return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}><img src={image} alt="" /><span>{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
 }
-
-function Templates({ create }: { create: (id: string) => void }) {
-  return <section className="page-container"><div className="page-heading"><div><h1>Templates</h1><p>Each template sets the scenes, limits, and fields your team can change.</p></div></div><div className="template-grid">{templates.map((template) => <article className="template-card" key={template.id}><img src={imageFor(template)} alt="" /><div><h2>{template.name}</h2><p>{template.bestFor}</p><div className="template-chips">{template.scenes.map((scene) => <span key={scene.id}>{scene.label}</span>)}</div><button className="primary-button" onClick={() => create(template.id)}>Use template</button></div></article>)}</div></section>;
-}
-
-function BrandKits({ brands, refresh }: { brands: BrandKit[]; refresh: () => Promise<void> }) {
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const [primary, setPrimary] = useState("");
-  const [heading, setHeading] = useState("Inter");
-  const [body, setBody] = useState("Inter");
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const create = async () => {
-    setSaving(true);
-    setFormError(null);
-    try {
-      await saveBrandKit({ name, colors: { primary }, fonts: { heading: { source: "bundled", family: heading }, body: { source: "bundled", family: body } } });
-      await refresh();
-      setCreating(false);
-      setName("");
-      setPrimary("");
-    } catch (caught) {
-      setFormError(caught instanceof Error ? caught.message : "Could not save the brand kit.");
-    } finally {
-      setSaving(false);
-    }
-  };
-  return <section className="page-container brand-page"><div className="page-heading"><div><h1>Brand kits</h1><p>Logos, colors, fonts, and approved language your videos follow.</p></div><button className="primary-button" onClick={() => setCreating((visible) => !visible)}>{creating ? "Cancel" : "New brand kit"}</button></div>{creating && <form className="brand-form" onSubmit={(event) => { event.preventDefault(); void create(); }}><label>Brand name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your company" required maxLength={28} /></label><label>Primary color<input value={primary} onChange={(event) => setPrimary(event.target.value)} placeholder="#635BFF" required /></label><label>Heading font<select value={heading} onChange={(event) => setHeading(event.target.value)}>{bundledFonts.map((font) => <option key={font} value={font}>{font}</option>)}</select></label><label>Body font<select value={body} onChange={(event) => setBody(event.target.value)}>{bundledFonts.map((font) => <option key={font} value={font}>{font}</option>)}</select></label>{formError && <p>{formError}</p>}<button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Save brand kit"}</button></form>}{brands.length === 0 ? <div className="empty-workspace"><b>No brand kits yet.</b><p>Add a brand kit above to make it available in the creation flow.</p></div> : brands.map((brand) => <article className="brand-kit-detail" key={brand.id}><div className="kit-logo"><b>{brand.name.slice(0, 1).toUpperCase()}</b>{brand.name}</div><dl><div><dt>Primary color</dt><dd>{brand.colors.primary}</dd></div><div><dt>Fonts</dt><dd>{brand.fonts.heading.family} · {brand.fonts.body.family}</dd></div><div><dt>Website</dt><dd>{brand.url || "Not set"}</dd></div><div><dt>Approved language</dt><dd>{brand.description || "Not set"}</dd></div></dl></article>)}</section>;
-}
-
-function Library({ projects }: { projects: VideoProject[] }) {
-  const screenshots = projects.flatMap((project) => project.screenshots.map((screenshot) => ({ project, screenshot })));
-  return <section className="page-container"><div className="page-heading"><div><h1>Library</h1><p>Reusable assets for every project in this workspace.</p></div></div><div className="filter-tabs"><button className="selected">Screenshots <span>{screenshots.length}</span></button></div>{screenshots.length === 0 ? <div className="empty-workspace"><b>Your library is empty.</b><p>Uploaded screenshots appear here automatically.</p></div> : <div className="library-grid">{screenshots.map(({ project, screenshot }) => <article key={screenshot.id}><img className="asset-image" src={projectScreenshotUrl(project.id, screenshot.id)} alt="" /><b>{screenshot.name}</b><small>{screenshot.width} × {screenshot.height} · {project.name}</small></article>)}</div>}</section>;
-}
-
 
 function Screenshots({ project, busy, upload, remove }: { project: VideoProject | null; busy: boolean; upload: (file: File) => Promise<void>; remove: (id: string) => Promise<void> }) {
   const screenshots = project?.screenshots ?? [];
@@ -469,6 +481,7 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [approving, setApproving] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
   const done = project.state === "Approved";
   const comments = [...(project.comments ?? [])].sort((a, b) => a.timestampSeconds - b.timestampSeconds);
@@ -511,12 +524,12 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
     return ((event.clientX - bounds.left) / bounds.width) * duration;
   };
   const saveComment = async () => {
-    if (draft.trim().length < 3) return;
+    if (saving || applying || approving || draft.trim().length < 3) return;
     setSaving(true);
     setCommentError(null);
     try {
       await addComment({ body: draft, timestampSeconds: currentTime });
-      setDraft("");
+      setDraft((current) => current === draft ? "" : current);
     } catch (caught) {
       setCommentError(caught instanceof Error ? caught.message : "Could not save the review comment.");
     } finally {
@@ -524,6 +537,7 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
     }
   };
   const deleteComment = async (commentId: string) => {
+    if (saving || applying || approving) return;
     setSaving(true);
     setCommentError(null);
     try {
@@ -534,7 +548,16 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
       setSaving(false);
     }
   };
+  const confirmApproval = async () => {
+    if (saving || applying || approving) return;
+    setApproving(true);
+    setCommentError(null);
+    try { await approve(); }
+    catch (caught) { setCommentError(caught instanceof Error ? caught.message : "Could not approve the video."); }
+    finally { setApproving(false); }
+  };
   const apply = async () => {
+    if (saving || applying || approving) return;
     setApplying(true);
     setCommentError(null);
     try {
@@ -553,7 +576,7 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
         <div className="ce-actions">
           {job?.output && <a className="ce-download" href={outputUrl(job.output.url)} download>Download draft</a>}
           <button className="ce-download" onClick={openStudio}>Open Studio</button>
-          {done ? <><span className="ce-locked">✓ Approved · locked</span><button className="ce-download" onClick={() => void rerender()}>Render new draft</button></> : <button className="ce-approve" disabled={!job?.output || comments.length > 0} title={comments.length ? "Apply or remove open comments before approving." : undefined} onClick={() => void approve()}>Approve final</button>}
+          {done ? <><span className="ce-locked">✓ Approved · locked</span><button className="ce-download" onClick={() => void rerender()}>Render new draft</button></> : <button className="ce-approve" disabled={saving || applying || approving || !job?.output || comments.length > 0} title={comments.length ? "Apply or remove open comments before approving." : undefined} onClick={() => void confirmApproval()}>{approving ? "Approving…" : "Approve final"}</button>}
         </div>
       </div>
       <div className={"ce-player" + (project.request.format === "portrait" ? " portrait" : "")}>
@@ -584,7 +607,7 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
     </section>
     <aside className="ce-aside">
       {!done && <div className="ce-composer">
-        <div className="ce-anchor"><span className="ce-chip-time">At {formatVideoTime(currentTime)}</span><span className="ce-chip-scene">{sceneName(activeSceneIndex)}</span><button className="ce-add" disabled={saving || applying || draft.trim().length < 3} onClick={() => void saveComment()}>{saving ? "Saving…" : "Add"}</button></div>
+        <div className="ce-anchor"><span className="ce-chip-time">At {formatVideoTime(currentTime)}</span><span className="ce-chip-scene">{sceneName(activeSceneIndex)}</span><button className="ce-add" disabled={saving || applying || approving || draft.trim().length < 3} onClick={() => void saveComment()}>{saving ? "Saving…" : "Add"}</button></div>
         <textarea rows={2} value={draft} maxLength={600} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void saveComment(); }} placeholder="What should change here?" aria-label="Review comment" />
         <div className="ce-examples">{commentExamples.map((example) => <button key={example} onClick={() => setDraft(example)}>{example}</button>)}</div>
         {commentError && <p className="ce-error">{commentError}</p>}
@@ -595,10 +618,10 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
           {comments.length === 0 ? <p className="ce-empty">{done ? "This revision was approved without open comments." : "No comments yet. Pause the video and add one."}</p> : comments.map((comment, index) => <div className="ce-comment" key={comment.id}>
             <div><span className="ce-pin" style={{ background: pinColors[index % pinColors.length] }}>{index + 1}</span><button className="ce-when" onClick={() => seek(comment.timestampSeconds)}>{formatVideoTime(comment.timestampSeconds)}</button><small>{sceneName(sceneAt(comment.timestampSeconds))}</small></div>
             <p>{comment.body}</p>
-            {!done && <button className="ce-remove" aria-label="Delete comment" disabled={saving || applying} onClick={() => void deleteComment(comment.id)}>✕</button>}
+            {!done && <button className="ce-remove" aria-label="Delete comment" disabled={saving || applying || approving} onClick={() => void deleteComment(comment.id)}>✕</button>}
           </div>)}
         </div>
-        {!done && <footer><button className="ce-apply" disabled={applying || comments.length === 0 || !job?.output} onClick={() => void apply()}>{applying ? "Applying with AI…" : comments.length ? `Apply ${comments.length} with AI` : "Apply with AI"}</button><span>Each comment becomes one proposed change.</span></footer>}
+        {!done && <footer><button className="ce-apply" disabled={saving || approving || applying || comments.length === 0 || !job?.output} onClick={() => void apply()}>{applying ? "Applying with AI…" : comments.length ? `Apply ${comments.length} with AI` : "Apply with AI"}</button><span>Each comment becomes one proposed change.</span></footer>}
       </div>
     </aside>
   </div>;

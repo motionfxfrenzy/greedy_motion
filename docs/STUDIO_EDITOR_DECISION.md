@@ -50,7 +50,7 @@ clip tracks, or a freeform animation authoring surface.
 | --- | --- | --- |
 | `react-timeline-editor` | Do not adopt initially | Its multi-track drag/resize model is broader than the v1 workflow and would require substantial restyling. Re-evaluate only if arbitrary clip tracks become a product requirement. |
 | Remotion Editor Starter | Do not adopt | It introduces a second composition/render stack and a paid editor product where HyperFrames is already the renderer. |
-| OpenCut or another full editor | Do not embed | These are full applications rather than narrowly composable Studio primitives. |
+| OpenCut or another full editor | Do not embed | The linked OpenCut rewrite has no usable editor or render API yet; see the [source assessment](OPENCUT_EVALUATION.md). |
 | Theatre.js | Do not adopt | Its keyframe authoring and serialized state would become a second animation model alongside HyperFrames. |
 
 ## Implementation boundaries
@@ -72,3 +72,8 @@ Reassess this decision when users need arbitrary multi-track media editing,
 freeform keyframes, or a broader professional animation workspace. At that
 point, prototype a generic timeline component and a full-editor integration
 against a real project before changing the project format or renderer.
+
+For the proposed EffectCraft integration, see [EffectCraft asset and preview workflow](EFFECTCRAFT_ASSET_WORKFLOW.md)
+for the 5 MB screenshot policy, 540p/720p Studio previews, AI visual review, and
+original-quality AWS export plan. That source-reviewed plan records implementation
+gaps; it does not describe a deployed replacement for this v1 editor.

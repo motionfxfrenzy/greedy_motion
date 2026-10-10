@@ -1,0 +1,16 @@
+{
+  "id": "sieve-of-primes",
+  "name": "Sieve of Eratosthenes Explainer",
+  "group": "Math",
+  "summary": "A quiet number-theory explainer: multiples fade out in colored waves and only the primes stay lit.",
+  "bestFor": "Number theory intros and math channel explainers",
+  "prompt": "Explain the sieve of Eratosthenes on a grid of the numbers one to forty-eight. Start with two, keep it, and fade out every multiple of two in one wave. Move to three, then five, each time crossing out its multiples and leaving the number itself. Explain why you can stop once the square of the next number is larger than the grid. Finish with the primes glowing while everything else has faded away.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 60,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 2.9
+}

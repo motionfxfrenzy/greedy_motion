@@ -55,6 +55,7 @@ This is the operating record for the project. The backlog remains the source of 
 | 2026-10-08 | CI-01 | GitHub Actions `ci.yml` on main/staging/production: typecheck, templates:verify, brand tokens, engine/fixture freshness, ownership tests on Postgres 17, creative frame checks | First run green on all three jobs (run 37702720537). Fixed on the way: `templates:verify` failed on main because it treated the beat-plan engine folder as a gallery template | Complete |
 | 2026-10-08 | FORMAT-01 | `gm-velocity-sting` authored as a fill-mode format from the bs pack and the 2026-10-04 Greedy Motion build; `scripts/build-format.mjs`, `scripts/verify-seams.mjs` | Builds #1 Greedy Motion (own mark) and #2 Ledgerly (invented sample, dark, monogram) from the same template: `check` 0 findings, 6/6 seams velocity-matched (75.8 px/frame both sides), −14.2 LUFS / −3.1 dBTP, renders 13–14 s. Pacing gate first failed (holds 0.70 s and 0.63 s) and a one-word brand split badly; both fixed in the skill and logged in its CHANGELOG. Added to `check:creative` (deterministic, brand-bound) | Complete (not yet in the app's render path) |
 | 2026-10-08 | SHOT-01 | Phase 3 shot direction: curated reference for Nano Banana Pro + Veo 3.1 prompts, wired into the director (prompt caching on); Motion pipeline T2, T4, T6 | A/B by eye on 3 sample briefs: the first curated version made a CGI packshot (product-as-hero); fixed version matches or beats the baseline, no text in any image. T2: 1080p needs 8 s, last frames need 8 s, 720p 4/6/8 s allowed; 4 s clips had no wasted seconds. T4: join without visible jump (SSIM 0.976). T6: generated beats fall back to kinetic; fixed the engine assuming `window.__timelines` exists. Real director run: valid plan, generated beats in the new shape, 12,448 tokens cached. $4.69 of $12 | Complete (generation not yet run inside the app) |
+| 2026-10-08 | DELIVERY-01 | Skills reach the hosted app: a hash-verified skill bundle shipped in the backend image, `/v1/formats` (facts from the caller, slots written by Claude, schema-validated, same queue and worker), freshness checks for the bundle and the director prompt in CI, release gates (`check`, seek safety, text floors) | Production backend and worker images built from the Dockerfiles and run against an isolated database: bundle verified at startup (`gm-velocity-sting@1.1.1`); missing fact and over-budget value rejected with the slot named; real render `202` in 11.8 s, 358/358 frames, 1080×1080 11.933 s H.264+AAC (`experiments/skill-delivery-test/`). `skills:check`, `test:formats` (7 checks), typecheck, template/brand/engine/media checks and the ownership suite pass. Found and fixed a stale step tick in `gm-velocity-sting` (60 forward frames byte-identical); the new seek-safety and text-floor gates record two known gaps for that skill (`BUNDLE.json`). The director prompt is unchanged: authoring-only rules are fenced out of it. See [Skill delivery](SKILL_DELIVERY.md) | Complete on main; not deployed. R2 hand-off not re-tested here (shared disk driver); no UI yet |
 
 ## Container validation sequence
 
@@ -68,9 +69,7 @@ This is the operating record for the project. The backlog remains the source of 
 
 ## Current blocker
 
-None. MEDIA-03 is half done (2026-10-08): on staging, user media is stored in the R2 media bucket and `/data` is only a
-cache. The backend still runs one replica until the remaining MEDIA-03 steps (signed media URLs, 2 replicas without the
-volume) pass, and production keeps media on its volume until the release reaches it.
+MEDIA-03 production setup is prepared in the repo (2026-10-09); see [rollout instructions](MEDIA_R2_ROLLOUT.md). Staging media durability and signed media links were recorded as verified on October 8. Production still needs its private media bucket, backend credential scope, lifecycle, variables, release and fresh-media checks. Backfill is intentionally skipped because there is no retained user media. Keep one replica and the volume until the staging two-replica/cache-coherence gate passes; existing cached files are not revalidated after remote changes. External setup and hosted verification were not performed during preparation.
 
 ## Next actions in dependency order
 
@@ -112,3 +111,16 @@ Design follow-ups (DESIGN-01): fix the logo mark, inline headings and project gr
 - Link artifacts, command output, or measured values; do not replace evidence with a status adjective.
 - Mark a backlog item complete only when its stated definition of done is satisfied.
 - Record blockers with the exact missing dependency and the next safe action.
+
+
+## 2026-10-09 — Material style production paused
+
+User requested stopping implementation and documenting progress. Added local generated-material queue/provider, durable clips, preview/export wiring, readiness gate, generation controls and a candidate Rough.js deterministic adapter. Full workspace typecheck and style bundle/fixture rebuild passed. New runtime/provider/browser/audit tests remain pending; no live generation, spend or deployment occurred. See [the detailed handoff](STYLE_PRODUCTION_PROGRESS.md) before resuming. This work is not marked complete.
+
+## 2026-10-09 — Skill delivery hardening
+
+Steps 1–5: task-only structured stage classification with explicit override; bounded source/lint repairs; nonblocking static seek warnings; shared Anthropic transport with retry/usage logging; unified director/formats/author bundle with one hash. All four requested checks pass using offline model fakes. No live Anthropic calls or deployment. Dynamic seek proof and release CI gate work are tracked as step 6. The backend has no Chromium, so per-proposal seek validation cannot claim frame equivalence. See SKILL_DELIVERY.md.
+
+### Skill delivery step 6 — partial, with evidence
+
+CI now runs the full format release gates and the seek gate samples every 30 fps frame. Sting 1.1.2 has explicit from/to state flips and preserves all 358 forward sample frames, but reverse/shuffled equivalence remains failing (221 reverse, 232 shuffled mismatches in the retained report). Linux reproduces failures too. The seek-safety known gap remains; removal is not justified. No deployment or live Anthropic call. See SKILL_DELIVERY.md and validation/skill-delivery/sting-1.1.2-frame-proof.json. A local backend Docker build succeeded with the unified bundle verified inside it.

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Fast feature launch</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#c8ff2e}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#c8ff2e;font-family:'Archivo Black','Inter',sans-serif;color:#0b0b14}
+.p{position:absolute;inset:0;overflow:hidden}
+.big{position:absolute;font-size:190px;line-height:.9;letter-spacing:-6px;text-transform:uppercase}
+.card{position:absolute;background:#fff;border-radius:34px;box-shadow:0 24px 0 rgba(0,0,0,.2);color:#0b0b14}
+#p0{background:#c8ff2e}#p1{background:#5b2bff;color:#fff}#p2{background:#ff3d81}#p3{background:#0b0b14;color:#c8ff2e}#p4{background:#fff;color:#5b2bff}#p5{background:#5b2bff;color:#fff}
+.mono{font-family:'Inter',sans-serif;font-weight:800}
+#tick{position:absolute;left:0;right:0;bottom:0;height:14px;display:flex;gap:6px;z-index:50;padding:0 6px}
+#tick i{flex:1;background:rgba(11,11,20,.18);position:relative;overflow:hidden;display:block}
+#tick b{position:absolute;inset:0;background:#0b0b14;transform:scaleX(0);transform-origin:0 50%}
+#cur{position:absolute;left:0;top:0;width:70px;height:70px;z-index:60}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<!-- 0 hook -->
+<div class="p" id="p0">
+ <div class="big" style="left:70px;top:90px;font-size:210px"><div class="w">Ship</div></div>
+ <div class="big" style="left:70px;top:290px;font-size:210px"><div class="w" style="color:#5b2bff">faster.</div></div>
+ <svg style="position:absolute;right:20px;top:50px" width="260" height="260" viewBox="0 0 340 340"><path id="bolt" d="M200 10 L60 190 H150 L120 330 L280 130 H185 Z" fill="#0b0b14"/></svg>
+ <div class="mono" style="position:absolute;left:78px;bottom:90px;font-size:34px">Meet Pacer, the project tool.</div>
+</div>
+<!-- 1 tasks -->
+<div class="p" id="p1">
+ <div class="big" style="left:60px;top:70px;font-size:230px">Tasks</div>
+ <div class="card" style="left:560px;top:380px;width:660px;height:230px;transform:rotate(-3deg)" id="c1">
+  <div style="position:absolute;left:44px;top:40px;width:70px;height:70px;border-radius:18px;border:7px solid #0b0b14"></div>
+  <svg style="position:absolute;left:44px;top:34px" width="90" height="90" viewBox="0 0 90 90"><path id="ck" d="M18 46 L36 64 L74 18" fill="none" stroke="#5b2bff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="mono" style="position:absolute;left:140px;top:50px;font-size:40px">Write the brief</div>
+  <div style="position:absolute;left:44px;top:150px;width:70px;height:70px;border-radius:18px;border:7px solid #0b0b14;opacity:.3"></div>
+  <div style="position:absolute;left:140px;top:166px;width:340px;height:22px;border-radius:11px;background:#0b0b14;opacity:.15"></div>
+ </div>
+</div>
+<!-- 2 sync -->
+<div class="p" id="p2">
+ <div class="big" style="right:60px;bottom:40px;font-size:230px;text-align:right;color:#0b0b14">Sync</div>
+ <div id="tg" style="position:absolute;left:110px;top:100px;width:430px;height:220px;border-radius:110px;background:#0b0b14;box-shadow:0 20px 0 rgba(0,0,0,.2)">
+  <div id="tgk" style="position:absolute;left:18px;top:18px;width:184px;height:184px;border-radius:50%;background:#fff"></div></div>
+ <div class="mono" style="position:absolute;left:600px;top:150px;font-size:60px;color:#fff;font-weight:900" id="tgl">OFF</div>
+</div>
+<!-- 3 share -->
+<div class="p" id="p3">
+ <div class="big" style="left:60px;top:60px;font-size:220px">Share</div>
+ <div id="av"></div>
+ <div id="sb" class="mono" style="position:absolute;left:760px;top:470px;width:420px;height:120px;border-radius:60px;background:#c8ff2e;color:#0b0b14;font-size:44px;display:flex;align-items:center;justify-content:center;box-shadow:0 14px 0 rgba(200,255,46,.25)">Invite team</div>
+</div>
+<!-- 4 track -->
+<div class="p" id="p4">
+ <div class="big" style="left:0;right:0;top:56px;text-align:center;font-size:230px">Track</div>
+ <div style="position:absolute;left:110px;right:110px;top:440px;height:110px;border-radius:55px;background:#e9e2ff"><div id="fill" style="position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:55px;background:#5b2bff;transform-origin:0 50%"></div>
+  <div id="knob" style="position:absolute;top:-14px;left:0;width:138px;height:138px;border-radius:50%;background:#ff3d81;border:12px solid #fff"></div></div>
+</div>
+<!-- 5 end -->
+<div class="p" id="p5">
+ <div id="stripes"></div>
+ <div class="big" id="nm" style="left:0;right:0;top:130px;text-align:center;font-size:260px;letter-spacing:-10px">Pacer</div>
+ <div id="cta" class="mono" style="position:absolute;left:380px;top:470px;width:520px;height:120px;border-radius:60px;background:#c8ff2e;color:#0b0b14;font-size:48px;display:flex;align-items:center;justify-content:center;box-shadow:0 14px 0 rgba(0,0,0,.25)">Start free &rarr;</div>
+</div>
+<div id="tick"><i><b></b></i><i><b></b></i><i><b></b></i><i><b></b></i></div>
+<svg id="cur" viewBox="0 0 60 60"><path d="M10 6 L10 46 L21 36 L29 54 L37 50 L29 33 L44 33 Z" fill="#fff" stroke="#0b0b14" stroke-width="3.5" stroke-linejoin="round"/></svg>
+</div>
+<script>
+const tl=gsap.timeline({paused:true});
+const T=[0,.78,1.5,2.22,2.94,3.7];
+const dirs=["inset(0 100% 0 0)","inset(0 0 0 100%)","inset(100% 0 0 0)","inset(0 0 100% 0)","inset(0 100% 0 0)"];
+// hook
+tl.from("#p0 .w",{y:200,rotation:6,opacity:0,duration:.35,ease:"back.out(1.8)",stagger:.12},0);
+tl.from("#bolt",{scale:0,rotation:-40,transformOrigin:"50% 50%",duration:.4,ease:"back.out(2.2)"},.15);
+tl.from("#p0 .mono",{opacity:0,x:-30,duration:.3},.3);
+const pn=[];
+for(let i=1;i<=5;i++){const t=T[i]-.02;
+ gsap.set("#p"+i,{clipPath:dirs[i-1]});
+ tl.to("#p"+i,{clipPath:"inset(0 0 0 0)",duration:.2,ease:"power3.inOut"},t);
+}
+const slam=(sel,t,opts)=>tl.from(sel,Object.assign({scale:1.5,opacity:0,duration:.28,ease:"back.out(1.6)"},opts||{}),t);
+// 1 tasks
+slam("#p1 .big",T[1]+.12,{x:-120,scale:1});
+tl.from("#c1",{x:700,rotation:12,duration:.4,ease:"power3.out"},T[1]+.15);
+gsap.set("#ck",{strokeDasharray:100,strokeDashoffset:100});
+tl.to("#ck",{strokeDashoffset:0,duration:.22,ease:"power2.out"},T[1]+.45);
+tl.fromTo("#c1",{scale:1},{scale:1.04,duration:.1,yoyo:true,repeat:1,immediateRender:false},T[1]+.5);
+// 2 sync
+slam("#p2 .big",T[2]+.12,{y:150,scale:1});
+tl.from("#tg",{scale:0,transformOrigin:"50% 50%",duration:.32,ease:"back.out(2)"},T[2]+.12);
+tl.to("#tgk",{x:210,duration:.22,ease:"power3.inOut"},T[2]+.42);
+tl.to("#tg",{backgroundColor:"#c8ff2e",duration:.22},T[2]+.42);
+tl.set("#tgl",{textContent:"ON"},T[2]+.5);
+tl.from("#tgl",{opacity:0,duration:.1},T[2]+.2);
+tl.fromTo("#tgl",{scale:1.4},{scale:1,duration:.2,transformOrigin:"0 50%",immediateRender:false},T[2]+.5);
+// 3 share
+slam("#p3 .big",T[3]+.1,{y:-120,scale:1});
+const av=document.getElementById("av");const cols=["#ff3d81","#5b2bff","#c8ff2e","#ffffff"];
+cols.forEach((c,i)=>{const d=document.createElement("div");d.style.cssText=`position:absolute;left:${180+i*130}px;top:${400+(i%2)*40}px;width:150px;height:150px;border-radius:50%;background:${c};border:10px solid #0b0b14;box-shadow:0 0 0 0 ${c}`;
+ d.innerHTML=`<div style="position:absolute;left:42px;top:24px;width:46px;height:46px;border-radius:50%;background:#0b0b14"></div><div style="position:absolute;left:25px;top:78px;width:80px;height:60px;border-radius:40px 40px 0 0;background:#0b0b14"></div>`;
+ av.appendChild(d);tl.from(d,{scale:0,y:60,duration:.3,ease:"back.out(2)"},T[3]+.2+i*.08)});
+tl.from("#sb",{x:300,opacity:0,duration:.3,ease:"power3.out"},T[3]+.2);
+// 4 track
+slam("#p4 .big",T[4]+.1,{y:-140,scale:1});
+tl.from("#fill",{scaleX:0,duration:.55,ease:"power2.inOut"},T[4]+.15);
+tl.fromTo("#knob",{x:0},{x:1050,duration:.55,ease:"power2.inOut",immediateRender:false},T[4]+.15);
+tl.from("#knob",{opacity:0,duration:.1},T[4]+.12);
+// 5 end
+const st=document.getElementById("stripes");
+for(let i=0;i<7;i++){const d=document.createElement("div");d.style.cssText=`position:absolute;left:-100px;right:-100px;top:${i*110-40}px;height:50px;background:${i%2?"#7c52ff":"#4a1fe0"};transform:rotate(-8deg)`;st.appendChild(d);tl.from(d,{x:i%2?900:-900,duration:.5,ease:"power3.out"},T[5]+.02+i*.04)}
+tl.from("#nm",{scale:.4,opacity:0,duration:.4,ease:"back.out(1.8)"},T[5]+.1);
+tl.from("#cta",{y:120,opacity:0,duration:.35,ease:"back.out(1.7)"},T[5]+.3);
+tl.fromTo("#cta",{scale:1},{scale:1.06,duration:.25,yoyo:true,repeat:1,immediateRender:false,transformOrigin:"50% 50%"},T[5]+.9);
+// ticker
+for(let i=0;i<4;i++)tl.to("#tick b:nth-of-type(1)",{duration:0},0);
+document.querySelectorAll("#tick b").forEach((b,i)=>tl.to(b,{scaleX:1,duration:.3,ease:"none"},T[i+1]+.1));
+// cursor
+gsap.set("#cur",{x:1320,y:800});
+tl.to("#cur",{x:900,y:540,duration:.4,ease:"power3.out"},T[3]+.5);
+tl.to("#cur",{scale:.8,duration:.07,yoyo:true,repeat:1,transformOrigin:"10px 6px"},T[3]+.9);
+tl.fromTo("#sb",{scale:1},{scale:.94,duration:.07,yoyo:true,repeat:1,immediateRender:false},T[3]+.9);
+tl.to("#cur",{x:1400,y:900,duration:.3,ease:"power2.in"},T[3]+.98);
+tl.to("#cur",{x:700,y:560,duration:.01},T[5]+.3);
+tl.set("#cur",{opacity:0},T[5]+.2);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

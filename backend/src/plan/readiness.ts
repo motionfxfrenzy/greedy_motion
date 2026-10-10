@@ -1,6 +1,7 @@
+import { visualStatus, currentClips } from "./visual-state.ts";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { beatPlanProblems, type VideoProject } from "@videosaas/contracts";
+import { beatPlanProblems, resolveSceneRoute, type VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { uploadDirectory } from "../storage.ts";
 import { audioStatus } from "./audio.ts";
@@ -29,6 +30,16 @@ export function planReadiness(project: VideoProject): Readiness {
   const plan = project.beatPlan;
   if (!plan) return { ok: false, blocking: [{ beat: null, message: "Generate the storyboard first." }], warnings: [], durationSeconds: null };
   const blocking: Readiness["blocking"] = beatPlanProblems(plan, project.brief).map((message) => ({ beat: beatOf(message), message }));
+  const visuals = visualStatus(project);
+  if (visuals.required && (visuals.status !== "ready" || visuals.ready !== visuals.total)) blocking.push({ beat: null, message: `Generate the selected style’s material scenes before rendering (${visuals.ready}/${visuals.total} ready${visuals.status === "stale" ? "; storyboard changed" : ""}).` });
+  const clips = currentClips(project);
+  for (const beat of plan.beats) {
+    try {
+      const route = resolveSceneRoute(beat, project.brief?.look);
+      if (route.renderer === "media" && !visuals.required && !clips[beat.id]) blocking.push({beat:beat.id,message:"This scene needs footage before export; its graphic fallback is preview-only."});
+      if (route.renderer !== "media" && beat.kind === "ui" && !project.screenshots.some(s=>s.id === beat.ui?.screen)) blocking.push({beat:beat.id,message:"Restore or choose this scene’s screenshot before export."});
+    } catch { /* beatPlanProblems reports invalid scene directions above. */ }
+  }
   const audio = audioStatus(project);
   if (audio.voice && audio.voice.stale.length) {
     blocking.push({ beat: audio.voice.stale[0], message: audio.voice.ready === 0 ? "The voiceover hasn't been generated yet." : `${audio.voice.stale.length} edited line${audio.voice.stale.length === 1 ? " needs" : "s need"} the voice made again (${audio.voice.stale.join(", ")}).` });

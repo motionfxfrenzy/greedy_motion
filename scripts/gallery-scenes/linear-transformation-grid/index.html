@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Linear transformation grid</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0b0d12}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:linear-gradient(180deg,#0b0d12,#101420)}
+svg{position:absolute;inset:0}
+text{font-family:"Source Serif 4","EB Garamond",serif;fill:#e8ecf4}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="stage" class="clip" data-start="0" data-duration="5" data-track-index="1" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg",svg=document.getElementById("stage");
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||svg).appendChild(e);return e};
+const OX=640,OY=420,U=80,N=14,L=26;
+const M=[[1,-1],[0.5,1]];
+const tf=(x,y,s)=>{const nx=(1-s)*x+s*(M[0][0]*x+M[0][1]*y),ny=(1-s)*y+s*(M[1][0]*x+M[1][1]*y);return [OX+nx*U,OY-ny*U]};
+const ghost=el("g",{opacity:0}),lines=el("g",{opacity:0}),lineEls=[];
+for(let i=-N;i<=N;i++){
+ const major=i==0;
+ for(const dir of [0,1]){
+  const gp=dir?[[-L,i],[L,i]]:[[i,-L],[i,L]];
+  el("line",{x1:OX+gp[0][0]*U,y1:OY-gp[0][1]*U,x2:OX+gp[1][0]*U,y2:OY-gp[1][1]*U,stroke:"#58C4DD","stroke-width":1.5},ghost);
+  const l=el("line",{stroke:i==0?"#8a93a8":"#58C4DD","stroke-width":i==0?3:(i%1==0?1.8:1),"stroke-opacity":i==0?1:0.55},lines);
+  lineEls.push({l,gp});
+ }}
+const quad=el("polygon",{fill:"#FFD166","fill-opacity":0,stroke:"none"});
+const vi=el("line",{stroke:"#83C167","stroke-width":6,"stroke-linecap":"round",opacity:0});
+const vj=el("line",{stroke:"#FC6255","stroke-width":6,"stroke-linecap":"round",opacity:0});
+const ha=el("polygon",{fill:"#83C167",opacity:0}),hb=el("polygon",{fill:"#FC6255",opacity:0});
+const li=el("text",{"font-size":44,"font-style":"italic",opacity:0});li.textContent="î";li.style.fill="#83C167";
+const lj=el("text",{"font-size":44,"font-style":"italic",opacity:0});lj.textContent="ĵ";lj.style.fill="#FC6255";
+// matrix
+const mg=el("g",{opacity:0});
+const mp=(x,y,s)=>{const t=el("text",{x,y,"font-size":66,"text-anchor":"middle"},mg);t.textContent=s;return t};
+el("path",{d:"M1000 90 H985 V235 H1000",fill:"none",stroke:"#e8ecf4","stroke-width":4},mg);
+el("path",{d:"M1130 90 H1145 V235 H1130",fill:"none",stroke:"#e8ecf4","stroke-width":4},mg);
+mp(1030,150,"1").style.fill="#83C167";mp(1100,150,"−1").style.fill="#FC6255";mp(1030,222,"½").style.fill="#83C167";mp(1100,222,"1").style.fill="#FC6255";
+const c1=el("text",{x:90,y:110,"font-size":56,opacity:0});c1.textContent="A matrix";
+const c2=el("text",{x:90,y:176,"font-size":56,opacity:0,"font-style":"italic"});c2.textContent="reshapes space";
+const S={s:0};
+function arrow(l,h,s,ex,ey,ang){}
+function render(){
+ const s=S.s;
+ lineEls.forEach(o=>{const a=tf(o.gp[0][0],o.gp[0][1],s),b=tf(o.gp[1][0],o.gp[1][1],s);
+  o.l.setAttribute("x1",a[0]);o.l.setAttribute("y1",a[1]);o.l.setAttribute("x2",b[0]);o.l.setAttribute("y2",b[1])});
+ const o=tf(0,0,s),i=tf(1,0,s),j=tf(0,1,s),ij=tf(1,1,s);
+ quad.setAttribute("points",[o,i,ij,j].map(p=>p.join(",")).join(" "));
+ const head=(from,to,h,lab)=>{const dx=to[0]-from[0],dy=to[1]-from[1],d=Math.hypot(dx,dy),ux=dx/d,uy=dy/d,w=13,hl=24;
+  const bx=to[0]-ux*hl,by=to[1]-uy*hl;
+  h.setAttribute("points",to.join(",")+" "+(bx-uy*w)+","+(by+ux*w)+" "+(bx+uy*w)+","+(by-ux*w));
+  return [bx,by]};
+ const bi=head(o,i,ha),bj=head(o,j,hb);
+ vi.setAttribute("x1",o[0]);vi.setAttribute("y1",o[1]);vi.setAttribute("x2",bi[0]);vi.setAttribute("y2",bi[1]);
+ vj.setAttribute("x1",o[0]);vj.setAttribute("y1",o[1]);vj.setAttribute("x2",bj[0]);vj.setAttribute("y2",bj[1]);
+ li.setAttribute("x",i[0]+12);li.setAttribute("y",i[1]+36);
+ lj.setAttribute("x",j[0]-40);lj.setAttribute("y",j[1]-8);
+}
+render();
+const tl=gsap.timeline({paused:true,defaults:{ease:"power2.inOut"}});
+tl.set(ghost,{opacity:0.12},0)
+  .fromTo(lines,{opacity:0.25},{opacity:1,duration:0.8},0)
+  .to([vi,vj,ha,hb,li,lj],{opacity:1,duration:0.5},0.6)
+  .to(quad,{attr:{"fill-opacity":0.3},duration:0.5},0.9)
+  .to(mg,{opacity:1,duration:0.5},1.1)
+  .to([c1,c2],{opacity:1,duration:0.5,stagger:0.12},0.3)
+  .to(S,{s:1,duration:2.2,ease:"power3.inOut",onUpdate:render},1.7);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

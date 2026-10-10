@@ -1,0 +1,854 @@
+[
+  {
+    "id": "opus-jake11moran-414633",
+    "name": "Slow-camera product teaser",
+    "group": "Product",
+    "summary": "A calm, polished teaser: lowercase lines, a fast spinning list, then one slow camera reveal.",
+    "bestFor": "Software launches that solve a modern pain point",
+    "prompt": "A 27 second silent teaser for a desktop organiser app, all copy lowercase. Open on a big line entering word by word with a colour wipe. Scale it above a fast spinning list of everyday work annoyances that lands slowly on one phrase, then a question mark pops. Pull back to show app windows piling in, push through, and resolve on the product name. Slow ease-in-out moves, light grain.",
+    "look": "clean",
+    "theme": "bold",
+    "aspect": "16:9",
+    "durationSeconds": 27,
+    "motionProfile": "smooth",
+    "pace": "calm",
+    "audio": "none",
+    "source": {
+      "label": "Remade from @jake11moran",
+      "url": "https://x.com/jake11moran/status/2103237884564414633"
+    },
+    "plan": {
+      "brand": "Tidyway",
+      "poster": 2.6,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "the hard part is",
+          "on_screen": "in the new way of working",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "managing your desktop?",
+          "on_screen": "a list spins, then lands",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "windows pile in",
+          "on_screen": "one calm camera pull-back",
+          "verb": "select",
+          "ui": {
+            "screen": "s1",
+            "action": "select",
+            "target": "window stack",
+            "aspect": 1.6
+          },
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Tidyway",
+          "on_screen": "meet your calm desktop",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-kmasiff-549880",
+    "name": "SaaS use-case montage",
+    "group": "Product",
+    "summary": "A modern SaaS montage that rattles through many real-world uses of one tool in quick, clean beats.",
+    "bestFor": "Utility and developer tools with several distinct use cases",
+    "prompt": "A 20 second modern SaaS video for an email checking tool, in the confident style of startup launch clips. Hook with the problem of bounced emails, then fire through quick scenes for sign-up forms, sales outreach, newsletters and event lists, each showing a list being cleaned on screen. End on the product name and a simple call to action.",
+    "look": "clean",
+    "theme": "blue-professional",
+    "aspect": "16:9",
+    "durationSeconds": 20,
+    "motionProfile": "snappy",
+    "pace": "fast",
+    "audio": "music",
+    "source": {
+      "label": "Remade from @KmAsiff",
+      "url": "https://x.com/KmAsiff/status/2103810247131549880"
+    },
+    "plan": {
+      "brand": "Mailcheck",
+      "poster": 2.4,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "bounced again?",
+          "on_screen": "every list has bad addresses",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "clean the list",
+          "on_screen": "signups, outreach, newsletters",
+          "verb": "click",
+          "ui": {
+            "screen": "s1",
+            "action": "click",
+            "target": "verify list",
+            "aspect": 1.6
+          },
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "every use case",
+          "on_screen": "one tool, many lists",
+          "verb": "count",
+          "ui": {
+            "screen": "s1",
+            "action": "count",
+            "target": "valid addresses",
+            "aspect": 1.6
+          },
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Mailcheck",
+          "on_screen": "verify before you send",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-mattbean-917572",
+    "name": "Three-step doodle how-to",
+    "group": "How-to",
+    "summary": "A hand-drawn three-step walkthrough where each step is sketched in and numbered, ending with a go-live.",
+    "bestFor": "Onboarding flows that take three simple steps",
+    "prompt": "A 30 second hand-drawn animated clip showing how to list a product on a deals marketplace using an AI agent. Step one, connect your agent. Step two, the agent fills out the listing and sets up redemption. Step three, go live. Each step is sketched in with a big number and a tiny doodled scene, ending on a cheerful launch.",
+    "look": "doodle",
+    "theme": "creative-mode",
+    "aspect": "16:9",
+    "durationSeconds": 30,
+    "motionProfile": "springy",
+    "pace": "balanced",
+    "audio": "both",
+    "source": {
+      "label": "Remade from @mattbean",
+      "url": "https://x.com/mattbean/status/2103146389412917572"
+    },
+    "plan": {
+      "brand": "Listly",
+      "poster": 2.5,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "connect your agent",
+          "on_screen": "step one",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "it fills the listing",
+          "on_screen": "step two",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "go live",
+          "on_screen": "step three",
+          "verb": "click",
+          "ui": {
+            "screen": "s1",
+            "action": "click",
+            "target": "launch button",
+            "aspect": 1.6
+          },
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Listly",
+          "on_screen": "list in minutes",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-loicrambo-980558",
+    "name": "Life-cycle loop story",
+    "group": "Story",
+    "summary": "A wordless-feeling life story that follows one figure from childhood to old age, then loops back to the start.",
+    "bestFor": "Brand stories about time, legacy or long-term care",
+    "prompt": "A 20 second looping motion story following one simple figure through the stages of life: childhood play, teenage years, the nine-to-five grind, family life, old age, then a quiet fade. Each stage is a short vivid scene with one label, and the final cut returns to the first frame so the video loops seamlessly.",
+    "look": "sketch",
+    "theme": "editorial",
+    "aspect": "16:9",
+    "durationSeconds": 20,
+    "motionProfile": "smooth",
+    "pace": "balanced",
+    "audio": "music",
+    "source": {
+      "label": "Remade from @loicRambo",
+      "url": "https://x.com/loicRambo/status/2103428454355980558"
+    },
+    "plan": {
+      "brand": "Lifeline",
+      "poster": 2.6,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "childhood",
+          "on_screen": "the first scene",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "the grind",
+          "on_screen": "nine to five",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "family life",
+          "on_screen": "then slower years",
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "and again",
+          "on_screen": "the cycle begins",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-kloss-xyz-067876",
+    "name": "Key moments timeline",
+    "group": "Data",
+    "summary": "A horizontal timeline that steps through landmark moments of one field, each with a year and a short label.",
+    "bestFor": "History explainers and company or industry milestone reels",
+    "prompt": "A 40 second timeline video about key moments in the history of computing. A line draws across the screen and stops at five milestones, each with a large year, a short label and a simple icon built from shapes. The pace quickens toward the present and closes on a question about what comes next.",
+    "look": "hairline",
+    "theme": "editorial",
+    "aspect": "16:9",
+    "durationSeconds": 40,
+    "motionProfile": "smooth",
+    "pace": "balanced",
+    "audio": "both",
+    "source": {
+      "label": "Remade from @kloss_xyz",
+      "url": "https://x.com/kloss_xyz/status/2103652674336067876"
+    },
+    "plan": {
+      "brand": "Timeline Lab",
+      "poster": 2.8,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "a short history",
+          "on_screen": "five moments that mattered",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "the first spark",
+          "on_screen": "a year and a label",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "faster each decade",
+          "on_screen": "the line speeds up",
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "what comes next?",
+          "on_screen": "the line keeps drawing",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-linearuncle-971663",
+    "name": "Derivative concept explainer",
+    "group": "Explainer",
+    "summary": "A friendly maths explainer building the derivative from a worked example and a closing question.",
+    "bestFor": "Teachers and course creators explaining a core concept",
+    "prompt": "A 90 second voiceover explainer introducing the derivative in plain language. Start with a car whose speed changes, draw its distance curve, then zoom into a tiny stretch until the curve looks like a straight line and show that slope as the speed. Work one simple example on screen and finish with a question that makes viewers think.",
+    "look": "hairline",
+    "theme": "cartesian",
+    "aspect": "16:9",
+    "durationSeconds": 90,
+    "motionProfile": "smooth",
+    "pace": "calm",
+    "audio": "voiceover",
+    "source": {
+      "label": "Remade from @LinearUncle",
+      "url": "https://x.com/LinearUncle/status/2103128559174971663"
+    },
+    "plan": {
+      "brand": "Mathwise",
+      "poster": 2.9,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "how fast, right now?",
+          "on_screen": "a car speeds up",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "zoom into the curve",
+          "on_screen": "it becomes a straight line",
+          "verb": "select",
+          "ui": {
+            "screen": "s1",
+            "action": "select",
+            "target": "distance curve",
+            "aspect": 1.6
+          },
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "slope is speed",
+          "on_screen": "the derivative",
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Mathwise",
+          "on_screen": "change, made clear",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-jackfriks-338762",
+    "name": "Love-note mascot story",
+    "group": "Story",
+    "summary": "A short vertical story about a mascot sending love notes through a mailbox, ending on a soft app tease.",
+    "bestFor": "Consumer apps with a character and a warm, playful tone",
+    "prompt": "A 9:16 short story with sound effects about a little pig who slips love notes into a mailbox for his partner. Show him writing, posting, waiting, then the partner finding each note with a happy reaction. Keep it fun and quick, and end with a gentle tease for the couples app that inspired it.",
+    "look": "doodle",
+    "theme": "daisy-days",
+    "aspect": "9:16",
+    "durationSeconds": 25,
+    "motionProfile": "springy",
+    "pace": "balanced",
+    "audio": "both",
+    "source": {
+      "label": "Remade from @jackfriks",
+      "url": "https://x.com/jackfriks/status/2103132260589338762"
+    },
+    "plan": {
+      "brand": "Lovenotes",
+      "poster": 2.6,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "a note for you",
+          "on_screen": "he writes it with care",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "into the mailbox",
+          "on_screen": "delivery in progress",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "she finds it",
+          "on_screen": "a happy surprise",
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Lovenotes",
+          "on_screen": "say it every day",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-justincooperman-188876",
+    "name": "Ask-and-appear demo",
+    "group": "Product",
+    "summary": "A product clip where a person asks for branded images and watches them drop straight into their content.",
+    "bestFor": "AI content tools that generate and place assets",
+    "prompt": "A 20 second animated clip for a content tool with built-in image generation. A user types a request for branded images, the images appear one by one, and each slides into a social post and a blog layout. Show the request, the result and the finished content with a click-driven cursor.",
+    "look": "clean",
+    "theme": "coral",
+    "aspect": "16:9",
+    "durationSeconds": 20,
+    "motionProfile": "snappy",
+    "pace": "balanced",
+    "audio": "music",
+    "source": {
+      "label": "Remade from @justincooperman",
+      "url": "https://x.com/justincooperman/status/2103201167367188876"
+    },
+    "plan": {
+      "brand": "Pixelhand",
+      "poster": 2.5,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "ask for an image",
+          "on_screen": "in your brand style",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "type the request",
+          "on_screen": "branded images, on demand",
+          "verb": "type",
+          "ui": {
+            "screen": "s1",
+            "action": "type",
+            "target": "image prompt",
+            "aspect": 1.6
+          },
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "drops into content",
+          "on_screen": "post and blog, filled",
+          "verb": "click",
+          "ui": {
+            "screen": "s1",
+            "action": "click",
+            "target": "insert image",
+            "aspect": 1.6
+          },
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Pixelhand",
+          "on_screen": "images made in flow",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-localjulius-625706",
+    "name": "Podcast-snippet product ad",
+    "group": "Story",
+    "summary": "An ad built as a story from short spoken-word snippets, each line setting up what the product solves.",
+    "bestFor": "Audio and note-taking products with a relatable pain",
+    "prompt": "A 30 second ad for an audio app made as a story from short quoted lines of talk shows. Each line appears as an animated caption over a waveform and builds up the same problem: great ideas heard and then forgotten. Resolve with the product saving a moment with one tap and end on its name.",
+    "look": "clean",
+    "theme": "bold-poster",
+    "aspect": "16:9",
+    "durationSeconds": 30,
+    "motionProfile": "smooth",
+    "pace": "balanced",
+    "audio": "both",
+    "source": {
+      "label": "Remade from @localjulius",
+      "url": "https://x.com/localjulius/status/2102725361922625706"
+    },
+    "plan": {
+      "brand": "Echonote",
+      "poster": 2.4,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "heard it once",
+          "on_screen": "then it was gone",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "every great idea",
+          "on_screen": "slips away",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "save the moment",
+          "on_screen": "one tap, kept",
+          "verb": "click",
+          "ui": {
+            "screen": "s1",
+            "action": "click",
+            "target": "save clip",
+            "aspect": 1.6
+          },
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Echonote",
+          "on_screen": "never lose a line",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-lepadev-475414",
+    "name": "Punchy startup launch",
+    "group": "Product",
+    "summary": "A slick, punchy launch spot with big type, quick cuts and a single confident message about speed.",
+    "bestFor": "Infrastructure and developer startups",
+    "prompt": "A 20 second slick, punchy launch video for an AI infrastructure startup that runs model inference. Use only text, shapes and diagrams. Open on a bold claim about speed, cut quickly through three short proof points drawn as simple animated diagrams, and land on the company name with a clear call to action.",
+    "look": "clean",
+    "theme": "blockframe",
+    "aspect": "16:9",
+    "durationSeconds": 20,
+    "motionProfile": "snappy",
+    "pace": "fast",
+    "audio": "music",
+    "source": {
+      "label": "Remade from @lepadev",
+      "url": "https://x.com/lepadev/status/2103101681806475414"
+    },
+    "plan": {
+      "brand": "Runfast",
+      "poster": 2.4,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "inference, faster",
+          "on_screen": "no waiting around",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "one line to deploy",
+          "on_screen": "simple diagram, clear flow",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "watch it scale",
+          "on_screen": "requests flow in",
+          "verb": "count",
+          "ui": {
+            "screen": "s1",
+            "action": "count",
+            "target": "requests",
+            "aspect": 1.6
+          },
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Runfast",
+          "on_screen": "ship at full speed",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-jhylee95-452427",
+    "name": "Hook-proof-AI launch",
+    "group": "Product",
+    "summary": "A quick-cut social launch video: a first-second hook, product proof scenes, then an AI feature beat.",
+    "bestFor": "Product launches aimed at social feeds",
+    "prompt": "A 25 second social launch video for an interactive demo-making tool. Hook in the first second with a bold claim, then give distinct beats for product proof showing a click-through demo being built, and a beat for the AI feature that writes the steps. Quick cuts, confident type, and a final call to action.",
+    "look": "clean",
+    "theme": "bold",
+    "aspect": "16:9",
+    "durationSeconds": 25,
+    "motionProfile": "snappy",
+    "pace": "fast",
+    "audio": "music",
+    "source": {
+      "label": "Remade from @jhylee95",
+      "url": "https://x.com/jhylee95/status/2103604431627452427"
+    },
+    "plan": {
+      "brand": "Demoflow",
+      "poster": 2.3,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "demos in minutes",
+          "on_screen": "not days",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "record the clicks",
+          "on_screen": "a demo builds itself",
+          "verb": "click",
+          "ui": {
+            "screen": "s1",
+            "action": "click",
+            "target": "record button",
+            "aspect": 1.6
+          },
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "AI writes the steps",
+          "on_screen": "captions appear",
+          "verb": "type",
+          "ui": {
+            "screen": "s1",
+            "action": "type",
+            "target": "step text",
+            "aspect": 1.6
+          },
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Demoflow",
+          "on_screen": "build yours today",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-l3d1c-632524",
+    "name": "Multi-length launch ad",
+    "group": "Social",
+    "summary": "A beat-locked launch ad built to be cut into short, vertical-safe versions with big captions.",
+    "bestFor": "News, media and subscription products on social",
+    "prompt": "A 30 second launch ad for a news digest app on a steady 120 BPM grid, with every cut on the beat. Big captions fit inside the vertical safe zone. Scenes move from the problem of too many headlines to the app sorting them into one calm briefing, then the name and a call to action. The same scenes can be trimmed into 15 and 6 second cuts.",
+    "look": "clean",
+    "theme": "bold-poster",
+    "aspect": "9:16",
+    "durationSeconds": 30,
+    "motionProfile": "snappy",
+    "pace": "fast",
+    "audio": "both",
+    "source": {
+      "label": "Remade from @l3d1c",
+      "url": "https://x.com/l3d1c/status/2104649028193632524"
+    },
+    "plan": {
+      "brand": "Briefly",
+      "poster": 2.5,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "too many headlines",
+          "on_screen": "all at once",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "one calm briefing",
+          "on_screen": "sorted for you",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "ui",
+          "role": "reveal",
+          "keyword": "read in a minute",
+          "on_screen": "pick a topic",
+          "verb": "select",
+          "ui": {
+            "screen": "s1",
+            "action": "select",
+            "target": "topic chip",
+            "aspect": 1.6
+          },
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Briefly",
+          "on_screen": "the news, simplified",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-kureshirfan-386691",
+    "name": "Earthquake physics explainer",
+    "group": "Explainer",
+    "summary": "A clear diagram-led explainer showing how strain builds along a fault and releases as an earthquake.",
+    "bestFor": "Science educators and learning platforms",
+    "prompt": "A 45 second animated explainer on how earthquakes happen. Draw two blocks of crust pressing past each other along a fault, show a strain curve slowly building, then snapping when the fault slips and waves spread outward. Label each stage plainly and finish with a calm summary line.",
+    "look": "hairline",
+    "theme": "cartesian",
+    "aspect": "16:9",
+    "durationSeconds": 45,
+    "motionProfile": "smooth",
+    "pace": "calm",
+    "audio": "voiceover",
+    "source": {
+      "label": "Remade from @kureshirfan",
+      "url": "https://x.com/kureshirfan/status/2103788564840386691"
+    },
+    "plan": {
+      "brand": "Fault Lines",
+      "poster": 2.8,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "pressure builds",
+          "on_screen": "two plates push past",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "strain accumulates",
+          "on_screen": "the curve slowly climbs",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "then it slips",
+          "on_screen": "energy released as waves",
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Fault Lines",
+          "on_screen": "how the ground moves",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "opus-miguel07code-091611",
+    "name": "Series-builds-a-shape explainer",
+    "group": "Explainer",
+    "summary": "A curious, one-idea explainer that builds a complex shape by stacking simple waves.",
+    "bestFor": "STEM channels and curious-mind explainers",
+    "prompt": "A 60 second explainer showing how a wave series builds any shape. Start with one smooth wave, add a second and a third, and watch the sum grow closer to a sharp square shape. Keep the tone playful, label each added wave, and end with an invitation to ask about anything you are curious about.",
+    "look": "hairline",
+    "theme": "cobalt-grid",
+    "aspect": "16:9",
+    "durationSeconds": 60,
+    "motionProfile": "smooth",
+    "pace": "balanced",
+    "audio": "voiceover",
+    "source": {
+      "label": "Remade from @Miguel07Code",
+      "url": "https://x.com/Miguel07Code/status/2103626582896091611"
+    },
+    "plan": {
+      "brand": "Waveworks",
+      "poster": 2.8,
+      "beats": [
+        {
+          "kind": "kinetic",
+          "keyword": "one wave",
+          "on_screen": "smooth and simple",
+          "start": 0,
+          "end": 1.3
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "add another",
+          "on_screen": "the shape sharpens",
+          "start": 1.3,
+          "end": 2.6
+        },
+        {
+          "kind": "kinetic",
+          "keyword": "stack many",
+          "on_screen": "a square emerges",
+          "start": 2.6,
+          "end": 3.9
+        },
+        {
+          "kind": "title",
+          "role": "cta",
+          "keyword": "Waveworks",
+          "on_screen": "be curious about everything",
+          "start": 3.9,
+          "end": 5
+        }
+      ]
+    }
+  }
+]

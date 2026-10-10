@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Animated map route</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0d2438; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #0d2438; font-family: "Inter", sans-serif; }
+  svg { position: absolute; inset: 0; }
+  .cap { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 64px; fill: #ffffff; }
+  .city { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 34px; fill: #ffffff; paint-order: stroke; stroke: #0d2438; stroke-width: 7px; stroke-linejoin: round; }
+  .km { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 28px; fill: #ffd166; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <mask id="reveal" maskUnits="userSpaceOnUse" x="0" y="0" width="1280" height="720">
+      <path id="maskPath" d="" fill="none" stroke="#fff" stroke-width="20" stroke-linecap="round"/>
+    </mask>
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" fill="none" stroke="#143450" stroke-width="1.5"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="720" fill="url(#grid)"/>
+  <g id="cam">
+    <g id="land" fill="#1d4468" stroke="#2e6a99" stroke-width="3" stroke-linejoin="round">
+      <path d="M-60 330 C 20 250 90 200 190 215 C 270 225 300 170 390 190 C 450 205 470 260 430 320 C 400 380 440 430 380 480 C 320 535 220 520 150 560 C 90 595 20 600 -60 580 Z"/>
+      <path d="M560 120 C 640 80 760 90 820 140 C 880 190 860 260 800 300 C 740 340 760 400 700 430 C 640 455 570 420 540 360 C 510 300 500 160 560 120 Z"/>
+      <path d="M900 330 C 980 290 1100 290 1180 330 C 1260 370 1340 380 1340 460 L1340 780 L850 780 C 820 700 860 640 920 600 C 960 560 880 520 880 450 C 880 400 860 360 900 330 Z"/>
+      <path d="M520 560 C 580 520 660 540 700 590 C 730 640 680 690 600 690 C 540 690 480 610 520 560 Z"/>
+    </g>
+    <g id="dots" fill="#1a5a88" opacity=".9"></g>
+    <path id="routeBase" d="" fill="none" stroke="#0d2438" stroke-width="0"/>
+    <path id="route" d="" fill="none" stroke="#ffd166" stroke-width="11" stroke-linecap="round" stroke-dasharray="1 24" mask="url(#reveal)"/>
+    <g id="cities"></g>
+    <g id="veh" opacity="0">
+      <circle r="34" fill="#ffd166"/>
+      <g id="vehRot"><path d="M26 0 L-6 -8 L-14 -26 L-20 -26 L-14 -6 L-24 -4 L-26 -12 L-30 -12 L-30 12 L-26 12 L-24 4 L-14 6 L-20 26 L-14 26 L-6 8 Z" fill="#0d2438"/></g>
+    </g>
+  </g>
+  <text class="cap" x="70" y="108" id="cap">Four stops, one route</text>
+  <g id="kmG" opacity="0"><text class="km" x="72" y="152">EXAMPLE ROUTE</text></g>
+</svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; }
+  var C = [{ n: "Alder", x: 215, y: 330 }, { n: "Brook", x: 650, y: 230 }, { n: "Cove", x: 1020, y: 400 }, { n: "Dune", x: 610, y: 610 }];
+  var d = "M215 330 C 330 250 500 160 650 230 C 800 300 900 470 1020 400 C 1100 350 1000 560 840 600 C 760 620 690 620 610 610";
+  var route = document.getElementById("route"), mp = document.getElementById("maskPath");
+  route.setAttribute("d", d); mp.setAttribute("d", d);
+  var L = route.getTotalLength();
+  mp.setAttribute("stroke-dasharray", L); mp.setAttribute("stroke-dashoffset", L);
+  // texture dots on land
+  var dots = document.getElementById("dots");
+  for (var i = 0; i < 70; i++) {
+    var x = (i * 173) % 1280, y = (i * 97 + (i % 7) * 41) % 720;
+    el("circle", { cx: x, cy: y, r: 3 }, dots);
+  }
+  var cg = document.getElementById("cities"), pins = [];
+  var dist = [0, 0.3, 0.6, 1.0];
+  C.forEach(function (c, k) {
+    var g = el("g", { transform: "translate(" + c.x + " " + c.y + ")", opacity: 0 }, cg);
+    var ring = el("circle", { r: 26, fill: "none", stroke: "#ffd166", "stroke-width": 4, opacity: 0 }, g);
+    el("circle", { r: 14, fill: "#ffffff", stroke: "#ffd166", "stroke-width": 6 }, g);
+    var t = el("text", { class: "city", x: 0, y: k === 3 ? 58 : -34, "text-anchor": "middle" }, g);
+    t.textContent = c.n;
+    pins.push({ g: g, ring: ring });
+  });
+  // find path lengths where the route passes each city
+  var marks = C.map(function (c) {
+    var best = 0, bd = 1e9;
+    for (var l = 0; l <= L; l += 4) { var p = route.getPointAtLength(l); var dd = (p.x - c.x) * (p.x - c.x) + (p.y - c.y) * (p.y - c.y); if (dd < bd) { bd = dd; best = l; } }
+    return best;
+  });
+  var veh = document.getElementById("veh"), rot = document.getElementById("vehRot");
+  function place(l) {
+    var p = route.getPointAtLength(l), q = route.getPointAtLength(Math.min(L, l + 2)), o = route.getPointAtLength(Math.max(0, l - 2));
+    var a = Math.atan2(q.y - o.y, q.x - o.x) * 180 / Math.PI;
+    veh.setAttribute("transform", "translate(" + p.x + " " + p.y + ")");
+    rot.setAttribute("transform", "rotate(" + a + ")");
+  }
+  var st = { l: 0 };
+  place(0);
+  var tl = gsap.timeline({ paused: true });
+  tl.from("#cap", { y: 30, opacity: 0, duration: 0.6, ease: "power3.out" }, 0.05);
+  tl.to("#kmG", { opacity: 1, duration: 0.4 }, 0.4);
+  tl.fromTo("#cam", { scale: 1.12, transformOrigin: "640px 400px" }, { scale: 1, duration: 5, ease: "power1.inOut" }, 0);
+  tl.to(veh, { opacity: 1, duration: 0.2 }, 0.3);
+  var T0 = 0.5, T1 = 4.5;
+  tl.to(st, { l: L, duration: T1 - T0, ease: "power1.inOut", onUpdate: function () { place(st.l); mp.setAttribute("stroke-dashoffset", L - st.l - 10); } }, T0);
+  pins.forEach(function (p, k) {
+    var at = T0 + (T1 - T0) * invEase(marks[k] / L) - (k === 0 ? 0.5 : 0.25);
+    at = Math.max(0.15, at);
+    tl.fromTo(p.g, { opacity: 0, scale: 0.2, svgOrigin: C[k].x + " " + C[k].y }, { opacity: 1, scale: 1, svgOrigin: C[k].x + " " + C[k].y, duration: 0.45, ease: "back.out(2.4)" }, at);
+    tl.fromTo(p.ring, { opacity: 0.9, attr: { r: 14 } }, { opacity: 0, attr: { r: 52 }, duration: 0.7, ease: "power2.out" }, at + 0.15);
+  });
+  function invEase(f) { // inverse of power1.inOut (sine-like quad): approximate by bisection
+    var lo = 0, hi = 1;
+    for (var i = 0; i < 30; i++) { var m = (lo + hi) / 2, e = m < .5 ? 2 * m * m : 1 - 2 * (1 - m) * (1 - m); if (e < f) lo = m; else hi = m; }
+    return (lo + hi) / 2;
+  }
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Life-cycle loop story</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f5eedd; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f5eedd; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+var CFG = { paper: "#f5eedd", ink: "#2b2723", font: "Newsreader, Georgia, serif", rough: [0.035, 2.6], seed: 5, bg: function () {
+  for (var i = 0; i < 90; i++) el("circle", { cx: (R() * 1280).toFixed(0), cy: (R() * 720).toFixed(0), r: (.6 + R() * 1.4).toFixed(1), fill: "#cdbf9d", opacity: .5 });
+  el("rect", { x: 0, y: 0, width: 1280, height: 720, fill: "none", stroke: "#e6d9b8", "stroke-width": 26, opacity: .55 });
+} };
+var INK = CFG.ink, VERM = "#c8452d", GREY = "#8a8170";
+var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) if (a[k] !== undefined) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+var R = rng(CFG.seed || 11);
+function wob(pts, amp, step) {
+  var out = [pts[0]], i, k;
+  for (i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+    for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+  }
+  var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+  for (i = 0; i < out.length - 1; i++) {
+    var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+    d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+  }
+  return d;
+}
+function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .05; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+function box(x, y, w, h) { return [[x - 5, y + 1], [x + w + 3, y - 1], [x + w + 1, y + h + 3], [x - 3, y + h - 1], [x + 1, y - 7]]; }
+function rbox(x, y, w, h, r) { return [[x + r, y], [x + w - r, y], [x + w, y + r], [x + w, y + h - r], [x + w - r, y + h], [x + r, y + h], [x, y + h - r], [x, y + r], [x + r, y]]; }
+function straight(pts) { return "M" + pts.map(function (p) { return p[0].toFixed(1) + " " + p[1].toFixed(1); }).join("L"); }
+var defs = el("defs", {});
+if (CFG.rough) {
+  var flt = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+  el("feTurbulence", { type: "fractalNoise", baseFrequency: CFG.rough[0], numOctaves: 2, seed: 8, result: "n" }, flt);
+  el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: CFG.rough[1] }, flt);
+}
+el("rect", { width: 1280, height: 720, fill: CFG.paper });
+if (CFG.bg) CFG.bg();
+var art = el("g", CFG.rough ? { filter: "url(#rough)" } : {});
+var tl = gsap.timeline({ paused: true });
+function stroke(pts, color, w, t, dur, o) {
+  o = o || {}; var P = o.p || art, paths = [];
+  var amp = o.amp == null ? 2 : o.amp;
+  var d = o.raw ? pts : (o.straight ? straight(pts) : wob(pts, amp, 34));
+  var passes = (o.single || o.straight) ? [[w, 1, d]] : [[w, 1, d], [w * .5, .7, wob(pts, amp * 1.2, 30)]];
+  passes.forEach(function (p, i) {
+    var path = el("path", { d: p[2], fill: "none", stroke: color, "stroke-width": p[0], "stroke-linecap": o.cap || "round", "stroke-linejoin": "round", opacity: p[1] }, P);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30);
+    path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur * (i ? 1.12 : 1), ease: o.ease || "power1.inOut" }, t + (i ? .05 : 0));
+    paths.push(path);
+  });
+  return paths;
+}
+// closed shape: marker fill (misregistered) + outline drawn on
+function shape(pts, o) {
+  var P = o.p || art, amp = o.amp == null ? 1.6 : o.amp, d = wob(pts, amp, 34), fe = null;
+  if (o.fill) {
+    fe = el("path", { d: d + "Z", fill: o.fill, stroke: o.fill, "stroke-width": 3, "stroke-linejoin": "round", opacity: 0, transform: "translate(" + (o.dx == null ? 4 : o.dx) + " " + (o.dy == null ? 3 : o.dy) + ")" }, P);
+    tl.to(fe, { opacity: o.fo == null ? 1 : o.fo, duration: .25 }, o.t + o.dur * .55);
+  }
+  var out = stroke(d, o.stroke || CFG.ink, o.w || 5, o.t, o.dur, { raw: true, p: P, single: true, ease: o.ease });
+  return { fill: fe, line: out[0] };
+}
+var cid = 0;
+function write(str, x, y, size, color, t, dur, o) {
+  o = o || {};
+  var g = el("g", o.rot ? { transform: "rotate(" + o.rot + " " + x + " " + y + ")" } : {}, o.p || art);
+  var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": o.weight || 600, fill: color, "text-anchor": o.anchor || "start", "font-family": o.font || CFG.font, "font-style": o.italic ? "italic" : "normal", "letter-spacing": o.ls }, g);
+  tx.textContent = str;
+  var bb = tx.getBBox(), id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+  var rc = el("rect", { x: bb.x - 8, y: bb.y - 8, width: 0, height: bb.height + 16 }, cp);
+  tx.setAttribute("clip-path", "url(#" + id + ")");
+  tl.to(rc, { attr: { width: bb.width + 20 }, duration: dur, ease: "none" }, t);
+  return { g: g, w: bb.width, bb: bb };
+}
+function pop(node, cx, cy, t, dur, from) {
+  tl.fromTo(node, { scale: from || 0, svgOrigin: cx + " " + cy, opacity: 0 }, { scale: 1, opacity: 1, duration: dur || .35, ease: "back.out(2.2)", immediateRender: true }, t);
+}
+function grp(attrs, P) { return el("g", attrs || {}, P || art); }
+var CX = 390, CY = 360, RR = 190, T0 = .3, TD = 4.0;
+function P(a, r) { return [CX + Math.cos(a * Math.PI / 180) * r, CY + Math.sin(a * Math.PI / 180) * r]; }
+// title
+write("Life, on", 740, 290, 112, INK, .1, .6, { italic: true, weight: 500 });
+write("a loop.", 740, 410, 112, VERM, .5, .6, { italic: true, weight: 500 });
+stroke([[745, 440], [900, 436], [1080, 444], [1200, 438]], VERM, 5, 1.1, .5, { amp: 2 });
+// ring
+stroke(arc(CX, CY, RR, RR, -90, 268, 40), INK, 7, T0, TD, { amp: 1.2, ease: "none" });
+// figure
+var fig = grp({}), fa = { a: -90, s: .95, r: 0 };
+shape(arc(0, -46, 11, 11, 0, 360, 10), { p: fig, fill: "#f2c9b0", t: 0, dur: .3, w: 4, amp: .6, dx: 2, dy: 2 });
+stroke([[0, -35], [0, -12]], VERM, 5, .1, .2, { p: fig, single: true, amp: .5 });
+stroke([[-14, -28], [0, -32], [14, -28]], VERM, 5, .15, .2, { p: fig, single: true, amp: .5 });
+stroke([[-10, 0], [0, -12], [10, 0]], VERM, 5, .2, .2, { p: fig, single: true, amp: .5 });
+var cane = stroke([[18, -26], [20, -10], [18, 0]], INK, 5, 0, .01, { p: fig, single: true, amp: .3 })[0];
+tl.set(cane, { opacity: 0 }, 0); tl.set(cane, { opacity: 1 }, 3.9);
+function place() {
+  var p = P(fa.a, RR);
+  fig.setAttribute("transform", "translate(" + p[0].toFixed(1) + " " + p[1].toFixed(1) + ") rotate(" + fa.r.toFixed(1) + ") scale(" + fa.s.toFixed(3) + ")");
+}
+place();
+tl.to(fa, { a: 270, duration: TD, ease: "none", onUpdate: place }, T0);
+tl.to(fa, { s: 1.8, duration: 1.6, ease: "power1.inOut", onUpdate: place }, T0);
+tl.to(fa, { s: 1.55, r: 12, duration: 1.2, ease: "power1.inOut", onUpdate: place }, 3.1);
+tl.to(fa, { s: .95, r: 0, duration: .5, ease: "power1.inOut", onUpdate: place }, 4.3);
+// stage icons at ring radius + 80, label inside
+var stages = [["play", 0], ["school", 1], ["work", 2], ["family", 3], ["rest", 4]];
+stages.forEach(function (st, k) {
+  var ang = -90 + 72 * k, t = T0 + TD * (72 * k / 360) + .05;
+  if (k === 0) t = .6;
+  var p = P(ang, RR + 92), g = grp({ transform: "translate(" + p[0].toFixed(0) + " " + p[1].toFixed(0) + ") scale(1.4)" });
+  var ip = P(ang, RR), tick = stroke([[ip[0] + (p[0] - ip[0]) * .2, ip[1] + (p[1] - ip[1]) * .2], [ip[0] + (p[0] - ip[0]) * .52, ip[1] + (p[1] - ip[1]) * .52]], GREY, 3, t, .2, { single: true, amp: .8 });
+  var dr = function (pts, c, w, dd, o) { return stroke(pts, c, w || 4, t + dd, .22, Object.assign({ p: g, single: true, amp: .8 }, o || {})); };
+  if (k === 0) { // ball
+    shape(arc(0, 0, 26, 26, 0, 360, 14), { p: g, fill: "#f3d9a0", t: t, dur: .4, w: 4.5 });
+    dr(arc(0, 0, 26, 12, 200, 340, 8), VERM, 4.5, .25); dr(arc(0, 0, 12, 26, -70, 70, 8), VERM, 4.5, .3);
+  } else if (k === 1) { // book
+    shape([[-34, -18], [-2, -10], [-2, 24], [-34, 16], [-34, -18]], { p: g, fill: "#f3d9a0", t: t, dur: .3, w: 4.5 });
+    shape([[34, -18], [2, -10], [2, 24], [34, 16], [34, -18]], { p: g, fill: "#f3d9a0", t: t + .1, dur: .3, w: 4.5 });
+    dr([[-26, -2], [-10, 2]], GREY, 3, .3); dr([[10, 2], [26, -2]], GREY, 3, .35);
+  } else if (k === 2) { // briefcase
+    shape(rbox(-32, -14, 64, 44, 6), { p: g, fill: "#f3d9a0", t: t, dur: .4, w: 4.5 });
+    dr([[-14, -14], [-14, -26], [14, -26], [14, -14]], INK, 4.5, .3); dr([[-32, 6], [32, 6]], INK, 3, .35);
+    shape(box(-5, 1, 10, 10), { p: g, fill: VERM, t: t + .35, dur: .15, w: 2.5 });
+  } else if (k === 3) { // house
+    shape([[-34, -4], [0, -34], [34, -4], [-34, -4]], { p: g, fill: VERM, t: t, dur: .3, w: 4.5 });
+    shape(box(-26, -4, 52, 38), { p: g, fill: "#f3d9a0", t: t + .15, dur: .3, w: 4.5 });
+    shape(box(-6, 12, 14, 22), { p: g, t: t + .3, dur: .15, w: 3.5, amp: .5 });
+  } else { // moon + stars
+    shape(arc(0, 0, 28, 28, -70, 250, 16).concat(arc(8, -2, 22, 24, 230, -50, 12)), { p: g, fill: "#f3d9a0", t: t, dur: .5, w: 4.5, amp: .8 });
+    dr([[30, -26], [30, -14]], VERM, 4, .3); dr([[24, -20], [36, -20]], VERM, 4, .32);
+    dr([[-30, 24], [-30, 32]], VERM, 3.5, .38); dr([[-34, 28], [-26, 28]], VERM, 3.5, .4);
+  }
+  var lp = P(ang, RR - 72), lab = write(st[0], lp[0], lp[1] + 10, 36, INK, t + .1, .35, { anchor: "middle", italic: true, weight: 500 });
+});
+// loop-back arrow head at the top
+stroke([[CX + 24, CY - RR - 16], [CX + 2, CY - RR + 2], [CX + 26, CY - RR + 22]], VERM, 6, 4.3, .2, { single: true, amp: .6 });
+write("again", 770, 580, 60, GREY, 4.1, .4, { italic: true, rot: -3 });
+stroke([[760, 560], [660, 430], [590, 270], [500, 190]], GREY, 5, 4.2, .45, { amp: 2.5 });
+stroke([[505, 222], [498, 188], [530, 192]], GREY, 5, 4.6, .15, { single: true, amp: .5 });
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+  tl.set({}, {}, 5);
+})();
+</script>
+</body>
+</html>

@@ -66,7 +66,9 @@
     const row = document.createElement("div");
     row.className = "d-st" + (i === 0 ? " done" : i === 1 ? " now" : "");
     row.id = "d-st" + i;
-    const b = document.createElement("b"); b.id = "d-st" + i + "b"; if (i === 0) b.textContent = "✓";
+    const b = document.createElement("b"); b.id = "d-st" + i + "b";
+    // The tick is always in the DOM and only its opacity changes, so any seek order shows the right state.
+    if (i === 0) b.textContent = "✓"; else { const tick = document.createElement("i"); tick.textContent = "✓"; tick.style.cssText = "font-style:normal;opacity:0"; b.appendChild(tick); }
     row.appendChild(b); row.appendChild(document.createTextNode(s));
     $("#d-steps").appendChild(row);
   });
@@ -113,6 +115,8 @@
   const L = 160;
 
   const tl = gsap.timeline({ paused: true, defaults: { immediateRender: false } });
+  // Discrete changes still need both states so reverse/direct seeks can restore them.
+  const flip = (target, from, to, time) => tl.fromTo(target, from, { ...to, duration: 0, immediateRender: false }, time);
   const exitXY = (sel, axis, dir, cutFrame, blur) => tl.fromTo(sel, { [axis]: 0, filter: "blur(0px)" }, { [axis]: dir * L, filter: `blur(${blur}px)`, duration: SEAM, ease: EI }, XE(cutFrame));
   const entryXY = (sel, axis, dir, cutFrame, blur) => tl.fromTo(sel, { [axis]: -dir * L, filter: `blur(${blur}px)` }, { [axis]: 0, filter: "blur(0px)", duration: SEAM, ease: EO }, F(cutFrame));
   const exitZ = (sel, to, cutFrame, blur) => tl.fromTo(sel, { scale: 1, filter: "blur(0px)" }, { scale: to, filter: `blur(${blur}px)`, duration: SEAM, ease: EI }, XE(cutFrame));
@@ -131,7 +135,7 @@
   gsap.set(bRows, { opacity: 0 });
   const B_AT = [0.14, 0.26, 0.37, 0.47, 0.56, 0.64, 0.71]; // shrinking gaps: a wave, not a queue
   bRows.forEach((r, i) => arrive(r, F(41) + B_AT[i + (7 - bRows.length)], 40, 0.3));
-  tl.set("#b-field", { borderColor: "var(--accent)" }, F(74)); // focus
+  flip("#b-field", { borderColor: "var(--border)" }, { borderColor: "var(--accent)" }, F(74)); // focus
   exitXY("#b-cam", "x", -1, 80, 10);
 
   // ================= C · closer, typing (f80–f124) =================
@@ -144,10 +148,10 @@
   const total = w.reduce((a, b) => a + b, 0) || 1;
   let acc = 0;
   gsap.set("#c-typed", { textContent: "" });
-  tl.set("#c-ph", { opacity: 0 }, F(84));
-  Array.from(TYPED).forEach((_, i) => { acc += w[i]; tl.set("#c-typed", { textContent: TYPED.slice(0, i + 1) }, F(84 + Math.round((20 * acc) / total))); });
-  tl.set("#c-cta", { attr: { class: "c-cta pressed" }, scale: 0.96 }, F(112)); // the press ignites the exit
-  tl.set("#c-cta", { scale: 0.98 }, F(114));
+  flip("#c-ph", { opacity: 1 }, { opacity: 0 }, F(84));
+  Array.from(TYPED).forEach((_, i) => { acc += w[i]; flip("#c-typed", { textContent: TYPED.slice(0, i) }, { textContent: TYPED.slice(0, i + 1) }, F(84 + Math.round((20 * acc) / total))); });
+  flip("#c-cta", { attr: { class: "c-cta" }, scale: 1 }, { attr: { class: "c-cta pressed" }, scale: 0.96 }, F(112)); // the press ignites the exit
+  flip("#c-cta", { scale: 0.96 }, { scale: 0.98 }, F(114));
   exitXY("#c-cam", "y", -1, 125, 10);
 
   // ================= D · one number (f125–f169) =================
@@ -162,11 +166,16 @@
   }
   gsap.set("#d-num", { textContent: fmt(D_FROM) });
   gsap.set("#d-fill", { scaleX: D_TO ? Math.max(0, D_FROM / D_TO) : 0 });
-  ODO.forEach((v, i) => tl.set("#d-num", { textContent: fmt(v) }, F(125 + i)).set("#d-fill", { scaleX: D_TO ? v / D_TO : 1 }, F(125 + i)));
+  ODO.forEach((v, i) => {
+    const previous = i ? ODO[i - 1] : D_FROM;
+    flip("#d-num", { textContent: fmt(previous) }, { textContent: fmt(v) }, F(125 + i));
+    flip("#d-fill", { scaleX: i ? (D_TO ? previous / D_TO : 1) : (D_TO ? Math.max(0, D_FROM / D_TO) : 0) }, { scaleX: D_TO ? v / D_TO : 1 }, F(125 + i));
+  });
   if (STEPS.length > 1) {
-    tl.set("#d-st1b", { textContent: "✓" }, F(158));
-    tl.set("#d-st1", { attr: { class: "d-st done" } }, F(160));
-    if (STEPS.length > 2) tl.set("#d-st2", { attr: { class: "d-st now" } }, F(160));
+    // Explicit from -> to for every state change (a bare tl.set does not restore text or classes when the playhead jumps back).
+    tl.fromTo("#d-st1b > i", { opacity: 0 }, { opacity: 1, duration: 0, immediateRender: false }, F(158));
+    tl.fromTo("#d-st1", { attr: { class: "d-st now" } }, { attr: { class: "d-st done" }, duration: 0, immediateRender: false }, F(160));
+    if (STEPS.length > 2) tl.fromTo("#d-st2", { attr: { class: "d-st" } }, { attr: { class: "d-st now" }, duration: 0, immediateRender: false }, F(160));
   }
   exitXY("#d-cam", "x", +1, 170, 10);
 
@@ -181,7 +190,7 @@
   // Spread to f202 and closed by a press on the chosen row (f209): the beat carries information up to the exit
   // instead of holding (pacing gate: no hold > 0.6 s).
   const H_F = [186, 189, 192, 196, 199, 202].slice(-path.length);
-  path.forEach((r, k) => { tl.set(rowEls[r], { attr: { class: "e-row on" } }, F(H_F[k])); if (k) tl.set(rowEls[path[k - 1]], { attr: { class: "e-row" } }, F(H_F[k])); });
+  path.forEach((r, k) => { flip(rowEls[r], { attr: { class: "e-row" } }, { attr: { class: "e-row on" } }, F(H_F[k])); if (k) flip(rowEls[path[k - 1]], { attr: { class: "e-row on" } }, { attr: { class: "e-row" } }, F(H_F[k])); });
   gsap.set("#e-foot", { opacity: 0 });
   arrive("#e-foot", F(204), 40, 0.45);
   tl.fromTo(rowEls[0], { scale: 1 }, { scale: 0.94, duration: 0.1, ease: EI }, F(209));
@@ -209,11 +218,11 @@
   tl.fromTo("#f-page", { y: -40 }, { y: -300, duration: 0.6, ease: EO }, F(262) + 0.12);
   tl.fromTo("#cursor", { x: BTN.x - TIP.x, y: BTN.y - TIP.y }, { x: ROW1.x - TIP.x, y: ROW1.y - TIP.y, duration: 0.5, ease: EO }, F(266));
   gsap.set(["#f-hover", "#f-sel", "#f-rd-on", "#f-needs"], { opacity: 0 });
-  tl.set("#f-hover", { opacity: 1 }, F(279));
+  flip("#f-hover", { opacity: 0 }, { opacity: 1 }, F(279));
   tl.fromTo("#cursor", { scale: 1 }, { scale: 0.84, duration: 0.1, ease: EI }, F(286));
   tl.fromTo("#cursor", { scale: 0.84 }, { scale: 1, duration: 0.22, ease: EO }, F(286) + 0.1);
-  tl.set(["#f-sel", "#f-rd-on"], { opacity: 1 }, F(286));
-  tl.set("#f-hover", { opacity: 0 }, F(286));
+  flip(["#f-sel", "#f-rd-on"], { opacity: 0 }, { opacity: 1 }, F(286));
+  flip("#f-hover", { opacity: 1 }, { opacity: 0 }, F(286));
   // The cursor leaves soon after the choice and the next step arrives under it, so F never settles before the
   // pull-back (pacing gate).
   tl.fromTo("#cursor", { y: ROW1.y - TIP.y }, { y: 1240, duration: 0.4, ease: EI }, F(290));
@@ -232,7 +241,7 @@
   const SC = ["#sc-a", "#sc-b", "#sc-c", "#sc-d", "#sc-e", "#sc-f", "#sc-g"];
   const CUTS = [1.333, 2.633, 4.133, 5.633, 7.533, 10.633];
   gsap.set(SC.slice(1), { autoAlpha: 0 });
-  CUTS.forEach((c, i) => { tl.set(SC[i], { autoAlpha: 0 }, c); tl.set(SC[i + 1], { autoAlpha: 1 }, c); });
+  CUTS.forEach((c, i) => { flip(SC[i], { autoAlpha: 1 }, { autoAlpha: 0 }, c); flip(SC[i + 1], { autoAlpha: 0 }, { autoAlpha: 1 }, c); });
 
   window.__timelines = window.__timelines || {};
   window.__timelines["main"] = tl;

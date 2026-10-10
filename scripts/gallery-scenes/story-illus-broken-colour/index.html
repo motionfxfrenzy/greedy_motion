@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Broken colour story, animated</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  html, body { margin: 0; background: #0b0d12; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #14110f; font-family: "Space Grotesk", Inter, sans-serif; color: #fff; }
+  .layer { position: absolute; inset: 0; }
+  #fill { position: absolute; left: -80px; top: -80px; width: 1440px; height: 880px; filter: blur(30px) brightness(.55) saturate(1.15); transform-origin: 50% 50%; }
+  #scene { position: absolute; top: 0; left: 280px; width: 720px; height: 720px; transform-origin: 50% 55%; box-shadow: 0 0 80px rgba(0,0,0,.45); }
+  .sweep { position: absolute; inset: -20%; background: linear-gradient(100deg, rgba(255,255,255,0) 38%, rgba(255,244,214,.28) 50%, rgba(255,255,255,0) 62%); mix-blend-mode: soft-light; }
+  .vignette { background: radial-gradient(120% 90% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,.42) 100%); }
+  .mote { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: radial-gradient(circle, rgba(255,250,230,.95), rgba(255,250,230,0) 70%); }
+  .shade { background: linear-gradient(180deg, rgba(0,0,0,0) 52%, rgba(0,0,0,.72) 100%); opacity: 0; }
+  .caption { position: absolute; left: 70px; right: 70px; bottom: 58px; font-family: "Instrument Serif", "Source Serif 4", serif; font-size: 74px; line-height: 1.02; letter-spacing: -.01em; text-shadow: 0 4px 28px rgba(0,0,0,.55); opacity: 0; }
+  .rule { position: absolute; left: 72px; bottom: 46px; height: 4px; width: 120px; background: #fff; border-radius: 2px; transform-origin: 0 50%; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<canvas id="fill" class="clip" width="360" height="220" data-start="0" data-duration="5" data-track-index="0"></canvas>
+<canvas id="scene" class="clip" width="720" height="720" data-start="0" data-duration="5" data-track-index="1"></canvas>
+<div class="layer sweep clip" data-start="0" data-duration="5" data-track-index="2"></div>
+<div class="layer motes clip" data-start="0" data-duration="5" data-track-index="3"></div>
+<div class="layer vignette clip" data-start="0" data-duration="5" data-track-index="4"></div>
+<div class="layer shade clip" data-start="0" data-duration="5" data-track-index="5"></div>
+<div class="caption clip" data-start="0" data-duration="5" data-track-index="6">One scene. One feeling.</div>
+</div>
+<script>
+  window.__timelines = window.__timelines || {};
+  const tl = gsap.timeline({ paused: true });
+  const S = 720 / 640;
+  const cv = document.getElementById("scene"), ctx = cv.getContext("2d");
+  const fcv = document.getElementById("fill"), fctx = fcv.getContext("2d");
+  const mk = (w, h) => { const c = document.createElement("canvas"); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; };
+  const art = new Image();
+  let plate = null, sprites = null, colMask = null, ready = false;
+
+  // feathered rectangle mask: a white rect inset by `f`, blurred, then used destination-in
+  function maskCanvas(w, h, f) {
+    const m = mk(w, h), g = m.getContext("2d");
+    g.filter = "blur(" + (f * 0.5) + "px)";
+    g.fillStyle = "#fff"; g.fillRect(f, f, w - 2 * f, h - 2 * f);
+    return m;
+  }
+  function cut(src, sx, sy, w, h, f, flip) {
+    const c = mk(w, h), g = c.getContext("2d");
+    if (flip) { g.translate(w, 0); g.scale(-1, 1); }
+    g.drawImage(src, sx, sy, w, h, 0, 0, w, h);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = "destination-in";
+    g.drawImage(maskCanvas(w, h, f), 0, 0);
+    return c;
+  }
+
+  function build() {
+    const orig = mk(640, 640); orig.getContext("2d").drawImage(art, 0, 0, 640, 640);
+    plate = mk(640, 640);
+    const pg = plate.getContext("2d");
+    pg.drawImage(orig, 0, 0);
+    // [dest x, y, w, h, src x, src y, src w, flip] : nearby water and sky cloned over each boat and its reflection
+    const patches = [
+      // rower, boat, oar and reflection: water from the left
+      [146, 392, 168, 118, 0, 396, 150, 0],
+      // sailboat: sky above the horizon from higher up, water from the quiet right edge (mirrored tiles)
+      [458, 264, 116, 54, 458, 206, 116, 0],
+      [458, 316, 40, 182, 562, 316, 40, 1],
+      [492, 316, 82, 182, 562, 316, 78, 0],
+      // tiny boat on the horizon
+      [318, 322, 56, 40, 262, 322, 56, 0],
+    ];
+    for (const [dx, dy, w, h, sx, sy, sw, flip] of patches) {
+      const piece = mk(w, h), g = piece.getContext("2d");
+      if (flip) { g.translate(w, 0); g.scale(-1, 1); }
+      g.drawImage(orig, sx, sy, sw, h, 0, 0, w, h);
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = "destination-in";
+      g.drawImage(maskCanvas(w, h, 6), 0, 0);
+      pg.drawImage(piece, dx + 0, dy);
+    }
+    sprites = {
+      rower: { c: cut(orig, 150, 394, 158, 112, 7), x: 150, y: 394 },
+      sail: { c: cut(orig, 464, 266, 104, 226, 7), x: 464, y: 266 },
+      tiny: { c: cut(orig, 320, 324, 52, 36, 5), x: 320, y: 324 },
+    };
+    // horizontal feather for the glitter column
+    colMask = mk(150, 330);
+    const cg = colMask.getContext("2d"), grad = cg.createLinearGradient(0, 0, 150, 0);
+    grad.addColorStop(0, "rgba(255,255,255,0)"); grad.addColorStop(.28, "rgba(255,255,255,1)"); grad.addColorStop(.72, "rgba(255,255,255,1)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+    cg.fillStyle = grad; cg.fillRect(0, 0, 150, 330);
+    ready = true;
+  }
+
+  // sprite drawn in 2px row strips so each row can shift or stretch on its own (mast sway, sail breathing, reflection shimmer)
+  function strips(spr, ox, oy, rowFn) {
+    const { c, x, y } = spr, h = c.height, w = c.width;
+    for (let r = 0; r < h; r += 2) {
+      const ay = y + r, o = rowFn(ay);
+      const sx = o.sx || 1, px = o.px || 0;
+      const dxp = px + (x - px) * sx + (o.dx || 0) + ox;
+      ctx.drawImage(c, 0, r, w, 2, dxp, ay + oy, w * sx, 2.02);
+    }
+  }
+  const ramp = (v, a, b) => Math.max(0, Math.min(1, (v - a) / (b - a)));
+
+  function draw(t) {
+    if (!ready) return;
+    const p = t / 5;
+    ctx.setTransform(S, 0, 0, S, 0, 0);
+    ctx.clearRect(0, 0, 640, 640);
+    ctx.drawImage(plate, 0, 0);
+    // painted-water ripple: each row of the water slides a little, rows slower in the distance
+    for (let y = 312; y < 640; y += 2) {
+      const a = 0.35 + 2.2 * ramp(y, 312, 440);
+      const d = a * (Math.sin(y * 0.085 + t * 1.7) * 0.7 + Math.sin(y * 0.031 - t * 1.05) * 0.5);
+      ctx.drawImage(plate, 0, y, 640, 2, d, y, 640, 2.02);
+    }
+    // sun-path glitter: the column's rows shimmer vertically
+    {
+      const cc = mk(150, 330), g = cc.getContext("2d");
+      for (let y = 0; y < 330; y += 3) {
+        const sy = Math.max(0, Math.min(327, y + 3.2 * Math.sin((y + 318) * 0.05 - t * 2.1) + 2 * Math.sin((y + 318) * 0.13 + t * 3.3)));
+        g.drawImage(plate, 330, 318 + sy, 150, 3, 0, y, 150, 3.02);
+      }
+      g.globalCompositeOperation = "destination-in"; g.drawImage(colMask, 0, 0);
+      ctx.globalAlpha = 0.92; ctx.drawImage(cc, 330, 318); ctx.globalAlpha = 1;
+    }
+    // tiny boat creeping along the horizon
+    strips(sprites.tiny, 40 * p, 0.5 * Math.sin(t * 1.6), (y) => ({ dx: y > 352 ? 1.2 * Math.sin(y * 0.9 + t * 2.4) : 0 }));
+    // sailboat drifting left, mast swaying, sail breathing
+    {
+      const bob = 0.8 * Math.sin(t * 1.5 + 1), wl = 376;
+      strips(sprites.sail, -48 * p, bob, (y) => {
+        const hgt = Math.max(0, (wl - y) / 100);
+        const sail = y < 374 ? 1 : 0;
+        return { dx: 3.6 * hgt * Math.sin(t * 1.25 + 0.6) + (y > wl + 8 ? 2.4 * ramp(y, wl + 8, wl + 60) * Math.sin(y * 0.55 + t * 2.2) : 0),
+                 sx: 1 + sail * 0.045 * hgt * Math.sin(t * 2.1), px: 506 };
+      });
+    }
+    // rowing boat gliding right with bob and rock, reflection shimmering, oar tip stroking
+    {
+      const ox = 62 * p, oy = 1.4 * Math.sin(t * 2.0), rot = 0.025 * Math.sin(t * 1.55 + 0.4);
+      ctx.save();
+      ctx.translate(228 + ox, 462 + oy); ctx.rotate(rot); ctx.translate(-228, -462);
+      strips(sprites.rower, 0, 0, (y) => ({
+        dx: (y > 468 ? 2.6 * ramp(y, 468, 485) * Math.sin(y * 0.6 + t * 2.5) : 0) + (y > 478 ? 3 * ramp(y, 478, 498) * Math.sin(t * 2.6) : 0)
+      }));
+      ctx.restore();
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // the same art, cover-fitted and blurred by CSS, fills the sides
+    fctx.drawImage(cv, 0, 160, 720, 440, 0, 0, 360, 220);
+  }
+
+  window.addEventListener("hf-seek", (e) => draw(e.detail.time));
+  art.onload = () => { build(); draw(cur); };
+  art.src = "art.jpg";
+  let cur = 0;
+  const f = { t: 0 };
+  tl.to(f, { t: 5, duration: 5, ease: "none", onUpdate: () => { cur = f.t; draw(cur); } }, 0);
+
+  // seeded motes
+  let seed = 12345; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  const host = document.querySelector(".motes");
+  for (let i = 0; i < 26; i++) {
+    const m = document.createElement("i"); m.className = "mote";
+    m.style.left = (rnd() * 1280) + "px"; m.style.top = (200 + rnd() * 520) + "px"; host.appendChild(m);
+    const z = 0.5 + rnd() * 1.2, dx = (rnd() - .5) * 90, rise = 90 + rnd() * 160, delay = rnd() * 1.6;
+    gsap.set(m, { scale: z, opacity: 0 });
+    tl.to(m, { y: -rise, x: dx, duration: 5, ease: "none" }, 0);
+    tl.to(m, { opacity: 0.85, duration: 1.1, ease: "sine.inOut", yoyo: true, repeat: 1 }, delay);
+  }
+  tl.fromTo("#scene", { scale: 1.0 }, { scale: 1.06, duration: 5, ease: "none" }, 0);
+  tl.fromTo("#fill", { scale: 1.0 }, { scale: 1.1, duration: 5, ease: "none" }, 0);
+  tl.fromTo(".sweep", { xPercent: -55 }, { xPercent: 55, duration: 5, ease: "sine.inOut" }, 0);
+  tl.to(".shade", { opacity: 1, duration: 1.5, ease: "power2.out" }, 3.5);
+  tl.fromTo(".caption", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 1.2, ease: "power3.out" }, 3.5);
+  tl.to({}, { duration: 5 }, 0);
+  window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

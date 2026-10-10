@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Camera rig: one container, keys of [time, zoom, x, y], zoom in log space</title>
+    <script src="vendor/gsap.min.js"></script>
+    <!--
+      Recipe: camera-rig (gm-motion-recipes/rules/camera-rig.md)
+      One camera for the whole scene: a single transform on #world, computed from time alone.
+        KEYS = [time, zoom, x, y]   x,y is the world point under the screen centre
+        each segment is eased once; zoom is interpolated in LOG space so a 1 -> 2 push and a 2 -> 4 push feel equally fast
+
+        0.0 - 1.2 s   push 1.0x -> 2.0x onto the left card
+        1.2 - 2.2 s   pan right at 2.0x to the second card
+        2.2 - 3.4 s   push 2.0x -> 3.2x onto the button
+        3.4 - 4.4 s   one pull back to 1.0x (the only move that reverses the zoom, and it is last)
+    -->
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #f5f5f2; }
+      #root { position: relative; width: 1920px; height: 1080px; background: #f5f5f2; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; overflow: hidden; }
+      /* The world is the same size as the frame, so zoom 1 at the centre of the world is the whole picture. */
+      #world { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
+      .card { position: absolute; border-radius: 36px; background: #0e0e10; color: #fff; padding: 44px 52px; }
+      .card .k { font-size: 40px; font-weight: 600; color: #b9bdc7; }
+      .card .v { margin-top: 18px; font-size: 128px; font-weight: 800; letter-spacing: -3px; line-height: 1; }
+      .card .t { margin-top: 14px; font-size: 40px; font-weight: 500; color: #cdf24f; }
+      #cA { left: 180px; top: 150px; width: 640px; height: 400px; }
+      #cB { left: 1020px; top: 470px; width: 720px; height: 460px; }
+      #btn { position: absolute; left: 1380px; top: 780px; width: 300px; height: 96px; border-radius: 48px; background: #cdf24f; color: #0e0e10; font-size: 40px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+      .dot { position: absolute; width: 36px; height: 36px; border-radius: 50%; background: #ff6a2a; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4.4" data-width="1920" data-height="1080">
+      <div id="scene" class="clip" data-start="0" data-duration="4.4" data-track-index="0">
+        <div id="world">
+          <div id="cA" class="card"><div class="k">Invoices sent</div><div class="v">1,284</div><div class="t">this month</div></div>
+          <div id="cB" class="card"><div class="k">Matched to the bank</div><div class="v">2,393</div><div class="t">closed every Friday</div></div>
+          <div id="btn">New invoice</div>
+          <div class="dot" style="left: 900px; top: 300px"></div>
+          <div class="dot" style="left: 940px; top: 760px"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const DURATION = 4.4;
+      const KEYS = [[0, 1.0, 960, 540], [1.2, 2.0, 500, 350], [2.2, 2.0, 1380, 700], [3.4, 3.2, 1530, 828], [4.4, 1.0, 960, 540]];
+      const SEGMENT_EASE = gsap.parseEase("power3.inOut");
+
+      // Pure function of time: nothing is carried between frames, so any frame can be drawn in any order.
+      function cameraAt(t) {
+        let i = 0;
+        while (i < KEYS.length - 2 && t > KEYS[i + 1][0]) i++;
+        const [t0, z0, x0, y0] = KEYS[i], [t1, z1, x1, y1] = KEYS[i + 1];
+        const u = SEGMENT_EASE(Math.min(1, Math.max(0, (t - t0) / (t1 - t0))));
+        const zoom = Math.exp(Math.log(z0) + (Math.log(z1) - Math.log(z0)) * u);   // log space: equal ratios take equal time
+        return { zoom, x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u };
+      }
+      const world = document.getElementById("world");
+      const clock = { t: 0 };
+      function applyCamera() {
+        const c = cameraAt(clock.t);
+        world.style.transform = `translate(960px, 540px) scale(${c.zoom.toFixed(5)}) translate(${(-c.x).toFixed(3)}px, ${(-c.y).toFixed(3)}px)`;
+      }
+
+      const tl = gsap.timeline({ paused: true, defaults: { immediateRender: false } });
+      tl.fromTo(clock, { t: 0 }, { t: DURATION, duration: DURATION, ease: "none", onUpdate: applyCamera }, 0);
+      applyCamera();
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "_about": "Skills the hosted app can run (fill mode). `npm run skills:build` copies each one into backend/skills/formats/, which ships in the backend image. docs/SKILL_DELIVERY.md says what a skill needs before it is listed here.",
+  "skills": [
+    "gm-velocity-sting"
+  ],
+  "_not_yet": {
+    "gm-feature-explainer": "needs voiceover and timing produced in the hosted path (its tools are Python and a TTS step); not self-contained yet",
+    "gm-glossy-3d-reel": "on hold (see docs/MOTION_PIPELINE.md)"
+  },
+  "knownGaps": {
+    "gm-velocity-sting": {
+      "text-size": "23 text runs under the floors, mostly faux-UI copy at 16-29 px (docs/SKILL_LIBRARY.md, Known gap).",
+      "seek-safety": "Still unresolved after 1.1.2 explicit from/to flips: every forward frame matches 1.1.1, but reverse/shuffled pixel comparisons fail on macOS and Linux Chromium. All-frame gate is now run in CI. Do not remove until strict forward/reverse/shuffled/fresh-page equality passes. Evidence: validation/skill-delivery/sting-1.1.2-frame-proof.json."
+    }
+  }
+}

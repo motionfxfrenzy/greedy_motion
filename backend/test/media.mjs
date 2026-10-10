@@ -22,6 +22,13 @@ const { ensureMediaDir, mediaInR2, mediaKey, readMedia, removeMedia, saveMedia }
 const project = join(process.env.PROJECTS_DIR, randomUUID());
 const shot = join(project, "screenshots", "a.png");
 const snapshot = join(project, "site", "section-1.html");
+const brand = join(process.env.BRANDS_DIR, randomUUID());
+const audio = join(process.env.AUDIO_DIR, "plans", randomUUID());
+const fixtures = [
+  [shot, "png-bytes"], [snapshot, "<p>snapshot</p>"],
+  [join(brand, "logo.png"), "logo-bytes"], [join(brand, "theme.css"), ":root{--brand:#123456}"],
+  [join(brand, "fonts", "test.woff2"), "font-bytes"], [join(audio, "vo", "take.wav"), "audio-bytes"]
+];
 const gone = (path) => stat(path).then(() => false, () => true);
 let passed = 0;
 const check = async (name, run) => { await run(); passed++; console.log(`ok - ${name}`); };
@@ -33,9 +40,10 @@ try {
     assert.throws(() => mediaKey(join(scratch, "elsewhere.txt")));
   });
   await check("a saved file reads back", async () => {
-    await saveMedia(shot, Buffer.from("png-bytes"));
-    await saveMedia(snapshot, "<p>snapshot</p>");
-    assert.equal((await readMedia(shot))?.toString(), "png-bytes");
+    for (const [path, bytes] of fixtures) {
+      await saveMedia(path, bytes);
+      assert.equal((await readMedia(path))?.toString(), bytes);
+    }
   });
   await rm(scratch, { recursive: true, force: true });
   if (mediaInR2) {
@@ -45,18 +53,25 @@ try {
     await check("a whole directory comes back after the disk is lost", async () => {
       await rm(scratch, { recursive: true, force: true });
       await ensureMediaDir(project);
+      await ensureMediaDir(brand);
+      await ensureMediaDir(audio);
       assert.equal((await readMedia(snapshot))?.toString(), "<p>snapshot</p>");
       assert.equal(await gone(shot), false);
+      for (const [path, bytes] of fixtures) {
+        assert.equal(await gone(path), false, `directory hydration: ${path}`);
+        assert.equal((await readMedia(path))?.toString(), bytes);
+      }
     });
     await check("removal deletes from R2 too", async () => {
       await removeMedia(project);
+      await removeMedia(brand);
+      await removeMedia(audio);
       assert.equal(await gone(shot), true);
-      assert.equal(await readMedia(shot), null);
-      assert.equal(await readMedia(snapshot), null);
+      for (const [path] of fixtures) assert.equal(await readMedia(path), null);
     });
   } else {
     await check("without R2 a lost file is reported missing", async () => {
-      assert.equal(await readMedia(shot), null);
+      for (const [path] of fixtures) assert.equal(await readMedia(path), null);
     });
   }
   await check("preview pages sign private asset URLs only", async () => {
@@ -74,5 +89,12 @@ try {
   });
   console.log(`${passed} checks passed (${mediaInR2 ? "R2" : "filesystem"})`);
 } finally {
-  await rm(scratch, { recursive: true, force: true });
+  // Also clean the throwaway remote prefixes if a recovery assertion failed.
+  try {
+    const results = await Promise.allSettled([project, brand, audio].map(removeMedia));
+    const failures = results.filter((result) => result.status === "rejected");
+    if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "Media smoke cleanup failed");
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 }

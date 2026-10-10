@@ -1,5 +1,26 @@
 # gm-velocity-sting changelog
 
+## 1.1.2 — 2026-10-09
+
+- Replace every timeline `set` flip with explicit zero-duration from/to states: focus, typing, CTA press, odometer, navigation selection, menu selection and scene cuts.
+- Forward frame comparison against 1.1.1: all 358 frames are byte-identical for the bundled Ledgerly sample. Timing and visual design are unchanged.
+- **Seek safety remains unresolved:** reverse/shuffled screenshots still differ after the explicit-state repair, on macOS and Linux Chromium. Keep the known gap; do not claim seek equivalence. The release gate now samples all 358 frame times and three fresh pages. See `docs/SKILL_DELIVERY.md` and `validation/skill-delivery/`.
+
+## 1.1.1 — 2026-10-08
+
+Fix found by the new seek-safety gate (`gm-skill-authoring/scripts/seek_safety.mjs`) while bundling for the hosted app.
+- Scene D: the second step's tick and the row classes were flipped with bare `tl.set` calls, so after the playhead had
+  passed 5.3 s a backward seek (scrubbing, a retry) still showed the tick. The tick is now always in the DOM and its
+  opacity is tweened; the class swaps are explicit from -> to. A forward render is unchanged frame for frame.
+
+## 1.1.0 — 2026-10-08
+
+Made shippable to the hosted app (`docs/SKILL_DELIVERY.md`). No change to the film.
+- `slots.json`: `f_menu_rows` declares its item fields (`itemFields`: name 18, meta 14) so the backend can
+  validate the list of objects the template already reads.
+- `references/fill-guidance.md`: the production fill prompt's skill section.
+- `references/sample-values.json`: a complete invented sample (Ledgerly), used by the bundle's gates.
+
 ## 1.0.0 — 2026-10-08
 
 Authored from `bs-hyperframes-velocity-sting` and the Greedy Motion build of it

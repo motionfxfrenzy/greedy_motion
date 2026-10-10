@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Oscilloscope studio intro</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#030d08}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#030d08;font-family:'DM Mono',monospace;color:#7dffb0}
+#vig{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%,rgba(40,120,80,.22),rgba(0,0,0,.0) 55%,rgba(0,0,0,.75) 100%)}
+#scan{position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.28) 0 2px,rgba(0,0,0,0) 2px 5px);mix-blend-mode:multiply}
+#fl{position:absolute;inset:0;background:#7dffb0;opacity:0}
+svg{position:absolute;inset:0}
+.nm{font-family:'Bebas Neue',sans-serif;font-size:230px;letter-spacing:6px;text-anchor:middle}
+.lb{font-size:28px;letter-spacing:6px;text-anchor:middle;fill:#7dffb0}
+.ct{font-size:30px;letter-spacing:3px;text-anchor:middle;fill:#7dffb0}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg width="1280" height="720" viewBox="0 0 1280 720">
+<defs><filter id="gl" x="-10%" y="-30%" width="120%" height="160%"><feGaussianBlur stdDeviation="5" result="b"/><feGaussianBlur stdDeviation="14" in="SourceGraphic" result="c"/><feMerge><feMergeNode in="c"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+<rect x="24" y="24" width="1232" height="672" rx="36" fill="none" stroke="#143826" stroke-width="3"/>
+<g id="grid" stroke="#7dffb0" stroke-opacity=".13" stroke-width="1.5"></g>
+<g id="axes" stroke="#7dffb0" stroke-opacity=".32" stroke-width="2"></g>
+<g filter="url(#gl)" fill="none" stroke="#7dffb0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+ <path id="wave" d=""/>
+ <circle id="head" r="7" fill="#e8fff2" stroke="none"/>
+ <text class="nm" id="name" x="640" y="330" stroke-dasharray="800" stroke-dashoffset="800" stroke-width="3" opacity="0">PHASE NINE</text>
+ <g id="ic" stroke-width="4">
+  <path class="i" pathLength="1" d="M215 495 C240 440 270 440 290 495 S340 550 365 495"/>
+  <g class="i2"><path class="i" pathLength="1" d="M575 440 H705 V550 H575 Z"/><path class="i" pathLength="1" d="M575 495 H705 M640 440 V550"/></g>
+  <path class="i" pathLength="1" d="M960 440 L1070 495 L960 550 Z"/>
+ </g>
+</g>
+<text class="lb" id="l1" x="290" y="610">BRAND</text><text class="lb" id="l2" x="640" y="610">MOTION</text><text class="lb" id="l3" x="1015" y="610">WEB</text>
+<text class="ct" id="ct" x="640" y="668">hello@phasenine.example</text>
+</svg>
+<div id="vig"></div><div id="scan"></div><div id="fl"></div>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const mk=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+const g=document.getElementById("grid"),ax=document.getElementById("axes");
+for(let i=0;i<=12;i++)mk("line",{x1:80+i*100,y1:80,x2:80+i*100,y2:640},g);
+for(let j=0;j<=8;j++)mk("line",{x1:80,y1:80+j*70,x2:1280-80,y2:80+j*70},g);
+mk("line",{x1:80,y1:360,x2:1200,y2:360},ax);mk("line",{x1:640,y1:80,x2:640,y2:640},ax);
+for(let i=0;i<=56;i++){const x=80+i*20;mk("line",{x1:x,y1:i%5?352:344,x2:x,y2:i%5?368:376},ax)}
+for(let j=0;j<=28;j++){const y=80+j*20;mk("line",{x1:j%5?632:624,y1:y,x2:j%5?648:656,y2:y},ax)}
+const wave=document.getElementById("wave"),head=document.getElementById("head");
+const ease=p=>1-Math.pow(1-p,3);
+const S={t:0};
+function Y(x,t){const A=t<1.5?150:t<2.3?150*(1-(t-1.5)/.8)*(1-(t-1.5)/.8):0;
+ const ph=t*9;const k=(x-80)/1120;
+ return 380-A*(0.72*Math.sin(k*18-ph)+0.28*Math.sin(k*47+ph*1.9))*(0.4+0.6*Math.sin(k*3.14159+.2))}
+function draw(){const t=S.t;const hx=80+1120*ease(Math.min(1,t/1.1));let d="";
+ for(let x=80;x<=hx;x+=5){d+=(x==80?"M":"L")+x+" "+Y(x,t).toFixed(1)}
+ wave.setAttribute("d",d);head.setAttribute("cx",hx);head.setAttribute("cy",Y(hx,t));head.setAttribute("opacity",t<1.15?1:0)}
+draw();
+const tl=gsap.timeline({paused:true});
+tl.to(S,{t:5,duration:5,ease:"none",onUpdate:draw},0);
+// name trace
+tl.set("#name",{opacity:1},1.5);tl.to("#name",{strokeDashoffset:0,duration:.8,ease:"power1.inOut"},1.5);
+tl.to("#name",{fill:"rgba(125,255,176,.2)",duration:.4},2.15);
+tl.fromTo("#name",{opacity:.5},{opacity:1,duration:.06,yoyo:true,repeat:4,immediateRender:false},2.3);
+// icons
+const ic=document.querySelectorAll("#ic .i");
+gsap.set(ic,{strokeDasharray:1,strokeDashoffset:1});
+[0,1,2,3].forEach(()=>{});
+tl.to(ic[0],{strokeDashoffset:0,duration:.5,ease:"power1.inOut"},2.4);
+tl.to([ic[1],ic[2]],{strokeDashoffset:0,duration:.5,ease:"power1.inOut",stagger:.12},2.75);
+tl.to(ic[3],{strokeDashoffset:0,duration:.5,ease:"power1.inOut"},3.1);
+["l1","l2","l3"].forEach((id,i)=>tl.from("#"+id,{opacity:0,duration:.25},2.9+i*.35));
+tl.from("#ct",{opacity:0,duration:.4},3.9);
+// scan flicker + roll
+const sc=document.getElementById("scan");
+tl.fromTo(sc,{backgroundPositionY:0},{backgroundPositionY:50,duration:5,ease:"none"},0);
+let s=7;const r=()=>{s=(s*16807)%2147483647;return s/2147483647};
+for(let i=0;i<48;i++)tl.set("#fl",{opacity:r()<.2?.06+r()*.06:0},i*.1);
+tl.set("#fl",{opacity:0},4.55);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>
