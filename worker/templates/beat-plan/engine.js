@@ -790,6 +790,13 @@
     var sh = shell(i, b, s, e, last);
     sceneStyle(b.route ? b.route.treatment : V.look, sh.beat);
     sh.beat.setAttribute("data-renderer", b.route ? b.route.renderer : "legacy");
+    // the kit's logo mark (or silhouette), small in a corner of every content scene (top-left on wide, bottom-left on vertical and square canvases, where the headline starts at the top); the closing lockup carries the full logo
+    var bugSrc = typeof V.logoBug === "string" && V.logoBug ? V.logoBug : "";
+    if (bugSrc && kind !== "title") {
+      var bugImg = free(mk("img", "logo-bug", sh.beat, { left: px(0.045 * W), top: px((MODE === "wide" ? 0.06 : 0.86) * H), height: px(0.085 * Math.min(W, H)), maxWidth: px(0.22 * W) }));
+      bugImg.src = bugSrc; bugImg.alt = "";
+      bugImg.setAttribute("data-layout-allow-occlusion", "");
+    }
     if (b.has_visual) sh.beat.classList.add("has-material-video");
     var dur = e - s;
     var successAt = b.success ? (typeof b.success_at === "number" ? b.success_at : s + Math.max(0.9, 0.5 * dur)) : null;

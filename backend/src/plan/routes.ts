@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { BEAT_LIMITS, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
-import { getProject, ProjectInvalid, updateProjectPlan } from "../projects/store.ts";
+import { getProject, ProjectInvalid, setProjectPlanning, updateProjectPlan } from "../projects/store.ts";
 import { config } from "../config.ts";
 import { readMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
@@ -119,10 +119,20 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const bytes = await readMedia(join(visualDir(id), file));
     return bytes && digest(bytes) === asset.sha256 ? sendMedia(request, reply, bytes, file.endsWith(".mp4") ? "video/mp4" : "image/png") : reply.code(404).send(notFound);
   });
-  /** Script & Style → the director → beat plan, script and suggestions. */
+  /** Jobs in flight on this server, so a cancel can reach the model call. A job record older than the director's own deadline is stale (a restart lost it). */
+  const jobs = new Map<string, AbortController>();
+  const STALE_MS = 4 * 60_000;
+  const stale = (planning: { startedAt: string } | undefined) => !planning || Date.now() - Date.parse(planning.startedAt) > STALE_MS;
+
+  /**
+   * Script & Style → the director → beat plan, script and suggestions. The director runs as a job on the server: this answers 202
+   * at once with the project (`planning.status === "running"`), the page polls the project, and the plan is applied when the model
+   * finishes, whether or not the page is still open. A second request while one is running joins it instead of starting another.
+   */
   app.post<{ Params: { id: string } }>("/v1/projects/:id/plan", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
+    if (project.planning?.status === "running" && jobs.has(project.id) && !stale(project.planning)) return reply.code(202).send({ project });
     const parsed = parseScriptBrief(request.body);
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
     const brief = parsed.brief;
@@ -133,28 +143,49 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const brandId = brief.brandId ?? project.request.brandId;
     const brand = brandId ? await getBrand(brandId) : null;
     const brandName = brand?.name ?? brief.productName ?? project.name;
-    try {
-      // The site read for this project, when the brief names that product URL (POST /v1/projects/:id/site).
-      const host = (value: string) => { try { return new URL(/^https?:/i.test(value) ? value : `https://${value}`).hostname.replace(/^www\./, ""); } catch { return ""; } };
-      const site = brief.productUrl && project.site && host(project.site.url) === host(brief.productUrl) ? project.site : undefined;
-      const result = await director.plan(brief, { brandName, ...(brand?.description ? { brandDescription: brand.description } : {}), screenshots, ...(site ? { site: { url: site.url, title: site.title, description: site.description, facts: site.facts, text: site.text } } : {}) });
-      const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
-      const music = brief.audio.mode === "music" || brief.audio.mode === "both";
-      const updated = await updateProjectPlan(project.id, (current) => ({
-        brief,
-        beatPlan: result.plan,
-        script: scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"),
-        state: "Draft storyboard",
-        // Keep the existing render request in step with the brief (format and audio) for the current pipeline.
-        request: { ...current.request, format: aspectToFormat(brief.aspect), audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" }, ...(brandId ? { brandId } : {}) }
-      }));
-      if (!updated) return reply.code(404).send(notFound);
-      return reply.code(201).send({ project: updated, problems: result.problems, model: result.model });
-    } catch (error) {
-      if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
-      app.log.warn({ err: error }, "script director failed");
-      return reply.code(502).send({ error: { code: "director_failed", message: error instanceof Error ? error.message : "The script director failed." } });
-    }
+    // The site read for this project, when the brief names that product URL (POST /v1/projects/:id/site).
+    const host = (value: string) => { try { return new URL(/^https?:/i.test(value) ? value : `https://${value}`).hostname.replace(/^www\./, ""); } catch { return ""; } };
+    const site = brief.productUrl && project.site && host(project.site.url) === host(brief.productUrl) ? project.site : undefined;
+    const started = await setProjectPlanning(project.id, { status: "running", startedAt: new Date().toISOString() });
+    if (!started) return reply.code(404).send(notFound);
+    const controller = new AbortController();
+    jobs.set(project.id, controller);
+    void (async () => {
+      try {
+        const result = await director.plan(brief, { brandName, ...(brand?.description ? { brandDescription: brand.description } : {}), screenshots, ...(site ? { site: { url: site.url, title: site.title, description: site.description, facts: site.facts, text: site.text } } : {}) }, controller.signal);
+        if (controller.signal.aborted) return;
+        const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+        const music = brief.audio.mode === "music" || brief.audio.mode === "both";
+        await updateProjectPlan(project.id, (current) => ({
+          brief,
+          beatPlan: result.plan,
+          script: scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"),
+          state: "Draft storyboard",
+          // Keep the existing render request in step with the brief (format and audio) for the current pipeline.
+          request: { ...current.request, format: aspectToFormat(brief.aspect), audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" }, ...(brandId ? { brandId } : {}) }
+        }));
+        if (result.problems.length) app.log.info({ projectId: project.id, problems: result.problems }, "plan applied with notes");
+      } catch (error) {
+        if (controller.signal.aborted) return; // cancelled: the cancel route already recorded it
+        app.log.warn({ err: error }, "script director failed");
+        const message = error instanceof ProjectInvalid ? error.message : error instanceof Error ? error.message : "The script director failed.";
+        await setProjectPlanning(project.id, { status: "failed", startedAt: started.planning?.startedAt ?? new Date().toISOString(), error: message }).catch(() => undefined);
+      } finally {
+        if (jobs.get(project.id) === controller) jobs.delete(project.id);
+      }
+    })();
+    return reply.code(202).send({ project: started });
+  });
+
+  /** Stops the director for this project; the model call is cancelled and nothing is applied. */
+  app.delete<{ Params: { id: string } }>("/v1/projects/:id/plan/job", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    jobs.get(project.id)?.abort();
+    jobs.delete(project.id);
+    if (project.planning?.status !== "running") return reply.send({ project });
+    const updated = await setProjectPlanning(project.id, { status: "cancelled", startedAt: project.planning.startedAt });
+    return reply.send({ project: updated });
   });
 
   /** Storyboard edits: text, order, and accept/reject of suggestions. 422 with problems when an edit breaks the standards. */

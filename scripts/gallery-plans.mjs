@@ -13,5 +13,4 @@ export const galleryPlans = {
   // Remakes of explainer prompts from the awesome-opus collection and the motion-prompt gallery.
   "narrated-product-minute": { brand: "Sotto", poster: 2.8, beats: [k("Read more, remember more", "A reading app that helps it stick", 0, 1.8), ui("Highlight what matters", "Notes surface when you need them", "select", "Highlighted text", 1.8, 3.7), title("Sotto", "Start reading", 3.7)] },
   "whiteboard-concept": { brand: "Concept", poster: 2.6, beats: [k("What is replica symmetry?", "Drawn out, one idea at a time", 0, 1.8), k("Many answers, one system", "Same rules, different states", 1.8, 3.6), title("Now you see it", "Draw it, then say it", 3.6)] },
-  "decision-story": { brand: "Case study", poster: 2.7, beats: [k("The problem was trust", "People abandoned checkout", 0, 1.8), k("So we changed one decision", "Show the total up front", 1.8, 3.6), title("Checkout, redesigned", "What we learned", 3.6)] },
 };

@@ -13,6 +13,8 @@ type Options = {
   stopErrors?: Partial<Record<string, string>>;
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
+  /** Cancels the request (and its retries) from outside, e.g. when the user cancels script generation. */
+  signal?: AbortSignal;
 };
 export const responseText = (payload: AnthropicResponse) => payload.content?.filter(b => b.type === "text").map(b => b.text ?? "").join("") ?? "";
 
@@ -22,7 +24,8 @@ export async function anthropicMessage(body: Record<string, unknown>, options: O
   const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   const model = body.model ?? config.anthropicModel;
   // One deadline for the whole operation, including retries.
-  const signal = AbortSignal.timeout(options.timeoutMs ?? 60_000);
+  const deadline = AbortSignal.timeout(options.timeoutMs ?? 60_000);
+  const signal = options.signal ? AbortSignal.any([deadline, options.signal]) : deadline;
   for (let attempt = 0; attempt < 3; attempt++) {
     signal.throwIfAborted();
     const response = await request("https://api.anthropic.com/v1/messages", {

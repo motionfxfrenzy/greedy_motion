@@ -1,14 +1,15 @@
 import { join } from "node:path";
+import sharp from "sharp";
 import type { FastifyInstance } from "fastify";
 import type { BrandExtraction, BrandKit, SiteCapture, SiteSection } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { extractBrand } from "../brand/extract.ts";
 import { listBrands } from "../brand/store.ts";
-import { FetchRefused } from "../brand/safe-fetch.ts";
+import { FetchRefused, safeFetch } from "../brand/safe-fetch.ts";
 import { config } from "../config.ts";
 import { removeMedia, saveMedia } from "../media.ts";
 import { addScreenshot, getProject, removeScreenshot, updateProjectSite } from "../projects/store.ts";
-import { readSite, SiteUnavailable } from "./capture.ts";
+import { readSite, SITE_RULES, SiteUnavailable } from "./capture.ts";
 
 const host = (value: string | undefined) => { try { return value ? new URL(/^https?:/i.test(value) ? value : `https://${value}`).hostname.replace(/^www\./, "").toLowerCase() : ""; } catch { return ""; } };
 
@@ -81,6 +82,24 @@ export async function registerSiteRoutes(app: FastifyInstance) {
           }
           sections.push({ heading: section.heading, screenshotId: shot?.id ?? null, snapshot });
           if (shot) added.push({ id: shot.id, name: shot.name, section: section.heading });
+        }
+        // Relevant pictures from the page (product photos, feature visuals), stored next to the screenshots. Each is fetched
+        // through the same SSRF-safe client as the page; anything that is not a decent image is skipped.
+        for (const old of latest?.screenshots ?? []) if (old.name.startsWith("Site image · ") && !inPlan.has(old.id)) await removeScreenshot(project.id, old.id);
+        let pictures = 0;
+        for (const image of read.images) {
+          if (pictures >= SITE_RULES.maxImages) break;
+          try {
+            const response = await safeFetch(image.url, { maxBytes: 8_000_000, timeoutMs: 8000 });
+            if (response.status >= 400 || !/^image\/(jpeg|png|webp|avif)/i.test(response.contentType)) continue;
+            const meta = await sharp(response.body, { limitInputPixels: 40_000_000 }).metadata();
+            if (!meta.width || meta.width < 640 || !meta.height || meta.height < 360) continue;
+            const jpeg = /jpeg/i.test(response.contentType);
+            const bytes = jpeg || /png/i.test(response.contentType) ? response.body : await sharp(response.body, { limitInputPixels: 40_000_000 }).png().toBuffer();
+            const saved = await addScreenshot(project.id, `Site image · ${image.alt || "Photo"}`.slice(0, 120), jpeg ? "image/jpeg" : "image/png", bytes, "Dashboard").catch(() => null);
+            const shot = saved?.screenshots[saved.screenshots.length - 1];
+            if (shot) { pictures++; added.push({ id: shot.id, name: shot.name, section: image.alt || "Photo" }); }
+          } catch { /* not fetchable or not an image: skip it */ }
         }
         const site: SiteCapture = { url: read.url, title: read.title, description: read.description, facts: read.facts, text: read.text, sections, mode: read.mode, capturedAt: new Date().toISOString() };
         const updated = await updateProjectSite(project.id, site);

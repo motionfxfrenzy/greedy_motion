@@ -4,11 +4,12 @@ import { existsSync } from "node:fs";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { themeIds } from "../packages/contracts/src/themes.ts";
+import { looks } from "../packages/contracts/src/looks.ts";
 
 const root = resolve(import.meta.dirname, "..");
 const dir = join(root, "scripts/gallery-scenes");
-const GROUPS = ["Math", "Tech", "3D", "Flat vector", "Whiteboard", "Blackboard", "Kinetic type", "Screencast", "Data & maps", "Storybook"];
-const LOOKS = ["clean", "sketch", "hairline", "doodle", "doodle-crosshatch", "doodle-zigzag"];
+const GROUPS = ["Math", "Tech", "3D", "Flat vector", "Whiteboard", "Blackboard", "Kinetic type", "Screencast", "Data & maps", "Storybook", "Paper", "Clay"];
+const LOOKS = looks.map((look) => look.id); // any known style: a hand-built clip may show any look
 const keep = [], dropped = [];
 for (const entry of (await readdir(dir, { withFileTypes: true })).filter((e) => e.isDirectory() && e.name !== "vendor").sort((a, b) => a.name.localeCompare(b.name))) {
   const id = entry.name;

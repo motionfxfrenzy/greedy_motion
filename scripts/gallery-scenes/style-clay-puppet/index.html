@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Stop-motion puppet</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  html, body { margin: 0; background: #120d0c; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #1b1412; }
+  #cv { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; display: block; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<canvas id="cv" class="clip" width="1280" height="720" data-start="0" data-duration="5" data-track-index="0"></canvas>
+</div>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  const W = 1280, H = 720;
+  const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+  const mk = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+  const mul = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+  const seg = (q, a, b) => clamp((q - a) / (b - a));
+  const eio = (x) => x * x * (3 - 2 * x);
+  const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const sh = (c, k) => { const a = hexRgb(c), t = Math.abs(k), tg = k > 0 ? [255, 238, 205] : [18, 8, 16]; return "rgb(" + a.map((v, i) => Math.round(v + (tg[i] - v) * t)).join(",") + ")"; };
+  const rgba = (c, al) => { const a = hexRgb(c); return "rgba(" + a[0] + "," + a[1] + "," + a[2] + "," + al + ")"; };
+
+  // ---------- textures ----------
+  let GRAIN, WEAVE;
+  (function () {
+    const n = 512, c = mk(n, n), g = c.getContext("2d"), r = mul(99);
+    g.fillStyle = "#808080"; g.fillRect(0, 0, n, n);
+    for (let i = 0; i < 520; i++) { // soft clay dents and lumps
+      const x = r() * n, y = r() * n, rad = 6 + r() * 26, v = r() < .5 ? 40 : 215, a = .10 + r() * .16;
+      for (const ox of [-n, 0, n]) for (const oy of [-n, 0, n]) {
+        const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rad);
+        gr.addColorStop(0, "rgba(" + v + "," + v + "," + v + "," + a + ")"); gr.addColorStop(1, "rgba(" + v + "," + v + "," + v + ",0)");
+        g.fillStyle = gr; g.fillRect(x + ox - rad, y + oy - rad, rad * 2, rad * 2);
+      }
+    }
+    const id = g.getImageData(0, 0, n, n), d = id.data;
+    for (let i = 0; i < d.length; i += 4) { const v = (r() - .5) * 78; d[i] = clamp(d[i] + v, 0, 255); d[i + 1] = clamp(d[i + 1] + v, 0, 255); d[i + 2] = clamp(d[i + 2] + v, 0, 255); }
+    g.putImageData(id, 0, 0);
+    GRAIN = ctx.createPattern(c, "repeat");
+    const w = mk(6, 6), wg = w.getContext("2d");
+    wg.strokeStyle = "rgba(0,0,0,.22)"; wg.lineWidth = 1.2;
+    wg.beginPath(); wg.moveTo(0, 1.5); wg.lineTo(6, 1.5); wg.moveTo(1.5, 0); wg.lineTo(1.5, 6); wg.stroke();
+    wg.strokeStyle = "rgba(255,255,255,.14)"; wg.beginPath(); wg.moveTo(0, 4.5); wg.lineTo(6, 4.5); wg.moveTo(4.5, 0); wg.lineTo(4.5, 6); wg.stroke();
+    WEAVE = ctx.createPattern(w, "repeat");
+  })();
+
+  let GX = 0, GY = 0; // grain boil offset, changes every stop-motion frame
+
+  // ---------- shape helpers ----------
+  function blobFn(cx, cy, rx, ry, sd, wob) {
+    wob = wob == null ? .035 : wob;
+    const r = mul(sd), n = 20, p = [];
+    for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2, k = 1 + (r() - .5) * 2 * wob; p.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]); }
+    return (g) => {
+      const m = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const s = m(p[n - 1], p[0]); g.moveTo(s[0], s[1]);
+      for (let i = 0; i < n; i++) { const e = m(p[i], p[(i + 1) % n]); g.quadraticCurveTo(p[i][0], p[i][1], e[0], e[1]); }
+      g.closePath();
+    };
+  }
+  function capFn(x1, y1, x2, y2, r) {
+    const a = Math.atan2(y2 - y1, x2 - x1);
+    return (g) => { g.arc(x1, y1, r, a + Math.PI / 2, a + Math.PI * 1.5); g.arc(x2, y2, r, a - Math.PI / 2, a + Math.PI / 2); g.closePath(); };
+  }
+  const capBB = (x1, y1, x2, y2, r) => [Math.min(x1, x2) - r, Math.min(y1, y2) - r, Math.max(x1, x2) + r, Math.max(y1, y2) + r];
+
+  // a lump of clay: lit from upper left, bevelled edge, grain that boils, soft inner shadow
+  function clay(g, fn, c, bb, o) {
+    o = o || {};
+    const x0 = bb[0], y0 = bb[1], x1 = bb[2], y1 = bb[3], w = x1 - x0, h = y1 - y0, m = Math.max(w, h);
+    g.save();
+    g.beginPath(); fn(g);
+    const gr = g.createRadialGradient(x0 + w * .3, y0 + h * .24, m * .02, x0 + w * .46, y0 + h * .5, m * .8);
+    gr.addColorStop(0, sh(c, .32)); gr.addColorStop(.46, c); gr.addColorStop(1, sh(c, -.58));
+    g.fillStyle = gr; g.fill();
+    g.save(); g.clip();
+    if (o.inside) o.inside(g);
+    g.globalCompositeOperation = "soft-light"; g.globalAlpha = o.grain == null ? .9 : o.grain;
+    g.save(); g.translate(GX, GY); g.fillStyle = GRAIN; g.fillRect(x0 - GX - 4, y0 - GY - 4, w + 8, h + 8); g.restore();
+    g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+    const bev = o.bev == null ? 1 : o.bev, s = clamp(m / 90, .5, 1.6);
+    g.save(); g.translate(-6 * s, -7 * s); g.beginPath(); g.rect(x0 - 70, y0 - 70, w + 140, h + 140); fn(g);
+    g.filter = "blur(" + (6 * s) + "px)"; g.fillStyle = "rgba(24,6,10," + (.5 * bev) + ")"; g.fill("evenodd"); g.restore();
+    g.save(); g.translate(4 * s, 5 * s); g.beginPath(); g.rect(x0 - 70, y0 - 70, w + 140, h + 140); fn(g);
+    g.filter = "blur(" + (3.5 * s) + "px)"; g.fillStyle = "rgba(255,236,200," + (.34 * bev) + ")"; g.fill("evenodd"); g.restore();
+    g.filter = "none";
+    g.restore();
+    g.beginPath(); fn(g); g.lineWidth = 1.4; g.strokeStyle = "rgba(30,10,12,.45)"; g.lineJoin = "round"; g.stroke();
+    g.restore();
+  }
+  function weave(g, bb, a) { g.save(); g.globalAlpha = a == null ? .55 : a; g.fillStyle = WEAVE; g.fillRect(bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]); g.restore(); }
+  function stripes(g, bb, ang, period, wd, color, al) {
+    g.save(); g.strokeStyle = color; g.lineWidth = wd; g.globalAlpha = al == null ? 1 : al;
+    const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2, L = Math.hypot(bb[2] - bb[0], bb[3] - bb[1]);
+    g.translate(cx, cy); g.rotate(ang);
+    for (let x = -L; x < L; x += period) { g.beginPath(); g.moveTo(x, -L); g.lineTo(x, L); g.stroke(); }
+    g.restore();
+  }
+  function stitch(g, fn, color, wd) {
+    g.save(); g.beginPath(); fn(g); g.setLineDash([7, 6]); g.lineCap = "round"; g.lineWidth = wd || 2.2; g.strokeStyle = color || "#f3e6c8"; g.stroke();
+    g.setLineDash([]); g.restore();
+  }
+  function button(g, x, y, r, c, rot, ink) {
+    clay(g, (q) => q.arc(x, y, r, 0, Math.PI * 2), c || "#efe3c6", [x - r, y - r, x + r, y + r], { bev: 1.2, grain: .6 });
+    g.save(); g.translate(x, y); g.rotate(rot || 0);
+    g.beginPath(); g.arc(0, 0, r * .72, 0, Math.PI * 2); g.lineWidth = 1.6; g.strokeStyle = "rgba(60,30,20,.35)"; g.stroke();
+    g.beginPath(); g.arc(0, 0, r * .72, Math.PI * .95, Math.PI * 1.6); g.lineWidth = 1.4; g.strokeStyle = "rgba(255,255,240,.55)"; g.stroke();
+    const d = r * .3;
+    g.strokeStyle = ink || "#24344a"; g.lineWidth = Math.max(1.6, r * .11); g.lineCap = "round";
+    g.beginPath(); g.moveTo(-d, -d); g.lineTo(d, d); g.moveTo(d, -d); g.lineTo(-d, d); g.stroke();
+    g.fillStyle = "#2a1a16";
+    for (const [px, py] of [[-d, -d], [d, -d], [-d, d], [d, d]]) { g.beginPath(); g.arc(px, py, r * .13, 0, Math.PI * 2); g.fill(); }
+    g.restore();
+  }
+  function star(g, cx, cy, R, r, rot) {
+    for (let i = 0; i < 10; i++) { const a = rot + i * Math.PI / 5 - Math.PI / 2, rr = i % 2 ? r : R; g[i ? "lineTo" : "moveTo"](cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+    g.closePath();
+  }
+  const mid = (a, b, t) => a + (b - a) * t;
+
+  // ---------- static set (cached) ----------
+  const BG = mk(W, H), CUR = mk(W + 40, H);
+  const LAMP = { bx: 958, by: 596 };
+  function buildBG() {
+    const g = BG.getContext("2d");
+    // back wall: dusk-painted clay board
+    clay(g, (q) => q.rect(0, 0, W, 640), "#2f6678", [0, 0, W, 640], { bev: 0, grain: 1 });
+    // painted sky glow
+    g.save(); g.beginPath(); g.rect(0, 0, W, 640); g.clip();
+    let gr = g.createRadialGradient(420, 170, 10, 420, 170, 560); gr.addColorStop(0, "rgba(255,206,140,.30)"); gr.addColorStop(1, "rgba(255,206,140,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, W, 640);
+    g.restore();
+    // clay stars
+    const stars = [[470, 108, 17], [780, 96, 13], [1110, 190, 15], [330, 330, 12], [905, 232, 11], [640, 82, 10]];
+    stars.forEach((s, i) => clay(g, (q) => star(q, s[0], s[1], s[2], s[2] * .5, i * .4), "#f1c85a", [s[0] - s[2], s[1] - s[2], s[0] + s[2], s[1] + s[2]], { bev: .9 }));
+    // clay moon with thumb-pressed craters
+    const mfn = blobFn(404, 196, 62, 62, 5, .02);
+    clay(g, mfn, "#f3dca0", [342, 134, 466, 258], {
+      inside: (q) => { [[384, 178, 13], [430, 214, 16], [412, 160, 8], [378, 230, 9]].forEach(([x, y, r]) => { q.fillStyle = "rgba(130,90,40,.30)"; q.beginPath(); q.arc(x, y, r, 0, 7); q.fill(); q.fillStyle = "rgba(255,245,210,.35)"; q.beginPath(); q.arc(x - 2, y - 2, r * .7, 0, 7); q.fill(); }); }
+    });
+    // sculpted hills
+    const hill = (pts, c, sd) => { const fn = (q) => { q.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) q.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + (pts[i + 1] || pts[i])[0]) / 2, (pts[i][1] + (pts[i + 1] || pts[i])[1]) / 2); q.lineTo(W, 560); q.lineTo(0, 560); q.closePath(); }; clay(g, fn, c, [0, 380, W, 560], { bev: .9 }); };
+    hill([[0, 470], [200, 400], [430, 450], [640, 430], [860, 380], [1100, 440], [W, 410], [W, 410]], "#3b7a67");
+    hill([[0, 520], [260, 470], [520, 505], [800, 470], [1050, 500], [W, 480], [W, 480]], "#2a5c52");
+    // stage: wooden top plane with perspective planks, front face, trim
+    const top = (q) => { q.moveTo(150, 548); q.lineTo(1130, 548); q.lineTo(1330, 618); q.lineTo(-50, 618); q.closePath(); };
+    clay(g, top, "#bb8355", [-50, 548, 1330, 618], {
+      bev: .6, inside: (q) => {
+        q.strokeStyle = "rgba(60,30,16,.42)"; q.lineWidth = 2.4;
+        for (let i = -6; i <= 6; i++) { q.beginPath(); q.moveTo(640 + i * 140 * .82, 548); q.lineTo(640 + i * 210 * .82, 618); q.stroke(); }
+        q.strokeStyle = "rgba(255,225,170,.16)"; q.lineWidth = 1.5;
+        for (let i = -6; i <= 6; i++) { q.beginPath(); q.moveTo(642 + i * 140 * .82, 548); q.lineTo(642 + i * 210 * .82, 618); q.stroke(); }
+        const r = mul(31); q.strokeStyle = "rgba(90,50,24,.22)"; q.lineWidth = 1.2;
+        for (let i = 0; i < 60; i++) { const x = 60 + r() * 1160, y = 552 + r() * 60, l = 30 + r() * 80; q.beginPath(); q.moveTo(x, y); q.bezierCurveTo(x + l * .3, y - 2, x + l * .6, y + 2, x + l, y); q.stroke(); }
+      }
+    });
+    const face = (q) => { q.moveTo(-50, 618); q.lineTo(1330, 618); q.lineTo(1350, 700); q.lineTo(-70, 700); q.closePath(); };
+    clay(g, face, "#8a5638", [-70, 618, 1350, 700], { bev: .8, inside: (q) => { q.fillStyle = "rgba(0,0,0,.18)"; q.fillRect(0, 668, W, 40); } });
+    g.fillStyle = "#150e0c"; g.fillRect(0, 700, W, 20);
+    // stage lip highlight
+    g.save(); g.beginPath(); g.moveTo(-50, 618); g.lineTo(1330, 618); g.lineWidth = 3; g.strokeStyle = "rgba(255,226,170,.5)"; g.stroke(); g.restore();
+    // clay stage stars on the front face
+    [[300, 660], [640, 660], [980, 660]].forEach((s, i) => clay(g, (q) => star(q, s[0], s[1], 17, 8, 0), i === 1 ? "#e0a82e" : "#d9774f", [s[0] - 17, s[1] - 17, s[0] + 17, s[1] + 17], { bev: .9 }));
+    // lamp base (the wire and shade are animated)
+    clay(g, blobFn(LAMP.bx, LAMP.by, 40, 11, 12, .02), "#3e6e72", [LAMP.bx - 40, LAMP.by - 11, LAMP.bx + 40, LAMP.by + 11], { bev: .8 });
+
+    // curtains + valance in their own layer
+    const c = CUR.getContext("2d");
+    c.translate(20, 0);
+    const edge = (y) => y < 340 ? 252 - 122 * Math.sin(Math.PI / 2 * y / 340) : 130 + 112 * Math.sin(Math.PI / 2 * clamp((y - 340) / 270, 0, 1));
+    const curtain = (side) => {
+      const fn = (q) => {
+        const X = (x) => side < 0 ? x : W - x;
+        q.moveTo(X(-30), -10);
+        for (let y = 0; y <= 624; y += 12) q.lineTo(X(edge(y) + 8 * Math.sin(y * .045)), y);
+        q.lineTo(X(-30), 624); q.closePath();
+      };
+      c.save(); c.shadowColor = "rgba(0,0,0,.55)"; c.shadowBlur = 26; c.shadowOffsetX = side < 0 ? 14 : -14; c.shadowOffsetY = 6;
+      const bb = side < 0 ? [-30, 0, 260, 624] : [W - 260, 0, W + 30, 624];
+      clay(c, fn, "#b23f30", bb, {
+        bev: .5, grain: .9,
+        inside: (q) => {
+          // vertical folds: bands of light and shade that bunch toward the tie-back
+          const X = (x) => side < 0 ? x : W - x;
+          for (let k = 0; k < 24; k++) {
+            const x0 = k * 15, ph = Math.sin(k * 1.9) * .5 + .5;
+            q.beginPath();
+            q.moveTo(X(x0 - 24), -10);
+            for (let y = 0; y <= 624; y += 24) { const pinch = 1 - .55 * Math.exp(-Math.pow((y - 340) / 90, 2)); q.lineTo(X(x0 * pinch + 2 * Math.sin(y * .02 + k)), y); }
+            for (let y = 624; y >= 0; y -= 24) { const pinch = 1 - .55 * Math.exp(-Math.pow((y - 340) / 90, 2)); q.lineTo(X((x0 + 9) * pinch + 2 * Math.sin(y * .02 + k)), y); }
+            q.closePath();
+            q.fillStyle = ph > .5 ? "rgba(255,190,150," + (.10 + .14 * ph) + ")" : "rgba(40,0,10," + (.12 + .22 * (1 - ph)) + ")"; q.fill();
+          }
+          weave(q, bb, .9);
+          // darker side toward the wings, deep shadow in the folds
+          const gg = q.createLinearGradient(side < 0 ? 0 : W, 0, side < 0 ? 260 : W - 260, 0);
+          gg.addColorStop(0, "rgba(0,0,0,.45)"); gg.addColorStop(1, "rgba(0,0,0,0)"); q.fillStyle = gg; q.fillRect(bb[0], 0, 290, 624);
+        }
+      });
+      c.restore();
+      // sculpted hem and a stitched edge
+      stitch(c, (q) => { for (let y = 12; y <= 610; y += 12) { const x = side < 0 ? edge(y) + 8 * Math.sin(y * .045) - 7 : W - edge(y) - 8 * Math.sin(y * .045) + 7; y === 12 ? q.moveTo(x, y) : q.lineTo(x, y); } }, "#f6dfa6", 2);
+      // tie-back: clay cord with a wire loop and button
+      const ty = 340, tx = side < 0 ? 124 : W - 124;
+      clay(c, capFn(tx - 34 * (side < 0 ? 1 : -1) * .0 - 26, ty, tx + 26, ty + 4, 12), "#e0a82e", [tx - 40, ty - 14, tx + 40, ty + 20], { bev: 1 });
+      c.save(); c.strokeStyle = "#cfd5d8"; c.lineWidth = 3; c.beginPath(); c.ellipse(tx, ty + 2, 30, 17, 0, 0, 7); c.stroke(); c.strokeStyle = "rgba(255,255,255,.7)"; c.lineWidth = 1; c.beginPath(); c.ellipse(tx - 1, ty, 30, 17, 0, Math.PI, Math.PI * 1.6); c.stroke(); c.restore();
+      button(c, tx, ty + 2, 11, "#efe3c6", 0.3);
+    };
+    curtain(-1); curtain(1);
+    // valance with scalloped edge, stitching and gold clay bobbles
+    const val = (q) => { q.moveTo(-30, -10); q.lineTo(W + 30, -10); const n = 11, wv = (W + 60) / n; for (let i = n - 1; i >= 0; i--) { const x1 = -30 + i * wv, x2 = x1 + wv; q.lineTo(x2, 70); q.quadraticCurveTo((x1 + x2) / 2, 118, x1, 70); } q.closePath(); };
+    c.save(); c.shadowColor = "rgba(0,0,0,.6)"; c.shadowBlur = 24; c.shadowOffsetY = 12;
+    clay(c, val, "#8f2f2a", [-30, -10, W + 30, 118], { bev: .7, inside: (q) => { weave(q, [-30, -10, W + 30, 118], .9); stripes(q, [-30, -10, W + 30, 118], 0, 38, 14, "rgba(255,200,140,.10)"); } });
+    c.restore();
+    stitch(c, (q) => { const n = 11, wv = (W + 60) / n; q.moveTo(W + 30, 58); for (let i = n - 1; i >= 0; i--) { const x1 = -30 + i * wv, x2 = x1 + wv; q.lineTo(x2, 58); q.quadraticCurveTo((x1 + x2) / 2, 104, x1, 58); } }, "#f6dfa6", 2.2);
+    for (let i = 0; i < 11; i++) { const x = -30 + (i + .5) * (W + 60) / 11, y = 91; clay(c, blobFn(x, y, 9, 9, 40 + i, .05), "#e0a82e", [x - 9, y - 9, x + 9, y + 9], { bev: 1 }); }
+  }
+
+  // ---------- puppet ----------
+  const SKIN = "#e9a98b", AUB = "#a9461f", DRESS = "#e2a52b", TEAL = "#2d8a8c", CORAL = "#e0674a", CREAM = "#f2e6c9";
+  const hairCols = ["#7c2f16", "#a9461f", "#c8622a", "#dd8a3a", "#8d3a1a", "#e9a24c"];
+
+  function state(q) {
+    const raise = eio(seg(q, .5, 1.6)) - eio(seg(q, 3.5, 4.5));
+    const hAt = (u) => .9 * eio(seg(u, 1.0, 1.8)) - 1.7 * eio(seg(u, 2.6, 3.3)) + .8 * eio(seg(u, 3.7, 4.5));
+    const env = seg(q, 1.8, 2.1) * (1 - seg(q, 3.2, 3.5));
+    const wave = 25 * Math.sin((q - 2.0) * Math.PI * 2 * 1.9) * env;
+    const sw = eio(seg(q, .6, 1.4)) - eio(seg(q, 3.4, 4.4));
+    return { raise, h: hAt(q), hLag: hAt(q - .22), aU: 78 - 116 * raise, aF: 86 - 170 * raise + wave, aUL: 106 + 14 * sw, aFL: 101 + 9 * sw, smile: .35 + .65 * raise, lean: .022 * raise - .012 * (hAt(q)) };
+  }
+
+  function drawStrands(g, list, wd) {
+    g.lineCap = "round";
+    list.forEach((s) => {
+      g.beginPath(); g.moveTo(s.x0, s.y0); g.bezierCurveTo(s.c1x, s.c1y, s.c2x, s.c2y, s.x1, s.y1);
+      g.strokeStyle = s.col; g.lineWidth = wd * s.w; g.stroke();
+      g.beginPath(); g.moveTo(s.x0 + 1, s.y0); g.bezierCurveTo(s.c1x + 1, s.c1y, s.c2x + 1, s.c2y, s.x1 + 1, s.y1);
+      g.strokeStyle = "rgba(255,225,170,.30)"; g.lineWidth = wd * s.w * .35; g.stroke();
+    });
+  }
+
+  function puppet(g, S, f) {
+    const J = (k) => { const r = mul(f * 17 + k * 101 + 3); return [(r() - .5) * 2.6, (r() - .5) * 2.0, (r() - .5) * .014]; };
+    g.save();
+    g.translate(640 + 4 * S.raise, 582);
+    g.rotate(S.lean);
+    const jb = J(1); g.translate(jb[0] * .8, jb[1] * .6);
+
+    // legs: striped fabric tights, clay boots with buttons
+    [-1, 1].forEach((sd, i) => {
+      const x = sd * 30, jl = J(10 + i);
+      g.save(); g.translate(jl[0] * .5, 0);
+      const fn = capFn(x, -72, x + sd * 2, -26, 14), bb = capBB(x, -72, x + sd * 2, -26, 14);
+      clay(g, fn, "#efe2c4", bb, { bev: .8, inside: (q) => { stripes(q, bb, Math.PI / 2 - .12, 15, 7, "#c9402f"); weave(q, bb, .5); } });
+      clay(g, blobFn(x + sd * 8, -12, 34, 17, 20 + i, .04), "#5b3a2a", [x + sd * 8 - 34, -29, x + sd * 8 + 34, 5], { bev: 1 });
+      button(g, x + sd * 22, -14, 7, "#efe3c6", .4 * i);
+      g.restore();
+    });
+
+    // dress
+    const dressFn = (q) => {
+      q.moveTo(-48, -240); q.bezierCurveTo(-30, -252, 30, -252, 48, -240); q.lineTo(60, -206);
+      q.bezierCurveTo(72, -170, 86, -112, 100, -70);
+      const n = 14, wv = 200 / n; for (let i = 0; i < n; i++) { q.lineTo(100 - (i + .5) * wv, -56 - 3); q.lineTo(100 - (i + 1) * wv, -72); }
+      q.bezierCurveTo(-86, -112, -72, -170, -60, -206); q.closePath();
+    };
+    const dbb = [-100, -252, 100, -54];
+    clay(g, dressFn, DRESS, dbb, {
+      bev: 1, inside: (q) => {
+        weave(q, dbb, .75);
+        // pinked cream hem band with dots
+        q.fillStyle = "#f2e6c9"; q.fillRect(-110, -96, 220, 60);
+        q.fillStyle = "rgba(200,70,50,.75)"; for (let x = -96; x <= 96; x += 19) { q.beginPath(); q.arc(x + ((x / 19) % 2 ? 4 : 0), -80 + ((x / 19) % 2 ? 9 : 0), 3.4, 0, 7); q.fill(); }
+        weave(q, [-110, -96, 110, -36], .7);
+        const g2 = q.createLinearGradient(0, -96, 0, -50); g2.addColorStop(0, "rgba(0,0,0,.28)"); g2.addColorStop(.25, "rgba(0,0,0,0)"); q.fillStyle = g2; q.fillRect(-110, -96, 220, 60);
+        q.strokeStyle = "rgba(255,255,255,.0)";
+      }
+    });
+    stitch(g, (q) => { q.moveTo(-80, -97); q.quadraticCurveTo(0, -92, 80, -97); }, "#c9402f", 2.4);
+    // patch scrap on the skirt
+    g.save(); g.translate(48, -150); g.rotate(.14);
+    const pfn = (q) => { q.moveTo(-17, -17); q.lineTo(17, -15); q.lineTo(15, 18); q.lineTo(-18, 16); q.closePath(); }, pbb = [-18, -17, 17, 18];
+    clay(g, pfn, TEAL, pbb, { bev: .7, inside: (q) => { stripes(q, pbb, .7, 9, 4, "rgba(255,255,255,.28)"); weave(q, pbb, .8); } });
+    stitch(g, (q) => { q.rect(-13, -13, 26, 28); }, "#f3e6c8", 1.6);
+    g.restore();
+    // button placket
+    [-198, -165, -132].forEach((y, i) => button(g, -6 + i * .6, y, 8.5, i === 1 ? "#e9d6a4" : CREAM, i * .5));
+
+    // neck
+    const nj = J(3), nx = S.h * 4;
+    clay(g, capFn(nx, -266, nx, -234, 18), SKIN, capBB(nx, -266, nx, -234, 18), { bev: 1 });
+
+    // scarf band + hanging tail, a fabric scrap with stitched edges and a fringe
+    const sfn = (q) => { q.moveTo(-60 + nx, -252); q.bezierCurveTo(-30 + nx, -232, 30 + nx, -232, 60 + nx, -252); q.lineTo(64 + nx, -226); q.bezierCurveTo(30 + nx, -204, -30 + nx, -204, -64 + nx, -226); q.closePath(); };
+    const sbb = [-66 + nx, -254, 66 + nx, -202];
+    clay(g, sfn, CORAL, sbb, { bev: 1, inside: (q) => { stripes(q, sbb, .5, 20, 9, "rgba(242,230,201,.92)"); weave(q, sbb, .9); } });
+    stitch(g, (q) => { q.moveTo(-58 + nx, -230); q.bezierCurveTo(-30 + nx, -210, 30 + nx, -210, 58 + nx, -230); }, "#fff3d6", 1.8);
+    const tsw = -S.hLag * 7 + 3 * S.raise, jt = J(4);
+    const tfn = (q) => { q.moveTo(-40, -224); q.bezierCurveTo(-52 + tsw * .4, -190, -62 + tsw, -150, -58 + tsw, -118); for (let i = 0; i < 4; i++) { q.lineTo(-58 + tsw + 8 + i * 8, -118 - 9 * (i % 2 === 0 ? 0 : 1) + 4); } q.lineTo(-22 + tsw, -122); q.bezierCurveTo(-24 + tsw * .6, -160, -16, -196, -14, -216); q.closePath(); };
+    const tbb = [-66, -226, -10, -108];
+    clay(g, tfn, CORAL, tbb, { bev: 1, inside: (q) => { stripes(q, tbb, .5, 20, 9, "rgba(242,230,201,.92)"); weave(q, tbb, .9); const g3 = q.createLinearGradient(0, -226, 0, -108); g3.addColorStop(0, "rgba(0,0,0,.25)"); g3.addColorStop(.3, "rgba(0,0,0,0)"); q.fillStyle = g3; q.fillRect(-70, -226, 70, 120); } });
+    g.save(); g.lineCap = "round"; g.strokeStyle = "#f6e8cf"; g.lineWidth = 2.2; const fr = mul(5);
+    for (let i = 0; i < 6; i++) { const x = -58 + tsw + 4 + i * 6.2; g.beginPath(); g.moveTo(x, -119); g.lineTo(x + (fr() - .5) * 4, -106 - fr() * 6); g.stroke(); }
+    g.restore();
+    stitch(g, (q) => { q.moveTo(-36, -216); q.bezierCurveTo(-48 + tsw * .4, -190, -56 + tsw, -150, -52 + tsw, -126); }, "#fff3d6", 1.6);
+    clay(g, blobFn(-30, -222, 17, 14, 8, .06), "#cf5a40", [-47, -236, -13, -208], { bev: 1, inside: (q) => { stripes(q, [-47, -236, -13, -208], .5, 14, 6, "rgba(242,230,201,.9)"); weave(q, [-47, -236, -13, -208], .9); } });
+
+    // ---------- head ----------
+    const jh = J(2), hx = S.h * 7 + jh[0], hy = -322 + jh[1], tilt = S.h * .05 + jh[2] + .02 * Math.sin(S.h * 3);
+    g.save(); g.translate(hx, hy); g.rotate(tilt);
+    const fx = S.h * 31;
+    const R = mul(77);
+    // thread: back hair mass
+    const bhFn = blobFn(S.hLag * -4, 14, 96, 92, 61, .04);
+    clay(g, bhFn, "#7d3016", [-100, -78, 100, 106], { bev: .9 });
+    // pigtails tied with fabric scraps
+    [-1, 1].forEach((sd, i) => {
+      const px = sd * 94 - S.hLag * 9 + sd * 4 * Math.abs(S.hLag), py = 18;
+      const sw2 = -S.hLag * 8 * (sd > 0 ? 1 : .6);
+      const fn = blobFn(px + sd * 8 + sw2 * .5, py + 70, 27, 66, 70 + i, .06);
+      clay(g, fn, "#a9461f", [px + sd * 8 + sw2 * .5 - 28, py + 4, px + sd * 8 + sw2 * .5 + 28, py + 138], { bev: .9 });
+      const rr = mul(300 + i), list = [];
+      for (let k = 0; k < 15; k++) { const o = (k / 14 - .5) * 38; list.push({ x0: px + o * .35 + sd * 3, y0: py + 10, c1x: px + o * .8 + sd * 8, c1y: py + 50, c2x: px + o * 1.0 + sd * 12 + sw2 * .5, c2y: py + 100, x1: px + o * 1.0 + sd * 10 + sw2 + (rr() - .5) * 6, y1: py + 128 + rr() * 14, col: hairCols[(rr() * hairCols.length) | 0], w: .8 + rr() * .5 }); }
+      g.save(); g.beginPath(); fn(g); g.clip(); drawStrands(g, list, 3); g.restore();
+      g.save(); g.lineCap = "round"; list.forEach((s) => { g.beginPath(); g.moveTo(s.x1, s.y1 - 2); g.lineTo(s.x1 + (rr() - .5) * 7, s.y1 + 8 + rr() * 7); g.strokeStyle = s.col; g.lineWidth = 2.2; g.stroke(); }); g.restore();
+      // tie: small fabric scrap with stitches
+      const tx = px + sd * 2, ty = py + 14;
+      g.save(); g.translate(tx, ty); g.rotate(sd * .35);
+      const bfn = (q) => { q.moveTo(-6, -4); q.lineTo(-30, -16); q.lineTo(-28, 16); q.lineTo(-6, 4); q.lineTo(6, 4); q.lineTo(28, 16); q.lineTo(30, -16); q.lineTo(6, -4); q.closePath(); };
+      clay(g, bfn, TEAL, [-31, -17, 31, 17], { bev: .8, inside: (q) => { stripes(q, [-31, -17, 31, 17], 0, 8, 3.2, "rgba(255,255,255,.35)"); weave(q, [-31, -17, 31, 17], .9); } });
+      clay(g, blobFn(0, 0, 8, 9, 33, .06), "#238083", [-8, -9, 8, 9], { bev: 1 });
+      g.restore();
+    });
+    // ears peek out from behind the head
+    [-1, 1].forEach((sd, i) => { const ex = sd * 76 + S.h * 10; clay(g, blobFn(ex, 8, 13, 16, 90 + i, .05), SKIN, [ex - 13, -8, ex + 13, 24], { bev: 1 }); });
+    // head
+    const headFn = blobFn(0, 0, 78, 82, 41, .018), hbb = [-78, -82, 78, 82];
+    clay(g, headFn, SKIN, hbb, {
+      bev: 1.1, inside: (q) => {
+        // cheeks
+        [-1, 1].forEach((sd) => { const cx2 = sd * 47 + fx * .9, gr = q.createRadialGradient(cx2, 26, 0, cx2, 26, 21); gr.addColorStop(0, "rgba(220,90,80,.62)"); gr.addColorStop(1, "rgba(220,90,80,0)"); q.fillStyle = gr; q.fillRect(cx2 - 24, 2, 48, 48); });
+        // thumbprint dent on the forehead
+        q.save(); q.translate(40 + fx * .5, -12); q.rotate(.5); q.fillStyle = "rgba(120,50,30,.14)"; q.beginPath(); q.ellipse(0, 0, 11, 7, 0, 0, 7); q.fill(); q.strokeStyle = "rgba(255,230,200,.2)"; q.lineWidth = 1.2; for (let i = 1; i < 4; i++) { q.beginPath(); q.ellipse(0, 0, 2.5 * i, 1.6 * i, 0, 0, 7); q.stroke(); } q.restore();
+        // eyebrows: stitched thread arcs that lift when she waves
+        q.strokeStyle = "#5d2a18"; q.lineWidth = 3.2; q.lineCap = "round";
+        [-1, 1].forEach((sd) => { const bx = sd * 31 + fx, by = -35 - 4 * S.raise, sc = 1 - .2 * Math.max(0, sd * -S.h * -1) * 0; q.beginPath(); q.moveTo(bx - 14, by + 4 - sd * 1.5 * S.raise); q.quadraticCurveTo(bx, by - 5, bx + 14, by + 4 + sd * 1.5 * S.raise); q.stroke(); });
+        // nose: pressed clay ball
+        const nxp = fx * 1.28, nyp = 15;
+        q.fillStyle = "rgba(110,45,28,.25)"; q.beginPath(); q.ellipse(nxp + 2, nyp + 4, 10, 8, 0, 0, 7); q.fill();
+        const ng = q.createRadialGradient(nxp - 3, nyp - 3, 1, nxp, nyp, 10); ng.addColorStop(0, "#f7c3a6"); ng.addColorStop(1, "#d98d6e"); q.fillStyle = ng; q.beginPath(); q.arc(nxp, nyp, 8.5, 0, 7); q.fill();
+        // mouth
+        const mx = fx * 1.12, my = 46, mw = 15 + 5 * S.smile, mc = 5 + 9 * S.smile;
+        q.strokeStyle = "#8c2f33"; q.lineWidth = 4.2; q.beginPath(); q.moveTo(mx - mw, my - 2); q.quadraticCurveTo(mx, my + mc, mx + mw, my - 2); q.stroke();
+        q.strokeStyle = "rgba(255,200,180,.5)"; q.lineWidth = 1.4; q.beginPath(); q.moveTo(mx - mw + 3, my + 1); q.quadraticCurveTo(mx, my + mc + 3, mx + mw - 3, my + 1); q.stroke();
+      }
+    });
+    // button eyes (identity stays put: they are sewn on and only travel with the face)
+    [-1, 1].forEach((sd, i) => {
+      const far = sd * S.h < 0 ? 1 : 0;
+      const ex = sd * 31 + fx * (far ? .94 : 1.04), ey = -4;
+      const r = (17 - 1.2 * far) , sx = 1 - .22 * Math.abs(S.h) * far;
+      g.save(); g.beginPath(); headFn(g); g.clip();
+      g.translate(ex, ey); g.scale(sx, 1);
+      g.save(); g.shadowColor = "rgba(60,15,10,.55)"; g.shadowBlur = 6; g.shadowOffsetX = 3; g.shadowOffsetY = 4;
+      g.beginPath(); g.arc(0, 0, r, 0, 7); g.fillStyle = "#2a1a16"; g.fill(); g.restore();
+      button(g, 0, 0, r, i ? "#e8d9b0" : "#efe3c6", S.h * .6 + i * .4, "#1d2b44");
+      g.restore();
+    });
+    // hair cap of thread
+    const capFnH = (q) => { q.moveTo(-82, -4); q.bezierCurveTo(-90, -70, -50, -100, 0, -100); q.bezierCurveTo(50, -100, 90, -70, 82, -4); q.bezierCurveTo(78, -30, 48, -52, 20, -48); q.bezierCurveTo(8, -34, -12, -34, -26, -50); q.bezierCurveTo(-52, -50, -76, -30, -82, -4); q.closePath(); };
+    g.save(); g.translate(S.h * 5, -2);
+    clay(g, capFnH, "#b24c22", [-92, -100, 92, 0], { bev: 1 });
+    const hr = mul(808), hl = [];
+    for (let k = 0; k < 54; k++) {
+      const s = (k / 53 - .5) * 2, ex2 = s * 80, ey2 = -26 + 22 * Math.pow(Math.abs(s), 1.6) - (Math.abs(s) < .3 ? 14 * (1 - Math.abs(s) / .3) : 0) + (hr() - .5) * 6;
+      hl.push({ x0: s * 6, y0: -100, c1x: s * 70 + (hr() - .5) * 10, c1y: -98, c2x: s * 100, c2y: -60, x1: ex2, y1: ey2, col: hairCols[(hr() * hairCols.length) | 0], w: .8 + hr() * .5 });
+    }
+    g.save(); g.beginPath(); capFnH(g); g.clip(); drawStrands(g, hl, 3.2);
+    // inner shading on the cap
+    const cg = g.createLinearGradient(0, -100, 0, 0); cg.addColorStop(0, "rgba(255,230,180,.0)"); cg.addColorStop(1, "rgba(30,0,0,.30)"); g.fillStyle = cg; g.fillRect(-100, -100, 200, 100);
+    g.restore();
+    // loose thread flicks at the fringe
+    g.lineCap = "round"; g.lineWidth = 2.4;
+    for (let k = 0; k < 14; k++) { const s = (k / 13 - .5) * 1.5, x = s * 80, y = -28 + 18 * Math.pow(Math.abs(s) * 1.3, 1.6) + (hr() - .5) * 5; g.strokeStyle = hairCols[(hr() * 6) | 0]; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + (hr() - .5) * 8, y + 7, x + (hr() - .5) * 12, y + 13 + hr() * 6); g.stroke(); }
+    g.restore();
+    g.restore(); // head group
+
+    // ---------- arms ----------
+    const arm = (px, py, aU, aF, jk, sleeve, mirror) => {
+      const ja = J(jk), a1 = (aU + ja[2] * 40) * Math.PI / 180, a2 = (aF + ja[2] * 50) * Math.PI / 180;
+      const ex = px + 66 * Math.cos(a1), ey = py + 66 * Math.sin(a1), wx = ex + 56 * Math.cos(a2), wy = ey + 56 * Math.sin(a2);
+      const hx2 = wx + 13 * Math.cos(a2), hy2 = wy + 13 * Math.sin(a2);
+      // forearm (skin) first, then sleeve over it
+      clay(g, capFn(ex, ey, wx, wy, 12.5), SKIN, capBB(ex, ey, wx, wy, 12.5), { bev: 1 });
+      // wire bracelet
+      g.save(); g.translate(wx - 14 * Math.cos(a2), wy - 14 * Math.sin(a2)); g.rotate(a2);
+      for (let k = 0; k < 3; k++) { g.beginPath(); g.ellipse(k * 4.5, 0, 3, 14.5, 0, 0, 7); g.strokeStyle = "#cfd5d8"; g.lineWidth = 2.1; g.stroke(); g.beginPath(); g.ellipse(k * 4.5 - .8, 0, 3, 14.5, 0, Math.PI * 1.1, Math.PI * 1.7); g.strokeStyle = "rgba(255,255,255,.8)"; g.lineWidth = .9; g.stroke(); }
+      g.restore();
+      // hand: mitten ball with a thumb
+      const tdir = a2 + (mirror ? -1 : 1) * 1.15;
+      clay(g, capFn(hx2, hy2, hx2 + 15 * Math.cos(tdir), hy2 + 15 * Math.sin(tdir), 6.5), SKIN, capBB(hx2, hy2, hx2 + 15 * Math.cos(tdir), hy2 + 15 * Math.sin(tdir), 6.5), { bev: 1 });
+      clay(g, blobFn(hx2, hy2, 17, 16, 55 + jk, .05), SKIN, [hx2 - 17, hy2 - 16, hx2 + 17, hy2 + 16], { bev: 1 });
+      // sleeve: mustard fabric-clay with stitched cuff
+      const sfn2 = capFn(px, py, ex, ey, 16), sbb2 = capBB(px, py, ex, ey, 16);
+      clay(g, sfn2, sleeve, sbb2, { bev: 1, inside: (q) => { weave(q, sbb2, .8); stripes(q, sbb2, a1 + Math.PI / 2, 14, 5, "rgba(255,235,190,.22)"); } });
+      clay(g, blobFn(ex, ey, 15, 15, 77 + jk, .03), sleeve, [ex - 15, ey - 15, ex + 15, ey + 15], { bev: 1, inside: (q) => weave(q, [ex - 15, ey - 15, ex + 15, ey + 15], .8) });
+      // brass brad at the elbow joint
+      clay(g, (q) => q.arc(ex, ey, 5.5, 0, 7), "#d6a24a", [ex - 5.5, ey - 5.5, ex + 5.5, ey + 5.5], { bev: 1.2, grain: .3 });
+      g.strokeStyle = "rgba(70,40,10,.6)"; g.lineWidth = 1.2; g.beginPath(); g.moveTo(ex - 3.5, ey - .5); g.lineTo(ex + 3.5, ey + .5); g.stroke();
+    };
+    arm(-54, -212, S.aUL, S.aFL, 21, DRESS, true);
+    arm(54, -212, S.aU, S.aF, 22, DRESS, false);
+    g.restore();
+  }
+
+  // ---------- lamp (wire, clay shade, glow) ----------
+  function lampWire(g, flick, f) {
+    const bx = LAMP.bx, by = LAMP.by - 8;
+    const wp = (q) => { q.moveTo(bx, by); q.bezierCurveTo(bx + 30, by - 90, bx - 34, by - 170, bx + 8, by - 250); q.bezierCurveTo(bx + 40, by - 320, bx + 4, by - 342, bx - 54, by - 306); };
+    g.save(); g.lineCap = "round"; g.lineJoin = "round";
+    g.beginPath(); wp(g); g.strokeStyle = "rgba(0,0,0,.35)"; g.lineWidth = 9; g.save(); g.translate(18, 8); g.filter = "blur(4px)"; g.stroke(); g.restore();
+    g.beginPath(); wp(g); g.strokeStyle = "#6e7479"; g.lineWidth = 6; g.stroke();
+    g.beginPath(); wp(g); g.strokeStyle = "#c8ced2"; g.lineWidth = 4; g.stroke();
+    g.save(); g.translate(-1, -1); g.beginPath(); wp(g); g.strokeStyle = "rgba(255,255,255,.75)"; g.lineWidth = 1.4; g.stroke(); g.restore();
+    // wire twist
+    g.setLineDash([1.5, 14]); g.beginPath(); wp(g); g.strokeStyle = "rgba(50,55,60,.4)"; g.lineWidth = 3.4; g.stroke(); g.setLineDash([]);
+    g.restore();
+    // clay shade, tilted toward the puppet
+    g.save(); g.translate(bx - 54, by - 306); g.rotate(-.62);
+    const sf = (q) => { q.moveTo(-16, -34); q.lineTo(16, -34); q.lineTo(46, 28); q.quadraticCurveTo(0, 40, -46, 28); q.closePath(); };
+    // bulb
+    const gl = flick;
+    g.save(); g.globalCompositeOperation = "lighter"; const bg = g.createRadialGradient(0, 40, 0, 0, 40, 100 * gl); bg.addColorStop(0, "rgba(255,200,110,.9)"); bg.addColorStop(.35, "rgba(255,170,70,.35)"); bg.addColorStop(1, "rgba(255,150,40,0)"); g.fillStyle = bg; g.fillRect(-120, -60, 240, 240); g.restore();
+    g.save(); g.beginPath(); g.arc(0, 30, 17, 0, 7); const bl = g.createRadialGradient(-2, 28, 0, 0, 30, 17); bl.addColorStop(0, "#fffbe8"); bl.addColorStop(.6, "#ffd88a"); bl.addColorStop(1, "#f2a640"); g.fillStyle = bl; g.fill(); g.restore();
+    clay(g, sf, "#3aa09c", [-46, -34, 46, 40], { bev: 1, inside: (q) => { stripes(q, [-46, -34, 46, 40], 0, 16, 6, "rgba(255,240,200,.25)"); } });
+    stitch(g, (q) => { q.moveTo(-40, 20); q.quadraticCurveTo(0, 32, 40, 20); }, "#f6e3b0", 1.8);
+    clay(g, blobFn(0, -36, 11, 7, 12, .04), "#2e7f7d", [-11, -43, 11, -29], { bev: 1 });
+    g.restore();
+  }
+
+  // ---------- frame ----------
+  function draw(t) {
+    const f = Math.floor(t * 12 + 1e-6), q = f / 12;
+    GX = (f * 53 + (f * f * 7)) % 512; GY = (f * 97 + (f * 3)) % 512;
+    const S = state(q), r = mul(f * 7 + 1);
+    const flick = 1 + .05 * (r() - .5) * 2;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+    ctx.drawImage(BG, 0, 0);
+
+    // warm key light across the back wall and the boards
+    ctx.save();
+    ctx.globalCompositeOperation = "soft-light";
+    let gr = ctx.createRadialGradient(300, 40, 20, 300, 40, 980); gr.addColorStop(0, "rgba(255,214,150,.95)"); gr.addColorStop(.5, "rgba(255,190,110,.35)"); gr.addColorStop(1, "rgba(255,170,90,0)");
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, 720); ctx.restore();
+
+    // puppet to its own layer so it can cast shadows
+    puppetLayer.clearRect(0, 0, W, H);
+    puppetLayer.setTransform(1, 0, 0, 1, 0, 0);
+    puppet(puppetLayer, S, f);
+
+    // shadows: long, deep, thrown away from the key light
+    ctx.save();
+    ctx.globalAlpha = .55; ctx.filter = "brightness(0) blur(9px)"; ctx.drawImage(PL, 62, -4);
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = .6; ctx.beginPath(); ctx.rect(0, 548, W, 80); ctx.clip();
+    ctx.filter = "blur(10px)"; ctx.fillStyle = "#1a0c08"; ctx.beginPath(); ctx.ellipse(724, 596, 150, 16, 0, 0, 7); ctx.fill();
+    ctx.restore();
+    // the lamp's own pool on the boards
+    ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.beginPath(); ctx.rect(0, 548, W, 80); ctx.clip();
+    gr = ctx.createRadialGradient(900, 590, 0, 900, 590, 260 * flick); gr.addColorStop(0, "rgba(255,170,80,.32)"); gr.addColorStop(1, "rgba(255,170,80,0)"); ctx.fillStyle = gr; ctx.fillRect(600, 540, 600, 100); ctx.restore();
+
+    lampWire(ctx, flick, f);
+
+    ctx.drawImage(PL, 0, 0);
+
+    // lamp rim light on the puppet's right edge
+    ctx.save(); ctx.globalCompositeOperation = "source-atop";
+    ctx.restore();
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = .0;
+    ctx.restore();
+    // warm light spilling from the lamp over the wall and the puppet
+    ctx.save(); ctx.globalCompositeOperation = "soft-light";
+    gr = ctx.createRadialGradient(868, 330, 0, 868, 330, 420 * flick); gr.addColorStop(0, "rgba(255,190,100,.85)"); gr.addColorStop(1, "rgba(255,170,80,0)");
+    ctx.fillStyle = gr; ctx.fillRect(400, 0, 880, 720); ctx.restore();
+
+    // curtains hand-nudged each frame
+    const jc = mul(f * 5 + 9), jx = (jc() - .5) * 2.2, jy = (jc() - .5) * 1.4;
+    ctx.drawImage(CUR, -20 + jx, jy);
+
+    // deep vignette: the dark around a lit miniature set
+    gr = ctx.createRadialGradient(560, 330, 260, 640, 380, 860); gr.addColorStop(0, "rgba(10,3,4,0)"); gr.addColorStop(1, "rgba(10,3,4,.72)");
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+    gr = ctx.createLinearGradient(0, 640, 0, 720); gr.addColorStop(0, "rgba(8,3,3,0)"); gr.addColorStop(1, "rgba(8,3,3,.55)"); ctx.fillStyle = gr; ctx.fillRect(0, 640, W, 80);
+  }
+
+  const PL = mk(W, H), puppetLayer = PL.getContext("2d");
+  buildBG();
+  let cur = 0;
+  window.addEventListener("hf-seek", (e) => { cur = e.detail.time; draw(cur); });
+  draw(0);
+  const tl = gsap.timeline({ paused: true });
+  const o = { t: 0 };
+  tl.to(o, { t: 5, duration: 5, ease: "none", onUpdate: () => { cur = o.t; draw(cur); } }, 0);
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

@@ -50,7 +50,7 @@ export function planReadiness(project: VideoProject): Readiness {
   const warnings: Readiness["warnings"] = [];
   for (const message of timing.warnings) {
     // The hook and the length are part of the brief's promise; a voice gap is a pacing note.
-    const hard = /the hook runs|more than \d+s \+ 10%|too short for/.test(message);
+    const hard = /the hook runs|more than \d+s \+ (?:10%|[\d.]+s)|too short for/.test(message);
     // The hook-length word rule already names this beat; one message per problem.
     if (/the hook runs/.test(message) && blocking.some((item) => /hook line is/.test(item.message))) continue;
     (hard ? blocking : warnings).push({ beat: beatOf(message), message });
@@ -62,8 +62,8 @@ export function planReadiness(project: VideoProject): Readiness {
     warnings.push({ beat: null, message: "This video uses a gallery theme, not your brand. Choose the brand kit read from your website so its colours, fonts and logo are used." });
   }
   const target = plan.target_duration_s;
-  if (Math.abs(timing.total - target) > target * TIMING_RULES.tolerance + 0.05 && !blocking.some((item) => /10%|too short/.test(item.message))) {
-    blocking.push({ beat: null, message: `The film runs ${timing.total.toFixed(1)}s; the brief asks for ${target}s (±10%).` });
+  if (Math.abs(timing.total - target) > Math.max(target * TIMING_RULES.tolerance, 1) + 0.05 && !blocking.some((item) => /10%|too short|\d+s \+ [\d.]+s/.test(item.message))) {
+    blocking.push({ beat: null, message: `The film runs ${timing.total.toFixed(1)}s; the brief asks for ${target}s (${target * TIMING_RULES.tolerance < 1 ? "±1s" : "±10%"}).` });
   }
   return { ok: blocking.length === 0, blocking, warnings, durationSeconds: timing.total };
 }

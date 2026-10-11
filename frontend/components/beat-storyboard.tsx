@@ -55,7 +55,7 @@ function Budget({ text, chars, max }: { text: string; chars: number; max?: numbe
   return <small className={over ? "budget over" : "budget"}>{text.length}/{chars}{max !== undefined ? ` · ${words(text)}/${max} words` : ""}</small>;
 }
 
-export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, back, submit, openStudio, motionBlur, setMotionBlur }: {
+export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, back, submit, openStudio, regenerate, motionBlur, setMotionBlur }: {
   project: VideoProject & { beatPlan: BeatPlan };
   look: FrameLook;
   /** Non-blocking warnings from the last plan generation. */
@@ -64,7 +64,10 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
   onSaved: (project: VideoProject) => void;
   back: () => void;
   submit: () => void;
-  openStudio: () => void;
+  /** The classic Studio edits a template composition, not this storyboard, so it is only offered for projects that have no storyboard. */
+  openStudio?: () => void;
+  /** Sends the person to Script & style with the "replace your storyboard?" question open, to write the script again. */
+  regenerate?: () => void;
   /** Final-render option, chosen here at submission. The player above is always a fast draft. */
   motionBlur: boolean;
   setMotionBlur: (on: boolean) => void;
@@ -337,7 +340,7 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
           {(() => { const tooLong = motionBlurProblem(lengthSeconds); return (
             <label className="bs-blur"><input type="checkbox" checked={motionBlur && !tooLong} disabled={busy || Boolean(tooLong)} onChange={(event) => setMotionBlur(event.target.checked)} /><span><b>{motionBlurCopy.label}</b><small>{tooLong ?? motionBlurCopy.help}</small></span></label>
           ); })()}
-          <div><button className="secondary-button" onClick={back}>Back</button><button className="secondary-button" onClick={openStudio}>Open Studio</button><button className="primary-button" disabled={busy || blockingCount > 0 || saveState === "saving"} onClick={() => { flush(); submit(); }}>{busy ? "Starting render…" : "Submit video"}</button></div>
+          <div><button className="secondary-button" onClick={back}>Back</button>{regenerate ? <button className="secondary-button" onClick={regenerate}>Regenerate script</button> : null}{openStudio ? <button className="secondary-button" onClick={openStudio}>Open Studio</button> : null}<button className="primary-button" disabled={busy || blockingCount > 0 || saveState === "saving"} onClick={() => { flush(); submit(); }}>{busy ? "Starting render…" : "Submit video"}</button></div>
           <small>Submitting locks the script and storyboard. Rendering continues if you leave the page.</small>
         </div>
       </aside>

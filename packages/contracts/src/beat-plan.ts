@@ -3,6 +3,7 @@ import { resolveSceneRoute, type SceneRendering } from "./scene-rendering.ts";
 // The beat plan mirrors .claude/skills/gm-script-director/references/beat-plan.schema.json;
 // change both together. Budgets come from gm-skill-authoring/references/script-for-motion.md.
 import { isLook, type LookId } from "./looks.ts";
+import { getStyleFamily } from "./style-families.ts";
 
 export const aspects = ["16:9", "9:16", "1:1"] as const;
 export const paces = ["calm", "balanced", "fast"] as const;
@@ -10,8 +11,8 @@ export const motionProfiles = ["snappy", "smooth", "springy"] as const;
 export const audioModes = ["voiceover", "music", "both", "none"] as const;
 export const captionModes = ["key-phrases", "full", "none"] as const;
 export const scriptModes = ["problem", "own"] as const;
-export const durationPresets = [15, 30, 45, 60, 90] as const;
-export const DURATION_MIN = 10;
+export const durationPresets = [5, 15, 30, 45, 60, 90] as const;
+export const DURATION_MIN = 5;
 export const DURATION_MAX = 120;
 export const PROBLEM_TEXT_MAX = 600;
 export const OWN_SCRIPT_MAX = 4000;
@@ -41,6 +42,8 @@ export type ScriptBrief = {
   theme?: string;
   /** Drawing style on top of the brand (looks.ts); colours and fonts always stay the brand's. Default "clean". */
   look?: LookId;
+  /** Which kind of film the look is used for (style-families.ts), e.g. "clean-3d". Gives the director a clear focus; same renderer. */
+  styleFamily?: string;
   brandId?: string;
   productName?: string;
   audience?: string;
@@ -168,6 +171,8 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
   if (value.template !== undefined && value.template !== null && (typeof value.template !== "string" || !/^gm-[a-z0-9-]+$/.test(value.template))) return { error: "Unknown template." };
   if (value.brandId !== undefined && (typeof value.brandId !== "string" || !/^[0-9a-f-]{36}$/i.test(value.brandId))) return { error: "Unknown brand kit." };
   if (value.look !== undefined && value.look !== null && !isLook(value.look)) return { error: "Unknown look." };
+  const family = typeof value.styleFamily === "string" ? getStyleFamily(value.styleFamily) : undefined;
+  if (value.styleFamily !== undefined && value.styleFamily !== null && !family) return { error: "Unknown style family." };
   const screenshotIds = Array.isArray(value.screenshotIds) ? value.screenshotIds.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 20) : undefined;
   const brief: ScriptBrief = {
     scriptMode: value.scriptMode,
@@ -185,6 +190,8 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     template: typeof value.template === "string" ? value.template : null,
     ...(clean(value.theme, 60) ? { theme: clean(value.theme, 60) } : {}),
     ...(isLook(value.look) && value.look !== "clean" ? { look: value.look } : {}),
+    // A family is kept only with the look it belongs to (the default look is "clean").
+    ...(family && family.look === (isLook(value.look) ? value.look : "clean") ? { styleFamily: family.id } : {}),
     ...(typeof value.brandId === "string" ? { brandId: value.brandId } : {}),
     ...(clean(value.productName, 60) ? { productName: clean(value.productName, 60) } : {}),
     ...(typeof value.productUrl === "string" && /^https?:\/\/\S+$/i.test(value.productUrl.trim()) && value.productUrl.trim().length <= 300 ? { productUrl: value.productUrl.trim() } : {}),

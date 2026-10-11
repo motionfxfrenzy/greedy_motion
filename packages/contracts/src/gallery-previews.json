@@ -5,8 +5,8 @@
   "reference": "about-us-story.fdb23921.html"
  },
  "animated-map-route": {
-  "poster": "animated-map-route.f446b51a.webp",
   "video": "animated-map-route.28aa81ce.mp4",
+  "poster": "animated-map-route.f446b51a.webp",
   "reference": "animated-map-route.1192c74f.html"
  },
  "api-request-flow": {
@@ -20,8 +20,8 @@
   "reference": "aurora-terrain.d96830ae.html"
  },
  "bar-chart-race": {
-  "video": "bar-chart-race.0abc9150.mp4",
   "poster": "bar-chart-race.b6e379a7.webp",
+  "video": "bar-chart-race.0abc9150.mp4",
   "reference": "bar-chart-race.78edb82b.html"
  },
  "bayes-boxes": {
@@ -55,8 +55,8 @@
   "reference": "cache-and-database.a0677362.html"
  },
  "ci-cd-pipeline": {
-  "video": "ci-cd-pipeline.a671be41.mp4",
   "poster": "ci-cd-pipeline.b57fb0ef.webp",
+  "video": "ci-cd-pipeline.a671be41.mp4",
   "reference": "ci-cd-pipeline.06252a51.html"
  },
  "clay-showcase": {
@@ -79,12 +79,13 @@
   "reference": "data-centre-flythrough.2ae9c7ff.html"
  },
  "decision-story": {
-  "poster": "decision-story.7dbd9ded.webp",
-  "video": "decision-story.53098eb5.mp4"
+  "poster": "decision-story.ca102109.webp",
+  "video": "decision-story.b5fe7ecc.mp4",
+  "reference": "decision-story.aad15fb8.html"
  },
  "derivative-slope": {
-  "poster": "derivative-slope.48ef96f6.webp",
   "video": "derivative-slope.66e7e2ce.mp4",
+  "poster": "derivative-slope.48ef96f6.webp",
   "reference": "derivative-slope.2f1dc678.html"
  },
  "donut-and-counters": {
@@ -155,23 +156,23 @@
   "video": "hairline-editorial.792c3632.mp4"
  },
  "https-handshake": {
-  "video": "https-handshake.7ce67094.mp4",
   "poster": "https-handshake.3a4b311a.webp",
+  "video": "https-handshake.7ce67094.mp4",
   "reference": "https-handshake.f0639973.html"
  },
  "isometric-diorama": {
-  "poster": "isometric-diorama.4e8cbc8f.webp",
   "video": "isometric-diorama.4a5fec79.mp4",
+  "poster": "isometric-diorama.4e8cbc8f.webp",
   "reference": "isometric-diorama.d5ce5552.html"
  },
  "keyboard-exploded-view": {
-  "video": "keyboard-exploded-view.6812e722.mp4",
   "poster": "keyboard-exploded-view.c2242236.webp",
+  "video": "keyboard-exploded-view.6812e722.mp4",
   "reference": "keyboard-exploded-view.0142736e.html"
  },
  "kinetic-quote-stack": {
-  "poster": "kinetic-quote-stack.524c6acb.webp",
   "video": "kinetic-quote-stack.1888cfa1.mp4",
+  "poster": "kinetic-quote-stack.524c6acb.webp",
   "reference": "kinetic-quote-stack.3426b083.html"
  },
  "kinetic-type-explainer": {
@@ -195,8 +196,8 @@
   "reference": "neural-network-learns.459e7dc9.html"
  },
  "opus-advait-jayant-712107": {
-  "video": "opus-advait-jayant-712107.9d85ce59.mp4",
   "poster": "opus-advait-jayant-712107.b33480e7.webp",
+  "video": "opus-advait-jayant-712107.9d85ce59.mp4",
   "reference": "opus-advait-jayant-712107.084f0dc0.html"
  },
  "opus-alex-prompter-997524": {
@@ -225,8 +226,8 @@
   "reference": "opus-charlesmendez-476517.fb873112.html"
  },
  "opus-dale-vaz-879074": {
-  "poster": "opus-dale-vaz-879074.aa3c0703.webp",
   "video": "opus-dale-vaz-879074.cc05dc81.mp4",
+  "poster": "opus-dale-vaz-879074.aa3c0703.webp",
   "reference": "opus-dale-vaz-879074.3c5cf6f4.html"
  },
  "opus-daniel-haida-636937": {
@@ -235,8 +236,8 @@
   "reference": "opus-daniel-haida-636937.4046db03.html"
  },
  "opus-deedydas-252537": {
-  "poster": "opus-deedydas-252537.0a368cd4.webp",
   "video": "opus-deedydas-252537.bf811dbd.mp4",
+  "poster": "opus-deedydas-252537.0a368cd4.webp",
   "reference": "opus-deedydas-252537.3c99af33.html"
  },
  "opus-designbyfusun-559069": {
@@ -250,18 +251,18 @@
   "reference": "opus-drrickio-009558.0e5ad8ab.html"
  },
  "opus-emollick-019567": {
-  "video": "opus-emollick-019567.9929e847.mp4",
   "poster": "opus-emollick-019567.ab35db7b.webp",
+  "video": "opus-emollick-019567.9929e847.mp4",
   "reference": "opus-emollick-019567.437f11b1.html"
  },
  "opus-ezshine-750731": {
-  "poster": "opus-ezshine-750731.080410ec.webp",
   "video": "opus-ezshine-750731.0404b23b.mp4",
+  "poster": "opus-ezshine-750731.080410ec.webp",
   "reference": "opus-ezshine-750731.a8ad9b99.html"
  },
  "opus-felipemoller-936736": {
-  "video": "opus-felipemoller-936736.3562a78c.mp4",
   "poster": "opus-felipemoller-936736.a9e2a77b.webp",
+  "video": "opus-felipemoller-936736.3562a78c.mp4",
   "reference": "opus-felipemoller-936736.88f1eee1.html"
  },
  "opus-gdgtify-929495": {
@@ -280,8 +281,8 @@
   "reference": "opus-groundcontrol-230877.f1950b35.html"
  },
  "opus-helloshiva0801-438284": {
-  "poster": "opus-helloshiva0801-438284.ed5aa556.webp",
   "video": "opus-helloshiva0801-438284.b210d52d.mp4",
+  "poster": "opus-helloshiva0801-438284.ed5aa556.webp",
   "reference": "opus-helloshiva0801-438284.2224b7d0.html"
  },
  "opus-henkvaness-975279": {
@@ -290,8 +291,8 @@
   "reference": "opus-henkvaness-975279.bf281940.html"
  },
  "opus-howdevelop-733090": {
-  "video": "opus-howdevelop-733090.a7364593.mp4",
   "poster": "opus-howdevelop-733090.5f315ad1.webp",
+  "video": "opus-howdevelop-733090.a7364593.mp4",
   "reference": "opus-howdevelop-733090.84b4ab35.html"
  },
  "opus-hqmank-241156": {
@@ -340,8 +341,8 @@
   "reference": "opus-justincooperman-188876.a771a134.html"
  },
  "opus-kloss-xyz-067876": {
-  "poster": "opus-kloss-xyz-067876.dbf6a7d2.webp",
   "video": "opus-kloss-xyz-067876.77837a95.mp4",
+  "poster": "opus-kloss-xyz-067876.dbf6a7d2.webp",
   "reference": "opus-kloss-xyz-067876.6c9bf431.html"
  },
  "opus-kmasiff-549880": {
@@ -370,8 +371,8 @@
   "reference": "opus-localjulius-625706.74d6b9f2.html"
  },
  "opus-loicrambo-980558": {
-  "poster": "opus-loicrambo-980558.d5600dae.webp",
   "video": "opus-loicrambo-980558.7c3b930f.mp4",
+  "poster": "opus-loicrambo-980558.d5600dae.webp",
   "reference": "opus-loicrambo-980558.9cfdc41e.html"
  },
  "opus-mattbean-917572": {
@@ -385,13 +386,13 @@
   "reference": "opus-miguel07code-091611.b3e6221d.html"
  },
  "opus-mounnna-497266": {
-  "poster": "opus-mounnna-497266.dd351eaa.webp",
   "video": "opus-mounnna-497266.2e759ef7.mp4",
+  "poster": "opus-mounnna-497266.dd351eaa.webp",
   "reference": "opus-mounnna-497266.8776fb1b.html"
  },
  "opus-nikolajankovic-616097": {
-  "video": "opus-nikolajankovic-616097.67dfbc63.mp4",
   "poster": "opus-nikolajankovic-616097.57e441d7.webp",
+  "video": "opus-nikolajankovic-616097.67dfbc63.mp4",
   "reference": "opus-nikolajankovic-616097.90ebee56.html"
  },
  "opus-nummanali-340931": {
@@ -400,8 +401,8 @@
   "reference": "opus-nummanali-340931.42ed4983.html"
  },
  "opus-pankajkumar-dev-718609": {
-  "poster": "opus-pankajkumar-dev-718609.628edcbe.webp",
   "video": "opus-pankajkumar-dev-718609.85169705.mp4",
+  "poster": "opus-pankajkumar-dev-718609.628edcbe.webp",
   "reference": "opus-pankajkumar-dev-718609.0e97d419.html"
  },
  "opus-petert-350098": {
@@ -415,8 +416,8 @@
   "reference": "opus-ratheejaisal-154698.7c8ae54c.html"
  },
  "opus-rneayan-406275": {
-  "video": "opus-rneayan-406275.3c8985be.mp4",
   "poster": "opus-rneayan-406275.80b046ef.webp",
+  "video": "opus-rneayan-406275.3c8985be.mp4",
   "reference": "opus-rneayan-406275.ae878d04.html"
  },
  "opus-rneayan-441493": {
@@ -425,8 +426,8 @@
   "reference": "opus-rneayan-441493.df179c5c.html"
  },
  "opus-ror-fly-880547": {
-  "video": "opus-ror-fly-880547.f205d7b3.mp4",
   "poster": "opus-ror-fly-880547.5ac05365.webp",
+  "video": "opus-ror-fly-880547.f205d7b3.mp4",
   "reference": "opus-ror-fly-880547.ab0668b2.html"
  },
  "opus-rpa-dake-593915": {
@@ -455,8 +456,8 @@
   "reference": "opus-stokebuilder-356793.866604a6.html"
  },
  "opus-techhalla-498547": {
-  "video": "opus-techhalla-498547.43c369f4.mp4",
   "poster": "opus-techhalla-498547.a7e77f32.webp",
+  "video": "opus-techhalla-498547.43c369f4.mp4",
   "reference": "opus-techhalla-498547.587fee30.html"
  },
  "opus-techtactician-144474": {
@@ -465,14 +466,14 @@
   "reference": "opus-techtactician-144474.c224d668.html"
  },
  "opus-verbove-268381": {
-  "video": "opus-verbove-268381.2b8b885a.mp4",
   "poster": "opus-verbove-268381.36b18ad3.webp",
+  "video": "opus-verbove-268381.2b8b885a.mp4",
   "reference": "opus-verbove-268381.35c22af2.html"
  },
  "opus-viktoroddy-402509": {
-  "poster": "opus-viktoroddy-402509.6313f445.webp",
-  "video": "opus-viktoroddy-402509.198b186f.mp4",
-  "reference": "opus-viktoroddy-402509.3720978e.html"
+  "poster": "opus-viktoroddy-402509.8a656171.webp",
+  "video": "opus-viktoroddy-402509.7b71230e.mp4",
+  "reference": "opus-viktoroddy-402509.3232aef5.html"
  },
  "opus-wani-shola-459278": {
   "poster": "opus-wani-shola-459278.0c99a8cb.webp",
@@ -480,13 +481,13 @@
   "reference": "opus-wani-shola-459278.00f9ff58.html"
  },
  "opus-x4b47x-034026": {
-  "poster": "opus-x4b47x-034026.00389dc4.webp",
   "video": "opus-x4b47x-034026.0b752162.mp4",
+  "poster": "opus-x4b47x-034026.00389dc4.webp",
   "reference": "opus-x4b47x-034026.574dfc72.html"
  },
  "paper-cutout-story": {
-  "video": "paper-cutout-story.39cbc5f0.mp4",
-  "poster": "paper-cutout-story.2789370b.webp"
+  "poster": "paper-cutout-story.2789370b.webp",
+  "video": "paper-cutout-story.39cbc5f0.mp4"
  },
  "particle-logo-assembly": {
   "poster": "particle-logo-assembly.1e9fd8cf.webp",
@@ -509,8 +510,8 @@
   "reference": "product-spin-ad.bd3f3270.html"
  },
  "prompt-to-result-story": {
-  "video": "prompt-to-result-story.700d4432.mp4",
   "poster": "prompt-to-result-story.921d98fa.webp",
+  "video": "prompt-to-result-story.700d4432.mp4",
   "reference": "prompt-to-result-story.4ac7e705.html"
  },
  "pubsub-queue": {
@@ -519,8 +520,8 @@
   "reference": "pubsub-queue.a910d7f5.html"
  },
  "pythagorean-rearrangement": {
-  "video": "pythagorean-rearrangement.885e0604.mp4",
   "poster": "pythagorean-rearrangement.a1ac733f.webp",
+  "video": "pythagorean-rearrangement.885e0604.mp4",
   "reference": "pythagorean-rearrangement.f98baeb5.html"
  },
  "saas-illus-balloon": {
@@ -528,8 +529,8 @@
   "video": "saas-illus-balloon.46674872.mp4"
  },
  "saas-illus-blueprint": {
-  "video": "saas-illus-blueprint.f744f578.mp4",
-  "poster": "saas-illus-blueprint.c1e49514.webp"
+  "poster": "saas-illus-blueprint.c1e49514.webp",
+  "video": "saas-illus-blueprint.f744f578.mp4"
  },
  "saas-illus-broken-colour": {
   "poster": "saas-illus-broken-colour.3396a988.webp",
@@ -552,20 +553,20 @@
   "video": "saas-illus-flat-vector.aaf55197.mp4"
  },
  "saas-illus-folk-tale": {
-  "video": "saas-illus-folk-tale.3cd44944.mp4",
-  "poster": "saas-illus-folk-tale.512b72d8.webp"
+  "poster": "saas-illus-folk-tale.512b72d8.webp",
+  "video": "saas-illus-folk-tale.3cd44944.mp4"
  },
  "saas-illus-fox": {
   "poster": "saas-illus-fox.cb5211ff.webp",
   "video": "saas-illus-fox.7a7655d8.mp4"
  },
  "saas-illus-halftone": {
-  "video": "saas-illus-halftone.1c827447.mp4",
-  "poster": "saas-illus-halftone.238dd5c5.webp"
+  "poster": "saas-illus-halftone.238dd5c5.webp",
+  "video": "saas-illus-halftone.1c827447.mp4"
  },
  "saas-illus-isometric": {
-  "poster": "saas-illus-isometric.8ca66600.webp",
-  "video": "saas-illus-isometric.d0621fef.mp4"
+  "video": "saas-illus-isometric.d0621fef.mp4",
+  "poster": "saas-illus-isometric.8ca66600.webp"
  },
  "saas-illus-koi": {
   "poster": "saas-illus-koi.1b42ddd7.webp",
@@ -662,8 +663,8 @@
   "reference": "sieve-of-primes.d88c35cf.html"
  },
  "sketch-explainer": {
-  "video": "sketch-explainer.14433a18.mp4",
   "poster": "sketch-explainer.5ee22ad5.webp",
+  "video": "sketch-explainer.14433a18.mp4",
   "reference": "sketch-explainer.94edfd92.html"
  },
  "snow-globe-city": {
@@ -672,8 +673,8 @@
   "reference": "snow-globe-city.b34784ee.html"
  },
  "stat-highlight": {
-  "video": "stat-highlight.621859c1.mp4",
   "poster": "stat-highlight.00f0cbe2.webp",
+  "video": "stat-highlight.621859c1.mp4",
   "reference": "stat-highlight.c6b43d98.html"
  },
  "stick-figure-lesson": {
@@ -704,16 +705,16 @@
   "video": "story-illus-coloured-pencil.592dfc9b.mp4"
  },
  "story-illus-embroidery": {
-  "video": "story-illus-embroidery.b9cef787.mp4",
-  "poster": "story-illus-embroidery.4a03aeb6.webp"
+  "poster": "story-illus-embroidery.4a03aeb6.webp",
+  "video": "story-illus-embroidery.b9cef787.mp4"
  },
  "story-illus-flat-vector": {
-  "poster": "story-illus-flat-vector.267e151f.webp",
-  "video": "story-illus-flat-vector.e8f910aa.mp4"
+  "video": "story-illus-flat-vector.e8f910aa.mp4",
+  "poster": "story-illus-flat-vector.267e151f.webp"
  },
  "story-illus-folk-tale": {
-  "video": "story-illus-folk-tale.277926dd.mp4",
-  "poster": "story-illus-folk-tale.ebdf5d8f.webp"
+  "poster": "story-illus-folk-tale.ebdf5d8f.webp",
+  "video": "story-illus-folk-tale.277926dd.mp4"
  },
  "story-illus-fox": {
   "poster": "story-illus-fox.cb190f58.webp",
@@ -768,16 +769,16 @@
   "video": "story-illus-pocket-watch.5db269b9.mp4"
  },
  "story-illus-ranunculus": {
-  "poster": "story-illus-ranunculus.97bcf344.webp",
-  "video": "story-illus-ranunculus.07128e99.mp4"
+  "video": "story-illus-ranunculus.07128e99.mp4",
+  "poster": "story-illus-ranunculus.97bcf344.webp"
  },
  "story-illus-rubber-hose": {
   "poster": "story-illus-rubber-hose.4dec0312.webp",
   "video": "story-illus-rubber-hose.137c4f3a.mp4"
  },
  "story-illus-scrapbook": {
-  "video": "story-illus-scrapbook.2a6ef760.mp4",
-  "poster": "story-illus-scrapbook.3af91ab8.webp"
+  "poster": "story-illus-scrapbook.3af91ab8.webp",
+  "video": "story-illus-scrapbook.2a6ef760.mp4"
  },
  "story-illus-scratchboard": {
   "poster": "story-illus-scratchboard.50815a47.webp",
@@ -812,53 +813,72 @@
   "video": "story-vox-collage.a86fe185.mp4"
  },
  "storybook-raindrop-journey": {
-  "poster": "storybook-raindrop-journey.b29ab9f2.webp",
   "video": "storybook-raindrop-journey.70f8f3cd.mp4",
+  "poster": "storybook-raindrop-journey.b29ab9f2.webp",
   "reference": "storybook-raindrop-journey.24e976e0.html"
  },
+ "style-clay-clean": {
+  "video": "style-clay-clean.efd7be9d.mp4",
+  "poster": "style-clay-clean.dd951ce0.webp",
+  "reference": "style-clay-clean.fbdce918.html"
+ },
  "style-clay-goofy": {
-  "poster": "style-clay-goofy.97633679.webp",
-  "video": "style-clay-goofy.3267310c.mp4"
+  "poster": "style-clay-goofy.23a43ba7.webp",
+  "video": "style-clay-goofy.0c848af8.mp4",
+  "reference": "style-clay-goofy.3b9388ad.html"
  },
  "style-clay-puppet": {
-  "poster": "style-clay-puppet.58df7f24.webp",
-  "video": "style-clay-puppet.2ec6accc.mp4"
+  "poster": "style-clay-puppet.5e774008.webp",
+  "video": "style-clay-puppet.4d5549bb.mp4",
+  "reference": "style-clay-puppet.d0fb1ce1.html"
  },
  "style-claymation": {
-  "poster": "style-claymation.59e33e45.webp",
-  "video": "style-claymation.0b82cfe3.mp4"
+  "poster": "style-claymation.f758c466.webp",
+  "video": "style-claymation.e1c47274.mp4",
+  "reference": "style-claymation.fa00ba5c.html"
  },
  "style-doodle-crosshatch": {
-  "poster": "style-doodle-crosshatch.323e6525.webp",
-  "video": "style-doodle-crosshatch.87a0492a.mp4"
+  "video": "style-doodle-crosshatch.87a0492a.mp4",
+  "poster": "style-doodle-crosshatch.323e6525.webp"
  },
  "style-doodle-zigzag": {
   "poster": "style-doodle-zigzag.b3170b79.webp",
   "video": "style-doodle-zigzag.807ba29f.mp4"
  },
  "style-origami": {
-  "poster": "style-origami.22a3fe09.webp",
-  "video": "style-origami.100130ac.mp4"
+  "poster": "style-origami.7959e361.webp",
+  "video": "style-origami.c8d276f0.mp4",
+  "reference": "style-origami.72647e2f.html"
  },
  "style-paper": {
-  "poster": "style-paper.17cdcd02.webp",
-  "video": "style-paper.227f3ccd.mp4"
+  "poster": "style-paper.817dde69.webp",
+  "video": "style-paper.bf94e61a.mp4",
+  "reference": "style-paper.36c3ce4e.html"
  },
  "style-paper-collage": {
-  "poster": "style-paper-collage.d3201086.webp",
-  "video": "style-paper-collage.e818270e.mp4"
+  "poster": "style-paper-collage.f9285f4b.webp",
+  "video": "style-paper-collage.c5b5f2c3.mp4",
+  "reference": "style-paper-collage.a76e4be0.html"
  },
  "style-paper-cut": {
-  "poster": "style-paper-cut.5a4ad6ca.webp",
-  "video": "style-paper-cut.c55dcc19.mp4"
+  "poster": "style-paper-cut.d85275d1.webp",
+  "video": "style-paper-cut.87997551.mp4",
+  "reference": "style-paper-cut.3e422796.html"
+ },
+ "style-paper-cutout": {
+  "video": "style-paper-cutout.90d36cab.mp4",
+  "poster": "style-paper-cutout.9aac5ee1.webp",
+  "reference": "style-paper-cutout.1b0680a7.html"
  },
  "style-paper-diorama": {
-  "poster": "style-paper-diorama.426a1b6b.webp",
-  "video": "style-paper-diorama.66d980e4.mp4"
+  "poster": "style-paper-diorama.3424e16a.webp",
+  "video": "style-paper-diorama.3754d572.mp4",
+  "reference": "style-paper-diorama.0bff0ad7.html"
  },
  "style-paper-stop-motion": {
-  "poster": "style-paper-stop-motion.6052c87c.webp",
-  "video": "style-paper-stop-motion.a6a7b179.mp4"
+  "video": "style-paper-stop-motion.45e79d44.mp4",
+  "poster": "style-paper-stop-motion.403e0b04.webp",
+  "reference": "style-paper-stop-motion.853e47ac.html"
  },
  "theme-biennale-yellow": {
   "poster": "theme-biennale-yellow.5d6b6fb5.webp",
@@ -873,12 +893,12 @@
   "video": "theme-blue-professional.10859a41.mp4"
  },
  "theme-bold": {
-  "poster": "theme-bold.b57af843.webp",
-  "video": "theme-bold.608bc669.mp4"
+  "video": "theme-bold.608bc669.mp4",
+  "poster": "theme-bold.b57af843.webp"
  },
  "theme-bold-poster": {
-  "poster": "theme-bold-poster.c4cdba91.webp",
-  "video": "theme-bold-poster.477994f7.mp4"
+  "video": "theme-bold-poster.477994f7.mp4",
+  "poster": "theme-bold-poster.c4cdba91.webp"
  },
  "theme-broadside": {
   "poster": "theme-broadside.1c95ffb9.webp",
@@ -905,8 +925,8 @@
   "video": "theme-coral.eb8b5b8c.mp4"
  },
  "theme-creative-mode": {
-  "video": "theme-creative-mode.16ac52d2.mp4",
-  "poster": "theme-creative-mode.4c513871.webp"
+  "poster": "theme-creative-mode.4c513871.webp",
+  "video": "theme-creative-mode.16ac52d2.mp4"
  },
  "theme-daisy-days": {
   "poster": "theme-daisy-days.615119e0.webp",
@@ -917,8 +937,8 @@
   "video": "theme-editorial.87d36b92.mp4"
  },
  "theme-editorial-forest": {
-  "poster": "theme-editorial-forest.5e26a0bd.webp",
-  "video": "theme-editorial-forest.c6c7b5d4.mp4"
+  "video": "theme-editorial-forest.c6c7b5d4.mp4",
+  "poster": "theme-editorial-forest.5e26a0bd.webp"
  },
  "theme-neutral": {
   "poster": "theme-neutral.b42aa5b8.webp",
@@ -935,8 +955,8 @@
   "reference": "token-bucket-limiter.72899a6b.html"
  },
  "whats-new": {
-  "poster": "whats-new.2430cf32.webp",
   "video": "whats-new.8e78c3b1.mp4",
+  "poster": "whats-new.2430cf32.webp",
   "reference": "whats-new.a71cb7f0.html"
  },
  "whiteboard-concept-explainer": {

@@ -2,6 +2,7 @@ import { anthropicMessage, responseText } from "../anthropic.ts";
 import {
   defaultVoice,
   lookDirection,
+  familyDirection,
   hookWordLimit,
   plainText,
   voiceIds,
@@ -30,7 +31,7 @@ export type DirectorContext = {
 export type DirectorResult = { plan: BeatPlan; problems: string[]; model: string };
 
 export interface Director {
-  plan(brief: ScriptBrief, context: DirectorContext): Promise<DirectorResult>;
+  plan(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<DirectorResult>;
 }
 
 // Vector cycle used to keep consecutive seams matched while varying direction (watchability: vary the vector).
@@ -107,7 +108,7 @@ export class DeterministicDirector implements Director {
       : [`${source[0] ?? "Your team ships faster than your videos"}.`, ...Array.from({ length: count - 2 }, (_, i) => `${context.brandName} handles step ${i + 1} for you.`), `Try ${context.brandName} today.`];
     const shots = context.screenshots;
     const beats: Beat[] = Array.from({ length: count }, (_, i) => {
-      const role: Beat["role"] = i === 0 ? "hook" : i === count - 1 ? "cta" : i === 1 ? "reveal" : i === count - 2 ? "success" : "feature";
+      const role: Beat["role"] = i === 0 ? "hook" : i === count - 1 ? "cta" : i === count - 2 ? "success" : i === 1 ? "reveal" : "feature"; // a 3-beat (5 s) film is hook, success, call to action
       const shot = shots.length ? shots[i % shots.length] : null;
       const kind: Beat["kind"] = role === "cta" ? "title" : shot && role !== "hook" ? "ui" : "kinetic";
       const line = voiced ? lines[i]?.replace(/\.+$/, ".") ?? null : null;
@@ -261,6 +262,7 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
     `Duration: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`,
     `Beats: ${range.min}–${range.max}.${voiced ? ` Voiceover word budget: about ${wordBudget(brief.durationSeconds, brief.pace)} words in total; the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`,
     lookDirection(brief.look),
+    ...(brief.styleFamily ? [familyDirection(brief.styleFamily)] : []),
     `Audio: ${brief.audio.mode}${brief.audio.musicMood ? `; music mood: ${brief.audio.musicMood}` : ""}. Captions: ${brief.captions}.`,
     brief.template ? `Structure template: ${brief.template}.` : "Structure: choose the shape for the format.",
     context.screenshots.length
@@ -343,12 +345,12 @@ export class AnthropicDirector implements Director {
   private readonly httpRequest: typeof fetch;
   constructor(request = fetch) { this.httpRequest = request; }
 
-  async plan(brief: ScriptBrief, context: DirectorContext): Promise<DirectorResult> {
+  async plan(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<DirectorResult> {
     const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userMessage(brief, context) }];
     let plan: BeatPlan | null = null;
     let problems: string[] = [];
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const text = await this.request(messages);
+      const text = await this.request(messages, signal);
       const output = JSON.parse(text) as ModelOutput;
       plan = toPlan(output, brief, context);
       problems = [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)];
@@ -363,7 +365,7 @@ export class AnthropicDirector implements Director {
     return { plan: plan!, problems, model: config.anthropicModel };
   }
 
-  private async request(messages: { role: "user" | "assistant"; content: string }[]): Promise<string> {
+  private async request(messages: { role: "user" | "assistant"; content: string }[], signal?: AbortSignal): Promise<string> {
     const payload = await anthropicMessage({
         model: config.anthropicModel,
         max_tokens: 16000,
@@ -372,7 +374,7 @@ export class AnthropicDirector implements Director {
         messages,
         output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } }
 
-    }, { request: this.httpRequest, timeoutMs: 180000, errorPrefix: "Script director request failed", includeErrorDetail: true, stopErrors: {"refusal": "The script director declined this brief.", "max_tokens": "The beat plan was too long; shorten the duration or the script."} });
+    }, { request: this.httpRequest, ...(signal ? { signal } : {}), timeoutMs: 180000, errorPrefix: "Script director request failed", includeErrorDetail: true, stopErrors: {"refusal": "The script director declined this brief.", "max_tokens": "The beat plan was too long; shorten the duration or the script."} });
     const text = payload.content?.filter((block) => block.type === "text").map((block) => block.text ?? "").join("") ?? "";
     if (!text) throw new Error("The script director returned no plan.");
     return text;

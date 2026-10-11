@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Handmade paper stop-motion</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  html, body { margin: 0; background: #1b1612; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #cfe4e4; }
+  #stage { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<canvas id="stage" class="clip" width="1280" height="720" data-start="0" data-duration="5" data-track-index="0"></canvas>
+</div>
+<script>
+  window.__timelines = window.__timelines || {};
+  const tl = gsap.timeline({ paused: true });
+  const cv = document.getElementById("stage"), ctx = cv.getContext("2d");
+  const W = 1280, H = 720;
+
+  // ---------- seeded helpers (everything is a pure function of the frame number) ----------
+  function rng(seed) { let a = seed | 0; return function () { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  function hash(n) { return rng(n * 7919 + 13)(); }
+  const jit = (f, k) => (hash(f * 131 + k * 17 + 5) - 0.5) * 2;
+  const mk = (w, h) => { const c = document.createElement("canvas"); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; };
+
+  // ---------- paper textures: fine grain with fibres, tiled ----------
+  const grainTile = (function () {
+    const S = 512, c = mk(S, S), g = c.getContext("2d"), r = rng(77);
+    const im = g.createImageData(S, S), d = im.data;
+    for (let i = 0; i < S * S; i++) {
+      const v = r(), k = i * 4;
+      const light = v > 0.5;
+      d[k] = light ? 255 : 30; d[k + 1] = light ? 250 : 20; d[k + 2] = light ? 240 : 12;
+      d[k + 3] = Math.floor(Math.abs(v - 0.5) * 2 * 46);
+    }
+    g.putImageData(im, 0, 0);
+    // long and short fibres
+    for (let i = 0; i < 520; i++) {
+      const x = r() * S, y = r() * S, len = 6 + r() * 26, a = r() * Math.PI * 2, bend = (r() - 0.5) * 10;
+      g.strokeStyle = r() > 0.45 ? "rgba(255,252,242," + (0.10 + r() * 0.2) + ")" : "rgba(70,45,20," + (0.05 + r() * 0.10) + ")";
+      g.lineWidth = 0.6 + r() * 0.7;
+      g.beginPath(); g.moveTo(x, y);
+      g.quadraticCurveTo(x + Math.cos(a) * len * 0.5 + bend, y + Math.sin(a) * len * 0.5 + bend, x + Math.cos(a) * len, y + Math.sin(a) * len);
+      g.stroke();
+    }
+    return c;
+  })();
+  const grainPat = ctx.createPattern(grainTile, "repeat");
+
+  // crumple facets: flat-shaded triangles plus paired light/dark creases
+  function crumple(g, w, h, strength, r, cell) {
+    const n = Math.floor((w * h) / (cell * cell * 0.9));
+    for (let i = 0; i < n; i++) {
+      const x = r() * w, y = r() * h, rad = cell * (0.5 + r() * 0.9), a = r() * Math.PI * 2;
+      g.fillStyle = r() > 0.5 ? "rgba(255,250,235," + (strength * (0.25 + r() * 0.75)) + ")" : "rgba(30,20,10," + (strength * (0.25 + r() * 0.85)) + ")";
+      g.beginPath();
+      g.moveTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad);
+      g.lineTo(x + Math.cos(a + 2.2 + r() * 0.5) * rad * (0.6 + r() * 0.6), y + Math.sin(a + 2.2) * rad * (0.6 + r() * 0.6));
+      g.lineTo(x + Math.cos(a + 4.2 + r() * 0.5) * rad * (0.6 + r() * 0.6), y + Math.sin(a + 4.2) * rad * (0.6 + r() * 0.6));
+      g.closePath(); g.fill();
+    }
+    const m = Math.floor(n * 0.7);
+    for (let i = 0; i < m; i++) {
+      const x = r() * w, y = r() * h, len = cell * (0.8 + r() * 1.6), a = r() * Math.PI * 2;
+      const dx = Math.cos(a) * len, dy = Math.sin(a) * len;
+      g.lineWidth = 1;
+      g.strokeStyle = "rgba(30,20,10," + (strength * 1.7) + ")";
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + dx, y + dy); g.stroke();
+      g.strokeStyle = "rgba(255,250,235," + (strength * 2.4) + ")";
+      g.beginPath(); g.moveTo(x + 1.2, y + 1.2); g.lineTo(x + dx + 1.2, y + dy + 1.2); g.stroke();
+    }
+  }
+  // finish a sprite: crumple, light falloff, grain (all clipped to the drawn paper by source-atop)
+  function finish(c, opt, seed) {
+    const g = c.getContext("2d"), r = rng(seed + 900), w = c.width, h = c.height;
+    g.globalCompositeOperation = "source-atop";
+    if (opt.crumple) crumple(g, w, h, opt.crumple, r, opt.cell || 40);
+    if (opt.grad) {
+      const gr = g.createLinearGradient(0, 0, 0, h);
+      gr.addColorStop(0, "rgba(255,248,230," + opt.grad[0] + ")"); gr.addColorStop(1, "rgba(15,25,40," + opt.grad[1] + ")");
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    }
+    g.save(); g.translate(-Math.floor(r() * 400), -Math.floor(r() * 400));
+    g.fillStyle = grainPat; g.globalAlpha = opt.grain == null ? 1 : opt.grain; g.fillRect(0, 0, w + 520, h + 520);
+    g.restore();
+    g.globalCompositeOperation = "source-over";
+    return c;
+  }
+
+  // ---------- torn edge helpers ----------
+  function noiseLine(len, step, amp, r) {
+    const n = Math.ceil(len / step) + 2, a = []; for (let i = 0; i < n; i++) a.push((r() - 0.5) * 2 * amp);
+    return (x) => { const u = x / step, i = Math.floor(u), t = u - i; return a[i] * (1 - t) + a[i + 1] * t; };
+  }
+  function blobPoly(cx, cy, rx, ry, jag, r, n) {
+    const pts = []; n = n || 28;
+    for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2, k = 1 + (r() - 0.5) * jag; pts.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]); }
+    return pts;
+  }
+  function polyPath(g, pts) { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); }
+  // hairs along an edge so the torn paper looks fibrous
+  function hairs(g, pts, r, col, len) {
+    g.strokeStyle = col; g.lineWidth = 0.8;
+    for (let i = 0; i < pts.length; i++) {
+      if (r() > 0.55) continue;
+      const p = pts[i], a = -Math.PI / 2 + (r() - 0.5) * 1.6, l = 1.5 + r() * len;
+      g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(p[0] + Math.cos(a) * l, p[1] + Math.sin(a) * l); g.stroke();
+    }
+  }
+
+  // ---------- sky sheet ----------
+  const sky = (function () {
+    const c = mk(W, H), g = c.getContext("2d");
+    g.fillStyle = "#d3e6e4"; g.fillRect(0, 0, W, H);
+    return finish(c, { crumple: 0.05, cell: 90, grad: [0.10, 0.10], grain: 0.9 }, 3);
+  })();
+
+  // ---------- sea layers: torn strips with crumpled, peaky wave crests ----------
+  const SEA = [
+    { col: "#a9d4d3", base: 404, amp: 9,  lam: 70,  seed: 11, dx: 26, px: 4.6, bobA: 4,  bobP: 2.5, ph: 0.2 },
+    { col: "#86c0c7", base: 444, amp: 13, lam: 96,  seed: 12, dx: 34, px: 3.6, bobA: 6,  bobP: 2.5, ph: 0.9 },
+    { col: "#62a8b6", base: 482, amp: 16, lam: 120, seed: 13, dx: 40, px: 3.2, bobA: 7,  bobP: 2.5, ph: 1.6 },
+    { col: "#4690a6", base: 526, amp: 20, lam: 150, seed: 14, dx: 44, px: 2.8, bobA: 8,  bobP: 2.5, ph: 2.3 },
+    { col: "#317896", base: 586, amp: 22, lam: 190, seed: 15, dx: 50, px: 2.5, bobA: 8,  bobP: 2.5, ph: 3.0 },
+    { col: "#235f80", base: 650, amp: 18, lam: 230, seed: 16, dx: 56, px: 2.2, bobA: 6,  bobP: 2.5, ph: 3.7 },
+  ];
+  const SEA_W = 1400, SEA_PAD = 60;
+  SEA.forEach((L) => {
+    const r = rng(L.seed * 31);
+    const top = L.amp + 16, h = (H - L.base) + top + 70;
+    const c = mk(SEA_W, h), g = c.getContext("2d");
+    const nz = noiseLine(SEA_W, 6, 2.6, r), nz2 = noiseLine(SEA_W, 5, 2.4, r), jag = noiseLine(SEA_W, 3, 1.4, r);
+    const ph = r() * 10;
+    const wave = (x) => {
+      const u1 = (x + ph * 17) / L.lam, u2 = (x + ph * 41) / (L.lam * 0.43);
+      const t1 = 1 - Math.abs(2 * (u1 - Math.floor(u1)) - 1), t2 = 1 - Math.abs(2 * (u2 - Math.floor(u2)) - 1);
+      return 0.72 * Math.pow(t1, 0.85) + 0.28 * t2;
+    };
+    const prof = [], rim = [];
+    for (let x = 0; x <= SEA_W; x += 3) {
+      const y = top - L.amp * wave(x) + nz(x) + jag(x) * 0.6;
+      prof.push([x, y]); rim.push([x, y - 3.5 - Math.abs(nz2(x)) * 1.3]);
+    }
+    // pale fibrous core shows where the paper was torn
+    g.fillStyle = "#f6f0e0"; g.beginPath(); g.moveTo(0, h);
+    rim.forEach((p) => g.lineTo(p[0], p[1])); g.lineTo(SEA_W, h); g.closePath(); g.fill();
+    hairs(g, rim, r, "rgba(255,252,240,.9)", 4);
+    g.fillStyle = L.col; g.beginPath(); g.moveTo(0, h);
+    prof.forEach((p) => g.lineTo(p[0], p[1])); g.lineTo(SEA_W, h); g.closePath(); g.fill();
+    // glued-down torn foam scraps along the crests
+    const nf = 2 + Math.floor(L.lam / 80) + Math.floor(r() * 2);
+    for (let i = 0; i < nf; i++) {
+      const x = 40 + r() * (SEA_W - 80), idx = Math.floor(x / 3), yb = prof[idx][1] + 9 + r() * 22;
+      const bw = 12 + r() * 16 + L.amp * 0.6, bh = 3 + r() * 3 + L.amp * 0.12;
+      const poly = blobPoly(x, yb, bw, bh, 0.55, r, 18);
+      g.save(); g.translate(-2, 3); polyPath(g, poly); g.fillStyle = "rgba(10,50,70,.28)"; g.fill(); g.restore();
+      polyPath(g, poly); g.fillStyle = "#f7f3e7"; g.fill();
+    }
+    SEA_SPR(L, finish(c, { crumple: 0.075 + L.amp * 0.0016, cell: 22 + L.amp * 1.5, grad: [0.12, 0.22], grain: 0.95 }, L.seed), top);
+  });
+  function SEA_SPR(L, c, top) { L.spr = c; L.top = top; L.misx = (hash(L.seed) - 0.5) * 8; }
+
+  // ---------- clouds: two torn layers (a lilac underlayer glued behind a cream top sheet) ----------
+  function makeCloud(w, h, seed) {
+    const r = rng(seed), pad = 22, cw = w + pad * 2, ch = h + pad * 2 + 12;
+    const bumps = [];
+    const nb = 4 + Math.floor(w / 62);
+    for (let i = 0; i < nb; i++) { const cx = (i + 0.5) / nb * w, rr = h * (0.30 + r() * 0.36) * (1 - Math.abs(cx / w - 0.5) * 1.15); bumps.push([cx, h - rr * 0.28, rr]); }
+    const layer = (shift, col, rimCol, sd, extraNoise) => {
+      const rr = rng(sd), nz = noiseLine(w + 20, 5, 2.2 + extraNoise, rr), nb2 = noiseLine(w + 20, 5, 2.4, rr);
+      const pts = [];
+      for (let x = 0; x <= w; x += 3) {
+        let top = h; bumps.forEach((b) => { const dx = x - b[0]; if (Math.abs(dx) < b[2]) top = Math.min(top, b[1] - Math.sqrt(b[2] * b[2] - dx * dx)); });
+        pts.push([x + shift[0], top + nz(x) + shift[1]]);
+      }
+      for (let x = w; x >= 0; x -= 3) pts.push([x + shift[0], h - 2 + nb2(x) * 1.5 + shift[1]]);
+      const c = mk(cw, ch), g = c.getContext("2d");
+      g.translate(pad, pad);
+      polyPath(g, pts); g.lineWidth = 6; g.lineJoin = "round"; g.strokeStyle = rimCol; g.stroke();
+      polyPath(g, pts); g.fillStyle = col; g.fill();
+      hairs(g, pts, rr, rimCol, 4);
+      return finish(c, { crumple: 0.05, cell: 26, grad: [0.18, 0.10], grain: 0.9 }, sd);
+    };
+    return { under: layer([8, 9], "#c3cce0", "#e9ecf3", seed + 1, 0.8), over: layer([0, 0], "#fbf6e8", "#fffdf6", seed + 2, 0.4), pad, cw, ch };
+  }
+  const CLOUDS = [
+    { spr: makeCloud(340, 118, 201), x: 90,  y: 96,  v: 22, jx: 0.4 },
+    { spr: makeCloud(250, 92,  202), x: 640, y: 50,  v: 15, jx: 0.9 },
+    { spr: makeCloud(280, 100, 203), x: 880, y: 150, v: 28, jx: 1.4 },
+  ];
+
+  // ---------- sun: cut-paper star of rays, two torn discs ----------
+  const SUN = (function () {
+    const R = 190, c = mk(R * 2, R * 2), g = c.getContext("2d"), r = rng(55);
+    const pts = []; const n = 22;
+    for (let i = 0; i < n * 2; i++) { const a = (i / (n * 2)) * Math.PI * 2, o = i % 2 === 0; const rad = (o ? 168 + r() * 14 : 118 + r() * 6); pts.push([R + Math.cos(a) * rad, R + Math.sin(a) * rad]); }
+    g.save(); g.translate(-3, 5); polyPath(g, pts); g.fillStyle = "rgba(120,70,10,.30)"; g.fill(); g.restore();
+    polyPath(g, pts); g.fillStyle = "#f8da84"; g.fill();
+    const rays = finish(c, { crumple: 0.05, cell: 30, grad: [0.15, 0.05], grain: 0.9 }, 56);
+    const disc = (rad, col, rim, sd) => {
+      const cc = mk(rad * 2 + 24, rad * 2 + 24), gg = cc.getContext("2d"), rr = rng(sd);
+      const p = blobPoly(rad + 12, rad + 12, rad, rad, 0.05, rr, 56);
+      polyPath(gg, p); gg.lineWidth = 7; gg.lineJoin = "round"; gg.strokeStyle = rim; gg.stroke();
+      polyPath(gg, p); gg.fillStyle = col; gg.fill();
+      hairs(gg, p, rr, rim, 3);
+      return finish(cc, { crumple: 0.05, cell: 22, grad: [0.2, 0.08], grain: 0.9 }, sd);
+    };
+    return { rays, R, d1: disc(104, "#f5b13a", "#fbe5a6", 57), d2: disc(70, "#f9d24f", "#fff0b0", 58) };
+  })();
+
+  // ---------- gulls: two poses swapped by hand ----------
+  function makeGull(y1, seed) {
+    const c = mk(90, 56), g = c.getContext("2d");
+    g.translate(45, 30);
+    g.beginPath(); g.moveTo(0, 0);
+    g.quadraticCurveTo(-14, -11 + y1 * 0.15, -34, y1); g.quadraticCurveTo(-16, y1 * 0.1 + 1, 0, 8);
+    g.quadraticCurveTo(16, y1 * 0.1 + 1, 34, y1); g.quadraticCurveTo(14, -11 + y1 * 0.15, 0, 0); g.closePath();
+    g.shadowColor = "rgba(30,20,10,.3)"; g.shadowBlur = 0; g.fillStyle = "#4f6679"; g.fill();
+    return finish(c, { crumple: 0.04, cell: 14, grain: 0.8 }, seed);
+  }
+  const GULL = [makeGull(-20, 301), makeGull(-4, 302), makeGull(10, 303), makeGull(-4, 302)];
+
+  // ---------- the boat, in parts (origin = middle of the waterline) ----------
+  function part(w, h, ox, oy, seed, fn, opt) {
+    const c = mk(w, h), g = c.getContext("2d"); g.translate(ox, oy); fn(g, rng(seed));
+    return { c: finish(c, opt || { crumple: 0.05, cell: 24, grad: [0.12, 0.12], grain: 0.9 }, seed), ox, oy };
+  }
+  const HULL = part(340, 90, 170, 70, 401, (g, r) => {
+    const hp = () => { g.beginPath(); g.moveTo(-135, -38); g.quadraticCurveTo(0, -24, 150, -52); g.lineTo(118, -2); g.quadraticCurveTo(0, 7, -98, -2); g.closePath(); };
+    hp(); g.fillStyle = "#d9503f"; g.fill();
+    g.save(); hp(); g.clip();
+    g.save(); g.rotate(-0.045); g.fillStyle = "#f4e7c6"; g.fillRect(-190, -29, 380, 10); g.restore();
+    g.fillStyle = "rgba(255,255,255,.14)"; g.fillRect(-190, -52, 380, 9);          // folded-over rim
+    g.fillStyle = "rgba(0,0,0,.10)"; g.fillRect(-190, -16, 380, 3);                 // fold shadow
+    // glue seam at the stern: a taped strip with a glossy edge and a squeezed-out bead
+    g.fillStyle = "rgba(255,240,200,.42)"; g.fillRect(-122, -60, 15, 80);
+    g.fillStyle = "rgba(0,0,0,.14)"; g.fillRect(-122, -60, 1.5, 80); g.fillRect(-108.5, -60, 1.5, 80);
+    g.fillStyle = "rgba(255,255,255,.7)"; g.fillRect(-120, -60, 2.5, 80);
+    g.restore();
+    for (let i = 0; i < 3; i++) {
+      const x = -52 + i * 62, y = -9 - i * 1.3;
+      g.save(); g.shadowColor = "rgba(20,10,5,.35)"; g.shadowBlur = 0; g.shadowOffsetX = -1.5; g.shadowOffsetY = 2;
+      polyPath(g, blobPoly(x, y, 7.6, 7.6, 0.12, r, 14)); g.fillStyle = "#f4e7c6"; g.fill(); g.restore();
+      polyPath(g, blobPoly(x, y, 4.6, 4.6, 0.12, r, 12)); g.fillStyle = "#294b66"; g.fill();
+    }
+    // glue beads
+    g.fillStyle = "rgba(255,255,255,.55)";
+    [[-114, -33], [-114, -8], [128, -34]].forEach((p) => { g.beginPath(); g.arc(p[0], p[1], 2.2, 0, 7); g.fill(); });
+  });
+  const MAST = part(24, 270, 12, 272, 402, (g) => { g.fillStyle = "#8a5b3b"; g.fillRect(-3.2, -268, 6.4, 236); g.fillStyle = "rgba(255,255,255,.18)"; g.fillRect(-3.2, -268, 1.6, 236); });
+  function mainsail(b, seed) {
+    return part(210, 250, 186, 268, seed, (g, r) => {
+      const sp = () => { g.beginPath(); g.moveTo(-3, -258); g.lineTo(-3, -46); g.lineTo(-162, -52); g.quadraticCurveTo(-78 - b, -152, -3, -258); g.closePath(); };
+      g.save(); g.translate(-3, 4); sp(); g.fillStyle = "rgba(20,30,40,.0)"; g.fill(); g.restore();
+      sp(); g.fillStyle = "#fbf3dd"; g.fill();
+      g.save(); sp(); g.clip();
+      // fold crease down the middle: pale ridge, dark valley
+      g.beginPath(); g.moveTo(-3, -250); g.lineTo(-84, -49); g.strokeStyle = "rgba(255,255,255,.75)"; g.lineWidth = 2; g.stroke();
+      g.beginPath(); g.moveTo(-5, -250); g.lineTo(-86, -49); g.strokeStyle = "rgba(60,40,20,.28)"; g.lineWidth = 1.6; g.stroke();
+      g.fillStyle = "rgba(0,0,0,.045)"; g.beginPath(); g.moveTo(-3, -258); g.lineTo(-84, -49); g.lineTo(-170, -49); g.lineTo(-170, -258); g.closePath(); g.fill();
+      // hem folded along the foot
+      g.fillStyle = "rgba(60,40,20,.12)"; g.fillRect(-175, -58, 180, 7);
+      g.fillStyle = "rgba(255,255,255,.55)"; g.fillRect(-175, -58, 180, 1.6);
+      // glue seam strip against the mast, with glossy edge and a few squeezed beads
+      g.fillStyle = "rgba(255,238,190,.55)"; g.fillRect(-17, -270, 14, 230);
+      g.fillStyle = "rgba(70,45,20,.20)"; g.fillRect(-17, -270, 1.4, 230);
+      g.fillStyle = "rgba(255,255,255,.85)"; g.fillRect(-14.5, -270, 2.4, 230);
+      g.fillStyle = "rgba(255,255,255,.8)";
+      [-90, -150, -205].forEach((y) => { g.beginPath(); g.arc(-18, y, 2.2, 0, 7); g.fill(); });
+      g.restore();
+      // torn-paper sun patch glued on
+      const pp = blobPoly(-72, -118, 25, 25, 0.22, r, 20);
+      g.save(); g.translate(-2.5, 3.5); polyPath(g, pp); g.fillStyle = "rgba(50,30,10,.32)"; g.fill(); g.restore();
+      polyPath(g, pp); g.lineWidth = 4; g.lineJoin = "round"; g.strokeStyle = "#fcefc0"; g.stroke();
+      polyPath(g, pp); g.fillStyle = "#f4b53c"; g.fill();
+      polyPath(g, blobPoly(-72, -118, 13, 13, 0.2, r, 14)); g.fillStyle = "#f08a3a"; g.fill();
+    });
+  }
+  const MAIN = [mainsail(0, 411), mainsail(12, 411)];
+  function jibsail(b, seed) {
+    return part(160, 220, 8, 240, seed, (g, r) => {
+      const sp = () => { g.beginPath(); g.moveTo(10, -234); g.lineTo(10, -52); g.lineTo(136, -62); g.quadraticCurveTo(62 + b, -126, 10, -234); g.closePath(); };
+      sp(); g.fillStyle = "#ef8f7a"; g.fill();
+      g.save(); sp(); g.clip();
+      g.beginPath(); g.moveTo(12, -222); g.lineTo(72, -60); g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 1.8; g.stroke();
+      g.beginPath(); g.moveTo(14, -222); g.lineTo(74, -60); g.strokeStyle = "rgba(70,20,10,.28)"; g.lineWidth = 1.5; g.stroke();
+      g.fillStyle = "rgba(60,20,10,.12)"; g.fillRect(0, -64, 150, 6);
+      g.fillStyle = "rgba(255,255,255,.4)"; g.fillRect(0, -64, 150, 1.5);
+      g.fillStyle = "rgba(255,230,190,.45)"; g.fillRect(10, -240, 11, 200);
+      g.fillStyle = "rgba(255,255,255,.8)"; g.fillRect(12.5, -240, 2, 200);
+      g.restore();
+    });
+  }
+  const JIB = [jibsail(0, 421), jibsail(10, 421)];
+  function flag(dy, seed) {
+    return part(64, 40, 6, 22, seed, (g) => { g.beginPath(); g.moveTo(0, -9); g.lineTo(0, 9); g.lineTo(40, dy); g.closePath(); g.fillStyle = "#e5483b"; g.fill(); }, { crumple: 0.04, cell: 12, grain: 0.9 });
+  }
+  const FLAG = [flag(-6, 431), flag(3, 431), flag(-1, 431)];
+
+  // ---------- draw one frame ----------
+  const DT = 1 / 12;
+  function drawPart(p, x, y, rot, sh) {
+    ctx.save(); ctx.translate(x, y); if (rot) ctx.rotate(rot);
+    if (sh) { ctx.shadowColor = sh.c; ctx.shadowBlur = sh.b; ctx.shadowOffsetX = sh.x; ctx.shadowOffsetY = sh.y; }
+    ctx.drawImage(p.c, -p.ox, -p.oy); ctx.restore();
+  }
+  function drawSea(L, f, te) {
+    const x = -SEA_PAD + L.misx + Math.round(L.dx * Math.sin(2 * Math.PI * (te / 3.3) * 0.95 + L.ph) * (L.px > 3 ? 1 : 1)) + Math.round(jit(f, L.seed) * 1.2);
+    const y = L.base - L.top + Math.round(L.bobA * Math.sin(2 * Math.PI * te / L.bobP + L.ph)) + Math.round(jit(f, L.seed + 40) * 1.1);
+    ctx.save();
+    ctx.shadowColor = "rgba(15,40,55,.45)"; ctx.shadowBlur = 13; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = -4;
+    ctx.drawImage(L.spr, x, y);
+    ctx.restore();
+  }
+  const SH_FLOAT = { c: "rgba(35,25,15,.38)", b: 9, x: -6, y: 8 };
+
+  function draw(t) {
+    const te = Math.min(t, 4.5);                     // the last half second holds the finished set
+    const f = Math.floor(te * 12 + 1e-6), tq = f * DT;
+    const f2 = Math.floor(f / 2), t2 = f2 / 6;       // slower things are moved on twos
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(sky, 0, 0);
+
+    // sun, hand-placed: rises in small steps, the star turns a notch every third frame
+    {
+      const f3 = Math.floor(f / 3), sx = 982 + Math.round(jit(f3, 1) * 1.2), sy = 346 - Math.min(f3, 14) * 1.8 + Math.round(jit(f3, 2) * 1.2);
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(f3 * 0.045);
+      ctx.drawImage(SUN.rays, -SUN.R, -SUN.R); ctx.restore();
+      ctx.save(); ctx.shadowColor = "rgba(120,60,10,.35)"; ctx.shadowBlur = 8; ctx.shadowOffsetX = -3; ctx.shadowOffsetY = 5;
+      ctx.drawImage(SUN.d1.c ? SUN.d1 : SUN.d1, sx - SUN.d1.width / 2 + Math.round(jit(f, 3) * 0.8), sy - SUN.d1.height / 2 + Math.round(jit(f, 4) * 0.8));
+      ctx.drawImage(SUN.d2, sx - SUN.d2.width / 2 + Math.round(jit(f, 5) * 0.8), sy - SUN.d2.height / 2 + Math.round(jit(f, 6) * 0.8));
+      ctx.restore();
+    }
+
+    // gulls flapping on swapped poses
+    [[760, 112, 36, 0], [840, 144, 30, 5]].forEach((gl, i) => {
+      const pose = GULL[(Math.floor(f / 3) + gl[3]) % 4];
+      const x = gl[0] + gl[2] * (t2 / 5) * 1.6 + Math.round(jit(f2, 20 + i)), y = gl[1] + Math.round(4 * Math.sin(t2 * 2 + i * 2)) + Math.round(jit(f2, 30 + i));
+      ctx.save(); ctx.shadowColor = "rgba(35,25,15,.3)"; ctx.shadowBlur = 5; ctx.shadowOffsetX = -3; ctx.shadowOffsetY = 5;
+      ctx.drawImage(pose, x - 45, y - 30); ctx.restore();
+    });
+
+    // torn clouds drifting a few pixels at a time
+    CLOUDS.forEach((C, i) => {
+      const x = C.x + Math.round(C.v * t2) + Math.round(jit(f2, 50 + i) * C.jx), y = C.y + Math.round(jit(f2, 60 + i) * 1);
+      ctx.save(); ctx.shadowColor = "rgba(60,70,100,.28)"; ctx.shadowBlur = 8; ctx.shadowOffsetX = -3; ctx.shadowOffsetY = 6;
+      ctx.drawImage(C.spr.under, x - C.spr.pad, y - C.spr.pad);
+      ctx.restore();
+      ctx.save(); ctx.shadowColor = "rgba(60,70,100,.30)"; ctx.shadowBlur = 8; ctx.shadowOffsetX = -3; ctx.shadowOffsetY = 6;
+      ctx.drawImage(C.spr.over, x - C.spr.pad, y - C.spr.pad);
+      ctx.restore();
+    });
+
+    // far sea
+    for (let i = 0; i < 3; i++) drawSea(SEA[i], f, tq);
+
+    // the boat: nudged forward a fixed step each frame, rocked by hand, flag and sails swapped between poses
+    {
+      const bx = 340 + 70 * tq + jit(f, 70) * 1.3, bob = 6 * Math.sin(2 * Math.PI * tq / 2.5 + 0.7), by = 514 + Math.round(bob) + jit(f, 71) * 1.1;
+      const rock = (-0.012 + 0.058 * Math.sin(2 * Math.PI * tq / 2.5 + 1.3)) + jit(f, 72) * 0.006;
+      const ca = Math.cos(rock), sa = Math.sin(rock);
+      const loc = (lx, ly) => [bx + (lx * ca - (ly + 12) * sa), by + (lx * sa + (ly + 12) * ca) - 12];
+      const pose = Math.floor(f / 4) % 2;
+      ctx.save();
+      ctx.translate(bx, by); ctx.rotate(rock); ctx.scale(1.25, 1.25);
+      const sh = SH_FLOAT;
+      ctx.shadowColor = sh.c; ctx.shadowBlur = sh.b; ctx.shadowOffsetX = sh.x; ctx.shadowOffsetY = sh.y;
+      const put = (p) => ctx.drawImage(p.c, -p.ox, -p.oy);
+      put(MAST); put(MAIN[pose]); put(JIB[1 - pose]); put(HULL);
+      ctx.drawImage(FLAG[Math.floor(f / 2) % 3].c, -FLAG[0].ox, -266 - FLAG[0].oy);
+      ctx.restore();
+    }
+
+    // near sea covers the hull's waterline
+    for (let i = 3; i < SEA.length; i++) drawSea(SEA[i], f, tq);
+
+    // practical lighting: warm lamp from the sun side, falloff to the corners, a hair of per-frame exposure drift
+    {
+      const sx = 982, sy = 300;
+      ctx.save(); ctx.globalCompositeOperation = "soft-light";
+      let gr = ctx.createRadialGradient(sx, sy, 20, sx, sy, 760);
+      gr.addColorStop(0, "rgba(255,214,140,.85)"); gr.addColorStop(0.5, "rgba(255,200,130,.28)"); gr.addColorStop(1, "rgba(255,200,130,0)");
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H); ctx.restore();
+      ctx.save(); ctx.globalCompositeOperation = "multiply";
+      gr = ctx.createRadialGradient(W * 0.55, H * 0.5, 280, W * 0.55, H * 0.5, 900);
+      gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(1, "rgba(120,98,86,1)");
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H); ctx.restore();
+      ctx.fillStyle = "rgba(20,10,0," + (0.035 + 0.03 * (hash(f * 3 + 1) )) + ")"; ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  const f0 = { t: 0 };
+  window.addEventListener("hf-seek", (e) => draw(e.detail.time));
+  tl.to(f0, { t: 5, duration: 5, ease: "none", onUpdate: () => draw(f0.t) }, 0);
+  tl.to({}, { duration: 5 }, 0);
+  window.__timelines["main"] = tl;
+  draw(0);
+</script>
+</body>
+</html>

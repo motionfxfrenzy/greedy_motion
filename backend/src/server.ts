@@ -29,7 +29,7 @@ import { registerLibraryRoutes } from "./library.ts";
 import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
 import { presignOutput } from "./storage.ts";
-import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, validateBrandInput } from "./brand/store.ts";
+import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, removedVariants, updateBrand, validateBrandInput } from "./brand/store.ts";
 import { addReviewComment, addScreenshot, applyReviewComments, createProject, getProject, listProjects, ProjectInvalid, removeReviewComment, removeScreenshot, screenshotFile, updateProject, updateProjectStudio } from "./projects/store.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -136,8 +136,8 @@ app.get<{ Params: { id: string; screenshotId: string } }>("/v1/preview/projects/
     : previewNotFound(reply, "Screenshot not found.");
 });
 
-app.get<{ Params: { id: string } }>("/v1/preview/brands/:id/logo", async (request, reply) => {
-  const file = await previewBrandLogo(request.params.id);
+app.get<{ Params: { id: string }; Querystring: { role?: string } }>("/v1/preview/brands/:id/logo", async (request, reply) => {
+  const file = await previewBrandLogo(request.params.id, request.query.role === "bug" ? "bug" : "lockup");
   return file
     ? reply.header("Content-Type", "image/png").header("Cache-Control", "no-store").header("X-Content-Type-Options", "nosniff").send(file)
     : previewNotFound(reply, "Brand logo not found.");
@@ -433,6 +433,15 @@ app.post("/v1/brands", async (request, reply) => {
   }
 });
 
+app.put<{ Params: { id: string }; Body: Record<string, unknown> }>("/v1/brands/:id", async (request, reply) => {
+  try {
+    const kit = await updateBrand(request.params.id, validateBrandInput(request.body), callerId(request), { removeLogo: request.body?.removeLogo === true, removeVariants: removedVariants(request.body) });
+    return kit ?? reply.code(404).send({ error: { code: "not_found", message: "Brand kit not found." } });
+  } catch (error) {
+    return brandError(reply, error);
+  }
+});
+
 app.get("/v1/brands", async (request) => ({ brands: await listBrands(callerId(request)) }));
 
 app.get<{ Params: { id: string } }>("/v1/brands/:id", async (request, reply) => {
@@ -440,8 +449,8 @@ app.get<{ Params: { id: string } }>("/v1/brands/:id", async (request, reply) => 
   return kit ?? reply.code(404).send({ error: { code: "not_found", message: "Brand kit not found." } });
 });
 
-app.get<{ Params: { id: string } }>("/v1/brands/:id/logo", async (request, reply) => {
-  const path = await brandLogoPath(request.params.id);
+app.get<{ Params: { id: string }; Querystring: { variant?: string } }>("/v1/brands/:id/logo", async (request, reply) => {
+  const path = await brandLogoPath(request.params.id, request.query.variant);
   const size = path ? await stat(path).then((info) => info.size).catch(() => null) : null;
   if (!path || size === null) return reply.code(404).send({ error: { code: "not_found", message: "This brand kit has no logo." } });
   return reply.header("Content-Type", "image/png").header("Content-Length", size).header("X-Content-Type-Options", "nosniff").send(createReadStream(path));

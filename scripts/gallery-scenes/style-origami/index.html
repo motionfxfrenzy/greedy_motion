@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Origami crane</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #ece8dc; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #ece8dc; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6efe0"/><stop offset="0.6" stop-color="#e6eee9"/><stop offset="1" stop-color="#d7e6e8"/>
+    </linearGradient>
+    <linearGradient id="haze" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/><stop offset="1" stop-color="#f3efe4" stop-opacity="0.55"/>
+    </linearGradient>
+    <filter id="grain" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse">
+      <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" seed="7" result="g"/>
+      <feColorMatrix in="g" type="matrix" values="0 0 0 0 0.35  0 0 0 0 0.3  0 0 0 0 0.25  0 0 0 0.22 0"/>
+    </filter>
+    <filter id="fibre" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.18" numOctaves="2" seed="11" result="g"/>
+      <feColorMatrix in="g" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 0.95  0 0 0 0.35 -0.1"/>
+    </filter>
+    <filter id="cshadow" x="-50%" y="-50%" width="200%" height="220%">
+      <feDropShadow id="csh" dx="6" dy="16" stdDeviation="9" flood-color="#2d3b45" flood-opacity="0.28"/>
+    </filter>
+    <filter id="lshadow" x="-10%" y="-30%" width="120%" height="160%">
+      <feDropShadow dx="0" dy="-5" stdDeviation="6" flood-color="#2d3b45" flood-opacity="0.16"/>
+    </filter>
+    <filter id="bshadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="3" dy="7" stdDeviation="4" flood-color="#233640" flood-opacity="0.3"/>
+    </filter>
+    <clipPath id="frame"><rect width="1280" height="720"/></clipPath>
+  </defs>
+  <rect width="1280" height="720" fill="url(#sky)"/>
+  <g id="sun" filter="url(#lshadow)"></g>
+  <g id="clouds"></g>
+  <g id="far" filter="url(#lshadow)"></g>
+  <g id="mid" filter="url(#lshadow)"></g>
+  <g id="near" filter="url(#lshadow)"></g>
+  <rect y="360" width="1280" height="360" fill="url(#haze)" opacity=".5"/>
+  <g id="waterWrap"><g id="water"></g></g>
+  <g id="boatPos" filter="url(#bshadow)"><g id="boatPop"><g id="boat"></g></g></g>
+  <g id="waterFront"></g>
+  <g id="craneWrap" filter="url(#cshadow)"><g id="cranePos"><g id="craneBase"></g><g id="crane"></g><g id="creases" fill="none"></g></g></g>
+  <rect width="1280" height="720" filter="url(#fibre)" opacity=".5" style="mix-blend-mode:soft-light"/>
+  <rect width="1280" height="720" filter="url(#grain)" style="mix-blend-mode:multiply"/>
+</svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  function $(id) { return document.getElementById(id); }
+  function el(parent, tag, attrs) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    parent.appendChild(e); return e;
+  }
+  function rng(seed) { var a = seed >>> 0; return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function hex(c) {
+    if (c.charAt(0) === "r") return c.match(/\d+/g).map(Number);
+    return [parseInt(c.substr(1, 2), 16), parseInt(c.substr(3, 2), 16), parseInt(c.substr(5, 2), 16)];
+  }
+  function mix(a, b, k) {
+    var A = hex(a), B = hex(b); k = Math.max(0, Math.min(1, k));
+    return "rgb(" + Math.round(A[0] + (B[0] - A[0]) * k) + "," + Math.round(A[1] + (B[1] - A[1]) * k) + "," + Math.round(A[2] + (B[2] - A[2]) * k) + ")";
+  }
+  function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function eio(x) { x = clamp01(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+  function eout(x) { x = clamp01(x); return 1 - Math.pow(1 - x, 3); }
+  function backOut(x) { x = clamp01(x); var c = 1.9; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); }
+  function poly(parent, pts, fill, extra) {
+    var a = { points: pts.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "), fill: fill };
+    if (extra) for (var k in extra) a[k] = extra[k];
+    return el(parent, "polygon", a);
+  }
+
+  /* ---------- sun: folded octagon ---------- */
+  (function () {
+    var g = $("sun"), cx = 205, cy = 170, r = 64, n = 8;
+    for (var i = 0; i < n; i++) {
+      var a0 = i / n * Math.PI * 2 + 0.2, a1 = (i + 1) / n * Math.PI * 2 + 0.2;
+      poly(g, [[cx, cy], [cx + Math.cos(a0) * r, cy + Math.sin(a0) * r], [cx + Math.cos(a1) * r, cy + Math.sin(a1) * r]],
+        i % 2 ? "#f2c987" : "#f7dba4", { stroke: "#fff3d6", "stroke-width": 1, "stroke-opacity": .5, "stroke-linejoin": "round" });
+    }
+  })();
+
+  /* ---------- pleated mountain layers ---------- */
+  var layers = {};
+  function pleat(id, o) {
+    var g = $(id), rand = rng(o.seed), pts = [], i;
+    for (i = 0; i <= o.count; i++) {
+      var hi = i % 2 === 0;
+      pts.push([i * o.period / o.count, o.base - (hi ? o.amp * (0.65 + rand() * .35) : o.amp * (0.1 + rand() * .25))]);
+    }
+    var copies = Math.ceil(1280 / o.period) + 1;
+    var inner = el(g, "g", {});
+    for (var c = 0; c < copies; c++) {
+      for (i = 0; i < o.count; i++) {
+        var x0 = pts[i][0] + c * o.period, y0 = pts[i][1], x1 = pts[i + 1][0] + c * o.period, y1 = pts[i + 1][1], bot = o.bottom;
+        var flip = i % 2;
+        var lt = flip ? o.dark : o.light, dk = flip ? o.light : o.dark;
+        poly(inner, [[x0, y0], [x1, y1], [x0, bot]], mix(lt, o.tint, .0), { stroke: o.crease, "stroke-width": 1.2, "stroke-opacity": .45, "stroke-linejoin": "round" });
+        poly(inner, [[x1, y1], [x1, bot], [x0, bot]], mix(dk, o.tint, .0), { stroke: o.crease, "stroke-width": 1.2, "stroke-opacity": .45, "stroke-linejoin": "round" });
+      }
+    }
+    layers[id] = { g: g, inner: inner, period: o.period, base: o.bottom, speed: o.speed, t0: o.t0, t1: o.t1, p0: o.p0 };
+  }
+  pleat("far", { seed: 3, count: 6, period: 780, base: 470, amp: 190, bottom: 600, light: "#c9dad6", dark: "#aec6c6", tint: "#e6eee9", crease: "#ffffff", speed: .14, t0: 0, t1: .9, p0: .55 });
+  pleat("mid", { seed: 9, count: 8, period: 960, base: 520, amp: 170, bottom: 640, light: "#9fc1b4", dark: "#7ea89f", tint: "#e6eee9", crease: "#f3fff8", speed: .32, t0: .15, t1: 1.05, p0: .5 });
+  pleat("near", { seed: 21, count: 10, period: 1000, base: 585, amp: 120, bottom: 690, light: "#d9a98f", dark: "#c18a74", tint: "#e6eee9", crease: "#fff0e4", speed: .62, t0: .3, t1: 1.2, p0: .45 });
+
+  /* ---------- paper clouds ---------- */
+  var cloudNodes = [];
+  [[430, 120, 1.0, .05], [900, 190, .8, .08], [1180, 100, .7, .06]].forEach(function (c) {
+    var g = el($("clouds"), "g", {});
+    var s = c[2];
+    poly(g, [[-70 * s, 14 * s], [-30 * s, -14 * s], [10 * s, 14 * s]], "#ffffff", { opacity: .95 });
+    poly(g, [[-30 * s, -14 * s], [20 * s, -34 * s], [10 * s, 14 * s]], "#f4f7f6", { opacity: .95 });
+    poly(g, [[20 * s, -34 * s], [62 * s, -8 * s], [10 * s, 14 * s]], "#e2eaea", { opacity: .95 });
+    poly(g, [[62 * s, -8 * s], [92 * s, 14 * s], [10 * s, 14 * s]], "#d3dedf", { opacity: .95 });
+    cloudNodes.push({ g: g, x: c[0], y: c[1], k: c[3] });
+  });
+
+  /* ---------- pleated water ---------- */
+  var waterG = $("water");
+  (function () {
+    var period = 160, n = 8, base = 640, rows = [{ y: 612, a: 14, l: "#8fb6c4", d: "#79a3b4" }, { y: 650, a: 18, l: "#7aa5b6", d: "#648fa3" }];
+    var rand = rng(5);
+    var copies = Math.ceil(1280 / period) + 2;
+    rows.forEach(function (row) {
+      var g = el(waterG, "g", {}), ph = [];
+      for (var i = 0; i <= n; i++) ph.push(row.y - (i % 2 ? 0 : row.a * (.6 + rand() * .4)));
+      var pp = period * 0.5 * n / 4;
+      for (var c = 0; c < copies; c++) for (i = 0; i < n; i++) {
+        var x0 = (i * period / n) * 1 + c * period, x1 = ((i + 1) * period / n) + c * period;
+        var y0 = ph[i], y1 = ph[i + 1], bot = 730, f = i % 2;
+        poly(g, [[x0, y0], [x1, y1], [x0, bot]], f ? row.d : row.l, { stroke: "#e8f4f6", "stroke-width": 1, "stroke-opacity": .5 });
+        poly(g, [[x1, y1], [x1, bot], [x0, bot]], f ? row.l : row.d, { stroke: "#e8f4f6", "stroke-width": 1, "stroke-opacity": .5 });
+      }
+    });
+  })();
+  var waterPeriod = 160;
+
+  /* ---------- paper boat ---------- */
+  (function () {
+    var g = $("boat");
+    // hull facets
+    poly(g, [[-96, -8], [0, -8], [-18, 36], [-70, 36]], "#e5b45c", { stroke: "#fff1cf", "stroke-width": 1.2, "stroke-opacity": .6, "stroke-linejoin": "round" });
+    poly(g, [[0, -8], [96, -8], [70, 36], [-18, 36]], "#cf9a42", { stroke: "#fff1cf", "stroke-width": 1.2, "stroke-opacity": .6, "stroke-linejoin": "round" });
+    // sail / folded peak
+    poly(g, [[-62, -8], [-4, -88], [-4, -8]], "#f5ecd8", { stroke: "#ffffff", "stroke-width": 1.2, "stroke-opacity": .6, "stroke-linejoin": "round" });
+    poly(g, [[-4, -88], [62, -8], [-4, -8]], "#e0d5bc", { stroke: "#ffffff", "stroke-width": 1.2, "stroke-opacity": .6, "stroke-linejoin": "round" });
+    poly(g, [[-62, -8], [-4, -8], [-4, -2], [-70, -2]], "#c9bfa6", {});
+    // rim line
+    el(g, "line", { x1: -96, y1: -8, x2: 96, y2: -8, stroke: "#fff3d2", "stroke-width": 2, "stroke-opacity": .7 });
+  })();
+
+  /* ---------- crane mesh ---------- */
+  var K = 1.12;
+  var names = ["O", "N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  var flat = { O: [0, 0], N: [0, -170], NE: [85, -85], E: [170, 0], SE: [85, 85], S: [0, 170], SW: [-85, 85], W: [-170, 0], NW: [-85, -85] };
+  // folded profile, facing right (x is mirrored below)
+  var fold = { O: [0, 48], N: [-5, -170], NE: [98, 0], E: [235, -85], SE: [100, 48], S: [-75, -140], SW: [-108, 28], W: [-165, -225], NW: [-100, -32] };
+  var start = { N: .6, S: .75, NE: 1.0, SE: 1.1, NW: 1.0, SW: 1.1, O: 1.0, E: 1.45, W: 1.5 };
+  var dur = { N: .8, S: .8, NE: .75, SE: .75, NW: .75, SW: .75, O: .8, E: .75, W: .75 };
+  // triangles, in draw order (far to near)
+  var tris = [
+    { v: ["O", "SE", "S"], back: "#cdbd9e", front: "#c25a46" },
+    { v: ["O", "S", "SW"], back: "#bba98a", front: "#b04f3d" },
+    { v: ["O", "E", "SE"], back: "#f2e5cc", front: "#e8745c" },
+    { v: ["O", "SW", "W"], back: "#efe0c4", front: "#f09b84" },
+    { v: ["O", "W", "NW"], back: "#f7ecd6", front: "#f2a58f" },
+    { v: ["O", "NE", "E"], back: "#f8eed9", front: "#f08a72" },
+    { v: ["O", "NW", "N"], back: "#ebdcc0", front: "#d9573f" },
+    { v: ["O", "N", "NE"], back: "#f6ebd3", front: "#ee6f57" }
+  ];
+  var cg = $("crane"), cb = $("craneBase"), cr = $("creases");
+  tris.forEach(function (t) {
+    t.base = el(cb, "polygon", { fill: "#8c4234", stroke: "#8c4234", "stroke-width": 1.5, "stroke-linejoin": "round" });
+    t.poly = el(cg, "polygon", { "stroke-linejoin": "round", "stroke-width": 1.1, stroke: "#ffffff", "stroke-opacity": .55 });
+    t.line = el(cr, "polyline", { stroke: "#7d3426", "stroke-width": 1, "stroke-opacity": .28, "stroke-linejoin": "round" });
+  });
+  var cranePos = $("cranePos");
+  var shadowEl = $("csh");
+
+  function progress(n, t) { return eio((t - start[n]) / dur[n]); }
+
+  function drawCrane(t) {
+    var prog = {}, pos = {}, i;
+    names.forEach(function (n) { prog[n] = progress(n, t); });
+    // wing flap after take-off
+    var flapAmp = clamp01((t - 2.45) / .5) * (1 - clamp01((t - 4.25) / .5) * .75);
+    var ph = (t - 2.45) * Math.PI * 2 * 0.95;
+    var flapN = Math.sin(ph) * 44 * flapAmp, flapS = Math.sin(ph - .55) * 38 * flapAmp;
+    var fold0 = (t < .5) ? Math.sin(t / .5 * Math.PI) * 1 : 0;
+    names.forEach(function (n) {
+      var p = prog[n], f = flat[n], g = fold[n];
+      var x = f[0] + (g[0] - f[0]) * p, y = f[1] + (g[1] - f[1]) * p;
+      // hinge lift: vertices swing through a raised arc mid-fold, reads as the paper rising off the table
+      var arc = Math.sin(p * Math.PI);
+      y -= arc * (n === "N" || n === "S" ? 38 : n === "E" || n === "W" ? 22 : 12);
+      if (n === "N") y -= flapN;
+      if (n === "S") y -= flapS;
+      if (n === "NE" || n === "NW") y -= flapN * .16;
+      if (n === "SE" || n === "SW") y -= flapS * .16;
+      if (n === "E") y -= flapN * .22 - Math.abs(flapAmp) * 0;
+      // tiny pre-crease flick of the corners
+      if (n === "N" || n === "S") { var fl = Math.sin(clamp01(t / .5) * Math.PI) * 5; y += n === "N" ? -fl : fl; }
+      // mirror so the crane faces right
+      pos[n] = [(-x) * K * 1, y * K];
+      pos[n][0] = pos[n][0];
+    });
+    // the flat square is symmetric, mirroring only affects the folded shape
+    var allFlat = 0;
+    tris.forEach(function (tr) {
+      var a = pos[tr.v[0]], b = pos[tr.v[1]], c = pos[tr.v[2]];
+      var area = ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2;
+      var fa = flat[tr.v[1]], fb = flat[tr.v[2]];
+      var flatArea = (fa[0] * fb[1] - fa[1] * fb[0]) / 2 * K * K; // from O at origin
+      // mirror flips orientation relative to flat; compare against mirrored flat orientation
+      var ratio = area / (-flatArea);
+      var pm = (prog[tr.v[1]] + prog[tr.v[2]] + prog[tr.v[0]]) / 3;
+      var col;
+      var mag = Math.min(Math.abs(ratio), 1.3);
+      var shade = clamp01((1 - mag) * .55);
+      if (ratio >= 0) col = mix(mix("#ee6f57", tr.front, clamp01(pm * 1.3)), "#6e2c24", shade * .6 + (1 - pm) * 0);
+      else col = mix(tr.back, "#6b5a40", shade * .45 + .06);
+      if (pm < .02) col = "#ee6f57";
+      var pts = tr.v.map(function (n) { return pos[n][0].toFixed(1) + "," + pos[n][1].toFixed(1); }).join(" ");
+      tr.poly.setAttribute("points", pts);
+      tr.poly.setAttribute("fill", col);
+      tr.base.setAttribute("points", pts);
+      tr.base.setAttribute("transform", "translate(2.5,3.5)");
+      tr.line.setAttribute("points", pts + " " + pos[tr.v[0]][0].toFixed(1) + "," + pos[tr.v[0]][1].toFixed(1));
+    });
+    return pos;
+  }
+
+  /* ---------- scene state as a pure function of time ---------- */
+  function setStep(id, p) { // pop-up: layer rises from a folded-down height
+    var L = layers[id];
+    var s = L.p0 + (1 - L.p0) * p;
+    L.g.setAttribute("transform", "translate(0," + (L.base * (1 - s)).toFixed(1) + ") scale(1," + s.toFixed(4) + ")");
+  }
+  function wrapX(v, period) { return -(((v % period) + period) % period); }
+
+  function render(t) {
+    t = Math.max(0, Math.min(5, t));
+    var tq = Math.floor(t * 12 + 1e-6) / 12; // stepped cadence for the world
+    // pop-up of the landscape
+    ["far", "mid", "near"].forEach(function (id) {
+      var L = layers[id];
+      setStep(id, backOut((tq - L.t0) / (L.t1 - L.t0)));
+    });
+    // scroll position (px of foreground travel)
+    var sc = 520 * eio((tq - 2.15) / 2.35);
+    ["far", "mid", "near"].forEach(function (id) {
+      var L = layers[id];
+      L.inner.setAttribute("transform", "translate(" + wrapX(sc * L.speed, L.period).toFixed(1) + ",0)");
+    });
+    // sun is fixed, clouds creep with the scroll
+    cloudNodes.forEach(function (c) {
+      var x = ((c.x - sc * c.k) % 1500 + 1500) % 1500 - 110;
+      c.g.setAttribute("transform", "translate(" + x.toFixed(1) + "," + c.y + ")");
+    });
+    // water
+    var wp = backOut((tq - .5) / .9);
+    var ws = .6 + .4 * wp;
+    $("waterWrap").setAttribute("transform", "translate(0," + (700 * (1 - ws)).toFixed(1) + ") scale(1," + ws.toFixed(4) + ")");
+    waterG.setAttribute("transform", "translate(" + wrapX(sc * 1.0, waterPeriod).toFixed(1) + ",0)");
+    // boat rides the water, bobbing on the step
+    var bobT = tq;
+    var bx = 985 - sc * 0.86;
+    var by = 598 + Math.sin(bobT * 2.6) * 5 + Math.sin(bobT * 1.1 + 1) * 2;
+    var rot = Math.sin(bobT * 2.6 + .8) * 2.6;
+    $("boatPos").setAttribute("transform", "translate(" + bx.toFixed(1) + "," + by.toFixed(1) + ") rotate(" + rot.toFixed(2) + ")");
+    var bp = backOut((tq - .9) / .55);
+    var bs = .55 + .45 * bp;
+    $("boatPop").setAttribute("transform", "translate(0,42) scale(" + (.6 + .4 * bp).toFixed(3) + "," + bs.toFixed(3) + ") translate(0,-42)");
+    // crane: fold, lift, glide
+    var cy0 = 400;
+    var lift = eio((t - 2.2) / .9);
+    var anticip = Math.sin(clamp01((t - 2.0) / .35) * Math.PI) * 10 * (t < 2.35 ? 1 : 0);
+    var glide = clamp01((t - 3.1) / 1.0) * (1 - clamp01((t - 4.4) / .6));
+    var cy = cy0 - 118 * lift + anticip + Math.sin((t - 3.1) * 2.2) * 8 * glide;
+    var cx = 640 + 22 * lift * (1 - clamp01((t - 4.2) / .8) * .0);
+    var rotc = -7 * lift + Math.sin((t - 2.6) * 2.0) * 2.5 * glide;
+    var sc2 = 1 - .16 * lift;
+    cranePos.setAttribute("transform", "translate(" + cx.toFixed(1) + "," + cy.toFixed(1) + ") rotate(" + rotc.toFixed(2) + ") scale(" + sc2.toFixed(3) + ") translate(0,-10)");
+    drawCrane(t);
+    shadowEl.setAttribute("dy", (9 + 30 * lift).toFixed(1));
+    shadowEl.setAttribute("dx", (4 + 10 * lift).toFixed(1));
+    shadowEl.setAttribute("stdDeviation", (6 + 9 * lift).toFixed(1));
+    shadowEl.setAttribute("flood-opacity", (0.34 - 0.1 * lift).toFixed(2));
+  }
+
+  var proxy = { t: 0 };
+  var tl = gsap.timeline({ paused: true });
+  tl.to(proxy, { t: 5, duration: 5, ease: "none", modifiers: { t: function (v) { render(v); return v; } }, onUpdate: function () { render(proxy.t); } }, 0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+  window.addEventListener("hf-seek", function (e) { render(e.detail && typeof e.detail.time === "number" ? e.detail.time : tl.time()); });
+  render(0);
+})();
+</script>
+</body>
+</html>

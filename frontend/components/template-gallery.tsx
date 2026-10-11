@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GalleryCard, GalleryPage } from "@videosaas/contracts";
-import { galleryUseCases, type GalleryUseCase } from "@videosaas/contracts/gallery-use-cases";
+import { galleryUseCases, normalizeSearch, type GalleryUseCase } from "@videosaas/contracts/gallery-use-cases";
 import { listGalleryTemplates } from "../lib/api";
 import { galleryMediaUrl } from "../lib/gallery-media";
 
@@ -127,8 +127,8 @@ export function TemplatesPage({ onUse, busy }: { onUse: (item: GalleryCard) => v
   const params = useSearchParams();
   const asked = params.get("use");
   const [useCase, setUseCase] = useState<GalleryUseCase | "all">(galleryUseCases.some((entry) => entry.id === asked) ? (asked as GalleryUseCase) : "all");
-  const [query, setQuery] = useState(params.get("q") ?? "");
-  const [search, setSearch] = useState(params.get("q") ?? "");
+  const [query, setQuery] = useState(normalizeSearch(params.get("q")));
+  const [search, setSearch] = useState(normalizeSearch(params.get("q")));
   const [items, setItems] = useState<GalleryCard[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [counts, setCounts] = useState<Counts | null>(null);
@@ -147,7 +147,7 @@ export function TemplatesPage({ onUse, busy }: { onUse: (item: GalleryCard) => v
   }, [useCase, search]);
 
   // Search waits for a pause in typing, then asks the backend.
-  useEffect(() => { const timer = window.setTimeout(() => setSearch(query), 250); return () => window.clearTimeout(timer); }, [query]);
+  useEffect(() => { const timer = window.setTimeout(() => setSearch(normalizeSearch(query)), 250); return () => window.clearTimeout(timer); }, [query]);
 
   const load = useCallback(async (cursor: string | null) => {
     const request = ++latest.current;
@@ -164,7 +164,7 @@ export function TemplatesPage({ onUse, busy }: { onUse: (item: GalleryCard) => v
 
   const blurb = galleryUseCases.find((entry) => entry.id === useCase)?.blurb;
   return <section className="page-container">
-    <div className="page-heading"><div><h1>Templates</h1><p>{counts ? `${counts.all} starting points. ` : ""}Pick one and the script prompt, structure, look and sound are filled in. Change anything before you generate.</p></div></div>
+    <div className="page-heading"><div><h1>Templates</h1><p>{counts ? `${counts.all} starting ${counts.all === 1 ? "point" : "points"}. ` : ""}Pick one and the script prompt, structure, look and sound are filled in. Change anything before you generate.</p></div></div>
     <div className="gallery-tools">
       <div className="filter-tabs" role="group" aria-label="What the video is for">
         <button className={useCase === "all" ? "selected" : ""} aria-pressed={useCase === "all"} onClick={() => setUseCase("all")}>All {counts && <span>{counts.all}</span>}</button>

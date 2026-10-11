@@ -11,7 +11,7 @@ import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, type FrameLook } from "./beat-storyboard";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { getGalleryTemplate, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
+import { cancelPlanJob, getGalleryTemplate, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
 import { proMenuEntry, useEntitlements } from "../lib/entitlements";
 
 type View = "projects" | "create" | "studio";
@@ -52,6 +52,16 @@ function lookFor(brief: ScriptBrief, brands: BrandKit[]): FrameLook {
   return { bg: tokens.bg, fg: tokens.fg, muted: tokens.muted, brand: tokens.brand, font: tokens.fontDisplay };
 }
 
+/** What the person chose on Script & style is kept per project (or per unsaved draft) in this browser, so leaving and coming back by URL restores it. */
+type Draft = { brief: ScriptBrief; request: RenderRequest; motionBlur: boolean; savedAt: number };
+const draftKey = (id: string) => "gm-draft:" + id;
+function readDraft(id: string): Draft | null {
+  try { const raw = window.localStorage.getItem(draftKey(id)); const value = raw ? JSON.parse(raw) as Draft : null; return value?.brief && value.request ? value : null; } catch { return null; }
+}
+function writeDraft(id: string, draft: Draft) { try { window.localStorage.setItem(draftKey(id), JSON.stringify(draft)); } catch { /* Storage full or blocked: the URL still reopens the saved project. */ } }
+function dropDraft(id: string) { try { window.localStorage.removeItem(draftKey(id)); } catch { /* Nothing stored. */ } }
+type UrlState = { project: string | null; draft: string | null; step: Step; studio: boolean };
+
 export function Studio() {
   const router = useRouter();
   // Re-renders the workspace (screenshots, logos, videos) when the media token arrives or renews.
@@ -75,10 +85,15 @@ export function Studio() {
   const [motionBlur, setMotionBlur] = useState(false);
   const [brief, setBrief] = useState<ScriptBrief>(defaultBrief);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
-  const [generating, setGenerating] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [site, setSite] = useState<SiteState>({ reading: false, shots: 0, warnings: [] });
   const template = findTemplate(request.template) ?? findTemplate(defaultTemplateId)!;
+  // The address names the open project (?p=) or an unsaved draft (?d=), plus the step, so a reload or a later visit lands back here.
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
+  const wanted = useRef<UrlState | null>(null);
 
   const refresh = useCallback(async () => {
     const epoch = mutationEpoch.current;
@@ -107,14 +122,35 @@ export function Studio() {
   useEffect(() => {
     if (job?.state === "ready") setStep(REVIEW);
   }, [job?.state]);
-  // The director takes 30–60 s; show honest elapsed time rather than a fake percentage.
+  // The script director runs on the server, so it keeps going if this page is closed; the project says whether it is still writing.
+  // A job record older than the director's own deadline means the server restarted and lost it.
+  const planning = project?.planning;
+  const running = planning?.status === "running" && Date.now() - Date.parse(planning.startedAt) < 270_000;
+  const generating = starting || running;
+  const watching = useRef<string | null>(null);
+  useEffect(() => { if (step !== SCRIPT_STYLE) setConfirmRegenerate(false); }, [step]);
+  // Elapsed time is counted from the server's start time, so it is right after leaving and coming back.
   useEffect(() => {
     if (!generating) return;
-    setElapsed(0);
-    const started = Date.now();
-    const tick = window.setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
-    return () => window.clearInterval(tick);
-  }, [generating]);
+    const base = planning?.startedAt ? Date.parse(planning.startedAt) : Date.now();
+    const tick = () => setElapsed(Math.max(0, Math.round((Date.now() - base) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [generating, planning?.startedAt]);
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => { void refresh().catch(() => undefined); }, 2000);
+    return () => window.clearInterval(timer);
+  }, [running, refresh]);
+  // Watch a job we started (or found running); when it ends, show the storyboard, or say why not.
+  useEffect(() => { if (running && planning) watching.current = planning.startedAt; }, [running, planning]);
+  useEffect(() => {
+    if (!watching.current || starting || running) return;
+    watching.current = null;
+    if (planning?.status === "failed") setError(planning.error ?? "Could not write the script.");
+    else if (planning?.status !== "cancelled" && project?.beatPlan) { setPlanWarnings([]); setStep(STORYBOARD); }
+  }, [project, planning, starting, running]);
 
   const replaceProject = useCallback((saved: VideoProject) => {
     setProject(saved);
@@ -153,6 +189,7 @@ export function Studio() {
     setSite({ reading: false, shots: 0, warnings: [] });
     setPlanWarnings([]);
     setProject(null);
+    setDraftId(crypto.randomUUID());
     setJob(null);
     setError(null);
     setStep(SCRIPT_STYLE);
@@ -173,17 +210,81 @@ export function Studio() {
   useEffect(() => {
     if (startedFromUrl.current) return;
     startedFromUrl.current = true;
-    const id = new URLSearchParams(window.location.search).get("template");
-    if (!id) return;
-    window.history.replaceState(null, "", window.location.pathname);
-    void beginFromGallery({ id });
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("template");
+    if (id) {
+      window.history.replaceState(null, "", window.location.pathname);
+      setRestored(true);
+      void beginFromGallery({ id });
+      return;
+    }
+    const stepParam = Number(params.get("step"));
+    const step = (Number.isInteger(stepParam) && stepParam >= 0 && stepParam <= REVIEW ? stepParam : SCRIPT_STYLE) as Step;
+    const studio = params.get("view") === "studio";
+    const draft = params.get("d");
+    if (draft && /^[0-9a-f-]{36}$/i.test(draft)) {
+      const saved = readDraft(draft);
+      if (saved) {
+        setDraftId(draft);
+        setRequest(saved.request);
+        setBrief(saved.brief);
+        setMotionBlur(saved.motionBlur);
+        setStep(SCRIPT_STYLE);
+        setView("create");
+      }
+      setRestored(true);
+      return;
+    }
+    const projectId = params.get("p");
+    if (projectId) { wanted.current = { project: projectId, draft: null, step, studio }; return; }
+    setRestored(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // A project named in the address opens once the list has loaded, at the step the URL names (never past what it has reached).
+  useEffect(() => {
+    const target = wanted.current;
+    if (!target || !projectsLoaded) return;
+    wanted.current = null;
+    const found = projects.find((item) => item.id === target.project);
+    if (found) {
+      void openProject(found);
+      const reached = found.beatPlan ? Math.max(statusStep(found), STORYBOARD) : statusStep(found);
+      setStep(Math.min(target.step, reached) as Step);
+      if (target.studio && found.script) setView("studio");
+    }
+    setRestored(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectsLoaded, projects]);
+  // Keep the address in step with where the person is.
+  useEffect(() => {
+    if (!restored) return;
+    const id = project?.id ?? draftId;
+    const params = new URLSearchParams();
+    if (view !== "projects" && id) {
+      params.set(project ? "p" : "d", id);
+      params.set("step", String(step));
+      if (view === "studio") params.set("view", "studio");
+    }
+    const query = params.toString();
+    const next = window.location.pathname + (query ? "?" + query : "");
+    if (next !== window.location.pathname + window.location.search) window.history.replaceState(null, "", next);
+  }, [restored, view, step, project?.id, draftId]);
+  // Save the brief as it is edited.
+  useEffect(() => {
+    if (!restored || view === "projects") return;
+    const id = project?.id ?? draftId;
+    if (id) writeDraft(id, { brief, request, motionBlur, savedAt: Date.now() });
+  }, [restored, view, project?.id, draftId, brief, request, motionBlur]);
   const openProject = async (saved: VideoProject) => {
     const opening = ++openingProject.current;
     setProject(saved);
     setRequest(saved.request);
-    setBrief(briefFrom(saved));
+    // Choices made after the last save (and not yet generated) are kept in this browser; they win when newer.
+    const draft = readDraft(saved.id);
+    const newer = draft && draft.savedAt >= Date.parse(saved.updatedAt);
+    setBrief(newer ? draft.brief : briefFrom(saved));
+    if (newer) setMotionBlur(draft.motionBlur);
+    setDraftId(null);
     // The brand found on the site isn't stored (only offered for review), so a reopened project shows the facts and shots.
     setSite({ reading: false, site: saved.site ?? null, brand: null, shots: saved.screenshots.filter((shot) => shot.name.startsWith("Site · ")).length, warnings: [] });
     setPlanWarnings([]);
@@ -230,6 +331,7 @@ export function Studio() {
     const name = (brief.productName?.trim() || brief.text.trim().split(/[.!?\n]/)[0]?.slice(0, 80) || "Untitled video").trim();
     const created = await createProject({ name, request: nextRequest });
     setRequest(nextRequest);
+    if (draftId) { dropDraft(draftId); setDraftId(null); }
     replaceProject(created);
     return created;
   };
@@ -239,7 +341,7 @@ export function Studio() {
       setError(checked.error);
       return;
     }
-    setGenerating(true);
+    setStarting(true);
     setError(null);
     try {
       const active = await ensureProject();
@@ -247,14 +349,20 @@ export function Studio() {
       await updateProject(active.id, { request: nextRequest });
       setRequest(nextRequest);
       const result = await planProject(active.id, { ...checked.brief, screenshotIds: active.screenshots.map((shot) => shot.id) });
+      watching.current = result.project.planning?.startedAt ?? null;
       replaceProject(result.project);
-      setPlanWarnings(result.problems);
-      setStep(STORYBOARD);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not write the script.");
     } finally {
-      setGenerating(false);
+      setStarting(false);
     }
+  };
+  /** Stops the director on the server; the brief stays as it is. */
+  const cancelPlan = async () => {
+    if (!project) return;
+    watching.current = null;
+    try { replaceProject((await cancelPlanJob(project.id)).project); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "Could not cancel the script."); }
   };
   /** Reads the product site: facts for the director, a brand to review, and section screenshots on the project. */
   const readSite = async (url: string) => {
@@ -374,10 +482,10 @@ export function Studio() {
       onRender={async () => { if (await submit()) setView("create"); }}
       onBack={() => setView("create")}
       screenshotUrl={projectScreenshotUrl}
-    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script ? openStudio : undefined} />
+    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} />
       {error && step !== SCRIPT_STYLE && <p className="workspace-error">{error}</p>}
-      {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating} elapsed={elapsed} error={error} generate={() => void generatePlan()} back={() => setView("projects")} />}
-      {step === STORYBOARD && project?.beatPlan && <BeatStoryboardStep motionBlur={motionBlur} setMotionBlur={setMotionBlur} project={project as VideoProject & { beatPlan: BeatPlan }} look={lookFor(brief, brands)} warnings={planWarnings} busy={busy} onSaved={replaceProject} back={() => setStep(SCRIPT_STYLE)} submit={() => { void submit(); }} openStudio={openStudio} />}
+      {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating} elapsed={elapsed} error={error} generate={() => void generatePlan()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
+      {step === STORYBOARD && project?.beatPlan && <BeatStoryboardStep motionBlur={motionBlur} setMotionBlur={setMotionBlur} project={project as VideoProject & { beatPlan: BeatPlan }} look={lookFor(brief, brands)} warnings={planWarnings} busy={busy} onSaved={replaceProject} back={() => setStep(SCRIPT_STYLE)} submit={() => { void submit(); }} regenerate={() => { setConfirmRegenerate(true); setStep(SCRIPT_STYLE); }} />}
       {step === STORYBOARD && !project?.beatPlan && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Generate the script and storyboard on Script &amp; style first.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to Script &amp; style</button></div>}
       {step === RENDER && project && <RenderStep project={project} job={job} error={error} busy={busy} retry={async () => { await submit(); }} back={() => setStep(STORYBOARD)} />}
       {step === REVIEW && project && <ReviewStep project={project} job={job} approve={approve} rerender={async () => { await submit(); }} addComment={addReviewComment} removeComment={removeReviewComment} applyChanges={applyReviewComments} openStudio={openStudio} />}
@@ -428,12 +536,32 @@ function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { pro
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [menuOpen, setMenuOpen]);
-  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}><img src={image} alt="" /><span>{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
+  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}><img src={image} alt="" /><span>{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
 }
 
 function Screenshots({ project, busy, upload, remove }: { project: VideoProject | null; busy: boolean; upload: (file: File) => Promise<void>; remove: (id: string) => Promise<void> }) {
   const screenshots = project?.screenshots ?? [];
-  return <aside className="screenshots-panel"><header><b>Screenshots</b><span>Drag to reorder</span></header><label className="drop-zone"><b>Drop screenshots here or <em>browse</em></b><small>PNG or JPG · at least 640 px wide</small><input type="file" accept="image/png,image/jpeg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }} disabled={busy} /></label><ul>{project && screenshots.map((screenshot) => <li key={screenshot.id}><img className="shot-preview" src={projectScreenshotUrl(project.id, screenshot.id)} alt="" /><div><b>{screenshot.name}</b><small>✓ {screenshot.width} × {screenshot.height}</small></div><span>{screenshot.name.startsWith("Site · ") ? "From site" : screenshot.purpose}</span><button onClick={() => void remove(screenshot.id)}>×</button></li>)}</ul>{screenshots.length === 0 && <p className="empty-list">{project ? "No screenshots uploaded yet." : "Adding the first screenshot saves this project."} Product screens become the UI beats.</p>}</aside>;
+  const [viewing, setViewing] = useState<string | null>(null);
+  const viewedIndex = screenshots.findIndex((shot) => shot.id === viewing);
+  const viewed = project && viewedIndex >= 0 ? screenshots[viewedIndex] : undefined;
+  return <aside className="screenshots-panel"><header><b>Screenshots</b><span>Drag to reorder</span></header><label className="drop-zone"><b>Drop screenshots here or <em>browse</em></b><small>PNG or JPG · at least 640 px wide</small><input type="file" accept="image/png,image/jpeg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }} disabled={busy} /></label><ul>{project && screenshots.map((screenshot) => <li key={screenshot.id}><button type="button" className="shot-open" aria-label={"View " + screenshot.name} onClick={() => setViewing(screenshot.id)}><img className="shot-preview" src={projectScreenshotUrl(project.id, screenshot.id)} alt="" /></button><div><b>{screenshot.name}</b><small>✓ {screenshot.width} × {screenshot.height}</small></div><span>{screenshot.name.startsWith("Site · ") ? "From site" : screenshot.purpose}</span><button onClick={() => void remove(screenshot.id)}>×</button></li>)}</ul>{screenshots.length === 0 && <p className="empty-list">{project ? "No screenshots uploaded yet." : "Adding the first screenshot saves this project."} Product screens become the UI beats.</p>}{project && viewed && <ShotViewer name={viewed.name} size={viewed.width + " × " + viewed.height} src={projectScreenshotUrl(project.id, viewed.id)} position={viewedIndex + 1} total={screenshots.length} step={(by) => setViewing(screenshots[(viewedIndex + by + screenshots.length) % screenshots.length]!.id)} onClose={() => setViewing(null)} />}</aside>;
+}
+
+/** A screenshot at reading size, in a modal the person closes with ×, Esc or a click outside, and pages through with the arrow buttons or ← →. */
+function ShotViewer({ name, size, src, position, total, step, onClose }: { name: string; size: string; src: string; position: number; total: number; step: (by: number) => void; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { const node = dialog.current; if (node && !node.open) node.showModal(); }, []);
+  const arrow = (by: number, label: string, path: string) => <button type="button" className={"shot-arrow " + (by < 0 ? "prev" : "next")} aria-label={label} onClick={() => step(by)}><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d={path} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg></button>;
+  return <dialog ref={dialog} className="shot-dialog" aria-label={name} onClose={onClose}
+    onKeyDown={(event) => { if (total < 2) return; if (event.key === "ArrowLeft") { event.preventDefault(); step(-1); } else if (event.key === "ArrowRight") { event.preventDefault(); step(1); } }}
+    onClick={(event) => { if (event.target === dialog.current) dialog.current?.close(); }}>
+    <button type="button" className="gallery-dialog-close" aria-label="Close" onClick={() => dialog.current?.close()}><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" /></svg></button>
+    {total > 1 && arrow(-1, "Previous screenshot", "M11 3L5 9l6 6")}
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img src={src} alt={name} />
+    {total > 1 && arrow(1, "Next screenshot", "M7 3l6 6-6 6")}
+    <p><b>{name}</b><span>{total > 1 ? position + " / " + total + " · " : ""}{size}</span></p>
+  </dialog>;
 }
 
 const renderSteps: { key: string; label: string; stages: RenderStage[] }[] = [
@@ -454,11 +582,11 @@ function RenderStep({ project, job, error, busy, retry, back }: { project: Video
   const stage: RenderStage = job?.stage ?? (job?.state === "ready" ? "done" : job?.state === "rendering" ? "preparing" : "queued");
   const current = stage === "done" ? steps.length : Math.max(0, steps.findIndex((item) => item.stages.includes(stage)));
   const detail = (key: string) => {
-    if (key === "wait" && stage === "waiting") return job?.queuePosition ? `${job.queuePosition} ahead` : "Next in line";
+    if (key === "wait" && stage === "waiting") return job?.queuePosition ? `${job.queuePosition} ahead` : "Starting a renderer";
     if (key === "frames" && job?.frames) return `${job.frames.done} / ${job.frames.total}`;
     return null;
   };
-  return <div className="render-workspace"><section className="workspace-player"><Preview project={project} title={title} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></section><aside className="render-card"><header><b>{failed ? "Render needs attention" : job?.state === "ready" ? "Draft render ready" : "Rendering draft"}</b><span>{project.request.format === "portrait" ? "9:16" : "16:9"}</span></header>{failed ? <div className="render-error"><b>We could not render this project.</b><p>{error || job?.error?.message}</p><div className="render-error-actions"><button disabled={busy} onClick={() => void retry()}>{busy ? "Starting…" : "Try again"}</button><button className="render-error-back" onClick={back}>Back to storyboard</button></div></div> : <><p>You can leave this page. The draft keeps rendering and Review opens when it is ready.</p><ol>{steps.map((item, index) => <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}><i>{index < current ? "✓" : index + 1}</i><span>{item.label}</span>{index === current && detail(item.key) && <small>{detail(item.key)}</small>}</li>)}</ol>{stage === "retrying" && <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>}</>}</aside></div>;
+  return <div className="render-workspace"><section className="workspace-player"><Preview project={project} title={title} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></section><aside className="render-card"><header><b>{failed ? "Render needs attention" : job?.state === "ready" ? "Draft render ready" : "Rendering draft"}</b><span>{project.request.format === "portrait" ? "9:16" : "16:9"}</span></header>{failed ? <div className="render-error"><b>We could not render this project.</b><p>{error || job?.error?.message}</p><div className="render-error-actions"><button disabled={busy} onClick={() => void retry()}>{busy ? "Starting…" : "Try again"}</button><button className="render-error-back" onClick={back}>Back to storyboard</button></div></div> : <><p className="render-walkaway"><b>You can walk away.</b> Rendering keeps going on our servers whether or not this page is open. Close the tab, and come back later: this project is in Projects, and Review opens as soon as the draft is ready.</p><ol>{steps.map((item, index) => <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}><i>{index < current ? "✓" : index + 1}</i><span>{item.label}</span>{index === current && detail(item.key) && <small>{detail(item.key)}</small>}</li>)}</ol>{stage === "retrying" && <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>}</>}</aside></div>;
 }
 
 function formatVideoTime(seconds: number) {
@@ -575,7 +703,7 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
         <div className="ce-howto">{["Pause", "Pick a moment", "Comment"].map((label, index) => <span key={label}><i>{index + 1}</i>{label}</span>)}</div>
         <div className="ce-actions">
           {job?.output && <a className="ce-download" href={outputUrl(job.output.url)} download>Download draft</a>}
-          <button className="ce-download" onClick={openStudio}>Open Studio</button>
+          {!project.beatPlan && <button className="ce-download" onClick={openStudio}>Open Studio</button>}
           {done ? <><span className="ce-locked">✓ Approved · locked</span><button className="ce-download" onClick={() => void rerender()}>Render new draft</button></> : <button className="ce-approve" disabled={saving || applying || approving || !job?.output || comments.length > 0} title={comments.length ? "Apply or remove open comments before approving." : undefined} onClick={() => void confirmApproval()}>{approving ? "Approving…" : "Approve final"}</button>}
         </div>
       </div>

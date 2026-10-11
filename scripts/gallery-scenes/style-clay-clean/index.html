@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Simple clay</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  html, body { margin: 0; background: #1b1d22; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #bfe2ea; }
+  #c { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<canvas id="c" class="clip" width="1280" height="720" data-start="0" data-duration="5" data-track-index="0"></canvas>
+</div>
+<script>
+  window.__timelines = window.__timelines || {};
+  const tl = gsap.timeline({ paused: true });
+  const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+  const W = 1280, H = 720;
+
+  // ---------- seeded helpers ----------
+  function prng(seed) { let s = seed >>> 0; return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296; }
+  const hash = (n) => { let x = (n * 374761393 + 668265263) >>> 0; x = ((x ^ (x >>> 13)) * 1274126177) >>> 0; return ((x ^ (x >>> 16)) >>> 0) / 4294967296; };
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const ease = (x) => x * x * (3 - 2 * x);
+
+  // ---------- grain overlay (built once) ----------
+  const grain = document.createElement("canvas"); grain.width = W; grain.height = H;
+  {
+    const g = grain.getContext("2d"), id = g.createImageData(W, H), r = prng(7);
+    for (let i = 0; i < W * H; i++) {
+      const v = 128 + (r() - 0.5) * 120 + (r() - 0.5) * 40;
+      id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(id, 0, 0);
+    // soft lumps: low-frequency blotches, like thumb-pressed clay
+    const lumps = document.createElement("canvas"); lumps.width = W; lumps.height = H;
+    const lg = lumps.getContext("2d"); lg.fillStyle = "#808080"; lg.fillRect(0, 0, W, H);
+    const rr = prng(21);
+    for (let i = 0; i < 160; i++) {
+      const x = rr() * W, y = rr() * H, s = 14 + rr() * 46, v = rr() > 0.5 ? 255 : 0;
+      const gr = lg.createRadialGradient(x, y, 0, x, y, s);
+      gr.addColorStop(0, "rgba(" + v + "," + v + "," + v + ",0.16)"); gr.addColorStop(1, "rgba(" + v + "," + v + "," + v + ",0)");
+      lg.fillStyle = gr; lg.fillRect(x - s, y - s, s * 2, s * 2);
+    }
+    g.globalAlpha = 0.9; g.drawImage(lumps, 0, 0); g.globalAlpha = 1;
+  }
+
+  // ---------- clay drawing primitives ----------
+  function ballPath(x, y, r, wob, seed) {
+    // slightly irregular hand-rolled circle
+    ctx.beginPath();
+    const n = 18;
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * Math.PI * 2, k = 1 + wob * (hash(seed * 31 + (i % n)) - 0.5);
+      const px = x + Math.cos(a) * r * k, py = y + Math.sin(a) * r * k;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+  }
+  function rrPath(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  // shade the current path as matte clay: base, light from upper left, soft dark rim, a few tool marks
+  function claySurface(base, bb, seed, marks) {
+    ctx.save();
+    ctx.fillStyle = base; ctx.fill();
+    ctx.clip();
+    const cx = bb.x + bb.w * 0.34, cy = bb.y + bb.h * 0.28, R = Math.max(bb.w, bb.h) * 0.95;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+    g.addColorStop(0, "rgba(255,246,225,0.34)"); g.addColorStop(0.45, "rgba(255,246,225,0.04)"); g.addColorStop(1, "rgba(30,15,10,0.30)");
+    ctx.fillStyle = g; ctx.fillRect(bb.x - 4, bb.y - 4, bb.w + 8, bb.h + 8);
+    // bounce light on the bottom edge
+    const g2 = ctx.createLinearGradient(0, bb.y + bb.h * 0.7, 0, bb.y + bb.h);
+    g2.addColorStop(0, "rgba(255,255,255,0)"); g2.addColorStop(1, "rgba(255,240,220,0.10)");
+    ctx.fillStyle = g2; ctx.fillRect(bb.x, bb.y, bb.w, bb.h);
+    // rim: dark soft edge inside the silhouette
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(40,20,10,0.15)"; ctx.lineWidth = 11; ctx.stroke();
+    ctx.strokeStyle = "rgba(255,245,225,0.20)"; ctx.lineWidth = 2; ctx.translate(-1.5, -1.5); ctx.stroke(); ctx.translate(1.5, 1.5);
+    // tool marks: short pressed strokes
+    const r = prng(seed * 97 + 5);
+    ctx.lineCap = "round";
+    for (let i = 0; i < (marks == null ? 6 : marks); i++) {
+      const mx = bb.x + 0.12 * bb.w + r() * 0.76 * bb.w, my = bb.y + 0.12 * bb.h + r() * 0.76 * bb.h;
+      const len = 7 + r() * 11, a = (r() - 0.5) * 1.1 + 0.5;
+      ctx.strokeStyle = "rgba(40,20,10,0.13)"; ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.moveTo(mx, my); ctx.quadraticCurveTo(mx + Math.cos(a) * len * 0.5, my + Math.sin(a) * len * 0.5 - 2, mx + Math.cos(a) * len, my + Math.sin(a) * len); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,245,225,0.20)"; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(mx + 1.5, my + 2); ctx.quadraticCurveTo(mx + Math.cos(a) * len * 0.5 + 1.5, my + Math.sin(a) * len * 0.5, mx + Math.cos(a) * len + 1.5, my + Math.sin(a) * len + 2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function ball(x, y, r, base, seed, marks) {
+    ballPath(x, y, r, 0.05, seed); claySurface(base, { x: x - r, y: y - r, w: r * 2, h: r * 2 }, seed, marks);
+  }
+  function block(x, y, w, h, rad, base, seed, marks) {
+    rrPath(x, y, w, h, rad); claySurface(base, { x, y, w, h }, seed, marks);
+  }
+  function shadow(x, y, rx, ry, a) {
+    ctx.save(); ctx.translate(x, y); ctx.scale(1, ry / rx);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+    g.addColorStop(0, "rgba(30,50,20," + (0.38 * a) + ")"); g.addColorStop(0.65, "rgba(30,50,20," + (0.22 * a) + ")"); g.addColorStop(1, "rgba(30,50,20,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, rx, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  }
+
+  // ---------- scene ----------
+  const GROUND = 520; // meadow far edge in screen y
+  function hillPath(base, amp, ph, color, camx, seed, shift) {
+    ctx.beginPath(); ctx.moveTo(-20, H + 10);
+    for (let x = -20; x <= W + 20; x += 20) {
+      const wx = x + camx;
+      ctx.lineTo(x, base - amp * Math.sin(wx * 0.0042 + ph) - amp * 0.45 * Math.sin(wx * 0.011 + ph * 2));
+    }
+    ctx.lineTo(W + 20, H + 10); ctx.closePath();
+    claySurface(color, { x: 0, y: base - amp * 1.5, w: W, h: H - base + amp * 1.5 }, seed, 14);
+  }
+
+  function tree(wx, camx, gy, s, seed, j) {
+    const x = wx - camx + j[0], y = gy + j[1];
+    shadow(x + 14 * s, y + 4, 62 * s, 12 * s, 1);
+    block(x - 11 * s, y - 92 * s, 22 * s, 94 * s, 9 * s, "#a06a43", seed, 5);
+    ball(x, y - 150 * s, 66 * s, "#4d9c59", seed + 1, 9);
+    ball(x - 40 * s, y - 120 * s, 40 * s, "#56a863", seed + 2, 5);
+    ball(x + 42 * s, y - 126 * s, 38 * s, "#459350", seed + 3, 5);
+    ball(x - 6 * s, y - 175 * s, 40 * s, "#5bb068", seed + 4, 4);
+  }
+
+  function house(wx, camx, gy, t, j) {
+    const x = wx - camx + j[0], y = gy + j[1];
+    shadow(x + 18, y + 6, 150, 20, 1);
+    // chimney behind roof
+    block(x + 48, y - 232, 34, 70, 8, "#b9523f", 41, 3);
+    block(x + 42, y - 240, 46, 18, 8, "#cf6a54", 42, 2);
+    // body
+    block(x - 100, y - 150, 200, 150, 22, "#f0cf9a", 43, 9);
+    // roof: rounded triangle
+    ctx.beginPath();
+    ctx.moveTo(x - 128, y - 138); ctx.quadraticCurveTo(x - 128, y - 150, x - 112, y - 160);
+    ctx.lineTo(x - 18, y - 232); ctx.quadraticCurveTo(x, y - 246, x + 18, y - 232);
+    ctx.lineTo(x + 112, y - 160); ctx.quadraticCurveTo(x + 128, y - 150, x + 128, y - 138);
+    ctx.quadraticCurveTo(x + 128, y - 124, x + 112, y - 124); ctx.lineTo(x - 112, y - 124); ctx.quadraticCurveTo(x - 128, y - 124, x - 128, y - 138);
+    ctx.closePath(); claySurface("#d9604a", { x: x - 128, y: y - 246, w: 256, h: 122 }, 44, 10);
+    // door
+    block(x - 18, y - 84, 44, 84, 20, "#5e97d4", 45, 3);
+    ball(x + 14, y - 40, 4.5, "#f4d35a", 46, 0);
+    // window
+    block(x - 82, y - 108, 46, 46, 12, "#fbe7a1", 47, 2);
+    ctx.save(); ctx.strokeStyle = "rgba(120,70,40,0.55)"; ctx.lineWidth = 4; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(x - 59, y - 104); ctx.lineTo(x - 59, y - 66); ctx.moveTo(x - 78, y - 85); ctx.lineTo(x - 40, y - 85); ctx.stroke(); ctx.restore();
+    // smoke puffs: rolled clay balls rising off the chimney, stepping up
+    for (let k = 0; k < 3; k++) {
+      const per = 2.4, u = (((t + k * 0.8) % per) + per) % per / per;
+      const sc = Math.sin(Math.PI * clamp(u, 0, 1)) ;
+      const px = x + 66 + u * 52 + 5 * Math.sin(u * 6 + k), py = y - 258 - u * 118;
+      if (sc > 0.08) ball(px, py, 8 + 15 * Math.min(1, u * 2.2) * Math.min(1, sc * 2.5), "#f4f1ec", 60 + k, 1);
+    }
+  }
+
+  function flower(wx, camx, gy, col, s, seed) {
+    const x = wx - camx; if (x < -30 || x > W + 30) return;
+    ctx.save(); ctx.strokeStyle = "#4a8a3f"; ctx.lineWidth = 5 * s; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x + 2, gy - 24 * s); ctx.stroke(); ctx.restore();
+    for (let i = 0; i < 5; i++) { const a = i / 5 * 6.283; ball(x + 2 + Math.cos(a) * 8 * s, gy - 28 * s + Math.sin(a) * 8 * s, 6.5 * s, col, seed + i, 0); }
+    ball(x + 2, gy - 28 * s, 5.5 * s, "#f6cf4c", seed + 9, 0);
+  }
+
+  function character(wx, camx, gy, t, j) {
+    // hops: 5 steps, 0.8 s apart, 0.5 s airtime, squash-free
+    const T0 = 0.3, PER = 0.8, AIR = 0.5, DIST = 150, X0 = 250;
+    let hops = 0, air = 0, rise = 0;
+    for (let k = 0; k < 5; k++) {
+      const s = T0 + k * PER;
+      if (t >= s + AIR) hops = k + 1;
+      else if (t >= s) { hops = k; air = (t - s) / AIR; }
+    }
+    const xw = X0 + hops * DIST + air * DIST;
+    const lift = Math.sin(Math.PI * air) * 70;
+    const x = xw - camx + j[0], by = gy - lift + j[1];
+    ctx.save(); ctx.translate(x, gy); ctx.scale(1.4, 1.4); ctx.translate(-x, -gy);
+    shadow(x + 10, gy + 4, 62 - lift * 0.22, 12 - lift * 0.05, clamp(1 - lift / 140, 0.35, 1));
+    const R = 56, cy = by - R - 6;
+    // feet nubs
+    const fh = air > 0 ? 6 : 0;
+    ball(x - 24, by - 6 - fh, 15, "#e0802c", 71, 0);
+    ball(x + 24, by - 6 - fh, 15, "#e0802c", 72, 0);
+    // arms: little nubs, raised in the air
+    const up = air > 0 ? 22 : 0;
+    ball(x - R + 4, cy + 8 - up, 13, "#f09a3e", 73, 0);
+    ball(x + R - 4, cy + 8 - up, 13, "#f09a3e", 74, 0);
+    // body
+    ball(x, cy, R, "#f7a547", 75, 7);
+    // cheeks
+    ctx.save(); ctx.globalAlpha = 0.55;
+    ball(x - 30, cy + 14, 8, "#e9697a", 76, 0); ball(x + 30, cy + 14, 8, "#e9697a", 77, 0);
+    ctx.restore();
+    // dot eyes, looking right; one blink
+    const blink = (t > 2.55 && t < 2.72) || (t > 4.35 && t < 4.45);
+    const ey = cy - 6, ex = 3;
+    for (const sx of [-17, 17]) {
+      if (blink) {
+        ctx.save(); ctx.strokeStyle = "#3b2418"; ctx.lineWidth = 3.5; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(x + sx + ex - 6, ey); ctx.lineTo(x + sx + ex + 6, ey); ctx.stroke(); ctx.restore();
+      } else {
+        ctx.beginPath(); ctx.arc(x + sx + ex, ey, 6.5, 0, 6.283); ctx.fillStyle = "#3b2418"; ctx.fill();
+        ctx.beginPath(); ctx.arc(x + sx + ex - 2, ey - 2.5, 1.9, 0, 6.283); ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.fill();
+      }
+    }
+    // mouth pressed in with a tool
+    ctx.save(); ctx.strokeStyle = "#8a4a22"; ctx.lineWidth = 3.4; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.arc(x + 4, cy + 16, 10, 0.25, Math.PI - 0.25); ctx.stroke(); ctx.restore();
+    ctx.restore();
+    return xw;
+  }
+
+  function draw(tt) {
+    const fi = Math.floor(clamp(tt, 0, 5) * 12 + 1e-6), t = fi / 12; // 12 fps stop-motion
+    const jr = (n, a) => (hash(fi * 13 + n) - 0.5) * a; // hand-placed jitter per frame
+    const camx = 210 * ease(clamp(t / 4.4, 0, 1));
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, W, H);
+
+    // sky
+    const sky = ctx.createLinearGradient(0, 0, 0, 520);
+    sky.addColorStop(0, "#8fcbe6"); sky.addColorStop(1, "#cdeadf");
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+
+    // sun with clay rays
+    {
+      const sx = 1030 - camx * 0.06 + jr(1, 1.2), sy = 128 + jr(2, 1.2);
+      const rot = Math.floor(t * 1.2) * 0.12; // rays turned a notch at a time
+      for (let i = 0; i < 10; i++) {
+        const a = rot + i / 10 * 6.283, ca = Math.cos(a), sa = Math.sin(a);
+        ctx.save(); ctx.translate(sx + ca * 92, sy + sa * 92); ctx.rotate(a);
+        rrPath(-16, -6, 32, 12, 6); claySurface("#f7c94e", { x: -16, y: -6, w: 32, h: 12 }, 80 + i, 0); ctx.restore();
+      }
+      shadow(sx + 10, sy + 12, 74, 74, 0.0);
+      ball(sx, sy, 62, "#f9d255", 81, 5);
+    }
+
+    // clouds: two lumps that shuffle a notch each beat
+    function cloud(wx, y, s, seed) {
+      const x = wx - camx * 0.12 + Math.floor(t * 2) * 3 * s;
+      ball(x, y, 28 * s, "#fbfbf6", seed, 1); ball(x + 34 * s, y + 6 * s, 22 * s, "#f6f6f0", seed + 1, 1);
+      ball(x - 34 * s, y + 8 * s, 20 * s, "#f6f6f0", seed + 2, 1); ball(x + 4 * s, y - 14 * s, 22 * s, "#fdfdf9", seed + 3, 1);
+    }
+    cloud(250, 120, 1.05, 90); cloud(700, 210, 0.75, 95);
+
+    // far hills
+    hillPath(440, 36, 0.8, "#7fba74", camx * 0.28, 100);
+    hillPath(480, 28, 2.4, "#68a85e", camx * 0.5, 101);
+
+    // meadow
+    ctx.beginPath(); ctx.moveTo(0, GROUND + 6);
+    for (let x = 0; x <= W; x += 20) ctx.lineTo(x, GROUND - 6 * Math.sin((x + camx) * 0.006 + 1) - 3 * Math.sin((x + camx) * 0.017));
+    ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+    claySurface("#76b24a", { x: 0, y: GROUND - 10, w: W, h: H - GROUND }, 102, 0);
+    // pressed ground texture: comb strokes in world space
+    {
+      ctx.save(); ctx.beginPath(); ctx.rect(0, GROUND + 6, W, H); ctx.clip();
+      const r = prng(5); ctx.lineCap = "round";
+      for (let i = 0; i < 70; i++) {
+        const wx = r() * 1700, y = GROUND + 20 + r() * (H - GROUND - 24), len = 18 + r() * 26, x = wx - camx;
+        if (x < -40 || x > W + 40) continue;
+        ctx.strokeStyle = "rgba(40,80,20,0.20)"; ctx.lineWidth = 2.6;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + len / 2, y - 3, x + len, y + 1); ctx.stroke();
+        ctx.strokeStyle = "rgba(235,250,200,0.22)"; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(x + 1, y + 3); ctx.quadraticCurveTo(x + len / 2, y, x + len, y + 4); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // back row: trees and house on the meadow line
+    const J = (n) => [jr(n, 1.6), jr(n + 50, 1.6)];
+    tree(470, camx, 548, 1.0, 110, J(10));
+    house(760, camx, 560, t, J(11));
+    tree(1090, camx, 556, 1.1, 120, J(12));
+    tree(1500, camx, 552, 0.95, 130, J(13));
+
+    // flowers, behind the character
+    const fc = ["#f48fb1", "#fffaf0", "#f9d255", "#ffffff", "#f48fb1"];
+    [[330, 590], [560, 602], [840, 612], [1010, 598], [1240, 606], [410, 640], [1180, 660]].forEach((p, i) => flower(p[0], camx, p[1], fc[i % 5], 1, 140 + i * 7));
+
+    // hero
+    character(0, camx, 636, t, [jr(30, 2.2), jr(31, 1.6)]);
+
+    // foreground pebbles (faster parallax)
+    [[300, 690, 18], [760, 700, 24], [1150, 692, 16], [1420, 700, 22]].forEach((p, i) => {
+      const x = p[0] - camx * 1.5; if (x < -40 || x > W + 40) return;
+      shadow(x + 6, p[1] + 10, p[2] * 1.4, 6, 0.8);
+      ball(x, p[1], p[2], i % 2 ? "#b9b2a6" : "#cbc3b4", 160 + i, 2);
+    });
+
+    // ---------- lighting and clay surface ----------
+    ctx.globalCompositeOperation = "soft-light"; ctx.globalAlpha = 0.4; ctx.drawImage(grain, 0, 0);
+    ctx.globalCompositeOperation = "multiply"; ctx.globalAlpha = 0.07; ctx.drawImage(grain, 0, 0);
+    ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+    // warm key light from upper left
+    const lg = ctx.createRadialGradient(260, 60, 60, 260, 60, 1100);
+    lg.addColorStop(0, "rgba(255,240,205,0.10)"); lg.addColorStop(1, "rgba(60,40,20,0.10)");
+    ctx.fillStyle = lg; ctx.fillRect(0, 0, W, H);
+    // vignette
+    const vg = ctx.createRadialGradient(W / 2, H / 2, 380, W / 2, H / 2, 820);
+    vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(30,20,10,0.28)");
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    // tiny per-frame exposure flicker, like a hand-lit set
+    ctx.fillStyle = (hash(fi * 7 + 3) > 0.5 ? "rgba(255,245,220," : "rgba(30,20,10,") + (0.012 + 0.012 * hash(fi * 5 + 1)) + ")";
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  let cur = 0;
+  window.addEventListener("hf-seek", (e) => { cur = e.detail.time; draw(cur); });
+  const f = { t: 0 };
+  tl.to(f, { t: 5, duration: 5, ease: "none", onUpdate: () => { cur = f.t; draw(cur); } }, 0);
+  tl.to({}, { duration: 5 }, 0);
+  draw(0);
+  window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

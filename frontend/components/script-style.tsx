@@ -47,7 +47,7 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
 /** `savedBrand`: a kit already saved for the site; `autoKit`: it was selected automatically by the read. */
 export type SiteState = { reading: boolean; site?: SiteCapture | null; brand?: BrandExtraction | null; savedBrand?: BrandKit | null; autoKit?: boolean; shots: number; warnings: string[]; error?: string | null };
 
-export function ScriptStyleStep({ brief, update, site, readSite, screenshots, generating, elapsed, error, generate, back }: {
+export function ScriptStyleStep({ brief, update, site, readSite, screenshots, generating, elapsed, error, generate, cancel, back, hasPlan, confirmRegenerate, setConfirmRegenerate, continueToStoryboard }: {
   brief: ScriptBrief;
   update: (patch: Partial<ScriptBrief>) => void;
   /** Product site read: state, and the action that reads `url`. */
@@ -59,7 +59,14 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
   elapsed: number;
   error: string | null;
   generate: () => void;
+  /** Stops the script on the server. It keeps running if the page is left, so leaving is safe; this is the way to stop it. */
+  cancel: () => void;
   back: () => void;
+  /** A storyboard already exists for this project: it is kept, and regenerating the script replaces it only after a confirmation. */
+  hasPlan: boolean;
+  confirmRegenerate: boolean;
+  setConfirmRegenerate: (value: boolean) => void;
+  continueToStoryboard: () => void;
 }) {
   const own = brief.scriptMode === "own";
   const max = own ? OWN_SCRIPT_MAX : PROBLEM_TEXT_MAX;
@@ -113,10 +120,13 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
           <div className="ss-look">
             <div className="ss-field"><b>Brand kit</b><BrandKitField value={brief.brandId} found={siteInUse && !site.savedBrand ? site.brand : null} suggested={siteInUse ? site.savedBrand : null} source={siteInUse ? readHost : null} fromSite={Boolean(site.autoKit && site.savedBrand && brief.brandId === site.savedBrand.id)} onChange={(kit) => update({ brandId: kit?.id })} /><small className="ss-note">Saved kit, website import (paste a URL), or colours and a logo.</small></div>
             <div className={brief.brandId ? "ss-field muted" : "ss-field"}><b>Theme</b><ThemePicker value={brief.theme ?? "neutral"} disabled={Boolean(brief.brandId)} onChange={(theme) => update({ theme })} /></div>
-            <StylePicker value={brief.look ?? DEFAULT_LOOK} onChange={(look) => update({ look })} />
+            <StylePicker value={brief.look ?? DEFAULT_LOOK} family={brief.styleFamily} onChange={(look, styleFamily) => update({ look, styleFamily })} />
           </div>
         </section>
 
+      </div>
+      <aside className="ss-side">
+        {screenshots}
         <section className="ss-card">
           <header><b>Motion and pace</b><span>Sets eases, cut rate and how fast the voice reads</span></header>
           <div className="ss-field"><b>Motion style</b><Segmented label="Motion style" value={brief.motionProfile} options={motionOptions} onChange={(motionProfile) => update({ motionProfile })} /></div>
@@ -133,12 +143,23 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
           </div>}
           <div className="ss-field"><b>Captions</b><Segmented label="Captions" value={brief.captions} options={captionOptions} onChange={(captions) => update({ captions })} /></div>
         </section>
-      </div>
-      {screenshots}
+      </aside>
     </div>
     <div className="flow-footer">
-      {generating ? <span className="ss-progress"><i />Writing your script… {elapsed}s <small>This takes 30–60 seconds. You can stay on this page.</small></span> : <span className={invalid ? "" : "ready"}><i />{error ?? invalid ?? "Ready. Generate the script and storyboard."}</span>}
-      <div><button className="secondary-button" onClick={back} disabled={generating}>Back</button><button className="primary-button" disabled={generating || Boolean(invalid)} onClick={generate}>{generating ? "Writing…" : "Generate storyboard"}</button></div>
+      {generating ? <span className="ss-progress"><i />Writing your script… {elapsed}s <small>It keeps going if you leave this page, and your storyboard will be here when you come back.</small></span> : <span className={invalid ? "" : "ready"}><i />{error ?? invalid ?? (confirmRegenerate ? "Regenerating writes a new script and storyboard from this brief and replaces the one you have, including your edits." : hasPlan ? "Your storyboard is saved. Continue to it, or write the script again from this brief." : "Ready. Generate the script and storyboard.")}</span>}
+      <div>
+        <button className="secondary-button" onClick={back}>Back</button>
+        {generating ? <button className="secondary-button" onClick={cancel}>Cancel</button> : null}
+        {generating ? <button className="primary-button" disabled>Writing…</button>
+          : !hasPlan ? <button className="primary-button" disabled={Boolean(invalid)} onClick={generate}>Generate storyboard</button>
+          : confirmRegenerate ? <>
+            <button className="secondary-button" onClick={() => setConfirmRegenerate(false)}>Keep my storyboard</button>
+            <button className="primary-button" disabled={Boolean(invalid)} onClick={() => { setConfirmRegenerate(false); generate(); }}>Replace it</button>
+          </> : <>
+            <button className="secondary-button" disabled={Boolean(invalid)} onClick={() => setConfirmRegenerate(true)}>Regenerate script</button>
+            <button className="primary-button" onClick={continueToStoryboard}>Continue to storyboard</button>
+          </>}
+      </div>
     </div>
   </div>;
 }
