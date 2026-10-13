@@ -21,7 +21,7 @@ export const styleFamilies: readonly StyleFamily[] = [
   {
     id: "clean-type", look: "clean", name: "Clean · Typography & showreel",
     description: "Words are the picture: kinetic type, hard beat cuts, shapes and rhythm.",
-    direction: "Style family: typography and showreel. The words are the visual: huge condensed or bold type, word-by-word kinetic entrances, hard cuts on the beat, simple shapes snapping in. One idea per cut; almost no screenshots."
+    direction: "Style family: typography and showreel. This is a dynamic-typography film, NOT a product explainer: no hook, feature, proof and call-to-action arc, no screenshots, no product-UI language. Every beat is one typographic scene built from the product's real words: its names, categories, models and claims. Beats are short (1.5 to 3 seconds), so use the top of the beat range and keep each key phrase to 1 to 3 words (at most 20 characters). Each beat is presented by one of the style's scenes (listed below); choose them to fit what each beat says. Close on the brand name. Write in the brand's voice with concrete names (models, features, categories) taken from the site facts; never filler like 'built for you'. Voiceover, if any, is a terse rhythm under the cuts."
   },
   {
     id: "clean-data", look: "clean", name: "Clean · Data & diagrams",

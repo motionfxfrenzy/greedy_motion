@@ -5,7 +5,7 @@
       "id": "clean",
       "version": 1,
       "recipe": "clean.json",
-      "sourceSha256": "b594566fa5665ae68b6f78472794ad74983154ed70cdbb2cecfbddbd8807266f"
+      "sourceSha256": "8fe62be840463995db6d3480fb88f164b856543759191e4ee839fd7c98105651"
     },
     {
       "id": "sketch",
@@ -39,7 +39,7 @@
     },
     {
       "id": "vox-collage",
-      "version": 1,
+      "version": 2,
       "recipe": "vox-collage.json",
       "sourceSha256": "365a30655cc653488f577745f5d2c74ef91cf4279df8c905cfc96cf75af5b7e8"
     },

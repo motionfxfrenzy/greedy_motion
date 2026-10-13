@@ -252,7 +252,17 @@ const withLookTheme = (item: GalleryTemplate): GalleryTemplate => {
   const rule = item.group === "Colour" ? undefined : lookThemes.find((entry) => entry.match.test(item.look));
   return rule ? { ...item, theme: rule.theme } : item;
 };
-export const galleryTemplates: readonly GalleryTemplate[] = [...curated, ...sceneTemplates.filter(hasClip), ...opusTemplates, ...styleVersions.filter(hasClip), ...styleTemplates, ...themeTemplates].map(withLookTheme).map(withRendered);
+const everyGalleryTemplate: readonly GalleryTemplate[] = [...curated, ...sceneTemplates.filter(hasClip), ...opusTemplates, ...styleVersions.filter(hasClip), ...styleTemplates, ...themeTemplates].map(withLookTheme).map(withRendered);
+
+/**
+ * Held for v2 (docs/v2/PLAN.md #2): every style whose look is rendered from generated material (paper, clay, illustration,
+ * editorial collage). The engine cannot draw those from a person's script, so "Use this" would give a plain layout draft,
+ * not the look on the card. They stay in the catalogue data and old projects keep rendering, but nothing offers them.
+ * Set to false to bring them all back.
+ */
+export const HOLD_GENERATED_STYLES = true;
+export const heldForV2 = (look: string) => HOLD_GENERATED_STYLES && getLook(look).renderMode === "generated";
+export const galleryTemplates: readonly GalleryTemplate[] = everyGalleryTemplate.filter((item) => !heldForV2(item.look));
 
 import { galleryUseCases, normalizeSearch, type GalleryUseCase } from "./gallery-use-cases.ts";
 export { galleryUseCases, type GalleryUseCase };
@@ -274,13 +284,13 @@ export function useCaseOf(item: GalleryTemplate): GalleryUseCase {
 }
 
 export const galleryIds = galleryTemplates.map((item) => item.id);
-export const findGalleryTemplate = (id: string | null | undefined) => galleryTemplates.find((item) => item.id === id);
+export const findGalleryTemplate = (id: string | null | undefined) => everyGalleryTemplate.find((item) => item.id === id);
 
 /** True when the style needs generated footage (and a confirmed budget) rather than a native drawing treatment. */
 export const needsGeneration = (item: GalleryTemplate) => getLook(item.look).renderMode === "generated";
 
 /** The brief fields a gallery entry presets. Everything else (brand kit, screenshots, product site) stays the person's. */
-export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMode" | "text" | "durationSeconds" | "aspect" | "motionProfile" | "pace" | "audio" | "captions" | "template" | "theme" | "look" | "styleFamily"> {
+export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMode" | "text" | "durationSeconds" | "aspect" | "motionProfile" | "pace" | "audio" | "captions" | "template" | "theme" | "look" | "styleFamily" | "styleExample"> {
   return {
     scriptMode: "problem",
     text: item.prompt,
@@ -293,6 +303,7 @@ export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMo
     template: item.skill,
     theme: item.theme,
     look: item.look,
+    styleExample: item.id,
     // A template made in a look that is split into families starts in its own family (e.g. a 3D scene opens "Clean · 3D & cinematic").
     ...(familiesOfLook(item.look).length ? { styleFamily: familyOf(item) } : {})
   };
@@ -367,7 +378,7 @@ export function galleryStyles(): GalleryStyleCard[] {
     const hero = examples.find((item) => item.kind === "style" && item.preview.video) ?? examples.find((item) => item.preview.video);
     return { id, look: look.id, name, group: look.group, description, examples: examples.length, preview: hero?.preview ?? { src: look.preview.src, kind: look.preview.kind === "video" ? "video" : "image", label: look.preview.label, ...(look.preview.kind === "video" ? { video: look.preview.src } : {}) } };
   };
-  return looks.filter((look) => look.available).flatMap((look) => {
+  return looks.filter((look) => look.available && !heldForV2(look.id)).flatMap((look) => {
     const families = familiesOfLook(look.id);
     return families.length ? families.map((family) => card(family.id, look, family.name, family.description)) : [card(look.id, look, look.name, look.description)];
   });

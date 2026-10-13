@@ -56,7 +56,8 @@ export class RenderService {
         title: project.name,
         // Real beat lengths, so Review's timeline lines up with the film.
         scenes: plan.beats.map((beat) => ({ id: beat.id, label: beat.role === "cta" ? "CTA" : beat.role[0]!.toUpperCase() + beat.role.slice(1), detail: beat.keyword, duration: times[beat.id] ? times[beat.id]!.end - times[beat.id]!.start : prepared.durationSeconds / plan.beats.length })),
-        ...(project.request.brandId ? { brandId: project.request.brandId } : {})
+        ...(project.request.brandId ? { brandId: project.request.brandId } : {}),
+        look: project.brief?.look ?? "clean"
       }
     };
     return renderJobRepository.createReadyAndEnqueue(job, {

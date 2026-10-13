@@ -39,3 +39,6 @@
 
 /* Text remains native, legible, and brand-colored over generated material footage. */
 .has-material-video .w, .has-material-video .sub { background: var(--bg); color: var(--fg); box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+/* Sketch look: notebook paper under a type scene, in the theme's own paper and ink. */
+.sk-paper { background-color: color-mix(in srgb, var(--bg) 92%, var(--surface)); background-image: linear-gradient(color-mix(in srgb, var(--fg) 9%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--fg) 9%, transparent) 1px, transparent 1px); background-size: 48px 48px; }

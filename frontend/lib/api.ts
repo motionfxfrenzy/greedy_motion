@@ -180,11 +180,13 @@ export function projectScreenshotUrl(projectId: string, screenshotId: string) {
 
 export type PlanResult = { project: VideoProject; problems: string[]; model?: string };
 export type PlanPatch = {
-  beats?: { id: string; keyword?: string; on_screen?: string; line?: string }[];
+  beats?: { id: string; keyword?: string; on_screen?: string; line?: string; camera?: string; text_effect?: string | null; transition?: string; sfx?: string | null; scene?: string | null }[];
   order?: string[];
   suggestions?: { index: number; accepted: boolean }[];
   /** Drawing style (contracts looks.ts); saved without replanning. */
   look?: string;
+  /** The style family (a look split into kinds of film); null clears it. */
+  styleFamily?: string | null;
 };
 /** A rejected storyboard edit: `problems` lists every rule it broke, in user-facing words. */
 export class PlanProblems extends Error {
@@ -251,6 +253,11 @@ export async function editPlan(projectId: string, patch: PlanPatch) {
     throw new PlanProblems(payload.problems?.length ? payload.problems : [payload.error?.message ?? "That change breaks a storyboard rule."]);
   }
   return parse<VideoProject>(response, "Could not save the storyboard.");
+}
+
+export async function rewriteFrame(projectId: string, beatId: string, instruction: string) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan/beats/" + encodeURIComponent(beatId) + "/rewrite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction }) });
+  return parse<VideoProject>(response, "Could not rewrite the frame.");
 }
 
 export async function getComposition(projectId: string, beatId?: string) {

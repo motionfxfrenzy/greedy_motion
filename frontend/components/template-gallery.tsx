@@ -11,6 +11,14 @@ import { galleryMediaUrl } from "../lib/gallery-media";
 /** Where a signed-out visitor goes to start from a template: sign-up, then straight into the prefilled brief. */
 export const startHref = (id: string) => `/auth?mode=signup&next=${encodeURIComponent(`/studio?template=${id}`)}`;
 
+/** Content-addressed media never changes, so a failed fetch (a deploy, a dropped connection) is simply tried again with a new query. */
+function useRetry(url: string, tries = 3) {
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => setAttempt(0), [url]);
+  const failed = () => { if (attempt < tries) window.setTimeout(() => setAttempt((n) => n + 1), 1200 * 2 ** attempt); };
+  return { src: attempt ? `${url}${url.includes("?") ? "&" : "?"}r=${attempt}` : url, failed };
+}
+
 /** The preview: a muted clip that plays on hover or focus (and while visible on touch screens), else its still. */
 function Preview({ item, onOpen }: { item: GalleryCard; onOpen: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
@@ -24,15 +32,18 @@ function Preview({ item, onOpen }: { item: GalleryCard; onOpen: () => void }) {
     watch.observe(frame);
     return () => watch.disconnect();
   }, [src]);
+  // The still is its own image under the clip (a failed `poster` is never retried by the browser, and showed an empty card).
+  const poster = useRetry(galleryMediaUrl(item.preview.src));
+  const clip = useRetry(src ? galleryMediaUrl(src) : "");
+  const [playing, setPlaying] = useState(false);
   const play = () => { void video.current?.play().catch(() => undefined); };
   const stop = () => { const node = video.current; if (!node) return; node.pause(); node.currentTime = 0; };
   const square = item.aspect === "1:1" || item.preview.src.includes("/illus-");
   // A vertical film gets a taller frame and is shown whole on a dark ground, never cropped.
   const tall = item.aspect === "9:16";
-  return <span ref={box} className={square ? "gallery-media square" : tall ? "gallery-media tall" : "gallery-media"} role="button" tabIndex={0} aria-label={`Open the ${item.name} preview`} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }} onMouseEnter={play} onMouseLeave={stop} onFocus={play} onBlur={stop}>
-    {src
-      ? <video ref={video} src={galleryMediaUrl(src)} poster={galleryMediaUrl(item.preview.src)} muted loop playsInline preload="none" aria-label={`${item.name}: ${item.preview.label.toLowerCase()}`} />
-      : <img src={galleryMediaUrl(item.preview.src)} alt={`${item.name}: ${item.preview.label.toLowerCase()}`} loading="lazy" decoding="async" width={480} height={270} />}
+  return <span ref={box} className={square ? "gallery-media has-still square" : tall ? "gallery-media has-still tall" : "gallery-media has-still"} role="button" tabIndex={0} aria-label={`Open the ${item.name} preview`} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }} onMouseEnter={play} onMouseLeave={stop} onFocus={play} onBlur={stop}>
+    <img className="gallery-still" src={poster.src} alt={src ? "" : `${item.name}: ${item.preview.label.toLowerCase()}`} loading="lazy" decoding="async" width={480} height={270} onError={poster.failed} />
+    {src && <video ref={video} className={playing ? "is-playing" : undefined} src={clip.src} muted loop playsInline preload="none" aria-label={`${item.name}: ${item.preview.label.toLowerCase()}`} onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} onError={clip.failed} />}
     <span className="gallery-group">{item.group}</span>
     {src && <span className="gallery-time" aria-hidden="true">▶ Preview</span>}
   </span>;
@@ -168,7 +179,7 @@ export function TemplatesPage({ onUse, busy }: { onUse: (item: GalleryCard) => v
     <div className="gallery-tools">
       <div className="filter-tabs" role="group" aria-label="What the video is for">
         <button className={useCase === "all" ? "selected" : ""} aria-pressed={useCase === "all"} onClick={() => setUseCase("all")}>All {counts && <span>{counts.all}</span>}</button>
-        {galleryUseCases.map((entry) => <button key={entry.id} className={useCase === entry.id ? "selected" : ""} aria-pressed={useCase === entry.id} onClick={() => setUseCase(entry.id)}>{entry.label} {counts && <span>{counts[entry.id]}</span>}</button>)}
+        {galleryUseCases.filter((entry) => !counts || counts[entry.id] > 0 || useCase === entry.id).map((entry) => <button key={entry.id} className={useCase === entry.id ? "selected" : ""} aria-pressed={useCase === entry.id} onClick={() => setUseCase(entry.id)}>{entry.label} {counts && <span>{counts[entry.id]}</span>}</button>)}
       </div>
       <input className="gallery-search" type="search" value={query} placeholder="Search templates" aria-label="Search templates" onChange={(event) => setQuery(event.target.value)} />
     </div>

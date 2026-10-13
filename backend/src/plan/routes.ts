@@ -3,7 +3,7 @@ import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { BEAT_LIMITS, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, getStyleFamily, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
 import { getProject, ProjectInvalid, setProjectPlanning, updateProjectPlan } from "../projects/store.ts";
@@ -12,6 +12,7 @@ import { readMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
 import { director } from "./director.ts";
+import { rewriteBeat } from "./rewrite-beat.ts";
 import { SFX } from "./sound.ts";
 import { registerSiteRoutes } from "../site/routes.ts";
 import { planReadiness } from "./readiness.ts";
@@ -32,14 +33,14 @@ function scriptFromPlan(plan: BeatPlan, source: ProjectScript["source"]): Projec
   };
 }
 
-type BeatEdit = { id?: unknown; keyword?: unknown; on_screen?: unknown; line?: unknown };
+type BeatEdit = { id?: unknown; keyword?: unknown; on_screen?: unknown; line?: unknown; camera?: unknown; text_effect?: unknown; transition?: unknown; sfx?: unknown; scene?: unknown };
 /** "clean" is the default, so it is stored as no look at all (same as parseScriptBrief). */
 const withLook = (brief: ScriptBrief, look: LookId): ScriptBrief => {
   const { look: _old, ...rest } = brief;
   return look === "clean" ? rest : { ...rest, look };
 };
 
-type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown };
+type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown };
 
 /** Applies storyboard edits. Returns the edited plan, or the problems that block it. */
 export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan: BeatPlan } | { problems: string[] } {
@@ -53,6 +54,14 @@ export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan:
     const keyword = text(edit.keyword, BEAT_LIMITS.keywordChars + 20);
     const onScreen = edit.on_screen === null ? null : text(edit.on_screen, BEAT_LIMITS.onScreenChars + 20);
     const line = edit.line === null ? null : text(edit.line, BEAT_LIMITS.lineChars + 40);
+    // Direction notes: how the camera moves, how the words enter, how the beat hands over, and what it sounds like.
+    const camera = text(edit.camera, 200);
+    if (camera) beat.motion.camera = camera;
+    if (edit.text_effect === null || (typeof edit.text_effect === "string" && (textEffects as readonly string[]).includes(edit.text_effect))) beat.motion.text_effect = edit.text_effect;
+    if (typeof edit.transition === "string" && edit.transition !== "end" && (transitionTypes as readonly string[]).includes(edit.transition) && beat.transition_out.type !== "end") beat.transition_out = { ...beat.transition_out, type: edit.transition as typeof beat.transition_out.type };
+    if (edit.sfx === null) beat.sfx = null; else { const sfx = text(edit.sfx, 200); if (sfx !== undefined) beat.sfx = sfx || null; }
+    if (edit.scene === null) beat.scene = null;
+    else if (typeof edit.scene === "string" && scenesFor(project.brief.look, project.brief.styleFamily).some((scene) => scene.id === edit.scene)) beat.scene = edit.scene;
     if (keyword !== undefined) beat.keyword = keyword;
     if (onScreen !== undefined) beat.on_screen = onScreen || null;
     if (line !== undefined) beat.line = line || null;
@@ -76,7 +85,7 @@ export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan:
     plan.suggestions[index].accepted = choice.accepted;
   }
   // Own-script lines are the user's words, so edits there are allowed; the generated-mode word budget still applies.
-  const problems = beatPlanProblems(plan, project.brief);
+  const problems = beatPlanProblems(plan, project.brief, { editing: true });
   return problems.length ? { problems } : { plan };
 }
 
@@ -188,6 +197,23 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     return reply.send({ project: updated });
   });
 
+  /** Rewrites one frame's words from an instruction ("make it punchier", "mention the warranty"); nothing else changes. */
+  app.post<{ Params: { id: string; beatId: string }; Body: { instruction?: unknown } }>("/v1/projects/:id/plan/beats/:beatId/rewrite", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    const beat = project.beatPlan?.beats.find((item) => item.id === request.params.beatId);
+    if (!project.beatPlan || !beat) return reply.code(404).send({ error: { code: "not_found", message: "Frame not found." } });
+    const instruction = typeof request.body?.instruction === "string" ? plainText(request.body.instruction).slice(0, 300).trim() : "";
+    if (instruction.length < 3) return reply.code(400).send({ error: { code: "invalid_instruction", message: "Say what to change in a few words." } });
+    let rewrite;
+    try { rewrite = await rewriteBeat(project.beatPlan, beat, instruction, project.brief); }
+    catch (error) { return reply.code(502).send({ error: { code: "rewrite_failed", message: error instanceof Error ? error.message : "Could not rewrite the frame." } }); }
+    const result = applyPlanEdits(project, { beats: [{ id: beat.id, ...rewrite }] });
+    if ("problems" in result) return reply.code(422).send({ error: { code: "plan_problems", message: result.problems[0] }, problems: result.problems });
+    const updated = await updateProjectPlan(project.id, (current) => ({ brief: current.brief, beatPlan: result.plan, script: scriptFromPlan(result.plan, current.script?.source ?? "generated") }));
+    return updated ?? reply.code(404).send(notFound);
+  });
+
   /** Storyboard edits: text, order, and accept/reject of suggestions. 422 with problems when an edit breaks the standards. */
   app.patch<{ Params: { id: string } }>("/v1/projects/:id/plan", async (request, reply) => {
     const project = await getProject(request.params.id);
@@ -198,11 +224,21 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const result = applyPlanEdits(project, patch);
     if ("problems" in result) return reply.code(422).send({ error: { code: "plan_problems", message: result.problems[0] }, problems: result.problems });
     try {
-      const updated = await updateProjectPlan(project.id, (current) => ({
-        brief: current.brief && isLook(patch.look) ? withLook(current.brief, patch.look) : current.brief,
-        beatPlan: result.plan,
-        script: scriptFromPlan(result.plan, current.script?.source ?? "generated")
-      }));
+      const updated = await updateProjectPlan(project.id, (current) => {
+        // A style change keeps the plan's words; the scenes belong to the style, so any the new style does not have are cleared.
+        let brief = current.brief && isLook(patch.look) ? withLook(current.brief, patch.look) : current.brief;
+        if (brief && patch.styleFamily !== undefined) {
+          const { styleFamily: _old, ...rest } = brief;
+          const family = typeof patch.styleFamily === "string" ? getStyleFamily(patch.styleFamily) : undefined;
+          brief = family && family.look === (brief.look ?? "clean") ? { ...rest, styleFamily: family.id } : rest;
+        }
+        const valid = new Set(scenesFor(brief?.look, brief?.styleFamily).map((scene) => scene.id));
+        const plan = { ...result.plan, beats: result.plan.beats.map((beat) => (beat.scene && !valid.has(beat.scene) ? { ...beat, scene: null } : beat)) };
+        return {
+        brief,
+        beatPlan: plan,
+        script: scriptFromPlan(plan, current.script?.source ?? "generated")
+      };});
       return updated ?? reply.code(404).send(notFound);
     } catch (error) {
       if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });

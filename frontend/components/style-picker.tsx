@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getLook, looks, type GalleryCard, type GalleryStyleCard, type LookId } from "@videosaas/contracts";
+import { getLook, heldForV2, looks, type GalleryCard, type GalleryStyleCard, type LookId } from "@videosaas/contracts";
 import { galleryUseCases, normalizeSearch, type GalleryUseCase } from "@videosaas/contracts/gallery-use-cases";
 import { familiesOfLook, getStyleFamily } from "@videosaas/contracts/style-families";
 import { listGalleryStyles, listGalleryTemplates } from "../lib/api";
@@ -10,7 +10,7 @@ import { GalleryCardView } from "./template-gallery";
 
 /** What the picker lists: a look, or (for a look split into families such as Clean) each of its families. */
 type Entry = { id: string; look: LookId; name: string; group: string; description: string };
-const entries: Entry[] = looks.filter((look) => look.available).flatMap((look) => {
+const entries: Entry[] = looks.filter((look) => look.available && !heldForV2(look.id)).flatMap((look) => {
   const families = familiesOfLook(look.id);
   return families.length ? families.map((family) => ({ id: family.id, look: look.id, name: family.name, group: look.group, description: family.description })) : [{ id: look.id, look: look.id, name: look.name, group: look.group, description: look.description }];
 });
@@ -54,12 +54,15 @@ export function StylePicker({ value, family, onChange }: { value: LookId; family
   const chosen = style(current);
   const pick = (id: string) => { const entry = entryOf(id); onChange(entry.look, familiesOfLook(entry.look).length ? entry.id : undefined); };
   const [shown, setShown] = useState<GalleryCard[]>([]);
+  const [playing, setPlaying] = useState<GalleryCard | null>(null);
   // A few real examples made in the chosen style, so the choice is never abstract.
   useEffect(() => {
     const abort = new AbortController();
     listGalleryTemplates({ look: current, limit: 4 }, abort.signal).then((page) => setShown(page.items)).catch(() => setShown([]));
     return () => abort.abort();
   }, [current]);
+
+  useEffect(() => { setPlaying(null); }, [current]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -79,13 +82,13 @@ export function StylePicker({ value, family, onChange }: { value: LookId; family
     <div className="sp-head"><b>Visual style</b><button type="button" className="sp-browse" onClick={() => open(null)} aria-haspopup="dialog">Browse all {entries.length} styles →</button></div>
 
     <div className="sp-current" aria-live="polite">
-      <div className="sp-current-thumb"><Clip style={chosen} live /></div>
+      <div className="sp-current-thumb"><Clip key={playing?.id ?? chosen.id} style={playing ? { ...chosen, preview: playing.preview } : chosen} live />{playing && <span className="sp-now">{playing.name}</span>}</div>
       <div className="sp-current-body">
         <span className="sp-tag">Selected · {selected.group}</span>
         <h3>{chosen.name}</h3>
         <p>{chosen.description} Your brand sets the colors and fonts.</p>
         {shown.length > 0 && <div className="sp-mini" aria-label="Examples in this style">
-          {shown.map((item) => <button type="button" key={item.id} className="sp-mini-card" onClick={() => open(current)} aria-label={`${item.name}, an example in this style`}>
+          {shown.map((item) => <button type="button" key={item.id} className={"sp-mini-card" + (playing?.id === item.id ? " playing" : "")} aria-pressed={playing?.id === item.id} onClick={() => setPlaying(playing?.id === item.id ? null : item)} aria-label={`${item.name}, an example in this style`}>
             <span className="sp-thumb"><Clip style={{ ...chosen, preview: item.preview }} /></span><small>{item.name}</small>
           </button>)}
         </div>}

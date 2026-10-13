@@ -44,6 +44,8 @@ export type ScriptBrief = {
   look?: LookId;
   /** Which kind of film the look is used for (style-families.ts), e.g. "clean-3d". Gives the director a clear focus; same renderer. */
   styleFamily?: string;
+  /** The gallery template the person started from: its film is the style reference the director remixes with the new script. */
+  styleExample?: string;
   brandId?: string;
   productName?: string;
   audience?: string;
@@ -63,8 +65,9 @@ export function formatForDuration(seconds: number): VideoFormatKind {
 }
 
 /** The beat-count range the director must hit for a duration and pace. */
-export function beatCountRange(seconds: number, pace: Pace): { min: number; max: number } {
-  const target = seconds / paceBeatSeconds[pace];
+export function beatCountRange(seconds: number, pace: Pace, family?: string | null): { min: number; max: number } {
+  // A typography showreel cuts every two seconds or so, whatever the pace.
+  const target = seconds / (family === "clean-type" ? 2.2 : paceBeatSeconds[pace]);
   return { min: Math.max(3, Math.floor(target * 0.8)), max: Math.min(16, Math.ceil(target * 1.2) + 1) };
 }
 
@@ -82,6 +85,7 @@ export const beatRoles = ["hook", "problem", "reveal", "feature", "proof", "succ
 export const beatKinds = ["ui", "kinetic", "3d", "footage", "title"] as const;
 export const beatProducers = ["hyperframes", "threejs", "nanobanana+veo", "veo-footage"] as const;
 export const uiActions = ["click", "type", "drag", "toggle", "count", "send", "scroll", "select"] as const;
+export const textEffects = ["waterfall", "per-character-rise", "typewriter", "stagger-from-center", "soft-blur-in", "spring-scale-in", "mask-reveal-up", "depth-parallax-words"] as const;
 export const transitionTypes = ["j-cut", "match-cut", "push-through", "whip", "brand-field-wipe", "hard-cut-on-beat", "end"] as const;
 export const energies = ["calm", "medium", "high"] as const;
 
@@ -118,6 +122,8 @@ export type Beat = {
   };
   fallback?: { kind: "ui" | "kinetic"; keyword: string } | null;
   sfx?: string | null;
+  /** A scene of the chosen style's scene list (scenes.ts); null leaves the engine's own layout. */
+  scene?: string | null;
   transition_out: { type: (typeof transitionTypes)[number]; carrier?: string | null };
 };
 
@@ -192,6 +198,7 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     ...(isLook(value.look) && value.look !== "clean" ? { look: value.look } : {}),
     // A family is kept only with the look it belongs to (the default look is "clean").
     ...(family && family.look === (isLook(value.look) ? value.look : "clean") ? { styleFamily: family.id } : {}),
+    ...(typeof value.styleExample === "string" && /^[a-z0-9-]{1,80}$/.test(value.styleExample) ? { styleExample: value.styleExample } : {}),
     ...(typeof value.brandId === "string" ? { brandId: value.brandId } : {}),
     ...(clean(value.productName, 60) ? { productName: clean(value.productName, 60) } : {}),
     ...(typeof value.productUrl === "string" && /^https?:\/\/\S+$/i.test(value.productUrl.trim()) && value.productUrl.trim().length <= 300 ? { productUrl: value.productUrl.trim() } : {}),
@@ -208,12 +215,14 @@ const vector = (value: unknown): Vector | null =>
  * Validates a beat plan structurally and against the script-for-motion budgets. Returns every
  * problem (used for one repair round with the model, and to reject storyboard edits).
  */
-export function beatPlanProblems(plan: BeatPlan, brief?: ScriptBrief): string[] {
+/** `editing`: a person is changing an existing plan (storyboard edits, readiness), so the beat count is judged on its own limits, not the style's range: changing the style must not strand a film that was valid in the style it was made in. */
+export function beatPlanProblems(plan: BeatPlan, brief?: ScriptBrief, { editing = false }: { editing?: boolean } = {}): string[] {
   const problems: string[] = [];
   if (!Array.isArray(plan.beats) || plan.beats.length < 3) return ["A plan needs at least three beats."];
+  if (plan.beats.length > 16) problems.push("A plan can have at most 16 beats.");
   if (brief) {
-    const range = beatCountRange(brief.durationSeconds, brief.pace);
-    if (plan.beats.length < range.min || plan.beats.length > range.max) problems.push(`Use ${range.min}–${range.max} beats for ${brief.durationSeconds}s at a ${brief.pace} pace (got ${plan.beats.length}).`);
+    const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
+    if (!editing && (plan.beats.length < range.min || plan.beats.length > range.max)) problems.push(`Use ${range.min}–${range.max} beats for ${brief.durationSeconds}s at a ${brief.pace} pace (got ${plan.beats.length}).`);
     if (brief.audio.mode === "voiceover" || brief.audio.mode === "both") {
       const total = plan.beats.reduce((sum, beat) => sum + (beat.line ? words(beat.line) : 0), 0);
       const budget = wordBudget(brief.durationSeconds, brief.pace);
@@ -252,9 +261,9 @@ export function beatPlanProblems(plan: BeatPlan, brief?: ScriptBrief): string[] 
     for (const banned of BANNED_WORDS) if (text.includes(banned)) problems.push(`${at}: don't use "${banned}".`);
     if (beat.success) successCount++;
   });
-  if (plan.beats[0] && plan.beats[0].role !== "hook") problems.push("The first beat must be the hook.");
-  if (plan.beats.at(-1)?.role !== "cta") problems.push("The last beat must be the call to action.");
-  if (successCount !== 1) problems.push(`Exactly one beat must be the success moment (got ${successCount}).`);
+  // The shape of the film is the story's and the chosen style's, not a fixed hook, success, call-to-action template:
+  // roles are labels, a success moment is optional, and an ending can be anything that fits.
+  if (successCount > 1) problems.push(`At most one beat can be the success moment (got ${successCount}).`);
   const generated = plan.beats.filter((beat) => beat.kind === "3d" || beat.kind === "footage").length;
   if (generated > 3) problems.push(`At most 3 generated (3D or footage) beats per film (got ${generated}).`);
   for (let i = 1; i < plan.beats.length; i++) {

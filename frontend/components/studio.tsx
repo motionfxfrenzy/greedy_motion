@@ -3,12 +3,12 @@
 import { useRouter } from "next/navigation";
 import { optimisticUpdate } from "../lib/optimistic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aspectToFormat, bundledFonts, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, templates, themes, type BeatPlan, type BrandKit, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { aspectToFormat, bundledFonts, getLook, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, templates, themes, type BeatPlan, type BrandKit, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
-import { BeatStoryboardStep, type FrameLook } from "./beat-storyboard";
+import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
 import { cancelPlanJob, getGalleryTemplate, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
@@ -46,6 +46,15 @@ function briefFrom(project: VideoProject): ScriptBrief {
 }
 
 /** The colours and type frame cards are drawn with: the brand kit's derived theme, or the chosen gallery theme. */
+/** White or near-black, whichever reads better on the brand colour (WCAG relative luminance). */
+function readableOnBrand(hex: string): "#fff" | "#0a0d12" {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "#fff";
+  const channel = (i: number) => { const v = parseInt(m[1]!.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const luminance = 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+  return luminance > 0.45 ? "#0a0d12" : "#fff";
+}
+
 function lookFor(brief: ScriptBrief, brands: BrandKit[]): FrameLook {
   const kit = brands.find((brand) => brand.id === brief.brandId);
   const tokens = kit ? deriveBrandTheme(kit).theme.tokens : (findTheme(brief.theme ?? "neutral") ?? themes[0]!).tokens;
@@ -119,9 +128,13 @@ export function Studio() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [job, refresh]);
+  // A render that finishes while its page is open moves on to Review. Opening a finished project does not: the address says where to land.
+  const jobWas = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (job?.state === "ready") setStep(REVIEW);
-  }, [job?.state]);
+    const before = jobWas.current;
+    jobWas.current = job?.state;
+    if (job?.state === "ready" && before !== undefined && before !== "ready" && step === RENDER) setStep(REVIEW);
+  }, [job?.state, step]);
   // The script director runs on the server, so it keeps going if this page is closed; the project says whether it is still writing.
   // A job record older than the director's own deadline means the server restarted and lost it.
   const planning = project?.planning;
@@ -160,10 +173,12 @@ export function Studio() {
   // preview and the render use it.
   const savedLook = project?.brief?.look ?? "clean";
   const chosenLook = brief.look ?? "clean";
+  const savedFamily = project?.brief?.styleFamily ?? null;
+  const chosenFamily = brief.styleFamily ?? null;
   useEffect(() => {
-    if (!project?.beatPlan || !project.brief || chosenLook === savedLook) return;
-    void editPlan(project.id, { look: chosenLook }).then(replaceProject).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not save the drawing style."));
-  }, [project?.id, project?.beatPlan, project?.brief, chosenLook, savedLook, replaceProject]);
+    if (!project?.beatPlan || !project.brief || (chosenLook === savedLook && chosenFamily === savedFamily)) return;
+    void editPlan(project.id, { look: chosenLook, styleFamily: chosenFamily }).then(replaceProject).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not save the drawing style."));
+  }, [project?.id, project?.beatPlan, project?.brief, chosenLook, savedLook, chosenFamily, savedFamily, replaceProject]);
 
   const saveProject = useCallback(async (patch: Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "approvedAt">>) => {
     if (!project) return null;
@@ -482,23 +497,25 @@ export function Studio() {
       onRender={async () => { if (await submit()) setView("create"); }}
       onBack={() => setView("create")}
       screenshotUrl={projectScreenshotUrl}
-    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} />
+    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} editorFor={project?.beatPlan ? project.id : undefined} />
       {error && step !== SCRIPT_STYLE && <p className="workspace-error">{error}</p>}
       {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating} elapsed={elapsed} error={error} generate={() => void generatePlan()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
       {step === STORYBOARD && project?.beatPlan && <BeatStoryboardStep motionBlur={motionBlur} setMotionBlur={setMotionBlur} project={project as VideoProject & { beatPlan: BeatPlan }} look={lookFor(brief, brands)} warnings={planWarnings} busy={busy} onSaved={replaceProject} back={() => setStep(SCRIPT_STYLE)} submit={() => { void submit(); }} regenerate={() => { setConfirmRegenerate(true); setStep(SCRIPT_STYLE); }} />}
       {step === STORYBOARD && !project?.beatPlan && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Generate the script and storyboard on Script &amp; style first.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to Script &amp; style</button></div>}
-      {step === RENDER && project && <RenderStep project={project} job={job} error={error} busy={busy} retry={async () => { await submit(); }} back={() => setStep(STORYBOARD)} />}
+      {step === RENDER && project && <RenderStep look={lookFor(brief, brands)} project={project} job={job} error={error} busy={busy} retry={async () => { await submit(); }} back={() => setStep(STORYBOARD)} />}
       {step === REVIEW && project && <ReviewStep project={project} job={job} approve={approve} rerender={async () => { await submit(); }} addComment={addReviewComment} removeComment={removeReviewComment} applyChanges={applyReviewComments} openStudio={openStudio} />}
     </> : <><AppHeader active="projects" />
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {loadError && <div className="workspace-error" role="alert">{loadError} <button disabled={loadingProjects} onClick={() => { setLoadingProjects(true); void refresh(); }}>{loadingProjects ? "Retrying…" : "Try again"}</button></div>}
-      {view === "projects" && <Projects projects={projects} loading={loadingProjects} loaded={projectsLoaded} busy={busy} create={() => void begin()} startTemplate={(item) => void beginFromGallery(item)} browseTemplates={() => router.push("/templates")} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} />}
+      {view === "projects" && <Projects brands={brands} projects={projects} loading={loadingProjects} loaded={projectsLoaded} busy={busy} create={() => void begin()} startTemplate={(item) => void beginFromGallery(item)} browseTemplates={() => router.push("/templates")} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} />}
     </>}
   </main>;
 }
 
-function CreationHeader({ name, state, step, reachable, back, go, openStudio }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void }) {
-  return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid #d6e4f2", borderRadius: 999, background: "#fff", color: "#0058bd" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{stepNames.map((label, index) => <li key={label}><button className={index === step ? "current" : index <= reachable ? "complete" : ""} disabled={index > reachable} onClick={() => go(index)}><b>{index !== step && index <= reachable ? "✓" : index + 1}</b>{label}</button>{index !== stepNames.length - 1 && <i />}</li>)}</ol></header>;
+function CreationHeader({ name, state, step, reachable, back, go, openStudio, editorFor }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void; editorFor?: string }) {
+  const { state: planState, retry: retryPlan } = useEntitlements();
+  const editorEntry = proMenuEntry(planState);
+  return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{editorFor && <button className="creation-editor" disabled={Boolean(editorEntry?.disabled)} onClick={() => { if (editorEntry?.action === "retry") retryPlan(); else window.location.assign(`/editor/${editorFor}`); }}>{editorEntry?.action === "retry" ? "Editor: retry" : "Open in editor"}</button>}{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid #d6e4f2", borderRadius: 999, background: "#fff", color: "#0058bd" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{stepNames.map((label, index) => <li key={label}><button className={index === step ? "current" : index <= reachable ? "complete" : ""} disabled={index > reachable} onClick={() => go(index)}><b>{index !== step && index <= reachable ? "✓" : index + 1}</b>{label}</button>{index !== stepNames.length - 1 && <i />}</li>)}</ol></header>;
 }
 
 /** The first templates, shown under the empty Projects page. Fetched from the backend: one row that fades out, so it feels like a library. */
@@ -507,7 +524,7 @@ function TemplateShelf({ startTemplate, browseTemplates, busy }: { startTemplate
   return <div className="gallery-shelf"><div className="gallery-shelf-head"><div><h2>Start from a template</h2><p>Each one fills in the script prompt, structure and style for you. Edit anything before you generate.</p></div><button className="secondary-button" onClick={browseTemplates}>Browse all templates</button></div><GalleryGrid row onMore={browseTemplates} items={items} onUse={startTemplate} busy={busy} loading={loading} skeletons={4} /></div>;
 }
 
-function Projects({ projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void }) {
+function Projects({ brands, projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; brands: BrandKit[] }) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [filter, setFilter] = useState("All");
   const groups = {
@@ -517,15 +534,16 @@ function Projects({ projects, loading, loaded, busy, create, startTemplate, brow
     Approved: projects.filter((item) => item.state === "Approved")
   };
   const visibleProjects = groups[filter as keyof typeof groups];
-  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} <span>{items.length}</span></button>)}</div>{projects.length === 0 && !loaded ? <div className="workspace-message" role="status" aria-busy={loading}>{loading ? "Loading your projects…" : "Projects could not be loaded. Use Try again above."}</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard key={project.id} project={project} open={open} openStudio={openStudio} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}</section>;
+  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} <span>{items.length}</span></button>)}</div>{projects.length === 0 && !loaded ? <div className="workspace-message" role="status" aria-busy={loading}>{loading ? "Loading your projects…" : "Projects could not be loaded. Use Try again above."}</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}</section>;
 }
 
-function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void }) {
+function ProjectCard({ brands, project, open, openStudio, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void; brands: BrandKit[] }) {
   const actionsRef = useRef<HTMLDivElement>(null);
   const { state: planState, retry: retryPlan } = useEntitlements();
   const proEntry = proMenuEntry(planState);
   const template = findTemplate(project.request.template);
   const image = project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : imageFor(template ?? templates[0]);
+  const firstBeat = project.beatPlan?.beats[0];
   const status = project.state === "Approved" ? "approved" : project.state === "Ready for review" ? "review" : "draft";
   const choose = (action: () => void) => { setMenuOpen(false); action(); };
   useEffect(() => {
@@ -536,7 +554,7 @@ function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { pro
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [menuOpen, setMenuOpen]);
-  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}><img src={image} alt="" /><span>{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
+  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}>{firstBeat && project.brief ? <i className="card-frame"><FrameCard family={project.brief.styleFamily} beat={firstBeat} index={0} canvas={project.beatPlan!.canvas} look={lookFor(project.brief, brands)} lookId={project.brief.look ?? "clean"} screenshot={firstBeat.kind === "ui" && project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></i> : <img src={image} alt="" />}<span className="card-badge">{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
 }
 
 function Screenshots({ project, busy, upload, remove }: { project: VideoProject | null; busy: boolean; upload: (file: File) => Promise<void>; remove: (id: string) => Promise<void> }) {
@@ -573,7 +591,7 @@ const renderSteps: { key: string; label: string; stages: RenderStage[] }[] = [
   { key: "encode", label: "Adding audio and encoding", stages: ["encoding"] }
 ];
 
-function RenderStep({ project, job, error, busy, retry, back }: { project: VideoProject; job: RenderJob | null; error: string | null; busy: boolean; retry: () => Promise<void>; back: () => void }) {
+function RenderStep({ project, job, error, busy, retry, back, look }: { project: VideoProject; job: RenderJob | null; error: string | null; busy: boolean; retry: () => Promise<void>; back: () => void; look?: FrameLook }) {
   const title = project.script?.lines[0]?.onScreen || "Your video is rendering.";
   const failed = Boolean(error) || job?.state === "failed";
   const wantsAudio = Boolean(project.request.audio?.music || project.request.audio?.voiceover);
@@ -586,7 +604,7 @@ function RenderStep({ project, job, error, busy, retry, back }: { project: Video
     if (key === "frames" && job?.frames) return `${job.frames.done} / ${job.frames.total}`;
     return null;
   };
-  return <div className="render-workspace"><section className="workspace-player"><Preview project={project} title={title} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></section><aside className="render-card"><header><b>{failed ? "Render needs attention" : job?.state === "ready" ? "Draft render ready" : "Rendering draft"}</b><span>{project.request.format === "portrait" ? "9:16" : "16:9"}</span></header>{failed ? <div className="render-error"><b>We could not render this project.</b><p>{error || job?.error?.message}</p><div className="render-error-actions"><button disabled={busy} onClick={() => void retry()}>{busy ? "Starting…" : "Try again"}</button><button className="render-error-back" onClick={back}>Back to storyboard</button></div></div> : <><p className="render-walkaway"><b>You can walk away.</b> Rendering keeps going on our servers whether or not this page is open. Close the tab, and come back later: this project is in Projects, and Review opens as soon as the draft is ready.</p><ol>{steps.map((item, index) => <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}><i>{index < current ? "✓" : index + 1}</i><span>{item.label}</span>{index === current && detail(item.key) && <small>{detail(item.key)}</small>}</li>)}</ol>{stage === "retrying" && <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>}</>}</aside></div>;
+  return <div className="render-workspace"><section className="workspace-player"><Preview project={project} title={title} look={look} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></section><aside className="render-card" style={look ? ({ "--rc": look.brand, "--rc-on": readableOnBrand(look.brand) } as React.CSSProperties) : undefined}><header><b>{failed ? "Render needs attention" : job?.state === "ready" ? "Draft render ready" : "Rendering draft"}</b><span>{project.request.format === "portrait" ? "9:16" : "16:9"}</span></header>{failed ? <div className="render-error"><b>We could not render this project.</b><p>{error || job?.error?.message}</p><div className="render-error-actions"><button disabled={busy} onClick={() => void retry()}>{busy ? "Starting…" : "Try again"}</button><button className="render-error-back" onClick={back}>Back to storyboard</button></div></div> : <><p className="render-walkaway"><b>You can walk away.</b> Rendering keeps going on our servers whether or not this page is open. Close the tab, and come back later: this project is in Projects, and Review opens as soon as the draft is ready.</p><ol>{steps.map((item, index) => <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}><i>{index < current ? "✓" : index + 1}</i><span>{item.label}</span>{index === current && detail(item.key) && <small>{detail(item.key)}</small>}</li>)}</ol>{stage === "retrying" && <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>}</>}</aside></div>;
 }
 
 function formatVideoTime(seconds: number) {
@@ -611,7 +629,17 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
   const [applying, setApplying] = useState(false);
   const [approving, setApproving] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
+  // Volume and mute are remembered on this device, and applied whenever the video element appears.
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+  useEffect(() => { try { const saved = Number(localStorage.getItem("gm-review-volume")); if (Number.isFinite(saved) && localStorage.getItem("gm-review-volume") !== null) setVolume(Math.min(1, Math.max(0, saved))); setMuted(localStorage.getItem("gm-review-muted") === "1"); } catch { /* storage unavailable: defaults */ } }, []);
+  useEffect(() => { const node = videoRef.current; if (node) { node.volume = volume; node.muted = muted; } }, [volume, muted, job?.output]);
+  const changeVolume = (next: number) => { setVolume(next); setMuted(next === 0); try { localStorage.setItem("gm-review-volume", String(next)); localStorage.setItem("gm-review-muted", next === 0 ? "1" : "0"); } catch { /* ignore */ } };
+  const toggleMute = () => { const next = !muted; setMuted(next); if (!next && volume === 0) setVolume(0.6); try { localStorage.setItem("gm-review-muted", next ? "1" : "0"); } catch { /* ignore */ } };
   const done = project.state === "Approved";
+  // The draft is out of date when the style was changed after it was rendered (older drafts did not record theirs, so a newer project edit counts).
+  const projectLook = project.brief?.look ?? "clean";
+  const staleLook = Boolean(job?.output && (job.revision.look ? job.revision.look !== projectLook : projectLook !== "clean" && Date.parse(project.updatedAt) > Date.parse(job.createdAt) + 60_000));
   const comments = [...(project.comments ?? [])].sort((a, b) => a.timestampSeconds - b.timestampSeconds);
   // Scenes with real start/end: a storyboard render carries each beat's duration; older renders split evenly.
   const timed = job?.revision.scenes.length && job.revision.scenes.every((scene) => scene.duration > 0) ? job.revision.scenes : null;
@@ -698,6 +726,7 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
 
   return <div className="review-workspace ce-workspace">
     <section className="ce-left">
+      {staleLook && !done && <div className="ce-stale" role="status"><span><b>This draft was made in a different style.</b> The project now uses {getLook(project.brief?.look).name}. Render a new draft to see it.</span><button className="ce-download" onClick={() => void rerender()}>Render new draft</button></div>}
       <div className="ce-heading">
         <div><h1>Comment on the video</h1><p>Pause, pick the moment, and say what to change. Nothing changes until you apply it.</p></div>
         <div className="ce-howto">{["Pause", "Pick a moment", "Comment"].map((label, index) => <span key={label}><i>{index + 1}</i>{label}</span>)}</div>
@@ -715,6 +744,10 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
         <div className="ce-controls">
           <button aria-label={playing ? "Pause" : "Play"} disabled={!job?.output} onClick={togglePlay}>{playing ? "❚❚" : "▶"}</button>
           <span className="ce-clock"><b>{formatVideoTime(currentTime)}</b> / {formatVideoTime(duration)}</span>
+          <span className="ce-volume">
+            <button type="button" aria-label={muted || volume === 0 ? "Unmute" : "Mute"} disabled={!job?.output} onClick={toggleMute}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />{muted || volume === 0 ? <path d="M16 9.5l5 5M21 9.5l-5 5" /> : <><path d="M15.5 9.2a4 4 0 010 5.6" />{volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}</>}</svg></button>
+            <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="Volume" disabled={!job?.output} onChange={(event) => changeVolume(Number(event.target.value))} />
+          </span>
           <span className="ce-scene">{activeScene ? `Scene ${activeSceneIndex + 1} — ${activeScene.label}` : ""}</span>
         </div>
       </div>
@@ -755,6 +788,8 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
   </div>;
 }
 
-function Preview({ project, title, screenshot }: { project: VideoProject; title: string; screenshot?: string }) {
-  return <div className="scene-mock"><div className="scene-browser"><span /><span /><span /></div><div className="scene-copy"><small>{project.name.toUpperCase()}</small><h2>{title}</h2><p>{project.script?.lines[0]?.voiceover || "This preview reflects the saved project inputs."}</p></div>{screenshot ? <img className="scene-screenshot" src={screenshot} alt="" /> : <div className="scene-product"><b>No screenshot yet</b><span>Upload a real product screenshot in the Script step.</span></div>}</div>;
+function Preview({ project, title, screenshot, look }: { project: VideoProject; title: string; screenshot?: string; look?: FrameLook }) {
+  // In the project's own colours and type (brand kit or theme), so this stand-in matches the film that is being made.
+  const branded = look ? ({ "--sm-bg": look.bg, "--sm-fg": look.fg, "--sm-muted": look.muted, "--sm-brand": look.brand, "--sm-font": look.font } as React.CSSProperties) : undefined;
+  return <div className={look ? "scene-mock branded" : "scene-mock"} style={branded}><div className="scene-browser"><span /><span /><span /></div><div className="scene-copy"><small>{project.name.toUpperCase()}</small><h2>{title}</h2><p>{project.script?.lines[0]?.voiceover || "This preview reflects the saved project inputs."}</p></div>{screenshot ? <img className="scene-screenshot" src={screenshot} alt="" /> : <div className="scene-product"><b>No screenshot yet</b><span>Upload a real product screenshot in the Script step.</span></div>}</div>;
 }

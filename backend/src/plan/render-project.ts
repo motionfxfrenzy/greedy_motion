@@ -92,7 +92,8 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
       logo: look.logo ? "brand/logo.png" : null,
       logoWordmark: look.logo?.spellsName,
       logoBug: look.logoBug ? "brand/logo-bug.png" : null,
-      look: project.brief?.look
+      look: project.brief?.look,
+      family: project.brief?.styleFamily
     }),
     ...textValues(plan.beats)
   };

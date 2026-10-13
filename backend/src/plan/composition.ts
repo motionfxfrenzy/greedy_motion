@@ -84,6 +84,7 @@ export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Reco
         motion: { entry: beat.motion.entry, exit: beat.motion.exit, text_effect: beat.motion.text_effect ?? null },
         transition_out: beat.transition_out,
         fallback: beat.fallback ?? null,
+        scene: beat.scene ?? null,
         start: time?.start ?? 0,
         end: time?.end ?? 0,
         vo: time?.vo ?? null,
@@ -113,6 +114,8 @@ export type EngineInputs = {
   logoBug?: string | null;
   /** Drawing style (contracts looks.ts); the engine reads it as the `look` variable. */
   look?: string;
+  /** Style family (contracts style-families.ts), e.g. "clean-type"; the engine reads it as the `family` variable. */
+  family?: string;
 };
 
 /** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `logoBug`, `look`. */
@@ -123,7 +126,8 @@ export function engineVariables(input: EngineInputs): Record<string, string | bo
     logo: input.logo ?? "",
     logoWordmark: Boolean(input.logo && input.logoWordmark),
     logoBug: input.logoBug ?? "",
-    look: input.look ?? "clean"
+    look: input.look ?? "clean",
+    family: input.family ?? ""
   };
   for (const [id, url] of Object.entries(input.shots)) values[`shot.${id}`] = url;
   return values;

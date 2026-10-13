@@ -65,9 +65,15 @@ export async function registerSiteRoutes(app: FastifyInstance) {
         // Replace the previous site shots, except ones the plan already shows.
         const latest = await getProject(project.id);
         const inPlan = new Set((latest?.beatPlan?.beats ?? []).flatMap((beat) => (beat.ui ? [beat.ui.screen] : [])));
-        for (const old of latest?.site?.sections ?? []) if (old.screenshotId && !inPlan.has(old.screenshotId)) await removeScreenshot(project.id, old.screenshotId);
+        // A read that finds no sections (a site that blocked the capture this time, or a text-only fallback) never wipes the
+        // screenshots an earlier read got: they stay on the project and in the site record.
+        const sameSite = (() => { try { return new URL(latest?.site?.url ?? "").hostname.replace(/^www\./, "") === new URL(read.url).hostname.replace(/^www\./, ""); } catch { return false; } })();
+        const keepEarlier = sameSite && read.sections.length === 0 && (latest?.site?.sections ?? []).some((old) => old.screenshotId);
         const siteDir = join(config.projectsDir, project.id, "site");
-        await removeMedia(siteDir);
+        if (!keepEarlier) {
+          for (const old of latest?.site?.sections ?? []) if (old.screenshotId && !inPlan.has(old.screenshotId)) await removeScreenshot(project.id, old.screenshotId);
+          await removeMedia(siteDir);
+        }
 
         const sections: SiteSection[] = [];
         const added: { id: string; name: string; section: string }[] = [];
@@ -85,7 +91,7 @@ export async function registerSiteRoutes(app: FastifyInstance) {
         }
         // Relevant pictures from the page (product photos, feature visuals), stored next to the screenshots. Each is fetched
         // through the same SSRF-safe client as the page; anything that is not a decent image is skipped.
-        for (const old of latest?.screenshots ?? []) if (old.name.startsWith("Site image · ") && !inPlan.has(old.id)) await removeScreenshot(project.id, old.id);
+        if (read.images.length > 0) for (const old of latest?.screenshots ?? []) if (old.name.startsWith("Site image · ") && !inPlan.has(old.id)) await removeScreenshot(project.id, old.id);
         let pictures = 0;
         for (const image of read.images) {
           if (pictures >= SITE_RULES.maxImages) break;
@@ -101,6 +107,7 @@ export async function registerSiteRoutes(app: FastifyInstance) {
             if (shot) { pictures++; added.push({ id: shot.id, name: shot.name, section: image.alt || "Photo" }); }
           } catch { /* not fetchable or not an image: skip it */ }
         }
+        if (keepEarlier) for (const old of latest?.site?.sections ?? []) { sections.push(old); const shot = latest?.screenshots.find((item) => item.id === old.screenshotId); if (shot) added.push({ id: shot.id, name: shot.name, section: old.heading }); }
         const site: SiteCapture = { url: read.url, title: read.title, description: read.description, facts: read.facts, text: read.text, sections, mode: read.mode, capturedAt: new Date().toISOString() };
         const updated = await updateProjectSite(project.id, site);
         // savedBrand: a kit already saved for this site; select it directly. brand: the fresh suggestion for a new kit.

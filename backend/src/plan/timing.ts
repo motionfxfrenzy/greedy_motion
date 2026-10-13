@@ -209,11 +209,11 @@ export function planTiming(plan: BeatPlan, brief?: Pick<ScriptBrief, "pace"> | n
     const short = floor - sum();
     const base = stretchable.reduce((total, row) => total + row.duration, 0);
     for (const row of stretchable) row.duration += short * row.duration / base;
-    warnings.push(`The plan is too short for ${target}s: beats were stretched past their usual length. Add a beat or lengthen the lines.`);
+    // A shorter film is fine: the beats are stretched to fill, and the person is not asked to fix it.
   }
-  // 10% of a 5-second film is half a second, less than one frame of a held beat: short films get at least a second of slack.
-  const slack = Math.max(target * R.tolerance, 1);
-  if (sum() > target + slack) warnings.push(`The plan needs ${sum().toFixed(1)}s, more than ${target}s + ${slack === target * R.tolerance ? "10%" : `${slack}s`}. Cut a beat or shorten the lines.`);
+  // The length is a target, not a rule: a film a few seconds over or under is fine, and the real length follows
+  // the measured voiceover. Nothing here blocks submitting, so the person never has to count seconds.
+
 
   const out: BeatTiming[] = [];
   let cursor = 0;

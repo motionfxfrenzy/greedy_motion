@@ -41,7 +41,8 @@ function beat(spec, index, count, item) {
   const base = {
     id: `b${index + 1}`, role: drawn ? (index === 0 ? "hook" : "reveal") : spec.role ?? (index === 0 ? "hook" : last ? "cta" : "reveal"), kind,
     keyword: spec.keyword, on_screen: spec.on_screen ?? null, line: null, verb: kind === "ui" ? spec.verb ?? null : null, success: Boolean(spec.success),
-    energy: spec.energy ?? "medium", ui: kind === "ui" ? spec.ui ?? null : null
+    energy: spec.energy ?? "medium", ui: kind === "ui" ? spec.ui ?? null : null,
+    ...(spec.scene ? { scene: spec.scene } : {})
   };
   // Clean films alternate big type with procedural art: orbits on the second scene, particles on the third.
   const art = item.look === "clean" && kind === "kinetic" && base.role !== "cta" && index > 0 && !last;

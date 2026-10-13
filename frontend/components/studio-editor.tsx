@@ -108,6 +108,7 @@ const defaultScreenshotUrl = projectScreenshotUrl;
 export function HyperframesPreview({
   srcdoc,
   muted = true,
+  volume,
   playerRef,
   onReady,
   onTimeChange,
@@ -117,6 +118,8 @@ export function HyperframesPreview({
   srcdoc: string;
   /** Starts muted (autoplay-safe); callers unmute from a user gesture such as Play. */
   muted?: boolean;
+  /** 0–1; applied whenever the composition (re)loads so a fresh player never starts at full volume. */
+  volume?: number;
   playerRef: RefObject<HyperframesPlayer | null>;
   onReady: (duration: number) => void;
   onTimeChange: (seconds: number) => void;
@@ -163,8 +166,10 @@ export function HyperframesPreview({
 
   useEffect(() => {
     const player = playerRef.current;
-    if (player) player.muted = muted;
-  }, [muted, playerRef, srcdoc]);
+    if (!player) return;
+    player.muted = muted;
+    if (volume !== undefined) player.volume = volume;
+  }, [muted, volume, playerRef, srcdoc]);
 
   // React's generic createElement path keeps this client-only custom element
   // out of the server JSX type surface while the dynamic import registers it.

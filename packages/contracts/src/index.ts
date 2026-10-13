@@ -15,6 +15,7 @@ export * from "./frame.ts";
 export * from "./gallery.ts";
 export * from "./looks.ts";
 export * from "./style-families.ts";
+export * from "./scenes.ts";
 export * from "./motion-blur.ts";
 export * from "./templates.ts";
 export * from "./themes.ts";
@@ -79,6 +80,8 @@ export type RenderJob = {
     template?: string;
     values?: Record<string, string | number>;
     brandId?: string;
+    /** The visual style this draft was rendered in (looks.ts), so Review can tell when the project has moved on to another. */
+    look?: string;
     audio?: AudioResult;
   };
   output?: { url: string; format: "mp4"; durationSeconds: number };

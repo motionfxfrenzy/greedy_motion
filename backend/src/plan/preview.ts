@@ -90,7 +90,8 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
     logo,
     logoWordmark,
     logoBug,
-    look: project.brief?.look
+    look: project.brief?.look,
+    family: project.brief?.styleFamily
   }) };
 
   // Bootstrap: the runtime and GSAP replace the template's vendor line; the editable text block
