@@ -352,13 +352,24 @@ export async function screenshotFile(projectId: string, screenshotId: string) {
  * the matching script through the same serialised write path as every other project update.
  * `mutate` receives the current project and returns the fields to change.
  */
+/** Records (or clears) the script director's job on the project, so a reopened page can tell it is still writing. */
+export async function setProjectPlanning(id: string, planning: VideoProject["planning"] | null) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return null;
+    const { planning: _old, ...rest } = current;
+    return save({ ...rest, ...(planning ? { planning } : {}), updatedAt: new Date().toISOString() });
+  });
+}
+
 export async function updateProjectPlan(id: string, mutate: (current: VideoProject) => Pick<VideoProject, "brief" | "beatPlan"> & Partial<Pick<VideoProject, "script" | "state" | "request">>) {
   return serializeProject(id, async () => {
     const current = await getProject(id);
     if (!current) return null;
     if (current.state === "Rendering draft") throw new ProjectInvalid("Wait for the current render to finish before changing the plan.");
     const changes = mutate(current);
-    const { approvedAt: _approvedAt, ...withoutApproval } = current;
+    // A plan being applied also ends the director's job record (planning).
+    const { approvedAt: _approvedAt, planning: _planning, ...withoutApproval } = current;
     return save({ ...withoutApproval, ...changes, updatedAt: new Date().toISOString() });
   });
 }

@@ -84,6 +84,7 @@ export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Reco
         motion: { entry: beat.motion.entry, exit: beat.motion.exit, text_effect: beat.motion.text_effect ?? null },
         transition_out: beat.transition_out,
         fallback: beat.fallback ?? null,
+        scene: beat.scene ?? null,
         start: time?.start ?? 0,
         end: time?.end ?? 0,
         vo: time?.vo ?? null,
@@ -109,18 +110,24 @@ export type EngineInputs = {
   brandName: string;
   logo?: string | null;
   logoWordmark?: boolean;
+  /** A small corner mark (the kit's logo mark or silhouette), shown on content scenes; empty when the kit has none. */
+  logoBug?: string | null;
   /** Drawing style (contracts looks.ts); the engine reads it as the `look` variable. */
   look?: string;
+  /** Style family (contracts style-families.ts), e.g. "clean-type"; the engine reads it as the `family` variable. */
+  family?: string;
 };
 
-/** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `look`. */
+/** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `logoBug`, `look`. */
 export function engineVariables(input: EngineInputs): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {
     plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes, input.look)),
     brandName: input.brandName,
     logo: input.logo ?? "",
     logoWordmark: Boolean(input.logo && input.logoWordmark),
-    look: input.look ?? "clean"
+    logoBug: input.logoBug ?? "",
+    look: input.look ?? "clean",
+    family: input.family ?? ""
   };
   for (const [id, url] of Object.entries(input.shots)) values[`shot.${id}`] = url;
   return values;

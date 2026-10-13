@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Layered papercraft</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f7e6cc; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f7e6cc; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <filter id="sh" filterUnits="userSpaceOnUse" x="-400" y="-300" width="2100" height="1200">
+      <feGaussianBlur stdDeviation="5"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.12  0 0 0 0 0.06  0 0 0 0 0.1  0 0 0 0.42 0"/>
+    </filter>
+    <filter id="grain" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="7" result="g"/>
+      <feColorMatrix in="g" type="matrix" values="0 0 0 0 0.35  0 0 0 0 0.25  0 0 0 0 0.15  0 0 0 0.20 0"/>
+    </filter>
+    <filter id="fiber" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.35" numOctaves="2" seed="11" result="g"/>
+      <feColorMatrix in="g" type="matrix" values="0 0 0 0 1  0 0 0 0 0.97  0 0 0 0 0.9  0 0 0 0.22 0"/>
+    </filter>
+    <linearGradient id="skyg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f9d8b4"/><stop offset="1" stop-color="#fbeed8"/></linearGradient>
+    <radialGradient id="vig" cx="0.5" cy="0.45" r="0.75"><stop offset="0.6" stop-color="#3a2410" stop-opacity="0"/><stop offset="1" stop-color="#3a2410" stop-opacity="0.28"/></radialGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#skyg)"/>
+  <g id="stage"></g>
+  <rect width="1280" height="720" filter="url(#fiber)" style="mix-blend-mode:soft-light"/>
+  <rect width="1280" height="720" filter="url(#grain)"/>
+  <rect width="1280" height="720" fill="url(#vig)"/>
+</svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  var stage = document.getElementById("stage");
+  function rnd(seed) { var x = Math.sin(seed * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+  function el(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function mix(hex, to, a) {
+    var c = [1, 3, 5].map(function (i) { return parseInt(hex.substr(i, 2), 16); });
+    var t = [1, 3, 5].map(function (i) { return parseInt(to.substr(i, 2), 16); });
+    return "#" + c.map(function (v, i) { var r = Math.round(v + (t[i] - v) * a); return (r < 16 ? "0" : "") + r.toString(16); }).join("");
+  }
+  function hillPath(base, amp, f1, f2, ph, step, closed) {
+    var d = "", x, y;
+    for (x = -320; x <= 1600; x += step) {
+      y = base + amp * Math.sin(x * f1 + ph) + amp * 0.45 * Math.sin(x * f2 + ph * 2.3);
+      d += (x === -320 ? "M" : "L") + x + " " + y.toFixed(1) + " ";
+    }
+    return closed ? d + "L1600 780 L-320 780Z" : d;
+  }
+  var layers = [];
+  var uid = 0;
+  // a layer: wrapper g (translated), shadow use, content group
+  function makeLayer(o) {
+    var wrap = el("g", {}, stage);
+    var cid = "c" + (uid++);
+    var sh = el("use", { href: "#" + cid, filter: "url(#sh)" }, wrap);
+    var content = el("g", { id: cid }, wrap);
+    o.wrap = wrap; o.sh = sh; o.content = content; o.seed = uid;
+    layers.push(o);
+    return o;
+  }
+  // paper shape: cut edge (lighter core) under, coloured face on top, highlight along crest
+  function paperHill(o, base, amp, f1, f2, ph, step) {
+    var dFull = hillPath(base, amp, f1, f2, ph, step, true);
+    el("path", { d: dFull, fill: mix(o.color, "#fffaf0", 0.7), transform: "translate(-1.5 -3.5)" }, o.content);
+    el("path", { d: dFull, fill: o.color }, o.content);
+    el("path", { d: hillPath(base, amp, f1, f2, ph, step, false), fill: "none", stroke: "#ffffff", "stroke-opacity": ".38", "stroke-width": "2", transform: "translate(0 1)" }, o.content);
+    // faint inner shading band under the crest (paper bevel)
+    el("path", { d: hillPath(base + 14, amp, f1, f2, ph, step, false), fill: "none", stroke: mix(o.color, "#000000", 0.15), "stroke-opacity": ".35", "stroke-width": "10", "stroke-linecap": "round" }, o.content);
+  }
+
+  // ---- sun (behind hills)
+  var sun = makeLayer({ name: "sun", depth: 0.05, dx: 0, dy: -300, delay: 0, dur: 1.5, p0: 0.5, shDX: 4, shDY: -2 });
+  (function () {
+    var g = sun.content, i, a;
+    var cx = 930, cy = 215;
+    sun.ray1 = el("g", { transform: "translate(" + cx + " " + cy + ")" }, g);
+    sun.ray2 = el("g", { transform: "translate(" + cx + " " + cy + ")" }, g);
+    for (i = 0; i < 16; i++) {
+      a = i * 22.5;
+      el("path", { d: "M-15 -112 L15 -112 L0 -158Z", fill: "#f4a63a", transform: "rotate(" + a + ")" }, sun.ray1);
+      el("path", { d: "M-12 -100 L12 -100 L0 -138Z", fill: "#f9c84e", transform: "rotate(" + (a + 11.25) + ")" }, sun.ray2);
+    }
+    el("circle", { cx: cx - 1, cy: cy - 3, r: 96, fill: "#fff1c4" }, g);
+    el("circle", { cx: cx, cy: cy, r: 94, fill: "#f6b93c" }, g);
+    el("circle", { cx: cx - 1, cy: cy - 3, r: 72, fill: "#fcd96a" }, g);
+    el("circle", { cx: cx, cy: cy, r: 70, fill: "#fbd35a" }, g);
+    el("circle", { cx: cx - 1, cy: cy - 3, r: 46, fill: "#fff0b0" }, g);
+    el("circle", { cx: cx, cy: cy, r: 44, fill: "#ffe583" }, g);
+  })();
+
+  // ---- clouds
+  function cloud(cx, cy, s, d, delay, dir, drift) {
+    var o = makeLayer({ name: "cloud", depth: d, dx: dir * 420, dy: 0, delay: delay, dur: 1.6, p0: 0.4, shDX: 5, shDY: 8, drift: drift });
+    var g = o.content;
+    var circ = [[-70, 8, 34], [-30, -14, 44], [26, -20, 50], [72, 0, 38], [0, 14, 44]];
+    var tf = "translate(" + cx + " " + cy + ") scale(" + s + ")";
+    var e = el("g", { transform: tf }, g);
+    circ.forEach(function (c) { el("circle", { cx: c[0] - 1.5, cy: c[1] - 3, r: c[2], fill: "#fffdf6" }, e); });
+    el("rect", { x: -100, y: 8, width: 200, height: 34, rx: 17, fill: "#fffdf6", transform: "translate(-1.5 -3)" }, e);
+    circ.forEach(function (c) { el("circle", { cx: c[0], cy: c[1], r: c[2], fill: "#f4f0ec" }, e); });
+    el("rect", { x: -100, y: 8, width: 200, height: 34, rx: 17, fill: "#f4f0ec" }, e);
+    el("path", { d: "M-60 -2 Q-28 -30 6 -24", fill: "none", stroke: "#fff", "stroke-opacity": ".8", "stroke-width": "3", "stroke-linecap": "round" }, e);
+    return o;
+  }
+  cloud(250, 150, 1.0, 0.1, 0.1, -1, 30);
+  cloud(640, 95, 0.62, 0.06, 0.25, 1, 20);
+
+  // ---- hills (back to front)
+  var H = [
+    { color: "#b8a3d9", base: 300, amp: 32, f1: 0.0042, f2: 0.011, ph: 0.6, depth: 0.14, dir: -1, delay: 0.00, dur: 1.5 },
+    { color: "#f0977c", base: 355, amp: 30, f1: 0.0050, f2: 0.013, ph: 2.4, depth: 0.26, dir: 1, delay: 0.10, dur: 1.5 },
+    { color: "#efc152", base: 402, amp: 26, f1: 0.0058, f2: 0.015, ph: 4.1, depth: 0.38, dir: -1, delay: 0.20, dur: 1.6 },
+    { color: "#9fc98c", base: 448, amp: 22, f1: 0.0066, f2: 0.017, ph: 1.3, depth: 0.50, dir: 1, delay: 0.30, dur: 1.6 }
+  ];
+  H.forEach(function (h) {
+    var o = makeLayer({ name: "hill", color: h.color, depth: h.depth, dx: h.dir * 460, dy: 0, delay: h.delay, dur: h.dur, p0: 0.3, shDX: 3 + h.depth * 10, shDY: -3 - h.depth * 9 });
+    paperHill(o, h.base, h.amp, h.f1, h.f2, h.ph, 12);
+  });
+
+  // ---- river layer 1
+  var R1 = makeLayer({ name: "river", color: "#8fd3e8", depth: 0.55, dx: -280, dy: 0, delay: 0.40, dur: 1.6, p0: 0.3, shDX: 5, shDY: -6 });
+  paperHill(R1, 497, 5, 0.021, 0.047, 0.4, 8);
+  // ---- boat (between river 1 and 2)
+  var boat = makeLayer({ name: "boat", depth: 0.6, dx: 0, dy: 0, delay: 0, dur: 1, p0: 1, shDX: 6, shDY: 6 });
+  (function () {
+    var g = boat.content;
+    var b = boat.g = el("g", {}, g);
+    // mast
+    el("rect", { x: -3, y: -76, width: 5, height: 78, fill: "#7a4a2b" }, b);
+    // sails
+    el("path", { d: "M5 -72 L5 -8 L52 -8Z", fill: "#ffffff", transform: "translate(-1.5 -2)" }, b);
+    el("path", { d: "M5 -72 L5 -8 L52 -8Z", fill: "#fff8ea" }, b);
+    el("path", { d: "M5 -72 L5 -8 L52 -8Z", fill: "none", stroke: "#e9d6b8", "stroke-width": "2" }, b);
+    el("path", { d: "M-7 -56 L-7 -8 L-40 -8Z", fill: "#fbd35a" }, b);
+    el("path", { d: "M-7 -56 L-7 -8 L-40 -8Z", fill: "none", stroke: "#e5b032", "stroke-width": "2" }, b);
+    // flag
+    el("path", { d: "M-1 -76 L22 -69 L-1 -62Z", fill: "#e2503f" }, b);
+    // hull: core edge then face
+    el("path", { d: "M-52 0 L52 0 L38 28 L-38 28Z", fill: "#f6b7a8", transform: "translate(-1.5 -3)" }, b);
+    el("path", { d: "M-52 0 L52 0 L38 28 L-38 28Z", fill: "#dc4b3a" }, b);
+    el("path", { d: "M-48 8 L48 8 L44 14 L-44 14Z", fill: "#fff3dc" }, b);
+    el("path", { d: "M-52 0 L52 0", stroke: "#fff", "stroke-opacity": ".45", "stroke-width": "2" }, b);
+  })();
+  // ---- river layers 2 & 3
+  var R2 = makeLayer({ name: "river", color: "#5fb5d8", depth: 0.68, dx: 480, dy: 0, delay: 0.55, dur: 1.6, p0: 0.3, shDX: 6, shDY: -7 });
+  paperHill(R2, 548, 6, 0.024, 0.052, 1.9, 8);
+  var R3 = makeLayer({ name: "river", color: "#3d93c2", depth: 0.78, dx: -520, dy: 0, delay: 0.70, dur: 1.6, p0: 0.3, shDX: 7, shDY: -8 });
+  paperHill(R3, 590, 7, 0.019, 0.044, 3.3, 8);
+  // wave notches on rivers (small paper arcs)
+  [R1, R2, R3].forEach(function (R, k) {
+    var base = [520, 570, 614][k], i;
+    for (i = 0; i < 12; i++) {
+      var x = -200 + i * 150 + rnd(k * 20 + i) * 70, y = base + rnd(k * 9 + i + 3) * 12;
+      el("path", { d: "M" + x + " " + y + " q14 -12 28 0 t28 0", fill: "none", stroke: "#ffffff", "stroke-opacity": ".45", "stroke-width": "4", "stroke-linecap": "round" }, R.content);
+    }
+  });
+
+  // ---- foreground banks
+  var T = makeLayer({ name: "hill", color: "#3f9f87", depth: 0.9, dx: 520, dy: 0, delay: 0.85, dur: 1.7, p0: 0.3, shDX: 8, shDY: -10 });
+  paperHill(T, 634, 14, 0.0072, 0.02, 0.8, 12);
+  var F = makeLayer({ name: "hill", color: "#2a6f58", depth: 1.0, dx: -540, dy: 0, delay: 1.0, dur: 1.7, p0: 0.3, shDX: 9, shDY: -11 });
+  paperHill(F, 676, 12, 0.0085, 0.022, 3.0, 12);
+
+  // ---- quilled flowers
+  function spiral(cx, cy, rMax, turns, stroke, w, parent) {
+    var d = "", n = 40 * turns, i, a, r;
+    for (i = 0; i <= n; i++) {
+      a = (i / 40) * Math.PI * 2; r = rMax * (i / n);
+      d += (i ? "L" : "M") + (cx + r * Math.cos(a)).toFixed(1) + " " + (cy + r * Math.sin(a)).toFixed(1) + " ";
+    }
+    el("path", { d: d, fill: "none", stroke: stroke, "stroke-width": w, "stroke-linecap": "round", "stroke-linejoin": "round" }, parent);
+  }
+  function flower(x, y, r, petal, centre, n, delay, k) {
+    var o = makeLayer({ name: "flower", depth: 1.25, dx: 0, dy: 190 + r * 2, delay: delay, dur: 1.2, p0: 0.25, shDX: 9, shDY: 7 });
+    var g = el("g", {}, o.content), i, a;
+    var lean = (rnd(k) - 0.5) * 40;
+    // stem (paper strip) + leaf
+    el("path", { d: "M" + x + " " + y + " Q" + (x + lean) + " " + (y + 90) + " " + (x + lean * 0.6) + " 740", fill: "none", stroke: "#bfe3a5", "stroke-width": 11, "stroke-linecap": "round", transform: "translate(-1.5 -2)" }, g);
+    el("path", { d: "M" + x + " " + y + " Q" + (x + lean) + " " + (y + 90) + " " + (x + lean * 0.6) + " 740", fill: "none", stroke: "#4e9a4a", "stroke-width": 9, "stroke-linecap": "round" }, g);
+    var ly = y + r + 70;
+    var lx = x + lean * 0.5;
+    var dir = k % 2 ? 1 : -1;
+    el("path", { d: "M" + lx + " " + ly + " q" + (dir * 46) + " -42 " + (dir * 88) + " -18 q" + (-dir * 38) + " 40 " + (-dir * 88) + " 18Z", fill: "#bfe3a5", transform: "translate(-1.5 -2.5)" }, g);
+    el("path", { d: "M" + lx + " " + ly + " q" + (dir * 46) + " -42 " + (dir * 88) + " -18 q" + (-dir * 38) + " 40 " + (-dir * 88) + " 18Z", fill: "#5cae52" }, g);
+    el("path", { d: "M" + lx + " " + ly + " q" + (dir * 44) + " -22 " + (dir * 84) + " -18", fill: "none", stroke: "#3a7c3a", "stroke-width": 2 }, g);
+    // petals: each a tight paper coil teardrop
+    var fl = el("g", { transform: "translate(" + x + " " + y + ")" }, g);
+    for (i = 0; i < n; i++) {
+      a = (360 / n) * i;
+      var p = el("g", { transform: "rotate(" + a + ") translate(0 " + (-r * 0.62) + ")" }, fl);
+      el("ellipse", { cx: 0, cy: 0, rx: r * 0.27, ry: r * 0.43, fill: mix(petal, "#ffffff", 0.35), stroke: mix(petal, "#fffaf0", 0.65), "stroke-width": 7, transform: "translate(-1 -2)" }, p);
+      el("ellipse", { cx: 0, cy: 0, rx: r * 0.27, ry: r * 0.43, fill: mix(petal, "#ffffff", 0.35), stroke: petal, "stroke-width": 6 }, p);
+      spiral(0, r * 0.05, r * 0.2, 2, mix(petal, "#7a2a20", 0.25), 2.6, p);
+    }
+    el("circle", { cx: -1, cy: -2, r: r * 0.36, fill: mix(centre, "#fffaf0", 0.6) }, fl);
+    el("circle", { cx: 0, cy: 0, r: r * 0.34, fill: centre }, fl);
+    spiral(0, 0, r * 0.28, 3, mix(centre, "#5a3a00", 0.35), 3.2, fl);
+    return o;
+  }
+  flower(118, 520, 56, "#ee6a86", "#ffd24f", 8, 1.45, 1);
+  flower(268, 584, 38, "#8d6ee0", "#ffe7a0", 7, 1.70, 2);
+  flower(1020, 548, 46, "#ff9a3c", "#fff0a8", 8, 1.95, 3);
+  flower(1170, 498, 58, "#f25b7a", "#ffd24f", 9, 2.20, 4);
+  flower(1295, 590, 40, "#7bc8ef", "#fff0a8", 7, 2.40, 5);
+  flower(640, 640, 26, "#ee6a86", "#ffd24f", 6, 2.55, 6);
+
+  // ---- motion
+  function clamp(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function easeOut(p) { return 1 - Math.pow(1 - p, 3); }
+  function drift(q) { var p = clamp(q / 4.5); return p * p * (3 - 2 * p); }
+  var boatLay = boat, R1l = R1;
+
+  function render(t) {
+    var q = Math.floor(t * 12 + 1e-6) / 12; // stop-motion cadence, 12 fps
+    var step = Math.round(q * 12);
+    var s = drift(q);
+    layers.forEach(function (o, idx) {
+      var p0 = o.p0 === undefined ? 0.3 : o.p0;
+      var p = clamp(p0 + (1 - p0) * ((q - o.delay) / o.dur));
+      var e = easeOut(p);
+      var par = o.drift !== undefined ? -o.drift * s : -(o.depth * 80) * s;
+      var jx = (rnd(idx * 31 + step) - 0.5) * 1.4, jy = (rnd(idx * 17 + step + 99) - 0.5) * 1.0;
+      if (q >= 4.5) { jx = 0; jy = 0; }
+      var x = o.dx * (1 - e) + par + jx, y = o.dy * (1 - e) + jy;
+      o.wrap.setAttribute("transform", "translate(" + x.toFixed(2) + " " + y.toFixed(2) + ")");
+      // cast shadows slide with the parallax: they lengthen as layers separate
+      var sx = o.shDX * (0.55 + 0.9 * s) + (1 - e) * (o.dx > 0 ? -10 : 10);
+      var sy = o.shDY * (0.8 + 0.4 * s);
+      o.sh.setAttribute("transform", "translate(" + sx.toFixed(2) + " " + sy.toFixed(2) + ")");
+    });
+    // sun rays turn in rigid steps
+    var rot = q * 9;
+    sun.ray1.setAttribute("transform", "translate(930 215) rotate(" + rot.toFixed(2) + ")");
+    sun.ray2.setAttribute("transform", "translate(930 215) rotate(" + (-rot * 0.7).toFixed(2) + ")");
+    // the boat rides river 1 across the frame, hull dipping behind river 2
+    var bp = clamp((q - 0.3) / 4.2);
+    var bx = 340 + 500 * (bp * bp * (3 - 2 * bp) * 0.5 + bp * 0.5);
+    var bob = (q >= 4.5) ? 0 : Math.sin(q * 5.2) * 3;
+    var tilt = (q >= 4.5) ? 0 : Math.sin(q * 5.2 + 1) * 2.2;
+    var r1 = R1l.wrap.getAttribute("transform");
+    boat.g.setAttribute("transform", "translate(" + bx.toFixed(1) + " " + (528 + bob).toFixed(1) + ") rotate(" + tilt.toFixed(2) + ") scale(1.4)");
+    // boat wrapper follows river 1 slide so it rides on the paper strip
+    var m = /translate\(([-\d.]+) ([-\d.]+)\)/.exec(r1);
+    if (m) {
+      boat.wrap.setAttribute("transform", "translate(" + m[1] + " " + m[2] + ")");
+    }
+  }
+
+  var clock = { t: 0 };
+  var tl = gsap.timeline({ paused: true });
+  tl.to(clock, { t: 5, duration: 5, ease: "none", onUpdate: function () { render(clock.t); } }, 0);
+  render(0);
+  window.addEventListener("hf-seek", function (e) { render(e.detail && e.detail.time || 0); });
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

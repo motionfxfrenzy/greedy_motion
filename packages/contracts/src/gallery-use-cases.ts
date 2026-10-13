@@ -9,3 +9,7 @@ export const galleryUseCases = [
   { id: "colour", label: "Colour themes", blurb: "The same film in a different palette and type." }
 ] as const;
 export type GalleryUseCase = (typeof galleryUseCases)[number]["id"];
+
+/** Search text as the backend uses it: leading and trailing spaces removed, runs of whitespace collapsed to one space, at most 80 characters.
+ *  The browser applies the same rule before it asks (and before it writes the URL), so "  case   study " and "case study" are one search. */
+export const normalizeSearch = (text: string | undefined | null): string => (text ?? "").replace(/\s+/g, " ").trim().slice(0, 80);

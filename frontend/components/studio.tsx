@@ -3,15 +3,15 @@
 import { useRouter } from "next/navigation";
 import { optimisticUpdate } from "../lib/optimistic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aspectToFormat, bundledFonts, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, templates, themes, type BeatPlan, type BrandKit, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { aspectToFormat, bundledFonts, getLook, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, templates, themes, type BeatPlan, type BrandKit, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
-import { BeatStoryboardStep, type FrameLook } from "./beat-storyboard";
+import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { getGalleryTemplate, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
+import { cancelPlanJob, getGalleryTemplate, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
 import { proMenuEntry, useEntitlements } from "../lib/entitlements";
 
 type View = "projects" | "create" | "studio";
@@ -46,11 +46,30 @@ function briefFrom(project: VideoProject): ScriptBrief {
 }
 
 /** The colours and type frame cards are drawn with: the brand kit's derived theme, or the chosen gallery theme. */
+/** White or near-black, whichever reads better on the brand colour (WCAG relative luminance). */
+function readableOnBrand(hex: string): "#fff" | "#0a0d12" {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "#fff";
+  const channel = (i: number) => { const v = parseInt(m[1]!.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const luminance = 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+  return luminance > 0.45 ? "#0a0d12" : "#fff";
+}
+
 function lookFor(brief: ScriptBrief, brands: BrandKit[]): FrameLook {
   const kit = brands.find((brand) => brand.id === brief.brandId);
   const tokens = kit ? deriveBrandTheme(kit).theme.tokens : (findTheme(brief.theme ?? "neutral") ?? themes[0]!).tokens;
   return { bg: tokens.bg, fg: tokens.fg, muted: tokens.muted, brand: tokens.brand, font: tokens.fontDisplay };
 }
+
+/** What the person chose on Script & style is kept per project (or per unsaved draft) in this browser, so leaving and coming back by URL restores it. */
+type Draft = { brief: ScriptBrief; request: RenderRequest; motionBlur: boolean; savedAt: number };
+const draftKey = (id: string) => "gm-draft:" + id;
+function readDraft(id: string): Draft | null {
+  try { const raw = window.localStorage.getItem(draftKey(id)); const value = raw ? JSON.parse(raw) as Draft : null; return value?.brief && value.request ? value : null; } catch { return null; }
+}
+function writeDraft(id: string, draft: Draft) { try { window.localStorage.setItem(draftKey(id), JSON.stringify(draft)); } catch { /* Storage full or blocked: the URL still reopens the saved project. */ } }
+function dropDraft(id: string) { try { window.localStorage.removeItem(draftKey(id)); } catch { /* Nothing stored. */ } }
+type UrlState = { project: string | null; draft: string | null; step: Step; studio: boolean };
 
 export function Studio() {
   const router = useRouter();
@@ -75,10 +94,15 @@ export function Studio() {
   const [motionBlur, setMotionBlur] = useState(false);
   const [brief, setBrief] = useState<ScriptBrief>(defaultBrief);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
-  const [generating, setGenerating] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [site, setSite] = useState<SiteState>({ reading: false, shots: 0, warnings: [] });
   const template = findTemplate(request.template) ?? findTemplate(defaultTemplateId)!;
+  // The address names the open project (?p=) or an unsaved draft (?d=), plus the step, so a reload or a later visit lands back here.
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
+  const wanted = useRef<UrlState | null>(null);
 
   const refresh = useCallback(async () => {
     const epoch = mutationEpoch.current;
@@ -104,17 +128,42 @@ export function Studio() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [job, refresh]);
+  // A render that finishes while its page is open moves on to Review. Opening a finished project does not: the address says where to land.
+  const jobWas = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (job?.state === "ready") setStep(REVIEW);
-  }, [job?.state]);
-  // The director takes 30–60 s; show honest elapsed time rather than a fake percentage.
+    const before = jobWas.current;
+    jobWas.current = job?.state;
+    if (job?.state === "ready" && before !== undefined && before !== "ready" && step === RENDER) setStep(REVIEW);
+  }, [job?.state, step]);
+  // The script director runs on the server, so it keeps going if this page is closed; the project says whether it is still writing.
+  // A job record older than the director's own deadline means the server restarted and lost it.
+  const planning = project?.planning;
+  const running = planning?.status === "running" && Date.now() - Date.parse(planning.startedAt) < 270_000;
+  const generating = starting || running;
+  const watching = useRef<string | null>(null);
+  useEffect(() => { if (step !== SCRIPT_STYLE) setConfirmRegenerate(false); }, [step]);
+  // Elapsed time is counted from the server's start time, so it is right after leaving and coming back.
   useEffect(() => {
     if (!generating) return;
-    setElapsed(0);
-    const started = Date.now();
-    const tick = window.setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
-    return () => window.clearInterval(tick);
-  }, [generating]);
+    const base = planning?.startedAt ? Date.parse(planning.startedAt) : Date.now();
+    const tick = () => setElapsed(Math.max(0, Math.round((Date.now() - base) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [generating, planning?.startedAt]);
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => { void refresh().catch(() => undefined); }, 2000);
+    return () => window.clearInterval(timer);
+  }, [running, refresh]);
+  // Watch a job we started (or found running); when it ends, show the storyboard, or say why not.
+  useEffect(() => { if (running && planning) watching.current = planning.startedAt; }, [running, planning]);
+  useEffect(() => {
+    if (!watching.current || starting || running) return;
+    watching.current = null;
+    if (planning?.status === "failed") setError(planning.error ?? "Could not write the script.");
+    else if (planning?.status !== "cancelled" && project?.beatPlan) { setPlanWarnings([]); setStep(STORYBOARD); }
+  }, [project, planning, starting, running]);
 
   const replaceProject = useCallback((saved: VideoProject) => {
     setProject(saved);
@@ -124,10 +173,12 @@ export function Studio() {
   // preview and the render use it.
   const savedLook = project?.brief?.look ?? "clean";
   const chosenLook = brief.look ?? "clean";
+  const savedFamily = project?.brief?.styleFamily ?? null;
+  const chosenFamily = brief.styleFamily ?? null;
   useEffect(() => {
-    if (!project?.beatPlan || !project.brief || chosenLook === savedLook) return;
-    void editPlan(project.id, { look: chosenLook }).then(replaceProject).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not save the drawing style."));
-  }, [project?.id, project?.beatPlan, project?.brief, chosenLook, savedLook, replaceProject]);
+    if (!project?.beatPlan || !project.brief || (chosenLook === savedLook && chosenFamily === savedFamily)) return;
+    void editPlan(project.id, { look: chosenLook, styleFamily: chosenFamily }).then(replaceProject).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not save the drawing style."));
+  }, [project?.id, project?.beatPlan, project?.brief, chosenLook, savedLook, chosenFamily, savedFamily, replaceProject]);
 
   const saveProject = useCallback(async (patch: Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "approvedAt">>) => {
     if (!project) return null;
@@ -153,6 +204,7 @@ export function Studio() {
     setSite({ reading: false, shots: 0, warnings: [] });
     setPlanWarnings([]);
     setProject(null);
+    setDraftId(crypto.randomUUID());
     setJob(null);
     setError(null);
     setStep(SCRIPT_STYLE);
@@ -173,17 +225,81 @@ export function Studio() {
   useEffect(() => {
     if (startedFromUrl.current) return;
     startedFromUrl.current = true;
-    const id = new URLSearchParams(window.location.search).get("template");
-    if (!id) return;
-    window.history.replaceState(null, "", window.location.pathname);
-    void beginFromGallery({ id });
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("template");
+    if (id) {
+      window.history.replaceState(null, "", window.location.pathname);
+      setRestored(true);
+      void beginFromGallery({ id });
+      return;
+    }
+    const stepParam = Number(params.get("step"));
+    const step = (Number.isInteger(stepParam) && stepParam >= 0 && stepParam <= REVIEW ? stepParam : SCRIPT_STYLE) as Step;
+    const studio = params.get("view") === "studio";
+    const draft = params.get("d");
+    if (draft && /^[0-9a-f-]{36}$/i.test(draft)) {
+      const saved = readDraft(draft);
+      if (saved) {
+        setDraftId(draft);
+        setRequest(saved.request);
+        setBrief(saved.brief);
+        setMotionBlur(saved.motionBlur);
+        setStep(SCRIPT_STYLE);
+        setView("create");
+      }
+      setRestored(true);
+      return;
+    }
+    const projectId = params.get("p");
+    if (projectId) { wanted.current = { project: projectId, draft: null, step, studio }; return; }
+    setRestored(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // A project named in the address opens once the list has loaded, at the step the URL names (never past what it has reached).
+  useEffect(() => {
+    const target = wanted.current;
+    if (!target || !projectsLoaded) return;
+    wanted.current = null;
+    const found = projects.find((item) => item.id === target.project);
+    if (found) {
+      void openProject(found);
+      const reached = found.beatPlan ? Math.max(statusStep(found), STORYBOARD) : statusStep(found);
+      setStep(Math.min(target.step, reached) as Step);
+      if (target.studio && found.script) setView("studio");
+    }
+    setRestored(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectsLoaded, projects]);
+  // Keep the address in step with where the person is.
+  useEffect(() => {
+    if (!restored) return;
+    const id = project?.id ?? draftId;
+    const params = new URLSearchParams();
+    if (view !== "projects" && id) {
+      params.set(project ? "p" : "d", id);
+      params.set("step", String(step));
+      if (view === "studio") params.set("view", "studio");
+    }
+    const query = params.toString();
+    const next = window.location.pathname + (query ? "?" + query : "");
+    if (next !== window.location.pathname + window.location.search) window.history.replaceState(null, "", next);
+  }, [restored, view, step, project?.id, draftId]);
+  // Save the brief as it is edited.
+  useEffect(() => {
+    if (!restored || view === "projects") return;
+    const id = project?.id ?? draftId;
+    if (id) writeDraft(id, { brief, request, motionBlur, savedAt: Date.now() });
+  }, [restored, view, project?.id, draftId, brief, request, motionBlur]);
   const openProject = async (saved: VideoProject) => {
     const opening = ++openingProject.current;
     setProject(saved);
     setRequest(saved.request);
-    setBrief(briefFrom(saved));
+    // Choices made after the last save (and not yet generated) are kept in this browser; they win when newer.
+    const draft = readDraft(saved.id);
+    const newer = draft && draft.savedAt >= Date.parse(saved.updatedAt);
+    setBrief(newer ? draft.brief : briefFrom(saved));
+    if (newer) setMotionBlur(draft.motionBlur);
+    setDraftId(null);
     // The brand found on the site isn't stored (only offered for review), so a reopened project shows the facts and shots.
     setSite({ reading: false, site: saved.site ?? null, brand: null, shots: saved.screenshots.filter((shot) => shot.name.startsWith("Site · ")).length, warnings: [] });
     setPlanWarnings([]);
@@ -230,6 +346,7 @@ export function Studio() {
     const name = (brief.productName?.trim() || brief.text.trim().split(/[.!?\n]/)[0]?.slice(0, 80) || "Untitled video").trim();
     const created = await createProject({ name, request: nextRequest });
     setRequest(nextRequest);
+    if (draftId) { dropDraft(draftId); setDraftId(null); }
     replaceProject(created);
     return created;
   };
@@ -239,7 +356,7 @@ export function Studio() {
       setError(checked.error);
       return;
     }
-    setGenerating(true);
+    setStarting(true);
     setError(null);
     try {
       const active = await ensureProject();
@@ -247,14 +364,20 @@ export function Studio() {
       await updateProject(active.id, { request: nextRequest });
       setRequest(nextRequest);
       const result = await planProject(active.id, { ...checked.brief, screenshotIds: active.screenshots.map((shot) => shot.id) });
+      watching.current = result.project.planning?.startedAt ?? null;
       replaceProject(result.project);
-      setPlanWarnings(result.problems);
-      setStep(STORYBOARD);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not write the script.");
     } finally {
-      setGenerating(false);
+      setStarting(false);
     }
+  };
+  /** Stops the director on the server; the brief stays as it is. */
+  const cancelPlan = async () => {
+    if (!project) return;
+    watching.current = null;
+    try { replaceProject((await cancelPlanJob(project.id)).project); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "Could not cancel the script."); }
   };
   /** Reads the product site: facts for the director, a brand to review, and section screenshots on the project. */
   const readSite = async (url: string) => {
@@ -374,23 +497,25 @@ export function Studio() {
       onRender={async () => { if (await submit()) setView("create"); }}
       onBack={() => setView("create")}
       screenshotUrl={projectScreenshotUrl}
-    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script ? openStudio : undefined} />
+    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} editorFor={project?.beatPlan ? project.id : undefined} />
       {error && step !== SCRIPT_STYLE && <p className="workspace-error">{error}</p>}
-      {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating} elapsed={elapsed} error={error} generate={() => void generatePlan()} back={() => setView("projects")} />}
-      {step === STORYBOARD && project?.beatPlan && <BeatStoryboardStep motionBlur={motionBlur} setMotionBlur={setMotionBlur} project={project as VideoProject & { beatPlan: BeatPlan }} look={lookFor(brief, brands)} warnings={planWarnings} busy={busy} onSaved={replaceProject} back={() => setStep(SCRIPT_STYLE)} submit={() => { void submit(); }} openStudio={openStudio} />}
+      {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating} elapsed={elapsed} error={error} generate={() => void generatePlan()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
+      {step === STORYBOARD && project?.beatPlan && <BeatStoryboardStep motionBlur={motionBlur} setMotionBlur={setMotionBlur} project={project as VideoProject & { beatPlan: BeatPlan }} look={lookFor(brief, brands)} warnings={planWarnings} busy={busy} onSaved={replaceProject} back={() => setStep(SCRIPT_STYLE)} submit={() => { void submit(); }} regenerate={() => { setConfirmRegenerate(true); setStep(SCRIPT_STYLE); }} />}
       {step === STORYBOARD && !project?.beatPlan && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Generate the script and storyboard on Script &amp; style first.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to Script &amp; style</button></div>}
-      {step === RENDER && project && <RenderStep project={project} job={job} error={error} busy={busy} retry={async () => { await submit(); }} back={() => setStep(STORYBOARD)} />}
+      {step === RENDER && project && <RenderStep look={lookFor(brief, brands)} project={project} job={job} error={error} busy={busy} retry={async () => { await submit(); }} back={() => setStep(STORYBOARD)} />}
       {step === REVIEW && project && <ReviewStep project={project} job={job} approve={approve} rerender={async () => { await submit(); }} addComment={addReviewComment} removeComment={removeReviewComment} applyChanges={applyReviewComments} openStudio={openStudio} />}
     </> : <><AppHeader active="projects" />
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {loadError && <div className="workspace-error" role="alert">{loadError} <button disabled={loadingProjects} onClick={() => { setLoadingProjects(true); void refresh(); }}>{loadingProjects ? "Retrying…" : "Try again"}</button></div>}
-      {view === "projects" && <Projects projects={projects} loading={loadingProjects} loaded={projectsLoaded} busy={busy} create={() => void begin()} startTemplate={(item) => void beginFromGallery(item)} browseTemplates={() => router.push("/templates")} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} />}
+      {view === "projects" && <Projects brands={brands} projects={projects} loading={loadingProjects} loaded={projectsLoaded} busy={busy} create={() => void begin()} startTemplate={(item) => void beginFromGallery(item)} browseTemplates={() => router.push("/templates")} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} />}
     </>}
   </main>;
 }
 
-function CreationHeader({ name, state, step, reachable, back, go, openStudio }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void }) {
-  return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid #d6e4f2", borderRadius: 999, background: "#fff", color: "#0058bd" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{stepNames.map((label, index) => <li key={label}><button className={index === step ? "current" : index <= reachable ? "complete" : ""} disabled={index > reachable} onClick={() => go(index)}><b>{index !== step && index <= reachable ? "✓" : index + 1}</b>{label}</button>{index !== stepNames.length - 1 && <i />}</li>)}</ol></header>;
+function CreationHeader({ name, state, step, reachable, back, go, openStudio, editorFor }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void; editorFor?: string }) {
+  const { state: planState, retry: retryPlan } = useEntitlements();
+  const editorEntry = proMenuEntry(planState);
+  return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{editorFor && <button className="creation-editor" disabled={Boolean(editorEntry?.disabled)} onClick={() => { if (editorEntry?.action === "retry") retryPlan(); else window.location.assign(`/editor/${editorFor}`); }}>{editorEntry?.action === "retry" ? "Editor: retry" : "Open in editor"}</button>}{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid #d6e4f2", borderRadius: 999, background: "#fff", color: "#0058bd" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{stepNames.map((label, index) => <li key={label}><button className={index === step ? "current" : index <= reachable ? "complete" : ""} disabled={index > reachable} onClick={() => go(index)}><b>{index !== step && index <= reachable ? "✓" : index + 1}</b>{label}</button>{index !== stepNames.length - 1 && <i />}</li>)}</ol></header>;
 }
 
 /** The first templates, shown under the empty Projects page. Fetched from the backend: one row that fades out, so it feels like a library. */
@@ -399,7 +524,7 @@ function TemplateShelf({ startTemplate, browseTemplates, busy }: { startTemplate
   return <div className="gallery-shelf"><div className="gallery-shelf-head"><div><h2>Start from a template</h2><p>Each one fills in the script prompt, structure and style for you. Edit anything before you generate.</p></div><button className="secondary-button" onClick={browseTemplates}>Browse all templates</button></div><GalleryGrid row onMore={browseTemplates} items={items} onUse={startTemplate} busy={busy} loading={loading} skeletons={4} /></div>;
 }
 
-function Projects({ projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void }) {
+function Projects({ brands, projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; brands: BrandKit[] }) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [filter, setFilter] = useState("All");
   const groups = {
@@ -409,15 +534,16 @@ function Projects({ projects, loading, loaded, busy, create, startTemplate, brow
     Approved: projects.filter((item) => item.state === "Approved")
   };
   const visibleProjects = groups[filter as keyof typeof groups];
-  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} <span>{items.length}</span></button>)}</div>{projects.length === 0 && !loaded ? <div className="workspace-message" role="status" aria-busy={loading}>{loading ? "Loading your projects…" : "Projects could not be loaded. Use Try again above."}</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard key={project.id} project={project} open={open} openStudio={openStudio} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}</section>;
+  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} <span>{items.length}</span></button>)}</div>{projects.length === 0 && !loaded ? <div className="workspace-message" role="status" aria-busy={loading}>{loading ? "Loading your projects…" : "Projects could not be loaded. Use Try again above."}</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}</section>;
 }
 
-function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void }) {
+function ProjectCard({ brands, project, open, openStudio, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void; brands: BrandKit[] }) {
   const actionsRef = useRef<HTMLDivElement>(null);
   const { state: planState, retry: retryPlan } = useEntitlements();
   const proEntry = proMenuEntry(planState);
   const template = findTemplate(project.request.template);
   const image = project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : imageFor(template ?? templates[0]);
+  const firstBeat = project.beatPlan?.beats[0];
   const status = project.state === "Approved" ? "approved" : project.state === "Ready for review" ? "review" : "draft";
   const choose = (action: () => void) => { setMenuOpen(false); action(); };
   useEffect(() => {
@@ -428,12 +554,32 @@ function ProjectCard({ project, open, openStudio, menuOpen, setMenuOpen }: { pro
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [menuOpen, setMenuOpen]);
-  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}><img src={image} alt="" /><span>{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
+  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}>{firstBeat && project.brief ? <i className="card-frame"><FrameCard family={project.brief.styleFamily} beat={firstBeat} index={0} canvas={project.beatPlan!.canvas} look={lookFor(project.brief, brands)} lookId={project.brief.look ?? "clean"} screenshot={firstBeat.kind === "ui" && project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></i> : <img src={image} alt="" />}<span className="card-badge">{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
 }
 
 function Screenshots({ project, busy, upload, remove }: { project: VideoProject | null; busy: boolean; upload: (file: File) => Promise<void>; remove: (id: string) => Promise<void> }) {
   const screenshots = project?.screenshots ?? [];
-  return <aside className="screenshots-panel"><header><b>Screenshots</b><span>Drag to reorder</span></header><label className="drop-zone"><b>Drop screenshots here or <em>browse</em></b><small>PNG or JPG · at least 640 px wide</small><input type="file" accept="image/png,image/jpeg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }} disabled={busy} /></label><ul>{project && screenshots.map((screenshot) => <li key={screenshot.id}><img className="shot-preview" src={projectScreenshotUrl(project.id, screenshot.id)} alt="" /><div><b>{screenshot.name}</b><small>✓ {screenshot.width} × {screenshot.height}</small></div><span>{screenshot.name.startsWith("Site · ") ? "From site" : screenshot.purpose}</span><button onClick={() => void remove(screenshot.id)}>×</button></li>)}</ul>{screenshots.length === 0 && <p className="empty-list">{project ? "No screenshots uploaded yet." : "Adding the first screenshot saves this project."} Product screens become the UI beats.</p>}</aside>;
+  const [viewing, setViewing] = useState<string | null>(null);
+  const viewedIndex = screenshots.findIndex((shot) => shot.id === viewing);
+  const viewed = project && viewedIndex >= 0 ? screenshots[viewedIndex] : undefined;
+  return <aside className="screenshots-panel"><header><b>Screenshots</b><span>Drag to reorder</span></header><label className="drop-zone"><b>Drop screenshots here or <em>browse</em></b><small>PNG or JPG · at least 640 px wide</small><input type="file" accept="image/png,image/jpeg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }} disabled={busy} /></label><ul>{project && screenshots.map((screenshot) => <li key={screenshot.id}><button type="button" className="shot-open" aria-label={"View " + screenshot.name} onClick={() => setViewing(screenshot.id)}><img className="shot-preview" src={projectScreenshotUrl(project.id, screenshot.id)} alt="" /></button><div><b>{screenshot.name}</b><small>✓ {screenshot.width} × {screenshot.height}</small></div><span>{screenshot.name.startsWith("Site · ") ? "From site" : screenshot.purpose}</span><button onClick={() => void remove(screenshot.id)}>×</button></li>)}</ul>{screenshots.length === 0 && <p className="empty-list">{project ? "No screenshots uploaded yet." : "Adding the first screenshot saves this project."} Product screens become the UI beats.</p>}{project && viewed && <ShotViewer name={viewed.name} size={viewed.width + " × " + viewed.height} src={projectScreenshotUrl(project.id, viewed.id)} position={viewedIndex + 1} total={screenshots.length} step={(by) => setViewing(screenshots[(viewedIndex + by + screenshots.length) % screenshots.length]!.id)} onClose={() => setViewing(null)} />}</aside>;
+}
+
+/** A screenshot at reading size, in a modal the person closes with ×, Esc or a click outside, and pages through with the arrow buttons or ← →. */
+function ShotViewer({ name, size, src, position, total, step, onClose }: { name: string; size: string; src: string; position: number; total: number; step: (by: number) => void; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { const node = dialog.current; if (node && !node.open) node.showModal(); }, []);
+  const arrow = (by: number, label: string, path: string) => <button type="button" className={"shot-arrow " + (by < 0 ? "prev" : "next")} aria-label={label} onClick={() => step(by)}><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d={path} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg></button>;
+  return <dialog ref={dialog} className="shot-dialog" aria-label={name} onClose={onClose}
+    onKeyDown={(event) => { if (total < 2) return; if (event.key === "ArrowLeft") { event.preventDefault(); step(-1); } else if (event.key === "ArrowRight") { event.preventDefault(); step(1); } }}
+    onClick={(event) => { if (event.target === dialog.current) dialog.current?.close(); }}>
+    <button type="button" className="gallery-dialog-close" aria-label="Close" onClick={() => dialog.current?.close()}><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" /></svg></button>
+    {total > 1 && arrow(-1, "Previous screenshot", "M11 3L5 9l6 6")}
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img src={src} alt={name} />
+    {total > 1 && arrow(1, "Next screenshot", "M7 3l6 6-6 6")}
+    <p><b>{name}</b><span>{total > 1 ? position + " / " + total + " · " : ""}{size}</span></p>
+  </dialog>;
 }
 
 const renderSteps: { key: string; label: string; stages: RenderStage[] }[] = [
@@ -445,7 +591,7 @@ const renderSteps: { key: string; label: string; stages: RenderStage[] }[] = [
   { key: "encode", label: "Adding audio and encoding", stages: ["encoding"] }
 ];
 
-function RenderStep({ project, job, error, busy, retry, back }: { project: VideoProject; job: RenderJob | null; error: string | null; busy: boolean; retry: () => Promise<void>; back: () => void }) {
+function RenderStep({ project, job, error, busy, retry, back, look }: { project: VideoProject; job: RenderJob | null; error: string | null; busy: boolean; retry: () => Promise<void>; back: () => void; look?: FrameLook }) {
   const title = project.script?.lines[0]?.onScreen || "Your video is rendering.";
   const failed = Boolean(error) || job?.state === "failed";
   const wantsAudio = Boolean(project.request.audio?.music || project.request.audio?.voiceover);
@@ -454,11 +600,11 @@ function RenderStep({ project, job, error, busy, retry, back }: { project: Video
   const stage: RenderStage = job?.stage ?? (job?.state === "ready" ? "done" : job?.state === "rendering" ? "preparing" : "queued");
   const current = stage === "done" ? steps.length : Math.max(0, steps.findIndex((item) => item.stages.includes(stage)));
   const detail = (key: string) => {
-    if (key === "wait" && stage === "waiting") return job?.queuePosition ? `${job.queuePosition} ahead` : "Next in line";
+    if (key === "wait" && stage === "waiting") return job?.queuePosition ? `${job.queuePosition} ahead` : "Starting a renderer";
     if (key === "frames" && job?.frames) return `${job.frames.done} / ${job.frames.total}`;
     return null;
   };
-  return <div className="render-workspace"><section className="workspace-player"><Preview project={project} title={title} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></section><aside className="render-card"><header><b>{failed ? "Render needs attention" : job?.state === "ready" ? "Draft render ready" : "Rendering draft"}</b><span>{project.request.format === "portrait" ? "9:16" : "16:9"}</span></header>{failed ? <div className="render-error"><b>We could not render this project.</b><p>{error || job?.error?.message}</p><div className="render-error-actions"><button disabled={busy} onClick={() => void retry()}>{busy ? "Starting…" : "Try again"}</button><button className="render-error-back" onClick={back}>Back to storyboard</button></div></div> : <><p>You can leave this page. The draft keeps rendering and Review opens when it is ready.</p><ol>{steps.map((item, index) => <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}><i>{index < current ? "✓" : index + 1}</i><span>{item.label}</span>{index === current && detail(item.key) && <small>{detail(item.key)}</small>}</li>)}</ol>{stage === "retrying" && <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>}</>}</aside></div>;
+  return <div className="render-workspace"><section className="workspace-player"><Preview project={project} title={title} look={look} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></section><aside className="render-card" style={look ? ({ "--rc": look.brand, "--rc-on": readableOnBrand(look.brand) } as React.CSSProperties) : undefined}><header><b>{failed ? "Render needs attention" : job?.state === "ready" ? "Draft render ready" : "Rendering draft"}</b><span>{project.request.format === "portrait" ? "9:16" : "16:9"}</span></header>{failed ? <div className="render-error"><b>We could not render this project.</b><p>{error || job?.error?.message}</p><div className="render-error-actions"><button disabled={busy} onClick={() => void retry()}>{busy ? "Starting…" : "Try again"}</button><button className="render-error-back" onClick={back}>Back to storyboard</button></div></div> : <><p className="render-walkaway"><b>You can walk away.</b> Rendering keeps going on our servers whether or not this page is open. Close the tab, and come back later: this project is in Projects, and Review opens as soon as the draft is ready.</p><ol>{steps.map((item, index) => <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}><i>{index < current ? "✓" : index + 1}</i><span>{item.label}</span>{index === current && detail(item.key) && <small>{detail(item.key)}</small>}</li>)}</ol>{stage === "retrying" && <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>}</>}</aside></div>;
 }
 
 function formatVideoTime(seconds: number) {
@@ -483,7 +629,17 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
   const [applying, setApplying] = useState(false);
   const [approving, setApproving] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
+  // Volume and mute are remembered on this device, and applied whenever the video element appears.
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+  useEffect(() => { try { const saved = Number(localStorage.getItem("gm-review-volume")); if (Number.isFinite(saved) && localStorage.getItem("gm-review-volume") !== null) setVolume(Math.min(1, Math.max(0, saved))); setMuted(localStorage.getItem("gm-review-muted") === "1"); } catch { /* storage unavailable: defaults */ } }, []);
+  useEffect(() => { const node = videoRef.current; if (node) { node.volume = volume; node.muted = muted; } }, [volume, muted, job?.output]);
+  const changeVolume = (next: number) => { setVolume(next); setMuted(next === 0); try { localStorage.setItem("gm-review-volume", String(next)); localStorage.setItem("gm-review-muted", next === 0 ? "1" : "0"); } catch { /* ignore */ } };
+  const toggleMute = () => { const next = !muted; setMuted(next); if (!next && volume === 0) setVolume(0.6); try { localStorage.setItem("gm-review-muted", next ? "1" : "0"); } catch { /* ignore */ } };
   const done = project.state === "Approved";
+  // The draft is out of date when the style was changed after it was rendered (older drafts did not record theirs, so a newer project edit counts).
+  const projectLook = project.brief?.look ?? "clean";
+  const staleLook = Boolean(job?.output && (job.revision.look ? job.revision.look !== projectLook : projectLook !== "clean" && Date.parse(project.updatedAt) > Date.parse(job.createdAt) + 60_000));
   const comments = [...(project.comments ?? [])].sort((a, b) => a.timestampSeconds - b.timestampSeconds);
   // Scenes with real start/end: a storyboard render carries each beat's duration; older renders split evenly.
   const timed = job?.revision.scenes.length && job.revision.scenes.every((scene) => scene.duration > 0) ? job.revision.scenes : null;
@@ -570,12 +726,13 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
 
   return <div className="review-workspace ce-workspace">
     <section className="ce-left">
+      {staleLook && !done && <div className="ce-stale" role="status"><span><b>This draft was made in a different style.</b> The project now uses {getLook(project.brief?.look).name}. Render a new draft to see it.</span><button className="ce-download" onClick={() => void rerender()}>Render new draft</button></div>}
       <div className="ce-heading">
         <div><h1>Comment on the video</h1><p>Pause, pick the moment, and say what to change. Nothing changes until you apply it.</p></div>
         <div className="ce-howto">{["Pause", "Pick a moment", "Comment"].map((label, index) => <span key={label}><i>{index + 1}</i>{label}</span>)}</div>
         <div className="ce-actions">
           {job?.output && <a className="ce-download" href={outputUrl(job.output.url)} download>Download draft</a>}
-          <button className="ce-download" onClick={openStudio}>Open Studio</button>
+          {!project.beatPlan && <button className="ce-download" onClick={openStudio}>Open Studio</button>}
           {done ? <><span className="ce-locked">✓ Approved · locked</span><button className="ce-download" onClick={() => void rerender()}>Render new draft</button></> : <button className="ce-approve" disabled={saving || applying || approving || !job?.output || comments.length > 0} title={comments.length ? "Apply or remove open comments before approving." : undefined} onClick={() => void confirmApproval()}>{approving ? "Approving…" : "Approve final"}</button>}
         </div>
       </div>
@@ -587,6 +744,10 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
         <div className="ce-controls">
           <button aria-label={playing ? "Pause" : "Play"} disabled={!job?.output} onClick={togglePlay}>{playing ? "❚❚" : "▶"}</button>
           <span className="ce-clock"><b>{formatVideoTime(currentTime)}</b> / {formatVideoTime(duration)}</span>
+          <span className="ce-volume">
+            <button type="button" aria-label={muted || volume === 0 ? "Unmute" : "Mute"} disabled={!job?.output} onClick={toggleMute}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />{muted || volume === 0 ? <path d="M16 9.5l5 5M21 9.5l-5 5" /> : <><path d="M15.5 9.2a4 4 0 010 5.6" />{volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}</>}</svg></button>
+            <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="Volume" disabled={!job?.output} onChange={(event) => changeVolume(Number(event.target.value))} />
+          </span>
           <span className="ce-scene">{activeScene ? `Scene ${activeSceneIndex + 1} — ${activeScene.label}` : ""}</span>
         </div>
       </div>
@@ -627,6 +788,8 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
   </div>;
 }
 
-function Preview({ project, title, screenshot }: { project: VideoProject; title: string; screenshot?: string }) {
-  return <div className="scene-mock"><div className="scene-browser"><span /><span /><span /></div><div className="scene-copy"><small>{project.name.toUpperCase()}</small><h2>{title}</h2><p>{project.script?.lines[0]?.voiceover || "This preview reflects the saved project inputs."}</p></div>{screenshot ? <img className="scene-screenshot" src={screenshot} alt="" /> : <div className="scene-product"><b>No screenshot yet</b><span>Upload a real product screenshot in the Script step.</span></div>}</div>;
+function Preview({ project, title, screenshot, look }: { project: VideoProject; title: string; screenshot?: string; look?: FrameLook }) {
+  // In the project's own colours and type (brand kit or theme), so this stand-in matches the film that is being made.
+  const branded = look ? ({ "--sm-bg": look.bg, "--sm-fg": look.fg, "--sm-muted": look.muted, "--sm-brand": look.brand, "--sm-font": look.font } as React.CSSProperties) : undefined;
+  return <div className={look ? "scene-mock branded" : "scene-mock"} style={branded}><div className="scene-browser"><span /><span /><span /></div><div className="scene-copy"><small>{project.name.toUpperCase()}</small><h2>{title}</h2><p>{project.script?.lines[0]?.voiceover || "This preview reflects the saved project inputs."}</p></div>{screenshot ? <img className="scene-screenshot" src={screenshot} alt="" /> : <div className="scene-product"><b>No screenshot yet</b><span>Upload a real product screenshot in the Script step.</span></div>}</div>;
 }

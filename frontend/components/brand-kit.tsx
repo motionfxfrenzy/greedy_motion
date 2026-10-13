@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bundledFonts, deriveBrandTheme, parseColor, uploadedFamily, type BrandExtraction, type BrandFont, type BrandKit, type BrandKitInput } from "@videosaas/contracts";
 import { useMediaToken } from "../lib/use-media-token";
+import { BrandKitDialog } from "./brand-kit-dialog";
 import { brandLogoUrl, extractBrandFromUrl, listBrandKits, saveBrandKit, stagedLogoUrl, uploadBrandAsset } from "../lib/api";
 
 type BrandKitFieldProps = {
@@ -19,7 +20,7 @@ type BrandKitFieldProps = {
   fromSite?: boolean;
 };
 
-type Draft = {
+export type Draft = {
   name: string;
   url: string;
   description: string;
@@ -34,13 +35,13 @@ type Draft = {
   logoTone?: "dark" | "light" | "color";
 };
 
-const emptyDraft: Draft = {
+export const emptyDraft: Draft = {
   name: "", url: "", description: "", primary: "#4f46e5", accent: "", background: "", text: "", mode: "auto",
   heading: { source: "bundled", family: "Inter" }, body: { source: "bundled", family: "Inter" }
 };
 
 /** Extraction → editor draft. */
-function draftFrom(result: BrandExtraction): Draft {
+export function draftFrom(result: BrandExtraction): Draft {
   return {
     ...emptyDraft,
     name: result.name ?? "",
@@ -58,7 +59,7 @@ function draftFrom(result: BrandExtraction): Draft {
 }
 
 /** Editor draft → the kit the API saves, or null while the primary colour is invalid. */
-function inputFrom(draft: Draft): BrandKitInput | null {
+export function inputFrom(draft: Draft): BrandKitInput | null {
   const primary = parseColor(draft.primary);
   if (!primary) return null;
   return {
@@ -74,7 +75,7 @@ function inputFrom(draft: Draft): BrandKitInput | null {
 
 /** Loads a font into the page for the live preview: Google/bundled via the CSS API, uploads from the local file. */
 const loadedFonts = new Set<string>();
-function previewFont(font: BrandFont, file?: File) {
+export function previewFont(font: BrandFont, file?: File) {
   if (typeof document === "undefined") return;
   if (font.source === "upload") {
     if (!file || loadedFonts.has(uploadedFamily(font))) return;
@@ -90,7 +91,7 @@ function previewFont(font: BrandFont, file?: File) {
   document.head.appendChild(link);
 }
 
-function ColorField({ label, value, onChange, optional, candidates }: { label: string; value: string; onChange: (v: string) => void; optional?: boolean; candidates: string[] }) {
+export function ColorField({ label, value, onChange, optional, candidates }: { label: string; value: string; onChange: (v: string) => void; optional?: boolean; candidates: string[] }) {
   const parsed = parseColor(value);
   return (
     <div className="brand-color">
@@ -102,7 +103,7 @@ function ColorField({ label, value, onChange, optional, candidates }: { label: s
       </div>
       {candidates.length ? (
         <div className="brand-chips" aria-label={`Colors found for ${label}`}>
-          {candidates.map((color) => <button key={color} type="button" title={color} aria-label={`Use ${color}`} style={{ background: color }} onClick={() => onChange(color)} />)}
+          {candidates.map((color, i) => <button key={`${i}-${color}`} type="button" title={color} aria-label={`Use ${color}`} style={{ background: color }} onClick={() => onChange(color)} />)}
         </div>
       ) : null}
       {value && !parsed ? <small className="brand-error">Use a hex color like #4f46e5.</small> : null}
@@ -110,7 +111,7 @@ function ColorField({ label, value, onChange, optional, candidates }: { label: s
   );
 }
 
-function FontField({ label, value, onChange, candidates, onFile }: { label: string; value: BrandFont; onChange: (font: BrandFont) => void; candidates: string[]; onFile: (file: File) => Promise<void> }) {
+export function FontField({ label, value, onChange, candidates, onFile }: { label: string; value: BrandFont; onChange: (font: BrandFont) => void; candidates: string[]; onFile: (file: File) => Promise<void> }) {
   const [uploading, setUploading] = useState(false);
   return (
     <div className="brand-font">
@@ -152,6 +153,8 @@ export function BrandKitField({ value, disabled, onChange, found, suggested, sou
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [kits, setKits] = useState<BrandKit[]>([]);
   const [view, setView] = useState<"list" | "edit">("list");
+  // `undefined`: closed. A kit: open it in the full editor (logos, colours, fonts, language) from the list.
+  const [editing, setEditing] = useState<BrandKit | undefined>(undefined);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [extraction, setExtraction] = useState<BrandExtraction | null>(null);
   const [importUrl, setImportUrl] = useState("");
@@ -272,6 +275,10 @@ export function BrandKitField({ value, disabled, onChange, found, suggested, sou
   const invertLogo = Boolean(derived && ((draft.logoTone === "dark" && derived.theme.mode === "dark") || (draft.logoTone === "light" && derived.theme.mode === "light")));
   const previewStyle = t ? ({ "--p-bg": t.bg, "--p-fg": t.fg, "--p-brand": t.brand, "--p-accent": t.accent, "--p-surface": t.surface, "--p-border": t.border, "--p-muted": t.muted, "--p-display": t.fontDisplay, "--p-body": t.fontBody } as React.CSSProperties) : undefined;
 
+  // A brand read from the site just entered is offered even when another kit is already chosen (unless that kit is this site's own).
+  const hostOf = (value?: string | null) => (value ?? "").trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/[/?#].*$/, "").toLowerCase();
+  const offerFound = Boolean(found && (!selected || hostOf(selected.url) !== hostOf(found.url)));
+
   return (
     <div className="brand-field">
       <span className="field-label" id="brand-label">Brand</span>
@@ -282,16 +289,15 @@ export function BrandKitField({ value, disabled, onChange, found, suggested, sou
           <span className="theme-current-meta">
             <strong id="brand-current-name">{selected ? selected.name : "No brand kit"}</strong>
             {selected ? (
-              <span className="theme-swatches" aria-hidden="true">{[selected.colors.primary, selected.colors.accent, selected.colors.background].filter(Boolean).map((c) => <span key={c} style={{ background: c }} />)}</span>
+              <span className="theme-swatches" aria-hidden="true">{[selected.colors.primary, selected.colors.accent, selected.colors.background].filter(Boolean).map((c, i) => <span key={`${i}-${c}`} style={{ background: c }} />)}</span>
             ) : <span className="template-meta">Logo, colors, and fonts from your site or files</span>}
             <span className="theme-change">{selected ? "Change brand →" : "Add your brand →"}</span>
           </span>
         </button>
-        {selected ? <button type="button" className="text-button" onClick={() => onChange(null)} disabled={disabled}>Remove</button> : null}
       </div>
-      {found && !selected ? <div className="brand-draft">
+      {offerFound && found ? <div className="brand-draft">
         <span className="brand-logo-box">{found.logo?.assetId ? <img src={stagedLogoUrl(found.logo.assetId)} alt="" /> : <span aria-hidden="true">{(found.name ?? "B")[0]}</span>}</span>
-        <span className="brand-draft-meta"><strong>{found.name ?? "Your brand"}</strong><span className="theme-swatches" aria-hidden="true">{[found.colors.primary, found.colors.accent, found.colors.background].filter(Boolean).map((color) => <span key={color} style={{ background: color as string }} />)}</span><small>From {source ?? found.url} · not saved yet</small></span>
+        <span className="brand-draft-meta"><strong>{found.name ?? "Your brand"}</strong><span className="theme-swatches" aria-hidden="true">{[found.colors.primary, found.colors.accent, found.colors.background].filter(Boolean).map((color, i) => <span key={`${i}-${color}`} style={{ background: color as string }} />)}</span><small>From {source ?? found.url} · not saved yet{selected ? ` · replaces ${selected.name}` : ""}</small></span>
         <span className="brand-draft-actions"><span><button type="button" className="text-button" onClick={reviewFound} disabled={disabled || busy === "save"}>Review</button><button type="button" className="text-button" onClick={open} disabled={disabled || busy === "save"}>Other kit</button></span><button type="button" className="brand-save" onClick={() => void saveFound()} disabled={disabled || busy === "save"}>{busy === "save" ? "Saving…" : "Save and use"}</button></span>
       </div> : null}
       {selected && fromSite && source ? <small className="brand-site-note">From {source} · <button type="button" className="text-button" onClick={open} disabled={disabled}>Change</button></small> : null}
@@ -310,12 +316,16 @@ export function BrandKitField({ value, disabled, onChange, found, suggested, sou
 
           {view === "list" ? (
             <div className="brand-list">
+              {value ? <button type="button" className="brand-list-none" onClick={() => { onChange(null); close(); }}>Use no brand kit</button> : null}
               {kits.map((kit) => (
-                <button key={kit.id} type="button" className={`brand-list-item ${kit.id === value ? "is-current" : ""}`} onClick={() => { onChange(kit); close(); }}>
-                  <span className="brand-logo-box">{kit.hasLogo ? <img src={brandLogoUrl(kit.id)} alt="" /> : <span aria-hidden="true">{kit.name[0]}</span>}</span>
-                  <span><strong>{kit.name}</strong><small>{kit.url ?? "No website"}</small></span>
-                  <span className="theme-swatches" aria-hidden="true">{[kit.colors.primary, kit.colors.accent, kit.colors.background].filter(Boolean).map((c) => <span key={c} style={{ background: c }} />)}</span>
-                </button>
+                <div key={kit.id} className="brand-list-row">
+                  <button key={kit.id} type="button" className={`brand-list-item ${kit.id === value ? "is-current" : ""}`} onClick={() => { onChange(kit); close(); }}>
+                    <span className="brand-logo-box">{kit.hasLogo ? <img src={brandLogoUrl(kit.id)} alt="" /> : <span aria-hidden="true">{kit.name[0]}</span>}</span>
+                    <span><strong>{kit.name}</strong><small>{kit.url ?? "No website"}</small></span>
+                    <span className="theme-swatches" aria-hidden="true">{[kit.colors.primary, kit.colors.accent, kit.colors.background].filter(Boolean).map((c, i) => <span key={`${i}-${c}`} style={{ background: c }} />)}</span>
+                  </button>
+                  <button type="button" className="brand-list-edit" onClick={() => setEditing(kit)} aria-label={`Preview and edit ${kit.name}`}>Preview &amp; edit</button>
+                </div>
               ))}
               <button type="button" className="template-use" onClick={() => { setDraft(emptyDraft); setExtraction(null); setImportUrl(""); setView("edit"); }}>New brand kit</button>
             </div>
@@ -393,6 +403,7 @@ export function BrandKitField({ value, disabled, onChange, found, suggested, sou
           {view === "list" && error ? <p className="error-message" role="alert">{error}</p> : null}
         </div>
       </dialog>
+      {editing && <BrandKitDialog kit={editing} onClose={() => setEditing(undefined)} onSaved={(saved) => { setKits((current) => current.map((kit) => (kit.id === saved.id ? saved : kit))); if (saved.id === value) onChange(saved); }} />}
     </div>
   );
 }

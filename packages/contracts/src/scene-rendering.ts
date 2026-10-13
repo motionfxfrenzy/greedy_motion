@@ -34,7 +34,7 @@ export function resolveSceneRoute(beat: Pick<Beat, 'kind' | 'role' | 'energy' | 
   if (explicitCanvas && (beat.kind !== 'kinetic' || beat.role === 'cta' || treatment !== 'clean')) throw new Error('Procedural graphics require a clean kinetic scene other than the closing CTA.');
   if (beat.kind === 'ui' || beat.kind === 'title' || beat.role === 'cta') return { ...base, renderer: 'dom', reason: 'Structured layout and text retain element editing.' };
   if (treatment === 'hairline') return { ...base, renderer: 'hairline-svg', reason: 'Native vector plates and stroke animation.' };
-  if (treatment === 'sketch' || treatment.startsWith('doodle')) return { ...base, renderer: 'rough-svg', reason: 'Seeded hand-drawn SVG with live text.' };
+  if (treatment === 'sketch' || treatment === 'vox-collage' || treatment.startsWith('doodle')) return { ...base, renderer: 'rough-svg', reason: 'Seeded hand-drawn SVG with live text.' };
   const graphic = beat.render?.graphic ?? 'auto';
   if (graphic === 'dom' || (graphic === 'auto' && beat.energy !== 'high')) return { ...base, renderer: 'dom', reason: 'Simple geometry stays in the editable DOM.' };
   return { ...base, renderer: 'canvas2d', graphic: graphic === 'particles' ? 'particles' : 'orbits', editability: 'parameters-and-live-text', reason: 'Procedural geometry uses a bounded Canvas layer; text stays editable.' };

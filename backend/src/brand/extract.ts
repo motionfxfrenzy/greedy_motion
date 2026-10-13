@@ -3,7 +3,8 @@
 import { bundledFonts, parseColor, saturation, type BrandExtraction, type BrandFont } from "@videosaas/contracts";
 import { stageLogo } from "./assets.ts";
 import { isGoogleFont } from "./fonts.ts";
-import { safeFetch, validateUrl } from "./safe-fetch.ts";
+import { askGemini, askGeminiBrand, type GeminiBrand } from "../site/gemini.ts";
+import { FetchRefused, safeFetch, validateUrl } from "./safe-fetch.ts";
 
 const GENERIC_FONTS = new Set([
   "inherit", "initial", "unset", "sans-serif", "serif", "monospace", "cursive", "fantasy", "system-ui", "ui-sans-serif", "ui-serif",
@@ -74,7 +75,7 @@ async function absoluteLinks(html: string, base: URL, predicate: (tag: string) =
   return tags(html, "link").filter(predicate).map((tag) => attr(tag, "href")).filter((href): href is string => Boolean(href)).map((href) => new URL(decode(href), base).toString());
 }
 
-export async function extractBrand(input: string, ownerId?: string): Promise<BrandExtraction> {
+async function extractBrandDirect(input: string, ownerId?: string): Promise<BrandExtraction> {
   const notes: string[] = [];
   const page = await safeFetch(validateUrl(input).toString(), { maxBytes: 2_000_000 });
   if (page.status >= 400) throw new Error(`The site returned HTTP ${page.status}.`);
@@ -203,4 +204,94 @@ export async function extractBrand(input: string, ownerId?: string): Promise<Bra
     logo,
     notes
   };
+}
+
+const LOW = "Read by a fallback reader (lower confidence): check the colours, fonts and logo before saving.";
+
+/**
+ * The brand as the fallback reader (Gemini, reading the public page) reports it, for sites this server cannot read itself
+ * (bot walls, 4xx, pages that render nothing) or whose colours or logo it could not find. Everything it returns is untrusted:
+ * colours must be hex, the logo is fetched through the same SSRF-safe client and re-encoded, fonts must be bundled or Google fonts.
+ */
+async function brandFromFallback(input: string, ownerId?: string): Promise<BrandExtraction> {
+  const url = validateUrl(input).toString();
+  const origin = new URL(url).origin;
+  const page = await askGemini(url).catch(() => null);
+  let brand: GeminiBrand | null = page?.brand ?? null;
+  // A real brand look needs a real colour and a logo. If the page read gave only black, white or grey, or no logo, ask the brand-only question.
+  const colourful = (b: GeminiBrand | null) => Boolean(b && [b.colors.primary, b.colors.accent, ...b.colors.others].some((value) => value && saturation(value) > 0.25));
+  if (!colourful(brand) || !brand?.logoUrl) {
+    const more = await askGeminiBrand(url).catch(() => null);
+    if (more) {
+      const first = brand;
+      brand = {
+        name: first?.name || more.name,
+        // The brand-only answer wins on colour when it found a real one; otherwise the page's own palette stays.
+        colors: colourful(more) || !first ? more.colors : first.colors,
+        logoUrl: first?.logoUrl ?? more.logoUrl,
+        fonts: first?.fonts.length ? first.fonts : more.fonts
+      };
+    }
+  }
+  if (!brand && !page) throw new Error("The fallback reader could not read this site.");
+  const c = brand?.colors ?? { others: [] as string[] };
+  const candidates = [...new Set([c.primary, c.accent, ...c.others, c.background, c.text].filter((value): value is string => Boolean(value)))].slice(0, 8);
+  const notes = [LOW];
+  const stage = async (href: string, label: string) => {
+    try {
+      const response = await safeFetch(href, { maxBytes: 5_000_000, timeoutMs: 6_000 });
+      if (response.status >= 400 || !/image|svg|octet/i.test(response.contentType || "image")) return undefined;
+      const asset = await stageLogo(response.body, ownerId);
+      return { assetId: asset.assetId, source: `${href} (${label})`, tone: asset.tone } as BrandExtraction["logo"];
+    } catch { return undefined; }
+  };
+  let logo: BrandExtraction["logo"];
+  if (brand?.logoUrl) logo = await stage(brand.logoUrl, "found by the fallback reader");
+  // Static icon files are often served even when the page is not: try the site's own, then a favicon service as the last resort.
+  if (!logo) for (const path of ["/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.svg", "/icon.png", "/favicon.ico"]) { logo = await stage(`${origin}${path}`, "site icon"); if (logo) break; }
+  if (!logo) logo = await stage(`https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=128`, "favicon");
+  if (!logo) notes.push("No usable logo was found; upload one.");
+  else if (/icon|favicon/.test(logo.source)) notes.push("The logo is the site's icon (its full logo file could not be found): replace it with your logo if you have one.");
+  const font = async (family: string | undefined): Promise<BrandFont | undefined> => {
+    if (!family) return undefined;
+    const bundled = bundledFonts.find((item) => item.toLowerCase() === family.toLowerCase());
+    if (bundled) return { source: "bundled", family: bundled };
+    return (await isGoogleFont(family)) ? { source: "google", family } : undefined;
+  };
+  const fonts = brand?.fonts ?? [];
+  const [heading, body] = await Promise.all([font(fonts[0]), font(fonts[1] ?? fonts[0])]);
+  if (!candidates.length) notes.push("No brand colour was found; choose one manually.");
+  else if (!candidates.some((value) => saturation(value) > 0.25)) notes.push("Only black, white or grey were found: pick the brand's accent colour if it has one.");
+  return {
+    url, name: brand?.name || page?.title.split(/[|·–—-]/)[0]?.trim() || undefined, description: page?.description || undefined,
+    colors: { primary: c.primary ?? candidates[0] ?? "", accent: c.accent ?? candidates[1], background: c.background, text: c.text, candidates },
+    fonts: { heading, body, candidates: fonts, selfHosted: [] },
+    logo, notes
+  };
+}
+
+/**
+ * Suggests a brand kit for a site. The page's own CSS and markup come first (precise); when this server cannot read the
+ * page, or the read found no colour or no logo, the fallback reader fills the gap and the kit says so.
+ */
+export async function extractBrand(input: string, ownerId?: string): Promise<BrandExtraction> {
+  let direct: BrandExtraction | null = null;
+  let failure: unknown;
+  try { direct = await extractBrandDirect(input, ownerId); } catch (error) { if (error instanceof FetchRefused) throw error; failure = error; }
+  const neutralOnly = (b: BrandExtraction) => b.colors.candidates.length > 0 && b.colors.candidates.every((value) => saturation(value) <= 0.25);
+  if (direct && direct.colors.primary && direct.logo && !neutralOnly(direct)) return direct;
+  const fallback = await brandFromFallback(input, ownerId).catch(() => null);
+  if (!direct) { if (fallback) return fallback; throw failure; }
+  if (!fallback) return direct;
+  if ((!direct.colors.primary || neutralOnly(direct)) && fallback.colors.primary && !neutralOnly(fallback)) {
+    direct.colors = { ...direct.colors, primary: fallback.colors.primary, accent: direct.colors.accent ?? fallback.colors.accent, background: direct.colors.background ?? fallback.colors.background, text: direct.colors.text ?? fallback.colors.text, candidates: fallback.colors.candidates };
+    direct.notes = direct.notes.filter((note) => !/No distinctive brand colo/.test(note));
+    direct.notes.push("The colours were read by a fallback reader (lower confidence): check them before saving.");
+  }
+  if (!direct.logo && fallback.logo) {
+    direct.logo = fallback.logo;
+    direct.notes = direct.notes.filter((note) => note !== "No usable logo was found; upload one.");
+    direct.notes.push("The logo was found by a fallback reader (lower confidence): check it before saving.");
+  }
+  return direct;
 }

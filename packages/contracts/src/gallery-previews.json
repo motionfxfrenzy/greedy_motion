@@ -1,7 +1,7 @@
 {
  "about-us-story": {
-  "video": "about-us-story.de7ec498.mp4",
   "poster": "about-us-story.7f6b4ae5.webp",
+  "video": "about-us-story.de7ec498.mp4",
   "reference": "about-us-story.fdb23921.html"
  },
  "animated-map-route": {
@@ -20,8 +20,8 @@
   "reference": "aurora-terrain.d96830ae.html"
  },
  "bar-chart-race": {
-  "video": "bar-chart-race.0abc9150.mp4",
   "poster": "bar-chart-race.b6e379a7.webp",
+  "video": "bar-chart-race.0abc9150.mp4",
   "reference": "bar-chart-race.78edb82b.html"
  },
  "bayes-boxes": {
@@ -55,8 +55,8 @@
   "reference": "cache-and-database.a0677362.html"
  },
  "ci-cd-pipeline": {
-  "video": "ci-cd-pipeline.a671be41.mp4",
   "poster": "ci-cd-pipeline.b57fb0ef.webp",
+  "video": "ci-cd-pipeline.a671be41.mp4",
   "reference": "ci-cd-pipeline.06252a51.html"
  },
  "clay-showcase": {
@@ -79,8 +79,9 @@
   "reference": "data-centre-flythrough.2ae9c7ff.html"
  },
  "decision-story": {
-  "poster": "decision-story.7dbd9ded.webp",
-  "video": "decision-story.53098eb5.mp4"
+  "poster": "decision-story.ca102109.webp",
+  "video": "decision-story.b5fe7ecc.mp4",
+  "reference": "decision-story.aad15fb8.html"
  },
  "derivative-slope": {
   "poster": "derivative-slope.48ef96f6.webp",
@@ -93,8 +94,8 @@
   "reference": "donut-and-counters.094a1458.html"
  },
  "doodle-walkthrough": {
-  "poster": "doodle-walkthrough.cd6e83a7.webp",
-  "video": "doodle-walkthrough.50f2cd4a.mp4"
+  "poster": "doodle-walkthrough.9ffacded.webp",
+  "video": "doodle-walkthrough.fa7826e7.mp4"
  },
  "editorial-collage": {
   "poster": "editorial-collage.b2d501d7.webp",
@@ -151,12 +152,12 @@
   "reference": "gradient-descent.8975e70b.html"
  },
  "hairline-editorial": {
-  "poster": "hairline-editorial.009ccf50.webp",
-  "video": "hairline-editorial.792c3632.mp4"
+  "poster": "hairline-editorial.24ec14bb.webp",
+  "video": "hairline-editorial.5b442c74.mp4"
  },
  "https-handshake": {
-  "video": "https-handshake.7ce67094.mp4",
   "poster": "https-handshake.3a4b311a.webp",
+  "video": "https-handshake.7ce67094.mp4",
   "reference": "https-handshake.f0639973.html"
  },
  "isometric-diorama": {
@@ -165,8 +166,8 @@
   "reference": "isometric-diorama.d5ce5552.html"
  },
  "keyboard-exploded-view": {
-  "video": "keyboard-exploded-view.6812e722.mp4",
   "poster": "keyboard-exploded-view.c2242236.webp",
+  "video": "keyboard-exploded-view.6812e722.mp4",
   "reference": "keyboard-exploded-view.0142736e.html"
  },
  "kinetic-quote-stack": {
@@ -195,8 +196,8 @@
   "reference": "neural-network-learns.459e7dc9.html"
  },
  "opus-advait-jayant-712107": {
-  "video": "opus-advait-jayant-712107.9d85ce59.mp4",
   "poster": "opus-advait-jayant-712107.b33480e7.webp",
+  "video": "opus-advait-jayant-712107.9d85ce59.mp4",
   "reference": "opus-advait-jayant-712107.084f0dc0.html"
  },
  "opus-alex-prompter-997524": {
@@ -205,8 +206,8 @@
   "reference": "opus-alex-prompter-997524.87baf392.html"
  },
  "opus-amberpromptai-345137": {
-  "video": "opus-amberpromptai-345137.b33363f1.mp4",
   "poster": "opus-amberpromptai-345137.21e3915b.webp",
+  "video": "opus-amberpromptai-345137.b33363f1.mp4",
   "reference": "opus-amberpromptai-345137.3726a291.html"
  },
  "opus-annacher-433425": {
@@ -215,8 +216,8 @@
   "reference": "opus-annacher-433425.e6a07c67.html"
  },
  "opus-aschapmann-724497": {
-  "video": "opus-aschapmann-724497.b2cb8952.mp4",
   "poster": "opus-aschapmann-724497.40117085.webp",
+  "video": "opus-aschapmann-724497.b2cb8952.mp4",
   "reference": "opus-aschapmann-724497.233ca255.html"
  },
  "opus-charlesmendez-476517": {
@@ -250,8 +251,8 @@
   "reference": "opus-drrickio-009558.0e5ad8ab.html"
  },
  "opus-emollick-019567": {
-  "video": "opus-emollick-019567.9929e847.mp4",
   "poster": "opus-emollick-019567.ab35db7b.webp",
+  "video": "opus-emollick-019567.9929e847.mp4",
   "reference": "opus-emollick-019567.437f11b1.html"
  },
  "opus-ezshine-750731": {
@@ -260,8 +261,8 @@
   "reference": "opus-ezshine-750731.a8ad9b99.html"
  },
  "opus-felipemoller-936736": {
-  "video": "opus-felipemoller-936736.3562a78c.mp4",
   "poster": "opus-felipemoller-936736.a9e2a77b.webp",
+  "video": "opus-felipemoller-936736.3562a78c.mp4",
   "reference": "opus-felipemoller-936736.88f1eee1.html"
  },
  "opus-gdgtify-929495": {
@@ -290,8 +291,8 @@
   "reference": "opus-henkvaness-975279.bf281940.html"
  },
  "opus-howdevelop-733090": {
-  "video": "opus-howdevelop-733090.a7364593.mp4",
   "poster": "opus-howdevelop-733090.5f315ad1.webp",
+  "video": "opus-howdevelop-733090.a7364593.mp4",
   "reference": "opus-howdevelop-733090.84b4ab35.html"
  },
  "opus-hqmank-241156": {
@@ -300,8 +301,8 @@
   "reference": "opus-hqmank-241156.b1955271.html"
  },
  "opus-hugon001-609629": {
-  "video": "opus-hugon001-609629.eb4baa99.mp4",
   "poster": "opus-hugon001-609629.5e132f69.webp",
+  "video": "opus-hugon001-609629.eb4baa99.mp4",
   "reference": "opus-hugon001-609629.0fec6afc.html"
  },
  "opus-hunzai-842605": {
@@ -320,8 +321,8 @@
   "reference": "opus-ishaaqahamed-107563.5d130e78.html"
  },
  "opus-jackfriks-338762": {
-  "video": "opus-jackfriks-338762.cc8482be.mp4",
   "poster": "opus-jackfriks-338762.9cd279f9.webp",
+  "video": "opus-jackfriks-338762.cc8482be.mp4",
   "reference": "opus-jackfriks-338762.4e3831bc.html"
  },
  "opus-jake11moran-414633": {
@@ -350,8 +351,8 @@
   "reference": "opus-kmasiff-549880.6caedaaf.html"
  },
  "opus-kureshirfan-386691": {
-  "video": "opus-kureshirfan-386691.c8e00406.mp4",
   "poster": "opus-kureshirfan-386691.5f898fcc.webp",
+  "video": "opus-kureshirfan-386691.c8e00406.mp4",
   "reference": "opus-kureshirfan-386691.660e957b.html"
  },
  "opus-l3d1c-632524": {
@@ -390,8 +391,8 @@
   "reference": "opus-mounnna-497266.8776fb1b.html"
  },
  "opus-nikolajankovic-616097": {
-  "video": "opus-nikolajankovic-616097.67dfbc63.mp4",
   "poster": "opus-nikolajankovic-616097.57e441d7.webp",
+  "video": "opus-nikolajankovic-616097.67dfbc63.mp4",
   "reference": "opus-nikolajankovic-616097.90ebee56.html"
  },
  "opus-nummanali-340931": {
@@ -415,8 +416,8 @@
   "reference": "opus-ratheejaisal-154698.7c8ae54c.html"
  },
  "opus-rneayan-406275": {
-  "video": "opus-rneayan-406275.3c8985be.mp4",
   "poster": "opus-rneayan-406275.80b046ef.webp",
+  "video": "opus-rneayan-406275.3c8985be.mp4",
   "reference": "opus-rneayan-406275.ae878d04.html"
  },
  "opus-rneayan-441493": {
@@ -425,8 +426,8 @@
   "reference": "opus-rneayan-441493.df179c5c.html"
  },
  "opus-ror-fly-880547": {
-  "video": "opus-ror-fly-880547.f205d7b3.mp4",
   "poster": "opus-ror-fly-880547.5ac05365.webp",
+  "video": "opus-ror-fly-880547.f205d7b3.mp4",
   "reference": "opus-ror-fly-880547.ab0668b2.html"
  },
  "opus-rpa-dake-593915": {
@@ -445,8 +446,8 @@
   "reference": "opus-songkeys-384673.dcf4cedc.html"
  },
  "opus-stewchan2-369810": {
-  "video": "opus-stewchan2-369810.abfe2ae2.mp4",
   "poster": "opus-stewchan2-369810.9a802193.webp",
+  "video": "opus-stewchan2-369810.abfe2ae2.mp4",
   "reference": "opus-stewchan2-369810.d8e7157a.html"
  },
  "opus-stokebuilder-356793": {
@@ -455,8 +456,8 @@
   "reference": "opus-stokebuilder-356793.866604a6.html"
  },
  "opus-techhalla-498547": {
-  "video": "opus-techhalla-498547.43c369f4.mp4",
   "poster": "opus-techhalla-498547.a7e77f32.webp",
+  "video": "opus-techhalla-498547.43c369f4.mp4",
   "reference": "opus-techhalla-498547.587fee30.html"
  },
  "opus-techtactician-144474": {
@@ -465,14 +466,14 @@
   "reference": "opus-techtactician-144474.c224d668.html"
  },
  "opus-verbove-268381": {
-  "video": "opus-verbove-268381.2b8b885a.mp4",
   "poster": "opus-verbove-268381.36b18ad3.webp",
+  "video": "opus-verbove-268381.2b8b885a.mp4",
   "reference": "opus-verbove-268381.35c22af2.html"
  },
  "opus-viktoroddy-402509": {
-  "poster": "opus-viktoroddy-402509.6313f445.webp",
-  "video": "opus-viktoroddy-402509.198b186f.mp4",
-  "reference": "opus-viktoroddy-402509.3720978e.html"
+  "poster": "opus-viktoroddy-402509.8a656171.webp",
+  "video": "opus-viktoroddy-402509.7b71230e.mp4",
+  "reference": "opus-viktoroddy-402509.3232aef5.html"
  },
  "opus-wani-shola-459278": {
   "poster": "opus-wani-shola-459278.0c99a8cb.webp",
@@ -485,8 +486,8 @@
   "reference": "opus-x4b47x-034026.574dfc72.html"
  },
  "paper-cutout-story": {
-  "video": "paper-cutout-story.39cbc5f0.mp4",
-  "poster": "paper-cutout-story.2789370b.webp"
+  "poster": "paper-cutout-story.2789370b.webp",
+  "video": "paper-cutout-story.39cbc5f0.mp4"
  },
  "particle-logo-assembly": {
   "poster": "particle-logo-assembly.1e9fd8cf.webp",
@@ -509,8 +510,8 @@
   "reference": "product-spin-ad.bd3f3270.html"
  },
  "prompt-to-result-story": {
-  "video": "prompt-to-result-story.700d4432.mp4",
   "poster": "prompt-to-result-story.921d98fa.webp",
+  "video": "prompt-to-result-story.700d4432.mp4",
   "reference": "prompt-to-result-story.4ac7e705.html"
  },
  "pubsub-queue": {
@@ -519,8 +520,8 @@
   "reference": "pubsub-queue.a910d7f5.html"
  },
  "pythagorean-rearrangement": {
-  "video": "pythagorean-rearrangement.885e0604.mp4",
   "poster": "pythagorean-rearrangement.a1ac733f.webp",
+  "video": "pythagorean-rearrangement.885e0604.mp4",
   "reference": "pythagorean-rearrangement.f98baeb5.html"
  },
  "saas-illus-balloon": {
@@ -528,8 +529,8 @@
   "video": "saas-illus-balloon.46674872.mp4"
  },
  "saas-illus-blueprint": {
-  "video": "saas-illus-blueprint.f744f578.mp4",
-  "poster": "saas-illus-blueprint.c1e49514.webp"
+  "poster": "saas-illus-blueprint.c1e49514.webp",
+  "video": "saas-illus-blueprint.f744f578.mp4"
  },
  "saas-illus-broken-colour": {
   "poster": "saas-illus-broken-colour.3396a988.webp",
@@ -544,24 +545,24 @@
   "video": "saas-illus-coloured-pencil.3cab83e2.mp4"
  },
  "saas-illus-embroidery": {
-  "video": "saas-illus-embroidery.00f00eb5.mp4",
-  "poster": "saas-illus-embroidery.bf1ad548.webp"
+  "poster": "saas-illus-embroidery.bf1ad548.webp",
+  "video": "saas-illus-embroidery.00f00eb5.mp4"
  },
  "saas-illus-flat-vector": {
   "poster": "saas-illus-flat-vector.9c23eff2.webp",
   "video": "saas-illus-flat-vector.aaf55197.mp4"
  },
  "saas-illus-folk-tale": {
-  "video": "saas-illus-folk-tale.3cd44944.mp4",
-  "poster": "saas-illus-folk-tale.512b72d8.webp"
+  "poster": "saas-illus-folk-tale.512b72d8.webp",
+  "video": "saas-illus-folk-tale.3cd44944.mp4"
  },
  "saas-illus-fox": {
   "poster": "saas-illus-fox.cb5211ff.webp",
   "video": "saas-illus-fox.7a7655d8.mp4"
  },
  "saas-illus-halftone": {
-  "video": "saas-illus-halftone.1c827447.mp4",
-  "poster": "saas-illus-halftone.238dd5c5.webp"
+  "poster": "saas-illus-halftone.238dd5c5.webp",
+  "video": "saas-illus-halftone.1c827447.mp4"
  },
  "saas-illus-isometric": {
   "poster": "saas-illus-isometric.8ca66600.webp",
@@ -648,8 +649,8 @@
   "video": "saas-illus-wren.502733bc.mp4"
  },
  "saas-vox-collage": {
-  "poster": "saas-vox-collage.731fb8ca.webp",
-  "video": "saas-vox-collage.40fa2a40.mp4"
+  "poster": "saas-vox-collage.b71dae3f.webp",
+  "video": "saas-vox-collage.ca9156c8.mp4"
  },
  "screencast-terminal-typing": {
   "poster": "screencast-terminal-typing.63f75fb6.webp",
@@ -662,9 +663,8 @@
   "reference": "sieve-of-primes.d88c35cf.html"
  },
  "sketch-explainer": {
-  "video": "sketch-explainer.14433a18.mp4",
-  "poster": "sketch-explainer.5ee22ad5.webp",
-  "reference": "sketch-explainer.94edfd92.html"
+  "poster": "sketch-explainer.0265e88e.webp",
+  "video": "sketch-explainer.09f34339.mp4"
  },
  "snow-globe-city": {
   "poster": "snow-globe-city.f3453dd4.webp",
@@ -672,8 +672,8 @@
   "reference": "snow-globe-city.b34784ee.html"
  },
  "stat-highlight": {
-  "video": "stat-highlight.621859c1.mp4",
   "poster": "stat-highlight.00f0cbe2.webp",
+  "video": "stat-highlight.621859c1.mp4",
   "reference": "stat-highlight.c6b43d98.html"
  },
  "stick-figure-lesson": {
@@ -704,16 +704,16 @@
   "video": "story-illus-coloured-pencil.592dfc9b.mp4"
  },
  "story-illus-embroidery": {
-  "video": "story-illus-embroidery.b9cef787.mp4",
-  "poster": "story-illus-embroidery.4a03aeb6.webp"
+  "poster": "story-illus-embroidery.4a03aeb6.webp",
+  "video": "story-illus-embroidery.b9cef787.mp4"
  },
  "story-illus-flat-vector": {
   "poster": "story-illus-flat-vector.267e151f.webp",
   "video": "story-illus-flat-vector.e8f910aa.mp4"
  },
  "story-illus-folk-tale": {
-  "video": "story-illus-folk-tale.277926dd.mp4",
-  "poster": "story-illus-folk-tale.ebdf5d8f.webp"
+  "poster": "story-illus-folk-tale.ebdf5d8f.webp",
+  "video": "story-illus-folk-tale.277926dd.mp4"
  },
  "story-illus-fox": {
   "poster": "story-illus-fox.cb190f58.webp",
@@ -776,8 +776,8 @@
   "video": "story-illus-rubber-hose.137c4f3a.mp4"
  },
  "story-illus-scrapbook": {
-  "video": "story-illus-scrapbook.2a6ef760.mp4",
-  "poster": "story-illus-scrapbook.3af91ab8.webp"
+  "poster": "story-illus-scrapbook.3af91ab8.webp",
+  "video": "story-illus-scrapbook.2a6ef760.mp4"
  },
  "story-illus-scratchboard": {
   "poster": "story-illus-scratchboard.50815a47.webp",
@@ -808,57 +808,80 @@
   "video": "story-illus-wren.47bb8758.mp4"
  },
  "story-vox-collage": {
-  "poster": "story-vox-collage.5775eac7.webp",
-  "video": "story-vox-collage.a86fe185.mp4"
+  "poster": "story-vox-collage.1c8c46d7.webp",
+  "video": "story-vox-collage.86410993.mp4"
  },
  "storybook-raindrop-journey": {
   "poster": "storybook-raindrop-journey.b29ab9f2.webp",
   "video": "storybook-raindrop-journey.70f8f3cd.mp4",
   "reference": "storybook-raindrop-journey.24e976e0.html"
  },
+ "style-clay-clean": {
+  "poster": "style-clay-clean.dd951ce0.webp",
+  "video": "style-clay-clean.efd7be9d.mp4",
+  "reference": "style-clay-clean.fbdce918.html"
+ },
  "style-clay-goofy": {
-  "poster": "style-clay-goofy.97633679.webp",
-  "video": "style-clay-goofy.3267310c.mp4"
+  "poster": "style-clay-goofy.23a43ba7.webp",
+  "video": "style-clay-goofy.0c848af8.mp4",
+  "reference": "style-clay-goofy.3b9388ad.html"
  },
  "style-clay-puppet": {
-  "poster": "style-clay-puppet.58df7f24.webp",
-  "video": "style-clay-puppet.2ec6accc.mp4"
+  "poster": "style-clay-puppet.5e774008.webp",
+  "video": "style-clay-puppet.4d5549bb.mp4",
+  "reference": "style-clay-puppet.d0fb1ce1.html"
  },
  "style-claymation": {
-  "poster": "style-claymation.59e33e45.webp",
-  "video": "style-claymation.0b82cfe3.mp4"
+  "poster": "style-claymation.f758c466.webp",
+  "video": "style-claymation.e1c47274.mp4",
+  "reference": "style-claymation.fa00ba5c.html"
  },
  "style-doodle-crosshatch": {
-  "poster": "style-doodle-crosshatch.323e6525.webp",
-  "video": "style-doodle-crosshatch.87a0492a.mp4"
+  "poster": "style-doodle-crosshatch.125e80ce.webp",
+  "video": "style-doodle-crosshatch.d6cc14e5.mp4"
  },
  "style-doodle-zigzag": {
-  "poster": "style-doodle-zigzag.b3170b79.webp",
-  "video": "style-doodle-zigzag.807ba29f.mp4"
+  "poster": "style-doodle-zigzag.59c344de.webp",
+  "video": "style-doodle-zigzag.304ef039.mp4"
  },
  "style-origami": {
-  "poster": "style-origami.22a3fe09.webp",
-  "video": "style-origami.100130ac.mp4"
+  "poster": "style-origami.7959e361.webp",
+  "video": "style-origami.c8d276f0.mp4",
+  "reference": "style-origami.72647e2f.html"
  },
  "style-paper": {
-  "poster": "style-paper.17cdcd02.webp",
-  "video": "style-paper.227f3ccd.mp4"
+  "poster": "style-paper.817dde69.webp",
+  "video": "style-paper.bf94e61a.mp4",
+  "reference": "style-paper.36c3ce4e.html"
  },
  "style-paper-collage": {
-  "poster": "style-paper-collage.d3201086.webp",
-  "video": "style-paper-collage.e818270e.mp4"
+  "poster": "style-paper-collage.f9285f4b.webp",
+  "video": "style-paper-collage.c5b5f2c3.mp4",
+  "reference": "style-paper-collage.a76e4be0.html"
  },
  "style-paper-cut": {
-  "poster": "style-paper-cut.5a4ad6ca.webp",
-  "video": "style-paper-cut.c55dcc19.mp4"
+  "poster": "style-paper-cut.d85275d1.webp",
+  "video": "style-paper-cut.87997551.mp4",
+  "reference": "style-paper-cut.3e422796.html"
+ },
+ "style-paper-cutout": {
+  "poster": "style-paper-cutout.9aac5ee1.webp",
+  "video": "style-paper-cutout.90d36cab.mp4",
+  "reference": "style-paper-cutout.1b0680a7.html"
  },
  "style-paper-diorama": {
-  "poster": "style-paper-diorama.426a1b6b.webp",
-  "video": "style-paper-diorama.66d980e4.mp4"
+  "poster": "style-paper-diorama.3424e16a.webp",
+  "video": "style-paper-diorama.3754d572.mp4",
+  "reference": "style-paper-diorama.0bff0ad7.html"
  },
  "style-paper-stop-motion": {
-  "poster": "style-paper-stop-motion.6052c87c.webp",
-  "video": "style-paper-stop-motion.a6a7b179.mp4"
+  "poster": "style-paper-stop-motion.403e0b04.webp",
+  "video": "style-paper-stop-motion.45e79d44.mp4",
+  "reference": "style-paper-stop-motion.853e47ac.html"
+ },
+ "style-vox-collage": {
+  "poster": "style-vox-collage.fcd33b21.webp",
+  "video": "style-vox-collage.217dc648.mp4"
  },
  "theme-biennale-yellow": {
   "poster": "theme-biennale-yellow.5d6b6fb5.webp",
@@ -885,8 +908,8 @@
   "video": "theme-broadside.2a9017df.mp4"
  },
  "theme-capsule": {
-  "video": "theme-capsule.3b391c70.mp4",
-  "poster": "theme-capsule.3e4a615a.webp"
+  "poster": "theme-capsule.3e4a615a.webp",
+  "video": "theme-capsule.3b391c70.mp4"
  },
  "theme-cartesian": {
   "poster": "theme-cartesian.339aef6a.webp",
@@ -905,8 +928,8 @@
   "video": "theme-coral.eb8b5b8c.mp4"
  },
  "theme-creative-mode": {
-  "video": "theme-creative-mode.16ac52d2.mp4",
-  "poster": "theme-creative-mode.4c513871.webp"
+  "poster": "theme-creative-mode.4c513871.webp",
+  "video": "theme-creative-mode.16ac52d2.mp4"
  },
  "theme-daisy-days": {
   "poster": "theme-daisy-days.615119e0.webp",

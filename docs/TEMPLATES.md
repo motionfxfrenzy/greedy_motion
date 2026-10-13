@@ -349,3 +349,32 @@ composition: GSAP timeline plus canvas/SVG/DOM, no network). `scripts/publish-ga
 the paper shards, the morphing card, the collage elements) are available to the author as working code to adapt, not
 something to rewrite. Wiring that reference into the hosted author's prompt is the next step; today it is published and
 returned with the brief, not yet read by the author.
+
+## Every template belongs to a style
+
+A template's `look` (a visual style: Clean, Sketch, Hairline, Doodle, Vox, Paper, an illustration style, and so on) is
+what files it in the style picker. Nothing else is needed: add a template with a `look` and it appears under that style's
+examples, across every use case. The Studio style picker (Look card) shows the chosen style with a real clip playing, a few
+popular styles, and a browser; opening a style lists all of its examples (the SaaS version, the story version, starters,
+remakes), filtered by what the video is for.
+
+- `GET /v1/gallery/styles` lists every style with its example count and one real clip (a style-led example first).
+- `GET /v1/gallery/templates?look=<id>` pages that style's examples (plus `use_case`, `q`, `cursor`, `limit`). Colour themes are
+  palettes, not styles, so they are not examples of a look.
+- `node --experimental-strip-types scripts/verify-gallery.mjs` checks the rule: every template's look is a known style,
+  ids are unique, every card has a clip, and the examples per style add up.
+- A new look must exist in `packages/contracts/src/looks.ts` (and have a preview) before a template can use it. The scene and
+  remake merge scripts reject a `look` that is not one of the natively rendered ones.
+
+### Style families (splitting a broad look)
+
+"Clean" is a graphic treatment that carries very different films, so it is split into families in
+`packages/contracts/src/style-families.ts`: **Clean · Product UI**, **Clean · 3D & cinematic**, **Clean · Typography &
+showreel** and **Clean · Data & diagrams**. A family is the same look (same renderer) plus a one-paragraph direction the
+director reads (`brief.styleFamily`, validated against the look). The picker lists each family as its own style with its
+own examples. `familyOf` in `gallery.ts` files each template under a family by its group (3D → 3D & cinematic; Kinetic type,
+Typography, Showreel, Social → Typography; Math, Tech, Data, Data & maps, Flat vector, Blackboard → Data & diagrams; the
+rest → Product UI), and "Use this" on a template opens its own family.
+
+To split another look: add its families to `styleFamilies` and extend `familyOf`. To add a template: give it a `look`; it
+joins its family's examples automatically.

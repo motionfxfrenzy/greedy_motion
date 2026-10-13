@@ -8,13 +8,13 @@
     "roughjs"
   ],
   "available": true,
-  "version": 1,
+  "version": 2,
   "renderer": "collage",
-  "renderMode": "generated",
+  "renderMode": "native",
   "preview": {
     "src": "/previews/looks/vox-collage.png",
     "kind": "image",
-    "label": "Layout draft — not generated footage"
+    "label": "Editorial collage drawn by the engine in your brand colours"
   },
   "source": "third_party/creative-packs/Vox Animations/.claude/skills/vox-animation/references/vox-prompts.md",
   "referenceAssets": [],

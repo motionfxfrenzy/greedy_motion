@@ -41,7 +41,11 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   if (look.brand && look.brandFontsCss) await cp(join(config.brandsDir, look.brand.id, "fonts"), join(dir, "brand-fonts"), { recursive: true }).catch(() => undefined);
   if (look.logo) {
     await mkdir(join(dir, "brand"), { recursive: true });
-    await cp(look.logo.file, join(dir, "brand/logo.png"));
+    await writeFile(join(dir, "brand/logo.png"), look.logo.data);
+  }
+  if (look.logoBug) {
+    await mkdir(join(dir, "brand"), { recursive: true });
+    await writeFile(join(dir, "brand/logo-bug.png"), look.logoBug.data);
   }
 
   const screens = new Map(project.screenshots.map((shot) => [shot.id, shot]));
@@ -86,8 +90,10 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
       screenSizes: Object.fromEntries(Object.keys(shots).map((id) => [id, { width: screens.get(id)!.width, height: screens.get(id)!.height }])),
       brandName: brandNameFor(project, look.brand),
       logo: look.logo ? "brand/logo.png" : null,
-      logoWordmark: look.logo?.wordmark,
-      look: project.brief?.look
+      logoWordmark: look.logo?.spellsName,
+      logoBug: look.logoBug ? "brand/logo-bug.png" : null,
+      look: project.brief?.look,
+      family: project.brief?.styleFamily
     }),
     ...textValues(plan.beats)
   };

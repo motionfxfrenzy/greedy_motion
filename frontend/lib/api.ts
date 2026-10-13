@@ -1,5 +1,6 @@
 import { createClient } from "../utils/supabase/client";
-import type { BrandExtraction, BrandKit, BrandKitInput, GalleryPage, ScriptBrief, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
+import { normalizeSearch } from "@videosaas/contracts/gallery-use-cases";
+import type { BrandExtraction, BrandKit, BrandKitInput, GalleryPage, GalleryStyleCard, ScriptBrief, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
 
 // Public by design: the backend origin, e.g. https://api.<domain>. The frontend holds no secrets.
 const apiOrigin = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
@@ -179,11 +180,13 @@ export function projectScreenshotUrl(projectId: string, screenshotId: string) {
 
 export type PlanResult = { project: VideoProject; problems: string[]; model?: string };
 export type PlanPatch = {
-  beats?: { id: string; keyword?: string; on_screen?: string; line?: string }[];
+  beats?: { id: string; keyword?: string; on_screen?: string; line?: string; camera?: string; text_effect?: string | null; transition?: string; sfx?: string | null; scene?: string | null }[];
   order?: string[];
   suggestions?: { index: number; accepted: boolean }[];
   /** Drawing style (contracts looks.ts); saved without replanning. */
   look?: string;
+  /** The style family (a look split into kinds of film); null clears it. */
+  styleFamily?: string | null;
 };
 /** A rejected storyboard edit: `problems` lists every rule it broke, in user-facing words. */
 export class PlanProblems extends Error {
@@ -229,11 +232,18 @@ export async function generatePlanAudio(projectId: string, parts?: ("voice" | "m
 }
 
 /** Runs the script director (30–60 s): saves the brief, beat plan, and a matching script on the project. */
+/** Starts the script director on the server (it keeps running if the page closes); the answer is the project with `planning` set. */
 export async function planProject(projectId: string, brief: ScriptBrief) {
   const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(brief) }).catch(() => {
     throw new Error("The backend is not reachable. Start it with npm run dev:backend.");
   });
-  return parse<PlanResult>(response, "Could not write the script.");
+  return parse<{ project: VideoProject }>(response, "Could not write the script.");
+}
+
+/** Stops the script director; nothing is applied. */
+export async function cancelPlanJob(projectId: string) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan/job", { method: "DELETE" });
+  return parse<{ project: VideoProject }>(response, "Could not cancel the script.");
 }
 
 export async function editPlan(projectId: string, patch: PlanPatch) {
@@ -243,6 +253,11 @@ export async function editPlan(projectId: string, patch: PlanPatch) {
     throw new PlanProblems(payload.problems?.length ? payload.problems : [payload.error?.message ?? "That change breaks a storyboard rule."]);
   }
   return parse<VideoProject>(response, "Could not save the storyboard.");
+}
+
+export async function rewriteFrame(projectId: string, beatId: string, instruction: string) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan/beats/" + encodeURIComponent(beatId) + "/rewrite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction }) });
+  return parse<VideoProject>(response, "Could not rewrite the frame.");
 }
 
 export async function getComposition(projectId: string, beatId?: string) {
@@ -291,13 +306,19 @@ export async function saveBrandKit(input: BrandKitInput) {
   return parse<BrandKit>(response, "Could not save the brand kit.");
 }
 
+/** Edits a saved kit in place. The logo is kept unless `logoAssetId` replaces it or `removeLogo` clears it. */
+export async function updateBrandKit(id: string, input: BrandKitInput, options: { removeLogo?: boolean; removeVariants?: string[] } = {}) {
+  const response = await apiFetch(`${apiOrigin}/v1/brands/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, ...(options.removeLogo ? { removeLogo: true } : {}), ...(options.removeVariants?.length ? { removeVariants: options.removeVariants } : {}) }) });
+  return parse<BrandKit>(response, "Could not save the brand kit.");
+}
+
 export async function listBrandKits() {
   const response = await apiFetch(`${apiOrigin}/v1/brands`, { cache: "no-store" });
   return (await parse<{ brands: BrandKit[] }>(response, "Could not load brand kits.")).brands;
 }
 
 export const stagedLogoUrl = (assetId: string) => withMediaToken(`${apiOrigin}/v1/brands/assets/${assetId}/preview`);
-export const brandLogoUrl = (brandId: string) => withMediaToken(`${apiOrigin}/v1/brands/${brandId}/logo`);
+export const brandLogoUrl = (brandId: string, variant?: string) => withMediaToken(`${apiOrigin}/v1/brands/${brandId}/logo${variant ? `?variant=${variant}` : ""}`);
 
 export async function getPlanVisuals(projectId: string): Promise<import("@videosaas/contracts").VisualStatus> {
   return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/visuals`), "Could not load material generation.");
@@ -310,16 +331,25 @@ export async function generatePlanVisuals(projectId: string, budgetUsd: number):
 /** `reference` is the hand-built clip's source code (plain text), when the template has one: the author can reuse its structure and components. */
 export type GalleryTemplateBrief = { id: string; name: string; starterId?: string; brief: Partial<ScriptBrief>; reference?: { name: string; url: string } };
 
-export async function listGalleryTemplates(params: { useCase?: string; q?: string; cursor?: string | null; limit?: number; featured?: boolean }, signal?: AbortSignal): Promise<GalleryPage> {
+export async function listGalleryTemplates(params: { useCase?: string; q?: string; look?: string; cursor?: string | null; limit?: number; featured?: boolean }, signal?: AbortSignal): Promise<GalleryPage> {
   const query = new URLSearchParams();
   if (params.useCase && params.useCase !== "all") query.set("use_case", params.useCase);
-  if (params.q?.trim()) query.set("q", params.q.trim());
+  const text = normalizeSearch(params.q);
+  if (text) query.set("q", text);
+  if (params.look) query.set("look", params.look);
   if (params.cursor) query.set("cursor", params.cursor);
   if (params.limit) query.set("limit", String(params.limit));
   if (params.featured) query.set("featured", "1");
   const response = await fetch(`${apiOrigin}/v1/gallery/templates${query.size ? `?${query}` : ""}`, { signal });
   if (!response.ok) throw new Error("Could not load templates.");
   return response.json() as Promise<GalleryPage>;
+}
+
+/** Every visual style with its example count and one real example clip (the style picker). */
+export async function listGalleryStyles(signal?: AbortSignal): Promise<GalleryStyleCard[]> {
+  const response = await fetch(`${apiOrigin}/v1/gallery/styles`, { signal });
+  if (!response.ok) throw new Error("Could not load styles.");
+  return ((await response.json()) as { items: GalleryStyleCard[] }).items;
 }
 
 /** The starting values for a chosen template: example prompt, structure skill, look, length and sound. */

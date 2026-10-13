@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Mixed-media paper collage room</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  html, body { margin: 0; background: #1b1511; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #c8a06a; }
+  #stage { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; display: block; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="stage" viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  // seeded randomness only
+  let seed = 20261011;
+  const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const rr = (a, b) => a + (b - a) * rnd();
+  const f1 = v => v.toFixed(1);
+
+  // ---------- geometry helpers ----------
+  function edgePts(x0, y0, x1, y1, amp, step) {
+    const L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(L / step));
+    const nx = -(y1 - y0) / L, ny = (x1 - x0) / L, pts = [];
+    for (let i = 0; i < n; i++) {
+      const t = (i + (i ? rr(-.28, .28) : 0)) / n, o = rr(-amp, amp);
+      pts.push([x0 + (x1 - x0) * t + nx * o, y0 + (y1 - y0) * t + ny * o]);
+    }
+    return pts;
+  }
+  const polyRect = (x0, y0, x1, y1, amp, step) => [...edgePts(x0, y0, x1, y0, amp, step), ...edgePts(x1, y0, x1, y1, amp, step), ...edgePts(x1, y1, x0, y1, amp, step), ...edgePts(x0, y1, x0, y0, amp, step)];
+  const D = pts => "M" + pts.map(p => f1(p[0]) + "," + f1(p[1])).join("L") + "Z";
+  const rectPts = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  const rotP = (p, cx, cy, deg) => { const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = p[0] - cx, dy = p[1] - cy; return [cx + dx * c - dy * s, cy + dx * s + dy * c]; };
+  function strip(x0, y0, x1, y1, w) {
+    const L = Math.hypot(x1 - x0, y1 - y0), nx = -(y1 - y0) / L * w / 2, ny = (x1 - x0) / L * w / 2;
+    return [[x0 + nx, y0 + ny], [x1 + nx, y1 + ny], [x1 - nx, y1 - ny], [x0 - nx, y0 - ny]];
+  }
+  // wobbly hand-inked outline
+  function wob(pts, closed, j, sub) {
+    j = j || 1.3; sub = sub || 26;
+    const out = [], n = pts.length, m = closed ? n : n - 1;
+    for (let i = 0; i < m; i++) {
+      const a = pts[i], b = pts[(i + 1) % n], L = Math.hypot(b[0] - a[0], b[1] - a[1]), k = Math.max(1, Math.round(L / sub));
+      for (let q = 0; q < k; q++) { const t = q / k; out.push([a[0] + (b[0] - a[0]) * t + rr(-j, j), a[1] + (b[1] - a[1]) * t + rr(-j, j)]); }
+    }
+    if (!closed) out.push(pts[n - 1]);
+    return "M" + out.map(p => f1(p[0]) + "," + f1(p[1])).join("L") + (closed ? "Z" : "");
+  }
+  const inkPath = (d, w, op, off) => `<path d="${d}" fill="none" stroke="#1d1a17" stroke-width="${w || 2.4}" stroke-linecap="round" stroke-linejoin="round" opacity="${op || .88}"${off ? ` transform="translate(${off[0]},${off[1]})"` : ""}/>`;
+  const ink = (pts, closed, w, op, off) => inkPath(wob(pts, closed !== false), w, op, off);
+  const paper = (pts, fill, border) => (border ? `<path d="${D(pts)}" fill="#f6efe0" stroke="#f6efe0" stroke-width="7" stroke-linejoin="round"/>` : "") + `<path d="${D(pts)}" fill="${fill}"/>`;
+  const piece = (id, filt, inner) => `<g filter="url(#${filt})"><g id="${id}">${inner}</g></g>`;
+
+  // washi tape: drawn from its start point along +x; wrapper carries position and angle
+  function tape(id, sx, sy, ang, len, wid, pat) {
+    const h = wid / 2, z = 4.5, pts = [[0, -h], [len, -h]];
+    for (let i = 0; i < 5; i++) pts.push([len - (i % 2 ? 0 : z), -h + wid * (i + 1) / 5 - (i === 4 ? 0 : 0)]);
+    pts.push([0, h]);
+    for (let i = 3; i >= 0; i--) pts.push([i % 2 ? 0 : z, -h + wid * i / 5]);
+    return `<g transform="translate(${sx},${sy}) rotate(${ang})"><g id="${id}"><path d="${D(pts)}" fill="url(#${pat})" opacity=".92"/><path d="${D(pts)}" fill="url(#tapeSheen)"/></g></g>`;
+  }
+  const tapeStart = (sx, sy) => `${sx} ${sy}`;
+
+  // ---------- defs ----------
+  const defs = `
+  <defs>
+    <pattern id="pDots" width="44" height="44" patternUnits="userSpaceOnUse"><rect width="44" height="44" fill="#2f7f86"/><circle cx="11" cy="11" r="6.5" fill="#f3e6c8"/><circle cx="33" cy="33" r="4.2" fill="#f3e6c8" opacity=".9"/><circle cx="33" cy="11" r="1.8" fill="#e8b84a"/><circle cx="11" cy="33" r="1.8" fill="#e8b84a"/></pattern>
+    <pattern id="pStripe" width="40" height="40" patternUnits="userSpaceOnUse" patternTransform="rotate(8)"><rect width="40" height="40" fill="#efb534"/><rect x="26" width="9" height="40" fill="#f7e2a8"/><rect x="36" width="2" height="40" fill="#c4811f" opacity=".7"/></pattern>
+    <pattern id="pCorr" width="12" height="40" patternUnits="userSpaceOnUse"><rect width="12" height="40" fill="#b58650"/><rect x="0" width="4" height="40" fill="#9c6e3b" opacity=".75"/><rect x="6" width="3" height="40" fill="#d0a56e" opacity=".7"/></pattern>
+    <pattern id="pNews" width="60" height="7" patternUnits="userSpaceOnUse"><rect width="60" height="7" fill="#ece3d0"/><rect y="1.5" width="46" height="1.6" fill="#7b7466" opacity=".75"/><rect y="4.4" width="58" height="1.2" fill="#9b9484" opacity=".7"/></pattern>
+    <pattern id="pPolka" width="22" height="22" patternUnits="userSpaceOnUse"><rect width="22" height="22" fill="#e9722e"/><circle cx="6" cy="6" r="3.6" fill="#f8e7c6"/><circle cx="17" cy="17" r="3.6" fill="#f8e7c6"/></pattern>
+    <pattern id="pPot" width="18" height="18" patternUnits="userSpaceOnUse"><rect width="18" height="18" fill="#c4623c"/><circle cx="5" cy="5" r="1.8" fill="#f3c9a8"/><circle cx="14" cy="14" r="1.8" fill="#f3c9a8"/></pattern>
+    <pattern id="pHalfDark" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(30)"><circle cx="3.5" cy="3.5" r="1.9" fill="#7a1d12" opacity=".55"/></pattern>
+    <pattern id="pHalfBlue" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(30)"><circle cx="3" cy="3" r="1.5" fill="#6aa5cf" opacity=".7"/></pattern>
+    <pattern id="pHalfYel" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(30)"><circle cx="3.5" cy="3.5" r="1.6" fill="#e9b83a" opacity=".55"/></pattern>
+    <pattern id="tapeA" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="14" height="14" fill="#f4a3b5"/><rect width="5" height="14" fill="#fbe3e8"/></pattern>
+    <pattern id="tapeB" width="16" height="16" patternUnits="userSpaceOnUse"><rect width="16" height="16" fill="#f7d34f"/><circle cx="8" cy="8" r="3" fill="#fff2c2"/></pattern>
+    <pattern id="tapeC" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)"><rect width="14" height="14" fill="#7ec8b5"/><rect width="4" height="14" fill="#e4f6ef"/></pattern>
+    <linearGradient id="tapeSheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".12"/></linearGradient>
+    <linearGradient id="gCone" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff2a8" stop-opacity=".78"/><stop offset="1" stop-color="#ffe27a" stop-opacity=".16"/></linearGradient>
+    <radialGradient id="gGlow" cx="400" cy="330" r="330" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffe9a8" stop-opacity=".62"/><stop offset=".55" stop-color="#ffd27a" stop-opacity=".22"/><stop offset="1" stop-color="#ffd27a" stop-opacity="0"/></radialGradient>
+    <linearGradient id="gShade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff0c8" stop-opacity=".26"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#3a1c08" stop-opacity=".32"/></linearGradient>
+    <filter id="shS" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1500" height="950"><feDropShadow dx="3" dy="4" stdDeviation="2.6" flood-color="#2a1608" flood-opacity=".42"/></filter>
+    <filter id="shM" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1500" height="950"><feDropShadow dx="5" dy="6" stdDeviation="4" flood-color="#2a1608" flood-opacity=".45"/></filter>
+    <filter id="shD" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1500" height="950"><feDropShadow dx="0" dy="-5" stdDeviation="6" flood-color="#2a1608" flood-opacity=".5"/></filter>
+    <filter id="shP" filterUnits="userSpaceOnUse" x="-300" y="-400" width="2100" height="1500"><feDropShadow id="peelSh" dx="3" dy="4" stdDeviation="3" flood-color="#2a1608" flood-opacity=".42"/></filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" seed="7"/><feColorMatrix type="matrix" values="0 0 0 0 .22  0 0 0 0 .15  0 0 0 0 .08  1.5 0 0 0 -.55"/></filter>
+    <filter id="fibre" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".012 .22" numOctaves="3" seed="3"/><feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 .96  0 0 0 0 .85  1.2 0 0 0 -.5"/></filter>
+    <clipPath id="winClip"><rect x="726" y="110" width="348" height="278"/></clipPath>
+  </defs>`;
+
+  // ---------- pieces ----------
+  // L0 backing
+  const backing = `<rect x="-100" y="-100" width="1480" height="920" fill="#c8a06a"/><rect x="-100" y="-100" width="1480" height="920" fill="url(#pCorr)" opacity=".22"/>`;
+
+  // L1 wall + picture + doodles + tape
+  const wallPts = polyRect(34, 30, 1246, 492, 3.4, 30);
+  const wall = piece("wall", "shM", paper(wallPts, "url(#pDots)", true));
+
+  const pic = (() => {
+    const mat = polyRect(112, 88, 292, 268, 2.4, 36), cxp = 202, cyp = 178;
+    const mount = [[126, 250], [126, 212], [158, 178], [186, 214], [212, 188], [250, 226], [274, 206], [274, 250]];
+    const inner = rectPts(126, 102, 274, 250);
+    return piece("pic", "shS", `<g transform="rotate(-3 ${cxp} ${cyp})">${paper(mat, "#f6efe0", false)}
+      <path d="${D(inner)}" fill="#f5dfaa"/>
+      <circle cx="214" cy="158" r="34" fill="#e4572e"/><circle cx="214" cy="158" r="34" fill="url(#pHalfDark)"/>
+      <path d="${D(mount)}" fill="#2b3a67"/><path d="${D([[126, 250], [126, 232], [170, 220], [220, 236], [274, 224], [274, 250]])}" fill="#4f7a5c"/>
+      ${ink(inner, true, 2.2, .85)}${ink(mat, true, 1.6, .55, [2, 2])}</g>`);
+  })();
+  const picTape1 = tape("tp1", 90, 120, -42, 74, 26, "tapeA");
+  const picTape2 = tape("tp2", 258, 290, -42, 72, 26, "tapeB");
+
+  const doodles = (() => {
+    const star = (cx, cy, R, r, rot) => { const p = []; for (let i = 0; i < 10; i++) { const a = rot + i * Math.PI / 5 - Math.PI / 2, rad = i % 2 ? r : R; p.push([cx + rad * Math.cos(a), cy + rad * Math.sin(a)]); } return wob(p, true, .8, 14); };
+    const zig = []; for (let i = 0; i < 8; i++) zig.push([430 + i * 20, 168 + (i % 2 ? 16 : -16)]);
+    const sp = []; for (let i = 0; i <= 30; i++) { const a = i * .55, r = 3 + i * .9; sp.push([560 + r * Math.cos(a), 112 + r * Math.sin(a)]); }
+    const st = (id, d) => `<path id="${id}" pathLength="1" d="${d}" fill="none" stroke="#f3e6c8" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1" stroke-dashoffset="1"/>`;
+    return `<g>${st("dd1", star(396, 118, 26, 11, .2))}${st("dd2", wob(zig, false, .8, 40))}${st("dd3", wob(sp, false, .3, 100))}${st("dd4", star(520, 222, 15, 6.5, -.3))}</g>`;
+  })();
+
+  // L2 window (under the panel), striped panel
+  const windowPiece = (() => {
+    const frame = polyRect(704, 90, 1096, 410, 1.6, 90), skyR = rectPts(726, 110, 1074, 388);
+    const rays = []; for (let i = 0; i < 14; i++) { const a = i * Math.PI * 2 / 14, b = a + .14; rays.push(`<path d="M${f1(900 + 54 * Math.cos(a))},${f1(200 + 54 * Math.sin(a))}L${f1(900 + 84 * Math.cos(a + .07))},${f1(200 + 84 * Math.sin(a + .07))}L${f1(900 + 54 * Math.cos(b))},${f1(200 + 54 * Math.sin(b))}Z" fill="#f28b30"/>`); }
+    const cloud = (cx, cy, k) => `<g transform="translate(${cx},${cy}) scale(${k})"><path d="M-70,22 C-90,22 -90,-8 -62,-6 C-62,-34 -20,-40 -6,-16 C10,-42 56,-34 54,-4 C84,-6 90,22 66,22 Z" fill="#fbf7ee"/><path d="M-70,22 C-90,22 -90,-8 -62,-6 C-62,-34 -20,-40 -6,-16 C10,-42 56,-34 54,-4 C84,-6 90,22 66,22 Z" fill="url(#pHalfBlue)" opacity=".8" transform="translate(0,10) scale(1,.55)"/></g>`;
+    const hills = `<path d="M726,350 C780,318 830,326 880,344 C940,322 1010,318 1074,346 L1074,388 L726,388Z" fill="#5aa469"/><path d="M726,372 C800,352 870,362 940,372 C1000,358 1040,362 1074,372 L1074,388 L726,388Z" fill="#3d8a4f"/>`;
+    const bird = (id, x, y, k) => `<g transform="translate(${x},${y}) scale(${k})"><g id="${id}"><path d="M-30,-4 C-18,-22 -6,-14 0,2 C6,-14 18,-22 30,-4 C18,-10 8,-6 0,8 C-8,-6 -18,-10 -30,-4Z" fill="#2b3a67"/></g></g>`;
+    return piece("win", "shS", `${paper(frame, "#f6efe0", true)}<path d="${D(skyR)}" fill="#8fc7e6"/>
+      <g clip-path="url(#winClip)"><circle cx="900" cy="200" r="48" fill="#f5b82e"/>${rays.join("")}
+        <g id="clouds">${cloud(790, 168, 1)}${cloud(1000, 138, .8)}${cloud(980, 262, .7)}</g>${hills}
+        ${bird("bd1", 1000, 220, .9)}${bird("bd2", 760, 232, .65)}</g>
+      <path d="${D(rectPts(893, 110, 907, 388))}" fill="#f6efe0"/><path d="${D(rectPts(726, 241, 1074, 255))}" fill="#f6efe0"/>
+      ${ink(skyR, true, 2.4, .9)}${ink(frame, true, 1.8, .5, [3, 2])}`);
+  })();
+  const winTape = tape("tw", 1068, 70, 40, 76, 26, "tapeC");
+
+  const panelPts = polyRect(640, 44, 1236, 478, 3.6, 34);
+  const panel = piece("panel", "shP", `${paper(panelPts, "url(#pStripe)", true)}
+    ${tape("tpa", 612, 82, 38, 96, 30, "tapeA")}${tape("tpb", 1190, 484, -40, 90, 28, "tapeC")}`);
+
+  const glow = `<rect id="glow" x="-100" y="-100" width="1480" height="900" fill="url(#gGlow)" style="mix-blend-mode:screen" opacity="0"/>`;
+
+  // L3 desk
+  const desk = (() => {
+    const body = polyRect(-80, 470, 1360, 780, 2.2, 44), top = polyRect(-80, 468, 1360, 492, 1.4, 70);
+    return piece("desk", "shD", `${paper(body, "url(#pCorr)", false)}<path d="${D(top)}" fill="#dbb67f"/><path d="M-80,492 L1360,492" stroke="#8c6234" stroke-width="2" opacity=".5"/>
+      ${ink(rectPts(-60, 470, 1340, 490), true, 2.2, .65)}`);
+  })();
+  const deskTape1 = tape("td1", 120, 556, -3, 150, 30, "tapeB");
+  const deskTape2 = tape("td2", 930, 590, 3, 130, 28, "tapeA");
+
+  // L4 items on the desk
+  const cone = `<g id="cone" opacity="0"><path d="${D([[332, 347], [436, 309], [572, 468], [318, 468]])}" fill="url(#gCone)"/><path d="${D([[332, 347], [436, 309], [572, 468], [318, 468]])}" fill="url(#pHalfYel)"/></g>`;
+
+  const lamp = (() => {
+    const J = [292, 340], H = [362, 264], B = [330, 436];
+    const dome = `M278,470 A52,44 0 0 1 382,470 Z`;
+    const shadeLocal = [[-22, 0], [22, 0], [56, 72], [-56, 72]];
+    const sh = shadeLocal.map(p => rotP([H[0] + p[0], H[1] + p[1]], H[0], H[1], -20));
+    const band = [[-31, 24], [31, 24], [38, 40], [-38, 40]].map(p => rotP([H[0] + p[0], H[1] + p[1]], H[0], H[1], -20));
+    const a1 = strip(B[0], B[1], J[0], J[1], 13), a2 = strip(J[0], J[1], H[0], H[1], 12);
+    return `<g filter="url(#shS)">
+      <g id="lBase"><path d="${dome}" fill="url(#pNews)"/>${inkPath(dome, 2.4)}</g>
+      <g id="lA1"><path d="${D(a1)}" fill="#c8412f"/>${ink(a1, true, 2, .85)}
+        <g id="lA2"><path d="${D(a2)}" fill="#f0b429"/>${ink(a2, true, 2, .85)}<circle cx="${J[0]}" cy="${J[1]}" r="9" fill="#f6efe0"/><circle cx="${J[0]}" cy="${J[1]}" r="2.6" fill="#1d1a17"/>
+          <g id="lSh"><path d="${D(sh)}" fill="url(#pPolka)"/><path d="${D(band)}" fill="#2b3a67" opacity=".92"/><path d="${D(sh)}" fill="url(#gShade)"/>${ink(sh, true, 2.2, .9)}</g>
+        </g></g></g>`;
+  })();
+
+  const books = (() => {
+    const b = (id, x0, y0, x1, y1, c, ln) => piece(id, "shS", `${paper(polyRect(x0, y0, x1, y1, 1.1, 90), c, false)}
+      <path d="${D(rectPts(x0 + 14, y0 + 6, x0 + 24, y1 - 6))}" fill="#f6efe0" opacity=".85"/><path d="${D(rectPts(x1 - 26, y0 + 7, x1 - 18, y1 - 7))}" fill="${ln}" opacity=".9"/>
+      ${ink(rectPts(x0, y0, x1, y1), true, 2.2, .85)}`);
+    return b("bk1", 548, 440, 730, 470, "#2b3a67", "#e9b83a") + b("bk2", 566, 414, 716, 441, "#e8879c", "#2b3a67") + b("bk3", 580, 392, 704, 415, "#efb534", "#c8412f");
+  })();
+
+  const pot = (() => {
+    const body = [[1070, 404], [1170, 404], [1156, 470], [1084, 470]], rim = rectPts(1060, 388, 1180, 410);
+    return piece("pot", "shS", `<path d="${D(body)}" fill="url(#pPot)"/><path d="${D(rim)}" fill="#a94f2e"/><path d="${D(rectPts(1060, 388, 1180, 396))}" fill="#c4623c" opacity=".8"/>${ink(body, true, 2.3, .88)}${ink(rim, true, 2.3, .88)}`);
+  })();
+  const leaves = (() => {
+    const O = [1120, 392], def = [[-8, 108, 28, "#8bc06a", "#a6d27f"], [-64, 124, 36, "#2c6e49", "#3f8a5a"], [62, 120, 36, "#2f7d4a", "#4a9b5b"], [-30, 164, 44, "#3d8a4f", "#58a85a"], [30, 168, 44, "#4f9a52", "#76b85a"], [0, 192, 48, "#2c6e49", "#4f9a52"]];
+    return def.map((d, i) => {
+      const [ang, len, w, cl, cr] = d, R = p => rotP([O[0] + p[0], O[1] + p[1]], O[0], O[1], ang), pt = p => f1(R(p)[0]) + "," + f1(R(p)[1]);
+      const left = `M${pt([0, 0])} C${pt([-w, -len * .25])} ${pt([-w * .9, -len * .75])} ${pt([0, -len])} Z`;
+      const right = `M${pt([0, 0])} C${pt([w, -len * .25])} ${pt([w * .9, -len * .75])} ${pt([0, -len])} Z`;
+      const outline = `M${pt([0, 0])} C${pt([-w, -len * .25])} ${pt([-w * .9, -len * .75])} ${pt([0, -len])} C${pt([w * .9, -len * .75])} ${pt([w, -len * .25])} ${pt([0, 0])} Z`;
+      let veins = `M${pt([0, -3])} L${pt([0, -len * .9])}`;
+      for (let k = 1; k <= 3; k++) { const y = -len * (.2 + k * .2); veins += ` M${pt([0, y])} L${pt([-w * .55, y - len * .12])} M${pt([0, y])} L${pt([w * .55, y - len * .12])}`; }
+      return `<g id="lf${i}"><path d="${left}" fill="${cl}"/><path d="${right}" fill="${cr}"/>${inkPath(outline, 2.1, .85)}${inkPath(veins, 1.4, .6)}</g>`;
+    }).join("");
+  })();
+  const plant = `<g filter="url(#shS)">${leaves}</g>`;
+
+  // overlays: paper grain, fibres, warm light
+  const overlay = `<rect width="1280" height="720" filter="url(#fibre)" opacity=".16" style="mix-blend-mode:screen"/>
+    <rect width="1280" height="720" filter="url(#grain)" opacity=".42" style="mix-blend-mode:multiply"/>
+    <rect width="1280" height="720" fill="url(#gShade)" style="mix-blend-mode:multiply"/>`;
+
+  document.getElementById("stage").innerHTML = defs +
+    `<g id="L0">${backing}</g>
+     <g transform="translate(640 36) scale(1.13) translate(-640 -36)">
+     <g id="L1">${wall}${doodles}${pic}${picTape1}${picTape2}</g>
+     <g id="L2">${windowPiece}${panel}${winTape}</g>
+     <g id="L2g">${glow}</g>
+     <g id="L3">${desk}${deskTape1}${deskTape2}</g>
+     <g id="L4">${cone}${lamp}${books}${pot}${plant}</g>
+     </g>
+     ${overlay}`;
+
+  // ---------- timeline ----------
+  const tl = gsap.timeline({ paused: true });
+  const E = "power3.out", B = "back.out(1.5)";
+  const fromTo = (sel, a, b, at) => tl.fromTo(sel, a, b, at);
+
+  // slides and pivots
+  fromTo("#wall", { x: -300, rotation: -4, svgOrigin: "640 260" }, { x: 0, rotation: 0, svgOrigin: "640 260", duration: 1.0, ease: E }, 0);
+  fromTo("#panel", { x: 340, rotation: 5, svgOrigin: "938 260" }, { x: 0, rotation: 0, svgOrigin: "938 260", duration: .95, ease: E }, 0.08);
+  fromTo("#win", { opacity: 0 }, { opacity: 1, duration: .01 }, 0.9);
+  fromTo("#desk", { y: 150, rotation: 1.6, svgOrigin: "640 620" }, { y: 0, rotation: 0, svgOrigin: "640 620", duration: .95, ease: E }, 0.2);
+  fromTo("#pic", { x: -220, y: -90, rotation: -22, opacity: 0, svgOrigin: "200 178" }, { x: 0, y: 0, rotation: 0, opacity: 1, svgOrigin: "200 178", duration: .85, ease: E }, 0.75);
+  // books
+  [["#bk1", 0.95, 1], ["#bk2", 1.1, -1], ["#bk3", 1.25, 1]].forEach(([s, at, dir]) => fromTo(s, { x: 150 * dir, y: 70, scale: 1.12, opacity: 0, svgOrigin: "640 440" }, { x: 0, y: 0, scale: 1, opacity: 1, svgOrigin: "640 440", duration: .6, ease: E }, at));
+  // lamp: base drops, arm pivots from base, upper arm from the joint, shade from the neck
+  fromTo("#lBase", { y: -90, opacity: 0 }, { y: 0, opacity: 1, duration: .5, ease: B }, 1.0);
+  fromTo("#lA1", { rotation: 55, opacity: 0, svgOrigin: "330 436" }, { rotation: 0, opacity: 1, svgOrigin: "330 436", duration: .5, ease: E }, 1.25);
+  fromTo("#lA2", { rotation: -85, svgOrigin: "292 340" }, { rotation: 0, svgOrigin: "292 340", duration: .5, ease: B }, 1.45);
+  fromTo("#lSh", { rotation: 75, svgOrigin: "362 264" }, { rotation: 0, svgOrigin: "362 264", duration: .55, ease: B }, 1.65);
+  // plant
+  fromTo("#pot", { x: 170, opacity: 0, svgOrigin: "1120 440" }, { x: 0, opacity: 1, svgOrigin: "1120 440", duration: .6, ease: E }, 1.5);
+  const lfOrder = [5, 3, 4, 1, 2, 0], lfAng = [-62, -48, 58, 46, -70, 66];
+  lfOrder.forEach((i, k) => fromTo("#lf" + i, { rotation: lfAng[k], scale: .55, opacity: 0, svgOrigin: "1120 392" }, { rotation: 0, scale: 1, opacity: 1, svgOrigin: "1120 392", duration: .55, ease: B }, 1.95 + k * .11));
+  // light turns on
+  tl.to("#cone", { opacity: 1, duration: .5, ease: "power2.out" }, 2.25);
+  tl.to("#glow", { opacity: 1, duration: .8, ease: "power2.out" }, 2.25);
+  // washi tape sticks down, one end first
+  const tp = [["#tp1", 90, 120, 2.3], ["#tp2", 258, 290, 2.45], ["#td1", 0, 0, 2.6], ["#td2", 0, 0, 2.75], ["#tpa", 0, 0, 2.55], ["#tpb", 0, 0, 2.7]];
+  tp.forEach(([s, , , at]) => fromTo(s, { scaleX: 0, svgOrigin: "0 0" }, { scaleX: 1, svgOrigin: "0 0", duration: .28, ease: "power2.out" }, at));
+  // ink doodles draw themselves
+  ["#dd1", "#dd2", "#dd3", "#dd4"].forEach((s, i) => tl.to(s, { strokeDashoffset: 0, duration: .5, ease: "power1.inOut" }, 2.45 + i * .18));
+  // the striped panel peels off and reveals the window
+  tl.to("#peelSh", { attr: { dx: 16, dy: 24, stdDeviation: 11, "flood-opacity": .5 }, duration: .45, ease: "power2.inOut" }, 3.0);
+  tl.to("#panel", { rotation: -17, y: -22, scale: 1.06, svgOrigin: "640 478", duration: .5, ease: "power2.inOut" }, 3.0);
+  tl.to("#panel", { rotation: -46, x: 640, y: -520, scale: 1.2, svgOrigin: "640 478", duration: .6, ease: "power2.in" }, 3.5);
+  fromTo("#tw", { scaleX: 0, svgOrigin: "0 0" }, { scaleX: 1, svgOrigin: "0 0", duration: .3, ease: "power2.out" }, 3.55);
+  fromTo("#clouds", { x: -80 }, { x: 0, duration: 1.5, ease: "power1.out" }, 3.0);
+  fromTo("#bd1", { x: 260, y: 40, opacity: 0 }, { x: 0, y: 0, opacity: 1, duration: 1.0, ease: "power2.out" }, 3.5);
+  fromTo("#bd2", { x: 340, y: 60, opacity: 0 }, { x: 0, y: 0, opacity: 1, duration: 1.0, ease: "power2.out" }, 3.55);
+  tl.fromTo("#bd1", { scaleY: 1, svgOrigin: "1000 220" }, { scaleY: .5, svgOrigin: "1000 220", duration: .14, ease: "sine.inOut", repeat: 5, yoyo: true }, 3.5);
+  // depth: each layer drifts at its own rate (parallax), settling by 4.5 s
+  [["#L0", -4], ["#L1", -14], ["#L2", -24], ["#L2g", -24], ["#L3", -38], ["#L4", -46]].forEach(([s, x]) => tl.fromTo(s, { x: 14 * (-x / 46) }, { x, duration: 4.5, ease: "sine.inOut" }, 0));
+  tl.to({}, { duration: 5 }, 0);
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

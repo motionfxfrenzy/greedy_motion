@@ -3,15 +3,16 @@ import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { BEAT_LIMITS, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, getStyleFamily, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
-import { getProject, ProjectInvalid, updateProjectPlan } from "../projects/store.ts";
+import { getProject, ProjectInvalid, setProjectPlanning, updateProjectPlan } from "../projects/store.ts";
 import { config } from "../config.ts";
 import { readMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
 import { director } from "./director.ts";
+import { rewriteBeat } from "./rewrite-beat.ts";
 import { SFX } from "./sound.ts";
 import { registerSiteRoutes } from "../site/routes.ts";
 import { planReadiness } from "./readiness.ts";
@@ -32,14 +33,14 @@ function scriptFromPlan(plan: BeatPlan, source: ProjectScript["source"]): Projec
   };
 }
 
-type BeatEdit = { id?: unknown; keyword?: unknown; on_screen?: unknown; line?: unknown };
+type BeatEdit = { id?: unknown; keyword?: unknown; on_screen?: unknown; line?: unknown; camera?: unknown; text_effect?: unknown; transition?: unknown; sfx?: unknown; scene?: unknown };
 /** "clean" is the default, so it is stored as no look at all (same as parseScriptBrief). */
 const withLook = (brief: ScriptBrief, look: LookId): ScriptBrief => {
   const { look: _old, ...rest } = brief;
   return look === "clean" ? rest : { ...rest, look };
 };
 
-type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown };
+type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown };
 
 /** Applies storyboard edits. Returns the edited plan, or the problems that block it. */
 export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan: BeatPlan } | { problems: string[] } {
@@ -53,6 +54,14 @@ export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan:
     const keyword = text(edit.keyword, BEAT_LIMITS.keywordChars + 20);
     const onScreen = edit.on_screen === null ? null : text(edit.on_screen, BEAT_LIMITS.onScreenChars + 20);
     const line = edit.line === null ? null : text(edit.line, BEAT_LIMITS.lineChars + 40);
+    // Direction notes: how the camera moves, how the words enter, how the beat hands over, and what it sounds like.
+    const camera = text(edit.camera, 200);
+    if (camera) beat.motion.camera = camera;
+    if (edit.text_effect === null || (typeof edit.text_effect === "string" && (textEffects as readonly string[]).includes(edit.text_effect))) beat.motion.text_effect = edit.text_effect;
+    if (typeof edit.transition === "string" && edit.transition !== "end" && (transitionTypes as readonly string[]).includes(edit.transition) && beat.transition_out.type !== "end") beat.transition_out = { ...beat.transition_out, type: edit.transition as typeof beat.transition_out.type };
+    if (edit.sfx === null) beat.sfx = null; else { const sfx = text(edit.sfx, 200); if (sfx !== undefined) beat.sfx = sfx || null; }
+    if (edit.scene === null) beat.scene = null;
+    else if (typeof edit.scene === "string" && scenesFor(project.brief.look, project.brief.styleFamily).some((scene) => scene.id === edit.scene)) beat.scene = edit.scene;
     if (keyword !== undefined) beat.keyword = keyword;
     if (onScreen !== undefined) beat.on_screen = onScreen || null;
     if (line !== undefined) beat.line = line || null;
@@ -76,7 +85,7 @@ export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan:
     plan.suggestions[index].accepted = choice.accepted;
   }
   // Own-script lines are the user's words, so edits there are allowed; the generated-mode word budget still applies.
-  const problems = beatPlanProblems(plan, project.brief);
+  const problems = beatPlanProblems(plan, project.brief, { editing: true });
   return problems.length ? { problems } : { plan };
 }
 
@@ -119,10 +128,20 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const bytes = await readMedia(join(visualDir(id), file));
     return bytes && digest(bytes) === asset.sha256 ? sendMedia(request, reply, bytes, file.endsWith(".mp4") ? "video/mp4" : "image/png") : reply.code(404).send(notFound);
   });
-  /** Script & Style → the director → beat plan, script and suggestions. */
+  /** Jobs in flight on this server, so a cancel can reach the model call. A job record older than the director's own deadline is stale (a restart lost it). */
+  const jobs = new Map<string, AbortController>();
+  const STALE_MS = 4 * 60_000;
+  const stale = (planning: { startedAt: string } | undefined) => !planning || Date.now() - Date.parse(planning.startedAt) > STALE_MS;
+
+  /**
+   * Script & Style → the director → beat plan, script and suggestions. The director runs as a job on the server: this answers 202
+   * at once with the project (`planning.status === "running"`), the page polls the project, and the plan is applied when the model
+   * finishes, whether or not the page is still open. A second request while one is running joins it instead of starting another.
+   */
   app.post<{ Params: { id: string } }>("/v1/projects/:id/plan", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
+    if (project.planning?.status === "running" && jobs.has(project.id) && !stale(project.planning)) return reply.code(202).send({ project });
     const parsed = parseScriptBrief(request.body);
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
     const brief = parsed.brief;
@@ -133,28 +152,66 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const brandId = brief.brandId ?? project.request.brandId;
     const brand = brandId ? await getBrand(brandId) : null;
     const brandName = brand?.name ?? brief.productName ?? project.name;
-    try {
-      // The site read for this project, when the brief names that product URL (POST /v1/projects/:id/site).
-      const host = (value: string) => { try { return new URL(/^https?:/i.test(value) ? value : `https://${value}`).hostname.replace(/^www\./, ""); } catch { return ""; } };
-      const site = brief.productUrl && project.site && host(project.site.url) === host(brief.productUrl) ? project.site : undefined;
-      const result = await director.plan(brief, { brandName, ...(brand?.description ? { brandDescription: brand.description } : {}), screenshots, ...(site ? { site: { url: site.url, title: site.title, description: site.description, facts: site.facts, text: site.text } } : {}) });
-      const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
-      const music = brief.audio.mode === "music" || brief.audio.mode === "both";
-      const updated = await updateProjectPlan(project.id, (current) => ({
-        brief,
-        beatPlan: result.plan,
-        script: scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"),
-        state: "Draft storyboard",
-        // Keep the existing render request in step with the brief (format and audio) for the current pipeline.
-        request: { ...current.request, format: aspectToFormat(brief.aspect), audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" }, ...(brandId ? { brandId } : {}) }
-      }));
-      if (!updated) return reply.code(404).send(notFound);
-      return reply.code(201).send({ project: updated, problems: result.problems, model: result.model });
-    } catch (error) {
-      if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
-      app.log.warn({ err: error }, "script director failed");
-      return reply.code(502).send({ error: { code: "director_failed", message: error instanceof Error ? error.message : "The script director failed." } });
-    }
+    // The site read for this project, when the brief names that product URL (POST /v1/projects/:id/site).
+    const host = (value: string) => { try { return new URL(/^https?:/i.test(value) ? value : `https://${value}`).hostname.replace(/^www\./, ""); } catch { return ""; } };
+    const site = brief.productUrl && project.site && host(project.site.url) === host(brief.productUrl) ? project.site : undefined;
+    const started = await setProjectPlanning(project.id, { status: "running", startedAt: new Date().toISOString() });
+    if (!started) return reply.code(404).send(notFound);
+    const controller = new AbortController();
+    jobs.set(project.id, controller);
+    void (async () => {
+      try {
+        const result = await director.plan(brief, { brandName, ...(brand?.description ? { brandDescription: brand.description } : {}), screenshots, ...(site ? { site: { url: site.url, title: site.title, description: site.description, facts: site.facts, text: site.text } } : {}) }, controller.signal);
+        if (controller.signal.aborted) return;
+        const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+        const music = brief.audio.mode === "music" || brief.audio.mode === "both";
+        await updateProjectPlan(project.id, (current) => ({
+          brief,
+          beatPlan: result.plan,
+          script: scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"),
+          state: "Draft storyboard",
+          // Keep the existing render request in step with the brief (format and audio) for the current pipeline.
+          request: { ...current.request, format: aspectToFormat(brief.aspect), audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" }, ...(brandId ? { brandId } : {}) }
+        }));
+        if (result.problems.length) app.log.info({ projectId: project.id, problems: result.problems }, "plan applied with notes");
+      } catch (error) {
+        if (controller.signal.aborted) return; // cancelled: the cancel route already recorded it
+        app.log.warn({ err: error }, "script director failed");
+        const message = error instanceof ProjectInvalid ? error.message : error instanceof Error ? error.message : "The script director failed.";
+        await setProjectPlanning(project.id, { status: "failed", startedAt: started.planning?.startedAt ?? new Date().toISOString(), error: message }).catch(() => undefined);
+      } finally {
+        if (jobs.get(project.id) === controller) jobs.delete(project.id);
+      }
+    })();
+    return reply.code(202).send({ project: started });
+  });
+
+  /** Stops the director for this project; the model call is cancelled and nothing is applied. */
+  app.delete<{ Params: { id: string } }>("/v1/projects/:id/plan/job", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    jobs.get(project.id)?.abort();
+    jobs.delete(project.id);
+    if (project.planning?.status !== "running") return reply.send({ project });
+    const updated = await setProjectPlanning(project.id, { status: "cancelled", startedAt: project.planning.startedAt });
+    return reply.send({ project: updated });
+  });
+
+  /** Rewrites one frame's words from an instruction ("make it punchier", "mention the warranty"); nothing else changes. */
+  app.post<{ Params: { id: string; beatId: string }; Body: { instruction?: unknown } }>("/v1/projects/:id/plan/beats/:beatId/rewrite", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    const beat = project.beatPlan?.beats.find((item) => item.id === request.params.beatId);
+    if (!project.beatPlan || !beat) return reply.code(404).send({ error: { code: "not_found", message: "Frame not found." } });
+    const instruction = typeof request.body?.instruction === "string" ? plainText(request.body.instruction).slice(0, 300).trim() : "";
+    if (instruction.length < 3) return reply.code(400).send({ error: { code: "invalid_instruction", message: "Say what to change in a few words." } });
+    let rewrite;
+    try { rewrite = await rewriteBeat(project.beatPlan, beat, instruction, project.brief); }
+    catch (error) { return reply.code(502).send({ error: { code: "rewrite_failed", message: error instanceof Error ? error.message : "Could not rewrite the frame." } }); }
+    const result = applyPlanEdits(project, { beats: [{ id: beat.id, ...rewrite }] });
+    if ("problems" in result) return reply.code(422).send({ error: { code: "plan_problems", message: result.problems[0] }, problems: result.problems });
+    const updated = await updateProjectPlan(project.id, (current) => ({ brief: current.brief, beatPlan: result.plan, script: scriptFromPlan(result.plan, current.script?.source ?? "generated") }));
+    return updated ?? reply.code(404).send(notFound);
   });
 
   /** Storyboard edits: text, order, and accept/reject of suggestions. 422 with problems when an edit breaks the standards. */
@@ -167,11 +224,21 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const result = applyPlanEdits(project, patch);
     if ("problems" in result) return reply.code(422).send({ error: { code: "plan_problems", message: result.problems[0] }, problems: result.problems });
     try {
-      const updated = await updateProjectPlan(project.id, (current) => ({
-        brief: current.brief && isLook(patch.look) ? withLook(current.brief, patch.look) : current.brief,
-        beatPlan: result.plan,
-        script: scriptFromPlan(result.plan, current.script?.source ?? "generated")
-      }));
+      const updated = await updateProjectPlan(project.id, (current) => {
+        // A style change keeps the plan's words; the scenes belong to the style, so any the new style does not have are cleared.
+        let brief = current.brief && isLook(patch.look) ? withLook(current.brief, patch.look) : current.brief;
+        if (brief && patch.styleFamily !== undefined) {
+          const { styleFamily: _old, ...rest } = brief;
+          const family = typeof patch.styleFamily === "string" ? getStyleFamily(patch.styleFamily) : undefined;
+          brief = family && family.look === (brief.look ?? "clean") ? { ...rest, styleFamily: family.id } : rest;
+        }
+        const valid = new Set(scenesFor(brief?.look, brief?.styleFamily).map((scene) => scene.id));
+        const plan = { ...result.plan, beats: result.plan.beats.map((beat) => (beat.scene && !valid.has(beat.scene) ? { ...beat, scene: null } : beat)) };
+        return {
+        brief,
+        beatPlan: plan,
+        script: scriptFromPlan(plan, current.script?.source ?? "generated")
+      };});
       return updated ?? reply.code(404).send(notFound);
     } catch (error) {
       if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });

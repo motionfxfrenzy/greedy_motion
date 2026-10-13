@@ -14,6 +14,8 @@ export * from "./engine.ts";
 export * from "./frame.ts";
 export * from "./gallery.ts";
 export * from "./looks.ts";
+export * from "./style-families.ts";
+export * from "./scenes.ts";
 export * from "./motion-blur.ts";
 export * from "./templates.ts";
 export * from "./themes.ts";
@@ -78,6 +80,8 @@ export type RenderJob = {
     template?: string;
     values?: Record<string, string | number>;
     brandId?: string;
+    /** The visual style this draft was rendered in (looks.ts), so Review can tell when the project has moved on to another. */
+    look?: string;
     audio?: AudioResult;
   };
   output?: { url: string; format: "mp4"; durationSeconds: number };
@@ -139,6 +143,14 @@ export type ProjectStudioDraft = {
 };
 
 /** A persisted video brief. Project data deliberately stores inputs and references, never a mock preview. */
+/** The script director's job for a project: it runs on the server whether or not the page stays open (backend/src/plan/routes.ts). */
+export type PlanningState = {
+  status: "running" | "failed" | "cancelled";
+  startedAt: string;
+  /** Why it failed (status "failed"). */
+  error?: string;
+};
+
 export type VideoProject = {
   id: string;
   /** Supabase user id of the creator; set by the backend, never trusted from a client body. */
@@ -166,6 +178,8 @@ export type VideoProject = {
   visualBrandSignature?: string;
   /** The product website read for this project (backend/src/site). */
   site?: SiteCapture;
+  /** Present while the script director is writing (or after it failed or was cancelled); cleared when the plan is applied. */
+  planning?: PlanningState;
   /** Present once a pro user has opened the project in the Pro Editor (backend/src/pro). */
   pro?: ProManifest;
 };

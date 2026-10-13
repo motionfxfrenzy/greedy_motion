@@ -10,6 +10,7 @@ import styleRows from "./gallery-styles.json" with { type: "json" };
 import previewManifest from "./gallery-previews.json" with { type: "json" };
 import { getLook, looks, type LookId } from "./looks.ts";
 import { themes } from "./themes.ts";
+import { familiesOfLook } from "./style-families.ts";
 
 export type GalleryKind = "starter" | "explainer" | "skill" | "style";
 
@@ -137,12 +138,12 @@ const curated: readonly GalleryTemplate[] = [
   },
   {
     id: "decision-story", kind: "explainer", name: "Design decision case study", group: "Story",
-    summary: "The problem, the options, the change and what you learned.",
+    summary: "One app screen re-arranged in four steps: the problem, the options, the change and what you learned, with a caption bar.",
     bestFor: "Case studies and portfolio walkthroughs",
     preview: still("/previews/looks/clean.png", "Layout draft"),
     source: { label: "Remade from @moguzbulbul", url: "https://x.com/moguzbulbul/status/2104206095313215591" },
     skill: null, look: "hairline", theme: "neutral", aspect: "16:9", durationSeconds: 45, motionProfile: "smooth", pace: "calm", audio: "voiceover", captions: "key-phrases",
-    prompt: "A short case study explaining one design decision: the problem users had, what we considered, the change we made, and what we learned. Calm and clear, one visual per step, so a hiring manager or stakeholder can follow it."
+    prompt: "A calm 45-second case study that explains one UX decision to a hiring manager or stakeholder. Use one app screen that re-arranges itself across four numbered steps: the problem, the options we sketched, the change we made, and what we learned. A caption bar under the screen swaps its numbered label, one plain sentence and one highlighted outcome sentence at each step. Hairline borders, precise motion, voiceover."
   },
   {
     id: "brand-showreel", kind: "explainer", name: "Brand showreel", group: "Showreel",
@@ -251,9 +252,19 @@ const withLookTheme = (item: GalleryTemplate): GalleryTemplate => {
   const rule = item.group === "Colour" ? undefined : lookThemes.find((entry) => entry.match.test(item.look));
   return rule ? { ...item, theme: rule.theme } : item;
 };
-export const galleryTemplates: readonly GalleryTemplate[] = [...curated, ...sceneTemplates.filter(hasClip), ...opusTemplates, ...styleVersions.filter(hasClip), ...styleTemplates, ...themeTemplates].map(withLookTheme).map(withRendered);
+const everyGalleryTemplate: readonly GalleryTemplate[] = [...curated, ...sceneTemplates.filter(hasClip), ...opusTemplates, ...styleVersions.filter(hasClip), ...styleTemplates, ...themeTemplates].map(withLookTheme).map(withRendered);
 
-import { galleryUseCases, type GalleryUseCase } from "./gallery-use-cases.ts";
+/**
+ * Held for v2 (docs/v2/PLAN.md #2): every style whose look is rendered from generated material (paper, clay, illustration,
+ * editorial collage). The engine cannot draw those from a person's script, so "Use this" would give a plain layout draft,
+ * not the look on the card. They stay in the catalogue data and old projects keep rendering, but nothing offers them.
+ * Set to false to bring them all back.
+ */
+export const HOLD_GENERATED_STYLES = true;
+export const heldForV2 = (look: string) => HOLD_GENERATED_STYLES && getLook(look).renderMode === "generated";
+export const galleryTemplates: readonly GalleryTemplate[] = everyGalleryTemplate.filter((item) => !heldForV2(item.look));
+
+import { galleryUseCases, normalizeSearch, type GalleryUseCase } from "./gallery-use-cases.ts";
 export { galleryUseCases, type GalleryUseCase };
 
 // What was built first (starters, the product explainers, the remade prompts, every drawn style) all serve product videos,
@@ -266,19 +277,20 @@ export function useCaseOf(item: GalleryTemplate): GalleryUseCase {
   if (item.group === "Colour") return "colour";
   if (item.group === "3D") return "threed";
   if (explainGroups.has(item.group)) return "explain";
+  if (item.group === "Paper" || item.group === "Clay") return "story";
   if (item.kind === "style" && item.group === "Story") return "story";
   if (brandGroups.has(item.group)) return "brand";
   return "saas";
 }
 
 export const galleryIds = galleryTemplates.map((item) => item.id);
-export const findGalleryTemplate = (id: string | null | undefined) => galleryTemplates.find((item) => item.id === id);
+export const findGalleryTemplate = (id: string | null | undefined) => everyGalleryTemplate.find((item) => item.id === id);
 
 /** True when the style needs generated footage (and a confirmed budget) rather than a native drawing treatment. */
 export const needsGeneration = (item: GalleryTemplate) => getLook(item.look).renderMode === "generated";
 
 /** The brief fields a gallery entry presets. Everything else (brand kit, screenshots, product site) stays the person's. */
-export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMode" | "text" | "durationSeconds" | "aspect" | "motionProfile" | "pace" | "audio" | "captions" | "template" | "theme" | "look"> {
+export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMode" | "text" | "durationSeconds" | "aspect" | "motionProfile" | "pace" | "audio" | "captions" | "template" | "theme" | "look" | "styleFamily" | "styleExample"> {
   return {
     scriptMode: "problem",
     text: item.prompt,
@@ -290,7 +302,10 @@ export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMo
     captions: item.captions,
     template: item.skill,
     theme: item.theme,
-    look: item.look
+    look: item.look,
+    styleExample: item.id,
+    // A template made in a look that is split into families starts in its own family (e.g. a 3D scene opens "Clean · 3D & cinematic").
+    ...(familiesOfLook(item.look).length ? { styleFamily: familyOf(item) } : {})
   };
 }
 
@@ -318,9 +333,10 @@ export const GALLERY_PAGE_MAX = 48;
  * ever holds the page it shows. `cursor` is the offset of the next item; `counts` are for the search text across all
  * use cases, so the tabs stay truthful while someone searches.
  */
-export function queryGallery(options: { useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[] } = {}): GalleryPage {
-  const needle = (options.q ?? "").trim().toLowerCase().slice(0, 80);
-  const matches = needle ? galleryTemplates.filter((item) => `${item.name} ${item.summary} ${item.bestFor} ${item.group} ${item.look}`.toLowerCase().includes(needle)) : galleryTemplates;
+export function queryGallery(options: { useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[]; look?: string /* a look id or a family id */ } = {}): GalleryPage {
+  const needle = normalizeSearch(options.q).toLowerCase();
+  const base = options.look ? styleExamples(options.look) : galleryTemplates;
+  const matches = needle ? base.filter((item) => `${item.name} ${item.summary} ${item.bestFor} ${item.group} ${item.look}`.toLowerCase().includes(needle)) : base;
   const counts = { all: matches.length } as Record<GalleryUseCase | "all", number>;
   for (const entry of galleryUseCases) counts[entry.id] = 0;
   for (const item of matches) counts[useCaseOf(item)]++;
@@ -331,4 +347,39 @@ export function queryGallery(options: { useCase?: string; q?: string; cursor?: s
   const offset = Math.max(Math.floor(Number(options.cursor)) || 0, 0);
   const page = pool.slice(offset, offset + limit);
   return { items: page.map(galleryCard), total: pool.length, nextCursor: offset + limit < pool.length ? String(offset + limit) : null, counts };
+}
+
+
+/**
+ * Which family of its look a template belongs to. Only "clean" has families (style-families.ts): 3D scenes and the cinematic
+ * group are 3D; type, showreel and social groups are typography; maths, tech, data, flat-vector and blackboard explainers are
+ * data and diagrams; everything else (starters, product demos, screencasts) is product UI. A look without families is its own family.
+ */
+export const familyOf = (item: GalleryTemplate): string => {
+  if (!familiesOfLook(item.look).length) return item.look;
+  if (item.group === "3D") return "clean-3d";
+  if (["Kinetic type", "Typography", "Showreel", "Social"].includes(item.group)) return "clean-type";
+  if (["Math", "Tech", "Data", "Data & maps", "Flat vector", "Blackboard"].includes(item.group)) return "clean-data";
+  return "clean-ui";
+};
+
+/** Every example of one style: a look id (all of its families) or a family id (just that family). Colour themes are
+ *  palettes, not styles, so they are not examples. */
+const styleExamples = (id: string): readonly GalleryTemplate[] => galleryTemplates.filter((item) => item.group !== "Colour" && (item.look === id || familyOf(item) === id));
+
+/** A visual style as the style picker shows it. `id` is a look id, or a family id for a look that is split into families
+ *  (`look` is the look to set either way); `examples` is how many templates are made in it; `preview` is one real clip. */
+export type GalleryStyleCard = { id: string; look: string; name: string; group: string; description: string; examples: number; preview: GalleryTemplate["preview"] };
+
+export function galleryStyles(): GalleryStyleCard[] {
+  const card = (id: string, look: (typeof looks)[number], name: string, description: string): GalleryStyleCard => {
+    const examples = styleExamples(id);
+    // Prefer a style-led example (the style itself) over a product starter, then any example with a clip.
+    const hero = examples.find((item) => item.kind === "style" && item.preview.video) ?? examples.find((item) => item.preview.video);
+    return { id, look: look.id, name, group: look.group, description, examples: examples.length, preview: hero?.preview ?? { src: look.preview.src, kind: look.preview.kind === "video" ? "video" : "image", label: look.preview.label, ...(look.preview.kind === "video" ? { video: look.preview.src } : {}) } };
+  };
+  return looks.filter((look) => look.available && !heldForV2(look.id)).flatMap((look) => {
+    const families = familiesOfLook(look.id);
+    return families.length ? families.map((family) => card(family.id, look, family.name, family.description)) : [card(look.id, look, look.name, look.description)];
+  });
 }

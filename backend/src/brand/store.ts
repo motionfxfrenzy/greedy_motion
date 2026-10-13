@@ -8,17 +8,18 @@ import { randomUUID } from "node:crypto";
 import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  BRAND_NAME_MAX, FONT_FAMILY_PATTERN, bundledFonts, deriveBrandTheme, parseColor, themeToCss, uploadedFamily,
+  BRAND_NAME_MAX, FONT_FAMILY_PATTERN, brandLogoVariants, type BrandLogoVariant, bundledFonts, deriveBrandTheme, parseColor, themeToCss, uploadedFamily,
   type BrandFont, type BrandKit, type BrandKitInput
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { query } from "../db/database.ts";
 import sharp from "sharp";
-import { ensureMedia, ensureMediaDir, persistMedia, removeMedia } from "../media.ts";
-import { readStaged } from "./assets.ts";
+import { ensureMedia, ensureMediaDir, persistMedia, readMedia, removeMedia } from "../media.ts";
+import { logoTone, readStaged } from "./assets.ts";
 import { downloadGoogleFont } from "./fonts.ts";
 
 const BRAND_ID = /^[0-9a-f-]{36}$/;
+const ASSET_ID = BRAND_ID;
 const brandDir = (id: string) => join(config.brandsDir, id);
 
 export class BrandInvalid extends Error {}
@@ -53,6 +54,9 @@ export function validateBrandInput(body: unknown): BrandKitInput {
   };
   const fonts = (input.fonts ?? {}) as Record<string, unknown>;
   const url = cleanText(input.url, 200);
+  const rawVariants = (input.variantAssets ?? {}) as Record<string, unknown>;
+  const variantAssets: Partial<Record<BrandLogoVariant, string>> = {};
+  for (const variant of brandLogoVariants) if (typeof rawVariants[variant] === "string" && ASSET_ID.test(rawVariants[variant] as string)) variantAssets[variant] = rawVariants[variant] as string;
   return {
     name,
     ...(url ? { url } : {}),
@@ -60,8 +64,25 @@ export function validateBrandInput(body: unknown): BrandKitInput {
     colors: { primary, accent: optional("accent"), background: optional("background"), text: optional("text") },
     fonts: { heading: cleanFont(fonts.heading, "heading"), body: cleanFont(fonts.body, "body") },
     ...(typeof input.logoAssetId === "string" && input.logoAssetId ? { logoAssetId: input.logoAssetId } : {}),
+    ...(Object.keys(variantAssets).length ? { variantAssets } : {}),
     ...(input.mode === "light" || input.mode === "dark" ? { mode: input.mode } : {})
   };
+}
+
+/** The variants named in a request body to be removed from a saved kit. */
+export function removedVariants(body: unknown): BrandLogoVariant[] {
+  const list = (body as { removeVariants?: unknown } | null)?.removeVariants;
+  return Array.isArray(list) ? brandLogoVariants.filter((variant) => list.includes(variant)) : [];
+}
+
+/** Writes each staged variant as logo-<variant>.png, unchanged (a renderer picks the version it needs). */
+async function writeVariants(dir: string, assets: BrandKitInput["variantAssets"], ownerId: string) {
+  for (const variant of brandLogoVariants) {
+    const id = assets?.[variant];
+    if (!id) continue;
+    const { data } = await readStaged(id, "logo", ownerId);
+    await writeFile(join(dir, `logo-${variant}.png`), data);
+  }
 }
 
 /** Writes font files for non-bundled fonts and returns the @font-face rules. */
@@ -88,38 +109,96 @@ async function materializeFont(dir: string, font: BrandFont, ownerId?: string): 
   return [`@font-face { font-family: "${family}"; font-weight: 100 900; font-display: block; src: url("brand-fonts/${file}") format("${format}"); }`];
 }
 
+type KitLogo = { data: Buffer; tone: "dark" | "light" | "color" };
+
+/**
+ * Writes the files a kit's renders read: logo.png (inverted when a one-colour logo would vanish on the theme),
+ * fonts.css with its font files, and theme.css. Returns the adjustments made so the user can be told.
+ */
+async function writeKitFiles(dir: string, id: string, input: BrandKitInput, ownerId: string, logo: KitLogo | null): Promise<string[]> {
+  const { theme, adjustments } = deriveBrandTheme(input, `brand-${id}`);
+  if (logo) {
+    const vanishes = (logo.tone === "dark" && theme.mode === "dark") || (logo.tone === "light" && theme.mode === "light");
+    if (vanishes) adjustments.push(`Your ${logo.tone} logo was inverted so it shows on the ${theme.mode} background.`);
+    if (logo.tone === "color" && theme.mode === "dark") adjustments.push("Your logo is multicolor and kept as is; check it reads well on the dark background.");
+    await writeFile(join(dir, "logo.png"), vanishes ? await sharp(logo.data).negate({ alpha: false }).png().toBuffer() : logo.data);
+  }
+  const sameFont = input.fonts.body.family === input.fonts.heading.family && input.fonts.body.source === input.fonts.heading.source;
+  const fontRules = [
+    ...(await materializeFont(dir, input.fonts.heading, ownerId)),
+    ...(sameFont ? [] : await materializeFont(dir, input.fonts.body, ownerId))
+  ];
+  await writeFile(join(dir, "fonts.css"), `${fontRules.join("\n")}\n`);
+  await writeFile(join(dir, "theme.css"), themeToCss(theme));
+  return adjustments;
+}
+
+/** The kit as stored: the input without its staged-upload ids, plus what the backend knows. */
+function storedKit(input: BrandKitInput, extra: Pick<BrandKit, "id" | "ownerId" | "hasLogo" | "adjustments" | "createdAt"> & { logoVariants: BrandLogoVariant[] }): BrandKit {
+  const { logoAssetId: _logo, variantAssets: _variants, ...rest } = input;
+  const { logoVariants, ...fields } = extra;
+  return { ...rest, ...fields, ...(logoVariants.length ? { logoVariants } : {}) };
+}
+
 export async function createBrand(input: BrandKitInput, ownerId: string): Promise<BrandKit> {
   const id = randomUUID();
   const dir = brandDir(id);
   await mkdir(dir, { recursive: true });
   try {
-    let hasLogo = false;
-    const { theme, adjustments } = deriveBrandTheme(input, `brand-${id}`);
+    let logo: KitLogo | null = null;
     if (input.logoAssetId) {
       const { data, meta } = await readStaged(input.logoAssetId, "logo", ownerId);
       await writeFile(join(dir, "logo-original.png"), data);
-      // A one-color logo that matches the background would vanish: store an inverted copy for this theme.
-      const vanishes = (meta.tone === "dark" && theme.mode === "dark") || (meta.tone === "light" && theme.mode === "light");
-      if (vanishes) adjustments.push(`Your ${meta.tone} logo was inverted so it shows on the ${theme.mode} background.`);
-      if (meta.tone === "color" && theme.mode === "dark") adjustments.push("Your logo is multicolor and kept as is; check it reads well on the dark background.");
-      await writeFile(join(dir, "logo.png"), vanishes ? await sharp(data).negate({ alpha: false }).png().toBuffer() : data);
-      hasLogo = true;
+      logo = { data, tone: meta.tone ?? "color" };
     }
-    const fontRules = [
-      ...(await materializeFont(dir, input.fonts.heading, ownerId)),
-      ...(input.fonts.body.family === input.fonts.heading.family && input.fonts.body.source === input.fonts.heading.source ? [] : await materializeFont(dir, input.fonts.body, ownerId))
-    ];
-    await writeFile(join(dir, "fonts.css"), `${fontRules.join("\n")}\n`);
-    await writeFile(join(dir, "theme.css"), themeToCss(theme));
+    const adjustments = await writeKitFiles(dir, id, input, ownerId, logo);
+    await writeVariants(dir, input.variantAssets, ownerId);
     await persistMedia(dir);
-    const { logoAssetId: _logo, ...rest } = input;
-    const kit: BrandKit = { ...rest, id, ownerId, hasLogo, adjustments, createdAt: new Date().toISOString() };
+    const kit = storedKit(input, { id, ownerId, hasLogo: Boolean(logo), adjustments, createdAt: new Date().toISOString(), logoVariants: brandLogoVariants.filter((variant) => input.variantAssets?.[variant]) });
     await query("insert into app.brand_kits (id, owner_id, name, data, created_at) values ($1, $2, $3, $4, $5)", [id, ownerId, kit.name, kit, kit.createdAt]);
     return kit;
   } catch (error) {
     await removeMedia(dir).catch(() => rm(dir, { recursive: true, force: true }));
     throw error;
   }
+}
+
+/**
+ * Edits a saved kit in place (same id, so projects that use it keep it). The logo and the extra logo versions are
+ * kept unless replaced (a staged upload) or removed; theme.css and fonts.css are rebuilt from the new values.
+ */
+export async function updateBrand(id: string, input: BrandKitInput, ownerId: string, options: { removeLogo?: boolean; removeVariants?: BrandLogoVariant[] } = {}): Promise<BrandKit | null> {
+  const existing = await getBrand(id);
+  if (!existing || brandOwner(existing) !== ownerId) return null;
+  const dir = brandDir(id);
+  await ensureMediaDir(dir);
+  const drop = (names: string[]) => Promise.all(names.map((name) => removeMedia(join(dir, name)).catch(() => undefined)));
+
+  // The main logo: a new upload replaces it, "remove" clears it, otherwise the saved original is re-themed.
+  let logo: KitLogo | null = null;
+  if (input.logoAssetId) {
+    const { data, meta } = await readStaged(input.logoAssetId, "logo", ownerId);
+    await writeFile(join(dir, "logo-original.png"), data);
+    logo = { data, tone: meta.tone ?? "color" };
+  } else if (options.removeLogo) {
+    await drop(["logo.png", "logo-original.png"]);
+  } else if (existing.hasLogo) {
+    const data = await readMedia(join(dir, "logo-original.png"));
+    if (data) logo = { data, tone: await logoTone(data) };
+  }
+  const adjustments = await writeKitFiles(dir, id, input, ownerId, logo);
+
+  // The extra versions: keep the saved ones, drop those removed, replace those uploaded.
+  const removed = new Set(options.removeVariants ?? []);
+  await drop([...removed].filter((variant) => !input.variantAssets?.[variant]).map((variant) => `logo-${variant}.png`));
+  await writeVariants(dir, input.variantAssets, ownerId);
+  const logoVariants = brandLogoVariants.filter((variant) => input.variantAssets?.[variant] || ((existing.logoVariants ?? []).includes(variant) && !removed.has(variant)));
+
+  await persistMedia(dir);
+  const hasLogo = Boolean(logo) || (existing.hasLogo && !options.removeLogo);
+  const kit = storedKit(input, { id, ownerId: existing.ownerId ?? ownerId, hasLogo, adjustments, createdAt: existing.createdAt, logoVariants });
+  await query("update app.brand_kits set name = $2, data = $3 where id = $1", [id, kit.name, kit]);
+  return kit;
 }
 
 /**
@@ -174,9 +253,10 @@ export async function listBrands(ownerId?: string): Promise<BrandKit[]> {
 }
 
 /** The logo as uploaded, for the app UI; the renderer uses logo.png, which may be inverted for the theme. */
-export async function brandLogoPath(id: string) {
+export async function brandLogoPath(id: string, variant?: string) {
   if (!BRAND_ID.test(id)) return null;
-  const path = join(brandDir(id), "logo-original.png");
+  const extra = brandLogoVariants.find((name) => name === variant);
+  const path = join(brandDir(id), extra ? `logo-${extra}.png` : "logo-original.png");
   return (await ensureMedia(path)) ? path : null;
 }
 

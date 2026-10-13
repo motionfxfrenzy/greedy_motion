@@ -64,6 +64,10 @@ export class AnthropicPromptPlanner implements PromptPlanner {
     for (let attempt = 1; attempt <= 2; attempt++) {
       const payload = await this.request(template, messages, request.audio, Boolean(revision));
       const toolUse = payload.content?.find((block) => block.type === "tool_use" && block.name === FILL_TOOL);
+      if ((!toolUse || typeof toolUse.input !== "object" || toolUse.input === null) && attempt === 1) {
+        messages.push({ role: "assistant", content: payload.content ?? [{ type: "text", text: "(no answer)" }] }, { role: "user", content: `Call ${FILL_TOOL} now with every field. Do not reply with text.` });
+        continue;
+      }
       if (!toolUse || typeof toolUse.input !== "object" || toolUse.input === null) {
         throw new Error(`Claude did not fill the template (stop reason: ${payload.stop_reason ?? "unknown"}).`);
       }
@@ -104,9 +108,10 @@ export class AnthropicPromptPlanner implements PromptPlanner {
           "Include exactly one success moment, where the result visibly lands, before the call to action. Voiceover: short sentences (6–14 words), no stage directions; the product name comes after a short opener in the closing line.",
           "Match the copy's tone to the motion style: clean = calm and assured, kinetic = terse and energetic, editorial = crafted and story-led. Use the product's own terms and the exact product name throughout.",
           "Respect every maxLength exactly. Never invent statistics, percentages, customer names, sources, or claims the brief does not support. Never use: magic, revolutionary, seamless, game-changing."
-        ].join(" "),
+        ].join(" ") + ` Always answer by calling the ${FILL_TOOL} tool.`,
         tools: [fillTool(template, audio, includeMotionStyle)],
-        tool_choice: { type: "tool", name: FILL_TOOL },
+        // Newer models reject a forced tool choice, so the tool is asked for in the prompt and a missing call is retried once.
+        tool_choice: { type: "auto" },
         messages
 
     }, { request: this.httpRequest, timeoutMs: 60000, errorPrefix: "Claude planning request failed", includeErrorDetail: true, stopErrors: {} });
