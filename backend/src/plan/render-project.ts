@@ -23,7 +23,7 @@ import { soundTracks, withSoundtrack, type SfxName } from "./sound.ts";
  * shots/<id>.png|jpg, audio/vo/*.wav, audio/music/*, sfx/*.mp3. With `check: true` the values are
  * also baked in as declared defaults (`hyperframes check` and `snapshot` take no variables flag).
  */
-export async function buildPlanRenderProject(project: VideoProject, dir: string, { check = false } = {}) {
+export async function buildPlanRenderProject(project: VideoProject, dir: string, { check = false, watermark = false }: { check?: boolean; watermark?: boolean } = {}) {
   const plan = project.beatPlan;
   if (!plan) throw new Error("Generate the plan first.");
   requireReadyVisuals(project);
@@ -101,6 +101,7 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   html = declareVariables(html, values, { asDefaults: check });
   html = fillTextBlock(html, {});
   html = withSoundtrack(html, tracks);
+  if (watermark) html = withWatermark(html);
   html = withVisuals(html, project, timing, file => `visuals/${file}`);
   html = html.replace("</head>", () => `  <style id="fonts">\n${fontCss}\n  </style>${look.brandFontsCss ? `\n  <style id="brand-fonts">\n${look.brandFontsCss}\n  </style>` : ""}\n  <style id="theme" data-theme="${look.brand ? "brand" : look.theme}">\n${look.themeCss}\n  </style>\n</head>`);
   await writeFile(join(dir, "index.html"), html);
@@ -108,4 +109,16 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   const manifest = await renderManifest(dir, JSON.parse(String(values.plan)), shots, currentClips(project));
   await writeFile(join(dir, "render-manifest.json"), JSON.stringify(manifest, null, 2));
   return { timing, tracks, durationSeconds: timing.total };
+}
+
+/**
+ * The Free plan's mark: a small "Made with Greedy Motion" label in the lower right, drawn above every scene for the whole
+ * film. It is static (no timeline) and sized from the stamped canvas, so it reads the same on every format.
+ */
+export function withWatermark(html: string): string {
+  const width = Number(/data-composition-id="main"[^>]*data-width="(\d+)"/.exec(html)?.[1] ?? 1920);
+  const size = Math.round(width * 0.016);
+  const pad = Math.round(width * 0.02);
+  const mark = `<div id="gm-watermark" data-layout-allow-overlap style="position:absolute;right:${pad}px;bottom:${pad}px;z-index:2147483000;padding:${Math.round(size * 0.45)}px ${Math.round(size * 0.8)}px;border-radius:999px;background:rgba(10,13,18,.62);color:#fff;font:600 ${size}px/1 'Plus Jakarta Sans',Inter,Arial,sans-serif;letter-spacing:.01em;pointer-events:none">Made with Greedy Motion</div>`;
+  return html.replace('<div id="captions" data-layout-allow-overlap></div>', (tag) => `${tag}\n    ${mark}`);
 }

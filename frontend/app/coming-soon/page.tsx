@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ThemeToggle } from "../../components/theme-toggle";
 import { PublicLinks } from "../../components/public-links";
 import "./coming-soon.css";
 
@@ -15,8 +16,8 @@ export default function ComingSoonPage() {
         minHeight: "100vh",
         overflow: "hidden",
         background:
-          "radial-gradient(circle at 78% 10%, rgba(22,139,255,.35), transparent 30%), radial-gradient(circle at 10% 92%, rgba(255,188,157,.28), transparent 28%), #f7fbff",
-        color: "#0a0d12"
+          "radial-gradient(circle at 78% 10%, rgba(22,139,255,.35), transparent 30%), radial-gradient(circle at 10% 92%, rgba(255,188,157,.28), transparent 28%), var(--d-bg-f7fbff)",
+        color: "var(--d-tx-0a0d12)"
       }}
     >
       <header
@@ -36,13 +37,16 @@ export default function ComingSoonPage() {
         >
           <img src="/brand/gm-mark.svg" alt="" style={{ width: "28px", height: "28px" }} />
           <span style={{ display: "flex", gap: "5px", fontSize: "18px", fontWeight: 700, letterSpacing: "-.03em" }}>
-            <span style={{ color: "#0B1F4D" }}>Greedy</span>
-            <span style={{ color: "#0A6CFF" }}>Motion</span>
+            <span style={{ color: "var(--d-tx-0b1f4d)" }}>Greedy</span>
+            <span style={{ color: "var(--d-tx-0a6cff)" }}>Motion</span>
           </span>
         </Link>
-        <Link href="/" style={{ color: "#535862", fontSize: "14px", fontWeight: 600, textDecoration: "none" }}>
-          Back to home
-        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <Link href="/" style={{ color: "var(--d-tx-535862)", fontSize: "14px", fontWeight: 600, textDecoration: "none" }}>
+            Back to home
+          </Link>
+          <ThemeToggle />
+        </div>
       </header>
 
       <section
@@ -65,9 +69,9 @@ export default function ComingSoonPage() {
               margin: "0 0 22px",
               padding: "7px 11px",
               borderRadius: "999px",
-              background: "rgba(255,255,255,.72)",
+              background: "var(--d-bg-rgba25525525572)",
               border: "1px solid rgba(10,108,255,.16)",
-              color: "#075ccc",
+              color: "var(--d-tx-075ccc)",
               fontFamily: "DMMono, monospace",
               fontSize: "11px",
               fontWeight: 700,
@@ -90,7 +94,7 @@ export default function ComingSoonPage() {
             <br />
             without the production maze.
           </h1>
-          <p style={{ maxWidth: "560px", margin: "26px 0 0", color: "#535862", fontSize: "18px", lineHeight: 1.6 }}>
+          <p style={{ maxWidth: "560px", margin: "26px 0 0", color: "var(--d-tx-535862)", fontSize: "18px", lineHeight: 1.6 }}>
             Greedy Motion is being prepared to turn product updates into clear, on-brand motion stories.
           </p>
           <Link
@@ -101,9 +105,9 @@ export default function ComingSoonPage() {
               marginTop: "34px",
               padding: "13px 21px",
               borderRadius: "999px",
-              background: "#181d27",
+              background: "var(--d-bg-181d27)",
               boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12",
-              color: "#fff",
+              color: "var(--d-btn-ink)",
               fontSize: "15px",
               fontWeight: 600,
               textDecoration: "none"
@@ -115,7 +119,7 @@ export default function ComingSoonPage() {
 
         <div
           aria-hidden="true"
-          style={{ padding: "14px", borderRadius: "30px", background: "#0c1320", boxShadow: "0 28px 70px rgba(28, 80, 142, .24)" }}
+          style={{ padding: "14px", borderRadius: "30px", background: "#0c1320", boxShadow: "0 28px 70px var(--d-sh-rgba288014224)" }}
         >
           <div
             style={{

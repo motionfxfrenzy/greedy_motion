@@ -40,7 +40,7 @@ type EngineBeat = {
   success: boolean;
   energy: Beat["energy"];
   ui: (NonNullable<Beat["ui"]> & { aspect?: number }) | null;
-  motion: { entry: Beat["motion"]["entry"]; exit: Beat["motion"]["exit"]; text_effect: string | null };
+  motion: { entry: Beat["motion"]["entry"]; exit: Beat["motion"]["exit"]; text_effect: string | null; /** The director's camera direction in words; the engine reads its verb, direction and size. */ camera: string | null };
   transition_out: Beat["transition_out"];
   fallback: Beat["fallback"] | null;
   start: number;
@@ -81,7 +81,7 @@ export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Reco
         success: beat.success,
         energy: beat.energy,
         ui: beat.ui ? { ...beat.ui, ...(size && size.width > 0 && size.height > 0 ? { aspect: Math.round((size.width / size.height) * 1000) / 1000 } : {}) } : null,
-        motion: { entry: beat.motion.entry, exit: beat.motion.exit, text_effect: beat.motion.text_effect ?? null },
+        motion: { entry: beat.motion.entry, exit: beat.motion.exit, text_effect: beat.motion.text_effect ?? null, camera: beat.motion.camera || null },
         transition_out: beat.transition_out,
         fallback: beat.fallback ?? null,
         scene: beat.scene ?? null,

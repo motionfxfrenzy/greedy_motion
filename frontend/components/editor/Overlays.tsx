@@ -7,6 +7,8 @@ import { readClips } from "../../lib/editor/clips-model.ts";
 import { makeLayer, newId } from "../../lib/editor/fixtures.ts";
 import { useEditor, useEditorState } from "../../lib/editor/store.ts";
 import { formatTime } from "../../lib/editor/time.ts";
+import { setSiteTheme } from "../../lib/site-theme.ts";
+import { goBack } from "../../lib/editor/nav.ts";
 import { Icon } from "./icons.tsx";
 import { useRegistry } from "./registry.ts";
 
@@ -140,12 +142,18 @@ function Menus() {
     </div>;
   }
   return <div ref={ref} className="ed-menu" style={style} role="menu" aria-label="Project">
+    {item("Back", goBack)}
+    {item("All projects", () => window.location.assign("/studio"))}
+    {item("Templates", () => window.location.assign("/templates"))}
+    {item("Brand kits", () => window.location.assign("/brand-kits"))}
+    {item("Plan & tokens", () => window.location.assign("/profile#plan"))}
+    <hr />
     {item("Open project…", () => registry.run("open"), "Mod+O")}
     {item("Save", () => registry.run("save"), "Mod+S")}
     {item("Save as…", () => registry.run("saveas"), "Mod+Shift+S")}
     {item("Publish as template…", () => registry.run("publish"))}
     <hr />
-    {item(theme === "dark" ? "Light theme" : "Dark theme", () => ui({ theme: theme === "dark" ? "light" : "dark" }))}
+    {item(theme === "dark" ? "Light theme" : "Dark theme", () => { const next = theme === "dark" ? "light" : "dark"; setSiteTheme(next); ui({ theme: next }); })}
     {item("Keyboard shortcuts", () => registry.run("shortcuts"), "Shift+?")}
   </div>;
 }

@@ -23,6 +23,11 @@ import { AssetRejected, readStaged, stageFont, stageLogo } from "./brand/assets.
 import { extractBrand } from "./brand/extract.ts";
 import { registerPlanRoutes } from "./plan/routes.ts";
 import { registerEntitlementRoutes } from "./entitlements/routes.ts";
+import { registerTokenRoutes } from "./tokens/routes.ts";
+import { registerBillingRoutes } from "./billing/routes.ts";
+import { InsufficientTokens, refundSpend, spendTokens } from "./tokens/store.ts";
+import { PLANS, renderCostMillitokens } from "./tokens/plan.ts";
+import { tierFor } from "./billing/service.ts";
 import { registerFormatRoutes } from "./formats/routes.ts";
 import { registerGalleryRoutes } from "./gallery.ts";
 import { registerLibraryRoutes } from "./library.ts";
@@ -158,6 +163,8 @@ await registerGalleryRoutes(app);
 await registerLibraryRoutes(app);
 await registerProRoutes(app);
 await registerEntitlementRoutes(app);
+await registerTokenRoutes(app);
+await registerBillingRoutes(app);
 
 // The token the browser adds as ?t= to media URLs (<img>, <video>, the preview iframe); see media-links.ts.
 app.get("/v1/media-token", async (request, reply) => reply.header("Cache-Control", "no-store").send(mediaToken(callerId(request))));
@@ -226,15 +233,30 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>
         if (tooLong) return reply.code(400).send({ error: { code: "motion_blur_too_long", message: tooLong } });
       }
       const jobId = randomUUID();
+      // Tokens are taken before anything is built or queued, and put back if the film cannot start. The length comes from
+      // the same readiness check Submit used, so a film costs exactly what the storyboard showed.
+      const owner = callerId(request);
+      const seconds = planReadiness(project).durationSeconds;
+      let spend: { charged: boolean; event: string | null } = { charged: false, event: null };
+      if (seconds !== null) {
+        try {
+          spend = await spendTokens(owner, renderCostMillitokens(seconds), "render", jobId, project.id);
+        } catch (error) {
+          if (error instanceof InsufficientTokens) return reply.code(402).send({ error: { code: "insufficient_tokens", message: `This film needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+          throw error;
+        }
+      }
+      const watermark = PLANS[await tierFor(owner)].watermark;
       let prepared: Awaited<ReturnType<typeof prepareBeatPlanRender>>;
       try {
-        prepared = await prepareBeatPlanRender(project, jobId);
+        prepared = await prepareBeatPlanRender(project, jobId, { watermark });
+        await updateProject(project.id, { state: "Rendering draft", renderJobId: jobId });
+        return reply.code(202).send(await renderService.createBeatPlanRender(project, jobId, prepared, { motionBlur: blur.on }));
       } catch (error) {
+        if (spend.charged && spend.event) await refundSpend(owner, spend.event).catch((refundError) => app.log.error({ err: refundError }, "could not return tokens"));
         if (error instanceof NotReady) return reply.code(409).send({ error: { code: "not_ready", message: error.message }, readiness: error.readiness });
         throw error;
       }
-      await updateProject(project.id, { state: "Rendering draft", renderJobId: jobId });
-      return reply.code(202).send(await renderService.createBeatPlanRender(project, jobId, prepared, { motionBlur: blur.on }));
     }
 
     if (!project.script?.confirmed) return reply.code(400).send({ error: { code: "script_unconfirmed", message: "Check and confirm the script before rendering." } });

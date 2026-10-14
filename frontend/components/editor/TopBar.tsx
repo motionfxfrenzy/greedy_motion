@@ -5,6 +5,7 @@ import { useEditor, useEditorState, type EngineState } from "../../lib/editor/st
 import { Icon } from "./icons.tsx";
 import { IconButton } from "./ui.tsx";
 import { useRegistry } from "./registry.ts";
+import { goBack } from "../../lib/editor/nav.ts";
 
 const ENGINE: Record<EngineState, { label: string; cls: string }> = {
   ready: { label: "Engine ready", cls: "ok" },
@@ -29,6 +30,7 @@ export function TopBar() {
 
   return (
     <header className="ed-card ed-top" role="banner">
+      <a className="ed-back" href="/studio" title="Back to where you came from" aria-label="Back" onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return; event.preventDefault(); goBack(); }}><Icon name="chevL" size={14} /><span>Back</span></a>
       <button
         ref={menuBtn} type="button" className="ed-project" aria-haspopup="menu"
         onClick={() => { const r = menuBtn.current!.getBoundingClientRect(); ui({ menu: { kind: "project", x: r.left, y: r.bottom + 6 } }); }}

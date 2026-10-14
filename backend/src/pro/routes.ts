@@ -12,6 +12,7 @@ import { config } from "../config.ts";
 import { NotEntitled, requireProEdit, type ProEditAccess } from "../entitlements/access.ts";
 import { EntitlementsUnavailable, entitlementsFor } from "../entitlements/resolve.ts";
 import { ensureMedia, ensureMediaDir, persistMedia, readMedia, removeMedia, saveMedia } from "../media.ts";
+import { fillTextBlock } from "../plan/composition.ts";
 import { buildPlanRenderProject } from "../plan/render-project.ts";
 import { getProject, updateProject, updateProjectPro } from "../projects/store.ts";
 import { renderJobRepository } from "../render/repository.ts";
@@ -63,6 +64,21 @@ async function manifestOf(dir: string): Promise<ProManifest["files"]> {
   return files;
 }
 
+/**
+ * Makes the render page behave in the editor's frame, which is a plain page with no render runtime around it:
+ *  - the root gets an explicit duration (the frame hides any timed clip outside its start and duration, and the render
+ *    template leaves the root's length to the last beat);
+ *  - the root gets an explicit pixel size (the template says 100% of the page, which is zero tall without the runtime
+ *    that sizes the page, so every scene collapsed to nothing).
+ */
+export function withEditorRoot(html: string, seconds: number): string {
+  const width = /data-composition-id="main"[^>]*data-width="(\d+)"/.exec(html)?.[1] ?? "1920";
+  const height = /data-composition-id="main"[^>]*data-height="(\d+)"/.exec(html)?.[1] ?? "1080";
+  let out = html.replace(/<div id="root"([^>]*)>/, (tag, attrs: string) => (/data-duration=/.test(attrs) ? tag : `<div id="root"${attrs} data-duration="${Math.round(seconds * 1000) / 1000}">`));
+  if (!out.includes('id="editor-root"')) out = out.replace("</head>", () => `  <style id="editor-root">html, body { width: ${width}px; height: ${height}px; } #root { width: ${width}px; height: ${height}px; }</style>\n</head>`);
+  return out;
+}
+
 function canvasOf(html: string) {
   const attr = (name: string) => Number(new RegExp(`data-${name}="(\\d+(?:\\.\\d+)?)"`).exec(html)?.[1]);
   return { width: attr("width") || 1920, height: attr("height") || 1080, duration: attr("duration") || 10 };
@@ -72,6 +88,13 @@ async function buildSnapshot(project: VideoProject, source: "beat-plan" | "blank
   if (source === "beat-plan") {
     if (!project.beatPlan) throw new ProInvalid("This project has no storyboard yet. Start from a blank composition instead.");
     const built = await buildPlanRenderProject(project, dir);
+    // The editor previews the page as a plain file, with no render variables passed in, so the film's values (the plan, the
+    // shots, the text) go into the page itself. Without them the engine finds no beats and the canvas stays empty.
+    const values = JSON.parse(await readFile(join(dir, "variables.json"), "utf8")) as Record<string, string>;
+    // The editor's frame hides any timed clip outside [data-start, data-start + data-duration). The render template leaves
+    // the root without a duration (its length is the last beat's end), which would hide the whole film in the editor.
+    const withValues = fillTextBlock(await readFile(join(dir, "index.html"), "utf8"), values);
+    await writeFile(join(dir, "index.html"), withEditorRoot(withValues, built.durationSeconds));
     return { durationSeconds: built.durationSeconds };
   }
   const blank = blankComposition(options.aspect ?? project.beatPlan?.canvas ?? "16:9", options.durationSeconds ?? 10);
