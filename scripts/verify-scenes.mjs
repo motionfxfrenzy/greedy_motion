@@ -117,7 +117,7 @@ for (const [name, look, family] of styles) {
     for (const [paletteName, brand] of Object.entries(palettes).filter(([key]) => !only.palette || key === only.palette)) {
       const label = `${name}-${scene.id}-${paletteName}`;
       try {
-        const [png] = await renderPlan({ plan: { enginePlan: sceneFilm(scene.id, look, family) }, look, family, brand, brandName: "Xiaomi", label, frames: [1.5] });
+        const [png] = await renderPlan({ plan: { enginePlan: sceneFilm(scene.id, look, family) }, look, family, brand, brandName: process.env.VERIFY_BRAND ?? "Xiaomi", label, frames: [1.5] });
         const stats = frameStats(png, brand);
         if (stats.sd < 8) fail(`${label}: the frame is blank (sd ${stats.sd.toFixed(1)})`);
         else if (stats.brand < 0.002) notes.push(`${label}: no brand colour in the frame at 1.5 s (${(stats.brand * 100).toFixed(2)}%)`);
