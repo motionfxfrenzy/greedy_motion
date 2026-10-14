@@ -81,12 +81,12 @@ export class NotReady extends Error {
  * <renderOutputDir>/<jobId>/project (the worker sees it at /renders/<jobId>/project). The worker only
  * runs `hyperframes render project --variables-file project/variables.json`.
  */
-export async function prepareBeatPlanRender(project: VideoProject, jobId: string) {
+export async function prepareBeatPlanRender(project: VideoProject, jobId: string, options: { watermark?: boolean } = {}) {
   if (!/^[0-9a-f-]{36}$/i.test(jobId)) throw new Error("Invalid job id.");
   const readiness = planReadiness(project);
   if (!readiness.ok) throw new NotReady(readiness);
   const dir = join(config.renderOutputDir, jobId, "project");
-  const built = await buildPlanRenderProject(project, dir);
+  const built = await buildPlanRenderProject(project, dir, { watermark: options.watermark });
   // Object storage: the worker has no shared disk, so the finished folder goes to the uploads bucket and the
   // job carries only its key prefix. The local copy is then redundant.
   let projectPrefix: string | undefined;

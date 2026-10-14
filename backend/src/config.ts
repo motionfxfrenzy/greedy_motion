@@ -201,5 +201,21 @@ export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
   // Generated audio per job; shared read-only with the worker at /audio locally.
   audioDir: storagePath(process.env.AUDIO_DIR, "audio"),
-  anthropicModel: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6"
+  anthropicModel: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+  // Lemon Squeezy (merchant of record). Checkout is off until the key, store and every variant are set; the webhook
+  // needs only the signing secret. Ids come from the Lemon Squeezy dashboard (docs/PRICING.md lists what to create).
+  billing: {
+    apiKey: process.env.LEMONSQUEEZY_API_KEY || "",
+    storeId: process.env.LEMONSQUEEZY_STORE_ID || "",
+    webhookSecret: process.env.LEMONSQUEEZY_WEBHOOK_SECRET || "",
+    testMode: process.env.LEMONSQUEEZY_TEST_MODE === "true",
+    variants: {
+      starter: process.env.LEMONSQUEEZY_VARIANT_STARTER || "",
+      pro: process.env.LEMONSQUEEZY_VARIANT_PRO || "",
+      business: process.env.LEMONSQUEEZY_VARIANT_BUSINESS || "",
+      topup: process.env.LEMONSQUEEZY_VARIANT_TOPUP || ""
+    },
+    /** Where checkout sends the buyer afterwards. */
+    returnUrl: process.env.BILLING_RETURN_URL || `${corsOrigins[0] ?? "http://localhost:3000"}/profile`
+  }
 } as const;

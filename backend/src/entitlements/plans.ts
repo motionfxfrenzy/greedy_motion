@@ -14,7 +14,7 @@ export type EntitlementStatus = (typeof STATUSES)[number];
 /** Statuses that can grant access while inside their window. `canceled` and `revoked` never do. */
 export const LIVE_STATUSES: readonly EntitlementStatus[] = ["active", "trialing", "past_due"];
 
-export const SOURCES = ["manual", "stripe"] as const;
+export const SOURCES = ["manual", "stripe", "lemonsqueezy"] as const;
 export type EntitlementSource = (typeof SOURCES)[number];
 
 export const isPlanId = (value: unknown): value is PlanId => PLAN_IDS.includes(value as PlanId);

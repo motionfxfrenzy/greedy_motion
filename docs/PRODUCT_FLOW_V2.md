@@ -316,3 +316,31 @@ Banana, Veo, Lyria, TTS) all run concurrently.
 | Backend planner | Outputs the beat plan (script director rules compiled in); the `tool_choice` fix for 5.5 models |
 | Worker | A motion-direction job (fan-out per beat, assembly, gates) before `render-video`; a GPU queue for 3D |
 | Templates | Variable-length compositions driven by the beat plan instead of fixed 10s templates |
+
+## Richer motion from the plan (2026-10-14)
+
+The director already wrote a camera move and a text effect for every frame, but the engine used little of it: the plan
+handed to the engine left out `motion.camera`, every frame pushed in by its energy, and only the eight named text effects
+counted (free text such as "spring-pop scale-up" fell back to the plain waterfall). Now:
+
+- `motion.camera` reaches the engine (`backend/src/plan/composition.ts`) and the engine decides, per beat, whether the camera
+  moves and how (`camRead`, `camChoose`, `push` in `worker/templates/beat-plan/engine.js`):
+  - **Read the plan.** Verb, direction, size and pace: push-in, pull-back, pan or truck, tilt, arc, dolly zoom, in or out (the
+    background zooms by the full amount and the words by 40% of it, so they swell or shrink against it, within the same
+    frame guardrail as every other move). "Static" or "locked" means no camera at all.
+  - **Choose when the plan says nothing usable.** From the beat's role, its exit vector (the camera carries the eye into the
+    seam: pan along x, tilt along y, push or pull along z), its energy, and what the previous beat did (neighbours never repeat
+    a move). The last beat pulls back; success and the opening hook push; at most one dolly zoom a film.
+  - **Skip.** A beat under 0.9 s, or calm and under 1.6 s, gets no move.
+  - **Keep the words in frame.** The words' box is measured and the move is shrunk until the box stays inside the frame (4.5% side
+    and 5% top and bottom margin) at both ends of the move, and dropped if it never fits. A push turns about the words' own centre.
+  - Every decision is listed in `window.__bp.cam` (move, `plan` or `auto`, and why it was shrunk or dropped).
+  - `node --env-file=backend/.env scripts/verify-camera.mjs` seeks through every stored film in a real browser and fails if the
+    frame cuts any keyword, sub-line, pill or lockup (scene changes excluded: the cut or wipe carries the words across the edge).
+- `effectFor` maps the director's free-text effect to the nearest named effect, and gives a frame with none an effect that
+  suits its role (hook: per-character rise; reveal: stagger from the centre; success: spring scale; call to action: mask
+  reveal; features cycle), so neighbouring frames do not all enter the same way.
+
+It is in the engine, so the storyboard's quick preview, the render and the Pro editor all show it. There is no extra model
+call at Submit and no extra cost. Every move is a `fromTo` on the film's timeline, so seeking is exact. Not done: new
+depth layers, parallax and secondary accents on frames; the engine's idle-motion rules still apply.

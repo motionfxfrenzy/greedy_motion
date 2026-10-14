@@ -23,8 +23,12 @@
     "test:script-rules": "node test/script-rules.mjs",
     "test:worker-launcher": "node test/worker-launcher.mjs",
     "test:entitlements-eval": "node test/entitlements-eval.mjs",
+    "test:billing": "node --env-file-if-exists=.env test/billing.mjs",
+    "test:tokens": "node --env-file-if-exists=.env test/tokens.mjs",
     "test:entitlements": "node --env-file-if-exists=.env test/entitlements.mjs",
     "entitlements": "node --env-file-if-exists=.env scripts/entitlements.ts",
+    "plan": "node --env-file-if-exists=.env scripts/plan.ts",
+    "tokens": "node --env-file-if-exists=.env scripts/tokens.ts",
     "grant:pro": "node --env-file-if-exists=.env scripts/entitlements.ts grant",
     "revoke:pro": "node --env-file-if-exists=.env scripts/entitlements.ts revoke"
   },

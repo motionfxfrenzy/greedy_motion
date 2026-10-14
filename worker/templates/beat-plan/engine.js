@@ -386,9 +386,125 @@
     if (!TYPE) { seamIn(seam, vin, t0, i === 0); if (!last) seamOut(seam, vout, e); }
     return { beat: beat, seam: seam, cam: cam, vin: vin, vout: vout, t0: t0, last: last };
   }
-  function push(cam, s, e, ox, oy, energy) {
-    var amt = energy === "high" ? 0.09 : energy === "calm" ? 0.05 : 0.07;
-    tl.fromTo(cam, { scale: 1, transformOrigin: px(ox) + " " + px(oy) }, { scale: 1 + amt, transformOrigin: px(ox) + " " + px(oy), duration: Math.max(0.5, e - s), ease: "none" }, snap(s));
+  // ---------- the camera: the engine decides, per beat, whether the camera moves and how ----------
+  // 1. The director's words ("pan right 6%", "pull-back 8%", "dolly zoom", "short decisive push-in") are read for a verb, a
+  //    direction, a size and a pace. When the plan says nothing usable, the engine picks a move from the beat's role, its
+  //    exit vector (so the camera carries the eye into the seam), its energy and what the previous beat just did.
+  // 2. Some beats get no move at all: a beat too short to read a move in, a calm beat that is barely a second long.
+  // 3. Whatever is chosen is then fitted to the words on screen: the move is shrunk until the text box stays inside the
+  //    frame (with a margin) at both ends of the move, and dropped if it cannot. Text is never cropped by the camera.
+  // Every move is a fromTo on the film's timeline, so a seek lands on the same pixels. The decisions are listed in
+  // window.__bp.cam for the tests and the editor.
+  function camRead(text) {
+    var t = String(text || "").toLowerCase();
+    var pct = /(\d+(?:\.\d+)?)\s*(?:%|percent)/.exec(t);
+    var left = /\bleft\b/.test(t), right = /\bright\b/.test(t), up = /\b(up|rise|lift)\b/.test(t), down = /\b(down|drop|descend)\b/.test(t);
+    var kind = /dolly[- ]?zoom|vertigo|contra[- ]?zoom/.test(t) ? "dolly"
+      : /pull[- ]?back|pull out|wide reveal|zoom out/.test(t) ? "pull"
+      : /\b(pan|truck|lateral|slide)\b/.test(t) && (left || right) ? "pan"
+      : /\b(tilt|crane|rise|drop)\b/.test(t) && (up || down || /rise|drop/.test(t)) ? "tilt"
+      : /\barc\b/.test(t) ? "arc"
+      : /\b(static|locked|still|hold)\b/.test(t) && !/push|pull|pan|tilt/.test(t) ? "hold"
+      : /push|dolly|zoom|move in|drift/.test(t) ? "push" : null;
+    return { kind: kind, rev: kind === "dolly" && /\b(out|reverse|away|back)\b/.test(t), pct: pct ? clamp(parseFloat(pct[1]), 2, 12) / 100 : null, sx: left ? -1 : 1, sy: down ? 1 : -1,
+      ease: /expo|snap|decisive|quick|fast|punch|slam|whip/.test(t) ? "expo.out" : /slow|gentle|drift|settle|float/.test(t) ? "sine.inOut" : "none" };
+  }
+  var CAM_LOG = [], CAM_LAST = { kind: null, dir: 0 }, CAM_DOLLY = 0, DOLLY_HOLD = 0.6; // the words follow the background's zoom by 40%
+  window.__bp.cam = CAM_LOG;
+  function camChoose(b, i, dur, sh, energy, text) {
+    var r = camRead(text), base = energy === "high" ? 0.09 : energy === "calm" ? 0.05 : 0.07;
+    if (b && dur < 0.9) return { kind: null, why: "beat too short for a move" };
+    if (b && energy === "calm" && dur < 1.6 && !(r.kind && r.kind !== "hold")) return { kind: null, why: "calm and brief" };
+    if (r.kind === "hold") return { kind: null, why: "the plan asks for a locked frame" };
+    if (r.kind) return { kind: r.kind, rev: r.rev, amt: r.pct || base, ease: r.ease, sx: r.sx, sy: r.sy, src: "plan" };
+    // nothing usable in the plan: choose from the beat itself
+    var v = sh && sh.vout, last = i === BEATS.length - 1, role = b && b.role, kind;
+    if (last || role === "cta") kind = "pull";
+    else if (role === "success" || (role === "hook" && i === 0)) kind = "push";
+    else if (role === "reveal" && CAM_DOLLY < 1 && i > 0 && energy === "high") { kind = "dolly"; CAM_DOLLY++; }
+    else if (v && v.axis === "x") kind = "pan";
+    else if (v && v.axis === "y") kind = "tilt";
+    else kind = v && v.dir < 0 ? "pull" : "push";
+    if (kind === CAM_LAST.kind && kind !== "pull") kind = kind === "push" ? "arc" : "push"; // neighbours do not repeat a move
+    var dir = v && v.axis === "x" ? v.dir : v && v.axis === "y" ? v.dir : 1;
+    return { kind: kind, amt: base, ease: kind === "push" && (role === "success" || energy === "high") ? "expo.out" : kind === "pull" || last ? "sine.inOut" : "none", sx: dir, sy: dir, src: "auto" };
+  }
+  // The words on this beat, as one box in frame coordinates, or null when there is nothing to measure.
+  function camTextBox(cam) {
+    var rr = root.getBoundingClientRect(), k = rr.width / W || 1, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+    cam.querySelectorAll(".kw, .sub, .pill, .lock, .ty-t").forEach(function (n) {
+      var r = n.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) return;
+      any = true; x0 = Math.min(x0, (r.left - rr.left) / k); y0 = Math.min(y0, (r.top - rr.top) / k); x1 = Math.max(x1, (r.right - rr.left) / k); y1 = Math.max(y1, (r.bottom - rr.top) / k);
+    });
+    return any ? { x0: x0, y0: y0, x1: x1, y1: y1 } : null;
+  }
+  // The two end states of a move: scale, offset and the point it turns about.
+  function camStates(m, ox, oy) {
+    var a = m.amt, c = { x: W / 2, y: H / 2 };
+    if (m.kind === "pull") return [{ s: 1 + a, x: 0, y: 0, o: { x: ox, y: oy } }, { s: 1, x: 0, y: 0, o: { x: ox, y: oy } }];
+    if (m.kind === "pan") return [{ s: 1 + a * 0.9, x: m.sx * 0.5 * a * W, y: 0, o: c }, { s: 1 + a * 0.9, x: -m.sx * 0.5 * a * W, y: 0, o: c }];
+    if (m.kind === "tilt") return [{ s: 1 + a * 0.9, x: 0, y: m.sy * 0.5 * a * H, o: c }, { s: 1 + a * 0.9, x: 0, y: -m.sy * 0.5 * a * H, o: c }];
+    if (m.kind === "arc") return [{ s: 1, x: -0.4 * a * W, y: 0.25 * a * H, o: { x: ox, y: oy } }, { s: 1, x: 0.4 * a * W, y: -0.25 * a * H, o: { x: ox, y: oy } }];
+    // A dolly zoom: the background closes in (or backs away) by `a` while the words change size by less, so they swell or shrink
+    // against it. The state's scale is the words' own, which is what the frame guardrail has to hold.
+    if (m.kind === "dolly") { var w = Math.pow(1 + a, 1 - DOLLY_HOLD); return m.rev ? [{ s: w, x: 0, y: 0, o: { x: ox, y: oy } }, { s: 1, x: 0, y: 0, o: { x: ox, y: oy } }] : [{ s: 1, x: 0, y: 0, o: { x: ox, y: oy } }, { s: w, x: 0, y: 0, o: { x: ox, y: oy } }]; }
+    return [{ s: 1, x: 0, y: 0, o: { x: ox, y: oy } }, { s: 1 + a, x: 0, y: 0, o: { x: ox, y: oy } }];
+  }
+  function camFits(m, ox, oy, box, mx, my) {
+    if (!box) return true;
+    return camStates(m, ox, oy).every(function (st) {
+      var fx = function (v) { return st.o.x + st.s * (v - st.o.x) + st.x; }, fy = function (v) { return st.o.y + st.s * (v - st.o.y) + st.y; };
+      return fx(box.x0) >= mx && fx(box.x1) <= W - mx && fy(box.y0) >= my && fy(box.y1) <= H - my;
+    });
+  }
+  function push(cam, s, e, ox, oy, energy, text, b, i, sh) {
+    var dur = Math.max(0.5, e - s), m = camChoose(b, i, dur, sh, energy, text), box = camTextBox(cam), mx = 0.045 * W, my = 0.05 * H;
+    var log = { beat: b && b.id, kind: m.kind, src: m.src || "none", amt: m.amt, why: m.why };
+    if (m.kind) {
+      // Fit the move to the words: shrink it until the text box stays inside the frame at both ends, drop it if it never fits.
+      // Origin for a push: the words' own centre, so the frame grows evenly around them.
+      if (box && (m.kind === "push" || m.kind === "pull" || m.kind === "dolly")) { ox = (box.x0 + box.x1) / 2; oy = (box.y0 + box.y1) / 2; }
+      var want = m.amt, n = 0;
+      while (!camFits(m, ox, oy, box, mx, my) && n < 8) { m.amt *= 0.75; n++; }
+      if (!camFits(m, ox, oy, box, mx, my) || m.amt < 0.012) { log.kind = null; log.why = "text would leave the frame"; m = { kind: null }; }
+      else if (n) { log.why = "shrunk to keep the text in frame (" + Math.round(want * 100) + "% to " + Math.round(m.amt * 1000) / 10 + "%)"; log.amt = m.amt; }
+    }
+    CAM_LOG.push(log);
+    CAM_LAST = { kind: m.kind, dir: m.sx || 0 };
+    if (!m.kind) return;
+    var st = camStates(m, ox, oy), ease = m.ease || "none";
+    var camS = m.kind === "dolly" ? (m.rev ? [1 + m.amt, 1] : [1, 1 + m.amt]) : [st[0].s, st[1].s];
+    var from = { scale: camS[0], x: st[0].x, y: st[0].y, transformOrigin: px(st[0].o.x) + " " + px(st[0].o.y) };
+    var to = { scale: camS[1], x: st[1].x, y: st[1].y, transformOrigin: px(st[1].o.x) + " " + px(st[1].o.y), duration: dur, ease: ease };
+    tl.fromTo(cam, from, to, snap(s));
+    if (m.kind === "dolly") {
+      // The words change size by less than the background (DOLLY_HOLD): counter-scale the text columns about the same point.
+      var back = Math.pow(1 + m.amt, -DOLLY_HOLD);
+      cam.querySelectorAll(".col").forEach(function (c) {
+        tl.fromTo(c, { scale: m.rev ? back : 1, transformOrigin: px(ox) + " " + px(oy) }, { scale: m.rev ? 1 : back, transformOrigin: px(ox) + " " + px(oy), duration: dur, ease: ease }, snap(s));
+      });
+    }
+  }
+  // The text effect for a beat. The director writes it as free text ("word-by-word fade-up", "spring-pop scale-up"), and only
+  // the eight named effects used to count: everything else fell back to the plain waterfall. Free text is now mapped to the
+  // nearest named effect, and a beat with none gets one that suits its role, so neighbouring frames do not all enter alike.
+  var ROLE_EFFECTS = { hook: "per-character-rise", reveal: "stagger-from-center", success: "spring-scale-in", problem: "soft-blur-in", proof: "mask-reveal-up", cta: "mask-reveal-up", title: "mask-reveal-up" };
+  var FEATURE_EFFECTS = ["waterfall", "spring-scale-in", "mask-reveal-up", "soft-blur-in"];
+  function effectFor(b, i) {
+    var raw = String((b.motion && b.motion.text_effect) || "").toLowerCase().trim();
+    if (TEXT_EFFECTS.indexOf(raw) > -1) return raw;
+    if (raw) {
+      if (/typewriter|type[- ]?on|keystroke/.test(raw)) return "typewriter";
+      if (/stagger.*(center|centre)|from[- ]center|scatter|assemble/.test(raw)) return "stagger-from-center";
+      if (/char|letter/.test(raw)) return "per-character-rise";
+      if (/blur/.test(raw)) return "soft-blur-in";
+      if (/parallax|depth/.test(raw)) return "depth-parallax-words";
+      if (/spring|pop|bounce|overshoot|slam|stamp|scale/.test(raw)) return "spring-scale-in";
+      if (/mask|reveal|rise|wipe|slide/.test(raw)) return "mask-reveal-up";
+      if (/waterfall|cascade|word|line|fade|stagger/.test(raw)) return "waterfall";
+    }
+    return ROLE_EFFECTS[b.role] || FEATURE_EFFECTS[i % FEATURE_EFFECTS.length];
   }
   // brand shapes under the camera: they drift along the beat's exit vector, carrying the eye into the seam
   function carry(el, v, s, e, k) {
@@ -647,7 +763,7 @@
     var kw = String(kwText || "").replace(/[.!?]+$/, "").trim();
     if (closing) { typeGlitch(sh.cam, i, b, s, e, tyBrand() || kw, tyBrand() ? onScreen || kwText : onScreen); }
     else TY_SCENES[pick(b, TY_IDS, i)](sh.cam, i, b, s, e, kw, onScreen, tyPool());
-    push(sh.cam, s, e, W / 2, H / 2, "high");
+    push(sh.cam, s, e, W / 2, H / 2, b.energy || "high", b.motion && b.motion.camera, b, i, sh);
     return {};
   }
 
@@ -804,7 +920,7 @@
     // incoming text ignites on the cut frame (fields and shapes already overlap the J-cut); on a flood it
     // waits until its field has (mostly) covered the frame
     var tk = i === 0 ? s + 0.06 : flood && sh.vin.axis !== "z" ? Math.max(s, sh.t0 + 0.6 * P.dIn) : s;
-    var landed = textEntry(kw, tk, b.motion && b.motion.text_effect);
+    var landed = textEntry(kw, tk, effectFor(b, i));
     var sub = null;
     if (onScreen && !same(onScreen, kwText)) {
       var sfs = fit(onScreen, L.col[2] * 0.92, 3, L.sub, 30, KB);
@@ -815,7 +931,7 @@
       checkPop(badge, bs / 2, bs / 2, bs, successAt);
     } else if (dur >= 2.6) underline(kw, s + 0.56 * dur);
     var ox = L.align === "center" ? W / 2 : L.col[0] + L.col[2] * 0.3;
-    push(sh.cam, s, e, ox, L.col[1] + L.col[3] / 2, b.energy);
+    push(sh.cam, s, e, ox, L.col[1] + L.col[3] / 2, b.energy, b.motion && b.motion.camera, b, i, sh);
     return { flood: flood };
   }
 
@@ -951,7 +1067,7 @@
     Object.assign(img.style, { left: px(-ox), top: px(-oy), width: px(imgW), height: px(imgH) });
     var tx = 10 + tp[0] * imgW - ox, ty = 10 + tp[1] * imgH - oy;
     var gx = cx + tx, gy = cy + ty; // screen position of the target (the camera pushes about it, so it holds)
-    push(sh.cam, s, e, gx, gy, b.energy);
+    push(sh.cam, s, e, gx, gy, b.energy, b.motion && b.motion.camera, b, i, sh);
     // cursor: enters from below on one vector, lands its tip on the target, presses on the verb
     HAS_UI = true;
     var CZ = LAY.cursor, TX = 0.208 * CZ, TY = 0.125 * CZ;
@@ -1105,7 +1221,7 @@
     var tl0 = i === 0 ? s + 0.08 : s;
     hide(lock); showAt(lock, tl0);
     tl.fromTo(lock, { scale: 1.18 }, { scale: 1, duration: P.dIn + 0.1, ease: P.inE }, snap(tl0));
-    var landed = kw ? textEntry(kw, tl0 + 0.24, b.motion && b.motion.text_effect) : tl0 + 0.24;
+    var landed = kw ? textEntry(kw, tl0 + 0.24, effectFor(b, i)) : tl0 + 0.24;
     rise(pill, Math.min(landed + 0.05, s + 0.9), 36);
     // the pill's centre, from the stacked heights (character-count estimates, never measured)
     var lockH = logo ? (V.logoWordmark ? Math.min(L.logoH, L.logoW / 3) : L.logoH) : (nfs || 0);
@@ -1113,7 +1229,7 @@
     var kwH = kw ? kw.fs * 1.04 * kw.lines + 0.045 * H : 0;
     var pillH = pf * 1.25 + pf * 1.1, stackH = lockH + kwH + 0.05 * H + pillH;
     var pillY = H / 2 + stackH / 2 - pillH / 2;
-    push(sh.cam, s, e, W / 2, H / 2, b.energy || "medium");
+    push(sh.cam, s, e, W / 2, H / 2, b.energy || "medium", b.motion && b.motion.camera, b, i, sh);
     var pressAt = null;
     if (HAS_UI && e - s >= 2.2) {
       var CZ = LAY.cursor, TX = 0.208 * CZ, TY = 0.125 * CZ, cur = free(mk("div", "cursor", sh.seam, { width: CZ, height: CZ }));

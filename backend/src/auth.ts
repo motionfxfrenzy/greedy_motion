@@ -33,6 +33,8 @@ const mediaGets = [
 export const isOpen = (request: FastifyRequest) => {
   const path = request.url.split("?")[0];
   if (request.method === "OPTIONS" || !path.startsWith("/v1/")) return true;
+  // Signed by the billing provider, not by a user; the route checks the signature itself.
+  if (request.method === "POST" && path === "/v1/billing/webhook") return true;
   return request.method === "GET" && openGets.some((pattern) => pattern.test(path));
 };
 

@@ -15,7 +15,7 @@ export type Modal = null | "palette" | "bridge" | "keys" | "open" | "saveas" | "
 export type EngineState = "ready" | "updating" | "rendering" | "stopped";
 export type AgentState = "idle" | "thinking" | "proposed";
 export type LeftTab = "layers" | "comps" | "assets" | "library" | "history" | "clips";
-export type RightTab = "properties" | "source" | "variables" | "review" | "checks";
+export type RightTab = "properties" | "text" | "source" | "variables" | "review" | "checks";
 /** A project opened from the backend (not the demo): where its composition is saved, and the last revision we hold. */
 export type RemoteState = { projectId: string; rev: number; entry: string; status: "idle" | "saving" | "error" | "conflict" | "readonly"; /** URL of the preview frame shell, on the backend's origin. */ frameSrc: string };
 export type MenuState = null | { kind: "project" | "layer"; x: number; y: number; id?: string };

@@ -17,6 +17,7 @@ export * from "./looks.ts";
 export * from "./style-families.ts";
 export * from "./scenes.ts";
 export * from "./motion-blur.ts";
+export * from "./pricing.ts";
 export * from "./templates.ts";
 export * from "./themes.ts";
 

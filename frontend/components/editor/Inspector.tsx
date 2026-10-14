@@ -13,6 +13,7 @@ import { startDrag } from "./drag.ts";
 import { Icon } from "./icons.tsx";
 import { Cap, ColorField, IconButton, NumberField, Tabs, scrubRowValue } from "./ui.tsx";
 import { AgentDock } from "./AgentDock.tsx";
+import { readBeatText, writeBeatText } from "../../lib/editor/beat-text.ts";
 
 const TABS_LAYERS: { id: RightTab; label: string }[] = [{ id: "properties", label: "Properties" }, { id: "variables", label: "Variables" }, { id: "review", label: "Review" }, { id: "checks", label: "Checks" }];
 const TABS_CLIPS: { id: RightTab; label: string }[] = [{ id: "properties", label: "Properties" }, { id: "source", label: "Source" }, { id: "variables", label: "Variables" }, { id: "review", label: "Review" }, { id: "checks", label: "Checks" }];
@@ -269,6 +270,34 @@ function ClipProps({ clip }: { clip: Clip }) {
 
 // ---------------------------------------------------------------------------------------------- other tabs
 
+/** The words of a film opened from a storyboard: each frame's keyword and on-screen text, edited in place. */
+function TextTab() {
+  const html = useEditor((s) => s.doc.html);
+  const frames = useMemo(() => readBeatText(html) ?? [], [html]);
+  const [local, setLocal] = useState<Record<string, string>>({});
+  const apply = (key: string, value: string, current: string) => {
+    if (value === current) return;
+    useEditor.getState().edit("Edit text", (d) => { d.html = writeBeatText(d.html, key, value); });
+  };
+  const field = (key: string, label: string, current: string, long = false) => {
+    const value = key in local ? local[key] : current;
+    const props = { "aria-label": label, value, spellCheck: true, onChange: (e: { target: { value: string } }) => setLocal((l) => ({ ...l, [key]: e.target.value })), onKeyDown: (e: { stopPropagation: () => void }) => e.stopPropagation(), onBlur: () => { apply(key, value, current); setLocal((l) => { const { [key]: _gone, ...rest } = l; return rest; }); } };
+    return <label className="ed-textfield"><span>{label}</span>{long ? <textarea rows={2} {...props} /> : <input type="text" {...props} />}</label>;
+  };
+  return (
+    <div className="ed-pad">
+      <p className="ed-note">The words on each frame. Changes apply when you leave a box. The spoken lines are not changed here: they are recorded audio.</p>
+      {frames.map((frame, index) => (
+        <section key={frame.id} className="ed-textframe">
+          <Cap>{`Frame ${index + 1}${frame.role ? ` · ${frame.role}` : ""}`}</Cap>
+          {field(`${frame.id}.keyword`, "Keyword", frame.keyword)}
+          {field(`${frame.id}.on_screen`, "On-screen text", frame.onScreen, true)}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function VariablesTab() {
   const vars = useEditor((s) => s.doc.vars);
   const labels: Record<string, [string, string]> = { headline: ["Headline", "Guided editors can change the headline text."], logo: ["Logo", "Guided editors can swap the logo from their brand kit."], accent: ["Accent colour", "Guided editors can pick another brand colour."] };
@@ -343,7 +372,8 @@ export function Inspector() {
   const s = useEditorState();
   const [filter, setFilter] = useState("");
   const body = useRef<HTMLDivElement>(null);
-  const tabs = s.mode === "clips" ? TABS_CLIPS : TABS_LAYERS;
+  const hasText = s.mode === "clips" && readBeatText(s.doc.html) !== null;
+  const tabs = s.mode === "clips" ? (hasText ? [TABS_CLIPS[0], { id: "text" as RightTab, label: "Text" }, ...TABS_CLIPS.slice(1)] : TABS_CLIPS) : TABS_LAYERS;
   const tab = tabs.some((t) => t.id === s.rightTab) ? s.rightTab : "properties";
   const model = useMemo(() => (s.mode === "clips" ? readClips(s.doc.html) : null), [s.mode, s.doc.html]);
   const layer = s.mode === "layers" ? s.doc.layers.find((l) => l.id === s.sel[0]) : undefined;
@@ -385,8 +415,8 @@ export function Inspector() {
               <div className="ed-ins-head"><b className="ed-name static">#{clip.id}</b><span className="ed-typebadge ed-mono">&lt;{clip.kind === "text" ? "div" : clip.kind === "img" ? "img" : clip.kind === "video" ? "video" : clip.kind === "audio" ? "audio" : "div"}&gt;</span><span className="ed-fileselect ed-mono">index.html</span></div>
               <ClipProps clip={clip} />
             </>
-          ) : <Empty text="Select a clip to edit it." hint="Click a clip on the canvas or timeline." />
-        ) : tab === "variables" ? <VariablesTab /> : tab === "review" ? <ReviewTab /> : tab === "checks" ? <ChecksTab /> : <SourceTab />}
+          ) : <Empty text="Select a clip to edit it." hint={hasText ? "This film's words are in the Text tab." : "Click a clip on the canvas or timeline."} />
+        ) : tab === "text" ? <TextTab /> : tab === "variables" ? <VariablesTab /> : tab === "review" ? <ReviewTab /> : tab === "checks" ? <ChecksTab /> : <SourceTab />}
         </div>
         <AgentDock target={target} />
       </div>

@@ -99,6 +99,53 @@ export async function getMyEntitlements(): Promise<unknown> {
   return response.json();
 }
 
+export type TokenEntry = { id: number; amount: number; kind: string; reason: string; pool: "plan" | "free" | "pack"; projectId: string | null; createdAt: string };
+export type TokenPool = { granted: number; used: number; remaining: number };
+export type TokenSummary = {
+  /** Everything that can be spent now. */
+  remaining: number;
+  /** This month's plan allowance, or null without a paid plan. `used` counts only since the last renewal. */
+  plan: (TokenPool & { since: string }) | null;
+  free: TokenPool;
+  packs: { remaining: number };
+  recent: TokenEntry[];
+};
+
+/** The caller's token balance and recent activity, read from the backend's ledger. */
+export async function getMyTokens(): Promise<TokenSummary> {
+  const response = await apiFetch(apiOrigin + "/v1/me/tokens", { cache: "no-store" });
+  if (!response.ok) throw new Error(`Could not read your tokens (${response.status}).`);
+  const body = await response.json() as Partial<TokenSummary>;
+  if (typeof body.remaining !== "number" || !body.free || !body.packs || !Array.isArray(body.recent)) throw new Error("Unexpected token response.");
+  return body as TokenSummary;
+}
+
+export type Subscription = {
+  tier: "free" | "starter" | "pro" | "business";
+  status: string | null;
+  renewsAt: string | null;
+  endsAt: string | null;
+  cancelAtPeriodEnd: boolean;
+  portalUrl: string | null;
+  updatePaymentUrl: string | null;
+  /** False until the billing provider is configured: buy buttons then say paid plans are not open. */
+  checkoutAvailable: boolean;
+};
+
+export async function getMySubscription(): Promise<Subscription> {
+  const response = await apiFetch(apiOrigin + "/v1/me/subscription", { cache: "no-store" });
+  if (!response.ok) throw new Error(`Could not read your plan (${response.status}).`);
+  return response.json() as Promise<Subscription>;
+}
+
+/** A hosted checkout for a plan or the token pack. The caller sends the browser to the returned link. */
+export async function startCheckout(product: "starter" | "pro" | "business" | "topup"): Promise<string> {
+  const response = await apiFetch(apiOrigin + "/v1/billing/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product }) });
+  const body = (await response.json().catch(() => ({}))) as { url?: string; error?: { message?: string; portalUrl?: string } };
+  if (!response.ok || !body.url) throw new Error(body.error?.message ?? "Could not open checkout.");
+  return body.url;
+}
+
 // ---------- Persisted projects ----------
 
 export async function listProjects() {

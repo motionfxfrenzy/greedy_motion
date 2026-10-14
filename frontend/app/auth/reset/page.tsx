@@ -26,7 +26,7 @@ export default function ResetPassword() {
   };
 
   return (
-    <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#ebf5ff", color: "#0a0d12", padding: "24px" }}>
+    <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "var(--d-bg-ebf5ff)", color: "var(--d-tx-0a0d12)", padding: "24px" }}>
       <form onSubmit={(e) => void submit(e)} style={{ width: "100%", maxWidth: "400px", display: "flex", flexDirection: "column", gap: "14px" }}>
         <h1 style={{ margin: 0, fontWeight: 600, fontSize: "30px", letterSpacing: "-0.03em" }}>Choose a new password</h1>
         <input
@@ -35,10 +35,10 @@ export default function ResetPassword() {
           onChange={(e) => setPassword(e.target.value)}
           placeholder="At least 8 characters"
           autoComplete="new-password"
-          style={{ padding: "13px 16px", border: "1px solid #D6E4F2", borderRadius: "16px", background: "#fafdff", fontSize: "15px", outline: "none" }}
+          style={{ padding: "13px 16px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: "16px", background: "var(--d-bg-fafdff)", fontSize: "15px", outline: "none" }}
         />
-        {error && <span role="alert" style={{ fontSize: "13px", color: "#C2410C" }}>{error}</span>}
-        <button type="submit" disabled={busy} style={{ padding: "14px", border: 0, borderRadius: "9999px", background: "#181d27", color: "#fff", fontSize: "15px", fontWeight: 500, cursor: "pointer" }}>
+        {error && <span role="alert" style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>{error}</span>}
+        <button type="submit" disabled={busy} style={{ padding: "14px", border: 0, borderRadius: "9999px", background: "var(--d-bg-181d27)", color: "var(--d-btn-ink)", fontSize: "15px", fontWeight: 500, cursor: "pointer" }}>
           {busy ? "Saving…" : "Update password"}
         </button>
       </form>
