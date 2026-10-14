@@ -16,11 +16,34 @@ backend and serves the "Coming soon" site. Live resources are listed below; the 
 | What the site shows | Full app | Full app (landing → sign-in → studio) | "Coming soon" (the page exists only on `production`) |
 | Backend | `npm run dev:backend`, `localhost:4000` | Railway project `lively-presence`, environment `staging`, service `backend`, <https://backend-staging-aec6.up.railway.app>, volume `/data` | Same project, environment `production`, service `backend`, **no public domain yet**, volume `/data` |
 | Postgres | Docker `videosaas-local-postgres-1` (Postgres 17), `127.0.0.1:55432` | Supabase `ltaxhznuixoslbbcjkts` (greedymotion-staging), session pooler `aws-0-ap-southeast-1.pooler.supabase.com:5432` | Supabase `bwwquxhexwyodsavsjar` (greedymotion-production), same pooler host |
-| Auth | Supabase **staging** project (the local frontend signs in against staging) | Supabase staging | Supabase production |
+| Auth | Supabase **staging** project today (the local frontend signs in against staging; a startup note says so). Fully local: `supabase start`, see "One environment, one set of services" | Supabase staging | Supabase production |
 | Auth emails | Resend SMTP via Supabase staging | Resend SMTP | Resend SMTP (to confirm) |
 | Render outputs | `var/renders` (filesystem) | R2 (`STORAGE_DRIVER=r2`) | R2 (`STORAGE_DRIVER=r2`) |
 | Other media | `var/` folders | Railway volume `/data` | Railway volume `/data` |
 | Render worker | Docker Compose `worker` | AWS ECS Fargate scripts in `infra/aws/` (deployment state not recorded here) | same |
+
+## One environment, one set of services
+
+`APP_ENV` (backend) and `NEXT_PUBLIC_APP_ENV` (frontend) decide where everything lives, and a mismatch fails at startup instead of
+quietly touching the wrong thing (`backend/src/config.ts`, `frontend/next.config.ts`, tested by `backend/test/env-profiles.mjs`).
+
+| | `local` | `staging` and `production` |
+| --- | --- | --- |
+| Database | the Compose Postgres (`localhost:55432`); a hosted `DATABASE_URL` is refused | the hosted database; a `localhost` one is refused |
+| Media and renders | filesystem (`STORAGE_DRIVER=filesystem`); `r2` is refused | R2 (`STORAGE_DRIVER=r2`); the server's own disk is refused |
+| Render workers | the Compose worker (`WORKER_LAUNCH=external`); `ecs` (paid cloud tasks) is refused | AWS Fargate on demand (`WORKER_LAUNCH=ecs`) |
+| Planner | Claude, or `PLANNER=deterministic` | Claude (`PLANNER=anthropic` is required) |
+| Frontend API | `http://localhost:4000` (a hosted API is flagged) | the hosted backend; a `localhost` API fails the build |
+| AI APIs (Claude, Gemini) | the same hosted APIs everywhere: there is no local model | same |
+
+`ALLOW_CLOUD_IN_LOCAL=1` is the one explicit escape hatch, for debugging local code against a hosted service. The backend logs
+where each service lives at startup (`backend ready`: database host, storage, workers, auth host).
+
+**Auth in local.** The one hosted dependency a laptop may keep is sign-in through the Supabase staging project; the backend warns
+about it at startup. To make auth local too: `supabase start`, then set `SUPABASE_URL=http://127.0.0.1:54321` in `backend/.env` and
+`NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321` plus the local publishable key (printed by `supabase status`) in `frontend/.env.local`.
+Accounts and ownership are per Supabase project, so projects made while signed in through staging belong to those accounts and will
+not show for a new local account.
 
 Branch flow in practice: work lands on `main` (no deploy); `main` is merged into `staging` (deploys staging) and into
 `production` (deploys production, keeping the coming-soon page). Pushes to other branches are skipped by both Vercel

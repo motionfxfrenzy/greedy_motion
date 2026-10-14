@@ -474,4 +474,5 @@ await renderService.startConsumers();
 await startVisualConsumers();
 startWorkerSweep();
 await app.listen({ port: config.port, host: config.host });
-app.log.info({ appEnv: config.appEnv, planner: config.anthropicApiKey ? "anthropic" : "deterministic", planConcurrency: config.planConcurrency }, "backend ready");
+app.log.info({ ...config.environmentSummary, planner: config.anthropicApiKey ? "anthropic" : "deterministic", planConcurrency: config.planConcurrency }, "backend ready");
+if (config.environmentSummary.note) app.log.warn(config.environmentSummary.note);
