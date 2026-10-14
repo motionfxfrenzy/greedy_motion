@@ -519,12 +519,14 @@
   // Every film is different: the variations below (backgrounds, tilt, directions, shapes) come from a seed made of the film's own words.
   var SEED = 0;
   function tySeed() { if (!SEED) SEED = seedOf(BEATS.map(function (b) { return text(b, "keyword"); }).join("|") + "|" + String(V.brandName || "")); return SEED; }
+  // The brand name as a label: a missing or sentence-long name (a project named after its prompt) is not printed as a brand.
+  function tyBrand() { var n = String(V.brandName || "").trim(); return n && n.length <= 24 ? n : ""; }
   var TY_LAST = "";
   function tyKind(i, options) { var k = options[(tySeed() + i) % options.length]; if (k === TY_LAST) k = options[(tySeed() + i + 1) % options.length]; if (k === TY_LAST) k = ["light", "dark", "brand"].filter(function (x) { return x !== TY_LAST; })[(tySeed() + i) % 2]; TY_LAST = k; return k; } // neighbouring beats never share a background
   function tyPool() {
     var seen = {}, out = [];
     BEATS.forEach(function (b) { var k = String(text(b, "keyword") || "").replace(/[.!?]+$/, "").trim().toUpperCase(); if (k && !seen[k]) { seen[k] = 1; out.push(k); } });
-    var n = String(V.brandName || "").trim().toUpperCase(); if (n && !seen[n]) out.push(n);
+    var n = tyBrand().toUpperCase(); if (n && !seen[n]) out.push(n);
     return out.slice(0, 10);
   }
   function tyBg(cam, kind) {
@@ -539,7 +541,7 @@
   function tyOutline(el, ink, w) { el.style.color = "transparent"; el.style.webkitTextStroke = px(w || Math.max(2, H * 0.003)) + " " + ink; }
   function tySlate(cam, i, n, ink, sub, s) {
     var fs = Math.max(16, Math.min(W, H) * 0.02), mono = { position: "absolute", fontFamily: "var(--font-mono, monospace)", fontSize: px(fs), letterSpacing: "0.12em", textTransform: "uppercase", color: ink, opacity: "0.8", whiteSpace: "nowrap" };
-    var tag = free(mk("div", "ty-slate", cam, Object.assign({ left: 0.05 * W, top: 0.05 * H }, mono), String(V.brandName || "").toUpperCase() + "  ·  " + String(i + 1).padStart(2, "0") + " / " + String(n).padStart(2, "0")));
+    var tag = free(mk("div", "ty-slate", cam, Object.assign({ left: 0.05 * W, top: 0.05 * H }, mono), (tyBrand() ? tyBrand().toUpperCase() + "  ·  " : "") + String(i + 1).padStart(2, "0") + " / " + String(n).padStart(2, "0")));
     hide(tag); showAt(tag, s + 0.05);
     if (sub) { var cap = free(mk("div", "ty-cap", cam, Object.assign({ left: 0.05 * W, bottom: 0.06 * H, maxWidth: px(0.7 * W), whiteSpace: "normal" }, mono), sub)); hide(cap); showAt(cap, s + 0.28); tl.fromTo(cap, { y: 14 }, { y: 0, duration: 0.2, ease: "power3.out" }, snap(s + 0.28)); }
   }
@@ -642,7 +644,7 @@
   var TY_SCENES = [typeWall, typeGlitch, typeStack, typeOutline, typeMarquee, typeCounter];
   function typeBeat(i, b, sh, s, e, kwText, onScreen, closing) {
     var kw = String(kwText || "").replace(/[.!?]+$/, "").trim();
-    if (closing) { typeGlitch(sh.cam, i, b, s, e, String(V.brandName || kw), onScreen || kwText); }
+    if (closing) { typeGlitch(sh.cam, i, b, s, e, tyBrand() || kw, tyBrand() ? onScreen || kwText : onScreen); }
     else TY_SCENES[pick(b, TY_IDS, i)](sh.cam, i, b, s, e, kw, onScreen, tyPool());
     push(sh.cam, s, e, W / 2, H / 2, "high");
     return {};

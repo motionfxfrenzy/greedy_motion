@@ -24,6 +24,7 @@
     "check:brand-tokens": "node scripts/check-brand-tokens.mjs",
     "check:creative": "node scripts/check-brand-tokens.mjs && node worker/templates/beat-plan/build.mjs --check && node scripts/build-engine-fixtures.mjs --check && node scripts/check-creative.mjs",
     "skills:check": "node scripts/build-skill-bundle.mjs --check",
+    "test:env": "node backend/test/env-profiles.mjs",
     "verify:scenes": "node --env-file-if-exists=backend/.env scripts/verify-scenes.mjs",
     "styles:build": "node scripts/build-style-library.mjs && node worker/templates/beat-plan/build.mjs && node scripts/build-engine-fixtures.mjs",
     "styles:check": "node scripts/build-style-library.mjs --check && node worker/templates/beat-plan/build.mjs --check && node scripts/build-engine-fixtures.mjs --check && node backend/test/styles.mjs",

@@ -296,6 +296,7 @@ export type PlanVoiceLine = {
   seconds: number;
   /** Word times relative to the start of the take. */
   words: PlanVoiceWord[];
+  /** "whisper": word times heard in the audio (Whisper where installed, else Gemini); "estimate": spread inside the measured line. */
   aligned: "whisper" | "estimate";
 };
 
