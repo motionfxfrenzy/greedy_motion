@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultVoice, paceWpm, voiceIds, voiceText, type Pace, type PlanVoiceLine, type PlanVoiceWord, type VideoProject } from "@videosaas/contracts";
+import { config } from "../config.ts";
 import { synthesizeVoiceover, TTS_MODEL } from "../audio/gemini-tts.ts";
 import { joinWithGaps, pcmSeconds, readWav, trimSilence, writeWav, type Pcm } from "./pcm.ts";
 import { estimateLineSeconds } from "./timing.ts";
@@ -13,7 +14,7 @@ import { readMedia, saveMedia } from "../media.ts";
 /**
  * The plan's voiceover: one Gemini TTS take per beat line, so each line is measured on its own and
  * an edit re-voices only that line (takes are cached by text, voice, direction and pace). Every take
- * is trimmed to its spoken length; one Whisper pass over all takes gives word times, which put the
+ * is trimmed to its spoken length; one pass over all takes (Whisper where installed, else Gemini listening to the audio) gives word times, which put the
  * cursor's press on the verb and time the captions. Without Whisper (the backend image ships no
  * whisper.cpp) word times are estimated inside the measured length.
  */
@@ -173,21 +174,66 @@ export function alignWords(text: string, heard: Heard[], seconds: number): PlanV
 const repositoryDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const hyperframesBin = process.env.HYPERFRAMES_BIN ?? resolve(repositoryDir, "worker/node_modules/.bin/hyperframes");
 
-/** One Whisper pass (HyperFrames CLI, small.en) over all takes; null when Whisper is unavailable or fails. */
+export const alignModel = process.env.VOICE_ALIGN_MODEL || "gemini-2.5-flash";
+
+/**
+ * Word times from the audio itself, for a server with no Whisper: Gemini listens to all the takes (joined with the same gaps)
+ * and reports each word with its start and end in seconds. Its times are approximate, so they are checked (finite, in order,
+ * inside the audio) before use, and `alignWords` anchors the line's own words on them; anything off falls back to the estimate.
+ */
+async function heardByGemini(wav: Buffer, total: number): Promise<Heard[] | null> {
+  if (!config.geminiApiKey) return null;
+  const prompt = [
+    "Transcribe this narration word by word with the time each word starts and ends, in seconds from the start of the audio (decimals, e.g. 1.24).",
+    "There are short silences between sentences. Reply with a JSON array only, no prose: [{\"text\": string, \"start\": number, \"end\": number}].",
+    "Write the words exactly as spoken. Never invent words that are not in the audio."
+  ].join("\n");
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${alignModel}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": config.geminiApiKey },
+    signal: AbortSignal.timeout(Math.max(30_000, total * 3000)),
+    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "audio/wav", data: wav.toString("base64") } }] }], generationConfig: { temperature: 0, responseMimeType: "application/json" } })
+  });
+  if (!response.ok) return null;
+  const payload = (await response.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const raw = (payload.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? "").join("");
+  let list: unknown;
+  try { list = JSON.parse(/\[[\s\S]*\]/.exec(raw)?.[0] ?? "null"); } catch { return null; }
+  if (!Array.isArray(list) || !list.length) return null;
+  const words: Heard[] = [];
+  for (const item of list as { text?: unknown; start?: unknown; end?: unknown }[]) {
+    const start = Number(item?.start), end = Number(item?.end);
+    if (typeof item?.text !== "string" || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end > total + 1) return null;
+    words.push({ text: item.text, start, end });
+  }
+  // Times must run forward (a little jitter is allowed); a scrambled answer is not trusted.
+  for (let i = 1; i < words.length; i++) if (words[i].start + 0.3 < words[i - 1].start) return null;
+  return words;
+}
+
+/** Word times for each take: one pass over all of them, by Whisper where it is installed, else by Gemini; null when neither works. */
 async function transcribeTakes(takes: Take[]): Promise<Heard[][] | null> {
-  if (!takes.length || !(await exists(hyperframesBin))) return null;
+  if (!takes.length) return null;
   const work = await mkdtemp(join(tmpdir(), "plan-vo-"));
   try {
     const { pcm, offsets } = joinWithGaps(takes.map((take) => take.pcm), VOICE_RULES.alignGap);
-    await writeFile(join(work, "all.wav"), writeWav(pcm));
-    const timeout = Math.max(30_000, pcmSeconds(pcm) * 4000);
-    await new Promise<void>((done, fail) => {
-      execFile(hyperframesBin, ["transcribe", join(work, "all.wav"), "--json", "-m", "small.en", "-l", "en", "-d", work], { timeout, maxBuffer: 4 << 20 }, (error) => (error ? fail(error) : done()));
-    });
-    const heard = JSON.parse(await readFile(join(work, "transcript.json"), "utf8")) as Heard[];
-    if (!Array.isArray(heard)) return null;
+    const wav = writeWav(pcm);
+    let heard: Heard[] | null = null;
+    if (await exists(hyperframesBin)) {
+      try {
+        await writeFile(join(work, "all.wav"), wav);
+        const timeout = Math.max(30_000, pcmSeconds(pcm) * 4000);
+        await new Promise<void>((done, fail) => {
+          execFile(hyperframesBin, ["transcribe", join(work, "all.wav"), "--json", "-m", "small.en", "-l", "en", "-d", work], { timeout, maxBuffer: 4 << 20 }, (error) => (error ? fail(error) : done()));
+        });
+        const parsed = JSON.parse(await readFile(join(work, "transcript.json"), "utf8")) as Heard[];
+        if (Array.isArray(parsed)) heard = parsed;
+      } catch { heard = null; }
+    }
+    if (!heard) heard = await heardByGemini(wav, pcmSeconds(pcm)).catch(() => null);
+    if (!heard) return null;
     const half = VOICE_RULES.alignGap / 2;
-    return takes.map((take, i) => heard
+    return takes.map((take, i) => heard!
       .filter((word) => typeof word.start === "number" && typeof word.end === "number" && (word.start + word.end) / 2 >= offsets[i] - half && (word.start + word.end) / 2 < offsets[i] + take.seconds + half)
       .map((word) => ({ text: String(word.text), start: word.start - offsets[i], end: word.end - offsets[i] })));
   } catch {
