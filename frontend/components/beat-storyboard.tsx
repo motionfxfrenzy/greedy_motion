@@ -49,9 +49,9 @@ function luminanceOf(hex: string): number {
   return 0.2126 * c(0) + 0.7152 * c(2) + 0.0722 * c(4);
 }
 const contrastOf = (a: string, b: string) => { const x = luminanceOf(a), y = luminanceOf(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-/** The emphasis colour on a given ground, as the film chooses it: the kit's accent, then the brand colour, whichever stays readable; else the ink. */
+/** The emphasis colour on a given ground, as the film chooses it: the kit's primary (brand) colour where it stays readable, else the ink. */
 function accentOn(look: FrameLook, ground: string, ink: string): string {
-  return [look.accent, look.brand].find((colour) => colour && /^#/.test(colour) && contrastOf(colour, ground) >= 3) ?? ink;
+  return [look.brand].find((colour) => colour && /^#/.test(colour) && contrastOf(colour, ground) >= 3) ?? ink;
 }
 /** The typography showreel's scenes as stills: the same colours the film uses for each scene. */
 function typeStill(index: number, look: FrameLook, sceneId?: string | null): { background: string; color: string; scene: string } {

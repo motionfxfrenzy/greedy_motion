@@ -59,7 +59,7 @@
     "--bp-accent": firstOk(["--accent", "--brand"], "--bg", 3) || best(["--fg", "--accent"], "--bg"),
     "--bp-accent-on-brand": (tok("--accent") !== tok("--brand") && firstOk(["--accent", "--accent-2"], "--brand", 3)) || ON_BRAND,
     "--bp-muted": firstOk(["--muted"], "--bg", 4.5) || "--fg",
-    "--bp-accent-on-dark": firstOk(["--accent", "--brand"], SHADE, 3) || "--bg",
+    "--bp-accent-on-dark": firstOk(["--brand"], SHADE, 3) || "--bg",
     "--bp-card": CARD,
     "--bp-on-card": best(["--fg", "--bg", "--surface"], CARD),
     "--bp-shade": SHADE,
@@ -533,7 +533,8 @@
     var bg = kind === "dark" ? "var(--bp-shade)" : kind === "brand" ? "var(--brand)" : "var(--bg)";
     var ink = kind === "dark" ? "var(--bg)" : kind === "brand" ? "var(--bp-on-brand)" : "var(--fg)";
     free(mk("div", "ty-bg", cam, { position: "absolute", left: -0.12 * W, top: -0.12 * H, width: 1.24 * W, height: 1.24 * H, background: bg }));
-    return { ink: ink, accent: kind === "brand" ? "var(--bp-accent-on-brand)" : kind === "dark" ? "var(--bp-accent-on-dark)" : "var(--bp-accent)" };
+    // Typography films mark emphasis in the kit's primary colour only (not its accent): on a light ground the brand colour itself, on a dark one the brand colour if it reads there, on the brand field the ink.
+    return { ink: ink, accent: kind === "brand" ? ink : kind === "dark" ? "var(--bp-accent-on-dark)" : "var(--brand)" };
   }
   function tyText(parent, str, fs, color, css) {
     return free(mk("div", "ty-t", parent, Object.assign({ position: "relative", whiteSpace: "nowrap", fontFamily: "var(--font-display)", fontWeight: "900", textTransform: "uppercase", letterSpacing: "-0.025em", lineHeight: "0.9", fontSize: px(fs), color: color }, css || {}), str));
