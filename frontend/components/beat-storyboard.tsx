@@ -8,7 +8,7 @@ import { rewriteFrame, editPlan, ensureMediaToken, generatePlanAudio, getComposi
 import { MaterialGeneration } from "./material-generation";
 
 /** Colours and type the frame cards are drawn with: the brand kit's, or the gallery theme's. */
-export type FrameLook = { bg: string; fg: string; muted: string; brand: string; font: string };
+export type FrameLook = { bg: string; fg: string; muted: string; brand: string; font: string; /** The kit's accent colour (emphasis marks); falls back to the brand colour. */ accent?: string };
 
 type TextField = "keyword" | "on_screen" | "line";
 const roleLabel: Record<Beat["role"], string> = { hook: "Hook", problem: "Problem", reveal: "Reveal", feature: "Feature", proof: "Proof", success: "Success", cta: "Call to action" };
@@ -42,6 +42,17 @@ function inkOn(hex: string): string {
   const c = (i: number) => { const v = parseInt(m[1]!.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
   return 0.2126 * c(0) + 0.7152 * c(2) + 0.0722 * c(4) > 0.45 ? "#0a0d12" : "#fff";
 }
+function luminanceOf(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 0.5;
+  const c = (i: number) => { const v = parseInt(m[1]!.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * c(0) + 0.7152 * c(2) + 0.0722 * c(4);
+}
+const contrastOf = (a: string, b: string) => { const x = luminanceOf(a), y = luminanceOf(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+/** The emphasis colour on a given ground, as the film chooses it: the kit's primary (brand) colour where it stays readable, else the ink. */
+function accentOn(look: FrameLook, ground: string, ink: string): string {
+  return [look.brand].find((colour) => colour && /^#/.test(colour) && contrastOf(colour, ground) >= 3) ?? ink;
+}
 /** The typography showreel's scenes as stills: the same colours the film uses for each scene. */
 function typeStill(index: number, look: FrameLook, sceneId?: string | null): { background: string; color: string; scene: string } {
   const scene = sceneId || ["wall", "glitch", "stack", "outline", "marquee", "counter"][index % 6]!;
@@ -51,11 +62,18 @@ function typeStill(index: number, look: FrameLook, sceneId?: string | null): { b
 }
 export function FrameCard({ beat, index, canvas, look, lookId, screenshot, family }: { beat: Beat; index: number; canvas: string; look: FrameLook; lookId: string; screenshot?: string; family?: string }) {
   if (family === "clean-type" && !(beat.kind === "ui" && screenshot)) {
-    const t = typeStill(index, look, beat.scene), words = plain(beat.keyword).trim();
+    const t = typeStill(index, look, beat.scene), words = plain(beat.keyword).trim(), accent = accentOn(look, t.background, t.color);
+    const parts = words.split(/\s+/), last = parts.pop() ?? "";
+    const outline = t.scene === "outline" ? { WebkitTextStroke: "1.5px " + t.color, color: "transparent", backgroundImage: `linear-gradient(90deg, ${accent} 58%, transparent 58%)`, WebkitBackgroundClip: "text", backgroundClip: "text" } as React.CSSProperties : undefined;
     return <div className={"frame-card frame-type frame-type-" + t.scene + " " + (canvas === "9:16" ? "portrait" : canvas === "1:1" ? "square" : "landscape")} style={{ background: t.background, color: t.color, fontFamily: look.font }}>
       <span className="frame-index" style={{ color: t.color, opacity: 0.7 }}>{String(index + 1).padStart(2, "0")}</span>
       {t.scene === "wall" && <span className="frame-wall" aria-hidden="true" style={{ color: t.color }}>{Array.from({ length: 5 }, () => words.toUpperCase() + " • ").join("")}</span>}
-      <div className="frame-copy"><strong style={t.scene === "outline" ? { WebkitTextStroke: "1.5px " + t.color, color: "transparent" } : undefined}>{words}</strong>{beat.on_screen && <small style={{ color: t.color, opacity: 0.75 }}>{plain(beat.on_screen)}</small>}</div>
+      <div className="frame-copy">
+        <strong style={outline}>{t.scene === "stack" || t.scene === "wall" || t.scene === "marquee" ? <>{parts.join(" ")}{parts.length ? " " : ""}<em style={{ color: accent, fontStyle: "normal" }}>{last}</em></> : words}</strong>
+        {t.scene === "glitch" && <i className="frame-bar" style={{ background: accent }} />}
+        {beat.on_screen && <small style={{ color: t.color, opacity: 0.75 }}>{plain(beat.on_screen)}</small>}
+      </div>
+      {t.scene === "glitch" && <i className="frame-dot" style={{ background: accent }} />}
     </div>;
   }
   const parts = plain(beat.keyword).trim().split(/\s+/);

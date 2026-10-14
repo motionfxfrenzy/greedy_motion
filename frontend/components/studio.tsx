@@ -58,7 +58,7 @@ function readableOnBrand(hex: string): "#fff" | "#0a0d12" {
 function lookFor(brief: ScriptBrief, brands: BrandKit[]): FrameLook {
   const kit = brands.find((brand) => brand.id === brief.brandId);
   const tokens = kit ? deriveBrandTheme(kit).theme.tokens : (findTheme(brief.theme ?? "neutral") ?? themes[0]!).tokens;
-  return { bg: tokens.bg, fg: tokens.fg, muted: tokens.muted, brand: tokens.brand, font: tokens.fontDisplay };
+  return { bg: tokens.bg, fg: tokens.fg, muted: tokens.muted, brand: tokens.brand, accent: tokens.accent, font: tokens.fontDisplay };
 }
 
 /** What the person chose on Script & style is kept per project (or per unsaved draft) in this browser, so leaving and coming back by URL restores it. */

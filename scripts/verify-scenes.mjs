@@ -86,7 +86,7 @@ async function renderPlan({ plan, look, family, brand, brandName, seconds, label
     await cp(join(root, "node_modules/gsap/dist/gsap.min.js"), join(dir, "vendor/gsap.min.js"));
     await cp(join(root, "worker/fonts"), join(dir, "fonts"), { recursive: true });
     const values = { ...(plan.enginePlan ? { plan: JSON.stringify(plan.enginePlan) } : {}), brandName, logo: "", logoWordmark: false, look, family: family ?? "" };
-    const themeCss = (await readFile(join(root, "worker/themes/neutral.css"), "utf8")) + `\n:root{--brand:${brand};--accent:${brand};}`;
+    const themeCss = (await readFile(join(root, "worker/themes/neutral.css"), "utf8")) + `\n:root{--brand:${brand};--accent:${process.env.VERIFY_ACCENT ?? brand};}`;
     let html = declareVariables(template, values, { asDefaults: true });
     html = html.replace("</head>", () => `  <style id="fonts">\n${fontCss}\n  </style>\n  <style id="theme">\n${themeCss}\n  </style>\n</head>`);
     await writeFile(join(dir, "index.html"), html);
