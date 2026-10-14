@@ -567,3 +567,4 @@ dialog[open] { overscroll-behavior: contain; }
 .frame-wall{position:absolute;left:-10%;top:12%;width:140%;font-weight:900;text-transform:uppercase;font-size:34px;line-height:1.05;letter-spacing:-.02em;white-space:normal;transform:rotate(-8deg);opacity:.13;pointer-events:none;word-break:break-all}
 .frame-type-stack strong::after{content:"";display:inline-block;width:.5em;height:.5em;border:.12em solid currentColor;border-radius:50%;margin-left:.3em;vertical-align:.1em}
 .frame-type-glitch strong{text-shadow:3px 0 var(--brand-fill,transparent)}
+.frame-type .frame-bar{display:block;width:46%;height:5px;margin-top:8px;border-radius:2px}.frame-type .frame-dot{position:absolute;right:7%;top:12%;width:10px;height:10px;border-radius:50%}
