@@ -22,6 +22,7 @@
     "test:cloud-skills": "node test/cloud-skills.mjs",
     "test:script-rules": "node test/script-rules.mjs",
     "test:worker-launcher": "node test/worker-launcher.mjs",
+    "test:queue-notify": "node --env-file-if-exists=.env test/queue-notify.mjs",
     "test:entitlements-eval": "node test/entitlements-eval.mjs",
     "test:billing": "node --env-file-if-exists=.env test/billing.mjs",
     "test:tokens": "node --env-file-if-exists=.env test/tokens.mjs",
