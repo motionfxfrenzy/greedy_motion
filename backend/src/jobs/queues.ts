@@ -25,20 +25,25 @@ export type RenderMessage = { jobId: string };
 
 const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   // Dead-letter queues first: a queue can only name a dead-letter queue that already exists.
-  { name: QUEUES.visualsDead, retryLimit: 0 },
+  { name: QUEUES.visualsDead, notify: true, retryLimit: 0 },
   // Wait past the application's five-minute ownership lease after a worker crash.
-  { name: QUEUES.visuals, retryLimit: 2, retryDelay: 310, expireInSeconds: 3600, heartbeatSeconds: 30, deadLetter: QUEUES.visualsDead },
-  { name: QUEUES.planDead, retryLimit: 0 },
-  { name: QUEUES.videoDead, retryLimit: 0 },
+  { name: QUEUES.visuals, notify: true, retryLimit: 2, retryDelay: 310, expireInSeconds: 3600, heartbeatSeconds: 30, deadLetter: QUEUES.visualsDead },
+  { name: QUEUES.planDead, notify: true, retryLimit: 0 },
+  { name: QUEUES.videoDead, notify: true, retryLimit: 0 },
   // Planning calls Claude and the audio APIs; one retry covers a transient API error without
   // paying for repeated failures. A missed heartbeat (backend crashed) also triggers the retry.
-  { name: QUEUES.plan, retryLimit: 1, retryDelay: 5, expireInSeconds: 600, heartbeatSeconds: 30, deadLetter: QUEUES.planDead },
+  { name: QUEUES.plan, notify: true, retryLimit: 1, retryDelay: 5, expireInSeconds: 600, heartbeatSeconds: 30, deadLetter: QUEUES.planDead },
   // Rendering: heartbeats detect a dead worker within ~30 s; the expiry bounds a hung render.
-  { name: QUEUES.video, retryLimit: config.renderRetries, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: config.renderTimeoutSeconds, heartbeatSeconds: 30, deadLetter: QUEUES.videoDead },
-  { name: QUEUES.finished, retryLimit: 5, retryDelay: 2, retryBackoff: true }
+  { name: QUEUES.video, notify: true, retryLimit: config.renderRetries, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: config.renderTimeoutSeconds, heartbeatSeconds: 30, deadLetter: QUEUES.videoDead },
+  { name: QUEUES.finished, notify: true, retryLimit: 5, retryDelay: 2, retryBackoff: true }
 ];
 
-export const boss = new PgBoss({ connectionString: config.databaseUrl, max: 4 });
+// Workers on a notify-enabled queue are woken by LISTEN/NOTIFY the moment a job is sent, and fall back to a slow (30 s) backstop poll. Without this every
+// worker slot polls every 2 s forever: about 5 polls a second from one backend, which was most of the database egress of an idle project (the Supabase
+// free-plan egress overrun of October 2026). It needs a session-pinned connection (the Supabase session pooler or a direct URL, not the transaction
+// pooler); if LISTEN cannot be established pg-boss warns and keeps polling every 2 s, so a bad URL costs egress, never jobs.
+export const boss = new PgBoss({ connectionString: config.databaseUrl, max: 4, useListenNotify: true });
+boss.on("warning", (warning) => console.warn(JSON.stringify({ level: "warn", event: "queue_warning", message: warning.message })));
 boss.on("error", (error) => console.error(JSON.stringify({ level: "error", event: "queue_error", message: error.message })));
 
 /** Starts pg-boss (installing or migrating its schema) and creates or updates the queues. */
