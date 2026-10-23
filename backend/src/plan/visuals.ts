@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { getLook, type VideoProject, type PlanVisuals, type VisualAsset } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { query } from "../db/database.ts";
-import { boss, QUEUES } from "../jobs/queues.ts";
+import { boss, POLL, QUEUES } from "../jobs/queues.ts";
 import { readMedia, saveMedia } from "../media.ts";
 import { getProject, updateProjectVisuals } from "../projects/store.ts";
 import { googleVisualProvider, validateVideo, VisualProviderTerminalError, type VisualProvider } from "./visual-provider.ts";
@@ -161,8 +161,8 @@ export async function produceVisuals(id: string, runId: string, provider?: Visua
   }
 }
 export async function startVisualConsumers() {
-  await boss.work<{ projectId: string; runId: string }>(QUEUES.visuals, { batchSize: 1 }, async jobs => { for (const job of jobs) await produceVisuals(job.data.projectId, job.data.runId, undefined, { ...dependencies, signal: job.signal }); });
-  await boss.work<{ projectId: string; runId: string }>(QUEUES.visualsDead, { batchSize: 1 }, async jobs => {
+  await boss.work<{ projectId: string; runId: string }>(QUEUES.visuals, { batchSize: 1, pollingIntervalSeconds: POLL.live }, async jobs => { for (const job of jobs) await produceVisuals(job.data.projectId, job.data.runId, undefined, { ...dependencies, signal: job.signal }); });
+  await boss.work<{ projectId: string; runId: string }>(QUEUES.visualsDead, { batchSize: 1, pollingIntervalSeconds: POLL.dead }, async jobs => {
     for (const { data } of jobs) await updateProjectVisuals(data.projectId, p => p.planVisuals?.runId === data.runId && p.planVisuals.status !== "ready" && (!p.planVisuals.worker || p.planVisuals.worker.expiresAt <= Date.now()) ? { ...p.planVisuals, worker: undefined, status: "failed", error: p.planVisuals.error ?? "Generation worker interrupted. Retry to resume saved operations." } : p.planVisuals);
   });
 }

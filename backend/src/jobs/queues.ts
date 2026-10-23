@@ -38,11 +38,23 @@ const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   { name: QUEUES.finished, notify: true, retryLimit: 5, retryDelay: 2, retryBackoff: true }
 ];
 
-// Workers on a notify-enabled queue are woken by LISTEN/NOTIFY the moment a job is sent, and fall back to a slow (30 s) backstop poll. Without this every
-// worker slot polls every 2 s forever: about 5 polls a second from one backend, which was most of the database egress of an idle project (the Supabase
-// free-plan egress overrun of October 2026). It needs a session-pinned connection (the Supabase session pooler or a direct URL, not the transaction
-// pooler); if LISTEN cannot be established pg-boss warns and keeps polling every 2 s, so a bad URL costs egress, never jobs.
-export const boss = new PgBoss({ connectionString: config.databaseUrl, max: 4, useListenNotify: true });
+/**
+ * Keep pg-boss quiet when nothing is happening. The database is billed by egress and an idle project was sending about 5 GB a month, all of it pg-boss
+ * housekeeping (October 2026: 7.3 million job fetches, 318 thousand queue-list reads, 53 thousand heartbeats). What each line removes:
+ *  - useListenNotify + `notify` on every queue: a worker is woken the moment a job is sent and falls back to a 30 s backstop poll (it was every 2 s,
+ *    for ten pollers). Needs a session-pinned connection (a direct URL or the Supabase session pooler, never the transaction pooler); if LISTEN cannot be
+ *    established pg-boss warns and polls at POLL.live, so a wrong URL costs egress, never jobs.
+ *  - flowIntervalSeconds: the job-dependency resolver ran every 5 s and listed every queue each time (the biggest read). We use no dependent jobs.
+ *  - schedule: false: the cron clock polled every few seconds. We use no cron jobs.
+ *  - registerInstance: false: a heartbeat row written every 30 s, only a monitoring registry.
+ *  - bamIntervalSeconds, queueCacheIntervalSeconds: background schema migrations and the queue list refresh, both needed rarely.
+ *  - idleTimeoutMillis: pg closes an idle connection after 10 s by default; with slow polls that meant a new connection (and a pooler auth lookup) every
+ *    poll. Keep them for two minutes.
+ * supervise stays on: it expires stuck jobs, retries after a missed heartbeat and archives, once a minute.
+ */
+export const POLL = { live: 5, dead: 30 } as const;
+export const quietBoss = { useListenNotify: true, schedule: false, registerInstance: false, flowIntervalSeconds: 3600, bamIntervalSeconds: 600, queueCacheIntervalSeconds: 300, idleTimeoutMillis: 120_000 } as const;
+export const boss = new PgBoss({ connectionString: config.databaseUrl, max: 4, ...quietBoss });
 boss.on("warning", (warning) => console.warn(JSON.stringify({ level: "warn", event: "queue_warning", message: warning.message })));
 boss.on("error", (error) => console.error(JSON.stringify({ level: "error", event: "queue_error", message: error.message })));
 
