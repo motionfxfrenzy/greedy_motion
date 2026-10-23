@@ -8,7 +8,7 @@ import { renderJobRepository } from "./repository.ts";
 import { getBrand } from "../brand/store.ts";
 import { produceAudio, type WorkerAudio } from "../audio/produce.ts";
 import { getProject, updateProject } from "../projects/store.ts";
-import { boss, QUEUES, type RenderMessage } from "../jobs/queues.ts";
+import { boss, POLL, QUEUES, type RenderMessage } from "../jobs/queues.ts";
 import { projectTiming } from "../plan/preview.ts";
 import { beatTimes } from "../plan/timing.ts";
 
@@ -133,10 +133,10 @@ export class RenderService {
 
   /** Registers this replica's consumers. Safe to run on every backend replica. */
   async startConsumers() {
-    await boss.work<RenderMessage>(QUEUES.plan, { localConcurrency: config.planConcurrency }, async ([job]) => this.plan(job!));
-    await boss.work<RenderMessage>(QUEUES.finished, { localConcurrency: 2 }, async ([job]) => this.syncProject(job!.data.jobId));
-    await boss.work<RenderMessage>(QUEUES.planDead, async ([job]) => this.failForGood(job!.data.jobId, { code: "planning_failed", message: "We could not plan this video. Check the brief and brand kit, then render again." }, true));
-    await boss.work<RenderMessage>(QUEUES.videoDead, async ([job]) => this.failForGood(job!.data.jobId, { code: "render_failed", message: `We could not render this video after ${config.renderRetries + 1} attempts. Render again; if it keeps failing, the worker log for this job has the details.` }, false));
+    await boss.work<RenderMessage>(QUEUES.plan, { localConcurrency: config.planConcurrency, pollingIntervalSeconds: POLL.live }, async ([job]) => this.plan(job!));
+    await boss.work<RenderMessage>(QUEUES.finished, { localConcurrency: 2, pollingIntervalSeconds: POLL.live }, async ([job]) => this.syncProject(job!.data.jobId));
+    await boss.work<RenderMessage>(QUEUES.planDead, { pollingIntervalSeconds: POLL.dead }, async ([job]) => this.failForGood(job!.data.jobId, { code: "planning_failed", message: "We could not plan this video. Check the brief and brand kit, then render again." }, true));
+    await boss.work<RenderMessage>(QUEUES.videoDead, { pollingIntervalSeconds: POLL.dead }, async ([job]) => this.failForGood(job!.data.jobId, { code: "render_failed", message: `We could not render this video after ${config.renderRetries + 1} attempts. Render again; if it keeps failing, the worker log for this job has the details.` }, false));
   }
 
   /** Planning consumer: storyboard, audio, worker input. Throwing schedules a pg-boss retry. */
