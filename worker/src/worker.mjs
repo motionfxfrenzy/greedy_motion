@@ -283,7 +283,7 @@ async function startConsuming() {
 function watchIdle() {
   const timer = setInterval(async () => {
     if (shuttingDown || active > 0 || Date.now() - lastBusy < idleExitSeconds * 1000) return;
-    const [stats] = await boss.getQueueStats(QUEUES.video).catch(() => []);
+    const [stats] = await boss.getQueueStats(QUEUES.video, { force: true }).catch(() => []);
     // Unknown queue state: stay up rather than strand a job; the next tick asks again.
     if (!stats) return;
     if (stats.queuedCount + stats.activeCount > 0) { lastBusy = Date.now(); return; }
