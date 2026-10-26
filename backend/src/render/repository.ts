@@ -93,7 +93,7 @@ export const renderJobRepository = {
     } finally {
       client.release();
     }
-    void kickWorkers();
+    void kickWorkers(true);
     return { ...job, state: "rendering" as const, stage: "waiting" as const, progress: 45 };
   },
 
@@ -118,7 +118,7 @@ export const renderJobRepository = {
     } finally {
       client.release();
     }
-    void kickWorkers();
+    void kickWorkers(true);
     return { ...job, state: "rendering" as const, stage: "waiting" as const, progress: 45 };
   },
 
@@ -179,7 +179,7 @@ export const renderJobRepository = {
       );
       if (moved.rowCount === 1) await boss.send(QUEUES.video, { jobId: id }, { db: inTransaction(client) });
       await client.query("commit");
-      if (moved.rowCount === 1) void kickWorkers();
+      if (moved.rowCount === 1) void kickWorkers(true);
       return moved.rowCount === 1;
     } catch (error) {
       await client.query("rollback");

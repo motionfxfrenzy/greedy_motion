@@ -12,6 +12,7 @@
 import { ECSClient, ListTasksCommand, RunTaskCommand, type RunTaskCommandInput } from "@aws-sdk/client-ecs";
 import { config } from "../config.ts";
 import { QUEUES, boss } from "./queues.ts";
+import { createDemand } from "./demand.ts";
 import { startSweep } from "./sweep.ts";
 
 const launch = config.workerLaunch.mode === "ecs" ? config.workerLaunch : null;
@@ -51,10 +52,12 @@ async function runTasks(count: number) {
 
 /** Render jobs waiting or running at the last check; the sweep slows down while this is 0. */
 let lastDemand = 0;
+const recent = createDemand();
 
 async function ensure() {
-  const [stats] = await boss.getQueueStats(QUEUES.video);
-  const demand = (stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0);
+  // force: recount instead of reading the cache (which can be an hour old); kicks cover the last minute that a recount may reuse.
+  const [stats] = await boss.getQueueStats(QUEUES.video, { force: true });
+  const demand = recent.count((stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0));
   lastDemand = demand;
   if (demand === 0) return;
   const listed = await client!.send(new ListTasksCommand({ cluster: launch!.cluster, family, desiredStatus: "RUNNING" }));
@@ -68,9 +71,10 @@ async function ensure() {
 let inFlight: Promise<void> | null = null;
 let again = false;
 
-/** Makes sure enough workers exist for the render queue. Safe to call often; never throws. */
-export function kickWorkers(): Promise<void> {
+/** Makes sure enough workers exist for the render queue. Safe to call often; never throws. Pass true right after queueing a job. */
+export function kickWorkers(queuedJob = false): Promise<void> {
   if (!launch) return Promise.resolve();
+  if (queuedJob) recent.kick();
   if (inFlight) {
     again = true;
     return inFlight;
