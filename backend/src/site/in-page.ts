@@ -2,7 +2,7 @@
 // Functions serialised into the captured page by Puppeteer (page.evaluate): they run in the browser,
 // not in Node, so they may only use their arguments and browser globals.
 
-export type PageFacts = { title: string; description: string; facts: string[]; text: string; colors: string[]; sections: { index: number; top: number; height: number; heading: string }[] };
+export type PageFacts = { title: string; description: string; facts: string[]; text: string; colors: string[]; images: { url: string; alt: string }[]; sections: { index: number; top: number; height: number; heading: string }[] };
 
 /** Runs in the page: facts from the rendered DOM, overlays hidden, section boxes marked. */
 export function inPage(rules: { factsMax: number; textMax: number; minH: number; maxShots: number }): PageFacts {
@@ -40,10 +40,22 @@ export function inPage(rules: { factsMax: number; textMax: number; minH: number;
     .map((el) => { const r = el.getBoundingClientRect(); return { el, top: Math.round(r.top + scrollY), height: Math.round(r.height), width: r.width }; })
     .filter((c) => c.width >= W * 0.7 && c.height >= rules.minH && c.height <= 3200)
     .sort((a, b) => a.top - b.top || b.height - a.height);
+  // Not worth a screenshot: legal text, footers, cookie and newsletter bands, sign-up and contact forms, link lists.
+  const legal = /\b(terms|conditions|privacy|policy|policies|cookie|cookies|legal|copyright|disclaimer|newsletter|subscribe|unsubscribe|sitemap|careers|all rights reserved|©)\b/i;
+  const boring = (el: HTMLElement) => {
+    if (el.tagName === "FOOTER" || el.closest("footer")) return true;
+    if (/footer|legal|cookie|newsletter|subscribe|terms|privacy|disclaimer|sitemap/i.test(`${el.id} ${el.className && typeof el.className === "string" ? el.className : ""}`)) return true;
+    const text = clean(el.innerText || "");
+    if (legal.test(clean(el.querySelector("h1, h2, h3")?.textContent || "")) || (text.length > 200 && (text.match(new RegExp(legal.source, "gi")) ?? []).length >= 3)) return true;
+    // A band of plain links (or almost no content: no picture and little text) is navigation, not a section of the product.
+    const links = el.querySelectorAll("a").length, pics = el.querySelectorAll("img, picture, video, canvas, svg").length;
+    return (links >= 12 && text.length / Math.max(links, 1) < 24 && pics < 3) || (pics === 0 && text.length < 60);
+  };
   const picked: typeof candidates = [];
   let bottom = 0;
   for (const c of candidates) {
     if (c.top < bottom - 24) continue;
+    if (boring(c.el)) continue;
     const heading = c.el.querySelector("h1, h2, h3");
     if (!heading && picked.length > 0) continue;
     picked.push(c);
@@ -66,6 +78,8 @@ export function inPage(rules: { factsMax: number; textMax: number; minH: number;
     const sat = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
     if (sat < 0.3 || l < 0.12 || l > 0.9) return;
     const hex = "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+    // The browser's own link colours (unstyled <a>) are not the brand; every unstyled link would otherwise vote for blue.
+    if (hex === "#0000ee" || hex === "#551a8b") return;
     tally.set(hex, (tally.get(hex) ?? 0) + weight * (l > 0.78 ? 0.2 : 1));
   };
   for (const el of Array.from(document.querySelectorAll<HTMLElement>("button, a, [role='button'], [class*='btn' i], [class*='button' i]")).slice(0, 400)) {
@@ -82,8 +96,25 @@ export function inPage(rules: { factsMax: number; textMax: number; minH: number;
   }
   for (const el of Array.from(document.querySelectorAll<HTMLElement>("h1 *, h2 *, mark, [class*='accent' i], [class*='highlight' i]")).slice(0, 300)) add(getComputedStyle(el).color, 2);
   const colors = [...tally.entries()].sort((a, b) => b[1] - a[1]).map(([hex]) => hex).slice(0, 8);
+  // Pictures that show the product: large, in the page's own content (not the header, footer or a nav), not logos, icons,
+  // badges, avatars or tracking pixels; one per source, biggest first. The share image leads when it is large enough.
+  const imgs: { url: string; alt: string; area: number }[] = [];
+  const seenImg = new Set<string>();
+  for (const el of Array.from(document.images)) {
+    const r = el.getBoundingClientRect();
+    const src = el.currentSrc || el.src;
+    if (!/^https?:/i.test(src) || !visible(el) || r.width < 280 || r.height < 180 || (el.naturalWidth && el.naturalWidth < 400)) continue;
+    if (el.closest("header, nav, footer, [role='navigation'], [class*='cookie' i], [class*='logo' i], [class*='avatar' i], [class*='badge' i], [class*='payment' i]")) continue;
+    if (/logo|icon|sprite|avatar|badge|payment|flag|pixel|tracking|placeholder|loading|blog|banner-?(terms|cookie)|terms|conditions/i.test(`${src} ${el.alt} ${el.className}`)) continue;
+    const key = src.split("?")[0];
+    if (seenImg.has(key)) continue;
+    seenImg.add(key);
+    imgs.push({ url: src, alt: clean(el.alt || el.closest("a")?.getAttribute("aria-label") || "").slice(0, 80), area: r.width * r.height });
+  }
+  const og = (document.querySelector("meta[property='og:image']") as HTMLMetaElement | null)?.content;
+  const images = [...(og && /^https?:/i.test(og) && !/logo|icon|favicon|placeholder/i.test(og) && !seenImg.has(og.split("?")[0]) ? [{ url: og, alt: "Share image", area: 1e9 }] : []), ...imgs.sort((a, b) => b.area - a.area)].slice(0, 8).map(({ url, alt }) => ({ url, alt }));
   const description = (document.querySelector("meta[name='description'], meta[property='og:description']") as HTMLMetaElement | null)?.content || "";
-  return { title: clean(document.title).slice(0, 160), description: clean(description).slice(0, 300), facts, text: clean(document.body.innerText || "").slice(0, rules.textMax), colors, sections };
+  return { title: clean(document.title).slice(0, 160), description: clean(description).slice(0, 300), facts, text: clean(document.body.innerText || "").slice(0, rules.textMax), colors, images, sections };
 }
 
 /** Runs in the page: a self-contained copy of one section with computed styles inlined. */

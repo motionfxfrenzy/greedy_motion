@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Pythagorean rearrangement</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0b0d12}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:linear-gradient(180deg,#0b0d12,#101420)}
+svg{position:absolute;inset:0}
+text{font-family:"Source Serif 4","EB Garamond",serif;fill:#e8ecf4}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="stage" class="clip" data-start="0" data-duration="5" data-track-index="1" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg",svg=document.getElementById("stage");
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||svg).appendChild(e);return e};
+const U=66,a=3*U,b=4*U,S=a+b,X0=130,Y0=100;
+const P=(x,y)=>(X0+x)+","+(Y0+y);
+const poly=(pts)=>pts.map(p=>P(p[0],p[1])).join(" ");
+// c^2 quad
+const cq=el("polygon",{points:poly([[a,0],[S,a],[b,S],[0,b]]),fill:"#FFD166","fill-opacity":0,stroke:"#FFD166","stroke-width":3,"stroke-linejoin":"round",pathLength:1,"stroke-dasharray":"1 1","stroke-dashoffset":1});
+const aq=el("rect",{x:X0,y:Y0,width:a,height:a,fill:"#58C4DD","fill-opacity":0,stroke:"#58C4DD","stroke-width":3,opacity:0});
+const bq=el("rect",{x:X0+a,y:Y0+a,width:b,height:b,fill:"#83C167","fill-opacity":0,stroke:"#83C167","stroke-width":3,opacity:0});
+const frame=el("rect",{x:X0,y:Y0,width:S,height:S,fill:"none",stroke:"#6b7385","stroke-width":3,pathLength:1,"stroke-dasharray":"1 1","stroke-dashoffset":1});
+// triangles: shape local to right-angle vertex per orientation; define in A, translate to B
+const tris=[
+ {pts:[[0,0],[a,0],[0,b]],dx:0,dy:a},        // T1
+ {pts:[[S,0],[S-b,0],[S,a]],dx:0,dy:0},      // T2
+ {pts:[[S,S],[S-a,S],[S,S-b]],dx:a-S,dy:0},  // T3  (S,S)->(a,S)
+ {pts:[[0,S],[0,S-a],[b,S]],dx:a,dy:a-S}     // T4  (0,S)->(a,a)
+];
+const gt=tris.map((t,i)=>{
+ const g=el("g",{});
+ const p=el("polygon",{points:poly(t.pts),fill:"#1b2236",stroke:"#e8ecf4","stroke-width":3,"stroke-linejoin":"round",opacity:0},g);
+ return {g,p,t}});
+const lc=el("text",{x:X0+S/2,y:Y0+S/2+22,"text-anchor":"middle","font-size":64,"font-style":"italic",opacity:0});lc.textContent="c²";lc.style.fill="#FFD166";
+const la=el("text",{x:X0+a/2,y:Y0+a/2+22,"text-anchor":"middle","font-size":64,"font-style":"italic",opacity:0});la.textContent="a²";la.style.fill="#58C4DD";
+const lb=el("text",{x:X0+a+b/2,y:Y0+a+b/2+22,"text-anchor":"middle","font-size":64,"font-style":"italic",opacity:0});lb.textContent="b²";lb.style.fill="#83C167";
+// equation
+const eq=el("text",{x:880,y:340,"text-anchor":"middle","font-size":104,opacity:0});
+const mk=(s,c,it)=>{const t=el("tspan",{"font-style":it?"italic":"normal"},eq);t.textContent=s;t.style.fill=c;return t};
+mk("a","#58C4DD",1);mk("2","#58C4DD").setAttribute("data-sup","1");
+mk(" + ","#e8ecf4");mk("b","#83C167",1);mk("2","#83C167").setAttribute("data-sup","1");
+mk(" = ","#e8ecf4");mk("c","#FFD166",1);mk("2","#FFD166").setAttribute("data-sup","1");
+eq.querySelectorAll("tspan[data-sup]").forEach(t=>{t.setAttribute("font-size",64);t.setAttribute("dy",-34);if(t.nextElementSibling)t.nextElementSibling.setAttribute("dy",34)});
+const cap=el("text",{x:880,y:440,"text-anchor":"middle","font-size":44,opacity:0,"font-style":"italic"});cap.textContent="Same pieces, same area";
+const cap0=el("text",{x:880,y:340,"text-anchor":"middle","font-size":56,opacity:0});cap0.textContent="Four triangles,";
+const cap0b=el("text",{x:880,y:408,"text-anchor":"middle","font-size":56,opacity:0});cap0b.textContent="one square";
+const tl=gsap.timeline({paused:true,defaults:{ease:"power2.inOut"}});
+tl.to(frame,{attr:{"stroke-dashoffset":0},duration:0.8},0)
+  .to(gt.map(o=>o.p),{opacity:1,duration:0.4,stagger:0.12},0.4)
+  .to(cq,{attr:{"stroke-dashoffset":0,"fill-opacity":0.22},duration:0.7},0.7)
+  .to(lc,{opacity:1,duration:0.4},1.2)
+  .to([cap0,cap0b],{opacity:1,duration:0.5,stagger:0.1},0.3)
+  .to([cap0,cap0b],{opacity:0,duration:0.3},1.9)
+  .to([cq,lc],{opacity:0,duration:0.4},2.0);
+gt.forEach((o,i)=>tl.to(o.g,{x:o.t.dx,y:o.t.dy,duration:1.3,ease:"power3.inOut"},2.0));
+tl.fromTo([aq,bq],{opacity:0},{opacity:1,duration:0.4},3.0)
+  .to([aq,bq],{attr:{"fill-opacity":0.22},duration:0.4},3.0)
+  .to([la,lb],{opacity:1,duration:0.4},3.2)
+  .to(eq,{opacity:1,duration:0.6},3.3)
+  .to(cap,{opacity:1,duration:0.5},3.8);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

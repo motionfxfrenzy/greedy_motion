@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Sieve of primes</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0b0d12; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #151a28 0%, #0b0d12 75%); font-family: "Source Serif 4", "EB Garamond", serif; }
+  svg { position: absolute; inset: 0; }
+  text { font-family: "Source Serif 4", "EB Garamond", serif; fill: #e8ecf4; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function txt(str, a, p) { var e = el("text", a, p); e.textContent = str; return e; }
+  var BLUE = "#58C4DD", TEAL = "#83C167", YEL = "#FFD166", RED = "#FC6255", PUR = "#B189C6";
+  var COLS = 12, CW = 96, CH = 96, X0 = 640 - COLS * CW / 2, Y0 = 215;
+  var cells = {};
+  for (var n = 1; n <= 48; n++) {
+    var c = (n - 1) % COLS, r = Math.floor((n - 1) / COLS);
+    var g = el("g", { transform: "translate(" + (X0 + c * CW + CW / 2) + " " + (Y0 + r * CH + CH / 2) + ")" });
+    var inner = el("g", {}, g);
+    var rect = el("rect", { x: -40, y: -40, width: 80, height: 80, rx: 12, fill: "#121828", stroke: "#2a3350", "stroke-width": 2 }, inner);
+    var t = txt(String(n), { x: 0, y: 14, "text-anchor": "middle", "font-size": 44, "font-style": "italic" }, inner);
+    cells[n] = { g: inner, rect: rect, t: t };
+  }
+  var cap = txt("Cross out multiples. Primes remain.", { x: 640, y: 112, "text-anchor": "middle", "font-size": 58, "font-weight": 600, opacity: 0 });
+  var lbl = [["multiples of 2", RED], ["multiples of 3", PUR], ["multiples of 5", YEL], ["primes", TEAL]].map(function (o) { var t = txt(o[0], { x: 640, y: 665, "text-anchor": "middle", "font-size": 50, "font-style": "italic", opacity: 0 }); t.style.fill = o[1]; return t; });
+  var tl = gsap.timeline({ paused: true });
+  tl.to(cap, { opacity: 1, duration: 0.5, ease: "power2.out" }, 0.05);
+  var all = []; for (n = 1; n <= 48; n++) all.push(cells[n].g);
+  tl.from(all, { opacity: 0.0, scale: 0.8, transformOrigin: "50% 50%", duration: 0.35, ease: "power2.out", stagger: 0.012 }, 0.05);
+  var waves = [[2, RED, 1.0], [3, PUR, 1.95], [5, YEL, 2.9]];
+  var done = {};
+  waves.forEach(function (w, wi) {
+    var p = w[0], col = w[1], st = w[2];
+    tl.to(lbl[wi], { opacity: 1, duration: 0.3 }, st);
+    tl.to(lbl[wi], { opacity: 0, duration: 0.25 }, st + 0.8);
+    tl.to(cells[p].rect, { fill: col, stroke: col, duration: 0.25 }, st);
+    tl.to(cells[p].t, { fill: "#0b0d12", duration: 0.25 }, st);
+    tl.fromTo(cells[p].g, { scale: 1 }, { scale: 1.18, duration: 0.25, yoyo: true, repeat: 1, ease: "power2.inOut", transformOrigin: "50% 50%" }, st);
+    var k = 0;
+    for (var m = p * 2; m <= 48; m += p) {
+      if (done[m]) { tl.to(cells[m].rect, { stroke: col, duration: 0.2 }, st + 0.2 + k * 0.03); k++; continue; }
+      done[m] = true;
+      tl.to(cells[m].rect, { fill: col, stroke: col, duration: 0.2, ease: "power2.out" }, st + 0.2 + k * 0.045);
+      tl.to(cells[m].g, { opacity: 0.13, scale: 0.86, transformOrigin: "50% 50%", duration: 0.35, ease: "power2.inOut" }, st + 0.35 + k * 0.045);
+      k++;
+    }
+    // prime returns to quiet lit state
+    tl.to(cells[p].rect, { fill: "#16251a", stroke: TEAL, duration: 0.3 }, st + 0.9);
+    tl.to(cells[p].t, { fill: TEAL, duration: 0.3 }, st + 0.9);
+  });
+  tl.to(cells[1].g, { opacity: 0.13, duration: 0.3 }, 3.7);
+  tl.to(lbl[3], { opacity: 1, duration: 0.4 }, 3.8);
+  var primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47];
+  primes.forEach(function (p, i) {
+    tl.to(cells[p].rect, { fill: "#16251a", stroke: TEAL, duration: 0.3 }, 3.8 + i * 0.03);
+    tl.to(cells[p].t, { fill: TEAL, duration: 0.3 }, 3.8 + i * 0.03);
+    tl.fromTo(cells[p].g, { scale: 1 }, { scale: 1.12, duration: 0.2, yoyo: true, repeat: 1, ease: "power2.inOut", transformOrigin: "50% 50%" }, 3.8 + i * 0.03);
+  });
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

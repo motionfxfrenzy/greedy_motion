@@ -1,0 +1,16 @@
+{
+  "id": "blackboard-chalk-formula",
+  "name": "Chalkboard Formula Lesson",
+  "group": "Blackboard",
+  "summary": "Chalk writes a right-triangle formula and draws its figure on a dusty board, then a hand wipes a line clean.",
+  "bestFor": "Math and physics lessons in a classic classroom style",
+  "prompt": "Teach the Pythagorean theorem on a chalkboard. Write the heading, then the formula for the sides of a right triangle. Draw a right triangle with the right angle marked and label the two short sides and the long side. Write a worked example with the numbers three, four and five, then wipe that line away with an eraser while the narrator summarises the rule.",
+  "look": "clean",
+  "theme": "editorial-forest",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 3.5
+}

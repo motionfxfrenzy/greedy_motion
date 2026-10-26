@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Sketch explainer</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f8efd9; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f8efd9; font-family: "Fredoka", "Quicksand", sans-serif; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(2024);
+  var BLUE = "#1d3fbf", CORAL = "#f2563f", PENCIL = "#3b3a4a";
+
+  function wob(pts, amp, step) {
+    var out = [pts[0]], i, k;
+    for (i = 1; i < pts.length; i++) {
+      var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+      for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+    }
+    var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+    for (i = 0; i < out.length - 1; i++) {
+      var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+      d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+    }
+    return d;
+  }
+  function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .06; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+  // a rectangle drawn as one stroke with overshoot at the start corner
+  function box(x, y, w, h) { return [[x - 6, y + 1], [x + w + 4, y - 1], [x + w + 1, y + h + 3], [x - 3, y + h - 1], [x + 1, y - 9]]; }
+
+  var defs = el("defs", {});
+  var flt = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+  el("feTurbulence", { type: "fractalNoise", baseFrequency: "0.045", numOctaves: 2, seed: 8, result: "n" }, flt);
+  el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: 3.2 }, flt);
+
+  // paper + notebook grid
+  el("rect", { width: 1280, height: 720, fill: "#f8efd9" });
+  var gx, gy, gd = "";
+  for (gx = 20; gx < 1280; gx += 40) gd += "M" + gx + " 0V720";
+  for (gy = 20; gy < 720; gy += 40) gd += "M0 " + gy + "H1280";
+  el("path", { d: gd, stroke: "#d9c9a3", "stroke-width": 1.2, opacity: .55, fill: "none" });
+  el("path", { d: "M92 0V720", stroke: "#e8a9a0", "stroke-width": 2, opacity: .5, fill: "none" });
+  var art = el("g", { filter: "url(#rough)" });
+
+  var tl = gsap.timeline({ paused: true });
+  function stroke(pts, color, w, t, dur, o) {
+    o = o || {};
+    var d = o.raw ? pts : wob(pts, o.amp == null ? 2.2 : o.amp, 34);
+    var passes = o.single ? [[w, 1, d]] : [[w, 1, d], [w * .5, .75, wob(pts, (o.amp == null ? 2.2 : o.amp) * 1.2, 30)]];
+    passes.forEach(function (p, i) {
+      var path = el("path", { d: p[2], fill: "none", stroke: color, "stroke-width": p[0], "stroke-linecap": "round", "stroke-linejoin": "round", opacity: p[1] }, art);
+      var L = path.getTotalLength();
+      path.style.strokeDasharray = L + " " + (L + 30);
+      path.style.strokeDashoffset = L + 4;
+      tl.to(path, { strokeDashoffset: 0, duration: dur * (i ? 1.12 : 1), ease: o.ease || "power1.inOut" }, t + (i ? .05 : 0));
+    });
+  }
+  // text revealed by a left-to-right wipe, as if written
+  var cid = 0;
+  function write(str, x, y, size, color, t, dur, rot, weight, font) {
+    var g = el("g", rot ? { transform: "rotate(" + rot + " " + x + " " + y + ")" } : {}, art);
+    var id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+    var rc = el("rect", { x: x - 10, y: y - size * 1.1, width: 0, height: size * 1.5 }, cp);
+    var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": weight || 600, fill: color, "clip-path": "url(#" + id + ")", "font-family": font || "Fredoka, Quicksand, sans-serif" }, g);
+    tx.textContent = str;
+    var w = str.length * size * .58 + 30;
+    tl.to(rc, { attr: { width: w }, duration: dur, ease: "none" }, t);
+  }
+
+  // ---- 0 - 1.4 s : the window frame sketches on
+  var WX = 120, WY = 100, WW = 690, WH = 520;
+  stroke(box(WX, WY, WW, WH), PENCIL, 6, 0, .75, {});
+  stroke([[WX - 2, WY + 58], [WX + WW + 3, WY + 55]], PENCIL, 4.5, .3, .35);
+  [0, 1, 2].forEach(function (i) { stroke(arc(WX + 34 + i * 34, WY + 29, 9, 9, -80, 290, 8), i === 0 ? CORAL : PENCIL, 3.5, .6 + i * .1, .2, { amp: .8 }); });
+  stroke([[WX + 210, WY + 58], [WX + 212, WY + WH - 2]], PENCIL, 4, .75, .35);          // sidebar divider
+  // sidebar list: bullet + scribble line per item
+  [0, 1, 2, 3].forEach(function (i) {
+    var y = WY + 110 + i * 62, t = .85 + i * .13;
+    stroke(arc(WX + 34, y, 9, 9, 0, 350, 8), BLUE, 3.5, t, .16, { amp: .8 });
+    stroke([[WX + 62, y + 1], [WX + 120 + (i % 2) * 20, y - 2], [WX + 180 - (i === 2 ? 22 : 0), y + 2]], PENCIL, 4, t + .08, .2, { amp: 1.5 });
+  });
+  // search box at top of main pane
+  stroke(box(WX + 240, WY + 82, 200, 36), PENCIL, 3.5, 1.1, .3, { amp: 1.2 });
+
+  // ---- 1.4 - 3.2 s : chart + cards
+  var CX = WX + 250, CY = WY + 160, CW = 420, CH = 230;
+  stroke([[CX, CY], [CX + 2, CY + CH], [CX + CW, CY + CH + 2]], PENCIL, 5, 1.4, .5, {});     // axes
+  [1, 2, 3].forEach(function (i) { stroke([[CX + 4, CY + CH - i * 55], [CX + CW - 10, CY + CH - i * 55 + 2]], "#8b8573", 2, 1.55 + i * .06, .25, { single: true, amp: 1 }); });
+  var pts = [[CX + 20, CY + CH - 30], [CX + 90, CY + CH - 85], [CX + 150, CY + CH - 60], [CX + 230, CY + CH - 140], [CX + 300, CY + CH - 120], [CX + 385, CY + CH - 200]];
+  stroke(pts, BLUE, 7, 1.75, .9, { amp: 1.8 });
+  pts.forEach(function (p, i) { stroke(arc(p[0], p[1], 8, 8, 0, 360, 8), BLUE, 3.5, 2.25 + i * .07, .14, { amp: .7 }); });
+  // three cards under the chart
+  [0, 1, 2].forEach(function (i) {
+    var x = CX + i * 148, y = WY + WH - 100;
+    stroke(box(x, y, 124, 70), PENCIL, 4, 2.3 + i * .22, .35, { amp: 1.5 });
+    stroke([[x + 14, y + 22], [x + 70, y + 20]], PENCIL, 3.5, 2.5 + i * .22, .15, { amp: 1, single: true });
+    stroke([[x + 14, y + 46], [x + 100 - i * 10, y + 47]], "#8b8573", 3, 2.58 + i * .22, .15, { amp: 1, single: true });
+  });
+  // hatching shading under the chart line (pencil)
+  for (var h = 0; h < 6; h++) {
+    var hx = CX + 60 + h * 55; stroke([[hx, CY + CH - 6], [hx + 22, CY + CH - 56 - h * 8]], "#8b8573", 2, 2.7 + h * .05, .14, { single: true, amp: .8 });
+  }
+
+  // ---- 3.2 - 5 s : annotations + headline
+  var PK = pts[5];
+  stroke(arc(PK[0], PK[1], 40, 36, -20, 360 + 40, 22), CORAL, 6, 3.1, .45, { amp: 2 });          // circle the peak
+  write("Sketch", 862, 215, 108, BLUE, 3.2, .45, -2);
+  write("the idea", 862, 320, 108, BLUE, 3.55, .55, -2);
+  stroke([[858, 346], [1000, 342], [1150, 350], [1236, 344]], CORAL, 7, 4.1, .35, { amp: 2.2 });  // underline
+  // arrow + handwritten note
+  stroke([[900, 488], [860, 420], [790, 340], [PK[0] + 34, PK[1] + 24]], CORAL, 5, 3.6, .5, { amp: 2.4 });
+  stroke([[PK[0] + 58, PK[1] + 52], [PK[0] + 36, PK[1] + 24], [PK[0] + 66, PK[1] + 10]], CORAL, 5, 4.05, .2, { amp: 1 });
+  write("this is it!", 880, 540, 56, CORAL, 4.0, .5, -4, 500, "Newsreader, serif");
+  // tick on the second card
+  var TX = CX + 148 + 62, TY = WY + WH - 150;
+  stroke([[TX - 26, TY + 4], [TX - 8, TY + 28], [TX + 36, TY - 30]], "#1d8a4a", 8, 4.25, .35, { amp: 1.2, single: true });
+
+  // gentle settle on the finished drawing (keeps the hold alive without idle wobble)
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+  tl.set({}, {}, 5);
+})();
+</script>
+</body>
+</html>

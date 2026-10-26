@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Derivative slope</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0b0d12}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:linear-gradient(180deg,#0b0d12,#101420);font-family:"Source Serif 4","EB Garamond",serif}
+svg{position:absolute;inset:0}
+text{font-family:"Source Serif 4","EB Garamond",serif;fill:#e8ecf4}
+.lab{font-size:24px;fill:#7d8598}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="stage" class="clip" data-start="0" data-duration="5" data-track-index="1" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg",svg=document.getElementById("stage");
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||svg).appendChild(e);return e};
+const OX=470,OY=380,SX=85,SY=75;
+const X=x=>OX+x*SX,Y=y=>OY-y*SY;
+const f=x=>2*Math.sin(0.8*x),fp=x=>1.6*Math.cos(0.8*x);
+// axes
+const axes=[];
+axes.push(el("line",{x1:X(-4.5),y1:OY,x2:X(4.5),y2:OY,stroke:"#6b7385","stroke-width":2,pathLength:1}));
+axes.push(el("line",{x1:OX,y1:Y(-4),x2:OX,y2:Y(4.2),stroke:"#6b7385","stroke-width":2,pathLength:1}));
+const ticks=el("g",{opacity:0});
+for(let i=-4;i<=4;i++){if(!i)continue;el("line",{x1:X(i),y1:OY-6,x2:X(i),y2:OY+6,stroke:"#6b7385","stroke-width":2},ticks);
+ const t=el("text",{x:X(i),y:OY+30,"text-anchor":"middle",class:"lab"},ticks);t.textContent=i;
+ el("line",{x1:OX-6,y1:Y(i),x2:OX+6,y2:Y(i),stroke:"#6b7385","stroke-width":2},ticks);
+ if(i%2==0){const u=el("text",{x:OX-14,y:Y(i)+7,"text-anchor":"end",class:"lab"},ticks);u.textContent=i}}
+const xl=el("text",{x:X(4.5)+4,y:OY+30,class:"lab","font-style":"italic",opacity:0});xl.textContent="x";
+const curve=[];for(let i=0;i<=160;i++){const x=-4+i*0.05;curve.push((i?"L":"M")+X(x).toFixed(1)+" "+Y(f(x)).toFixed(1))}
+const cp=el("path",{d:curve.join(""),fill:"none",stroke:"#58C4DD","stroke-width":5,"stroke-linecap":"round",pathLength:1});
+const fl=el("text",{x:X(4)+10,y:Y(f(4))-14,"font-size":34,"font-style":"italic",fill:"#58C4DD",opacity:0});fl.textContent="f(x)";fl.style.fill="#58C4DD";
+const tr=el("path",{d:"",fill:"none",stroke:"#83C167","stroke-width":3.5,"stroke-linecap":"round",opacity:0});
+const drop=el("line",{stroke:"#7d8598","stroke-width":2,"stroke-dasharray":"6 6",opacity:0});
+const tan=el("line",{stroke:"#FFD166","stroke-width":5,"stroke-linecap":"round",opacity:0});
+const dot=el("circle",{r:11,fill:"#FC6255",opacity:0});
+const dot2=el("circle",{r:7,fill:"#83C167",opacity:0});
+// right panel
+const cap1=el("text",{x:930,y:215,"font-size":58,opacity:0});cap1.textContent="Slope at";
+const cap2=el("text",{x:930,y:282,"font-size":58,opacity:0});cap2.textContent="every point";
+const rd=el("text",{x:930,y:440,"font-size":60,opacity:0,"font-style":"italic"});rd.textContent="f′(x) = ";
+const rv=el("tspan",{"font-style":"normal"},rd);rv.textContent="0.00";rv.style.fill="#FFD166";
+const sub=el("text",{x:930,y:495,"font-size":28,opacity:0,fill:"#83C167"});sub.textContent="rise over run";sub.style.fill="#83C167";
+const S={x:-4};
+function render(){
+ const x=S.x,y=f(x),m=fp(x),sx=X(x),sy=Y(y);
+ dot.setAttribute("cx",sx);dot.setAttribute("cy",sy);
+ drop.setAttribute("x1",sx);drop.setAttribute("x2",sx);drop.setAttribute("y1",OY);drop.setAttribute("y2",sy);
+ const h=1.25;
+ tan.setAttribute("x1",X(x-h));tan.setAttribute("y1",Y(y-h*m));tan.setAttribute("x2",X(x+h));tan.setAttribute("y2",Y(y+h*m));
+ let d="";const n=Math.max(1,Math.round((x+4)/0.05));
+ for(let i=0;i<=n;i++){const xx=-4+i*0.05;d+=(i?"L":"M")+X(xx).toFixed(1)+" "+Y(fp(xx)).toFixed(1)}
+ tr.setAttribute("d",d);dot2.setAttribute("cx",sx);dot2.setAttribute("cy",Y(m));
+ rv.textContent=(m<0?"−":"")+Math.abs(m).toFixed(2);
+}
+render();
+const tl=gsap.timeline({paused:true,defaults:{ease:"power2.inOut"}});
+axes.forEach(a=>{a.setAttribute("stroke-dasharray","1 1");a.setAttribute("stroke-dashoffset",1)});
+cp.setAttribute("stroke-dasharray","1 1");cp.setAttribute("stroke-dashoffset",1);
+tl.set({},{},0);
+tl.to(axes,{attr:{"stroke-dashoffset":0},duration:0.7,stagger:0.1},0)
+  .to([ticks,xl],{opacity:1,duration:0.5},0.4)
+  .to(cp,{attr:{"stroke-dashoffset":0},duration:1.3,ease:"power2.inOut"},0.3)
+  .to(fl,{opacity:1,duration:0.4},1.4)
+  .to([cap1,cap2],{opacity:1,duration:0.5,stagger:0.12},0.4)
+  .to([dot,tan,drop,rd,sub,tr,dot2],{opacity:1,duration:0.3},1.35)
+  .set(drop,{opacity:0.8},1.35)
+  .to(S,{x:4,duration:3.2,ease:"sine.inOut",onUpdate:render},1.45);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

@@ -64,8 +64,9 @@ export async function lintPro(projectId: string): Promise<{ rev: number; ok: boo
   return (await proFetch(`/projects/${projectId}/pro/lint`, { method: "POST", body: JSON.stringify({}) })) as { rev: number; ok: boolean; errorCount: number; warningCount: number; findings: LintFinding[] };
 }
 
-export async function renderPro(projectId: string, quality: PreviewQuality): Promise<RenderJob> {
-  const body = (await proFetch(`/projects/${projectId}/pro/render`, { method: "POST", body: JSON.stringify({ quality }) })) as { job: RenderJob };
+/** `motionBlur` applies to a `final` render only (the server refuses it on a preview); the person chooses it at submission. */
+export async function renderPro(projectId: string, quality: PreviewQuality, options: { motionBlur?: boolean } = {}): Promise<RenderJob> {
+  const body = (await proFetch(`/projects/${projectId}/pro/render`, { method: "POST", body: JSON.stringify({ quality, ...(options.motionBlur ? { motionBlur: true } : {}) }) })) as { job: RenderJob };
   return body.job;
 }
 

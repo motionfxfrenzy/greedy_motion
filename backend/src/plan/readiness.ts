@@ -1,6 +1,7 @@
+import { visualStatus, currentClips } from "./visual-state.ts";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { beatPlanProblems, type VideoProject } from "@videosaas/contracts";
+import { beatPlanProblems, resolveSceneRoute, type VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { uploadDirectory } from "../storage.ts";
 import { audioStatus } from "./audio.ts";
@@ -28,7 +29,17 @@ const beatOf = (message: string) => /^(b\d+)(?:→b\d+)?:/.exec(message)?.[1] ??
 export function planReadiness(project: VideoProject): Readiness {
   const plan = project.beatPlan;
   if (!plan) return { ok: false, blocking: [{ beat: null, message: "Generate the storyboard first." }], warnings: [], durationSeconds: null };
-  const blocking: Readiness["blocking"] = beatPlanProblems(plan, project.brief).map((message) => ({ beat: beatOf(message), message }));
+  const blocking: Readiness["blocking"] = beatPlanProblems(plan, project.brief, { editing: true }).map((message) => ({ beat: beatOf(message), message }));
+  const visuals = visualStatus(project);
+  if (visuals.required && (visuals.status !== "ready" || visuals.ready !== visuals.total)) blocking.push({ beat: null, message: `Generate the selected style’s material scenes before rendering (${visuals.ready}/${visuals.total} ready${visuals.status === "stale" ? "; storyboard changed" : ""}).` });
+  const clips = currentClips(project);
+  for (const beat of plan.beats) {
+    try {
+      const route = resolveSceneRoute(beat, project.brief?.look);
+      if (route.renderer === "media" && !visuals.required && !clips[beat.id]) blocking.push({beat:beat.id,message:"This scene needs footage before export; its graphic fallback is preview-only."});
+      if (route.renderer !== "media" && beat.kind === "ui" && !project.screenshots.some(s=>s.id === beat.ui?.screen)) blocking.push({beat:beat.id,message:"Restore or choose this scene’s screenshot before export."});
+    } catch { /* beatPlanProblems reports invalid scene directions above. */ }
+  }
   const audio = audioStatus(project);
   if (audio.voice && audio.voice.stale.length) {
     blocking.push({ beat: audio.voice.stale[0], message: audio.voice.ready === 0 ? "The voiceover hasn't been generated yet." : `${audio.voice.stale.length} edited line${audio.voice.stale.length === 1 ? " needs" : "s need"} the voice made again (${audio.voice.stale.join(", ")}).` });
@@ -39,7 +50,7 @@ export function planReadiness(project: VideoProject): Readiness {
   const warnings: Readiness["warnings"] = [];
   for (const message of timing.warnings) {
     // The hook and the length are part of the brief's promise; a voice gap is a pacing note.
-    const hard = /the hook runs|more than \d+s \+ 10%|too short for/.test(message);
+    const hard = /the hook runs|more than \d+s \+ (?:10%|[\d.]+s)|too short for/.test(message);
     // The hook-length word rule already names this beat; one message per problem.
     if (/the hook runs/.test(message) && blocking.some((item) => /hook line is/.test(item.message))) continue;
     (hard ? blocking : warnings).push({ beat: beatOf(message), message });
@@ -51,8 +62,8 @@ export function planReadiness(project: VideoProject): Readiness {
     warnings.push({ beat: null, message: "This video uses a gallery theme, not your brand. Choose the brand kit read from your website so its colours, fonts and logo are used." });
   }
   const target = plan.target_duration_s;
-  if (Math.abs(timing.total - target) > target * TIMING_RULES.tolerance + 0.05 && !blocking.some((item) => /10%|too short/.test(item.message))) {
-    blocking.push({ beat: null, message: `The film runs ${timing.total.toFixed(1)}s; the brief asks for ${target}s (±10%).` });
+  if (Math.abs(timing.total - target) > Math.max(target * TIMING_RULES.tolerance, 3) + 0.05 && !blocking.some((item) => /10%|too short|\d+s \+ [\d.]+s/.test(item.message))) {
+    blocking.push({ beat: null, message: `The film runs ${timing.total.toFixed(1)}s; the brief asks for ${target}s (${target * TIMING_RULES.tolerance < 3 ? "±3s" : "±10%"}).` });
   }
   return { ok: blocking.length === 0, blocking, warnings, durationSeconds: timing.total };
 }
@@ -70,12 +81,12 @@ export class NotReady extends Error {
  * <renderOutputDir>/<jobId>/project (the worker sees it at /renders/<jobId>/project). The worker only
  * runs `hyperframes render project --variables-file project/variables.json`.
  */
-export async function prepareBeatPlanRender(project: VideoProject, jobId: string) {
+export async function prepareBeatPlanRender(project: VideoProject, jobId: string, options: { watermark?: boolean } = {}) {
   if (!/^[0-9a-f-]{36}$/i.test(jobId)) throw new Error("Invalid job id.");
   const readiness = planReadiness(project);
   if (!readiness.ok) throw new NotReady(readiness);
   const dir = join(config.renderOutputDir, jobId, "project");
-  const built = await buildPlanRenderProject(project, dir);
+  const built = await buildPlanRenderProject(project, dir, { watermark: options.watermark });
   // Object storage: the worker has no shared disk, so the finished folder goes to the uploads bucket and the
   // job carries only its key prefix. The local copy is then redundant.
   let projectPrefix: string | undefined;

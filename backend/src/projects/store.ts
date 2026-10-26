@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import sharp from "sharp";
 import {
@@ -99,7 +99,15 @@ function normalizeProject(raw: unknown): VideoProject {
 export async function getProject(id: string) {
   if (!idPattern.test(id)) return null;
   const { rows } = await query<{ data: unknown }>("select data from app.projects where id = $1", [id]);
-  return rows[0] ? normalizeProject(rows[0].data) : null;
+  if (!rows[0]) return null;
+  const project = normalizeProject(rows[0].data);
+  const brandId = project.brief?.brandId ?? project.request.brandId;
+  delete project.visualBrandSignature;
+  if (brandId) {
+    const brand = await query<{ data: { colors: unknown; mode?: string } }>("select data from app.brand_kits where id = $1", [brandId]);
+    project.visualBrandSignature = createHash("sha256").update(JSON.stringify(brand.rows[0] ? { colors: brand.rows[0].data.colors, mode: brand.rows[0].data.mode } : null)).digest("hex");
+  }
+  return project;
 }
 
 export async function createProject(input: { name?: unknown; request?: unknown }, ownerId: string) {
@@ -344,13 +352,24 @@ export async function screenshotFile(projectId: string, screenshotId: string) {
  * the matching script through the same serialised write path as every other project update.
  * `mutate` receives the current project and returns the fields to change.
  */
+/** Records (or clears) the script director's job on the project, so a reopened page can tell it is still writing. */
+export async function setProjectPlanning(id: string, planning: VideoProject["planning"] | null) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return null;
+    const { planning: _old, ...rest } = current;
+    return save({ ...rest, ...(planning ? { planning } : {}), updatedAt: new Date().toISOString() });
+  });
+}
+
 export async function updateProjectPlan(id: string, mutate: (current: VideoProject) => Pick<VideoProject, "brief" | "beatPlan"> & Partial<Pick<VideoProject, "script" | "state" | "request">>) {
   return serializeProject(id, async () => {
     const current = await getProject(id);
     if (!current) return null;
     if (current.state === "Rendering draft") throw new ProjectInvalid("Wait for the current render to finish before changing the plan.");
     const changes = mutate(current);
-    const { approvedAt: _approvedAt, ...withoutApproval } = current;
+    // A plan being applied also ends the director's job record (planning).
+    const { approvedAt: _approvedAt, planning: _planning, ...withoutApproval } = current;
     return save({ ...withoutApproval, ...changes, updatedAt: new Date().toISOString() });
   });
 }
@@ -389,5 +408,15 @@ export async function updateProjectPro(id: string, mutate: (current: VideoProjec
     const pro = await mutate(current);
     if (!pro) return current;
     return save({ ...current, pro, updatedAt: new Date().toISOString() });
+  });
+}
+
+/** A short row-locked update; enqueue callbacks may join the transaction, never call media APIs here. */
+export async function updateProjectVisuals(id: string, mutate: (current: VideoProject) => Promise<VideoProject["planVisuals"]> | VideoProject["planVisuals"]) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return null;
+    const planVisuals = await mutate(current);
+    return save({ ...current, planVisuals, updatedAt: new Date().toISOString() });
   });
 }

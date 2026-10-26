@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node src/worker.mjs",
-    "self-test": "node src/self-test.mjs"
+    "self-test": "node src/self-test.mjs",
+    "test:motion-blur": "node test/motion-blur.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1147.0",

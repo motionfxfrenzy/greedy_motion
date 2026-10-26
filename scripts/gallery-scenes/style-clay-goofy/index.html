@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Goofy clay</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #9ad0e0; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #9ad0e0; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <!-- plasticine: wobbly outline, soft matte bevel from blurred alpha + dents, contact shadow -->
+    <filter id="clay" x="-20%" y="-20%" width="150%" height="150%" color-interpolation-filters="sRGB">
+      <feTurbulence id="tw" type="fractalNoise" baseFrequency="0.014" numOctaves="2" seed="2" result="wob"/>
+      <feDisplacementMap in="SourceGraphic" in2="wob" scale="6" xChannelSelector="R" yChannelSelector="G" result="d"/>
+      <feColorMatrix in="d" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="a"/>
+      <feGaussianBlur in="a" stdDeviation="5" result="ba"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" seed="7" result="nz"/>
+      <feColorMatrix in="nz" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" result="nza"/>
+      <feComposite in="ba" in2="nza" operator="arithmetic" k1="0" k2="0.82" k3="0.22" k4="0" result="bump"/>
+      <feDiffuseLighting in="bump" surfaceScale="9" diffuseConstant="1.3" lighting-color="#ffffff" result="lit">
+        <feDistantLight azimuth="235" elevation="50"/>
+      </feDiffuseLighting>
+      <feComposite in="d" in2="lit" operator="arithmetic" k1="1" k2="0" k3="0" k4="0" result="shaded"/>
+      <feColorMatrix in="d" type="matrix" values="0 0 0 0 .16  0 0 0 0 .1  0 0 0 0 .06  0 0 0 .38 0" result="sh0"/>
+      <feGaussianBlur in="sh0" stdDeviation="6" result="sh1"/>
+      <feOffset in="sh1" dx="9" dy="12" result="sh"/>
+      <feMerge><feMergeNode in="sh"/><feMergeNode in="shaded"/></feMerge>
+    </filter>
+    <filter id="clayG" x="-5%" y="-5%" width="110%" height="115%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="4" result="wob"/>
+      <feDisplacementMap in="SourceGraphic" in2="wob" scale="9" xChannelSelector="R" yChannelSelector="G" result="d"/>
+      <feColorMatrix in="d" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="a"/>
+      <feGaussianBlur in="a" stdDeviation="6" result="ba"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="3" seed="11" result="nz"/>
+      <feColorMatrix in="nz" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" result="nza"/>
+      <feComposite in="ba" in2="nza" operator="arithmetic" k1="0" k2="0.78" k3="0.3" k4="0" result="bump"/>
+      <feDiffuseLighting in="bump" surfaceScale="7" diffuseConstant="1.3" lighting-color="#ffffff" result="lit">
+        <feDistantLight azimuth="235" elevation="52"/>
+      </feDiffuseLighting>
+      <feComposite in="d" in2="lit" operator="arithmetic" k1="1" k2="0" k3="0" k4="0"/>
+    </filter>
+    <filter id="soft" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="9"/></filter>
+    <filter id="grain" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse">
+      <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="3" result="g"/>
+      <feColorMatrix in="g" type="matrix" values="0 0 0 0 0.3  0 0 0 0 0.22  0 0 0 0 0.14  0 0 0 0.10 0"/>
+    </filter>
+
+    <radialGradient id="skyG" cx="35%" cy="25%" r="90%"><stop offset="0" stop-color="#b6e0ea"/><stop offset="1" stop-color="#86c3d8"/></radialGradient>
+    <radialGradient id="skin" cx="38%" cy="30%" r="80%"><stop offset="0" stop-color="#f8c3a0"/><stop offset="1" stop-color="#e99f78"/></radialGradient>
+    <radialGradient id="ground" cx="50%" cy="0%" r="110%"><stop offset="0" stop-color="#93c373"/><stop offset="1" stop-color="#6aa05a"/></radialGradient>
+    <radialGradient id="hillG" cx="40%" cy="20%" r="90%"><stop offset="0" stop-color="#b5d88c"/><stop offset="1" stop-color="#8dbd72"/></radialGradient>
+    <radialGradient id="foliage" cx="35%" cy="28%" r="80%"><stop offset="0" stop-color="#74c070"/><stop offset="1" stop-color="#3f8f50"/></radialGradient>
+    <radialGradient id="wall" cx="35%" cy="25%" r="90%"><stop offset="0" stop-color="#f7b872"/><stop offset="1" stop-color="#e48f48"/></radialGradient>
+    <radialGradient id="roof" cx="40%" cy="20%" r="90%"><stop offset="0" stop-color="#cf5a49"/><stop offset="1" stop-color="#a23a35"/></radialGradient>
+    <radialGradient id="sunG" cx="35%" cy="30%" r="80%"><stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#f6b92c"/></radialGradient>
+    <radialGradient id="cloudG" cx="35%" cy="25%" r="85%"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dfe6ee"/></radialGradient>
+    <radialGradient id="cheek" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ee7d86" stop-opacity=".75"/><stop offset="1" stop-color="#ee7d86" stop-opacity="0"/></radialGradient>
+    <radialGradient id="scl" cx="40%" cy="35%" r="75%"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#ece6dc"/></radialGradient>
+
+    <clipPath id="eyeL"><ellipse cx="0" cy="0" rx="34" ry="38"/></clipPath>
+    <clipPath id="torsoClip"><path id="torsoClipP" d="M488 424 C470 470 474 540 484 590 C520 604 600 606 636 592 C648 540 650 470 632 424 C600 410 520 410 488 424Z"/></clipPath>
+    <clipPath id="sleeveClip"><path d="M-26 -8 C-30 20 -28 62 -22 88 C-8 96 12 96 24 88 C30 60 30 22 26 -8 C12 -18 -12 -18 -26 -8Z"/></clipPath>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#skyG)"/>
+
+  <!-- sun -->
+  <g id="sun"><g filter="url(#clay)">
+    <g id="sunRays"></g>
+    <circle cx="1090" cy="130" r="58" fill="url(#sunG)"/>
+    <path d="M1074 150 q16 14 34 0" fill="none" stroke="#c9861c" stroke-width="5" stroke-linecap="round" opacity=".7"/>
+    <ellipse cx="1074" cy="124" rx="5" ry="7" fill="#7a4a12"/><ellipse cx="1108" cy="124" rx="5" ry="7" fill="#7a4a12"/>
+  </g></g>
+  <!-- cloud -->
+  <g id="cloud"><g filter="url(#clay)">
+    <ellipse cx="0" cy="22" rx="92" ry="34" fill="url(#cloudG)"/><circle cx="-46" cy="0" r="36" fill="url(#cloudG)"/>
+    <circle cx="4" cy="-14" r="46" fill="url(#cloudG)"/><circle cx="52" cy="4" r="32" fill="url(#cloudG)"/>
+  </g></g>
+
+  <!-- far hill -->
+  <g filter="url(#clayG)"><path d="M-40 470 C60 380 220 360 360 420 C440 380 560 370 700 410 C800 380 960 380 1100 420 C1180 400 1260 400 1330 430 L1330 520 L-40 520Z" fill="url(#hillG)"/></g>
+  <!-- ground -->
+  <g filter="url(#clayG)"><path d="M-40 462 C120 446 300 470 520 456 C740 444 980 468 1330 452 L1330 760 L-40 760Z" fill="url(#ground)"/></g>
+  <g id="prints"></g>
+
+  <!-- shadows on the ground -->
+  <g opacity=".42" fill="#2a4a2a" filter="url(#soft)">
+    <ellipse cx="250" cy="548" rx="120" ry="20"/>
+    <ellipse cx="950" cy="540" rx="190" ry="24"/>
+    <ellipse cx="575" cy="650" rx="135" ry="20"/>
+  </g>
+
+  <!-- tree -->
+  <g id="tree"><g filter="url(#clay)">
+    <path d="M218 548 C214 500 230 440 214 392 C226 388 252 390 258 400 C244 450 266 500 270 548Z" fill="#8f5e3c"/>
+    <path d="M232 520 q6 -40 -2 -76 M250 510 q-4 -30 2 -60" fill="none" stroke="#6c4026" stroke-width="5" stroke-linecap="round" opacity=".5"/>
+    <circle cx="170" cy="340" r="62" fill="url(#foliage)"/>
+    <circle cx="300" cy="330" r="58" fill="url(#foliage)"/>
+    <circle cx="236" cy="268" r="72" fill="url(#foliage)"/>
+    <circle cx="186" cy="262" r="46" fill="url(#foliage)"/>
+    <circle cx="288" cy="256" r="42" fill="url(#foliage)"/>
+    <circle cx="236" cy="352" r="56" fill="url(#foliage)"/>
+    <circle cx="222" cy="230" r="9" fill="#e8564a"/><circle cx="306" cy="352" r="9" fill="#e8564a"/><circle cx="150" cy="366" r="9" fill="#e8564a"/>
+  </g></g>
+
+  <!-- house -->
+  <g id="house"><g filter="url(#clay)">
+    <rect x="1000" y="318" width="46" height="90" rx="8" fill="url(#roof)" transform="rotate(7 1023 408)"/>
+    <path d="M818 540 L806 388 C860 380 1030 392 1084 400 L1098 536 C1020 548 900 548 818 540Z" fill="url(#wall)"/>
+    <path d="M776 400 C840 330 930 296 972 276 C1020 300 1100 360 1128 412 C1050 396 860 388 776 400Z" fill="url(#roof)"/>
+    <path d="M830 392 q50 -64 140 -96 M900 396 q60 -50 100 -88" fill="none" stroke="#7e2a29" stroke-width="5" stroke-linecap="round" opacity=".45"/>
+    <path d="M884 540 L890 446 C910 434 946 436 954 450 L956 542 C930 546 908 546 884 540Z" fill="#7a4a8c"/>
+    <circle cx="940" cy="494" r="6" fill="#f2cf6b"/>
+    <path d="M996 446 L1058 450 L1054 500 L992 496Z" fill="#ffe9a0"/>
+    <path d="M1026 448 L1024 498 M994 472 L1056 476" stroke="#9a5f2a" stroke-width="6" stroke-linecap="round"/>
+    <path d="M820 440 L846 442 L842 478 L816 476Z" fill="#ffe9a0" opacity="0"/>
+  </g></g>
+  <g id="smoke"></g>
+
+  <!-- character -->
+  <g id="char">
+    <!-- legs and shoes -->
+    <g id="legs"><g filter="url(#clay)">
+      <path d="M508 582 C504 612 506 630 510 642 L552 642 C556 626 556 604 556 586Z" fill="#3f6ab4"/>
+      <path d="M572 586 C570 606 572 630 576 642 L618 642 C620 628 620 604 616 584Z" fill="#3f6ab4"/>
+      <ellipse cx="520" cy="650" rx="44" ry="19" fill="#5a3a24"/><ellipse cx="612" cy="650" rx="44" ry="19" fill="#5a3a24"/>
+    </g></g>
+    <!-- left (hanging) arm -->
+    <g id="armL"><g filter="url(#clay)">
+      <g id="armLin" transform="translate(498 440) rotate(8)">
+        <path d="M-24 -6 C-28 20 -26 60 -20 86 C-8 94 12 94 22 86 C28 60 28 22 24 -6 C12 -16 -12 -16 -24 -6Z" fill="#e5543f"/>
+        <g clip-path="url(#sleeveClip)"><rect x="-30" y="22" width="60" height="14" fill="#f6ecd2"/><rect x="-30" y="52" width="60" height="14" fill="#f6ecd2"/></g>
+        <path d="M-14 86 C-16 110 -14 126 -10 136 L10 136 C14 124 14 108 12 86Z" fill="url(#skin)"/>
+        <circle cx="0" cy="152" r="24" fill="url(#skin)"/><ellipse cx="22" cy="140" rx="9" ry="14" fill="url(#skin)" transform="rotate(-20 22 140)"/>
+      </g>
+    </g></g>
+    <!-- torso -->
+    <g id="torso"><g filter="url(#clay)">
+      <path d="M488 424 C470 470 474 540 484 590 C520 604 600 606 636 592 C648 540 650 470 632 424 C600 410 520 410 488 424Z" fill="#e5543f"/>
+      <g clip-path="url(#torsoClip)">
+        <rect x="460" y="440" width="200" height="22" fill="#f6ecd2"/><rect x="460" y="484" width="200" height="22" fill="#f6ecd2"/>
+        <rect x="460" y="528" width="200" height="22" fill="#f6ecd2"/><rect x="460" y="572" width="200" height="22" fill="#f6ecd2"/>
+      </g>
+      <path d="M520 420 C540 440 580 440 600 420" fill="none" stroke="#a83829" stroke-width="7" stroke-linecap="round"/>
+    </g></g>
+    <!-- waving arm (in front of torso) -->
+    <g id="armR"><g filter="url(#clay)">
+      <g id="armRin" transform="translate(630 446) rotate(-105)">
+        <path d="M-26 -8 C-30 20 -28 62 -22 88 C-8 96 12 96 24 88 C30 60 30 22 26 -8 C12 -18 -12 -18 -26 -8Z" fill="#e5543f"/>
+        <g clip-path="url(#sleeveClip)"><rect x="-32" y="24" width="64" height="14" fill="#f6ecd2"/><rect x="-32" y="56" width="64" height="14" fill="#f6ecd2"/></g>
+        <g id="fore" transform="translate(0 84) rotate(-50)">
+          <path d="M-15 0 C-17 26 -15 54 -11 74 L11 74 C15 52 15 26 13 0Z" fill="url(#skin)"/>
+          <g transform="translate(0 92)">
+            <circle cx="0" cy="0" r="27" fill="url(#skin)"/>
+            <ellipse cx="-24" cy="-2" rx="9" ry="17" fill="url(#skin)" transform="rotate(30 -24 -2)"/>
+            <ellipse cx="-14" cy="26" rx="8" ry="17" fill="url(#skin)" transform="rotate(-14 -14 26)"/>
+            <ellipse cx="-3" cy="31" rx="8" ry="19" fill="url(#skin)" transform="rotate(-2 -3 31)"/>
+            <ellipse cx="9" cy="30" rx="8" ry="18" fill="url(#skin)" transform="rotate(8 9 30)"/>
+            <ellipse cx="20" cy="24" rx="7" ry="15" fill="url(#skin)" transform="rotate(22 20 24)"/>
+            <path d="M-8 20 l-2 12 M3 22 l0 12 M13 20 l2 10" stroke="#c9774f" stroke-width="3" stroke-linecap="round" opacity=".55"/>
+          </g>
+        </g>
+      </g>
+    </g></g>
+    <!-- head -->
+    <g id="head"><g filter="url(#clay)">
+      <ellipse cx="420" cy="308" rx="22" ry="32" fill="url(#skin)"/><ellipse cx="700" cy="308" rx="22" ry="32" fill="url(#skin)"/>
+      <ellipse cx="420" cy="308" rx="9" ry="16" fill="#d98a64"/><ellipse cx="700" cy="308" rx="9" ry="16" fill="#d98a64"/>
+      <ellipse cx="560" cy="296" rx="142" ry="130" fill="url(#skin)"/>
+      <!-- hair -->
+      <path d="M422 276 C404 168 500 130 570 142 C652 132 722 186 700 280 C676 222 612 204 566 212 C512 212 452 228 422 276Z" fill="#5a3a24"/>
+      <path d="M470 196 q40 -34 96 -30 M520 178 q56 -14 108 10 M446 238 q14 -34 44 -50" fill="none" stroke="#3b2414" stroke-width="5" stroke-linecap="round" opacity=".55"/>
+      <circle cx="574" cy="132" r="26" fill="#5a3a24"/>
+      <path d="M574 132 m-12 0 a12 12 0 1 1 12 12 a6 6 0 1 1 -6 -6" fill="none" stroke="#3b2414" stroke-width="5" stroke-linecap="round" opacity=".7"/>
+      <circle cx="652" cy="162" r="20" fill="#5a3a24"/><circle cx="450" cy="190" r="18" fill="#5a3a24"/>
+      <!-- cheeks -->
+      <circle cx="472" cy="354" r="34" fill="url(#cheek)"/><circle cx="648" cy="354" r="34" fill="url(#cheek)"/>
+      <!-- eyes -->
+      <g transform="translate(512 300)">
+        <ellipse cx="0" cy="0" rx="37" ry="41" fill="#c47c58"/>
+        <g clip-path="url(#eyeL)"><ellipse cx="0" cy="0" rx="34" ry="38" fill="url(#scl)"/>
+          <g id="pupL"><circle cx="0" cy="0" r="15" fill="#1b1613"/><circle cx="-4" cy="-5" r="4" fill="#5b4a40" opacity=".55"/></g>
+          <path id="lidL" d="" fill="#eea984" stroke="#b9704c" stroke-width="3.5" stroke-linejoin="round"/>
+        </g>
+      </g>
+      <g transform="translate(608 300)">
+        <ellipse cx="0" cy="0" rx="37" ry="41" fill="#c47c58"/>
+        <g clip-path="url(#eyeL)"><ellipse cx="0" cy="0" rx="34" ry="38" fill="url(#scl)"/>
+          <g id="pupR"><circle cx="0" cy="0" r="15" fill="#1b1613"/><circle cx="-4" cy="-5" r="4" fill="#5b4a40" opacity=".55"/></g>
+          <path id="lidR" d="" fill="#eea984" stroke="#b9704c" stroke-width="3.5" stroke-linejoin="round"/>
+        </g>
+      </g>
+      <!-- brows -->
+      <path id="browL" d="M480 244 Q512 226 546 242" fill="none" stroke="#5a3a24" stroke-width="12" stroke-linecap="round"/>
+      <path id="browR" d="M576 242 Q610 226 642 244" fill="none" stroke="#5a3a24" stroke-width="12" stroke-linecap="round"/>
+      <!-- nose and mouth -->
+      <ellipse cx="560" cy="346" rx="23" ry="17" fill="#e08f68"/><ellipse cx="552" cy="341" rx="10" ry="7" fill="#f2ae88" opacity=".8"/>
+      <path d="M512 378 Q560 432 610 378 Q560 394 512 378Z" fill="#8b2f33" stroke="#6c2226" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M534 386 Q560 396 588 386 L584 400 Q560 408 538 400Z" fill="#fff6e6"/>
+      <ellipse cx="562" cy="414" rx="18" ry="8" fill="#e8636d"/>
+    </g></g>
+  </g>
+
+  <!-- foreground lumps and flowers -->
+  <g id="fg"><g filter="url(#clay)">
+    <circle cx="120" cy="660" r="16" fill="#9a8f84"/><circle cx="146" cy="672" r="10" fill="#aca195"/>
+    <circle cx="880" cy="640" r="12" fill="#9a8f84"/>
+    <g transform="translate(330 620)"><rect x="-4" y="0" width="8" height="46" rx="4" fill="#3f8f50"/><circle cx="0" cy="-2" r="12" fill="#f4c542"/>
+      <circle cx="-16" cy="-2" r="10" fill="#f08aa0"/><circle cx="16" cy="-2" r="10" fill="#f08aa0"/><circle cx="0" cy="-18" r="10" fill="#f08aa0"/><circle cx="0" cy="14" r="10" fill="#f08aa0"/></g>
+    <g transform="translate(1010 636)"><rect x="-4" y="0" width="8" height="40" rx="4" fill="#3f8f50"/><circle cx="0" cy="-2" r="11" fill="#f4c542"/>
+      <circle cx="-15" cy="-2" r="9" fill="#fff"/><circle cx="15" cy="-2" r="9" fill="#fff"/><circle cx="0" cy="-17" r="9" fill="#fff"/><circle cx="0" cy="13" r="9" fill="#fff"/></g>
+  </g></g>
+  <rect width="1280" height="720" filter="url(#grain)"/>
+</svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  // seeded hash: same answer for the same (id, frame)
+  function h(n) {
+    n = Math.imul(n ^ 61, 1) ^ (n >>> 16); n = (n + (n << 3)) | 0; n ^= n >>> 4;
+    n = Math.imul(n, 0x27d4eb2d); n ^= n >>> 15; return (n >>> 0) / 4294967296;
+  }
+  function J(id, f) { return h(id * 977 + f * 131 + 17) - 0.5; }
+
+  // thumbprints pressed into the ground
+  var prints = document.getElementById("prints");
+  var P = [[130,620,1.1,-20],[300,560,.8,30],[430,690,1.2,10],[760,610,1.0,-35],[900,680,1.3,25],[1120,600,.9,5],
+           [660,530,.7,-10],[60,520,.8,40],[1200,520,.9,-25],[1010,700,.8,15],[210,700,.9,-5],[700,700,.7,35],[820,510,.6,10],[390,510,.6,-30]];
+  P.forEach(function (p) {
+    var g = el("g", { transform: "translate(" + p[0] + " " + p[1] + ") rotate(" + p[3] + ") scale(" + p[2] + ")" }, prints);
+    for (var i = 0; i < 5; i++) {
+      var rx = 8 + i * 7, ry = 11 + i * 9;
+      el("ellipse", { cx: 3, cy: 3, rx: rx, ry: ry, fill: "none", stroke: "#e2f1c8", "stroke-width": 3, opacity: .28, "stroke-dasharray": (rx * 3.2) + " " + (rx * 1.6), "stroke-linecap": "round" }, g);
+      el("ellipse", { cx: 0, cy: 0, rx: rx, ry: ry, fill: "none", stroke: "#3d6a3c", "stroke-width": 3, opacity: .3, "stroke-dasharray": (rx * 3.2) + " " + (rx * 1.6), "stroke-linecap": "round" }, g);
+    }
+  });
+  // sun lumps
+  var rays = document.getElementById("sunRays");
+  for (var r = 0; r < 10; r++) {
+    var a = r / 10 * Math.PI * 2;
+    el("ellipse", { cx: 1090 + Math.cos(a) * 84, cy: 130 + Math.sin(a) * 84, rx: 14, ry: 22, fill: "#f6b92c", transform: "rotate(" + (a * 180 / Math.PI + 90) + " " + (1090 + Math.cos(a) * 84) + " " + (130 + Math.sin(a) * 84) + ")" }, rays);
+  }
+  // chimney smoke puffs
+  var smoke = document.getElementById("smoke");
+  var puffs = [];
+  for (var s = 0; s < 3; s++) puffs.push(el("circle", { r: 14, fill: "#f3f0ea", opacity: 0 }, smoke));
+
+  var $ = function (id) { return document.getElementById(id); };
+  var tw = $("tw");
+  var wavesIn = $("fore"), armRin = $("armRin"), armLin = $("armLin");
+  var gTree = $("tree"), gHouse = $("house"), gHead = $("head"), gTorso = $("torso"), gLegs = $("legs"), gArmL = $("armL"), gArmR = $("armR"), gSun = $("sun"), gCloud = $("cloud"), gRays = $("sunRays"), gFg = $("fg");
+
+  // eyes darting: [time, x, y] jump cuts, held between
+  var LOOK = [[0,0,0],[0.75,-13,2],[1.6,-13,2],[1.9,13,-3],[2.55,0,8],[3.0,0,-9],[3.55,-8,0],[4.0,0,0]];
+  function look(q) { var o = LOOK[0]; for (var i = 0; i < LOOK.length; i++) if (q >= LOOK[i][0] - 1e-6) o = LOOK[i]; return o; }
+  // blinks in 12 fps frames: partial, shut, partial
+  var BLINK = [[1.25,.55],[1.333,1],[1.416,.5],[3.4,.55],[3.483,1],[3.566,.5]];
+  function blink(q) { for (var i = 0; i < BLINK.length; i++) if (Math.abs(q - BLINK[i][0]) < 0.02) return BLINK[i][1]; return 0; }
+  // head tilt held per beat
+  var TILT = [[0,0],[0.75,-4],[1.9,3],[2.55,-2],[3.0,4],[3.55,-3],[4.0,0]];
+  function tilt(q) { var v = 0; for (var i = 0; i < TILT.length; i++) if (q >= TILT[i][0] - 1e-6) v = TILT[i][1]; return v; }
+
+  function put(node, id, f, x, y, rot, px, py, sc) {
+    var jx = J(id, f) * 3, jy = J(id + 50, f) * 3, jr = J(id + 90, f) * 1.4;
+    node.setAttribute("transform", "translate(" + (x + jx).toFixed(2) + " " + (y + jy).toFixed(2) + ") rotate(" + (rot + jr).toFixed(2) + " " + px + " " + py + ")" + (sc ? " scale(" + sc + ")" : ""));
+  }
+
+  function render(t) {
+    var tt = Math.min(Math.max(t, 0), 4.5);           // everything holds for the last half second
+    var f = Math.floor(tt * 12 + 1e-6);                // stop-motion frame number, 12 fps
+    var q = f / 12;
+    tw.setAttribute("seed", String(2 + (f % 3)));      // clay "boils" slightly frame to frame
+
+    put(gTree, 1, f, 0, 0, 0, 236, 548);
+    put(gHouse, 2, f, 0, 0, 0, 950, 540);
+    put(gTorso, 3, f, 0, 0, 0, 560, 600);
+    put(gLegs, 4, f, 0, 0, 0, 560, 650);
+    put(gArmL, 5, f, 0, 0, 0, 498, 440);
+    put(gFg, 6, f, 0, 0, 0, 600, 650);
+    put(gHead, 7, f, 0, 0, tilt(q), 560, 410);
+    put(gArmR, 8, f, 0, 0, 0, 630, 446);
+    put(gSun, 9, f, 0, 0, 0, 1090, 130);
+    gRays.setAttribute("transform", "rotate(" + (q * 12).toFixed(1) + " 1090 130)");
+    gCloud.setAttribute("transform", "translate(" + (330 + q * 26 + J(10, f) * 2).toFixed(1) + " " + (96 + J(11, f) * 2).toFixed(1) + ")");
+
+    // the single gesture: a wave, forearm swinging on the elbow, held up at the end
+    var wave = 0;
+    if (q >= 0 && q < 4.2) wave = Math.sin(q * Math.PI * 2 / 0.667) * 17;
+    wavesIn.setAttribute("transform", "translate(0 84) rotate(" + (-60 + wave).toFixed(1) + ")");
+    armRin.setAttribute("transform", "translate(630 446) rotate(" + (-105 + (q < 4.2 ? Math.sin(q * Math.PI * 2 / 1.333) * 4 : 0)).toFixed(1) + ")");
+    armLin.setAttribute("transform", "translate(498 440) rotate(" + (8 + (q > 1.5 && q < 3 ? 3 : 0)).toFixed(1) + ")");
+
+    // eyes
+    var L = look(q), b = blink(q);
+    var rest = -21 + (L[2] > 5 ? 8 : 0);
+    var lid = rest + (38 - rest) * b;
+    var d = "M-44 -60 H44 V" + lid.toFixed(1) + " Q0 " + (lid + 12).toFixed(1) + " -44 " + lid.toFixed(1) + "Z";
+    $("lidL").setAttribute("d", d); $("lidR").setAttribute("d", d);
+    var pl = $("pupL"), pr = $("pupR");
+    var py = Math.min(L[2], lid > -6 ? 4 : 99);
+    var tr = "translate(" + L[1] + " " + py + ")";
+    pl.setAttribute("transform", tr); pr.setAttribute("transform", tr);
+    var bro = (b > 0.4 ? 5 : 0) + (q >= 1.9 && q < 2.55 ? -4 : 0);
+    $("browL").setAttribute("transform", "translate(0 " + bro + ")"); $("browR").setAttribute("transform", "translate(0 " + bro + ")");
+
+    // chimney smoke puffs rise on a 1.5 s cycle, stepped
+    for (var i = 0; i < 3; i++) {
+      var ph = ((q / 1.5) + i / 3) % 1;
+      puffs[i].setAttribute("cx", (1030 + ph * 40 + Math.sin(ph * 5 + i) * 6).toFixed(1));
+      puffs[i].setAttribute("cy", (316 - ph * 120).toFixed(1));
+      puffs[i].setAttribute("r", (10 + ph * 18).toFixed(1));
+      puffs[i].setAttribute("opacity", (0.9 * (1 - ph)).toFixed(2));
+    }
+  }
+
+  var tl = gsap.timeline({ paused: true });
+  tl.to({}, { duration: 5, onUpdate: function () { render(tl.time()); } }, 0);
+  render(0);
+  window.addEventListener("hf-seek", function (e) { render(e.detail.time); });
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

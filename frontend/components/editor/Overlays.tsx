@@ -1,4 +1,5 @@
 "use client";
+import { motionBlurCopy, motionBlurProblem } from "@videosaas/contracts";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatShortcut } from "../../lib/editor/actions.ts";
 import { runCheck, startRender } from "../../lib/editor/commands.ts";
@@ -6,6 +7,8 @@ import { readClips } from "../../lib/editor/clips-model.ts";
 import { makeLayer, newId } from "../../lib/editor/fixtures.ts";
 import { useEditor, useEditorState } from "../../lib/editor/store.ts";
 import { formatTime } from "../../lib/editor/time.ts";
+import { setSiteTheme } from "../../lib/site-theme.ts";
+import { goBack } from "../../lib/editor/nav.ts";
 import { Icon } from "./icons.tsx";
 import { useRegistry } from "./registry.ts";
 
@@ -76,7 +79,8 @@ function Palette({ onClose }: { onClose: () => void }) {
 
 function RenderPopover() {
   const registry = useRegistry();
-  const { mode, jobs, renderOpen, canvas } = useEditorState();
+  const { mode, jobs, renderOpen, canvas, remote, motionBlur, duration } = useEditorState();
+  const blurProblem = motionBlurProblem(duration);
   const ui = useEditor((s) => s.ui);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -107,6 +111,7 @@ function RenderPopover() {
     <div className="ed-renderpop" ref={ref} role="dialog" aria-label="Render">
       <div className="ed-cap">Render</div>
       <div className="ed-ropts">{options.map(([id, label, sub]) => <button key={id} type="button" onClick={() => registry.run(id!)}><b>{label}</b><span>{sub}</span></button>)}</div>
+      {remote ? <label className="ed-blur" title={blurProblem ?? motionBlurCopy.help}><input type="checkbox" checked={motionBlur && !blurProblem} disabled={Boolean(blurProblem)} onChange={(e) => ui({ motionBlur: e.target.checked })} /><span><b>{motionBlurCopy.label}</b><i>{blurProblem ?? "Full render only. Previews stay fast."}</i></span></label> : null}
       {active.length ? <><div className="ed-cap">Queue</div>{active.map(job)}</> : null}
       {history.length ? <><div className="ed-cap">History</div>{history.map(job)}</> : null}
       {!jobs.length ? <p className="ed-note">Renders run in the background. You can keep editing.</p> : null}
@@ -137,12 +142,18 @@ function Menus() {
     </div>;
   }
   return <div ref={ref} className="ed-menu" style={style} role="menu" aria-label="Project">
+    {item("Back", goBack)}
+    {item("All projects", () => window.location.assign("/studio"))}
+    {item("Templates", () => window.location.assign("/templates"))}
+    {item("Brand kits", () => window.location.assign("/brand-kits"))}
+    {item("Plan & tokens", () => window.location.assign("/profile#plan"))}
+    <hr />
     {item("Open project…", () => registry.run("open"), "Mod+O")}
     {item("Save", () => registry.run("save"), "Mod+S")}
     {item("Save as…", () => registry.run("saveas"), "Mod+Shift+S")}
     {item("Publish as template…", () => registry.run("publish"))}
     <hr />
-    {item(theme === "dark" ? "Light theme" : "Dark theme", () => ui({ theme: theme === "dark" ? "light" : "dark" }))}
+    {item(theme === "dark" ? "Light theme" : "Dark theme", () => { const next = theme === "dark" ? "light" : "dark"; setSiteTheme(next); ui({ theme: next }); })}
     {item("Keyboard shortcuts", () => registry.run("shortcuts"), "Shift+?")}
   </div>;
 }

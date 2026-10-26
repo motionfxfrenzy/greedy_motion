@@ -1,0 +1,1 @@
+  TR["whip-y"] = (o, i, t, d) => { tl.fromTo(o, { y: 0, filter: blur(0) }, { y: -1160, filter: blur(P.blur), duration: d, ease: E.io }, t); tl.fromTo(i, { y: 1160, filter: blur(P.blur) }, { y: 0, filter: blur(0), duration: d, ease: E.io }, t); };

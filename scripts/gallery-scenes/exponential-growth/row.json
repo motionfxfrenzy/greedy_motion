@@ -1,0 +1,16 @@
+{
+  "id": "exponential-growth",
+  "name": "Exponential Growth Explainer",
+  "group": "Math",
+  "summary": "A calm math-channel graph: a curve doubles at equal time steps while the y axis keeps rescaling to hold it.",
+  "bestFor": "Explaining compounding, growth and scale intuition",
+  "prompt": "Explain exponential growth with a single curve. Draw the axes, then let the quantity double at every equal tick of time and mark each doubling with a dot. Show how the vertical axis has to rescale again and again just to keep the curve in view. Contrast it with steady addition, and finish on the idea that a constant doubling time means the curve eventually outruns any straight line.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 50,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 3.2
+}

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Spring settle: closed-form step-response springs for every pop</title>
+    <script src="vendor/gsap.min.js"></script>
+    <!--
+      Recipe: spring-settle (gm-motion-recipes/rules/spring-settle.md)
+      spring(zeta, rest) is an EASE FUNCTION: the exact step response of a damped spring, a pure function of progress.
+      No simulation, no state, so it is correct from any playhead position in either direction.
+
+        0.00 - 1.15 s   four chips pop in, 0.15 s apart (zeta 0.45, ~20% overshoot)
+        1.15 s          the button is pressed: a quick squash, then a spring back (zeta 0.5)
+        1.50 - 2.30 s   the result card rises and settles (zeta 0.8, ~2% overshoot)
+    -->
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #f5f5f2; }
+      #root { position: relative; width: 1920px; height: 1080px; background: #f5f5f2; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; overflow: hidden; }
+      .chip { position: absolute; top: 170px; height: 120px; padding: 0 44px; color: #fff; font-size: 48px; font-weight: 700; display: flex; align-items: center; opacity: 0; }
+      /* The shape scales; the words do not. Scaled text rasterises differently depending on which frame was drawn first, so the
+         spring drives the background and the label only travels. */
+      .bg { position: absolute; inset: 0; border-radius: 60px; background: #0e0e10; z-index: 0; }
+      .chip span, #btn span, #result .in { position: relative; z-index: 1; }
+      #c1 { left: 160px; } #c2 { left: 520px; color: #0e0e10; } #c2 .bg { background: #cdf24f; } #c3 { left: 960px; } #c4 { left: 1360px; color: #0e0e10; } #c4 .bg { background: #ff6a2a; }
+      #btn .bg { border-radius: 65px; background: #2f6bff; }
+      #btn { position: absolute; left: 160px; top: 440px; width: 480px; height: 130px; color: #fff; font-size: 52px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+      #result { position: absolute; left: 760px; top: 400px; width: 1000px; height: 440px; color: #fff; opacity: 0; }
+      #result .bg { border-radius: 40px; }
+      #result .in { padding: 56px 64px; }
+      #result .k { font-size: 44px; font-weight: 600; color: #b9bdc7; }
+      #result .v { margin-top: 20px; font-size: 150px; font-weight: 800; letter-spacing: -4px; line-height: 1; color: #cdf24f; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="2.45" data-width="1920" data-height="1080">
+      <div id="scene" class="clip" data-start="0" data-duration="2.45" data-track-index="0">
+        <div id="c1" class="chip"><i class="bg"></i><span>Upload</span></div><div id="c2" class="chip"><i class="bg"></i><span>Match</span></div><div id="c3" class="chip"><i class="bg"></i><span>Review</span></div><div id="c4" class="chip"><i class="bg"></i><span>Close</span></div>
+        <div id="btn"><i class="bg"></i><span>Run the match</span></div>
+        <div id="result"><i class="bg"></i><div class="in"><div class="k">Matched to the bank</div><div class="v">2,393</div></div></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      /**
+       * Exact step response of a damped spring, as a GSAP ease (progress 0..1 in, displacement 0..~1 out).
+       *   zeta < 1   underdamped: overshoots by exp(-pi*zeta / sqrt(1 - zeta^2)), then rings down
+       *   zeta = 1   critically damped: the fastest settle with no overshoot
+       *   zeta > 1   overdamped: slower, never overshoots
+       * `rest` is how far from 1 the spring may still be at p = 1 (0.02 = within 2%); the ease then returns exactly 1.
+       * A smaller `rest` rings for more cycles inside the same duration.
+       */
+      function spring(zeta = 0.5, rest = 0.02) {
+        const w = Math.log(1 / rest) / Math.max(zeta, 1e-3);   // natural frequency per unit progress, so the envelope hits `rest` at p = 1
+        return (p) => {
+          if (p <= 0) return 0;
+          if (p >= 1) return 1;
+          if (zeta < 1) {
+            const wd = w * Math.sqrt(1 - zeta * zeta);
+            return 1 - Math.exp(-zeta * w * p) * (Math.cos(wd * p) + ((zeta * w) / wd) * Math.sin(wd * p));
+          }
+          if (zeta === 1) return 1 - Math.exp(-w * p) * (1 + w * p);
+          const r = Math.sqrt(zeta * zeta - 1), s1 = -w * (zeta - r), s2 = -w * (zeta + r);
+          return 1 - (s2 * Math.exp(s1 * p) - s1 * Math.exp(s2 * p)) / (s2 - s1);
+        };
+      }
+
+      const tl = gsap.timeline({ paused: true, defaults: { immediateRender: false } });
+      // Give every moving element an explicit identity transform BEFORE the timeline runs. An element GSAP has not touched
+      // yet has `transform: none`; once touched it has `matrix(1,0,0,1,0,0)`, which promotes it to its own layer and shifts
+      // text anti-aliasing. Without this baseline a frame differs by a few pixels depending on which frames were drawn first.
+      gsap.set(["#c1", "#c2", "#c3", "#c4", "#btn", "#result", ".bg"], { x: 0, y: 0, scale: 1 });
+
+      // Opacity is a plain linear tween: a spring that overshoots 1 must never drive opacity.
+      ["#c1", "#c2", "#c3", "#c4"].forEach((id, i) => {
+        const t = i * 0.15;
+        tl.fromTo(id, { opacity: 0 }, { opacity: 1, duration: 0.12, ease: "none" }, t);
+        tl.fromTo(id + " .bg", { scale: 0.4 }, { scale: 1, duration: 0.7, ease: spring(0.45) }, t);
+        tl.fromTo(id, { y: 30 }, { y: 0, duration: 0.7, ease: spring(0.45) }, t);
+      });
+
+      // Press: a fast squash (an ordinary ease), then the spring carries it back.
+      tl.fromTo("#btn .bg", { scale: 1 }, { scale: 0.92, duration: 0.12, ease: "power2.out" }, 1.15);
+      tl.fromTo("#btn .bg", { scale: 0.92 }, { scale: 1, duration: 0.5, ease: spring(0.5) }, 1.27);
+      tl.fromTo("#btn span", { y: 0 }, { y: 4, duration: 0.12, ease: "power2.out" }, 1.15);
+      tl.fromTo("#btn span", { y: 4 }, { y: 0, duration: 0.5, ease: spring(0.5) }, 1.27);
+
+      tl.fromTo("#result", { opacity: 0 }, { opacity: 1, duration: 0.15, ease: "none" }, 1.5);
+      tl.fromTo("#result", { y: 160 }, { y: 0, duration: 0.8, ease: spring(0.8) }, 1.5);
+      tl.fromTo("#result .bg", { scale: 0.94 }, { scale: 1, duration: 0.8, ease: spring(0.8) }, 1.5);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

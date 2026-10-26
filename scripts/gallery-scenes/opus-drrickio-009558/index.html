@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1280, height=720"><title>SaaS launch video</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0b3a8c}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:linear-gradient(135deg,#0d47b8,#0a2f78);font-family:"Inter",sans-serif;color:#fff}
+#cal{position:absolute;left:70px;top:90px;width:700px;height:540px;background:#fff;border-radius:28px;box-shadow:0 30px 70px rgba(4,20,70,.45);overflow:hidden;color:#16244a}
+#hd{height:70px;background:#eef3fc;display:flex;align-items:center;padding:0 30px 0 100px;font-weight:700;font-size:22px;color:#5b6b8f}
+#hd span{flex:1;text-align:center}
+#grid{position:absolute;left:0;top:70px;right:0;bottom:0}
+.hl{position:absolute;left:0;right:0;height:2px;background:#e3e9f5}
+.vl{position:absolute;top:0;bottom:0;width:2px;background:#e3e9f5}
+.tm{position:absolute;left:18px;font-weight:700;font-size:18px;color:#9aa7c4}
+.ev{position:absolute;border-radius:14px;padding:12px 16px;font-weight:800;font-size:24px;overflow:hidden}
+#e1{background:#3b82f6;color:#fff;left:112px;top:50px;width:178px;height:150px}
+#e2{background:#f4a62a;color:#16244a;left:112px;top:120px;width:178px;height:150px}
+#e3{background:#2cc98a;color:#fff;left:292px;top:50px;width:178px;height:110px;opacity:0}
+#warn{position:absolute;left:112px;top:50px;width:178px;height:220px;border:5px solid #e5484d;border-radius:16px;opacity:0}
+#bang{position:absolute;left:236px;top:78px;width:64px;height:64px;border-radius:50%;background:#e5484d;color:#fff;font-weight:900;font-size:44px;display:flex;align-items:center;justify-content:center;opacity:0}
+.chk{position:absolute;right:12px;bottom:10px;opacity:0}
+#ghost{position:absolute;left:112px;top:300px;width:178px;height:90px;border-radius:14px;border:4px dashed #b7c6e6;opacity:0}
+#cursor{position:absolute;left:0;top:0;width:60px;height:60px;z-index:9;filter:drop-shadow(0 6px 8px rgba(0,0,0,.3))}
+#right{position:absolute;left:830px;top:0;width:420px;height:720px}
+.msg{position:absolute;left:0;top:0;width:420px;height:720px;display:flex;flex-direction:column;justify-content:center;opacity:0}
+.msg h1{font-weight:900;font-size:98px;line-height:.98;letter-spacing:-.04em}
+.msg h1 em{font-style:normal;color:#ffb3b5}
+.msg h1 u{text-decoration:none;color:#7ff0c0}
+#m3{align-items:flex-start}
+#lg{display:flex;align-items:center;gap:22px;margin-bottom:26px}
+#lgm{width:92px;height:92px;border-radius:26px;background:#fff;display:flex;align-items:center;justify-content:center}
+#lgt{font-weight:900;font-size:84px;letter-spacing:-.04em}
+#btn{background:#fff;color:#0d47b8;font-weight:800;font-size:36px;padding:20px 40px;border-radius:50px}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+ <div id="cal"><div id="hd"><span>MON</span><span>TUE</span><span>WED</span><span>THU</span></div>
+  <div id="grid"></div></div>
+ <div id="right">
+  <div class="msg" id="m1" style="opacity:1"><h1>Double<br><em>booked?</em></h1></div>
+  <div class="msg" id="m2"><h1>One click.<br><u>Sorted.</u></h1></div>
+  <div class="msg" id="m3"><div id="lg"><div id="lgm"><svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="12" width="48" height="42" rx="9" fill="none" stroke="#0d47b8" stroke-width="6"/><path id="lck" d="M18 34 L27 43 L43 25" fill="none" stroke="#0d47b8" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div id="lgt">Slotly</div></div><div id="btn">Sign up free &rarr;</div></div>
+ </div>
+ <svg id="cursor" viewBox="0 0 60 60"><path d="M8 4 L8 46 L19 36 L27 54 L35 50 L27 33 L42 33Z" fill="#16244a" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg>
+</div>
+<script>
+(function(){
+var g=document.getElementById("grid");
+for(var i=0;i<6;i++){var h=document.createElement("div");h.className="hl";h.style.top=(i*90)+"px";g.appendChild(h);var t=document.createElement("div");t.className="tm";t.style.top=(i*90+8)+"px";t.textContent=(9+i)+":00";g.appendChild(t);}
+for(var j=0;j<4;j++){var v=document.createElement("div");v.className="vl";v.style.left=(100+j*180)+"px";g.appendChild(v);}
+function ev(id,txt,svg){var e=document.createElement("div");e.className="ev";e.id=id;e.innerHTML=txt+(svg?'<svg class="chk" width="34" height="34" viewBox="0 0 34 34"><path d="M6 18 L14 26 L28 8" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/></svg>':"");g.appendChild(e);}
+['<div id="ghost"></div>'].forEach(function(h){g.insertAdjacentHTML("beforeend",h);});
+ev("e1","Demo call",1);ev("e2","Team sync",1);ev("e3","Review",1);
+g.insertAdjacentHTML("beforeend",'<div id="warn"></div><div id="bang">!</div>');
+var tl=gsap.timeline({paused:true});
+// 0-1.5: overlap flash
+tl.fromTo("#e1",{y:-30,opacity:0},{y:0,opacity:1,duration:.3,ease:"back.out(2)"},0);
+tl.fromTo("#e2",{x:120,opacity:0},{x:0,opacity:1,duration:.3,ease:"back.out(2)"},.15);
+tl.set("#warn",{opacity:1},.55);tl.set("#bang",{opacity:1},.55);
+tl.fromTo("#warn",{scale:1.2},{scale:1,duration:.2,ease:"power3.out"},.55);
+tl.fromTo("#bang",{scale:0},{scale:1,duration:.3,ease:"back.out(3)"},.55);
+tl.to("#warn",{opacity:.25,duration:.12,yoyo:true,repeat:3},.9);
+tl.to("#e1",{x:-6,duration:.05,yoyo:true,repeat:5},.6);
+// cursor
+tl.set("#cursor",{x:900,y:650},0);
+tl.to("#cursor",{x:300,y:260,duration:.6,ease:"power3.inOut"},1.0);
+tl.to("#cursor",{scale:.8,duration:.07,yoyo:true,repeat:1,transformOrigin:"10px 6px"},1.62);
+// msgs
+tl.to("#m1",{opacity:0,x:-30,duration:.2},1.55);
+tl.fromTo("#m2",{opacity:0,x:50},{opacity:1,x:0,duration:.35,ease:"power3.out"},1.7);
+// resolve
+tl.set("#warn",{opacity:0},1.7);tl.set("#bang",{opacity:0},1.7);
+tl.to("#e2",{y:190,duration:.5,ease:"back.out(1.6)",backgroundColor:"#8b5cf6",color:"#fff"},1.7);
+tl.to("#e2",{height:90,duration:.4},1.7);
+tl.to("#e1",{height:110,duration:.3,ease:"power3.out"},1.7);
+tl.to("#e3",{opacity:1,duration:.01},2.1);
+tl.fromTo("#e3",{y:-40,scaleY:.5},{y:0,scaleY:1,duration:.4,ease:"back.out(2)"},2.1);
+tl.to("#cursor",{x:560,y:390,duration:.5,ease:"power2.inOut"},2.2);
+tl.to("#e1",{backgroundColor:"#2cc98a",duration:.3},2.4);
+tl.fromTo(".chk",{opacity:0,scale:0},{opacity:1,scale:1,duration:.3,stagger:.12,ease:"back.out(3)"},2.45);
+tl.to("#cal",{scale:.94,x:-10,duration:.6,ease:"power2.inOut"},3.2);
+tl.to("#cursor",{x:1000,y:700,duration:.5,ease:"power2.in"},3.1);
+// finish
+tl.to("#m2",{opacity:0,x:-40,duration:.25},3.3);
+tl.fromTo("#m3",{opacity:0,y:40},{opacity:1,y:0,duration:.45,ease:"power3.out"},3.45);
+tl.fromTo("#lgm",{scale:0,rotation:-30},{scale:1,rotation:0,duration:.45,ease:"back.out(2.4)"},3.5);
+tl.set("#lck",{strokeDasharray:80,strokeDashoffset:80},0);
+tl.to("#lck",{strokeDashoffset:0,duration:.4},3.8);
+tl.fromTo("#btn",{scale:.5,opacity:0},{scale:1,opacity:1,duration:.4,ease:"back.out(2.4)"},4.05);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+})();
+</script></body></html>

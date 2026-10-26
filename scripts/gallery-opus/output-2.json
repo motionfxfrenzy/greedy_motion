@@ -1,0 +1,1094 @@
+[
+ {
+  "id": "opus-deedydas-252537",
+  "name": "Punchy startup launch",
+  "group": "Product",
+  "summary": "A fast, slick launch film with big claims and hard cuts, ending on the product name.",
+  "bestFor": "AI and infrastructure startups announcing a product",
+  "prompt": "Make a slick, punchy 20 second launch video for a fictional startup that makes AI answers arrive faster. Open with one blunt claim, then cut through three short feature beats on big type, each landing on a hit. Dark and light switches keep it moving. Finish on the name and one short call to action.",
+  "look": "clean",
+  "theme": "bold",
+  "aspect": "16:9",
+  "durationSeconds": 20,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @deedydas",
+   "url": "https://x.com/deedydas/status/2102787937482252537"
+  },
+  "plan": {
+   "brand": "Quill",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Answers, instantly",
+     "on_screen": "Faster than you can blink",
+     "start": 0.0,
+     "end": 1.33
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "No waiting",
+     "on_screen": "Every request, one beat",
+     "start": 1.33,
+     "end": 2.56
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Ship it live",
+     "on_screen": "Deploy with one click",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Deploy button",
+      "aspect": 1.6
+     },
+     "start": 2.56,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Quill",
+     "on_screen": "Try it today",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-demonugc-525162",
+  "name": "One-shape UI morph",
+  "group": "Product",
+  "summary": "One element morphs through button, loader, player and toast, driven by a cursor, ending where it began.",
+  "bestFor": "App and design-tool teams showing UI polish",
+  "prompt": "Make a square loop where a single rounded shape never cuts away. A cursor clicks it and it becomes a loader, then a check, a music player, a volume slider, a toggle, a tab bar and a self-drawing chart. Each change lands on a beat in black and white with one accent. The last frame matches the first.",
+  "look": "clean",
+  "theme": "neutral",
+  "aspect": "1:1",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @demonugc",
+   "url": "https://x.com/demonugc/status/2103526713208525162"
+  },
+  "plan": {
+   "brand": "Morph",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "One shape",
+     "on_screen": "Every state, no cuts",
+     "start": 0.0,
+     "end": 1.23
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Button to loader",
+     "on_screen": "Click and it morphs",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Pill button",
+      "aspect": 1.0
+     },
+     "start": 1.23,
+     "end": 2.56
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Slider stretches",
+     "on_screen": "Drag past the max",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Volume knob",
+      "aspect": 1.0
+     },
+     "start": 2.56,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Morph",
+     "on_screen": "Design that moves",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-designbyfusun-559069",
+  "name": "Motion designer showreel",
+  "group": "Showreel",
+  "summary": "A fast personal showreel of kinetic type, shapes and transitions that proves a designer's range.",
+  "bestFor": "Motion designers and studios building a reel",
+  "prompt": "Make a 15 second showreel for a fictional motion designer. Pack in quick demonstrations of range: kinetic type, shape morphs, a stat count, a logo reveal and a liquid transition. Every second introduces a new idea with a hard switch between light and dark. End on the designer's name and a hiring line.",
+  "look": "clean",
+  "theme": "bold-poster",
+  "aspect": "16:9",
+  "durationSeconds": 15,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @DesignByFusun",
+   "url": "https://x.com/DesignByFusun/status/2103672001206559069"
+  },
+  "plan": {
+   "brand": "Studio Nova",
+   "poster": 2.4,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Type that moves",
+     "on_screen": "Kinetic, sharp, timed",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Shapes that think",
+     "on_screen": "Morph, split, settle",
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Numbers that count",
+     "on_screen": "Count up on beat",
+     "verb": "count",
+     "ui": {
+      "screen": "s1",
+      "action": "count",
+      "target": "Counter",
+      "aspect": 1.6
+     },
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Studio Nova",
+     "on_screen": "Available for projects",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-gizakdag-239768",
+  "name": "Overthinking concept reel",
+  "group": "Showreel",
+  "summary": "A showreel built around one idea, loops of looping thoughts told through restless type and shapes.",
+  "bestFor": "Designers turning an abstract feeling into motion",
+  "prompt": "Make a 15 second concept reel about overthinking. Show one simple thought that spirals, repeats and tangles through scribbled loops and growing type, then snaps into a single calm line. Fast cuts at first, then a held stillness. Use hand-drawn marks and a restrained palette.",
+  "look": "sketch",
+  "theme": "editorial",
+  "aspect": "1:1",
+  "durationSeconds": 15,
+  "motionProfile": "springy",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @gizakdag",
+   "url": "https://x.com/gizakdag/status/2103566030916239768"
+  },
+  "plan": {
+   "brand": "Loop Studio",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "What if",
+     "on_screen": "It spirals again",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "What if what if",
+     "on_screen": "Louder each time",
+     "start": 1.3,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Breathe",
+     "on_screen": "One calm line",
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Loop Studio",
+     "on_screen": "Quiet the noise",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-drrickio-009558",
+  "name": "SaaS launch video",
+  "group": "Product",
+  "summary": "A professional launch film that shows features and benefits as fast motion-graphics scenes.",
+  "bestFor": "SaaS founders launching a product on social",
+  "prompt": "Make a 30 second launch video for a fictional scheduling app. Open on the pain of double bookings, then reveal the product with a click on a calendar, show three features as quick UI scenes, and state the benefit in one line of big type. Close on the logo and a sign-up line.",
+  "look": "clean",
+  "theme": "blue-professional",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @drrickio",
+   "url": "https://x.com/drrickio/status/2103333836130009558"
+  },
+  "plan": {
+   "brand": "Calendly Lite",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Double booked again",
+     "on_screen": "The old way hurts",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "One click fixes it",
+     "on_screen": "Pick a free slot",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Calendar slot",
+      "aspect": 1.6
+     },
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Meetings, sorted",
+     "on_screen": "Zero back and forth",
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Calendly Lite",
+     "on_screen": "Start free today",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-hqmank-241156",
+  "name": "Open-source README hero",
+  "group": "Product",
+  "summary": "A short hero loop for a code project, three steps in a punchy line, then the install call.",
+  "bestFor": "Open-source maintainers needing a README hero video",
+  "prompt": "Make a 20 second hero video for a fictional open-source command line tool. Show the idea in three beats: give it a site, write a goal, watch it act. Use a terminal window with typed text and a cursor that clicks through the steps. End on the project name and the install line.",
+  "look": "clean",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 20,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @hqmank",
+   "url": "https://x.com/hqmank/status/2103831140033241156"
+  },
+  "plan": {
+   "brand": "Pilot CLI",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Give a site",
+     "on_screen": "Paste any address",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Write a goal",
+     "on_screen": "Type what you want",
+     "verb": "type",
+     "ui": {
+      "screen": "s1",
+      "action": "type",
+      "target": "Goal input",
+      "aspect": 1.6
+     },
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Watch it click",
+     "on_screen": "The tool does the rest",
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Pilot CLI",
+     "on_screen": "Open source, free",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-ik-builds-585923",
+  "name": "Paper marker launch",
+  "group": "Explainer",
+  "summary": "A paper-light film with marker notes that draw on, huge type and hard light-dark switches.",
+  "bestFor": "Founders who want a hand-made explainer feel",
+  "prompt": "Make a 15 second explainer for a fictional note-taking tool. Use a paper canvas with marker notes that draw on, huge condensed type, and a new idea every second and a half. Switch hard to charcoal for the key claim. Name what the product learns, claim no figures, and end on the wordmark.",
+  "look": "sketch",
+  "theme": "editorial",
+  "aspect": "16:9",
+  "durationSeconds": 15,
+  "motionProfile": "springy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @ik_builds",
+   "url": "https://x.com/ik_builds/status/2103890476885585923"
+  },
+  "plan": {
+   "brand": "Jotter",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Notes that listen",
+     "on_screen": "Marker draws on",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Ideas, connected",
+     "on_screen": "One idea every beat",
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "No more lost thoughts",
+     "on_screen": "Dark mode drop",
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Jotter",
+     "on_screen": "Think on paper",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-ishaaqahamed-107563",
+  "name": "Why we're best loop",
+  "group": "Social",
+  "summary": "A square looping showreel with a one-second hook that argues why a product wins at one thing.",
+  "bestFor": "Brands needing a looping proof post for feeds",
+  "prompt": "Make a 15 second square looping video that argues why a fictional coffee grinder is best at even grinding. Hook in the first second with one bold claim, then three fast proof beats built from simple shapes and type, and end on a frame that matches the first so it loops.",
+  "look": "clean",
+  "theme": "bold",
+  "aspect": "1:1",
+  "durationSeconds": 15,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @Ishaaqahamed",
+   "url": "https://x.com/Ishaaqahamed/status/2103837917538107563"
+  },
+  "plan": {
+   "brand": "Grindr Co",
+   "poster": 2.5,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Perfectly even",
+     "on_screen": "The hook, in one second",
+     "start": 0,
+     "end": 1.2
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Every bean",
+     "on_screen": "Same size, every time",
+     "start": 1.2,
+     "end": 2.5
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Nothing wasted",
+     "on_screen": "Simple shapes, clear proof",
+     "start": 2.5,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Grindr Co",
+     "on_screen": "Grind better",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-gdgtify-929495",
+  "name": "Typographic speech film",
+  "group": "Typography",
+  "summary": "A short speech built from type where each key word becomes part of the structure it stands on.",
+  "bestFor": "Campaign films and manifesto openers",
+  "prompt": "Make a 20 second square film of a short original speech told only in type. Each line rearranges the frame: one word becomes a beam, another a hanging weight, another a support, and the last word becomes a floor the final line stands on. Dark green ground, cream paper, one amber accent.",
+  "look": "clean",
+  "theme": "editorial-forest",
+  "aspect": "1:1",
+  "durationSeconds": 20,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @Gdgtify",
+   "url": "https://x.com/Gdgtify/status/2103458245213929495"
+  },
+  "plan": {
+   "brand": "Floor Notes",
+   "poster": 2.9,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "We were told to wait",
+     "on_screen": "Type as a beam",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "The weight of waiting",
+     "on_screen": "Hanging from above",
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "One voice made room",
+     "on_screen": "Then another",
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "The floor is ours",
+     "on_screen": "Built from words",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-groundcontrol-230877",
+  "name": "Pencil data story",
+  "group": "Data",
+  "summary": "A hand-drawn pencil animation that charts a topic across years, with a tasteful colour fringe.",
+  "bestFor": "Explaining a trend over time with a data story",
+  "prompt": "Make a 90 second pencil-drawn data story about a fictional city's summer temperatures. Start with a hand-drawn thermometer, then draw a line chart year by year, mark the hottest summer with a circle, and compare it with earlier years on a second line. Use a faint colour fringe and end on one plain takeaway.",
+  "look": "sketch",
+  "theme": "editorial",
+  "aspect": "16:9",
+  "durationSeconds": 90,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @GroundControl",
+   "url": "https://x.com/GroundControl/status/2103678647777230877"
+  },
+  "plan": {
+   "brand": "Heat Ledger",
+   "poster": 2.9,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Hotter summers",
+     "on_screen": "Drawn year by year",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "The line climbs",
+     "on_screen": "Chart draws itself",
+     "verb": "count",
+     "ui": {
+      "screen": "s1",
+      "action": "count",
+      "target": "Temperature line",
+      "aspect": 1.6
+     },
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Compared to before",
+     "on_screen": "One circle, one year",
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Heat Ledger",
+     "on_screen": "Read the full story",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-emollick-019567",
+  "name": "Recursion explainer",
+  "group": "Explainer",
+  "summary": "A fast, clever explainer where each explanation of recursion arrives in a completely different visual style.",
+  "bestFor": "Educators and explainer channels with a twist",
+  "prompt": "Make a 45 second explainer about recursion where every explanation uses a different visual style: a sketch of nested boxes, a terminal with a function calling itself, a dictionary entry that points to itself, then a final card that explains recursion by repeating the video. Keep it quick and self-referential.",
+  "look": "doodle",
+  "theme": "creative-mode",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "springy",
+  "pace": "fast",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @emollick",
+   "url": "https://x.com/emollick/status/2103688362960019567"
+  },
+  "plan": {
+   "brand": "Loop de Loop",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "What is recursion?",
+     "on_screen": "See: recursion",
+     "start": 0.0,
+     "end": 1.33
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Boxes in boxes",
+     "on_screen": "Sketched, then smaller",
+     "start": 1.33,
+     "end": 2.56
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Function calls itself",
+     "on_screen": "Type and run",
+     "verb": "type",
+     "ui": {
+      "screen": "s1",
+      "action": "type",
+      "target": "Code editor",
+      "aspect": 1.6
+     },
+     "start": 2.56,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Loop de Loop",
+     "on_screen": "Now watch it again",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-hunzai-842605",
+  "name": "Ecosystem explainer",
+  "group": "Explainer",
+  "summary": "A calm illustrated explainer that shows how one living system supports many others, with a soft score.",
+  "bestFor": "Science teachers and nature channels",
+  "prompt": "Make a 45 second explainer on how a tree works as an ecosystem. Draw the tree, then reveal roots sharing nutrients, birds nesting in branches, insects in bark and fallen leaves feeding the soil. Use gentle hand-drawn lines, one label per idea and a soft musical bed. End on one thought about connection.",
+  "look": "doodle",
+  "theme": "daisy-days",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @hunzai",
+   "url": "https://x.com/hunzai/status/2103904436141842605"
+  },
+  "plan": {
+   "brand": "Tree Tales",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "One tree",
+     "on_screen": "Not one life",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Roots that share",
+     "on_screen": "Underground network",
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Homes in branches",
+     "on_screen": "Birds, insects, bark",
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Tree Tales",
+     "on_screen": "Everything is connected",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-felipemoller-936736",
+  "name": "Everyday spending reel",
+  "group": "Social",
+  "summary": "A vertical reel that simulates a day of purchases at a shop, a fuel stop and a restaurant.",
+  "bestFor": "Finance and card apps making vertical social ads",
+  "prompt": "Make a 20 second vertical reel for a fictional spending app. Show three everyday stops, a grocery run, a fuel stop and a dinner, each as a phone screen where a payment is made and a running total counts up. Keep it modern and elegant, and end on the app name and a download line.",
+  "look": "clean",
+  "theme": "blue-professional",
+  "aspect": "9:16",
+  "durationSeconds": 20,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @felipemoller",
+   "url": "https://x.com/felipemoller/status/2103846311149936736"
+  },
+  "plan": {
+   "brand": "Pocketly",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Groceries",
+     "on_screen": "Tap to pay",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Fuel stop",
+     "on_screen": "Total counts up",
+     "verb": "count",
+     "ui": {
+      "screen": "s1",
+      "action": "count",
+      "target": "Running total",
+      "aspect": 0.6
+     },
+     "start": 1.27,
+     "end": 2.63
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Dinner out",
+     "on_screen": "Split in one tap",
+     "start": 2.63,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Pocketly",
+     "on_screen": "See where it goes",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-howdevelop-733090",
+  "name": "Developer tool launch",
+  "group": "Product",
+  "summary": "A fast, precise launch film for a developer library, built for a keynote opening or social feed.",
+  "bestFor": "Developer-tools companies launching a library",
+  "prompt": "Make a 15 second launch film for a fictional developer library that helps build chat features. Use fast type, a code editor that types a few lines, and a toggle that swaps between providers with one click. Keep it precise and polished, with a restrained electronic pulse that builds to the name.",
+  "look": "hairline",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 15,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @HowDevelop",
+   "url": "https://x.com/HowDevelop/status/2103840883812733090"
+  },
+  "plan": {
+   "brand": "Streamkit",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Build chat, fast",
+     "on_screen": "One library",
+     "start": 0.0,
+     "end": 1.23
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Write three lines",
+     "on_screen": "Type, then run",
+     "verb": "type",
+     "ui": {
+      "screen": "s1",
+      "action": "type",
+      "target": "Code editor",
+      "aspect": 1.6
+     },
+     "start": 1.23,
+     "end": 2.56
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Swap providers",
+     "on_screen": "One toggle",
+     "verb": "toggle",
+     "ui": {
+      "screen": "s1",
+      "action": "toggle",
+      "target": "Provider switch",
+      "aspect": 1.6
+     },
+     "start": 2.56,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Streamkit",
+     "on_screen": "Ship it today",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-hugon001-609629",
+  "name": "App launch showreel",
+  "group": "Product",
+  "summary": "A fast app launch reel with a hook, three feature scenes and a download call.",
+  "bestFor": "Consumer apps launching with a short promo",
+  "prompt": "Make a 15 second launch reel for a fictional mindfulness app. Open with a calm hook line, then show three feature scenes on phone screens: a mood check-in, a breathing timer and a weekly summary. Keep text short and warm, and end on the app name with a download call.",
+  "look": "clean",
+  "theme": "coral",
+  "aspect": "16:9",
+  "durationSeconds": 15,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @hugon001",
+   "url": "https://x.com/hugon001/status/2103425679618609629"
+  },
+  "plan": {
+   "brand": "Mentra",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Take a minute",
+     "on_screen": "Just for you",
+     "start": 0.0,
+     "end": 1.23
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Check in",
+     "on_screen": "Pick your mood",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Mood chip",
+      "aspect": 1.6
+     },
+     "start": 1.23,
+     "end": 2.56
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Breathe",
+     "on_screen": "Timer counts down",
+     "verb": "count",
+     "ui": {
+      "screen": "s1",
+      "action": "count",
+      "target": "Breathing timer",
+      "aspect": 1.6
+     },
+     "start": 2.56,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Mentra",
+     "on_screen": "Download today",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-ezshine-750731",
+  "name": "Feature tour promo",
+  "group": "Product",
+  "summary": "A professional promo that walks through a project's main features on screen, one per beat.",
+  "bestFor": "Software projects needing a feature overview film",
+  "prompt": "Make a 30 second widescreen promo that introduces a fictional project management tool by its key features. Give each feature its own beat with big type and a quick UI demonstration, a board, a timeline and a share action. Close with the name, a one-line promise and a call to action.",
+  "look": "clean",
+  "theme": "blue-professional",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @ezshine",
+   "url": "https://x.com/ezshine/status/2103501705698750731"
+  },
+  "plan": {
+   "brand": "Boardwalk",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Plan it",
+     "on_screen": "Boards for every team",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Drag to prioritise",
+     "on_screen": "Move a card",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Task card",
+      "aspect": 1.6
+     },
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "See the timeline",
+     "on_screen": "All work, one view",
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Boardwalk",
+     "on_screen": "Get started free",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-helloshiva0801-438284",
+  "name": "Paper-style product launch",
+  "group": "Product",
+  "summary": "A ten-scene launch video in a paper style that covers problem, product and payoff.",
+  "bestFor": "Solo founders launching without a designer",
+  "prompt": "Make a 30 second launch video for a fictional website redesign tool in a paper-cut style. Scenes: the ugly old page, the problem in one line, a click that starts the redesign, a before and after swap, three small benefits, and the name. Keep each scene about three seconds with a cut-paper wipe between.",
+  "look": "doodle-crosshatch",
+  "theme": "editorial",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "springy",
+  "pace": "balanced",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @helloshiva0801",
+   "url": "https://x.com/helloshiva0801/status/2103733875734438284"
+  },
+  "plan": {
+   "brand": "Reshape",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Your site, tired",
+     "on_screen": "Time for a refresh",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "One click redesign",
+     "on_screen": "Press the button",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Redesign button",
+      "aspect": 1.6
+     },
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Before, after",
+     "on_screen": "Same content, new look",
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Reshape",
+     "on_screen": "Try it free",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-henkvaness-975279",
+  "name": "Article to lesson",
+  "group": "How-to",
+  "summary": "An educational video that turns one article into a clear sequence of key points, each with a simple visual.",
+  "bestFor": "Teachers and publishers repurposing written content",
+  "prompt": "Make a 60 second educational video from a short article about how vaccines train the immune system. Pull out four key ideas in order, give each a title, one plain sentence and a simple animated diagram, and finish with a summary card that repeats the ideas in one line each.",
+  "look": "clean",
+  "theme": "cartesian",
+  "aspect": "16:9",
+  "durationSeconds": 60,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "source": {
+   "label": "Remade from @henkvaness",
+   "url": "https://x.com/henkvaness/status/2103801351993975279"
+  },
+  "plan": {
+   "brand": "Lesson Lab",
+   "poster": 2.9,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "How vaccines work",
+     "on_screen": "Four ideas, one minute",
+     "start": 0.0,
+     "end": 1.27
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Meet the threat",
+     "on_screen": "A harmless preview",
+     "start": 1.27,
+     "end": 2.53
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Train the defence",
+     "on_screen": "Memory cells form",
+     "start": 2.53,
+     "end": 3.8
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Lesson Lab",
+     "on_screen": "Read the full article",
+     "start": 3.8,
+     "end": 5
+    }
+   ]
+  }
+ }
+]

@@ -27,6 +27,8 @@ Work top to bottom. Stop where it says stop. Paste the filled list into the hand
 - [ ] `hyperframes check` passes with zero findings, including contrast.
 - [ ] `scripts/verify-seams.mjs` reports all 6 seams velocity-matched; `seams-verified.json` kept.
 - [ ] Pacing gate passes (no hold > 0.6 s).
+- [ ] `pop_gate.mjs <render.mp4> --max-cuts 6` passes: no single-frame pop, and no hard cut other than at the six seams (a seam that reads as a cut instead of a carried move is a defect, see the ledger).
+- [ ] `seam_sheet.mjs <render.mp4> --at <the six seam times>`: the middle of every seam viewed at phone size with the safe boxes drawn; nothing important outside the title-safe box, no element floating above a wipe it should be under.
 - [ ] −14 LUFS ±1, ≤ −2 dBTP after encode; audio stream present.
 - [ ] Watched at full speed.
 

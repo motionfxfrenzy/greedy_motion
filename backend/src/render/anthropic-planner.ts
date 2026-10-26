@@ -64,6 +64,10 @@ export class AnthropicPromptPlanner implements PromptPlanner {
     for (let attempt = 1; attempt <= 2; attempt++) {
       const payload = await this.request(template, messages, request.audio, Boolean(revision));
       const toolUse = payload.content?.find((block) => block.type === "tool_use" && block.name === FILL_TOOL);
+      if ((!toolUse || typeof toolUse.input !== "object" || toolUse.input === null) && attempt === 1) {
+        messages.push({ role: "assistant", content: payload.content ?? [{ type: "text", text: "(no answer)" }] }, { role: "user", content: `Call ${FILL_TOOL} now with every field. Do not reply with text.` });
+        continue;
+      }
       if (!toolUse || typeof toolUse.input !== "object" || toolUse.input === null) {
         throw new Error(`Claude did not fill the template (stop reason: ${payload.stop_reason ?? "unknown"}).`);
       }
@@ -100,12 +104,14 @@ export class AnthropicPromptPlanner implements PromptPlanner {
           "Open with a hook in the first 3 seconds: the viewer's pain or the outcome, never \"Introducing…\" or a logo-first line. One problem, one outcome, one call to action.",
           "One line = one visible action (click, type, drag, toggle, count, send, export). Lead with the verb or place it early, so the motion can land on it. Concrete over abstract: name what the product does, never the abstraction.",
           "On-screen copy is readable in 2 seconds and carries the message with the sound off: short headlines, a kinetic key phrase (the verb or outcome) per scene that echoes the voiceover instead of repeating it.",
+          "Write voiceover for the ear: no colons, parentheses or slashes, acronyms written as they are said, and one short sentence per item in a list of more than three. The last scene must work as a poster frame: product name and call to action readable.",
           "Include exactly one success moment, where the result visibly lands, before the call to action. Voiceover: short sentences (6–14 words), no stage directions; the product name comes after a short opener in the closing line.",
           "Match the copy's tone to the motion style: clean = calm and assured, kinetic = terse and energetic, editorial = crafted and story-led. Use the product's own terms and the exact product name throughout.",
           "Respect every maxLength exactly. Never invent statistics, percentages, customer names, sources, or claims the brief does not support. Never use: magic, revolutionary, seamless, game-changing."
-        ].join(" "),
+        ].join(" ") + ` Always answer by calling the ${FILL_TOOL} tool.`,
         tools: [fillTool(template, audio, includeMotionStyle)],
-        tool_choice: { type: "tool", name: FILL_TOOL },
+        // Newer models reject a forced tool choice, so the tool is asked for in the prompt and a missing call is retried once.
+        tool_choice: { type: "auto" },
         messages
 
     }, { request: this.httpRequest, timeoutMs: 60000, errorPrefix: "Claude planning request failed", includeErrorDetail: true, stopErrors: {} });

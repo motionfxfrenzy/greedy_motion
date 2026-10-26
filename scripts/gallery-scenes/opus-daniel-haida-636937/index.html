@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Premium brand showreel</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f3eee4; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f3eee4; font-family: "Playfair Display", "Libre Baskerville", serif; color: #17140f; }
+  svg { position: absolute; inset: 0; }
+  .t { position: absolute; left: 76px; font-style: italic; font-size: 74px; line-height: 1.02; letter-spacing: -0.01em; }
+  .m { overflow: hidden; padding: 4px 0 10px; }
+  .m > span { display: block; }
+  #word { position: absolute; left: 0; right: 0; top: 232px; text-align: center; font-size: 220px; font-weight: 400; letter-spacing: -0.03em; line-height: 1; opacity: 0; }
+  #word i { color: #9a2f23; font-style: normal; }
+  #tag { position: absolute; left: 0; right: 0; top: 478px; text-align: center; font-size: 30px; letter-spacing: 0.34em; text-transform: uppercase; opacity: 0; font-family: "Inter", sans-serif; font-weight: 400; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+<div class="t" id="tx" style="top:196px">
+  <div class="m"><span>Fine work,</span></div>
+  <div class="m"><span>finely</span></div>
+  <div class="m"><span style="color:#9a2f23">billed.</span></div>
+</div>
+<div id="word">Folio<i>.</i></div>
+<div id="tag">Invoicing, composed</div>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  var INK = "#17140f", GREY = "#8d877b", RED = "#9a2f23", PAPER = "#f3eee4";
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  var tl = gsap.timeline({ paused: true });
+  function draw(p, t, dur, ease) {
+    var L = p.getTotalLength(); p.style.strokeDasharray = L + " " + (L + 2); p.style.strokeDashoffset = L;
+    tl.to(p, { strokeDashoffset: 0, duration: dur, ease: ease || "power2.inOut" }, t);
+  }
+  function line(g, x1, y1, x2, y2, t, dur, col, w) { var p = el("path", { d: "M" + x1 + " " + y1 + "L" + x2 + " " + y2, fill: "none", stroke: col || INK, "stroke-width": w || 1.3 }, g); draw(p, t, dur); return p; }
+  function txt(g, str, x, y, size, o) { o = o || {}; var e = el("text", { x: x, y: y, "font-size": size, fill: o.fill || INK, "font-style": o.it ? "italic" : "normal", "font-family": o.sans ? "Inter, sans-serif" : "Playfair Display, serif", "letter-spacing": o.ls || 0, "text-anchor": o.anchor || "start", opacity: 0 }, g); e.textContent = str; return e; }
+
+  // frame
+  var frame = el("rect", { x: 34, y: 34, width: 1212, height: 652, fill: "none", stroke: INK, "stroke-width": 1.2 });
+  var fp = el("path", { d: "M34 34H1246V686H34Z", fill: "none", stroke: INK, "stroke-width": 1.2 }); frame.remove();
+  draw(fp, 0, 1.3, "power2.out");
+  var top = txt(s, "FOLIO  ·  N° 01", 76, 82, 15, { sans: true, ls: 5 }); var top2 = txt(s, "A QUIET LEDGER", 1204, 82, 15, { sans: true, ls: 5, anchor: "end" });
+  tl.to([top, top2], { opacity: 1, duration: 0.4 }, 0.05);
+
+  // card factory: fill (occludes) + outline + content
+  function card(id, x, y, w, h, rot) {
+    var pos = el("g", { transform: "translate(" + x + " " + y + ") rotate(" + rot + " " + w / 2 + " " + h / 2 + ")" }), g = el("g", {}, pos), inner = el("g", {}, g);
+    var shade = el("rect", { x: 10, y: 12, width: w, height: h, fill: "#17140f", opacity: 0.06 }, inner);
+    var f = el("rect", { x: 0, y: 0, width: w, height: h, fill: PAPER }, inner);
+    var o = el("path", { d: "M0 0H" + w + "V" + h + "H0Z", fill: "none", stroke: INK, "stroke-width": 1.4 }, inner);
+    return { g: g, inner: inner, f: f, o: o, shade: shade, w: w, h: h };
+  }
+  var T0 = 0.0;
+  // A: invoice
+  var A = card("a", 470, 118, 360, 478, -2);
+  txt(A.inner, "Invoice", 32, 62, 38, { it: true }); txt(A.inner, "N° 0418", 328, 54, 14, { sans: true, ls: 3, anchor: "end", fill: GREY });
+  line(A.inner, 32, 84, 328, 84, 0.5, 0.7);
+  [0, 1, 2].forEach(function (i) {
+    var y = 134 + i * 52;
+    line(A.inner, 32, y, 150 + (i % 2) * 30, y, 0.7 + i * 0.12, 0.5, INK, 1.3);
+    line(A.inner, 32, y + 16, 110, y + 16, 0.8 + i * 0.12, 0.4, GREY, 1);
+    line(A.inner, 268, y, 328, y, 0.75 + i * 0.12, 0.4, INK, 1.3);
+  });
+  line(A.inner, 32, 306, 328, 306, 1.1, 0.6);
+  txt(A.inner, "Total", 32, 358, 22, { it: true, fill: GREY });
+  var tot = txt(A.inner, "2,400", 328, 420, 64, { anchor: "end" });
+  var ul = line(A.inner, 164, 436, 328, 436, 1.7, 0.6, RED, 2);
+  tl.to(tot, { opacity: 1, duration: 0.5 }, 1.45);
+  tl.fromTo(A.g, { x: 340, y: 0 }, { x: 0, duration: 1.5, ease: "power3.out" }, 0);
+  tl.fromTo(A.inner, { rotation: 4, transformOrigin: "180px 240px" }, { rotation: 0, duration: 1.5, ease: "power3.out" }, 0);
+  A.g.querySelectorAll("text").forEach(function (e, i) { tl.to(e, { opacity: 1, duration: 0.5 }, 0.3 + i * 0.12); });
+
+  // B: paid
+  var B = card("b", 872, 138, 270, 156, 3);
+  var ring = el("circle", { cx: 70, cy: 78, r: 34, fill: "none", stroke: RED, "stroke-width": 1.6, transform: "rotate(-90 70 78)" }, B.inner); draw(ring, 1.5, 0.8);
+  var ck = el("path", { d: "M54 78L66 91L88 64", fill: "none", stroke: RED, "stroke-width": 2 }, B.inner); draw(ck, 2.1, 0.4);
+  txt(B.inner, "Paid", 128, 88, 40, { it: true }); txt(B.inner, "IN FULL", 130, 114, 13, { sans: true, ls: 4, fill: GREY });
+  line(B.inner, 128, 126, 238, 126, 2.0, 0.5, INK, 1);
+  B.inner.querySelectorAll("text").forEach(function (e, i) { tl.to(e, { opacity: 1, duration: 0.4 }, 1.9 + i * 0.1); });
+  tl.fromTo(B.g, { y: 120, opacity: 0 }, { y: 0, opacity: 1, duration: 1.1, ease: "power3.out" }, 1.15);
+  tl.fromTo(B.inner, { rotation: -5, transformOrigin: "135px 78px" }, { rotation: 0, duration: 1.1, ease: "power3.out" }, 1.15);
+  draw(B.o, 1.2, 0.8);
+
+  // C: curve card
+  var C = card("c", 800, 366, 340, 206, -1.5);
+  line(C.inner, 28, 160, 312, 160, 1.9, 0.6, INK, 1.1); line(C.inner, 28, 28, 28, 160, 1.9, 0.5, GREY, 1);
+  var cv = el("path", { d: "M28 140C70 132 90 112 128 118S190 84 226 70S284 44 312 36", fill: "none", stroke: INK, "stroke-width": 1.6 }, C.inner); draw(cv, 2.1, 1.0);
+  var dot = el("circle", { cx: 312, cy: 36, r: 5, fill: RED, opacity: 0 }, C.inner); tl.to(dot, { opacity: 1, duration: 0.2 }, 3.0);
+  var dl = line(C.inner, 28, 36, 312, 36, 3.0, 0.4, RED, 0.8); dl.style.opacity = 0.5;
+  txt(C.inner, "Cash in", 28, 196, 13, { sans: true, ls: 4, fill: GREY }); C.inner.querySelectorAll("text").forEach(function (e) { tl.to(e, { opacity: 1, duration: 0.4 }, 2.2); });
+  tl.fromTo(C.g, { x: -50, y: 150, opacity: 0 }, { x: 0, y: 0, opacity: 1, duration: 1.2, ease: "power3.out" }, 1.55);
+  draw(C.o, 1.6, 0.8);
+  // fill-fades for the shades so they don't pop
+  [A, B, C].forEach(function (c) { c.f.style.opacity = 1; });
+
+  // left headline
+  var spans = document.querySelectorAll("#tx .m > span");
+  tl.fromTo(spans, { yPercent: 110 }, { yPercent: 0, duration: 0.8, ease: "power3.out", stagger: 0.14 }, 0.05);
+
+  // phase 2: cards leave, wordmark
+  var leave = 3.0;
+  tl.to(spans, { yPercent: -120, duration: 0.5, ease: "power2.in", stagger: 0.06 }, leave - 0.05);
+  tl.to(A.g, { y: -70, opacity: 0, duration: 0.7, ease: "power2.in" }, leave);
+  tl.to(B.g, { x: 160, opacity: 0, duration: 0.7, ease: "power2.in" }, leave + 0.05);
+  tl.to(C.g, { y: 90, opacity: 0, duration: 0.7, ease: "power2.in" }, leave + 0.1);
+  var r1 = el("path", { d: "M90 360H320", stroke: INK, "stroke-width": 1.2, fill: "none" }), r2 = el("path", { d: "M1190 360H960", stroke: INK, "stroke-width": 1.2, fill: "none" });
+  draw(r1, leave + 0.45, 0.8, "power3.out"); draw(r2, leave + 0.45, 0.8, "power3.out");
+  var wd = document.getElementById("word");
+  tl.fromTo(wd, { opacity: 0, scale: 1.06, y: 30 }, { opacity: 1, scale: 1, y: 0, duration: 0.9, ease: "power3.out" }, leave + 0.45);
+  var tg = document.getElementById("tag");
+  tl.fromTo(tg, { opacity: 0, y: 14, letterSpacing: "0.5em" }, { opacity: 1, y: 0, letterSpacing: "0.34em", duration: 0.8, ease: "power2.out" }, leave + 0.9);
+  var rr = el("path", { d: "M540 560H740", stroke: RED, "stroke-width": 1.6, fill: "none" }); draw(rr, leave + 1.2, 0.6);
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Procedural planet</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#000208}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#000208;font-family:'Space Grotesk',Arial,sans-serif}
+canvas{position:absolute;inset:0;width:1280px;height:720px;display:block}
+#cap{position:absolute;left:70px;top:50%;margin-top:-90px;width:480px;color:#f2f8ff;font-size:76px;font-weight:700;letter-spacing:-2px;line-height:1;text-shadow:0 4px 30px #000,0 0 40px rgba(80,160,255,.6)}
+#cap b{color:#6cc4ff}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<canvas id="c" width="1280" height="720"></canvas>
+<div id="cap">A world from <b>pure maths</b></div>
+</div>
+<script type="module">
+import * as THREE from "./vendor/three/three.module.js";
+function prng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd=prng(99);
+const renderer=new THREE.WebGLRenderer({canvas:document.getElementById("c"),antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(1);renderer.setSize(1280,720,false);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x000208);
+const camera=new THREE.PerspectiveCamera(40,1280/720,0.1,200);
+
+// stars
+const N=9000,sp=new Float32Array(N*3),sc=new Float32Array(N*3);
+for(let i=0;i<N;i++){
+  const u=rnd()*2-1,a=rnd()*6.2832,r=Math.sqrt(1-u*u),R=80;
+  sp[i*3]=r*Math.cos(a)*R;sp[i*3+1]=u*R;sp[i*3+2]=r*Math.sin(a)*R;
+  const b=.25+Math.pow(rnd(),3)*.75,tint=rnd();
+  sc[i*3]=b*(.8+.2*tint);sc[i*3+1]=b*.9;sc[i*3+2]=b*(1-.2*tint);
+}
+const sg=new THREE.BufferGeometry();
+sg.setAttribute("position",new THREE.BufferAttribute(sp,3));sg.setAttribute("color",new THREE.BufferAttribute(sc,3));
+const stars=new THREE.Points(sg,new THREE.PointsMaterial({size:1.6,sizeAttenuation:false,vertexColors:true}));
+scene.add(stars);
+
+const noise=`
+float h3(vec3 p){p=fract(p*0.3183099+.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float vn(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.0-2.0*f);
+ return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x),mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x),f.y),
+            mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x),mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x),f.y),f.z);}
+float fbm(vec3 p){float a=.5,s=0.;for(int i=0;i<6;i++){s+=a*vn(p);p=p*2.03+vec3(1.7,9.2,3.1);a*=.5;}return s;}
+`;
+const planetMat=new THREE.ShaderMaterial({
+ uniforms:{uSun:{value:new THREE.Vector3(1,0,0)}},
+ vertexShader:`varying vec3 vP;varying vec3 vN;varying vec3 vW;varying vec3 vWp;
+ void main(){vP=position;vN=normalize(mat3(modelMatrix)*normal);vWp=(modelMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*viewMatrix*vec4(vWp,1.);}`,
+ fragmentShader:noise+`varying vec3 vP;varying vec3 vN;varying vec3 vWp;uniform vec3 uSun;
+ void main(){
+  vec3 p=normalize(vP);
+  float h=fbm(p*2.2+4.0);
+  float sea=.5;
+  float land=smoothstep(sea,sea+.01,h);
+  float elev=clamp((h-sea)/.28,0.,1.);
+  float lat=abs(p.y);
+  vec3 deep=vec3(.01,.06,.2), shallow=vec3(.03,.28,.45);
+  vec3 ocean=mix(deep,shallow,smoothstep(sea-.14,sea,h));
+  vec3 grass=vec3(.1,.34,.12), dry=vec3(.55,.45,.25), rock=vec3(.4,.36,.33);
+  float dryness=fbm(p*3.0+9.0);
+  vec3 ld=mix(grass,dry,smoothstep(.45,.65,dryness+(1.-lat)*.1));
+  ld=mix(ld,rock,smoothstep(.45,.85,elev));
+  float ice=smoothstep(.82,.93,lat+(fbm(p*5.)-.5)*.15);
+  ld=mix(ld,vec3(.92,.96,1.),ice+smoothstep(.8,1.,elev)*.6);
+  vec3 col=mix(ocean,ld,land);
+  col=mix(col,vec3(.9,.95,1.),smoothstep(.9,.96,lat)*(1.-land)*.8);
+  // clouds
+  float cl=smoothstep(.55,.8,fbm(p*3.2+vec3(2.,5.,1.)));
+  vec3 n=normalize(vN);
+  float d=dot(n,uSun);
+  float day=smoothstep(-.12,.2,d);
+  vec3 V=normalize(cameraPosition-vWp);
+  vec3 Hh=normalize(uSun+V);
+  float spec=pow(max(dot(n,Hh),0.),160.)*(1.-land)*.5*(1.-cl);
+  vec3 lit=col*(max(d,0.)*1.15+.03)+vec3(1.,.95,.85)*spec;
+  lit=mix(lit,vec3(1.)*max(d,0.)*1.1+.03,cl*.85);
+  // night: city lights on land
+  float cities=smoothstep(.62,.8,fbm(p*14.))*land*(1.-ice)*smoothstep(.0,.2,1.-elev);
+  vec3 night=vec3(.01,.015,.04)+vec3(1.,.7,.3)*cities*1.4*(1.-cl*.8);
+  vec3 o=mix(night,lit,day);
+  // terminator warm glow
+  o+=vec3(1.,.45,.15)*exp(-pow(d*7.,2.))*.12;
+  // fresnel rim on lit side
+  float fr=pow(1.-max(dot(n,V),0.),3.);
+  o+=vec3(.25,.55,1.)*fr*(.15+.6*day);
+  gl_FragColor=vec4(o,1.);}`
+});
+const R=1.6;
+const planet=new THREE.Mesh(new THREE.SphereGeometry(R,128,96),planetMat);
+planet.rotation.z=.4;scene.add(planet);
+const atmMat=new THREE.ShaderMaterial({
+ transparent:true,side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending,
+ uniforms:{uSun:{value:new THREE.Vector3(1,0,0)}},
+ vertexShader:`varying vec3 vN;varying vec3 vWp;void main(){vN=normalize(mat3(modelMatrix)*normal);vWp=(modelMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*viewMatrix*vec4(vWp,1.);}`,
+ fragmentShader:`varying vec3 vN;varying vec3 vWp;uniform vec3 uSun;
+ void main(){vec3 V=normalize(cameraPosition-vWp);
+  float rim=pow(max(dot(-vN,V),0.),2.2);
+  float s=smoothstep(-.35,.5,dot(normalize(vWp),uSun));
+  vec3 c=mix(vec3(.1,.35,1.),vec3(.45,.8,1.),rim);
+  gl_FragColor=vec4(c*rim*1.6*(.15+s),rim*(.2+.8*s));}`
+});
+const atm=new THREE.Mesh(new THREE.SphereGeometry(R*1.16,96,64),atmMat);scene.add(atm);
+
+function draw(t){
+  planet.rotation.y=t*.28+.6;
+  const a=.3+t*.17;           // sun slowly circles -> terminator drifts
+  const sun=new THREE.Vector3(Math.cos(a)*.95,.28,Math.sin(a)*.95).normalize();
+  planetMat.uniforms.uSun.value.copy(sun);atmMat.uniforms.uSun.value.copy(sun);
+  const k=t/5, e=k*k*(3-2*k);
+  const dist=6.4-e*.6;
+  camera.position.set(Math.sin(t*.05)*.4,.55-.15*k,dist);
+  camera.lookAt(-.9,0,0);
+  stars.rotation.y=t*.01;
+  renderer.render(scene,camera);
+}
+window.addEventListener("hf-seek",e=>draw(e.detail.time));
+draw(window.__hfThreeTime||0);
+window.__timelines=window.__timelines||{};
+const tl=gsap.timeline({paused:true});
+tl.from("#cap",{opacity:0,x:-40,duration:.8,ease:"power3.out"},.5);
+tl.to({},{duration:5},0);
+window.__timelines["main"]=tl;
+</script></body></html>

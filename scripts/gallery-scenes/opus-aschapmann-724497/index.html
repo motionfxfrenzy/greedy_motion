@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Harbor launch film</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0d1424; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #0d1424; font-family: "Space Grotesk", "Inter", Arial, sans-serif; color: #fff; }
+  canvas { position: absolute; inset: 0; }
+  .title { position: absolute; left: 0; right: 0; top: 64px; text-align: center; font-weight: 700; font-size: 78px; letter-spacing: -0.02em; line-height: 1.05; white-space: nowrap; text-shadow: 0 4px 28px rgba(10,6,18,.75), 0 1px 3px rgba(10,6,18,.6); visibility: hidden; }
+  .title .w { display: inline-block; margin: 0 0.14em; }
+  #logo { position: absolute; left: 0; right: 0; top: 0; bottom: 0; visibility: hidden; text-align: center; }
+  #logo div { position: absolute; left: 0; right: 0; text-shadow: 0 4px 30px rgba(10,6,18,.8), 0 1px 3px rgba(10,6,18,.6); }
+  #wm { top: 352px; font-weight: 700; font-size: 128px; letter-spacing: -0.03em; line-height: 1; }
+  #wm span { display: inline-block; }
+  #tag { top: 496px; font-family: "Inter", sans-serif; font-weight: 600; font-size: 40px; letter-spacing: -0.005em; color: #ffe3d6; }
+  #url { top: 560px; font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 36px; letter-spacing: 0.06em; color: #ffc2b2; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="16" data-width="1280" data-height="720" data-fps="30">
+  <canvas id="c" width="1280" height="720"></canvas>
+  <div class="title" id="t1">Teams steer by guesswork.</div>
+  <div class="title" id="t2">Work gets lost at sea.</div>
+  <div class="title" id="t3">Harbor charts the course.</div>
+  <div class="title" id="t4">Everything lands on time.</div>
+  <div id="logo"><div id="wm">Harbor</div><div id="tag">Steer every project home.</div><div id="url">harbor.example</div></div>
+</div>
+<script>
+(function () {
+  var cv = document.getElementById("c"), g = cv.getContext("2d");
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function cl(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function ss(x) { x = cl(x); return x * x * (3 - 2 * x); }
+  function lerp(a, b, u) { return a + (b - a) * u; }
+  function back(x) { x = cl(x); var c = 1.7; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); }
+  function outc(x) { x = cl(x); return 1 - Math.pow(1 - x, 3); }
+
+  // titles: split into words
+  ["t1", "t2", "t3", "t4"].forEach(function (id) {
+    var el = document.getElementById(id), words = el.textContent.split(" ");
+    el.innerHTML = words.map(function (w) { return '<span class="w">' + w + "</span>"; }).join(" ");
+  });
+  var wm = document.getElementById("wm"); wm.innerHTML = "Harbor".split("").map(function (c) { return "<span>" + c + "</span>"; }).join("");
+
+  var R = rng(41);
+  var LABELS = ["Brief", "Scope", "Design", "API", "Mobile", "Review", "Test", "Docs", "Launch"];
+  var chips = LABELS.map(function (l, i) {
+    return { l: l, col: Math.floor(i / 3), row: i % 3, x0: 430 + R() * 720, y0: 410 + R() * 150, vx: -(20 + R() * 34), ph: R() * 6.283, rs: (R() - .5) * 0.5,
+             t0: 3.2 + i * 0.24, ts: 4.3 + i * 0.22, tr: 7.0 + i * 0.13, tc: 10.9 + i * 0.15 };
+  });
+  var rain = []; for (var k = 0; k < 110; k++) rain.push([R() * 1500, R() * 760, 0.5 + R() * 0.8]);
+  var LY = [340, 372, 404, 440, 484, 540, 606];
+  var COLX = [150, 495, 840], CW = 290, ROWY = [452, 510, 568];
+  var HEADS = ["Plan", "Build", "Ship"];
+
+  function storm(t) { return ss((t - 3.1) / 1.8) * (1 - ss((t - 6.4) / 1.8)); }
+  function calm(t) { return ss((t - 6.6) / 1.6); }
+  function pulse(t) { var u = (t - 14.35) / 1.0; return u > 0 && u < 1 ? Math.sin(Math.PI * u) : 0; }
+
+  function waveY(i, x, t) {
+    var st = storm(t), ca = calm(t), tw = Math.min(t, 15.5);
+    var amp = (2.5 + i * 2.1) * (1 + 3.2 * st) * (1 - ca * (i === 1 ? 1 : 0.88));
+    var sp = 0.9 + 1.6 * st + i * 0.07;
+    var y = LY[i] + amp * (Math.sin(x * 0.011 + tw * sp + i * 1.7) + 0.5 * Math.sin(x * 0.027 - tw * sp * 1.3 + i));
+    if (i === 0) y = LY[0] + 1.5 * Math.sin(x * 0.01 + tw * 0.5);
+    return y;
+  }
+
+  // camera keys: t, scale, panx, pany
+  var CAM = [[0, 1.0, 0, 0], [3, 1.07, -25, -4], [6.5, 1.0, 10, 0], [10.5, 1.12, 0, -22], [13, 1.05, 0, -8], [14.4, 1.0, 0, 0], [16, 1.0, 0, 0]];
+  function cam(t) {
+    for (var i = 0; i < CAM.length - 1; i++) {
+      var a = CAM[i], b = CAM[i + 1];
+      if (t <= b[0]) { var u = ss((t - a[0]) / (b[0] - a[0])); return [lerp(a[1], b[1], u), lerp(a[2], b[2], u), lerp(a[3], b[3], u)]; }
+    }
+    return [1, 0, 0];
+  }
+
+  function shipPose(t) {
+    var x, y, s = 1;
+    var st = storm(t);
+    if (t < 3) { x = lerp(-150, 215, outc(t / 3)); }
+    else if (t < 6.6) { x = lerp(215, 320, ss((t - 3) / 3.6)); }
+    else if (t < 10.5) { x = lerp(320, 1010, ss((t - 6.6) / 3.9)); }
+    else { x = lerp(1010, 1050, ss((t - 10.5) / 2.5)); }
+    y = waveY(1, x, t) + 5;
+    var lg = ss((t - 13) / 1.1);
+    x = lerp(x, 640, lg); y = lerp(y, 336, lg); s = lerp(1, 1.9, lg);
+    var tw = Math.min(t, 15.5);
+    var rot = (Math.sin(tw * 1.5) * 0.03 + st * Math.sin(tw * 3.1) * 0.15) * (1 - lg);
+    y += st * Math.sin(tw * 3.1 + 1) * 6 * (1 - lg);
+    // on the logo the ship keeps sailing in place: it rides a slow swell, rolls and drifts a little, so the end is alive
+    var lg2 = lg * ss((t - 13.4) / 0.6);
+    y += Math.sin(t * 2.4) * 9 * lg2; x += Math.sin(t * 1.3) * 14 * lg2; rot += Math.sin(t * 2.0 + 0.6) * 0.075 * lg2;
+    return [x, y, s, rot];
+  }
+
+  function drawShip(p, alpha, glow) {
+    g.save(); g.translate(p[0], p[1]); g.scale(p[2], p[2]); g.rotate(p[3]); g.globalAlpha = alpha;
+    g.shadowColor = "rgba(255,70,45," + glow + ")"; g.shadowBlur = 26;
+    g.fillStyle = "#ff4a33";
+    g.beginPath(); g.moveTo(-54, -24); g.lineTo(58, -24); g.lineTo(40, 0); g.lineTo(-36, 0); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(-54, -24); g.lineTo(-76, -34); g.lineTo(-50, -24); g.closePath(); g.fill();
+    g.fillRect(-2, -92, 5, 70);
+    g.beginPath(); g.moveTo(6, -88); g.lineTo(6, -30); g.lineTo(46, -30); g.quadraticCurveTo(36, -62, 6, -88); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(-6, -82); g.lineTo(-6, -30); g.lineTo(-42, -30); g.quadraticCurveTo(-32, -58, -6, -82); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(3, -92); g.lineTo(24, -84); g.lineTo(3, -77); g.closePath(); g.fill();
+    g.shadowBlur = 0; g.fillStyle = "#3a0f16";
+    [-30, -12, 6, 24].forEach(function (x) { g.beginPath(); g.arc(x, -12, 3.2, 0, 6.283); g.fill(); });
+    g.restore();
+  }
+
+  function rr(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+
+  function chipState(c, t) {
+    // returns x,y,w,h,rot,alpha,scale
+    var slotx = COLX[c.col] + CW / 2, sloty = ROWY[c.row];
+    var tf = Math.min(t, 6.5), tb = Math.min(t, c.ts + 1.7);
+    var bob = Math.sin(tf * 1.8 + c.ph) * 9 * (1 + 1.5 * storm(tf));
+    var s = ss((tf - c.ts) / 1.6);
+    var dx = c.x0 + c.vx * (tf - c.t0) - s * 60, dy = c.y0 + bob + s * 190;
+    var rot = c.rs * (tf - c.t0) + s * c.rs * 1.5;
+    var al = ss((t - c.t0) / 0.3) * (1 - 0.85 * s) * (1 - ss((t - 6.4) / 0.4));
+    var sc = back((t - c.t0) / 0.5);
+    var w = 150, h = 38, x = dx, y = dy, ro = rot, fs = 20;
+    if (t >= c.tr) {
+      var u = back((t - c.tr) / 0.85), ul = ss((t - c.tr) / 0.85);
+      x = lerp(dx, slotx, u); y = lerp(dy, sloty, u); w = lerp(150, CW, ul); h = lerp(38, 48, ul); ro = lerp(rot, 0, ul); fs = lerp(20, 25, ul);
+      al = ss((t - c.tr) / 0.25); sc = 1;
+    }
+    return { x: x, y: y, w: w, h: h, rot: ro, al: al, sc: sc, fs: fs };
+  }
+
+  function drawChip(c, t) {
+    var o = chipState(c, t); if (o.al <= 0.01) return;
+    var ck = back((t - c.tc) / 0.45), done = ss((t - c.tc) / 0.4);
+    g.save(); g.translate(o.x, o.y); g.rotate(o.rot); g.scale(o.sc, o.sc); g.globalAlpha = o.al;
+    g.shadowColor = "rgba(255,80,60,.5)"; g.shadowBlur = 16;
+    rr(-o.w / 2, -o.h / 2, o.w, o.h, o.h * 0.3);
+    g.fillStyle = "rgba(" + Math.round(lerp(40, 120, done)) + "," + Math.round(lerp(22, 40, done)) + "," + Math.round(lerp(40, 44, done)) + ",0.88)"; g.fill();
+    g.shadowBlur = 0; g.lineWidth = 2; g.strokeStyle = done > 0.5 ? "rgba(255,210,190,.95)" : "rgba(255,110,90,.85)"; g.stroke();
+    g.fillStyle = "#ff5a43"; g.beginPath(); g.arc(-o.w / 2 + o.h * 0.5, 0, o.h * 0.14, 0, 6.283); g.fill();
+    g.fillStyle = "#fff"; g.font = "600 " + o.fs + "px Inter, sans-serif"; g.textBaseline = "middle"; g.textAlign = "left";
+    g.fillText(c.l, -o.w / 2 + o.h * 0.85, 1);
+    if (ck > 0.01) {
+      var cx = o.w / 2 - 28, r = 14 * ck;
+      g.fillStyle = "#ffd9c8"; g.beginPath(); g.arc(cx, 0, r, 0, 6.283); g.fill();
+      g.strokeStyle = "#8a1d19"; g.lineWidth = 3; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); g.moveTo(cx - 6 * ck, 0); g.lineTo(cx - 1.5 * ck, 5 * ck); g.lineTo(cx + 6.5 * ck, -5 * ck); g.stroke();
+    }
+    g.restore();
+  }
+
+  function draw(t) {
+    var st = storm(t), ca = calm(t), tw = Math.min(t, 15.5);
+    var logoU = ss((t - 12.9) / 0.6);
+    var C = cam(t);
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+    g.fillStyle = "#0d1424"; g.fillRect(0, 0, 1280, 720);
+    g.save(); g.translate(640 + C[1], 400 + C[2]); g.scale(C[0], C[0]); g.translate(-640, -400);
+    // sky
+    var sky = g.createLinearGradient(0, -300, 0, 340); sky.addColorStop(0, "#0b101e"); sky.addColorStop(1, "#1d2740");
+    g.fillStyle = sky; g.fillRect(-400, -400, 2080, 740);
+    // sea body
+    var sea = g.createLinearGradient(0, 335, 0, 760); sea.addColorStop(0, "#26334a"); sea.addColorStop(1, "#0a0f1d");
+    g.fillStyle = sea; g.fillRect(-400, 335, 2080, 700);
+    // sun glow
+    var bright = 1 - 0.38 * st + 0.3 * ss((t - 10.6) / 1.6) + 0.12 * ss((t - 13) / 1) + 0.4 * pulse(t);
+    var sy = 335 + 95 * (1 - ss(t / 2.4)) + 28 * st;
+    var rad = 600 * (0.92 + 0.08 * bright) * (0.8 + 0.2 * ss(t / 2.4));
+    var gl = g.createRadialGradient(640, sy, 0, 640, sy, rad), a = Math.min(1, bright);
+    gl.addColorStop(0, "rgba(246,150,128," + (0.82 * a) + ")"); gl.addColorStop(0.22, "rgba(222,76,58," + (0.78 * a) + ")");
+    gl.addColorStop(0.55, "rgba(165,42,48," + (0.42 * a) + ")"); gl.addColorStop(1, "rgba(120,30,44,0)");
+    g.globalCompositeOperation = "screen"; g.fillStyle = gl; g.fillRect(-400, -400, 2080, 1400);
+    if (bright > 1) { var g2 = g.createRadialGradient(640, sy, 0, 640, sy, 260), b2 = Math.min(0.6, (bright - 1) * 0.9); g2.addColorStop(0, "rgba(255,200,170," + b2 + ")"); g2.addColorStop(1, "rgba(255,200,170,0)"); g.fillStyle = g2; g.fillRect(-400, -400, 2080, 1400); }
+    g.globalCompositeOperation = "source-over";
+    // storm shade + rain
+    if (st > 0.01) {
+      g.fillStyle = "rgba(24,6,18," + (0.5 * st) + ")"; g.fillRect(-400, -400, 2080, 1400);
+      var cg = g.createLinearGradient(0, -100, 0, 300); cg.addColorStop(0, "rgba(6,4,12," + (0.7 * st) + ")"); cg.addColorStop(1, "rgba(6,4,12,0)");
+      g.fillStyle = cg; g.fillRect(-400, -400, 2080, 700);
+      g.strokeStyle = "rgba(255,170,150," + (0.2 * st) + ")"; g.lineWidth = 1.5; g.beginPath();
+      rain.forEach(function (r) { var x = ((r[0] - tw * 160 * r[2]) % 1500 + 1500) % 1500 - 110, y = ((r[1] + tw * 620 * r[2]) % 760); g.moveTo(x, y); g.lineTo(x - 7, y + 26); });
+      g.stroke();
+    }
+    // wave lines
+    for (var i = 0; i < 7; i++) {
+      var route = i === 1, al = i === 0 ? 0.35 : (0.5 + 0.08 * (6 - i) * 0.5) * (1 + 0.3 * st);
+      if (!route) al *= 1 - 0.5 * ca; else al = lerp(al, 1, ca);
+      al *= (1 - logoU * (route ? 1 : 0.0));
+      g.save(); g.globalAlpha = Math.min(1, al * (1 - 0.25 * st)); g.lineWidth = route ? lerp(2, 3.5, ca) : 1.8 + i * 0.25; g.lineJoin = "round";
+      g.strokeStyle = route && ca > 0.5 ? "#ff8a74" : "#ff6a55"; g.shadowColor = "rgba(255,70,50,.9)"; g.shadowBlur = route ? 4 + 12 * ca : 8;
+      if (route && ca > 0.3) g.setLineDash([lerp(2000, 22, ss((ca - 0.3) / 0.7)), 12]);
+      g.lineDashOffset = -tw * 40;
+      g.beginPath(); for (var x = -60; x <= 1340; x += 10) { var y = waveY(i, x, t); if (x === -60) g.moveTo(x, y); else g.lineTo(x, y); } g.stroke(); g.restore();
+    }
+    // waypoints on route
+    if (t > 8.0) {
+      [330, 640, 1010].forEach(function (wx, k) {
+        var u = back((t - 8.2 - k * 0.2) / 0.4), pr = 0.5 + 0.5 * Math.sin(Math.min(t, 15.5) * 3 - k), fade = 1 - logoU;
+        g.save(); g.globalAlpha = cl(u) * fade; g.fillStyle = "#ffd9c8"; g.shadowColor = "rgba(255,90,60,1)"; g.shadowBlur = 14;
+        g.beginPath(); g.arc(wx, LY[1], 6 * Math.max(0, u), 0, 6.283); g.fill();
+        g.globalAlpha *= 0.35 * pr; g.strokeStyle = "#ff8a74"; g.lineWidth = 2; g.beginPath(); g.arc(wx, LY[1], 10 + 8 * pr, 0, 6.283); g.stroke(); g.restore();
+      });
+    }
+    // board panel
+    var bp = ss((t - 7.2) / 0.8) * (1 - logoU);
+    if (bp > 0.01) {
+      g.save(); g.globalAlpha = bp;
+      for (var c = 0; c < 3; c++) {
+        rr(COLX[c] - 4, 392, CW + 8, 222, 20); g.fillStyle = "rgba(9,12,26,0.62)"; g.fill(); g.strokeStyle = "rgba(255,120,100,.35)"; g.lineWidth = 2; g.stroke();
+        g.fillStyle = "#ffb5a3"; g.font = "700 22px 'Space Grotesk', sans-serif"; g.textAlign = "left"; g.textBaseline = "middle";
+        g.fillText(HEADS[c].toUpperCase(), COLX[c] + 14, 418);
+      }
+      g.restore();
+    }
+    // chips
+    g.globalAlpha = 1;
+    chips.forEach(function (c) { if (logoU < 1) { g.save(); g.globalAlpha = 1 - logoU; drawChip(c, t); g.restore(); } });
+    // ship
+    var sp = shipPose(t);
+    if (logoU > 0) { var sh = g.createRadialGradient(640, 290, 0, 640, 290, 260); sh.addColorStop(0, "rgba(10,12,26," + (0.5 * logoU) + ")"); sh.addColorStop(1, "rgba(10,12,26,0)"); g.fillStyle = sh; g.fillRect(340, 90, 600, 600); }
+    drawShip(sp, 1, 0.8 + 0.2 * pulse(t));
+    g.restore();
+    // vignette
+    var vg = g.createRadialGradient(640, 360, 380, 640, 360, 900); vg.addColorStop(0, "rgba(6,8,16,0)"); vg.addColorStop(1, "rgba(6,8,16,0.55)");
+    g.fillStyle = vg; g.fillRect(0, 0, 1280, 720);
+  }
+
+  window.addEventListener("hf-seek", function (e) { draw(e.detail.time); });
+  draw(0);
+
+  var tl = gsap.timeline({ paused: true });
+  tl.to({}, { duration: 16 }, 0);
+  function title(id, t0, t1) {
+    var w = "#" + id + " .w";
+    tl.set("#" + id, { autoAlpha: 1 }, t0);
+    tl.fromTo(w, { y: 46, autoAlpha: 0, scale: 0.9 }, { y: 0, autoAlpha: 1, scale: 1, duration: 0.55, ease: "back.out(1.7)", stagger: 0.14, immediateRender: false }, t0);
+    tl.to(w, { y: -34, autoAlpha: 0, duration: 0.35, ease: "power2.in", stagger: 0.04 }, t1 - 0.38);
+    tl.set("#" + id, { autoAlpha: 0 }, t1);
+  }
+  tl.set(".title .w", { autoAlpha: 0 }, 0);
+  title("t1", 0.1, 3.0); title("t2", 3.2, 6.4); title("t3", 6.7, 10.4); title("t4", 10.6, 12.9);
+  tl.set("#logo", { autoAlpha: 1 }, 13.0);
+  tl.fromTo("#wm span", { y: 60, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6, ease: "back.out(1.8)", stagger: 0.07, immediateRender: false }, 13.5);
+  tl.fromTo("#tag", { y: 26, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6, ease: "power3.out", immediateRender: false }, 14.1);
+  tl.fromTo("#url", { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6, ease: "power3.out", immediateRender: false }, 14.6);
+  tl.set("#wm span, #tag, #url", { autoAlpha: 0 }, 0);
+  tl.eventCallback("onUpdate", function () { draw(tl.time()); });
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

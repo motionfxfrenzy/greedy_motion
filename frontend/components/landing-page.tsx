@@ -2,8 +2,11 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { ThemeToggle } from "./theme-toggle";
 import { PublicLinks } from "./public-links";
+import { createClient } from "../utils/supabase/client";
 import { SceneFrame, type SceneItem } from "./scene-frame";
+import { GalleryGrid, startHref, useGalleryShelf } from "./template-gallery";
 
 const SCENES: SceneItem[] = [
   { kind: "hook", headline: "Finally see what every sale is really worth.", copy: "" },
@@ -35,25 +38,25 @@ const HOW_STEPS = [
     n: "01",
     title: "Choose a goal",
     body: "Launch, feature spotlight, what’s new, or a stat. Length and format come recommended.",
-    bg: "#F1E6FF"
+    bg: "var(--d-bg-f1e6ff)"
   },
   {
     n: "02",
     title: "Add screenshots and copy",
     body: "A short structured brief and your real product screenshots.",
-    bg: "#CCE7FF"
+    bg: "var(--d-bg-cce7ff)"
   },
   {
     n: "03",
     title: "Review the storyboard",
     body: "Five scenes before anything renders. Edit copy, timing, and motion safely.",
-    bg: "#D3F6E3"
+    bg: "var(--d-bg-d3f6e3)"
   },
   {
     n: "04",
     title: "Approve and download",
     body: "Render a draft, request changes, approve the final, download the MP4.",
-    bg: "#FFF2BE"
+    bg: "var(--d-bg-fff2be)"
   }
 ];
 
@@ -64,7 +67,27 @@ const STUDIO_TRACKS = [
   { l: "60%", w: "38%", c: "#E4CCFF" }
 ];
 
+/** Whether a session exists. `null` until the browser has checked, so the page never flashes the wrong buttons. */
+function useSignedIn() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let unsubscribe = () => {};
+    try {
+      const supabase = createClient();
+      supabase.auth.getSession().then(({ data }) => { if (alive) setSignedIn(Boolean(data.session)); }).catch(() => { if (alive) setSignedIn(false); });
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => { if (alive) setSignedIn(Boolean(session)); });
+      unsubscribe = () => data.subscription.unsubscribe();
+    } catch { setSignedIn(false); }
+    return () => { alive = false; unsubscribe(); };
+  }, []);
+  return signedIn;
+}
+
 export function LandingPage() {
+  const signedIn = useSignedIn();
+  // The curated starting points come from the backend, like the Templates page, so the landing bundle carries no catalog.
+  const featured = useGalleryShelf({ featured: true, limit: 4 });
   const [t, setT] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
@@ -106,7 +129,7 @@ export function LandingPage() {
   const activeScene = SCENES[sceneIndex];
 
   return (
-    <div style={{ position: "relative", minHeight: "100vh", overflowX: "clip", background: "#ebf5ff", color: "#0a0d12" }}>
+    <div style={{ position: "relative", minHeight: "100vh", overflowX: "clip", background: "var(--d-bg-ebf5ff)", color: "var(--d-tx-0a0d12)" }}>
       {/* Dynamic Keyframe & Hover Styles */}
       <style>{`
         @keyframes gmDriftA {
@@ -138,31 +161,33 @@ export function LandingPage() {
         }
         .gm-hover-card:hover {
           transform: translateY(-4px);
-          box-shadow: 0 16px 28px -4px rgba(4, 69, 144, .12);
+          box-shadow: 0 16px 28px -4px var(--d-sh-rgba46914412);
         }
         .gm-btn-primary {
           transition: all 200ms ease;
         }
         .gm-btn-primary:hover {
-          background: #2a3142 !important;
+          background: var(--d-bg-2a3142) !important;
           transform: translateY(-1px);
         }
         .gm-btn-light {
           transition: all 200ms ease;
         }
         .gm-btn-light:hover {
-          background: #eef5fc !important;
+          background: var(--d-bg-eef5fc) !important;
           transform: translateY(-1px);
         }
+        .gm-landing-header-inner > .theme-toggle { margin-left: 10px; }
         .gm-landing-nav, .gm-landing-actions { display: flex; }
         .gm-landing-menu-toggle, .gm-landing-mobile-menu { display: none; }
         @media (max-width: 1050px) {
           .gm-landing-nav, .gm-landing-actions { display: none !important; }
+          .gm-landing-header-inner > .theme-toggle { margin-left: auto; margin-right: 8px; }
           .gm-landing-header-inner { position: relative; justify-content: space-between; min-width: 0; }
           .gm-landing-menu-toggle {
             display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center;
-            gap: 4px; width: 40px; height: 40px; padding: 0; border: 1px solid #d8e6f4;
-            border-radius: 50%; background: #fff; color: #0a0d12; cursor: pointer;
+            gap: 4px; width: 40px; height: 40px; padding: 0; border: 1px solid var(--d-bd-d8e6f4);
+            border-radius: 50%; background: var(--d-bg-ffffff); color: var(--d-tx-0a0d12); cursor: pointer;
           }
           .gm-landing-menu-toggle span { width: 16px; height: 2px; border-radius: 2px; background: currentColor; }
           .gm-landing-menu-toggle:focus-visible, .gm-landing-mobile-menu a:focus-visible {
@@ -170,16 +195,16 @@ export function LandingPage() {
           }
           .gm-landing-mobile-menu {
             position: absolute; top: calc(100% + 10px); right: 0; left: 0;
-            display: grid; gap: 2px; padding: 12px; border: 1px solid #dbe8f5;
-            border-radius: 22px; background: rgba(250,253,255,.98);
-            box-shadow: 0 18px 32px rgba(4,69,144,.16);
+            display: grid; gap: 2px; padding: 12px; border: 1px solid var(--d-bd-dbe8f5);
+            border-radius: 22px; background: var(--d-bg-rgba25025325598);
+            box-shadow: 0 18px 32px var(--d-sh-rgba46914416);
           }
           .gm-landing-mobile-menu a {
-            padding: 12px 14px; border-radius: 12px; color: #0a0d12;
+            padding: 12px 14px; border-radius: 12px; color: var(--d-tx-0a0d12);
             font-size: 15px; font-weight: 600; text-decoration: none;
           }
           .gm-landing-mobile-menu a:hover { background: #ebf5ff; }
-          .gm-landing-mobile-menu a:last-child { margin-top: 4px; background: #181d27; color: #fff; text-align: center; }
+          .gm-landing-mobile-menu a:last-child { margin-top: 4px; background: var(--d-bg-181d27); color: var(--d-btn-ink); text-align: center; }
         }
       `}</style>
 
@@ -203,7 +228,7 @@ export function LandingPage() {
             top: "-20vw",
             borderRadius: "50%",
             filter: "blur(60px)",
-            background: "radial-gradient(circle, rgba(158,203,255,.85), rgba(158,203,255,0) 70%)",
+            background: "radial-gradient(circle, var(--d-bg-rgba15820325585), var(--d-bg-rgba1582032550) 70%)",
             animation: "gmDriftA 24s ease-in-out infinite alternate"
           }}
         />
@@ -216,7 +241,7 @@ export function LandingPage() {
             top: "20vh",
             borderRadius: "50%",
             filter: "blur(60px)",
-            background: "radial-gradient(circle, rgba(228,204,255,.7), rgba(228,204,255,0) 70%)",
+            background: "radial-gradient(circle, var(--d-bg-rgba2282042557), var(--d-bg-rgba2282042550) 70%)",
             animation: "gmDriftB 30s ease-in-out infinite alternate"
           }}
         />
@@ -229,7 +254,7 @@ export function LandingPage() {
             bottom: "-18vw",
             borderRadius: "50%",
             filter: "blur(60px)",
-            background: "radial-gradient(circle, rgba(255,209,184,.6), rgba(255,209,184,0) 70%)",
+            background: "radial-gradient(circle, var(--d-bg-rgba2552091846), var(--d-bg-rgba2552091840) 70%)",
             animation: "gmDriftC 34s ease-in-out infinite alternate"
           }}
         />
@@ -242,7 +267,7 @@ export function LandingPage() {
             top: "45vh",
             borderRadius: "50%",
             filter: "blur(60px)",
-            background: "radial-gradient(circle, rgba(211,246,227,.7), rgba(211,246,227,0) 70%)",
+            background: "radial-gradient(circle, var(--d-bg-rgba2112462277), var(--d-bg-rgba2112462270) 70%)",
             animation: "gmDriftA 40s ease-in-out infinite alternate-reverse"
           }}
         />
@@ -271,11 +296,11 @@ export function LandingPage() {
               gap: "24px",
               padding: "10px 14px 10px 18px",
               borderRadius: "9999px",
-              background: "rgba(250,253,255,.78)",
+              background: "var(--d-bg-rgba25025325578)",
               backdropFilter: "blur(18px) saturate(1.3)",
               WebkitBackdropFilter: "blur(18px) saturate(1.3)",
-              boxShadow: "0 14px 24px 4px rgba(4,69,144,.07)",
-              border: "1px solid rgba(225,234,244,.7)"
+              boxShadow: "0 14px 24px 4px var(--d-sh-rgba46914407)",
+              border: "1px solid var(--d-bd-rgba2252342447)"
             }}
           >
             <Link
@@ -302,8 +327,8 @@ export function LandingPage() {
                   whiteSpace: "nowrap"
                 }}
               >
-                <span style={{ color: "#0B1F4D" }}>Greedy</span>
-                <span style={{ color: "#0A6CFF" }}>Motion</span>
+                <span style={{ color: "var(--d-tx-0b1f4d)" }}>Greedy</span>
+                <span style={{ color: "var(--d-tx-0a6cff)" }}>Motion</span>
               </span>
             </Link>
 
@@ -317,79 +342,96 @@ export function LandingPage() {
               <a
                 href="#how"
                 style={{
-                  color: "#535862",
+                  color: "var(--d-tx-535862)",
                   fontSize: "15px",
                   fontWeight: 500,
                   whiteSpace: "nowrap",
                   textDecoration: "none",
                   transition: "color 180ms ease"
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#0a0d12")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#535862")}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--d-tx-0a0d12)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--d-tx-535862)")}
               >
                 How it works
               </a>
               <a
                 href="#features"
                 style={{
-                  color: "#535862",
+                  color: "var(--d-tx-535862)",
                   fontSize: "15px",
                   fontWeight: 500,
                   whiteSpace: "nowrap",
                   textDecoration: "none",
                   transition: "color 180ms ease"
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#0a0d12")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#535862")}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--d-tx-0a0d12)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--d-tx-535862)")}
               >
                 Features
               </a>
               <Link
-                href="/studio"
+                href="/pricing"
                 style={{
-                  color: "#0A6CFF",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  whiteSpace: "nowrap",
-                  textDecoration: "none"
-                }}
-              >
-                Studio
-              </Link>
-            </nav>
-
-            <div className="gm-landing-actions" style={{ marginLeft: "auto", alignItems: "center", gap: "10px" }}>
-              <Link
-                href="/auth"
-                style={{
-                  padding: "9px 16px",
-                  color: "#0a0d12",
-                  fontSize: "15px",
-                  fontWeight: 500,
-                  whiteSpace: "nowrap",
-                  textDecoration: "none"
-                }}
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/auth?mode=signup"
-                className="gm-btn-primary"
-                style={{
-                  padding: "9px 20px",
-                  borderRadius: "9999px",
-                  background: "#181d27",
-                  color: "#fff",
+                  color: "var(--d-tx-535862)",
                   fontSize: "15px",
                   fontWeight: 500,
                   whiteSpace: "nowrap",
                   textDecoration: "none",
-                  boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
+                  transition: "color 180ms ease"
                 }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--d-tx-0a0d12)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--d-tx-535862)")}
               >
-                Create account
+                Pricing
               </Link>
+            </nav>
+
+            <div className="gm-landing-actions" style={{ marginLeft: "auto", alignItems: "center", gap: "10px" }}>
+              {signedIn === true ? (
+                <Link
+                  href="/studio"
+                  className="gm-btn-primary"
+                  style={{ padding: "9px 20px", borderRadius: "9999px", background: "var(--d-bg-181d27)", color: "var(--d-btn-ink)", fontSize: "15px", fontWeight: 500, whiteSpace: "nowrap", textDecoration: "none", boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12" }}
+                >
+                  Open Studio
+                </Link>
+              ) : (
+                // Hidden (not removed) until the session is known, so a signed-in visitor never sees Sign in flash.
+                <span style={{ display: "contents", visibility: signedIn === null ? "hidden" : "visible" }} aria-hidden={signedIn === null}>
+                <Link
+                  href="/auth"
+                  style={{
+                    padding: "9px 16px",
+                    color: "var(--d-tx-0a0d12)",
+                    fontSize: "15px",
+                    fontWeight: 500,
+                    whiteSpace: "nowrap",
+                    textDecoration: "none"
+                  }}
+                >
+                  Sign in
+                </Link>
+                <Link
+                  href="/auth?mode=signup"
+                  className="gm-btn-primary"
+                  style={{
+                    padding: "9px 20px",
+                    borderRadius: "9999px",
+                    background: "var(--d-bg-181d27)",
+                    color: "var(--d-btn-ink)",
+                    fontSize: "15px",
+                    fontWeight: 500,
+                    whiteSpace: "nowrap",
+                    textDecoration: "none",
+                    boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12"
+                  }}
+                >
+                  Create account
+                </Link>
+                </span>
+              )}
             </div>
+            <ThemeToggle />
             <button
               type="button"
               className="gm-landing-menu-toggle"
@@ -406,7 +448,7 @@ export function LandingPage() {
               <nav id="gm-landing-mobile-menu" className="gm-landing-mobile-menu" aria-label="Mobile navigation">
                 <a href="#how" onClick={() => setMenuOpen(false)}>How it works</a>
                 <a href="#features" onClick={() => setMenuOpen(false)}>Features</a>
-                <Link href="/studio" onClick={() => setMenuOpen(false)}>Studio</Link>
+                <Link href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</Link>
               </nav>
             )}
           </div>
@@ -434,20 +476,20 @@ export function LandingPage() {
               gap: "8px",
               padding: "6px 14px 6px 8px",
               borderRadius: "9999px",
-              background: "rgba(250,253,255,.88)",
-              border: "1px solid rgba(225,234,244,.8)",
-              boxShadow: "0 4px 12px rgba(4,69,144,.04)",
+              background: "var(--d-bg-rgba25025325588)",
+              border: "1px solid var(--d-bd-rgba2252342448)",
+              boxShadow: "0 4px 12px var(--d-sh-rgba46914404)",
               fontSize: "13px",
               fontWeight: 500,
-              color: "#535862"
+              color: "var(--d-tx-535862)"
             }}
           >
             <span
               style={{
                 padding: "2px 8px",
                 borderRadius: "9999px",
-                background: "#D3F6E3",
-                color: "#0a5c35",
+                background: "var(--d-bg-d3f6e3)",
+                color: "var(--d-tx-0a5c35)",
                 fontSize: "12px",
                 fontWeight: 600
               }}
@@ -493,7 +535,7 @@ export function LandingPage() {
               margin: 0,
               fontSize: "17px",
               lineHeight: 1.6,
-              color: "#535862",
+              color: "var(--d-tx-535862)",
               maxWidth: "550px",
               textWrap: "pretty"
             }}
@@ -510,8 +552,8 @@ export function LandingPage() {
               style={{
                 padding: "13px 26px",
                 borderRadius: "9999px",
-                background: "#181d27",
-                color: "#fff",
+                background: "var(--d-bg-181d27)",
+                color: "var(--d-btn-ink)",
                 fontSize: "15px",
                 fontWeight: 500,
                 textDecoration: "none",
@@ -526,13 +568,13 @@ export function LandingPage() {
               style={{
                 padding: "13px 24px",
                 borderRadius: "9999px",
-                background: "#fafdff",
-                color: "#0a0d12",
+                background: "var(--d-bg-fafdff)",
+                color: "var(--d-tx-0a0d12)",
                 fontSize: "15px",
                 fontWeight: 500,
                 textDecoration: "none",
-                border: "1px solid #E1EAF4",
-                boxShadow: "0 2px 8px rgba(4,69,144,.05)"
+                border: "1px solid var(--d-bd-e1eaf4)",
+                boxShadow: "0 2px 8px var(--d-sh-rgba46914405)"
               }}
             >
               See how it works
@@ -551,20 +593,20 @@ export function LandingPage() {
                 zIndex: 4,
                 padding: "12px 18px",
                 borderRadius: "20px",
-                background: "#F1E6FF",
+                background: "var(--d-bg-f1e6ff)",
                 textAlign: "left",
                 fontSize: "13px",
                 // @ts-expect-error custom prop
                 "--r": "-4deg",
                 animation: "gmFloat 6s ease-in-out infinite",
-                boxShadow: "0 14px 20px 4px rgba(4,69,144,.08)",
-                border: "1px solid rgba(201,167,255,.4)"
+                boxShadow: "0 14px 20px 4px var(--d-sh-rgba46914408)",
+                border: "1px solid var(--d-bd-rgba2011672554)"
               }}
             >
-              <strong style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#2B164D" }}>
+              <strong style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "var(--d-tx-2b164d)" }}>
                 Brand kit found
               </strong>
-              <span style={{ color: "#535862" }}>Logo · #4F46E5 · Inter</span>
+              <span style={{ color: "var(--d-tx-535862)" }}>Logo · #4F46E5 · Inter</span>
             </div>
 
             {/* Floating Tag 2: Storyboard Ready (Green) */}
@@ -576,20 +618,20 @@ export function LandingPage() {
                 zIndex: 4,
                 padding: "12px 18px",
                 borderRadius: "20px",
-                background: "#D3F6E3",
+                background: "var(--d-bg-d3f6e3)",
                 textAlign: "left",
                 fontSize: "13px",
                 // @ts-expect-error custom prop
                 "--r": "3deg",
                 animation: "gmFloat 7s ease-in-out 1s infinite",
-                boxShadow: "0 14px 20px 4px rgba(4,69,144,.08)",
-                border: "1px solid rgba(160,230,190,.5)"
+                boxShadow: "0 14px 20px 4px var(--d-sh-rgba46914408)",
+                border: "1px solid var(--d-bd-rgba1602301905)"
               }}
             >
-              <strong style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#0B4D2C" }}>
+              <strong style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "var(--d-tx-0b4d2c)" }}>
                 Storyboard ready
               </strong>
-              <span style={{ color: "#535862" }}>5 scenes · 0:30</span>
+              <span style={{ color: "var(--d-tx-535862)" }}>5 scenes · 0:30</span>
             </div>
 
             {/* Floating Tag 3: Revision Comment (White) */}
@@ -602,20 +644,20 @@ export function LandingPage() {
                 maxWidth: "250px",
                 padding: "12px 18px",
                 borderRadius: "20px",
-                background: "#fafdff",
+                background: "var(--d-bg-fafdff)",
                 textAlign: "left",
                 fontSize: "13px",
                 // @ts-expect-error custom prop
                 "--r": "-2deg",
                 animation: "gmFloat 8s ease-in-out .5s infinite",
-                boxShadow: "0 14px 20px 4px rgba(4,69,144,.10)",
-                border: "1px solid #E1EAF4"
+                boxShadow: "0 14px 20px 4px var(--d-sh-rgba46914410)",
+                border: "1px solid var(--d-bd-e1eaf4)"
               }}
             >
-              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: "11px", color: "#0A6CFF", fontWeight: 600 }}>
+              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: "11px", color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>
                 0:11 · Scene 3
               </span>
-              <span style={{ display: "block", marginTop: "4px", color: "#0a0d12" }}>
+              <span style={{ display: "block", marginTop: "4px", color: "var(--d-tx-0a0d12)" }}>
                 “Show the dashboard for longer.”
               </span>
             </div>
@@ -629,20 +671,20 @@ export function LandingPage() {
                 zIndex: 4,
                 padding: "12px 18px",
                 borderRadius: "20px",
-                background: "#FFF2BE",
+                background: "var(--d-bg-fff2be)",
                 textAlign: "left",
                 fontSize: "13px",
                 // @ts-expect-error custom prop
                 "--r": "4deg",
                 animation: "gmFloat 6.5s ease-in-out 2s infinite",
-                boxShadow: "0 14px 20px 4px rgba(4,69,144,.08)",
-                border: "1px solid rgba(240,210,120,.5)"
+                boxShadow: "0 14px 20px 4px var(--d-sh-rgba46914408)",
+                border: "1px solid var(--d-bd-rgba2402101205)"
               }}
             >
-              <strong style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#6B5200" }}>
+              <strong style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "var(--d-tx-6b5200)" }}>
                 Approved · Revision 4
               </strong>
-              <span style={{ color: "#535862" }}>MP4 · 1920 × 1080</span>
+              <span style={{ color: "var(--d-tx-535862)" }}>MP4 · 1920 × 1080</span>
             </div>
 
             {/* Video Bezel Container */}
@@ -651,7 +693,7 @@ export function LandingPage() {
                 padding: "3px",
                 borderRadius: "36px",
                 background: "linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%)",
-                boxShadow: "0 30px 60px -20px rgba(4,69,144,.35)"
+                boxShadow: "0 30px 60px -20px var(--d-sh-rgba46914435)"
               }}
             >
               <div
@@ -690,8 +732,8 @@ export function LandingPage() {
                       width: "30px",
                       height: "30px",
                       borderRadius: "50%",
-                      background: "#fff",
-                      color: "#0a0d12",
+                      background: "var(--d-bg-ffffff)",
+                      color: "var(--d-tx-0a0d12)",
                       border: 0,
                       cursor: "pointer",
                       fontSize: "11px",
@@ -728,7 +770,7 @@ export function LandingPage() {
                       style={{
                         fontFamily: "'DM Mono', monospace",
                         fontSize: "12px",
-                        color: "#93979f",
+                        color: "var(--d-tx-93979f)",
                         whiteSpace: "nowrap"
                       }}
                     >
@@ -796,7 +838,7 @@ export function LandingPage() {
             >
               From screenshots to an approved MP4.
             </h2>
-            <p style={{ margin: 0, fontSize: "16px", color: "#535862" }}>
+            <p style={{ margin: 0, fontSize: "16px", color: "var(--d-tx-535862)" }}>
               Four steps. You stay in control of every one.
             </p>
           </div>
@@ -828,7 +870,7 @@ export function LandingPage() {
                     fontFamily: "'DM Mono', monospace",
                     fontSize: "13px",
                     fontWeight: 600,
-                    color: "#535862"
+                    color: "var(--d-tx-535862)"
                   }}
                 >
                   {s.n}
@@ -839,7 +881,7 @@ export function LandingPage() {
                     fontWeight: 600,
                     letterSpacing: "-.02em",
                     lineHeight: 1.15,
-                    color: "#0a0d12"
+                    color: "var(--d-tx-0a0d12)"
                   }}
                 >
                   {s.title}
@@ -848,7 +890,7 @@ export function LandingPage() {
                   style={{
                     fontSize: "16px",
                     lineHeight: 1.45,
-                    color: "#535862",
+                    color: "var(--d-tx-535862)",
                     marginTop: "auto"
                   }}
                 >
@@ -857,6 +899,34 @@ export function LandingPage() {
               </div>
             ))}
           </div>
+        </section>
+
+        {/* Start creating: real templates, each going to sign-up with its brief prefilled */}
+        <section
+          id="templates"
+          style={{
+            maxWidth: "1200px",
+            margin: "0 auto",
+            padding: "72px 24px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px"
+          }}
+        >
+          <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: "12px", alignItems: "center" }}>
+            <h2 style={{ margin: 0, fontWeight: 600, fontSize: "clamp(28px, 3.4vw, 44px)", lineHeight: 1.15, letterSpacing: "-0.03em", maxWidth: "760px" }}>
+              Start creating.
+            </h2>
+            <p style={{ margin: 0, fontSize: "16px", color: "var(--d-tx-535862)", maxWidth: "620px" }}>
+              Pick a starting point. We fill in the script prompt, structure and style, so you edit an example instead of a blank page.
+            </p>
+          </div>
+          <GalleryGrid items={featured.items} loading={featured.loading} skeletons={4} hrefFor={(item) => signedIn ? `/studio?template=${item.id}` : startHref(item.id)} action={signedIn ? "Use this template" : "Start with this template"} />
+          <p style={{ margin: "20px 0 0", textAlign: "center", fontSize: "14px", color: "var(--d-tx-535862)" }}>
+            {signedIn
+              ? <><Link href="/studio" style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Open Studio</Link> to see every template and style.</>
+              : <><Link href="/auth?mode=signup" style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Create a free account</Link> to see every template and style.</>}
+          </p>
         </section>
 
         {/* Features Section */}
@@ -892,7 +962,7 @@ export function LandingPage() {
             >
               Guardrails for everyone. Control for pros.
             </h2>
-            <p style={{ margin: 0, fontSize: "16px", color: "#535862", maxWidth: "560px" }}>
+            <p style={{ margin: 0, fontSize: "16px", color: "var(--d-tx-535862)", maxWidth: "560px" }}>
               Marketers move through a guided flow. Designers open the exact same project in Studio.
             </p>
           </div>
@@ -903,8 +973,8 @@ export function LandingPage() {
             style={{
               padding: "36px",
               borderRadius: "28px",
-              background: "#fafdff",
-              border: "1px solid #E1EAF4",
+              background: "var(--d-bg-fafdff)",
+              border: "1px solid var(--d-bd-e1eaf4)",
               display: "flex",
               flexDirection: "column",
               gap: "20px"
@@ -913,7 +983,7 @@ export function LandingPage() {
             <strong style={{ fontSize: "21px", fontWeight: 600, letterSpacing: "-.02em" }}>
               Ask to change this
             </strong>
-            <span style={{ fontSize: "16px", color: "#535862", lineHeight: 1.5 }}>
+            <span style={{ fontSize: "16px", color: "var(--d-tx-535862)", lineHeight: 1.5 }}>
               Pause anywhere and describe the change. You see a before and after, and nothing
               changes until you accept.
             </span>
@@ -926,8 +996,8 @@ export function LandingPage() {
                 gap: "8px",
                 padding: "18px",
                 borderRadius: "20px",
-                background: "#ebf5ff",
-                border: "1px solid #d6e4f2"
+                background: "var(--d-bg-ebf5ff)",
+                border: "1px solid var(--d-bd-d6e4f2)"
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -935,10 +1005,10 @@ export function LandingPage() {
                   style={{
                     padding: "3px 10px",
                     borderRadius: "9999px",
-                    background: "#fff",
+                    background: "var(--d-bg-ffffff)",
                     fontFamily: "'DM Mono', monospace",
                     fontSize: "12px",
-                    color: "#0A6CFF",
+                    color: "var(--d-tx-0a6cff)",
                     fontWeight: 600
                   }}
                 >
@@ -949,20 +1019,20 @@ export function LandingPage() {
                     style={{
                       fontSize: "12px",
                       fontWeight: 600,
-                      color: proposalState === "accepted" ? "#16803C" : "#C2410C"
+                      color: proposalState === "accepted" ? "var(--d-tx-16803c)" : "var(--d-tx-c2410c)"
                     }}
                   >
                     {proposalState === "accepted" ? "✓ Accepted" : "✕ Rejected"}
                   </span>
                 )}
               </div>
-              <span style={{ fontSize: "15px", color: "#0a0d12" }}>
+              <span style={{ fontSize: "15px", color: "var(--d-tx-0a0d12)" }}>
                 Scene 3 duration:{" "}
-                <span style={{ color: "#93979f", textDecoration: "line-through" }}>8s</span> → 10s
+                <span style={{ color: "var(--d-tx-93979f)", textDecoration: "line-through" }}>8s</span> → 10s
               </span>
-              <span style={{ fontSize: "15px", color: "#0a0d12" }}>
+              <span style={{ fontSize: "15px", color: "var(--d-tx-0a0d12)" }}>
                 Scene 4 duration:{" "}
-                <span style={{ color: "#93979f", textDecoration: "line-through" }}>8s</span> → 6s
+                <span style={{ color: "var(--d-tx-93979f)", textDecoration: "line-through" }}>8s</span> → 6s
               </span>
               <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                 <button
@@ -971,8 +1041,8 @@ export function LandingPage() {
                   style={{
                     padding: "7px 16px",
                     borderRadius: "9999px",
-                    background: proposalState === "accepted" ? "#16803C" : "#181d27",
-                    color: "#fff",
+                    background: proposalState === "accepted" ? "#16803C" : "var(--d-bg-181d27)",
+                    color: "var(--d-btn-ink)",
                     fontSize: "13px",
                     fontWeight: 500,
                     border: 0,
@@ -988,11 +1058,11 @@ export function LandingPage() {
                   style={{
                     padding: "7px 16px",
                     borderRadius: "9999px",
-                    background: proposalState === "rejected" ? "#fee2e2" : "#fff",
-                    color: proposalState === "rejected" ? "#b91c1c" : "#0a0d12",
+                    background: proposalState === "rejected" ? "var(--d-bg-fee2e2)" : "var(--d-bg-ffffff)",
+                    color: proposalState === "rejected" ? "var(--d-tx-b91c1c)" : "var(--d-tx-0a0d12)",
                     fontSize: "13px",
                     fontWeight: 500,
-                    border: "1px solid #D6E4F2",
+                    border: "1px solid var(--d-bd-d6e4f2)",
                     cursor: "pointer",
                     transition: "all 180ms ease"
                   }}
@@ -1019,7 +1089,7 @@ export function LandingPage() {
             <strong style={{ fontSize: "21px", fontWeight: 600, letterSpacing: "-.02em" }}>
               Studio for the details
             </strong>
-            <span style={{ fontSize: "16px", color: "#93979f", lineHeight: 1.5 }}>
+            <span style={{ fontSize: "16px", color: "var(--d-tx-93979f)", lineHeight: 1.5 }}>
               Timeline, layers, keyframes, and scoped AI comments. Publish a composition as a
               locked template for your team.
             </span>
@@ -1030,7 +1100,7 @@ export function LandingPage() {
                 gap: "6px",
                 padding: "16px",
                 borderRadius: "20px",
-                background: "#181d27"
+                background: "var(--d-bg-181d27)"
               }}
             >
               {STUDIO_TRACKS.map((t, i) => (
@@ -1065,17 +1135,17 @@ export function LandingPage() {
             style={{
               padding: "36px",
               borderRadius: "28px",
-              background: "linear-gradient(180deg,#F4EBFF,#E4CCFF)",
+              background: "linear-gradient(180deg,var(--d-bg-f4ebff),var(--d-bg-e4ccff))",
               display: "flex",
               flexDirection: "column",
               gap: "12px",
-              border: "1px solid rgba(200,160,255,.3)"
+              border: "1px solid var(--d-bd-rgba2001602553)"
             }}
           >
-            <strong style={{ fontSize: "21px", fontWeight: 600, letterSpacing: "-.02em", color: "#2B164D" }}>
+            <strong style={{ fontSize: "21px", fontWeight: 600, letterSpacing: "-.02em", color: "var(--d-tx-2b164d)" }}>
               Brand kits in a minute
             </strong>
-            <span style={{ fontSize: "16px", color: "#535862", lineHeight: 1.5 }}>
+            <span style={{ fontSize: "16px", color: "var(--d-tx-535862)", lineHeight: 1.5 }}>
               Import from your website. Every suggestion is editable before you save.
             </span>
           </div>
@@ -1086,17 +1156,17 @@ export function LandingPage() {
             style={{
               padding: "36px",
               borderRadius: "28px",
-              background: "linear-gradient(180deg,#E5F6FF,#C2E9FF)",
+              background: "linear-gradient(180deg,var(--d-bg-e5f6ff),var(--d-bg-c2e9ff))",
               display: "flex",
               flexDirection: "column",
               gap: "12px",
-              border: "1px solid rgba(160,210,255,.4)"
+              border: "1px solid var(--d-bd-rgba1602102554)"
             }}
           >
-            <strong style={{ fontSize: "21px", fontWeight: 600, letterSpacing: "-.02em", color: "#06377B" }}>
+            <strong style={{ fontSize: "21px", fontWeight: 600, letterSpacing: "-.02em", color: "var(--d-tx-06377b)" }}>
               Honest render status
             </strong>
-            <span style={{ fontSize: "16px", color: "#535862", lineHeight: 1.5 }}>
+            <span style={{ fontSize: "16px", color: "var(--d-tx-535862)", lineHeight: 1.5 }}>
               Real stages and frame counts. If a scene fails, you see why and how to fix it.
             </span>
           </div>
@@ -1134,10 +1204,10 @@ export function LandingPage() {
                 onClick={() => setActiveFaq(isOpen ? null : idx)}
                 style={{
                   textAlign: "left",
-                  border: "1px solid #E1EAF4",
+                  border: "1px solid var(--d-bd-e1eaf4)",
                   padding: "26px 30px",
                   borderRadius: "28px",
-                  background: "#fafdff",
+                  background: "var(--d-bg-fafdff)",
                   cursor: "pointer",
                   display: "flex",
                   flexDirection: "column",
@@ -1153,13 +1223,13 @@ export function LandingPage() {
                     gap: "16px",
                     fontSize: "17px",
                     fontWeight: 600,
-                    color: "#0a0d12"
+                    color: "var(--d-tx-0a0d12)"
                   }}
                 >
                   {faq.q}
                   <span
                     style={{
-                      color: "#93979f",
+                      color: "var(--d-tx-93979f)",
                       fontSize: "20px",
                       lineHeight: 1,
                       transition: "transform 300ms ease",
@@ -1176,7 +1246,7 @@ export function LandingPage() {
                     transition: "grid-template-rows 500ms cubic-bezier(.16,1,.3,1)"
                   }}
                 >
-                  <span style={{ overflow: "hidden", fontSize: "16px", lineHeight: 1.5, color: "#535862" }}>
+                  <span style={{ overflow: "hidden", fontSize: "16px", lineHeight: 1.5, color: "var(--d-tx-535862)" }}>
                     <span style={{ display: "block", paddingTop: "14px" }}>{faq.a}</span>
                   </span>
                 </span>
@@ -1206,7 +1276,7 @@ export function LandingPage() {
               alignItems: "center",
               textAlign: "center",
               gap: "24px",
-              boxShadow: "0 24px 48px -12px rgba(4,69,144,.28)"
+              boxShadow: "0 24px 48px -12px var(--d-sh-rgba46914428)"
             }}
           >
             <div
@@ -1243,8 +1313,8 @@ export function LandingPage() {
                 position: "relative",
                 padding: "14px 32px",
                 borderRadius: "9999px",
-                background: "#fff",
-                color: "#0a0d12",
+                background: "var(--d-bg-ffffff)",
+                color: "var(--d-tx-0a0d12)",
                 fontSize: "16px",
                 fontWeight: 600,
                 textDecoration: "none",
@@ -1265,7 +1335,7 @@ export function LandingPage() {
               flexWrap: "wrap",
               padding: "36px 8px 0",
               fontSize: "14px",
-              color: "#93979f"
+              color: "var(--d-tx-93979f)"
             }}
           >
             <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Flat vector energy grid</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#120b40}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:linear-gradient(180deg,#120b40 0%,#241466 62%,#3a1c7e 100%)}
+svg{position:absolute;inset:0}
+text{font-family:"Fredoka","Space Grotesk",sans-serif;font-weight:600}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="stage" class="clip" data-start="0" data-duration="5" data-track-index="1" width="1280" height="720" viewBox="0 0 1280 720">
+<defs>
+<filter id="sh" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#05021a" flood-opacity=".5"/></filter>
+<filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<radialGradient id="sg"><stop offset="0" stop-color="#ffc233" stop-opacity=".6"/><stop offset="1" stop-color="#ffc233" stop-opacity="0"/></radialGradient>
+</defs>
+<g id="stars"></g>
+<g id="clouds"></g>
+<rect x="0" y="640" width="1280" height="80" fill="#1a0f52"/>
+<g id="lines"></g>
+<g id="city"></g>
+<g id="sun" transform="translate(160 200)"><g id="sunbob"><g id="suns">
+ <circle r="120" fill="url(#sg)"/>
+ <g id="rays"></g>
+ <circle r="46" fill="#ffb02e" filter="url(#sh)"/><circle r="38" fill="#ffd23f"/>
+ <circle cx="-13" cy="-4" r="5" fill="#7a3b12"/><circle cx="13" cy="-4" r="5" fill="#7a3b12"/>
+ <path d="M-11 10 Q0 21 11 10" fill="none" stroke="#7a3b12" stroke-width="4" stroke-linecap="round"/>
+</g></g></g>
+<g id="turb" transform="translate(150 640)"><g id="turbs" filter="url(#sh)">
+ <path d="M-9 0 L-4 -200 L4 -200 L9 0Z" fill="#eef2ff"/>
+ <g transform="translate(0 -205)"><g id="blades">
+  <path d="M0 0 C-14 -20 -12 -70 0 -100 C12 -70 14 -20 0 0Z" fill="#5ef0d0"/>
+  <path d="M0 0 C-14 -20 -12 -70 0 -100 C12 -70 14 -20 0 0Z" fill="#35d0b2" transform="rotate(120)"/>
+  <path d="M0 0 C-14 -20 -12 -70 0 -100 C12 -70 14 -20 0 0Z" fill="#8bf7e2" transform="rotate(240)"/>
+ </g><circle r="12" fill="#ffd23f"/></g>
+</g></g>
+<g id="bat" transform="translate(370 545)"><g id="bats" filter="url(#sh)">
+ <rect x="-14" y="-72" width="28" height="14" rx="5" fill="#b8c4ff"/>
+ <rect x="-44" y="-62" width="88" height="124" rx="18" fill="#ff7ad9"/>
+ <rect id="b1" x="-30" y="26" width="60" height="22" rx="8" fill="#fff"/>
+ <rect id="b2" x="-30" y="-2" width="60" height="22" rx="8" fill="#fff"/>
+ <rect id="b3" x="-30" y="-30" width="60" height="22" rx="8" fill="#fff"/>
+</g></g>
+<g id="hub"><circle id="hubc" cx="600" cy="470" r="15" fill="#fff3a8" filter="url(#glow)"/></g>
+<text id="cap" x="760" y="122" font-size="62" text-anchor="middle" fill="#fff">Clean energy lights cities</text>
+</svg>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg",$=id=>document.getElementById(id);
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p.appendChild(e);return e};
+let seed=5;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+// background
+const stars=[];for(let i=0;i<40;i++)stars.push(el("circle",{cx:rnd()*1400-60,cy:rnd()*480,r:1.5+rnd()*1.6,fill:["#fff","#9bd7ff","#ffd1f0"][i%3],opacity:.6},$("stars")));
+const clouds=[[200,330,1],[640,260,.8],[1050,380,1.2],[1300,300,.9]].map(([x,y,s])=>{const g=el("g",{transform:`translate(${x} ${y}) scale(${s})`},$("clouds"));
+ [[0,0,34],[34,-12,42],[76,0,32],[38,10,30]].forEach(([a,b,r])=>el("circle",{cx:a,cy:b,r:r,fill:"#3d2a8f",opacity:.55},g));return g});
+// rays
+for(let i=0;i<10;i++)el("rect",{x:-6,y:-80,width:12,height:24,rx:6,fill:"#ffd23f",transform:`rotate(${i*36})`},$("rays"));
+// city
+const B=[[650,92,170,"#ff6b6b"],[755,72,255,"#ffb347"],[840,104,205,"#4ecdc4"],[955,82,310,"#6c8cff"],[1048,92,180,"#c77dff"],[1150,86,240,"#ff8fab"]];
+const wins=[];const bgs=[];
+B.forEach(([x,w,h,c],bi)=>{
+ const g=el("g",{},$("city"));bgs.push(g);
+ const inner=el("g",{filter:"url(#sh)"},g);
+ el("rect",{x:x,y:640-h,width:w,height:h,rx:8,fill:c},inner);
+ el("rect",{x:x+w*.5-2,y:640-h-22,width:4,height:22,fill:c},inner);
+ el("circle",{cx:x+w*.5,cy:640-h-24,r:5,fill:"#fff3a8"},inner);
+ const cols=w>90?3:2,gap=(w-cols*20)/(cols+1);
+ for(let r=0;r<Math.floor((h-40)/40);r++)for(let k=0;k<cols;k++)
+  wins.push({e:el("rect",{x:x+gap+k*(20+gap),y:640-h+22+r*40,width:20,height:24,rx:5,fill:"#2a1c78"},g),d:(x-650)/580,rr:r});
+ g._o=x+w/2;g._h=h;
+});
+// lines (all end in a bus under the city, via hub)
+const HUB="M600 470 C600 590 620 662 700 662 L1240 662";
+const srcs=[["M175 255 C300 300 450 400 600 470","#ffd23f"],["M150 440 C260 420 430 470 600 470","#5ef0d0"],["M370 545 C440 520 520 480 600 470","#ff7ad9"],[HUB,"#fff3a8"]];
+const draw=[],pulse=[];
+srcs.forEach(([d,c],i)=>{
+ const w=i==3?9:7;
+ const base=el("path",{d:d,fill:"none",stroke:c,"stroke-width":w,"stroke-linecap":"round",opacity:.28,pathLength:1,"stroke-dasharray":"1 1","stroke-dashoffset":1},$("lines"));
+ const glowp=el("path",{d:d,fill:"none",stroke:c,"stroke-width":w,"stroke-linecap":"round",pathLength:1,"stroke-dasharray":".12 .38","stroke-dashoffset":0,filter:"url(#glow)",opacity:0},$("lines"));
+ draw.push(base);pulse.push(glowp);
+});
+gsap.set("#suns",{svgOrigin:"0 0"});gsap.set("#rays",{svgOrigin:"0 0"});gsap.set("#turbs",{svgOrigin:"0 0"});gsap.set("#bats",{svgOrigin:"0 0"});gsap.set("#blades",{svgOrigin:"0 0"});gsap.set("#hubc",{svgOrigin:"600 470"});bgs.forEach(g=>gsap.set(g,{svgOrigin:g._o+" 640"}));
+const tl=gsap.timeline({paused:true});
+// entrances
+tl.fromTo("#suns",{scale:0},{scale:1,duration:.7,ease:"back.out(2)"},0);
+tl.fromTo("#turbs",{scale:0},{scale:1,duration:.7,ease:"back.out(2)"},.2);
+tl.fromTo("#bats",{scale:0},{scale:1,duration:.7,ease:"back.out(2.2)"},.4);
+bgs.forEach((g,i)=>tl.fromTo(g,{scale:0},{scale:1,duration:.6,ease:"back.out(1.8)"},.5+i*.12));
+// motion
+tl.to("#rays",{rotation:140,duration:5,ease:"none"},0);
+tl.to("#sunbob",{y:-9,duration:1.25,ease:"sine.inOut",repeat:3,yoyo:true},0);
+tl.to("#blades",{rotation:1100,duration:5,ease:"power1.out"},0.3);
+tl.to("#bats",{y:-6,duration:1.1,ease:"sine.inOut",repeat:4,yoyo:true},.8);
+tl.to(clouds,{x:-60,duration:5,ease:"none"},0);
+tl.to($("stars"),{x:-30,duration:5,ease:"none"},0);
+// lines
+draw.forEach((p,i)=>tl.to(p,{attr:{"stroke-dashoffset":0},duration:.7,ease:"power2.out"},1.0+(i==3?.5:i*.12)));
+pulse.forEach((p,i)=>{const t0=1.3+(i==3?.5:i*.12);tl.set(p,{opacity:1},t0);tl.fromTo(p,{attr:{"stroke-dashoffset":0}},{attr:{"stroke-dashoffset":-2},duration:3.2,ease:"none"},t0)});
+tl.fromTo("#hubc",{scale:0},{scale:1,duration:.5,ease:"back.out(3)"},1.2);
+tl.to("#hubc",{scale:1.35,duration:.5,ease:"sine.inOut",repeat:5,yoyo:true},1.8);
+// battery charging
+["b1","b2","b3"].forEach((id,i)=>tl.fromTo("#"+id,{fill:"#a73b8f"},{fill:"#fff",duration:.25,ease:"power2.out"},1.6+i*.55));
+// windows light up, left to right
+wins.sort((a,b)=>a.d-b.d||a.rr-b.rr).forEach((w,i)=>{
+ const t=1.9+(i/wins.length)*2.0;
+ tl.to(w.e,{attr:{fill:"#ffe27a"},duration:.18,ease:"power1.out"},t);
+});
+tl.fromTo("#cap",{opacity:0,y:28},{opacity:1,y:0,duration:.6,ease:"back.out(1.6)"},.3);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

@@ -1,0 +1,16 @@
+{
+  "id": "timeline-infographic",
+  "name": "Milestone Timeline Infographic",
+  "group": "Data & maps",
+  "summary": "A progress line draws across four milestone nodes that light up in turn as the camera pans.",
+  "bestFor": "Company history, roadmaps and project milestones",
+  "prompt": "Build a horizontal timeline infographic with four milestones for a made-up project: an idea, a first build, a public launch and a period of growth. Draw a progress line from left to right, light up each milestone with an icon circle and a two-word label as the line reaches it, and pan the camera gently along the track. Finish with every milestone lit and a closing line about the journey.",
+  "look": "clean",
+  "theme": "cartesian",
+  "aspect": "16:9",
+  "durationSeconds": 35,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "both",
+  "poster": 3.2
+}

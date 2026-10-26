@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Step-by-step recipe</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f5efe3; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f5efe3; font-family: "Fredoka", sans-serif; }
+  svg { position: absolute; inset: 0; }
+
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+var R = rng(5);
+var tl = gsap.timeline({ paused: true });
+var defs = el("defs", {});
+function wob(pts, amp, step) {
+  var out = [pts[0]], i, k;
+  for (i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+    for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+  }
+  var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+  for (i = 0; i < out.length - 1; i++) {
+    var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+    d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+  }
+  return d;
+}
+function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .06; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+function box(x, y, w, h) { return [[x - 6, y + 1], [x + w + 4, y - 1], [x + w + 1, y + h + 3], [x - 3, y + h - 1], [x + 1, y - 9]]; }
+// draw-on stroke. o: parent, amp, single, raw(d string), ease, fill (fades in), op (opacity), cap
+function stroke(pts, color, w, t, dur, o) {
+  o = o || {}; var par = o.parent || art;
+  var d = o.raw ? pts : wob(pts, o.amp == null ? 2.2 : o.amp, 34), made = [];
+  var passes = o.single ? [[w, 1, d]] : [[w, 1, d], [w * .5, .75, o.raw ? pts : wob(pts, (o.amp == null ? 2.2 : o.amp) * 1.2, 30)]];
+  passes.forEach(function (p, i) {
+    var path = el("path", { d: p[2], fill: "none", stroke: color, "stroke-width": p[0], "stroke-linecap": "round", "stroke-linejoin": "round", opacity: (o.op == null ? 1 : o.op) * p[1] }, par);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30); path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur * (i ? 1.12 : 1), ease: o.ease || "power1.inOut" }, t + (i ? .05 : 0));
+    made.push(path);
+  });
+  if (o.fill) {
+    var f = el("path", { d: d, fill: o.fill, stroke: "none", opacity: 0 }, par);
+    par.insertBefore(f, made[0]);
+    tl.to(f, { opacity: o.fillOp == null ? 1 : o.fillOp, duration: Math.max(.15, dur * .5) }, t + dur * .55);
+    made.push(f);
+  }
+  return made;
+}
+var cid = 0;
+function write(str, x, y, size, color, t, dur, rot, weight, font, par, anchor) {
+  par = par || art;
+  var g = el("g", rot ? { transform: "rotate(" + rot + " " + x + " " + y + ")" } : {}, par);
+  var id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+  var w = str.length * size * .6 + 30, x0 = anchor === "middle" ? x - w / 2 : x;
+  var rc = el("rect", { x: x0 - 10, y: y - size * 1.1, width: 0, height: size * 1.5 }, cp);
+  var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": weight || 600, fill: color, "clip-path": "url(#" + id + ")", "font-family": font || "Fredoka, Quicksand, sans-serif", "text-anchor": anchor || "start" }, g);
+  tx.textContent = str;
+  tl.to(rc, { attr: { width: w + 20 }, duration: dur, ease: "none" }, t);
+  return g;
+}
+function pop(node, t, dur, ox, oy, ease, rot) {
+  tl.fromTo(node, { scale: 0, rotation: rot == null ? -14 : rot, svgOrigin: ox + " " + oy }, { scale: 1, rotation: 0, svgOrigin: ox + " " + oy, duration: dur || .4, ease: ease || "back.out(2.6)" }, t);
+}
+function fadeIn(node, t, dur) { tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: dur || .3, ease: "power1.out" }, t); }
+function finish() { window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl; tl.set({}, {}, 5); }
+
+
+var INK = "#2b2a33", CORAL = "#e8553c", PAPER = "#f5efe3", TAN = "#eadcc2", MUTE = "#a89b84";
+var SERIF = "Newsreader, Georgia, serif", MONO = "'DM Mono', 'IBM Plex Mono', monospace";
+el("rect", { width: 1280, height: 720, fill: PAPER });
+el("rect", { x: 900, width: 380, height: 720, fill: TAN });
+var flt = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+el("feTurbulence", { type: "fractalNoise", baseFrequency: "0.04", numOctaves: 2, seed: 4, result: "n" }, flt);
+el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: 3 }, flt);
+var art = el("g", { filter: "url(#rough)" });
+stroke([[900, -4], [904, 240], [897, 480], [902, 724]], INK, 3, 0, .5, { single: true, amp: 1.5 });
+var B = [0.0, 1.0, 2.0, 3.0], BEAT = 1.0;
+// progress bar
+var labs = ["ICE", "ESPRESSO", "MILK", "VANILLA"];
+labs.forEach(function (n, k) {
+  var x = 70 + k * 195;
+  stroke([[x, 62], [x + 178, 60]], "#d3c7ad", 8, 0, .3, { single: true, amp: 1 });
+  stroke([[x, 62], [x + 178, 60]], CORAL, 8, B[k] + .1, .7, { single: true, amp: 1 });
+  write(n, x, 104, 22, k === 0 ? INK : INK, 0.0 + k * .03, .22, 0, 600, MONO);
+});
+// glass
+var CX = 600, TOP = 190, BOT = 620;
+function lx(y) { return CX - 135 + (y - TOP) / (BOT - TOP) * 26; }
+function rx(y) { return CX + 135 - (y - TOP) / (BOT - TOP) * 26; }
+var cp = el("clipPath", { id: "tum" }, defs);
+el("path", { d: "M" + lx(TOP + 4) + " " + (TOP + 4) + " L" + rx(TOP + 4) + " " + (TOP + 4) + " L" + rx(BOT - 6) + " " + (BOT - 6) + " L" + lx(BOT - 6) + " " + (BOT - 6) + " Z" }, cp);
+var fillG = el("g", { "clip-path": "url(#tum)" }, art);
+stroke([[lx(TOP) - 6, TOP], [rx(TOP) + 6, TOP - 2], [rx(BOT), BOT], [lx(BOT), BOT + 2], [lx(TOP) - 4, TOP + 6]], INK, 7, 0, .4, {});
+for (var k = 0; k < 8; k++) { var ty = BOT - 30 - k * 52, lg = k % 2 === 0; stroke([[rx(ty) + 10, ty], [rx(ty) + (lg ? 40 : 24), ty]], INK, 3.5, .3 + k * .03, .12, { single: true, amp: .6 }); }
+var layers = [
+  { c: "#4a2e22", y0: BOT - 8, y1: 470, t: B[1] + .1, d: 8 },
+  { c: "#c29b72", y0: 470, y1: 335, t: B[2] + .1, d: 9 },
+  { c: "#e0902f", y0: 335, y1: 300, t: B[3] + .1, d: 7 }
+];
+layers.forEach(function (L, k) {
+  var pts = [], n = Math.round((L.y0 - L.y1) / L.d), i;
+  for (i = 0; i <= n; i++) { var y = L.y0 - i * L.d; pts.push([(i % 2 ? rx(y) + 14 : lx(y) - 14), y - (i % 2 ? 7 : 0)]); }
+  var d = "M" + pts.map(function (p) { return p[0].toFixed(0) + " " + p[1].toFixed(0); }).join(" L");
+  stroke(d, L.c, k === 0 ? 7 : 5.5, L.t, .75, { raw: true, parent: fillG, single: true, ease: "none" });
+  stroke([[lx(L.y1) - 4, L.y1], [rx(L.y1) + 4, L.y1 - 3]], INK, 3, L.t + .6, .2, { single: true, amp: 1.2 });
+});
+// ice (beat 1) on top of the fill
+[[CX - 62, 570, 0], [CX + 34, 580, .15], [CX - 8, 505, .3]].forEach(function (c) {
+  var g = el("g", {}, art), x = c[0], y = c[1], t0 = B[0] + .05 + c[2] * .6;
+  stroke([[x - 36, y - 34], [x + 34, y - 38], [x + 38, y + 30], [x - 34, y + 36], [x - 36, y - 38]], INK, 4.5, t0, .3, { amp: 1.6, parent: g, fill: "#cfe8f1", fillOp: .7 });
+  stroke([[x - 18, y - 16], [x + 6, y - 18]], INK, 3, t0 + .2, .12, { single: true, amp: .6, parent: g });
+  tl.fromTo(g, { y: -120 }, { y: 0, duration: .45, ease: "bounce.out" }, t0);
+});
+// step text, one group per beat
+var steps = [
+  { n: "Add ice", m: "3 cubes", s: "Fill to the first line" },
+  { n: "Pour espresso", m: "2 oz", s: "60 ml, freshly pulled" },
+  { n: "Pour in milk", m: "3 oz", s: "90 ml, cold, slow" },
+  { n: "Drizzle vanilla", m: "½ oz", s: "15 ml across the top" }
+];
+steps.forEach(function (S, k) {
+  var g = el("g", {}, art), t = B[k] + (k ? .05 : 0);
+  write("STEP " + (k + 1) + " / 4", 70, 200, 26, CORAL, t, .18, 0, 600, MONO, g);
+  write(S.n, 70, 275, 50, INK, t + .02, .28, -1, 500, SERIF, g);
+  write(S.m, 70, 400, S.m.length > 5 ? 84 : 118, CORAL, t + .1, .3, -1.5, 600, SERIF, g);
+  write(S.s, 70, 470, 32, "#6b5d4a", t + .35, .3, 0, 400, SERIF, g);
+  tl.to(g, { opacity: 0, duration: .12 }, (k < 3 ? B[k + 1] : 4.0) - .02);
+});
+// right panel: title + checklist
+write("Iced", 940, 150, 64, INK, 0, .25, -2, 600, SERIF);
+write("Velvet", 940, 220, 64, INK, .05, .3, -2, 600, SERIF);
+stroke([[940, 240], [1060, 235], [1180, 242], [1240, 236]], CORAL, 5, .45, .4, { single: true, amp: 2 });
+var rows = ["3 ice cubes", "2 oz espresso", "3 oz milk", "½ oz vanilla"];
+rows.forEach(function (r, k) {
+  var y = 350 + k * 82, g = el("g", { opacity: .45 }, art);
+  stroke([[944, y - 26], [976, y - 28], [978, y + 4], [946, y + 6], [943, y - 28]], INK, 4, .1 + k * .05, .25, { amp: 1.2, parent: g });
+  write(r, 998, y, 34, INK, .15 + k * .05, .3, 0, 500, SERIF, g);
+  tl.to(g, { opacity: 1, duration: .15 }, B[k] + BEAT - .3);
+  stroke([[948, y - 14], [958, y + 2], [984, y - 40]], CORAL, 7, B[k] + BEAT - .3, .22, { single: true, amp: .8 });
+});
+// active arrow
+var ar = el("g", {}, art);
+stroke([[916, 0], [930, 0]], CORAL, 5, .3, .15, { single: true, amp: .3, parent: ar });
+stroke([[922, -9], [932, 0], [922, 9]], CORAL, 5, .35, .12, { single: true, amp: .3, parent: ar });
+ar.setAttribute("transform", "translate(0 336)");
+for (var q = 1; q < 4; q++) tl.to(ar, { attr: { transform: "translate(0 " + (336 + q * 82) + ")" }, duration: .22, ease: "power2.inOut" }, B[q] - .05);
+tl.to(ar, { opacity: 0, duration: .15 }, 4.05);
+// finale: straw, serve stamp
+stroke([[CX + 20, 420], [CX + 70, 260], [CX + 118, 135]], CORAL, 13, 4.05, .35, { single: true, amp: 1.2 });
+stroke([[CX + 8, 420], [CX + 58, 260], [CX + 106, 135]], INK, 3.5, 4.05, .35, { single: true, amp: 1.2 });
+stroke([[CX + 34, 420], [CX + 83, 260], [CX + 131, 135]], INK, 3.5, 4.1, .35, { single: true, amp: 1.2 });
+var fin = el("g", {}, art);
+write("Serve cold", 70, 275, 64, CORAL, 4.1, .4, -2, 600, SERIF, fin);
+stroke([[70, 300], [200, 295], [340, 302]], INK, 5, 4.4, .25, { single: true, amp: 2, parent: fin });
+tl.fromTo(fin, { opacity: 0 }, { opacity: 1, duration: .01 }, 4.05);
+finish();
+})();
+</script>
+</body>
+</html>

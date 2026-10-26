@@ -34,6 +34,8 @@ Work top to bottom. Paste the filled list into `HANDOFF.md`.
 
 ## 7 · Gates
 - [ ] `lint` clean; `check` at zero findings.
+- [ ] `pop_gate.mjs <render.mp4> --max-cuts 0` passes: it is one continuous camera, so any hard cut or single-frame pop is a defect. `seam_sheet.mjs <render.mp4> --auto` viewed.
+- [ ] Beat grid: BPM, beat count and the beat of the drop are stated; every prop hit and the camera's big move land on a beat (within 0.15 s); the drop lands on the logo. Fast tumbles are candidates for `scripts/subframe-render.mjs`.
 - [ ] CPU render (`--no-browser-gpu`) time recorded.
 - [ ] -14 LUFS / ≤ -2 dBTP after encode; audio stream present.
 

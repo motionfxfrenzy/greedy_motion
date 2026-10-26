@@ -6,12 +6,13 @@ import { tmpdir } from "node:os";
 import { extname, join, sep } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { lintHyperframeHtml } from "@hyperframes/lint";
-import { frameShellHtml, isPreviewQuality, previewSize, type PreviewQuality, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
+import { frameShellHtml, isPreviewQuality, motionBlurProblem, parseMotionBlur, previewSize, type PreviewQuality, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
 import { NotEntitled, requireProEdit, type ProEditAccess } from "../entitlements/access.ts";
 import { EntitlementsUnavailable, entitlementsFor } from "../entitlements/resolve.ts";
 import { ensureMedia, ensureMediaDir, persistMedia, readMedia, removeMedia, saveMedia } from "../media.ts";
+import { fillTextBlock } from "../plan/composition.ts";
 import { buildPlanRenderProject } from "../plan/render-project.ts";
 import { getProject, updateProject, updateProjectPro } from "../projects/store.ts";
 import { renderJobRepository } from "../render/repository.ts";
@@ -63,6 +64,21 @@ async function manifestOf(dir: string): Promise<ProManifest["files"]> {
   return files;
 }
 
+/**
+ * Makes the render page behave in the editor's frame, which is a plain page with no render runtime around it:
+ *  - the root gets an explicit duration (the frame hides any timed clip outside its start and duration, and the render
+ *    template leaves the root's length to the last beat);
+ *  - the root gets an explicit pixel size (the template says 100% of the page, which is zero tall without the runtime
+ *    that sizes the page, so every scene collapsed to nothing).
+ */
+export function withEditorRoot(html: string, seconds: number): string {
+  const width = /data-composition-id="main"[^>]*data-width="(\d+)"/.exec(html)?.[1] ?? "1920";
+  const height = /data-composition-id="main"[^>]*data-height="(\d+)"/.exec(html)?.[1] ?? "1080";
+  let out = html.replace(/<div id="root"([^>]*)>/, (tag, attrs: string) => (/data-duration=/.test(attrs) ? tag : `<div id="root"${attrs} data-duration="${Math.round(seconds * 1000) / 1000}">`));
+  if (!out.includes('id="editor-root"')) out = out.replace("</head>", () => `  <style id="editor-root">html, body { width: ${width}px; height: ${height}px; } #root { width: ${width}px; height: ${height}px; }</style>\n</head>`);
+  return out;
+}
+
 function canvasOf(html: string) {
   const attr = (name: string) => Number(new RegExp(`data-${name}="(\\d+(?:\\.\\d+)?)"`).exec(html)?.[1]);
   return { width: attr("width") || 1920, height: attr("height") || 1080, duration: attr("duration") || 10 };
@@ -72,6 +88,13 @@ async function buildSnapshot(project: VideoProject, source: "beat-plan" | "blank
   if (source === "beat-plan") {
     if (!project.beatPlan) throw new ProInvalid("This project has no storyboard yet. Start from a blank composition instead.");
     const built = await buildPlanRenderProject(project, dir);
+    // The editor previews the page as a plain file, with no render variables passed in, so the film's values (the plan, the
+    // shots, the text) go into the page itself. Without them the engine finds no beats and the canvas stays empty.
+    const values = JSON.parse(await readFile(join(dir, "variables.json"), "utf8")) as Record<string, string>;
+    // The editor's frame hides any timed clip outside [data-start, data-start + data-duration). The render template leaves
+    // the root without a duration (its length is the last beat's end), which would hide the whole film in the editor.
+    const withValues = fillTextBlock(await readFile(join(dir, "index.html"), "utf8"), values);
+    await writeFile(join(dir, "index.html"), withEditorRoot(withValues, built.durationSeconds));
     return { durationSeconds: built.durationSeconds };
   }
   const blank = blankComposition(options.aspect ?? project.beatPlan?.canvas ?? "16:9", options.durationSeconds ?? 10);
@@ -134,7 +157,8 @@ export async function writeProFiles(_access: ProEditAccess, id: string, body: { 
 }
 
 /** Copies the saved folder to where the worker reads it and queues a render job. Spends compute, so it needs the edit capability. */
-export async function enqueueProRender(_access: ProEditAccess, project: VideoProject & { pro: ProManifest }, quality: PreviewQuality) {
+/** `motionBlur` is for a final render only; the route validates it (parseMotionBlur, motionBlurProblem) before calling. */
+export async function enqueueProRender(_access: ProEditAccess, project: VideoProject & { pro: ProManifest }, quality: PreviewQuality, options: { motionBlur?: boolean } = {}) {
   const pro = project.pro;
   const jobId = randomUUID();
   await ensureMediaDir(proDir(project.id));
@@ -158,7 +182,7 @@ export async function enqueueProRender(_access: ProEditAccess, project: VideoPro
   const created = await renderJobRepository.createReadyAndEnqueue(job, {
     request: project.request,
     projectId: project.id,
-    renderInput: { kind: "pro", id: jobId, workerDir: `/renders/${jobId}/project`, ...(projectPrefix ? { projectPrefix } : {}), durationSeconds: pro.durationSeconds, quality, previewWidth: size.width, previewHeight: size.height }
+    renderInput: { kind: "pro", id: jobId, workerDir: `/renders/${jobId}/project`, ...(projectPrefix ? { projectPrefix } : {}), durationSeconds: pro.durationSeconds, quality, previewWidth: size.width, previewHeight: size.height, ...(options.motionBlur ? { motionBlur: true } : {}) }
   });
   return { created, size };
 }
@@ -303,7 +327,7 @@ function registerEditorRoutes(app: FastifyInstance) {
    * and is scaled down; `final` renders the composition as written and is gated by lint errors. Only a final render becomes the
    * project's render (Review shows it): a preview never touches `renderJobId`, so syncProject ignores it.
    */
-  app.post<{ Params: { id: string }; Body: { quality?: unknown } | undefined }>("/v1/projects/:id/pro/render", EDIT, async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { quality?: unknown; motionBlur?: unknown } | undefined }>("/v1/projects/:id/pro/render", EDIT, async (request, reply) => {
     try {
       const access = requireProEdit(request);
       const project = await getProject(request.params.id);
@@ -311,6 +335,11 @@ function registerEditorRoutes(app: FastifyInstance) {
       const pro = project.pro;
       const quality = request.body?.quality === undefined ? "draft540" : request.body.quality;
       if (!isPreviewQuality(quality)) return fail(reply, 400, "invalid_request", "`quality` must be draft540, preview720 or final.");
+      const blur = parseMotionBlur(request.body?.motionBlur);
+      if (!blur.ok) return fail(reply, 400, "invalid_request", blur.message);
+      // A preview is for checking timing and must stay cheap; blur belongs to the final render only.
+      if (blur.on && quality !== "final") return fail(reply, 400, "invalid_request", "Motion blur is only for the final render; previews never use it.");
+      if (blur.on) { const tooLong = motionBlurProblem(pro.durationSeconds); if (tooLong) return fail(reply, 400, "motion_blur_too_long", tooLong); }
 
       if (quality === "final") {
         const entry = await readMedia(join(proDir(project.id), pro.entry));
@@ -319,7 +348,7 @@ function registerEditorRoutes(app: FastifyInstance) {
         if (lint.errorCount > 0) return fail(reply, 409, "lint_errors", `${lint.errorCount} error${lint.errorCount === 1 ? "" : "s"} block a full render. Fix them in Checks.`, { findings: lint.findings.filter((f) => f.severity === "error").map((f) => ({ code: f.code, message: f.message, elementId: f.elementId, fixHint: f.fixHint })) });
       }
 
-      const { created, size } = await enqueueProRender(access, { ...project, pro }, quality);
+      const { created, size } = await enqueueProRender(access, { ...project, pro }, quality, { motionBlur: blur.on });
       return reply.code(202).send({ job: created, quality, size, rev: pro.rev });
     } catch (error) {
       return mapError(reply, error);

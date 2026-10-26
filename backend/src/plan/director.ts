@@ -1,6 +1,10 @@
 import { anthropicMessage, responseText } from "../anthropic.ts";
 import {
   defaultVoice,
+  lookDirection,
+  familyDirection,
+  sceneDirection,
+  scenesFor,
   hookWordLimit,
   plainText,
   voiceIds,
@@ -12,7 +16,8 @@ import {
   type Beat,
   type BeatPlan,
   type ScriptBrief,
-  type Vector
+  type Vector,
+  findGalleryTemplate
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { MOTION_DIRECTION, ROUTING, SCRIPT_FOR_MOTION, SHOT_DIRECTION, WATCHABILITY } from "../skills/director.ts";
@@ -29,7 +34,7 @@ export type DirectorContext = {
 export type DirectorResult = { plan: BeatPlan; problems: string[]; model: string };
 
 export interface Director {
-  plan(brief: ScriptBrief, context: DirectorContext): Promise<DirectorResult>;
+  plan(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<DirectorResult>;
 }
 
 // Vector cycle used to keep consecutive seams matched while varying direction (watchability: vary the vector).
@@ -97,7 +102,7 @@ function audioPlan(brief: ScriptBrief): BeatPlan["audio"] {
 
 export class DeterministicDirector implements Director {
   async plan(brief: ScriptBrief, context: DirectorContext): Promise<DirectorResult> {
-    const range = beatCountRange(brief.durationSeconds, brief.pace);
+    const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
     const count = Math.max(range.min, Math.min(range.max, Math.round((range.min + range.max) / 2)));
     const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
     const source = sentences(brief.text);
@@ -106,7 +111,7 @@ export class DeterministicDirector implements Director {
       : [`${source[0] ?? "Your team ships faster than your videos"}.`, ...Array.from({ length: count - 2 }, (_, i) => `${context.brandName} handles step ${i + 1} for you.`), `Try ${context.brandName} today.`];
     const shots = context.screenshots;
     const beats: Beat[] = Array.from({ length: count }, (_, i) => {
-      const role: Beat["role"] = i === 0 ? "hook" : i === count - 1 ? "cta" : i === 1 ? "reveal" : i === count - 2 ? "success" : "feature";
+      const role: Beat["role"] = i === 0 ? "hook" : i === count - 1 ? "cta" : i === count - 2 ? "success" : i === 1 ? "reveal" : "feature"; // a 3-beat (5 s) film is hook, success, call to action
       const shot = shots.length ? shots[i % shots.length] : null;
       const kind: Beat["kind"] = role === "cta" ? "title" : shot && role !== "hook" ? "ui" : "kinetic";
       const line = voiced ? lines[i]?.replace(/\.+$/, ".") ?? null : null;
@@ -167,7 +172,7 @@ const OUTPUT_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["role", "kind", "line", "verb", "keyword", "on_screen", "success", "energy", "ui", "camera", "entry", "exit", "text_effect", "generation", "fallback_keyword", "sfx", "transition", "carrier"],
+        required: ["role", "kind", "line", "verb", "keyword", "on_screen", "success", "energy", "ui", "camera", "entry", "exit", "text_effect", "generation", "fallback_keyword", "sfx", "scene", "transition", "carrier", "render"],
         properties: {
           role: { type: "string", enum: ["hook", "problem", "reveal", "feature", "proof", "success", "cta"] },
           kind: { type: "string", enum: ["ui", "kinetic", "3d", "footage", "title"] },
@@ -186,6 +191,10 @@ const OUTPUT_SCHEMA = {
                 target: { type: "string" } } }
             ]
           },
+          render: { anyOf: [{ type: "null" }, { type: "object", additionalProperties: false, required: ["treatment", "graphic"], properties: {
+            treatment: { anyOf: [{type:"null"}, {type:"string", enum:["clean","sketch","doodle","hairline"]}] },
+            graphic: {type:"string", enum:["auto","dom","orbits","particles"]}
+          } }] },
           camera: { type: "string" },
           entry: vectorSchema,
           exit: vectorSchema,
@@ -202,6 +211,7 @@ const OUTPUT_SCHEMA = {
           },
           fallback_keyword: nullable("string"),
           sfx: nullable("string"),
+          scene: { type: "string" }, // an id from the style's scene list, or "" for none (a plain string: the schema is at its limit of nullable fields)
           transition: { type: "string", enum: ["j-cut", "match-cut", "push-through", "whip", "brand-field-wipe", "hard-cut-on-beat", "end"] },
           carrier: nullable("string")
         }
@@ -215,11 +225,12 @@ const OUTPUT_SCHEMA = {
 };
 
 type ModelBeat = {
+  render?: { treatment: NonNullable<Beat["render"]>["treatment"] | null; graphic: NonNullable<Beat["render"]>["graphic"] } | null;
   role: Beat["role"]; kind: Beat["kind"]; line: string | null; verb: string | null; keyword: string; on_screen: string | null; success: boolean; energy: Beat["energy"];
   ui: { screenshot_index: number; action: NonNullable<Beat["ui"]>["action"]; target: string } | null;
   camera: string; entry: Vector; exit: Vector; text_effect: string | null;
   generation: (NonNullable<Beat["generation"]> & { keyframe_prompt: string; veo_prompt: string }) | null;
-  fallback_keyword: string | null; sfx: string | null; transition: Beat["transition_out"]["type"]; carrier: string | null;
+  fallback_keyword: string | null; sfx: string | null; scene?: string | null; transition: Beat["transition_out"]["type"]; carrier: string | null;
 };
 type ModelOutput = { beats: ModelBeat[]; characters: { id: string; description: string }[]; music_prompt: string | null; voice_direction: string | null; suggestions: { beat_index: number; problem: string; proposal: string }[] };
 
@@ -229,37 +240,51 @@ const SYSTEM = [
   "=== SCRIPT FOR MOTION ===", SCRIPT_FOR_MOTION,
   "=== WATCHABILITY ===", WATCHABILITY,
   "=== ROUTING (which producer builds each beat kind, what it must be told) ===", ROUTING,
+  'Model beat.render is null to inherit, otherwise: {treatment:"clean"|"sketch"|"doodle"|"hairline", graphic:"auto"|"dom"|"orbits"|"particles"}. Use null to inherit the chosen look; treatment may also be null inside a render object. Use per-scene treatments only when the brief calls for mixed looks. Orbits/particles require a clean kinetic scene, not UI/title/CTA. High-energy clean kinetic scenes automatically use Canvas geometry; text stays live. UI uses DOM. Never override generated material styles with native treatments. Do not request Rust/native engines: they are not available in the production worker.',
   "=== MOTION DIRECTION: typography (set text_effect on every kinetic and title beat, null on ui beats; use only the effect ids in the table) ===", MOTION_DIRECTION,
   "=== SHOT DIRECTION (how to write generation.keyframe_prompt and generation.veo_prompt for '3d' and 'footage' beats) ===", SHOT_DIRECTION,
   "=== OUTPUT RULES ===",
-  "- Return JSON matching the schema. Beat order is film order: first beat role 'hook', last beat role 'cta', exactly one beat with success=true placed before the CTA.",
+  "- Return JSON matching the schema. Beat order is film order: the script decides the shape: read what the person wrote and extract its own structure (its steps, turns, reveals and ending) rather than imposing one. Do not default to hook, success, call to action: use whatever roles and order serve the script and the style reference (a reel may have no CTA, a story may have no success moment). At most one beat has success=true, and only when the script has a payoff. Roles are labels only.",
   "- Consecutive beats: beat N's exit vector must equal beat N+1's entry vector (axis and dir). Vary directions; don't repeat the same vector three times in a row.",
   "- kind 'ui' requires ui.screenshot_index pointing at one of the provided screenshots (0-based). With no screenshots, use 'kinetic' instead of 'ui'.",
   "- Prefer 'ui' and 'kinetic'. Use '3d' or 'footage' only when the story needs it, at most 2–3 per film, each with generation prompts written exactly as SHOT DIRECTION says (lead with the action; the NO TEXT block second; no text, logos or product UI drawn by the model; laptop screens blank or away) and a fallback_keyword. keep_s: 4 when the action fits in 4 s and no end frame is needed (cheapest clip); end_frame 'generated' only with 8 s clips, and never 'crop-push' on a shot whose subject moves.",
   "- keyword: ≤ 4 words and ≤ 28 characters; the last word is the one that takes the brand accent (the engine colours it; never mark it). on_screen ≤ 60 characters. line ≤ 24 words.",
   "- Every text field is plain text: no markdown, no asterisks, underscores or backticks for emphasis, no quotes around the words.",
+  "- Every voiced line is written for the ear: no colons, parentheses or slashes, acronyms written as they are said (\"A I\", \"A P I\"), and a list of more than three items becomes one short sentence per item. Open on the viewer's problem or outcome, never on a character or the product name.",
   "- Own-script mode: every 'line' must be copied verbatim from the user's script (you may split it into sentences; never reword). Put any improvement in 'suggestions' with beat_index, problem and proposal.",
   "- Problem-only mode: write every line yourself, within the word budget. 'suggestions' is empty.",
   "- Never invent statistics, percentages, customer names or claims the brief does not support. Never use: magic, revolutionary, seamless, game-changing.",
-  "- music_prompt: instrumental mood, tempo and energy matching the motion profile and pace; no artist or brand names. Null when there is no music. voice_direction: delivery notes for the narrator, or null without a voiceover."
+  "- music_prompt: instrumental mood and energy matching the motion profile and pace, with a tempo in BPM (about 110-130 for product films) and a clear drop that the success moment can land on; no artist or brand names. Null when there is no music. voice_direction: delivery notes for the narrator, or null without a voiceover."
 ].join("\n");
 
-function userMessage(brief: ScriptBrief, context: DirectorContext) {
-  const range = beatCountRange(brief.durationSeconds, brief.pace);
+export function userMessage(brief: ScriptBrief, context: DirectorContext) {
+  const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
   return [
     `Mode: ${brief.scriptMode === "own" ? "OWN SCRIPT (keep the user's words verbatim)" : "PROBLEM ONLY (write the script)"}`,
     `Product: ${context.brandName}${context.brandDescription ? ` — ${context.brandDescription}` : ""}${brief.audience ? `\nAudience: ${brief.audience}` : ""}`,
     `Duration: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`,
     `Beats: ${range.min}–${range.max}.${voiced ? ` Voiceover word budget: about ${wordBudget(brief.durationSeconds, brief.pace)} words in total; the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`,
+    lookDirection(brief.look),
+    ...(brief.styleFamily ? [familyDirection(brief.styleFamily)] : []),
+    ...(sceneDirection(brief.look, brief.styleFamily) ? [sceneDirection(brief.look, brief.styleFamily)] : []),
+    ...styleExampleBlock(brief.styleExample),
     `Audio: ${brief.audio.mode}${brief.audio.musicMood ? `; music mood: ${brief.audio.musicMood}` : ""}. Captions: ${brief.captions}.`,
     brief.template ? `Structure template: ${brief.template}.` : "Structure: choose the shape for the format.",
     context.screenshots.length
       ? `Screenshots (index: name — purpose):\n${context.screenshots.map((shot, i) => `${i}: ${shot.name} — ${shot.purpose}`).join("\n")}`
       : "Screenshots: none uploaded (use kinetic beats instead of ui beats).",
     `\n${brief.scriptMode === "own" ? "USER'S SCRIPT" : "PROBLEM"}:\n${brief.text}`,
+    ...(brief.scriptMode !== "own" && brief.text.trim().length < 140 && context.site ? ["The brief is short, so do the research from SITE FACTS before writing: choose the concrete products, models, specs, numbers and claims the site really states, and make every beat name something specific from them (a model, a figure, a feature). Generic lines that could describe any brand are not acceptable."] : []),
     ...(context.site ? [siteBlock(context.site)] : [])
   ].join("\n");
+}
+
+/** The chosen style's own example film, as a remix reference: keep its pacing, scene types and devices; swap in the new script. */
+function styleExampleBlock(id: string | undefined): string[] {
+  const item = id ? findGalleryTemplate(id) : undefined;
+  if (!item) return [];
+  return [`Style reference film: "${item.name}" (${item.summary}) ${item.bestFor}. Remix it: keep its look, rhythm, scene types and visual devices, and tell the new script in that same language. Do not copy its words or follow a generic hook, success, call to action arc.`];
 }
 
 /**
@@ -282,12 +307,13 @@ function siteBlock(site: NonNullable<DirectorContext["site"]>) {
   ].filter((line) => line !== "").join("\n");
 }
 
-function toPlan(output: ModelOutput, brief: ScriptBrief, context: DirectorContext): BeatPlan {
+export function toPlan(output: ModelOutput, brief: ScriptBrief, context: DirectorContext): BeatPlan {
   const beats: Beat[] = output.beats.map((beat, i) => {
     const shot = beat.ui ? context.screenshots[beat.ui.screenshot_index] : undefined;
     const generated = beat.kind === "3d" || beat.kind === "footage";
     return {
       id: `b${i + 1}`,
+      ...(beat.render ? { render: { ...(beat.render.treatment ? {treatment:beat.render.treatment} : {}), graphic:beat.render.graphic } } : {}),
       role: beat.role,
       kind: beat.kind === "ui" && !shot ? "kinetic" : beat.kind,
       producer: beat.kind === "3d" ? (beat.generation ? "nanobanana+veo" : "threejs") : beat.kind === "footage" ? "veo-footage" : "hyperframes",
@@ -303,6 +329,7 @@ function toPlan(output: ModelOutput, brief: ScriptBrief, context: DirectorContex
       ...(beat.generation ? { generation: { ...beat.generation, skills_used: ["visual-skills/image", "visual-skills/video"] } } : {}),
       fallback: generated ? { kind: "kinetic", keyword: plainText(beat.fallback_keyword ?? beat.keyword).slice(0, 28) } : null,
       sfx: beat.sfx,
+      ...(beat.scene && scenesFor(brief.look, brief.styleFamily).some((scene) => scene.id === beat.scene) ? { scene: beat.scene } : {}),
       transition_out: { type: i === output.beats.length - 1 ? "end" : beat.transition, carrier: beat.carrier }
     };
   });
@@ -333,12 +360,12 @@ export class AnthropicDirector implements Director {
   private readonly httpRequest: typeof fetch;
   constructor(request = fetch) { this.httpRequest = request; }
 
-  async plan(brief: ScriptBrief, context: DirectorContext): Promise<DirectorResult> {
+  async plan(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<DirectorResult> {
     const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userMessage(brief, context) }];
     let plan: BeatPlan | null = null;
     let problems: string[] = [];
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const text = await this.request(messages);
+      const text = await this.request(messages, signal);
       const output = JSON.parse(text) as ModelOutput;
       plan = toPlan(output, brief, context);
       problems = [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)];
@@ -353,7 +380,7 @@ export class AnthropicDirector implements Director {
     return { plan: plan!, problems, model: config.anthropicModel };
   }
 
-  private async request(messages: { role: "user" | "assistant"; content: string }[]): Promise<string> {
+  private async request(messages: { role: "user" | "assistant"; content: string }[], signal?: AbortSignal): Promise<string> {
     const payload = await anthropicMessage({
         model: config.anthropicModel,
         max_tokens: 16000,
@@ -362,7 +389,7 @@ export class AnthropicDirector implements Director {
         messages,
         output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } }
 
-    }, { request: this.httpRequest, timeoutMs: 180000, errorPrefix: "Script director request failed", includeErrorDetail: true, stopErrors: {"refusal": "The script director declined this brief.", "max_tokens": "The beat plan was too long; shorten the duration or the script."} });
+    }, { request: this.httpRequest, ...(signal ? { signal } : {}), timeoutMs: 180000, errorPrefix: "Script director request failed", includeErrorDetail: true, stopErrors: {"refusal": "The script director declined this brief.", "max_tokens": "The beat plan was too long; shorten the duration or the script."} });
     const text = payload.content?.filter((block) => block.type === "text").map((block) => block.text ?? "").join("") ?? "";
     if (!text) throw new Error("The script director returned no plan.");
     return text;

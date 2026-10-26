@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Scroll brake: a long list slams to a stop on today's entry</title>
+    <script src="vendor/gsap.min.js"></script>
+    <!--
+      Recipe: scroll-brake (gm-motion-recipes/rules/scroll-brake.md)
+      "We ship all year, and this one is the biggest." A long list streaks past as a blurred band, brakes hard
+      and stops with the target row dead centre; the row lifts, the rest dim.
+
+      MODE A (LOCK = false)  exponential brake (expo.out, ~50 frames), no overshoot
+        0.47 - 2.13s  scroll          2.27 - 2.73s  target lifts, others dim to 0.38        ends 3.0s
+      MODE B (LOCK = true)   accelerate, brake hard past the stop by 30 px, settle; four corner brackets fly in and
+                             clamp the target row ON THE BRAKE FRAME (the "thud" and the "click" share one frame)
+        0.40 - 1.67s  accelerate      1.67 - 1.97s  brake + overshoot    1.97 - 2.10s  settle     ends 3.0s
+
+      Motion blur is NOT hand-keyed: it is computed at build time from the SAME scroll function, frame to frame
+      (blur = min(cap, speed_px_per_frame x k)), and written as one explicit from->to step per frame. A hand-keyed
+      blur can never match the speed; this one cannot drift. Fast rows carry no readable text (they are a band);
+      the target row carries the real, readable content.
+    -->
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #f4f5f7; }
+      #root { position: relative; width: 1920px; height: 1080px; background: #f4f5f7; color: #161a2b; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; overflow: hidden; }
+      #col { position: absolute; left: 460px; top: 0; width: 1000px; height: 1080px; will-change: transform, filter; }
+      .row { position: absolute; left: 0; width: 1000px; border-radius: 18px; background: #fff; border: 2px solid #e1e6f2; box-shadow: 0 2px 8px rgba(20, 30, 60, .06); display: flex; align-items: center; gap: 24px; padding: 0 30px; }
+      .row .pill { width: 88px; height: 26px; border-radius: 13px; background: #cfd7ec; flex: none; }
+      .row .bar { height: 16px; border-radius: 8px; background: #dde3f2; }
+      .row .date { margin-left: auto; width: 110px; height: 12px; border-radius: 6px; background: #e6eaf5; flex: none; }
+      .row.target { z-index: 2; gap: 28px; }
+      .row.target .pill { width: auto; height: 44px; padding: 0 22px; line-height: 44px; border-radius: 22px; background: #161a2b; color: #fff; font-size: 32px; font-weight: 700; letter-spacing: .5px; }
+      .row.target .txt { font-size: 48px; font-weight: 700; letter-spacing: -.5px; }
+      .row.target .date { width: auto; height: auto; background: none; font-size: 32px; font-weight: 600; color: #5b6685; }
+      .br { position: absolute; width: 62px; height: 62px; z-index: 5; opacity: 0; }
+      .br.tl { border-top: 8px solid #3b6cf6; border-left: 8px solid #3b6cf6; border-top-left-radius: 14px; }
+      .br.tr { border-top: 8px solid #3b6cf6; border-right: 8px solid #3b6cf6; border-top-right-radius: 14px; }
+      .br.bl { border-bottom: 8px solid #3b6cf6; border-left: 8px solid #3b6cf6; border-bottom-left-radius: 14px; }
+      .br.brr { border-bottom: 8px solid #3b6cf6; border-right: 8px solid #3b6cf6; border-bottom-right-radius: 14px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.0" data-width="1920" data-height="1080">
+      <div id="scene" class="clip" data-start="0" data-duration="3.0" data-track-index="0">
+        <div id="col" data-layout-allow-overflow></div>
+        <div class="br tl" id="b1"></div><div class="br tr" id="b2"></div><div class="br bl" id="b3"></div><div class="br brr" id="b4"></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const FPS = 30;
+      const LOCK = false;              // false = MODE A, true = MODE B (see the header)
+      const N = 34, TARGET = 28, GAP = 20, COL_X = 460, COL_W = 1000;
+      const rowH = (i) => 72 + ((i * 29) % 3) * 22;     // 72 / 94 / 116: ragged heights, so the band has rhythm
+
+      // --- build the list (all deterministic: widths come from the row index) ---
+      const col = document.getElementById("col");
+      const rowY = [];
+      for (let i = 0, y = 0; i < N; i++) {
+        rowY.push(y);
+        const el = document.createElement("div");
+        el.className = "row" + (i === TARGET ? " target" : "");
+        el.style.top = y + "px"; el.style.height = rowH(i) + "px";
+        if (i === TARGET) {
+          el.innerHTML = '<div class="pill">TODAY</div><div class="txt">Brand kits v2 are live</div><div class="date">Oct 8</div>';
+        } else {
+          el.innerHTML = '<div class="pill"></div><div class="bar" style="width:' + (30 + ((i * 37) % 45)) + '%"></div><div class="date"></div>';
+        }
+        col.appendChild(el);
+        y += rowH(i) + GAP;
+      }
+      const targetCY = rowY[TARGET] + rowH(TARGET) / 2;
+      const S_FINAL = targetCY - 540;   // scroll distance (px, upwards) that puts the target row on the vertical centre
+
+      // --- the scroll, as pieces: scroll(f) = px the list has moved up by frame f. One source of truth: the tweens
+      //     below and the blur are BOTH derived from these pieces. ---
+      const PIECES = LOCK
+        ? [{ f0: 12, f1: 50, from: 0,            to: S_FINAL - 430, ease: "sine.in" },
+           { f0: 50, f1: 59, from: S_FINAL - 430, to: S_FINAL + 30,  ease: "power3.out" },   // brake past the stop
+           { f0: 59, f1: 63, from: S_FINAL + 30,  to: S_FINAL,       ease: "power2.out" }]   // settle back
+        : [{ f0: 14, f1: 64, from: 40, to: S_FINAL, ease: "expo.out" }];
+      const START_S = PIECES[0].from;
+      const scrollAt = (f) => {
+        if (f <= PIECES[0].f0) return START_S;
+        for (const p of PIECES) if (f <= p.f1) return p.from + (p.to - p.from) * gsap.parseEase(p.ease)((f - p.f0) / (p.f1 - p.f0));
+        return S_FINAL;
+      };
+      const STOP_F = PIECES[PIECES.length - 1].f1;      // the frame the list is finally still
+
+      const tl = gsap.timeline({ paused: true });
+      gsap.set("#col", { y: -START_S, filter: "blur(0px)" });   // baseline outside the timeline
+
+      for (const p of PIECES) {
+        tl.fromTo("#col", { y: -p.from }, { y: -p.to, duration: (p.f1 - p.f0) / FPS, ease: p.ease, immediateRender: false }, p.f0 / FPS);
+      }
+
+      // --- motion blur from per-frame speed (frame differencing), one explicit step per frame ---
+      const K = LOCK ? 0.12 : 0.1, CAP = LOCK ? 24 : 6;
+      let prevBlur = 0;
+      for (let f = PIECES[0].f0 + 1; f <= STOP_F + 3; f++) {
+        const v = Math.abs(scrollAt(f) - scrollAt(f - 1));
+        const b = Math.round(Math.min(CAP, v * K) * 100) / 100;
+        tl.fromTo("#col", { filter: "blur(" + prevBlur + "px)" }, { filter: "blur(" + b + "px)", duration: 1 / FPS, ease: "none", immediateRender: false }, (f - 1) / FPS);
+        prevBlur = b;
+      }
+
+      // --- the stop: target lifts, the rest dim (never to 0: the context stays) ---
+      const LIFT = (STOP_F + 4) / FPS, LIFT_DUR = 14 / FPS;
+      tl.fromTo(".row.target", { scale: 1, borderColor: "#e1e6f2", boxShadow: "0 2px 8px rgba(20,30,60,.06)" },
+        { scale: 1.03, borderColor: "#161a2b", boxShadow: "0 28px 60px rgba(20,30,60,.30)", duration: LIFT_DUR, ease: "power3.out", immediateRender: false }, LIFT);
+      tl.fromTo(".row:not(.target)", { opacity: 1 }, { opacity: 0.38, duration: LIFT_DUR, ease: "power3.out", immediateRender: false }, LIFT);
+
+      // --- MODE B: four corner brackets clamp the target ON THE BRAKE FRAME ---
+      if (LOCK) {
+        const h = rowH(TARGET), L = COL_X - 16, R = COL_X + COL_W + 16 - 62, T = 540 - h / 2 - 16, Bm = 540 + h / 2 + 16 - 62;
+        const pos = { b1: [L, T, -620, -320], b2: [R, T, 620, -320], b3: [L, Bm, -620, 320], b4: [R, Bm, 620, 320] };
+        for (const [id, [x, y, ox, oy]] of Object.entries(pos)) {
+          gsap.set("#" + id, { left: x, top: y });
+          tl.fromTo("#" + id, { x: ox, y: oy, opacity: 1 }, { x: 0, y: 0, opacity: 1, duration: 12 / FPS, ease: "back.out(2.4)", immediateRender: false }, PIECES[1].f1 / FPS);
+        }
+      }
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

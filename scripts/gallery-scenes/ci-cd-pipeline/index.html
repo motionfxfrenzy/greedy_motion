@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>CI CD pipeline</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0d1117}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#0d1117;background-image:radial-gradient(rgba(148,163,184,.12) 1.2px,transparent 1.3px);background-size:32px 32px;font-family:'Space Grotesk',sans-serif;color:#f1f5f9}
+#cap{position:absolute;left:0;right:0;top:84px;text-align:center;font-size:68px;font-weight:700;letter-spacing:-1px}
+#cap span{color:#a3e635}
+svg{position:absolute;inset:0}
+.m{font-family:'JetBrains Mono',monospace;font-weight:700}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div id="cap">Push code, <span>ship it live</span></div>
+<svg width="1280" height="720" viewBox="0 0 1280 720">
+<defs><filter id="glow" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="gl2" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="10"/></filter></defs>
+<g id="lines"></g><g id="nodes"></g><g id="pk"></g>
+<g id="live" transform="translate(640 630)" opacity="0"><rect id="lglow" x="-150" y="-38" width="300" height="76" rx="38" fill="#a3e635" opacity=".5" filter="url(#gl2)"/><rect x="-150" y="-38" width="300" height="76" rx="38" fill="#a3e635"/><circle cx="-92" cy="0" r="10" fill="#0d1117"/><text class="m" x="-66" y="13" font-size="40" fill="#0d1117" letter-spacing="3">LIVE</text><text class="m" x="46" y="12" font-size="28" fill="#0d1117" text-anchor="middle" opacity="0"></text></g>
+</svg></div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const mk=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+const AC="#a3e635",W=220,H=150,Y=300,xs=[60,370,680,990];
+const names=["COMMIT","BUILD","TEST","DEPLOY"];
+const tl=gsap.timeline({paused:true});
+const _s=tl.set.bind(tl);tl.set=(t,v,p)=>_s(t,Object.assign({immediateRender:false},v),p);
+const nodes=xs.map((x,i)=>{
+  const g=mk("g",{},document.getElementById("nodes"));
+  const glow=mk("rect",{x,y:Y,width:W,height:H,rx:22,fill:AC,opacity:0,filter:"url(#gl2)"},g);
+  const box=mk("rect",{x,y:Y,width:W,height:H,rx:22,fill:"#111a14".replace("14","1b"),stroke:AC,"stroke-width":2,"stroke-opacity":.3},g);
+  const t=mk("text",{x:x+W/2,y:Y+62,class:"m","font-size":30,fill:"#e2e8f0","text-anchor":"middle"},g);t.textContent=names[i];
+  const bc=[x+W-30,Y+30];
+  const badge=mk("circle",{cx:bc[0],cy:bc[1],r:0,fill:AC},g);
+  const ck=mk("path",{d:`M${bc[0]-9} ${bc[1]} L${bc[0]-2} ${bc[1]+8} L${bc[0]+10} ${bc[1]-8}`,fill:"none",stroke:"#0d1117","stroke-width":4.5,"stroke-linecap":"round","stroke-linejoin":"round"},g);
+  const len=ck.getTotalLength();gsap.set(ck,{strokeDasharray:len,strokeDashoffset:len});
+  mk("rect",{x:x+24,y:Y+H-40,width:W-48,height:10,rx:5,fill:"#1e293b"},g);
+  const fill=mk("rect",{x:x+24,y:Y+H-40,width:W-48,height:10,rx:5,fill:AC},g);gsap.set(fill,{scaleX:0,svgOrigin:`${x+24} ${Y+H-35}`});
+  return{g,glow,box,badge,ck,len,fill,x};
+});
+// commit hash chip above commit node and sub detail
+const hash=mk("text",{x:xs[0]+W/2,y:Y+104,class:"m","font-size":22,fill:"#7b8aa3","text-anchor":"middle"},nodes[0].g);hash.textContent="a1f3c9e";
+// test squares
+const sq=[];for(let i=0;i<4;i++){sq.push(mk("rect",{x:xs[2]+34+i*40,y:Y+80,width:28,height:16,rx:4,fill:"#1e293b"},nodes[2].g))}
+const bt=mk("text",{x:xs[1]+W/2,y:Y+104,class:"m","font-size":22,fill:"#7b8aa3","text-anchor":"middle"},nodes[1].g);bt.textContent="compile";
+const dt=mk("text",{x:xs[3]+W/2,y:Y+104,class:"m","font-size":22,fill:"#7b8aa3","text-anchor":"middle"},nodes[3].g);dt.textContent="release";
+// connectors
+const lines=[0,1,2].map(i=>{const a=xs[i]+W,b=xs[i+1];const p=mk("path",{d:`M${a} ${Y+H/2} H${b}`,stroke:"#334155","stroke-width":4,fill:"none","stroke-linecap":"round"},document.getElementById("lines"));
+ const q=mk("path",{d:`M${a} ${Y+H/2} H${b-6}`,stroke:AC,"stroke-width":4,fill:"none","stroke-linecap":"round"},document.getElementById("lines"));
+ const h=mk("path",{d:`M${b-18} ${Y+H/2-10} L${b-4} ${Y+H/2} L${b-18} ${Y+H/2+10}`,stroke:AC,"stroke-width":4,fill:"none","stroke-linecap":"round","stroke-linejoin":"round"},document.getElementById("lines"));
+ const L=q.getTotalLength();gsap.set(q,{strokeDasharray:L,strokeDashoffset:L});gsap.set(h,{opacity:0});return{q,h}});
+// packet
+const pk=mk("g",{opacity:0},document.getElementById("pk"));
+mk("circle",{r:20,fill:AC,opacity:.35,filter:"url(#glow)"},pk);mk("circle",{r:12,fill:"#fff",filter:"url(#glow)"},pk);
+const pathD=mk("path",{d:`M${xs[0]+W/2} ${Y-30} V${Y-30}`,fill:"none"},document.getElementById("pk"));
+tl.from("#cap",{opacity:0,y:-12,duration:.5,ease:"power3.out"},0);
+nodes.forEach((n,i)=>tl.from(n.g,{opacity:0,y:14,duration:.45,ease:"power3.out"},i*0.07));
+// stage schedule
+const S=[[0.35,1.0],[1.3,2.05],[2.35,3.05],[3.3,3.95]];
+S.forEach(([a,b],i)=>{const n=nodes[i];
+  tl.to(n.box,{strokeOpacity:1,duration:.2},a);
+  tl.fromTo(n.glow,{opacity:0},{opacity:.35,duration:.2,immediateRender:false},a);
+  tl.to(n.fill,{scaleX:1,duration:b-a-0.08,ease:i==2?"steps(4)":"power1.inOut"},a);
+  if(i==2) sq.forEach((r,k)=>tl.to(r,{fill:AC,duration:.12},a+0.15+k*0.16));
+  tl.to(n.badge,{attr:{r:20},duration:.25,ease:"back.out(3)"},b-0.05);
+  tl.to(n.ck,{strokeDashoffset:0,duration:.25,ease:"power2.out"},b+0.0);
+  tl.to(n.glow,{opacity:0,duration:.5},b);
+  tl.to(n.box,{fill:"#18240f",duration:.3},b);
+  tl.fromTo(n.g,{scale:1.05,svgOrigin:`${n.x+W/2} ${Y+H/2}`},{scale:1,svgOrigin:`${n.x+W/2} ${Y+H/2}`,duration:.4,ease:"back.out(2)",immediateRender:false},b);
+  if(i<3){const l=lines[i];tl.to(l.q,{strokeDashoffset:0,duration:.3,ease:"power2.out"},b);tl.to(l.h,{opacity:1,duration:.1},b+.2);}
+});
+// packet moves along node centres between stages
+const px=i=>xs[i]+W/2,py=Y+H/2;
+tl.set(pk,{opacity:1},0.3);
+const o={x:px(0),y:Y-40};
+function mv(){pk.setAttribute("transform",`translate(${o.x} ${o.y})`)}
+tl.set(pk,{attr:{transform:`translate(${px(0)} ${Y-40})`}},0);
+tl.to(o,{y:Y-40,x:px(0),duration:0.01,onUpdate:mv},0);
+[[0,1],[1,2],[2,3]].forEach(([i,j],k)=>{tl.to(o,{x:px(j),duration:S[j][0]-S[i][1]+0.9,ease:"power2.inOut",onUpdate:mv},S[i][1]-0.9+0.0+(0))});
+tl.to(pk,{opacity:0,duration:.3},3.9);
+// live badge
+tl.fromTo("#live",{opacity:0,scale:.6,svgOrigin:"640 630"},{opacity:1,scale:1,svgOrigin:"640 630",duration:.45,ease:"back.out(2.5)",immediateRender:false},3.95);
+tl.fromTo("#lglow",{opacity:.9},{opacity:.35,duration:.6,ease:"power2.out",immediateRender:false},4.0);
+tl.fromTo(nodes[3].glow,{opacity:.9},{opacity:.5,duration:.5,immediateRender:false},3.95);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

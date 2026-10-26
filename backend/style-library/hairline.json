@@ -1,0 +1,36 @@
+{
+  "id": "hairline",
+  "name": "Line art · Hairline",
+  "group": "Drawn",
+  "description": "Fine outlines and isometric layers that separate and reassemble.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "hairline",
+  "renderMode": "native",
+  "preview": {
+    "src": "/previews/looks/hairline.png",
+    "kind": "image",
+    "label": "Rendered graphic treatment"
+  },
+  "source": "worker/templates/beat-plan/assets/README.md",
+  "referenceAssets": [],
+  "instructions": {
+    "image": "Fine monoline isometric plates; open whitespace; outline frames and CTA.",
+    "motion": "Separate and reassemble four plates; thin frames lift behind screenshots.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script"
+    ],
+    "acceptance": [
+      "Style remains visible in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme"
+    ]
+  },
+  "sourceSha256": "ffe702c0aa0e88c5967802e61cb6fef132f3dc64960f159b7370a7a3fcb4a659"
+}

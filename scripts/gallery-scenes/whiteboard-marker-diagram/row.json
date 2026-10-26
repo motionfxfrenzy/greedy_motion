@@ -1,0 +1,16 @@
+{
+  "id": "whiteboard-marker-diagram",
+  "name": "Whiteboard Learning Loop",
+  "group": "Whiteboard",
+  "summary": "A visible hand writes a title, draws three linked boxes, circles the last in red and loops back.",
+  "bestFor": "Explaining a process or cycle the way a teacher would",
+  "prompt": "Explain a simple learning loop on a whiteboard. A hand writes the title, then draws three boxes labelled Plan, Do and Learn joined by arrows. Circle Learn in red, then draw a blue arrow curving back underneath to the start to show the cycle repeats. Narrate each step as it is drawn, in a calm teacher's voice.",
+  "look": "sketch",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 40,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 4.0
+}

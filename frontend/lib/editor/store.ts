@@ -15,7 +15,7 @@ export type Modal = null | "palette" | "bridge" | "keys" | "open" | "saveas" | "
 export type EngineState = "ready" | "updating" | "rendering" | "stopped";
 export type AgentState = "idle" | "thinking" | "proposed";
 export type LeftTab = "layers" | "comps" | "assets" | "library" | "history" | "clips";
-export type RightTab = "properties" | "source" | "variables" | "review" | "checks";
+export type RightTab = "properties" | "text" | "source" | "variables" | "review" | "checks";
 /** A project opened from the backend (not the demo): where its composition is saved, and the last revision we hold. */
 export type RemoteState = { projectId: string; rev: number; entry: string; status: "idle" | "saving" | "error" | "conflict" | "readonly"; /** URL of the preview frame shell, on the backend's origin. */ frameSrc: string };
 export type MenuState = null | { kind: "project" | "layer"; x: number; y: number; id?: string };
@@ -67,6 +67,8 @@ export type EditorState = {
   frameStale: boolean;
   jobs: Job[];
   renderOpen: boolean;
+  /** Final-render option chosen in the render popover. Previews never use it. */
+  motionBlur: boolean;
   checks: CheckIssue[] | null;
   modal: Modal;
   theme: "light" | "dark";
@@ -127,7 +129,7 @@ const initial: EditorState = {
   leftTab: "layers", rightTab: "properties", spAll: false,
   snapOn: true, rippleOn: false, safeOn: false, rulersOn: false,
   pxPerSecond: 64, grpClosed: {},
-  engine: "ready", frameStale: false, jobs: [], renderOpen: false, checks: null,
+  engine: "ready", frameStale: false, jobs: [], renderOpen: false, motionBlur: false, checks: null,
   modal: null, theme: "light", menu: null, toast: null, agent: { state: "idle", q: "", open: false }
 };
 

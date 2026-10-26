@@ -1,4 +1,4 @@
-import type { Aspect, Beat, BeatPlan } from "@videosaas/contracts";
+import { resolveSceneRoute, type SceneRoute, type Aspect, type Beat, type BeatPlan } from "@videosaas/contracts";
 import type { PlanTiming } from "./timing.ts";
 
 /**
@@ -29,6 +29,7 @@ export const scriptJson = (value: unknown) => JSON.stringify(value)
   .replace(/\u2029/g, "\\u2029");
 
 type EngineBeat = {
+  route: SceneRoute;
   id: string;
   role: Beat["role"];
   kind: Beat["kind"];
@@ -39,7 +40,7 @@ type EngineBeat = {
   success: boolean;
   energy: Beat["energy"];
   ui: (NonNullable<Beat["ui"]> & { aspect?: number }) | null;
-  motion: { entry: Beat["motion"]["entry"]; exit: Beat["motion"]["exit"]; text_effect: string | null };
+  motion: { entry: Beat["motion"]["entry"]; exit: Beat["motion"]["exit"]; text_effect: string | null; /** The director's camera direction in words; the engine reads its verb, direction and size. */ camera: string | null };
   transition_out: Beat["transition_out"];
   fallback: Beat["fallback"] | null;
   start: number;
@@ -59,7 +60,7 @@ export type EnginePlan = {
 };
 
 /** The `plan` variable: the beats the engine draws, with their clock from `planTiming`. */
-export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Record<string, { width: number; height: number }> = {}): EnginePlan {
+export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Record<string, { width: number; height: number }> = {}, look = "clean"): EnginePlan {
   const times = new Map(timing.beats.map((beat) => [beat.id, beat]));
   return {
     canvas: plan.canvas,
@@ -70,6 +71,7 @@ export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Reco
       const size = beat.ui ? screenSizes[beat.ui.screen] : undefined;
       return {
         id: beat.id,
+        route: resolveSceneRoute(beat, look),
         role: beat.role,
         kind: beat.kind,
         keyword: beat.keyword,
@@ -79,9 +81,10 @@ export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Reco
         success: beat.success,
         energy: beat.energy,
         ui: beat.ui ? { ...beat.ui, ...(size && size.width > 0 && size.height > 0 ? { aspect: Math.round((size.width / size.height) * 1000) / 1000 } : {}) } : null,
-        motion: { entry: beat.motion.entry, exit: beat.motion.exit, text_effect: beat.motion.text_effect ?? null },
+        motion: { entry: beat.motion.entry, exit: beat.motion.exit, text_effect: beat.motion.text_effect ?? null, camera: beat.motion.camera || null },
         transition_out: beat.transition_out,
         fallback: beat.fallback ?? null,
+        scene: beat.scene ?? null,
         start: time?.start ?? 0,
         end: time?.end ?? 0,
         vo: time?.vo ?? null,
@@ -107,18 +110,24 @@ export type EngineInputs = {
   brandName: string;
   logo?: string | null;
   logoWordmark?: boolean;
+  /** A small corner mark (the kit's logo mark or silhouette), shown on content scenes; empty when the kit has none. */
+  logoBug?: string | null;
   /** Drawing style (contracts looks.ts); the engine reads it as the `look` variable. */
   look?: string;
+  /** Style family (contracts style-families.ts), e.g. "clean-type"; the engine reads it as the `family` variable. */
+  family?: string;
 };
 
-/** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `look`. */
+/** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `logoBug`, `look`. */
 export function engineVariables(input: EngineInputs): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {
-    plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes)),
+    plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes, input.look)),
     brandName: input.brandName,
     logo: input.logo ?? "",
     logoWordmark: Boolean(input.logo && input.logoWordmark),
-    look: input.look ?? "clean"
+    logoBug: input.logoBug ?? "",
+    look: input.look ?? "clean",
+    family: input.family ?? ""
   };
   for (const [id, url] of Object.entries(input.shots)) values[`shot.${id}`] = url;
   return values;

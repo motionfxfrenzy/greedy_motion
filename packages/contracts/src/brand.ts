@@ -7,6 +7,10 @@ export type BrandFont = { source: BrandFontSource; family: string; assetId?: str
 
 export type BrandColors = { primary: string; accent?: string; background?: string; text?: string };
 
+/** Extra logo versions beside the main logo: the symbol alone, the lettering alone, a one-colour silhouette. */
+export const brandLogoVariants = ["mark", "wordmark", "silhouette"] as const;
+export type BrandLogoVariant = (typeof brandLogoVariants)[number];
+
 export type BrandKitInput = {
   name: string;
   url?: string;
@@ -14,14 +18,18 @@ export type BrandKitInput = {
   colors: BrandColors;
   fonts: { heading: BrandFont; body: BrandFont };
   logoAssetId?: string;
+  /** Staged uploads for the extra logo versions (saved with the kit, never stored on it). */
+  variantAssets?: Partial<Record<BrandLogoVariant, string>>;
   mode?: "light" | "dark";
 };
 
-export type BrandKit = Omit<BrandKitInput, "logoAssetId"> & {
+export type BrandKit = Omit<BrandKitInput, "logoAssetId" | "variantAssets"> & {
   id: string;
   /** Supabase user id of the creator; set by the backend. */
   ownerId?: string;
   hasLogo: boolean;
+  /** Which extra logo versions the kit has. */
+  logoVariants?: BrandLogoVariant[];
   createdAt: string;
   /** Adjustments made so text stays readable, shown to the user. */
   adjustments: string[];

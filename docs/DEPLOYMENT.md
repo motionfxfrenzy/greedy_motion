@@ -48,6 +48,10 @@ Offline worker proof (no network at all):
 docker compose run --rm worker-selftest
 ```
 
+## MEDIA-03 production preparation (2026-10-09)
+
+Follow [MEDIA-03 production setup](MEDIA_R2_ROLLOUT.md) for the private media bucket, backend credentials, lifecycle, variables and fresh upload/recovery checks. No production backfill is required: there is no retained user media. Keep one replica and the volume until the separate staging cache-coherence/replica gate passes. This preparation does not establish a new deployment.
+
 ## Hosted state and remaining gaps (2026-10-07)
 
 - Frontend on Vercel (two projects, each building only its own branch) and backend on Railway are live for staging and
@@ -59,3 +63,12 @@ docker compose run --rm worker-selftest
   project) before production leaves "Coming soon".
 - Deploy order when a change needs new variables: set the variables first (Railway with "skip deploy"), then push the
   branch. Example: the frontend crashes on every page if the Supabase variables are missing when the auth code ships.
+
+
+## Generated material styles
+
+The backend now requires FFmpeg for full video decode validation; `backend/Dockerfile` installs it. Deploy the frozen `backend/style-library` recipes/references, shared catalog and worker beat-plan template together. Generated media uses the existing project filesystem/R2 adapter and PostgreSQL queues; there is no new schema migration. Configure `GEMINI_API_KEY`, `VISUAL_IMAGE_MODEL`, `VISUAL_VIDEO_MODEL` and `VISUAL_MAX_BUDGET_USD` using the backend environment examples. The ceiling controls estimated cumulative project reservations, not provider billing.
+
+Before rollout, run the offline/provider, PostgreSQL ownership/queue, style/picker, `styles:media`, typecheck and frontend build gates described in [STYLE_LIBRARY.md](STYLE_LIBRARY.md). Build the backend image locally and verify FFmpeg plus frozen references inside it. Keep provider calls disabled in smoke tests unless live spend is explicitly authorized. Follow the documented recovery CLI for pending operations; never clear pending markers during deployment. Allow active generation jobs to drain before replacing workers where possible; saved operations are resumable after interruption.
+
+Local image construction and synthetic-media tests do not establish generated style fidelity or staging/production health. The remaining live sample review and target-environment approval are recorded in [STYLE_PRODUCTION_PROGRESS.md](STYLE_PRODUCTION_PROGRESS.md). No deployment was performed in this continuation.

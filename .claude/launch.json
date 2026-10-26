@@ -30,6 +30,24 @@
         "design_handoff"
       ],
       "port": 4600
+    },
+    {
+      "name": "text-flow-editor",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "experiments/gm-text-flow/editor/server.py",
+        "8787"
+      ],
+      "port": 8787
+    },
+    {
+      "name": "gm-editor",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "experiments/gm-editor/server.py",
+        "8790"
+      ],
+      "port": 8790
     }
   ]
 }

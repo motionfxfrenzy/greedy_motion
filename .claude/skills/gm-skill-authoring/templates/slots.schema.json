@@ -29,6 +29,8 @@
             "type": "object",
             "properties": { "min": { "type": "integer" }, "max": { "type": "integer" } }
           },
+          "from": { "enum": ["brand.name"], "description": "Where the value comes from when the caller does not supply it" },
+          "itemFields": { "type": "object", "description": "For a text_list whose items are objects: each field name and its maximum characters", "additionalProperties": { "type": "integer" } },
           "options": { "type": "array", "items": { "type": "string" } },
           "mustBeReal": { "type": "boolean", "description": "true = a product fact (a number, a nav label, an output); Claude may not invent it and must ask for it or source it" },
           "aiFillable": { "type": "boolean", "description": "true = Claude may write it from the brief" },

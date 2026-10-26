@@ -1,0 +1,45 @@
+{
+  "id": "illus-flat-vector",
+  "name": "Illustration · Flat vector",
+  "group": "Illustration",
+  "description": "Pen-tool paths in a vector app, flat fills that land when a path closes, long-shadow shapes with a transparency ramp, a raster grain brush over the shade sides. Drawn as a finished illustration in one medium.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "collage",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/references/illus-flat-vector.jpg",
+    "kind": "image",
+    "label": "Reference frame — not generated footage"
+  },
+  "source": "third_party/anidoodle/styles.gen.json",
+  "referenceAssets": [
+    {
+      "path": "references/illus-flat-vector.jpg",
+      "source": "third_party/anidoodle/references/illus-flat-vector.jpg",
+      "sha256": "64682949da6587d6d80a6adff58a54aeb7fab4eb866d9342f1c2f97c513250d0",
+      "bytes": 36028
+    }
+  ],
+  "instructions": {
+    "image": "Pen-tool paths in a vector app, flat fills that land when a path closes, long-shadow shapes with a transparency ramp, a raster grain brush over the shade sides. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+    "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "The reference frame for this style"
+    ],
+    "acceptance": [
+      "The medium stays recognisable in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme"
+    ]
+  },
+  "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+}

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Isometric diorama</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#f6d9b8}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#f6d9b8;font-family:'Space Grotesk',Arial,sans-serif}
+canvas{position:absolute;inset:0;width:1280px;height:720px;display:block}
+#cap{position:absolute;left:0;right:0;bottom:44px;text-align:center;color:#4a2c1a;font-weight:700;font-size:80px;letter-spacing:-2px;opacity:0}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<canvas id="c"></canvas>
+<div id="cap">Your tiny workshop</div>
+</div>
+<script type="module">
+import * as THREE from "./vendor/three/three.module.js";
+function rng(seed){let a=seed>>>0;return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const R=rng(11);
+const renderer=new THREE.WebGLRenderer({canvas:document.getElementById("c"),antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(1);renderer.setSize(1280,720,false);
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+const scene=new THREE.Scene();
+// gradient backdrop
+{const c=document.createElement("canvas");c.width=4;c.height=256;const g=c.getContext("2d");const gr=g.createLinearGradient(0,0,0,256);
+ gr.addColorStop(0,"#ffe9cf");gr.addColorStop(1,"#f2b48a");g.fillStyle=gr;g.fillRect(0,0,4,256);
+ const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;scene.background=t}
+const S=4.9,asp=1280/720;
+const camera=new THREE.OrthographicCamera(-S*asp,S*asp,S,-S,-50,80);
+const M=(c,r=.85)=>new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:0});
+function box(w,h,d,x,y,z,mat,parent=world){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;parent.add(m);return m}
+const world=new THREE.Group();scene.add(world);
+// slab + floating rock
+box(8,.5,8,0,-.25,0,M(0xe8c9a0));
+box(8.02,.14,8.02,0,.07,0,M(0x9bbf6a)).scale.set(1,.0001,1);
+const floor=box(7.6,.12,7.6,0,.06,0,M(0xd9a66e,.7));
+const rock=new THREE.Mesh(new THREE.ConeGeometry(3.9,3.6,7,1),new THREE.MeshStandardMaterial({color:0x7a5a46,roughness:1,flatShading:true}));
+rock.rotation.x=Math.PI;rock.position.y=-2.3;rock.castShadow=true;world.add(rock);
+// plank stripes
+for(let i=-3;i<=3;i++)box(7.6,.01,.02,0,.125,i*1.0+.5,M(0xbf8a55),world);
+// rug
+const rug=new THREE.Mesh(new THREE.CylinderGeometry(1.5,1.5,.04,32),M(0x4d8f8b));rug.position.set(.6,.14,1.1);rug.receiveShadow=true;world.add(rug);
+// desk
+const wood=M(0x8a5a38),dark=M(0x3b2a22);
+box(3.2,.18,1.5,-1.9,1.3,-2.4,wood);
+for(const [x,z] of [[-3.3,-3],[-.5,-3],[-3.3,-1.8],[-.5,-1.8]])box(.15,1.2,.15,x,.7,z,dark);
+// monitor
+box(1.3,.85,.1,-2.2,2.15,-2.8,M(0x2a2f3a));
+const scr=box(1.15,.7,.02,-2.2,2.15,-2.74,new THREE.MeshStandardMaterial({color:0x7fe3d4,emissive:0x35bfae,emissiveIntensity:.8}));scr.castShadow=false;
+box(.2,.35,.15,-2.2,1.6,-2.8,M(0x2a2f3a));
+box(.9,.05,.35,-2.1,1.42,-2.1,M(0xe9e4da));
+box(.3,.18,.3,-1.0,1.48,-2.5,M(0xe86a5a));
+// chair
+box(.9,.12,.9,-2.1,.75,-1.0,M(0x3f6fb5));box(.9,.9,.12,-2.1,1.3,-.5,M(0x3f6fb5));box(.12,.65,.12,-2.1,.4,-1.0,dark);
+// boxes stack
+box(1.1,.9,1.1,2.8,.55,-2.6,M(0xc98a4e));box(.9,.7,.9,2.9,1.35,-2.5,M(0xdba868));box(1.0,.6,1.0,1.6,.45,-2.8,M(0xb87a45));
+const tape=box(1.12,.04,.25,2.8,1.02,-2.6,M(0xf2e4c4));
+// shelf with books
+box(2.2,.12,.6,3.0,2.7,-3.2,wood);
+const bc=[0xd8574b,0x4a90b8,0xe7b84a,0x6aa66a,0x8a5fb0];
+bc.forEach((c,i)=>box(.22,.8-(i%2)*.15,.45,2.2+i*.3,3.17-(i%2)*.07,-3.2,M(c)));
+// plant
+const pot=new THREE.Mesh(new THREE.CylinderGeometry(.5,.38,.7,12),M(0xcf6b4b));pot.position.set(3.2,.46,.6);pot.castShadow=pot.receiveShadow=true;world.add(pot);
+const leafMat=new THREE.MeshStandardMaterial({color:0x4f9a52,roughness:.8,flatShading:true});
+const leaves=[];
+for(let i=0;i<7;i++){const l=new THREE.Mesh(new THREE.IcosahedronGeometry(.42+R()*.18,0),leafMat);l.scale.set(.7,1.3,.7);
+ const a=i/7*Math.PI*2;l.position.set(3.2+Math.cos(a)*.35,1.2+R()*.5,.6+Math.sin(a)*.35);l.rotation.set(Math.cos(a)*.6,0,-Math.sin(a)*.6);l.castShadow=true;world.add(l);leaves.push(l)}
+// lamp (floor lamp)
+const lampX=-.3,lampZ=.2;
+box(.5,.08,.5,lampX,.16,lampZ,dark);box(.07,2.3,.07,lampX,1.3,lampZ,dark);
+const shade=new THREE.Mesh(new THREE.ConeGeometry(.55,.55,20,1,true),new THREE.MeshStandardMaterial({color:0xffc861,emissive:0xffa940,emissiveIntensity:.9,side:THREE.DoubleSide}));
+shade.position.set(lampX,2.55,lampZ);shade.castShadow=false;world.add(shade);
+const bulb=new THREE.Mesh(new THREE.SphereGeometry(.14,12,12),new THREE.MeshBasicMaterial({color:0xfff2c0}));bulb.position.set(lampX,2.38,lampZ);world.add(bulb);
+// light cone
+const cone=new THREE.Mesh(new THREE.ConeGeometry(1.6,2.3,32,1,true),new THREE.MeshBasicMaterial({color:0xffd98a,transparent:true,opacity:.17,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+cone.position.set(lampX,1.25,lampZ);world.add(cone);
+const pool=new THREE.Mesh(new THREE.CircleGeometry(1.6,32),new THREE.MeshBasicMaterial({color:0xffd98a,transparent:true,opacity:.25,blending:THREE.AdditiveBlending,depthWrite:false}));
+pool.rotation.x=-Math.PI/2;pool.position.set(lampX,.14,lampZ);world.add(pool);
+// lights
+scene.add(new THREE.HemisphereLight(0xfff0dd,0xb9825a,1.1));
+const sun=new THREE.DirectionalLight(0xffd9a8,2.4);sun.position.set(-8,12,6);sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);const sc=sun.shadow.camera;sc.left=-7;sc.right=7;sc.top=7;sc.bottom=-7;sc.near=1;sc.far=40;sun.shadow.radius=4;sun.shadow.bias=-.0004;scene.add(sun);
+const lampLight=new THREE.PointLight(0xffb55a,14,7,1.6);lampLight.position.set(lampX,2.3,lampZ);lampLight.castShadow=true;lampLight.shadow.mapSize.set(1024,1024);scene.add(lampLight);
+const e=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+function draw(t){
+ const k=e(Math.min(1,t/5));
+ const az=THREE.MathUtils.degToRad(40+k*70);
+ const el=THREE.MathUtils.degToRad(33);
+ const r=22;
+ camera.position.set(Math.sin(az)*Math.cos(el)*r,Math.sin(el)*r+.5,Math.cos(az)*Math.cos(el)*r);
+ camera.zoom=1.0+0.0*k;camera.updateProjectionMatrix();
+ camera.lookAt(0,0.3,0);camera.position.y+=0;
+ world.position.y=Math.sin(t*1.6)*.12;
+ leaves.forEach((l,i)=>{l.rotation.z+=0;l.scale.y=1.3+Math.sin(t*2+i)*.03});
+ cone.material.opacity=.15+Math.sin(t*3)*.01;
+ renderer.render(scene,camera);
+}
+window.addEventListener("hf-seek",ev=>draw(ev.detail.time));
+draw(window.__hfThreeTime||0);
+window.__timelines=window.__timelines||{};
+const tl=gsap.timeline({paused:true});
+tl.fromTo("#cap",{opacity:0,y:28},{opacity:1,y:0,duration:.6,ease:"power2.out"},2.2).to({},{duration:5},0);
+window.__timelines["main"]=tl;
+</script></body></html>

@@ -50,6 +50,12 @@ or rejects. Only a problem-only brief gets a fully generated script.
 6. **Plan the whole film:** clock (VO or beats), energy curve rising to the single success
    moment, music direction matching the motion profile, voice direction, caption mode, total
    cost estimate, and the approval gates (style frame, character sheet, storyboard snapshot).
+   For a music-led film, plan on a beat grid: state `audio.music.bpm`, the beat count and the beat of the
+   drop, start the track a whole number of beats before it so the drop lands on the success moment, and
+   put every beat's cut on a beat. For each beat write its entry state, exit state and one reason to
+   exist; a UI sequence gets its state chain first. Write the story once and let each requested aspect
+   re-compose it (9:16: fewer elements, larger type, strips kept clear), never a crop. The last beat's
+   final state must work as a poster frame.
 7. **Validate** `beat-plan.json` against `references/beat-plan.schema.json` and the self-check;
    fix and re-validate. Then hand off.
 

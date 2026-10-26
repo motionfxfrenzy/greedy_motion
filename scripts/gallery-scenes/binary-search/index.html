@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Binary search</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0b0d12; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #151a28 0%, #0b0d12 75%); font-family: "Source Serif 4", "EB Garamond", serif; }
+  svg { position: absolute; inset: 0; }
+  text { font-family: "Source Serif 4", "EB Garamond", serif; fill: #e8ecf4; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function txt(str, a, p) { var e = el("text", a, p); e.textContent = str; return e; }
+  var BLUE = "#58C4DD", TEAL = "#83C167", YEL = "#FFD166", RED = "#FC6255", PUR = "#B189C6";
+  var vals = [3, 7, 12, 18, 24, 31, 37, 42, 49, 55, 61, 68, 74, 81, 90, 97];
+  var W = 68, GAP = 4, X0 = 640 - (16 * W + 15 * GAP) / 2, BY = 330, BH = 108;
+  function bx(i) { return X0 + i * (W + GAP); }
+  var cap = txt("Halve the range. Repeat.", { x: 640, y: 120, "text-anchor": "middle", "font-size": 64, "font-weight": 600, opacity: 0 });
+  var tgt = txt("find 61", { x: 640, y: 215, "text-anchor": "middle", "font-size": 52, "font-style": "italic", opacity: 0 }); tgt.style.fill = YEL;
+  var boxes = [], tx = [];
+  for (var i = 0; i < 16; i++) {
+    var g = el("g", { opacity: 0 });
+    el("rect", { x: bx(i), y: BY, width: W, height: BH, rx: 6, fill: "#121828", stroke: BLUE, "stroke-width": 2.5 }, g);
+    tx.push(txt(String(vals[i]), { x: bx(i) + W / 2, y: BY + 69, "text-anchor": "middle", "font-size": 36, "font-style": "italic" }, g));
+    boxes.push(g);
+  }
+  var idx = el("g", { opacity: 0 });
+  for (i = 0; i < 16; i++) txt(String(i), { x: bx(i) + W / 2, y: BY + BH + 34, "text-anchor": "middle", "font-size": 22, "font-style": "italic" }, idx).style.fill = "#7b8499";
+  var br = el("rect", { x: bx(0) - 6, y: BY - 12, width: 16 * W + 15 * GAP + 12, height: BH + 24, rx: 12, fill: "none", stroke: YEL, "stroke-width": 5, opacity: 0 });
+  var ptrG = el("g", {}); var ptr = el("polygon", { points: "-18,0 18,0 0,26", fill: RED, opacity: 0 }, ptrG);
+  var step = txt("", { x: 640, y: 560, "text-anchor": "middle", "font-size": 40, "font-style": "italic", opacity: 0 }); step.style.fill = "#9aa3b8";
+  var steps = ["16 numbers", "8 left", "3 left", "found"];
+  var R = { l: 0, r: 15 };
+  function setRange() { br.setAttribute("x", bx(R.l) - 6); br.setAttribute("width", (R.r - R.l + 1) * W + (R.r - R.l) * GAP + 12); }
+  var tl = gsap.timeline({ paused: true });
+  tl.to(cap, { opacity: 1, duration: 0.5, ease: "power2.out" }, 0.05);
+  tl.to(tgt, { opacity: 1, duration: 0.5, ease: "power2.out" }, 0.3);
+  tl.to(boxes, { opacity: 1, duration: 0.4, ease: "power2.out", stagger: 0.03 }, 0.1);
+  tl.to(idx, { opacity: 1, duration: 0.5 }, 0.7);
+  tl.to(br, { opacity: 1, duration: 0.4 }, 0.9);
+  tl.fromTo(step, { opacity: 0 }, { opacity: 1, duration: 0.3, onStart: function () { step.textContent = steps[0]; } }, 1.0);
+  var plan = [{ mid: 7, l: 8, r: 15 }, { mid: 11, l: 8, r: 10 }, { mid: 9, l: 10, r: 10 }];
+  var cur = { l: 0, r: 15 };
+  plan.forEach(function (p, k) {
+    var st = 1.3 + k * 0.95;
+    tl.set(ptrG, { attr: { transform: "translate(" + (bx(p.mid) + W / 2) + " " + (BY - 40) + ")" } }, st);
+    tl.fromTo(ptr, { opacity: 0, y: -14 }, { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" }, st);
+    tl.to(boxes[p.mid].firstChild, { fill: "#2a3a55", duration: 0.2 }, st + 0.15);
+    // dim the discarded half
+    var lo = cur.l, hi = cur.r, dim = [];
+    for (var i = lo; i <= hi; i++) if (i < p.l || i > p.r) dim.push(boxes[i]);
+    tl.to(dim, { opacity: 0.18, duration: 0.4, ease: "power2.inOut" }, st + 0.35);
+    var to = { l: p.l, r: p.r };
+    tl.to(R, { l: p.l, r: p.r, duration: 0.5, ease: "power3.inOut", onUpdate: setRange }, st + 0.35);
+    tl.to(boxes[p.mid].firstChild, { fill: "#121828", duration: 0.2 }, st + 0.6);
+    tl.to(ptr, { opacity: 0, duration: 0.2 }, st + 0.6);
+    cur = to;
+    if (k < 2) tl.call(function () { step.textContent = steps[k + 1]; }, null, st + 0.5);
+  });
+  tl.call(function () { step.textContent = steps[3]; }, null, 4.15);
+  tl.to(boxes[10].firstChild, { fill: "#1f3b26", stroke: TEAL, duration: 0.3 }, 4.15);
+  tl.to(boxes[10], { scale: 1, duration: 0.01 }, 4.15);
+  tl.to(br, { stroke: TEAL, duration: 0.3 }, 4.15);
+  tl.to(step, { fill: TEAL, duration: 0.3 }, 4.15);
+  tl.to(tx[10], { fill: TEAL, duration: 0.3 }, 4.15);
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

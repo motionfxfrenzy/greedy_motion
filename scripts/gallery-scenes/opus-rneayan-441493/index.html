@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Risograph studio intro</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#f6eab8}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#f6eab8;font-family:'Archivo Black',sans-serif}
+svg{position:absolute;inset:0}
+.L{mix-blend-mode:multiply}
+.nm{font-family:'Archivo Black',sans-serif;font-size:154px;letter-spacing:-3px;text-anchor:middle}
+.tg{font-family:'Archivo Black',sans-serif;font-size:42px;letter-spacing:2px;text-anchor:middle}
+.hi{font-family:'Newsreader',serif;font-style:italic;font-weight:600;font-size:62px;text-anchor:middle}
+#grain{position:absolute;inset:0;mix-blend-mode:multiply;opacity:.55;pointer-events:none}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg width="1280" height="720" viewBox="0 0 1280 720">
+<defs>
+ <filter id="rough" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency=".035" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="7"/></filter>
+ <pattern id="dotsP" width="18" height="18" patternUnits="userSpaceOnUse" patternTransform="rotate(18)"><circle cx="9" cy="9" r="4.6" fill="#f6eab8"/></pattern>
+ <pattern id="dotsB" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(-24)"><circle cx="7" cy="7" r="3.6" fill="#f6eab8"/></pattern>
+ <radialGradient id="fadeP" cx=".3" cy=".3" r=".9"><stop offset=".45" stop-color="#000"/><stop offset="1" stop-color="#fff"/></radialGradient>
+ <mask id="mP"><rect width="1280" height="720" fill="#000"/><circle cx="430" cy="300" r="214" fill="url(#fadeP)"/></mask>
+ <filter id="gr" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="9"/><feColorMatrix values="0 0 0 0 .35  0 0 0 0 .25  0 0 0 0 .1  0 0 0 -1.4 1.0"/></filter>
+</defs>
+<g filter="url(#rough)">
+ <!-- pink pass -->
+ <g class="L" id="pink">
+  <g id="pshape"><path id="pc" d=""  fill="#ff5da2"/><path id="pc2" d="" fill="url(#dotsP)" mask="url(#mP)" opacity="0"/>
+   <path id="pcs" pathLength="1" d="" fill="none" stroke="#c42a72" stroke-width="3.5" stroke-linecap="round"/></g>
+  <g id="ptxt"><text class="nm" x="640" y="415" fill="#ff5da2">PRESSWORK</text></g>
+  <g id="ptags"></g>
+  <text class="hi" id="phi" x="640" y="672" fill="#ff5da2">say hello</text>
+ </g>
+ <!-- blue pass -->
+ <g class="L" id="blue">
+  <g id="bshape"><path id="bq" d="" fill="#3b6bff"/><path id="bq2" d="" fill="url(#dotsB)" opacity=".0"/>
+   <path id="bqs" pathLength="1" d="" fill="none" stroke="#1d3fb8" stroke-width="3.5" stroke-linecap="round"/></g>
+  <g id="btxt"><text class="nm" x="640" y="415" fill="#3b6bff">PRESSWORK</text></g>
+  <g id="btags"></g>
+  <text class="hi" id="bhi" x="640" y="672" fill="#3b6bff">say hello</text>
+ </g>
+</g>
+<g id="marks" stroke="#2b2630" stroke-width="2.5" fill="none"></g>
+<rect id="grain" width="1280" height="720" filter="url(#gr)"/>
+</svg>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const mk=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+function R(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd=R(5);
+function circ(cx,cy,r,j){let d="";const n=64,o=rnd()*6;for(let i=0;i<=n;i++){const a=i/n*Math.PI*2;const k=r+Math.sin(a*3+o)*j+(rnd()-.5)*j*.5;d+=(i?"L":"M")+(cx+Math.cos(a)*k).toFixed(1)+" "+(cy+Math.sin(a)*k).toFixed(1)}return d+"Z"}
+function quad(cx,cy,w,h,rot,j){const pts=[[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]];let d="";const c=Math.cos(rot),s=Math.sin(rot);let first=true;
+ for(let e=0;e<4;e++){const a=pts[e],b=pts[(e+1)%4];for(let i=0;i<10;i++){const t=i/10;const x=a[0]+(b[0]-a[0])*t+(rnd()-.5)*j,y=a[1]+(b[1]-a[1])*t+(rnd()-.5)*j;d+=(first?"M":"L")+(cx+x*c-y*s).toFixed(1)+" "+(cy+x*s+y*c).toFixed(1);first=false}}return d+"Z"}
+const pcD=circ(430,300,214,5),bqD=quad(790,360,380,380,.12,5);
+["pc","pc2"].forEach(i=>document.getElementById(i).setAttribute("d",pcD));
+document.getElementById("pcs").setAttribute("d",circ(430,300,214,6));
+["bq","bq2"].forEach(i=>document.getElementById(i).setAttribute("d",bqD));
+document.getElementById("bqs").setAttribute("d",quad(790,360,380,380,.12,6));
+document.getElementById("pc2").setAttribute("opacity",1);
+// tags
+const tagN=["POSTERS","ZINES","BRANDS"],tx=[300,640,980];
+const tags=[];
+tagN.forEach((n,i)=>{[["ptags","#ff5da2"],["btags","#3b6bff"]].forEach(([gid,col],k)=>{
+ const g=mk("g",{},document.getElementById(gid));
+ const w=250,h=74,x=tx[i];
+ mk("path",{d:quad(x,545,w,h,(i-1)*.04,3.5),fill:"none",stroke:col,"stroke-width":6,"stroke-linejoin":"round"},g);
+ if((i+k)%2==0)mk("text",{x,y:559,class:"tg",fill:col},g).textContent=n;
+ tags.push({g,i,k,x})})});
+const marks=document.getElementById("marks");
+[[40,40],[1240,40],[40,680],[1240,680]].forEach(([x,y])=>{mk("circle",{cx:x,cy:y,r:12},marks);mk("path",{d:`M${x-22} ${y}H${x+22}M${x} ${y-22}V${y+22}`},marks)});
+const tl=gsap.timeline({paused:true});
+// pink pass: slide in
+tl.fromTo("#pshape",{x:-700},{x:0,duration:.7,ease:"back.out(1.2)"},0);
+tl.fromTo("#bshape",{x:700,y:-20},{x:10,y:8,duration:.7,ease:"back.out(1.2)"},.15);
+tl.fromTo("#bshape",{rotation:0},{rotation:0,duration:.1},0);
+["pcs","bqs"].forEach((id,i)=>{gsap.set("#"+id,{strokeDasharray:1,strokeDashoffset:1});tl.to("#"+id,{strokeDashoffset:0,duration:.9,ease:"power2.out"},.2+i*.15)});
+tl.from("#pc2",{opacity:0,duration:.4},.7);
+tl.from("#bq2",{opacity:0,duration:.4},.9);
+gsap.set("#bq2",{opacity:.0});
+tl.to("#bq2",{opacity:.9,duration:.4},.9);
+// text stamps
+function stamp(sel,t,dx,dy){tl.fromTo(sel,{scale:1.3,opacity:0,x:dx*3,y:dy*3,transformOrigin:"640px 360px"},{scale:1,opacity:1,x:dx,y:dy,duration:.22,ease:"power3.in",transformOrigin:"640px 360px"},t)}
+stamp("#ptxt",.95,-3,-2);stamp("#btxt",1.1,6,4);
+tl.fromTo("#bshape",{y:8},{y:8,duration:.01},1.1);
+// settle misregistration slowly
+tl.to("#blue",{x:3,y:2,duration:2.8,ease:"sine.inOut"},1.3);
+tl.to("#pink",{x:-3,y:-2,duration:2.8,ease:"sine.inOut"},1.3);
+// tags
+tags.forEach(({g,i,k,x})=>{const t=1.9+i*.5+k*.12;const off=k?[5,4]:[-2,-1];
+ tl.fromTo(g,{scale:1.6,opacity:0,rotation:(i-1)*6,transformOrigin:x+"px 545px"},{scale:1,opacity:1,rotation:0,x:off[0],y:off[1],duration:.2,ease:"power3.in",transformOrigin:x+"px 545px"},t)});
+// hello
+const hiD=[["#phi",-2,-1],["#bhi",3,2]];
+hiD.forEach(([id,dx,dy],k)=>{tl.fromTo(id,{opacity:0,y:30},{opacity:1,y:dy,x:dx,duration:.4,ease:"back.out(1.7)"},3.6+k*.12)});
+// marks draw
+gsap.set("#marks",{opacity:0});tl.to("#marks",{opacity:1,duration:.3},.2);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

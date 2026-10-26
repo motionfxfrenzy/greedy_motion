@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Keepit snippet ad</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #ffd400; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #ffd400; font-family: "Archivo Black", "Inter", sans-serif; color: #111; }
+  .abs { position: absolute; }
+  .cap { left: 60px; width: 1160px; top: 70px; height: 300px; display: flex; align-items: center; }
+  .cap > div { position: absolute; left: 0; right: 0; font-size: 128px; line-height: .98; text-align: center; letter-spacing: -.03em; text-transform: uppercase; }
+  .w { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: 8px; }
+  .w > span { display: inline-block; }
+  .red { color: #ff3b1f; }
+  #wave { left: 0; top: 400px; }
+  #sel { left: 0; top: 380px; height: 260px; background: #ff3b1f; mix-blend-mode: multiply; transform-origin: 0 50%; }
+  #tap { left: 584px; top: 440px; width: 112px; height: 112px; border-radius: 50%; background: #111; z-index: 5; display: flex; align-items: center; justify-content: center; }
+  #tap i { display: block; width: 36px; height: 36px; background: #ffd400; border-radius: 50%; }
+  .ring { left: 584px; top: 440px; width: 112px; height: 112px; border-radius: 50%; border: 6px solid #111; z-index: 4; }
+  #pill { left: 410px; top: 580px; width: 460px; height: 92px; border-radius: 46px; background: #111; color: #ffd400; font-size: 40px; line-height: 92px; text-align: center; z-index: 6; letter-spacing: -.01em; }
+  #name { left: 0; top: 50px; width: 1280px; text-align: center; font-size: 250px; letter-spacing: -.05em; line-height: 1; z-index: 7; }
+  #name em { font-style: normal; color: #ff3b1f; }
+  #sub { left: 0; top: 318px; width: 1280px; text-align: center; font-size: 46px; letter-spacing: -.01em; z-index: 7; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <div class="abs cap" id="cap">
+    <div id="c1"><span class="w"><span>“Best</span></span> <span class="w"><span>idea</span></span> <span class="w"><span>ever.”</span></span></div>
+    <div id="c2"><span class="w"><span>“Wait—</span></span> <span class="w"><span class="red">what</span></span> <span class="w"><span>was</span></span> <span class="w"><span>it?”</span></span></div>
+    <div id="c3"><span class="w"><span>“Gone.</span></span> <span class="w"><span>Again.”</span></span></div>
+  </div>
+  <svg id="wave" class="abs" width="1280" height="320" viewBox="0 0 1280 320"></svg>
+  <div class="abs" id="sel"></div>
+  <div class="abs ring" id="r1"></div><div class="abs ring" id="r2"></div>
+  <div class="abs" id="tap"><i></i></div>
+  <div class="abs" id="pill">SAVED · 0:42</div>
+  <div class="abs" id="name">keep<em>it</em></div>
+  <div class="abs" id="sub">Hear it. Tap it. Keep it.</div>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", svg = document.getElementById("wave");
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(77), N = 64, bars = [], base = [], X0 = 12, STEP = 20;
+  for (var i = 0; i < N; i++) {
+    var r = document.createElementNS(NS, "rect"); r.setAttribute("x", X0 + i * STEP); r.setAttribute("width", 12); r.setAttribute("rx", 6); r.setAttribute("fill", "#111");
+    svg.appendChild(r); bars.push(r); base.push({ a: .25 + R() * .75, p: R() * 6.28, f: 5 + R() * 6 });
+  }
+  var st = { t: 0, calm: 0 };
+  function draw() {
+    for (var i = 0; i < N; i++) {
+      var b = base[i], env = Math.sin(i / N * Math.PI * 3 + .6) * .35 + .65;
+      var live = b.a * env * (.55 + .45 * Math.sin(st.t * b.f + b.p));
+      var h = 14 + live * 230 * (1 - st.calm * .86);
+      bars[i].setAttribute("height", h.toFixed(1)); bars[i].setAttribute("y", (160 - h / 2).toFixed(1));
+    }
+  }
+  var tl = gsap.timeline({ paused: true });
+  tl.to(st, { t: 5 * 1.6, duration: 5, ease: "none", onUpdate: draw }, 0);
+  tl.to(st, { calm: 1, duration: .5, ease: "power2.out", onUpdate: draw }, 1.55);   // idea fades, waveform dies
+  tl.to(st, { calm: 0, duration: .25, ease: "power2.out", onUpdate: draw }, 3.2);
+  draw();
+  // captions: kinetic word masks
+  function show(id, t) { tl.set(id, { opacity: 1 }, t); tl.fromTo(id + " .w > span", { yPercent: 120 }, { yPercent: 0, duration: .38, ease: "power4.out", stagger: .09 }, t); }
+  function hide(id, t) { tl.to(id + " .w > span", { yPercent: -120, duration: .24, ease: "power3.in", stagger: .04 }, t); tl.set(id, { opacity: 0 }, t + .4); }
+  tl.set("#c2,#c3", { opacity: 0 }, 0);
+  tl.fromTo("#c1 .w > span", { yPercent: 0 }, { yPercent: 0, duration: .01 }, 0);
+  tl.fromTo("#c1", { x: -40 }, { x: 0, duration: .5, ease: "power3.out" }, 0);
+  hide("#c1", 1.1); show("#c2", 1.25); hide("#c2", 2.2);
+  show("#c3", 2.35); hide("#c3", 3.15);
+  // tap button + ripple
+  tl.set("#tap,#r1,#r2,#pill,#name,#sub", { opacity: 0 }, 0);
+  tl.fromTo("#tap", { scale: 0, opacity: 1 }, { scale: 1, opacity: 1, duration: .35, ease: "back.out(2.6)" }, 2.55);
+  tl.to("#tap", { scale: .8, duration: .1, ease: "power2.in" }, 3.05).to("#tap", { scale: 1, duration: .3, ease: "back.out(3)" }, 3.15);
+  [["#r1", 3.05], ["#r2", 3.2]].forEach(function (r) { tl.fromTo(r[0], { opacity: 1, scale: 1 }, { opacity: 0, scale: 6, duration: .7, ease: "power2.out" }, r[1]); });
+  // selection chunk of waveform captured
+  tl.set("#sel", { opacity: 0, left: 330, width: 620 }, 0);
+  tl.fromTo("#sel", { opacity: 1, scaleX: 0 }, { opacity: 1, scaleX: 1, duration: .45, ease: "power3.out" }, 3.15);
+  tl.fromTo("#pill", { opacity: 1, y: 40, scale: .6 }, { opacity: 1, y: 0, scale: 1, duration: .4, ease: "back.out(2.4)" }, 3.35);
+  // final lockup: name slams over, waveform stays as ground
+  tl.to("#pill", { y: 60, opacity: 0, duration: .25, ease: "power2.in" }, 4.0);
+  tl.to("#tap", { scale: 0, duration: .25, ease: "power2.in" }, 3.95);
+  tl.fromTo("#name", { opacity: 1, scale: 1.5, y: -30 }, { opacity: 1, scale: 1, y: 0, duration: .45, ease: "power4.out" }, 3.95);
+  tl.fromTo("#sub", { opacity: 1, y: 30 }, { opacity: 1, y: 0, duration: .35, ease: "power3.out" }, 4.2);
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

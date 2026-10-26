@@ -1,0 +1,45 @@
+{
+  "id": "illus-embroidery",
+  "name": "Illustration · Hand embroidery",
+  "group": "Illustration",
+  "description": "Stranded cotton floss stitched through natural plain-weave linen in a beech hoop. Drawn as a finished illustration in one medium.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "collage",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/references/illus-embroidery.jpg",
+    "kind": "image",
+    "label": "Reference frame — not generated footage"
+  },
+  "source": "third_party/anidoodle/styles.gen.json",
+  "referenceAssets": [
+    {
+      "path": "references/illus-embroidery.jpg",
+      "source": "third_party/anidoodle/references/illus-embroidery.jpg",
+      "sha256": "12a0234946fb20665dc4f806d7dff4a74ab078c44e842e98530d9354823e6b21",
+      "bytes": 103720
+    }
+  ],
+  "instructions": {
+    "image": "Stranded cotton floss stitched through natural plain-weave linen in a beech hoop. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+    "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "The reference frame for this style"
+    ],
+    "acceptance": [
+      "The medium stays recognisable in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme"
+    ]
+  },
+  "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+}

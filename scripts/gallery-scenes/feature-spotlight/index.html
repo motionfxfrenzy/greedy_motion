@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Feature spotlight</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#f6f5fb}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#f6f5fb;color:#1d1b2e;font-family:'Inter',sans-serif}
+#world{position:absolute;left:0;top:0;width:1280px;height:720px;transform-origin:0 0}
+.card{position:absolute;background:#fff;border-radius:20px;box-shadow:0 1px 2px rgba(60,40,120,.06),0 12px 32px rgba(80,60,160,.09)}
+#side{left:0;top:0;width:210px;height:720px;border-radius:0;padding:26px 22px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:22px;margin-bottom:34px}
+.logo i{width:28px;height:28px;border-radius:9px;background:linear-gradient(135deg,#8b6cf0,#5fd0a0)}
+.nav{height:38px;border-radius:10px;margin-bottom:8px;display:flex;align-items:center;padding-left:14px;font-weight:600;font-size:15px;color:#8a87a3}
+.nav.on{background:#efeafe;color:#6a4be0}
+#top{left:210px;top:0;width:1070px;height:64px;border-radius:0;box-shadow:0 1px 0 #ebe8f5;display:flex;align-items:center;padding:0 30px;font-weight:700;font-size:20px;gap:16px}
+#top b{margin-left:auto;width:36px;height:36px;border-radius:50%;background:#dcd3fb}
+.kpi{top:90px;width:300px;height:110px;padding:20px 24px}
+.kpi small{font-size:14px;font-weight:600;color:#8a87a3}
+.kpi strong{display:block;margin-top:8px;font-size:34px;font-weight:800;letter-spacing:-1px}
+.kpi em{font-style:normal;font-size:13px;font-weight:700;color:#2fa874;margin-left:8px}
+#chart{left:240px;top:224px;width:640px;height:450px;z-index:6;padding:26px 30px}
+#chart h3{font-size:16px;font-weight:600;color:#8a87a3}
+#big{font-size:64px;font-weight:800;letter-spacing:-2.5px;line-height:1;margin-top:6px;color:#1d1b2e}
+#big span{font-size:34px;color:#8b6cf0;letter-spacing:0}
+#legend{position:absolute;right:30px;top:30px;font-size:13px;font-weight:600;color:#8a87a3;display:flex;gap:16px}
+#legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+svg#cs{position:absolute;left:30px;top:126px;overflow:visible}
+#right{left:904px;top:224px;width:340px;height:450px;padding:26px}
+.row{height:14px;border-radius:7px;background:#ece9f6;margin-top:24px}
+#dim{position:absolute;inset:0;background:#f6f5fb;opacity:0;z-index:5}
+#tip{position:absolute;z-index:8;left:385px;top:58px;width:222px;padding:14px 16px;background:#1d1b2e;color:#fff;border-radius:14px;font-size:15px;font-weight:600;line-height:1.3;box-shadow:0 14px 30px rgba(40,30,90,.3);transform-origin:90% 100%}
+#tip b{display:block;font-size:26px;font-weight:800;color:#8ff0c4;letter-spacing:-.5px}
+#tip:after{content:"";position:absolute;right:16px;bottom:-7px;width:16px;height:16px;background:#1d1b2e;transform:rotate(45deg)}
+#head{position:absolute;z-index:20;left:50%;top:250px;margin-left:-430px;width:860px;text-align:center;padding:44px 0 50px;background:rgba(255,255,255,.92);border-radius:32px;box-shadow:0 30px 80px rgba(80,60,160,.25)}
+#head small{display:block;font-size:20px;font-weight:700;letter-spacing:6px;color:#8b6cf0;margin-bottom:14px}
+#head h1{font-size:88px;font-weight:800;letter-spacing:-3.5px;line-height:1}
+#head h1 u{text-decoration:none;color:#6a4be0}
+#cta{position:absolute;z-index:20;left:50%;bottom:22px;margin-left:-190px;width:380px;height:64px;border-radius:32px;background:linear-gradient(135deg,#7b5cf0,#9a7df5);color:#fff;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 14px 34px rgba(106,75,224,.4)}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div id="world">
+  <div class="card" id="side"><div class="logo"><i></i>Northwind</div>
+    <div class="nav">Overview</div><div class="nav on">Profit</div><div class="nav">Orders</div><div class="nav">Costs</div><div class="nav">Reports</div></div>
+  <div class="card" id="top">Profit<b></b></div>
+  <div class="card kpi" style="left:240px"><small>Revenue</small><strong>$128k<em>+8%</em></strong></div>
+  <div class="card kpi" style="left:560px"><small>Costs</small><strong>$79k<em>+3%</em></strong></div>
+  <div class="card kpi" style="left:880px"><small>Orders</small><strong>2,410<em>+5%</em></strong></div>
+  <div class="card" id="right"><h3 style="font-size:16px;font-weight:600;color:#8a87a3">By product</h3>
+    <div class="row" style="width:92%"></div><div class="row" style="width:70%"></div><div class="row" style="width:81%"></div><div class="row" style="width:48%"></div><div class="row" style="width:60%"></div><div class="row" style="width:36%"></div></div>
+  <div id="dim"></div>
+  <div class="card" id="chart">
+    <h3>Net margin, last 12 weeks</h3>
+    <div id="big"><span id="n">0.0</span><span>%</span></div>
+    <div id="legend"><div><i style="background:#8b6cf0"></i>Margin</div><div><i style="background:#cfc8ea"></i>Revenue</div></div>
+    <svg id="cs" width="580" height="270" viewBox="0 0 580 270">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8b6cf0" stop-opacity=".28"/><stop offset="1" stop-color="#8b6cf0" stop-opacity="0"/></linearGradient></defs>
+      <g id="grid"></g>
+      <path id="rev" fill="none" stroke="#d8d2ee" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/>
+      <path id="area" fill="url(#g)" opacity="0"/>
+      <path id="line" fill="none" stroke="#8b6cf0" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/>
+      <circle id="ring" r="14" fill="none" stroke="#3ccf94" stroke-width="3" opacity="0"/>
+      <circle id="ring2" r="14" fill="none" stroke="#8b6cf0" stroke-width="2" opacity="0"/>
+      <circle id="dot" r="8" fill="#fff" stroke="#3ccf94" stroke-width="5" opacity="0"/>
+    </svg>
+    <div id="tip"><b>+6.2 pts</b>after fees, ads and shipping</div>
+  </div>
+</div>
+<div id="head"><small>NORTHWIND</small><h1>See your <u>real</u> profit</h1></div>
+<div id="cta">Try Northwind free &rarr;</div>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const W=580,H=270;
+const m=[22,26,24,30,27,33,31,36,34,40,38,45];   // margin, placeholder
+const r=[40,44,41,48,50,47,54,52,58,57,62,66];
+const px=i=>i*(W/11);
+const mp=v=>H-12-(v-15)/(50-15)*(H-24);
+const rp=v=>H-12-(v-30)/(70-30)*(H-24)*.62-20;
+function smooth(a,f){let d="";const p=a.map((v,i)=>[px(i),f(v)]);d="M"+p[0].join(",");
+  for(let i=1;i<p.length;i++){const x0=p[i-1][0],y0=p[i-1][1],x1=p[i][0],y1=p[i][1],cx=(x0+x1)/2;d+=`C${cx},${y0} ${cx},${y1} ${x1},${y1}`}return d}
+const lineD=smooth(m,mp), revD=smooth(r,rp);
+line.setAttribute("d",lineD);rev.setAttribute("d",revD);
+area.setAttribute("d",lineD+`L${W},${H}L0,${H}Z`);
+for(let k=0;k<5;k++){const l=document.createElementNS(NS,"line");l.setAttribute("x1",0);l.setAttribute("x2",W);const y=10+k*(H-20)/4;l.setAttribute("y1",y);l.setAttribute("y2",y);l.setAttribute("stroke","#eeebf7");l.setAttribute("stroke-width",2);grid.appendChild(l)}
+const endX=px(11),endY=mp(m[11]);
+const len=line.getTotalLength();
+const head=document.getElementById("dot");
+const S=(t,s,d)=>{};
+// camera
+const CAM={p:0,d:0};
+const s0=1,s1=1.38,s2=1.42;
+function cam(){
+  const s=s0+(s1-s0)*CAM.p+(s2-s1)*CAM.d;
+  const fx=150+(240*s0*0)+ (0), fy=14;
+  const tx=(0)*(1-CAM.p)+(150-240*s)*CAM.p;
+  const ty=(0)*(1-CAM.p)+(fy-224*s)*CAM.p;
+  gsap.set("#world",{x:tx,y:ty,scale:s});
+}
+const tl=gsap.timeline({paused:true});
+tl.eventCallback("onUpdate",null);
+// initial dashboard presence
+tl.fromTo("#world .card",{y:10,opacity:.0},{y:0,opacity:1,duration:.5,stagger:.04,ease:"power3.out"},0);
+tl.fromTo("#head",{scale:.94,opacity:0},{scale:1,opacity:1,duration:.5,ease:"back.out(1.5)"},0);
+// headline leaves, camera pushes in, rest dims
+tl.to("#head",{y:-40,opacity:0,scale:.96,duration:.45,ease:"power2.in"},1.15);
+tl.to(CAM,{p:1,duration:1.3,ease:"power3.inOut",onUpdate:cam},1.2);
+tl.to("#dim",{opacity:.72,duration:1,ease:"power2.inOut"},1.4);
+// draw
+tl.to("#rev",{strokeDashoffset:0,duration:1.3,ease:"power2.inOut"},2.15);
+tl.to("#area",{opacity:1,duration:1,ease:"power1.in"},2.6);
+const P={t:0};
+tl.to(P,{t:1,duration:1.4,ease:"power2.inOut",onUpdate(){
+  line.setAttribute("stroke-dashoffset",1-P.t);
+  const pt=line.getPointAtLength(P.t*len);head.setAttribute("cx",pt.x);head.setAttribute("cy",pt.y);
+  document.getElementById("n").textContent=(38.4*P.t).toFixed(1);
+}},2.15);
+tl.set("#dot",{opacity:1},2.2);
+// ring pulses
+[ring,ring2].forEach(el=>{el.setAttribute("cx",endX);el.setAttribute("cy",endY)});
+tl.fromTo("#ring",{attr:{r:12},opacity:.9},{attr:{r:40},opacity:0,duration:.8,ease:"power2.out",repeat:1,repeatDelay:.05,immediateRender:false},3.5);
+tl.fromTo("#ring2",{attr:{r:12},opacity:.7},{attr:{r:30},opacity:0,duration:.8,ease:"power2.out",repeat:1,repeatDelay:.05,immediateRender:false},3.7);
+// tooltip
+tl.fromTo("#tip",{scale:.2,opacity:0,y:14},{scale:1,opacity:1,y:0,duration:.5,ease:"back.out(2)"},3.55);
+// cta
+tl.fromTo("#cta",{y:90,opacity:0},{y:0,opacity:1,duration:.5,ease:"back.out(1.6)"},4.0);
+tl.to(CAM,{d:1,duration:2,ease:"sine.inOut",onUpdate:cam},2.5);
+tl.set({},{},5);
+cam();
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

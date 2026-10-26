@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Eigenvector stretch</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0b0d12; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: radial-gradient(ellipse at 50% 50%, #151a28 0%, #0b0d12 75%); font-family: "Source Serif 4", "EB Garamond", serif; }
+  svg { position: absolute; inset: 0; }
+  text { font-family: "Source Serif 4", "EB Garamond", serif; fill: #e8ecf4; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs><clipPath id="clip"><rect x="0" y="0" width="1280" height="720"/></clipPath></defs>
+</svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function txt(str, a, p) { var e = el("text", a, p); e.textContent = str; return e; }
+  var BLUE = "#58C4DD", TEAL = "#83C167", YEL = "#FFD166", RED = "#FC6255", PUR = "#B189C6";
+  var OX = 770, OY = 400, U = 58;
+  // symmetric matrix with orthogonal eigenvectors
+  var A = [[2.2, 0.9], [0.9, 1.6]];
+  var tr = A[0][0] + A[1][1], det = A[0][0] * A[1][1] - A[0][1] * A[1][0], dsc = Math.sqrt(tr * tr / 4 - det);
+  var l1 = tr / 2 + dsc, l2 = tr / 2 - dsc;
+  function evec(l) { var x = A[0][1], y = l - A[0][0], n = Math.hypot(x, y); return [x / n, y / n]; }
+  var e1 = evec(l1), e2 = evec(l2);
+  var T = { t: 0 };
+  function M(t) { return [[1 + (A[0][0] - 1) * t, A[0][1] * t], [A[1][0] * t, 1 + (A[1][1] - 1) * t]]; }
+  function P(m, x, y) { return [OX + (m[0][0] * x + m[0][1] * y) * U, OY - (m[1][0] * x + m[1][1] * y) * U]; }
+  var gridG = el("g", { "clip-path": "url(#clip)" });
+  var ghost = el("g", { opacity: 0, "clip-path": "url(#clip)" });
+  var lines = [], N = 18;
+  for (var k = -N; k <= N; k++) {
+    lines.push({ k: k, h: false, e: el("line", { stroke: BLUE, "stroke-width": k === 0 ? 3 : 1.6, opacity: k === 0 ? 0.9 : 0.4 }, gridG) });
+    lines.push({ k: k, h: true, e: el("line", { stroke: BLUE, "stroke-width": k === 0 ? 3 : 1.6, opacity: k === 0 ? 0.9 : 0.4 }, gridG) });
+    var gl1 = el("line", { x1: OX + k * U, y1: OY - N * U, x2: OX + k * U, y2: OY + N * U, stroke: "#7b8499", "stroke-width": 1 }, ghost);
+    el("line", { y1: OY - k * U, x1: OX - N * U, y2: OY - k * U, x2: OX + N * U, stroke: "#7b8499", "stroke-width": 1 }, ghost);
+  }
+  var R = 12;
+  // eigen lines (extended)
+  var eigL1 = el("line", { stroke: YEL, "stroke-width": 3, "stroke-dasharray": "10 8", opacity: 0 });
+  var eigL2 = el("line", { stroke: RED, "stroke-width": 3, "stroke-dasharray": "10 8", opacity: 0 });
+  // ordinary vectors
+  var vecs = [];
+  var angs = [10, 65, 125, 165, 215, 250, 300, 345];
+  angs.forEach(function (a) { var r = a * Math.PI / 180, x = Math.cos(r) * 2.0, y = Math.sin(r) * 2.0; var g = el("g", { opacity: 0 }); var ln = el("line", { stroke: "#c9d0e0", "stroke-width": 4, "stroke-linecap": "round" }, g); var hd = el("polygon", { fill: "#c9d0e0" }, g); vecs.push({ x: x, y: y, g: g, ln: ln, hd: hd }); });
+  var eig = [{ v: e1, c: YEL, l: l1 }, { v: e2, c: RED, l: l2 }].map(function (o) {
+    var g = el("g", { opacity: 0 }); var ln = el("line", { stroke: o.c, "stroke-width": 7, "stroke-linecap": "round" }, g); var hd = el("polygon", { fill: o.c }, g);
+    return { x: o.v[0] * 2.0, y: o.v[1] * 2.0, g: g, ln: ln, hd: hd, c: o.c, l: o.l };
+  });
+  function arrow(o, m) {
+    var a = P(m, 0, 0), b = P(m, o.x, o.y), dx = b[0] - a[0], dy = b[1] - a[1], n = Math.hypot(dx, dy) || 1, ux = dx / n, uy = dy / n, hl = 24, hw = 11;
+    o.ln.setAttribute("x1", a[0]); o.ln.setAttribute("y1", a[1]); o.ln.setAttribute("x2", b[0] - ux * hl * 0.8); o.ln.setAttribute("y2", b[1] - uy * hl * 0.8);
+    o.hd.setAttribute("points", b[0] + "," + b[1] + " " + (b[0] - ux * hl - uy * hw) + "," + (b[1] - uy * hl + ux * hw) + " " + (b[0] - ux * hl + uy * hw) + "," + (b[1] - uy * hl - ux * hw));
+  }
+  var lab1 = txt("λ₁", { "font-size": 66, "font-style": "italic", opacity: 0 }); lab1.style.fill = YEL;
+  var lab2 = txt("λ₂", { "font-size": 66, "font-style": "italic", opacity: 0 }); lab2.style.fill = RED;
+  function render() {
+    var m = M(T.t);
+    lines.forEach(function (o) {
+      var a = o.h ? P(m, -N, o.k) : P(m, o.k, -N), b = o.h ? P(m, N, o.k) : P(m, o.k, N);
+      o.e.setAttribute("x1", a[0]); o.e.setAttribute("y1", a[1]); o.e.setAttribute("x2", b[0]); o.e.setAttribute("y2", b[1]);
+    });
+    vecs.forEach(function (v) { arrow(v, m); });
+    eig.forEach(function (v) { arrow(v, m); });
+    var q = P(m, 0, 0);
+    [[eigL1, e1], [eigL2, e2]].forEach(function (p) { var a = P(m, -p[1][0] * 6, -p[1][1] * 6), b = P(m, p[1][0] * 6, p[1][1] * 6); p[0].setAttribute("x1", a[0]); p[0].setAttribute("y1", a[1]); p[0].setAttribute("x2", b[0]); p[0].setAttribute("y2", b[1]); });
+    var t1 = P(m, e1[0] * 2.15, e1[1] * 2.15), t2 = P(m, e2[0] * 2.15, e2[1] * 2.15);
+    lab1.setAttribute("x", t1[0] + 14); lab1.setAttribute("y", t1[1] - 10);
+    lab2.setAttribute("x", t2[0] + 14); lab2.setAttribute("y", t2[1] + 40);
+  }
+  render();
+  // axes labels via origin
+  var cap = txt("Some directions only stretch", { x: 70, y: 150, "font-size": 56, "font-weight": 600, opacity: 0 });
+  cap.textContent = ""; 
+  ["Some directions", "only stretch"].forEach(function (w, i) { var t = el("tspan", { x: 70, dy: i ? 66 : 0 }, cap); t.textContent = w; });
+  var eq = txt("A v = λ v", { x: 70, y: 470, "font-size": 78, "font-style": "italic", opacity: 0 }); eq.style.fill = YEL;
+  var sub = txt("same line, new length", { x: 70, y: 540, "font-size": 34, "font-style": "italic", opacity: 0 }); sub.style.fill = "#9aa3b8";
+  var tl = gsap.timeline({ paused: true });
+  tl.to(cap, { opacity: 1, duration: 0.5, ease: "power2.out" }, 0.05);
+  tl.fromTo(gridG, { opacity: 0.0 }, { opacity: 1, duration: 0.5 }, 0);
+  tl.to(ghost, { opacity: 0.1, duration: 0.5 }, 0.9);
+  tl.to(vecs.map(function (v) { return v.g; }), { opacity: 0.95, duration: 0.4, stagger: 0.05 }, 0.4);
+  tl.to(eig.map(function (v) { return v.g; }), { opacity: 1, duration: 0.4 }, 0.8);
+  tl.to(T, { t: 1, duration: 1.9, ease: "power3.inOut", onUpdate: render }, 1.2);
+  tl.to(vecs.map(function (v) { return v.g; }), { opacity: 0.22, duration: 0.6, ease: "power2.inOut" }, 3.2);
+  tl.to(lines.map(function (o) { return o.e; }), { opacity: 0.18, duration: 0.6 }, 3.2);
+  tl.to([eigL1, eigL2], { opacity: 0.85, duration: 0.6 }, 3.3);
+  tl.to([lab1, lab2], { opacity: 1, duration: 0.5 }, 3.6);
+  tl.to(eq, { opacity: 1, duration: 0.6, ease: "power2.out" }, 2.4);
+  tl.to(sub, { opacity: 1, duration: 0.6, ease: "power2.out" }, 3.5);
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

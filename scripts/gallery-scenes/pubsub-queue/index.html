@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Pub sub queue</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1280px; height: 720px; overflow: hidden; background: #0d1117; }
+#root { position: relative; width: 1280px; height: 720px; overflow: hidden; color: #e2e8f0;
+  background: radial-gradient(rgba(148,163,184,.13) 1.6px, transparent 1.8px) 0 0 / 32px 32px, linear-gradient(180deg, #0d1117, #111827); }
+#svg { position: absolute; inset: 0; }
+.mono { font-family: "JetBrains Mono", "IBM Plex Mono", monospace; font-weight: 700; fill: #e2e8f0; }
+#caps { position: absolute; left: 0; right: 0; bottom: 52px; height: 90px; }
+.cap { position: absolute; left: 0; right: 0; text-align: center; font-family: "Space Grotesk", "Inter", sans-serif; font-weight: 700; font-size: 64px; letter-spacing: -1.5px; line-height: 90px; color: #f8fafc; white-space: nowrap; }
+.cap b { color: #a78bfa; font-weight: 700; }
+.tag { position: absolute; left: 48px; top: 34px; font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 22px; letter-spacing: 3px; color: #a78bfa; opacity: .8; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="svg" viewBox="0 0 1280 720" width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+<defs><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+</svg>
+<div class="tag">// PUBLISH / SUBSCRIBE</div>
+<div id="caps"></div>
+</div>
+<script>
+const A = "#a78bfa", RED = "#f87171";
+const NS = "http://www.w3.org/2000/svg", svg = document.getElementById("svg"), caps = document.getElementById("caps");
+const tl = gsap.timeline({ paused: true });
+function el(t, a = {}, p = svg) { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; }
+function cap(text, t0, t1) {
+  const d = document.createElement("div"); d.className = "cap"; d.innerHTML = text.replace(/\*(.+?)\*/g, "<b>$1</b>"); caps.appendChild(d);
+  tl.fromTo(d, { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.35, ease: "power3.out" }, t0);
+  if (t1 != null) tl.to(d, { opacity: 0, y: -12, duration: 0.25, ease: "power2.in" }, t1 - 0.25);
+}
+function node(x, y, w, h, label, o = {}) {
+  const g = el("g"); const rx = o.rx ?? 18;
+  el("rect", { x, y, width: w, height: h, rx, fill: "#0f1729", stroke: o.color || A, "stroke-opacity": 0.5, "stroke-width": 2 }, g);
+  const lit = el("rect", { x, y, width: w, height: h, rx, fill: o.color || A, "fill-opacity": 0.14, stroke: o.color || A, "stroke-width": 3.5, opacity: 0, filter: "url(#glow)" }, g);
+  const t = el("text", { x: x + w / 2, y: o.ty ?? y + (o.top ? h * 0.38 : h / 2 + 11), "text-anchor": "middle", class: "mono", "font-size": o.fs || 32 }, g); t.textContent = label;
+  gsap.set(g, { transformOrigin: "50% 50%" });
+  return { g, lit, x, y, w, h };
+}
+function appear(n, t, dur = 0.5) { tl.fromTo(n.g, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: dur, ease: "power3.out" }, t); }
+function pulse(n, t, hold = 0.45) {
+  tl.fromTo(n.lit, { opacity: 0 }, { opacity: 1, duration: 0.12 }, t).to(n.lit, { opacity: hold > 0 ? 0.0 : 1, duration: hold }, t + 0.14);
+  tl.fromTo(n.g, { scale: 1 }, { scale: 1.07, duration: 0.14, ease: "power2.out" }, t).to(n.g, { scale: 1, duration: 0.3, ease: "power2.inOut" }, t + 0.14);
+}
+function keepLit(n, t, op = 1) { tl.to(n.lit, { opacity: op, duration: 0.2 }, t); }
+function arrow(d, t0, dur, o = {}) {
+  const color = o.color || A, p = el("path", { d, fill: "none", stroke: color, "stroke-width": o.w || 3, "stroke-opacity": o.op ?? 0.55, "stroke-linecap": "round", "stroke-dasharray": o.dash || "" });
+  const L = p.getTotalLength(); let head = null;
+  if (!o.dash) { p.setAttribute("stroke-dasharray", L + " " + (L + 40)); tl.fromTo(p, { strokeDashoffset: L + 6 }, { strokeDashoffset: 0, duration: dur, ease: "power2.inOut" }, t0); }
+  else tl.fromTo(p, { opacity: 0 }, { opacity: 1, duration: dur }, t0);
+  if (!o.nohead) {
+    const e = p.getPointAtLength(L), b = p.getPointAtLength(L - 3), ang = Math.atan2(e.y - b.y, e.x - b.x) * 180 / Math.PI;
+    head = el("path", { d: "M-14,-9 L2,0 L-14,9", fill: "none", stroke: color, "stroke-width": o.w || 3, "stroke-opacity": Math.min(1, (o.op ?? 0.55) + 0.2), "stroke-linecap": "round", "stroke-linejoin": "round", transform: `translate(${e.x} ${e.y}) rotate(${ang})` });
+    tl.fromTo(head, { opacity: 0 }, { opacity: 1, duration: 0.2 }, t0 + dur - 0.1);
+  }
+  return { p, L, head };
+}
+function mkPacket(color, label) {
+  const g = el("g", { opacity: 0 });
+  const tr = [[26, 6, 0.2], [13, 8, 0.4]].map(([lag, r, op]) => ({ lag, c: el("circle", { r, fill: color, opacity: op }, g) }));
+  el("circle", { r: 18, fill: color, opacity: 0.35, filter: "url(#glow)" }, g);
+  el("circle", { r: 11, fill: "#fff" }, g); el("circle", { r: 8, fill: color }, g);
+  let t = null; if (label) { t = el("text", { y: -28, "text-anchor": "middle", class: "mono", "font-size": 22, fill: color }, g); t.textContent = label; t.style.fill = color; }
+  return { g, tr };
+}
+// A glowing packet that travels along an SVG path (getPointAtLength driven by the timeline).
+function fly(path, t0, dur, o = {}) {
+  const L = path.getTotalLength(), pk = mkPacket(o.color || A, o.label), s = { p: 0 };
+  const place = (node, len) => { const pt = path.getPointAtLength(Math.max(0, Math.min(L, len))); node.setAttribute("transform", `translate(${pt.x} ${pt.y})`); };
+  tl.set(pk.g, { opacity: 1 }, t0);
+  tl.fromTo(s, { p: 0 }, { p: 1, duration: dur, ease: o.ease || "power2.inOut", onUpdate() {
+    place(pk.g, s.p * L);
+    pk.tr.forEach((t) => { const pt = path.getPointAtLength(Math.max(0, s.p * L - t.lag)); t.c.setAttribute("cx", pt.x - path.getPointAtLength(s.p * L).x); t.c.setAttribute("cy", pt.y - path.getPointAtLength(s.p * L).y); });
+  } }, t0);
+  tl.set(pk.g, { opacity: 0 }, t0 + dur + (o.linger || 0));
+  return pk;
+}
+function chip(cx, cy, text, color, w = 0, fs = 22) {
+  const g = el("g", { opacity: 0 }), ww = w || text.length * fs * 0.62 + 26;
+  el("rect", { x: cx - ww / 2, y: cy - 20, width: ww, height: 40, rx: 11, fill: "#0b1020", stroke: color, "stroke-width": 2.5 }, g);
+  const t = el("text", { x: cx, y: cy + fs * 0.35, "text-anchor": "middle", class: "mono", "font-size": fs }, g); t.textContent = text; t.style.fill = color;
+  gsap.set(g, { transformOrigin: "50% 50%" });
+  return g;
+}
+function pop(g, t) { tl.fromTo(g, { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.32, ease: "back.out(2.6)" }, t); }
+function unpop(g, t, dur = 0.25) { tl.to(g, { opacity: 0, scale: 0.8, duration: dur, ease: "power2.in" }, t); }
+function ring(cx, cy, t, color = A, r1 = 70) {
+  const c = el("circle", { cx, cy, r: 20, fill: "none", stroke: color, "stroke-width": 4, opacity: 0 });
+  tl.fromTo(c, { attr: { r: 20 }, opacity: 0.9 }, { attr: { r: r1 }, opacity: 0, duration: 0.6, ease: "power2.out", immediateRender: false }, t);
+}
+const QX = 440, QY = 270, QW = 360, QH = 100, QCY = QY + QH / 2;
+const p1 = node(50, 175, 210, 80, "PUBLISHER", { fs: 22 }), p2 = node(50, 385, 210, 80, "PUBLISHER", { fs: 22 });
+const q = node(QX, QY, QW, QH, "", {});
+const ql = el("text", { x: QX + QW / 2, y: QY - 18, "text-anchor": "middle", class: "mono", "font-size": 28 }); ql.textContent = "QUEUE"; ql.style.fill = A;
+const slots = [0, 1, 2].map((i) => { const x = QX + 20 + i * 112; return { x, r: el("rect", { x, y: QY + 20, width: 100, height: 60, rx: 10, fill: "none", stroke: A, "stroke-opacity": 0.35, "stroke-width": 2, "stroke-dasharray": "6 6" }) }; });
+const SX = 970, sy = [150, 280, 410];
+const subs = sy.map((y, i) => node(SX, y, 240, 80, "SUBSCRIBER " + (i + 1), { fs: 20 }));
+[p1, p2, q, ...subs].forEach((n, i) => appear(n, 0.05 + i * 0.07, 0.4));
+tl.fromTo(ql, { opacity: 0 }, { opacity: 1, duration: 0.4 }, 0.2);
+const a1 = arrow(`M260,215 C340,215 360,${QCY} ${QX},${QCY}`, 0.3, 0.5, { op: 0.5 });
+const a2 = arrow(`M260,425 C340,425 360,${QCY} ${QX},${QCY}`, 0.35, 0.5, { op: 0.5 });
+const fx = QX + QW, fo = subs.map((n, i) => arrow(`M${fx},${QCY} C${fx + 90},${QCY} ${SX - 100},${sy[i] + 40} ${SX},${sy[i] + 40}`, 0.4 + i * 0.1, 0.5, { op: 0.5 }));
+const WH = "#f8fafc";
+const msg = (slot, txt, col, t) => { const g = chip(slot.x + 50, QY + 50, txt, col, 90, 22); pop(g, t); return g; };
+cap("*Publishers* send messages", 0.1, 1.55);
+cap("The *queue* holds them", 1.55, 2.25);
+cap("Each *subscriber* gets a copy", 2.25, null);
+// message A from publisher 1
+fly(a1.p, 0.75, 0.6, { label: "A", ease: "power1.inOut" }); pulse(p1, 0.7, 0.3);
+pulse(q, 1.35, 0.3); const mA = msg(slots[0], "A", A, 1.4);
+// message B from publisher 2
+fly(a2.p, 1.05, 0.6, { label: "B", color: WH, ease: "power1.inOut" }); pulse(p2, 1.0, 0.3);
+pulse(q, 1.65, 0.3); const mB = msg(slots[1], "B", WH, 1.7);
+// A fans out to three subscribers, lighting each in turn
+const ack = (n, t, col) => { const c = chip(n.x + 195, n.y - 6, "✓", col, 50, 24); pop(c, t); tl.to(c, { opacity: 0, duration: 0.25 }, t + 0.7); };
+tl.to(mA, { opacity: 0.0, duration: 0.2 }, 2.0);
+subs.forEach((n, i) => { const t = 2.0 + i * 0.35; fly(fo[i].p, t, 0.5, { color: A, ease: "power1.inOut" }); pulse(n, t + 0.5, 0.35); ack(n, t + 0.5, A); });
+// B fans out afterwards, all three end lit with an ack
+tl.to(mB, { opacity: 0, duration: 0.2 }, 3.45);
+subs.forEach((n, i) => { const t = 3.45 + i * 0.28; fly(fo[i].p, t, 0.45, { color: WH, ease: "power1.inOut" }); pulse(n, t + 0.45, 0.3); const c = chip(n.x + 195, n.y - 6, "✓", A, 50, 24); pop(c, t + 0.45); keepLit(n, t + 0.45 + 0.14 + 0.32, 0.55); });
+
+tl.to({}, { duration: 0.1 }, 4.9);
+window.__timelines = window.__timelines || {};
+window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

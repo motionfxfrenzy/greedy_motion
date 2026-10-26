@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Portfolio showreel</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f2ede3; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f2ede3; font-family: "Inter", sans-serif; color: #15120e; }
+  .shot { position: absolute; inset: 0; overflow: hidden; visibility: hidden; }
+  .bw { position: absolute; width: 760px; height: 480px; background: #fffdf8; border: 5px solid #15120e; border-radius: 18px; overflow: hidden; box-shadow: 16px 16px 0 #15120e; }
+  .bar { height: 46px; border-bottom: 5px solid #15120e; display: flex; align-items: center; gap: 10px; padding: 0 18px; background: #f2ede3; }
+  .bar b { width: 14px; height: 14px; border-radius: 7px; background: #15120e; display: block; }
+  .bar u { margin-left: 18px; height: 20px; width: 300px; border-radius: 10px; border: 3px solid #15120e; display: block; }
+  .pg { position: absolute; left: 0; right: 0; top: 46px; bottom: 0; padding: 28px 36px; }
+  .ph { position: absolute; width: 290px; height: 590px; background: #fffdf8; border: 5px solid #15120e; border-radius: 44px; overflow: hidden; box-shadow: 14px 14px 0 #15120e; }
+  .ph .notch { position: absolute; left: 50%; top: 12px; width: 90px; height: 20px; margin-left: -45px; background: #15120e; border-radius: 10px; }
+  .big { position: absolute; font-family: "Archivo Black", "Inter", sans-serif; letter-spacing: -0.03em; line-height: .92; text-transform: uppercase; }
+  .mask { overflow: hidden; display: block; }
+  .mask > i { display: block; font-style: normal; }
+  .row { height: 22px; border-radius: 11px; background: #15120e; margin-bottom: 14px; }
+  .tag { position: absolute; font-weight: 800; font-size: 26px; letter-spacing: .08em; }
+  #ticks { position: absolute; left: 40px; bottom: 26px; display: flex; gap: 10px; z-index: 9; }
+  #ticks u { display: block; width: 22px; height: 10px; border-radius: 5px; background: #15120e; opacity: .25; }
+  .bub { position: absolute; border: 5px solid #15120e; border-radius: 34px; padding: 26px 40px; font-weight: 800; letter-spacing: -0.035em; font-size: 88px; line-height: 1; white-space: nowrap; box-shadow: 10px 10px 0 #15120e; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+
+  <!-- shot A : browser, home page, cobalt -->
+  <div class="shot" id="A" style="background:#2b3fff">
+    <div class="bw" id="Abw" style="left:420px;top:225px;height:440px">
+      <div class="bar"><b></b><b></b><b></b><u></u></div>
+      <div class="pg">
+        <div class="big" style="position:static;font-size:84px;color:#15120e">Docs people<br><span style="color:#ee4a2b">want to read</span></div>
+        <div style="display:flex;gap:22px;margin-top:34px">
+          <div id="Ac" style="width:150px;height:150px;border-radius:75px;background:#ee4a2b;border:5px solid #15120e"></div>
+          <div style="flex:1;padding-top:20px"><div class="row" style="width:100%"></div><div class="row" style="width:82%"></div><div class="row" style="width:60%;background:#2b3fff"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="big" style="left:50px;top:50px;font-size:170px;color:#f2ede3"><span class="mask"><i id="At1">Home</i></span></div>
+    <div class="tag" style="left:54px;bottom:60px;color:#f2ede3">01 / SITE</div>
+  </div>
+
+  <!-- shot B : phone, writing, vermilion -->
+  <div class="shot" id="B" style="background:#ee4a2b">
+    <div class="big" style="left:60px;top:90px;font-size:190px;color:#15120e"><span class="mask"><i id="Bt1">Words</i></span><span class="mask"><i id="Bt2" style="color:#f2ede3;font-size:90px;margin-top:14px">on the page</i></span></div>
+    <div class="ph" id="Bph" style="left:920px;top:60px">
+      <div class="notch"></div>
+      <div style="padding:70px 26px 0">
+        <div style="font-weight:800;font-size:32px;letter-spacing:-.03em;margin-bottom:22px">Notes</div>
+        <div class="bl" style="border-bottom:4px solid #15120e;padding-bottom:16px;margin-bottom:16px"><div class="row" style="width:88%"></div><div class="row" style="width:60%;height:14px;opacity:.4"></div></div>
+        <div class="bl" style="border-bottom:4px solid #15120e;padding-bottom:16px;margin-bottom:16px"><div class="row" style="width:76%"></div><div class="row" style="width:50%;height:14px;opacity:.4"></div></div>
+        <div class="bl" style="border-bottom:4px solid #15120e;padding-bottom:16px;margin-bottom:16px"><div class="row" style="width:92%;background:#2b3fff"></div><div class="row" style="width:44%;height:14px;opacity:.4"></div></div>
+        <div class="bl"><div class="row" style="width:70%"></div><div class="row" style="width:40%;height:14px;opacity:.4"></div></div>
+      </div>
+    </div>
+    <div class="tag" style="left:64px;bottom:60px;color:#15120e">02 / WORDS</div>
+  </div>
+
+  <!-- shot C : chat, ink -->
+  <div class="shot" id="C" style="background:#15120e">
+    <div class="bub" id="Cq" style="left:90px;top:110px;background:#f2ede3;color:#15120e;border-color:#f2ede3;box-shadow:10px 10px 0 #2b3fff;font-size:76px">Ask me anything</div>
+    <div class="bub" id="Ca" style="left:230px;top:330px;background:#ee4a2b;color:#15120e;border-color:#ee4a2b;box-shadow:10px 10px 0 #f2ede3;font-size:118px;padding:34px 56px"><span id="Ctxt">Ship it.</span></div>
+    <div class="tag" style="left:94px;bottom:60px;color:#f2ede3">03 / CHAT</div>
+  </div>
+
+  <!-- shot D : end card, cream -->
+  <div class="shot" id="D" style="background:#f2ede3">
+    <div class="bw" id="Dbw" style="left:40px;top:110px;width:640px;height:400px;background:#fffdf8">
+      <div class="bar"><b></b><b></b><b></b><u style="width:240px"></u></div>
+      <div class="pg" style="padding:22px 28px">
+        <div class="big" style="position:static;font-size:64px;color:#15120e">Docs people<br><span style="color:#ee4a2b">want to read</span></div>
+        <div class="row" style="width:80%;margin-top:26px"></div><div class="row" style="width:55%;background:#2b3fff"></div>
+      </div>
+    </div>
+    <div class="ph" id="Dph" style="left:500px;top:150px;width:210px;height:430px;border-radius:34px">
+      <div class="notch" style="width:60px;margin-left:-30px;height:14px"></div>
+      <div style="padding:52px 18px 0"><div class="row" style="width:90%"></div><div class="row" style="width:60%;background:#ee4a2b"></div><div class="row" style="width:75%"></div><div class="row" style="width:45%"></div></div>
+    </div>
+    <div class="big" style="left:800px;top:150px;font-size:112px;color:#15120e"><span class="mask"><i id="Dt1">Say</i></span><span class="mask"><i id="Dt2" style="color:#ee4a2b">hello.</i></span></div>
+    <div id="Dpill" style="position:absolute;left:800px;top:420px;background:#2b3fff;color:#f2ede3;font-weight:800;font-size:40px;padding:16px 36px;border-radius:40px;border:5px solid #15120e;box-shadow:8px 8px 0 #15120e">tern.dev &rarr;</div>
+  </div>
+
+  <div id="ticks"></div>
+</div>
+<script>
+(function () {
+  var tk = document.getElementById("ticks"), i, h = "";
+  for (i = 0; i < 10; i++) h += "<u></u>";
+  tk.innerHTML = h;
+  var ticks = tk.children;
+  var tl = gsap.timeline({ paused: true });
+  var cuts = [["A", 0, 1.5], ["B", 1.5, 3.0], ["C", 3.0, 4.0], ["D", 4.0, 5.01]];
+  cuts.forEach(function (c) { tl.set("#" + c[0], { visibility: "visible" }, c[1]); if (c[0] !== "D") tl.set("#" + c[0], { visibility: "hidden" }, c[2]); });
+  // beat ticks at 120 BPM (every 0.5 s)
+  for (i = 0; i < 10; i++) tl.to(ticks[i], { opacity: 1, scaleY: 2, duration: 0.12, ease: "power2.out" }, i * 0.5);
+  // tick colour reads against each shot
+  tl.set(ticks, { backgroundColor: "#f2ede3" }, 0);
+  tl.set(ticks, { backgroundColor: "#15120e" }, 4.0);
+  // shot A
+  tl.fromTo("#Abw", { scale: 1.35, rotation: -3, y: 40 }, { scale: 1, rotation: 0, y: 0, duration: 1.4, ease: "power4.out" }, 0);
+  tl.fromTo("#At1", { yPercent: 110 }, { yPercent: 0, duration: 0.45, ease: "power4.out" }, 0);
+  tl.fromTo("#Ac", { scale: 0 }, { scale: 1, duration: 0.5, ease: "back.out(2)" }, 0.25);
+  tl.fromTo(".row", { scaleX: 0, transformOrigin: "0 50%" }, { scaleX: 1, duration: 0.4, stagger: 0.05, ease: "power3.out" }, 0.5);
+  // shot B
+  tl.fromTo("#Bph", { y: 700, rotation: 8 }, { y: 0, rotation: -5, duration: 0.7, ease: "power4.out" }, 1.5);
+  tl.fromTo("#Bt1", { yPercent: 110 }, { yPercent: 0, duration: 0.5, ease: "power4.out" }, 1.5);
+  tl.fromTo("#Bt2", { yPercent: 110 }, { yPercent: 0, duration: 0.5, ease: "power4.out" }, 1.6);
+  tl.fromTo(".bl", { x: 60, opacity: 0 }, { x: 0, opacity: 1, duration: 0.35, stagger: 0.12, ease: "power3.out" }, 1.8);
+  tl.to("#Bph", { y: -90, duration: 1.2, ease: "power1.inOut" }, 1.9);
+  // shot C
+  tl.fromTo("#Cq", { x: -900 }, { x: 0, duration: 0.45, ease: "power4.out" }, 3.0);
+  tl.fromTo("#Ca", { x: 1300, scale: 0.9 }, { x: 0, scale: 1, duration: 0.5, ease: "power4.out" }, 3.3);
+  tl.fromTo("#Ctxt", { opacity: 0 }, { opacity: 1, duration: 0.01 }, 3.35);
+  tl.to("#Ca", { scale: 1.06, duration: 0.5, ease: "power1.out" }, 3.5);
+  // shot D
+  tl.fromTo("#Dbw", { x: -700, rotation: -8 }, { x: 0, rotation: -3, duration: 0.6, ease: "power4.out" }, 4.0);
+  tl.fromTo("#Dph", { y: 700, rotation: 14 }, { y: 0, rotation: 5, duration: 0.6, ease: "power4.out" }, 4.1);
+  tl.fromTo("#Dt1", { yPercent: 110 }, { yPercent: 0, duration: 0.4, ease: "power4.out" }, 4.15);
+  tl.fromTo("#Dt2", { yPercent: 110 }, { yPercent: 0, duration: 0.4, ease: "power4.out" }, 4.25);
+  tl.fromTo("#Dpill", { scale: 0, rotation: -10 }, { scale: 1, rotation: 0, duration: 0.45, ease: "back.out(2.2)" }, 4.45);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

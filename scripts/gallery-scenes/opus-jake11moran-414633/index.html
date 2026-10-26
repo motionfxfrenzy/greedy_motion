@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Slow-camera product teaser</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0f0f12}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#0f0f12;font-family:'Inter',sans-serif}
+svg{position:absolute;inset:0}
+text{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-4px}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function(){
+var NS="http://www.w3.org/2000/svg",s=document.getElementById("s");
+function el(t,a,p){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);(p||s).appendChild(e);return e}
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;var t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+var R=rng(5),WH="#f5f5ee",YEL="#ffd400",COR="#ff4f3d",TEAL="#2ee6b6",VIO="#8b7bff";
+function txt(g,x,y,str,size,fill,anchor){var t=el("text",{x:x,y:y,"font-size":size,fill:fill,"text-anchor":anchor||"middle"},g);t.textContent=str;return t}
+var defs=el("defs",{});
+var f=el("filter",{id:"grain",x:0,y:0,width:1280,height:720,filterUnits:"userSpaceOnUse"},defs);
+el("feTurbulence",{type:"fractalNoise",baseFrequency:".9",numOctaves:2,seed:4},f);el("feColorMatrix",{type:"saturate",values:"0"},f);
+var rg=el("radialGradient",{id:"vg",cx:.5,cy:.5,r:.75},defs);el("stop",{offset:.55,"stop-color":"#000","stop-opacity":0},rg);el("stop",{offset:1,"stop-color":"#000","stop-opacity":.55},rg);
+var bf=el("filter",{id:"bl",x:"-10%",y:"-60%",width:"120%",height:"220%"},defs);var bfe=el("feGaussianBlur",{stdDeviation:"0 0"},bf);
+el("rect",{width:1280,height:720,fill:"#0f0f12"});
+var CAM=el("g",{});
+// ---- windows (behind text)
+var WIN=el("g",{},CAM);
+var offs=[[-640,-150,-7,TEAL],[-500,210,5,VIO],[-300,-290,4,COR],[-250,330,-4,TEAL],[330,-300,-5,VIO],[540,170,6,COR],[740,-100,-4,TEAL],[300,330,4,VIO],[-790,60,8,COR],[860,220,-6,VIO],[0,0,0,YEL],[150,-40,5,TEAL]];
+var wins=[];
+function win(g,cx,cy,w,h,col,rot){var wg=el("g",{},g),x=cx-w/2,y=cy-h/2;
+ el("rect",{x:x+8,y:y+12,width:w,height:h,rx:16,fill:"#000",opacity:.4},wg);
+ el("rect",{x:x,y:y,width:w,height:h,rx:16,fill:"#23252f",stroke:"#3a3e4d","stroke-width":3},wg);
+ el("path",{d:"M"+x+" "+(y+54)+"V"+(y+16)+"Q"+x+" "+y+" "+(x+16)+" "+y+"H"+(x+w-16)+"Q"+(x+w)+" "+y+" "+(x+w)+" "+(y+16)+"V"+(y+54)+"Z",fill:col},wg);
+ for(var i=0;i<3;i++)el("circle",{cx:x+26+i*24,cy:y+27,r:7,fill:"#0f0f12",opacity:.55},wg);
+ for(i=0;i<4;i++)el("rect",{x:x+24,y:y+84+i*34,width:(w-48)*(.4+R()*.55),height:14,rx:7,fill:"#3d4152"},wg);
+ el("rect",{x:x+24,y:y+h-60,width:110,height:36,rx:10,fill:col,opacity:.9},wg);
+ return wg}
+var HEROL=null;
+offs.forEach(function(o,i){var hero=i==10;var wg=win(hero?(HEROL=el("g",{})):WIN,640+o[0],360+o[1],hero?380:360,hero?250:240,o[3],o[2]);wins.push({g:wg,o:o,hero:hero})});
+// ---- headline
+var H=el("g",{},CAM);
+var HW=el("g",{},H);
+var w1=txt(HW,232,395,"too",190,WH,"start"),w2=txt(HW,607,395,"many",190,WH,"start");
+var wp=[[220,340,"#ff4f3d"],[595,470,"#ffd400"]];
+var bars=wp.map(function(p){return el("rect",{x:p[0],y:250,width:p[1],height:190,fill:p[2]},H)});
+// ---- reel
+var RL=el("g",{"clip-path":"url(#rc)"},CAM);
+var rc=el("clipPath",{id:"rc"},defs);el("rect",{x:0,y:372,width:1280,height:180},rc);
+var items=["noise","pings","emails","files","threads","calls","chats","alerts","docs","tabs","pings","emails","calls","open tabs"];
+var RG=el("g",{filter:"url(#bl)"},RL);
+var rtx=items.map(function(t,i){var last=i==items.length-1;return txt(RG,640,0,t,last?136:132,last?YEL:WH,"middle")});
+var Q=txt(CAM,1075,480,"?",170,COR,"middle");
+var STEP=140,CY=480;
+function reel(p){var ry=-(items.length-1)*STEP*p;
+ rtx.forEach(function(t,i){var y=CY+i*STEP+ry,d=Math.abs(y-CY);t.setAttribute("y",y.toFixed(1));t.setAttribute("opacity",Math.max(0,1-d/330).toFixed(2))});
+ var v=3*Math.pow(1-p,2);bfe.setAttribute("stdDeviation","0 "+(v*9).toFixed(2))}
+reel(0);
+// ---- final name inside hero window
+var HERO=wins[10];CAM.appendChild(HEROL);
+var NM=el("g",{opacity:0},CAM);
+var hx=640,hy=360;
+// ---- grain & vignette (outside camera)
+el("rect",{width:1280,height:720,filter:"url(#grain)",opacity:.09});
+el("rect",{width:1280,height:720,fill:"url(#vg)"});
+// ---- timeline
+var tl=gsap.timeline({paused:true});
+gsap.set(w1,{opacity:0});gsap.set(w2,{opacity:0});gsap.set(RL,{opacity:0});gsap.set(Q,{opacity:0});
+bars.forEach(function(b,i){var x0=wp[i][0],t0=.0+i*.3;
+ tl.fromTo(b,{scaleX:0,svgOrigin:x0+" 0"},{scaleX:1,svgOrigin:x0+" 0",duration:.3,ease:"power2.inOut"},t0);
+ tl.set(i?w2:w1,{opacity:1},t0+.3);
+ tl.to(b,{scaleX:0,svgOrigin:(x0+wp[i][1])+" 0",duration:.3,ease:"power2.inOut"},t0+.3)});
+// headline scales up & away
+var hp={s:1,y:0};function setH(){H.setAttribute("transform","translate(640 "+(330+hp.y)+") scale("+hp.s+") translate(-640 -330)")}
+setH();
+tl.to(hp,{s:.6,y:-170,duration:.7,ease:"power2.inOut",onUpdate:setH},1.0);
+var rp={p:0};tl.to(rp,{p:1,duration:1.85,ease:"power3.out",onUpdate:function(){reel(rp.p)}},1.05);
+tl.fromTo(RL,{opacity:0},{opacity:1,duration:.4},1.0);
+tl.fromTo(Q,{opacity:0,scale:.2,svgOrigin:"1075 430"},{opacity:1,scale:1,svgOrigin:"1075 430",duration:.5,ease:"back.out(3)"},2.9);
+var cm={s:1};function setC(){CAM.setAttribute("transform","translate(640 360) scale("+cm.s+") translate(-640 -360)")}setC();
+tl.to(cm,{s:.62,duration:1.0,ease:"sine.inOut",onUpdate:setC},3.0);
+wins.forEach(function(w,i){var o=w.o;
+ tl.fromTo(w.g,{x:o[0]*1.7,y:o[1]*1.7,scale:w.hero?1.8:1,rotation:o[2]*3,svgOrigin:(640+o[0])+" "+(360+o[1]),opacity:0},{x:0,y:0,scale:1,rotation:o[2],svgOrigin:(640+o[0])+" "+(360+o[1]),opacity:1,duration:.7,ease:"power3.out"},3.0+i*.045)});
+var HS=1280/380*1.02;
+tl.to(cm,{s:HS,duration:.75,ease:"power3.inOut",onUpdate:setC},3.9);
+// final: hero window name text (drawn in world space inside hero window)
+var nm=txt(NM,hx,hy+16,"tidyup",78,"#0f0f12","middle");
+var tg=txt(NM,hx,hy+62,"less open. more done.",19,"#0f0f12","middle");tg.setAttribute("style","font-weight:600;letter-spacing:0");
+var heroRect=HERO.g.children[1];
+tl.to(heroRect,{attr:{fill:YEL,stroke:YEL},duration:.35,ease:"sine.inOut"},3.75);
+tl.to(HERO.g.children[2],{attr:{fill:YEL},duration:.2},3.8);
+for(var k=3;k<HERO.g.children.length;k++)tl.to(HERO.g.children[k],{opacity:0,duration:.2},3.85);
+tl.to(NM,{opacity:1,duration:.3},4.1);
+tl.to({},{duration:.01},4.99);
+window.__timelines={main:tl};
+})();
+</script></body></html>

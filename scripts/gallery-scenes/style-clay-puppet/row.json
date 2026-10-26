@@ -1,0 +1,17 @@
+{
+ "id": "style-clay-puppet",
+ "name": "Stop-motion puppet",
+ "group": "Clay",
+ "summary": "A clay puppet with thread hair, fabric scraps, wire and button details.",
+ "bestFor": "Handmade, tactile films where the style carries the story",
+ "prompt": "A 30-second explainer for Pocket, an app that turns receipts into a tidy monthly budget. Show the problem of a pile of receipts, how Pocket sorts them, and a call to try it free.",
+ "look": "clay-puppet",
+ "theme": "neutral",
+ "aspect": "16:9",
+ "durationSeconds": 30,
+ "motionProfile": "smooth",
+ "pace": "balanced",
+ "audio": "voiceover",
+ "poster": 3,
+ "duration": 5
+}

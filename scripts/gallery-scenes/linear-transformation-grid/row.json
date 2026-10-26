@@ -1,0 +1,16 @@
+{
+  "id": "linear-transformation-grid",
+  "name": "Linear Transformation Visual",
+  "group": "Math",
+  "summary": "A coordinate grid with basis vectors is sheared and rotated by a matrix as the grid lines bend smoothly.",
+  "bestFor": "Linear algebra courses, matrix intuition videos",
+  "prompt": "Explain a two by two matrix as a transformation of space. Show a coordinate grid with the two basis vectors, then apply the matrix so every grid line moves while staying straight and evenly spaced. Point out where each basis vector lands and how the matrix columns record those landing spots.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 75,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 3.5
+}

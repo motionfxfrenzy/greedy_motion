@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Five-scene business explainer</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #eaf3fd; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #eaf3fd; font-family: "Inter", "Helvetica Neue", Arial, sans-serif; color: #1b2a41; }
+  .scene { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; opacity: 0; }
+  .mask { overflow: hidden; padding: 0 20px 12px; line-height: 1.02; }
+  .mask > span { display: block; }
+  .big { font-weight: 800; font-size: 132px; letter-spacing: -0.045em; }
+  .mid { font-weight: 800; font-size: 84px; letter-spacing: -0.04em; }
+  .sub { font-weight: 700; font-size: 44px; letter-spacing: -0.02em; color: #3b82c4; margin-top: 22px; }
+  .steps { display: flex; gap: 64px; margin-top: 10px; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: 18px; opacity: 0; }
+  .step b { width: 112px; height: 112px; border-radius: 50%; background: #3b82c4; color: #eaf3fd; font-size: 64px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .step i { font-style: normal; font-weight: 800; font-size: 56px; letter-spacing: -0.035em; }
+  .q { font-weight: 800; font-size: 82px; letter-spacing: -0.04em; max-width: 1080px; }
+  .dots { position: absolute; left: 0; right: 0; bottom: 44px; display: flex; justify-content: center; gap: 16px; }
+  .dots u { width: 14px; height: 14px; border-radius: 7px; background: #b9d3ee; display: block; }
+  #bar { position: absolute; left: 0; top: 0; height: 8px; width: 1280px; background: #3b82c4; transform-origin: 0 50%; transform: scaleX(0); }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <div id="bar"></div>
+  <div class="scene" id="s1"><div class="mask"><span class="big">Month-end</span></div><div class="mask"><span class="big">is a mess.</span></div><div class="mask sub-m"><span class="sub">Receipts. Sheets. Stress.</span></div></div>
+  <div class="scene" id="s2"><div class="mask"><span class="big">We keep</span></div><div class="mask"><span class="big">your books.</span></div><div class="mask"><span class="sub">Bookkeeping for small studios.</span></div></div>
+  <div class="scene" id="s3"><div class="mask"><span class="mid" style="margin-bottom:26px">Three steps.</span></div><div class="steps">
+    <div class="step"><b>1</b><i>Send</i></div><div class="step"><b>2</b><i>Review</i></div><div class="step"><b>3</b><i>Relax</i></div></div></div>
+  <div class="scene" id="s4"><div class="mask"><span class="q">“Month-end stopped</span></div><div class="mask"><span class="q">being scary.”</span></div><div class="mask"><span class="sub">A studio owner, our client</span></div></div>
+  <div class="scene" id="s5"><div class="mask"><span class="big" style="font-size:150px">Tally &amp; Co.</span></div><div class="mask"><span class="sub">Books, handled.</span></div></div>
+  <div class="dots"><u></u><u></u><u></u><u></u><u></u></div>
+</div>
+<script>
+(function () {
+  var tl = gsap.timeline({ paused: true });
+  var T = [0, 1.0, 2.0, 3.25, 4.2, 5];   // five scenes
+  var dots = document.querySelectorAll(".dots u");
+  tl.to("#bar", { scaleX: 1, duration: 5, ease: "none" }, 0);
+  for (var i = 0; i < 5; i++) {
+    var id = "#s" + (i + 1), t0 = T[i], t1 = T[i + 1], last = i === 4;
+    var spans = id + " .mask > span";
+    tl.set(id, { opacity: 1 }, t0);
+    tl.fromTo(spans, { yPercent: 115 }, { yPercent: 0, duration: 0.5, ease: "power3.out", stagger: 0.07 }, t0 + (i === 0 ? 0 : 0.0));
+    if (i === 2) tl.fromTo(".step", { opacity: 0, y: 40, scale: 0.8 }, { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: "back.out(2)", stagger: 0.16 }, t0 + 0.3);
+    if (!last) { tl.to(spans, { yPercent: -115, duration: 0.3, ease: "power2.in", stagger: 0.04 }, t1 - 0.34); if (i === 2) tl.to(".step", { opacity: 0, y: -30, duration: 0.26, ease: "power2.in" }, t1 - 0.32); tl.set(id, { opacity: 0 }, t1); }
+    tl.to(dots[i], { backgroundColor: "#3b82c4", scaleX: 2.2, duration: 0.25 }, t0);
+    if (!last) tl.to(dots[i], { backgroundColor: "#b9d3ee", scaleX: 1, duration: 0.2 }, t1);
+  }
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

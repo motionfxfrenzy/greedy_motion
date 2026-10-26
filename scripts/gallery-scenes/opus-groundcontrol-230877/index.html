@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Pencil data story</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f7f3ea; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f7f3ea; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(311);
+  var GR = "#3f3e45", GR2 = "#7b7a80", RED = "#e2452f", BLUE = "#3d6fb4";
+  function wob(pts, amp, step) {
+    var out = [pts[0]], i, k;
+    for (i = 1; i < pts.length; i++) {
+      var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+      for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+    }
+    var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+    for (i = 0; i < out.length - 1; i++) {
+      var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+      d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+    }
+    return d;
+  }
+  function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .05; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+
+  var defs = el("defs", {});
+  var flt = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+  el("feTurbulence", { type: "fractalNoise", baseFrequency: "0.06", numOctaves: 2, seed: 13, result: "n" }, flt);
+  el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: 3 }, flt);
+  [["fr", "#ff2d55"], ["fc", "#00b7ff"]].forEach(function (f) {
+    var ff = el("filter", { id: f[0], x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+    el("feFlood", { "flood-color": f[1], "flood-opacity": .55, result: "c" }, ff);
+    el("feComposite", { "in": "c", in2: "SourceGraphic", operator: "in" }, ff);
+  });
+
+  el("rect", { width: 1280, height: 720, fill: "#f7f3ea" });
+  var gd = "", gx;
+  for (gx = 0; gx <= 1280; gx += 40) gd += "M" + gx + " 0V720";
+  for (gx = 0; gx <= 720; gx += 40) gd += "M0 " + gx + "H1280";
+  el("path", { d: gd, stroke: "#d9d2bf", "stroke-width": 1, opacity: .45, fill: "none" });
+
+  var fringeR = el("use", { href: "#art", transform: "translate(-2.6 -1.4)", filter: "url(#fr)" });
+  var fringeC = el("use", { href: "#art", transform: "translate(2.6 1.4)", filter: "url(#fc)" });
+  var art = el("g", { id: "art", filter: "url(#rough)" });
+  // keep the fringe copies behind the main drawing
+  s.insertBefore(fringeR, art); s.insertBefore(fringeC, art);
+
+  var tl = gsap.timeline({ paused: true }), cid = 0;
+  function stroke(pts, color, w, t, dur, o) {
+    o = o || {};
+    var amp = o.amp == null ? 1.6 : o.amp, ds = [[w, 1, wob(pts, amp, 30)]];
+    if (!o.single) ds.push([w * .5, .6, wob(pts, amp * 1.3, 26)]);
+    var made = [];
+    ds.forEach(function (p, i) {
+      var path = el("path", { d: p[2], fill: "none", stroke: color, "stroke-width": p[0], "stroke-linecap": "round", "stroke-linejoin": "round", opacity: p[1] }, art);
+      var L = path.getTotalLength(); path.style.strokeDasharray = L + " " + (L + 30); path.style.strokeDashoffset = L + 4;
+      tl.to(path, { strokeDashoffset: 0, duration: dur * (i ? 1.08 : 1), ease: o.ease || "power1.inOut" }, t + (i ? .04 : 0));
+      tl.set(path, { opacity: 0 }, 0); tl.set(path, { opacity: p[1] }, t + (i ? .04 : 0));
+      made.push(path);
+    });
+    return made;
+  }
+  function write(str, x, y, size, color, t, dur, rot, w) {
+    var g = el("g", rot ? { transform: "rotate(" + rot + " " + x + " " + y + ")" } : {}, art);
+    var id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+    var rc = el("rect", { x: x - 10, y: y - size * 1.1, width: 0, height: size * 1.5 }, cp);
+    var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": w || 500, "font-style": "italic", fill: color, "clip-path": "url(#" + id + ")", "font-family": "Newsreader, 'Source Serif 4', serif" }, g);
+    tx.textContent = str;
+    tl.to(rc, { attr: { width: 1300 - x }, duration: dur, ease: "none" }, t);
+  }
+
+  // ---- thermometer (0 - 0.9)
+  var TX = 150;
+  var merc = el("g", {}, art);
+  var mr = el("rect", { x: TX - 15, y: 150, width: 30, height: 340, fill: RED, opacity: .85 }, merc);
+  var bulb = el("circle", { cx: TX, cy: 525, r: 44, fill: RED, opacity: .85 }, art);
+  tl.set([bulb, merc], { opacity: 0 }, 0); tl.set(bulb, { opacity: .85 }, .62); tl.set(merc, { opacity: 1 }, .62);
+  // pencil hatching on the mercury
+  var hd = "", hy; for (hy = 160; hy < 560; hy += 11) hd += "M" + (TX - 14) + " " + (hy + 9) + "L" + (TX + 14) + " " + hy;
+  el("path", { d: hd, stroke: "#9b2615", "stroke-width": 1.8, opacity: .5, fill: "none" }, merc);
+  tl.fromTo(merc, { scaleY: .12, svgOrigin: TX + " 545" }, { scaleY: 1, svgOrigin: TX + " 545", duration: 1.5, ease: "power1.inOut" }, 1.0);
+  tl.set(merc, { scaleY: .12, svgOrigin: TX + " 545" }, 0);
+  tl.to(merc, { scaleY: .3, svgOrigin: TX + " 545", duration: .5, ease: "power2.out" }, .4);
+  stroke([[TX - 28, 470], [TX - 28, 300], [TX - 28, 150]], GR, 6, 0, .35, { amp: 1.2 });
+  stroke(arc(TX, 150, 28, 28, 180, 360, 8), GR, 6, .25, .15, { amp: .8 });
+  stroke([[TX + 28, 150], [TX + 28, 300], [TX + 28, 470]], GR, 6, .32, .35, { amp: 1.2 });
+  stroke(arc(TX, 525, 62, 62, -63.2, 243.2, 18), GR, 6, .5, .4, { amp: 1.2 });
+  [0, 1, 2, 3, 4, 5].forEach(function (i) { var y = 190 + i * 48; stroke([[TX + 40, y], [TX + 62 - (i % 2) * 12, y + 1]], GR2, 4, .6 + i * .04, .1, { single: true, amp: .8 }); });
+  write("Summer highs", 330, 96, 52, GR, .1, .6, -1);
+
+  // ---- chart axes (0.5 - 1.1)
+  var OX = 360, OY = 520;
+  stroke([[OX, 135], [OX + 2, 300], [OX - 1, OY]], GR, 6, .5, .4, { amp: 1.4 });
+  stroke([[OX - 2, OY + 1], [700, OY + 3], [1200, OY]], GR, 6, .65, .5, { amp: 1.4 });
+  [0, 1, 2].forEach(function (i) { stroke([[OX + 6, 200 + i * 105], [1190, 202 + i * 105]], GR2, 2.4, .85 + i * .06, .3, { single: true, amp: 1 }); });
+  write("then", 400, 578, 38, GR2, .95, .25, -1);
+  write("now", 1100, 578, 38, GR2, 1.05, .25, -1);
+
+  // ---- the recent summers (1.0 - 2.5)
+  var X0 = 410, DX = 67, V = [405, 392, 398, 368, 345, 355, 318, 292, 305, 255, 208, 238], P = V.map(function (v, i) { return [X0 + i * DX, v]; });
+  stroke(P, GR, 7, 1.0, 1.5, { amp: 1.5, ease: "none" });
+  P.forEach(function (p, i) { var t = 1.0 + 1.5 * (i / 11); stroke(arc(p[0], p[1], 9, 9, 0, 360, 8), GR, 4, t, .12, { single: true, amp: .5 }); });
+
+  // ---- the hottest summer (2.55 - 3.1)
+  var HP = P[10];
+  stroke(arc(HP[0], HP[1], 40, 38, -30, 370, 22), RED, 7, 2.55, .45, { amp: 1.8 });
+  stroke([[1015, 140], [1000, 170], [HP[0] - 30, HP[1] - 32]], RED, 5, 2.85, .3, { amp: 1.4 });
+  write("hottest", 1040, 128, 56, RED, 2.9, .4, -3, 600);
+
+  // ---- earlier years on a second line (3.1 - 3.9)
+  var V2 = [425, 418, 428, 414, 420, 408, 416, 410, 404, 412, 402, 407], P2 = V2.map(function (v, i) { return [X0 + i * DX, v + 28]; });
+  stroke(P2, BLUE, 6, 3.1, .8, { amp: 1.3, ease: "none" });
+  write("before", 430, 498, 40, BLUE, 3.6, .3, -2);
+
+  // ---- takeaway (3.9 - 4.6)
+  write("Hotter, summer after summer.", 340, 668, 60, GR, 3.85, .75, -.6, 600);
+  stroke([[340, 686], [700, 690], [1130, 684]], RED, 5, 4.4, .3, { amp: 1.6 });
+
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+  tl.set({}, {}, 5);
+})();
+</script>
+</body>
+</html>

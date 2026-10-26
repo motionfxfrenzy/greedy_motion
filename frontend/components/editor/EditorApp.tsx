@@ -5,6 +5,7 @@ import { demoDoc, DEMO_DURATION, DEMO_CANVAS } from "../../lib/editor/fixtures.t
 import { createAutosave, setActiveAutosave } from "../../lib/editor/remote.ts";
 import { useEditor, useEditorState } from "../../lib/editor/store.ts";
 import { getPro, openPro, previewFrame, projectName, readProFile, writeProFiles, ProApiError } from "../../lib/pro-api.ts";
+import { siteTheme } from "../../lib/site-theme.ts";
 import { startDrag } from "./drag.ts";
 import { Canvas } from "./Canvas.tsx";
 import { Inspector } from "./Inspector.tsx";
@@ -112,6 +113,9 @@ export function EditorApp({ projectId }: { projectId: string }) {
     void openProject();
     return () => { setActiveAutosave(null); };
   }, [projectId, openProject]);
+
+  // The editor opens in the theme the rest of the site is showing.
+  useEffect(() => { useEditor.getState().ui({ theme: siteTheme() }); }, [load.phase]);
 
   // A server project keeps edits in the browser until saved; leaving then loses them.
   useEffect(() => {

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Glow fly-line: data flow between cards, on a dark ground</title>
+    <script src="vendor/gsap.min.js"></script>
+    <!--
+      Recipe: glow-flyline (gm-motion-recipes/rules/glow-flyline.md)
+      Three parts, one clock:
+        ambient   three radial glow orbs drift behind the cards (no blur filter: the gradient is already soft)
+        flyline   a bezier arc is "shot" from one card to the next: bright head leads, dim tail, the line then
+                  settles to one even brightness. 22 frames (0.733 s), power3.out
+        relay     the landing frame fires, together: the target card's edge pulse AND a surge of the nearest orb
+
+        0.00 - 0.60s   cards enter
+        0.70 - 1.43s   line 1  A -> B     lands 1.43s   (pulse on B + orb 2 surge, same frame)
+        1.75 - 2.48s   line 2  B -> C     lands 2.48s   (pulse on C + orb 3 surge, same frame)
+        2.48 - 3.60s   orbs keep drifting; nothing is frozen
+    -->
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #07080c; }
+      #root { position: relative; width: 1920px; height: 1080px; background: #07080c; color: #f3f6ff; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; overflow: hidden; }
+      .orb { position: absolute; width: 760px; height: 760px; border-radius: 50%; will-change: transform; }
+      #o1 { left: 80px;  top: 20px;  background: radial-gradient(circle, rgba(88, 118, 255, .9) 0%, rgba(88, 118, 255, 0) 64%); opacity: .32; }
+      #o2 { left: 620px; top: 330px; background: radial-gradient(circle, rgba(150, 96, 255, .9) 0%, rgba(150, 96, 255, 0) 64%); opacity: .22; }
+      #o3 { left: 1130px; top: 40px; background: radial-gradient(circle, rgba(60, 190, 220, .9) 0%, rgba(60, 190, 220, 0) 64%); opacity: .18; }
+      .card { position: absolute; width: 520px; height: 300px; border-radius: 30px; background: #10131c; border: 2px solid rgba(255, 255, 255, .10); padding: 40px 44px; }
+      .card .k { font-size: 36px; font-weight: 600; letter-spacing: .5px; color: #b8c4e6; }
+      .card .v { margin-top: 26px; font-size: 118px; font-weight: 800; letter-spacing: -2px; line-height: 1; }
+      .card .t { margin-top: 18px; font-size: 32px; font-weight: 500; color: #8fa0cf; }
+      #cA { left: 200px;  top: 140px; }
+      #cC { left: 1200px; top: 140px; }
+      #cB { left: 700px;  top: 610px; }
+      .ring { position: absolute; width: 520px; height: 300px; border-radius: 30px; border: 3px solid #a9c2ff; opacity: 0; pointer-events: none; }
+      #rB { left: 700px; top: 610px; } #rC { left: 1200px; top: 140px; }
+      svg#lines { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+      svg#lines path { fill: none; }
+      /* Initial states live in the markup/CSS, so frame 0 is right before any tween runs. HOT below must equal the HOT
+         constant in the script. stroke-dashoffset is an ATTRIBUTE on purpose: GSAP rounds a CSS stroke-dashoffset tween to
+         whole px (1 -> 0 would jump), but tweens attr:{"stroke-dashoffset"} with full precision. Never also set it in CSS. */
+      .under, .base, .hot, .halo, .head { opacity: 0; }
+      .under, .base { stroke-dasharray: 1 1; }
+      .hot { stroke-dasharray: 0.3 2; }
+      .halo, .head { stroke-dasharray: 0.0005 2; }
+      .under { stroke: rgba(130, 160, 255, .30); stroke-width: 15; stroke-linecap: butt; }
+      .base  { stroke: #eaf0ff; stroke-width: 4.5; stroke-linecap: butt; }
+      .hot   { stroke: #ffffff; stroke-width: 6; stroke-linecap: butt; }
+      .halo  { stroke: rgba(160, 190, 255, .45); stroke-width: 56; stroke-linecap: round; }
+      .head  { stroke: #ffffff; stroke-width: 18; stroke-linecap: round; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.6" data-width="1920" data-height="1080">
+      <div id="scene" class="clip" data-start="0" data-duration="3.6" data-track-index="0">
+        <div id="o1" class="orb"></div>
+        <div id="o2" class="orb"></div>
+        <div id="o3" class="orb"></div>
+
+        <div id="cA" class="card"><div class="k">Requests</div><div class="v">4.2M</div><div class="t">per day</div></div>
+        <div id="cB" class="card"><div class="k">Processed</div><div class="v">98%</div><div class="t">within 200 ms</div></div>
+        <div id="cC" class="card"><div class="k">Delivered</div><div class="v">3.9M</div><div class="t">to customers</div></div>
+        <div id="rB" class="ring"></div>
+        <div id="rC" class="ring"></div>
+
+        <svg id="lines" viewBox="0 0 1920 1080" aria-hidden="true">
+          <!-- line 1: A bottom edge -> B left edge; line 2: B right edge -> C bottom edge. pathLength=1 makes dash units 0..1 along the arc. -->
+          <g id="L1">
+            <path class="under" stroke-dashoffset="1" pathLength="1" d="M 460 440 C 460 640, 520 760, 700 760" />
+            <path class="base" stroke-dashoffset="1" pathLength="1" d="M 460 440 C 460 640, 520 760, 700 760" />
+            <path class="hot" stroke-dashoffset="0.3" pathLength="1" d="M 460 440 C 460 640, 520 760, 700 760" />
+            <path class="halo" stroke-dashoffset="0" pathLength="1" d="M 460 440 C 460 640, 520 760, 700 760" />
+            <path class="head" stroke-dashoffset="0" pathLength="1" d="M 460 440 C 460 640, 520 760, 700 760" />
+          </g>
+          <g id="L2">
+            <path class="under" stroke-dashoffset="1" pathLength="1" d="M 1220 760 C 1460 760, 1460 640, 1460 440" />
+            <path class="base" stroke-dashoffset="1" pathLength="1" d="M 1220 760 C 1460 760, 1460 640, 1460 440" />
+            <path class="hot" stroke-dashoffset="0.3" pathLength="1" d="M 1220 760 C 1460 760, 1460 640, 1460 440" />
+            <path class="halo" stroke-dashoffset="0" pathLength="1" d="M 1220 760 C 1460 760, 1460 640, 1460 440" />
+            <path class="head" stroke-dashoffset="0" pathLength="1" d="M 1220 760 C 1460 760, 1460 640, 1460 440" />
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const FPS = 30;
+      const GROW = 22 / FPS;           // 0.733 s: the arc is shot in 22 frames
+      const GROW_EASE = "power3.out";  // out-cubic
+      const HOT = 0.3;                 // length of the bright window behind the head (fraction of the arc)
+      const SETTLE = 10 / FPS;         // tail brightness evens out in 10 frames after landing
+      const ORB_BASE = { o1: 0.32, o2: 0.22, o3: 0.18 };
+
+      const tl = gsap.timeline({ paused: true });
+      const $ = (sel) => document.querySelector(sel);
+
+      // zero-duration, seek-safe show/hide (explicit from -> to, never a bare set mid-timeline)
+      const show = (el, t) => tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0, immediateRender: false }, t);
+      const hide = (el, t) => tl.fromTo(el, { opacity: 1 }, { opacity: 0, duration: 0, immediateRender: false }, t);
+
+      // stable baseline for the orbs, set outside the timeline (their x and y are tweened by separate fromTo calls)
+      gsap.set(".orb", { x: 0, y: 0 });
+
+      // --- cards enter ---
+      ["#cA", "#cB", "#cC"].forEach((id, i) => {
+        tl.fromTo(id, { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, i * 0.1);
+      });
+
+      // --- ambient: orbs drift, double-sine, unequal periods; they never freeze ---
+      const drift = (id, dx, dy, tx, ty) => {
+        tl.fromTo(id, { x: 0 }, { x: dx, duration: tx, ease: "sine.inOut", immediateRender: false }, 0);
+        tl.fromTo(id, { y: 0 }, { y: dy, duration: ty, ease: "sine.inOut", repeat: 1, yoyo: true, immediateRender: false }, 0);
+      };
+      drift("#o1", 170, 80, 3.6, 1.8);
+      drift("#o2", -150, -90, 3.6, 1.6);
+      drift("#o3", -120, 100, 3.6, 1.9);
+
+      // --- one fly-line: grow, hot head, settle, then the relay (card pulse + orb surge on the SAME frame) ---
+      const fly = (g, start, ringSel, cardSel, orbSel, orbBase) => {
+        const q = (c) => g + " ." + c;
+        const land = start + GROW;
+        // visible while it is being shot
+        ["under", "hot", "halo", "head"].forEach((c) => show(q(c), start));
+        // the base line appears already dim (0.45): bright head, dim tail
+        tl.fromTo(q("base"), { opacity: 0 }, { opacity: 0.45, duration: 0, immediateRender: false }, start);
+        // growth: base + under follow the head; hot window trails it; head + halo ride the tip. Same ease, same clock.
+        tl.fromTo(q("under"), { attr: { "stroke-dashoffset": 1 } }, { attr: { "stroke-dashoffset": 0 }, duration: GROW, ease: GROW_EASE, immediateRender: false }, start);
+        tl.fromTo(q("base"), { attr: { "stroke-dashoffset": 1 } }, { attr: { "stroke-dashoffset": 0 }, duration: GROW, ease: GROW_EASE, immediateRender: false }, start);
+        tl.fromTo(q("hot"), { attr: { "stroke-dashoffset": HOT } }, { attr: { "stroke-dashoffset": HOT - 1 }, duration: GROW, ease: GROW_EASE, immediateRender: false }, start);
+        tl.fromTo(q("halo"), { attr: { "stroke-dashoffset": 0 } }, { attr: { "stroke-dashoffset": -1 }, duration: GROW, ease: GROW_EASE, immediateRender: false }, start);
+        tl.fromTo(q("head"), { attr: { "stroke-dashoffset": 0 } }, { attr: { "stroke-dashoffset": -1 }, duration: GROW, ease: GROW_EASE, immediateRender: false }, start);
+        // dim tail -> even line
+        tl.fromTo(q("base"), { opacity: 0.45 }, { opacity: 1, duration: SETTLE, ease: "none", immediateRender: false }, land);
+        tl.fromTo(q("hot"), { opacity: 1 }, { opacity: 0, duration: SETTLE, ease: "none", immediateRender: false }, land);
+        // the head and halo are removed at landing (opacity 0, not left idling on the line)
+        hide(q("head"), land); hide(q("halo"), land);
+
+        // relay: ALL of these start on `land`
+        tl.fromTo(ringSel, { opacity: 0, scale: 1 }, { opacity: 1, scale: 1.06, duration: 0.2, ease: "power3.out", immediateRender: false }, land);
+        tl.fromTo(ringSel, { opacity: 1 }, { opacity: 0, duration: 0.4, ease: "none", immediateRender: false }, land + 0.2);
+        tl.fromTo(cardSel, { borderColor: "rgba(255,255,255,0.10)" }, { borderColor: "rgba(169,194,255,0.95)", duration: 0.267, ease: "power2.out", immediateRender: false }, land);
+        tl.fromTo(cardSel, { borderColor: "rgba(169,194,255,0.95)" }, { borderColor: "rgba(169,194,255,0.30)", duration: 0.5, ease: "power2.inOut", immediateRender: false }, land + 0.267);
+        tl.fromTo(orbSel, { opacity: orbBase }, { opacity: orbBase * 2.6, duration: 5 / FPS, ease: "power2.out", immediateRender: false }, land);
+        tl.fromTo(orbSel, { opacity: orbBase * 2.6 }, { opacity: orbBase, duration: 15 / FPS, ease: "power2.in", immediateRender: false }, land + 5 / FPS);
+      };
+      fly("#L1", 0.7, "#rB", "#cB", "#o2", ORB_BASE.o2);
+      fly("#L2", 1.75, "#rC", "#cC", "#o3", ORB_BASE.o3);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

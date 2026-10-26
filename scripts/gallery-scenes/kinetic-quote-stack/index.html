@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Kinetic quote stack</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#f4ecdc}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#f4ecdc;color:#14213d;font-family:'Playfair Display',serif}
+#stack{position:absolute;left:100px;top:90px}
+.ln{display:flex;gap:30px;font-weight:900;font-size:136px;line-height:1.08;letter-spacing:-3px}
+.m{overflow:hidden;display:inline-block;padding:0 4px 10px 0}
+.m span{display:inline-block}
+#key{position:relative;display:inline-block}
+#hl{position:absolute;left:-10px;right:0;top:18px;bottom:22px;background:#e4572e;transform-origin:0 50%;z-index:0}
+#key .m{position:relative;z-index:1}
+#key .m span{font-style:italic}
+#rule{position:absolute;left:100px;top:612px;width:780px;height:8px;background:#e4572e;transform-origin:0 50%}
+#tag{position:absolute;left:100px;top:46px;font-family:'Space Grotesk';font-weight:700;font-size:22px;letter-spacing:8px;color:#e4572e}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div id="tag">THE RULE</div>
+<div id="stack">
+<div class="ln"><span class="m"><span class="a">Make</span></span><span class="m"><span class="a">it</span></span><span class="m"><span class="a">simple</span></span></div>
+<div class="ln"><span class="m"><span class="a">enough</span></span><span class="m"><span class="a">to</span></span></div>
+<div class="ln"><span id="key"><i id="hl"></i><span class="m"><span class="a" id="kw">remember.</span></span></span></div>
+</div>
+<div id="rule"></div>
+</div>
+<script>
+const tl=gsap.timeline({paused:true});
+const a=gsap.utils.toArray(".a");
+a.forEach((el,i)=>{
+  const t=i*0.3;
+  tl.fromTo(el,{yPercent:i==0?20:115,opacity:i==0?.4:1},{yPercent:0,opacity:1,duration:.5,ease:"power4.out"},t);
+});
+tl.fromTo("#tag",{opacity:0,x:-20},{opacity:1,x:0,duration:.4,ease:"power3.out"},0);
+// key word highlight lands after it appears (kw is index 5 -> t=1.5)
+tl.fromTo("#hl",{scaleX:0},{scaleX:1,duration:.45,ease:"expo.out"},1.9);
+tl.to("#kw",{color:"#f4ecdc",duration:.2},2.0);
+tl.fromTo("#rule",{scaleX:0},{scaleX:1,duration:.7,ease:"power3.inOut"},2.4);
+tl.fromTo("#kw",{scale:1.0},{scale:1.04,duration:.25,yoyo:true,repeat:1,ease:"power2.out",transformOrigin:"0 50%"},2.0);
+tl.to("#stack",{y:-6,duration:2.2,ease:"none"},2.8);
+tl.set({},{},5);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

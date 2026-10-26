@@ -1,0 +1,16 @@
+{
+  "id": "bayes-boxes",
+  "name": "Bayes Theorem Boxes",
+  "group": "Math",
+  "summary": "A unit square is split into areas that resize when evidence arrives, turning a prior into a posterior.",
+  "bestFor": "Probability explainers, statistics lessons",
+  "prompt": "Explain Bayes theorem with areas. Split a unit square into the hypothesis and its opposite, mark the share of each side where the evidence appears, then throw away everything without evidence and stretch what remains back to a full square. The new proportion is the updated belief, shown beside the prior.",
+  "look": "clean",
+  "theme": "cobalt-grid",
+  "aspect": "16:9",
+  "durationSeconds": 75,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "poster": 3.5
+}

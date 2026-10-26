@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>What's new</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#fbeee6}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#fbeee6;color:#2a2140;font-family:'Inter',sans-serif}
+.blob{position:absolute;border-radius:50%}
+#b1{left:-200px;top:-220px;width:900px;height:900px;background:radial-gradient(circle,#ffc8a8 0%,rgba(255,200,168,0) 68%)}
+#b2{left:640px;top:-260px;width:900px;height:900px;background:radial-gradient(circle,#cdbaf7 0%,rgba(205,186,247,0) 68%)}
+#b3{left:380px;top:360px;width:900px;height:800px;background:radial-gradient(circle,#ffd9ec 0%,rgba(255,217,236,0) 66%)}
+#b4{left:-260px;top:400px;width:800px;height:700px;background:radial-gradient(circle,#e3d6ff 0%,rgba(227,214,255,0) 66%)}
+#eyebrow{position:absolute;left:80px;top:96px;font-weight:700;font-size:20px;letter-spacing:6px;color:#8a6bd6}
+#title{position:absolute;left:76px;top:130px;font-family:'Instrument Serif',serif;font-size:132px;line-height:.98;letter-spacing:-2px;color:#2a2140}
+#title i{color:#e8764a}
+#pill{position:absolute;left:80px;top:420px;height:84px;padding:0 38px;border-radius:42px;background:#2a2140;color:#fff;font-weight:800;font-size:46px;line-height:84px;letter-spacing:-1px;box-shadow:0 14px 30px rgba(120,80,200,.35);transform-origin:50% 50%}
+#pill b{color:#ffb18a;font-weight:800}
+#sub{position:absolute;left:84px;top:528px;font-weight:600;font-size:28px;color:#6b5f86}
+#cta{position:absolute;left:80px;top:590px;height:70px;padding:0 34px;border-radius:35px;background:linear-gradient(90deg,#f08a5d,#b79af5);color:#fff;font-weight:700;font-size:26px;line-height:70px;box-shadow:0 12px 26px rgba(232,118,74,.35);transform-origin:0 50%}
+#feed{position:absolute;left:600px;top:0;width:640px;height:720px;overflow:hidden;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 110px,#000 640px,transparent 720px);mask-image:linear-gradient(180deg,transparent 0,#000 110px,#000 640px,transparent 720px)}
+.rail{position:absolute;left:35px;top:0;width:3px;height:720px;background:rgba(138,107,214,.25)}
+.card{position:absolute;left:0;top:0;width:620px;height:148px;border-radius:26px;background:rgba(255,255,255,.88);box-shadow:0 14px 34px rgba(120,80,200,.16);display:flex;align-items:center;padding:0 28px 0 28px;gap:24px}
+.card .ic{flex:none;width:76px;height:76px;border-radius:22px;display:flex;align-items:center;justify-content:center}
+.card .tx{flex:1}
+.card .k{font-weight:700;font-size:17px;letter-spacing:3px;color:#8a6bd6;margin-bottom:8px}
+.card .t{white-space:nowrap;font-weight:800;font-size:33px;line-height:1.08;letter-spacing:-.8px;color:#2a2140}
+.card.old{background:rgba(255,255,255,.6);box-shadow:0 8px 20px rgba(120,80,200,.08)}
+.card.old .t{color:#8b829f;font-weight:700}
+.card.old .k{color:#b3a9c6}
+.card.old .ic{background:#ece6f6}
+.chk{flex:none;width:52px;height:52px}
+.chk circle.bg{fill:#fff;stroke:#d9d0ea;stroke-width:3}
+.chk circle.fg{fill:#6fc79a;transform-origin:50% 50%}
+.chk path{fill:none;stroke:#fff;stroke-width:6;stroke-linecap:round;stroke-linejoin:round}
+.conf{position:absolute;left:0;top:0;opacity:0}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div class="blob" id="b1"></div><div class="blob" id="b2"></div><div class="blob" id="b3"></div><div class="blob" id="b4"></div>
+<div id="eyebrow">CHANGELOG</div>
+<div id="title">What&rsquo;s<br><i>new</i></div>
+<div id="sub">Relay is better today</div>
+<div id="pill"><b>v</b>2.4</div>
+<div id="cta">Read the full notes &rarr;</div>
+<div id="feed"><div class="rail"></div></div>
+<div id="confwrap"></div>
+</div>
+<script>
+const NEW=[
+ {k:"COLLABORATION",t:"Comments on every edit",c:"#ffd9c4",svg:'<svg width="40" height="40" viewBox="0 0 40 40"><path d="M6 8h28a2 2 0 0 1 2 2v17a2 2 0 0 1-2 2H18l-8 7v-7H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z" fill="#e8764a"/><rect x="11" y="15" width="18" height="3" rx="1.5" fill="#fff"/><rect x="11" y="21" width="11" height="3" rx="1.5" fill="#fff"/></svg>'},
+ {k:"DESIGN",t:"16 new themes",c:"#e3d6ff",svg:'<svg width="40" height="40" viewBox="0 0 40 40"><rect x="4" y="4" width="14" height="14" rx="4" fill="#8a6bd6"/><rect x="22" y="4" width="14" height="14" rx="4" fill="#f08a5d"/><rect x="4" y="22" width="14" height="14" rx="4" fill="#f4b6d6"/><rect x="22" y="22" width="14" height="14" rx="4" fill="#b79af5"/></svg>'},
+ {k:"EXPORT",t:"4K on every plan",c:"#ffe3ef",svg:'<svg width="44" height="40" viewBox="0 0 44 40"><rect x="2" y="6" width="40" height="28" rx="7" fill="#2a2140"/><text x="22" y="27" text-anchor="middle" font-family="Inter" font-weight="800" font-size="19" fill="#ffb18a">4K</text></svg>'}
+];
+const OLD=[
+ {k:"EARLIER",t:"Faster project exports"},
+ {k:"EARLIER",t:"Keyboard shortcuts"},
+ {k:"EARLIER",t:"Smoother timeline"}
+];
+const feed=document.getElementById("feed");
+const SLOT=174, Y0=108;
+const cards=[];
+function mk(o,old){
+  const d=document.createElement("div");d.className="card"+(old?" old":"");
+  d.innerHTML='<div class="ic" style="'+(old?'':'background:'+o.c)+'">'+(old?'<svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="9" fill="none" stroke="#b3a9c6" stroke-width="4"/></svg>':o.svg)+'</div><div class="tx"><div class="k">'+o.k+'</div><div class="t">'+o.t+'</div></div>'+
+  (old?'<svg class="chk" viewBox="0 0 52 52"><circle class="bg" cx="26" cy="26" r="23"/><circle class="fg" cx="26" cy="26" r="23" style="fill:#c9c1da"/><path d="M15 27l8 8 15-17" style="stroke:#fff"/></svg>':
+  '<svg class="chk" viewBox="0 0 52 52"><circle class="bg" cx="26" cy="26" r="23"/><circle class="fg" cx="26" cy="26" r="23"/><path d="M15 27l8 8 15-17" stroke-dasharray="40" stroke-dashoffset="40"/></svg>');
+  feed.appendChild(d);return d;
+}
+const olds=OLD.map(o=>mk(o,true)), news=NEW.map(o=>mk(o,false));
+olds.forEach((d,i)=>gsap.set(d,{x:30,y:Y0+i*SLOT}));
+news.forEach(d=>gsap.set(d,{x:30,y:760,opacity:0}));
+gsap.set(".rail",{x:0});
+const tl=gsap.timeline({paused:true});
+// background drift
+tl.fromTo("#b1",{x:0,y:0},{x:60,y:30,duration:5,ease:"none"},0);
+tl.fromTo("#b2",{x:0,y:0},{x:-70,y:40,duration:5,ease:"none"},0);
+tl.fromTo("#b3",{x:0,y:0},{x:-50,y:-30,duration:5,ease:"none"},0);
+tl.fromTo("#b4",{x:0,y:0},{x:50,y:-40,duration:5,ease:"none"},0);
+// left column
+tl.fromTo("#eyebrow",{opacity:0,y:10},{opacity:1,y:0,duration:.4,ease:"power3.out"},0);
+tl.fromTo("#title",{opacity:.0,y:24},{opacity:1,y:0,duration:.6,ease:"power4.out"},0);
+tl.fromTo("#sub",{opacity:0},{opacity:1,duration:.5},.3);
+// badge stamp
+tl.set("#pill",{opacity:0,scale:2.6,rotation:-14},0);
+tl.to("#pill",{opacity:1,scale:1,rotation:-4,duration:.3,ease:"power4.in"},.45);
+tl.to("#pill",{scale:1.08,duration:.08,ease:"power2.out"},.75);
+tl.to("#pill",{scale:1,rotation:-3,duration:.3,ease:"elastic.out(1,.5)"},.83);
+// confetti (seeded)
+let s=7;const rnd=()=>{s=(s*16807)%2147483647;return (s-1)/2147483646;};
+const cols=["#f08a5d","#b79af5","#ffb18a","#8a6bd6","#f4b6d6","#2a2140"];
+const wrap=document.getElementById("confwrap");
+const px=80+105, py=420+42;
+for(let i=0;i<22;i++){
+  const e=document.createElement("div");e.className="conf";
+  const z=10+Math.floor(rnd()*12);
+  e.style.cssText="width:"+z+"px;height:"+z+"px;background:"+cols[i%cols.length]+";border-radius:"+(rnd()<.3?"50%":"3px");
+  wrap.appendChild(e);
+  const a=rnd()*Math.PI*2, d=90+rnd()*150;
+  gsap.set(e,{x:px,y:py,rotation:rnd()*360});
+  tl.set(e,{opacity:1},.78);
+  tl.to(e,{x:px+Math.cos(a)*d*1.3,y:py+Math.sin(a)*d*.9,rotation:"+="+(180+rnd()*360),duration:.9,ease:"power3.out"},.78);
+  tl.to(e,{y:"+="+(40+rnd()*50),opacity:0,duration:.6,ease:"power1.in"},1.45+rnd()*.2);
+}
+// feed: three insertions
+const times=[1.0,2.0,3.0];
+times.forEach((T,n)=>{
+  // push all existing up by one slot
+  const existing=[...olds,...news.slice(0,n)];
+  existing.forEach(d=>tl.to(d,{y:"-="+SLOT,duration:.6,ease:"power3.inOut"},T));
+  const c=news[n];
+  tl.fromTo(c,{y:Y0+3*SLOT,opacity:0,scale:.94},{y:Y0+2*SLOT,opacity:1,scale:1,duration:.6,ease:"power3.inOut"},T); // same ease and length as the cards above, so the gap never closes
+  const circ=c.querySelector(".fg"), p=c.querySelector("path[stroke-dasharray]");
+  tl.fromTo(circ,{scale:0},{scale:1,duration:.3,ease:"back.out(2)"},T+.7);
+  tl.to(p,{strokeDashoffset:0,duration:.25,ease:"power2.out"},T+.8);
+  tl.fromTo(c.querySelector(".ic"),{scale:.7},{scale:1,duration:.4,ease:"back.out(2.5)"},T+.15);
+});
+// old ghosts fade as they leave (mask also helps)
+// CTA
+tl.fromTo("#cta",{opacity:0,y:20,scale:.9},{opacity:1,y:0,scale:1,duration:.5,ease:"back.out(1.6)"},3.7);
+tl.fromTo("#cta",{boxShadow:"0 12px 26px rgba(232,118,74,.35)"},{boxShadow:"0 12px 40px rgba(183,154,245,.7)",duration:.3,yoyo:true,repeat:1},4.2);
+tl.set({},{},5);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

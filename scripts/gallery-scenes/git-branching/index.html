@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Git branching</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1280px; height: 720px; overflow: hidden; background: #0d1117; }
+#root { position: relative; width: 1280px; height: 720px; overflow: hidden; color: #e2e8f0;
+  background: radial-gradient(rgba(148,163,184,.13) 1.6px, transparent 1.8px) 0 0 / 32px 32px, linear-gradient(180deg, #0d1117, #111827); }
+#svg { position: absolute; inset: 0; }
+.mono { font-family: "JetBrains Mono", "IBM Plex Mono", monospace; font-weight: 700; fill: #e2e8f0; }
+#caps { position: absolute; left: 0; right: 0; bottom: 52px; height: 90px; }
+.cap { position: absolute; left: 0; right: 0; text-align: center; font-family: "Space Grotesk", "Inter", sans-serif; font-weight: 700; font-size: 64px; letter-spacing: -1.5px; line-height: 90px; color: #f8fafc; white-space: nowrap; }
+.cap b { color: #fbbf24; font-weight: 700; }
+.tag { position: absolute; left: 48px; top: 34px; font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 22px; letter-spacing: 3px; color: #fbbf24; opacity: .8; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<svg id="svg" viewBox="0 0 1280 720" width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+<defs><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+</svg>
+<div class="tag">// GIT HISTORY</div>
+<div id="caps"></div>
+</div>
+<script>
+const A = "#fbbf24", RED = "#f87171";
+const NS = "http://www.w3.org/2000/svg", svg = document.getElementById("svg"), caps = document.getElementById("caps");
+const tl = gsap.timeline({ paused: true });
+function el(t, a = {}, p = svg) { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; }
+function cap(text, t0, t1) {
+  const d = document.createElement("div"); d.className = "cap"; d.innerHTML = text.replace(/\*(.+?)\*/g, "<b>$1</b>"); caps.appendChild(d);
+  tl.fromTo(d, { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.35, ease: "power3.out" }, t0);
+  if (t1 != null) tl.to(d, { opacity: 0, y: -12, duration: 0.25, ease: "power2.in" }, t1 - 0.25);
+}
+function node(x, y, w, h, label, o = {}) {
+  const g = el("g"); const rx = o.rx ?? 18;
+  el("rect", { x, y, width: w, height: h, rx, fill: "#0f1729", stroke: o.color || A, "stroke-opacity": 0.5, "stroke-width": 2 }, g);
+  const lit = el("rect", { x, y, width: w, height: h, rx, fill: o.color || A, "fill-opacity": 0.14, stroke: o.color || A, "stroke-width": 3.5, opacity: 0, filter: "url(#glow)" }, g);
+  const t = el("text", { x: x + w / 2, y: o.ty ?? y + (o.top ? h * 0.38 : h / 2 + 11), "text-anchor": "middle", class: "mono", "font-size": o.fs || 32 }, g); t.textContent = label;
+  gsap.set(g, { transformOrigin: "50% 50%" });
+  return { g, lit, x, y, w, h };
+}
+function appear(n, t, dur = 0.5) { tl.fromTo(n.g, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: dur, ease: "power3.out" }, t); }
+function pulse(n, t, hold = 0.45) {
+  tl.fromTo(n.lit, { opacity: 0 }, { opacity: 1, duration: 0.12 }, t).to(n.lit, { opacity: hold > 0 ? 0.0 : 1, duration: hold }, t + 0.14);
+  tl.fromTo(n.g, { scale: 1 }, { scale: 1.07, duration: 0.14, ease: "power2.out" }, t).to(n.g, { scale: 1, duration: 0.3, ease: "power2.inOut" }, t + 0.14);
+}
+function keepLit(n, t, op = 1) { tl.to(n.lit, { opacity: op, duration: 0.2 }, t); }
+function arrow(d, t0, dur, o = {}) {
+  const color = o.color || A, p = el("path", { d, fill: "none", stroke: color, "stroke-width": o.w || 3, "stroke-opacity": o.op ?? 0.55, "stroke-linecap": "round", "stroke-dasharray": o.dash || "" });
+  const L = p.getTotalLength(); let head = null;
+  if (!o.dash) { p.setAttribute("stroke-dasharray", L + " " + (L + 40)); tl.fromTo(p, { strokeDashoffset: L + 6 }, { strokeDashoffset: 0, duration: dur, ease: "power2.inOut" }, t0); }
+  else tl.fromTo(p, { opacity: 0 }, { opacity: 1, duration: dur }, t0);
+  if (!o.nohead) {
+    const e = p.getPointAtLength(L), b = p.getPointAtLength(L - 3), ang = Math.atan2(e.y - b.y, e.x - b.x) * 180 / Math.PI;
+    head = el("path", { d: "M-14,-9 L2,0 L-14,9", fill: "none", stroke: color, "stroke-width": o.w || 3, "stroke-opacity": Math.min(1, (o.op ?? 0.55) + 0.2), "stroke-linecap": "round", "stroke-linejoin": "round", transform: `translate(${e.x} ${e.y}) rotate(${ang})` });
+    tl.fromTo(head, { opacity: 0 }, { opacity: 1, duration: 0.2 }, t0 + dur - 0.1);
+  }
+  return { p, L, head };
+}
+function mkPacket(color, label) {
+  const g = el("g", { opacity: 0 });
+  const tr = [[26, 6, 0.2], [13, 8, 0.4]].map(([lag, r, op]) => ({ lag, c: el("circle", { r, fill: color, opacity: op }, g) }));
+  el("circle", { r: 18, fill: color, opacity: 0.35, filter: "url(#glow)" }, g);
+  el("circle", { r: 11, fill: "#fff" }, g); el("circle", { r: 8, fill: color }, g);
+  let t = null; if (label) { t = el("text", { y: -28, "text-anchor": "middle", class: "mono", "font-size": 22, fill: color }, g); t.textContent = label; t.style.fill = color; }
+  return { g, tr };
+}
+// A glowing packet that travels along an SVG path (getPointAtLength driven by the timeline).
+function fly(path, t0, dur, o = {}) {
+  const L = path.getTotalLength(), pk = mkPacket(o.color || A, o.label), s = { p: 0 };
+  const place = (node, len) => { const pt = path.getPointAtLength(Math.max(0, Math.min(L, len))); node.setAttribute("transform", `translate(${pt.x} ${pt.y})`); };
+  tl.set(pk.g, { opacity: 1 }, t0);
+  tl.fromTo(s, { p: 0 }, { p: 1, duration: dur, ease: o.ease || "power2.inOut", onUpdate() {
+    place(pk.g, s.p * L);
+    pk.tr.forEach((t) => { const pt = path.getPointAtLength(Math.max(0, s.p * L - t.lag)); t.c.setAttribute("cx", pt.x - path.getPointAtLength(s.p * L).x); t.c.setAttribute("cy", pt.y - path.getPointAtLength(s.p * L).y); });
+  } }, t0);
+  tl.set(pk.g, { opacity: 0 }, t0 + dur + (o.linger || 0));
+  return pk;
+}
+function chip(cx, cy, text, color, w = 0, fs = 22) {
+  const g = el("g", { opacity: 0 }), ww = w || text.length * fs * 0.62 + 26;
+  el("rect", { x: cx - ww / 2, y: cy - 20, width: ww, height: 40, rx: 11, fill: "#0b1020", stroke: color, "stroke-width": 2.5 }, g);
+  const t = el("text", { x: cx, y: cy + fs * 0.35, "text-anchor": "middle", class: "mono", "font-size": fs }, g); t.textContent = text; t.style.fill = color;
+  gsap.set(g, { transformOrigin: "50% 50%" });
+  return g;
+}
+function pop(g, t) { tl.fromTo(g, { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.32, ease: "back.out(2.6)" }, t); }
+function unpop(g, t, dur = 0.25) { tl.to(g, { opacity: 0, scale: 0.8, duration: dur, ease: "power2.in" }, t); }
+function ring(cx, cy, t, color = A, r1 = 70) {
+  const c = el("circle", { cx, cy, r: 20, fill: "none", stroke: color, "stroke-width": 4, opacity: 0 });
+  tl.fromTo(c, { attr: { r: 20 }, opacity: 0.9 }, { attr: { r: r1 }, opacity: 0, duration: 0.6, ease: "power2.out", immediateRender: false }, t);
+}
+const MY = 260, BY = 440, FC = "#fde68a";
+const MX = [160, 340, 640, 960], BX = [520, 740];
+const mk = (x, y, label, col, big) => {
+  const g = el("g", { opacity: 0 }); const r = big ? 30 : 24;
+  el("circle", { cx: x, cy: y, r: r + 6, fill: col, opacity: 0.25, filter: "url(#glow)" }, g);
+  el("circle", { cx: x, cy: y, r, fill: "#0f1729", stroke: col, "stroke-width": big ? 6 : 4 }, g);
+  if (big) el("circle", { cx: x, cy: y, r: 11, fill: col }, g);
+  const t = el("text", { x, y: y + (y < 300 ? -48 : 56), "text-anchor": "middle", class: "mono", "font-size": 24 }, g); t.textContent = label; t.style.fill = "#94a3b8";
+  gsap.set(g, { transformOrigin: x + "px " + y + "px" });
+  return g;
+};
+const c = { m1: mk(MX[0], MY, "a1f", A), m2: mk(MX[1], MY, "b42", A), m3: mk(MX[2], MY, "c07", A), mm: mk(MX[3], MY, "merge", A, true), b1: mk(BX[0], BY, "d93", FC), b2: mk(BX[1], BY, "e5a", FC) };
+const popc = (g, t) => tl.fromTo(g, { opacity: 0, scale: 0.3 }, { opacity: 1, scale: 1, duration: 0.35, ease: "back.out(2.6)" }, t);
+const lane = (txt, x, y, col) => { const t = el("text", { x, y, class: "mono", "font-size": 24, opacity: 0 }); t.textContent = txt; t.style.fill = col; tl.fromTo(t, { opacity: 0 }, { opacity: 1, duration: 0.3 }, 0.0); };
+lane("main", 70, MY + 80, A); lane("feature", 450, BY + 100, FC);
+const S1 = arrow(`M${MX[0]},${MY} L${MX[1]},${MY}`, 0.45, 0.5, { w: 6, op: 0.9, nohead: true });
+const S2 = arrow(`M${MX[1]},${MY} L${MX[2]},${MY}`, 1.25, 0.9, { w: 6, op: 0.9, nohead: true });
+const S3 = arrow(`M${MX[2]},${MY} L${MX[3]},${MY}`, 2.8, 0.7, { w: 6, op: 0.9, nohead: true });
+const R0 = arrow(`M${MX[1]},${MY} C${MX[1] + 90},${MY} ${BX[0] - 110},${BY} ${BX[0]},${BY}`, 1.25, 0.65, { w: 6, op: 0.9, color: FC, nohead: true });
+const R1 = arrow(`M${BX[0]},${BY} L${BX[1]},${BY}`, 1.95, 0.55, { w: 6, op: 0.9, color: FC, nohead: true });
+const R2 = arrow(`M${BX[1]},${BY} C${BX[1] + 110},${BY} ${MX[3] - 110},${MY} ${MX[3]},${MY}`, 2.8, 0.7, { w: 6, op: 0.9, color: FC, nohead: true });
+popc(c.m1, 0.0);
+fly(S1.p, 0.45, 0.5, { ease: "power1.inOut" }); popc(c.m2, 0.9);
+fly(R0.p, 1.25, 0.65, { color: FC, ease: "power1.inOut" }); popc(c.b1, 1.85);
+fly(S2.p, 1.25, 0.9, { ease: "power1.inOut" }); popc(c.m3, 2.1);
+fly(R1.p, 1.95, 0.55, { color: FC, ease: "power1.inOut" }); popc(c.b2, 2.45);
+fly(S3.p, 2.8, 0.7, { ease: "power1.inOut" }); fly(R2.p, 2.8, 0.7, { color: FC, ease: "power1.inOut" });
+popc(c.mm, 3.5); ring(MX[3], MY, 3.5, A, 90); ring(MX[3], MY, 3.7, FC, 70);
+const mt = chip(MX[3], MY + 110, "merged", A, 150, 24); pop(mt, 3.75);
+const fork = chip(MX[1], MY + 78, "branch", FC, 130, 22); pop(fork, 1.35); tl.to(fork, { opacity: 0, duration: 0.3 }, 2.4);
+cap("Main is a line of *commits*", 0.1, 1.2);
+cap("*Branch* off, work safely", 1.2, 2.8);
+cap("*Merge* back with a commit", 2.8, null);
+
+tl.to({}, { duration: 0.1 }, 4.9);
+window.__timelines = window.__timelines || {};
+window.__timelines["main"] = tl;
+</script>
+</body>
+</html>

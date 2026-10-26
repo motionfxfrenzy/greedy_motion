@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Open-source README hero</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #14110f; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #14110f; font-family: "Space Grotesk", "Inter", sans-serif; color: #f1e9d8; }
+  .grid { position: absolute; inset: 0; background-image: linear-gradient(#ffffff0a 1px, transparent 1px), linear-gradient(90deg, #ffffff0a 1px, transparent 1px); background-size: 40px 40px; }
+  #term { position: absolute; left: 70px; top: 90px; width: 700px; height: 540px; background: #1e1a16; border: 2px solid #3d362c; border-radius: 18px; box-shadow: 0 30px 80px #000a, 12px 12px 0 #c8f169; overflow: hidden; }
+  #bar { height: 54px; background: #2a251f; display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 2px solid #3d362c; font: 500 20px "JetBrains Mono", monospace; color: #8c8372; }
+  #bar i { width: 16px; height: 16px; border-radius: 50%; background: #4a4235; display: block; }
+  #bar i:first-child { background: #ff7a45; }
+  #bar span { margin-left: 14px; }
+  #body { padding: 26px 30px; font: 500 33px/1.75 "JetBrains Mono", monospace; white-space: pre; }
+  .p { color: #c8f169; } .dim { color: #8c8372; } .ok { color: #c8f169; } .or { color: #ff7a45; }
+  .cur { display: inline-block; width: 14px; height: 30px; background: #c8f169; vertical-align: -5px; }
+  .card { position: absolute; left: 830px; width: 390px; height: 128px; border-radius: 16px; border: 2px solid #3d362c; background: #1e1a16; display: flex; align-items: center; gap: 22px; padding: 0 26px; }
+  .card b { font: 700 64px "Space Grotesk"; color: #5b5242; width: 52px; }
+  .card span { font: 700 38px/1.05 "Space Grotesk"; letter-spacing: -0.02em; }
+  #sweep { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; background: #c8f169; transform: translateX(1280px); }
+  #fin { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #14110f; opacity: 0; }
+  #fin h1 { font: 700 220px/0.95 "Space Grotesk"; letter-spacing: -0.06em; overflow: hidden; padding: 0 20px 14px; }
+  #fin h1 span { display: block; }
+  #inst { margin-top: 26px; background: #14110f; color: #c8f169; font: 600 42px "JetBrains Mono", monospace; padding: 18px 36px; border-radius: 14px; white-space: pre; }
+  #cursor { position: absolute; left: 0; top: 0; width: 56px; height: 56px; z-index: 9; }
+  #ring { position: absolute; left: 0; top: 0; width: 70px; height: 70px; border-radius: 50%; border: 5px solid #ff7a45; opacity: 0; margin: -35px 0 0 -35px; z-index: 8; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <div class="grid"></div>
+  <div id="term"><div id="bar"><i></i><i></i><i></i><span>tracer / zsh</span></div>
+    <div id="body"><div><span class="p">$ </span><span id="l1">tracer open </span><span id="t1"></span></div><div id="l2" style="opacity:0"><span class="p">$ </span><span>tracer goal </span><span id="t2"></span></div><div id="o1" style="opacity:0"><span class="dim">→ </span>opened the site</div><div id="o2" style="opacity:0"><span class="dim">→ </span>clicked <span class="or">Pricing</span></div><div id="o3" style="opacity:0"><span class="ok">✓ goal met</span></div></div></div>
+  <div class="card" id="c1" style="top:90px"><b>1</b><span>Give it<br>a site</span></div>
+  <div class="card" id="c2" style="top:246px"><b>2</b><span>Write<br>a goal</span></div>
+  <div class="card" id="c3" style="top:402px"><b>3</b><span>Watch<br>it act</span></div>
+  <div id="sweep"></div>
+  <div id="fin"><h1><span id="nm">tracer</span></h1><div id="inst"><span id="it"></span></div></div>
+  <div id="ring"></div>
+  <svg id="cursor" viewBox="0 0 24 24"><path d="M3 2 L3 19 L8 14.5 L11.2 21.5 L14 20.3 L10.9 13.4 L17.5 13 Z" fill="#fff" stroke="#14110f" stroke-width="1.6" stroke-linejoin="round"/></svg>
+</div>
+<script>
+(function () {
+  var tl = gsap.timeline({ paused: true });
+  function type(id, str, t, dur) { var el = document.getElementById(id), o = { n: 0 }; tl.to(o, { n: str.length, duration: dur, ease: "none", onUpdate: function () { el.textContent = str.slice(0, Math.round(o.n)); } }, t); }
+  function act(id, t) { tl.to(id, { backgroundColor: "#c8f169", borderColor: "#c8f169", color: "#14110f", scale: 1.04, duration: .18, ease: "back.out(3)" }, t); tl.to(id + " b", { color: "#14110f", duration: .18 }, t); tl.to(id, { scale: 1, duration: .25, ease: "power2.out" }, t + .18); }
+  function click(x, y, t) { tl.fromTo("#ring", { left: x, top: y, opacity: .9, scale: .3 }, { opacity: 0, scale: 1.5, duration: .4, ease: "power2.out" }, t); tl.to("#cursor", { scale: .82, duration: .07, yoyo: true, repeat: 1 }, t - .03); }
+  // intro motion: window and cards enter at once, already visible at 0.4
+  tl.from("#term", { y: 40, opacity: 0, duration: .4, ease: "power3.out" }, 0);
+  tl.from(".card", { x: 120, opacity: 0, duration: .4, ease: "power3.out", stagger: .06 }, 0);
+  tl.set("#cursor", { x: 1300, y: 760 }, 0);
+  var P = [[1010, 170], [1010, 326], [1010, 482]];
+  tl.to("#cursor", { x: 1010, y: 170, duration: .65, ease: "power3.out" }, 0.05);
+  click(1010 + 6, 170 + 6, .74); act("#c1", .74); type("t1", "docs.example.test", .82, .55);
+  tl.to("#cursor", { x: 1010, y: 326, duration: .4, ease: "power3.inOut" }, 1.4);
+  tl.set("#l2", { opacity: 1 }, 1.8); click(1016, 332, 1.8); act("#c2", 1.8); type("t2", '"find pricing"', 1.86, .6);
+  tl.to("#cursor", { x: 1010, y: 482, duration: .4, ease: "power3.inOut" }, 2.45);
+  click(1016, 488, 2.85); act("#c3", 2.85);
+  tl.fromTo("#o1", { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: .2 }, 2.9);
+  tl.fromTo("#o2", { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: .2 }, 3.15);
+  tl.fromTo("#o3", { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: .2 }, 3.4);
+  // cursor leaves, lime sweep takes the frame
+  tl.to("#cursor", { x: 1400, y: 820, duration: .4, ease: "power2.in" }, 3.55);
+  tl.to("#sweep", { x: 0, duration: .45, ease: "power4.inOut" }, 3.55);
+  tl.set("#fin", { opacity: 1 }, 3.9);
+  tl.fromTo("#nm", { yPercent: 110 }, { yPercent: 0, duration: .5, ease: "power4.out" }, 3.95);
+  tl.fromTo("#inst", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: .3, ease: "power3.out" }, 4.0);
+  type("it", "$ npm i -g tracer", 4.05, .45);
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+  TR["iris"] = (o, i, t, d) => { tl.fromTo(i, { clipPath: "circle(0px at 960px 540px)" }, { clipPath: "circle(1250px at 960px 540px)", duration: d, ease: E.io }, t); tl.fromTo(o, { scale: 1 }, { scale: 0.94, duration: d, ease: E.io }, t); };

@@ -122,6 +122,35 @@ const legacyOwnerId = auth.mode === "none" ? LOCAL_USER_ID : (process.env.LEGACY
 const mediaUrlSecret = process.env.MEDIA_URL_SECRET ?? (auth.mode === "none" ? "local-development-media-url-secret" : "");
 if (mediaUrlSecret.length < 32) throw new Error("MEDIA_URL_SECRET (32+ random characters) is required when AUTH_MODE=supabase.");
 
+// One environment, one set of services (docs/ENVIRONMENTS.md). Local runs entirely on this machine: the Compose Postgres, the
+// filesystem, the Compose worker. Staging and production run entirely in the cloud: a hosted Postgres, R2, workers on AWS. A
+// mismatch (a laptop writing to the staging database, or a hosted backend keeping media on its own disk) fails at startup.
+// ALLOW_CLOUD_IN_LOCAL=1 is the one explicit escape hatch for debugging local code against a hosted service.
+const hostOf = (value: string) => { try { return new URL(value).hostname.replace(/^\[|\]$/g, ""); } catch { return ""; } };
+const isLocalHost = (host: string) => ["localhost", "127.0.0.1", "::1", "host.docker.internal", "postgres"].includes(host) || host.endsWith(".localhost");
+const environmentProblems: string[] = [];
+if (env === "local" && process.env.ALLOW_CLOUD_IN_LOCAL !== "1") {
+  if (!isLocalHost(hostOf(databaseUrl))) environmentProblems.push(`DATABASE_URL points at ${hostOf(databaseUrl) || "a non-local host"}; APP_ENV=local uses the Compose Postgres (docker compose up -d postgres).`);
+  if (storageDriver !== "filesystem") environmentProblems.push("STORAGE_DRIVER=r2 is a cloud setting; APP_ENV=local keeps media on disk (STORAGE_DRIVER=filesystem).");
+  if (workerLaunchMode !== "external") environmentProblems.push("WORKER_LAUNCH=ecs starts paid cloud workers; APP_ENV=local renders in the Compose worker (WORKER_LAUNCH=external).");
+}
+if (env !== "local") {
+  if (isLocalHost(hostOf(databaseUrl))) environmentProblems.push(`DATABASE_URL points at a local host (${hostOf(databaseUrl)}); APP_ENV=${env} uses the hosted database.`);
+  if (storageDriver !== "r2") environmentProblems.push(`STORAGE_DRIVER=r2 is required when APP_ENV=${env}: media must live in R2, not on the server's disk.`);
+  if (planner !== "anthropic") environmentProblems.push(`PLANNER=anthropic is required when APP_ENV=${env}.`);
+}
+if (environmentProblems.length) throw new Error(`The environment settings do not match APP_ENV=${env}:\n- ${environmentProblems.join("\n- ")}`);
+/** What this process is wired to, for the startup log and the checks: never a secret, only where each service lives. */
+const environmentSummary = {
+  appEnv: env,
+  database: hostOf(databaseUrl) || "?",
+  storage: storageDriver,
+  workers: workerLaunchMode === "ecs" ? "aws-ecs" : "external (compose)",
+  auth: auth.mode === "supabase" ? hostOf(auth.supabaseUrl) : "none",
+  // A hosted auth project on a laptop is allowed (the UI needs sign-in), but it is the one cloud dependency left in local.
+  note: env === "local" && auth.mode === "supabase" && !isLocalHost(hostOf(auth.supabaseUrl)) ? `Local is signing in through a hosted Supabase project (${hostOf(auth.supabaseUrl)}). For a fully local setup run \`supabase start\` and point SUPABASE_URL and the frontend at it (docs/ENVIRONMENTS.md).` : null
+};
+
 export const config = {
   auth,
   mediaUrlSecret,
@@ -131,6 +160,7 @@ export const config = {
   workerLaunch,
   planner: planner as "anthropic" | "deterministic",
   appEnv: env,
+  environmentSummary,
   // Railway injects PORT; locally the backend defaults to 4000.
   port: Number.parseInt(process.env.PORT ?? "4000", 10),
   host: process.env.HOST ?? (env === "local" ? "127.0.0.1" : "0.0.0.0"),
@@ -148,6 +178,8 @@ export const config = {
   renderRetries: positiveInt("RENDER_RETRIES", 2),
   // Directory shared with the worker locally (mounted at /renders in the worker container).
   renderOutputDir: storagePath(process.env.RENDER_OUTPUT_DIR, "renders"),
+  // Template preview clips and posters (local dev store; with STORAGE_DRIVER=r2 they are read from `gallery/` in the media bucket).
+  galleryDir: storagePath(process.env.GALLERY_DIR, "gallery"),
   // Brand kits; shared read-only with the worker at /brands locally.
   brandsDir: storagePath(process.env.BRANDS_DIR, "brands"),
   // Persisted creation briefs and uploaded screenshots. This local adapter can later be
@@ -169,5 +201,21 @@ export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
   // Generated audio per job; shared read-only with the worker at /audio locally.
   audioDir: storagePath(process.env.AUDIO_DIR, "audio"),
-  anthropicModel: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6"
+  anthropicModel: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+  // Lemon Squeezy (merchant of record). Checkout is off until the key, store and every variant are set; the webhook
+  // needs only the signing secret. Ids come from the Lemon Squeezy dashboard (docs/PRICING.md lists what to create).
+  billing: {
+    apiKey: process.env.LEMONSQUEEZY_API_KEY || "",
+    storeId: process.env.LEMONSQUEEZY_STORE_ID || "",
+    webhookSecret: process.env.LEMONSQUEEZY_WEBHOOK_SECRET || "",
+    testMode: process.env.LEMONSQUEEZY_TEST_MODE === "true",
+    variants: {
+      starter: process.env.LEMONSQUEEZY_VARIANT_STARTER || "",
+      pro: process.env.LEMONSQUEEZY_VARIANT_PRO || "",
+      business: process.env.LEMONSQUEEZY_VARIANT_BUSINESS || "",
+      topup: process.env.LEMONSQUEEZY_VARIANT_TOPUP || ""
+    },
+    /** Where checkout sends the buyer afterwards. */
+    returnUrl: process.env.BILLING_RETURN_URL || `${corsOrigins[0] ?? "http://localhost:3000"}/profile`
+  }
 } as const;

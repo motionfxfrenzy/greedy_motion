@@ -1,0 +1,46 @@
+{
+  "id": "claymation",
+  "name": "Studio plasticine",
+  "group": "Clay",
+  "description": "Refined matte forms, soft depth and sculpted detail.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "clay",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/claymation.png",
+    "kind": "image",
+    "label": "Layout draft — not generated footage"
+  },
+  "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/claymation/SKILL.md",
+  "referenceAssets": [
+    {
+      "path": "references/claymation-styles.webp",
+      "source": "third_party/creative-packs/Creative_Formats_Claude/.claude/skills/claymation/reference/claymation-styles.webp",
+      "sha256": "5fd0c8137ffc25729eac5da0498cf9686d12592b975ba1adf2bf6ce68c5aa4e6",
+      "bytes": 471126
+    }
+  ],
+  "instructions": {
+    "image": "Premium matte plasticine with refined tool marks, rounded geometry, macro depth and diffused rim light; natural proportions, combed clay hair, white sclera and colored irises.",
+    "motion": "Refined 12 fps stop-motion; one physical action, stable anchor across transition frames.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "Consistent hero/product references when present"
+    ],
+    "acceptance": [
+      "Style remains visible in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme",
+      "Generated material reference is distinct from the shipped graphic adaptation"
+    ]
+  },
+  "sourceSha256": "4bd36597408b6af60a2b099f811a76ac1c2828c0da313e62d0b56a0a092e0033"
+}

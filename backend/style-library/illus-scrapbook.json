@@ -1,0 +1,45 @@
+{
+  "id": "illus-scrapbook",
+  "name": "Illustration · Archival scrapbook",
+  "group": "Illustration",
+  "description": "Foxed rag-paper album page; torn cards, cellulose tape, a clothespin on twine; copperplate engravings hand-tinted; typewriter, ransom-note cut letters, red pen, rubber stamp. Drawn as a finished illustration in one medium.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "collage",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/references/illus-scrapbook.jpg",
+    "kind": "image",
+    "label": "Reference frame — not generated footage"
+  },
+  "source": "third_party/anidoodle/styles.gen.json",
+  "referenceAssets": [
+    {
+      "path": "references/illus-scrapbook.jpg",
+      "source": "third_party/anidoodle/references/illus-scrapbook.jpg",
+      "sha256": "ceedd060ce60f75cee082052597d1be0b88e1e9c1d91bac4afa690b0e6f2d889",
+      "bytes": 53370
+    }
+  ],
+  "instructions": {
+    "image": "Foxed rag-paper album page; torn cards, cellulose tape, a clothespin on twine; copperplate engravings hand-tinted; typewriter, ransom-note cut letters, red pen, rubber stamp. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+    "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "The reference frame for this style"
+    ],
+    "acceptance": [
+      "The medium stays recognisable in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme"
+    ]
+  },
+  "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+}

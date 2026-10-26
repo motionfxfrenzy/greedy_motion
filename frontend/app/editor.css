@@ -410,6 +410,7 @@ body.ed-dragging, body.ed-dragging * { user-select: none !important; -webkit-use
 .ed-renderpop { position: absolute; right: 8px; top: 68px; z-index: 60; width: 380px; max-width: calc(100% - 16px); max-height: calc(100% - 90px); overflow: auto; padding: 16px; border-radius: 20px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); display: grid; gap: 8px; }
 .ed-ropts { display: grid; gap: 6px; }
 .ed-ropts button { display: grid; gap: 1px; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.ed-blur { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; } .ed-blur input { margin-top: 3px; } .ed-blur span { display: grid; gap: 1px; } .ed-blur i { font-style: normal; color: var(--body); font-size: 11.5px; } .ed-blur input:disabled + span { opacity: .6; }
 .ed-ropts button:hover { border-color: var(--b5); } .ed-ropts span { color: var(--body); font-size: 11.5px; }
 .ed-job { padding: 10px 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 6px; }
 .ed-job-h { display: flex; justify-content: space-between; } .ed-job-s { font-size: 11.5px; color: var(--body); } .ed-job-a { display: flex; gap: 8px; }
@@ -558,3 +559,10 @@ body.ed-dragging, body.ed-dragging * { user-select: none !important; -webkit-use
 .ed-agent-body textarea::placeholder { color: var(--label); }
 .ed-agent-body textarea:focus { border-color: var(--b5); box-shadow: 0 0 0 4px rgba(22, 139, 255, 0.14); }
 .ed-agent-body > .ed-btn { justify-self: end; width: auto; min-width: 84px; justify-content: center; }
+.ed .ed-textframe{display:grid;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.ed .ed-textfield{display:grid;gap:4px;color:var(--body);font-size:12px;font-weight:600}
+.ed .ed-textfield input,.ed .ed-textfield textarea{width:100%;padding:8px 10px;border:1px solid var(--line2);border-radius:8px;background:var(--fill);color:var(--ink);font:inherit;font-size:13px;font-weight:400;resize:vertical}
+.ed .ed-textfield input:focus,.ed .ed-textfield textarea:focus{outline:2px solid var(--b5);outline-offset:1px}
+.ed .ed-back{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 12px 0 8px;border-radius:10px;color:var(--body);font-size:13px;font-weight:600;text-decoration:none}
+.ed .ed-back:hover{background:var(--hover);color:var(--ink)}
+.ed.compact .ed-back span{display:none}.ed.compact .ed-back{padding:0 8px}

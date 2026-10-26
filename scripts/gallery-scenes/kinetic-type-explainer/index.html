@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Kinetic type explainer</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#2b3cff}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#2b3cff}
+.sc{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.w{white-space:nowrap;line-height:1}
+#s1{background:#2b3cff}#s2{background:#0b0b0f}#s3{background:#ff3d7f}#s4{background:#f4ecdc;flex-direction:column;align-items:flex-start;padding-left:110px;justify-content:center}
+#w1{font-family:'Archivo Black';font-size:300px;color:#fff6e0;letter-spacing:-8px}
+#w2{font-family:'Bebas Neue';font-size:520px;color:#ffd400;letter-spacing:4px}
+#w3{font-family:'Space Grotesk';font-weight:700;font-size:340px;color:#0b0b0f;letter-spacing:-12px}
+.ln{overflow:hidden;line-height:1}
+.ln>div{white-space:nowrap;line-height:.95}
+#l1{font-family:'Archivo Black';font-size:200px;color:#2b3cff;letter-spacing:-4px}
+#l2{font-family:'Bebas Neue';font-size:265px;color:#0b0b0f;letter-spacing:3px;margin:-8px 0}
+#l3{font-family:'Space Grotesk';font-weight:700;font-size:200px;color:#ff3d7f;letter-spacing:-6px}
+#bar{position:absolute;right:100px;top:110px;width:130px;height:500px;background:#0b0b0f}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div class="sc" id="s1"><div class="w" id="w1">THINK.</div></div>
+<div class="sc" id="s2"><div class="w" id="w2">DESIGN.</div></div>
+<div class="sc" id="s3"><div class="w" id="w3">Ship.</div></div>
+<div class="sc" id="s4">
+<div class="ln"><div id="l1">THINK.</div></div>
+<div class="ln"><div id="l2">DESIGN.</div></div>
+<div class="ln"><div id="l3">Ship.</div></div>
+<div id="bar"></div>
+</div>
+</div>
+<script>
+const tl=gsap.timeline({paused:true});
+// 1 THINK slam
+tl.fromTo("#w1",{scale:1.25},{scale:1,duration:.3,ease:"back.out(3)"},0);
+tl.to("#w1",{scale:1.06,duration:.6,ease:"none"},.3);
+// 2 DESIGN: wipe in from right, text slides
+tl.fromTo("#s2",{clipPath:"inset(0 0 0 100%)"},{clipPath:"inset(0 0 0 0%)",duration:.3,ease:"power4.out"},.85);
+tl.fromTo("#w2",{x:300},{x:0,duration:.45,ease:"power4.out"},.85);
+tl.to("#w2",{x:-40,duration:.5,ease:"none"},1.3);
+// 3 SHIP: rises through mask from bottom
+tl.fromTo("#s3",{clipPath:"inset(100% 0 0 0)"},{clipPath:"inset(0% 0 0 0)",duration:.3,ease:"power4.out"},1.75);
+tl.fromTo("#w3",{y:260,rotation:-6},{y:0,rotation:0,duration:.45,ease:"expo.out"},1.75);
+tl.to("#w3",{scale:1.08,duration:.6,ease:"none"},2.2);
+// 4 lockup
+tl.fromTo("#s4",{clipPath:"inset(0 100% 0 0)"},{clipPath:"inset(0 0% 0 0)",duration:.35,ease:"power4.inOut"},2.65);
+tl.fromTo("#l1",{y:"110%"},{y:"0%",duration:.4,ease:"power4.out"},2.9);
+tl.fromTo("#l2",{y:"110%"},{y:"0%",duration:.4,ease:"power4.out"},3.1);
+tl.fromTo("#l3",{y:"110%"},{y:"0%",duration:.4,ease:"power4.out"},3.3);
+tl.fromTo("#bar",{scaleY:0,transformOrigin:"50% 100%"},{scaleY:1,duration:.5,ease:"expo.out"},3.35);
+tl.to("#l3",{color:"#2b3cff",duration:.01},4.0);
+tl.fromTo("#bar",{backgroundColor:"#0b0b0f"},{backgroundColor:"#2b3cff",duration:.4},4.0);
+tl.set({},{},5);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

@@ -39,6 +39,10 @@ Work top to bottom. Stop where it says stop. Paste the filled list into `HANDOFF
 - [ ] `lint` clean; `check` at zero findings, including contrast. (Fill mode: on the `pipeline.py index` twin.)
 - [ ] The verb-sync table is saved.
 - [ ] `tools/pacing_gate.py` PASS: no hold > 0.6 s (except one declared stillness ≤ 1.0 s before the reveal, listed in the handoff), no measured VO gap > 0.65 s. Held % and longest hold in the handoff.
+- [ ] `pop_gate.mjs <render.mp4> --max-cuts <scene count - 1>` passes: no single-frame pop, and no hard cut that is not a scene change.
+- [ ] `seam_sheet.mjs <render.mp4> --auto`: the middle of every scene change viewed at phone size with the safe boxes drawn.
+- [ ] Voiced lines pass the script rules (no colons, acronyms written as they are said, one sentence per list item) before any voice is recorded; a changed line re-voices only that line.
+- [ ] Close your eyes: the voice, bed and cues alone have a shape. The last frame works as a poster.
 - [ ] The bed is ducked only under words (7 dB, 50/150 ms) and audible in every gap; a whoosh on every cut.
 - [ ] ≈ −14 LUFS / ≤ −2 dBTP after encode; audio stream present.
 - [ ] Watched at full speed.

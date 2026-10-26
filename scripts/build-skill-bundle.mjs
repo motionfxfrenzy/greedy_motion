@@ -12,7 +12,7 @@
 // of every file go in manifest.json; the backend verifies them at startup. Nothing here is time-dependent, so the
 // output is byte-for-byte reproducible.
 import { spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -66,6 +66,22 @@ async function buildInto(dest) {
   await cp(join(root, "third_party/cloud-author-skills"), join(dest, "author/sources"), { recursive: true });
   await cp(join(root, "cloud-author/stages"), join(dest, "author/stages"), { recursive: true });
   await cp(join(root, "cloud-author/stages.json"), join(dest, "author/stages.json"));
+  // The craft every local build follows reaches the hosted author from the same files, so the two cannot drift:
+  // shared-craft.md, watchability.md and the gm-motion-recipes rules, minus what only makes sense in this repo.
+  //   <!-- cloud:skip --> ... <!-- /cloud:skip -->   a block;  <!-- cloud:skip-line -->  a whole line;  <!-- cloud:skip-from -->  the rest of a line
+  // A "Verified" section of a recipe is evidence for us, not an instruction for the author, and is dropped too.
+  const forCloud = (text) => text
+    .replace(/<!-- cloud:skip -->[\s\S]*?<!-- \/cloud:skip -->\n?/g, "")
+    .split("\n").filter((line) => !line.includes("<!-- cloud:skip-line -->")).join("\n")
+    .replace(/[ \t]*<!-- cloud:skip-from -->.*$/gm, "")
+    .replace(/<!-- \/?director:skip(?:-line)? -->[ \t]*/g, "")
+    .replace(/\n## Verified[^\n]*\n[\s\S]*?(?=\n## |$(?![\s\S]))/g, "\n");
+  await writeFile(join(dest, "author/stages/shared-craft.md"), forCloud(await readFile(join(skillsDir, "gm-skill-authoring/references/shared-craft.md"), "utf8")));
+  await writeFile(join(dest, "author/stages/watchability.md"), forCloud(await readFile(join(skillsDir, "gm-skill-authoring/references/watchability.md"), "utf8")));
+  await mkdir(join(dest, "author/stages/recipes"), { recursive: true });
+  for (const file of (await readdir(join(skillsDir, "gm-motion-recipes/rules"))).filter((name) => name.endsWith(".md")).sort()) {
+    await writeFile(join(dest, "author/stages/recipes", file), forCloud(await readFile(join(skillsDir, "gm-motion-recipes/rules", file), "utf8")));
+  }
   await mkdir(join(dest, "director"), { recursive: true });
   const directorSources = {
     SCRIPT_FOR_MOTION: "gm-skill-authoring/references/script-for-motion.md",

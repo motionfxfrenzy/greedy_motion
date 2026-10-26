@@ -104,3 +104,42 @@ Variables: `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_
 - A `409` on save is recoverable without losing the user's edits.
 - The production bundle contains no database URL, R2 key, model key, or service-role key (checked in CI by scanning build output for known variable names).
 - Errors show a diagnostic ID and no server paths.
+
+## Workspace routes and endpoints (2026-10-10)
+
+The workspace is no longer one `/studio` component switching views. Each page is its own route with its own data:
+
+| Route | Page | Data it loads |
+| --- | --- | --- |
+| `/studio` | Projects, and the create flow (`?template=<id>` opens a template's prefilled brief) | `GET /v1/projects`, `GET /v1/brands` (the create flow needs the kits) |
+| `/templates` | The template gallery | `GET /v1/gallery/templates` (paged, filtered and searched on the backend) |
+| `/brand-kits` | Brand kits | `GET /v1/brands` |
+| `/library` | Screenshots from every project | `GET /v1/library?cursor=&limit=` (paged in SQL) |
+
+Why: a link, a bookmark and the back button work; a page loads only its own data and code; and the Library, which grows
+with use, is cut into pages by the database instead of being flattened in the browser. The shared header is
+`components/app-shell.tsx` (`AppShell`, `AppHeader`). `proxy.ts` guards `/templates`, `/brand-kits` and `/library` like `/studio`.
+
+`GET /v1/library` (`backend/src/library.ts`) returns `{ items, total, nextCursor }` for the signed-in user, newest first,
+reading each project's `screenshots` array with `jsonb_array_elements` and `limit/offset`. Not yet paged: `GET /v1/projects`
+returns every project (the filter tabs count them), so the next step for Projects is the same cursor treatment.
+
+## Reading a product website: screenshots, pictures and the fallback reader
+
+`POST /v1/projects/:id/site` reads the site (`backend/src/site/capture.ts`) and suggests a brand kit (`backend/src/brand/extract.ts`).
+
+- **Screenshots are selected, not just taken.** The page's sections are filtered in the browser (`in-page.ts`): footers, legal text
+  (terms, privacy, cookies), newsletter and sign-up bands, link lists and near-empty strips are skipped. After capture,
+  `distinctShots` drops a screenshot that repeats an earlier one (the hero shown twice, a carousel's next slide under the same
+  heading) or is nearly blank.
+- **Relevant pictures.** Large product images in the page's own content (not header, footer, logos, icons, badges, avatars or blog
+  tiles) are fetched through the SSRF-safe client, re-encoded if needed, and stored as `Site image · …` screenshots (up to 5,
+  at least 640 px wide). Re-reading replaces them.
+- **Fallback reader (Gemini, `GEMINI_API_KEY`, model `SITE_READ_MODEL`, default gemini-2.5-flash).** When the page cannot be read directly
+  (bot wall, 4xx, an empty shell), one URL-context call returns the page's facts, brand colours (hex only), logo URL, up to two fonts and a
+  list of relevant pictures. The call is shared by the site read and the brand read for ten minutes and retried once. It also fills a gap: if the direct brand
+  read found no colour or no logo, the fallback supplies them. Everything from the fallback is untrusted: colours must be hex, the logo and
+  pictures are fetched and re-encoded by this server, fonts must be bundled or Google fonts, and the kit says "lower confidence: check
+  the colours, fonts and logo before saving". There are no screenshots from the fallback.
+
+**Brand look from the fallback.** The page read alone often gives only black and white and no logo file (the reader sees text, not the page's markup). So when the first answer has no saturated colour or no logo, a second, brand-only question is asked (`askGeminiBrand`, with URL context and Google Search grounding): the brand's signature colours and its logo file. The logo is then tried in order: the reader's logo URL, the site's own `/apple-touch-icon.png`, `/favicon.svg`, `/icon.png`, `/favicon.ico`, and last a favicon service (only the host name leaves the server). A kit built from an icon says so. A genuinely black-and-white brand (such as Zara) is kept as it is, with a note to pick an accent. The direct read's palette is also replaced when it found only neutrals and the fallback found a real colour. Both Gemini calls are cached for ten minutes per page (host and path, ignoring `www` and a trailing slash) so the site read and the brand read share one.

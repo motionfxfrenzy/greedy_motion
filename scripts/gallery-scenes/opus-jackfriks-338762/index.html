@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Love-note mascot story</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #fff7e3; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #fff7e3; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+var CFG = { paper: "#fff7e3", ink: "#4a2c3a", font: "Fredoka, Quicksand, sans-serif", rough: [0.045, 3], seed: 77, bg: function () {
+  el("rect", { x: 0, y: 598, width: 1280, height: 122, fill: "#d9efc4" });
+  for (var i = 0; i < 40; i++) el("circle", { cx: (R() * 1280).toFixed(0), cy: (R() * 560).toFixed(0), r: (1.5 + R() * 2).toFixed(1), fill: "#ffe3a8", opacity: .7 });
+} };
+var INK = CFG.ink, PINK = "#ffb3c7", HOT = "#ff5d8f", DPINK = "#ff93b2", YEL = "#ffd23f", GRN = "#6cc070", SKY = "#7cc8f0", WHITE = "#ffffff";
+var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) if (a[k] !== undefined) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+var R = rng(CFG.seed || 11);
+function wob(pts, amp, step) {
+  var out = [pts[0]], i, k;
+  for (i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+    for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+  }
+  var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+  for (i = 0; i < out.length - 1; i++) {
+    var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+    d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+  }
+  return d;
+}
+function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .05; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+function box(x, y, w, h) { return [[x - 5, y + 1], [x + w + 3, y - 1], [x + w + 1, y + h + 3], [x - 3, y + h - 1], [x + 1, y - 7]]; }
+function rbox(x, y, w, h, r) { return [[x + r, y], [x + w - r, y], [x + w, y + r], [x + w, y + h - r], [x + w - r, y + h], [x + r, y + h], [x, y + h - r], [x, y + r], [x + r, y]]; }
+function straight(pts) { return "M" + pts.map(function (p) { return p[0].toFixed(1) + " " + p[1].toFixed(1); }).join("L"); }
+var defs = el("defs", {});
+if (CFG.rough) {
+  var flt = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+  el("feTurbulence", { type: "fractalNoise", baseFrequency: CFG.rough[0], numOctaves: 2, seed: 8, result: "n" }, flt);
+  el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: CFG.rough[1] }, flt);
+}
+el("rect", { width: 1280, height: 720, fill: CFG.paper });
+if (CFG.bg) CFG.bg();
+var art = el("g", CFG.rough ? { filter: "url(#rough)" } : {});
+var tl = gsap.timeline({ paused: true });
+function stroke(pts, color, w, t, dur, o) {
+  o = o || {}; var P = o.p || art, paths = [];
+  var amp = o.amp == null ? 2 : o.amp;
+  var d = o.raw ? pts : (o.straight ? straight(pts) : wob(pts, amp, 34));
+  var passes = (o.single || o.straight) ? [[w, 1, d]] : [[w, 1, d], [w * .5, .7, wob(pts, amp * 1.2, 30)]];
+  passes.forEach(function (p, i) {
+    var path = el("path", { d: p[2], fill: "none", stroke: color, "stroke-width": p[0], "stroke-linecap": o.cap || "round", "stroke-linejoin": "round", opacity: p[1] }, P);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30);
+    path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur * (i ? 1.12 : 1), ease: o.ease || "power1.inOut" }, t + (i ? .05 : 0));
+    paths.push(path);
+  });
+  return paths;
+}
+// closed shape: marker fill (misregistered) + outline drawn on
+function shape(pts, o) {
+  var P = o.p || art, amp = o.amp == null ? 1.6 : o.amp, d = wob(pts, amp, 34), fe = null;
+  if (o.fill) {
+    fe = el("path", { d: d + "Z", fill: o.fill, stroke: o.fill, "stroke-width": 3, "stroke-linejoin": "round", opacity: 0, transform: "translate(" + (o.dx == null ? 4 : o.dx) + " " + (o.dy == null ? 3 : o.dy) + ")" }, P);
+    tl.to(fe, { opacity: o.fo == null ? 1 : o.fo, duration: .25 }, o.t + o.dur * .55);
+  }
+  var out = stroke(d, o.stroke || CFG.ink, o.w || 5, o.t, o.dur, { raw: true, p: P, single: true, ease: o.ease });
+  return { fill: fe, line: out[0] };
+}
+var cid = 0;
+function write(str, x, y, size, color, t, dur, o) {
+  o = o || {};
+  var g = el("g", o.rot ? { transform: "rotate(" + o.rot + " " + x + " " + y + ")" } : {}, o.p || art);
+  var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": o.weight || 600, fill: color, "text-anchor": o.anchor || "start", "font-family": o.font || CFG.font, "font-style": o.italic ? "italic" : "normal", "letter-spacing": o.ls }, g);
+  tx.textContent = str;
+  var bb = tx.getBBox(), id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+  var rc = el("rect", { x: bb.x - 8, y: bb.y - 8, width: 0, height: bb.height + 16 }, cp);
+  tx.setAttribute("clip-path", "url(#" + id + ")");
+  tl.to(rc, { attr: { width: bb.width + 20 }, duration: dur, ease: "none" }, t);
+  return { g: g, w: bb.width, bb: bb };
+}
+function pop(node, cx, cy, t, dur, from) {
+  tl.fromTo(node, { scale: from || 0, svgOrigin: cx + " " + cy, opacity: 0 }, { scale: 1, opacity: 1, duration: dur || .35, ease: "back.out(2.2)", immediateRender: true }, t);
+}
+function grp(attrs, P) { return el("g", attrs || {}, P || art); }
+function heartPts(cx, cy, s, n) { var a = []; n = n || 36; for (var i = 0; i <= n; i++) { var t = i / n * Math.PI * 2; a.push([cx + 16 * Math.pow(Math.sin(t), 3) * s / 16, cy - (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) * s / 16]); } return a; }
+function dotc(x, y, r, fill, t, p) { return shape(arc(x, y, r, r, 0, 360, 10), { p: p, fill: fill, t: t, dur: .2, w: 3.5, amp: .5, dx: 2, dy: 2 }); }
+// title
+write("Love notes", 640, 150, 118, HOT, .05, { anchor: "middle", weight: 700 });
+stroke([[420, 188], [540, 197], [660, 185], [780, 197], [860, 187]], YEL, 9, .6, .5, { amp: 2.5, single: true });
+// ground + daisies
+stroke([[0, 598], [200, 590], [420, 602], [640, 592], [860, 602], [1060, 590], [1280, 598]], GRN, 6, .1, .8, { amp: 2 });
+[[70, 585, 1], [560, 590, .8], [1190, 585, 1.1], [850, 595, .75], [470, 592, .6]].forEach(function (d, k) {
+  var x = d[0], y = d[1], s = d[2], t = .3 + k * .12;
+  stroke([[x, y], [x + 4, y - 40 * s], [x - 2, y - 80 * s]], GRN, 5, t, .3, { single: true, amp: 1 });
+  for (var j = 0; j < 8; j++) { var a = j / 8 * Math.PI * 2, px = x - 2 + Math.cos(a) * 22 * s, py = y - 80 * s + Math.sin(a) * 22 * s; shape(arc(px, py, 11 * s, 11 * s, 0, 360, 8), { fill: WHITE, t: t + .2 + j * .02, dur: .15, w: 3, amp: .4 }); }
+  dotc(x - 2, y - 80 * s, 10 * s, YEL, t + .4);
+});
+art = grp({ transform: "translate(640 598) scale(1.1) translate(-640 -598)" });
+// pig
+function pig(cx, cy, sx, happy, bow, t0) {
+  var g = grp({}); var X = function (p) { return [cx + sx * p[0], cy + p[1]]; };
+  function P(pts) { return pts.map(X); }
+  shape(P([[-55, 70], [-55, 100], [-25, 100], [-25, 72]]), { p: g, fill: PINK, t: t0, dur: .2, w: 5 });
+  shape(P([[30, 72], [30, 100], [60, 100], [60, 70]]), { p: g, fill: PINK, t: t0, dur: .2, w: 5 });
+  var body = arc(0, 0, 100, 82, 0, 360, 20).map(X);
+  shape(body, { p: g, fill: PINK, t: t0, dur: .35, w: 6 });
+  shape(P([[-62, -58], [-78, -112], [-22, -78], [-62, -58]]), { p: g, fill: DPINK, t: t0 + .3, dur: .2, w: 5 });
+  shape(P([[22, -78], [72, -112], [68, -54], [22, -78]]), { p: g, fill: DPINK, t: t0 + .35, dur: .2, w: 5 });
+  shape(arc(0, 24, 34, 24, 0, 360, 14).map(X), { p: g, fill: DPINK, t: t0 + .4, dur: .3, w: 5 });
+  dotc(cx + sx * -11, cy + 24, 4.5, INK, t0 + .6, g); dotc(cx + sx * 11, cy + 24, 4.5, INK, t0 + .62, g);
+  if (happy) {
+    stroke(arc(cx - 34, cy - 18, 14, 12, 200, 340, 6), INK, 6, t0 + .5, .15, { p: g, single: true, amp: .4 });
+    stroke(arc(cx + 34, cy - 18, 14, 12, 200, 340, 6), INK, 6, t0 + .52, .15, { p: g, single: true, amp: .4 });
+  } else { dotc(cx - 34, cy - 18, 8, INK, t0 + .5, g); dotc(cx + 34, cy - 18, 8, INK, t0 + .52, g); }
+  shape(arc(cx - 66, cy + 10, 13, 10, 0, 360, 8), { p: g, fill: HOT, t: t0 + .5, dur: .15, w: 0.1, amp: .4, fo: .55, dx: 0, dy: 0, stroke: HOT });
+  shape(arc(cx + 66, cy + 10, 13, 10, 0, 360, 8), { p: g, fill: HOT, t: t0 + .55, dur: .15, w: 0.1, amp: .4, fo: .55, dx: 0, dy: 0, stroke: HOT });
+  stroke(arc(cx, cy + 46, 14, 8, 20, 160, 6), INK, 4.5, t0 + .6, .15, { p: g, single: true, amp: .3 });
+  stroke(P([[-100, 14], [-124, 6], [-118, 30], [-136, 34]]), INK, 5, t0 + .5, .25, { p: g, single: true, amp: .8 });
+  if (bow) {
+    shape(P([[-30, -78], [-72, -100], [-72, -62], [-30, -78]]), { p: g, fill: YEL, t: t0 + .55, dur: .2, w: 4.5, amp: .8 });
+    shape(P([[-30, -78], [8, -104], [10, -62], [-30, -78]]), { p: g, fill: YEL, t: t0 + .6, dur: .2, w: 4.5, amp: .8 });
+    dotc(cx + sx * -30, cy - 78, 7, HOT, t0 + .7, g);
+  }
+  return g;
+}
+var pig1 = pig(240, 480, 1, false, false, 0);
+// paper + pencil
+var pp = [[-50, -36], [54, -42], [58, 36], [-46, 42], [-50, -36]].map(function (p) { return [390 + p[0], 530 + p[1]]; });
+shape(pp, { fill: WHITE, t: .6, dur: .4, w: 5, amp: 1 });
+stroke(heartPts(392, 530, 32), HOT, 6, 1.0, .4, { single: true, amp: .6 });
+tl.to({}, {}, 1.4);
+var pencil = grp({}); stroke([[0, 0], [-60, -40]], YEL, 9, 0, .01, { p: pencil, single: true, amp: .1 }); stroke([[0, 0], [-8, -5]], INK, 9, 0, .01, { p: pencil, single: true, amp: .1 });
+tl.set(pencil, { opacity: 0 }, 0); tl.set(pencil, { opacity: 1 }, .8); tl.set(pencil, { opacity: 0 }, 1.45);
+tl.fromTo(pencil, { x: 374, y: 520 }, { x: 414, y: 540, duration: .12, repeat: 4, yoyo: true, ease: "sine.inOut" }, .85);
+// envelope 1
+function envelope(parent) {
+  var g = grp({}, parent);
+  el("path", { d: wob([[-42, -28], [42, -28], [42, 28], [-42, 28], [-42, -28]], 1.2, 40) + "Z", fill: WHITE, stroke: INK, "stroke-width": 5, "stroke-linejoin": "round" }, g);
+  el("path", { d: wob([[-40, -26], [0, 6], [40, -26]], 1, 40), fill: "none", stroke: INK, "stroke-width": 4.5, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
+  el("path", { d: wob(heartPts(0, 10, 22), .4, 40) + "Z", fill: HOT, stroke: INK, "stroke-width": 3 }, g);
+  return g;
+}
+var env1 = envelope(), es = { u: 0 };
+tl.set(env1, { opacity: 0 }, 0);
+function ep() {
+  var u = es.u, a = [405, 500], b = [520, 190], c = [655, 365];
+  var x = (1 - u) * (1 - u) * a[0] + 2 * (1 - u) * u * b[0] + u * u * c[0], y = (1 - u) * (1 - u) * a[1] + 2 * (1 - u) * u * b[1] + u * u * c[1];
+  var sc = 1 - .35 * u, rot = -25 + 70 * u;
+  env1.setAttribute("transform", "translate(" + x.toFixed(1) + " " + y.toFixed(1) + ") rotate(" + rot.toFixed(1) + ") scale(" + sc.toFixed(3) + ")");
+}
+ep();
+tl.to(pp.length ? {} : {}, {}, 0);
+tl.set(env1, { opacity: 1 }, 1.45);
+tl.to(es, { u: 1, duration: .75, ease: "power1.inOut", onUpdate: ep }, 1.5);
+tl.set(env1, { opacity: 0 }, 2.27);
+// mailbox
+var mb = grp({});
+shape([[648, 440], [648, 598], [668, 598], [668, 440]], { p: mb, fill: "#c9a27a", t: .5, dur: .4, w: 5 });
+var mbBody = shape([[575, 418]].concat(arc(655, 362, 80, 44, 180, 360, 12)).concat([[735, 418], [575, 418]]), { p: mb, fill: SKY, t: .55, dur: .5, w: 6 });
+stroke([[610, 350], [700, 350]], INK, 6, 1.1, .2, { p: mb, single: true, amp: .6 });
+dotc(715, 388, 6, YEL, 1.2, mb);
+var flag = grp({});
+stroke([[745, 360], [745, 296]], INK, 6, .9, .2, { p: flag, single: true, amp: .5 });
+shape([[745, 296], [790, 296], [790, 324], [745, 324], [745, 296]], { p: flag, fill: HOT, t: 1.0, dur: .2, w: 4.5, amp: .6 });
+var fs = { r: 82, b: 0 };
+function fu() { flag.setAttribute("transform", "rotate(" + fs.r.toFixed(1) + " 745 360)"); mb.setAttribute("transform", "translate(655 598) scale(" + (1 + fs.b * .06).toFixed(3) + " " + (1 - fs.b * .05).toFixed(3) + ") translate(-655 -598)"); }
+fu();
+tl.to(fs, { r: 0, duration: .45, ease: "back.out(2.2)", onUpdate: fu }, 2.2);
+tl.to(fs, { b: 1, duration: .1, yoyo: true, repeat: 1, onUpdate: fu }, 2.2);
+// partner
+var pig2 = pig(1075, 480, -1, true, true, 2.1);
+// partner letter
+var env2 = envelope(), e2 = { u: 0 };
+tl.set(env2, { opacity: 0 }, 0);
+function e2p() {
+  var u = e2.u, a = [655, 365], b = [800, 280], c = [945, 468];
+  var x = (1 - u) * (1 - u) * a[0] + 2 * (1 - u) * u * b[0] + u * u * c[0], y = (1 - u) * (1 - u) * a[1] + 2 * (1 - u) * u * b[1] + u * u * c[1];
+  env2.setAttribute("transform", "translate(" + x.toFixed(1) + " " + y.toFixed(1) + ") rotate(" + (-10 + 30 * (1 - u)).toFixed(1) + ") scale(" + (.65 + .5 * u).toFixed(3) + ")");
+}
+e2p();
+tl.set(env2, { opacity: 1 }, 2.75);
+tl.to(e2, { u: 1, duration: .6, ease: "power2.out", onUpdate: e2p }, 2.75);
+// hearts rising
+var hc = [HOT, "#ff8fb1", YEL, "#ff6b6b", "#ffa3c2"];
+for (var k = 0; k < 9; k++) {
+  var hx = 900 + R() * 250, hy = 290 + R() * 110, s = 14 + R() * 16, hg = el("path", { d: wob(heartPts(0, 0, s, 24), .3, 40) + "Z", fill: hc[k % 5], stroke: INK, "stroke-width": 3.5, "stroke-linejoin": "round" }, art);
+  tl.set(hg, { opacity: 0, x: 1000, y: 380 }, 0);
+  tl.to(hg, { opacity: 1, x: hx, y: hy, rotation: (R() - .5) * 40, duration: .8 + R() * .3, ease: "power2.out" }, 3.0 + k * .13);
+}
+// sparkles by the mailbox
+[[-70, -40], [-90, 10], [80, -50]].forEach(function (d, k) { stroke([[0, -14], [0, 14]], YEL, 5, 2.3 + k * .05, .15, { single: true, amp: .3, p: grp({ transform: "translate(" + (655 + d[0] * 1.3) + " " + (330 + d[1]) + ")" }) }); });
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+  tl.set({}, {}, 5);
+})();
+</script>
+</body>
+</html>

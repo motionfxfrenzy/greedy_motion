@@ -1,0 +1,878 @@
+[
+ {
+  "id": "opus-sarut0bisasuke-069973",
+  "name": "Step-by-step recipe",
+  "group": "How-to",
+  "summary": "An empty glass fills ingredient by ingredient with measures labelled as each one lands.",
+  "bestFor": "Recipes, drinks, food brands, cooking channels",
+  "prompt": "Make a 30 second recipe explainer for a signature iced coffee cocktail. Start on an empty glass, then add each ingredient one at a time with its measure written beside it, the liquid rising and the layers settling. Finish on the complete drink with its name and a short serving tip.",
+  "look": "sketch",
+  "theme": "coral",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @Sarut0biSasuke",
+   "url": "https://x.com/Sarut0biSasuke/status/2103418429248069973"
+  },
+  "plan": {
+   "brand": "Brewhouse",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Empty glass",
+     "on_screen": "Let's build it",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Pour two shots",
+     "on_screen": "Espresso first",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Espresso",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Top with cream",
+     "on_screen": "Slowly, over ice",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Cream",
+      "aspect": 1.6
+     },
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Brewhouse",
+     "on_screen": "Save the recipe",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-songkeys-384673",
+  "name": "Doodle civilisation story",
+  "group": "Story",
+  "summary": "A wordless hand-drawn story of progress, from first spark to a hatching idea, warm and poetic.",
+  "bestFor": "Brand origin stories, mission films, thought-leadership",
+  "prompt": "Make a 45 second wordless doodle story of how people built tools, towns and machines until a new idea hatched from an egg. Warm paper background, cute hand-drawn figures, almost no text so any viewer can follow it. End softly on the company name.",
+  "look": "doodle",
+  "theme": "editorial-forest",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @songkeys",
+   "url": "https://x.com/songkeys/status/2102743212922384673"
+  },
+  "plan": {
+   "brand": "Hatchling",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "First spark",
+     "on_screen": "A small fire",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Towns appear",
+     "on_screen": "Tools become cities",
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Something hatches",
+     "on_screen": "A new idea",
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Hatchling",
+     "on_screen": "Our story",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-stewchan2-369810",
+  "name": "Concept flow explainer",
+  "group": "Explainer",
+  "summary": "Nodes and links draw across the screen to show how one idea passes value to another.",
+  "bestFor": "SEO, marketing and finance concepts that are hard to picture",
+  "prompt": "Make a 40 second visual explainer of how a trusted site passing credit to a smaller site works, using nodes and drawn links. Begin with one lonely page, add pages that point to it, show the weight of each link growing, then end on the result for the page. Clean diagrams, one idea per beat.",
+  "look": "clean",
+  "theme": "cartesian",
+  "aspect": "16:9",
+  "durationSeconds": 40,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "both",
+  "source": {
+   "label": "Remade from @stewchan2",
+   "url": "https://x.com/stewchan2/status/2103542568361369810"
+  },
+  "plan": {
+   "brand": "LinkLab",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "One lonely page",
+     "on_screen": "Nobody points here",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "A link arrives",
+     "on_screen": "Trust flows across",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Link node",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Trust adds up",
+     "on_screen": "Each link counts",
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "LinkLab",
+     "on_screen": "See how it works",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-stokebuilder-356793",
+  "name": "Concept overlay cuts",
+  "group": "Explainer",
+  "summary": "Short full-screen graphic cuts that turn spoken ideas into simple, on-brand visuals.",
+  "bestFor": "Podcasts, interviews and talking-head videos that need visual relief",
+  "prompt": "Make a set of short full-screen graphic moments to cut into a talking episode. Each one turns a hard idea into a simple picture, such as a contract clause splitting into plain words. Use one monochrome style with typewriter labels and hand-drawn marks, and keep captions faithful to what is said.",
+  "look": "sketch",
+  "theme": "neutral",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "none",
+  "source": {
+   "label": "Remade from @stokebuilder",
+   "url": "https://x.com/stokebuilder/status/2103896101120356793"
+  },
+  "plan": {
+   "brand": "Talkbench",
+   "poster": 2.5,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Plain words",
+     "on_screen": "Clause becomes sentence",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Highlight the risk",
+     "on_screen": "Mark what matters",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Clause text",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "One idea",
+     "on_screen": "One picture",
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Talkbench",
+     "on_screen": "Visual episodes",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-tak3sh8-441895",
+  "name": "Whiteboard concept lesson",
+  "group": "Explainer",
+  "summary": "A hand-drawn whiteboard lesson that sketches a tricky idea step by step with narration.",
+  "bestFor": "Teachers, course creators and technical explainers",
+  "prompt": "Make a 60 second hand-drawn whiteboard lesson on a tricky idea from physics or economics. Marker lines draw diagrams while a calm voice explains each step, with key terms underlined as they are said. End by writing the one-line takeaway on the board.",
+  "look": "doodle",
+  "theme": "editorial",
+  "aspect": "16:9",
+  "durationSeconds": 60,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "voiceover",
+  "source": {
+   "label": "Remade from @tak3sh8",
+   "url": "https://x.com/tak3sh8/status/2103667481139441895"
+  },
+  "plan": {
+   "brand": "Boardwise",
+   "poster": 2.9,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Start with one ball",
+     "on_screen": "Rolling on a hill",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Many valleys",
+     "on_screen": "Which one wins?",
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Draw the pattern",
+     "on_screen": "Step by step",
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Boardwise",
+     "on_screen": "Learn it by drawing",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-techhalla-498547",
+  "name": "Kinetic poster bumper",
+  "group": "Typography",
+  "summary": "A loopable square bumper of loud poster type slamming in, hit by hit, in two hot colours.",
+  "bestFor": "Creator channel intros, social bumpers and brand stings",
+  "prompt": "Make a 20 second looping square bumper in black with magenta and acid green accents. Six short slogans slam in one after another in huge condensed type, with tiny mono labels as supporting crumbs and a slight print misregister on impact. The last frame matches the first so it loops.",
+  "look": "clean",
+  "theme": "bold-poster",
+  "aspect": "1:1",
+  "durationSeconds": 20,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @techhalla",
+   "url": "https://x.com/techhalla/status/2103411244468498547"
+  },
+  "plan": {
+   "brand": "Loudstudio",
+   "poster": 2.4,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Stop scrolling",
+     "on_screen": "Watch this",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Workflows beat wishes",
+     "on_screen": "Copy the method",
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Steal the prompt",
+     "on_screen": "Free to use",
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Loudstudio",
+     "on_screen": "Follow for more",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-tomandrieu96707-875264",
+  "name": "Collage about-us story",
+  "group": "Story",
+  "summary": "A whimsical hand-drawn collage tells how a company began, grew and what it believes.",
+  "bestFor": "About-us pages, startup origin films and team intros",
+  "prompt": "Make a 45 second about-us film in a whimsical hand-drawn paper collage style. Cut-out scraps slide in to tell where the founders started, the problem they kept seeing, what they built, and what they believe now. Gentle music and a short closing line with the company name.",
+  "look": "doodle-crosshatch",
+  "theme": "daisy-days",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "springy",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @TomAndrieu96707",
+   "url": "https://x.com/TomAndrieu96707/status/2103411144899875264"
+  },
+  "plan": {
+   "brand": "Scrapbook Co",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "It started small",
+     "on_screen": "A kitchen table",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "The problem",
+     "on_screen": "We kept seeing it",
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "So we built it",
+     "on_screen": "Piece by piece",
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Scrapbook Co",
+     "on_screen": "Meet the team",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-twoclipping-402193",
+  "name": "Morphing UI loop",
+  "group": "Product",
+  "summary": "One shape morphs through button, loader, player, toggle and chart, driven by a cursor, then loops.",
+  "bestFor": "App UI showcases, design systems and component libraries",
+  "prompt": "Make a 25 second square loop where a single rounded shape never cuts. A cursor clicks it and it becomes a loader, a music player, a volume slider, a toggle, a chart and a command bar, ending back as the button. Warm gray canvas, black and white parts, springs with a tiny overshoot, and something happens on every beat.",
+  "look": "clean",
+  "theme": "neutral",
+  "aspect": "1:1",
+  "durationSeconds": 25,
+  "motionProfile": "springy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @twoclipping",
+   "url": "https://x.com/twoclipping/status/2103273003555402193"
+  },
+  "plan": {
+   "brand": "Morphkit",
+   "poster": 2.5,
+   "beats": [
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "One button",
+     "on_screen": "Click to begin",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "Button",
+      "aspect": 1.0
+     },
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "It becomes a player",
+     "on_screen": "Same shape, new job",
+     "verb": "toggle",
+     "ui": {
+      "screen": "s1",
+      "action": "toggle",
+      "target": "Play toggle",
+      "aspect": 1.0
+     },
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Drag the slider",
+     "on_screen": "Past the max",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Volume slider",
+      "aspect": 1.0
+     },
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Morphkit",
+     "on_screen": "One shape, every state",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-verbove-268381",
+  "name": "One-shape product story",
+  "group": "Product",
+  "summary": "A cursor walks a single morphing card through a product's key screens, from sign-up to match, on the beat.",
+  "bestFor": "Product tours for apps with a clear user journey",
+  "prompt": "Make a 30 second tour of a community app where one card morphs between screens without a cut. A cursor taps join, types a handle, confirms a prompt, watches a globe fill with members, switches tabs, replies to an invite and searches, then returns to the logo. Every state is a real screen, on a steady beat.",
+  "look": "clean",
+  "theme": "blue-professional",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "springy",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @verbove",
+   "url": "https://x.com/verbove/status/2103483957266268381"
+  },
+  "plan": {
+   "brand": "Gatherly",
+   "poster": 2.6,
+   "beats": [
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Join in seconds",
+     "on_screen": "Type your handle",
+     "verb": "type",
+     "ui": {
+      "screen": "s1",
+      "action": "type",
+      "target": "Handle field",
+      "aspect": 1.6
+     },
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Find your people",
+     "on_screen": "Members light up",
+     "verb": "count",
+     "ui": {
+      "screen": "s1",
+      "action": "count",
+      "target": "Member globe",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "RSVP to the meetup",
+     "on_screen": "One tap",
+     "verb": "click",
+     "ui": {
+      "screen": "s1",
+      "action": "click",
+      "target": "RSVP button",
+      "aspect": 1.6
+     },
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Gatherly",
+     "on_screen": "Join the circle",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-viktoroddy-402509",
+  "name": "Milestone launch announcement",
+  "group": "Social",
+  "summary": "A fast launch-style video that celebrates a milestone and points viewers to try the product.",
+  "bestFor": "Startup milestone posts and thank-you announcements",
+  "prompt": "Make a 20 second announcement video celebrating that a design tool reached a big audience milestone within months of launch. Open on the number counting up, show three quick product moments, thank the community in one line, and close with the product name and a call to try it.",
+  "look": "clean",
+  "theme": "bold",
+  "aspect": "16:9",
+  "durationSeconds": 20,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @viktoroddy",
+   "url": "https://x.com/viktoroddy/status/2103802280617402509"
+  },
+  "plan": {
+   "brand": "Sitecraft",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Months, not years",
+     "on_screen": "We reached the milestone",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Watch it grow",
+     "on_screen": "Visitors keep coming",
+     "verb": "count",
+     "ui": {
+      "screen": "s1",
+      "action": "count",
+      "target": "Visitor counter",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Thank you",
+     "on_screen": "You built this with us",
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Sitecraft",
+     "on_screen": "Try it today",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-wani-shola-459278",
+  "name": "Portfolio showreel",
+  "group": "Showreel",
+  "summary": "A premium resume showreel that frames real site screens in browser and phone frames, cut on the beat.",
+  "bestFor": "Developers, designers and consultants showing their work",
+  "prompt": "Make a 60 second showreel for a developer advocate's portfolio. Show home, writing and contact pages inside browser and phone frames, with a chat box answering questions in large bold type. Use three brand colours, one idea per shot, eased motion, and cut each scene on a 120 BPM beat. End on the site and a contact line.",
+  "look": "clean",
+  "theme": "editorial",
+  "aspect": "16:9",
+  "durationSeconds": 60,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @wani_shola",
+   "url": "https://x.com/wani_shola/status/2103769906638459278"
+  },
+  "plan": {
+   "brand": "Portfolio Reel",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "What I do",
+     "on_screen": "Developer advocacy",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Ask anything",
+     "on_screen": "Answers in big type",
+     "verb": "type",
+     "ui": {
+      "screen": "s1",
+      "action": "type",
+      "target": "Chat box",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Real work",
+     "on_screen": "Shown, not told",
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Portfolio Reel",
+     "on_screen": "Let's work together",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-x4b47x-034026",
+  "name": "Paper theatre story",
+  "group": "Story",
+  "summary": "A vertical paper cut-out shadow theatre scene that answers one human question softly.",
+  "bestFor": "Brand values films, vertical shorts and emotional storytelling",
+  "prompt": "Make a 40 second vertical paper cut-out shadow theatre film on the question of what makes a place feel like home. Layered paper silhouettes of a window, a lamp, a kettle and a doorway slide in with soft shadows and warm light, with gentle music and only a few words of text.",
+  "look": "doodle-zigzag",
+  "theme": "creative-mode",
+  "aspect": "9:16",
+  "durationSeconds": 40,
+  "motionProfile": "smooth",
+  "pace": "calm",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @x4b47x",
+   "url": "https://x.com/x4b47x/status/2103019799614034026"
+  },
+  "plan": {
+   "brand": "Homelight",
+   "poster": 2.7,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "What is home?",
+     "on_screen": "A quiet question",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "A warm lamp",
+     "on_screen": "Light in the window",
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "A kettle sings",
+     "on_screen": "Small things stay",
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Homelight",
+     "on_screen": "Find your place",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-seflless-929329",
+  "name": "Motion designer showreel",
+  "group": "Showreel",
+  "summary": "A fast showreel of kinetic type, shapes and transitions showing off range in a few seconds.",
+  "bestFor": "Freelance motion designers and studios selling their craft",
+  "prompt": "Make a 15 second showreel that proves range fast. Chain kinetic type, shape morphs, a stat count-up and a clean logo reveal, each lasting only a second or two, joined with matched-motion transitions. Avoid corner frames and generic labels, and finish on a clean name card.",
+  "look": "hairline",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 15,
+  "motionProfile": "snappy",
+  "pace": "fast",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @seflless",
+   "url": "https://x.com/seflless/status/2103629182487929329"
+  },
+  "plan": {
+   "brand": "Reelhouse",
+   "poster": 2.5,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Type in motion",
+     "on_screen": "Every letter earns it",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "kinetic",
+     "keyword": "Shapes that morph",
+     "on_screen": "One form, many roles",
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Numbers that climb",
+     "on_screen": "Count to the beat",
+     "verb": "count",
+     "ui": {
+      "screen": "s1",
+      "action": "count",
+      "target": "Counter",
+      "aspect": 1.6
+     },
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Reelhouse",
+     "on_screen": "Hire the motion",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ },
+ {
+  "id": "opus-techtactician-144474",
+  "name": "Feature launch trailer",
+  "group": "Product",
+  "summary": "A polished SaaS launch trailer that pairs each feature with the benefit it brings, scene by scene.",
+  "bestFor": "SaaS teams announcing a product or major feature release",
+  "prompt": "Make a 30 second launch trailer for a slide-making app. Each scene shows one feature in a clean UI card, with a bold line naming the benefit, such as building a deck from a sentence. Keep a confident, edited pace with smooth transitions and finish on the product name and a try-it prompt.",
+  "look": "clean",
+  "theme": "blue-professional",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "music",
+  "source": {
+   "label": "Remade from @techtactician",
+   "url": "https://x.com/techtactician/status/2103219463508144474"
+  },
+  "plan": {
+   "brand": "Deckly",
+   "poster": 2.8,
+   "beats": [
+    {
+     "kind": "kinetic",
+     "keyword": "Decks in seconds",
+     "on_screen": "From one sentence",
+     "start": 0,
+     "end": 1.3
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Type the topic",
+     "on_screen": "Slides appear",
+     "verb": "type",
+     "ui": {
+      "screen": "s1",
+      "action": "type",
+      "target": "Prompt box",
+      "aspect": 1.6
+     },
+     "start": 1.3,
+     "end": 2.6
+    },
+    {
+     "kind": "ui",
+     "role": "reveal",
+     "keyword": "Pick a theme",
+     "on_screen": "Looks done",
+     "verb": "select",
+     "ui": {
+      "screen": "s1",
+      "action": "select",
+      "target": "Theme picker",
+      "aspect": 1.6
+     },
+     "start": 2.6,
+     "end": 3.9
+    },
+    {
+     "kind": "title",
+     "role": "cta",
+     "keyword": "Deckly",
+     "on_screen": "Try it free",
+     "start": 3.9,
+     "end": 5.0
+    }
+   ]
+  }
+ }
+]

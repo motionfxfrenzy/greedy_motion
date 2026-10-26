@@ -82,7 +82,7 @@ async function run(project: VideoProject, requested?: AudioPart[]): Promise<Audi
   if (voice.status === "rejected") throw voice.reason instanceof Error ? voice.reason : new Error("The voiceover failed.");
   const warnings: string[] = [];
   if (music.status === "rejected") warnings.push(`Music: ${music.reason instanceof Error ? music.reason.message : "generation failed"}. The film plays without a bed until it is generated.`);
-  if (voice.value?.aligned === "estimate") warnings.push("Word timing is estimated inside each measured line (Whisper is not available on this server).");
+  if (voice.value?.aligned === "estimate") warnings.push("Word timing is estimated inside each measured line (the audio could not be transcribed).");
   const track = music.status === "fulfilled" ? music.value : null;
   const spentUsd = Math.round(((voice.value?.spentSeconds ?? 0) * VOICE_RULES.usdPerSecond + (track?.spentUsd ?? 0)) * 10000) / 10000;
 

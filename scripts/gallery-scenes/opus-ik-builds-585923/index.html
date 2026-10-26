@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Paper marker launch</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #f4ecd8; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #f4ecd8; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(77);
+  var INK = "#23201c", CORAL = "#f2492a", YEL = "#ffd23f", PAPER = "#f4ecd8", COAL = "#1f1e1c";
+  function wob(pts, amp, step) {
+    var out = [pts[0]], i, k;
+    for (i = 1; i < pts.length; i++) {
+      var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+      for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+    }
+    var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+    for (i = 0; i < out.length - 1; i++) {
+      var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+      d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+    }
+    return d;
+  }
+  function arc(cx, cy, rx, ry, a0, a1, n) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * .06; p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+  function box(x, y, w, h) { return [[x - 6, y + 1], [x + w + 4, y - 1], [x + w + 1, y + h + 3], [x - 3, y + h - 1], [x + 1, y - 9]]; }
+
+  var defs = el("defs", {});
+  var flt = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+  el("feTurbulence", { type: "fractalNoise", baseFrequency: "0.05", numOctaves: 2, seed: 4, result: "n" }, flt);
+  el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: 4 }, flt);
+
+  var tl = gsap.timeline({ paused: true }), cid = 0, G, T0;
+  function beat(t0, t1, bg) {
+    var g = el("g", { opacity: 0 });
+    el("rect", { width: 1280, height: 720, fill: bg }, g);
+    var art = el("g", { filter: "url(#rough)" }, g);
+    tl.set(g, { opacity: 1 }, t0); tl.set(g, { opacity: 0 }, t1);
+    G = art; T0 = t0; return art;
+  }
+  function stroke(pts, color, w, t, dur, o) {
+    o = o || {};
+    var d = wob(pts, o.amp == null ? 2.4 : o.amp, 34);
+    var path = el("path", { d: d, fill: "none", stroke: color, "stroke-width": w, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: o.op || 1 }, G);
+    var L = path.getTotalLength();
+    path.style.strokeDasharray = L + " " + (L + 30); path.style.strokeDashoffset = L + 4;
+    tl.to(path, { strokeDashoffset: 0, duration: dur, ease: o.ease || "power1.inOut" }, T0 + t);
+  }
+  function write(str, x, y, size, color, t, dur, rot, est, font, weight) {
+    var g = el("g", rot ? { transform: "rotate(" + rot + " " + x + " " + y + ")" } : {}, G);
+    var id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+    var rc = el("rect", { x: x - 14, y: y - size * 1.1, width: 0, height: size * 1.5 }, cp);
+    var tx = el("text", { x: x, y: y, "font-size": size, "font-weight": weight || 400, fill: color, "clip-path": "url(#" + id + ")", "font-family": font || "'Bebas Neue', Impact, sans-serif" }, g);
+    tx.textContent = str;
+    tl.to(rc, { attr: { width: 1320 - x }, duration: dur, ease: "none" }, T0 + t);
+  }
+
+  // ---- beat 1 (0-1.2) paper: NOTES + lightbulb
+  beat(0, 1.2, PAPER);
+  stroke([[70, 330], [500, 322], [900, 330]], YEL, 150, 0, .3, { amp: 3, op: .9 });
+  write("NOTES", 80, 430, 330, INK, 0, .4, -1.5, 700);
+  var bx = 1060, by = 250;
+  stroke(arc(bx, by, 78, 84, 130, 410, 20), INK, 8, .15, .3, { amp: 2 });
+  stroke([[bx - 34, by + 100], [bx + 36, by + 98]], INK, 8, .38, .1);
+  stroke([[bx - 26, by + 128], [bx + 28, by + 126]], INK, 8, .45, .08);
+  [[-130, -60, -85, -35], [0, -150, 0, -112], [130, -60, 85, -35], [-150, 40, -108, 34], [150, 40, 108, 34]].forEach(function (r, i) { stroke([[bx + r[0], by + r[1]], [bx + r[2], by + r[3]]], CORAL, 8, .5 + i * .04, .1, { amp: .8 }); });
+  stroke([[bx - 24, by + 20], [bx - 8, by - 14], [bx + 10, by + 22], [bx + 26, by - 14]], CORAL, 7, .6, .2, { amp: 1.2 });
+  stroke([[100, 480], [300, 490], [520, 478], [760, 488]], CORAL, 11, .4, .35, { amp: 3 });
+
+  // ---- beat 2 (1.2-2.4) paper: THAT LEARN + linked notes
+  beat(1.2, 2.4, PAPER);
+  write("THAT", 70, 320, 300, CORAL, 0, .3, 1.5, 520);
+  write("LEARN", 560, 320, 300, INK, .15, .4, 1.5, 620);
+  var N = [[110, 450], [450, 500], [790, 450]];
+  N.forEach(function (n, i) {
+    var t = .4 + i * .16;
+    stroke(box(n[0], n[1], 250, 150), INK, 7, t, .25, { amp: 1.6 });
+    stroke([[n[0] + 28, n[1] + 50], [n[0] + 150, n[1] + 46], [n[0] + 214, n[1] + 52]], INK, 6, t + .1, .14, { amp: 1.5 });
+    stroke([[n[0] + 28, n[1] + 100], [n[0] + 120 - i * 14, n[1] + 102]], "#8d8372", 6, t + .17, .1, { amp: 1.5 });
+  });
+  stroke([[372, 520], [412, 540], [446, 546]], CORAL, 8, .62, .15, { amp: 1 }); stroke([[418, 528], [448, 546], [420, 566]], CORAL, 8, .74, .08, { amp: 1 });
+  stroke([[712, 540], [750, 510], [786, 496]], CORAL, 8, .78, .15, { amp: 1 }); stroke([[750, 486], [788, 496], [762, 524]], CORAL, 8, .88, .08, { amp: 1 });
+  stroke(arc(1130, 530, 70, 70, 0, 340, 14), CORAL, 8, .7, .3, { amp: 2 });
+  stroke([[1100, 530], [1124, 556], [1170, 500]], CORAL, 11, .9, .2, { amp: 1 });
+
+  // ---- beat 3 (2.4-3.6) charcoal: key claim
+  beat(2.4, 3.6, COAL);
+  write("IT LEARNS", 90, 290, 290, PAPER, 0, .4, -1, 760);
+  write("HOW YOU THINK", 90, 560, 215, PAPER, .25, .5, -1, 1000);
+  stroke(box(402, 380, 235, 200), CORAL, 11, .65, .25, { amp: 2.6 });
+  stroke([[90, 600], [400, 608], [900, 600]], YEL, 9, .8, .2, { amp: 2 });
+
+  // ---- beat 4 (3.6-5.2) paper: wordmark
+  beat(3.6, 5.2, PAPER);
+  write("MARGINLY", 80, 450, 285, INK, 0, .5, -1.5, 900);
+  stroke([[90, 520], [400, 536], [760, 520], [1100, 530]], CORAL, 14, .35, .35, { amp: 2.6 });
+  stroke(arc(1135, 150, 52, 52, 0, 360, 12), YEL, 16, .3, .25, { amp: 2 });
+  [0, 1, 2, 3, 4, 5, 6, 7].forEach(function (k) { var a = k * Math.PI / 4; stroke([[1135 + Math.cos(a) * 78, 150 + Math.sin(a) * 78], [1135 + Math.cos(a) * 110, 150 + Math.sin(a) * 110]], YEL, 10, .45 + k * .02, .1, { amp: .8 }); });
+  write("notes that learn you", 90, 640, 92, INK, .55, .45, -1, 560, "Newsreader, serif", 600);
+
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+  tl.set({}, {}, 5);
+})();
+</script>
+</body>
+</html>

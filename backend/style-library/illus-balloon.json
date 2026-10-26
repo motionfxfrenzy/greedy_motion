@@ -1,0 +1,45 @@
+{
+  "id": "illus-balloon",
+  "name": "Illustration · Crayon",
+  "group": "Illustration",
+  "description": "Wax crayon on toothed paper. Drawn as a finished illustration in one medium.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "collage",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/references/illus-balloon.jpg",
+    "kind": "image",
+    "label": "Reference frame — not generated footage"
+  },
+  "source": "third_party/anidoodle/styles.gen.json",
+  "referenceAssets": [
+    {
+      "path": "references/illus-balloon.jpg",
+      "source": "third_party/anidoodle/references/illus-balloon.jpg",
+      "sha256": "d657161df28c431a7e70e7e0caf5bfdbf7be0453e42dac186395511ed687db22",
+      "bytes": 144685
+    }
+  ],
+  "instructions": {
+    "image": "Wax crayon on toothed paper: back-and-forth scribble fills that skip the valleys, a darker crayon on the shade side, a white one burnishing the highlight, a fat contour gone over twice. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+    "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "The reference frame for this style"
+    ],
+    "acceptance": [
+      "The medium stays recognisable in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme"
+    ]
+  },
+  "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "animated-map-route",
+  "name": "Animated Map Route",
+  "group": "Data & maps",
+  "summary": "A stylised map with a dotted route drawing between four cities while a small vehicle follows it.",
+  "bestFor": "Travel, logistics and delivery route explainers",
+  "prompt": "Create an animated route map for a made-up four-stop journey across an abstract map with hand-drawn landmasses. Pop each city label as the route reaches it, draw a dotted line between the stops, and send a small vehicle along the path. Pause briefly at each stop to name it, then finish by showing the whole route lit up with a one-line summary of the trip.",
+  "look": "clean",
+  "theme": "blue-professional",
+  "aspect": "16:9",
+  "durationSeconds": 35,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "both",
+  "poster": 2.8
+}

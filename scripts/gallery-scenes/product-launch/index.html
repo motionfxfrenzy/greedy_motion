@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Product launch</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #050608; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #050608; font-family: "Inter", sans-serif; color: #eef2f7; }
+  #bg { position: absolute; inset: 0; background: radial-gradient(ellipse 60% 55% at 50% 62%, #141a26 0%, #0a0d13 55%, #050608 100%); }
+  #beam { position: absolute; left: 330px; top: -40px; width: 620px; height: 720px; background: linear-gradient(180deg, rgba(200,220,255,.30), rgba(200,220,255,0) 85%); clip-path: polygon(40% 0, 60% 0, 100% 100%, 0 100%); filter: blur(22px); opacity: .0; }
+  #floor { position: absolute; left: 250px; top: 590px; width: 780px; height: 90px; border-radius: 50%; background: radial-gradient(ellipse at center, rgba(91,140,255,.45), rgba(91,140,255,0) 70%); opacity: 0; filter: blur(8px); }
+  #stage { position: absolute; left: 320px; top: 205px; width: 640px; height: 400px; }
+  #dev { position: absolute; inset: 0; border-radius: 18px; background: linear-gradient(160deg, #161b25, #0b0e14); border: 1.5px solid rgba(255,255,255,.16); box-shadow: 0 40px 90px rgba(0,0,0,.7), 0 0 0 1px rgba(0,0,0,.6), 0 0 80px rgba(91,140,255,.12); overflow: hidden; transform-style: preserve-3d; }
+  .bar { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .bar i { width: 11px; height: 11px; border-radius: 50%; background: rgba(255,255,255,.2); display: block; }
+  .bar b { margin-left: 14px; font: 600 13px "Inter"; color: rgba(255,255,255,.55); letter-spacing: .08em; }
+  .side { position: absolute; left: 0; top: 34px; bottom: 0; width: 130px; border-right: 1px solid rgba(255,255,255,.07); padding: 18px 14px; }
+  .side div { height: 10px; border-radius: 5px; background: rgba(255,255,255,.1); margin-bottom: 16px; }
+  .side div.on { background: #5b8cff; width: 70%; }
+  .vid { position: absolute; left: 150px; top: 54px; width: 470px; height: 230px; border-radius: 12px; background: linear-gradient(135deg, #243a78 0%, #5b8cff 48%, #bcd2ff 100%); overflow: hidden; }
+  .vid::after { content: ""; position: absolute; left: 50%; top: 50%; margin: -26px 0 0 -18px; border-left: 46px solid rgba(255,255,255,.92); border-top: 28px solid transparent; border-bottom: 28px solid transparent; }
+  .vid span { position: absolute; left: -10%; bottom: -30%; width: 80%; height: 90%; border-radius: 50%; background: rgba(255,255,255,.14); }
+  .tl { position: absolute; left: 150px; top: 300px; width: 470px; height: 18px; border-radius: 9px; background: rgba(255,255,255,.07); }
+  .tl i { position: absolute; top: 3px; height: 12px; border-radius: 6px; background: rgba(255,255,255,.28); }
+  #prog { position: absolute; left: 150px; top: 300px; height: 18px; width: 0; border-radius: 9px; background: rgba(91,140,255,.55); }
+  #btn { position: absolute; right: 30px; bottom: 22px; height: 44px; width: 180px; border-radius: 22px; background: #eef2f7; color: #0a0d13; font: 700 20px "Space Grotesk"; display: flex; align-items: center; justify-content: center; letter-spacing: .01em; overflow: hidden; }
+  #btn span { position: absolute; transition: none; }
+  #sweep { position: absolute; top: -40px; left: 0; width: 220px; height: 480px; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.85), rgba(255,255,255,0)); transform: skewX(-22deg); mix-blend-mode: screen; opacity: 0; }
+  #lines { position: absolute; inset: 0; }
+  .chip { position: absolute; left: 0; top: 0; width: 240px; height: 58px; border-radius: 29px; display: flex; align-items: center; gap: 12px; padding: 0 22px 0 12px; background: rgba(22,28,40,.92); border: 1.5px solid rgba(255,255,255,.22); font: 600 24px "Space Grotesk"; color: #eef2f7; box-shadow: 0 10px 30px rgba(0,0,0,.5); white-space: nowrap; }
+  .chip em { width: 34px; height: 34px; border-radius: 50%; background: #5b8cff; flex: none; display: block; position: relative; }
+  .chip em::after { content: ""; position: absolute; left: 11px; top: 8px; width: 8px; height: 14px; border: solid #050608; border-width: 0 3px 3px 0; transform: rotate(45deg); }
+  #head { position: absolute; left: 0; width: 1280px; top: 46px; text-align: center; }
+  #brand { font: 700 22px "Space Grotesk"; letter-spacing: .32em; color: #8fb0ff; text-transform: uppercase; }
+  #tag { margin-top: 8px; font: 700 62px "Space Grotesk"; letter-spacing: -.02em; line-height: 1.05; }
+  #tag span { display: inline-block; margin: 0 .12em; }
+  #tag span.acc { color: #5b8cff; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <div id="bg"></div>
+  <div id="beam"></div>
+  <div id="floor"></div>
+  <div id="head"><div id="brand">Relay</div><div id="tag"><span>One</span><span>click</span><span>to</span><span class="acc">publish</span></div></div>
+  <div id="stage">
+    <div id="dev">
+      <div class="bar"><i></i><i></i><i></i><b>RELAY</b></div>
+      <div class="side"><div class="on"></div><div></div><div style="width:80%"></div><div style="width:55%"></div></div>
+      <div class="vid"><span></span></div>
+      <div class="tl"><i style="left:6%;width:22%"></i><i style="left:34%;width:30%"></i><i style="left:70%;width:20%"></i></div>
+      <div id="prog"></div>
+      <div id="btn"><span id="b1">Publish</span><span id="b2" style="opacity:0">Published</span></div>
+      <div id="sweep"></div>
+    </div>
+  </div>
+  <svg id="lines" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+  <div class="chip" id="c0"><em></em>Auto captions</div>
+  <div class="chip" id="c1"><em></em>Brand kit</div>
+  <div class="chip" id="c2"><em></em>Schedule</div>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", svg = document.getElementById("lines");
+  var CX = 640, CY = 405;
+  var tl = gsap.timeline({ paused: true });
+  var stage = document.getElementById("stage");
+  gsap.set(stage, { transformPerspective: 1300, transformOrigin: "50% 100%", rotationX: 34, rotationY: -22, y: 140, scale: .88, opacity: .35 });
+  gsap.set("#tag span", { opacity: 0, y: 24, filter: "blur(10px)" });
+  gsap.set("#brand", { opacity: 0, y: 10 });
+
+  // spotlight and stage
+  gsap.set("#beam", { opacity: .35 });
+  tl.to("#beam", { opacity: .8, duration: 1.4, ease: "sine.inOut" }, 0);
+  tl.to("#floor", { opacity: 1, duration: 1.2 }, 0.8);
+
+  // device rises out of darkness and the tilt settles
+  tl.to(stage, { y: 0, scale: 1, opacity: 1, duration: 1.7, ease: "power3.out" }, 0);
+  tl.to(stage, { rotationX: 7, rotationY: -9, duration: 2.4, ease: "expo.out" }, 0);
+  tl.to(stage, { rotationX: 4, rotationY: -4, duration: 1.8, ease: "sine.inOut" }, 2.4);
+
+  // light sweep across the edge
+  tl.fromTo("#sweep", { x: -300, opacity: 1 }, { x: 900, opacity: 1, duration: 1.2, ease: "power2.inOut" }, 1.0);
+  tl.set("#sweep", { opacity: 0 }, 2.25);
+
+  // video progress
+  tl.to("#prog", { width: 300, duration: 3.5, ease: "none" }, 0.5);
+
+  // chips: orbit in along an arc, then snap to callout lines
+  var chips = [
+    { id: "c0", x: 165, y: 255, ax: 340, ay: 300, t: 1.5 },
+    { id: "c1", x: 1115, y: 395, ax: 950, ay: 395, t: 1.85 },
+    { id: "c2", x: 165, y: 545, ax: 330, ay: 505, t: 2.2 }
+  ];
+  chips.forEach(function (c, i) {
+    var el = document.getElementById(c.id);
+    var dx = c.x - CX, dy = c.y - CY;
+    var th1 = Math.atan2(dy / 0.75, dx), r1 = Math.hypot(dx, dy / 0.75);
+    var o = { p: 0, s: 1 };
+    var dir = i === 1 ? -1 : 1;
+    function pos() {
+      var p = o.p, th = th1 - dir * (1 - p) * 2.4, r = r1 + (1 - p) * 260;
+      var x = CX + r * Math.cos(th), y = CY + r * Math.sin(th) * 0.75;
+      el.style.transform = "translate(" + (x - 120).toFixed(1) + "px," + (y - 29).toFixed(1) + "px) scale(" + (0.55 + 0.45 * p).toFixed(3) + ")";
+      el.style.opacity = Math.min(1, p * 3).toFixed(3);
+    }
+    pos();
+    tl.to(o, { p: 1, duration: 1.0, ease: "power3.out", onUpdate: pos }, c.t);
+    // callout line
+    var sx = c.x + (c.x < CX ? 120 : -120), sy = c.y;
+    var ln = document.createElementNS(NS, "path");
+    ln.setAttribute("d", "M" + sx + " " + sy + " L" + (c.ax + (c.x < CX ? -40 : 40)) + " " + c.ay + " L" + c.ax + " " + c.ay);
+    ln.setAttribute("fill", "none"); ln.setAttribute("stroke", "#8fb0ff"); ln.setAttribute("stroke-width", 2.5); ln.setAttribute("stroke-linecap", "round");
+    svg.appendChild(ln);
+    var L = ln.getTotalLength(); ln.style.strokeDasharray = L; ln.style.strokeDashoffset = L;
+    var dot = document.createElementNS(NS, "circle");
+    dot.setAttribute("cx", c.ax); dot.setAttribute("cy", c.ay); dot.setAttribute("r", 7); dot.setAttribute("fill", "#5b8cff"); dot.setAttribute("stroke", "#eef2f7"); dot.setAttribute("stroke-width", 2.5);
+    svg.appendChild(dot); gsap.set(dot, { transformOrigin: "50% 50%", scale: 0 });
+    tl.to(ln, { strokeDashoffset: 0, duration: .35, ease: "power2.out" }, c.t + 0.75);
+    tl.to(dot, { scale: 1, duration: .3, ease: "back.out(3)" }, c.t + 1.0);
+    tl.fromTo(el, { boxShadow: "0 10px 30px rgba(0,0,0,.5)" }, { boxShadow: "0 0 30px rgba(91,140,255,.7)", duration: .2, yoyo: true, repeat: 1 }, c.t + 0.85);
+  });
+
+  // tagline
+  tl.to("#brand", { opacity: 1, y: 0, duration: .5, ease: "power2.out" }, 3.0);
+  tl.to("#tag span", { opacity: 1, y: 0, filter: "blur(0px)", duration: .6, ease: "power3.out", stagger: .13 }, 3.1);
+
+  // publish click
+  tl.to("#btn", { scale: .94, duration: .1 }, 3.9).to("#btn", { scale: 1, duration: .2, ease: "back.out(3)" }, 4.0);
+  tl.to("#btn", { backgroundColor: "#5b8cff", color: "#ffffff", duration: .2 }, 3.95);
+  tl.to("#b1", { opacity: 0, duration: .15 }, 3.95).to("#b2", { opacity: 1, duration: .15 }, 4.05);
+  tl.to("#prog", { width: 470, duration: .4, ease: "power2.out" }, 3.95);
+  tl.to("#floor", { opacity: 1.0, scaleX: 1.12, duration: .5 }, 3.95);
+  tl.to({}, { duration: 5 }, 0);
+
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

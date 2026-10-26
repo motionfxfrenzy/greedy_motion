@@ -10,11 +10,35 @@ Updated 2026-10-09. These changes are local and have not been deployed. The Octo
 | --- | --- | --- |
 | `director/` | Five selected gm-* references; `director:skip` markers removed | Script director |
 | `formats/` | `.claude/skills/BUNDLE.json`, templates, slots, fill guidance, sample values, pinned browser libraries | Fixed-format fill and render APIs |
-| `author/` | `cloud-author/stages/`, `cloud-author/stages.json`, reviewed `third_party/cloud-author-skills/` | Pro Editor source-edit proposals |
+| `author/` | `cloud-author/stages/`, `cloud-author/stages.json`, reviewed `third_party/cloud-author-skills/`, plus the house craft below | Pro Editor source-edit proposals |
 
 `SKILLS_BUNDLE_DIR` defaults to `backend/skills`. The former `CLOUD_AUTHOR_SKILLS_DIR` is removed. The old generated TypeScript and separate author/format bundles are retired. Old build script paths delegate to the unified builder; use the two commands above.
 
 Format job request/render metadata and Pro proposals carry the **same complete bundle hash**. A format also retains its individual content hash and version. A director or stage instruction change therefore changes the bundle identity even if a template is unchanged.
+
+## One craft standard for every generation
+
+The rules that make a film good are written once and reach every reader from the same files:
+
+| Rule file | Local builds | Script director | Hosted Pro author |
+| --- | --- | --- | --- |
+| `.claude/skills/gm-skill-authoring/references/shared-craft.md` (determinism, camera/springs/weight, handoffs, planning, audio, review) | linked by every gm-* skill | not embedded (authoring rules) | `author/stages/shared-craft.md`, in **every** stage |
+| `.../references/watchability.md` | authoring checklist | `director/WATCHABILITY.md` (authoring-only lines fenced `director:skip`) | `author/stages/watchability.md` (every stage but `threejs`) |
+| `.../references/script-for-motion.md` (beats with reasons, voiced-line rules, beat grid, formats, poster frame) | script rules | `director/SCRIPT_FOR_MOTION.md` | not needed for source edits |
+| `.claude/skills/gm-motion-recipes/rules/*.md` (camera-rig, spring-settle, flood-handoff, line-boil, glow-flyline, scroll-brake) | verified examples | not embedded | `author/stages/recipes/*.md`; `camera-rig` and `spring-settle` always for animation, the others when the task asks for them |
+
+`scripts/build-skill-bundle.mjs` produces the hosted copies, removing local-only text: a block between the cloud:skip marker pair, a line tagged cloud:skip-line, the rest of a line after cloud:skip-from, and a recipe's "Verified" section (our evidence, not an instruction). A style skill adds only what is specific to its style; a rule that is true of every film belongs in `shared-craft.md`, so the hosted author gets it too. `npm run test:cloud-skills -w backend` fails if the craft is missing from any stage's prompt or if local-only text leaks.
+
+Deterministic checks that need no model: `voiceText` (`packages/contracts/src/beat-plan.ts`) turns a colon in a voiced line into a comma before any take is voiced, and `craftWarnings` (`backend/src/pro/seek-warnings.ts`) returns nonblocking warnings on every Pro proposal for clock/random use, CSS transitions, infinite repeats, overshooting easing on opacity, blur-ins, layers without z-index and a missing identity baseline. Release-time gates for a rendered film: `pop_gate.mjs` (single-frame pops, hard cuts), `seam_sheet.mjs` (mid-seam frames at phone size with safe zones), and optionally `scripts/subframe-render.mjs` (motion blur from 8 sub-frames, about 5x capture time).
+
+## Motion blur: a choice at final submission
+
+Previews are always fast: the storyboard player and the editor's 540p / 720p renders never use sub-frame rendering. At final submission the person can tick **Add motion blur** (storyboard Submit, the editor's Render popover, or `motionBlur: true` on the API). It is off by default and applies only to that final render:
+
+- `POST /v1/projects/:id/render` (storyboard films), `POST /v1/projects/:id/pro/render` with `quality: "final"`, and `POST /v1/formats/:skill/render` accept `motionBlur` (a strict boolean). A preview quality with `motionBlur` is a 400; so is a film longer than 20 seconds (`motion_blur_too_long`), or the option on a legacy template project. The limits and the checkbox wording live in `packages/contracts/src/motion-blur.ts`, shared by the backend, the storyboard and the editor.
+- The flag rides in the job's `render_input`. The worker (`worker/src/motion-blur.mjs`) captures at 30 fps x 8 sub-frames (240 fps, the CLI's ceiling; `MOTION_BLUR_SUBFRAMES` lowers it) and blends each group with ffmpeg `tmix`, copying the audio untouched. It ignores the flag for previews and for a film over the cap.
+- Cost: measured on the 12 s velocity sting, 22.5 s normal against 112.7 s with blur (5.0x), identical frame count and audio length, pop gate clean. The queue expiry for such a job is stretched by the same factor (`expireInSeconds` x 5), so a slower worker does not lose the claim.
+- A film with fast moves that the pop gate lists under `fast` is the case it helps; a calm film looks the same, so the checkbox says so and stays off.
 
 ## Stage selection and proposals
 
@@ -56,6 +80,7 @@ Real images built from the Dockerfiles (`videosaas-backend:skilltest`, `videosaa
 | Unit tests | `npm run test:formats -w backend`: 7 checks (bundle verification and tamper rejection, slot rules, builder output) |
 
 **Not tested here:** the R2 hand-off (the route calls the same `uploadDirectory` and `projectPrefix` contract as the approved-storyboard path, which was verified in the October 8 release, but this run used the shared-disk driver); any staging or production deployment; a UI.
+
 
 ## Six-step hardening verification — 2026-10-09
 

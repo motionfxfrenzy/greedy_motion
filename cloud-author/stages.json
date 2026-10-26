@@ -2,6 +2,8 @@
   "design": {
     "sources": [
       "stages/contract.md",
+      "stages/shared-craft.md",
+      "stages/watchability.md",
       "stages/design.md",
       "sources/scene-design/modern-web-design/skills/modern-web-design/SKILL.md",
       "sources/remotion-craft/remotion-motion-graphics/references/design-rules.md"
@@ -10,6 +12,10 @@
   "animation": {
     "sources": [
       "stages/contract.md",
+      "stages/shared-craft.md",
+      "stages/watchability.md",
+      "stages/recipes/camera-rig.md",
+      "stages/recipes/spring-settle.md",
       "stages/animate.md",
       "sources/gsap/gsap-core/SKILL.md",
       "sources/gsap/gsap-timeline/SKILL.md",
@@ -25,12 +31,37 @@
         "sources": [
           "sources/lottie/text-to-lottie/references/recipe-ui-microinteractions.md"
         ]
+      },
+      {
+        "pattern": "flood|hand-?off|transition|expand(s|ing)? into|becomes|carr(y|ies)",
+        "sources": [
+          "stages/recipes/flood-handoff.md"
+        ]
+      },
+      {
+        "pattern": "\\bink\\b|hand-?drawn|boil|sketch|paper",
+        "sources": [
+          "stages/recipes/line-boil.md"
+        ]
+      },
+      {
+        "pattern": "data flow|flows? (from|between|into)|connect|fly-?line|dashboard",
+        "sources": [
+          "stages/recipes/glow-flyline.md"
+        ]
+      },
+      {
+        "pattern": "scroll|changelog|long list|\\blist\\b",
+        "sources": [
+          "stages/recipes/scroll-brake.md"
+        ]
       }
     ]
   },
   "threejs": {
     "sources": [
       "stages/contract.md",
+      "stages/shared-craft.md",
       "stages/threejs.md",
       "sources/threejs/threejs-fundamentals/SKILL.md",
       "sources/gsap/gsap-core/SKILL.md",
@@ -84,6 +115,9 @@
   "logo": {
     "sources": [
       "stages/contract.md",
+      "stages/shared-craft.md",
+      "stages/watchability.md",
+      "stages/recipes/spring-settle.md",
       "stages/logo.md",
       "sources/wiggle-logo/wiggle/SKILL.md",
       "sources/wiggle-logo/wiggle/references/text_animation_guide.md",
@@ -96,6 +130,9 @@
   "interaction": {
     "sources": [
       "stages/contract.md",
+      "stages/shared-craft.md",
+      "stages/watchability.md",
+      "stages/recipes/spring-settle.md",
       "stages/interaction.md",
       "sources/scene-design/rive-interactive/skills/rive-interactive/SKILL.md",
       "sources/lottie/text-to-lottie/references/recipe-ui-microinteractions.md",
@@ -106,6 +143,8 @@
   "skill-authoring": {
     "sources": [
       "stages/contract.md",
+      "stages/shared-craft.md",
+      "stages/watchability.md",
       "stages/skill-authoring.md",
       "sources/scene-design/modern-web-design/skills/modern-web-design/SKILL.md",
       "sources/remotion-craft/remotion-motion-graphics/references/design-rules.md"
@@ -114,6 +153,11 @@
   "audit": {
     "sources": [
       "stages/contract.md",
+      "stages/shared-craft.md",
+      "stages/watchability.md",
+      "stages/recipes/camera-rig.md",
+      "stages/recipes/spring-settle.md",
+      "stages/recipes/flood-handoff.md",
       "stages/audit.md",
       "sources/emil-animation/review-animations/SKILL.md",
       "sources/gsap/gsap-performance/SKILL.md",

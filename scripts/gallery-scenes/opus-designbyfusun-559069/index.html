@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1280, height=720"><title>Motion designer showreel</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#f2ead8}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#f2ead8;font-family:"Archivo Black","Inter",sans-serif;color:#111}
+.sc{position:absolute;inset:0;overflow:hidden;opacity:0}
+#a{background:#ffd93a;opacity:1}
+#a .row{position:absolute;left:0;right:0;top:130px;text-align:center;font-size:330px;line-height:1;letter-spacing:-.04em;display:flex;justify-content:center}
+#a .row span{display:inline-block}
+#a .mini{position:absolute;left:60px;top:48px;font-family:Inter;font-weight:800;font-size:26px;letter-spacing:.2em}
+#b{background:#111}
+#shp{position:absolute;left:640px;top:360px;width:340px;height:340px;margin:-170px;background:#ff4a2b}
+#b .tag{position:absolute;left:60px;top:48px;color:#f2ead8;font-family:Inter;font-weight:800;font-size:26px;letter-spacing:.2em}
+#c{background:#2340ff;color:#fff}
+#cnt{position:absolute;left:0;right:0;top:70px;text-align:center;font-size:440px;letter-spacing:-.05em;line-height:1}
+#c .tag{position:absolute;left:0;right:0;bottom:70px;text-align:center;font-family:Inter;font-weight:800;font-size:60px;letter-spacing:.35em}
+#c .bar{position:absolute;left:100px;bottom:170px;height:14px;background:#ffd93a;width:1080px;transform-origin:0 50%}
+#d{background:#f2ead8}
+.blob{position:absolute;border-radius:50%}
+#e{background:#111;color:#f2ead8}
+#e .nm{position:absolute;left:0;right:0;top:150px;text-align:center;font-size:190px;line-height:.92;letter-spacing:-.04em}
+#e .nm span{display:block;overflow:hidden}
+#e .nm b{display:block;font-weight:400}
+#hire{position:absolute;left:0;right:0;top:530px;display:flex;justify-content:center}
+#hire div{background:#ffd93a;color:#111;font-family:Inter;font-weight:800;font-size:50px;padding:20px 54px;border-radius:70px}
+#prog{position:absolute;left:0;bottom:0;height:10px;width:1280px;background:#ff4a2b;transform-origin:0 50%;z-index:20}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+ <div class="sc" id="a"><div class="mini">01 TYPE</div><div class="row" id="rowa"><span>M</span><span>O</span><span>V</span><span>E</span></div></div>
+ <div class="sc" id="b"><div class="tag">02 SHAPE</div><div id="shp"></div></div>
+ <div class="sc" id="c"><div id="cnt">00</div><div class="bar" id="cbar"></div><div class="tag">03 COUNT</div></div>
+ <div class="sc" id="d"><div id="blobs"></div></div>
+ <div class="sc" id="e"><div class="nm"><span><b id="n1">NOVA</b></span><span><b id="n2">LINDQVIST</b></span></div><div id="hire"><div id="hb">Open for work &rarr;</div></div></div>
+ <div id="prog"></div>
+</div>
+<script>
+(function(){
+var tl=gsap.timeline({paused:true});
+function sw(a,b,t){tl.set(a,{opacity:0},t);tl.set(b,{opacity:1},t);}
+// A: kinetic type 0-0.95
+tl.fromTo("#rowa span",{y:-340,rotation:-14,scaleY:1.5},{y:0,rotation:0,scaleY:1,duration:.4,ease:"bounce.out",stagger:.07},0);
+tl.fromTo("#rowa span",{opacity:.4},{opacity:1,duration:.1,stagger:.07},0);
+tl.to("#rowa span",{y:-30,duration:.1,yoyo:true,repeat:1,stagger:.04},.6);
+tl.to("#rowa",{scale:1.06,duration:.35,ease:"power1.inOut"},.55);
+// B: shape morph 0.95-1.85
+sw("#a","#b",.95);
+tl.fromTo("#shp",{scale:.2,rotation:-90,borderRadius:"0%"},{scale:1,rotation:0,duration:.3,ease:"back.out(2)"},.95);
+tl.to("#shp",{borderRadius:"50%",backgroundColor:"#ffd93a",rotation:180,duration:.3,ease:"power3.inOut"},1.3);
+tl.to("#shp",{borderRadius:"0%",backgroundColor:"#2340ff",rotation:360,scale:.7,duration:.3,ease:"power3.inOut"},1.6);
+// C: count 1.85-2.75
+sw("#b","#c",1.85);
+var o={v:0};tl.to(o,{v:60,duration:.75,ease:"power3.out",onUpdate:function(){document.getElementById("cnt").textContent=("0"+Math.round(o.v)).slice(-2);}},1.85);
+tl.fromTo("#cbar",{scaleX:0},{scaleX:1,duration:.75,ease:"power3.out"},1.85);
+tl.fromTo("#cnt",{scale:.8},{scale:1,duration:.25,ease:"back.out(2)"},1.85);
+// D: liquid 2.75-3.55
+sw("#c","#d",2.75);
+var cols=["#ff4a2b","#111","#ffd93a","#2340ff"];
+var bl=document.getElementById("blobs");
+for(var i=0;i<4;i++){var d=document.createElement("div");d.className="blob";var w=520+i*140;d.style.cssText="width:"+w+"px;height:"+w+"px;left:"+(-w)+"px;top:"+(40+i*120-w/2)+"px;background:"+cols[i];bl.appendChild(d);
+ tl.fromTo(d,{x:0},{x:w+1280+120,duration:.8,ease:"power2.inOut"},2.72+i*.06);
+ tl.fromTo(d,{scaleY:.7},{scaleY:1.15,duration:.4,yoyo:true,repeat:1,ease:"sine.inOut"},2.72+i*.06);}
+// E: name 3.45-5
+sw("#d","#e",3.5);
+tl.fromTo("#n1",{yPercent:110},{yPercent:0,duration:.45,ease:"power4.out"},3.5);
+tl.fromTo("#n2",{yPercent:110},{yPercent:0,duration:.45,ease:"power4.out"},3.6);
+tl.fromTo("#hb",{scale:.3,opacity:0,y:40},{scale:1,opacity:1,y:0,duration:.45,ease:"back.out(2.4)"},4.0);
+tl.fromTo("#prog",{scaleX:0},{scaleX:1,duration:5,ease:"none"},0);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+})();
+</script></body></html>

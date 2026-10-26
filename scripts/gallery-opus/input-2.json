@@ -1,0 +1,766 @@
+[
+ {
+  "slug": "davidshulmanfl-842921",
+  "author": "DavidShulmanFL",
+  "post_url": "https://x.com/DavidShulmanFL/status/2103336310089842921",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "canvas",
+   "audio"
+  ],
+  "prompt": "Create a 60 second music video in the style of Peter Gabriel's Sledgehammer and Big Time. But use modern references and figures. Also create the song, something sounds like it would fit on Peter Gabriel's So album."
+ },
+ {
+  "slug": "deedydas-252537",
+  "author": "deedydas",
+  "post_url": "https://x.com/deedydas/status/2102787937482252537",
+  "category": "explainer",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "make a modern slick and punchy video for a modern startup that works on inference"
+ },
+ {
+  "slug": "demonugc-525162",
+  "author": "demonugc",
+  "post_url": "https://x.com/demonugc/status/2103526713208525162",
+  "category": "motion",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "<inputs>\nAsk me for: 8 to 12 UI states I want the shape to become (e.g. button, loader, player, slider, toggle, tabs, chart, command palette, toast), pure black and white or one accent color, and a royalty-free song around 120 BPM (e.g. Mixkit, free for commercial use).\n</inputs>\n\n<direction>\nDribbble-level UI motion. One shape, never cut: every state is the same element morphing its size, radius and color while its content swaps with a short blur. A cursor drives every change with real clicks and drags. Light warm-gray canvas, black and white components, one clean UI font (Geist). Springs everywhere, a tiny overshoot at most. The camera zooms so each state fills the frame. The last frame is the first frame, so it loops.\nBanned: bouncy easing, particle bursts, glows, gradients on UI chrome, mismatched icon strokes, dead time, anything that looks like a template.\n</direction>\n\n<structure>\n120 BPM, 7 bars, something happens on every beat.\nButton → loader → check → dynamic island → music player with a play/pause morph → scrub the progress bar → it becomes a volume slider that stretches when dragged past max → a toggle flips on the beat → the knob becomes a liquid tab indicator → the tabs open into a chart that draws itself, with a tooltip on hover → it collapses into ⌘K → type to filter → enter → toast → back to the button.\n</structure>\n\n<build>\n1. One HTML file, square 1440x1440. Every style is computed from time inside seek(t): no CSS transitions, no timers, no state carried between frames.\n2. Springs are closed-form step responses. A value that changes target many times is the sum of one spring per change, so it stays a pure function of time.\n3. The tab indicator's two edges ride different springs, so the leading edge stretches ahead of the trailing one. Same trick for the toggle knob.\n4. Drags are direct manipulation: while the cursor is held, the value is computed from its position. On release it springs back from wherever it was.\n5. Analyze the song with numpy for the beat grid and start on a downbeat. Place every UI sound by its measured peak.\n6. Render with Playwright: 4 subframes per frame, blended with ffmpeg tmix for motion blur at 60fps.\n7. Render one frame per beat before the full render. Fix anything off the grid, cramped or hard to read.\n</build>\n\n<gotchas>\nNever put will-change on anything the camera scales or the text renders blurry. Text that swaps inside a morphing container needs its own enter and exit timing or it overlaps. Make the last frame identical to the first, cursor position and speed included, or the loop stutters.\n</gotchas>\n\n<start>\nAsk me for the inputs, then show me the state list on the beat grid before you write any code.\n</start>"
+ },
+ {
+  "slug": "designbyfusun-559069",
+  "author": "DesignByFusun",
+  "post_url": "https://x.com/DesignByFusun/status/2103672001206559069",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "css"
+  ],
+  "prompt": "Make a dynamic 15-second motion graphics video about https://octostudio.co that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "devarshukani-341827",
+  "author": "devarshukani",
+  "post_url": "https://x.com/devarshukani/status/2104432185277341827",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "I tied brag + remotion + opus 5.5 max and this oneshot launch teaser for https://lysa.legal/"
+ },
+ {
+  "slug": "djadkison-394122",
+  "author": "DJAdkison",
+  "post_url": "https://x.com/DJAdkison/status/2104020177478394122",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "I was able to make this product motion video for https://getverde.ai using Opus 5.5 + Remotion. \n\nThis is insane. It was able to tell a story in less than 30 min."
+ },
+ {
+  "slug": "doubleunplussed-181894",
+  "author": "doubleunplussed",
+  "post_url": "https://x.com/doubleunplussed/status/2103697580421181894",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "I'd like you to make a music video in a similar style to this one:\n\nhttps://github.com/JohnHeibel/PDoomVideo\n\nTo this song:\n\nhttps://youtu.be/cobZuBii0Z0?si=ada6wxomeJbo-LRl\n\nDon't feel the need to represent everything in the lyrics literally - feel free to include relevant references to concepts, events, and lore in the video, even if obscure (especially if obscure). E.g. when the lyrics say \"when they say they're just predicting tokens...\", you might depict a \"stochastic parrot\". That one's not particularly obscure but is the kind of thing I mean. Instead of depicting like, literally predicting tokens (though you might do that too. Use your judgement! The video should be fun to watch for someone well steeped in AI and AI safety lore and discourse, and who Wille wcognise relevant pop culture and literary or historical references)\n\nI don't know how this ultimately results in a video file - I know the linked repo animates a video with JavaScript or something - but I ultimately want a rendered video file.\n\nFeel free to choose your tools, be creative, and exercise your own taste.\n\nThis repo \"fdsgdg\" appears to be have been accidentally created, but it's empty and we can use it for this, I can rename it afterwards.\n\nAlso, clip the final two beats from the audio.rught at the end, after \"then why does it talk back\" they are after the song has finished and sound bad.\n\nCredit the song to Suno and whatever Claude Opus model was the latest at the time of the YouTube upload, as prompted by Andy Masely (Andy printed Claude to write the lyrics, and Suno for the music), and credit the video to yourself.\n\nAnd have fun!\n\n----\n\nA style change - don't make Dr. Null's mouth wobble with the lyrics as if he's singing, it doesn't\n  actually look like he's singing, just that the curcle of his mouth is jittery. Best to just not\n  make him be singing. Make him just have appropriate expressions for the scenes, and not be singing\n  the song.\n\n----\n\nDr. Null's arms look a bit unnatural in many scenes - I think he's supposed to be holding\n  his hand on his face in shock or something, but it looks like it is a mistake. Can you make it look\n  more natural? If you do so and like the result, re-render."
+ },
+ {
+  "slug": "dris1153-101043",
+  "author": "dris1153",
+  "post_url": "https://x.com/dris1153/status/2103433398069101043",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "drrickio-009558",
+  "author": "drrickio",
+  "post_url": "https://x.com/drrickio/status/2103333836130009558",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "I want you to create a highly professional SaaS product launch video. Go and find some SaaS, preferably just one that people know, so it's easier to identify with it. Pick that, and then make sure to get actual assets and images and all of that stuff from the internet. Turn it into these typical, very professionally edited, motion-graphics-styled product launch videos that you see people making on Twitter when they launch new SaaS products (which are showing off the features, the benefits, and all of these things)."
+ },
+ {
+  "slug": "dustindavis-644806",
+  "author": "DustinDavis",
+  "post_url": "https://x.com/DustinDavis/status/2104075537228644806",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap",
+   "css"
+  ],
+  "prompt": "I had to play along and see what kind of remotion video Claude Opus 5.5 could create for me. Amaze, amaze, amaze!"
+ },
+ {
+  "slug": "dys-hay-749645",
+  "author": "Dys_hay",
+  "post_url": "https://x.com/Dys_hay/status/2103819139307749645",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "How far can Claude Opus 5.5 go in motion design? I tried. \n\n15 s on the Audi RS 6, 100% code (React/Remotion) with a synthesized V8 soundtrack. The cylinders flash in the real firing order, and the 0–100 timer runs in real time: 3.4 s.\n\nSpec piece, not affiliated with Audi."
+ },
+ {
+  "slug": "dzhohola-249003",
+  "author": "dzhohola",
+  "post_url": "https://x.com/dzhohola/status/2103605737595249003",
+  "category": "motion",
+  "tech_tags": [
+   "css"
+  ],
+  "prompt": "<inputs>\nAsk me for: 8 to 12 UI states I want the shape to become (e.g. button, loader, player, slider, toggle, tabs, chart, command palette, toast), pure black and white or one accent color, and a royalty-free song around 120 BPM (e.g. Mixkit, free for commercial use).\n</inputs>\n\n<direction>\nDribbble-level UI motion. One shape, never cut: every state is the same element morphing its size, radius and color while its content swaps with a short blur. A cursor drives every change with real clicks and drags. Light warm-gray canvas, black and white components, one clean UI font (Geist). Springs everywhere, a tiny overshoot at most. The camera zooms so each state fills the frame. The last frame is the first frame, so it loops.\nBanned: bouncy easing, particle bursts, glows, gradients on UI chrome, mismatched icon strokes, dead time, anything that looks like a template.\n</direction>\n\n<structure>\n120 BPM, 7 bars, something happens on every beat.\nButton → loader → check → dynamic island → music player with a play/pause morph → scrub the progress bar → it becomes a volume slider that stretches when dragged past max → a toggle flips on the beat → the knob becomes a liquid tab indicator → the tabs open into a chart that draws itself, with a tooltip on hover → it collapses into ⌘K → type to filter → enter → toast → back to the button.\n</structure>\n\n<build>\n1. One HTML file, square 1440x1440. Every style is computed from time inside seek(t): no CSS transitions, no timers, no state carried between frames.\n2. Springs are closed-form step responses. A value that changes target many times is the sum of one spring per change, so it stays a pure function of time.\n3. The tab indicator's two edges ride different springs, so the leading edge stretches ahead of the trailing one. Same trick for the toggle knob.\n4. Drags are direct manipulation: while the cursor is held, the value is computed from its position. On release it springs back from wherever it was.\n5. Analyze the song with numpy for the beat grid and start on a downbeat. Place every UI sound by its measured peak.\n6. Render with Playwright: 4 subframes per frame, blended with ffmpeg tmix for motion blur at 60fps.\n7. Render one frame per beat before the full render. Fix anything off the grid, cramped or hard to read.\n</build>\n\n<gotchas>\nNever put will-change on anything the camera scales or the text renders blurry. Text that swaps inside a morphing container needs its own enter and exit timing or it overlaps. Make the last frame identical to the first, cursor position and speed included, or the loop stutters.\n</gotchas>\n\n<start>\nAsk me for the inputs, then show me the state list on the beat grid before you write any code.\n</start>"
+ },
+ {
+  "slug": "ehsanik-162993",
+  "author": "ehsanik",
+  "post_url": "https://x.com/ehsanik/status/2102885216692162993",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "can you search for the picture of Mona Lisa, then replicate it using mouse movement and brushes in JS paint using chrome?\n\nFollow-up:\nOk now can you make a video of exactly what you just did? Showing every mouse movement and changes?"
+ },
+ {
+  "slug": "elliot-garreffa-446825",
+  "author": "elliot_garreffa",
+  "post_url": "https://x.com/elliot_garreffa/status/2104213514944446825",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "css"
+  ],
+  "prompt": "alright opus 5.5 is pretty damn good at motion graphics\n\nour @Muse connector tracker is live and i gave opus our http://agentdiscoverability.com/track/muse url and our brand guidelines and let it cook\n\nthings i found improved the output\n-  references - give it 1 or 2 reference videos to go off\n- storyboard - its pretty good at defining the features to include but if you have specifics, list them out prior\n- video - use remotion as the main driver \n- and honestly, the prompt below. i didnt use it originally and then asked it to do a re-run with this prompt and the output was far better\n\n\"make this a dynamic motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "emollick-019567",
+  "author": "emollick",
+  "post_url": "https://x.com/emollick/status/2103688362960019567",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "A video explaining recursion, where every explanation about recursion has a radically different video style, make this self-referential & clever & fast moving."
+ },
+ {
+  "slug": "ercankeskinx-897906",
+  "author": "ercankeskinx",
+  "post_url": "https://x.com/ercankeskinx/status/2102995443818897906",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "Build 5 completely different scroll-based sections, decide the context & layout yourself."
+ },
+ {
+  "slug": "eric-khun-667455",
+  "author": "eric_khun",
+  "post_url": "https://x.com/eric_khun/status/2103112385380667455",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "I want you to create a \"Happy Mid-Autumn Festival\" video in hand drawn canvas animation style. You must use the attached Taiwan black bear as the main character representing Taiwan: flat black silhouette, round ears with grey insides, big round white-ringed eyes, white round muzzle with a small black nose and smile, and the white V moon mark on its chest. Keep it recognizable as that exact character. The character will have adventures, fast cuts, zooms, animations going all out in the hand drawn style. But WOW the audience and research how Taiwan celebrates Mid-Autumn to include in this video: outdoor barbecue with family and friends over the long weekend (a tradition born from a 1980s soy sauce ad), sharing mooncakes, pomelo rind hats, and moon gazing. Make it unconventional, showing the true spirit of a Taiwanese Mid-Autumn night. Use a Taiwanese style font, make it almost Taiwan black bear branding.  \n\nif there is any text , write in traditional chinese and english\nGet the right assets, plan it out, draft and render to give me an MP4. No skills, No MCP.  16:9 at high res, 30 seconds max, aim to reduce file size limit"
+ },
+ {
+  "slug": "explorations-iq-921682",
+  "author": "explorations_iq",
+  "post_url": "https://x.com/explorations_iq/status/2103317768669921682",
+  "category": "explainer",
+  "tech_tags": [
+   "threejs",
+   "shader",
+   "canvas"
+  ],
+  "prompt": "Opus 5.5 generated this simulation of molecular orbitals in about ~20 minutes. I had to prompt for some structures and resonance but I can see the promise of instant educational simulations for any advanced topic"
+ },
+ {
+  "slug": "eyishazyer-129686",
+  "author": "eyishazyer",
+  "post_url": "https://x.com/eyishazyer/status/2103816865852129686",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "ezshine-750731",
+  "author": "ezshine",
+  "post_url": "https://x.com/ezshine/status/2103501705698750731",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "设计个动画，介绍本项目的各项特性，像是专业的产品介绍宣传片，最后要生成 16:9 的mp4 视频"
+ },
+ {
+  "slug": "faroukzy-138551",
+  "author": "faroukzy",
+  "post_url": "https://x.com/faroukzy/status/2103387771180138551",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a 4-minute animated short that blows my mind."
+ },
+ {
+  "slug": "felipemoller-936736",
+  "author": "felipemoller",
+  "post_url": "https://x.com/felipemoller/status/2103846311149936736",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "Use apenas: JavaScript, Playwright e FFmpeg. Faça um vídeo moderno, elegante e impactante para meu produto (https://lp.meuorbe.com.br). Quero que simule os gastos em estabelecimentos do dia a dia, como mercado, posto de gasolina e restaurante. \n\nFaça no formato 9:16."
+ },
+ {
+  "slug": "fionntobin-479597",
+  "author": "fionntobin",
+  "post_url": "https://x.com/fionntobin/status/2103510776690479597",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "shader",
+   "canvas"
+  ],
+  "prompt": "Make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "fire-ozgur-130104",
+  "author": "fire_ozgur",
+  "post_url": "https://x.com/fire_ozgur/status/2103459971174130104",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "I want to know how good a graphic designer you are. To prove this to me, I want you to prepare a 15-second motion graphics video. I want you to do an introduction related to my account. I'm sharing my logo and my X cover image, use those too."
+ },
+ {
+  "slug": "fornyapayzeka-135914",
+  "author": "FornYapayZeka",
+  "post_url": "https://x.com/FornYapayZeka/status/2102971287224135914",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "shader"
+  ],
+  "prompt": "Yapabileceğin en etkileyici patlama efektini ve onu taşıyacak özgün sahneyi üret. Ölçeği, ortamı ve görsel dili sen seç. Patlamanın başlangıcı, kuvvetin yayılması ve ardında bıraktığı değişim izlenebilir olsun; tek karelik parlama veya rastgele parçacık yağmuru yeterli değil. Kullanıcı bunu tekrar başlatabilsin ve etkisini farklı açıdan görebilsin.\n\nYaratıcı seçimler senin: sahne, sanat yönü, kamera, mekanik, teknoloji ve etkileşimi önceden belirlenmiş sıradan kalıplara sıkıştırma. İlk akla gelen sıradan web demosuyla yetinme: önce kendi alanında birkaç fikri kısaca tart, videoda en güçlü görünecek özgün olanı seç, sonra onu çalışan bir ürüne dönüştür. Konuyu olduğundan kolay gösteren dekoratif taklit kabul edilmez. Sinematik ve estetik seçimler sonuçta görülsün."
+ },
+ {
+  "slug": "fornyapayzeka-795431",
+  "author": "FornYapayZeka",
+  "post_url": "https://x.com/FornYapayZeka/status/2102888241443795431",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "shader",
+   "particles"
+  ],
+  "prompt": "Yapabileceğin en etkileyici havai fişek veya ışıklı parçacık gösterisini üret. Ortamı ve sanat yönünü sen seç. Tek tip küçük patlamaları çoğaltmak yerine ritmi, derinliği, ışığın çevreye etkisini ve unutulmaz bir final anını tasarla. Gösteri canlı çalışsın; kullanıcı finali tekrar oynatabilsin.\n\nYaratıcı seçimler senin: sahne, sanat yönü, kamera, mekanik, teknoloji ve etkileşimi önceden belirlenmiş sıradan kalıplara sıkıştırma. İlk akla gelen sıradan web demosuyla yetinme: önce kendi alanında birkaç fikri kısaca tart, videoda en güçlü görünecek özgün olanı seç, sonra onu çalışan bir ürüne dönüştür. Konuyu olduğundan kolay gösteren dekoratif taklit kabul edilmez. Sinematik ve estetik seçimler sonuçta görülsün."
+ },
+ {
+  "slug": "fr-sorrentino-871017",
+  "author": "Fr_Sorrentino",
+  "post_url": "https://x.com/Fr_Sorrentino/status/2103922812255871017",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "@rexan_wong Agree with all of this. Ours wasn't one prompt either: built with Claude Code (Opus 5.5 + Fable 5.1) and Remotion, storyboard first, one still per beat, then many rounds of notes. The watch photo and the app recordings are real, not drawn."
+ },
+ {
+  "slug": "francoxavier33-341663",
+  "author": "francoxavier33",
+  "post_url": "https://x.com/francoxavier33/status/2103486218323341663",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "this was 100% opus 5.5. \n\ni have a dedicated \"studio\" repo with all my project's style guides, tokens, few skills, remotion, etc.\n\nthis all started from \"make a hype demo/launch video for @momwiseai\"\n\ntook maybe 4 revisions. music, sound fx, messaging, animations, everything was done with code."
+ },
+ {
+  "slug": "gabrielbuzziv-057430",
+  "author": "gabrielbuzziv",
+  "post_url": "https://x.com/gabrielbuzziv/status/2103590703289057430",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "svg",
+   "css"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out."
+ },
+ {
+  "slug": "garmdotcom-987439",
+  "author": "garmdotcom",
+  "post_url": "https://x.com/garmdotcom/status/2103516101518987439",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "Tried to jump on the explainer video \"made entirely with Opus 5.5\" bandwagon.\n\nAccidentally didn't include an OpenRouter API key.\n\nOpus decided to just do everything itself. \n\nThe result is insane\n\n$0 additional cost.\n\nPrompt in next post"
+ },
+ {
+  "slug": "gautam-mer1-530003",
+  "author": "gautam_mer1",
+  "post_url": "https://x.com/gautam_mer1/status/2103703336780530003",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "an Apple-style 30s video of my app"
+ },
+ {
+  "slug": "gdgtify-929495",
+  "author": "Gdgtify",
+  "post_url": "https://x.com/Gdgtify/status/2103458245213929495",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "Create a 20.00-second kinetic spoken-word film titled “BUILD THE FLOOR.”  Treat this as an original miniature speech staged entirely through typography. Every line changes the architecture of the frame. The final declaration must stand on something the earlier words physically constructed.  Deliver one self-contained HTML file, 1080×1080, targeting 60fps, using SVG and/or Canvas. Embed all required assets.  ART DIRECTION Background #102820. Paper # F4E9D5. Structural accent # F2B544. A literary editorial world with the scale and confidence of a public monument. Use a high-contrast serif for the speech, a heavy grotesque for load-bearing words, and a restrained monospace for small timing marks. No distressed protest-poster clichés, megaphones, flags, crowds, microphones, or stock footage.  ORIGINAL SPEECH — EXACT WORDS, EXACT ORDER “We were told to wait.” “So we learned the weight of waiting.” “Then one voice made room.” “Then another.” “Now the floor belongs to us.”  Do not attribute these words to any real person. No extra slogans. The complete speech must be understandable without audio.  CENTRAL VISUAL RULE Words have assigned architectural roles. WAIT is a lintel. WAITING is a suspended load. VOICE is a support. ROOM is an opening. FLOOR is a platform. These roles must emerge from the actual letterforms, not from separate illustrations placed behind text.  STORYBOARD 0.00–3.00 “We were told to wait.” The sentence occupies a narrow horizontal opening beneath a massive WAIT. The opening slowly compresses while the sentence remains readable. The pressure comes from the layout, not camera shake.  3.00–6.50 “So we learned the weight of waiting.” Reveal the sentence in spoken phrase groups. WAITING lowers on two fine vertical rules. Those rules become suspension cables. A baseline bends under the visual load using a controlled vector deformation.  6.50–10.00 “Then one voice made room.” VOICE enters vertically and rotates into a structural support. It lifts one end of the baseline. The counter of the O in ROOM becomes an aperture. The next composition is revealed through that aperture.  10.00–12.50 “Then another.” A second support arrives. The tilted structure levels. This is the first moment of perfect horizontal alignment in the film. Use a brief stillness to make the change feel earned.  12.50–16.00 “Now the floor belongs to us.” Earlier structural words assemble into a platform. The final sentence settles onto it. US receives emphasis through shared alignment and scale, never through a separate flashy effect.  16.00–18.00 Hold the complete declaration. A slight release of tension travels through the supporting rules. No new text. No restless decorative motion.  18.00–20.00 The camera tracks beneath the completed platform. Its underside fills the frame and becomes the opening WAIT lintel. Under full occlusion, return hidden elements to their initial positions. Reveal the exact opening composition.  CHOREOGRAPHY Do not force the speech onto a dance beat. Use a cue sheet based on phrases, pauses, and emphasis. Phrase reveals should follow reading order. Allow at least one 400ms moment of absolute stillness. Use critically damped motion for settling loads. Use controlled elastic deformation for the baseline only. Make the changes in available space carry the emotional progression.  TYPE IMPLEMENTATION Use actual glyph paths for structural words. Preserve counters and legibility during deformation. For transitions between unrelated words, use occlusion or matched structural edges; do not interpolate arbitrary path points. Keep the currently spoken phrase readable before it becomes architecture.  ENGINEERING Implement window. seek(t) as a deterministic scene renderer. No accumulated physics, autonomous CSS transitions, or changing random values. Use time-remapping curves and analytic transforms. Use a 20-second periodic timeline with render(0)=render(20). Provide fixed-step access at n/60 for 1200 export frames. Audio is optional and off by default; no browser speech synthesis or autoplay dependency.  QUALITY GATE Inspect eight representative frames. Check that the speech reads in the correct order. Check that structural transformations never destroy a line before the audience can read it. Check the final platform is visibly assembled from earlier elements. Return the complete HTML implementation."
+ },
+ {
+  "slug": "genelab-999-088672",
+  "author": "geneLab_999",
+  "post_url": "https://x.com/geneLab_999/status/2104163377560088672",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "話題の Opus 5.5 のモーショングラフィックス、原作プロンプトそのままで再現してみた。\n\nClaude Code + Remotion 公式プラグイン、effort は xhigh。\nプロンプト1発、途中の API 切断で continue を1回だけ。\n思考 約23分、レンダリング 約90秒。BGM もサンプルなしでコード生成。"
+ },
+ {
+  "slug": "georgejimenez98-427173",
+  "author": "georgejimenez98",
+  "post_url": "https://x.com/georgejimenez98/status/2103214871785427173",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "css"
+  ],
+  "prompt": "I have to admit, this blew my mind.\n\nI saw people using Opus 5.5 + Remotion for launch videos, so I tried my own approach.\n\nOpus 5.5 Max + Hyperframes locally, with Fal AI for voices, music & SFX.\n\nNot perfect, but I loved the result.\n\nhttps://www.crealix.ai Autopilot is coming."
+ },
+ {
+  "slug": "georgejimenez98-431559",
+  "author": "georgejimenez98",
+  "post_url": "https://x.com/georgejimenez98/status/2103650183699431559",
+  "category": "motion",
+  "tech_tags": [
+   "gsap",
+   "css"
+  ],
+  "prompt": "This video was made with Opus 5.5, Hyperframes, ElevenLabs with Music, SFX and Voices Endpoints throught Fal AI. \n\nThis way of making videos is making me a little addicted to be honest hahaha. I still have to improve.\n\nCrealix Autopilot is live: set your format, style, schedule and channels once, and it plans, writes, voices and builds every video. Then again. And again.\n\nTry it free → https://crealix.ai/autopilot"
+ },
+ {
+  "slug": "ghinaiya-nirmal-308943",
+  "author": "ghinaiya_nirmal",
+  "post_url": "https://x.com/ghinaiya_nirmal/status/2103540656182308943",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make your own 15-second motion reel. go all out"
+ },
+ {
+  "slug": "gizakdag-239768",
+  "author": "gizakdag",
+  "post_url": "https://x.com/gizakdag/status/2103566030916239768",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "Make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it’s your showreel exploring the concept of “Overthinking,” inspired by the attached graphics."
+ },
+ {
+  "slug": "goldiez2599-685869",
+  "author": "Goldiez2599",
+  "post_url": "https://x.com/Goldiez2599/status/2102463234586685869",
+  "category": "motion",
+  "tech_tags": [
+   "css"
+  ],
+  "prompt": "Oh yeah, Opus 5.5 is it.. Created in 10 minutes with remotion inside the Claude Code desktop app!"
+ },
+ {
+  "slug": "gonzalomacagno-344202",
+  "author": "GonzaloMacagno",
+  "post_url": "https://x.com/GonzaloMacagno/status/2102897651008344202",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "css"
+  ],
+  "prompt": "Necesito que armes un reel con esta info en 10 segundos, bien publicitario"
+ },
+ {
+  "slug": "gouthamjay8-910269",
+  "author": "gouthamjay8",
+  "post_url": "https://x.com/gouthamjay8/status/2103816261339910269",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "I want you to create a highly professional SaaS product launch video. Go and look up [website] Pick that, and then make sure to get actual assets and images and all of that stuff from the internet. Turn it into these typical, very professionally edited, motion-graphics-styled product launch videos that you see people making on Twitter when they launch new SaaS products (which are showing off the features, the benefits, and all of these things). It should show what an incredible motion designer you are, like it's your showreel for a resume. Go all out."
+ },
+ {
+  "slug": "groundcontrol-230877",
+  "author": "GroundControl",
+  "post_url": "https://x.com/GroundControl/status/2103678647777230877",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "audio"
+  ],
+  "prompt": "All right, this is an empty repo. Make me a 3-minute animated visualization using JavaScript, or you can do it in TypeScript if you want, about Japan's hot weather in 2026. Pull some online data to see why it was hot and how it compares to other years. I really want the animation to be visually appealing. I wanted to use a hand-drawn pencil style with a little bit of tasteful chromatic aberration. And maybe a bit of a pastiche look but it's supposed to look really, really cool. Also, use a JavaScript synthesizer to make a melody for this visualization that goes along with the theme."
+ },
+ {
+  "slug": "hanifproduktif-829311",
+  "author": "hanifproduktif",
+  "post_url": "https://x.com/hanifproduktif/status/2103404901451829311",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "You are applying as a motion designer in my agency. Make 15s video to showcase your skills and capabilities. Send me a showreel"
+ },
+ {
+  "slug": "helloshiva0801-438284",
+  "author": "helloshiva0801",
+  "post_url": "https://x.com/helloshiva0801/status/2103733875734438284",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "css"
+  ],
+  "prompt": "I'm a solo founder with no video editor, no designer and no After Effects.\n\nSo I built http://redesignr.ai's launch video in React with Claude Opus 5.5 + @remotion.\n\n900 frames, 10 scenes, all code, paper style.\n\nBuilding in public, day 3. \n\n#buildinpublic #Remotion #ClaudeAI #indiehackers #solofounder #SaaS #webdesign #motiondesign\n#AI #React #vibecoding"
+ },
+ {
+  "slug": "henkvaness-975279",
+  "author": "henkvaness",
+  "post_url": "https://x.com/henkvaness/status/2103801351993975279",
+  "category": "explainer",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "make educational video out of article."
+ },
+ {
+  "slug": "henritoivar-445215",
+  "author": "HenriToivar",
+  "post_url": "https://x.com/HenriToivar/status/2102832525798445215",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "Opus 5.5 is an absolute BEAST in creating videos.\n\nI am extremely shocked because my previous attempts with GPT-6 Astra and Grok 4.6 were quite underwhelming, far from production ready video.\n\nThe leap here is gigantic.\n\nThis is a ZERO shot video.\n\n【作者补充制作说明】\nWhy Opus 5.5 is so impressive is because it's is not a video generation model. It uses pure code to generate the sound effects, the music. All of the animations are done with CSS/HTML/JS, it doesn't use any video or image assets.\n\nThis is extremely useful for creating detailed explainer videos where you need very fine control over the infographics and consistent deterministic output.\n\nThe framework I used was hyperframes and narration is done by OpenAI text-to-speech."
+ },
+ {
+  "slug": "heyiammallik-293397",
+  "author": "heyiammallik",
+  "post_url": "https://x.com/heyiammallik/status/2103837803587293397",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "canvas"
+  ],
+  "prompt": "you are a pro motion designer. analyze my portfolio and make a ~30 second video from it. check what are the recent trending techniques used for motion and sound design. question your strategy and plan, if it doesn't feel like done by a pro designer, start over. every frame matters from the first frame to the final frame. go crazy"
+ },
+ {
+  "slug": "heymrzak-349060",
+  "author": "heymrzak",
+  "post_url": "https://x.com/heymrzak/status/2103768331782349060",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "the introduction made with opus 5.5 + remotion\n\nintroducing @TryGofy — the live map of everything.\n\n#shipaton #BuildInPublic #gofy #gofyapp"
+ },
+ {
+  "slug": "hicallmechai-878304",
+  "author": "hiCallMeChai",
+  "post_url": "https://x.com/hiCallMeChai/status/2103600312296878304",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "<inputs>\nAsk me for: 8 to 12 UI states I want the shape to become (e.g. button, loader, player, slider, toggle, tabs, chart, command palette, toast), pure black and white or one accent color, and a royalty-free song around 120 BPM (e.g. Mixkit, free for commercial use).\n</inputs>\n\n<direction>\nDribbble-level UI motion. One shape, never cut: every state is the same element morphing its size, radius and color while its content swaps with a short blur. A cursor drives every change with real clicks and drags. Light warm-gray canvas, black and white components, one clean UI font (Geist). Springs everywhere, a tiny overshoot at most. The camera zooms so each state fills the frame. The last frame is the first frame, so it loops.\nBanned: bouncy easing, particle bursts, glows, gradients on UI chrome, mismatched icon strokes, dead time, anything that looks like a template.\n</direction>\n\n<structure>\n120 BPM, 7 bars, something happens on every beat.\nButton → loader → check → dynamic island → music player with a play/pause morph → scrub the progress bar → it becomes a volume slider that stretches when dragged past max → a toggle flips on the beat → the knob becomes a liquid tab indicator → the tabs open into a chart that draws itself, with a tooltip on hover → it collapses into ⌘K → type to filter → enter → toast → back to the button.\n</structure>\n\n<build>\n1. One HTML file, square 1440x1440. Every style is computed from time inside seek(t): no CSS transitions, no timers, no state carried between frames.\n2. Springs are closed-form step responses. A value that changes target many times is the sum of one spring per change, so it stays a pure function of time.\n3. The tab indicator's two edges ride different springs, so the leading edge stretches ahead of the trailing one. Same trick for the toggle knob.\n4. Drags are direct manipulation: while the cursor is held, the value is computed from its position. On release it springs back from wherever it was.\n5. Analyze the song with numpy for the beat grid and start on a downbeat. Place every UI sound by its measured peak.\n6. Render with Playwright: 4 subframes per frame, blended with ffmpeg tmix for motion blur at 60fps.\n7. Render one frame per beat before the full render. Fix anything off the grid, cramped or hard to read.\n</build>\n\n<gotchas>\nNever put will-change on anything the camera scales or the text renders blurry. Text that swaps inside a morphing container needs its own enter and exit timing or it overlaps. Make the last frame identical to the first, cursor position and speed included, or the loop stutters.\n</gotchas>\n\n<start>\nAsk me for the inputs, then show me the state list on the beat grid before you write any code.\n</start>"
+ },
+ {
+  "slug": "himanshutwtxs-882858",
+  "author": "himanshutwtxs",
+  "post_url": "https://x.com/himanshutwtxs/status/2103495232637882858",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out"
+ },
+ {
+  "slug": "ho-ba-761062",
+  "author": "HO_BA",
+  "post_url": "https://x.com/HO_BA/status/2103845264649761062",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "Make a dynamic 30-second motion graphics video that shows what an incredible motion designer you are, like it's your showreel for a résumé. go all out.  Make it a video to introduce \nhttps://\nmdfor.dev Use actual product screenshot/logo/assets Must have music and motion must match the music  Do it like a real professional production video, not like a demo or prototype. Add more animation and motion design; avoid using screenshots as raw; instead, break them down into components/icons so we can animate those too. Make the motions more juicy. Use the best motion design techniques you can."
+ },
+ {
+  "slug": "howdevelop-733090",
+  "author": "HowDevelop",
+  "post_url": "https://x.com/HowDevelop/status/2103840883812733090",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "Create and render a 15-second motion graphics video introducing TanStack AI. Make it feel like a premium            \n  developer-tool launch film produced by Studio1: fast, precise, visually surprising, and polished enough to open a   \n  keynote or lead a social campaign.                                                                                  \n                                                                                                                      \n  Use the TanStack AI feature details below as the source of truth. Studio1 is presenting the film; do not imply      \n  Studio1 built TanStack AI.                                                                                          \n                                                                                                                      \n  Format and deliverables                                                                                             \n  - 1920×1080, 30 fps, exactly 15 seconds; keep important content within a 9:16-safe central area.                    \n  - Deliver the rendered MP4 and the editable project/source. Use Remotion or another code-based motion graphics      \n  workflow if available.                                                                                              \n  - Use real, editable typography and vector-style graphics. Do not rely on AI-generated text inside images.          \n  - Add an original electronic sound design: a restrained opening pulse, tightly synchronized transition hits, rising \n  - Add an original electronic sound design: a restrained opening pulse, tightly synchronized transition hits, rising \n  momentum, and a satisfying final resolve. The story must also work muted.                                           \n                                                                                                                      \n  Visual direction                                                                                                    \n  Dark graphite canvas; luminous gradients and controlled flashes inspired by TanStack’s identity. Crisp typography,  \n  kinetic code, layered interface fragments, streaming data, branching paths, and smooth camera moves with convincing \n  depth. High contrast and immaculate spacing. Every transition should visually demonstrate a feature, rather than    \n  simply replace one title card with another. Keep all on-screen wording brief and legible. Avoid generic stock       \n  footage, spinning logos, fake dashboards, excessive glitch effects, and tiny code nobody can read.                  \n                                                                                                                      \n  Exact 15-second sequence                                                                                            \n  - 0:00–0:02 — Hook: A single prompt cursor blinks. It sends one signal that expands into a network of               \n  possibilities. On-screen: “What can one AI API become?”                                                             \n  - 0:02–0:04 — Core and providers: The signal resolves into chat(); provider nodes connect and swap rapidly without  \n  breaking the central flow. On-screen: “chat() · 24 providers”                                                       \n  - 0:04–0:06.5 — Multimodal: One continuous stream transforms into text, waveform, image frame, and video timeline.  \n  On-screen: “One pattern. Every modality.”                                                                           \n  - 0:06.5–0:09 — Agents and tools: The stream branches into sandboxed agent runs, then reaches external tools        \n  through MCP. Show distinct runs progressing in parallel. On-screen: “Agents · Sandboxes · MCP”                      \n  - 0:09–0:11.5 — Reliability: An interrupted stream freezes, reconnects, and resumes from the same point; a clean    \n  type-check confirmation snaps into place. On-screen: “Persistent. Durable. Type-safe.”                              \n  - 0:11.5–0:15 — Reveal: All paths converge into a bold final composition: “TanStack AI” followed by “Build what’s   \n  next.” Add a small “A Studio1 film” credit, visually subordinate to TanStack AI. Hold the final frame long enough   \n  to read it.                                                                                                         \n                                                                                                                      \n  Accuracy guardrails                                                                                                 \n  The supplied article says TanStack AI is in the release candidate phase, supports 24 providers, uses AG-UI, and     \n  offers composable chat(), media generation, sandbox and agent-harness primitives, MCP, type safety, persistence,    \n  and resumable streams. Do not call it a stable v1 release. Do not present planned orchestration features as already \n  shipped.                                                                                                            \n                                                                                                                      \n  Make the video, inspect the rendered result, and fix any clipped text, weak transitions, mistimed beats, or         \n  unreadable frames before delivering it. The goal is a memorable showreel, not a slideshow of feature bullets."
+ },
+ {
+  "slug": "hoyoyoda-543147",
+  "author": "hoyoyoda",
+  "post_url": "https://x.com/hoyoyoda/status/2103400046922543147",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "pixel"
+  ],
+  "prompt": "한국의 추석에 어울리는 요소를 서치해서 픽셀 애니메이션을 구성해서 제작해줘"
+ },
+ {
+  "slug": "hqmank-241156",
+  "author": "hqmank",
+  "post_url": "https://x.com/hqmank/status/2103831140033241156",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "gsap"
+  ],
+  "prompt": "Make a dynamic 20-second motion graphics launch video for my open-source project jev-browser-skill ('Give a site. Write a goal. Jev clicks.'), like it's the hero video on its GitHub README. Go all out."
+ },
+ {
+  "slug": "hsanat-012699",
+  "author": "hSanat",
+  "post_url": "https://x.com/hSanat/status/2103358205091012699",
+  "category": "motion",
+  "tech_tags": [
+   "svg",
+   "gsap"
+  ],
+  "prompt": "I want you to create a highly professional SaaS product launch video. Go and find some SaaS, preferably just one that people know, so it's easier to identify with it. Pick that, and then make sure to get actual assets and images and all of that stuff from the internet. Turn it into these typical, very professionally edited, motion-graphics-styled product launch videos that you see people making on Twitter when they launch new SaaS products (which are showing off the features, the benefits, and all of these things)."
+ },
+ {
+  "slug": "hugon001-609629",
+  "author": "hugon001",
+  "post_url": "https://x.com/hugon001/status/2103425679618609629",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "make a dynamic 15-second motion graphics video that shows what an incredible app Mentis is, like it's your showreel for a app launch. go all out. Make the text in French."
+ },
+ {
+  "slug": "hunzai-842605",
+  "author": "hunzai",
+  "post_url": "https://x.com/hunzai/status/2103904436141842605",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas",
+   "audio"
+  ],
+  "prompt": "//Like most of you//  I asked opus 5.5 (medium) to generate animation to explain \"Tree as an ecosystem\" with AUDIO - no fancy prompts just oneliner prompt - and it created this"
+ },
+ {
+  "slug": "iammukeshm-421585",
+  "author": "iammukeshm",
+  "post_url": "https://x.com/iammukeshm/status/2103511739585421585",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "css"
+  ],
+  "prompt": "Claude Opus 5.5 is incredible.\n\nI gave it a pretty simple task:\n\nCreate a Remotion-based showreel featuring my work as a developer, content creator, and open-source maintainer.\n\nWhat I wanted was a cool 30-second motion graphic that introduces  me as a developer and content creator.\n\nThat was basically it.\n\nClaude went to work for around 20 minutes, writing the Remotion code, putting together the animations, transitions, layouts, and the overall story.\n\nAnd this is what it produced.\n\nStunning, right?!\n\nWhat surprised me most is that this isn't just AI generating a few video clips.\n\nIt's AI building the video programmatically.\n\nThe entire thing is code.\n\nWhich means I can tweak the content, change the animations, swap assets, update numbers, or completely redesign a section - and render it again.\n\nVideo generation was one of those things I thought would take AI quite a while to really crack.\n\nTurns out we're already much closer than I expected.\n\nAnd for developers, tools like Remotion + coding agents open up some seriously interesting possibilities.\n\nInterested in knowing what prompt I used?\n\nComment \"Remotion\"."
+ },
+ {
+  "slug": "iammxfschr-955831",
+  "author": "iamMXFSCHR",
+  "post_url": "https://x.com/iamMXFSCHR/status/2103619221296955831",
+  "category": "motion",
+  "tech_tags": [
+   "gsap"
+  ],
+  "prompt": "nice. wir brauchen ein launch video für den release. kannst du das machen? so a la anthropic like? hab da was gelesen und der prompt war \"\"make a modern slick and punchy video for a modern startup that works on inference\"\n\"\"\"\n\n\"\"\"\nlos, überrasch mich! hauptsache es geht viral\n\"\"\"\n\n\"\"\"\nja wo ist das video? i sehe nur eine .cinfig datei was als video abspielbar ist\n\"\"\"\n\n\"\"\"\nkönnen wir da noch eine trendige musik hinterlegen?\n\"\"\""
+ },
+ {
+  "slug": "iamshankhadeep-506266",
+  "author": "Iamshankhadeep",
+  "post_url": "https://x.com/Iamshankhadeep/status/2102825543733506266",
+  "category": "motion",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "i've been sitting on @ccdotdirectory  for over a year, waiting for anthropic to pull ahead in the ai race.\n\ngpt-6 astra had openai claiming the lead over fable 5.1. then opus 5.5 dropped.\n\nthat's my signal.\n\n116,692 claude code tools in one place.\n\nlaunch video was created using @Remotion and opus 5.5"
+ },
+ {
+  "slug": "iamtanzil-120030",
+  "author": "iamtanzil_",
+  "post_url": "https://x.com/iamtanzil_/status/2103459843831120030",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "css"
+  ],
+  "prompt": "# OBLT E-bike Header\n\nA full-viewport, dark, cinematic e-bike product header for the brand **OBLT**, built in React (client component) with pure CSS and an interactive cursor-following \"x-ray\" spotlight reveal — moving the mouse wipes away the bike's exterior photo to expose its internal carbon/gearbox structure underneath. Built with React only (no animation libraries).\n\n## Tech stack (libraries actually imported)\n- React only — `useRef`, `useState`, and the `MouseEvent` type. No framer-motion, no GSAP, no icon library. All animation is hand-written CSS keyframes + an inline CSS `mask-image`.\n- SVG icon (the CTA arrow) is hand-inlined, not from a library.\n\n## Fonts & global styles\n- Single Google font, imported inside a `<style>` block:\n  ```\n  @import url('https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700;800&display=swap');\n  ```\n- Font stack: `\"Almarai\",\"Helvetica Neue\",Helvetica,Arial,sans-serif`.\n- `-webkit-font-smoothing: antialiased`. `box-sizing: border-box` applied to the root and all descendants (scoped to `.vt-header`, never global).\n\n## Section container\n- Root `<header className=\"vt-header\">` is the mouse-tracking element (handlers: `onMouseEnter`, `onMouseMove`, `onMouseLeave`).\n- Styles: `position: relative; display: flex; flex-direction: column; min-height: 100vh; overflow: hidden; padding: 32px 56px 44px; background-color: #272727; color: #fff;`.\n- Internal vertical flow: top nav, then a flex-grow spacer \"stage\", then bottom content pinned to the base.\n\n## Structure, section by section\n\n### 1. Reveal background (`.vt-bg`, absolute inset:0, z-index 0, pointer-events:none)\nThree stacked layers:\n- **Base exterior image** (`.vt-bg-img`): the full bike exterior photo, `object-fit: cover; object-position: center;`, fills the layer. `user-select:none`, `-webkit-user-drag:none`, `referrerPolicy=\"no-referrer\"`.\n- **X-ray layer** (`.vt-bg-xray`, z-index 1): contains the bike x-ray/internal image (same cover/center sizing). This layer is masked by a radial gradient driven by cursor position (see Animations). `will-change: -webkit-mask-image, mask-image;` and `transition: -webkit-mask-image .12s linear, mask-image .12s linear;`.\n- **Veil overlay** (`.vt-bg-veil`, z-index 2): a vertical darkening gradient so text stays legible top & bottom:\n  ```\n  linear-gradient(180deg, rgba(39,38,38,.62) 0%, rgba(39,38,38,.10) 26%, rgba(39,38,38,.10) 60%, rgba(39,38,38,.82) 100%)\n  ```\n\n### 2. Top nav (`.vt-nav`, z-index 30)\n- `display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 24px;`.\n- **Logo** (left, `.vt-logo`): text `OBLT` followed by a `.` span. `font-size: 28px; font-weight: 700; letter-spacing: 0.5px; color: #E0E1CC;` (dot is also `#E0E1CC`).\n- **Center menu** (`.vt-menu`, gap 40px): three links — `E-bikes`, `Features`, `Connect`. Each: `font-size: 16px; font-weight: 400; letter-spacing: .3px; color: #E0E1CC; opacity: .85; transition: opacity .2s ease;` hover → opacity 1.\n- **Right cluster** (`.vt-nav-right`, gap 18px): an uppercase explore link plus a hamburger button.\n  - `.vt-explore` link text: `Explore the bike` — `font-size: 14px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #E0E1CC;` hover → opacity .65.\n  - **Hamburger** (`.vt-burger`, hidden on desktop): 34×34px, three `#E0E1CC` bars 22×2px, radius 2px, gap 5px. On `.open`: bar 1 `translateY(7px) rotate(45deg)`, bar 2 `opacity:0`, bar 3 `translateY(-7px) rotate(-45deg)`. Transition `transform .25s ease, opacity .2s ease`.\n- **Mobile dropdown** (`.vt-mobile-menu`, rendered only when `menuOpen`): absolutely positioned below the nav (`top:100%; margin-top:16px; z-index:40`), `background: rgba(20,19,19,.97); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 8px 18px;`. Links (`E-bikes`, `Features`, `Connect`, `Explore the bike`): `color:#E0E1CC; font-size:18px; padding:14px 4px; border-bottom:1px solid rgba(255,255,255,.08)`; last link `border-bottom:none; font-weight:700`. Each link closes the menu on click.\n\n### 3. Stage spacer (`.vt-stage`, z-index 30, `flex: 1 1 0%`)\n- `display: flex; align-items: flex-start; justify-content: flex-end; padding-top: 22px;`. In the current markup it is an empty `aria-hidden` spacer (the `.vt-hint` pulsing-dot styles exist in CSS but the hint element is not rendered).\n- (Reference: `.vt-hint` styled as an uppercase 11px/600 label with a 36px circle dot, `border:1px solid rgba(46,211,176,.5); color:#2ed3b1;` running `vtPulse 1.8s ease-in-out infinite`.)\n\n### 4. Bottom content (`.vt-bottom`, z-index 30)\n12-column grid: `grid-template-columns: repeat(12, 1fr); align-items: end; gap: 18px 32px;`.\n- **Headline** (`.vt-headline`, `grid-column: 1 / span 8`): `<h1>` containing the word-stagger component. h1 style: `color: #E0E1CC; font-weight: 500; font-size: clamp(36px, 7vw, 116px); line-height: 0.85; letter-spacing: -0.07em; white-space: nowrap; margin:0;`. Text: **Ready For The Ride**.\n- **Right block** (`.vt-right`, `grid-column: 9 / span 4; align-self: end; transform: translateY(22px);`):\n  - Paragraph (verbatim): `An integrated gearbox, battery, and motor engineered in carbon and built to be seen. Every system, in the open.` Style: `font-size: 16px; line-height: 1.2; color: rgba(225,224,204,.7);` animates in via `vtFadeUp .8s cubic-bezier(.16,1,.3,1) both` with `animation-delay: .5s`.\n  - **CTA button** (`.vt-cta`): label **Reserve yours** plus a circular arrow. Pill: `color:#000; background:#E0E1CC; border:none; border-radius:9999px; padding:6px 6px 6px 22px; font-size: clamp(14px, 1vw, 16px); font-weight:500; display:inline-flex; align-items:center; gap:10px;`. Animates via `vtFadeUp .8s cubic-bezier(.16,1,.3,1) both`, `animation-delay: .7s`. Hover → `gap: 14px`. Inner circle `.circ`: 40×40px, `border-radius:50%; background:#000;` containing the SVG (stroke `#E0E1CC`); on button hover `.circ` scales to `1.1` (`transition: transform .25s ease`).\n\n## Assets (every URL)\n- Exterior photo (base layer): `https://cdn.jiro.build/ARS/OBLT%20E%20Bike/bike-exterior.png`\n- X-ray / internals photo (revealed layer): `https://cdn.jiro.build/ARS/OBLT%20E%20Bike/bike-xray-original.png`\n- CTA arrow icon: inline SVG, 16×16, `viewBox=\"0 0 24 24\"`, `stroke=\"currentColor\"`, `stroke-width=\"2.2\"`, round caps/joins, path:\n  ```\n  M5 12h14M13 6l6 6-6 6\n  ```\n\n## Animations\n\n### Cursor \"x-ray\" spotlight (signature interaction)\n- State: `hovering` (bool) and `pos` ({x,y} in px relative to the section's bounding rect). `handleMove` computes `e.clientX - rect.left`, `e.clientY - http://rect.top`.\n- Constants: `RADIUS = 165` px (spotlight radius), `FEATHER = 45` px (soft edge). Inner fully-clear radius = `RADIUS - FEATHER` = 120px.\n- The x-ray layer's `maskImage` / `WebkitMaskImage` is set inline. When hovering:\n  ```\n  radial-gradient(circle 165px at {x}px {y}px, #000 0, #000 120px, transparent 165px)\n  ```\n  When not hovering (collapsed to nothing):\n  ```\n  radial-gradient(circle 0px at 50% 50%, transparent 0, transparent 0)\n  ```\n- Mask transitions at `.12s linear` so the reveal trails the cursor smoothly. NOTE: in CSS `mask`, opaque (`#000`) areas KEEP the layer — so the circle reveals the x-ray image while the rest of that layer is hidden (showing the exterior beneath).\n\n### Headline word pull-up (`WordsPullUp` component)\n- Splits the headline on spaces; each word is an `inline-block` span (`margin-right: 0.22em`, last word 0). Each word animates `wpuUp` with `cubic-bezier(.16,1,.3,1) both`, default `duration = 0.6s`, staggered by `delayStep = 0.08s` (`animationDelay: i * 0.08s`).\n- Keyframes:\n  ```\n  @keyframes wpuUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }\n  ```\n- Optional superscript asterisk (`.wpu-ast`, `font-size:0.31em; vertical-align:top; top:0.15em; left:-0.05em;`) — not enabled here (`asterisk` defaults false).\n- Respects `@media (prefers-reduced-motion: reduce)` → `.wpu-word { animation: none; }`.\n\n### Fade-up for right block (`vtFadeUp`)\n```\n@keyframes vtFadeUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }\n```\nParagraph delay `.5s`, CTA delay `.7s`; both `.8s cubic-bezier(.16,1,.3,1) both`.\n\n### Pulse (defined for hint dot)\n```\n@keyframes vtPulse { 0%,100%{transform:scale(1);opacity:.7} 50%{transform:scale(1.12);opacity:1} }\n```\nApplied `vtPulse 1.8s ease-in-out infinite`.\n\n## Responsive\n- **≤1000px**: padding `24px 28px 32px`; nav becomes `1fr auto` (logo + right); center `.vt-menu` and `.vt-explore` hidden; hamburger shown; `.vt-bottom` collapses to single column (`gap:16px`); headline & right span full width; `.vt-right` `transform:none; align-self:start; margin-top:4px; max-width:520px`.\n- **≤600px**: padding `18px 20px 26px`; logo `font-size:22px`; headline `white-space:normal; font-size: clamp(40px, 13vw, 72px); line-height:0.92`; paragraph `font-size:15px; margin-bottom:16px`; CTA `font-size:14px; padding:5px 5px 5px 20px`; `.circ` 36×36px.\n\n## Key design principles\n- Dark stage (`#272727`) with a single warm-cream accent (`#E0E1CC`) and a teal accent (`#2ed3b1`) reserved for the (optional) pulse hint.\n- The product reveal IS the hero: cursor acts as an x-ray torch over a layered photo pair.\n- Editorial oversized headline (line-height 0.85, tight `-0.07em` tracking) anchored bottom-left; supporting copy + CTA bottom-right.\n- Staggered, eased (`cubic-bezier(.16,1,.3,1)`) entrance for hierarchy.\n\n## Common mistakes to avoid\n- Don't invert the mask logic: opaque `#000` in the radial gradient REVEALS the x-ray layer; the transparent ring hides it. Getting this backwards shows internals everywhere except under the cursor.\n- Keep `RADIUS - FEATHER` (120px) as the inner solid stop and `RADIUS` (165px) as the transparent stop — that 45px band is the soft feather.\n- Mouse coordinates must be relative to the section rect (`getBoundingClientRect`), not the viewport.\n- Mask transition is `.12s linear` only — a longer/eased transition makes the spotlight feel laggy.\n- `white-space: nowrap` on the headline is intentional on desktop; only switch to `normal` at ≤600px.\n- Scope all resets and the Almarai `@import` to the component; do not touch global `body`/`html`.\n\n## Page title\nOBLT — Ready For The Ride\n\n## Integration (build-safety — do not skip)\n- Add this section as a **new** component file with a unique name. Don't edit or overwrite any existing file except to add its import and render it.\n- Render it **after** all existing sections; keep every previously built section exactly as-is — never replace or remove them.\n- If no project exists, create a minimal React + Tailwind app; if one exists, use it as-is — don't re-scaffold or change the Tailwind/build config or version.\n- Keep it self-contained: scope its fonts and any resets to this section; never set global `body`/`html`/`*` styles or a global font.\n- Install only the libraries this section names."
+ },
+ {
+  "slug": "ik-builds-585923",
+  "author": "ik_builds",
+  "post_url": "https://x.com/ik_builds/status/2103890476885585923",
+  "category": "motion",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "I WAS QUOTED $3000 FOR THIS!!!\n\nSo I asked Opus 5.5 (medium) to create a launch video using Motion Graphics for us.\n\nhere's the prompt that one-shots it:\n\n\"Create a 15s motion-graphics film explaining {{PRODUCT}}. HyperFrames + GSAP, no voiceover, no footage.\nStyle: paper-light canvas, marker notes that draw on, real physics, huge kinetic type,\nhard light/dark switches, a new idea every 1.5–2 s, a sound on every hit.\n\nCOPY: read {{POSITIONING_DOCS}} first. {{ONE_LINER}} For {{AUDIENCE}}. {{WHAT_IT_DOES}}\nName what the product learns, never the abstraction.\n\nRULES\n- No chrome (scrubber, timecode, fps, headers). No animator jargon on screen\n  (\"squash\", \"stagger\", \"easing\"...). Every word speaks to the buyer.\n- No invented results: no %, multipliers, customer names or figures.\n- Never use: {{BANNED_WORDS}}.\n- Logo: real mark {{LOGO_FILE}} + \"{{PRODUCT}}\" in {{WORDMARK_FONT}}; never a boxed logo file.\n\nCRAFT\n- Colours {{COLOR_CANVAS}} / {{COLOR_INK}} / {{COLOR_ACCENT_1}} / {{COLOR_ACCENT_2}}; notes in the\n  accents; dark mode = charcoal matching the palette.\n- Fonts {{BRAND_FONTS}}; Anton for kinetic type; Caveat handwriting via stroke-dashoffset.\n- Real easing, squash/stretch, stagger, overlap, onion skin, smear, follow-through. Check the\n  HyperFrames registry first. Set every from-state at t=0 (seek-safe); never cover an exit.\n  One primary move per transition; no generic push/slide/rotate-swing.\n- Music in sections: drums drop on the dark switch and while the ball is airborne, slam back\n  on the type and the logo. SFX: pops, pen scribbles, whooshes, logo sub-hit. CC0 or generated\n  only; log sources. Master -14 LUFS, -2 dBTP, re-measured after AAC encode.\""
+ },
+ {
+  "slug": "imthatcarlos-133592",
+  "author": "imthatcarlos",
+  "post_url": "https://x.com/imthatcarlos/status/2102849219388133592",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas",
+   "svg",
+   "ai-image"
+  ],
+  "prompt": "Opus 5.5 just one-shotted this explainer video for @sherwoodagent 🔥\n\nSince I ran it within the context of our web app, it used existing components and branding to inform the design and used @Remotion skills for rendering\n\nKind of insane, haven't tried doing any video generation for months, but the latest models are making it easier to create content that is polished without heavy iteration\n\nPrompt: \"make a modern slick and punchy video for sherwood protocol. feel free to take branding or components from the landing page or app. the goal is to highlight how it enables agentic hedge funds, explaining it simply\""
+ },
+ {
+  "slug": "iniyanai-856596",
+  "author": "iniyanai",
+  "post_url": "https://x.com/iniyanai/status/2103814603100856596",
+  "category": "explainer",
+  "tech_tags": [
+   "threejs",
+   "svg",
+   "audio"
+  ],
+  "prompt": "Asked claude Opus 5.5 to make an explainer on how a mechanical keyboard works.\n\nIt wrote the music in code, used real switch recordings as the beats, built the 3D in @threejs  and timed every cut to the beat.\n\nNo stock footage. no editing app.\n\nWhat a time to be alive!"
+ },
+ {
+  "slug": "inoue-aix-234322",
+  "author": "inoue_aix",
+  "post_url": "https://x.com/inoue_aix/status/2104155161883234322",
+  "category": "motion",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "opus5.5 + Remotion + Gemini3.8 TTS\nたったの1時間でうちのプロダクトの広告動画2本できた・・・\n\nもう一生外注しないw\n外注したら10万円以上かかってたと思う"
+ },
+ {
+  "slug": "irinatoxi-962937",
+  "author": "irinatoxi",
+  "post_url": "https://x.com/irinatoxi/status/2104212841657962937",
+  "category": "explainer",
+  "tech_tags": [
+   "threejs",
+   "shader",
+   "canvas"
+  ],
+  "prompt": "Opus 5.5 just turned a smartphone into a 20-second trip from glass to atoms.\n\nIt starts on the phone, dives through the motherboard and chip, then keeps going through the semiconductor structure until you’re basically staring at the atomic scale.\n\nThis is the kind of 3D shot that normally looks like a whole studio touched it.\n\nInstead, Opus 5.5 built the sequence.\n\nThat’s fucking ridiculous."
+ },
+ {
+  "slug": "ishaaqahamed-107563",
+  "author": "Ishaaqahamed",
+  "post_url": "https://x.com/Ishaaqahamed/status/2103837917538107563",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "Make a dynamic 15-second motion graphics video that shows why [your product] is the best at [what it does], like a showreel. Go all out: 1080×1080, 1s hook, loop."
+ },
+ {
+  "slug": "ishuagra02-922825",
+  "author": "ishuagra02",
+  "post_url": "https://x.com/ishuagra02/status/2103247844542922825",
+  "category": "motion",
+  "tech_tags": [
+   "canvas"
+  ],
+  "prompt": "I want to create a highly-detailed video trailer featuring Claude and ChatGPT having a ruthless battle to be the best AI model in the world. Create an engaging story and make it action-paced with proper use of visual and sound effects. Art style must be anime-like."
+ },
+ {
+  "slug": "itakahashikun-990109",
+  "author": "iTakahashikun",
+  "post_url": "https://x.com/iTakahashikun/status/2103731575661990109",
+  "category": "explainer",
+  "tech_tags": [
+   "canvas",
+   "svg"
+  ],
+  "prompt": "ださいけど、Remotion で動画っぽいのつくった。コードは見てない。環境だけ用意した…っていっても、いつものように jj init されるカスタム try コマンドを叩いてディレクトリをつくって「Remotion の環境をプリーズ」だけだわ。なんもしてない。あとは Opus 5.5 とちょっと話しただけだわ。未来だ。"
+ },
+ {
+  "slug": "itisrazak-332386",
+  "author": "itisRazak",
+  "post_url": "https://x.com/itisRazak/status/2103517930424332386",
+  "category": "motion",
+  "tech_tags": [
+   "threejs",
+   "canvas"
+  ],
+  "prompt": "Research Distilbook.Make a dynamic 40-second motion graphics video on Distilbook that shows what an incredible motion designer you are. like it's your showreel - Go all out."
+ },
+ {
+  "slug": "itsahmedharoon-544194",
+  "author": "itsahmedharoon",
+  "post_url": "https://x.com/itsahmedharoon/status/2103986344414544194",
+  "category": "explainer",
+  "tech_tags": [
+   "svg"
+  ],
+  "prompt": "Jumping on the Claude Code + Hyperframe bandwagon.\n\nI made this intro completely zero-shot using Opus 5.5.\n\nClaude downloaded and ran an open-source model for text-to-speech, added the turbine sound at the start, layered in the other sound effects, and nailed the motion and visuals.\n\nThe accuracy of the whole thing is unreal. I’m in awe."
+ }
+]

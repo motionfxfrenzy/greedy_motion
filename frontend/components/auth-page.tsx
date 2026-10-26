@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
+import { ThemeToggle } from "./theme-toggle";
 import { SceneFrame, type SceneItem } from "./scene-frame";
 
 const SCENES: SceneItem[] = [
@@ -22,6 +23,7 @@ export function AuthPage() {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [sent, setSent] = useState(false);
+  const [forgot, setForgot] = useState(false);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [authError, setAuthError] = useState(searchParams.get("error") ? "Sign-in failed. Please try again." : "");
@@ -46,54 +48,76 @@ export function AuthPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setTried(true);
     setAuthError("");
     if (!isValidEmail || password.length < 8) return;
     setBusy(true);
-    const supabase = createClient();
-    if (mode === "signup") {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: name }, emailRedirectTo: callbackUrl() }
-      });
-      setBusy(false);
-      if (error) return setAuthError(error.message);
-      // Supabase returns an obfuscated user with no identities when the email is already registered.
-      if (data.user && data.user.identities?.length === 0) return setAuthError("An account with this email already exists. Sign in instead.");
-      if (data.session) return router.replace(next);
-      setSent(true);
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      // On success the button keeps its spinner until the workspace replaces this page.
-      if (error) {
+    try {
+      const supabase = createClient();
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: name }, emailRedirectTo: callbackUrl() }
+        });
         setBusy(false);
-        return setAuthError(error.message);
+        if (error) return setAuthError(error.message);
+        // Supabase returns an obfuscated user with no identities when the email is already registered.
+        if (data.user && data.user.identities?.length === 0) return setAuthError("An account with this email already exists. Sign in instead.");
+        if (data.session) return router.replace(next);
+        setSent(true);
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        // On success the button keeps its spinner until the workspace replaces this page.
+        if (error) {
+          setBusy(false);
+          return setAuthError(error.message);
+        }
+        router.replace(next);
+        router.refresh();
       }
-      router.replace(next);
-      router.refresh();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not connect. Please try again.");
+      setBusy(false);
     }
   };
 
   const handleGoogle = async () => {
+    if (busy) return;
+    setBusy(true);
     setAuthError("");
-    const { error } = await createClient().auth.signInWithOAuth({ provider: "google", options: { redirectTo: callbackUrl() } });
-    if (error) setAuthError(error.message);
+    try {
+      const { error } = await createClient().auth.signInWithOAuth({ provider: "google", options: { redirectTo: callbackUrl() } });
+      if (error) throw error;
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not connect. Please try again.");
+      setBusy(false);
+    }
   };
 
   const handleForgot = async () => {
+    if (busy) return;
     setTried(true);
     setAuthError("");
     if (!isValidEmail) return;
-    const { error } = await createClient().auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
-    if (error) return setAuthError(error.message);
-    setSent(true);
+    setBusy(true);
+    try {
+      const { error } = await createClient().auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
+      if (error) throw error;
+      setForgot(false);
+      setSent(true);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not send the reset link. Please try again.");
+    } finally { setBusy(false); }
   };
 
   const isSignup = mode === "signup";
 
   return (
-    <div style={{ position: "relative", minHeight: "100vh", overflow: "hidden", background: "#ebf5ff", color: "#0a0d12" }}>
+    <div style={{ position: "relative", minHeight: "100vh", overflow: "hidden", background: "var(--d-bg-ebf5ff)", color: "var(--d-tx-0a0d12)" }}>
+      {/* Hide the showcase when the columns wrap (both need 460px), so it doesn't drop below the form */}
+      <style>{"@media (max-width: 919px) { .auth-showcase { display: none !important; } }"}</style>
       {/* Ambient background blobs */}
       <div
         aria-hidden="true"
@@ -113,7 +137,7 @@ export function AuthPage() {
             top: "-16vw",
             borderRadius: "50%",
             filter: "blur(60px)",
-            background: "radial-gradient(circle,rgba(158,203,255,.85),rgba(158,203,255,0) 70%)"
+            background: "radial-gradient(circle,var(--d-bg-rgba15820325585),var(--d-bg-rgba1582032550) 70%)"
           }}
         />
         <div
@@ -125,7 +149,7 @@ export function AuthPage() {
             bottom: "-14vw",
             borderRadius: "50%",
             filter: "blur(60px)",
-            background: "radial-gradient(circle,rgba(228,204,255,.7),rgba(228,204,255,0) 70%)"
+            background: "radial-gradient(circle,var(--d-bg-rgba2282042557),var(--d-bg-rgba2282042550) 70%)"
           }}
         />
       </div>
@@ -140,7 +164,8 @@ export function AuthPage() {
         }}
       >
         {/* Left column: Form */}
-        <section style={{ display: "flex", flexDirection: "column", padding: "28px 40px" }}>
+        <section style={{ position: "relative", display: "flex", flexDirection: "column", padding: "28px 40px" }}>
+          <div style={{ position: "absolute", top: 24, right: 24 }}><ThemeToggle /></div>
           <Link
             href="/"
             style={{
@@ -153,8 +178,8 @@ export function AuthPage() {
           >
             <img src="/brand/gm-mark.svg" alt="" style={{ height: "24px", width: "auto" }} />
             <span style={{ display: "flex", gap: "5px", fontSize: "17px", fontWeight: 700, letterSpacing: "-.02em" }}>
-              <span style={{ color: "#0B1F4D" }}>Greedy</span>
-              <span style={{ color: "#0A6CFF" }}>Motion</span>
+              <span style={{ color: "var(--d-tx-0b1f4d)" }}>Greedy</span>
+              <span style={{ color: "var(--d-tx-0a6cff)" }}>Motion</span>
             </span>
           </Link>
 
@@ -167,14 +192,17 @@ export function AuthPage() {
                   gap: "4px",
                   padding: "4px",
                   borderRadius: "9999px",
-                  background: "rgba(250,253,255,.8)",
+                  background: "var(--d-bg-rgba2502532558)",
                   alignSelf: "flex-start",
-                  border: "1px solid #E1EAF4"
+                  border: "1px solid var(--d-bd-e1eaf4)"
                 }}
               >
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
+                    setForgot(false);
+                    setAuthError("");
                     setMode("signin");
                     setAuthError("");
                     setSent(false);
@@ -184,8 +212,8 @@ export function AuthPage() {
                     border: 0,
                     padding: "8px 18px",
                     borderRadius: "9999px",
-                    background: mode === "signin" ? "#181d27" : "transparent",
-                    color: mode === "signin" ? "#fff" : "#535862",
+                    background: mode === "signin" ? "var(--d-bg-181d27)" : "transparent",
+                    color: mode === "signin" ? "var(--d-btn-ink)" : "var(--d-tx-535862)",
                     fontSize: "14px",
                     fontWeight: 500,
                     cursor: "pointer",
@@ -196,7 +224,10 @@ export function AuthPage() {
                 </button>
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
+                    setForgot(false);
+                    setAuthError("");
                     setMode("signup");
                     setSent(false);
                     setTried(false);
@@ -205,8 +236,8 @@ export function AuthPage() {
                     border: 0,
                     padding: "8px 18px",
                     borderRadius: "9999px",
-                    background: mode === "signup" ? "#181d27" : "transparent",
-                    color: mode === "signup" ? "#fff" : "#535862",
+                    background: mode === "signup" ? "var(--d-bg-181d27)" : "transparent",
+                    color: mode === "signup" ? "var(--d-btn-ink)" : "var(--d-tx-535862)",
                     fontSize: "14px",
                     fontWeight: 500,
                     cursor: "pointer",
@@ -221,25 +252,35 @@ export function AuthPage() {
                 <h1 style={{ margin: 0, fontWeight: 600, fontSize: "34px", letterSpacing: "-0.03em", lineHeight: 1.1 }}>
                   {isSignup ? "Create your account" : "Welcome back"}
                 </h1>
-                <p style={{ margin: "10px 0 0", fontSize: "16px", color: "#535862" }}>
+                <p style={{ margin: "10px 0 0", fontSize: "16px", color: "var(--d-tx-535862)" }}>
                   {isSignup ? "Create your workspace and start making product videos." : "Sign in to open your workspace."}
                 </p>
               </div>
 
-              {sent ? (
+              {forgot ? (
+                <form onSubmit={(event) => { event.preventDefault(); void handleForgot(); }} style={{ display: "grid", gap: 16 }}>
+                  <h2>Reset your password</h2>
+                  <p>Enter your email and we’ll send you a reset link.</p>
+                  <label htmlFor="reset-email">Email address</label>
+                  <input style={{ padding: "13px 16px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: 16, background: "var(--d-bg-ffffff)", color: "var(--d-tx-0a0d12)", fontSize: 15 }} id="reset-email" type="email" autoComplete="email" autoFocus required value={email} onChange={(event) => setEmail(event.target.value)} />
+                  {authError && <p role="alert">{authError}</p>}
+                  <button className="primary-button" type="submit" disabled={busy} aria-busy={busy}>{busy ? "Sending reset link…" : "Send reset link"}</button>
+                  <button type="button" disabled={busy} onClick={() => { setForgot(false); setTried(false); setAuthError(""); }}>Back to sign in</button>
+                </form>
+              ) : sent ? (
                 <div
                   style={{
                     padding: "24px",
                     borderRadius: "24px",
-                    background: "#fafdff",
-                    border: "1px solid #E1EAF4",
+                    background: "var(--d-bg-fafdff)",
+                    border: "1px solid var(--d-bd-e1eaf4)",
                     display: "flex",
                     flexDirection: "column",
                     gap: "12px"
                   }}
                 >
                   <strong style={{ fontSize: "18px", fontWeight: 600 }}>Check your inbox</strong>
-                  <span style={{ fontSize: "15px", color: "#535862", lineHeight: 1.5 }}>
+                  <span style={{ fontSize: "15px", color: "var(--d-tx-535862)", lineHeight: 1.5 }}>
                     We sent a link to <strong>{email}</strong>. {isSignup ? "Open it to confirm your email and finish creating your account." : "Open it to choose a new password."}
                   </span>
                   <button
@@ -253,7 +294,7 @@ export function AuthPage() {
                       border: 0,
                       background: "transparent",
                       padding: "4px 0",
-                      color: "#535862",
+                      color: "var(--d-tx-535862)",
                       fontSize: "14px",
                       cursor: "pointer",
                       textDecoration: "underline"
@@ -268,6 +309,8 @@ export function AuthPage() {
                     <button
                       type="button"
                       onClick={() => void handleGoogle()}
+                      disabled={busy}
+                      aria-busy={busy}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -275,11 +318,11 @@ export function AuthPage() {
                         gap: "10px",
                         padding: "13px",
                         borderRadius: "9999px",
-                        background: "#fafdff",
-                        color: "#0a0d12",
+                        background: "var(--d-bg-fafdff)",
+                        color: "var(--d-tx-0a0d12)",
                         fontSize: "15px",
                         fontWeight: 500,
-                        border: "1px solid #E1EAF4",
+                        border: "1px solid var(--d-bd-e1eaf4)",
                         cursor: "pointer"
                       }}
                     >
@@ -290,10 +333,10 @@ export function AuthPage() {
                           width: "20px",
                           height: "20px",
                           borderRadius: "50%",
-                          background: "#ebf5ff",
+                          background: "var(--d-bg-ebf5ff)",
                           fontSize: "12px",
                           fontWeight: 700,
-                          color: "#0A6CFF"
+                          color: "var(--d-tx-0a6cff)"
                         }}
                       >
                         G
@@ -302,10 +345,10 @@ export function AuthPage() {
                     </button>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px", fontSize: "13px", color: "#93979f" }}>
-                    <span style={{ flex: 1, height: "1px", background: "#D6E4F2" }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", fontSize: "13px", color: "var(--d-tx-93979f)" }}>
+                    <span style={{ flex: 1, height: "1px", background: "var(--d-bg-d6e4f2)" }} />
                     or with email
-                    <span style={{ flex: 1, height: "1px", background: "#D6E4F2" }} />
+                    <span style={{ flex: 1, height: "1px", background: "var(--d-bg-d6e4f2)" }} />
                   </div>
 
                   <form onSubmit={(e) => void handleSubmit(e)} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -319,9 +362,9 @@ export function AuthPage() {
                           placeholder="Olivia Evans"
                           style={{
                             padding: "13px 16px",
-                            border: "1px solid #D6E4F2",
+                            border: "1px solid var(--d-bd-d6e4f2)",
                             borderRadius: "16px",
-                            background: "#fafdff",
+                            background: "var(--d-bg-fafdff)",
                             fontSize: "15px",
                             outline: "none"
                           }}
@@ -339,9 +382,9 @@ export function AuthPage() {
                         required
                         style={{
                           padding: "13px 16px",
-                          border: emailError ? "1px solid #C2410C" : "1px solid #D6E4F2",
+                          border: emailError ? "1px solid #C2410C" : "1px solid var(--d-bd-d6e4f2)",
                           borderRadius: "16px",
-                          background: "#fafdff",
+                          background: "var(--d-bg-fafdff)",
                           fontSize: "15px",
                           outline: "none"
                         }}
@@ -349,7 +392,7 @@ export function AuthPage() {
                     </label>
 
                     {emailError && (
-                      <span style={{ fontSize: "13px", color: "#C2410C" }}>
+                      <span style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>
                         Enter a valid email address.
                       </span>
                     )}
@@ -364,9 +407,9 @@ export function AuthPage() {
                         autoComplete={isSignup ? "new-password" : "current-password"}
                         style={{
                           padding: "13px 16px",
-                          border: passwordError ? "1px solid #C2410C" : "1px solid #D6E4F2",
+                          border: passwordError ? "1px solid #C2410C" : "1px solid var(--d-bd-d6e4f2)",
                           borderRadius: "16px",
-                          background: "#fafdff",
+                          background: "var(--d-bg-fafdff)",
                           fontSize: "15px",
                           outline: "none"
                         }}
@@ -374,18 +417,19 @@ export function AuthPage() {
                     </label>
 
                     {passwordError && (
-                      <span style={{ fontSize: "13px", color: "#C2410C" }}>Use at least 8 characters.</span>
+                      <span style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>Use at least 8 characters.</span>
                     )}
 
                     {authError && (
-                      <span role="alert" style={{ fontSize: "13px", color: "#C2410C" }}>{authError}</span>
+                      <span role="alert" style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>{authError}</span>
                     )}
 
                     {!isSignup && (
                       <button
                         type="button"
-                        onClick={() => void handleForgot()}
-                        style={{ alignSelf: "flex-start", border: 0, background: "transparent", padding: 0, color: "#535862", fontSize: "13px", cursor: "pointer", textDecoration: "underline" }}
+                        disabled={busy}
+                        onClick={() => { setForgot(true); setTried(false); setAuthError(""); }}
+                        style={{ alignSelf: "flex-start", border: 0, background: "transparent", padding: 0, color: "var(--d-tx-535862)", fontSize: "13px", cursor: "pointer", textDecoration: "underline" }}
                       >
                         Forgot password?
                       </button>
@@ -404,8 +448,8 @@ export function AuthPage() {
                         padding: "14px",
                         border: 0,
                         borderRadius: "9999px",
-                        background: "#181d27",
-                        color: "#fff",
+                        background: "var(--d-bg-181d27)",
+                        color: "var(--d-btn-ink)",
                         fontSize: "15px",
                         fontWeight: 500,
                         cursor: busy ? "progress" : "pointer",
@@ -417,18 +461,21 @@ export function AuthPage() {
                       {busy ? (isSignup ? "Creating account…" : "Signing in…") : isSignup ? "Create account" : "Sign in"}
                     </button>
 
-                    <span style={{ fontSize: "13px", color: "#93979f", lineHeight: 1.5, textAlign: "center" }}>
+                    <span style={{ fontSize: "13px", color: "var(--d-tx-93979f)", lineHeight: 1.5, textAlign: "center" }}>
                       By continuing, you agree to our <Link href="/terms">Terms</Link> and acknowledge our <Link href="/privacy">Privacy Policy</Link>.
                     </span>
                   </form>
                 </div>
               )}
 
-              <span style={{ fontSize: "14px", color: "#535862" }}>
+              <span style={{ fontSize: "14px", color: "var(--d-tx-535862)" }}>
                 {isSignup ? "Already have an account? " : "New to Greedy Motion? "}
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
+                    setForgot(false);
+                    setAuthError("");
                     setMode(isSignup ? "signin" : "signup");
                     setSent(false);
                     setTried(false);
@@ -437,7 +484,7 @@ export function AuthPage() {
                     border: 0,
                     background: "transparent",
                     padding: 0,
-                    color: "#0A6CFF",
+                    color: "var(--d-tx-0a6cff)",
                     fontSize: "14px",
                     fontWeight: 600,
                     cursor: "pointer"
@@ -451,7 +498,7 @@ export function AuthPage() {
         </section>
 
         {/* Right column: Dark Stage Showcase */}
-        <aside style={{ padding: "16px", display: "flex" }}>
+        <aside className="auth-showcase" style={{ padding: "16px", display: "flex" }}>
           <div
             style={{
               position: "relative",
@@ -529,7 +576,7 @@ export function AuthPage() {
               <span style={{ fontSize: "19px", lineHeight: 1.45, fontWeight: 500, letterSpacing: "-.02em" }}>
                 Plan your story. Review the motion. Refine the result.
               </span>
-              <span style={{ fontSize: "14px", color: "#93979f" }}>
+              <span style={{ fontSize: "14px", color: "var(--d-tx-93979f)" }}>
                 Illustrative product demo · Not a customer endorsement
               </span>
             </div>

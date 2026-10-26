@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Zoom-through product reveal</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #050a1c; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #050a1c; font-family: "Space Grotesk", "Inter", sans-serif; }
+  #world { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; overflow: visible; transform-origin: 0 0; }
+  #cap { position: absolute; left: 72px; top: 214px; color: #eaf0ff; font-weight: 700; font-size: 104px; line-height: 1.02; letter-spacing: -0.045em; }
+  #cap .m { overflow: hidden; padding: 0 10px 14px 0; }
+  #cap .m > span { display: block; }
+  #cap b { color: #6f95ff; font-weight: 700; }
+  #vig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(5,10,28,0) 55%, rgba(5,10,28,.7) 100%); pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <svg id="world" viewBox="0 0 1280 720" width="1280" height="720"></svg>
+  <div id="vig"></div>
+  <div id="cap"><div class="m"><span>Everything</span></div><div class="m"><span>fits on <b>one</b></span></div><div class="m"><span><b>screen.</b></span></div></div>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", w = document.getElementById("world");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || w).appendChild(e); return e; }
+  var BG = "#050a1c", COB = "#2f5bff", BRI = "#6f95ff", WHT = "#eaf0ff", GRN = "#3ddc97", RED = "#ff5d73", PANEL = "#0b1840", EDGE = "#2a4fd6";
+  var tl = gsap.timeline({ paused: true });
+  function draw(p, t, dur, ease) { var L = p.getTotalLength(); p.style.strokeDasharray = L + " " + (L + 4); p.style.strokeDashoffset = L; tl.to(p, { strokeDashoffset: 0, duration: dur, ease: ease || "power2.inOut" }, t); }
+  function smooth(pts) { var d = "M" + pts[0][0].toFixed(1) + " " + pts[0][1].toFixed(1); for (var i = 0; i < pts.length - 1; i++) { var p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)]; d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1); } return d; }
+  var DATA = [[0, .8], [.12, .68], [.22, .76], [.34, .52], [.46, .6], [.58, .36], [.7, .44], [.82, .2], [1, .08]];
+  function chart(g, x, y, cw, ch) { return DATA.map(function (p) { return [x + p[0] * cw, y + p[1] * ch]; }); }
+  function txt(p, s, x, y, size, fill, wt, anchor) { var e = el("text", { x: x, y: y, "font-size": size, "font-weight": wt || 600, fill: fill, "text-anchor": anchor || "start", "font-family": "Space Grotesk, Inter, sans-serif", "letter-spacing": "-0.01em" }, p); e.textContent = s; return e; }
+
+  // ---------- infinite cobalt grid
+  var defs = el("defs", {});
+  var pat = el("pattern", { id: "g", width: 100, height: 100, patternUnits: "userSpaceOnUse" }, defs);
+  el("path", { d: "M100 0H0V100", fill: "none", stroke: "#1a3cc0", "stroke-width": 1.6, opacity: .55 }, pat);
+  var pat2 = el("pattern", { id: "g2", width: 500, height: 500, patternUnits: "userSpaceOnUse" }, defs);
+  el("path", { d: "M500 0H0V500", fill: "none", stroke: "#4c78ff", "stroke-width": 3, opacity: .55 }, pat2);
+  var gridG = el("g", {});
+  el("rect", { x: -3000, y: -3000, width: 9000, height: 6000, fill: "url(#g)" }, gridG);
+  el("rect", { x: -3000, y: -3000, width: 9000, height: 6000, fill: "url(#g2)" }, gridG);
+  var grad = el("linearGradient", { id: "ar", x1: 0, y1: 0, x2: 0, y2: 1 }, defs); el("stop", { offset: 0, "stop-color": COB, "stop-opacity": .5 }, grad); el("stop", { offset: 1, "stop-color": COB, "stop-opacity": 0 }, grad);
+
+  // ---------- desktop (origin = screen centre)
+  var desk = el("g", {});
+  var scr = el("rect", { x: -660, y: -330, width: 1320, height: 660, rx: 26, fill: "#07112e", stroke: BRI, "stroke-width": 16, opacity: 0 }, desk);
+  var stand = el("path", { d: "M-70 346V420M70 346V420M-200 424H200", fill: "none", stroke: BRI, "stroke-width": 14, "stroke-linecap": "round", opacity: 0 }, desk);
+  var bar = el("g", { opacity: 0 }, desk);
+  [0, 1, 2].forEach(function (i) { el("circle", { cx: -622 + i * 30, cy: -298, r: 9, fill: [RED, "#ffc857", GRN][i] }, bar); });
+  txt(bar, "Tradeboard", -520, -288, 26, WHT, 600);
+  tl.to(scr, { opacity: 1, duration: .5 }, 1.1); tl.to(bar, { opacity: 1, duration: .4 }, 1.7); tl.to(stand, { opacity: 1, duration: .3 }, 1.9);
+
+  function panel(x, y, pw, ph, tShow, fromX, fromY) {
+    var g = el("g", {}, desk), inn = el("g", {}, g);
+    el("rect", { x: x, y: y, width: pw, height: ph, rx: 18, fill: PANEL, stroke: EDGE, "stroke-width": 3 }, inn);
+    tl.fromTo(inn, { scale: .04, opacity: 0, svgOrigin: fromX + " " + fromY }, { scale: 1, opacity: 1, duration: .55, ease: "expo.out", svgOrigin: fromX + " " + fromY }, tShow);
+    return inn;
+  }
+  // chart panel grows out of the dot
+  var cp = panel(-320, -240, 640, 450, 0.32, 0, 0);
+  txt(cp, "Portfolio", -290, -196, 30, WHT, 600);
+  var ch = { x: -290, y: -150, w: 580, h: 320 };
+  [0, 1, 2, 3].forEach(function (i) { var l = el("path", { d: "M" + ch.x + " " + (ch.y + i * ch.h / 3) + "H" + (ch.x + ch.w), stroke: EDGE, "stroke-width": 1.5, opacity: .5, fill: "none" }, cp); });
+  var pts = chart(null, ch.x, ch.y, ch.w, ch.h), d = smooth(pts);
+  var area = el("path", { d: d + "L" + (ch.x + ch.w) + " " + (ch.y + ch.h) + "L" + ch.x + " " + (ch.y + ch.h) + "Z", fill: "url(#ar)", opacity: 0 }, cp);
+  var line = el("path", { d: d, fill: "none", stroke: BRI, "stroke-width": 8, "stroke-linecap": "round", "stroke-linejoin": "round" }, cp);
+  draw(line, 0.75, 0.9, "power2.inOut"); tl.to(area, { opacity: 1, duration: .6 }, 1.3);
+  var end = el("circle", { cx: pts[8][0], cy: pts[8][1], r: 12, fill: WHT, opacity: 0 }, cp); tl.to(end, { opacity: 1, duration: .15 }, 1.6);
+
+  // positions (left) and watchlist (right)
+  var lp = panel(-620, -240, 270, 450, 0.95, -250, 0), rp = panel(350, -240, 270, 450, 1.1, 250, 0);
+  txt(lp, "Positions", -594, -196, 26, WHT, 600); txt(rp, "Watchlist", 376, -196, 26, WHT, 600);
+  [0, 1, 2, 3].forEach(function (i) {
+    var y = -140 + i * 86, up = i % 2 === 0;
+    el("circle", { cx: -586, cy: y + 18, r: 11, fill: up ? GRN : RED }, lp);
+    var a = el("path", { d: "M-558 " + (y + 8) + "H-440", stroke: WHT, "stroke-width": 8, "stroke-linecap": "round", fill: "none" }, lp);
+    var b = el("path", { d: "M-558 " + (y + 34) + "H-482", stroke: "#5f78c9", "stroke-width": 6, "stroke-linecap": "round", fill: "none" }, lp);
+    var c = el("path", { d: "M-420 " + (y + 22) + "H-378", stroke: up ? GRN : RED, "stroke-width": 8, "stroke-linecap": "round", fill: "none" }, lp);
+    [a, b, c].forEach(function (p, k) { draw(p, 1.35 + i * .1 + k * .04, .3); });
+  });
+  [0, 1, 2, 3, 4].forEach(function (i) {
+    var y = -150 + i * 70;
+    var a = el("path", { d: "M376 " + (y + 24) + "H" + (430 + (i % 3) * 14), stroke: WHT, "stroke-width": 8, "stroke-linecap": "round", fill: "none" }, rp);
+    var sp = []; for (var k = 0; k < 6; k++) sp.push([480 + k * 20, y + 24 - ((k * 7 + i * 5) % 4) * 6 - (i % 2 ? k * 2 : -k * 2)]);
+    var s = el("path", { d: smooth(sp), stroke: i % 2 ? RED : GRN, "stroke-width": 6, "stroke-linecap": "round", fill: "none" }, rp);
+    draw(a, 1.5 + i * .08, .25); draw(s, 1.55 + i * .08, .35);
+  });
+
+  // ---------- the dot
+  var dot = el("g", {});
+  [0, 1].forEach(function (i) { var r = el("circle", { cx: 0, cy: 0, r: 10, fill: "none", stroke: BRI, "stroke-width": 4, opacity: 0 }, dot); tl.fromTo(r, { attr: { r: 10 }, opacity: .9 }, { attr: { r: 150 }, opacity: 0, duration: .75, ease: "power2.out" }, i * .32 - 0.05); });
+  var dc = el("circle", { cx: 0, cy: 0, r: 26, fill: WHT }, dot);
+  tl.to(dc, { attr: { r: 4 }, duration: .3, ease: "power2.in" }, .3); tl.to(dot, { opacity: 0, duration: .15 }, .5);
+
+  // ---------- the phone (far to the right in the same space)
+  var PX = 1900;
+  var ph = el("g", { transform: "translate(" + PX + " 0)" }), phi = el("g", {}, ph);
+  el("rect", { x: -210, y: -430, width: 420, height: 860, rx: 62, fill: "#07112e", stroke: BRI, "stroke-width": 12 }, phi);
+  el("rect", { x: -62, y: -404, width: 124, height: 30, rx: 15, fill: BG }, phi);
+  txt(phi, "Tradeboard", -170, -320, 38, WHT, 700);
+  el("rect", { x: -176, y: -280, width: 352, height: 380, rx: 28, fill: PANEL, stroke: EDGE, "stroke-width": 3 }, phi);
+  txt(phi, "Portfolio", -148, -234, 28, WHT, 600);
+  var pc = chart(null, -150, -190, 300, 230), pd = smooth(pc);
+  el("path", { d: pd + "L150 40L-150 40Z", fill: "url(#ar)" }, phi);
+  var pl = el("path", { d: pd, fill: "none", stroke: BRI, "stroke-width": 8, "stroke-linecap": "round", "stroke-linejoin": "round" }, phi);
+  draw(pl, 3.55, 0.7, "power2.out");
+  el("circle", { cx: pc[8][0], cy: pc[8][1], r: 11, fill: WHT }, phi);
+  [0, 1, 2].forEach(function (i) {
+    var y = 140 + i * 90;
+    el("rect", { x: -176, y: y, width: 352, height: 70, rx: 18, fill: PANEL, stroke: EDGE, "stroke-width": 2 }, phi);
+    el("circle", { cx: -140, cy: y + 35, r: 11, fill: i % 2 ? RED : GRN }, phi);
+    el("path", { d: "M-112 " + (y + 28) + "H-30", stroke: WHT, "stroke-width": 8, "stroke-linecap": "round" }, phi);
+    el("path", { d: "M-112 " + (y + 48) + "H-58", stroke: "#5f78c9", "stroke-width": 6, "stroke-linecap": "round" }, phi);
+    el("path", { d: "M90 " + (y + 36) + "H146", stroke: i % 2 ? RED : GRN, "stroke-width": 8, "stroke-linecap": "round" }, phi);
+  });
+  var glow = el("rect", { x: PX - 210, y: -430, width: 420, height: 860, rx: 62, fill: "none", stroke: COB, "stroke-width": 40, opacity: 0 }, w); w.insertBefore(glow, ph);
+  tl.fromTo(phi, { scale: .5, opacity: 0, svgOrigin: "0 0" }, { scale: 1, opacity: 1, duration: .7, ease: "power3.out", svgOrigin: "0 0" }, 2.15);
+  tl.fromTo(ph, { opacity: 0 }, { opacity: 1, duration: .3 }, 2.1);
+  tl.to(glow, { opacity: .35, duration: .5 }, 2.6);
+
+  // ---------- camera: log-ish zoom via paired x/y/scale moves
+  function cam(s, cx, cy) { return { x: 640 - s * cx, y: 360 - s * cy, scale: s }; }
+  var c0 = cam(1, 0, 0), c1 = cam(0.135, 960, 0), c2 = cam(0.8, 1900, 0);
+  c2.x = 880 - 0.8 * 1900;   // phone lands right of centre, caption sits left
+  tl.set(w, c0, 0);
+  tl.fromTo(w, { x: c0.x, y: c0.y, scale: 1 }, { x: c1.x, y: c1.y, scale: c1.scale, duration: 1.2, ease: "power3.inOut" }, 1.85);
+  tl.to(w, { x: c2.x, y: c2.y, scale: c2.scale, duration: 1.2, ease: "power3.inOut" }, 3.0);
+  // slow push on the very first frames so the dot is never static
+  tl.fromTo(w, { scale: 1.12, x: 640 - 1.12 * 0, y: 360 }, { scale: 1, x: c0.x, y: c0.y, duration: 1.0, ease: "power2.out" }, 0);
+
+  var spans = document.querySelectorAll("#cap .m > span");
+  tl.fromTo(spans, { yPercent: 115 }, { yPercent: 0, duration: .55, ease: "power3.out", stagger: .1 }, 3.75);
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
+const html=await readFile(new URL('../../worker/templates/beat-plan/index.html',import.meta.url),'utf8');
+const script=html.match(/<script id="bp-rough">([\s\S]*?)<\/script>/)[1];
+assert.ok(script.includes('Permission is hereby granted'));
+const ctx={};runInNewContext(script,ctx);
+const draw=seed=>JSON.stringify(ctx.rough.generator().rectangle(10,20,120,80,{seed,fill:'#336699',fillStyle:'hachure'}));
+assert.equal(draw(123),draw(123));assert.notEqual(draw(123),draw(124));assert.throws(()=>draw(0),/explicit nonzero seed/);
+console.log('ok Rough.js: full MIT notice, deterministic seeded paths, seed variation and unseeded guard');

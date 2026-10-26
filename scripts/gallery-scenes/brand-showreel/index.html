@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Brand showreel</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #efece6; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #efece6; }
+  canvas { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="15" data-width="1280" data-height="720" data-fps="30">
+  <canvas id="c" width="1280" height="720"></canvas>
+</div>
+<script>
+(function () {
+  var W = 1280, H = 720, DUR = 15, B = 0.5;
+  var PAPER = "#efece6", INK = "#111111", RED = "#e8412c";
+  var BEB = '"Bebas Neue","Archivo Black",Impact,sans-serif', SG = '"Space Grotesk","Inter",Arial,sans-serif';
+  var cv = document.getElementById("c"), g = cv.getContext("2d");
+  var fc = document.createElement("canvas"); fc.width = W; fc.height = H; var f = fc.getContext("2d");
+
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function c01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function sm(x) { x = c01(x); return x * x * (3 - 2 * x); }
+  function outC(x) { x = c01(x); return 1 - Math.pow(1 - x, 3); }
+  function ioC(x) { x = c01(x); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+  function outBack(x) { x = c01(x); var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+  function lerp(a, b, k) { return a + (b - a) * k; }
+  function frac(x) { return x - Math.floor(x); }
+  function pulse(t) { return Math.exp(-9 * frac(t / B) * B * 2) ; } // 1 on a beat, decaying
+
+  // ---------- grain ----------
+  var gn = document.createElement("canvas"); gn.width = 256; gn.height = 256; var gg = gn.getContext("2d"), R = rng(5), im = gg.createImageData(256, 256), q;
+  for (q = 0; q < 256 * 256; q++) { var v = R() < 0.5 ? 20 : 235; im.data[q * 4] = v; im.data[q * 4 + 1] = v; im.data[q * 4 + 2] = v; im.data[q * 4 + 3] = Math.floor(R() * R() * 46); }
+  gg.putImageData(im, 0, 0);
+  var gpat = g.createPattern(gn, "repeat");
+
+  // ---------- text helpers ----------
+  var cache = {};
+  function mw(c, text, size, font) { var k = font + size + text; if (cache[k] == null) { c.font = size + "px " + font; cache[k] = c.measureText(text).width; } return cache[k]; }
+  function fitSize(c, text, maxW, maxS, font) { var w = mw(c, text, 100, font); return Math.min(maxS, maxW / w * 100); }
+  function letters(c, text, size, track, font) {
+    var out = [], tot = 0, i, w;
+    for (i = 0; i < text.length; i++) { w = mw(c, text[i], size, font); out.push({ ch: text[i], w: w, x: tot }); tot += w + track; }
+    tot -= track; return { items: out, total: tot };
+  }
+
+  // ---------- typographic wall ----------
+  var WORDS = ["PARTICLES", "SHADERS", "RHYTHM", "TIMING", "KEYFRAMES", "EASING", "TYPE", "VFX", "3D", "MOTION DESIGN"];
+  var FS = 120, PITCH = 142, DOT = 16, GAP = 46;
+  function rowWords(r) { var o = [], i, s = ((r * 3) % 10 + 10) % 10; for (i = 0; i < WORDS.length; i++) o.push(WORDS[(i + s) % 10]); if (r === 0) { o.splice(0, 0, "MOTION STUDIO"); } return o; }
+  function rowStyle(r) { var a = Math.abs(r); if (a === 0 || a === 5) return 2; return a % 2 ? 1 : 0; }
+  function drawRow(c, r, off, dirSign) {
+    var ws = rowWords(r), st = rowStyle(r), i, x, cyc = 0, w = [];
+    c.font = FS + "px " + BEB;
+    for (i = 0; i < ws.length; i++) { w.push(mw(c, ws[i], FS, BEB)); cyc += w[i] + GAP * 2 + DOT; }
+    var y = r * PITCH + FS * 0.35;
+    var start = -w[0] / 2 + (off % cyc); start -= Math.ceil((start + 1400) / cyc) * cyc;
+    c.lineJoin = "round"; c.lineWidth = 2.6; c.strokeStyle = st === 2 ? RED : INK; c.fillStyle = st === 2 ? RED : INK;
+    x = start;
+    while (x < 1400) {
+      for (i = 0; i < ws.length; i++) {
+        if (x + w[i] > -1400 && x < 1400) {
+          c.font = FS + "px " + BEB; c.textAlign = "left"; c.textBaseline = "alphabetic";
+          if (st === 1) c.strokeText(ws[i], x, y); else c.fillText(ws[i], x, y);
+          c.fillRect(x + w[i] + GAP - DOT / 2, y - FS * 0.35 - DOT / 2, DOT, DOT);
+        }
+        x += w[i] + GAP * 2 + DOT;
+      }
+    }
+  }
+  function wallParams(t) {
+    var p = { z: 1, a: -10, off: function () { return 0; } };
+    var bump = 1 + 0.035 * pulse(t);
+    if (t < 3) {
+      p.z = (1 + 0.28 * (t / 3)) * bump; p.a = -12 + 4 * (t / 3);
+      p.off = function (r) { var d = r % 2 ? 1 : -1, sp = 230 + 55 * (Math.abs(r) % 3); return d * (sp * t + 1800 * Math.pow(1 - outC(t / 3), 1) * (1 + 0.08 * Math.abs(r))); };
+    } else {
+      var T = t - 10;
+      p.z = (1.65 - 0.38 * c01(T / 2)) * bump; p.a = -10 + 2 * Math.sin(T * 2);
+      var offB = function (r, tt) { var d = r % 2 ? 1 : -1, sp = 520 + 90 * (Math.abs(r) % 3); return d * (sp * (tt - 10) + 400); };
+      p.off = function (r) { return t < 12.5 ? offB(r, t) : offB(r, 12.5) * (1 - outBack((t - 12.5) / 0.35)); };
+      if (t >= 12) { p.a = lerp(-10 + 2 * Math.sin(4), -5, outBack((t - 12) / 0.22)); p.z = lerp(p.z, 1.28, 1) * 1; }
+      if (t >= 12.5) { p.a = lerp(-5, 0, outBack((t - 12.5) / 0.25)); p.z = lerp(1.28, 1.0, outBack((t - 12.5) / 0.25)) * (1 + 0.02 * pulse(t)); }
+    }
+    return p;
+  }
+  function drawWallPass(c, tt, alpha) {
+    var p = wallParams(tt), r;
+    c.save(); c.globalAlpha = alpha; c.translate(640, 360); c.rotate(p.a * Math.PI / 180); c.scale(p.z, p.z);
+    for (r = -7; r <= 7; r++) drawRow(c, r, p.off(r), 0);
+    c.restore();
+  }
+  function wall(c, t) {
+    c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+    var k, sp = t < 3 ? 1 : 1.6;
+    for (k = 4; k >= 1; k--) drawWallPass(c, t - k * 0.016 * sp, 0.13 + 0.025 * (4 - k));
+    drawWallPass(c, t, 1);
+  }
+
+  // ---------- section 2: one word per beat ----------
+  var BEATS = [
+    { w: "MOTION", bg: PAPER, fg: INK, ac: RED }, { w: "TYPE", bg: INK, fg: PAPER, ac: RED }, { w: "RHYTHM", bg: RED, fg: PAPER, ac: INK },
+    { w: "TIMING", bg: PAPER, fg: INK, ac: RED }, { w: "EASING", bg: INK, fg: PAPER, ac: RED }, { w: "SHADERS", bg: RED, fg: PAPER, ac: INK }
+  ];
+  function cross(c, x, y, s, th, rot) { c.save(); c.translate(x, y); c.rotate(rot); c.fillRect(-s, -th / 2, 2 * s, th); c.fillRect(-th / 2, -s, th, 2 * s); c.restore(); }
+  function shapes(c, i, lt, ac) {
+    var p = outBack(lt / 0.16), s = Math.max(0, p);
+    c.fillStyle = ac; c.strokeStyle = ac;
+    if (i === 0) { c.beginPath(); c.arc(1085, 135, 78 * s, 0, 6.283); c.fill(); c.beginPath(); c.arc(190, 600, 28 * s, 0, 6.283); c.fill(); }
+    if (i === 1) { c.fillRect(70, 628, 1140 * outC(lt / 0.2), 24); c.beginPath(); c.arc(1120, 120, 34 * s, 0, 6.283); c.fill(); }
+    if (i === 2) { cross(c, 190, 125, 72 * s, 24, Math.PI / 4 + (1 - c01(lt / 0.2)) * 1.2); c.fillRect(1010, 600, 190 * outC(lt / 0.2), 24); }
+    if (i === 3) { c.lineWidth = 16; c.beginPath(); c.arc(1085, 590, 62 * s, 0, 6.283); c.stroke(); c.fillRect(70, 100, 24, 150 * outC(lt / 0.2)); }
+    if (i === 4) { c.fillRect(70, 70, 24, 580 * outC(lt / 0.22)); c.beginPath(); c.arc(1130, 140, 40 * s, 0, 6.283); c.fill(); }
+    if (i === 5) { cross(c, 1090, 130, 66 * s, 22, (1 - c01(lt / 0.2)) * -1.4); c.lineWidth = 16; c.beginPath(); c.arc(190, 595, 52 * s, 0, 6.283); c.stroke(); }
+  }
+  function beatWord(c, i, lt) {
+    var b = BEATS[i], size = fitSize(c, b.w, 1120, 600, BEB), y0 = 360 + size * 0.35, w = mw(c, b.w, size, BEB), x0 = 640 - w / 2, k;
+    c.fillStyle = b.bg; c.fillRect(0, 0, W, H);
+    shapes(c, i, lt, b.ac);
+    c.save(); var dr = 1 + 0.05 * c01(lt / 0.5); c.translate(640, 360); c.scale(dr, dr); c.translate(-640, -360);
+    c.font = size + "px " + BEB; c.textAlign = "left"; c.textBaseline = "alphabetic"; c.fillStyle = b.fg; c.strokeStyle = b.fg; c.lineJoin = "round";
+    if (i === 0) {
+      var s = lerp(2.6, 1, outBack(lt / 0.2)); c.translate(640, 360); c.scale(s, s); c.translate(-640, -360); c.fillText(b.w, x0, y0);
+    } else if (i === 1) {
+      var o = (1 - outC(lt / 0.22)) * 1100;
+      c.save(); c.beginPath(); c.rect(0, 0, W, 360 + size * 0.02); c.clip(); c.fillText(b.w, x0 - o, y0); c.restore();
+      c.save(); c.beginPath(); c.rect(0, 360 + size * 0.02, W, H); c.clip(); c.fillText(b.w, x0 + o, y0); c.restore();
+    } else if (i === 2) {
+      c.lineWidth = 6; c.strokeText(b.w, x0, y0);
+      var wp = outC((lt - 0.04) / 0.26); c.save(); c.beginPath(); c.rect(x0 - 10, 0, (w + 20) * wp, H); c.clip(); c.fillText(b.w, x0, y0); c.restore();
+    } else if (i === 3 || i === 4) {
+      var L = letters(c, b.w, size, size * 0.012, BEB), n = L.items.length;
+      c.save(); c.beginPath(); c.rect(0, 0, W, H); c.clip();
+      for (k = 0; k < n; k++) {
+        var it = L.items[k], x = 640 - L.total / 2 + it.x;
+        if (i === 3) { var pp = outBack((lt - k * 0.03) / 0.2); c.globalAlpha = c01((lt - k * 0.03) / 0.05); c.fillText(it.ch, x, y0 - (1 - pp) * 420); }
+        else { var ps = Math.max(0.001, outBack((lt - k * 0.03) / 0.2)); c.save(); c.translate(x, y0); c.scale(1, ps); c.fillText(it.ch, 0, 0); c.restore(); }
+      }
+      c.restore();
+    } else {
+      var s5 = lerp(0.55, 1, outBack(lt / 0.2)), e = 1 - outC(lt / 0.22);
+      c.translate(640, 360); c.scale(s5, s5); c.translate(-640, -360);
+      for (k = 0; k < 3; k++) {
+        c.save(); c.beginPath(); c.rect(0, 360 - size * 0.35 + k * size * 0.7 / 3 - 2, W, size * 0.7 / 3 + 4); c.clip();
+        c.fillText(b.w, x0 + (k % 2 ? 1 : -1) * e * 320, y0); c.restore();
+      }
+    }
+    c.restore();
+  }
+
+  // ---------- section 3: tile grid ----------
+  var TL = ["SQUASH", "EASE", "SINE", "COUNT", "WIPE", "CURVE", "ORBIT", "PULSE"], TW = 288, TH = 312, GX = 16, MX = 40, MY = 40;
+  function circ(c, x, y, r) { c.beginPath(); c.arc(x, y, r, 0, 6.283); c.fill(); }
+  function tileBody(c, i, lt, fg, ac) {
+    var k, p, y, s;
+    c.lineCap = "round"; c.lineJoin = "round";
+    if (i === 0) {
+      p = frac(lt / 1); y = 72; var h = 4 * p * (1 - p) * 140, edge = Math.min(p, 1 - p), sq = 1 - 0.34 * c01(1 - edge / 0.09);
+      c.fillStyle = "rgba(128,128,128,0.35)"; c.beginPath(); c.ellipse(0, 78, 46 - h * 0.15, 8, 0, 0, 6.283); c.fill();
+      c.save(); c.translate(0, y - h); c.scale(1 / sq, sq); c.fillStyle = ac; circ(c, 0, -38, 38); c.restore();
+    } else if (i === 1) {
+      var bb = lt / B, a1 = Math.PI / 2 * (Math.floor(bb) + outBack(frac(bb) / 0.6));
+      for (k = 3; k >= 0; k--) { var bk = (lt - k * 0.03) / B, ak = Math.PI / 2 * (Math.floor(bk) + outBack(frac(bk) / 0.6)); c.save(); c.rotate(ak); c.globalAlpha = k ? 0.16 : 1; c.fillStyle = k ? fg : ac; c.fillRect(-46, -46, 92, 92); c.restore(); }
+    } else if (i === 2) {
+      c.strokeStyle = fg; c.lineWidth = 6; c.beginPath();
+      for (k = -120; k <= 120; k += 4) { y = 62 * Math.sin((k / 120) * Math.PI * 2 - lt * Math.PI * 2); if (k === -120) c.moveTo(k, y); else c.lineTo(k, y); }
+      c.stroke(); c.globalAlpha = 0.3; c.lineWidth = 2; c.beginPath(); c.moveTo(-124, 0); c.lineTo(124, 0); c.stroke(); c.globalAlpha = 1;
+      c.fillStyle = ac; circ(c, 0, 62 * Math.sin(-lt * Math.PI * 2), 15);
+    } else if (i === 3) {
+      var v = Math.round(99 * outC(lt / 1.8)), txt = (v < 10 ? "0" : "") + v, sz = 190;
+      c.font = sz + "px " + BEB; c.textAlign = "center"; c.textBaseline = "alphabetic"; c.fillStyle = fg; c.fillText(txt, 0, 52);
+      c.fillStyle = ac; c.fillRect(-110, 78, 220 * outC(lt / 1.8), 12); c.globalAlpha = 0.25; c.fillStyle = fg; c.fillRect(-110 + 220 * outC(lt / 1.8), 78, 220 * (1 - outC(lt / 1.8)), 12); c.globalAlpha = 1;
+    } else if (i === 4) {
+      p = frac(lt / 1); var xr = -125 + 250 * ioC(p / 0.7), xl = -125 + 250 * ioC((p - 0.75) / 0.25);
+      c.fillStyle = ac; c.fillRect(xl, -34, Math.max(0, xr - xl), 68);
+      c.fillStyle = fg; c.beginPath(); c.moveTo(xr, -52); c.lineTo(xr + 54, 0); c.lineTo(xr, 52); c.closePath(); c.fill();
+    } else if (i === 5) {
+      c.strokeStyle = fg; c.lineWidth = 3; c.globalAlpha = 0.35; c.strokeRect(-100, -90, 200, 180); c.globalAlpha = 1;
+      c.lineWidth = 6; c.beginPath();
+      for (k = 0; k <= 1.001; k += 0.04) { var cx = -100 + 200 * k, cy = 90 - 180 * (k * k * (3 - 2 * k)); if (k === 0) c.moveTo(cx, cy); else c.lineTo(cx, cy); }
+      c.stroke();
+      for (k = 3; k >= 0; k--) { p = ioC(frac((lt - k * 0.04) / 1) / 0.85); var dx = -100 + 200 * p, dy = 90 - 180 * (p * p * (3 - 2 * p)); c.globalAlpha = k ? 0.2 : 1; c.fillStyle = ac; circ(c, dx, dy, 15); } c.globalAlpha = 1;
+    } else if (i === 6) {
+      c.fillStyle = fg; circ(c, 0, 0, 14);
+      c.strokeStyle = fg; c.lineWidth = 2; c.globalAlpha = 0.3; c.beginPath(); c.arc(0, 0, 60, 0, 6.283); c.stroke(); c.beginPath(); c.arc(0, 0, 100, 0, 6.283); c.stroke(); c.globalAlpha = 1;
+      for (k = 3; k >= 0; k--) { var t2 = lt - k * 0.03; c.globalAlpha = k ? 0.2 : 1; c.fillStyle = ac; var a2 = t2 * Math.PI * 2; circ(c, 60 * Math.cos(a2), 60 * Math.sin(a2), 17); c.fillStyle = fg; var a3 = -t2 * Math.PI; circ(c, 100 * Math.cos(a3), 100 * Math.sin(a3), 13); } c.globalAlpha = 1;
+    } else {
+      for (k = 0; k < 3; k++) { p = frac(lt / B - k / 3); c.globalAlpha = 1 - p; c.strokeStyle = ac; c.lineWidth = 7; c.beginPath(); c.arc(0, 0, 18 + 112 * outC(p), 0, 6.283); c.stroke(); } c.globalAlpha = 1;
+      s = 1 + 0.35 * pulse(lt); c.fillStyle = fg; c.fillRect(-20 * s, -20 * s, 40 * s, 40 * s);
+    }
+  }
+  var SCH = [[INK, PAPER, RED], [PAPER, INK, RED], [RED, PAPER, INK]];
+  function grid(c, t) {
+    c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+    var i, col, row;
+    for (i = 0; i < 8; i++) {
+      col = i % 4; row = Math.floor(i / 4);
+      var sc = SCH[(col + row * 2) % 3], bg = sc[0], fg = sc[1], ac = sc[2], x = MX + col * (TW + GX), y = MY + row * (TH + GX), st = 6 + i * B, lt = t - st;
+      var ft = c01(lt / 0.24), sx = Math.abs(Math.cos(Math.PI * ft)), face = ft >= 0.5;
+      c.save(); c.translate(x + TW / 2, y + TH / 2); c.scale(Math.max(0.001, sx), 1);
+      c.beginPath(); c.rect(-TW / 2, -TH / 2, TW, TH); c.clip();
+      if (!face) {
+        c.fillStyle = INK; c.fillRect(-TW / 2, -TH / 2, TW, TH);
+        c.font = "150px " + BEB; c.textAlign = "center"; c.textBaseline = "alphabetic"; c.strokeStyle = "#555"; c.lineWidth = 2.5; c.strokeText("0" + (i + 1), 0, 52);
+      } else {
+        c.fillStyle = bg; c.fillRect(-TW / 2, -TH / 2, TW, TH);
+        if (bg === PAPER) { c.strokeStyle = INK; c.lineWidth = 6; c.strokeRect(-TW / 2 + 3, -TH / 2 + 3, TW - 6, TH - 6); }
+        c.save(); c.translate(0, 6); tileBody(c, i, Math.max(0, lt - 0.12), fg, ac); c.restore();
+        c.font = "700 24px " + SG; c.textAlign = "left"; c.textBaseline = "alphabetic"; c.fillStyle = fg; c.fillText(TL[i], -TW / 2 + 20, -TH / 2 + 40);
+        c.textAlign = "right"; c.fillText("0" + (i + 1), TW / 2 - 20, -TH / 2 + 40);
+      }
+      c.restore();
+    }
+  }
+
+  // ---------- end card ----------
+  function endCard(c, t) {
+    c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+    var lt = t - 13, size = fitSize(c, "MOTION STUDIO", 1040, 400, BEB), sq = size * 0.2, L = letters(c, "MOTION STUDIO", size, size * 0.01, BEB);
+    var tot = L.total + sq * 0.9, x0 = 640 - tot / 2, base = 360 + size * 0.35 - 14, k;
+    c.fillStyle = INK; c.fillRect(70, 56, 1140 * outC(lt / 0.5), 10); c.fillRect(1210 - 1140 * outC(lt / 0.5), 654, 1140 * outC(lt / 0.5), 10);
+    c.save(); c.beginPath(); c.rect(0, 360 - size * 0.55 - 30, W, size * 0.9); c.clip();
+    c.font = size + "px " + BEB; c.textAlign = "left"; c.textBaseline = "alphabetic"; c.fillStyle = INK;
+    for (k = 0; k < L.items.length; k++) { var p = outC((lt - 0.03 * k) / 0.26); c.globalAlpha = c01(p * 3); c.fillText(L.items[k].ch, x0 + L.items[k].x, base + (1 - p) * size * 0.8); }
+    c.restore(); c.globalAlpha = 1;
+    var sp = Math.max(0, outBack((lt - 0.5) / 0.2)); c.fillStyle = RED; c.fillRect(x0 + L.total + sq * 0.3, base - sq * sp, sq * sp, sq * sp);
+    var tp = outC((lt - 1.0) / 0.3); c.save(); c.globalAlpha = tp; c.fillStyle = INK; c.font = "600 54px " + SG; c.textAlign = "center"; c.textBaseline = "alphabetic";
+    c.fillText("Made to move", 640, 560 + (1 - tp) * 30); c.restore();
+  }
+
+  // ---------- frame ----------
+  var CUTS = [3, 3.5, 4, 4.5, 5, 5.5, 6, 10, 12, 12.5, 13];
+  function glitch(t) { var a = 0, i, d; for (i = 0; i < CUTS.length; i++) { d = t - CUTS[i]; if (d >= 0 && d < 0.15) a = Math.max(a, (1 - d / 0.15) * (CUTS[i] === 12 || CUTS[i] === 12.5 ? 0.55 : 1)); } return a; }
+  function scene(c, t) {
+    if (t < 3) wall(c, t);
+    else if (t < 6) { var i = Math.min(5, Math.floor((t - 3) / B + 1e-6)); beatWord(c, i, t - 3 - i * B); }
+    else if (t < 10) grid(c, t);
+    else if (t < 13) wall(c, t);
+    else endCard(c, t);
+  }
+  function draw(t) {
+    t = Math.max(0, Math.min(t, 14.5)); cache = {};
+    scene(f, t);
+    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1; g.drawImage(fc, 0, 0);
+    var a = glitch(t);
+    if (a > 0.01) {
+      var r = rng(Math.floor(t * 30) + 11), n = 12, sh = H / n, k, off;
+      g.globalAlpha = 0.32; g.drawImage(fc, a * 16, 0); g.globalAlpha = 1;
+      for (k = 0; k < n; k++) { if (r() < 0.55) { off = (r() - 0.5) * 2 * a * 60; g.drawImage(fc, 0, k * sh, W, sh, off, k * sh, W, sh); } else r(); }
+    }
+    var gr = rng(Math.floor(t * 12) + 3), ox = Math.floor(gr() * 256), oy = Math.floor(gr() * 256);
+    g.save(); g.translate(ox - 256, oy - 256); g.fillStyle = gpat; g.fillRect(0, 0, W + 256, H + 256); g.restore();
+  }
+  window.addEventListener("hf-seek", function (e) { draw(e.detail.time); });
+  draw(0);
+  if (document.fonts && document.fonts.load) {
+    Promise.all([document.fonts.load("100px 'Bebas Neue'"), document.fonts.load("700 24px 'Space Grotesk'"), document.fonts.load("600 54px 'Space Grotesk'")]).then(function () { draw(tl.time()); }, function () {});
+  }
+  var tl = gsap.timeline({ paused: true });
+  tl.to({}, { duration: DUR }, 0);
+  tl.eventCallback("onUpdate", function () { draw(tl.time()); });
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

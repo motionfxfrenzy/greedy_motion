@@ -1,6 +1,6 @@
 # Greedy Motion: launch pricing and policy proposal
 
-Prepared 2026-10-07. Historical pricing proposal below; superseded by the owner-approved publication decision in this section.
+Prepared 2026-10-07. Historical pricing proposal below. **Current prices, tokens and billing: `docs/PRICING.md` (2026-10-14).**
 
 ## Publication decision — October 7, 2026
 

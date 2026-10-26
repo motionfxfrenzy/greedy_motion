@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import sharp from "sharp";
 import { findTemplate, type VideoProject } from "@videosaas/contracts";
+import { sceneLogo } from "../brand/logos.ts";
 import { ensureBrandFiles, getBrand } from "../brand/store.ts";
 import { config } from "../config.ts";
 import { readMedia } from "../media.ts";
@@ -63,14 +63,12 @@ export async function projectPreviewHtml(project: VideoProject) {
     values.brandName = brand.name;
     const domain = brand.url?.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
     if (domain) values.url = domain.slice(0, 40);
-    if (brand.hasLogo) {
-      const logoPath = join(config.brandsDir, brand.id, "logo.png");
-      const metadata = await sharp(logoPath).metadata().catch(() => null);
-      if (metadata?.width && metadata.height) {
-        values.logo = `${studioAssetBase}/brands/${brand.id}/logo`;
-        values.logoWordmark = metadata.width / metadata.height > 2.2;
-      }
+    const [lockup, bug] = await Promise.all([sceneLogo(brand, "lockup"), sceneLogo(brand, "bug")]);
+    if (lockup) {
+      values.logo = `${studioAssetBase}/brands/${brand.id}/logo?role=lockup&v=${lockup.variant}`;
+      values.logoWordmark = lockup.spellsName;
     }
+    if (bug) values.logoBug = `${studioAssetBase}/brands/${brand.id}/logo?role=bug&v=${bug.variant}`;
   } else {
     themeCss = await requiredText(join(config.themesDir, `${project.request.theme}.css`), "The selected preview theme");
   }
@@ -115,11 +113,12 @@ export async function previewTemplateScreenshot(templateId: string) {
   return readFile(join(config.templatesDir, templateId, "assets", "screenshot.svg")).catch(() => null);
 }
 
-export async function previewBrandLogo(brandId: string) {
+/** The logo version a scene of this kind uses (`role`: the closing lockup by default, or the corner mark). */
+export async function previewBrandLogo(brandId: string, role: "lockup" | "bug" = "lockup") {
   if (!idPattern.test(brandId)) return null;
   const brand = await getBrand(brandId);
-  if (!brand?.hasLogo) return null;
-  return readMedia(join(config.brandsDir, brandId, "logo.png")).catch(() => null);
+  if (!brand) return null;
+  return (await sceneLogo(brand, role))?.data ?? null;
 }
 
 export async function previewBrandFont(brandId: string, name: string) {

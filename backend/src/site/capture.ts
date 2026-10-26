@@ -3,8 +3,11 @@ import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { plainText } from "@videosaas/contracts";
+import sharp from "sharp";
 import { FetchRefused, safeFetch, validateUrl } from "../brand/safe-fetch.ts";
 import { inPage, snapshotSection } from "./in-page.ts";
+import { readSiteWithGemini } from "./gemini.ts";
+import { SITE_RULES, SiteUnavailable } from "./rules.ts";
 
 /**
  * Reads a product website: the product's own words (facts for the director) and, when a browser is
@@ -18,24 +21,11 @@ import { inPage, snapshotSection } from "./in-page.ts";
  * - Caps: one page, 35 s overall, 600 requests, 40 MB in total, 8 MB per resource, 6 screenshots.
  * - No popups, downloads or dialogs. The page text is untrusted data for the director.
  */
-export const SITE_RULES = {
-  overallMs: 35_000,
-  navigationMs: 20_000,
-  maxRequests: 600,
-  maxBytes: 40_000_000,
-  perResourceBytes: 8_000_000,
-  maxShots: 6,
-  viewport: { width: 1440, height: 900 },
-  sectionMinHeight: 260,
-  sectionMaxHeight: 1400,
-  snapshotMaxBytes: 600_000,
-  textMax: 6000,
-  factsMax: 40
-} as const;
-
-export class SiteUnavailable extends Error {}
+export { SITE_RULES, SiteUnavailable };
 
 export type CapturedSection = { heading: string; png: Buffer; snapshot: string | null };
+/** A picture on the page that shows the product (not a logo, icon or banner); fetched safely by the route that stores it. */
+export type SiteImage = { url: string; alt: string };
 export type SiteRead = {
   url: string;
   title: string;
@@ -46,6 +36,8 @@ export type SiteRead = {
   mode: "browser" | "html-only";
   /** Saturated colours the rendered page uses on buttons, links, logo and accents (browser mode only). */
   colors: string[];
+  /** Relevant product pictures found on the page, best first. */
+  images: SiteImage[];
   warnings: string[];
 };
 
@@ -84,7 +76,47 @@ export function readHtml(html: string): Pick<SiteRead, "title" | "description" |
   return { title, description, facts, text };
 }
 
+/** Without a browser: the page's own share image (og:image / twitter:image), resolved to an absolute URL. */
+function htmlImages(html: string, base: string): SiteImage[] {
+  const out: SiteImage[] = [];
+  for (const match of html.matchAll(/<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*content=["']([^"']+)["']/gi)) {
+    try { const url = new URL(decode(match[1]), base).toString(); if (/^https?:/.test(url) && !/logo|icon|favicon|placeholder/i.test(url) && !out.some((image) => image.url === url)) out.push({ url, alt: "Share image" }); } catch { /* skip */ }
+  }
+  return out.slice(0, 2);
+}
+
 // ---------- browser capture ----------
+
+/** A small grey fingerprint of the top of a screenshot, to tell repeats and blanks from real sections. */
+async function fingerprint(png: Buffer) {
+  const image = sharp(png);
+  const { width = 0, height = 0 } = await image.metadata();
+  return image.extract({ left: 0, top: 0, width, height: Math.min(height, 900) }).resize(24, 14, { fit: "fill" }).greyscale().raw().toBuffer();
+}
+
+/** Keeps each different-looking section once, in order: drops a screenshot that repeats an earlier one (the hero captured twice,
+ *  a banner shown again lower down) and one that is nearly blank. */
+export async function distinctShots(sections: CapturedSection[]): Promise<CapturedSection[]> {
+  const kept: CapturedSection[] = [];
+  const prints: Buffer[] = [];
+  const headings: string[] = [];
+  for (const section of sections) {
+    const heading = section.heading.trim().toLowerCase();
+    let print: Buffer;
+    try { print = await fingerprint(section.png); } catch { kept.push(section); continue; }
+    const mean = print.reduce((sum, v) => sum + v, 0) / print.length;
+    const spread = print.reduce((sum, v) => sum + Math.abs(v - mean), 0) / print.length;
+    if (spread < 8) continue; // a near-uniform or text-only strip: nothing to show
+    const gaps = prints.map((earlier) => earlier.reduce((sum, v, i) => sum + Math.abs(v - print[i]!), 0) / print.length);
+    // Repeats: the same picture, or the same heading over a similar picture (a carousel's next slide, the hero shown twice).
+    const repeat = gaps.some((gap, index) => gap < 10 || (gap < 32 && headings[index] === heading));
+    headings.push(heading);
+    if (repeat) continue;
+    prints.push(print);
+    kept.push(section);
+  }
+  return kept;
+}
 
 const BLOCKED_TYPES = new Set(["media", "websocket", "eventsource", "ping", "cspviolationreport"]);
 
@@ -150,7 +182,7 @@ async function browserRead(chrome: string, url: string): Promise<Omit<SiteRead, 
       const snapshot = await main.evaluate(snapshotSection, section.index, SITE_RULES.snapshotMaxBytes).catch(() => null);
       sections.push({ heading: section.heading || (section.index === 0 ? read.title || "Home" : `Section ${section.index + 1}`), png, snapshot });
     }
-    return { url: main.url(), title: read.title, description: read.description, colors: read.colors, facts: read.facts.map(plainText).filter(Boolean), text: read.text, sections, warnings };
+    return { url: main.url(), title: read.title, description: read.description, colors: read.colors, images: read.images, facts: read.facts.map(plainText).filter(Boolean), text: read.text, sections: await distinctShots(sections), warnings };
   } finally {
     await browser.close().catch(() => undefined);
   }
@@ -158,16 +190,28 @@ async function browserRead(chrome: string, url: string): Promise<Omit<SiteRead, 
 
 let running = 0;
 
-/** Reads `input`: the static HTML always, plus the browser capture when Chrome is available. */
+/** Reads `input`: the static HTML always, plus the browser capture when Chrome is available. A site that cannot be read directly falls back to Gemini's URL reader (facts only). */
 export async function readSite(input: string): Promise<SiteRead> {
   validateUrl(input);
+  try {
+    const read = await readSiteDirect(input);
+    // A shell page (a single-page app that rendered nothing, a bot wall) is no better than no page.
+    if (read.facts.length >= 3 || read.text.length >= 200) return read;
+    return await readSiteWithGemini(input).catch(() => read);
+  } catch (error) {
+    if (error instanceof FetchRefused) throw error;
+    try { return await readSiteWithGemini(input); } catch { throw error; }
+  }
+}
+
+async function readSiteDirect(input: string): Promise<SiteRead> {
   const page = await safeFetch(input, { maxBytes: 3_000_000, timeoutMs: 10_000 });
   if (page.status >= 400) throw new SiteUnavailable(`The site answered ${page.status}.`);
   if (!/html/i.test(page.contentType)) throw new SiteUnavailable("That URL is not a web page.");
   const html = readHtml(page.body.toString("utf8"));
   const chrome = await chromePath();
-  if (!chrome) return { url: page.url, ...html, sections: [], colors: [], mode: "html-only", warnings: ["Screenshots are unavailable on this server (no browser); facts come from the page HTML."] };
-  if (running >= 2) return { url: page.url, ...html, sections: [], colors: [], mode: "html-only", warnings: ["The site reader is busy; facts come from the page HTML. Try again for screenshots."] };
+  if (!chrome) return { url: page.url, ...html, sections: [], colors: [], images: htmlImages(page.body.toString("utf8"), page.url), mode: "html-only", warnings: ["Screenshots are unavailable on this server (no browser); facts come from the page HTML."] };
+  if (running >= 2) return { url: page.url, ...html, sections: [], colors: [], images: htmlImages(page.body.toString("utf8"), page.url), mode: "html-only", warnings: ["The site reader is busy; facts come from the page HTML. Try again for screenshots."] };
   running++;
   try {
     const timer = new Promise<never>((_, reject) => setTimeout(() => reject(new SiteUnavailable("Reading the site took too long.")), SITE_RULES.overallMs));
@@ -177,7 +221,7 @@ export async function readSite(input: string): Promise<SiteRead> {
     return { ...read, title: read.title || html.title, description: read.description || html.description, facts, text: read.text.length > html.text.length ? read.text : html.text, mode: "browser" };
   } catch (error) {
     if (error instanceof FetchRefused) throw error;
-    return { url: page.url, ...html, sections: [], colors: [], mode: "html-only", warnings: [`Screenshots failed (${error instanceof Error ? error.message : "browser error"}); facts come from the page HTML.`] };
+    return { url: page.url, ...html, sections: [], colors: [], images: htmlImages(page.body.toString("utf8"), page.url), mode: "html-only", warnings: [`Screenshots failed (${error instanceof Error ? error.message : "browser error"}); facts come from the page HTML.`] };
   } finally {
     running--;
   }

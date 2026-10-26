@@ -1,0 +1,45 @@
+{
+  "id": "illus-rubber-hose",
+  "name": "Illustration · Rubber hose",
+  "group": "Illustration",
+  "description": "India ink at one pressure on a clear cel over a blue-pencil rough, flat grey paint on the back, photographed and printed on black-and-white film. Drawn as a finished illustration in one medium.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "collage",
+  "renderMode": "generated",
+  "preview": {
+    "src": "/previews/looks/references/illus-rubber-hose.jpg",
+    "kind": "image",
+    "label": "Reference frame — not generated footage"
+  },
+  "source": "third_party/anidoodle/styles.gen.json",
+  "referenceAssets": [
+    {
+      "path": "references/illus-rubber-hose.jpg",
+      "source": "third_party/anidoodle/references/illus-rubber-hose.jpg",
+      "sha256": "b74dfd46793901e8bf84a926ee8f545895f754974d3b7443d64e41e82d215af1",
+      "bytes": 96734
+    }
+  ],
+  "instructions": {
+    "image": "India ink at one pressure on a clear cel over a blue-pencil rough, flat grey paint on the back, photographed and printed on black-and-white film. A finished illustration in this one medium; never a photograph, a 3D render or a live-action frame. Use the attached reference frame for the medium, palette and line quality only, never for its subject.",
+    "motion": "Slow camera drift and gentle parallax; marks settle in the way the medium is made. One focal action at a time.",
+    "composition": "Keep all titles, labels, data and logos as editable HTML/SVG overlays. Use approved copy and supplied screenshots. Brand colors and fonts override reference palettes. Keep one style for the whole film.",
+    "negative": "No generated text, logos, invented statistics or fake product UI. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Approved brand/theme and script",
+      "One approved style key reused for every shot",
+      "The reference frame for this style"
+    ],
+    "acceptance": [
+      "The medium stays recognisable in hook, screenshot, success and CTA beats",
+      "Readable copy in landscape, portrait and square",
+      "Identical pixels after repeated and backward seeking",
+      "All visual marks follow the selected brand/theme"
+    ]
+  },
+  "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+}

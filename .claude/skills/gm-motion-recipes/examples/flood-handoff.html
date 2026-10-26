@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Flood handoff: a colour floods out of a button, carries its words, and shrinks into a bubble</title>
+    <script src="vendor/gsap.min.js"></script>
+    <!--
+      Recipe: flood-handoff (gm-motion-recipes/rules/flood-handoff.md)
+      One colour, three jobs, one shared element (the words).
+        out    a circle grows from the button to the FARTHEST corner in 0.35 s; the button's label is copied into the flood
+        carry  the copy grows to headline size, then travels to where a chat bubble will be
+        in     the flood contracts into the bubble's exact rectangle; the bubble takes over on the same frame
+
+      Layers (z-index is set on every one, so nothing floats above the flood):
+        page 0 - bubble 5 - button 10 - flood 20 - carried words 30
+
+        0.00 - 0.55 s   the button arrives and is pressed
+        0.60 - 0.95 s   flood out (0.35 s)         the words start moving the same frame
+        1.25 - 1.80 s   flood in, into the bubble  the words shrink into the bubble text
+        1.80 - 2.75 s   the reply rises out of a mask line
+    -->
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #f5f5f2; }
+      #root { position: relative; width: 1920px; height: 1080px; background: #f5f5f2; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; overflow: hidden; }
+      #page { position: absolute; inset: 0; z-index: 0; }
+      #brand { position: absolute; left: 200px; top: 140px; font-size: 56px; font-weight: 800; color: #0e0e10; }
+      #bubble { position: absolute; left: 1240px; top: 150px; width: 480px; height: 120px; border-radius: 60px; background: #cdf24f; z-index: 5; opacity: 0; display: flex; align-items: center; justify-content: center; font-size: 44px; font-weight: 700; color: #0e0e10; }
+      #reply { position: absolute; left: 200px; top: 340px; width: 1100px; z-index: 6; color: #0e0e10; font-size: 68px; font-weight: 700; line-height: 1.2; }
+      #reply .mask { overflow: hidden; height: 84px; }
+      #reply .line { display: block; opacity: 0; }
+      #btn { position: absolute; left: 1180px; top: 700px; width: 420px; height: 120px; border-radius: 60px; background: #0e0e10; z-index: 10; opacity: 0; }
+      .label { font-size: 44px; font-weight: 700; white-space: nowrap; }
+      #btnLabel { position: absolute; left: 0; top: 0; width: 420px; height: 120px; display: flex; align-items: center; justify-content: center; color: #fff; }
+      .flood { position: absolute; inset: 0; background: #cdf24f; z-index: 20; opacity: 0; }
+      /* The carried words sit above both flood layers, unclipped, and start exactly on the button's label. */
+      #carry { position: absolute; left: 1180px; top: 700px; width: 420px; height: 120px; display: flex; align-items: center; justify-content: center; z-index: 30; opacity: 0; color: #fff; transform-origin: 50% 50%; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="2.75" data-width="1920" data-height="1080">
+      <div id="scene" class="clip" data-start="0" data-duration="2.75" data-track-index="0">
+        <div id="page"><div id="brand" data-layout-allow-occlusion>Wok &amp; Fire</div></div>
+        <div id="bubble">Order now</div>
+        <div id="reply">
+          <div class="mask"><span class="line">Found it. Fire Noodles,</span></div>
+          <div class="mask"><span class="line">smoky, spicy and filling.</span></div>
+        </div>
+        <div id="btn"><div id="btnLabel" class="label">Order now</div></div>
+        <div id="floodOut" class="flood" style="clip-path: circle(0px at 1390px 760px)"></div>
+        <div id="floodIn" class="flood" style="clip-path: inset(0px 0px 0px 0px round 0px)"></div>
+        <div id="carry" class="label">Order now</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const BTN = { x: 1390, y: 760 };                 // button centre
+      const FRAME = { w: 1920, h: 1080 };
+      // The flood must reach the farthest corner, or the last corner flashes in late and the wave reads as a pop.
+      const R = Math.ceil(Math.hypot(Math.max(BTN.x, FRAME.w - BTN.x), Math.max(BTN.y, FRAME.h - BTN.y))) + 4;
+      const BUBBLE = { x: 1480, y: 210, top: 150, right: 200, bottom: 810, left: 1240, radius: 60 };   // centre and inset() sides
+      const T_OUT = 0.6, D_OUT = 0.35, T_IN = 1.25, D_IN = 0.55;
+
+      const tl = gsap.timeline({ paused: true, defaults: { immediateRender: false } });
+      // Explicit identity transforms before the timeline runs (see spring-settle): untouched `none` and touched `matrix(1,0,0,1,0,0)` rasterise text differently.
+      gsap.set(["#btn", "#carry", "#reply .line"], { x: 0, y: 0, scale: 1 });
+      const show = (el, t) => tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0, ease: "none" }, t);
+      const hide = (el, t) => tl.fromTo(el, { opacity: 1 }, { opacity: 0, duration: 0, ease: "none" }, t);
+
+      // --- the button arrives and is pressed ---
+      tl.fromTo("#btn", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 0.05);
+      tl.fromTo("#btn", { scale: 1 }, { scale: 0.94, duration: 0.1, ease: "power2.out" }, 0.45);
+      tl.fromTo("#btn", { scale: 0.94 }, { scale: 1, duration: 0.15, ease: "power2.out" }, 0.55);
+
+      // --- flood out: the real label is replaced by its carried copy on the SAME frame the circle starts ---
+      hide("#btnLabel", T_OUT);
+      show("#carry", T_OUT);
+      show("#floodOut", T_OUT);
+      tl.fromTo("#floodOut", { clipPath: `circle(0px at ${BTN.x}px ${BTN.y}px)` }, { clipPath: `circle(${R}px at ${BTN.x}px ${BTN.y}px)`, duration: D_OUT, ease: "power2.out" }, T_OUT);
+      tl.fromTo("#carry", { color: "#ffffff" }, { color: "#0e0e10", duration: 0.2, ease: "none" }, T_OUT);
+      // the words grow to headline size and travel to the middle of the frame
+      tl.fromTo("#carry", { x: 0, y: 0, scale: 1 }, { x: 960 - BTN.x, y: 540 - BTN.y, scale: 3.4, duration: 0.5, ease: "power3.out" }, T_OUT);
+
+      // --- flood in: the two flood layers are identical full-frame lime, swapped on one frame ---
+      hide("#floodOut", T_IN);
+      show("#floodIn", T_IN);
+      tl.fromTo("#floodIn", { clipPath: "inset(0px 0px 0px 0px round 0px)" },
+        { clipPath: `inset(${BUBBLE.top}px ${BUBBLE.right}px ${BUBBLE.bottom}px ${BUBBLE.left}px round ${BUBBLE.radius}px)`, duration: D_IN, ease: "power3.inOut" }, T_IN);
+      tl.fromTo("#carry", { x: 960 - BTN.x, y: 540 - BTN.y, scale: 3.4 }, { x: BUBBLE.x - BTN.x, y: BUBBLE.y - BTN.y, scale: 1, duration: D_IN, ease: "power3.inOut" }, T_IN);
+      // handoff to the real bubble on the frame the flood lands
+      show("#bubble", T_IN + D_IN);
+      hide("#floodIn", T_IN + D_IN);
+      hide("#carry", T_IN + D_IN);
+      // the page behind it (the button) is gone once the flood has covered it
+      hide("#btn", T_OUT + D_OUT);
+
+      // --- the reply rises out of a mask line ---
+      document.querySelectorAll("#reply .line").forEach((line, i) => {
+        const t = T_IN + D_IN + 0.05 + i * 0.12;
+        show(line, t);
+        tl.fromTo(line, { y: 90 }, { y: 0, duration: 0.55, ease: "power3.out" }, t);
+      });
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

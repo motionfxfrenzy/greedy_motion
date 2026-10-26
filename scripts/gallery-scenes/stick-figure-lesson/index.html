@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Stick figure lesson</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #ffffff; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #ffffff; font-family: "Quicksand", "Fredoka", sans-serif; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(31);
+  function wob(pts, amp, step) {
+    var out = [pts[0]], i, k;
+    for (i = 1; i < pts.length; i++) {
+      var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+      for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+    }
+    var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+    for (i = 0; i < out.length - 1; i++) {
+      var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+      d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+    }
+    return d;
+  }
+  function head(x, y, dx, dy, sz) { var l = Math.hypot(dx, dy); dx /= l; dy /= l; var c = Math.cos(.5), sn = Math.sin(.5);
+    return wob([[x - sz * (dx * c - dy * sn), y - sz * (dy * c + dx * sn)], [x, y], [x - sz * (dx * c + dy * sn), y - sz * (dy * c - dx * sn)]], 1, 99); }
+  var INK = "#23262d", BLUE = "#2f6fe4", RED = "#e5383b", GREEN = "#2fa36b", YEL = "#f4b942";
+  var defs = el("defs", {});
+  var fl = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+  el("feTurbulence", { type: "fractalNoise", baseFrequency: "0.04", numOctaves: 2, seed: 8, result: "n" }, fl);
+  el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: 2.4 }, fl);
+
+  el("rect", { width: 1280, height: 720, fill: "#ffffff" });
+  var art = el("g", { filter: "url(#rough)" });
+  var tl = gsap.timeline({ paused: true });
+
+  // pencil tip
+  var tip = el("g", { opacity: 0 });
+  var tg = el("g", { transform: "rotate(32)" }, tip);
+  el("polygon", { points: "0,0 -8,-20 8,-20", fill: "#e9c79a" }, tg);
+  el("polygon", { points: "0,0 -2.6,-6.5 2.6,-6.5", fill: INK }, tg);
+  var pc = el("rect", { x: -9, y: -118, width: 18, height: 98, fill: YEL }, tg);
+  el("rect", { x: -9, y: -118, width: 18, height: 12, fill: "#a7adb8" }, tg);
+  el("rect", { x: -9, y: -132, width: 18, height: 14, rx: 5, fill: "#f08a9b" }, tg);
+  function place(node, x, y, p) {
+    var m = node.getCTM();
+    tip.setAttribute("transform", "translate(" + (m.a * x + m.c * y + m.e).toFixed(1) + " " + (m.b * x + m.d * y + m.f).toFixed(1) + ")");
+    tip.setAttribute("opacity", p > 0 && p < 1 ? 1 : 0);
+  }
+  function pen(d, color, w, t0, dur, fill) {
+    var path = el("path", { d: d, fill: "none", stroke: color, "stroke-width": w, "stroke-linecap": "round", "stroke-linejoin": "round" }, art);
+    var L = path.getTotalLength(), o = { p: 0 };
+    path.style.strokeDasharray = L + " " + (L + 40); path.style.strokeDashoffset = L + 20;
+    tl.to(o, { p: 1, duration: dur, ease: "power1.inOut", onUpdate: function () {
+      path.style.strokeDashoffset = (L + 20) * (1 - o.p);
+      var pt = path.getPointAtLength(L * o.p); place(path, pt.x, pt.y, o.p);
+    } }, t0);
+    return path;
+  }
+
+  var GY = 610;
+  // ground line draws while the figure walks in
+  pen(wob([[30, GY + 4], [320, GY], [640, GY + 5], [960, GY], [1250, GY + 4]], 1.5, 60), "#9aa1ad", 5, 0.05, 1.1);
+
+  // stick figure (nested groups for joints; angle 0 = hanging straight down)
+  var fig = el("g", {});
+  var STK = { stroke: INK, "stroke-width": 9, "stroke-linecap": "round", fill: "none" };
+  function limb(parent, len1, len2, ox, oy) {
+    var g1 = el("g", { transform: "translate(" + ox + " " + oy + ")" }, parent);
+    el("line", { x1: 0, y1: 0, x2: 0, y2: len1 }, g1); g1.lastChild.setAttribute("stroke", INK);
+    var g2 = el("g", { transform: "translate(0 " + len1 + ")" }, g1);
+    el("line", { x1: 0, y1: 0, x2: 0, y2: len2 }, g2);
+    [g1, g2].forEach(function (g) { var l = g.querySelector("line"); l.setAttribute("stroke", INK); l.setAttribute("stroke-width", 9); l.setAttribute("stroke-linecap", "round"); });
+    return [g1, g2];
+  }
+  var body = el("g", {}, fig);
+  var legB = limb(body, 58, 58, 0, -110), armB = limb(body, 46, 46, 0, -178);
+  var legF = limb(body, 58, 58, 0, -110);
+  el("line", { x1: 0, y1: -110, x2: 0, y2: -190, stroke: INK, "stroke-width": 9, "stroke-linecap": "round" }, body);
+  var armF = limb(body, 46, 46, 0, -178);
+  el("circle", { cx: 0, cy: -228, r: 36, fill: "#fff", stroke: INK, "stroke-width": 9 }, body);
+  el("circle", { cx: 14, cy: -236, r: 4.5, fill: INK }, body);
+  el("path", { d: "M6 -216 Q16 -206 28 -218", fill: "none", stroke: INK, "stroke-width": 4.5, "stroke-linecap": "round" }, body);
+  function rot(g, a, len) { g.setAttribute("transform", "translate(" + (g._x || 0) + " " + (g._y || 0) + ") rotate(" + a.toFixed(2) + ")"); }
+  [[legB, 0, -110], [armB, 0, -178], [legF, 0, -110], [armF, 0, -178]].forEach(function (l) { l[0][0]._x = l[1]; l[0][0]._y = l[2]; l[0][1]._y = 0; });
+  armB[1]._y = 46; legB[1]._y = 58; legF[1]._y = 58; armF[1]._y = 46;
+  function pose(x, w, lift) {
+    var sw = Math.sin(w), sw2 = Math.sin(w + Math.PI);
+    fig.setAttribute("transform", "translate(" + x.toFixed(1) + " " + (GY + 4 - Math.abs(Math.sin(w)) * 5 * (1 - lift)).toFixed(1) + ")");
+    rot(legF[0], 30 * sw * (1 - lift)); rot(legF[1], -14 - 18 * Math.max(0, -sw) , 0);
+    rot(legB[0], 30 * sw2 * (1 - lift)); rot(legB[1], -14 - 18 * Math.max(0, -sw2), 0);
+    rot(armB[0], 26 * sw2 * (1 - lift) - 6 * lift); rot(armB[1], -12 * (1 - lift), 0);
+    // front arm lifts to point at the chart: upper arm up and forward, forearm straight on
+    var up = -96 * lift;
+    rot(armF[0], 26 * sw * (1 - lift) + up); rot(armF[1], -10 * (1 - lift) + 6 * lift, 0);
+  }
+  var wk = { x: 60, t: 0, lift: 0 };
+  function upd() { pose(wk.x, wk.t, wk.lift); }
+  tl.to(wk, { x: 470, duration: 1.5, ease: "power1.out", onUpdate: upd }, 0);
+  tl.to(wk, { t: 15.708, duration: 1.5, ease: "power1.out", onUpdate: upd }, 0);
+  tl.to(wk, { t: 15 + 0.0, duration: 0.0, onUpdate: upd }, 1.5);
+  tl.to(wk, { lift: 1, duration: 0.45, ease: "power2.inOut", onUpdate: upd }, 1.45);
+  upd();
+
+  // chart
+  pen(wob([[740, 180], [738, 360], [740, 546]], 1.6, 50), INK, 7, 1.7, 0.25);
+  pen(wob([[736, 544], [980, 548], [1230, 544]], 1.6, 50), INK, 7, 1.95, 0.25);
+  var ax = el("g", { filter: "url(#rough)" });
+  var bars = [[796, 66, 60, BLUE], [896, 66, 120, GREEN], [996, 66, 190, YEL], [1096, 66, 262, RED]];
+  bars.forEach(function (b, i) {
+    var top = 540 - b[2];
+    var d = wob([[b[0], 540], [b[0] - 1, top], [b[0] + b[1], top + 1], [b[0] + b[1] + 1, 540]], 1.6, 40);
+    var fr = el("rect", { x: b[0], y: top, width: b[1], height: b[2], fill: b[3], opacity: 0 }, ax);
+    tl.to(fr, { opacity: .22, duration: .2, ease: "none" }, 2.25 + i * 0.25 + 0.15);
+    pen(d, b[3], 7, 2.2 + i * 0.25, 0.24);
+  });
+  // trend arrow above the bars
+  pen(wob([[800, 430], [920, 370], [1040, 300], [1160, 214]], 2.2, 50) + " " + head(1176, 202, 1, -.75, 30), INK, 7, 3.2, 0.45);
+  // axis words
+  var tx = el("text", { x: 1018, y: 596, "font-size": 30, "font-weight": 700, fill: "#6b7280", "text-anchor": "middle", opacity: 0 }, art); tx.textContent = "time";
+  var ty = el("text", { x: 722, y: 150, "font-size": 30, "font-weight": 700, fill: "#6b7280", "text-anchor": "start", opacity: 0 }, art); ty.textContent = "skill";
+  tl.to([tx, ty], { opacity: 1, duration: .3 }, 3.2);
+
+  // speech bubble
+  var bd = wob([[150, 140], [400, 136], [640, 140], [646, 200], [642, 266], [500, 270], [440, 306], [418, 270], [150, 268], [144, 205], [150, 136]], 1.8, 46);
+  var bub = pen(bd, INK, 6, 3.55, 0.5);
+  var cp = el("clipPath", { id: "bc" }, defs), cr = el("rect", { x: 150, y: 150, width: 0, height: 100 }, cp);
+  var bt = el("text", { x: 172, y: 218, "font-size": 46, "font-weight": 700, fill: BLUE, textLength: 450, lengthAdjust: "spacingAndGlyphs", "clip-path": "url(#bc)" }, art);
+  bt.textContent = "Practice makes progress";
+  var bo = { p: 0 };
+  tl.to(bo, { p: 1, duration: .45, ease: "none", onUpdate: function () {
+    cr.setAttribute("width", bo.p >= 1 ? 520 : 450 * bo.p + 40);
+    place(bt, 172 + 450 * bo.p, 204 + Math.sin(bo.p * 28) * 5, bo.p);
+  } }, 4.05);
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

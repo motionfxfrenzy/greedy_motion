@@ -13,7 +13,9 @@
   var wipes = document.getElementById("wipes");
   var capLayer = document.getElementById("captions");
   var tl = gsap.timeline({ paused: true, defaults: { immediateRender: false } });
-  var LOG = window.__bp = { beats: [], warnings: [] };
+  var LOG = window.__bp = { beats: [], warnings: [], canvas: [] };
+  var CANVAS_LAYERS = [];
+  /* CANVAS_LAYER */
 
   // ---------- variables ----------
   var HF = window.__hyperframes, V = {};
@@ -57,6 +59,7 @@
     "--bp-accent": firstOk(["--accent", "--brand"], "--bg", 3) || best(["--fg", "--accent"], "--bg"),
     "--bp-accent-on-brand": (tok("--accent") !== tok("--brand") && firstOk(["--accent", "--accent-2"], "--brand", 3)) || ON_BRAND,
     "--bp-muted": firstOk(["--muted"], "--bg", 4.5) || "--fg",
+    "--bp-accent-on-dark": firstOk(["--brand"], SHADE, 3) || "--bg",
     "--bp-card": CARD,
     "--bp-on-card": best(["--fg", "--bg", "--surface"], CARD),
     "--bp-shade": SHADE,
@@ -179,8 +182,83 @@
   // ---------- Sketch look (Rough.js): hand-drawn ink that draws on through the timeline ----------
   // Every shape is seeded from the beat, so each frame (and every re-render) draws the same ink; the
   // colour is a theme token (currentColor of the accent word, or --bp-accent), never a literal.
-  var SKETCH = V.look === "sketch" && !!window.rough;
+  var STYLE_CATALOG = /* STYLE_CATALOG */ [];
+  var STYLE = STYLE_CATALOG.find(function (item) { return item.id === V.look; }) || STYLE_CATALOG[0];
+  var MATERIAL = STYLE && STYLE.renderMode === "generated";
+  var DOODLE = STYLE && STYLE.renderer === "doodle";
+  var VOX = V.look === "vox-collage";
+  // The typography showreel: the "clean" look in its type family. Every beat is a typographic scene (wall, glitch, stack, outline fill).
+  var TYPE = V.family === "clean-type" && (!V.look || V.look === "clean");
+  var SKETCH = (V.look === "sketch" || DOODLE || (STYLE && STYLE.renderer === "collage")) && !!window.rough;
+  LOG.look = STYLE ? STYLE.id : "clean";
+  LOG.styleVersion = STYLE ? STYLE.version : 1;
+  var HAIRLINE = V.look === "hairline";
+  var HAIRLINE_PLATES = /* HAIRLINE_GEOMETRY */ [];
+  var hs = document.createElement("style");
+  hs.textContent = ".look-hairline .ul{height:2px}.look-hairline .card{border:2px solid var(--fg);box-shadow:none}.look-hairline .pill{background:transparent;color:var(--fg);border:2px solid var(--bp-accent)}.look-hairline .disc,.look-hairline .panel{background:transparent;border:2px solid var(--bp-accent)}";
+  root.appendChild(hs);
+  function sceneStyle(id, host) {
+    STYLE = STYLE_CATALOG.find(function(item){return item.id === id;}) || STYLE_CATALOG[0];
+    MATERIAL = STYLE && STYLE.renderMode === "generated";
+    DOODLE = STYLE && STYLE.renderer === "doodle";
+    VOX = id === "vox-collage";
+    SKETCH = (id === "sketch" || DOODLE || (STYLE && STYLE.renderer === "collage")) && !!window.rough;
+    HAIRLINE = id === "hairline";
+    if(host){host.classList.add("look-"+STYLE.id);if(MATERIAL)host.classList.add("look-material");if(DOODLE)host.classList.add("look-drawn");if(STYLE.renderer === "clay")host.classList.add("look-clay");}
+  }
   var SVGNS = "http://www.w3.org/2000/svg";
+  // Original Hairline plate geometry, vendored at build time; MIT notice is embedded in the page.
+  function hairlineFigure(parent, s, e, n) {
+    if ((n || 0) % 4 !== 0) return hairlineVariant(parent, s, e, n);
+    var wide = MODE === "wide", size = Math.min(W * (wide ? 0.36 : 0.7), H * (wide ? 0.8 : 0.38));
+    var svg = document.createElementNS(SVGNS, "svg");
+    svg.setAttribute("viewBox", "20 20 320 290");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("class", "hairline-figure");
+    Object.assign(svg.style, { position: "absolute", left: px(wide ? W * 0.68 : (W - size) / 2), top: px(wide ? (H - size) / 2 : H * 0.59), width: px(size), height: px(size), overflow: "visible" });
+    parent.appendChild(svg);
+    tl.set(svg, { rotation: [0, -7, 6][(n || 0) % 3], transformOrigin: "50% 50%" }, 0);
+    var duration = e - s;
+    HAIRLINE_PLATES.forEach(function (markup, i) {
+      var plate = document.createElementNS(SVGNS, "g");
+      plate.innerHTML = markup; svg.appendChild(plate);
+      Array.prototype.forEach.call(plate.querySelectorAll("path"), function (p) {
+        p.style.fill = p.classList.contains("silhouette") ? "var(--bg)" : "none";
+        p.style.stroke = "var(--fg)";
+        p.style.strokeWidth = p.classList.contains("silhouette") ? "1.5" : "1";
+      });
+      var lift = -(n % 2 ? 62 : 40) * i * (size / 520);
+      tl.fromTo(plate, { y: 0 }, { y: lift, duration: duration * 0.25, ease: "sine.inOut" }, snap(s + duration * (0.06 + i * 0.025)));
+      tl.fromTo(plate, { y: lift }, { y: 0, duration: duration * 0.25, ease: "sine.inOut" }, snap(s + duration * (0.61 + (3 - i) * 0.025)));
+      var edge = plate.querySelector(".silhouette");
+      tl.fromTo(edge, { stroke: "var(--fg)" }, { stroke: "var(--bp-accent)", duration: duration * 0.1, ease: "none" }, snap(s + duration * (0.3 + i * 0.05)));
+      tl.fromTo(edge, { stroke: "var(--bp-accent)" }, { stroke: "var(--fg)", duration: duration * 0.1, ease: "none" }, snap(s + duration * (0.55 + i * 0.05)));
+    });
+  }
+  // Native graphic adaptations: all positions are deterministic; motion reuses the engine timeline.
+  // These are intentionally described as graphic treatments, not photoreal material footage.
+  function styleFigure(parent, b, s, e) {
+    var wide = MODE === "wide", size = Math.min(W * (wide ? 0.27 : 0.53), H * (wide ? 0.62 : 0.28));
+    var host = free(mk("div", "style-figure", parent, { left: wide ? W * 0.69 : (W - size) / 2, top: wide ? (H - size) / 2 : H * 0.62, width: size, height: size }));
+    var parts = [[.02,.18,.68,.64,-9],[.29,.03,.60,.53,8],[.26,.44,.60,.49,-4]];
+    if (STYLE.renderer === "diorama" || STYLE.id === "paper") parts = [[.02,.04,.9,.86,-4],[.12,.16,.74,.69,3],[.25,.31,.50,.47,-2]];
+    parts.forEach(function (v, i) {
+      var piece;
+      if (DOODLE && window.rough) {
+        piece = inkSvg(host, { left: px(v[0]*size), top: px(v[1]*size), width: px(v[2]*size), height: px(v[3]*size) }, 200, 160);
+        var opts = { seed: seedOf(STYLE.id + "|" + b.id + "|" + i), fill: tok("--brand"), stroke: tok("--fg"), fillStyle: STYLE.fillStyle, roughness: 1.6, hachureGap: 9, strokeWidth: 2 };
+        piece.appendChild(i === 1 ? rough.svg(piece).ellipse(100,80,178,138,opts) : rough.svg(piece).rectangle(10,10,178,138,opts));
+      } else piece = mk("div", "style-piece", host, { left:v[0]*size, top:v[1]*size, width:v[2]*size, height:v[3]*size });
+      tl.set(piece, { rotation: v[4] }, 0);
+      var at = s + i * Math.min(.16, (e-s)*.05), duration = Math.min(.6,(e-s)*.22);
+      hide(piece); showAt(piece, at);
+      var stepped = MATERIAL && STYLE.renderer !== "collage" && STYLE.renderer !== "diorama";
+      tl.fromTo(piece, { y: size*.2 }, { y: 0, duration: duration, ease: stepped ? "steps(7)" : P.inE }, snap(at));
+      tl.fromTo(piece, { x: 0 }, { x: (i-1)*size*.06, duration: Math.max(.2,e-at-duration), ease: stepped ? "steps(" + Math.max(2,Math.round((e-at-duration)*12)) + ")" : "none" }, snap(at+duration));
+    });
+  }
+  // The scene the director chose for this beat (from the style's scene list), else the style's own rotation.
+  function pick(b, ids, i) { var k = b && b.scene ? ids.indexOf(b.scene) : -1; return k >= 0 ? k : i % ids.length; }
   function seedOf(s) { var h = 2166136261; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h >>> 1) % 2147483646) + 1; }
   function inkSvg(parent, css, w, h) {
     var s = document.createElementNS(SVGNS, "svg");
@@ -215,7 +293,7 @@
     halo.appendChild(rough.svg(halo).ellipse(ww / 2, hh / 2, w, h, opts));
     ink.appendChild(rough.svg(ink).ellipse(ww / 2, hh / 2, w, h, opts));
     inkDraw(inkPaths(halo, "var(--bp-card)", weight + 5), t, 0.55);
-    inkDraw(inkPaths(ink, "var(--bp-accent-on-brand)", weight), t, 0.55);
+    inkDraw(inkPaths(ink, VOX ? "var(--bp-shade)" : "var(--bp-accent-on-brand)", VOX ? weight * 1.5 : weight), t, 0.55);
   }
   function waterfall(kw, t) {
     var gap = P.gap, at = t, lift = clamp(kw.fs * 0.42, 40, 80);
@@ -300,18 +378,133 @@
     beat.setAttribute("data-beat", b.id);
     var seam = free(mk("div", "seam", beat));
     var cam = free(mk("div", "cam", seam));
-    var t0 = i === 0 ? s : s - OV;
+    var t0 = i === 0 || TYPE ? s : s - OV; // a typography film cuts hard on the beat
     hide(beat); showAt(beat, t0);
     if (!last) tl.set(beat, { autoAlpha: 0 }, snap(e)); // text is never co-visible across a cut (one side per frame)
     var mo = b.motion || {};
     var vin = vec(mo.entry, { axis: "x", dir: -1 }), vout = vec(mo.exit, { axis: "x", dir: -1 });
-    seamIn(seam, vin, t0, i === 0);
-    if (!last) seamOut(seam, vout, e);
+    if (!TYPE) { seamIn(seam, vin, t0, i === 0); if (!last) seamOut(seam, vout, e); }
     return { beat: beat, seam: seam, cam: cam, vin: vin, vout: vout, t0: t0, last: last };
   }
-  function push(cam, s, e, ox, oy, energy) {
-    var amt = energy === "high" ? 0.09 : energy === "calm" ? 0.05 : 0.07;
-    tl.fromTo(cam, { scale: 1, transformOrigin: px(ox) + " " + px(oy) }, { scale: 1 + amt, transformOrigin: px(ox) + " " + px(oy), duration: Math.max(0.5, e - s), ease: "none" }, snap(s));
+  // ---------- the camera: the engine decides, per beat, whether the camera moves and how ----------
+  // 1. The director's words ("pan right 6%", "pull-back 8%", "dolly zoom", "short decisive push-in") are read for a verb, a
+  //    direction, a size and a pace. When the plan says nothing usable, the engine picks a move from the beat's role, its
+  //    exit vector (so the camera carries the eye into the seam), its energy and what the previous beat just did.
+  // 2. Some beats get no move at all: a beat too short to read a move in, a calm beat that is barely a second long.
+  // 3. Whatever is chosen is then fitted to the words on screen: the move is shrunk until the text box stays inside the
+  //    frame (with a margin) at both ends of the move, and dropped if it cannot. Text is never cropped by the camera.
+  // Every move is a fromTo on the film's timeline, so a seek lands on the same pixels. The decisions are listed in
+  // window.__bp.cam for the tests and the editor.
+  function camRead(text) {
+    var t = String(text || "").toLowerCase();
+    var pct = /(\d+(?:\.\d+)?)\s*(?:%|percent)/.exec(t);
+    var left = /\bleft\b/.test(t), right = /\bright\b/.test(t), up = /\b(up|rise|lift)\b/.test(t), down = /\b(down|drop|descend)\b/.test(t);
+    var kind = /dolly[- ]?zoom|vertigo|contra[- ]?zoom/.test(t) ? "dolly"
+      : /pull[- ]?back|pull out|wide reveal|zoom out/.test(t) ? "pull"
+      : /\b(pan|truck|lateral|slide)\b/.test(t) && (left || right) ? "pan"
+      : /\b(tilt|crane|rise|drop)\b/.test(t) && (up || down || /rise|drop/.test(t)) ? "tilt"
+      : /\barc\b/.test(t) ? "arc"
+      : /\b(static|locked|still|hold)\b/.test(t) && !/push|pull|pan|tilt/.test(t) ? "hold"
+      : /push|dolly|zoom|move in|drift/.test(t) ? "push" : null;
+    return { kind: kind, rev: kind === "dolly" && /\b(out|reverse|away|back)\b/.test(t), pct: pct ? clamp(parseFloat(pct[1]), 2, 12) / 100 : null, sx: left ? -1 : 1, sy: down ? 1 : -1,
+      ease: /expo|snap|decisive|quick|fast|punch|slam|whip/.test(t) ? "expo.out" : /slow|gentle|drift|settle|float/.test(t) ? "sine.inOut" : "none" };
+  }
+  var CAM_LOG = [], CAM_LAST = { kind: null, dir: 0 }, CAM_DOLLY = 0, DOLLY_HOLD = 0.6; // the words follow the background's zoom by 40%
+  window.__bp.cam = CAM_LOG;
+  function camChoose(b, i, dur, sh, energy, text) {
+    var r = camRead(text), base = energy === "high" ? 0.09 : energy === "calm" ? 0.05 : 0.07;
+    if (b && dur < 0.9) return { kind: null, why: "beat too short for a move" };
+    if (b && energy === "calm" && dur < 1.6 && !(r.kind && r.kind !== "hold")) return { kind: null, why: "calm and brief" };
+    if (r.kind === "hold") return { kind: null, why: "the plan asks for a locked frame" };
+    if (r.kind) return { kind: r.kind, rev: r.rev, amt: r.pct || base, ease: r.ease, sx: r.sx, sy: r.sy, src: "plan" };
+    // nothing usable in the plan: choose from the beat itself
+    var v = sh && sh.vout, last = i === BEATS.length - 1, role = b && b.role, kind;
+    if (last || role === "cta") kind = "pull";
+    else if (role === "success" || (role === "hook" && i === 0)) kind = "push";
+    else if (role === "reveal" && CAM_DOLLY < 1 && i > 0 && energy === "high") { kind = "dolly"; CAM_DOLLY++; }
+    else if (v && v.axis === "x") kind = "pan";
+    else if (v && v.axis === "y") kind = "tilt";
+    else kind = v && v.dir < 0 ? "pull" : "push";
+    if (kind === CAM_LAST.kind && kind !== "pull") kind = kind === "push" ? "arc" : "push"; // neighbours do not repeat a move
+    var dir = v && v.axis === "x" ? v.dir : v && v.axis === "y" ? v.dir : 1;
+    return { kind: kind, amt: base, ease: kind === "push" && (role === "success" || energy === "high") ? "expo.out" : kind === "pull" || last ? "sine.inOut" : "none", sx: dir, sy: dir, src: "auto" };
+  }
+  // The words on this beat, as one box in frame coordinates, or null when there is nothing to measure.
+  function camTextBox(cam) {
+    var rr = root.getBoundingClientRect(), k = rr.width / W || 1, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
+    cam.querySelectorAll(".kw, .sub, .pill, .lock, .ty-t").forEach(function (n) {
+      var r = n.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) return;
+      any = true; x0 = Math.min(x0, (r.left - rr.left) / k); y0 = Math.min(y0, (r.top - rr.top) / k); x1 = Math.max(x1, (r.right - rr.left) / k); y1 = Math.max(y1, (r.bottom - rr.top) / k);
+    });
+    return any ? { x0: x0, y0: y0, x1: x1, y1: y1 } : null;
+  }
+  // The two end states of a move: scale, offset and the point it turns about.
+  function camStates(m, ox, oy) {
+    var a = m.amt, c = { x: W / 2, y: H / 2 };
+    if (m.kind === "pull") return [{ s: 1 + a, x: 0, y: 0, o: { x: ox, y: oy } }, { s: 1, x: 0, y: 0, o: { x: ox, y: oy } }];
+    if (m.kind === "pan") return [{ s: 1 + a * 0.9, x: m.sx * 0.5 * a * W, y: 0, o: c }, { s: 1 + a * 0.9, x: -m.sx * 0.5 * a * W, y: 0, o: c }];
+    if (m.kind === "tilt") return [{ s: 1 + a * 0.9, x: 0, y: m.sy * 0.5 * a * H, o: c }, { s: 1 + a * 0.9, x: 0, y: -m.sy * 0.5 * a * H, o: c }];
+    if (m.kind === "arc") return [{ s: 1, x: -0.4 * a * W, y: 0.25 * a * H, o: { x: ox, y: oy } }, { s: 1, x: 0.4 * a * W, y: -0.25 * a * H, o: { x: ox, y: oy } }];
+    // A dolly zoom: the background closes in (or backs away) by `a` while the words change size by less, so they swell or shrink
+    // against it. The state's scale is the words' own, which is what the frame guardrail has to hold.
+    if (m.kind === "dolly") { var w = Math.pow(1 + a, 1 - DOLLY_HOLD); return m.rev ? [{ s: w, x: 0, y: 0, o: { x: ox, y: oy } }, { s: 1, x: 0, y: 0, o: { x: ox, y: oy } }] : [{ s: 1, x: 0, y: 0, o: { x: ox, y: oy } }, { s: w, x: 0, y: 0, o: { x: ox, y: oy } }]; }
+    return [{ s: 1, x: 0, y: 0, o: { x: ox, y: oy } }, { s: 1 + a, x: 0, y: 0, o: { x: ox, y: oy } }];
+  }
+  function camFits(m, ox, oy, box, mx, my) {
+    if (!box) return true;
+    return camStates(m, ox, oy).every(function (st) {
+      var fx = function (v) { return st.o.x + st.s * (v - st.o.x) + st.x; }, fy = function (v) { return st.o.y + st.s * (v - st.o.y) + st.y; };
+      return fx(box.x0) >= mx && fx(box.x1) <= W - mx && fy(box.y0) >= my && fy(box.y1) <= H - my;
+    });
+  }
+  function push(cam, s, e, ox, oy, energy, text, b, i, sh) {
+    var dur = Math.max(0.5, e - s), m = camChoose(b, i, dur, sh, energy, text), box = camTextBox(cam), mx = 0.045 * W, my = 0.05 * H;
+    var log = { beat: b && b.id, kind: m.kind, src: m.src || "none", amt: m.amt, why: m.why };
+    if (m.kind) {
+      // Fit the move to the words: shrink it until the text box stays inside the frame at both ends, drop it if it never fits.
+      // Origin for a push: the words' own centre, so the frame grows evenly around them.
+      if (box && (m.kind === "push" || m.kind === "pull" || m.kind === "dolly")) { ox = (box.x0 + box.x1) / 2; oy = (box.y0 + box.y1) / 2; }
+      var want = m.amt, n = 0;
+      while (!camFits(m, ox, oy, box, mx, my) && n < 8) { m.amt *= 0.75; n++; }
+      if (!camFits(m, ox, oy, box, mx, my) || m.amt < 0.012) { log.kind = null; log.why = "text would leave the frame"; m = { kind: null }; }
+      else if (n) { log.why = "shrunk to keep the text in frame (" + Math.round(want * 100) + "% to " + Math.round(m.amt * 1000) / 10 + "%)"; log.amt = m.amt; }
+    }
+    CAM_LOG.push(log);
+    CAM_LAST = { kind: m.kind, dir: m.sx || 0 };
+    if (!m.kind) return;
+    var st = camStates(m, ox, oy), ease = m.ease || "none";
+    var camS = m.kind === "dolly" ? (m.rev ? [1 + m.amt, 1] : [1, 1 + m.amt]) : [st[0].s, st[1].s];
+    var from = { scale: camS[0], x: st[0].x, y: st[0].y, transformOrigin: px(st[0].o.x) + " " + px(st[0].o.y) };
+    var to = { scale: camS[1], x: st[1].x, y: st[1].y, transformOrigin: px(st[1].o.x) + " " + px(st[1].o.y), duration: dur, ease: ease };
+    tl.fromTo(cam, from, to, snap(s));
+    if (m.kind === "dolly") {
+      // The words change size by less than the background (DOLLY_HOLD): counter-scale the text columns about the same point.
+      var back = Math.pow(1 + m.amt, -DOLLY_HOLD);
+      cam.querySelectorAll(".col").forEach(function (c) {
+        tl.fromTo(c, { scale: m.rev ? back : 1, transformOrigin: px(ox) + " " + px(oy) }, { scale: m.rev ? 1 : back, transformOrigin: px(ox) + " " + px(oy), duration: dur, ease: ease }, snap(s));
+      });
+    }
+  }
+  // The text effect for a beat. The director writes it as free text ("word-by-word fade-up", "spring-pop scale-up"), and only
+  // the eight named effects used to count: everything else fell back to the plain waterfall. Free text is now mapped to the
+  // nearest named effect, and a beat with none gets one that suits its role, so neighbouring frames do not all enter alike.
+  var ROLE_EFFECTS = { hook: "per-character-rise", reveal: "stagger-from-center", success: "spring-scale-in", problem: "soft-blur-in", proof: "mask-reveal-up", cta: "mask-reveal-up", title: "mask-reveal-up" };
+  var FEATURE_EFFECTS = ["waterfall", "spring-scale-in", "mask-reveal-up", "soft-blur-in"];
+  function effectFor(b, i) {
+    var raw = String((b.motion && b.motion.text_effect) || "").toLowerCase().trim();
+    if (TEXT_EFFECTS.indexOf(raw) > -1) return raw;
+    if (raw) {
+      if (/typewriter|type[- ]?on|keystroke/.test(raw)) return "typewriter";
+      if (/stagger.*(center|centre)|from[- ]center|scatter|assemble/.test(raw)) return "stagger-from-center";
+      if (/char|letter/.test(raw)) return "per-character-rise";
+      if (/blur/.test(raw)) return "soft-blur-in";
+      if (/parallax|depth/.test(raw)) return "depth-parallax-words";
+      if (/spring|pop|bounce|overshoot|slam|stamp|scale/.test(raw)) return "spring-scale-in";
+      if (/mask|reveal|rise|wipe|slide/.test(raw)) return "mask-reveal-up";
+      if (/waterfall|cascade|word|line|fade|stagger/.test(raw)) return "waterfall";
+    }
+    return ROLE_EFFECTS[b.role] || FEATURE_EFFECTS[i % FEATURE_EFFECTS.length];
   }
   // brand shapes under the camera: they drift along the beat's exit vector, carrying the eye into the seam
   function carry(el, v, s, e, k) {
@@ -325,11 +518,378 @@
     });
   }
 
+  // Sketch look on a type scene: notebook paper, a hand-drawn frame and loose doodles (arrow, star, squiggle, circle) that draw on
+  // with the type, all seeded so every seek is identical. Replaces the solid brand-colour flood and the clean discs.
+  // A product screen drawn as a wireframe: window with its three dots, a sidebar of rows, a heading, a rising chart with a
+  // tick, and two small cards. Strokes are listed in the order a hand would draw them; the chart and tick take the accent.
+  function sketchScreen(r, o, a) {
+    var out = [], mark = function (shape) { shape.__accent = true; return shape; };
+    var sx = a.x + a.w * 0.26, bar = a.h * 0.12, dot = Math.min(a.w, a.h) * 0.022;
+    out.push(r.rectangle(a.x, a.y, a.w, a.h, o("scr", { roughness: 1.3 })));
+    out.push(r.line(a.x, a.y + bar, a.x + a.w, a.y + bar, o("bar")));
+    [0, 1, 2].forEach(function (k) { out.push(r.circle(a.x + a.w * 0.045 + k * dot * 2.8, a.y + bar / 2, dot * 1.6, o("dot" + k))); });
+    out.push(r.line(sx, a.y + bar, sx, a.y + a.h, o("side")));
+    for (var k = 0; k < 4; k++) {
+      var ry = a.y + bar + a.h * (0.14 + k * 0.15);
+      out.push(r.circle(a.x + a.w * 0.07, ry, dot * 1.8, o("rc" + k)));
+      out.push(r.line(a.x + a.w * 0.12, ry, a.x + a.w * (0.2 + (k % 2) * 0.03), ry, o("rl" + k)));
+    }
+    out.push(r.rectangle(sx + a.w * 0.05, a.y + bar + a.h * 0.07, a.w * 0.34, a.h * 0.09, o("head", { roughness: 1.2 })));
+    var cx0 = sx + a.w * 0.05, cx1 = a.x + a.w * 0.94, cy0 = a.y + a.h * 0.78, cy1 = a.y + bar + a.h * 0.26;
+    out.push(r.line(cx0, cy1, cx0, cy0, o("ax")), r.line(cx0, cy0, cx1, cy0, o("ay")));
+    var pts = [0, 0.18, 0.1, 0.42, 0.34, 0.62, 0.55, 0.85].reduce(function (acc, v, n, all) { if (n % 2 === 0) acc.push([cx0 + (cx1 - cx0) * (0.08 + 0.84 * (n / 6)), cy0 - (cy0 - cy1) * (all[n + 1])]); return acc; }, []);
+    out.push(mark(r.linearPath(pts, o("chart", { roughness: 1.1, strokeWidth: 1.4 }))));
+    var tx = cx1 - (cx1 - cx0) * 0.1, ty = cy1 - (cy0 - cy1) * 0.02;
+    out.push(mark(r.linearPath([[tx - dot * 2, ty + dot], [tx - dot * 0.4, ty + dot * 2.6], [tx + dot * 2.6, ty - dot * 1.4]], o("tick", { strokeWidth: 1.6 }))));
+    out.push(r.rectangle(cx0, a.y + a.h * 0.86, (cx1 - cx0) * 0.46, a.h * 0.09, o("c1")), r.rectangle(cx0 + (cx1 - cx0) * 0.54, a.y + a.h * 0.86, (cx1 - cx0) * 0.46, a.h * 0.09, o("c2")));
+    return out;
+  }
+  function sketchFigure(cam, b, i, s, e) {
+    var grid = free(mk("div", "sk-paper", cam, { left: -0.1 * W, top: -0.1 * H, width: 1.2 * W, height: 1.2 * H }));
+    var pad = 0.05 * Math.min(W, H), key = "sk|" + b.id + "|" + i;
+    var svg = inkSvg(cam, { left: 0, top: 0, width: px(W), height: px(H) }, W, H), r = rough.svg(svg), wide = MODE === "wide";
+    var o = function (n, extra) { return Object.assign({ seed: seedOf(key + n), roughness: 1.6, bowing: 1.4, strokeWidth: 1 }, extra || {}); };
+    svg.appendChild(r.rectangle(pad, pad, W - 2 * pad, H - 2 * pad, o("frame", { roughness: 1.2 })));
+    var u = Math.min(W, H), fx = wide ? 0.78 * W : 0.5 * W, fy = wide ? 0.5 * H : 0.8 * H;
+    var sk = pick(b, ["ring", "screen", "box"], i), screen = b.kind !== "title" && sk === 1, closing = b.kind === "title";
+    var shapes = closing ? [r.line(0.3 * W, 0.86 * H, 0.7 * W, 0.845 * H, o("u1")), r.line(0.38 * W, 0.9 * H, 0.62 * W, 0.895 * H, o("u2"))] : screen ? sketchScreen(r, o, wide ? { x: 0.585 * W, y: 0.2 * H, w: 0.33 * W, h: 0.6 * H } : { x: 0.12 * W, y: 0.52 * H, w: 0.76 * W, h: 0.3 * H }) : sk === 0
+      ? [r.circle(fx, fy, 0.34 * u, o("c")), r.line(fx - 0.2 * u, fy + 0.28 * u, fx - 0.04 * u, fy + 0.18 * u, o("a1")), r.line(fx - 0.04 * u, fy + 0.18 * u, fx - 0.1 * u, fy + 0.25 * u, o("a2")), r.line(fx - 0.04 * u, fy + 0.18 * u, fx - 0.14 * u, fy + 0.15 * u, o("a3"))]
+      : [r.rectangle(fx - 0.17 * u, fy - 0.14 * u, 0.34 * u, 0.28 * u, o("b")), r.linearPath([[fx - 0.13 * u, fy - 0.06 * u], [fx - 0.1 * u, fy - 0.02 * u], [fx - 0.03 * u, fy - 0.1 * u]], o("tk", { strokeWidth: 1.5 })), r.line(fx - 0.04 * u, fy - 0.06 * u, fx + 0.12 * u, fy - 0.07 * u, o("t1")), r.line(fx - 0.13 * u, fy + 0.03 * u, fx + 0.12 * u, fy + 0.02 * u, o("t2")), r.line(fx - 0.13 * u, fy + 0.09 * u, fx + 0.05 * u, fy + 0.085 * u, o("t3")), r.line(fx - 0.2 * u, fy + 0.2 * u, fx + 0.2 * u, fy + 0.18 * u, o("u1")), r.line(fx - 0.14 * u, fy + 0.24 * u, fx + 0.14 * u, fy + 0.23 * u, o("u2"))];
+    var sx = screen ? 0.5 * W : wide ? 0.9 * W : 0.86 * W, sy = screen ? 0.14 * H : 0.2 * H;
+    for (var k = 0; k < 8; k++) { var a = (k / 8) * Math.PI * 2; shapes.push(r.line(sx + Math.cos(a) * 0.012 * u, sy + Math.sin(a) * 0.012 * u, sx + Math.cos(a) * 0.04 * u, sy + Math.sin(a) * 0.04 * u, o("s" + k))); }
+    shapes.forEach(function (p) { svg.appendChild(p); });
+    var ps = inkPaths(svg, "currentColor", clamp(u * 0.0055, 3, 7));
+    ps.forEach(function (p, j) { p.style.opacity = j === 0 ? "0.55" : "0.9"; if (p.__accent) p.style.stroke = "var(--bp-accent-on-brand)"; });
+    // The drawing always finishes inside the beat: a short beat draws faster, a long one takes its time.
+    var span = Math.min(screen ? 1.7 : 1.1, (screen ? 0.62 : 0.5) * (e - s)), each = Math.max(0.12, span * 0.45), gap = ps.length > 1 ? (span - each) / (ps.length - 1) : 0;
+    tl.fromTo(ps, { strokeDashoffset: function (n, el) { return el.__len; } }, { strokeDashoffset: 0, duration: each, ease: "power2.inOut", stagger: gap }, snap(s + 0.05));
+    hide(grid); showAt(grid, s);
+  }
+
+
+
+
+  // ---------- Hairline: a different fine-line figure on every beat ----------
+  // Beat 1 keeps the layered plates that lift apart and settle; the others are an isometric cube whose faces separate and
+  // close again, a row of isometric bars that rise in turn, and stacked rings that float apart. Every stroke draws on,
+  // fits inside the beat, and uses the brand's ink and accent.
+  function hairlineVariant(parent, s, e, n) {
+    var wide = MODE === "wide", size = Math.min(W * (wide ? 0.36 : 0.7), H * (wide ? 0.8 : 0.38)), dur = e - s;
+    var svg = document.createElementNS(SVGNS, "svg");
+    svg.setAttribute("viewBox", "0 0 320 290"); svg.setAttribute("aria-hidden", "true"); svg.setAttribute("class", "hairline-figure");
+    Object.assign(svg.style, { position: "absolute", left: px(wide ? W * 0.6 : (W - size) / 2), top: px(wide ? (H - size) / 2 : H * 0.59), width: px(size), height: px(size), overflow: "visible" });
+    parent.appendChild(svg);
+    var v = n % 4, K = v === 1 ? 52 : v === 2 ? 40 : 30, OX = v === 2 ? -2.3 * 0.866 * K : 0;
+    var iso = function (x, y, z) { return [160 + OX + (x - y) * 0.866 * K, 232 + (x + y) * 0.5 * K - z * K - (v === 2 ? 70 : v === 1 ? 70 : 20)]; };
+    var pt = function (a) { var q = iso(a[0], a[1], a[2]); return q[0].toFixed(1) + " " + q[1].toFixed(1); };
+    var poly = function (pts) { return "M" + pts.map(pt).join("L") + "Z"; };
+    var groups = [];
+    var group = function (accent) { var g = document.createElementNS(SVGNS, "g"); svg.appendChild(g); groups.push({ g: g, accent: !!accent }); return g; };
+    var add = function (g, d, accent) { var p = document.createElementNS(SVGNS, "path"); p.setAttribute("d", d); p.setAttribute("data-accent", accent ? "1" : "0"); g.appendChild(p); return p; };
+    var box = function (g, x, y, z, w, d, h, accent) { add(g, poly([[x, y, z + h], [x + w, y, z + h], [x + w, y + d, z + h], [x, y + d, z + h]]), accent); add(g, poly([[x + w, y, z], [x + w, y + d, z], [x + w, y + d, z + h], [x + w, y, z + h]])); add(g, poly([[x, y + d, z], [x + w, y + d, z], [x + w, y + d, z + h], [x, y + d, z + h]])); };
+    var moves = [];
+    if (v === 1) {
+      var top = group(true), right = group(), front = group();
+      add(top, poly([[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]]), true); add(right, poly([[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]])); add(front, poly([[0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]]));
+      // two small cubes beside it for scale
+      var side = group(); box(side, 1.5, 0.2, 0, 0.5, 0.5, 0.5); var side2 = group(); box(side2, -0.9, 0.5, 0, 0.4, 0.4, 0.4);
+      moves = [[top, 0, -46], [right, 40, 0], [front, -34, 22], [side, 0, 0], [side2, 0, 0]];
+    } else if (v === 2) {
+      [1, 1.7, 1.3, 2.5, 3.3].forEach(function (h, j) { var g = group(j === 4); box(g, j * 1.05, 0, 0, 0.78, 0.78, h, j === 4); moves.push([g, 0, 30]); });
+      var base = group(); for (var j = 0; j <= 5; j++) add(base, "M" + pt([j * 1.05, -0.4, 0]) + "L" + pt([j * 1.05, 1.3, 0]));
+      add(base, "M" + pt([-0.3, 1.3, 0]) + "L" + pt([5.3, 1.3, 0]));
+    } else if (v === 3) {
+      [0, 1, 2, 3].forEach(function (z) {
+        var g = group(z === 3), c = iso(0, 0, z * 0.9), rx = 92 - z * 10, ry = rx * 0.58;
+        add(g, "M" + (c[0] - rx) + " " + c[1] + "A" + rx + " " + ry + " 0 1 0 " + (c[0] + rx) + " " + c[1] + "A" + rx + " " + ry + " 0 1 0 " + (c[0] - rx) + " " + c[1] + "Z", z === 3);
+        moves.push([g, 0, -z * 22]);
+      });
+      var rod = group(); var a = iso(0, 0, 0), b = iso(0, 0, 3 * 0.9); add(rod, "M" + a[0] + " " + a[1] + "L" + b[0] + " " + b[1]);
+    }
+    var paths = [];
+    groups.forEach(function (it) { Array.prototype.forEach.call(it.g.querySelectorAll("path"), function (p) {
+      var acc = it.accent || p.getAttribute("data-accent") === "1";
+      Object.assign(p.style, { fill: "var(--bg)", stroke: acc ? "var(--bp-accent)" : "var(--fg)", strokeWidth: acc ? "2.4px" : "1.7px", strokeLinejoin: "round", strokeLinecap: "round" });
+      p.setAttribute("vector-effect", "non-scaling-stroke");
+      var len = Math.ceil(p.getTotalLength() * (size / 320)) + 4; // non-scaling strokes dash in screen pixels
+      p.style.strokeDasharray = len; p.style.strokeDashoffset = len; p.__len = len; paths.push(p);
+    }); });
+    var span = Math.min(1.5, 0.55 * dur), each = Math.max(0.14, span * 0.45), gap = paths.length > 1 ? (span - each) / (paths.length - 1) : 0;
+    tl.fromTo(paths, { strokeDashoffset: function (i, el) { return el.__len; } }, { strokeDashoffset: 0, duration: each, ease: "power2.inOut", stagger: gap }, snap(s + 0.08));
+    moves.forEach(function (m, idx) {
+      var out = Math.min(0.6, dur * 0.22), at = s + 0.08 + span * 0.8 + idx * 0.04;
+      tl.fromTo(m[0], { x: 0, y: m[2] * 0.0 }, { x: m[1] * (size / 520), y: m[2] * (size / 520), duration: out, ease: "sine.inOut" }, snap(at));
+      tl.fromTo(m[0], { x: m[1] * (size / 520), y: m[2] * (size / 520) }, { x: 0, y: 0, duration: out, ease: "sine.inOut" }, snap(Math.max(at + out, e - out - 0.1)));
+    });
+  }
+
+
+  // ---------- Typography showreel (style family "clean-type") ----------
+  // Four typographic scenes cycle beat by beat, all in the brand's colours and display face, and cut hard on the beat:
+  //   wall         a tilted wall of the film's own words scrolling in opposite directions, the beat's word in the accent row,
+  //                then the wall dims and that word swells
+  //   glitch slam  one huge word sliced into strips that jitter and lock, an accent rule drawn under it and a dot
+  //   word stack   the phrase one word per line, one word per cut, with a shape snapping in
+  //   outline fill the phrase in outline, filled by a sweep, with an index and rules like a reel's slate
+  // Every motion ends inside its beat, so a short beat just moves faster.
+  // Every film is different: the variations below (backgrounds, tilt, directions, shapes) come from a seed made of the film's own words.
+  var SEED = 0;
+  function tySeed() { if (!SEED) SEED = seedOf(BEATS.map(function (b) { return text(b, "keyword"); }).join("|") + "|" + String(V.brandName || "")); return SEED; }
+  // The brand name as a label: a missing or sentence-long name (a project named after its prompt) is not printed as a brand.
+  function tyBrand() { var n = String(V.brandName || "").trim(); return n && n.length <= 24 ? n : ""; }
+  var TY_LAST = "";
+  function tyKind(i, options) { var k = options[(tySeed() + i) % options.length]; if (k === TY_LAST) k = options[(tySeed() + i + 1) % options.length]; if (k === TY_LAST) k = ["light", "dark", "brand"].filter(function (x) { return x !== TY_LAST; })[(tySeed() + i) % 2]; TY_LAST = k; return k; } // neighbouring beats never share a background
+  function tyPool() {
+    var seen = {}, out = [];
+    BEATS.forEach(function (b) { var k = String(text(b, "keyword") || "").replace(/[.!?]+$/, "").trim().toUpperCase(); if (k && !seen[k]) { seen[k] = 1; out.push(k); } });
+    var n = tyBrand().toUpperCase(); if (n && !seen[n]) out.push(n);
+    return out.slice(0, 10);
+  }
+  function tyBg(cam, kind) {
+    var bg = kind === "dark" ? "var(--bp-shade)" : kind === "brand" ? "var(--brand)" : "var(--bg)";
+    var ink = kind === "dark" ? "var(--bg)" : kind === "brand" ? "var(--bp-on-brand)" : "var(--fg)";
+    free(mk("div", "ty-bg", cam, { position: "absolute", left: -0.12 * W, top: -0.12 * H, width: 1.24 * W, height: 1.24 * H, background: bg }));
+    // Typography films mark emphasis in the kit's primary colour only (not its accent): on a light ground the brand colour itself, on a dark one the brand colour if it reads there, on the brand field the ink.
+    return { ink: ink, accent: kind === "brand" ? ink : kind === "dark" ? "var(--bp-accent-on-dark)" : "var(--brand)" };
+  }
+  function tyText(parent, str, fs, color, css) {
+    return free(mk("div", "ty-t", parent, Object.assign({ position: "relative", whiteSpace: "nowrap", fontFamily: "var(--font-display)", fontWeight: "900", textTransform: "uppercase", letterSpacing: "-0.025em", lineHeight: "0.9", fontSize: px(fs), color: color }, css || {}), str));
+  }
+  function tyOutline(el, ink, w) { el.style.color = "transparent"; el.style.webkitTextStroke = px(w || Math.max(2, H * 0.003)) + " " + ink; }
+  function tySlate(cam, i, n, ink, sub, s) {
+    var fs = Math.max(16, Math.min(W, H) * 0.02), mono = { position: "absolute", fontFamily: "var(--font-mono, monospace)", fontSize: px(fs), letterSpacing: "0.12em", textTransform: "uppercase", color: ink, opacity: "0.8", whiteSpace: "nowrap" };
+    var tag = free(mk("div", "ty-slate", cam, Object.assign({ left: 0.05 * W, top: 0.05 * H }, mono), (tyBrand() ? tyBrand().toUpperCase() + "  ·  " : "") + String(i + 1).padStart(2, "0") + " / " + String(n).padStart(2, "0")));
+    hide(tag); showAt(tag, s + 0.05);
+    if (sub) { var cap = free(mk("div", "ty-cap", cam, Object.assign({ left: 0.05 * W, bottom: 0.06 * H, maxWidth: px(0.7 * W), whiteSpace: "normal" }, mono), sub)); hide(cap); showAt(cap, s + 0.28); tl.fromTo(cap, { y: 14 }, { y: 0, duration: 0.2, ease: "power3.out" }, snap(s + 0.28)); }
+  }
+  function tyColumn(cam, align) { return free(mk("div", "ty-col", cam, { position: "absolute", left: 0.05 * W, top: 0, width: 0.9 * W, height: H, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: align || "flex-start" })); }
+  function typeWall(cam, i, b, s, e, kw, sub, pool) {
+    var dur = e - s, c = tyBg(cam, tyKind(i, ["light", "dark", "light"])), fs = H * 0.15, rows = 8, tilt = (tySeed() % 2 ? -1 : 1) * (6 + tySeed() % 5), flip = (tySeed() >> 3) % 2 ? -1 : 1;
+    var wrap = free(mk("div", "ty-wall", cam, { position: "absolute", left: -0.45 * W, top: -0.55 * H, width: 1.9 * W, height: 2.1 * H }));
+    tl.set(wrap, { rotation: tilt, transformOrigin: "50% 50%" }, 0);
+    var hot = 4, rowEls = [];
+    for (var r = 0; r < rows; r++) {
+      var words = r === hot ? [kw] : pool.slice(r % Math.max(1, pool.length)).concat(pool.slice(0, r % Math.max(1, pool.length)));
+      var row = free(mk("div", "ty-row", wrap, { position: "absolute", left: 0, top: px(r * fs * 1.04), whiteSpace: "nowrap", fontFamily: "var(--font-display)", fontWeight: "900", textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: "0.9", fontSize: px(fs), color: c.ink }));
+      var line = []; for (var k = 0; k < 5; k++) line = line.concat(words.length ? words : [kw]);
+      row.textContent = line.join("  •  ") + "  •  ";
+      if (r === hot) row.style.color = c.accent; else if (r % 2) tyOutline(row, c.ink, Math.max(2, H * 0.0028));
+      var dir = (r % 2 ? 1 : -1) * flip, span = 0.55 * W;
+      tl.fromTo(row, { x: dir > 0 ? -span : 0 }, { x: dir > 0 ? 0 : -span, duration: dur, ease: "none" }, snap(s));
+      rowEls.push(row);
+    }
+    var swell = s + Math.max(0.5, 0.55 * dur);
+    rowEls.forEach(function (row, r) { if (r !== hot) tl.to(row, { opacity: 0.1, duration: 0.2, ease: "power2.out" }, snap(swell)); });
+    tl.to(rowEls[hot], { scale: 1.3, duration: Math.max(0.3, e - swell - 0.05), ease: "power2.out", transformOrigin: "50% 50%" }, snap(swell));
+    tySlate(cam, i, BEATS.length, c.ink, sub, s);
+  }
+  function typeGlitch(cam, i, b, s, e, kw, sub) {
+    var dur = e - s, c = tyBg(cam, tyKind(i, ["dark", "brand", "dark"])), col = tyColumn(cam, "flex-start");
+    var fs = fit(kw.toUpperCase(), 0.88 * W, 2, 0.36 * H, 90, K);
+    var holder = free(mk("div", "ty-holder", col, { position: "relative", display: "inline-block" }));
+    var base = tyText(holder, kw, fs, c.ink, { whiteSpace: "normal", maxWidth: px(0.88 * W) });
+    hide(holder); showAt(holder, s + 0.02);
+    var N = 5, steps = [0.045, 0.09, 0.135, 0.18, 0.225], dx = [-1, 1, -0.6, 0.8, -0.3];
+    for (var k = 0; k < N; k++) {
+      var clone = tyText(holder, kw, fs, c.ink, { position: "absolute", left: 0, top: 0, whiteSpace: "normal", maxWidth: px(0.88 * W), clipPath: "inset(" + (k * 100 / N) + "% 0 " + (100 - (k + 1) * 100 / N) + "% 0)" });
+      tl.set(clone, { x: 0.05 * W * dx[k] }, snap(s));
+      steps.forEach(function (t, j) { tl.set(clone, { x: 0.05 * W * dx[(k + j + 1) % N] * (1 - j / 5) }, snap(s + t * Math.min(1, dur / 1.2))); });
+      tl.set(clone, { x: 0 }, snap(s + 0.28 * Math.min(1, dur / 1.2)));
+    }
+    var bar = free(mk("div", "ty-bar", col, { position: "relative", width: "0px", height: px(Math.max(6, fs * 0.07)), marginTop: px(fs * 0.12), background: c.accent }));
+    tl.to(bar, { width: px(Math.min(0.6 * W, fs * 0.5 * Math.max(4, kw.length * 0.8))), duration: Math.min(0.4, 0.3 * dur), ease: "power3.out" }, snap(s + 0.22));
+    var dot = free(mk("div", "ty-dot", cam, { position: "absolute", right: 0.07 * W, top: 0.14 * H, width: px(0.045 * H), height: px(0.045 * H), borderRadius: "50%", background: c.accent }));
+    hide(dot); showAt(dot, s + 0.3); tl.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.2, ease: "back.out(2)" }, snap(s + 0.3));
+    tySlate(cam, i, BEATS.length, c.ink, sub, s);
+  }
+  function typeStack(cam, i, b, s, e, kw, sub) {
+    var dur = e - s, c = tyBg(cam, tyKind(i, ["brand", "dark", "brand"])), col = tyColumn(cam, "flex-start");
+    var words = kw.split(/\s+/).filter(Boolean).slice(0, 4), fs = Infinity;
+    words.forEach(function (w) { fs = Math.min(fs, fit(w.toUpperCase(), 0.88 * W, 1, 0.38 * H, 80, K)); });
+    if (words.length * fs * 0.92 > 0.86 * H) fs = 0.86 * H / (words.length * 0.92);
+    var step = clamp(dur * 0.14, 0.1, 0.22);
+    words.forEach(function (w, k) {
+      var el = tyText(col, w, fs, k === words.length - 1 ? c.accent : c.ink);
+      if (k % 2 === 1 && k !== words.length - 1) tyOutline(el, c.ink, Math.max(2, H * 0.003));
+      hide(el); showAt(el, s + 0.05 + k * step);
+      tl.fromTo(el, { y: fs * 0.25, scale: 1.08 }, { y: 0, scale: 1, duration: 0.2, ease: "power4.out", transformOrigin: "0% 50%" }, snap(s + 0.05 + k * step));
+    });
+    var d = 0.34 * H, shape = (tySeed() + i) % 3, ring = free(mk("div", "ty-ring", cam, { position: "absolute", right: 0.07 * W, top: 0.12 * H, width: px(d), height: px(d), borderRadius: shape === 0 ? "50%" : shape === 1 ? "8%" : "0", border: shape === 2 ? "0" : px(Math.max(6, d * 0.12)) + " solid " + c.ink, background: shape === 2 ? c.ink : "transparent", clipPath: shape === 2 ? "polygon(50% 0, 100% 100%, 0 100%)" : "none", boxSizing: "border-box" }));
+    hide(ring); showAt(ring, s + 0.12); tl.fromTo(ring, { scale: 0.2, rotation: -40 }, { scale: 1, rotation: 0, duration: 0.3, ease: "back.out(1.7)" }, snap(s + 0.12));
+    var rule = free(mk("div", "ty-rule", cam, { position: "absolute", right: 0.07 * W, bottom: 0.1 * H, width: "0px", height: px(Math.max(6, H * 0.008)), background: c.ink }));
+    tl.to(rule, { width: px(0.2 * W), duration: 0.3, ease: "power3.out" }, snap(s + 0.3));
+    tySlate(cam, i, BEATS.length, c.ink, sub, s);
+  }
+  function typeOutline(cam, i, b, s, e, kw, sub) {
+    var dur = e - s, c = tyBg(cam, tyKind(i, ["light", "brand", "light"])), col = tyColumn(cam, "flex-start");
+    var fs = fit(kw.toUpperCase(), 0.88 * W, 2, 0.34 * H, 90, K);
+    var holder = free(mk("div", "ty-holder", col, { position: "relative", display: "inline-block" }));
+    var base = tyText(holder, kw, fs, c.ink, { whiteSpace: "normal", maxWidth: px(0.88 * W) }); tyOutline(base, c.ink, Math.max(3, H * 0.004));
+    var fill = tyText(holder, kw, fs, c.ink === "var(--bp-on-brand)" ? "var(--bp-on-brand)" : c.accent, { position: "absolute", left: 0, top: 0, whiteSpace: "normal", maxWidth: px(0.88 * W) });
+    hide(holder); showAt(holder, s + 0.02);
+    tl.fromTo(fill, { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: clamp(0.45 * dur, 0.3, 0.9), ease: "power3.inOut" }, snap(s + 0.15));
+    [0.12, 0.88].forEach(function (f, n) {
+      var line = free(mk("div", "ty-line", cam, { position: "absolute", left: 0.05 * W, top: px(f * H), width: "0px", height: px(Math.max(3, H * 0.004)), background: c.ink }));
+      tl.to(line, { width: px(0.9 * W), duration: 0.35, ease: "power3.out" }, snap(s + 0.05 + n * 0.08));
+    });
+    tySlate(cam, i, BEATS.length, c.ink, sub, s);
+  }
+  function typeMarquee(cam, i, b, s, e, kw, sub) {
+    var dur = e - s, c = tyBg(cam, tyKind(i, ["dark", "brand", "light"])), fs = H * 0.34, phrase = kw.toUpperCase() + "  ·  ", line = "";
+    for (var k = 0; k < 8; k++) line += phrase;
+    [0, 1].forEach(function (r) {
+      var row = free(mk("div", "ty-marq", cam, { position: "absolute", left: 0, top: px((r ? 0.52 : 0.1) * H), whiteSpace: "nowrap", fontFamily: "var(--font-display)", fontWeight: "900", textTransform: "uppercase", letterSpacing: "-0.025em", lineHeight: "0.95", fontSize: px(fs), color: c.ink }, line));
+      if (r) tyOutline(row, c.ink, Math.max(3, H * 0.004)); else row.style.color = c.accent;
+      var dir = (r ? 1 : -1) * ((tySeed() >> 2) % 2 ? -1 : 1), span = Math.min(2.4 * W, 0.9 * W + dur * 0.5 * W);
+      tl.fromTo(row, { x: dir > 0 ? -span : 0 }, { x: dir > 0 ? 0 : -span, duration: dur, ease: "none" }, snap(s));
+    });
+    tySlate(cam, i, BEATS.length, c.ink, sub, s);
+  }
+  function typeCounter(cam, i, b, s, e, kw, sub) {
+    var dur = e - s, c = tyBg(cam, tyKind(i, ["brand", "dark", "light"])), col = tyColumn(cam, "flex-start");
+    var m = /(\d[\d,]*(?:\.\d+)?)/.exec(kw), numStr = m ? m[1] : "", unit = m ? kw.replace(m[0], "").trim() : kw, num = m ? parseFloat(numStr.replace(/,/g, "")) : 0, dec = /\./.test(numStr) ? numStr.split(".")[1].length : 0, grp = /,/.test(numStr);
+    var fs = fit((numStr || kw).toUpperCase(), 0.88 * W, 1, 0.5 * H, 120, K);
+    var big = tyText(col, numStr ? "0" : kw, fs, c.ink);
+    var u = tyText(col, unit, fs * 0.34, c.accent, { marginTop: px(fs * 0.08) });
+    hide(col); showAt(col, s + 0.02);
+    var t0 = s + 0.1, span = Math.max(0.4, Math.min(1.2, 0.6 * dur));
+    function fmt(v) { var t = v.toFixed(dec); if (grp) { var parts = t.split("."); parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ","); t = parts.join("."); } return t; }
+    if (numStr) CANVAS_LAYERS.push(function (t) { var p = clamp((t - t0) / span, 0, 1); big.textContent = fmt(num * (1 - Math.pow(1 - p, 3))); });
+    tySlate(cam, i, BEATS.length, c.ink, sub, s);
+  }
+  var TY_IDS = ["wall", "glitch", "stack", "outline", "marquee", "counter"];
+  var TY_SCENES = [typeWall, typeGlitch, typeStack, typeOutline, typeMarquee, typeCounter];
+  function typeBeat(i, b, sh, s, e, kwText, onScreen, closing) {
+    var kw = String(kwText || "").replace(/[.!?]+$/, "").trim();
+    if (closing) { typeGlitch(sh.cam, i, b, s, e, tyBrand() || kw, tyBrand() ? onScreen || kwText : onScreen); }
+    else TY_SCENES[pick(b, TY_IDS, i)](sh.cam, i, b, s, e, kw, onScreen, tyPool());
+    push(sh.cam, s, e, W / 2, H / 2, b.energy || "high", b.motion && b.motion.camera, b, i, sh);
+    return {};
+  }
+
+  // ---------- Doodle looks (doodle, cross-hatch, zig-zag): a different hand-drawn scene on every beat ----------
+  // Four compositions that rotate with the beat (a light bulb, a looping arrow with stars, a checklist, a rising chart),
+  // all drawn with the look's own fill (hachure, cross-hatch or zig-zag) in the brand colours. The strokes draw on in
+  // order and always finish inside the beat, so a short beat just draws faster.
+  function doodleFigure(cam, b, i, s, e) {
+    var wide = MODE === "wide", u = Math.min(W, H), dur = e - s, key = "dd|" + STYLE.id + "|" + b.id + "|" + i;
+    var closing = b.kind === "title";
+    var R = closing ? (wide ? { x: 0.03 * W, y: 0.56 * H, w: 0.2 * W, h: 0.36 * H } : { x: 0.05 * W, y: 0.74 * H, w: 0.3 * W, h: 0.2 * H }) : wide ? { x: 0.585 * W, y: 0.14 * H, w: 0.35 * W, h: 0.72 * H } : { x: 0.1 * W, y: 0.54 * H, w: 0.8 * W, h: 0.4 * H };
+    var svg = inkSvg(cam, { left: 0, top: 0, width: px(W), height: px(H) }, W, H), r = rough.svg(svg);
+    var fillStyle = STYLE.fillStyle || "hachure", brand = tok("--brand"), fg = tok("--fg"), accent = tok("--accent") || brand;
+    var o = function (n, x) { return Object.assign({ seed: seedOf(key + n), roughness: 1.7, bowing: 1.5, strokeWidth: 3, stroke: fg }, x || {}); };
+    var fill = function (n, color, x) { return o(n, Object.assign({ fill: color, fillStyle: fillStyle, hachureGap: Math.max(8, u * 0.014), fillWeight: 3, stroke: fg }, x || {})); };
+    var X = function (f) { return R.x + R.w * f; }, Y = function (f) { return R.y + R.h * f; };
+    var star = function (cx, cy, rad, n, color) { var pts = []; for (var k = 0; k < 10; k++) { var a = -Math.PI / 2 + k * Math.PI / 5, q = k % 2 ? rad * 0.45 : rad; pts.push([cx + Math.cos(a) * q, cy + Math.sin(a) * q]); } return r.polygon(pts, fill("star" + n, color, { roughness: 1.3 })); };
+    var shapes = [], v = pick(b, ["bulb", "loop", "checklist", "chart"], i);
+    if (v === 0) {
+      shapes.push(r.circle(X(0.5), Y(0.38), R.h * 0.5, fill("bulb", brand)), r.rectangle(X(0.4), Y(0.66), R.w * 0.2, R.h * 0.07, fill("b1", fg, { fillWeight: 2 })), r.rectangle(X(0.43), Y(0.74), R.w * 0.14, R.h * 0.05, o("b2")));
+      for (var k = 0; k < 7; k++) { var a = Math.PI + (k / 6) * Math.PI, c0 = [X(0.5) + Math.cos(a) * R.h * 0.34, Y(0.38) + Math.sin(a) * R.h * 0.34], c1 = [X(0.5) + Math.cos(a) * R.h * 0.46, Y(0.38) + Math.sin(a) * R.h * 0.46]; shapes.push(r.line(c0[0], c0[1], c1[0], c1[1], o("ray" + k))); }
+      shapes.push(star(X(0.9), Y(0.82), R.h * 0.09, 1, accent));
+    } else if (v === 1) {
+      var loop = []; for (var j = 0; j <= 28; j++) { var tt = j / 28; loop.push([X(0.08 + 0.78 * tt), Y(0.7 - 0.5 * tt + 0.11 * Math.sin(tt * Math.PI * 5))]); }
+      shapes.push(r.curve(loop, o("loop", { strokeWidth: 4 })), r.line(X(0.86), Y(0.2), X(0.72), Y(0.2), o("ah1", { strokeWidth: 4 })), r.line(X(0.86), Y(0.2), X(0.82), Y(0.36), o("ah2", { strokeWidth: 4 })), star(X(0.24), Y(0.28), R.h * 0.11, 2, accent), star(X(0.62), Y(0.8), R.h * 0.08, 3, brand), star(X(0.88), Y(0.62), R.h * 0.06, 4, fg));
+    } else if (v === 2) {
+      for (var row = 0; row < 3; row++) {
+        var yy = 0.14 + row * 0.27;
+        shapes.push(r.rectangle(X(0.08), Y(yy), R.w * 0.16, R.h * 0.16, row < 2 ? fill("cb" + row, brand) : o("cb" + row)));
+        if (row < 2) shapes.push(r.linearPath([[X(0.1), Y(yy + 0.08)], [X(0.16), Y(yy + 0.15)], [X(0.28), Y(yy - 0.04)]], o("ck" + row, { strokeWidth: 5, stroke: fg })));
+        shapes.push(r.line(X(0.36), Y(yy + 0.08), X(0.9 - row * 0.1), Y(yy + 0.07), o("ln" + row, { strokeWidth: 4 })), r.line(X(0.36), Y(yy + 0.14), X(0.74 - row * 0.1), Y(yy + 0.15), o("lm" + row)));
+      }
+    } else {
+      var bars = [0.28, 0.44, 0.38, 0.66, 0.88];
+      bars.forEach(function (hgt, n) { shapes.push(r.rectangle(X(0.06 + n * 0.18), Y(0.88 - hgt * 0.74), R.w * 0.13, R.h * hgt * 0.74, n === 4 ? fill("bar" + n, brand) : fill("bar" + n, accent, { fillWeight: 2 }))); });
+      shapes.push(r.line(X(0.02), Y(0.9), X(0.98), Y(0.9), o("base", { strokeWidth: 4 })), r.linearPath([[X(0.1), Y(0.5)], [X(0.34), Y(0.3)], [X(0.58), Y(0.38)], [X(0.86), Y(0.08)]], o("trend", { strokeWidth: 5 })), r.line(X(0.86), Y(0.08), X(0.74), Y(0.1), o("th1", { strokeWidth: 5 })), r.line(X(0.86), Y(0.08), X(0.84), Y(0.22), o("th2", { strokeWidth: 5 })));
+    }
+    shapes.forEach(function (p) { svg.appendChild(p); });
+    var ps = inkPaths(svg, "currentColor", 3);
+    // keep each stroke's own colour (fills and ink are set by rough), only the dash drawing is applied
+    Array.prototype.forEach.call(svg.querySelectorAll("path"), function (p) { var st = p.getAttribute("stroke"); if (st && st !== "none") p.style.stroke = st; p.style.strokeWidth = p.getAttribute("stroke-width") + "px"; p.setAttribute("vector-effect", "non-scaling-stroke"); });
+    var span = Math.min(1.5, 0.55 * dur), each = Math.max(0.12, span * 0.4), gap = ps.length > 1 ? (span - each) / (ps.length - 1) : 0;
+    tl.fromTo(ps, { strokeDashoffset: function (n, el) { return el.__len; } }, { strokeDashoffset: 0, duration: each, ease: "power2.inOut", stagger: gap }, snap(s + 0.06));
+  }
+
+  // ---------- Vox editorial collage (look "vox-collage") ----------
+  // The grammar of the reference: flat colour fields, halftone, cut-paper subjects with thick paper borders, tape and soft
+  // shadows, marker annotations, and abstract data graphics. Everything is drawn from the brand's own colours; there are no
+  // photographs, so the "archival cutouts" are cut-paper shapes. Positions are deterministic; the motion is snappy and ends
+  // inside the beat, so a short beat simply moves faster.
+  function voxCut(cam, x, y, w, h, rot, t, tape) {
+    var bw = clamp(Math.min(w, h) * 0.05, 8, 16);
+    var cut = free(mk("div", "vox-cut", cam, { position: "absolute", left: x, top: y, width: w, height: h, background: "var(--bp-card)", border: px(bw) + " solid var(--bp-card)", boxShadow: "0 " + px(bw * 1.2) + " " + px(bw * 3) + " rgba(0,0,0,.3)", borderRadius: px(bw * 0.35), overflow: "hidden" }));
+    var wrap = free(mk("div", "vox-cut-wrap", cam, { position: "absolute", left: x, top: y, width: w, height: h }));
+    wrap.appendChild(cut); cut.style.left = "0"; cut.style.top = "0";
+    var inner = free(mk("div", "vox-inner", cut, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%" }));
+    if (tape) free(mk("div", "vox-tape", wrap, { position: "absolute", left: "34%", top: px(-bw * 1.5), width: "32%", height: px(bw * 2.6), background: "color-mix(in srgb, var(--bp-accent) 40%, #fff)", opacity: "0.82", transform: "rotate(" + (rot > 0 ? -5 : 5) + "deg)", boxShadow: "0 2px 6px rgba(0,0,0,.18)" }));
+    tl.set(wrap, { rotation: rot, transformOrigin: "50% 50%" }, 0);
+    hide(wrap); showAt(wrap, t);
+    tl.fromTo(wrap, { scale: 0.55, y: h * 0.18 }, { scale: 1, y: 0, duration: 0.42, ease: "back.out(1.5)" }, snap(t));
+    return { wrap: wrap, inner: inner, w: w - 2 * bw, h: h - 2 * bw };
+  }
+  function voxFigure(cam, b, i, s, e, flood) {
+    var wide = MODE === "wide", u = Math.min(W, H), dur = e - s, key = "vox|" + b.id + "|" + i;
+    var R = b.kind === "title" ? (wide ? { x: 0.04 * W, y: 0.58 * H, w: 0.2 * W, h: 0.34 * H } : { x: 0.06 * W, y: 0.74 * H, w: 0.3 * W, h: 0.2 * H }) : wide ? { x: 0.585 * W, y: 0.16 * H, w: 0.34 * W, h: 0.68 * H } : { x: 0.1 * W, y: 0.55 * H, w: 0.8 * W, h: 0.38 * H };
+    var dots = free(mk("div", "vox-halftone", cam, { left: -0.1 * W, top: -0.1 * H, width: 1.2 * W, height: 1.2 * H, backgroundImage: "radial-gradient(var(--bp-shade) 28%, transparent 32%)", backgroundSize: px(u * 0.011) + " " + px(u * 0.011), opacity: flood ? "0.1" : "0.12", position: "absolute", pointerEvents: "none", WebkitMaskImage: "radial-gradient(ellipse at " + (wide ? "85% 60%" : "50% 85%") + ", #000 0%, transparent 70%)", maskImage: "radial-gradient(ellipse at " + (wide ? "85% 60%" : "50% 85%") + ", #000 0%, transparent 70%)" }));
+    hide(dots); showAt(dots, s);
+    var kind = pick(b, ["cutouts", "data", "scale"], i), step = clamp(dur * 0.1, 0.1, 0.22), t = s + 0.08;
+    var ink = flood ? "var(--bp-card)" : "var(--bp-shade)";
+    var mark = function (fn, at, span) {
+      var sv = inkSvg(cam, { left: 0, top: 0, width: px(W), height: px(H) }, W, H), r = rough.svg(sv);
+      fn(sv, r, function (n, x) { return Object.assign({ seed: seedOf(key + n), roughness: 1.4, bowing: 1.2, strokeWidth: 1 }, x || {}); });
+      var ps = inkPaths(sv, ink, clamp(u * 0.009, 6, 12));
+      inkDraw(ps, at, Math.min(span, Math.max(0.2, e - at - 0.1)));
+    };
+    if (kind === 0) {
+      // two cut-paper subjects, one over the other, with a marker ring and arrow on the front one
+      var a = voxCut(cam, R.x + R.w * 0.02, R.y + R.h * 0.06, R.w * 0.62, R.h * 0.56, 6, t, true);
+      var c = voxCut(cam, R.x + R.w * 0.3, R.y + R.h * 0.34, R.w * 0.66, R.h * 0.6, -4, t + step, true);
+      [a, c].forEach(function (cp, n) {
+        var sv = inkSvg(cp.inner, { left: 0, top: 0, width: "100%", height: "100%" }, 200, 160), r = rough.svg(sv);
+        sv.appendChild(n === 0 ? r.rectangle(30, 30, 140, 100, { seed: seedOf(key + "r"), fill: tok("--fg"), fillStyle: "solid", stroke: "none" }) : r.circle(100, 80, 118, { seed: seedOf(key + "c"), fill: tok("--brand"), fillStyle: "solid", stroke: "none", roughness: 1.8 }));
+        sv.appendChild(r.line(24, 138, 176, 134, { seed: seedOf(key + "l" + n), stroke: tok("--fg"), strokeWidth: 3, roughness: 1.2 }));
+        Array.prototype.forEach.call(sv.querySelectorAll("path"), function (p) { p.setAttribute("vector-effect", "non-scaling-stroke"); });
+      });
+      mark(function (sv, r, o) {
+        sv.appendChild(r.ellipse(R.x + R.w * 0.62, R.y + R.h * 0.62, R.w * 0.74, R.h * 0.7, o("ring")));
+        sv.appendChild(r.line(R.x + R.w * 0.02, R.y + R.h * 0.98, R.x + R.w * 0.2, R.y + R.h * 0.8, o("ar1")));
+        sv.appendChild(r.line(R.x + R.w * 0.2, R.y + R.h * 0.8, R.x + R.w * 0.07, R.y + R.h * 0.81, o("ar2")));
+        sv.appendChild(r.line(R.x + R.w * 0.2, R.y + R.h * 0.8, R.x + R.w * 0.17, R.y + R.h * 0.93, o("ar3")));
+      }, t + 2 * step, Math.min(0.9, 0.5 * dur));
+    } else if (kind === 1) {
+      // a data card: bars growing, a marker line rising over them
+      var d = voxCut(cam, R.x, R.y + R.h * 0.08, R.w, R.h * 0.78, -3, t, true), n = 5, bw = d.w * 0.12, gap = (d.w - n * bw) / (n + 1);
+      free(mk("div", "vox-base", d.inner, { position: "absolute", left: px(gap * 0.5), top: px(d.h * 0.92), width: px(d.w - gap), height: px(Math.max(4, u * 0.006)), background: "var(--bp-on-card)" }));
+      for (var k = 0; k < n; k++) {
+        var hh = d.h * [0.26, 0.38, 0.34, 0.6, 0.82][k], bar = free(mk("div", "vox-bar", d.inner, { position: "absolute", left: px(gap + k * (bw + gap)), top: px(d.h * 0.92 - hh), width: px(bw), height: px(hh), background: k === n - 1 ? "var(--brand)" : "var(--bp-on-card)", transformOrigin: "50% 100%" }));
+        hide(bar); showAt(bar, t + 0.18 + k * step * 0.7);
+        tl.fromTo(bar, { scaleY: 0 }, { scaleY: 1, duration: clamp(dur * 0.16, 0.16, 0.36), ease: "back.out(1.3)" }, snap(t + 0.18 + k * step * 0.7));
+      }
+      mark(function (sv, r, o) {
+        var x0 = R.x + R.w * 0.06, y0 = R.y + R.h * 0.62, x1 = R.x + R.w * 0.9, y1 = R.y + R.h * 0.1;
+        sv.appendChild(r.linearPath([[x0, y0], [x0 + (x1 - x0) * 0.34, y0 - (y0 - y1) * 0.3], [x0 + (x1 - x0) * 0.58, y0 - (y0 - y1) * 0.22], [x1, y1]], o("trend")));
+        sv.appendChild(r.line(x1, y1, x1 - R.w * 0.1, y1 + R.h * 0.02, o("h1")));
+        sv.appendChild(r.line(x1, y1, x1 - R.w * 0.02, y1 + R.h * 0.1, o("h2")));
+      }, t + 0.5, Math.min(0.9, 0.45 * dur));
+    } else {
+      // a scale comparison: one small block beside a tower that keeps growing
+      var q = voxCut(cam, R.x + R.w * 0.04, R.y + R.h * 0.1, R.w * 0.92, R.h * 0.76, 3, t, true), bsz = q.w * 0.2, base = q.h * 0.9;
+      var column = function (x, count, color) { for (var z = 0; z < count; z++) { var blk = free(mk("div", "vox-block", q.inner, { position: "absolute", left: px(x), top: px(base - (z + 1) * bsz * 0.98), width: px(bsz), height: px(bsz * 0.9), background: color, border: "3px solid var(--bp-on-card)", boxSizing: "border-box" })); hide(blk); showAt(blk, t + 0.2 + z * step * 0.8 + (count > 1 ? 0.2 : 0)); tl.fromTo(blk, { y: -q.h * 0.4 }, { y: 0, duration: 0.3, ease: "back.out(1.4)" }, snap(t + 0.2 + z * step * 0.8 + (count > 1 ? 0.2 : 0))); } };
+      column(q.w * 0.14, 1, "var(--bp-on-card)");
+      column(q.w * 0.6, 5, "var(--brand)");
+      mark(function (sv, r, o) {
+        sv.appendChild(r.line(R.x + R.w * 0.06, R.y + R.h * 0.02, R.x + R.w * 0.9, R.y + R.h * 0.01, o("top")));
+        sv.appendChild(r.line(R.x + R.w * 0.9, R.y + R.h * 0.01, R.x + R.w * 0.86, R.y + R.h * 0.08, o("a2")));
+      }, t + 0.6, Math.min(0.7, 0.35 * dur));
+    }
+  }
+
   // ---------- kinetic beat (also the 2D fallback for 3d / footage) ----------
   var lastFlood = false;
   function kinetic(i, b, sh, s, e, kwText, onScreen, successAt) {
     var L = LAY.kin, dur = e - s;
-    var flood = !lastFlood && (b.role === "hook" || b.role === "reveal" || b.success || b.energy === "high");
+    var procedural = b.route && b.route.renderer === "canvas2d" && !b.has_visual;
+    var inkSketch = SKETCH && !DOODLE && !VOX && !MATERIAL && !procedural && !b.has_visual;
+    var flood = !inkSketch && !procedural && !b.has_visual && !MATERIAL && !DOODLE && !HAIRLINE && !lastFlood && (VOX ? i % 2 === 0 : (b.role === "hook" || b.role === "reveal" || b.success || b.energy === "high"));
     lastFlood = flood;
     if (flood) {
       sh.cam.classList.add("flood");
@@ -340,8 +900,17 @@
       var halo = free(mk("div", "halo", sh.cam, { left: (MODE === "wide" ? 0.82 * W : 0.7 * W) - hd / 2, top: 0.86 * H - hd / 2, width: hd, height: hd, borderWidth: px(Math.min(W, H) * 0.05) }));
       carry(halo, sh.vout, s, e, 1.4);
       f.setAttribute("data-bp", "flood");
-    } else discs(sh.cam, i, sh.vout, s, e);
+      if (VOX) voxFigure(sh.cam, b, i, s, e, true);
+    } else if (b.has_visual) { /* generated footage owns the scene */ }
+    else if (procedural) canvasFigure(sh.cam, b, s, e);
+    else if (inkSketch) sketchFigure(sh.cam, b, i, s, e);
+    else if (VOX) voxFigure(sh.cam, b, i, s, e, flood);
+    else if (DOODLE && window.rough) doodleFigure(sh.cam, b, i, s, e);
+    else if (MATERIAL || DOODLE) styleFigure(sh.cam, b, s, e);
+    else if (HAIRLINE) hairlineFigure(sh.cam, s, e, pick(b, ["plates", "cube", "bars", "rings"], i));
+    else discs(sh.cam, i, sh.vout, s, e);
     var col = mk("div", "col" + (L.align === "center" ? " center" : ""), sh.cam, { left: L.col[0], top: L.col[1], width: L.col[2], height: L.col[3] });
+    if ((procedural || HAIRLINE || MATERIAL || DOODLE) && MODE !== "wide") col.style.height = px(H * 0.48);
     var badge = null;
     var bs = 0.13 * Math.min(W, H);
     if (b.success) { badge = mk("div", "", col, { position: "relative", width: bs, height: bs, marginBottom: px(0.03 * H), flex: "none" }); }
@@ -351,7 +920,7 @@
     // incoming text ignites on the cut frame (fields and shapes already overlap the J-cut); on a flood it
     // waits until its field has (mostly) covered the frame
     var tk = i === 0 ? s + 0.06 : flood && sh.vin.axis !== "z" ? Math.max(s, sh.t0 + 0.6 * P.dIn) : s;
-    var landed = textEntry(kw, tk, b.motion && b.motion.text_effect);
+    var landed = textEntry(kw, tk, effectFor(b, i));
     var sub = null;
     if (onScreen && !same(onScreen, kwText)) {
       var sfs = fit(onScreen, L.col[2] * 0.92, 3, L.sub, 30, KB);
@@ -362,7 +931,7 @@
       checkPop(badge, bs / 2, bs / 2, bs, successAt);
     } else if (dur >= 2.6) underline(kw, s + 0.56 * dur);
     var ox = L.align === "center" ? W / 2 : L.col[0] + L.col[2] * 0.3;
-    push(sh.cam, s, e, ox, L.col[1] + L.col[3] / 2, b.energy);
+    push(sh.cam, s, e, ox, L.col[1] + L.col[3] / 2, b.energy, b.motion && b.motion.camera, b, i, sh);
     return { flood: flood };
   }
 
@@ -429,7 +998,8 @@
     var L = LAY.ui, dur = e - s, ui = b.ui;
     // brand field behind the card
     var fld = free(mk("div", "field panel", sh.cam, { left: L.field[0], top: L.field[1], width: L.field[2], height: L.field[3] }));
-    carry(fld, sh.vout, s + 0.3, e, 0.8);
+    if (b.has_visual) fld.style.display = "none";
+    else carry(fld, sh.vout, s + 0.3, e, 0.8);
     // key phrase in its corner, never over the screen
     var col = mk("div", "col" + (L.top ? " top" : ""), sh.cam, { left: L.col[0], top: L.col[1], width: L.col[2], height: L.col[3] });
     var words = kwText.split(/\s+/).filter(Boolean).length;
@@ -448,7 +1018,37 @@
     var maxH = MODE === "wide" ? 0.7 * H : MODE === "tall" ? 0.44 * H : 0.46 * H;
     if (chei > maxH) { chei = maxH; cwid = chei * cardAr; }
     var cx = L.card[0] - cwid / 2, cy = L.card[1] - chei / 2;
+    if (HAIRLINE) {
+      fld.style.borderRadius = "0";
+      [2, 1].forEach(function (depth) {
+        var plate = mk("div", "hairline-screen-layer", sh.cam, { position: "absolute", left: cx, top: cy, width: cwid, height: chei, border: "2px solid var(--bp-accent)", borderRadius: "12px" });
+        var shift = 14 * depth;
+        tl.fromTo(plate, { x: 0, y: 0 }, { x: shift, y: shift, duration: Math.min(0.65, dur * 0.2), ease: "sine.inOut" }, snap(s));
+        tl.fromTo(plate, { x: shift, y: shift }, { x: 0, y: 0, duration: Math.min(0.6, dur * 0.2), ease: "sine.inOut" }, snap(e - Math.min(0.8, dur * 0.3)));
+      });
+    }
     var card = free(mk("div", "card", sh.cam, { left: cx, top: cy, width: cwid, height: chei }));
+    if (VOX) {
+      // cut-paper print: a thick paper border, a strip of tape, a slight tilt and a soft shadow, over a halftone field
+      var pb = clamp(Math.min(cwid, chei) * 0.035, 8, 16);
+      Object.assign(card.style, { border: px(pb) + " solid var(--bp-card)", borderRadius: px(pb * 0.35), boxShadow: "0 " + px(pb * 1.4) + " " + px(pb * 3.4) + " rgba(0,0,0,.34)" });
+      tl.set(card, { rotation: i % 2 ? 1.4 : -1.6, transformOrigin: "50% 50%" }, 0);
+      free(mk("div", "vox-tape", card, { position: "absolute", left: "36%", top: px(-pb * 2.2), width: "28%", height: px(pb * 2.6), background: "color-mix(in srgb, var(--bp-accent) 40%, #fff)", opacity: "0.85", transform: "rotate(-4deg)", zIndex: 3 }));
+      var ht = free(mk("div", "vox-halftone", sh.cam, { position: "absolute", left: -0.1 * W, top: -0.1 * H, width: 1.2 * W, height: 1.2 * H, backgroundImage: "radial-gradient(var(--bp-shade) 28%, transparent 32%)", backgroundSize: px(Math.min(W, H) * 0.011) + " " + px(Math.min(W, H) * 0.011), opacity: "0.12", pointerEvents: "none" }));
+      sh.cam.insertBefore(ht, card);
+    } else if (SKETCH && !DOODLE && !MATERIAL) {
+      // notebook page with the screen drawn onto it: a hand-inked window frame goes round the screenshot as it lands
+      fld.style.display = "none";
+      var page = free(mk("div", "sk-paper", sh.cam, { left: -0.1 * W, top: -0.1 * H, width: 1.2 * W, height: 1.2 * H }));
+      sh.cam.insertBefore(page, card); hide(page); showAt(page, s);
+      var fsv = inkSvg(sh.cam, { left: px(cx - 22), top: px(cy - 22), width: px(cwid + 44), height: px(chei + 44) }, cwid + 44, chei + 44), fr = rough.svg(fsv), fo = function (n, x) { return Object.assign({ seed: seedOf("uf|" + b.id + n), roughness: 1.5, bowing: 1.3, strokeWidth: 1 }, x || {}); };
+      fsv.appendChild(fr.rectangle(8, 8, cwid + 28, chei + 28, fo("f")));
+      fsv.appendChild(fr.line(8, 40, cwid + 36, 38, fo("t")));
+      [0, 1, 2].forEach(function (n) { fsv.appendChild(fr.circle(36 + n * 26, 24, 12, fo("d" + n))); });
+      var fps = inkPaths(fsv, "currentColor", clamp(Math.min(W, H) * 0.0055, 3, 7)), span = Math.min(1.3, 0.4 * dur);
+      tl.fromTo(fps, { strokeDashoffset: function (n, el) { return el.__len; } }, { strokeDashoffset: 0, duration: Math.max(0.2, span * 0.5), ease: "power2.inOut", stagger: (span * 0.5) / Math.max(1, fps.length - 1) }, snap(s + 0.05));
+      sh.cam.insertBefore(fsv, card);
+    }
     var shot = mk("div", "shot", card);
     var img = mk("img", null, shot);
     img.src = src; img.alt = "";
@@ -467,7 +1067,7 @@
     Object.assign(img.style, { left: px(-ox), top: px(-oy), width: px(imgW), height: px(imgH) });
     var tx = 10 + tp[0] * imgW - ox, ty = 10 + tp[1] * imgH - oy;
     var gx = cx + tx, gy = cy + ty; // screen position of the target (the camera pushes about it, so it holds)
-    push(sh.cam, s, e, gx, gy, b.energy);
+    push(sh.cam, s, e, gx, gy, b.energy, b.motion && b.motion.camera, b, i, sh);
     // cursor: enters from below on one vector, lands its tip on the target, presses on the verb
     HAS_UI = true;
     var CZ = LAY.cursor, TX = 0.208 * CZ, TY = 0.125 * CZ;
@@ -596,7 +1196,7 @@
   // ---------- title / CTA lockup: a landed ending that keeps moving to the last frame ----------
   function titleBeat(i, b, sh, s, e, kwText, onScreen) {
     var L = LAY.title;
-    discs(sh.cam, 0, { axis: "z", dir: 1 }, s, e, LAY.titleDiscs);
+    if (VOX) voxFigure(sh.cam, b, i, s, e, false); else if (DOODLE && window.rough) doodleFigure(sh.cam, b, i, s, e); else if (SKETCH && !DOODLE && !MATERIAL) sketchFigure(sh.cam, b, i, s, e); else discs(sh.cam, 0, { axis: "z", dir: 1 }, s, e, LAY.titleDiscs);
     var col = mk("div", "col center", sh.cam, { left: 0.08 * W, top: 0, width: 0.84 * W, height: H });
     var lock = mk("div", "lockup", col);
     var logo = typeof V.logo === "string" && V.logo ? V.logo : "";
@@ -611,7 +1211,7 @@
       mk("div", "name", lock, { fontSize: nfs }, name);
     }
     if (MODE !== "wide" && logo && !V.logoWordmark) lock.style.flexDirection = "column";
-    var pillText = onScreen || kwText, phrase = onScreen ? kwText : "";
+    var pillText = onScreen || kwText, phrase = onScreen && !same(kwText, name) ? kwText : ""; // never print the brand name twice
     var kw = null;
     if (phrase) kw = keyword(col, phrase, kwFit(phrase, L.kwW, 2, L.kw, 64), "center", L.kwW);
     if (kw) kw.el.style.marginTop = px(0.045 * H);
@@ -621,7 +1221,7 @@
     var tl0 = i === 0 ? s + 0.08 : s;
     hide(lock); showAt(lock, tl0);
     tl.fromTo(lock, { scale: 1.18 }, { scale: 1, duration: P.dIn + 0.1, ease: P.inE }, snap(tl0));
-    var landed = kw ? textEntry(kw, tl0 + 0.24, b.motion && b.motion.text_effect) : tl0 + 0.24;
+    var landed = kw ? textEntry(kw, tl0 + 0.24, effectFor(b, i)) : tl0 + 0.24;
     rise(pill, Math.min(landed + 0.05, s + 0.9), 36);
     // the pill's centre, from the stacked heights (character-count estimates, never measured)
     var lockH = logo ? (V.logoWordmark ? Math.min(L.logoH, L.logoW / 3) : L.logoH) : (nfs || 0);
@@ -629,7 +1229,7 @@
     var kwH = kw ? kw.fs * 1.04 * kw.lines + 0.045 * H : 0;
     var pillH = pf * 1.25 + pf * 1.1, stackH = lockH + kwH + 0.05 * H + pillH;
     var pillY = H / 2 + stackH / 2 - pillH / 2;
-    push(sh.cam, s, e, W / 2, H / 2, b.energy || "medium");
+    push(sh.cam, s, e, W / 2, H / 2, b.energy || "medium", b.motion && b.motion.camera, b, i, sh);
     var pressAt = null;
     if (HAS_UI && e - s >= 2.2) {
       var CZ = LAY.cursor, TX = 0.208 * CZ, TY = 0.125 * CZ, cur = free(mk("div", "cursor", sh.seam, { width: CZ, height: CZ }));
@@ -686,12 +1286,15 @@
   BEATS.forEach(function (b, i) {
     var s = +b.start || 0, e = +b.end || s + 2, last = i === BEATS.length - 1;
     TOTAL = Math.max(TOTAL, e);
+    b.has_visual = Boolean(V["visual." + b.id]);
+    var media = document.getElementById("visual-" + b.id);
+    if (media) { tl.set(media, { visibility: "visible" }, s); tl.set(media, { visibility: "hidden" }, e); }
     var kind = b.kind, kwText = text(b, "keyword"), onScreen = text(b, "on_screen") || null, line = text(b, "line") || null;
     if (kind === "3d" || kind === "footage") {
       // 2D fallback until the generated clip exists; a storyboard edit to the keyword still wins
       var fb = b.fallback || {};
       var edited = has(b.id + ".keyword") && V[b.id + ".keyword"] !== b.keyword;
-      if (!edited && fb.keyword) kwText = String(fb.keyword);
+      if (!b.has_visual && !edited && fb.keyword) kwText = String(fb.keyword);
       kind = fb.kind === "ui" && b.ui ? "ui" : "kinetic";
     }
     var src = kind === "ui" && b.ui ? V["shot." + b.ui.screen] : null;
@@ -700,12 +1303,24 @@
     if (kind === "title" && !last) LOG.warnings.push(b.id + ": a title beat that is not last still exits on its vector");
     if (!kwText) kwText = onScreen || String(V.brandName || "");
     var sh = shell(i, b, s, e, last);
+    sceneStyle(b.route ? b.route.treatment : V.look, sh.beat);
+    sh.beat.setAttribute("data-renderer", b.route ? b.route.renderer : "legacy");
+    // the kit's logo mark (or silhouette), small in a corner of every content scene (top-left on wide, bottom-left on vertical and square canvases, where the headline starts at the top); the closing lockup carries the full logo
+    var bugSrc = typeof V.logoBug === "string" && V.logoBug ? V.logoBug : "";
+    if (bugSrc && kind !== "title") {
+      var bugImg = free(mk("img", "logo-bug", sh.beat, { left: px(0.045 * W), top: px((MODE === "wide" ? 0.06 : 0.86) * H), height: px(0.085 * Math.min(W, H)), maxWidth: px(0.22 * W) }));
+      bugImg.src = bugSrc; bugImg.alt = "";
+      bugImg.setAttribute("data-layout-allow-occlusion", "");
+    }
+    if (b.has_visual) sh.beat.classList.add("has-material-video");
     var dur = e - s;
     var successAt = b.success ? (typeof b.success_at === "number" ? b.success_at : s + Math.max(0.9, 0.5 * dur)) : null;
     var actAt = typeof b.act_at === "number" ? b.act_at : s + Math.max(0.9, 0.38 * dur);
-    var info = { id: b.id, kind: kind, start: s, end: e };
+    var info = { id: b.id, kind: kind, start: s, end: e, route: b.route || null };
     if (kind === "ui") Object.assign(info, uiBeat(i, b, sh, s, e, kwText, onScreen, src, actAt, successAt || 0));
+    else if (kind === "title" && TYPE) Object.assign(info, typeBeat(i, b, sh, s, e, kwText, onScreen, true));
     else if (kind === "title") Object.assign(info, titleBeat(i, b, sh, s, e, kwText, onScreen));
+    else if (TYPE && !b.has_visual) Object.assign(info, typeBeat(i, b, sh, s, e, kwText, onScreen, false));
     else Object.assign(info, kinetic(i, b, sh, s, e, kwText, onScreen, successAt));
     if (kind !== "kinetic") lastFlood = false;
     if (successAt !== null) info.successAt = successAt;
@@ -720,6 +1335,8 @@
   });
   LOG.total = TOTAL;
   tl.set({}, {}, snap(TOTAL));
+  tl.eventCallback("onUpdate", function(){var t=tl.time();CANVAS_LAYERS.forEach(function(draw){draw(t);});});
+  CANVAS_LAYERS.forEach(function(draw){draw(0);});
   window.__timelines = window.__timelines || {};
   window.__timelines["main"] = tl;
 })();

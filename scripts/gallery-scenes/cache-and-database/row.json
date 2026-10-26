@@ -1,0 +1,16 @@
+{
+  "id": "cache-and-database",
+  "name": "Cache and Database Explainer",
+  "group": "Tech",
+  "summary": "A request misses the cache, hits the database, fills the cache, then the next request is served instantly.",
+  "bestFor": "Explaining caching to engineers and new hires",
+  "prompt": "Explain how a cache sits in front of a database. Follow one request: it checks the cache first and misses, so it asks the database. The answer comes back and is stored in the cache. Then show the next identical request being served straight from the cache. Close on why this keeps the database calm.",
+  "look": "clean",
+  "theme": "code-editorial",
+  "aspect": "16:9",
+  "durationSeconds": 45,
+  "motionProfile": "snappy",
+  "pace": "balanced",
+  "audio": "both",
+  "poster": 3.0
+}

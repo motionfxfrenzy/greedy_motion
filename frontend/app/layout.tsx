@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { themeBootScript } from "../components/theme-toggle";
+import "./theme.css";
 import "./styles.css";
 
 export const metadata: Metadata = {
@@ -13,7 +15,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: themeBootScript }} /></head>
       <body>{children}</body>
     </html>
   );

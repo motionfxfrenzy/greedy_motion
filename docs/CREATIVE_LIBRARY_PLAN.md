@@ -1,5 +1,7 @@
 # Creative library plan: reference packs and animation libraries
 
+Current style-picker implementation and its generated-media limits: [Visual style library](STYLE_LIBRARY.md). The phase table below records the earlier rollout; the new catalog ships 18 native/graphic treatments, not automated material-film generation.
+
 Date: 2026-10-07, updated 2026-10-08. Status: phases 0 and 1 built, the Sketch look (phase 4, first look) built, phase 2
 1 of 3 formats built; phase 3 prompts and tests done; phase 5 not started. Owner confirmed on 2026-10-07 that every pack is free to use in the product, and accepted the recommendations
 in section 8 (move the packs; formats in the order velocity sting → chat to result → everywhere reel; Anime.js only where

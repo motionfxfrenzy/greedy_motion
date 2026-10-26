@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Paper theatre story</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #2a1409; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #2a1409; font-family: "Fredoka", "Quicksand", sans-serif; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(31);
+  var defs = el("defs", {});
+  var g1 = el("radialGradient", { id: "glow", cx: "46%", cy: "52%", r: "70%" }, defs);
+  el("stop", { offset: 0, "stop-color": "#fff0a8" }, g1); el("stop", { offset: .45, "stop-color": "#ffb13d" }, g1); el("stop", { offset: 1, "stop-color": "#d4521b" }, g1);
+  var lg = el("radialGradient", { id: "lamp", cx: "50%", cy: "50%", r: "50%" }, defs);
+  el("stop", { offset: 0, "stop-color": "#fff7c2", "stop-opacity": 1 }, lg); el("stop", { offset: 1, "stop-color": "#ffd25a", "stop-opacity": 0 }, lg);
+  [["sh1", 5, 9, .35], ["sh2", 8, 14, .45], ["sh3", 12, 20, .55]].forEach(function (f) {
+    var fl = el("filter", { id: f[0], x: "-30%", y: "-30%", width: "180%", height: "180%" }, defs);
+    el("feDropShadow", { dx: f[1], dy: f[2], stdDeviation: f[1] * .7, "flood-color": "#2a0f04", "flood-opacity": f[3] }, fl);
+  });
+  var clip = el("clipPath", { id: "stage" }, defs); el("rect", { x: 80, y: 60, width: 1120, height: 600, rx: 10 }, clip);
+
+  // zigzag edge helper: returns path points along a line with teeth
+  function zig(x0, y0, x1, y1, tooth, depth) {
+    var L = Math.hypot(x1 - x0, y1 - y0), n = Math.round(L / tooth), nx = -(y1 - y0) / L, ny = (x1 - x0) / L, p = [[x0, y0]];
+    for (var i = 1; i <= n; i++) { var f = i / n, o = (i % 2 ? 1 : 0) * depth; p.push([x0 + (x1 - x0) * f + nx * o, y0 + (y1 - y0) * f + ny * o]); }
+    return p;
+  }
+  function pth(pts) { return "M" + pts.map(function (p) { return p[0].toFixed(1) + " " + p[1].toFixed(1); }).join("L") + "Z"; }
+
+  // backdrop
+  el("rect", { width: 1280, height: 720, fill: "#2a1409" });
+  var stage = el("g", { "clip-path": "url(#stage)" });
+  var cam = el("g", {}, stage);
+  el("rect", { x: 60, y: 40, width: 1160, height: 640, fill: "url(#glow)" }, cam);
+  // paper grain doodle dots on the glow
+  for (var i = 0; i < 40; i++) el("circle", { cx: 100 + R() * 1080, cy: 80 + R() * 560, r: 2 + R() * 3, fill: "#fff2c4", opacity: .25 }, cam);
+
+  // far layer: rolling zigzag hills + window
+  var far = el("g", { filter: "url(#sh1)" }, cam);
+  var hill = [[60, 520]]; for (i = 0; i <= 14; i++) hill.push([60 + i * 85, 470 - (i % 2 ? 36 : 0) - Math.sin(i * .7) * 28]); hill.push([1220, 700]); hill.push([60, 700]);
+  el("path", { d: pth(hill), fill: "#e58a34" }, far);
+  var win = el("g", { id: "win" }, cam);
+  var wg = el("g", { filter: "url(#sh1)" }, win);
+  el("rect", { x: 150, y: 110, width: 270, height: 330, rx: 8, fill: "#a64a1d" }, wg);
+  el("rect", { x: 172, y: 132, width: 226, height: 286, rx: 4, fill: "#ffe08a" }, wg);       // cut-out pane = glow through
+  el("path", { d: "M285 132V418M172 275H398", stroke: "#a64a1d", "stroke-width": 12, fill: "none" }, wg);
+  el("path", { d: pth(zig(150, 440, 420, 440, 18, 14)), fill: "#a64a1d" }, wg);
+  // curtain-ring marker doodle stitches around the window
+  el("rect", { x: 160, y: 120, width: 250, height: 310, rx: 6, fill: "none", stroke: "#ffd9a0", "stroke-width": 3, "stroke-dasharray": "3 9", "stroke-linecap": "round", opacity: .7 }, wg);
+
+  el("ellipse", { id: "lampglow", cx: 930, cy: 330, rx: 260, ry: 260, fill: "url(#lamp)", opacity: 0 }, cam);
+  // mid layer: shelf, kettle, lamp
+  var mid = el("g", { id: "mid", filter: "url(#sh2)" }, cam);
+  el("rect", { x: 480, y: 480, width: 520, height: 26, rx: 6, fill: "#6e2a12" }, mid);
+  el("path", { d: pth(zig(480, 506, 1000, 506, 20, 12)), fill: "#6e2a12" }, mid);
+  var kettle = el("g", { id: "kettle", filter: "url(#sh2)" }, cam);
+  el("path", { d: "M560 480C548 420 580 380 640 380S732 420 720 480Z", fill: "#3b1608" }, kettle);
+  el("path", { d: "M720 440C760 440 770 400 790 386L800 398C780 410 780 460 724 466Z", fill: "#3b1608" }, kettle);    // spout
+  el("path", { d: "M575 420C560 330 720 330 705 420", fill: "none", stroke: "#3b1608", "stroke-width": 14, "stroke-linecap": "round" }, kettle);
+  el("circle", { cx: 640, cy: 372, r: 14, fill: "#3b1608" }, kettle);
+  // steam doodles
+  var steam = [];
+  [[795, 380, 0], [815, 372, 1], [775, 372, 2]].forEach(function (p) {
+    var st = el("path", { d: "M" + p[0] + " " + p[1] + "c-24 -24 24 -34 0 -60s24 -34 0 -60", fill: "none", stroke: "#fff6d2", "stroke-width": 8, "stroke-linecap": "round", opacity: .9 }, mid); steam.push(st);
+  });
+  // lamp hanging
+  var lampG = el("g", { id: "lamp0" }, cam);
+  var lampBody = el("g", { filter: "url(#sh3)" }, lampG);
+  el("path", { d: "M930 60V250", stroke: "#3b1608", "stroke-width": 7 }, lampBody);
+  el("path", { d: "M880 340L905 250H955L980 340Z", fill: "#3b1608" }, lampBody);
+  el("path", { d: pth(zig(880, 340, 980, 340, 12, 10)), fill: "#3b1608" }, lampBody);
+  el("path", { id: "bulb", d: "M905 346h50a25 14 0 0 1-50 0Z", fill: "#fff0a8", opacity: 0 }, lampG);
+
+  // near layer: doorway at right, zigzag ground
+  var near = el("g", { id: "door", filter: "url(#sh3)" }, cam);
+  el("path", { d: "M1010 700V330C1010 250 1170 250 1170 330V700Z", fill: "#241008" }, near);
+  el("path", { d: "M1040 700V338C1040 290 1140 290 1140 338V700Z", fill: "#ffcf6a" }, near);     // light through the door
+  el("path", { d: "M1090 292V700", stroke: "#241008", "stroke-width": 8 }, near);
+  el("circle", { cx: 1072, cy: 520, r: 8, fill: "#241008" }, near);
+  var gd = el("g", { id: "ground", filter: "url(#sh3)" }, cam);
+  var gp = zig(40, 640, 1240, 640, 36, -26); gp.push([1240, 740]); gp.push([40, 740]);
+  el("path", { d: pth(gp), fill: "#1c0b05" }, gd);
+
+  // doodle "cut" outline strokes drawn on top of every layer (dashed marker)
+  // curtains
+  var curL = el("g", { id: "curL", filter: "url(#sh3)" }, cam), curR = el("g", { id: "curR", filter: "url(#sh3)" }, cam);
+  var cl = zig(640, 40, 640, 680, 40, -34); cl = cl.concat([[60, 680], [60, 40]]);
+  el("path", { d: pth(cl), fill: "#c8321f" }, curL);
+  for (i = 0; i < 6; i++) el("path", { d: "M" + (110 + i * 90) + " 60V660", stroke: "#a52614", "stroke-width": 8, opacity: .6 }, curL);
+  var cr = zig(640, 40, 640, 680, 40, 34); cr = cr.concat([[1220, 680], [1220, 40]]);
+  el("path", { d: pth(cr), fill: "#c8321f" }, curR);
+  for (i = 0; i < 6; i++) el("path", { d: "M" + (690 + i * 90) + " 60V660", stroke: "#a52614", "stroke-width": 8, opacity: .6 }, curR);
+  // proscenium top valance zigzag
+  var val = el("g", { filter: "url(#sh3)" }, s);
+  var vp = zig(60, 110, 1220, 110, 40, 30); vp.push([1220, 20]); vp.push([60, 20]);
+  el("path", { d: pth(vp), fill: "#e0402a" }, val);
+  el("path", { d: "M60 60H1220", stroke: "#ffd9a0", "stroke-width": 4, "stroke-dasharray": "3 10", "stroke-linecap": "round", opacity: .8 }, val);
+  // title tag
+  var tag = el("g", { id: "tag" }, s);
+  el("path", { d: pth(zig(300, 568, 980, 568, 24, 10).concat([[980, 650], [300, 650]])), fill: "#fff0cf", filter: "url(#sh2)" }, tag);
+  var tx = el("text", { x: 640, y: 628, "text-anchor": "middle", "font-size": 66, "font-weight": 700, fill: "#a23a14", "font-family": "Fredoka, Quicksand, sans-serif" }, tag);
+  tx.textContent = "what makes a home?";
+  // text clip draw-on
+  var tcp = el("clipPath", { id: "tc" }, defs), tcr = el("rect", { x: 300, y: 560, width: 0, height: 100 }, tcp);
+  tx.setAttribute("clip-path", "url(#tc)");
+
+  var tl = gsap.timeline({ paused: true });
+  function ox(id, x, y) { gsap.set(id, { transformOrigin: "0 0" }); }
+  // curtains open
+  tl.fromTo("#curL", { x: 0 }, { x: -640, duration: 1.1, ease: "power3.inOut" }, 0.35);
+  tl.fromTo("#curR", { x: 0 }, { x: 640, duration: 1.1, ease: "power3.inOut" }, 0.35);
+  tl.fromTo(cam, { scale: 1.12, transformOrigin: "640px 360px" }, { scale: 1, duration: 4.6, ease: "power1.out" }, 0);
+  // layers slide in
+  tl.fromTo("#win", { y: -420 }, { y: 0, duration: 0.8, ease: "back.out(1.4)" }, 0.8);
+  tl.fromTo(far, { x: -500 }, { x: 0, duration: 0.9, ease: "power3.out" }, 0.7);
+  tl.fromTo(mid, { x: 800 }, { x: 0, duration: 0.8, ease: "power3.out" }, 1.1);
+  tl.fromTo("#kettle", { y: -420, scaleY: 1, transformOrigin: "640px 480px" }, { y: 0, duration: 0.55, ease: "bounce.out" }, 1.5);
+  tl.fromTo("#lamp0", { y: -420 }, { y: 0, duration: 0.8, ease: "elastic.out(1,0.55)" }, 1.8);
+  tl.fromTo("#door", { x: 420 }, { x: 0, duration: 0.7, ease: "power4.out" }, 2.05);
+  tl.fromTo("#ground", { y: 160 }, { y: 0, duration: 0.6, ease: "power3.out" }, 2.1);
+  // lamp lights: glow grows
+  tl.to("#bulb", { opacity: 1, duration: 0.2 }, 2.7);
+  tl.fromTo("#lampglow", { opacity: 0, scale: .3, transformOrigin: "930px 330px" }, { opacity: 1, scale: 1.2, duration: 0.8, ease: "power2.out" }, 2.7);
+  // steam draws
+  steam.forEach(function (p, k) {
+    var L = p.getTotalLength(); p.style.strokeDasharray = L + " " + (L + 20); 
+    tl.fromTo(p, { strokeDashoffset: L }, { strokeDashoffset: 0, duration: 0.7, ease: "power1.out" }, 2.3 + k * 0.18);
+    tl.to(p, { y: -24, opacity: 0.55, duration: 1.4, ease: "none" }, 2.9 + k * 0.18);
+  });
+  // title
+  tl.to(tcr, { attr: { width: 700 }, duration: 0.9, ease: "none" }, 3.4);
+  tl.set("#tag", { visibility: "hidden" }, 0);
+  tl.set("#tag", { visibility: "visible" }, 3.3);
+  tl.fromTo("#tag", { y: 120, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "back.out(1.6)" }, 3.3);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Product spin ad</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#1a0b3a}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:radial-gradient(ellipse at 50% 40%,#ff7a59 0%,#d63a7a 38%,#3b1470 80%,#1a0b3a 100%)}
+canvas{position:absolute;inset:0;width:1280px;height:720px}
+#cap{position:absolute;left:0;right:0;bottom:30px;text-align:center;font-family:'Archivo Black','Inter',sans-serif;font-size:60px;letter-spacing:2px;color:#fff;text-transform:uppercase;text-shadow:0 6px 30px rgba(40,0,60,.55)}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<canvas id="c" width="1280" height="720"></canvas>
+<div id="cap">Taste the spark</div>
+</div>
+<script type="module">
+import * as THREE from "./vendor/three/three.module.js";
+const canvas=document.getElementById("c");
+const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(1);renderer.setSize(1280,720,false);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.0;
+renderer.shadowMap.enabled=false;
+const scene=new THREE.Scene();
+// studio environment: dark room with bright softboxes
+const env=new THREE.Scene();
+const room=new THREE.Mesh(new THREE.SphereGeometry(10,32,16),new THREE.MeshBasicMaterial({color:0x4a2a70,side:THREE.BackSide}));env.add(room);
+function panel(w,h,x,y,z,c,i){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({color:new THREE.Color(c).multiplyScalar(i),side:THREE.DoubleSide}));m.position.set(x,y,z);m.lookAt(0,0,0);env.add(m);}
+panel(3,8,-7,2,3,0xfff0e0,5);panel(2,8,7,1,2,0xffb0d0,4);panel(8,2,0,8,0,0xffffff,4);panel(6,1.2,0,-1,-8,0xa0d0ff,3);panel(1.5,9,4,2,-7,0xffffff,6);
+const pm=new THREE.PMREMGenerator(renderer);scene.environment=pm.fromScene(env,0.02).texture;
+// can
+const pts=[];const R=0.5,H=2.3;
+pts.push([0,0],[0.36,0],[0.4,0.04],[0.42,0.09],[R,0.2],[R,0.3]);
+for(let i=0;i<=8;i++){pts.push([R,0.3+(H-0.3-0.55)*i/8]);}
+for(let i=1;i<=10;i++){const t=i/10;pts.push([R-(R-0.38)*Math.sin(t*Math.PI/2),H-0.55+0.4*t*t+0.15*t]);}
+pts.push([0.38,H-0.02],[0.4,H],[0.36,H],[0.34,H-0.04],[0,H-0.04]);
+const geo=new THREE.LatheGeometry(pts.map(p=>new THREE.Vector2(p[0],p[1])),96);
+const alu=new THREE.MeshPhysicalMaterial({color:0xe8edf5,metalness:1,roughness:0.22,clearcoat:0.4,clearcoatRoughness:0.2,envMapIntensity:1.3});
+const can=new THREE.Group();can.add(new THREE.Mesh(geo,alu));
+// label
+const lc=document.createElement("canvas");lc.width=2048;lc.height=800;const g=lc.getContext("2d");
+const gr=g.createLinearGradient(0,0,0,800);gr.addColorStop(0,"#ff5a36");gr.addColorStop(0.55,"#ff2d78");gr.addColorStop(1,"#7a2cff");g.fillStyle=gr;g.fillRect(0,0,2048,800);
+g.globalAlpha=0.16;g.fillStyle="#fff";
+for(let i=0;i<14;i++){g.beginPath();g.arc(100+i*150,(i%2)*320+120,90+((i*37)%60),0,7);g.fill();}
+g.globalAlpha=1;
+for(let k=0;k<2;k++){const ox=k*1024;
+ g.fillStyle="#fff";g.font="900 190px 'Archivo Black',Impact,sans-serif";g.textAlign="center";g.textBaseline="middle";
+ g.save();g.shadowColor="rgba(60,0,80,.45)";g.shadowBlur=24;g.shadowOffsetY=10;g.fillText("ZESTLY",ox+512,330);g.restore();
+ g.fillStyle="#ffe14d";g.fillRect(ox+312,455,400,14);
+ g.fillStyle="#fff";g.font="600 64px 'Inter',sans-serif";g.fillText("SPARKLING CITRUS",ox+512,560);
+ g.font="500 44px 'Inter',sans-serif";g.fillText("355 ml",ox+512,665);
+}
+const tex=new THREE.CanvasTexture(lc);tex.colorSpace=THREE.SRGBColorSpace;tex.anisotropy=8;
+const lab=new THREE.Mesh(new THREE.CylinderGeometry(R+0.004,R+0.004,1.25,96,1,true),new THREE.MeshPhysicalMaterial({map:tex,metalness:0.2,roughness:0.35,clearcoat:1,clearcoatRoughness:0.08}));
+lab.position.y=0.28+0.625+0.12;can.add(lab);
+// pedestal
+const ped=new THREE.Mesh(new THREE.CylinderGeometry(0.95,1.05,0.4,96),new THREE.MeshPhysicalMaterial({color:0x2b1450,metalness:0.3,roughness:0.25,clearcoat:1,clearcoatRoughness:0.1}));
+ped.position.y=-0.2;scene.add(ped);
+const ring=new THREE.Mesh(new THREE.TorusGeometry(0.95,0.02,12,96),new THREE.MeshBasicMaterial({color:0xffd24d}));ring.rotation.x=Math.PI/2;ring.position.y=0.0;scene.add(ring);
+can.scale.set(0.92,1.1,0.92);scene.add(can);
+// contact shadow
+const sc=document.createElement("canvas");sc.width=sc.height=128;const sg=sc.getContext("2d");const rg=sg.createRadialGradient(64,64,4,64,64,62);rg.addColorStop(0,"rgba(0,0,0,.6)");rg.addColorStop(1,"rgba(0,0,0,0)");sg.fillStyle=rg;sg.fillRect(0,0,128,128);
+const sh=new THREE.Mesh(new THREE.PlaneGeometry(1.5,1.5),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(sc),transparent:true,depthWrite:false}));sh.rotation.x=-Math.PI/2;sh.position.y=0.005;scene.add(sh);
+// lights
+const key=new THREE.DirectionalLight(0xfff0e0,2.2);key.position.set(-3,4,4);scene.add(key);
+const rim=new THREE.DirectionalLight(0xff9ad0,3.2);rim.position.set(4,3,-4);scene.add(rim);
+const rim2=new THREE.DirectionalLight(0x9ad0ff,1.6);rim2.position.set(-4,2,-3);scene.add(rim2);
+scene.add(new THREE.AmbientLight(0x6a4090,0.4));
+const cam=new THREE.PerspectiveCamera(30,1280/720,0.1,50);
+function draw(t){
+ const k=t/5, e=k*k*(3-2*k)*0.6+k*0.4;
+ can.rotation.y=-0.6+t*1.25;
+ can.position.y=Math.sin(t*1.2)*0.02;
+ const dist=7.6-1.0*e, h=1.2+0.2*e;
+ cam.position.set(Math.sin(0.25*k)*0.8,h+0.3-0.4*e,dist);cam.lookAt(0,0.95,0);
+ renderer.render(scene,cam);
+}
+window.addEventListener("hf-seek",e=>draw(e.detail.time));
+draw(window.__hfThreeTime||0);
+window.__timelines=window.__timelines||{};
+const tl=gsap.timeline({paused:true});
+tl.fromTo("#cap",{opacity:0,y:30},{opacity:1,y:0,duration:0.7,ease:"power3.out"},0.3);
+tl.to({}, {duration:5},0);
+window.__timelines["main"]=tl;
+</script></body></html>

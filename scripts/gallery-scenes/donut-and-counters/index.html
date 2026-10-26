@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Donut and counters</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #0f1b2d; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: linear-gradient(160deg, #13233b 0%, #0b1626 100%); font-family: "Inter", sans-serif; }
+  svg { position: absolute; inset: 0; }
+  .cap { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 60px; fill: #f2f6fc; }
+  .lab { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 30px; fill: #9fb3d1; }
+  .big { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 84px; }
+  .ctr { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 34px; fill: #f2f6fc; }
+  .tag { font-family: "Inter", sans-serif; font-size: 22px; fill: #7f97b8; letter-spacing: 3px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function txt(str, a, p) { var e = el("text", a, p); e.textContent = str; return e; }
+  txt("Where it all adds up", { x: 70, y: 104, class: "cap" });
+  txt("EXAMPLE DATA", { x: 72, y: 142, class: "tag" });
+  var CX = 330, CY = 420, R = 150, SW = 64, C = 2 * Math.PI * R;
+  var segs = [{ v: 38, c: "#4f9dff" }, { v: 27, c: "#2dd4bf" }, { v: 21, c: "#fbbf24" }, { v: 14, c: "#f472b6" }];
+  el("circle", { cx: CX, cy: CY, r: R, fill: "none", stroke: "#1b2f4d", "stroke-width": SW });
+  var GAP = 5, acc = 0, rings = [];
+  segs.forEach(function (sg, i) {
+    var len = sg.v / 100 * C, start = acc / 100 * C; acc += sg.v;
+    var c = el("circle", { cx: CX, cy: CY, r: R, fill: "none", stroke: sg.c, "stroke-width": SW,
+      transform: "rotate(" + (-90 + start / C * 360) + " " + CX + " " + CY + ")",
+      "stroke-dasharray": "0 " + C });
+    rings.push({ c: c, len: len - GAP });
+  });
+  var cen = txt("100%", { x: CX, y: CY + 18, "text-anchor": "middle", class: "big", fill: "#f2f6fc", "font-size": 42, opacity: 0 });
+  cen.setAttribute("fill", "#f2f6fc");
+  var cl = cen;
+  // counters
+  var K = [
+    { lab: "Visitors", to: 12480, col: "#4f9dff", y: 270 },
+    { lab: "Sign-ups", to: 3260, col: "#2dd4bf", y: 440 },
+    { lab: "Orders", to: 870, col: "#fbbf24", y: 610 }
+  ];
+  var cs = K.map(function (k) {
+    var g = el("g", { opacity: 0 });
+    el("rect", { x: 700, y: k.y - 108, width: 8, height: 114, rx: 4, fill: k.col }, g);
+    var n = txt("0", { x: 740, y: k.y - 40, class: "big", fill: k.col }, g);
+    n.setAttribute("fill", k.col);
+    txt(k.lab, { x: 742, y: k.y + 2, class: "lab" }, g);
+    return { g: g, n: n, k: k, o: { v: 0 } };
+  });
+  function fmt(v) { return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+  var tl = gsap.timeline({ paused: true });
+  tl.fromTo("#s", { opacity: 0 }, { opacity: 1, duration: 0.3 }, 0);
+  var T = 0.3;
+  rings.forEach(function (r, i) {
+    var d = 0.9 * (segs[i].v / 100) * 3.2 + 0.2;
+    var o = { l: 0 };
+    tl.to(o, { l: r.len, duration: d, ease: "power2.inOut", onUpdate: (function (o, r) { return function () { r.c.setAttribute("stroke-dasharray", o.l + " " + (C - o.l)); }; })(o, r) }, T);
+    T += d - 0.05;
+  });
+  tl.to(cen, { opacity: 1, duration: 0.5 }, 2.6);
+  cs.forEach(function (c, i) {
+    var at = 0.5 + i * 0.35;
+    tl.fromTo(c.g, { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, at);
+    tl.to(c.o, { v: c.k.to, duration: 3.2, ease: "power2.out", onUpdate: (function (c) { return function () { c.n.textContent = fmt(c.o.v); }; })(c) }, at);
+  });
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

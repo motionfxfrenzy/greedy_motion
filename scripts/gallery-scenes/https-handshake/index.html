@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>HTTPS handshake</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0d1117}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#0d1117;background-image:radial-gradient(rgba(148,163,184,.12) 1.2px,transparent 1.3px);background-size:32px 32px;font-family:'Space Grotesk',sans-serif;color:#f1f5f9}
+#cap{position:absolute;left:0;right:0;top:40px;text-align:center;font-size:66px;font-weight:700;letter-spacing:-1px}
+#cap span{color:#22d3ee}
+svg{position:absolute;inset:0}
+.m{font-family:'JetBrains Mono',monospace;font-weight:700}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<div id="cap">Trust first, <span>then talk</span></div>
+<svg width="1280" height="720" viewBox="0 0 1280 720">
+<defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="gl2" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="10"/></filter></defs>
+<g id="lanes"></g>
+<g id="nodes"></g>
+<g id="lock" transform="translate(640 250)" opacity=".35">
+ <circle id="lkglow" r="70" fill="#22d3ee" opacity="0" filter="url(#gl2)"/>
+ <path id="shackle" d="M-26 -8 V-28 A26 26 0 0 1 26 -28 V-8" fill="none" stroke="#22d3ee" stroke-width="10" stroke-linecap="round"/>
+ <rect x="-44" y="-8" width="88" height="68" rx="14" fill="#22d3ee"/>
+ <circle cx="0" cy="20" r="9" fill="#0d1117"/><rect x="-4" y="22" width="8" height="20" rx="3" fill="#0d1117"/>
+</g>
+<g id="msgs"></g>
+<g id="chips"></g>
+</svg></div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const mk=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+const AC="#22d3ee";
+const tl=gsap.timeline({paused:true});
+const _s=tl.set.bind(tl);tl.set=(t,v,p)=>_s(t,Object.assign({immediateRender:false},v),p);
+const NW=230,NH=170,NY=345;
+const left={x:50},right={x:1000};
+const mkNode=(x,label,sub)=>{const g=mk("g",{},document.getElementById("nodes"));
+ const glow=mk("rect",{x,y:NY,width:NW,height:NH,rx:24,fill:AC,opacity:0,filter:"url(#gl2)"},g);
+ mk("rect",{x,y:NY,width:NW,height:NH,rx:24,fill:"#101a2b",stroke:AC,"stroke-width":2.5,"stroke-opacity":.6},g);
+ // tiny window chrome / server rack
+ if(sub==="b"){mk("rect",{x:x+24,y:NY+24,width:NW-48,height:34,rx:10,fill:"#1b2840"},g);[0,1,2].forEach(i=>mk("circle",{cx:x+42+i*18,cy:NY+41,r:4.5,fill:AC,opacity:.7},g));}
+ else{[0,1].forEach(i=>{mk("rect",{x:x+24,y:NY+24+i*22,width:NW-48,height:16,rx:6,fill:"#1b2840"},g);mk("circle",{cx:x+NW-40,cy:NY+32+i*22,r:4.5,fill:AC,opacity:.7},g)})}
+ const t=mk("text",{x:x+NW/2,y:NY+125,class:"m","font-size":30,fill:"#e2e8f0","text-anchor":"middle"},g);t.textContent=label;
+ return{g,glow}};
+const nL=mkNode(left.x,"BROWSER","b"),nR=mkNode(right.x,"SERVER","s");
+const LY1=395,LY2=465,x0=left.x+NW+14,x1=right.x-14;
+[LY1,LY2].forEach((y,i)=>{
+ mk("path",{d:`M${x0} ${y} H${x1}`,stroke:"#2a3a55","stroke-width":3,"stroke-dasharray":"2 12","stroke-linecap":"round",fill:"none"},document.getElementById("lanes"));
+ const d=i==0?`M${x1-22} ${y-9} L${x1-8} ${y} L${x1-22} ${y+9}`:`M${x0+22} ${y-9} L${x0+8} ${y} L${x0+22} ${y+9}`;
+ mk("path",{d,stroke:"#3b5278","stroke-width":3,fill:"none","stroke-linecap":"round","stroke-linejoin":"round"},document.getElementById("lanes"));
+});
+function pill(label,w,enc){const g=mk("g",{opacity:0},document.getElementById("msgs"));
+ mk("rect",{x:-w/2,y:-26,width:w,height:52,rx:26,fill:AC,opacity:.4,filter:"url(#glow)"},g);
+ mk("rect",{x:-w/2,y:-26,width:w,height:52,rx:26,fill:enc?"#0d2a33":AC,stroke:AC,"stroke-width":2.5},g);
+ const t=mk("text",{class:"m","font-size":30,"text-anchor":"middle",y:10,fill:enc?AC:"#0d1117"},g);t.textContent=label;return g}
+function send(label,w,dir,y,t0,dur,enc){const g=pill(label,w,enc);const a=dir>0?x0+w/2:x1-w/2,b=dir>0?x1-w/2:x0+w/2;
+ gsap.set(g,{x:a,y});tl.set(g,{opacity:1},t0);tl.fromTo(g,{x:a},{x:b,duration:dur,ease:enc?"none":"power2.inOut",immediateRender:false},t0);tl.set(g,{opacity:0},t0+dur+0.02);return g}
+tl.from("#cap",{opacity:0,y:-12,duration:.5,ease:"power3.out"},0);
+[nL.g,nR.g].forEach((g,i)=>tl.from(g,{opacity:0,y:14,duration:.45,ease:"power3.out"},i*.1));
+tl.from("#lanes",{opacity:0,duration:.4},0.1);
+// lock hidden until closing
+gsap.set("#lock",{opacity:.35});gsap.set("#shackle",{y:-18});
+// steps chips
+const steps=["HELLO","CERT","KEY","SECURE"];const cw=[150,140,130,200];
+let cx=640-(cw.reduce((a,b)=>a+b,0)+3*70)/2;
+const chips=steps.map((s,i)=>{const g=mk("g",{},document.getElementById("chips"));const w=cw[i];
+ const r=mk("rect",{x:cx,y:590,width:w,height:52,rx:26,fill:"rgba(34,211,238,.06)",stroke:"#2a3a55","stroke-width":2.5},g);
+ const t=mk("text",{x:cx+w/2,y:625,class:"m","font-size":28,fill:"#8b9ab3","text-anchor":"middle"},g);t.textContent=s;
+ if(i<3)mk("path",{d:`M${cx+w+22} 616 h26 m-9 -9 l9 9 l-9 9`,stroke:"#2a3a55","stroke-width":3,fill:"none","stroke-linecap":"round","stroke-linejoin":"round"},document.getElementById("chips"));
+ const o={r,t};cx+=w+70;return o});
+const light=(i,t)=>{tl.to(chips[i].r,{fill:AC,stroke:AC,duration:.2},t);tl.to(chips[i].t,{fill:"#0d1117",duration:.2},t)};
+const pulse=(n,t)=>{tl.fromTo(n.glow,{opacity:.7},{opacity:0,duration:.6,ease:"power2.out",immediateRender:false},t);tl.fromTo(n.g,{scale:1.05,svgOrigin:`${n.glow.getAttribute("x")*1+NW/2} ${NY+NH/2}`},{scale:1,svgOrigin:`${n.glow.getAttribute("x")*1+NW/2} ${NY+NH/2}`,duration:.45,ease:"back.out(2)",immediateRender:false},t)};
+// handshake
+send("HELLO",160,1,LY1,0.35,0.75);pulse(nR,1.1);light(0,1.1);
+send("CERT",140,-1,LY2,1.2,0.75);pulse(nL,1.95);light(1,1.95);
+send("KEY",130,1,LY1,2.05,0.75);pulse(nR,2.8);light(2,2.8);
+// lock closes
+tl.fromTo("#lock",{opacity:.35},{opacity:1,duration:.3,immediateRender:false},2.75);
+tl.fromTo("#shackle",{y:-18},{y:0,duration:.3,ease:"power3.in",immediateRender:false},2.95);
+tl.fromTo("#lock",{scale:1.0},{scale:1.12,svgOrigin:"640 250",duration:.12,yoyo:true,repeat:1,ease:"power2.out",immediateRender:false},3.25);
+tl.fromTo("#lkglow",{opacity:0},{opacity:.6,duration:.4,immediateRender:false},3.2);
+light(3,3.25);
+// encrypted traffic
+const enc=[["#7%&",1,LY1,3.3],["x!9$",-1,LY2,3.55],["@q#2",1,LY1,3.95],["8&z%",-1,LY2,4.2]];
+enc.forEach(([l,d,y,t])=>send(l,120,d,y,t,0.95,true));
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

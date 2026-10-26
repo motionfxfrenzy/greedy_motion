@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Keyboard exploded view</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0d1320}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:radial-gradient(ellipse at 50% 35%,#34425e 0%,#1a2236 55%,#0b0f1a 100%)}
+canvas{position:absolute;inset:0;width:1280px;height:720px}
+#cap{position:absolute;left:0;right:0;bottom:36px;text-align:center;font-family:'Space Grotesk','Inter',sans-serif;font-weight:700;font-size:64px;letter-spacing:-1px;color:#fff;text-shadow:0 4px 24px rgba(0,0,0,.6)}
+#cap b{color:#ff8a3d}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<canvas id="c" width="1280" height="720"></canvas>
+<div id="cap">Built <b>layer</b> by layer</div>
+</div>
+<script type="module">
+import * as THREE from "./vendor/three/three.module.js";
+const canvas=document.getElementById("c");
+const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(1);renderer.setSize(1280,720,false);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+const scene=new THREE.Scene();
+const env=new THREE.Scene();
+env.add(new THREE.Mesh(new THREE.SphereGeometry(10,32,16),new THREE.MeshBasicMaterial({color:0x2a3550,side:THREE.BackSide})));
+function panel(w,h,x,y,z,c,i){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({color:new THREE.Color(c).multiplyScalar(i),side:THREE.DoubleSide}));m.position.set(x,y,z);m.lookAt(0,0,0);env.add(m);}
+panel(8,3,0,8,2,0xffffff,4);panel(2,8,-8,2,2,0xffe8d0,4);panel(2,8,8,2,-2,0xa8c8ff,4);panel(8,1,0,1,-9,0xffffff,3);
+scene.environment=new THREE.PMREMGenerator(renderer).fromScene(env,0.03).texture;
+scene.add(new THREE.AmbientLight(0x8090b0,0.3));
+const key=new THREE.DirectionalLight(0xfff2e0,2.4);key.position.set(-5,9,6);scene.add(key);
+const rim=new THREE.DirectionalLight(0xff9a50,3);rim.position.set(7,3,-6);scene.add(rim);
+const rim2=new THREE.DirectionalLight(0x70b0ff,2);rim2.position.set(-7,2,-5);scene.add(rim2);
+// seeded rng
+let sd=7;const rnd=()=>{sd=(sd*1664525+1013904223)>>>0;return sd/4294967296;};
+function rbox(w,h,d,r){const s=new THREE.Shape();const x=-w/2,y=-d/2;s.moveTo(x+r,y);s.lineTo(x+w-r,y);s.quadraticCurveTo(x+w,y,x+w,y+r);s.lineTo(x+w,y+d-r);s.quadraticCurveTo(x+w,y+d,x+w-r,y+d);s.lineTo(x+r,y+d);s.quadraticCurveTo(x,y+d,x,y+d-r);s.lineTo(x,y+r);s.quadraticCurveTo(x,y,x+r,y);
+ const g=new THREE.ExtrudeGeometry(s,{depth:h,bevelEnabled:true,bevelSize:r*0.25,bevelThickness:r*0.25,bevelSegments:2,curveSegments:4});g.rotateX(-Math.PI/2);g.translate(0,0,0);return g;}
+// layout
+const keys=[];const COLS=12,ROWS=4;
+for(let r=0;r<ROWS;r++){
+ if(r<3){for(let c=0;c<COLS;c++)keys.push({x:c-(COLS-1)/2,z:r-1.5,w:1});}
+ else{const ws=[1.5,1,1,1,1,3,1,1,1];let x=0;const tot=ws.reduce((a,b)=>a+b,0);x=-tot/2;ws.forEach((w,i)=>{keys.push({x:x+w/2,z:r-1.5,w});x+=w;});}
+}
+const N=keys.length;
+const WALL=0.35;const bw=COLS+0.5+WALL*2,bd=ROWS+0.5+WALL*2;
+// case
+const caseG=new THREE.Group();
+const bodyMat=new THREE.MeshPhysicalMaterial({color:0x232a3a,metalness:0.85,roughness:0.32,clearcoat:0.3});
+const outer=new THREE.Shape();{const w=bw/2,d=bd/2,r=0.35;outer.moveTo(-w+r,-d);outer.lineTo(w-r,-d);outer.quadraticCurveTo(w,-d,w,-d+r);outer.lineTo(w,d-r);outer.quadraticCurveTo(w,d,w-r,d);outer.lineTo(-w+r,d);outer.quadraticCurveTo(-w,d,-w,d-r);outer.lineTo(-w,-d+r);outer.quadraticCurveTo(-w,-d,-w+r,-d);
+ const iw=bw/2-WALL,idp=bd/2-WALL,ir=0.15;const h=new THREE.Path();h.moveTo(-iw+ir,-idp);h.lineTo(iw-ir,-idp);h.quadraticCurveTo(iw,-idp,iw,-idp+ir);h.lineTo(iw,idp-ir);h.quadraticCurveTo(iw,idp,iw-ir,idp);h.lineTo(-iw+ir,idp);h.quadraticCurveTo(-iw,idp,-iw,idp-ir);h.lineTo(-iw,-idp+ir);h.quadraticCurveTo(-iw,-idp,-iw+ir,-idp);outer.holes.push(h);}
+const wallG=new THREE.ExtrudeGeometry(outer,{depth:0.5,bevelEnabled:false,curveSegments:6});wallG.rotateX(-Math.PI/2);
+const wall=new THREE.Mesh(wallG,bodyMat);caseG.add(wall);
+const base=new THREE.Mesh(rbox(bw-0.02,0.2,bd-0.02,0.35),bodyMat);base.position.y=-0.2;caseG.add(base);
+const accent=new THREE.Mesh(new THREE.BoxGeometry(bw*0.5,0.06,0.04),new THREE.MeshBasicMaterial({color:0xff8a3d}));accent.position.set(0,0.1,bd/2+0.001);
+scene.add(caseG);
+// plate
+const plate=new THREE.Mesh(new THREE.BoxGeometry(COLS+0.5,0.08,ROWS+0.5),new THREE.MeshPhysicalMaterial({color:0xc9d2e0,metalness:1,roughness:0.3}));
+plate.position.y=0.6;scene.add(plate);
+// switches
+const swG=new THREE.Group();const swBodyG=new THREE.BoxGeometry(0.62,0.34,0.62),stemG=new THREE.BoxGeometry(0.16,0.2,0.16);
+const swMat=new THREE.MeshPhysicalMaterial({color:0x3a4256,roughness:0.4,metalness:0.1,clearcoat:0.5});
+const topMat=new THREE.MeshPhysicalMaterial({color:0xe9eef7,roughness:0.3,transmission:0,clearcoat:0.5});
+const stemMat=new THREE.MeshStandardMaterial({color:0xff8a3d,roughness:0.4});
+const sw=new THREE.InstancedMesh(swBodyG,swMat,N),swT=new THREE.InstancedMesh(new THREE.BoxGeometry(0.62,0.1,0.62),topMat,N),st=new THREE.InstancedMesh(stemG,stemMat,N);
+const caps=[];const capMats=[];
+const capGeos={};function capGeo(w){if(capGeos[w])return capGeos[w];const g=rbox(0.9*w+(w>1?0.1*(w-1):0),0.3,0.88,0.12);const p=g.attributes.position;for(let i=0;i<p.count;i++){const y=p.getY(i);if(y>0.2){p.setX(i,p.getX(i)*0.82);p.setZ(i,p.getZ(i)*0.86);}}g.computeVertexNormals();return capGeos[w]=g;}
+const capGroup=new THREE.Group();
+const cream=0xeceff4,mod=0x56607a,acc=0xff8a3d,teal=0x3fd0c0;
+keys.forEach((k,i)=>{
+ const col=(k.w>=3)?acc:(k.x<-4.9||k.x>4.9)?mod:((i%7===3)?teal:cream);
+ const m=new THREE.Mesh(capGeo(k.w),new THREE.MeshPhysicalMaterial({color:col,roughness:0.45,metalness:0,clearcoat:0.35,clearcoatRoughness:0.4}));
+ m.position.set(k.x,0,k.z);capGroup.add(m);
+ const mt=new THREE.Matrix4();
+ mt.setPosition(k.x,0,k.z);sw.setMatrixAt(i,mt);swT.setMatrixAt(i,mt);st.setMatrixAt(i,mt);
+ caps.push({m,k,delay:rnd()*0.35});
+});
+scene.add(capGroup);scene.add(sw,swT,st);
+// floor glow
+const fc=document.createElement("canvas");fc.width=fc.height=256;const fg=fc.getContext("2d");const gg=fg.createRadialGradient(128,128,6,128,128,126);gg.addColorStop(0,"rgba(0,0,0,.7)");gg.addColorStop(1,"rgba(0,0,0,0)");fg.fillStyle=gg;fg.fillRect(0,0,256,256);
+const shadow=new THREE.Mesh(new THREE.PlaneGeometry(20,10),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(fc),transparent:true,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.position.y=-0.5;scene.add(shadow);
+const cam=new THREE.PerspectiveCamera(30,1280/720,0.1,100);
+const ease=x=>x<0?0:x>1?1:x*x*x*(x*(6*x-15)+10);
+// layer heights (assembled -> exploded)
+const L={cap:[0.62+0.0,3.3],sw:[0.62-0.02,1.4],plate:[0.6,0.0],body:[0,-1.5]};
+function draw(t){
+ // explode amount 0..1: out 0.7-2.0, hold, back 3.1-4.4
+ const out=ease((t-0.6)/1.5), back=ease((t-3.1)/1.4), a=out*(1-back);
+ const lift=(h)=>a*h;
+ caseG.position.y=-1.1*a-0.2*0;
+ plate.position.y=0.6+0.2*a-0.0;
+ // switches
+ const swY=0.34/2+0.62+0.17*0+0.0;
+ const mt=new THREE.Matrix4();
+ keys.forEach((k,i)=>{
+  const lagA=ease((t-0.6-caps[i].delay*0.5)/1.5)*(1-ease((t-3.1-(0.35-caps[i].delay)*0.5)/1.4));
+  mt.makeTranslation(k.x,0.78+1.2*a,k.z);sw.setMatrixAt(i,mt);
+  mt.makeTranslation(k.x,0.78+1.2*a+0.22,k.z);swT.setMatrixAt(i,mt);
+  mt.makeTranslation(k.x,0.78+1.2*a+0.4,k.z);st.setMatrixAt(i,mt);
+  caps[i].m.position.y=1.12+3.0*lagA;
+  caps[i].m.rotation.y=Math.sin(lagA*Math.PI)*0.12*(caps[i].delay-0.17)*6;
+ });
+ sw.instanceMatrix.needsUpdate=swT.instanceMatrix.needsUpdate=st.instanceMatrix.needsUpdate=true;
+ // camera orbit
+ const ang=-0.55+t*0.22, rad=17.5-1.0*Math.min(1,t/5), hgt=8.5-1.3*a;
+ cam.position.set(Math.sin(ang)*rad,hgt,Math.cos(ang)*rad);cam.lookAt(0,-0.1+1.1*a,0);
+ shadow.position.y=-0.55-1.1*a;
+ renderer.render(scene,cam);
+}
+window.addEventListener("hf-seek",e=>draw(e.detail.time));
+draw(window.__hfThreeTime||0);
+window.__timelines=window.__timelines||{};
+const tl=gsap.timeline({paused:true});
+tl.fromTo("#cap",{opacity:0,y:26},{opacity:1,y:0,duration:0.7,ease:"power3.out"},0.2);
+tl.to({}, {duration:5},0);
+window.__timelines["main"]=tl;
+</script></body></html>

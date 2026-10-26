@@ -65,3 +65,16 @@ Verified in Chrome against a real backend: the frame's origin is the backend's, 
 - The agent dock works with a rule-based stand-in (`AgentDock.tsx`) that proposes real, reversible edits; no model is called yet.
 - Dark theme is complete; F6 region cycling and Tab-through-layers on the canvas are partial.
 - The handoff's open questions about EffectCraft commands, latency and checks remain open. The HyperFrames lint answer is now known: findings carry `code`, `severity`, `message`, `line`, `elementId`, `fixHint`.
+
+## Storyboard films in the editor (2026-10-14)
+
+A film opened from a storyboard is one `#root` layer: the engine's script draws every scene from the plan when the page
+loads, so the timeline shows only the root and the audio clips. Two things make it work in the editor:
+
+- **Snapshot** (`buildSnapshot` in `backend/src/pro/routes.ts`): the film's values go into the page's `hf-variables` block, and
+  `withEditorRoot` gives the root an explicit duration and pixel size. Without them the preview was blank (no beats, and a
+  root zero pixels tall).
+- **Text tab** (`frontend/lib/editor/beat-text.ts`, `Inspector.tsx`): each frame's keyword and on-screen text, edited in place
+  through the `hf-variables` overrides (`b1.keyword`, `b1.on_screen`). Spoken lines are audio and are not editable here.
+
+Scenes as timeline clips with their own timing and text elements are held for v2: see `docs/v2/PLAN.md` item 3.

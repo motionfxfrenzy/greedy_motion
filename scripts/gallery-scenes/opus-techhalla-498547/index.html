@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Kinetic poster bumper</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#000}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#050505;font-family:'Bebas Neue',sans-serif}
+.hit{position:absolute;inset:0;overflow:hidden;visibility:hidden}
+.t{position:absolute;white-space:nowrap;line-height:.82;letter-spacing:-.01em;text-transform:uppercase;transform-origin:50% 55%}
+.mag{color:#ff1fc6;mix-blend-mode:screen}.grn{color:#c8ff00;mix-blend-mode:screen}
+.mono{position:absolute;font-family:'DM Mono',monospace;font-size:22px;letter-spacing:.08em;text-transform:uppercase}
+#grain{position:absolute;inset:0;pointer-events:none}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720">
+<!-- hit 1: black / white word with misregister -->
+<div class="hit" id="h1" style="background:#050505">
+ <div class="t grn" id="h1g" style="font-size:680px;left:50px;top:70px">LOUD</div>
+ <div class="t mag" id="h1m" style="font-size:680px;left:50px;top:70px">LOUD</div>
+ <div class="t" id="h1w" style="font-size:680px;left:50px;top:70px;color:#fff;mix-blend-mode:normal;opacity:.96">LOUD</div>
+ <div class="mono" style="left:48px;top:34px;color:#c8ff00">01 / 06</div><div class="mono" style="right:48px;bottom:34px;color:#ff1fc6">REG +4 / -4</div>
+</div>
+<!-- hit 2: acid green, black slanted -->
+<div class="hit" id="h2" style="background:#c8ff00">
+ <div class="t" id="h2m" style="font-size:680px;left:-20px;top:100px;color:#ff1fc6;mix-blend-mode:multiply;transform:rotate(-6deg)">FAST</div>
+ <div class="t" id="h2k" style="font-size:680px;left:-20px;top:100px;color:#050505;transform:rotate(-6deg)">FAST</div>
+ <div class="mono" style="left:48px;bottom:34px;color:#050505">02 / 06 &nbsp;&#9654;&#9654;&#9654;</div>
+ <div class="mono" style="right:48px;top:34px;color:#050505">NO BRAKES</div>
+</div>
+<!-- hit 3: magenta, two lines -->
+<div class="hit" id="h3" style="background:#ff1fc6">
+ <div class="t" id="h3a" style="font-size:450px;left:50px;top:55px;color:#050505">NO</div>
+ <div class="t" id="h3b" style="font-size:450px;left:50px;top:345px;color:#c8ff00">FILLER</div>
+ <div class="t" id="h3c" style="font-size:450px;left:50px;top:345px;color:#050505;mix-blend-mode:multiply;opacity:.9">FILLER</div>
+ <div class="mono" style="right:48px;top:34px;color:#050505">03 / 06</div>
+</div>
+<!-- hit 4: huge stacked finish -->
+<div class="hit" id="h4" style="background:#050505">
+ <div class="t" id="r1" style="font-size:285px;left:50px;top:40px;color:#fff">LOUD.</div>
+ <div class="t" id="r2" style="font-size:285px;left:50px;top:262px;color:#c8ff00">FAST.</div>
+ <div class="t" id="r3" style="font-size:285px;left:50px;top:484px;color:#ff1fc6">NO FILLER.</div>
+ <div class="mono" style="right:48px;top:40px;color:#fff;opacity:.8">&#9679; LOOP</div>
+ <div class="mono" style="right:48px;top:74px;color:#fff;opacity:.5">06 / 06</div>
+</div>
+<div id="bar" style="position:absolute;left:0;bottom:0;height:10px;width:0;background:#c8ff00"></div>
+</div>
+<script>
+var tl=gsap.timeline({paused:true});
+function show(id,t,off){tl.set(id,{visibility:"visible"},t);if(off!=null)tl.set(id,{visibility:"hidden"},off)}
+function shake(t,a){tl.fromTo("#root",{x:a,y:-a*.6},{x:0,y:0,duration:.28,ease:"elastic.out(1.2,.25)"},t)}
+// hit 1
+show("#h1",0,.95);
+tl.fromTo("#h1w",{scale:1.7,opacity:0},{scale:1,opacity:.96,duration:.2,ease:"power4.out"},0);
+tl.fromTo("#h1m",{x:60,scale:1.7},{x:7,y:-3,scale:1,duration:.24,ease:"power4.out"},0);
+tl.fromTo("#h1g",{x:-60,scale:1.7},{x:-7,y:4,scale:1,duration:.24,ease:"power4.out"},0);
+shake(.15,14);
+// hit 2
+show("#h2",.95,1.85);
+tl.fromTo("#h2k",{x:-700,scale:1.2},{x:0,scale:1,duration:.22,ease:"power4.out"},.95);
+tl.fromTo("#h2m",{x:-900},{x:16,y:10,duration:.3,ease:"power4.out"},.95);
+shake(1.1,-16);
+// hit 3
+show("#h3",1.85,2.75);
+tl.fromTo("#h3a",{y:-500},{y:0,duration:.2,ease:"power4.in"},1.85);
+tl.fromTo(["#h3b","#h3c"],{y:600},{y:0,duration:.2,ease:"power4.in"},2.05);
+tl.fromTo("#h3c",{x:-10},{x:10,y:6,duration:.2,ease:"power3.out"},2.25);
+shake(2.05,18);shake(2.25,-22);
+// hit 4: three slams stacked, then hold
+show("#h4",2.75);
+[["#r1",2.75],["#r2",3.1],["#r3",3.5]].forEach(function(r,i){
+ tl.fromTo(r[0],{scale:i%2?1.5:1.9,x:i%2?-300:300,opacity:0},{scale:1,x:0,opacity:1,duration:.2,ease:"power4.out"},r[1]);
+ shake(r[1]+.05,i%2?-18:18);
+ tl.fromTo(r[0],{textShadow:"14px 0 0 rgba(255,31,198,.9),-14px 0 0 rgba(200,255,0,.9)"},{textShadow:"4px 0 0 rgba(255,31,198,.0),-4px 0 0 rgba(200,255,0,.0)",duration:.35,ease:"power3.out"},r[1]);
+});
+// flash on first frame of each hit
+tl.to("#bar",{width:1280,duration:5,ease:"none"},0);
+tl.set({},{},5);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+</script></body></html>

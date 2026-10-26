@@ -1,0 +1,16 @@
+{
+  "id": "donut-and-counters",
+  "name": "Donut Chart With Counters",
+  "group": "Data & maps",
+  "summary": "A donut chart draws its coloured segments clockwise while three example counters count up beside it.",
+  "bestFor": "Share-of-total breakdowns with headline numbers",
+  "prompt": "Make a data summary with a donut chart on the left and three big counters on the right, using clearly made-up numbers. Draw the four donut segments clockwise in different colours, one after another, with a short label for each. While the chart fills in, count the three numbers up from zero and slide each one in with its name. End on the complete donut and all three final numbers.",
+  "look": "clean",
+  "theme": "blue-professional",
+  "aspect": "16:9",
+  "durationSeconds": 30,
+  "motionProfile": "smooth",
+  "pace": "balanced",
+  "audio": "both",
+  "poster": 3.4
+}

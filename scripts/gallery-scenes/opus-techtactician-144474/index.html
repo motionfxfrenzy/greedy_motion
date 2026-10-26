@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Feature launch trailer</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #e8f0ff; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #e8f0ff; font-family: "Inter", sans-serif; color: #0b2559; }
+  #grid { position: absolute; inset: 0; background-image: linear-gradient(#cfdcfa 2px, transparent 2px), linear-gradient(90deg, #cfdcfa 2px, transparent 2px); background-size: 64px 64px; opacity: .55; }
+  #head { position: absolute; left: 70px; top: 34px; font-weight: 800; font-size: 74px; letter-spacing: -0.045em; line-height: 1; }
+  #head span { display: block; overflow: hidden; padding-bottom: 10px; }
+  #head i { display: block; font-style: normal; }
+  #head em { font-style: normal; color: #2563eb; }
+  #card { position: absolute; left: 70px; top: 200px; width: 1140px; height: 470px; background: #fff; border-radius: 28px; box-shadow: 0 30px 70px rgba(11,37,89,.22), 0 0 0 2px #dbe5fb; overflow: hidden; }
+  #prompt { position: absolute; left: 34px; top: 30px; width: 1072px; height: 84px; border-radius: 42px; background: #f1f5ff; border: 3px solid #2563eb; display: flex; align-items: center; padding: 0 30px; font-weight: 600; font-size: 38px; }
+  #typed { display: inline-block; overflow: hidden; white-space: nowrap; width: 0; }
+  #caret { display: inline-block; width: 4px; height: 42px; background: #2563eb; margin-left: 4px; }
+  #gen { position: absolute; right: 12px; top: 12px; height: 60px; padding: 0 30px; border-radius: 30px; background: #2563eb; color: #fff; font-weight: 700; font-size: 28px; display: flex; align-items: center; gap: 10px; }
+  .sl { position: absolute; width: 250px; height: 156px; border-radius: 16px; background: #fff; border: 3px solid #0b2559; top: 170px; overflow: hidden; box-shadow: 0 10px 22px rgba(11,37,89,.18); }
+  .sl svg { position: absolute; inset: 0; }
+  #main { position: absolute; left: 34px; top: 190px; width: 0; height: 0; }
+  #bigslide { position: absolute; left: 34px; top: 160px; width: 1072px; height: 296px; border-radius: 18px; background: #0b2559; overflow: hidden; opacity: 0; }
+  #end { position: absolute; inset: 0; background: #2563eb; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; }
+  #end b { font-size: 190px; letter-spacing: -0.06em; font-weight: 800; line-height: 1; }
+  #end u { text-decoration: none; margin-top: 30px; background: #fff; color: #2563eb; font-weight: 800; font-size: 46px; padding: 18px 48px; border-radius: 50px; }
+  #endmask { overflow: hidden; padding: 0 20px 14px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <div id="grid"></div>
+  <div id="head"><span><i>Build a deck</i></span><span><i>from <em>one sentence.</em></i></span></div>
+  <div id="card">
+    <div id="prompt"><span id="typed">Launch plan for a new bakery</span><span id="caret"></span>
+      <div id="gen">&#10022; Generate</div></div>
+    <div class="sl" id="s1" style="left:34px"><svg viewBox="0 0 250 156"><rect x="0" y="0" width="250" height="156" fill="#0b2559"/><rect x="22" y="40" width="150" height="16" rx="8" fill="#fff"/><rect x="22" y="68" width="100" height="16" rx="8" fill="#60a5fa"/><circle cx="205" cy="118" r="22" fill="#2563eb"/></svg></div>
+    <div class="sl" id="s2" style="left:308px"><svg viewBox="0 0 250 156"><rect x="22" y="24" width="110" height="14" rx="7" fill="#0b2559"/><rect x="30" y="100" width="30" height="36" rx="4" fill="#93b8f8"/><rect x="74" y="72" width="30" height="64" rx="4" fill="#60a5fa"/><rect x="118" y="52" width="30" height="84" rx="4" fill="#2563eb"/><rect x="162" y="84" width="30" height="52" rx="4" fill="#93b8f8"/></svg></div>
+    <div class="sl" id="s3" style="left:582px"><svg viewBox="0 0 250 156"><rect x="16" y="16" width="100" height="124" rx="10" fill="#60a5fa"/><rect x="134" y="26" width="90" height="14" rx="7" fill="#0b2559"/><rect x="134" y="54" width="70" height="12" rx="6" fill="#93b8f8"/><rect x="134" y="76" width="80" height="12" rx="6" fill="#93b8f8"/></svg></div>
+    <div class="sl" id="s4" style="left:856px"><svg viewBox="0 0 250 156"><rect x="0" y="0" width="250" height="156" fill="#2563eb"/><rect x="40" y="52" width="170" height="26" rx="13" fill="#fff"/><rect x="70" y="92" width="110" height="14" rx="7" fill="#bcd3ff"/></svg></div>
+    <div id="bigslide"></div>
+  </div>
+  <div id="end"><div id="endmask"><b id="pn">Plinth</b></div><u id="try">Try it free &rarr;</u></div>
+</div>
+<script>
+(function () {
+  var tl = gsap.timeline({ paused: true });
+  var typed = document.getElementById("typed"), full = 720;
+  tl.fromTo("#head i", { yPercent: 110 }, { yPercent: 0, duration: 0.5, ease: "power4.out", stagger: 0.1 }, 0);
+  tl.fromTo("#card", { y: 90, scale: 0.97 }, { y: 0, scale: 1, duration: 0.7, ease: "power4.out" }, 0);
+  // typing the sentence
+  tl.to("#typed", { width: 560, duration: 1.1, ease: "steps(28)" }, 0.45);
+  tl.fromTo("#caret", { opacity: 1 }, { opacity: 1, duration: 0.01 }, 0);
+  // generate button press
+  tl.to("#gen", { scale: 0.9, duration: 0.1, ease: "power2.in" }, 1.7);
+  tl.to("#gen", { scale: 1, backgroundColor: "#0b2559", duration: 0.35, ease: "back.out(3)" }, 1.8);
+  // slides deal out from the prompt bar
+  ["#s1", "#s2", "#s3", "#s4"].forEach(function (id, i) {
+    tl.fromTo(id, { y: -150, scale: 0.3, opacity: 0, rotation: (i - 1.5) * 12 }, { y: 0, scale: 1, opacity: 1, rotation: 0, duration: 0.55, ease: "back.out(1.6)" }, 1.85 + i * 0.14);
+  });
+  // charts / contents draw inside slides
+  tl.fromTo("#s2 rect:not(:first-child)", { scaleY: 0, transformOrigin: "50% 100%" }, { scaleY: 1, duration: 0.4, stagger: 0.07, ease: "power3.out" }, 2.1);
+  // selection: slide 1 grows to a big slide
+  tl.to("#s1", { borderColor: "#2563eb", boxShadow: "0 0 0 6px #bcd3ff", duration: 0.2 }, 2.8);
+  tl.set("#bigslide", { opacity: 1 }, 2.9);
+  tl.fromTo("#bigslide", { clipPath: "inset(0% 85% 52% 0% round 16px)" }, { clipPath: "inset(0% 0% 0% 0% round 18px)", duration: 0.55, ease: "power4.inOut" }, 2.9);
+  tl.fromTo("#bigslide", { backgroundColor: "#0b2559" }, { backgroundColor: "#0b2559", duration: 0.01 }, 2.9);
+  // big slide content built with divs
+  var bs = document.getElementById("bigslide");
+  bs.innerHTML = '<div style="position:absolute;left:60px;top:64px;color:#fff;font-weight:800;font-size:80px;letter-spacing:-.04em;line-height:1">Fresh from<br><span style="color:#60a5fa">the oven.</span></div><div style="position:absolute;right:70px;top:46px;width:250px;height:204px;border-radius:30px;background:#2563eb"></div><div style="position:absolute;right:130px;top:90px;width:130px;height:130px;border-radius:65px;background:#fff"></div><div id="bsl" style="position:absolute;left:60px;bottom:34px;width:360px;height:12px;border-radius:6px;background:#60a5fa"></div>';
+  tl.fromTo("#bigslide div", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, stagger: 0.08, ease: "power3.out" }, 3.15);
+  // end card wipe
+  tl.fromTo("#end", { xPercent: 100 }, { xPercent: 0, duration: 0.55, ease: "power4.inOut" }, 3.85);
+  tl.fromTo("#pn", { yPercent: 110 }, { yPercent: 0, duration: 0.45, ease: "power4.out" }, 4.2);
+  tl.fromTo("#try", { scale: 0, rotation: -6 }, { scale: 1, rotation: 0, duration: 0.45, ease: "back.out(2.4)" }, 4.4);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>

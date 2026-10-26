@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Whiteboard marker diagram</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #fcfbf7; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #fcfbf7; font-family: "Fredoka", "Quicksand", sans-serif; }
+  svg { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+</div>
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg", s = document.getElementById("s");
+  function el(tag, a, p) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); (p || s).appendChild(e); return e; }
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var R = rng(11);
+  var INK = "#1b1d22", RED = "#e5383b", BLUE = "#2457d6";
+  function wob(pts, amp, step) {
+    var out = [pts[0]], i, k;
+    for (i = 1; i < pts.length; i++) {
+      var a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), n = Math.max(1, Math.round(L / step));
+      for (k = 1; k <= n; k++) { var f = k / n; out.push([a[0] + dx * f + (R() - .5) * 2 * amp, a[1] + dy * f + (R() - .5) * 2 * amp]); }
+    }
+    var d = "M" + out[0][0].toFixed(1) + " " + out[0][1].toFixed(1);
+    for (i = 0; i < out.length - 1; i++) {
+      var p0 = out[Math.max(0, i - 1)], p1 = out[i], p2 = out[i + 1], p3 = out[Math.min(out.length - 1, i + 2)];
+      d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + " " + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) + " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + " " + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) + " " + p2[0].toFixed(1) + " " + p2[1].toFixed(1);
+    }
+    return d;
+  }
+  function head(x, y, dx, dy, sz) { var l = Math.hypot(dx, dy); dx /= l; dy /= l; var c = Math.cos(.5), sn = Math.sin(.5);
+    return wob([[x - sz * (dx * c - dy * sn), y - sz * (dy * c + dx * sn)], [x, y], [x - sz * (dx * c + dy * sn), y - sz * (dy * c - dx * sn)]], 1.2, 99); }
+  function arc(cx, cy, rx, ry, a0, a1, n, j) { var p = []; for (var i = 0; i <= n; i++) { var t = (a0 + (a1 - a0) * i / n) * Math.PI / 180, q = 1 + (R() - .5) * (j || .04); p.push([cx + Math.cos(t) * rx * q, cy + Math.sin(t) * ry * q]); } return p; }
+  function box(x, y, w, h) { return [[x + 10, y + 2], [x + w, y], [x + w + 2, y + h], [x - 2, y + h + 1], [x + 1, y - 8]]; }
+
+  var defs = el("defs", {});
+  var sh = el("linearGradient", { id: "sheen", x1: 0, y1: 0, x2: 1, y2: 1 }, defs);
+  el("stop", { offset: 0, "stop-color": "#ffffff", "stop-opacity": .9 }, sh);
+  el("stop", { offset: .55, "stop-color": "#ffffff", "stop-opacity": 0 }, sh);
+  el("stop", { offset: 1, "stop-color": "#e9e7de", "stop-opacity": .5 }, sh);
+  var flt = el("filter", { id: "rough", x: 0, y: 0, width: 1280, height: 720, filterUnits: "userSpaceOnUse" }, defs);
+  el("feTurbulence", { type: "fractalNoise", baseFrequency: "0.05", numOctaves: 2, seed: 5, result: "n" }, flt);
+  el("feDisplacementMap", { "in": "SourceGraphic", in2: "n", scale: 2.4 }, flt);
+  el("rect", { width: 1280, height: 720, fill: "#fcfbf7" });
+  el("rect", { width: 1280, height: 720, fill: "url(#sheen)" });
+  el("rect", { x: 7, y: 7, width: 1266, height: 706, fill: "none", stroke: "#cfd3da", "stroke-width": 14, rx: 6 });
+  el("rect", { x: 14, y: 14, width: 1252, height: 692, fill: "none", stroke: "#e6e8ec", "stroke-width": 2, rx: 3 });
+  var art = el("g", { filter: "url(#rough)" });
+
+  // the drawing hand: marker nib at the group's origin, forearm trailing to the lower right
+  var SKIN = "#f4c6a3", SKINL = "#c98d66";
+  var hand = el("g", {});
+  var hh = el("g", { transform: "rotate(-55)" }, hand);
+  el("rect", { x: -50, y: 190, width: 100, height: 900, rx: 34, fill: SKIN, stroke: SKINL, "stroke-width": 3 }, hh);
+  el("rect", { x: -62, y: 400, width: 124, height: 800, rx: 26, fill: "#2b55c7", stroke: "#1f3f99", "stroke-width": 3 }, hh);
+  el("rect", { x: -62, y: 400, width: 124, height: 16, rx: 8, fill: "#e8eefc" }, hh);
+  el("ellipse", { cx: 4, cy: 150, rx: 56, ry: 86, fill: SKIN, stroke: SKINL, "stroke-width": 3 }, hh);
+  el("rect", { x: -15, y: 26, width: 30, height: 172, rx: 8, fill: "#f4f5f8", stroke: "#8d95a3", "stroke-width": 2.5 }, hh);
+  var band = el("rect", { x: -15, y: 26, width: 30, height: 34, fill: INK }, hh);
+  var capR = el("rect", { x: -15, y: 160, width: 30, height: 38, rx: 8, fill: INK }, hh);
+  el("polygon", { points: "0,0 -11,28 11,28", fill: INK }, hh);
+  [74, 102, 130].forEach(function (y) { el("rect", { x: -38, y: y, width: 74, height: 25, rx: 12.5, fill: SKIN, stroke: SKINL, "stroke-width": 3 }, hh); });
+  el("ellipse", { cx: -32, cy: 62, rx: 15, ry: 40, transform: "rotate(-18 -32 62)", fill: SKIN, stroke: SKINL, "stroke-width": 3 }, hh);
+
+  var tl = gsap.timeline({ paused: true });
+  var HX0 = 1180, HY0 = 690;
+  gsap.set(hand, { x: HX0, y: HY0 });
+  var Q = [], cid = 0;
+  function pen(d, color, w, dur, ease) { Q.push({ k: "p", d: d, color: color, w: w, dur: dur, ease: ease || "power1.inOut" }); }
+  function word(str, x, y, w, size, color, dur, rot, rcx, rcy) { Q.push({ k: "w", str: str, x: x, y: y, w: w, size: size, color: color, dur: dur, ease: "none", rot: rot || 0, rcx: rcx, rcy: rcy }); }
+  // centred line of words, each written in turn
+  function line(str, cx, y, size, color, speed, rot) {
+    var ws = str.split(" "), cw = size * .56, sp = size * .3, tot = -sp, i;
+    ws.forEach(function (w) { tot += w.length * cw + sp; });
+    var x = cx - tot / 2;
+    ws.forEach(function (w) { var ww = w.length * cw; word(w, x, y, ww, size, color, Math.max(.1, w.length * speed), rot, cx, y); x += ww + sp; });
+  }
+  function bulb(cx, cy, k) {
+    pen(wob(arc(cx, cy, 78, 80, 118, 422, 24), 1.6, 40), INK, 6, .38 * k);
+    pen(wob([[cx - 36, cy + 71], [cx - 32, cy + 100], [cx + 32, cy + 100], [cx + 36, cy + 71]], 1.5, 40), INK, 6, .16 * k);
+    pen(wob([[cx - 28, cy + 124], [cx + 28, cy + 124]], 1.2, 40), INK, 6, .08 * k);
+    pen(wob([[cx - 20, cy + 44], [cx - 11, cy + 8], [cx, cy + 44], [cx + 11, cy + 8], [cx + 20, cy + 44]], 1, 40), BLUE, 5, .12 * k);
+    var pts = []; for (var a = 190, i = 0; a <= 340; a += 15, i++) { var r = i % 2 ? 144 : 106, t = a * Math.PI / 180; pts.push([cx + Math.cos(t) * r, cy + Math.sin(t) * r]); }
+    pen(wob(pts, 1.2, 99), RED, 6, .24 * k, "none");
+  }
+
+  function finalize() {
+    // 1. build marks and their pen-tip samplers
+    Q.forEach(function (q) {
+      if (q.k === "p") {
+        var path = el("path", { d: q.d, fill: "none", stroke: q.color, "stroke-width": q.w, "stroke-linecap": "round", "stroke-linejoin": "round" }, art);
+        var L = path.getTotalLength();
+        path.style.strokeDasharray = L + " " + (L + 40);
+        q.path = path; q.L = L;
+        q.sample = function (p) { var pt = path.getPointAtLength(L * p); return [pt.x, pt.y]; };
+      } else {
+        var g = el("g", q.rot ? { transform: "rotate(" + q.rot + " " + q.rcx + " " + q.rcy + ")" } : {}, art);
+        var id = "cl" + (cid++), cp = el("clipPath", { id: id }, defs);
+        q.rect = el("rect", { x: q.x - 14, y: q.y - q.size * 1.05, width: 0, height: q.size * 1.5 }, cp);
+        var t = el("text", { x: q.x, y: q.y, "font-size": q.size, "font-weight": 600, fill: q.color, textLength: q.w, lengthAdjust: "spacingAndGlyphs", "clip-path": "url(#" + id + ")" }, g);
+        t.textContent = q.str;
+        q.sample = function (p) {
+          var px = q.x + q.w * p, py = q.y - q.size * .32 + Math.sin(p * q.w / 11) * q.size * .1;
+          if (!q.rot) return [px, py];
+          var a = q.rot * Math.PI / 180, dx = px - q.rcx, dy = py - q.rcy;
+          return [q.rcx + dx * Math.cos(a) - dy * Math.sin(a), q.rcy + dx * Math.sin(a) + dy * Math.cos(a)];
+        };
+      }
+    });
+    // 2. lay out in time: hop gaps scale with distance, then fit the whole drawing into 0.4..4.25 s
+    var T0 = .4, T1 = 4.25, total = 0, prev = [HX0, HY0];
+    Q.forEach(function (q, i) {
+      var a = q.sample(0);
+      q.g = i ? Math.max(.06, Math.hypot(a[0] - prev[0], a[1] - prev[1]) / 2100) : 0;
+      total += q.g + q.dur; prev = q.sample(1);
+    });
+    var k = (T1 - T0) / total, t = T0;
+    window.__fitScale = k;
+    Q.forEach(function (q, i) { t += q.g * k; q.t = t; q.dur *= k; t += q.dur; });
+    // 3. tweens: reveal + hand
+    var cur = 0, pos = [HX0, HY0], nibs = [band, capR];
+    Q.forEach(function (q) {
+      var a = q.sample(0);
+      tl.set(nibs, { attr: { fill: q.color } }, cur);
+      if (q.t - cur > .005) tl.fromTo(hand, { x: pos[0], y: pos[1] }, { x: a[0], y: a[1], duration: q.t - cur, ease: "power2.inOut", immediateRender: false }, cur);
+      if (q.k === "p") tl.fromTo(q.path, { strokeDashoffset: q.L + 20 }, { strokeDashoffset: 0, duration: q.dur, ease: q.ease }, q.t);
+      else tl.fromTo(q.rect, { attr: { width: 0 } }, { attr: { width: q.w + 34 }, duration: q.dur, ease: "none" }, q.t);
+      var ef = gsap.parseEase(q.ease), N = Math.max(3, Math.ceil(q.dur / .04)), p0 = a;
+      for (var j = 1; j <= N; j++) {
+        var p1 = q.sample(ef(j / N));
+        tl.fromTo(hand, { x: p0[0], y: p0[1] }, { x: p1[0], y: p1[1], duration: q.dur / N, ease: "none", immediateRender: false }, q.t + (j - 1) * q.dur / N);
+        p0 = p1;
+      }
+      pos = p0; cur = q.t + q.dur;
+    });
+    tl.fromTo(hand, { x: pos[0], y: pos[1] }, { x: 1500, y: 980, duration: .55, ease: "power2.in", immediateRender: false }, cur + .12);
+    tl.set({}, {}, 5);
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = tl;
+  }
+
+  R = rng(11);
+  line("The Learning Loop", 640, 142, 84, INK, .05, -3);
+  pen(wob(box(100, 300, 250, 130), 2, 30), INK, 6, .3);
+  line("Plan", 225, 388, 66, INK, .05);
+  pen(wob([[372, 366], [430, 360], [488, 366]], 2, 30) + " " + head(492, 366, 1, 0, 26), INK, 6, .22);
+  pen(wob(box(515, 300, 250, 130), 2, 30), INK, 6, .3);
+  line("Do", 640, 388, 66, INK, .06);
+  pen(wob([[787, 366], [845, 372], [903, 366]], 2, 30) + " " + head(907, 366, 1, 0, 26), INK, 6, .22);
+  pen(wob(box(930, 300, 250, 130), 2, 30), INK, 6, .3);
+  line("Learn", 1055, 388, 66, INK, .05);
+  pen(wob(arc(1055, 365, 168, 98, -120, 250, 30, .03), 2.5, 28), RED, 6, .38);
+  pen(wob([[1055, 480], [1062, 545], [1000, 592], [640, 606], [290, 592], [225, 545], [225, 458]], 2.5, 40) + " " + head(225, 448, 0, -1, 28), BLUE, 6, .55);
+
+  finalize();
+})();
+</script>
+</body>
+</html>

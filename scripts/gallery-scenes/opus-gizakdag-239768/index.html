@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1280, height=720"><title>Overthinking concept reel</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#f3ecd9}
+#root{position:relative;width:1280px;height:720px;overflow:hidden;background:#f3ecd9;font-family:"Newsreader",serif;color:#2b2a28}
+svg{position:absolute;left:0;top:0}
+.t{font-family:"Newsreader",serif;font-style:italic;font-weight:500;fill:#2b2a28;text-anchor:middle}
+</style></head><body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+<svg width="1280" height="720" viewBox="0 0 1280 720">
+ <defs><filter id="r" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5"/></filter>
+ <filter id="p"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="9"/><feColorMatrix values="0 0 0 0 .5  0 0 0 0 .42  0 0 0 0 .3  0 0 0 .09 0"/></filter></defs>
+ <rect width="1280" height="720" filter="url(#p)"/>
+ <g filter="url(#r)">
+  <g id="scr" fill="none" stroke="#d6402b" stroke-linecap="round" stroke-linejoin="round"></g>
+  <g id="txt"></g>
+  <path id="calm" d="" fill="none" stroke="#2b2a28" stroke-width="10" stroke-linecap="round"/>
+  <text id="ok" class="t" x="640" y="470" font-size="130" opacity="0">okay.</text>
+ </g>
+</svg>
+</div>
+<script>
+(function(){
+var s=12345;function R(){s=(s*1664525+1013904223)%4294967296;return s/4294967296;}
+var NS="http://www.w3.org/2000/svg";
+function mk(n,a,p){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);p.appendChild(e);return e;}
+var scr=document.getElementById("scr"),txt=document.getElementById("txt");
+var tl=gsap.timeline({paused:true});
+// spirals / tangles
+function smooth(pts){var d="M"+pts[0][0].toFixed(1)+" "+pts[0][1].toFixed(1);for(var i=1;i<pts.length-1;i++){var mx=(pts[i][0]+pts[i+1][0])/2,my=(pts[i][1]+pts[i+1][1])/2;d+=" Q"+pts[i][0].toFixed(1)+" "+pts[i][1].toFixed(1)+" "+mx.toFixed(1)+" "+my.toFixed(1);}return d;}
+function spiral(cx,cy,turns,r0,r1,rx,ry){var pts=[],n=turns*14;for(var i=0;i<=n;i++){var a=i/14*Math.PI*2,r=r0+(r1-r0)*(i/n);pts.push([cx+Math.cos(a)*r*rx+(R()-.5)*14,cy+Math.sin(a)*r*ry+(R()-.5)*14]);}return smooth(pts);}
+function tangle(n){var pts=[],x=640,y=360;for(var i=0;i<n;i++){x=Math.max(60,Math.min(1220,x+(R()-.5)*620));y=Math.max(50,Math.min(670,y+(R()-.5)*420));pts.push([x,y]);}return smooth(pts);}
+var paths=[
+ {d:spiral(640,360,7,30,320,1.5,.95),w:7,t0:.0,t1:1.5},
+ {d:tangle(18),w:6,t0:.5,t1:2.1},
+ {d:spiral(560,330,5,20,260,1.35,1),w:6,t0:1.1,t1:2.6},
+ {d:tangle(22),w:7,t0:1.7,t1:3.1}
+];
+paths.forEach(function(p){var e=mk("path",{d:p.d,"stroke-width":p.w,opacity:.88},scr);var L=e.getTotalLength();e.style.strokeDasharray=L;e.style.strokeDashoffset=L;
+ tl.to(e,{strokeDashoffset:0,duration:p.t1-p.t0,ease:"none"},p.t0);
+ tl.to(e,{opacity:0,duration:.12},3.3);});
+// repeating thoughts, growing
+var items=[[640,380,150,0,0],[330,200,70,-6,.35],[950,240,84,5,.7],[260,520,92,4,1.0],[1000,560,110,-4,1.3],[620,150,76,3,1.6],[560,610,128,-3,1.95],[800,380,150,-5,2.3],[640,360,230,0,2.7]];
+items.forEach(function(it,i){var t=mk("text",{"class":"t",x:it[0],y:it[1],"font-size":it[2],opacity:0,transform:"rotate("+it[3]+" "+it[0]+" "+it[1]+")"},txt);t.textContent="what if?";
+ tl.set(t,{opacity:i==0?1:1},it[4]);
+ tl.fromTo(t,{attr:{"font-size":it[2]*.7}},{attr:{"font-size":it[2]},duration:.25,ease:"back.out(2)"},it[4]);
+ tl.to(t,{opacity:0,duration:.12},3.3);});
+tl.set(txt.firstChild,{opacity:1},0);
+// calm
+var cp=document.getElementById("calm");
+cp.setAttribute("d","M240 360 C 420 352, 560 368, 720 359 S 1000 356, 1040 360");
+var CL=cp.getTotalLength();cp.style.strokeDasharray=CL;cp.style.strokeDashoffset=CL;
+tl.to(cp,{strokeDashoffset:0,duration:.9,ease:"power2.inOut"},3.45);
+tl.fromTo("#ok",{opacity:0,y:20},{opacity:1,y:0,duration:.5,ease:"power2.out"},4.1);
+tl.to("#calm",{y:-60,duration:.6,ease:"power2.inOut"},4.1);
+window.__timelines=window.__timelines||{};window.__timelines["main"]=tl;
+})();
+</script></body></html>

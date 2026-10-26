@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, height=720">
+<title>Ask and appear</title>
+<script src="vendor/gsap.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: #fff1ea; }
+  #root { position: relative; width: 1280px; height: 720px; overflow: hidden; background: #fff1ea; font-family: "Inter", sans-serif; color: #2a1a1f; }
+  .abs { position: absolute; }
+  #bar { left: 190px; top: 34px; width: 900px; height: 80px; border-radius: 40px; background: #fff; box-shadow: 0 14px 40px rgba(255,90,69,.22), 0 0 0 3px #2a1a1f; z-index: 5; }
+  #typed { left: 232px; top: 34px; height: 80px; line-height: 80px; font-size: 36px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; z-index: 6; }
+  #typed span { opacity: 0; }
+  #caret { left: 232px; top: 52px; width: 4px; height: 44px; background: #ff5a45; z-index: 6; }
+  #gen { left: 880px; top: 44px; width: 200px; height: 60px; border-radius: 30px; background: #ff5a45; color: #fff; font-weight: 800; font-size: 28px; text-align: center; line-height: 60px; z-index: 6; }
+  .card { background: #fff; border-radius: 26px; box-shadow: 0 20px 50px rgba(42,26,31,.16), 0 0 0 3px #2a1a1f; opacity: 0; }
+  .ln { background: #2a1a1f; border-radius: 6px; height: 14px; }
+  .ln.g { background: #e6cfc6; }
+  .tile { z-index: 8; border-radius: 22px; overflow: hidden; box-shadow: 0 16px 36px rgba(42,26,31,.28), 0 0 0 3px #2a1a1f; opacity: 0; }
+  .tile svg { width: 100%; height: 100%; display: block; }
+  #cursor { z-index: 20; left: 0; top: 0; }
+  .lbl { font-weight: 800; letter-spacing: -.02em; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="5" data-width="1280" data-height="720" data-fps="30">
+  <!-- social post -->
+  <div class="abs card" id="soc" style="left:110px;top:150px;width:400px;height:530px">
+    <div class="abs" style="left:22px;top:20px;width:44px;height:44px;border-radius:50%;background:#ff5a45"></div>
+    <div class="abs ln" style="left:80px;top:26px;width:130px"></div><div class="abs ln g" style="left:80px;top:48px;width:84px;height:10px"></div>
+    <div class="abs" id="heart" style="left:24px;top:470px;font-size:40px;line-height:40px;color:#ff5a45">&#9829;</div>
+    <div class="abs ln g" style="left:84px;top:478px;width:170px"></div><div class="abs ln g" style="left:84px;top:500px;width:110px;height:10px"></div>
+  </div>
+  <!-- blog -->
+  <div class="abs card" id="blog" style="left:560px;top:150px;width:620px;height:530px">
+    <div class="abs ln" style="left:30px;top:26px;width:360px;height:22px"></div><div class="abs ln g" style="left:30px;top:62px;width:220px;height:12px"></div>
+    <div class="abs ln g bl" style="left:230px;top:352px;width:360px"></div>
+    <div class="abs ln g bl" style="left:230px;top:384px;width:330px"></div>
+    <div class="abs ln g bl" style="left:230px;top:416px;width:360px"></div>
+    <div class="abs ln bl" style="left:230px;top:448px;width:210px"></div>
+  </div>
+  <div class="abs" id="bar"></div>
+  <div class="abs" id="typed"></div><div class="abs" id="caret"></div>
+  <div class="abs" id="gen">Generate</div>
+
+  <div class="abs tile" id="t1"><svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice"><rect width="100" height="100" fill="#ff5a45"/><circle cx="68" cy="34" r="19" fill="#fff1ea"/><path d="M-5 100 L30 52 L58 100Z" fill="#2a1a1f"/><path d="M34 100 L72 60 L108 100Z" fill="#8f2a3c"/></svg></div>
+  <div class="abs tile" id="t2"><svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice"><rect width="100" height="100" fill="#1f8a8a"/><path d="M10 100V58a22 22 0 0144 0V100Z" fill="#ffd2c2"/><path d="M52 100V70a18 18 0 0136 0V100Z" fill="#fff1ea"/><circle cx="78" cy="24" r="9" fill="#ff5a45"/></svg></div>
+  <div class="abs tile" id="t3"><svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice"><rect width="100" height="100" fill="#2a1a1f"/><g stroke="#ff5a45" stroke-width="5"><path d="M0 70H100M0 82H100M0 94H100"/></g><circle cx="50" cy="40" r="24" fill="#ffd2c2"/><circle cx="50" cy="40" r="11" fill="#ff5a45"/></svg></div>
+
+  <svg id="cursor" class="abs" width="70" height="86" viewBox="0 0 24 30"><path d="M3 2 L3 24 L9 18.5 L13 27 L17 25 L13 17 L21 17Z" fill="#2a1a1f" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
+</div>
+<script>
+(function () {
+  var tl = gsap.timeline({ paused: true });
+  var text = "Branded images for our spring launch", typed = document.getElementById("typed");
+  text.split("").forEach(function (c) { var s = document.createElement("span"); s.textContent = c === " " ? " " : c; typed.appendChild(s); });
+  var chars = typed.querySelectorAll("span");
+  tl.fromTo(chars, { opacity: 0 }, { opacity: 1, duration: .01, stagger: .022 }, .02);
+  // caret follows the typed text
+  var sp = document.createElement("div"); sp.style.cssText = "position:absolute;visibility:hidden;font:700 36px Inter;letter-spacing:-.02em;white-space:pre"; document.body.appendChild(sp);
+  var w = []; for (var i = 0; i <= text.length; i++) { sp.textContent = text.slice(0, i); w.push(sp.getBoundingClientRect().width); }
+  var cp = { n: 0 };
+  tl.to(cp, { n: text.length, duration: .02 * text.length, ease: "none", onUpdate: function () { gsap.set("#caret", { x: w[Math.round(cp.n)] + 4 }); } }, .02);
+  // cursor
+  tl.set("#cursor", { x: 1250, y: 560 }, 0);
+  tl.to("#cursor", { x: 985, y: 82, duration: .7, ease: "power3.inOut" }, .15);
+  tl.to("#gen", { scale: .92, duration: .1, ease: "power2.in" }, 0.95).to("#gen", { scale: 1, duration: .25, ease: "back.out(3)" },  1.05);
+  tl.to("#cursor", { scale: .85, duration: .1 }, .95).to("#cursor", { scale: 1, duration: .2 }, 1.05);
+  tl.to("#cursor", { x: 1180, y: 330, duration: .7, ease: "power2.inOut" }, 1.2);
+  // tiles appear one by one
+  var rowX = [260, 530, 800];
+  ["#t1", "#t2", "#t3"].forEach(function (id, i) {
+    tl.set(id, { left: rowX[i], top: 200, width: 220, height: 220, transformOrigin: "50% 50%" }, 0);
+    tl.fromTo(id, { opacity: 0, scale: .3, y: 40, rotation: i % 2 ? 6 : -6 }, { opacity: 1, scale: 1, y: 0, rotation: 0, duration: .45, ease: "back.out(2.2)" }, 1.05 + i * .22);
+  });
+  tl.fromTo("#t1,#t2,#t3", { boxShadow: "0 0 0 3px #2a1a1f, 0 0 0 3px rgba(255,90,69,0)" }, { boxShadow: "0 0 0 3px #2a1a1f, 0 0 0 12px rgba(255,90,69,.0)", duration: .1 }, 2.2);
+  // layouts appear, tiles fly in
+  tl.fromTo("#soc", { opacity: 0, y: 70, scale: .94 }, { opacity: 1, y: 0, scale: 1, duration: .5, ease: "power3.out" }, 2.0);
+  tl.fromTo("#blog", { opacity: 0, y: 70, scale: .94 }, { opacity: 1, y: 0, scale: 1, duration: .5, ease: "power3.out" }, 2.15);
+  tl.fromTo(".bl", { scaleX: 0, transformOrigin: "0 50%" }, { scaleX: 1, duration: .35, ease: "power2.out", stagger: .08 }, 2.9);
+  tl.to("#t1", { left: 130, top: 225, width: 360, height: 360, duration: .7, ease: "power3.inOut" }, 2.4);
+  tl.to("#t2", { left: 590, top: 262, width: 560, height: 190, duration: .7, ease: "power3.inOut" }, 2.55);
+  tl.to("#t3", { left: 590, top: 492, width: 170, height: 170, duration: .7, ease: "power3.inOut" }, 2.7);
+  tl.to("#bar,#typed,#caret,#gen", { opacity: .0, y: -30, duration: .3, ease: "power2.in" }, 2.0);
+  tl.fromTo("#heart", { scale: 0 }, { scale: 1, duration: .4, ease: "back.out(4)" }, 3.5);
+  tl.to("#t1,#t2,#t3", { borderRadius: 14, duration: .6 }, 2.45);
+  tl.to("#cursor", { x: 300, y: 540, duration: .7, ease: "power2.inOut" }, 2.9).to("#cursor", { scale: .85, duration: .08 }, 3.55).to("#cursor", { scale: 1, duration: .2 }, 3.63);
+  tl.to("#cursor", { opacity: 0, duration: .2 }, 4.3);
+  tl.set({}, {}, 5);
+  window.__timelines = window.__timelines || {}; window.__timelines["main"] = tl;
+})();
+</script>
+</body>
+</html>
