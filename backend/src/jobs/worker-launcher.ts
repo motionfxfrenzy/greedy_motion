@@ -12,6 +12,7 @@
 import { ECSClient, ListTasksCommand, RunTaskCommand, type RunTaskCommandInput } from "@aws-sdk/client-ecs";
 import { config } from "../config.ts";
 import { QUEUES, boss } from "./queues.ts";
+import { startSweep } from "./sweep.ts";
 
 const launch = config.workerLaunch.mode === "ecs" ? config.workerLaunch : null;
 const client = launch ? new ECSClient({ region: launch.region }) : null;
@@ -48,9 +49,13 @@ async function runTasks(count: number) {
   return result.tasks?.length ?? 0;
 }
 
+/** Render jobs waiting or running at the last check; the sweep slows down while this is 0. */
+let lastDemand = 0;
+
 async function ensure() {
   const [stats] = await boss.getQueueStats(QUEUES.video);
   const demand = (stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0);
+  lastDemand = demand;
   if (demand === 0) return;
   const listed = await client!.send(new ListTasksCommand({ cluster: launch!.cluster, family, desiredStatus: "RUNNING" }));
   const running = listed.taskArns?.length ?? 0;
@@ -79,12 +84,14 @@ export function kickWorkers(): Promise<void> {
   return inFlight;
 }
 
-/** Starts the periodic sweep; returns a stop function. A no-op unless WORKER_LAUNCH=ecs. */
-export function startWorkerSweep(intervalMs = 30_000) {
+/**
+ * Starts the periodic sweep; returns a stop function. A no-op unless WORKER_LAUNCH=ecs.
+ * The sweep only repairs the race above, which needs a job in the queue: while the queue is empty it
+ * checks every idleMs (a new job starts workers immediately through kickWorkers, not through the sweep),
+ * so an idle backend does not query the database every 30 s all day.
+ */
+export function startWorkerSweep(busyMs = 30_000, idleMs = 300_000) {
   if (!launch) return () => undefined;
   log("info", "worker_launcher_on", { cluster: launch.cluster, family, perTask: launch.perTask, maxTasks: launch.maxTasks, spot: launch.spot });
-  void kickWorkers();
-  const timer = setInterval(() => void kickWorkers(), intervalMs);
-  timer.unref();
-  return () => clearInterval(timer);
+  return startSweep(async () => { await kickWorkers(); return lastDemand; }, busyMs, idleMs);
 }
