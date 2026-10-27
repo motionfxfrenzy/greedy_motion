@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { callerId, isOpen } from "./auth.ts";
-import { brandOwner, getBrand } from "./brand/store.ts";
-import { getProject, listProjects, projectOwner } from "./projects/store.ts";
+import { brandOwnerById } from "./brand/store.ts";
+import { projectByRenderJob, projectOwner, projectOwnerById } from "./projects/store.ts";
 import { renderJobRepository } from "./render/repository.ts";
 import { config } from "./config.ts";
 
@@ -9,21 +9,19 @@ const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 // The preview/ forms are the media routes the storyboard iframe loads (auth.ts mediaGets).
 const projectPath = new RegExp(`^/v1/(?:preview/)?(?:projects|plans)/(${uuid})(?:/|$)`, "i");
 const brandPath = new RegExp(`^/v1/(?:preview/)?brands/(${uuid})(?:/|$)`, "i");
-const jobPath = new RegExp(`^/v1/(?:render-jobs|renders)/(${uuid})$`, "i");
+const jobPath = new RegExp(`^/v1/(?:render-jobs|renders)/(${uuid})(?:/events)?$`, "i");
 
 const notFound = (reply: FastifyReply, message: string) => reply.code(404).send({ error: { code: "not_found", message } });
 
+// Every check reads only owner ids (a few bytes), never the project or kit itself: these run on every request.
 async function jobOwner(id: string) {
-  const row = await renderJobRepository.row(id);
+  const row = await renderJobRepository.owners(id);
   if (row) {
-    if (row.project_id) {
-      const project = await getProject(row.project_id);
-      return project ? projectOwner(project) : null;
-    }
+    if (row.project_id) return (await projectOwnerById(row.project_id)) ?? null;
     return row.owner_id ?? config.legacyOwnerId;
   }
   // Jobs from before the database existed are recovered through the project that references them.
-  const project = (await listProjects()).find((item) => item.renderJobId === id);
+  const project = await projectByRenderJob(id);
   return project ? projectOwner(project) : undefined;
 }
 
@@ -40,13 +38,13 @@ export function registerOwnership(app: FastifyInstance) {
 
     const projectId = projectPath.exec(path)?.[1];
     if (projectId) {
-      const project = await getProject(projectId);
-      if (project && projectOwner(project) !== me) return notFound(reply, "Project not found.");
+      const owner = await projectOwnerById(projectId);
+      if (owner !== undefined && owner !== me) return notFound(reply, "Project not found.");
     }
     const brandId = brandPath.exec(path)?.[1];
     if (brandId) {
-      const kit = await getBrand(brandId);
-      if (kit && brandOwner(kit) !== me) return notFound(reply, "Brand kit not found.");
+      const owner = await brandOwnerById(brandId);
+      if (owner !== undefined && owner !== me) return notFound(reply, "Brand kit not found.");
     }
     const jobId = jobPath.exec(path)?.[1];
     if (jobId) {
@@ -60,8 +58,8 @@ export function registerOwnership(app: FastifyInstance) {
       const record = body as { brandId?: unknown; request?: { brandId?: unknown } };
       for (const referenced of [record.brandId, record.request?.brandId]) {
         if (typeof referenced !== "string") continue;
-        const kit = await getBrand(referenced);
-        if (kit && brandOwner(kit) !== me) return notFound(reply, "Brand kit not found.");
+        const owner = await brandOwnerById(referenced);
+        if (owner !== undefined && owner !== me) return notFound(reply, "Brand kit not found.");
       }
     }
   });

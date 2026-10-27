@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { FastifyInstance } from "fastify";
@@ -47,26 +47,33 @@ export async function registerGalleryRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string } }>("/v1/gallery/:name", async (request, reply) => {
     const { name } = request.params;
     if (!NAME.test(name)) return reply.code(404).send({ error: { code: "not_found", message: "Unknown preview." } });
-    reply.header("Content-Type", types[name.slice(name.lastIndexOf(".") + 1)]!).header("Accept-Ranges", "bytes")
+    // Media headers go on only once the file is in hand: set earlier, an error's JSON body went out typed as an image
+    // (Fastify refuses that with a 500) and with a one-year immutable cache, so one R2 hiccup broke a thumbnail for good.
+    const media = () => reply.header("Content-Type", types[name.slice(name.lastIndexOf(".") + 1)]!).header("Accept-Ranges", "bytes")
       .header("Cache-Control", "public, max-age=31536000, immutable").header("Cross-Origin-Resource-Policy", "cross-origin").header("X-Content-Type-Options", "nosniff");
+    const missing = () => reply.code(404).header("Cache-Control", "no-store").type("application/json; charset=utf-8").send({ error: { code: "not_found", message: "Unknown preview." } });
     const range = request.headers.range;
 
     if (client && config.r2) {
+      let object;
       try {
-        const object = await client.send(new GetObjectCommand({ Bucket: config.r2.mediaBucket, Key: `gallery/${name}`, ...(range ? { Range: range } : {}) }));
-        if (object.ContentRange) reply.code(206).header("Content-Range", object.ContentRange);
-        if (object.ContentLength !== undefined) reply.header("Content-Length", object.ContentLength);
-        return reply.send(object.Body);
+        object = await client.send(new GetObjectCommand({ Bucket: config.r2.mediaBucket, Key: `gallery/${name}`, ...(range ? { Range: range } : {}) }));
       } catch (error) {
         const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-        if (status === 404 || (error as { name?: string }).name === "NoSuchKey") return reply.code(404).header("Cache-Control", "no-store").type("application/json; charset=utf-8").send({ error: { code: "not_found", message: "Unknown preview." } });
-        throw error;
+        if (status === 404 || (error as { name?: string }).name === "NoSuchKey") return missing();
+        request.log.warn({ err: error, name, status }, "gallery preview read failed");
+        return reply.code(502).header("Cache-Control", "no-store").header("Retry-After", "1").send({ error: { code: "preview_unavailable", message: "Preview temporarily unavailable." } });
       }
+      media();
+      if (object.ContentRange) reply.code(206).header("Content-Range", object.ContentRange);
+      if (object.ContentLength !== undefined) reply.header("Content-Length", object.ContentLength);
+      return reply.send(object.Body);
     }
 
     const file = join(config.galleryDir, name);
     const size = await stat(file).then((info) => info.size).catch(() => null);
-    if (size === null) return reply.code(404).header("Cache-Control", "no-store").type("application/json; charset=utf-8").send({ error: { code: "not_found", message: "Unknown preview." } });
+    if (size === null) return missing();
+    media();
     const match = /^bytes=(\d*)-(\d*)$/.exec(range ?? "");
     if (!match) return reply.header("Content-Length", size).send(createReadStream(file));
     const start = match[1] ? Number(match[1]) : Math.max(0, size - Number(match[2]));
@@ -74,4 +81,16 @@ export async function registerGalleryRoutes(app: FastifyInstance) {
     if (start >= size || start > end) return reply.code(416).header("Content-Range", `bytes */${size}`).send();
     return reply.code(206).header("Content-Range", `bytes ${start}-${end}/${size}`).header("Content-Length", end - start + 1).send(createReadStream(file, { start, end }));
   });
+}
+
+/** A clip's reference source (its HTML) as text, from R2 or GALLERY_DIR; null when it is missing. Used as a style guide. */
+export async function readGalleryText(name: string): Promise<string | null> {
+  if (!NAME.test(name) || !name.endsWith(".html")) return null;
+  if (client && config.r2) {
+    try {
+      const object = await client.send(new GetObjectCommand({ Bucket: config.r2.mediaBucket, Key: `gallery/${name}` }));
+      return (await object.Body?.transformToString("utf-8")) ?? null;
+    } catch { return null; }
+  }
+  return readFile(join(config.galleryDir, name), "utf-8").catch(() => null);
 }

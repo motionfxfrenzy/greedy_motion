@@ -4,6 +4,7 @@ import { resolveSceneRoute, type SceneRendering } from "./scene-rendering.ts";
 // change both together. Budgets come from gm-skill-authoring/references/script-for-motion.md.
 import { isLook, type LookId } from "./looks.ts";
 import { getStyleFamily } from "./style-families.ts";
+import { parseScriptBeats, parseScriptNotes, type ScriptBeat, type ScriptNotes } from "./script-stream.ts";
 
 export const aspects = ["16:9", "9:16", "1:1"] as const;
 export const paces = ["calm", "balanced", "fast"] as const;
@@ -31,6 +32,11 @@ export type ScriptBrief = {
   /** The problem description (scriptMode "problem") or the user's own script (scriptMode "own"). */
   text: string;
   durationSeconds: number;
+  /**
+   * Hold the script to `durationSeconds`. Without it the duration is a target: a script whose idea needs longer may run
+   * longer, and the canvas says so (with a one-click rewrite to fit).
+   */
+  lockDuration?: boolean;
   aspect: Aspect;
   motionProfile: MotionProfile;
   pace: Pace;
@@ -53,7 +59,52 @@ export type ScriptBrief = {
   productUrl?: string;
   /** Project screenshot ids in the order the user arranged them. */
   screenshotIds?: string[];
+  /** The person's own words for how the film should look and feel ("soft watercolour, dreamy"); art direction on top of the chosen look. */
+  styleNote?: string;
+  /** What kind of film this is; decides its structure, whether it ends on a call to action, and how screenshots are used. Inferred when absent (inferVideoType). */
+  videoType?: VideoType;
+  /**
+   * The script from the script canvas, already streamed and approved by the user. When present the director keeps these
+   * beats exactly (count, order, words) and only plans the visuals: the storyboard is built from the script, not instead of it.
+   */
+  scriptBeats?: ScriptBeat[];
+  /** The writer's idea and worked example for that script (contracts/script-stream.ts), so the storyboard uses the same data. */
+  scriptNotes?: ScriptNotes;
 };
+
+/** The kinds of film the director knows how to structure (backend/src/skills/playbooks.ts holds each one's playbook). */
+export const videoTypes = ["explainer", "tutorial", "demo", "promo", "story", "data"] as const;
+export type VideoType = (typeof videoTypes)[number];
+export const videoTypeLabels: Record<VideoType, string> = { explainer: "Explainer", tutorial: "Tutorial", demo: "Product demo", promo: "Promo / launch", story: "Brand story", data: "Data story" };
+
+/** Template groups (gallery.ts `group`) that already say what kind of film they are. */
+const GROUP_TYPE: Record<string, VideoType> = {
+  Math: "explainer", Tech: "explainer", Whiteboard: "explainer", Blackboard: "explainer", Explainer: "explainer",
+  "Data & maps": "data", Proof: "data",
+  Screencast: "demo", Feature: "demo",
+  Launch: "promo", Product: "promo", Release: "promo", Showreel: "promo",
+  Story: "story", Storybook: "story"
+};
+
+/**
+ * The film's type: what the person chose, else what their template group says, else what they wrote. A person who writes an
+ * educational brief gets an educational film even when a sales-shaped template was the starting point: the words win over a template's group
+ * only when the template says nothing (a look group such as "3D" or "Paper" does not).
+ */
+export function inferVideoType(input: { videoType?: VideoType | null; text?: string; group?: string | null; hasScreenshots?: boolean }): VideoType {
+  if (input.videoType && (videoTypes as readonly string[]).includes(input.videoType)) return input.videoType;
+  if (input.group && GROUP_TYPE[input.group]) return GROUP_TYPE[input.group]!;
+  const text = (input.text ?? "").toLowerCase();
+  const has = (pattern: RegExp) => pattern.test(text);
+  // A scripture reference ("Matthew 5:43-48", "Psalm 23") or lines of verse are a story told in the person's own words, not a lesson to explain.
+  if (/\b(?:[1-3] ?)?(?:genesis|exodus|psalms?|proverbs|isaiah|matthew|mark|luke|john|acts|romans|corinthians|galatians|ephesians|philippians|hebrews|james|revelation|surah|sutra)\b\s*\d/i.test(input.text ?? "")) return "story";
+  if (has(/\b(how to|step[- ]by[- ]step|tutorial|walk(?:through| me through)|guide (?:me|you|them)|set ?up)\b/)) return "tutorial";
+  if (has(/\b(explain|how (?:does|do|it|this|the)\b.*\bworks?|what is|why (?:does|do|is)|teach|learn|lesson|algorithm|theorem|concept|sort|search)\b/)) return "explainer";
+  if (has(/\b(launch|announc|introducing|new feature|release|sign up|try it|pricing|ad\b|promo|campaign)\b/)) return "promo";
+  if (has(/\b(our story|founder|mission|journey|why we|brand story|verse|quote|poem|parable|fable|bedtime|once upon)\b/)) return "story";
+  if (has(/\b(chart|statistic|growth|trend|quarter|report|percent|revenue|data)\b/)) return "data";
+  return input.hasScreenshots ? "demo" : "explainer";
+}
 
 /** Words per minute for the voiceover at each pace. */
 export const paceWpm: Record<Pace, number> = { calm: 130, balanced: 145, fast: 160 };
@@ -76,12 +127,19 @@ export function wordBudget(seconds: number, pace: Pace): number {
   return Math.floor((seconds - 2) * (paceWpm[pace] / 60));
 }
 
+/** How long a script runs when read at this pace: its words, plus a short breath between beats (unvoiced: ~2 s a beat). */
+export function scriptSeconds(beats: readonly { line: string | null }[], pace: Pace): number {
+  const words = beats.reduce((total, beat) => total + (beat.line ? beat.line.split(/\s+/).filter(Boolean).length : 0), 0);
+  return words === 0 ? beats.length * 2 : Math.round(words * 60 / paceWpm[pace] + beats.length * 0.4 + 1);
+}
+
 /** Most words a hook line can have and still be said within 3 s at this pace. */
 export function hookWordLimit(pace: Pace): number {
   return Math.floor(2.7 * (paceWpm[pace] / 60));
 }
 
-export const beatRoles = ["hook", "problem", "reveal", "feature", "proof", "success", "cta"] as const;
+/** Sales roles (hook ... cta) and the roles the other film types use: educational (question, step, insight, recap) and story (setup, turn, resolution). */
+export const beatRoles = ["hook", "problem", "reveal", "feature", "proof", "success", "cta", "question", "step", "insight", "recap", "setup", "turn", "resolution"] as const;
 export const beatKinds = ["ui", "kinetic", "3d", "footage", "title"] as const;
 export const beatProducers = ["hyperframes", "threejs", "nanobanana+veo", "veo-footage"] as const;
 export const uiActions = ["click", "type", "drag", "toggle", "count", "send", "scroll", "select"] as const;
@@ -184,6 +242,7 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     scriptMode: value.scriptMode,
     text,
     durationSeconds,
+    ...(value.lockDuration === true ? { lockDuration: true } : {}),
     aspect: value.aspect,
     motionProfile: value.motionProfile,
     pace: value.pace,
@@ -203,7 +262,11 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     ...(clean(value.productName, 60) ? { productName: clean(value.productName, 60) } : {}),
     ...(typeof value.productUrl === "string" && /^https?:\/\/\S+$/i.test(value.productUrl.trim()) && value.productUrl.trim().length <= 300 ? { productUrl: value.productUrl.trim() } : {}),
     ...(clean(value.audience, 160) ? { audience: clean(value.audience, 160) } : {}),
-    ...(screenshotIds?.length ? { screenshotIds } : {})
+    ...(screenshotIds?.length ? { screenshotIds } : {}),
+    ...(oneOf(videoTypes, value.videoType) ? { videoType: value.videoType } : {}),
+    ...(clean(value.styleNote, 200) ? { styleNote: clean(value.styleNote, 200) } : {}),
+    ...(parseScriptBeats(value.scriptBeats) ? { scriptBeats: parseScriptBeats(value.scriptBeats)! } : {}),
+    ...(parseScriptNotes(value.scriptNotes) ? { scriptNotes: parseScriptNotes(value.scriptNotes)! } : {})
   };
   return { brief };
 }
@@ -226,8 +289,9 @@ export function beatPlanProblems(plan: BeatPlan, brief?: ScriptBrief, { editing 
     if (brief.audio.mode === "voiceover" || brief.audio.mode === "both") {
       const total = plan.beats.reduce((sum, beat) => sum + (beat.line ? words(beat.line) : 0), 0);
       const budget = wordBudget(brief.durationSeconds, brief.pace);
-      // The budget is an estimate (±10%, like the film length): only a clear overrun blocks.
-      if (brief.scriptMode === "problem" && total > Math.round(budget * 1.1)) problems.push(`The voiceover is ${total} words; ${brief.durationSeconds}s at a ${brief.pace} pace fits about ${budget}.`);
+      // The budget is an estimate (±10%, like the film length): only a clear overrun blocks, and only when the length is
+      // locked; otherwise the length is a target and the script may run longer (the script canvas says so).
+      if (brief.scriptMode === "problem" && brief.lockDuration && total > Math.round(budget * 1.1)) problems.push(`The voiceover is ${total} words; ${brief.durationSeconds}s at a ${brief.pace} pace fits about ${budget}.`);
       // The hook must be said within 3 s (watchability → hook): about 2.7 s of speech after the lead-in.
       const hook = plan.beats[0];
       const hookMax = hookWordLimit(brief.pace);

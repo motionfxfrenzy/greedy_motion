@@ -13,15 +13,17 @@ import { mediaToken, signPreviewUrls } from "./media-links.ts";
 import { registerOwnership } from "./access.ts";
 import { renderService } from "./render/service.ts";
 import { renderJobRepository } from "./render/repository.ts";
-import { NotReady, planReadiness, prepareBeatPlanRender } from "./plan/readiness.ts";
+import { renderEvents } from "./render/events.ts";
+import { NotReady, planReadiness } from "./plan/readiness.ts";
 import type { Plan } from "./render/planner.ts";
 import { PreviewUnavailable, previewBrandFont, previewBrandLogo, previewFont, previewGsap, previewRuntime, previewTemplateScreenshot, projectPreviewHtml } from "./preview/service.ts";
 import { databaseReady, migrate, pool } from "./db/database.ts";
 import { boss, startQueues } from "./jobs/queues.ts";
 import { startWorkerSweep } from "./jobs/worker-launcher.ts";
+import { describeScreenshot } from "./plan/screenshots.ts";
 import { AssetRejected, readStaged, stageFont, stageLogo } from "./brand/assets.ts";
 import { extractBrand } from "./brand/extract.ts";
-import { registerPlanRoutes } from "./plan/routes.ts";
+import { registerPlanRoutes, waitForPlans } from "./plan/routes.ts";
 import { registerEntitlementRoutes } from "./entitlements/routes.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerBillingRoutes } from "./billing/routes.ts";
@@ -35,7 +37,7 @@ import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
 import { presignOutput } from "./storage.ts";
 import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, removedVariants, updateBrand, validateBrandInput } from "./brand/store.ts";
-import { addReviewComment, addScreenshot, applyReviewComments, createProject, getProject, listProjects, ProjectInvalid, removeReviewComment, removeScreenshot, screenshotFile, updateProject, updateProjectStudio } from "./projects/store.ts";
+import { addReviewComment, addScreenshot, applyReviewComments, createProject, getProject, listProjects, projectByRenderJob, ProjectInvalid, removeReviewComment, removeScreenshot, screenshotFile, updateProject, updateProjectStudio } from "./projects/store.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
@@ -63,7 +65,7 @@ const projectError = (reply: { code: (n: number) => { send: (b: unknown) => unkn
  * Rehydrate enough job metadata to keep those reviews playable instead of a fabricated preview.
  */
 async function recoveredRenderJob(id: string): Promise<RenderJob | null> {
-  const project = (await listProjects()).find((item) => item.renderJobId === id);
+  const project = await projectByRenderJob(id);
   if (!project) return null;
   const file = join(config.renderOutputDir, `${id}.mp4`);
   const outputExists = await stat(file).then(() => true).catch(() => false);
@@ -232,11 +234,14 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>
         const tooLong = seconds === null ? null : motionBlurProblem(seconds);
         if (tooLong) return reply.code(400).send({ error: { code: "motion_blur_too_long", message: tooLong } });
       }
+      // Checked here so a storyboard that cannot render is refused before tokens are taken; the job checks again.
+      const readiness = planReadiness(project);
+      if (!readiness.ok) return reply.code(409).send({ error: { code: "not_ready", message: new NotReady(readiness).message }, readiness });
       const jobId = randomUUID();
       // Tokens are taken before anything is built or queued, and put back if the film cannot start. The length comes from
       // the same readiness check Submit used, so a film costs exactly what the storyboard showed.
       const owner = callerId(request);
-      const seconds = planReadiness(project).durationSeconds;
+      const seconds = readiness.durationSeconds;
       let spend: { charged: boolean; event: string | null } = { charged: false, event: null };
       if (seconds !== null) {
         try {
@@ -247,14 +252,13 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>
         }
       }
       const watermark = PLANS[await tierFor(owner)].watermark;
-      let prepared: Awaited<ReturnType<typeof prepareBeatPlanRender>>;
+      // Motion, the composition build and the upload run in the job (render/service.ts prepareFilm), so this answers at once
+      // and the page follows every stage on /v1/renders/:id/events. A job that cannot be prepared returns the tokens.
       try {
-        prepared = await prepareBeatPlanRender(project, jobId, { watermark });
         await updateProject(project.id, { state: "Rendering draft", renderJobId: jobId });
-        return reply.code(202).send(await renderService.createBeatPlanRender(project, jobId, prepared, { motionBlur: blur.on }));
+        return reply.code(202).send(await renderService.createBeatPlanRender(project, jobId, { watermark, motionBlur: blur.on, ownerId: owner, spendEvent: spend.charged ? spend.event : null }, seconds ?? 0));
       } catch (error) {
         if (spend.charged && spend.event) await refundSpend(owner, spend.event).catch((refundError) => app.log.error({ err: refundError }, "could not return tokens"));
-        if (error instanceof NotReady) return reply.code(409).send({ error: { code: "not_ready", message: error.message }, readiness: error.readiness });
         throw error;
       }
     }
@@ -350,6 +354,8 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/screenshots", async (requ
     const allowedPurposes = ["Dashboard", "Setup", "Report", "Mobile"] as const;
     const mime = typeof request.headers["x-file-type"] === "string" ? request.headers["x-file-type"] : "";
     const project = await addScreenshot(request.params.id, name, mime, body, allowedPurposes.includes(purpose as typeof allowedPurposes[number]) ? purpose as typeof allowedPurposes[number] : "Dashboard");
+    // Understand what the screenshot shows in the background; planning waits for it if it is still running (plan/screenshots.ts).
+    if (project) { const added = project.screenshots[project.screenshots.length - 1]; if (added) void describeScreenshot(project.id, added.id).catch(() => undefined); }
     return project ? reply.code(201).send(project) : reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
   } catch (error) {
     return projectError(reply, error);
@@ -379,6 +385,46 @@ app.get<{ Params: { id: string } }>("/v1/render-jobs/:id", async (request, reply
   const job = uuid.test(request.params.id) ? await renderService.get(request.params.id) ?? await recoveredRenderJob(request.params.id) : null;
   if (!job) return reply.code(404).send({ error: { code: "not_found", message: "That render job does not exist." } });
   return reply.header("Cache-Control", "no-store").send(job);
+});
+
+/** Open job streams, ended before shutdown so closing the server does not wait on them. */
+const jobStreams = new Set<() => void>();
+app.addHook("preClose", async () => { for (const end of [...jobStreams]) end(); });
+
+/**
+ * A render job as server-sent events: the current view at once, then a new view after every change (pushed by
+ * render/events.ts), ending after `ready` or `failed`. The page reads it with fetch (EventSource cannot send the
+ * Authorization header) and falls back to a slow poll of /v1/render-jobs/:id if the stream drops.
+ */
+app.get<{ Params: { id: string } }>("/v1/renders/:id/events", async (request, reply) => {
+  const { id } = request.params;
+  const first = uuid.test(id) ? await renderService.get(id) ?? await recoveredRenderJob(id) : null;
+  if (!first) return reply.code(404).send({ error: { code: "not_found", message: "That render job does not exist." } });
+  reply.hijack();
+  reply.raw.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "X-Accel-Buffering": "no" });
+  let closed = false;
+  let unwatch = () => {};
+  let ping: NodeJS.Timeout | undefined;
+  const end = () => {
+    if (closed) return;
+    closed = true;
+    unwatch();
+    clearInterval(ping);
+    jobStreams.delete(end);
+    if (!reply.raw.writableEnded) reply.raw.end();
+  };
+  const send = (job: RenderJob) => {
+    if (closed) return;
+    reply.raw.write(`data: ${JSON.stringify(job)}\n\n`);
+    if (job.state === "ready" || job.state === "failed") end();
+  };
+  jobStreams.add(end);
+  request.raw.on("close", end);
+  send(first);
+  if (closed) return;
+  unwatch = renderEvents.watch(id, send, first);
+  // Comments keep proxies from closing an idle stream (no database work: the hub owns every read and its fallback timer).
+  ping = setInterval(() => { if (!closed) reply.raw.write(": ping\n\n"); }, 20_000);
 });
 
 app.get<{ Params: { id: string } }>("/v1/renders/:id", async (request, reply) => {
@@ -481,8 +527,12 @@ app.get<{ Params: { id: string }; Querystring: { variant?: string } }>("/v1/bran
 async function shutdown(signal: string) {
   app.log.info({ signal }, "backend shutting down");
   await app.close();
+  // Director jobs run in this process: give them up to the director's own deadline (Railway must allow it with
+  // RAILWAY_DEPLOYMENT_DRAINING_SECONDS, which defaults to 0). A job cut off anyway shows as interrupted on the page.
+  await waitForPlans(Number(process.env.PLAN_DRAIN_SECONDS ?? 150) * 1000);
   // Let in-flight planning finish; anything left is redelivered to another replica after its heartbeat lapses.
   await boss.stop({ graceful: true, timeout: 20_000 }).catch(() => undefined);
+  await renderEvents.stop();
   await pool.end().catch(() => undefined);
   process.exit(0);
 }
@@ -494,6 +544,7 @@ await migrate();
 await startQueues();
 await renderService.startConsumers();
 await startVisualConsumers();
+renderEvents.start();
 startWorkerSweep();
 await app.listen({ port: config.port, host: config.host });
 app.log.info({ ...config.environmentSummary, planner: config.anthropicApiKey ? "anthropic" : "deterministic", planConcurrency: config.planConcurrency }, "backend ready");

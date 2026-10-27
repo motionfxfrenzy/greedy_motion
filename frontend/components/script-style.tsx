@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BrandExtraction, BrandKit, SiteCapture } from "@videosaas/contracts";
 import { aspects, beatCountRange, DEFAULT_LOOK, DURATION_MAX, DURATION_MIN, durationPresets, OWN_SCRIPT_MAX, parseScriptBrief, PROBLEM_TEXT_MAX, voices, wordBudget, type Aspect, type AudioMode, type CaptionMode, type MotionProfile, type Pace, type ScriptBrief } from "@videosaas/contracts";
 import { BrandKitField } from "./brand-kit";
 import { ThemePicker } from "./theme-picker";
 import { StylePicker } from "./style-picker";
+
+/** How long the director usually takes (production, 2026-10-27: ~77 s with a repair round). Drives the estimate shown while writing. */
+const TYPICAL_PLAN_SECONDS = 80;
 
 export const defaultBrief: ScriptBrief = {
   scriptMode: "problem",
@@ -82,8 +85,22 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
   const readHost = site.site ? host(site.site.url) : null;
   const siteInUse = Boolean(readHost && brief.productUrl && host(brief.productUrl) === readHost);
 
+  // Generate sits under a long form, so the progress opens at the top and the page goes there. Scrolled after the panel
+  // has painted: a scroll started in the same tick was cancelled by the re-render that saves the new project.
+  const writingPanel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!generating) return;
+    const frame = window.requestAnimationFrame(() => writingPanel.current?.scrollIntoView({ block: "center", behavior: "smooth" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [generating]);
   return <div className="flow-page script-style">
-    <div className="flow-title"><h1>Script &amp; style</h1><p>Describe the problem or paste your script, then choose how the film should look, move, and sound. Generating writes the script and a storyboard you can edit.</p></div>
+    <div className="flow-title"><h1>Script &amp; style</h1><p>Describe the problem or paste your script, then choose how the film should look, move, and sound. We write the script first so you can correct it, then build the storyboard from it.</p></div>
+    {generating && <div className="ss-writing" ref={writingPanel} role="status" aria-live="polite">
+      <div><b>Writing your script and storyboard · {elapsed}s</b><span>{elapsed < TYPICAL_PLAN_SECONDS ? "Usually about 1–1½ minutes." : "Taking a little longer than usual."} You can leave this page; it keeps going.</span></div>
+      {/* Time against the usual length, never full until the plan is back: an estimate, not a claim of exact progress. */}
+      <i><em style={{ width: `${Math.min(92, Math.round((elapsed / TYPICAL_PLAN_SECONDS) * 85))}%` }} /></i>
+      <button className="secondary-button" onClick={cancel}>Cancel</button>
+    </div>}
     <div className="ss-layout">
       <div className="ss-main">
         <section className="ss-card">
@@ -110,8 +127,9 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
         </section>
 
         <section className="ss-card">
-          <header><b>Length and shape</b><span>About {beats.min}–{beats.max} beats · up to {budget} spoken words</span></header>
+          <header><b>Length and shape</b><span>{brief.lockDuration ? `About ${beats.min}–${beats.max} beats · up to ${budget} spoken words` : "A target: the script can run longer if the idea needs it, and tells you"}</span></header>
           <div className="ss-field"><b>Duration</b><div className="ss-chips">{durationPresets.map((seconds) => <button type="button" key={seconds} className={brief.durationSeconds === seconds ? "selected" : ""} onClick={() => update({ durationSeconds: seconds })}>{seconds}s</button>)}<label className={custom ? "ss-custom selected" : "ss-custom"}><span>Custom</span><input type="number" min={DURATION_MIN} max={DURATION_MAX} value={brief.durationSeconds} onChange={(event) => update({ durationSeconds: Math.round(Number(event.target.value) || DURATION_MIN) })} aria-label="Custom duration in seconds" /><span>s</span></label></div></div>
+          <label className="ss-lock"><input type="checkbox" checked={Boolean(brief.lockDuration)} onChange={(event) => update({ lockDuration: event.target.checked || undefined })} /><span><b>Fit exactly</b> Hold the script to {brief.durationSeconds}s, cutting what doesn't fit</span></label>
           <div className="ss-field"><b>Aspect ratio</b><div className="ss-chips">{aspects.map((aspect) => <button type="button" key={aspect} className={brief.aspect === aspect ? "selected" : ""} onClick={() => update({ aspect })}><i className={"ss-shape " + aspectShape[aspect]} />{aspect}</button>)}</div>{brief.aspect === "1:1" && <small className="ss-note">Square drafts render in the landscape frame until square layouts ship.</small>}</div>
         </section>
 
@@ -120,7 +138,9 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
           <div className="ss-look">
             <div className="ss-field"><b>Brand kit</b><BrandKitField value={brief.brandId} found={siteInUse && !site.savedBrand ? site.brand : null} suggested={siteInUse ? site.savedBrand : null} source={siteInUse ? readHost : null} fromSite={Boolean(site.autoKit && site.savedBrand && brief.brandId === site.savedBrand.id)} onChange={(kit) => update({ brandId: kit?.id })} /><small className="ss-note">Saved kit, website import (paste a URL), or colours and a logo.</small></div>
             <div className={brief.brandId ? "ss-field muted" : "ss-field"}><b>Theme</b><ThemePicker value={brief.theme ?? "neutral"} disabled={Boolean(brief.brandId)} onChange={(theme) => update({ theme })} /></div>
-            <StylePicker value={brief.look ?? DEFAULT_LOOK} family={brief.styleFamily} onChange={(look, styleFamily) => update({ look, styleFamily })} />
+            {/* Another style drops the template as the style reference: the director would otherwise remix a film in a different style. */}
+            <StylePicker value={brief.look ?? DEFAULT_LOOK} family={brief.styleFamily} example={brief.styleExample} onChange={(look, styleFamily) => update({ look, styleFamily, ...(styleFamily === brief.styleFamily && look === (brief.look ?? DEFAULT_LOOK) ? {} : { styleExample: undefined }) })} />
+            <label className="ss-field"><b>Describe the look in your own words <em>optional</em></b><input value={brief.styleNote ?? ""} maxLength={200} onChange={(event) => update({ styleNote: event.target.value || undefined })} placeholder="soft watercolour, dreamy · bold and punchy · calm and premium" aria-label="Describe the look in your own words" /></label>
           </div>
         </section>
 

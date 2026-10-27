@@ -1,6 +1,6 @@
 import { createClient } from "../utils/supabase/client";
 import { normalizeSearch } from "@videosaas/contracts/gallery-use-cases";
-import type { BrandExtraction, BrandKit, BrandKitInput, GalleryPage, GalleryStyleCard, ScriptBrief, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
+import type { BrandExtraction, BrandKit, BrandKitInput, GalleryPage, GalleryStyleCard, ScriptBeat, ScriptBrief, ScriptNotes, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
 
 // Public by design: the backend origin, e.g. https://api.<domain>. The frontend holds no secrets.
 const apiOrigin = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
@@ -85,6 +85,34 @@ export async function getRenderJob(id: string) {
   return parse<RenderJob>(response, "Could not load the render job.");
 }
 
+/**
+ * Follows a render job as the server pushes it (`GET /v1/renders/:id/events`, server-sent events read with fetch because
+ * EventSource cannot send the Authorization header). `onJob` gets the current view at once and after every change.
+ * Resolves when the job is ready or failed; rejects when the stream drops, so the caller can fall back to polling.
+ */
+export async function watchRenderJob(id: string, onJob: (job: RenderJob) => void, signal: AbortSignal): Promise<RenderJob> {
+  const response = await apiFetch(`${apiOrigin}/v1/renders/${encodeURIComponent(id)}/events`, { cache: "no-store", signal });
+  if (!response.ok || !response.body) throw new Error(`Could not follow the render (${response.status}).`);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = "";
+  let last: RenderJob | null = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffered += value;
+    let end: number;
+    while ((end = buffered.indexOf("\n\n")) >= 0) {
+      const block = buffered.slice(0, end);
+      buffered = buffered.slice(end + 2);
+      if (!block.startsWith("data:")) continue; // ": ping" keep-alives
+      last = JSON.parse(block.replace(/^data:\s*/, "")) as RenderJob;
+      onJob(last);
+    }
+  }
+  if (last && (last.state === "ready" || last.state === "failed")) return last;
+  throw new Error("The render stream closed early.");
+}
+
 /** Output URLs from the backend are paths; resolve them against the backend origin. */
 export function outputUrl(path: string) {
   return withMediaToken(new URL(path, apiOrigin).toString());
@@ -151,6 +179,12 @@ export async function startCheckout(product: "starter" | "pro" | "business" | "t
 export async function listProjects() {
   const response = await apiFetch(apiOrigin + "/v1/projects", { cache: "no-store" });
   return (await parse<{ projects: VideoProject[] }>(response, "Could not load projects.")).projects;
+}
+
+/** One project, for polling the open one while its script is written or its video renders. */
+export async function getProject(id: string) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + id, { cache: "no-store" });
+  return parse<VideoProject>(response, "Could not load the project.");
 }
 
 export async function createProject(input: { name?: string; request: RenderRequest }) {
@@ -287,7 +321,86 @@ export async function planProject(projectId: string, brief: ScriptBrief) {
   return parse<{ project: VideoProject }>(response, "Could not write the script.");
 }
 
+/** Writes the script first (seconds, not a minute): scene by scene, saved on the project for the person to read and edit. */
+export async function draftScriptProject(projectId: string, brief: ScriptBrief) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(brief) }).catch(() => {
+    throw new Error("The backend is not reachable. Start it with npm run dev:backend.");
+  });
+  return parse<VideoProject>(response, "Could not write the script.");
+}
+
+/** Applies an instruction ("make it shorter") to the script as the person has edited it. */
+export async function reviseScriptProject(projectId: string, instruction: string, brief: ScriptBrief) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script-draft/revise", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction, brief }) });
+  return parse<VideoProject>(response, "Could not change the script.");
+}
+
 /** Stops the script director; nothing is applied. */
+export type ScriptFlag = { beat: number; message: string };
+export type ScriptStreamResult = { beats: ScriptBeat[]; notes: ScriptNotes | null; flags: ScriptFlag[]; ms: number };
+
+/**
+ * Writes the script and streams it into the canvas: `onText` gets every piece as it is written. With `change` it rewrites
+ * the current script as asked (with `only`, just those beats come back, merged into the rest). Resolves with the finished, checked script; `signal` stops it.
+ */
+export async function streamScript(projectId: string, input: { brief: ScriptBrief; change?: { instruction: string; previous: ScriptBeat[]; notes?: ScriptNotes | null; only?: number[] } }, onText: (text: string) => void, signal?: AbortSignal): Promise<ScriptStreamResult> {
+  const body = { brief: input.brief, ...(input.change ? { instruction: input.change.instruction, previous: input.change.previous, ...(input.change.notes ? { notes: input.change.notes } : {}), ...(input.change.only?.length ? { only: input.change.only } : {}) } : {}) };
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+  if (!response.ok || !response.body) {
+    const failed = (await response.json().catch(() => ({}))) as ApiError;
+    throw new Error(failed.error?.message ?? "Could not write the script.");
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffered += value;
+    let end: number;
+    while ((end = buffered.indexOf("\n\n")) >= 0) {
+      const event = JSON.parse(buffered.slice(0, end).replace(/^data:\s*/, "")) as { t?: string; done?: boolean; error?: string } & Partial<ScriptStreamResult>;
+      buffered = buffered.slice(end + 2);
+      if (event.t) onText(event.t);
+      if (event.error) throw new Error(event.error);
+      if (event.done) return { beats: event.beats ?? [], notes: event.notes ?? null, flags: event.flags ?? [], ms: event.ms ?? 0 };
+    }
+  }
+  throw new Error("The script stopped before it finished. Try again.");
+}
+
+/** A voiceover take made by generatePlanAudio (`file` is "vo/<hash>.wav"), playable in an <audio> element (signed with the media token). */
+export function planVoiceUrl(projectId: string, file: string) {
+  return withMediaToken(`${apiOrigin}/v1/preview/plans/${encodeURIComponent(projectId)}/audio/${file.split("/").map(encodeURIComponent).join("/")}`);
+}
+
+export type FrameEvent = { index: number; svg?: string; error?: string };
+
+/**
+ * Draws a reference frame (SVG text) per beat in the template's style; `onFrame` gets each one as it lands, in any order.
+ * `indices` limits it to the beats that changed. Resolves when every frame is drawn or has failed.
+ */
+export async function streamFrames(projectId: string, input: { brief: ScriptBrief; beats: ScriptBeat[]; indices?: number[]; notes?: ScriptNotes | null }, onFrame: (event: FrameEvent) => void, signal?: AbortSignal): Promise<void> {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script/frames", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), ...(signal ? { signal } : {}) });
+  if (!response.ok || !response.body) {
+    const failed = (await response.json().catch(() => ({}))) as ApiError;
+    throw new Error(failed.error?.message ?? "Could not draw the frames.");
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffered += value;
+    let end: number;
+    while ((end = buffered.indexOf("\n\n")) >= 0) {
+      const event = JSON.parse(buffered.slice(0, end).replace(/^data:\s*/, "")) as FrameEvent & { done?: boolean };
+      buffered = buffered.slice(end + 2);
+      if (event.done) return;
+      onFrame(event);
+    }
+  }
+}
+
 export async function cancelPlanJob(projectId: string) {
   const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan/job", { method: "DELETE" });
   return parse<{ project: VideoProject }>(response, "Could not cancel the script.");

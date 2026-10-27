@@ -3,15 +3,20 @@ import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { BEAT_LIMITS, getStyleFamily, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, findGalleryTemplate, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
-import { getProject, ProjectInvalid, setProjectPlanning, updateProjectPlan } from "../projects/store.ts";
+import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectPlan } from "../projects/store.ts";
 import { config } from "../config.ts";
 import { readMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
 import { director } from "./director.ts";
+import { directorContextFor } from "./context.ts";
+import { draftScript, reviseScript } from "./script-draft.ts";
+import { finishScript, writeScript } from "./script-writer.ts";
+import { sketchFrame } from "./frame-sketch.ts";
+import { readGalleryText } from "../gallery.ts";
 import { rewriteBeat } from "./rewrite-beat.ts";
 import { SFX } from "./sound.ts";
 import { registerSiteRoutes } from "../site/routes.ts";
@@ -22,6 +27,13 @@ import { beatTimes } from "./timing.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
 
 const notFound = { error: { code: "not_found", message: "Project not found." } };
+
+/** Director jobs running in this process. Shutdown waits for them, so a deploy does not drop a script half-written. */
+const runningPlans = new Set<Promise<void>>();
+export async function waitForPlans(timeoutMs: number) {
+  if (runningPlans.size === 0) return;
+  await Promise.race([Promise.allSettled([...runningPlans]), new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
+}
 
 /** A script view of the plan, so existing screens (review, comments) keep working. */
 function scriptFromPlan(plan: BeatPlan, source: ProjectScript["source"]): ProjectScript {
@@ -138,6 +150,111 @@ export async function registerPlanRoutes(app: FastifyInstance) {
    * at once with the project (`planning.status === "running"`), the page polls the project, and the plan is applied when the model
    * finishes, whether or not the page is still open. A second request while one is running joins it instead of starting another.
    */
+  /**
+   * The script canvas: writes only the script and streams it as it is written (server-sent events), so the first words show
+   * in a few seconds instead of after the whole storyboard. `{ t }` events carry text; the last event is `{ done, beats, flags }`
+   * or `{ error }`. With `instruction` and `previous` it changes an existing script. Nothing is saved: the page keeps the
+   * script and sends it with the brief (`scriptBeats`) when it asks for the storyboard.
+   */
+  app.post<{ Params: { id: string }; Body: { brief?: unknown; instruction?: unknown; previous?: unknown; notes?: unknown; only?: unknown } }>("/v1/projects/:id/script/stream", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    const parsed = parseScriptBrief(request.body?.brief);
+    if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
+    const instruction = typeof request.body?.instruction === "string" ? request.body.instruction.trim().slice(0, 400) : "";
+    const previous = parseScriptBeats(request.body?.previous) ?? undefined;
+    if (instruction && !previous) return reply.code(400).send({ error: { code: "invalid_script", message: "Send the current script with the change." } });
+    const only = previous && Array.isArray(request.body?.only)
+      ? [...new Set(request.body.only.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < previous.length))].sort((a, b) => a - b)
+      : [];
+    const notes = parseScriptNotes(request.body?.notes);
+    const { context } = await directorContextFor(project, parsed.brief);
+
+    const controller = new AbortController();
+    request.raw.on("close", () => controller.abort());
+    reply.hijack();
+    reply.raw.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "X-Accel-Buffering": "no" });
+    const send = (event: unknown) => { if (!reply.raw.writableEnded) reply.raw.write(`data: ${JSON.stringify(event)}\n\n`); };
+    const started = Date.now();
+    let firstMs: number | null = null;
+    let text = "";
+    try {
+      for await (const chunk of writeScript({ brief: parsed.brief, context, ...(instruction && previous ? { instruction, previous, notes, ...(only.length ? { only } : {}) } : {}) }, controller.signal)) {
+        if (firstMs === null) firstMs = Date.now() - started;
+        text += chunk;
+        send({ t: chunk });
+      }
+      const { beats, notes: plan, flags } = finishScript(text, parsed.brief, context, only.length && previous ? { previous, only, notes } : undefined);
+      if (beats.length === 0) throw new Error("The script came back empty. Try again.");
+      send({ done: true, beats, notes: plan ?? (instruction ? notes : null), flags, ms: Date.now() - started });
+      app.log.info({ event: "script_streamed", projectId: project.id, firstMs, ms: Date.now() - started, beats: beats.length, flags: flags.length, change: Boolean(instruction), only: only.length || undefined }, "script streamed");
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        app.log.warn({ event: "script_failed", projectId: project.id, ms: Date.now() - started, err: error }, "script writer failed");
+        send({ error: error instanceof Error ? error.message : "Could not write the script." });
+      }
+    } finally {
+      reply.raw.end();
+    }
+  });
+
+  /**
+   * Reference frames for the script canvas: one still SVG per beat in the chosen template's style, streamed as server-sent
+   * events (`{ index, svg }` or `{ index, error }` as each is drawn, then `{ done }`). `indices` limits it to the beats that
+   * changed. Each frame is saved on the project (`scriptFrames`) under its key, and a beat whose key is already saved is
+   * sent back at once instead of being drawn again.
+   */
+  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown; indices?: unknown; notes?: unknown } }>("/v1/projects/:id/script/frames", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    const parsed = parseScriptBrief(request.body?.brief);
+    if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
+    const beats = parseScriptBeats(request.body?.beats);
+    if (!beats) return reply.code(400).send({ error: { code: "invalid_script", message: "Send the script to draw." } });
+    const wanted = Array.isArray(request.body?.indices)
+      ? [...new Set(request.body.indices.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < beats.length))]
+      : beats.map((_, i) => i);
+    const brief = parsed.brief;
+    const template = brief.styleExample ? findGalleryTemplate(brief.styleExample) : undefined;
+    const code = template?.reference ? await readGalleryText(template.reference) : null;
+    const style = template && code ? { name: template.name, code } : null;
+    const notes = parseScriptNotes(request.body?.notes) ?? brief.scriptNotes ?? null;
+
+    const controller = new AbortController();
+    request.raw.on("close", () => controller.abort());
+    reply.hijack();
+    reply.raw.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "X-Accel-Buffering": "no" });
+    const send = (event: unknown) => { if (!reply.raw.writableEnded) reply.raw.write(`data: ${JSON.stringify(event)}\n\n`); };
+    const started = Date.now();
+    let failed = 0;
+    // Four at a time: each frame takes a few seconds, and the first ones should land while the person is still reading.
+    const keyFor = (index: number) => scriptFrameKey(beats[index]!, brief);
+    const saved = new Map((project.scriptFrames ?? []).map((frame) => [frame.key, frame.svg]));
+    for (const index of wanted) { const svg = saved.get(keyFor(index)); if (svg) send({ index, svg }); }
+    // Frame 1 is the project card's thumbnail, so the card always shows how the film opens.
+    if (wanted.includes(0) && saved.get(keyFor(0))) await setCoverFrame(project.id, saved.get(keyFor(0))!).catch(() => undefined);
+    const queue = wanted.filter((index) => !saved.has(keyFor(index)));
+    const drawnCount = queue.length;
+    const draw = async () => {
+      for (let index = queue.shift(); index !== undefined && !controller.signal.aborted; index = queue.shift()) {
+        try {
+          const svg = await sketchFrame({ beat: beats[index]!, index, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes }, controller.signal);
+          send({ index, svg });
+          await saveScriptFrame(project.id, { key: keyFor(index), svg }).catch((error) => app.log.warn({ err: error, projectId: project.id }, "frame not saved"));
+          if (index === 0) await setCoverFrame(project.id, svg).catch(() => undefined);
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          failed += 1;
+          send({ index, error: error instanceof Error ? error.message : "Could not draw this frame." });
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, queue.length) }, draw));
+    send({ done: true, ms: Date.now() - started });
+    app.log.info({ event: "frames_sketched", projectId: project.id, frames: wanted.length, drawn: drawnCount, failed, styled: Boolean(style), ms: Date.now() - started }, "frames sketched");
+    reply.raw.end();
+  });
+
   app.post<{ Params: { id: string } }>("/v1/projects/:id/plan", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
@@ -145,45 +262,82 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const parsed = parseScriptBrief(request.body);
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
     const brief = parsed.brief;
-    const screenshots = project.screenshots
-      .filter((shot) => !brief.screenshotIds || brief.screenshotIds.includes(shot.id))
-      .sort((a, b) => (brief.screenshotIds ? brief.screenshotIds.indexOf(a.id) - brief.screenshotIds.indexOf(b.id) : 0))
-      .map((shot) => ({ id: shot.id, name: shot.name, purpose: shot.purpose }));
-    const brandId = brief.brandId ?? project.request.brandId;
-    const brand = brandId ? await getBrand(brandId) : null;
-    const brandName = brand?.name ?? brief.productName ?? project.name;
-    // The site read for this project, when the brief names that product URL (POST /v1/projects/:id/site).
-    const host = (value: string) => { try { return new URL(/^https?:/i.test(value) ? value : `https://${value}`).hostname.replace(/^www\./, ""); } catch { return ""; } };
-    const site = brief.productUrl && project.site && host(project.site.url) === host(brief.productUrl) ? project.site : undefined;
-    const started = await setProjectPlanning(project.id, { status: "running", startedAt: new Date().toISOString() });
+    const { context, videoType, brandId } = await directorContextFor(project, brief);
+    const started = await setProjectPlanning(project.id, { status: "running", startedAt: new Date().toISOString() }, brief);
     if (!started) return reply.code(404).send(notFound);
     const controller = new AbortController();
     jobs.set(project.id, controller);
-    void (async () => {
+    const startedAt = Date.now();
+    app.log.info({ event: "plan_started", projectId: project.id, template: brief.styleExample ?? null }, "plan started");
+    const job = (async () => {
       try {
-        const result = await director.plan(brief, { brandName, ...(brand?.description ? { brandDescription: brand.description } : {}), screenshots, ...(site ? { site: { url: site.url, title: site.title, description: site.description, facts: site.facts, text: site.text } } : {}) }, controller.signal);
+        const result = await director.plan({ ...brief, videoType }, context, controller.signal);
         if (controller.signal.aborted) return;
         const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
         const music = brief.audio.mode === "music" || brief.audio.mode === "both";
         await updateProjectPlan(project.id, (current) => ({
-          brief,
+          brief: { ...brief, videoType },
           beatPlan: result.plan,
-          script: scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"),
+          script: { ...scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"), ...(current.script?.title ? { title: current.script.title } : {}), videoType },
           state: "Draft storyboard",
           // Keep the existing render request in step with the brief (format and audio) for the current pipeline.
           request: { ...current.request, format: aspectToFormat(brief.aspect), audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" }, ...(brandId ? { brandId } : {}) }
         }));
-        if (result.problems.length) app.log.info({ projectId: project.id, problems: result.problems }, "plan applied with notes");
+        app.log.info({ event: "plan_done", projectId: project.id, ms: Date.now() - startedAt, model: result.model, ...(result.repairedFrom ? { repairedFrom: result.repairedFrom } : {}), ...(result.problems.length ? { problems: result.problems } : {}) }, "plan applied");
       } catch (error) {
         if (controller.signal.aborted) return; // cancelled: the cancel route already recorded it
-        app.log.warn({ err: error }, "script director failed");
+        app.log.warn({ event: "plan_failed", projectId: project.id, ms: Date.now() - startedAt, err: error }, "script director failed");
         const message = error instanceof ProjectInvalid ? error.message : error instanceof Error ? error.message : "The script director failed.";
         await setProjectPlanning(project.id, { status: "failed", startedAt: started.planning?.startedAt ?? new Date().toISOString(), error: message }).catch(() => undefined);
       } finally {
         if (jobs.get(project.id) === controller) jobs.delete(project.id);
       }
     })();
+    runningPlans.add(job);
+    void job.finally(() => runningPlans.delete(job));
     return reply.code(202).send({ project: started });
+  });
+
+  /**
+   * The script first: a short call (seconds, not a minute) that writes the film's script scene by scene, so the person can read it,
+   * correct it like a document and only then ask for the storyboard (POST /plan with scriptMode "own", built from this script).
+   */
+  app.post<{ Params: { id: string } }>("/v1/projects/:id/script-draft", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    const parsed = parseScriptBrief(request.body);
+    if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
+    try {
+      // The words come from the problem text here; a pasted script is already a script.
+      const brief = { ...parsed.brief, scriptMode: "problem" as const };
+      const { context } = await directorContextFor(project, brief);
+      const draft = await draftScript(brief, context, AbortSignal.timeout(100_000));
+      const updated = await updateProject(project.id, { script: draft.script });
+      return reply.code(201).send(updated);
+    } catch (error) {
+      app.log.warn({ err: error }, "script draft failed");
+      return reply.code(502).send({ error: { code: "script_failed", message: error instanceof Error && !/\bkey\b|\bapi\b/i.test(error.message) ? error.message : "The script could not be written. Try again." } });
+    }
+  });
+
+  /** Applies an instruction ("make it shorter", "add a scene about pricing") to the script as the person has edited it. */
+  app.post<{ Params: { id: string }; Body: { instruction?: unknown; brief?: unknown } }>("/v1/projects/:id/script-draft/revise", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (!project.script) return reply.code(409).send({ error: { code: "no_script", message: "Write the script first." } });
+    const instruction = typeof request.body?.instruction === "string" ? request.body.instruction.trim().slice(0, 500) : "";
+    if (instruction.length < 3) return reply.code(400).send({ error: { code: "invalid_instruction", message: "Say what to change." } });
+    const parsed = parseScriptBrief(request.body?.brief);
+    if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
+    try {
+      const brief = { ...parsed.brief, scriptMode: "problem" as const };
+      const { context } = await directorContextFor(project, brief);
+      const draft = await reviseScript(project.script, instruction, brief, context, AbortSignal.timeout(100_000));
+      return reply.send(await updateProject(project.id, { script: draft.script }));
+    } catch (error) {
+      app.log.warn({ err: error }, "script revision failed");
+      return reply.code(502).send({ error: { code: "script_failed", message: "The change could not be made. Try again." } });
+    }
   });
 
   /** Stops the director for this project; the model call is cancelled and nothing is applied. */

@@ -3,6 +3,7 @@ export * from "./visuals.ts";
 export const formats = ["landscape", "portrait"] as const;
 import { parseAudioOptions, type AudioOptions, type AudioResult } from "./audio.ts";
 import type { BeatPlan, PlanAudio, ScriptBrief, SiteCapture } from "./beat-plan.ts";
+import type { FrameMotion, ScriptFrame } from "./script-stream.ts";
 import type { ProManifest } from "./engine.ts";
 import { defaultTemplateId, templateIds, type TemplateValues } from "./templates.ts";
 import { defaultThemeId, themeIds } from "./themes.ts";
@@ -18,6 +19,7 @@ export * from "./style-families.ts";
 export * from "./scenes.ts";
 export * from "./motion-blur.ts";
 export * from "./pricing.ts";
+export * from "./script-stream.ts";
 export * from "./templates.ts";
 export * from "./themes.ts";
 
@@ -49,12 +51,13 @@ export type RenderJobState = "queued" | "planning" | "rendering" | "ready" | "fa
 /**
  * Finer-grained, real progress inside a state. Set by the backend while planning and by the
  * render worker while rendering; the UI never invents stages or percentages.
- * - planning: `planning` (Claude writes the storyboard), `audio` (music and voiceover)
+ * - planning: `planning` (Claude writes the storyboard), `audio` (music and voiceover),
+ *   `directing` (a storyboard film: motion directed on the voiceover, composition built and uploaded)
  * - rendering: `waiting` (queued for a free renderer), `preparing` (building the composition),
  *   `frames` (capturing frames; see `frames`), `encoding` (muxing audio and writing the MP4),
  *   `retrying` (an attempt failed and is scheduled to run again)
  */
-export type RenderStage = "queued" | "planning" | "audio" | "waiting" | "preparing" | "frames" | "encoding" | "retrying" | "done" | "failed";
+export type RenderStage = "queued" | "planning" | "audio" | "directing" | "waiting" | "preparing" | "frames" | "encoding" | "retrying" | "done" | "failed";
 
 /** Which planner produced the storyboard, so the UI can show whether Claude was used. */
 export type PlannerInfo = { provider: "anthropic" | "deterministic"; model?: string };
@@ -103,6 +106,12 @@ export type ProjectScriptLine = {
   label: string;
   onScreen: string;
   voiceover?: string;
+  /** The beat role this scene plays (question, step, recap, hook ...). Set by the script writer. */
+  role?: string;
+  /** In plain words, what the picture shows while this is said: the director's intent for the scene. */
+  visual?: string;
+  /** The uploaded screenshot shown in this scene, or null/absent for none. */
+  screenshotId?: string | null;
 };
 
 export type ProjectScript = {
@@ -110,6 +119,25 @@ export type ProjectScript = {
   lines: ProjectScriptLine[];
   confirmed: boolean;
   updatedAt: string;
+  /** The film's working title and kind, set by the script writer (backend/src/plan/script-draft.ts). */
+  title?: string;
+  videoType?: import("./beat-plan.ts").VideoType;
+  /** Other first lines (different patterns: question, bold claim, who-it's-for, pattern interrupt) the person can swap in for scene 1. */
+  hooks?: string[];
+  /** The text to post with the finished video: names the product, ready to paste. */
+  caption?: string;
+};
+
+/** What a vision read found in an uploaded screenshot: what it is, what is on it and where, so the director can place it. */
+export type ScreenshotAnalysis = {
+  title: string;
+  summary: string;
+  /** dashboard, table, chart, form, settings, editor, landing, mobile, chat, code, document or other. */
+  kind: string;
+  elements: string[];
+  /** What a film can honestly use this screen to show. */
+  bestFor: string;
+  regions: { label: string; where: string }[];
 };
 
 export type ProjectScreenshot = {
@@ -119,6 +147,8 @@ export type ProjectScreenshot = {
   width: number;
   height: number;
   createdAt: string;
+  /** Set by the background vision read after upload; absent while pending, or if it failed. */
+  analysis?: ScreenshotAnalysis;
 };
 
 export type ProjectReviewComment = {
@@ -173,6 +203,14 @@ export type VideoProject = {
   beatPlan?: BeatPlan;
   /** The plan's voiceover takes and music bed (backend/src/plan/audio.ts). */
   planAudio?: PlanAudio;
+  /** The script canvas's reference frames (contracts/script-stream.ts). Left out of the project list; read with the project. */
+  scriptFrames?: ScriptFrame[];
+  /** The film's first frame (SVG text): the project card's thumbnail, so it matches the video. Kept in the project list. */
+  coverFrame?: string;
+  /** The rendered film's real length in seconds (set at Render; the card shows it). */
+  filmSeconds?: number;
+  /** Motion directed for each scene when the film was last rendered (backend/src/plan/frame-motion.ts), by signature. */
+  filmMotion?: { signature: string; svg: string; motion: FrameMotion[] }[];
   /** Durable generated style keyframes, clips and provider operation checkpoints. */
   planVisuals?: PlanVisuals;
   /** Loaded from the current brand row, never trusted from client input. */

@@ -242,6 +242,14 @@ export async function getBrand(id: string): Promise<BrandKit | null> {
 
 export const brandOwner = (kit: Pick<BrandKit, "ownerId">) => kit.ownerId ?? config.legacyOwnerId;
 
+/** Who owns a brand kit, without loading it (ownership checks). Undefined when there is no such kit. */
+export async function brandOwnerById(id: string): Promise<string | undefined> {
+  if (!BRAND_ID.test(id)) return undefined;
+  // Reads the stored ownerId too, so any older row without the column answers exactly as brandOwner() did.
+  const { rows } = await query<{ owner: string | null }>("select coalesce(owner_id::text, data->>'ownerId') as owner from app.brand_kits where id = $1", [id]);
+  return rows[0] ? rows[0].owner ?? config.legacyOwnerId : undefined;
+}
+
 export async function listBrands(ownerId?: string): Promise<BrandKit[]> {
   const { rows } = ownerId === undefined
     ? await query<{ data: BrandKit }>("select data from app.brand_kits order by created_at desc")

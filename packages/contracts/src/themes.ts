@@ -8,6 +8,8 @@
 export type ThemeTokens = {
   bg: string; fg: string; muted: string; surface: string; border: string;
   brand: string; accent: string; accent2: string;
+  /** A brand kit's primary exactly as set (`brand` is darkened or lightened until text in it is readable). Full-bleed brand fields use it; emitted as --brand-fill only when present. */
+  brandFill?: string;
   fontDisplay: string; fontBody: string; fontMono: string;
   radius: string; space1: string; space2: string; space3: string;
   durBeat: string; easeStandard: string; easeEmphasis: string;
@@ -144,5 +146,6 @@ export function themeToCss(theme: Theme) {
     ["--radius", t.radius], ["--space-1", t.space1], ["--space-2", t.space2], ["--space-3", t.space3],
     ["--dur-beat", t.durBeat], ["--ease-standard", t.easeStandard], ["--ease-emphasis", t.easeEmphasis]
   ];
+  if (t.brandFill) lines.push(["--brand-fill", t.brandFill]);
   return `/* ${theme.name} — generated from packages/contracts/src/themes.ts (${theme.source}). Do not edit. */\n:root {\n${lines.map(([name, value]) => `  ${name}: ${value};`).join("\n")}\n}\n`;
 }

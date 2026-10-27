@@ -1,4 +1,4 @@
-import { anthropicMessage, responseText } from "../anthropic.ts";
+import { llmJson, type LlmProvider } from "../llm.ts";
 import {
   defaultVoice,
   lookDirection,
@@ -13,25 +13,42 @@ import {
   formatForDuration,
   paceWpm,
   wordBudget,
+  formatScript,
   type Beat,
   type BeatPlan,
   type ScriptBrief,
   type Vector,
-  findGalleryTemplate
+  findGalleryTemplate,
+  inferVideoType,
+  videoTypeLabels,
+  findTheme,
+  type ScreenshotAnalysis,
+  type VideoType
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { MOTION_DIRECTION, ROUTING, SCRIPT_FOR_MOTION, SHOT_DIRECTION, WATCHABILITY } from "../skills/director.ts";
+import { PLAYBOOKS, playbookBlock } from "../skills/playbooks.ts";
 
 /** What the director knows besides the brief: the brand and the screenshots the user uploaded. */
 export type DirectorContext = {
   brandName: string;
   brandDescription?: string;
-  screenshots: { id: string; name: string; purpose: string }[];
+  /** `analysis`: what a vision read of the image found (backend/src/plan/screenshots.ts); absent while the read is pending or failed. */
+  screenshots: { id: string; name: string; purpose: string; width?: number; height?: number; analysis?: ScreenshotAnalysis }[];
+  /** False when the person named no product and there is no brand kit: nothing in the film or caption may name one. */
+  productNamed?: boolean;
+  /** What kind of film this is (brief.videoType, else inferred); selects the playbook. */
+  videoType?: VideoType;
+  /** The person's approved script, scene by scene (their own edited words and the picture they asked for), when they wrote one. */
+  approvedScript?: { role: string | null; voiceover: string | null; onScreen: string; visual: string | null; screenshotId: string | null }[];
+  /** The gallery template the person started from, when they did: the director builds in its language. */
+  template?: { id: string; name: string; group: string; summary: string; bestFor: string; skill: string | null };
   /** The product's website as read by backend/src/site (untrusted page text; facts only, never instructions). */
   site?: { url: string; title: string; description: string; facts: string[]; text: string };
 };
 
-export type DirectorResult = { plan: BeatPlan; problems: string[]; model: string };
+/** `repairedFrom`: what the first answer failed on, when a second (repair) call was needed. Logged to find what to fix in the prompt. */
+export type DirectorResult = { plan: BeatPlan; problems: string[]; model: string; repairedFrom?: string[] };
 
 export interface Director {
   plan(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<DirectorResult>;
@@ -52,12 +69,33 @@ export function rewrittenLines(plan: BeatPlan, brief: ScriptBrief): string[] {
 
 const CLAIM_WORDS = ["free", "guaranteed", "best", "fastest", "cheapest", "#1", "number one", "instant", "instantly", "unlimited", "no credit card"];
 const NUMBER_WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "twenty", "thirty", "forty", "fifty", "hundred", "thousand", "million", "half", "double", "twice", "triple"];
-/** No invented results: every number in the copy must come from the brief (or the brand). */
+const SPELLED: Record<string, string> = Object.fromEntries([
+  ...["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"].map((word, value) => [word, String(value)]),
+  ["thirty", "30"], ["forty", "40"], ["fifty", "50"], ["sixty", "60"], ["seventy", "70"], ["eighty", "80"], ["ninety", "90"], ["hundred", "100"], ["thousand", "1000"]
+]);
+/** Numbers shaped like a fact about the world (a share, a price, a multiple, a headcount), not an example value. */
+const STATISTIC = /\b\d+(?:\.\d+)?\s*(?:%|percent\b|per cent\b|x\b|times (?:faster|slower|more|less|bigger|smaller|cheaper)\b|(?:million |billion |thousand )?(?:dollars|euros|pounds|users|customers|people|companies|teams)\b)|[$€£]\s?\d+(?:[.,]\d+)?/g;
+
+/**
+ * No invented results: every number in a product film's copy must come from the brief (or the brand). A film about a
+ * topic may use example values ("sixteen boxes, find 37"), as explainers do; only statistics the brief doesn't give are flagged.
+ */
 export function inventedNumbers(plan: BeatPlan, brief: ScriptBrief, context: DirectorContext): string[] {
   // Claims and numbers the product's own site states are approved too.
   const siteWords = context.site ? `${context.site.title} ${context.site.description} ${context.site.facts.join(" ")} ${context.site.text}` : "";
-  const source = ` ${normalize(`${brief.text} ${brief.audience ?? ""} ${context.brandName} ${context.brandDescription ?? ""} ${siteWords}`)} `;
+  const written = ` ${normalize(`${brief.text} ${brief.audience ?? ""} ${context.brandName} ${context.brandDescription ?? ""} ${siteWords}`)} `;
+  // "sixteen" in the brief approves "16" in the copy, and the other way round (a false alarm here costs a whole repair call).
+  const source = `${written}${Object.entries(SPELLED).filter(([word, digits]) => written.includes(` ${word} `) || written.includes(` ${digits} `)).map(([word, digits]) => `${word} ${digits} `).join("")}`;
   const problems: string[] = [];
+  if (!context.brandName) {
+    for (const beat of plan.beats) {
+      const raw = `${beat.line ?? ""} ${beat.keyword} ${beat.on_screen ?? ""}`;
+      for (const stat of new Set(raw.match(STATISTIC) ?? [])) {
+        if (!written.includes(` ${normalize(stat)} `)) problems.push(`${beat.id}: "${stat.trim()}" reads like a statistic the brief doesn't give; check it, or make it clearly an example.`);
+      }
+    }
+    return problems;
+  }
   for (const beat of plan.beats) {
     const copy = normalize(`${beat.line ?? ""} ${beat.keyword} ${beat.on_screen ?? ""}`);
     const found = new Set([...(copy.match(/\d+(?:\.\d+)?/g) ?? []), ...copy.split(" ").filter((word) => NUMBER_WORDS.includes(word))]);
@@ -96,6 +134,35 @@ function audioPlan(brief: ScriptBrief): BeatPlan["audio"] {
   };
 }
 
+/** The film's type: the brief's own, else the context's, else inferred from the template and the words. */
+export function resolveVideoType(brief: ScriptBrief, context: DirectorContext): VideoType {
+  return inferVideoType({ videoType: brief.videoType ?? context.videoType, text: brief.text, group: context.template?.group ?? null, hasScreenshots: context.screenshots.length > 0 });
+}
+
+const CTA_PHRASES = /\b(try (?:it|[a-z0-9]+) (?:today|now|free)|sign up|get started|subscribe|buy now|book a demo|start (?:your )?free|download (?:it|now))\b/i;
+/** A taught or told film does not close on a pitch; a sold one must close on one ask. */
+export function ctaPolicyProblems(plan: BeatPlan, type: VideoType): string[] {
+  const policy = PLAYBOOKS[type].cta;
+  const last = plan.beats[plan.beats.length - 1];
+  if (policy === "never") {
+    const pitched = plan.beats.filter((beat) => beat.role === "cta" || CTA_PHRASES.test(`${beat.line ?? ""} ${beat.keyword} ${beat.on_screen ?? ""}`));
+    return pitched.map((beat) => `${beat.id}: a ${type} film does not end on a call to action; replace this beat with the ${type === "data" ? "recap of the finding" : "recap of the idea"} (role "recap"), without "try", "sign up" or a product pitch.`);
+  }
+  if (policy === "required" && last && last.role !== "cta") return [`${last.id}: a ${type} film ends on one clear call to action; make the last beat role "cta".`];
+  return [];
+}
+
+/** Every screenshot the person uploaded must appear in the film, on a beat whose words are about what it shows. */
+export function screenshotCoverageProblems(plan: BeatPlan, context: DirectorContext): string[] {
+  const used = new Set(plan.beats.map((beat) => beat.ui?.screen).filter(Boolean));
+  return context.screenshots.map((shot, index) => (used.has(shot.id) ? null : `Screenshot ${index} ("${shot.name}"${shot.analysis ? `: ${shot.analysis.title}` : ""}) is not used: give it a "ui" beat (ui.screenshot_index ${index}) whose line is about what it shows.`)).filter((problem): problem is string => problem !== null);
+}
+
+export const directorProblems = (plan: BeatPlan, brief: ScriptBrief, context: DirectorContext) => [
+  ...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context),
+  ...ctaPolicyProblems(plan, resolveVideoType(brief, context)), ...screenshotCoverageProblems(plan, context)
+];
+
 // ---------------------------------------------------------------------------------------------
 // Deterministic director (PLANNER=deterministic): no model; builds a valid plan from the text.
 // ---------------------------------------------------------------------------------------------
@@ -106,9 +173,10 @@ export class DeterministicDirector implements Director {
     const count = Math.max(range.min, Math.min(range.max, Math.round((range.min + range.max) / 2)));
     const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
     const source = sentences(brief.text);
+    const name = context.brandName || "It";
     const lines: (string | null)[] = brief.scriptMode === "own"
       ? Array.from({ length: count }, (_, i) => source[i] ?? null)
-      : [`${source[0] ?? "Your team ships faster than your videos"}.`, ...Array.from({ length: count - 2 }, (_, i) => `${context.brandName} handles step ${i + 1} for you.`), `Try ${context.brandName} today.`];
+      : [`${source[0] ?? "Your team ships faster than your videos"}.`, ...Array.from({ length: count - 2 }, (_, i) => `${name} handles step ${i + 1} for you.`), context.brandName ? `Try ${context.brandName} today.` : "That's the whole idea."];
     const shots = context.screenshots;
     const beats: Beat[] = Array.from({ length: count }, (_, i) => {
       const role: Beat["role"] = i === 0 ? "hook" : i === count - 1 ? "cta" : i === count - 2 ? "success" : i === 1 ? "reveal" : "feature"; // a 3-beat (5 s) film is hook, success, call to action
@@ -123,7 +191,7 @@ export class DeterministicDirector implements Director {
         producer: "hyperframes",
         line,
         verb: firstWord,
-        keyword: role === "cta" ? `Try ${context.brandName}.`.slice(0, 28) : (line ?? brief.text).split(" ").slice(0, 3).join(" ").slice(0, 28),
+        keyword: role === "cta" && context.brandName ? `Try ${context.brandName}.`.slice(0, 28) : (line ?? brief.text).split(" ").slice(0, 3).join(" ").slice(0, 28),
         on_screen: null,
         success: role === "success",
         energy: role === "hook" || role === "success" ? "high" : "medium",
@@ -150,7 +218,7 @@ export class DeterministicDirector implements Director {
       suggestions: [],
       estimate: { generated_shots: 0, api_usd: 0 }
     };
-    return { plan, problems: [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)], model: "deterministic" };
+    return { plan, problems: directorProblems(plan, brief, context), model: "deterministic" };
   }
 }
 
@@ -174,7 +242,7 @@ const OUTPUT_SCHEMA = {
         additionalProperties: false,
         required: ["role", "kind", "line", "verb", "keyword", "on_screen", "success", "energy", "ui", "camera", "entry", "exit", "text_effect", "generation", "fallback_keyword", "sfx", "scene", "transition", "carrier", "render"],
         properties: {
-          role: { type: "string", enum: ["hook", "problem", "reveal", "feature", "proof", "success", "cta"] },
+          role: { type: "string", enum: ["hook", "problem", "reveal", "feature", "proof", "success", "cta", "question", "step", "insight", "recap", "setup", "turn", "resolution"] },
           kind: { type: "string", enum: ["ui", "kinetic", "3d", "footage", "title"] },
           line: nullable("string"),
           verb: nullable("string"),
@@ -244,17 +312,19 @@ const SYSTEM = [
   "=== MOTION DIRECTION: typography (set text_effect on every kinetic and title beat, null on ui beats; use only the effect ids in the table) ===", MOTION_DIRECTION,
   "=== SHOT DIRECTION (how to write generation.keyframe_prompt and generation.veo_prompt for '3d' and 'footage' beats) ===", SHOT_DIRECTION,
   "=== OUTPUT RULES ===",
-  "- Return JSON matching the schema. Beat order is film order: the script decides the shape: read what the person wrote and extract its own structure (its steps, turns, reveals and ending) rather than imposing one. Do not default to hook, success, call to action: use whatever roles and order serve the script and the style reference (a reel may have no CTA, a story may have no success moment). At most one beat has success=true, and only when the script has a payoff. Roles are labels only.",
+  "- Return JSON matching the schema. Beat order is film order: the script decides the shape: read what the person wrote and extract its own structure (its steps, turns, reveals and ending) rather than imposing one. Do not default to hook, success, call to action: follow the VIDEO TYPE playbook's shape and roles (educational films use question, setup, step, insight, recap; stories use setup, problem, turn, resolution) and whatever order serves the script and the style reference (a reel may have no CTA, a story may have no success moment). At most one beat has success=true, and only when the script has a payoff. Roles are labels only.",
   "- Consecutive beats: beat N's exit vector must equal beat N+1's entry vector (axis and dir). Vary directions; don't repeat the same vector three times in a row.",
   "- kind 'ui' requires ui.screenshot_index pointing at one of the provided screenshots (0-based). With no screenshots, use 'kinetic' instead of 'ui'.",
   "- Prefer 'ui' and 'kinetic'. Use '3d' or 'footage' only when the story needs it, at most 2–3 per film, each with generation prompts written exactly as SHOT DIRECTION says (lead with the action; the NO TEXT block second; no text, logos or product UI drawn by the model; laptop screens blank or away) and a fallback_keyword. keep_s: 4 when the action fits in 4 s and no end frame is needed (cheapest clip); end_frame 'generated' only with 8 s clips, and never 'crop-push' on a shot whose subject moves.",
   "- keyword: ≤ 4 words and ≤ 28 characters; the last word is the one that takes the brand accent (the engine colours it; never mark it). on_screen ≤ 60 characters. line ≤ 24 words.",
+  "- Numbers: use only numbers (digits or words like \"three\" or \"half\") that appear in the brief, the product or the site facts; every other number is rejected and the plan is sent back. Do not invent example values, counts, prices or stats; say it without the number (\"a few steps\", \"the target\") unless the brief gives one. Exception: a film with no product (Product: none) may use illustrative example values (a row of 16 numbers, find 37), but never statistics, shares, prices or facts about the world the brief doesn't give.",
+  "- on_screen is words the viewer reads on screen under the keyword (a label, a figure, a short clause, e.g. \"8 left\" or \"found in 4 steps\"). It is printed exactly as written, so it is never a description of what to show or animate (not \"Pointer jumps to the middle box\", not \"Boxes fade to grey\"). Use null when nothing else needs reading.",
   "- Every text field is plain text: no markdown, no asterisks, underscores or backticks for emphasis, no quotes around the words.",
-  "- Every voiced line is written for the ear: no colons, parentheses or slashes, acronyms written as they are said (\"A I\", \"A P I\"), and a list of more than three items becomes one short sentence per item. Open on the viewer's problem or outcome, never on a character or the product name.",
+  "- Every voiced line is written for the ear: no colons, parentheses or slashes, acronyms written as they are said (\"A I\", \"A P I\"), and a list of more than three items becomes one short sentence per item. Open the way the VIDEO TYPE playbook says (a lesson opens on its question, an ad on the viewer's problem), never on a greeting or the product name.",
   "- Own-script mode: every 'line' must be copied verbatim from the user's script (you may split it into sentences; never reword). Put any improvement in 'suggestions' with beat_index, problem and proposal.",
   "- Problem-only mode: write every line yourself, within the word budget. 'suggestions' is empty.",
   "- Never invent statistics, percentages, customer names or claims the brief does not support. Never use: magic, revolutionary, seamless, game-changing.",
-  "- music_prompt: instrumental mood and energy matching the motion profile and pace, with a tempo in BPM (about 110-130 for product films) and a clear drop that the success moment can land on; no artist or brand names. Null when there is no music. voice_direction: delivery notes for the narrator, or null without a voiceover."
+  "- music_prompt: instrumental mood and energy matching the motion profile and pace, with a tempo in BPM (use the tempo the VIDEO TYPE playbook gives) and, where that playbook calls for one, a drop that the success moment lands on; no artist or brand names. Null when there is no music. voice_direction: delivery notes for the narrator, or null without a voiceover."
 ].join("\n");
 
 export function userMessage(brief: ScriptBrief, context: DirectorContext) {
@@ -262,7 +332,7 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
   return [
     `Mode: ${brief.scriptMode === "own" ? "OWN SCRIPT (keep the user's words verbatim)" : "PROBLEM ONLY (write the script)"}`,
-    `Product: ${context.brandName}${context.brandDescription ? ` — ${context.brandDescription}` : ""}${brief.audience ? `\nAudience: ${brief.audience}` : ""}`,
+    productLine(brief, context),
     `Duration: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`,
     `Beats: ${range.min}–${range.max}.${voiced ? ` Voiceover word budget: about ${wordBudget(brief.durationSeconds, brief.pace)} words in total; the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`,
     lookDirection(brief.look),
@@ -271,13 +341,58 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
     ...styleExampleBlock(brief.styleExample),
     `Audio: ${brief.audio.mode}${brief.audio.musicMood ? `; music mood: ${brief.audio.musicMood}` : ""}. Captions: ${brief.captions}.`,
     brief.template ? `Structure template: ${brief.template}.` : "Structure: choose the shape for the format.",
+    ...contextBlocks(brief, context),
+    ...(context.approvedScript ? [approvedScriptBlock(context)] : []),
     context.screenshots.length
-      ? `Screenshots (index: name — purpose):\n${context.screenshots.map((shot, i) => `${i}: ${shot.name} — ${shot.purpose}`).join("\n")}`
+      ? screenshotBlock(context.screenshots)
       : "Screenshots: none uploaded (use kinetic beats instead of ui beats).",
-    `\n${brief.scriptMode === "own" ? "USER'S SCRIPT" : "PROBLEM"}:\n${brief.text}`,
+    brief.scriptBeats
+      ? `\nFIXED SCRIPT (written and approved in the script canvas). Use exactly these ${brief.scriptBeats.length} beats, in this order, with each keyword, on_screen and line exactly as given. Each VISUAL line is the approved picture for that beat: plan the visuals to show it (kind, scene, camera, text effect, transitions, sound, energy):\n${formatScript(brief.scriptBeats, brief.scriptNotes)}\n\nEvery beat that shows the worked example uses EXAMPLE's exact values.\n\nWhat the film is about:\n${brief.text}`
+      : `\n${brief.scriptMode === "own" ? "USER'S SCRIPT" : "PROBLEM"}:\n${brief.text}`,
     ...(brief.scriptMode !== "own" && brief.text.trim().length < 140 && context.site ? ["The brief is short, so do the research from SITE FACTS before writing: choose the concrete products, models, specs, numbers and claims the site really states, and make every beat name something specific from them (a model, a figure, a feature). Generic lines that could describe any brand are not acceptable."] : []),
     ...(context.site ? [siteBlock(context.site)] : [])
   ].join("\n");
+}
+
+
+/** The product the film is about, or a plain statement that none was named (so no line, caption or call to action invents one). */
+export function productLine(brief: ScriptBrief, context: DirectorContext): string {
+  const audience = brief.audience ? `\nAudience: ${brief.audience}` : "";
+  // A topic film (no product named, or no brand at all) gets no product, sales line or call to action, and ends on its idea.
+  if (context.productNamed === false || !context.brandName) return `Product: none named. This film is about a topic or an idea: do not name or invent a product, brand or "try ..." line anywhere in the film or caption, and add no sales line or call to action unless the brief asks for one. End on the idea's payoff or a one-line recap.${audience}`;
+  return `Product: ${context.brandName}${context.brandDescription ? ` — ${context.brandDescription}` : ""}${audience}`;
+}
+
+/** The film's type with its playbook, the template it starts from and the theme, so the director builds for this film and not for a generic ad. */
+export function contextBlocks(brief: ScriptBrief, context: DirectorContext): string[] {
+  const type = resolveVideoType(brief, context);
+  const out = [`\n${playbookBlock(type)}`];
+  const template = context.template;
+  if (template) out.push(`Starting template: "${template.name}" (${template.group}). ${template.summary} Best for: ${template.bestFor}. Build the film in this template's language: its scene types, rhythm and visual devices. The template's own arc does not override the VIDEO TYPE playbook.`);
+  if (brief.styleNote) out.push(`The person describes the look in their own words: "${brief.styleNote}". Treat it as art direction: let it decide the mood, the colour feel, the texture words in each beat's picture and which of the style's scenes you choose. The chosen look still decides what can actually be drawn, so never promise a medium it cannot render; use its closest equivalent.`);
+  const theme = brief.theme ? findTheme(brief.theme) : undefined;
+  if (theme) out.push(`Theme: ${theme.name} (${theme.mode} ground). ${theme.description} Palette: background ${theme.tokens.bg}, text ${theme.tokens.fg}, brand ${theme.tokens.brand}, accent ${theme.tokens.accent}. Choose scenes and emphasis that read well on this ground; the brand kit, when one is chosen, replaces these colours.`);
+  return out;
+}
+
+/** The person's own script, scene by scene: the director builds exactly these scenes, in this order, and puts each assigned screenshot on its scene. */
+function approvedScriptBlock(context: DirectorContext): string {
+  const rows = (context.approvedScript ?? []).map((scene, i) => {
+    const index = scene.screenshotId ? context.screenshots.findIndex((shot) => shot.id === scene.screenshotId) : -1;
+    return `${i + 1}. role ${scene.role ?? "(choose)"}; voiceover: ${scene.voiceover ? `"${scene.voiceover}"` : "(silent)"}; on screen: "${scene.onScreen}"; picture: ${scene.visual ?? "(director's choice)"}${index >= 0 ? `; show screenshot ${index} (ui.screenshot_index ${index})` : ""}`;
+  });
+  return `APPROVED SCRIPT (the person edited and approved this; build exactly these ${rows.length} scenes in this order, one beat per scene; keep every voiceover line word for word; the picture note is their intent; a scene with a screenshot becomes a "ui" beat on that screenshot):\n${rows.join("\n")}`;
+}
+
+/** Uploaded screenshots with what a vision read found in each, so the director knows what they are and where each belongs. */
+export function screenshotBlock(shots: DirectorContext["screenshots"]): string {
+  const lines = shots.map((shot, i) => {
+    const a = shot.analysis;
+    const size = shot.width && shot.height ? ` ${shot.width}x${shot.height}` : "";
+    if (!a) return `${i}: ${shot.name}${size} — ${shot.purpose} (not yet described)`;
+    return [`${i}: ${shot.name}${size} — ${a.title}. ${a.summary}`, `   kind: ${a.kind}; elements: ${a.elements.slice(0, 8).join(", ")}; best used for: ${a.bestFor}${a.regions.length ? `; regions: ${a.regions.slice(0, 6).map((region) => `${region.label} (${region.where})`).join(", ")}` : ""}`].join("\n");
+  });
+  return `Screenshots (index: what it is). EVERY screenshot must appear in the film as a "ui" beat (ui.screenshot_index), placed on the beat whose line talks about what it shows; ui.target names the control or region on it that the line refers to. Never describe a screen it does not show.\n${lines.join("\n")}`;
 }
 
 /** The chosen style's own example film, as a remix reference: keep its pacing, scene types and devices; swap in the new script. */
@@ -305,6 +420,24 @@ function siteBlock(site: NonNullable<DirectorContext["site"]>) {
     `Page text: ${fence(site.text.slice(0, 4000))}`,
     "</site_copy>"
   ].filter((line) => line !== "").join("\n");
+}
+
+/**
+ * A storyboard built from the script canvas carries the script's own words: whatever the model wrote in those fields is
+ * replaced, so the storyboard can never drift from what the person approved. Applied only when the beat count matches.
+ */
+export function withScriptBeats(plan: BeatPlan, brief: ScriptBrief): BeatPlan {
+  const script = brief.scriptBeats;
+  if (!script || script.length !== plan.beats.length) return plan;
+  return { ...plan, beats: plan.beats.map((beat, i) => ({ ...beat, keyword: script[i]!.keyword, on_screen: script[i]!.onScreen, line: script[i]!.line })) };
+}
+
+/** The script canvas already checked the words; the storyboard pass only has to keep the beats and stay a valid plan. */
+function scriptBeatProblems(plan: BeatPlan, brief: ScriptBrief): string[] {
+  const count = brief.scriptBeats!.length;
+  if (plan.beats.length !== count) return [`Use exactly ${count} beats, one per script beat, in the script's order (got ${plan.beats.length}).`];
+  // Word and number rules were the canvas's job; structural rules (kinds, transitions, generated shots) still apply.
+  return beatPlanProblems(plan, brief).filter((problem) => !/words|hook line|beats for \d+s/i.test(problem));
 }
 
 export function toPlan(output: ModelOutput, brief: ScriptBrief, context: DirectorContext): BeatPlan {
@@ -356,43 +489,55 @@ export function toPlan(output: ModelOutput, brief: ScriptBrief, context: Directo
   };
 }
 
+/** The director's default model: the best scorer in the Claude-vs-Gemini test (docs/DIRECTOR_AB.md). */
+export const DIRECTOR_DEFAULT_MODEL = "claude-opus-5-5";
+
 export class AnthropicDirector implements Director {
   private readonly httpRequest: typeof fetch;
-  constructor(request = fetch) { this.httpRequest = request; }
+  /** Which model family and model write the plan (DIRECTOR_PROVIDER / DIRECTOR_MODEL); the A/B test sets them per run. */
+  readonly provider: LlmProvider;
+  readonly model: string;
+  /** Tokens and time spent by this instance's calls, for cost and speed comparisons. */
+  usage = { calls: 0, inputTokens: 0, outputTokens: 0, ms: 0 };
+  constructor(request = fetch, options: { provider?: LlmProvider; model?: string } = {}) {
+    this.httpRequest = request;
+    this.provider = options.provider ?? (process.env.DIRECTOR_PROVIDER === "gemini" ? "gemini" : "anthropic");
+    this.model = options.model ?? process.env.DIRECTOR_MODEL ?? (this.provider === "gemini" ? "gemini-3.1-pro-preview" : DIRECTOR_DEFAULT_MODEL);
+  }
 
   async plan(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<DirectorResult> {
     const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userMessage(brief, context) }];
     let plan: BeatPlan | null = null;
     let problems: string[] = [];
+    let repairedFrom: string[] | undefined;
+    // A plan built from an approved script is checked against that script; otherwise against every director rule.
+    const check = (candidate: BeatPlan) => brief.scriptBeats ? scriptBeatProblems(candidate, brief) : directorProblems(candidate, brief, context);
     for (let attempt = 1; attempt <= 2; attempt++) {
       const text = await this.request(messages, signal);
       const output = JSON.parse(text) as ModelOutput;
-      plan = toPlan(output, brief, context);
-      problems = [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)];
+      plan = withScriptBeats(toPlan(output, brief, context), brief);
+      problems = check(plan);
       if (problems.length === 0) break;
+      if (attempt === 1) repairedFrom = problems;
       if (attempt === 2) {
         plan = restoreUserWords(plan, brief);
-        problems = [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)];
+        problems = check(plan);
         break;
       }
       messages.push({ role: "assistant", content: text }, { role: "user", content: `Fix every problem and return the complete plan again:\n- ${problems.join("\n- ")}` });
     }
-    return { plan: plan!, problems, model: config.anthropicModel };
+    return { plan: plan!, problems, model: this.model, ...(repairedFrom ? { repairedFrom } : {}) };
   }
 
   private async request(messages: { role: "user" | "assistant"; content: string }[], signal?: AbortSignal): Promise<string> {
-    const payload = await anthropicMessage({
-        model: config.anthropicModel,
-        max_tokens: 16000,
-        // The system prompt is long and identical on every call: cache it (Anthropic prompt caching).
-        system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-        messages,
-        output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } }
-
-    }, { request: this.httpRequest, ...(signal ? { signal } : {}), timeoutMs: 180000, errorPrefix: "Script director request failed", includeErrorDetail: true, stopErrors: {"refusal": "The script director declined this brief.", "max_tokens": "The beat plan was too long; shorten the duration or the script."} });
-    const text = payload.content?.filter((block) => block.type === "text").map((block) => block.text ?? "").join("") ?? "";
-    if (!text) throw new Error("The script director returned no plan.");
-    return text;
+    const last = messages[messages.length - 1]!;
+    const result = await llmJson({
+      provider: this.provider, model: this.model, system: SYSTEM, user: last.content, history: messages.slice(0, -1), schema: OUTPUT_SCHEMA as unknown as Record<string, unknown>,
+      maxTokens: 16000, timeoutMs: 180_000, ...(signal ? { signal } : {}),
+      stopErrors: { refusal: "The script director declined this brief.", max_tokens: "The beat plan was too long; shorten the duration or the script." }
+    });
+    this.usage.calls += 1; this.usage.inputTokens += result.inputTokens; this.usage.outputTokens += result.outputTokens; this.usage.ms += result.ms;
+    return result.text;
   }
 }
 
