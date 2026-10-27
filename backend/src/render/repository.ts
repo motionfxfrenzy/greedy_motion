@@ -28,7 +28,11 @@ type Row = {
   created_at: Date;
   updated_at: Date;
   render_queued_at: Date | null;
+  prep: FilmPrep | null;
 };
+
+/** A storyboard film's backend preparation, done by the planning consumer before the job reaches the render queue. */
+export type FilmPrep = { kind: "beat-plan"; watermark: boolean; motionBlur: boolean; ownerId: string; spendEvent: string | null };
 
 export type StoredRenderJob = Row;
 
@@ -52,14 +56,14 @@ function toView(row: Row, queuePosition?: number): RenderJob {
 
 export const renderJobRepository = {
   /** Inserts the job and its planning message in one transaction: no job without a message, and vice versa. */
-  async createAndEnqueue(job: RenderJob, input: { request: RenderRequest; projectId?: string; ownerId?: string; plannedRevision?: Plan }) {
+  async createAndEnqueue(job: RenderJob, input: { request: RenderRequest; projectId?: string; ownerId?: string; plannedRevision?: Plan; prep?: FilmPrep }) {
     const client = await pool.connect();
     try {
       await client.query("begin");
       await client.query(
-        `insert into app.render_jobs (id, project_id, owner_id, state, stage, progress, request, planned_revision, revision, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [job.id, input.projectId ?? null, input.ownerId ?? null, job.state, "queued", job.progress, input.request, input.plannedRevision ?? null, job.revision, job.createdAt]
+        `insert into app.render_jobs (id, project_id, owner_id, state, stage, progress, request, planned_revision, revision, prep, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [job.id, input.projectId ?? null, input.ownerId ?? null, job.state, "queued", job.progress, input.request, input.plannedRevision ?? null, job.revision, input.prep ?? null, job.createdAt]
       );
       await boss.send(QUEUES.plan, { jobId: job.id }, { db: inTransaction(client) });
       await client.query("commit");
@@ -127,17 +131,29 @@ export const renderJobRepository = {
     return result.rows[0] ?? null;
   },
 
+  /** Who a job belongs to, for the ownership check that runs on every job request. */
+  async owners(id: string) {
+    const result = await pool.query<Pick<Row, "project_id" | "owner_id">>("select project_id, owner_id from app.render_jobs where id = $1", [id]);
+    return result.rows[0] ?? null;
+  },
+
+  /**
+   * The browser view, read in one query: only the columns the view uses (not the request, plan or worker input), and the
+   * queue position counted in the same statement while the job waits for a renderer.
+   */
   async find(id: string) {
-    const row = await this.row(id);
+    const result = await pool.query<Row & { ahead: string | null }>(
+      `select id, state, stage, progress, attempt, frames_done, frames_total, revision, created_at, updated_at, render_queued_at,
+              output - 'file' as output, error - 'detail' as error,
+              case when state = 'rendering' and stage = 'waiting' and render_queued_at is not null then
+                (select count(*) from app.render_jobs w where w.state = 'rendering' and w.stage = 'waiting' and w.render_queued_at < j.render_queued_at)
+              end as ahead
+       from app.render_jobs j where id = $1`,
+      [id]
+    );
+    const row = result.rows[0];
     if (!row) return null;
-    if (row.state === "rendering" && row.stage === "waiting" && row.render_queued_at) {
-      const ahead = await pool.query<{ count: string }>(
-        "select count(*) from app.render_jobs where state = 'rendering' and stage = 'waiting' and render_queued_at < $1",
-        [row.render_queued_at]
-      );
-      return toView(row, Number(ahead.rows[0]?.count ?? 0));
-    }
-    return toView(row);
+    return toView(row, row.ahead === null ? undefined : Number(row.ahead));
   },
 
   /** Claims a queued job for planning. Returns null when another delivery already moved it on. */
@@ -177,7 +193,7 @@ export const renderJobRepository = {
          where id = $1 and state = 'planning' returning id`,
         [id, revision, renderInput]
       );
-      if (moved.rowCount === 1) await boss.send(QUEUES.video, { jobId: id }, { db: inTransaction(client) });
+      if (moved.rowCount === 1) await boss.send(QUEUES.video, { jobId: id }, { db: inTransaction(client), ...blurExpiry(renderInput) });
       await client.query("commit");
       if (moved.rowCount === 1) void kickWorkers(true);
       return moved.rowCount === 1;

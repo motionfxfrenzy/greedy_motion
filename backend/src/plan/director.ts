@@ -13,6 +13,7 @@ import {
   formatForDuration,
   paceWpm,
   wordBudget,
+  formatScript,
   type Beat,
   type BeatPlan,
   type ScriptBrief,
@@ -31,7 +32,8 @@ export type DirectorContext = {
   site?: { url: string; title: string; description: string; facts: string[]; text: string };
 };
 
-export type DirectorResult = { plan: BeatPlan; problems: string[]; model: string };
+/** `repairedFrom`: what the first answer failed on, when a second (repair) call was needed. Logged to find what to fix in the prompt. */
+export type DirectorResult = { plan: BeatPlan; problems: string[]; model: string; repairedFrom?: string[] };
 
 export interface Director {
   plan(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<DirectorResult>;
@@ -52,12 +54,33 @@ export function rewrittenLines(plan: BeatPlan, brief: ScriptBrief): string[] {
 
 const CLAIM_WORDS = ["free", "guaranteed", "best", "fastest", "cheapest", "#1", "number one", "instant", "instantly", "unlimited", "no credit card"];
 const NUMBER_WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "twenty", "thirty", "forty", "fifty", "hundred", "thousand", "million", "half", "double", "twice", "triple"];
-/** No invented results: every number in the copy must come from the brief (or the brand). */
+const SPELLED: Record<string, string> = Object.fromEntries([
+  ...["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"].map((word, value) => [word, String(value)]),
+  ["thirty", "30"], ["forty", "40"], ["fifty", "50"], ["sixty", "60"], ["seventy", "70"], ["eighty", "80"], ["ninety", "90"], ["hundred", "100"], ["thousand", "1000"]
+]);
+/** Numbers shaped like a fact about the world (a share, a price, a multiple, a headcount), not an example value. */
+const STATISTIC = /\b\d+(?:\.\d+)?\s*(?:%|percent\b|per cent\b|x\b|times (?:faster|slower|more|less|bigger|smaller|cheaper)\b|(?:million |billion |thousand )?(?:dollars|euros|pounds|users|customers|people|companies|teams)\b)|[$€£]\s?\d+(?:[.,]\d+)?/g;
+
+/**
+ * No invented results: every number in a product film's copy must come from the brief (or the brand). A film about a
+ * topic may use example values ("sixteen boxes, find 37"), as explainers do; only statistics the brief doesn't give are flagged.
+ */
 export function inventedNumbers(plan: BeatPlan, brief: ScriptBrief, context: DirectorContext): string[] {
   // Claims and numbers the product's own site states are approved too.
   const siteWords = context.site ? `${context.site.title} ${context.site.description} ${context.site.facts.join(" ")} ${context.site.text}` : "";
-  const source = ` ${normalize(`${brief.text} ${brief.audience ?? ""} ${context.brandName} ${context.brandDescription ?? ""} ${siteWords}`)} `;
+  const written = ` ${normalize(`${brief.text} ${brief.audience ?? ""} ${context.brandName} ${context.brandDescription ?? ""} ${siteWords}`)} `;
+  // "sixteen" in the brief approves "16" in the copy, and the other way round (a false alarm here costs a whole repair call).
+  const source = `${written}${Object.entries(SPELLED).filter(([word, digits]) => written.includes(` ${word} `) || written.includes(` ${digits} `)).map(([word, digits]) => `${word} ${digits} `).join("")}`;
   const problems: string[] = [];
+  if (!context.brandName) {
+    for (const beat of plan.beats) {
+      const raw = `${beat.line ?? ""} ${beat.keyword} ${beat.on_screen ?? ""}`;
+      for (const stat of new Set(raw.match(STATISTIC) ?? [])) {
+        if (!written.includes(` ${normalize(stat)} `)) problems.push(`${beat.id}: "${stat.trim()}" reads like a statistic the brief doesn't give; check it, or make it clearly an example.`);
+      }
+    }
+    return problems;
+  }
   for (const beat of plan.beats) {
     const copy = normalize(`${beat.line ?? ""} ${beat.keyword} ${beat.on_screen ?? ""}`);
     const found = new Set([...(copy.match(/\d+(?:\.\d+)?/g) ?? []), ...copy.split(" ").filter((word) => NUMBER_WORDS.includes(word))]);
@@ -106,9 +129,10 @@ export class DeterministicDirector implements Director {
     const count = Math.max(range.min, Math.min(range.max, Math.round((range.min + range.max) / 2)));
     const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
     const source = sentences(brief.text);
+    const name = context.brandName || "It";
     const lines: (string | null)[] = brief.scriptMode === "own"
       ? Array.from({ length: count }, (_, i) => source[i] ?? null)
-      : [`${source[0] ?? "Your team ships faster than your videos"}.`, ...Array.from({ length: count - 2 }, (_, i) => `${context.brandName} handles step ${i + 1} for you.`), `Try ${context.brandName} today.`];
+      : [`${source[0] ?? "Your team ships faster than your videos"}.`, ...Array.from({ length: count - 2 }, (_, i) => `${name} handles step ${i + 1} for you.`), context.brandName ? `Try ${context.brandName} today.` : "That's the whole idea."];
     const shots = context.screenshots;
     const beats: Beat[] = Array.from({ length: count }, (_, i) => {
       const role: Beat["role"] = i === 0 ? "hook" : i === count - 1 ? "cta" : i === count - 2 ? "success" : i === 1 ? "reveal" : "feature"; // a 3-beat (5 s) film is hook, success, call to action
@@ -123,7 +147,7 @@ export class DeterministicDirector implements Director {
         producer: "hyperframes",
         line,
         verb: firstWord,
-        keyword: role === "cta" ? `Try ${context.brandName}.`.slice(0, 28) : (line ?? brief.text).split(" ").slice(0, 3).join(" ").slice(0, 28),
+        keyword: role === "cta" && context.brandName ? `Try ${context.brandName}.`.slice(0, 28) : (line ?? brief.text).split(" ").slice(0, 3).join(" ").slice(0, 28),
         on_screen: null,
         success: role === "success",
         energy: role === "hook" || role === "success" ? "high" : "medium",
@@ -249,6 +273,8 @@ const SYSTEM = [
   "- kind 'ui' requires ui.screenshot_index pointing at one of the provided screenshots (0-based). With no screenshots, use 'kinetic' instead of 'ui'.",
   "- Prefer 'ui' and 'kinetic'. Use '3d' or 'footage' only when the story needs it, at most 2–3 per film, each with generation prompts written exactly as SHOT DIRECTION says (lead with the action; the NO TEXT block second; no text, logos or product UI drawn by the model; laptop screens blank or away) and a fallback_keyword. keep_s: 4 when the action fits in 4 s and no end frame is needed (cheapest clip); end_frame 'generated' only with 8 s clips, and never 'crop-push' on a shot whose subject moves.",
   "- keyword: ≤ 4 words and ≤ 28 characters; the last word is the one that takes the brand accent (the engine colours it; never mark it). on_screen ≤ 60 characters. line ≤ 24 words.",
+  "- Numbers: use only numbers (digits or words like \"three\" or \"half\") that appear in the brief, the product or the site facts; every other number is rejected and the plan is sent back. Do not invent example values, counts, prices or stats; say it without the number (\"a few steps\", \"the target\") unless the brief gives one. Exception: a film with no product (Product: none) may use illustrative example values (a row of 16 numbers, find 37), but never statistics, shares, prices or facts about the world the brief doesn't give.",
+  "- on_screen is words the viewer reads on screen under the keyword (a label, a figure, a short clause, e.g. \"8 left\" or \"found in 4 steps\"). It is printed exactly as written, so it is never a description of what to show or animate (not \"Pointer jumps to the middle box\", not \"Boxes fade to grey\"). Use null when nothing else needs reading.",
   "- Every text field is plain text: no markdown, no asterisks, underscores or backticks for emphasis, no quotes around the words.",
   "- Every voiced line is written for the ear: no colons, parentheses or slashes, acronyms written as they are said (\"A I\", \"A P I\"), and a list of more than three items becomes one short sentence per item. Open on the viewer's problem or outcome, never on a character or the product name.",
   "- Own-script mode: every 'line' must be copied verbatim from the user's script (you may split it into sentences; never reword). Put any improvement in 'suggestions' with beat_index, problem and proposal.",
@@ -262,7 +288,10 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
   return [
     `Mode: ${brief.scriptMode === "own" ? "OWN SCRIPT (keep the user's words verbatim)" : "PROBLEM ONLY (write the script)"}`,
-    `Product: ${context.brandName}${context.brandDescription ? ` — ${context.brandDescription}` : ""}${brief.audience ? `\nAudience: ${brief.audience}` : ""}`,
+    (context.brandName
+      ? `Product: ${context.brandName}${context.brandDescription ? ` — ${context.brandDescription}` : ""}`
+      : "Product: none. This film is about a topic or an idea, not a product: do not invent a product or brand name, a sales line or a call to action unless the brief asks for one. End on the idea's payoff or a one-line recap.")
+      + (brief.audience ? `\nAudience: ${brief.audience}` : ""),
     `Duration: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`,
     `Beats: ${range.min}–${range.max}.${voiced ? ` Voiceover word budget: about ${wordBudget(brief.durationSeconds, brief.pace)} words in total; the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`,
     lookDirection(brief.look),
@@ -274,7 +303,9 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
     context.screenshots.length
       ? `Screenshots (index: name — purpose):\n${context.screenshots.map((shot, i) => `${i}: ${shot.name} — ${shot.purpose}`).join("\n")}`
       : "Screenshots: none uploaded (use kinetic beats instead of ui beats).",
-    `\n${brief.scriptMode === "own" ? "USER'S SCRIPT" : "PROBLEM"}:\n${brief.text}`,
+    brief.scriptBeats
+      ? `\nFIXED SCRIPT (written and approved in the script canvas). Use exactly these ${brief.scriptBeats.length} beats, in this order, with each keyword, on_screen and line exactly as given. Each VISUAL line is the approved picture for that beat: plan the visuals to show it (kind, scene, camera, text effect, transitions, sound, energy):\n${formatScript(brief.scriptBeats, brief.scriptNotes)}\n\nEvery beat that shows the worked example uses EXAMPLE's exact values.\n\nWhat the film is about:\n${brief.text}`
+      : `\n${brief.scriptMode === "own" ? "USER'S SCRIPT" : "PROBLEM"}:\n${brief.text}`,
     ...(brief.scriptMode !== "own" && brief.text.trim().length < 140 && context.site ? ["The brief is short, so do the research from SITE FACTS before writing: choose the concrete products, models, specs, numbers and claims the site really states, and make every beat name something specific from them (a model, a figure, a feature). Generic lines that could describe any brand are not acceptable."] : []),
     ...(context.site ? [siteBlock(context.site)] : [])
   ].join("\n");
@@ -305,6 +336,24 @@ function siteBlock(site: NonNullable<DirectorContext["site"]>) {
     `Page text: ${fence(site.text.slice(0, 4000))}`,
     "</site_copy>"
   ].filter((line) => line !== "").join("\n");
+}
+
+/**
+ * A storyboard built from the script canvas carries the script's own words: whatever the model wrote in those fields is
+ * replaced, so the storyboard can never drift from what the person approved. Applied only when the beat count matches.
+ */
+export function withScriptBeats(plan: BeatPlan, brief: ScriptBrief): BeatPlan {
+  const script = brief.scriptBeats;
+  if (!script || script.length !== plan.beats.length) return plan;
+  return { ...plan, beats: plan.beats.map((beat, i) => ({ ...beat, keyword: script[i]!.keyword, on_screen: script[i]!.onScreen, line: script[i]!.line })) };
+}
+
+/** The script canvas already checked the words; the storyboard pass only has to keep the beats and stay a valid plan. */
+function scriptBeatProblems(plan: BeatPlan, brief: ScriptBrief): string[] {
+  const count = brief.scriptBeats!.length;
+  if (plan.beats.length !== count) return [`Use exactly ${count} beats, one per script beat, in the script's order (got ${plan.beats.length}).`];
+  // Word and number rules were the canvas's job; structural rules (kinds, transitions, generated shots) still apply.
+  return beatPlanProblems(plan, brief).filter((problem) => !/words|hook line|beats for \d+s/i.test(problem));
 }
 
 export function toPlan(output: ModelOutput, brief: ScriptBrief, context: DirectorContext): BeatPlan {
@@ -364,12 +413,16 @@ export class AnthropicDirector implements Director {
     const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userMessage(brief, context) }];
     let plan: BeatPlan | null = null;
     let problems: string[] = [];
+    let repairedFrom: string[] | undefined;
     for (let attempt = 1; attempt <= 2; attempt++) {
       const text = await this.request(messages, signal);
       const output = JSON.parse(text) as ModelOutput;
-      plan = toPlan(output, brief, context);
-      problems = [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)];
+      plan = withScriptBeats(toPlan(output, brief, context), brief);
+      problems = brief.scriptBeats
+        ? scriptBeatProblems(plan, brief)
+        : [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)];
       if (problems.length === 0) break;
+      if (attempt === 1) repairedFrom = problems;
       if (attempt === 2) {
         plan = restoreUserWords(plan, brief);
         problems = [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)];
@@ -377,7 +430,7 @@ export class AnthropicDirector implements Director {
       }
       messages.push({ role: "assistant", content: text }, { role: "user", content: `Fix every problem and return the complete plan again:\n- ${problems.join("\n- ")}` });
     }
-    return { plan: plan!, problems, model: config.anthropicModel };
+    return { plan: plan!, problems, model: config.anthropicModel, ...(repairedFrom ? { repairedFrom } : {}) };
   }
 
   private async request(messages: { role: "user" | "assistant"; content: string }[], signal?: AbortSignal): Promise<string> {

@@ -1,11 +1,31 @@
 "use client";
 
+import { svgSrc } from "./script-canvas";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HyperframesPlayer } from "@hyperframes/player";
-import { BEAT_LIMITS, beatPlanProblems, scenesFor, textEffects, transitionTypes, motionBlurCopy, motionBlurProblem, type Beat, type BeatPlan, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, beatPlanProblems, renderCostMillitokens, scenesFor, textEffects, transitionTypes, tokensFromMilli, motionBlurCopy, motionBlurProblem, type Beat, type BeatPlan, type VideoProject } from "@videosaas/contracts";
 import { useMediaToken } from "../lib/use-media-token";
-import { rewriteFrame, editPlan, ensureMediaToken, generatePlanAudio, getComposition, PlanProblems, projectScreenshotUrl, type Composition, type PlanAudioStatus, type PlanPatch } from "../lib/api";
+import { rewriteFrame, editPlan, ensureMediaToken, generatePlanAudio, getComposition, getMyTokens, PlanProblems, projectScreenshotUrl, startCheckout, type Composition, type PlanAudioStatus, type PlanPatch } from "../lib/api";
 import { MaterialGeneration } from "./material-generation";
+
+/** What Submit will charge (the server prices the same length) against the balance, with a way to top up before, not after, a refusal. */
+export function RenderCost({ seconds }: { seconds: number }) {
+  const [balance, setBalance] = useState<number | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => { getMyTokens().then((summary) => setBalance(summary.remaining)).catch(() => setBalance(null)); }, []);
+  const cost = tokensFromMilli(renderCostMillitokens(seconds));
+  const short = balance !== null && balance < cost;
+  const topUp = async () => {
+    setOpening(true);
+    try { window.location.assign(await startCheckout("topup")); } catch (caught) { setFailed(caught instanceof Error ? caught.message : "Could not open checkout."); setOpening(false); }
+  };
+  return <div className={short ? "bs-cost short" : "bs-cost"} role="status">
+    <span>This film costs <b>{cost} tokens</b>{balance !== null && <> · you have <b>{balance}</b></>}</span>
+    {short && <button type="button" className="secondary-button" disabled={opening} onClick={() => void topUp()}>{opening ? "Opening…" : "Add tokens"}</button>}
+    {failed && <small>{failed}</small>}
+  </div>;
+}
 
 /** Colours and type the frame cards are drawn with: the brand kit's, or the gallery theme's. */
 export type FrameLook = { bg: string; fg: string; muted: string; brand: string; font: string; /** The kit's accent colour (emphasis marks); falls back to the brand colour. */ accent?: string };
@@ -94,8 +114,10 @@ function Budget({ text, chars, max }: { text: string; chars: number; max?: numbe
   return <small className={over ? "budget over" : "budget"}>{text.length}/{chars}{max !== undefined ? ` · ${words(text)}/${max} words` : ""}</small>;
 }
 
-export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, back, submit, openStudio, regenerate, motionBlur, setMotionBlur }: {
+export function BeatStoryboardStep({ approvedFrames, project, look, warnings, busy, onSaved, back, submit, openStudio, regenerate, motionBlur, setMotionBlur }: {
   project: VideoProject & { beatPlan: BeatPlan };
+  /** The script canvas's approved frame per scene (SVG text), or null where the scene has none or its words changed. */
+  approvedFrames?: (string | null)[];
   look: FrameLook;
   /** Non-blocking warnings from the last plan generation. */
   warnings: string[];
@@ -328,7 +350,9 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
       <div className="bs-grid">{plan.beats.map((beat, index) => {
         const problems = [...new Set([...problemsFor(beat.id).map((problem) => problem.replace(/^beat \d+ \([\w-]+\):\s*/i, "")), ...readinessFor(beat.id)])];
         return <article key={beat.id} className={(beat.id === activeBeat?.id ? "bs-beat active" : "bs-beat") + (problems.length ? " has-problems" : "")} onFocusCapture={() => { if (beat.id !== active) showBeat(beat.id); }} onClick={() => { if (beat.id !== active) showBeat(beat.id); }}>
-          <FrameCard family={project.brief?.styleFamily} beat={beat} index={index} canvas={plan.canvas} look={look} lookId={project.brief?.look ?? "clean"} screenshot={screenshotFor.get(beat.id)} />
+          {approvedFrames?.[index]
+            ? <img className="bs-approved" src={svgSrc(approvedFrames[index]!)} alt={`Approved frame for scene ${index + 1}`} draggable={false} />
+            : <FrameCard family={project.brief?.styleFamily} beat={beat} index={index} canvas={plan.canvas} look={look} lookId={project.brief?.look ?? "clean"} screenshot={screenshotFor.get(beat.id)} />}
           <div className="bs-meta"><span className={"bs-role " + beat.role}>{roleLabel[beat.role]}</span><span>{kindLabel[beat.kind]}{beat.ui ? ` · ${beat.ui.action} ${beat.ui.target}` : ""}</span><div className="bs-move"><button aria-label={`Move beat ${index + 1} earlier`} disabled={index === 0} onClick={(event) => { event.stopPropagation(); move(beat.id, -1); }}>↑</button><button aria-label={`Move beat ${index + 1} later`} disabled={index === plan.beats.length - 1} onClick={(event) => { event.stopPropagation(); move(beat.id, 1); }}>↓</button></div></div>
           <label className="bs-field"><span>Key phrase <Budget text={beat.keyword} chars={BEAT_LIMITS.keywordChars} max={BEAT_LIMITS.keywordWords} /></span><input value={beat.keyword} onChange={(event) => edit(beat, "keyword", event.target.value)} onBlur={flush} /></label>
           <label className="bs-field"><span>On screen <Budget text={beat.on_screen ?? ""} chars={BEAT_LIMITS.onScreenChars} /></span><input value={beat.on_screen ?? ""} onChange={(event) => edit(beat, "on_screen", event.target.value)} onBlur={flush} placeholder="Optional supporting line" /></label>
@@ -345,7 +369,8 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
             <span>{audioBusy === "voice" ? "Re-voicing edited lines…" : audioBusy ? "Making voice and music… (about 30 s)" : audioError ? audioError : audio.ready ? `Voice & music ready${audio.voice ? ` · ${audio.voice.voice}` : ""}` : audio.voice?.stale.length ? `${audio.voice.stale.length} ${audio.voice.stale.length === 1 ? "line needs" : "lines need"} re-voicing` : "Voice and music not made yet"}</span>
             {!audioBusy && (!audio.ready || audioError) && <button className="text-button" onClick={() => void makeAudio(audio.voice?.stale.length && audio.music?.ready ? ["voice"] : undefined)}>{audio.voice?.stale.length && audio.music?.ready ? "Re-voice" : audioError ? "Try again" : "Make audio"}</button>}
           </div>}
-          {activeBeat && <div className="bs-still"><FrameCard family={project.brief?.styleFamily} beat={activeBeat} index={plan.beats.indexOf(activeBeat)} canvas={plan.canvas} look={look} lookId={project.brief?.look ?? "clean"} screenshot={screenshotFor.get(activeBeat.id)} /></div>}
+          {activeBeat && approvedFrames?.[plan.beats.indexOf(activeBeat)] && <div className="bs-still"><img className="bs-approved" src={svgSrc(approvedFrames[plan.beats.indexOf(activeBeat)]!)} alt="" draggable={false} /></div>}
+          {activeBeat && !approvedFrames?.[plan.beats.indexOf(activeBeat)] && <div className="bs-still"><FrameCard family={project.brief?.styleFamily} beat={activeBeat} index={plan.beats.indexOf(activeBeat)} canvas={plan.canvas} look={look} lookId={project.brief?.look ?? "clean"} screenshot={screenshotFor.get(activeBeat.id)} /></div>}
           <form className="bs-rewrite" onSubmit={(event) => { event.preventDefault(); void rewriteActive(); }}>
             <textarea rows={3} value={rewriteText} maxLength={300} placeholder="Change this frame: “punchier”, “mention the warranty”…" aria-label="Rewrite this frame" disabled={rewriting}
               onChange={(event) => { setRewriteText(event.target.value); event.currentTarget.style.height = "auto"; event.currentTarget.style.height = event.currentTarget.scrollHeight + "px"; }}
@@ -369,6 +394,7 @@ export function BeatStoryboardStep({ project, look, warnings, busy, onSaved, bac
           {(() => { const tooLong = motionBlurProblem(lengthSeconds); return (
             <label className="bs-blur"><input type="checkbox" checked={motionBlur && !tooLong} disabled={busy || Boolean(tooLong)} onChange={(event) => setMotionBlur(event.target.checked)} /><span><b>{motionBlurCopy.label}</b><small>{tooLong ?? motionBlurCopy.help}</small></span></label>
           ); })()}
+          <RenderCost seconds={lengthSeconds} />
           <div><button className="secondary-button" onClick={back}>Back</button>{regenerate ? <button className="secondary-button" onClick={regenerate}>Regenerate script</button> : null}{openStudio ? <button className="secondary-button" onClick={openStudio}>Open Studio</button> : null}<button className="primary-button" disabled={busy || blockingCount > 0 || saveState === "saving"} onClick={() => { flush(); submit(); }}>{busy ? "Starting render…" : "Submit video"}</button></div>
           <small>Submitting locks the script and storyboard. Rendering continues if you leave the page.</small>
         </div>

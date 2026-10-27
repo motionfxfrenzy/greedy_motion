@@ -9,6 +9,7 @@ import { config } from "../config.ts";
 import { ensureMedia } from "../media.ts";
 import { screenshotFile } from "../projects/store.ts";
 import { audioMode, planAudioDir } from "./audio.ts";
+import { filmFeel, filmFrames, withFrameFilm } from "./frame-film.ts";
 import { declareVariables, ENGINE_TEMPLATE, engineVariables, fillTextBlock, stampCanvas, textValues } from "./composition.ts";
 import { brandNameFor, projectLook, projectTiming } from "./preview.ts";
 import { soundTracks, withSoundtrack, type SfxName } from "./sound.ts";
@@ -101,6 +102,9 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   html = declareVariables(html, values, { asDefaults: check });
   html = fillTextBlock(html, {});
   html = withSoundtrack(html, tracks);
+  // A film written in the script canvas animates its approved frames instead of the engine's own scenes.
+  const frames = filmFrames(project, timing);
+  if (frames) html = await withFrameFilm(html, frames, filmFeel(project));
   if (watermark) html = withWatermark(html);
   html = withVisuals(html, project, timing, file => `visuals/${file}`);
   html = html.replace("</head>", () => `  <style id="fonts">\n${fontCss}\n  </style>${look.brandFontsCss ? `\n  <style id="brand-fonts">\n${look.brandFontsCss}\n  </style>` : ""}\n  <style id="theme" data-theme="${look.brand ? "brand" : look.theme}">\n${look.themeCss}\n  </style>\n</head>`);

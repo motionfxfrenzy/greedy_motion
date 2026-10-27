@@ -3,6 +3,7 @@ export * from "./visuals.ts";
 export const formats = ["landscape", "portrait"] as const;
 import { parseAudioOptions, type AudioOptions, type AudioResult } from "./audio.ts";
 import type { BeatPlan, PlanAudio, ScriptBrief, SiteCapture } from "./beat-plan.ts";
+import type { FrameMotion, ScriptFrame } from "./script-stream.ts";
 import type { ProManifest } from "./engine.ts";
 import { defaultTemplateId, templateIds, type TemplateValues } from "./templates.ts";
 import { defaultThemeId, themeIds } from "./themes.ts";
@@ -18,6 +19,7 @@ export * from "./style-families.ts";
 export * from "./scenes.ts";
 export * from "./motion-blur.ts";
 export * from "./pricing.ts";
+export * from "./script-stream.ts";
 export * from "./templates.ts";
 export * from "./themes.ts";
 
@@ -49,12 +51,13 @@ export type RenderJobState = "queued" | "planning" | "rendering" | "ready" | "fa
 /**
  * Finer-grained, real progress inside a state. Set by the backend while planning and by the
  * render worker while rendering; the UI never invents stages or percentages.
- * - planning: `planning` (Claude writes the storyboard), `audio` (music and voiceover)
+ * - planning: `planning` (Claude writes the storyboard), `audio` (music and voiceover),
+ *   `directing` (a storyboard film: motion directed on the voiceover, composition built and uploaded)
  * - rendering: `waiting` (queued for a free renderer), `preparing` (building the composition),
  *   `frames` (capturing frames; see `frames`), `encoding` (muxing audio and writing the MP4),
  *   `retrying` (an attempt failed and is scheduled to run again)
  */
-export type RenderStage = "queued" | "planning" | "audio" | "waiting" | "preparing" | "frames" | "encoding" | "retrying" | "done" | "failed";
+export type RenderStage = "queued" | "planning" | "audio" | "directing" | "waiting" | "preparing" | "frames" | "encoding" | "retrying" | "done" | "failed";
 
 /** Which planner produced the storyboard, so the UI can show whether Claude was used. */
 export type PlannerInfo = { provider: "anthropic" | "deterministic"; model?: string };
@@ -173,6 +176,14 @@ export type VideoProject = {
   beatPlan?: BeatPlan;
   /** The plan's voiceover takes and music bed (backend/src/plan/audio.ts). */
   planAudio?: PlanAudio;
+  /** The script canvas's reference frames (contracts/script-stream.ts). Left out of the project list; read with the project. */
+  scriptFrames?: ScriptFrame[];
+  /** The film's first frame (SVG text): the project card's thumbnail, so it matches the video. Kept in the project list. */
+  coverFrame?: string;
+  /** The rendered film's real length in seconds (set at Render; the card shows it). */
+  filmSeconds?: number;
+  /** Motion directed for each scene when the film was last rendered (backend/src/plan/frame-motion.ts), by signature. */
+  filmMotion?: { signature: string; svg: string; motion: FrameMotion[] }[];
   /** Durable generated style keyframes, clips and provider operation checkpoints. */
   planVisuals?: PlanVisuals;
   /** Loaded from the current brand row, never trusted from client input. */

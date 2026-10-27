@@ -23,6 +23,9 @@ export const QUEUES = {
 
 export type RenderMessage = { jobId: string };
 
+/** The planning queue's retry delay; the planning consumer wakes itself when a retry comes due (render/service.ts). */
+export const PLAN_RETRY_DELAY_SECONDS = 5;
+
 const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   // Dead-letter queues first: a queue can only name a dead-letter queue that already exists.
   { name: QUEUES.visualsDead, notify: true, retryLimit: 0 },
@@ -32,7 +35,7 @@ const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   { name: QUEUES.videoDead, notify: true, retryLimit: 0 },
   // Planning calls Claude and the audio APIs; one retry covers a transient API error without
   // paying for repeated failures. A missed heartbeat (backend crashed) also triggers the retry.
-  { name: QUEUES.plan, notify: true, retryLimit: 1, retryDelay: 5, expireInSeconds: 600, heartbeatSeconds: 30, deadLetter: QUEUES.planDead },
+  { name: QUEUES.plan, notify: true, retryLimit: 1, retryDelay: PLAN_RETRY_DELAY_SECONDS, expireInSeconds: 600, heartbeatSeconds: 30, deadLetter: QUEUES.planDead },
   // Rendering: heartbeats detect a dead worker within ~30 s; the expiry bounds a hung render.
   { name: QUEUES.video, notify: true, retryLimit: config.renderRetries, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: config.renderTimeoutSeconds, heartbeatSeconds: 30, deadLetter: QUEUES.videoDead },
   { name: QUEUES.finished, notify: true, retryLimit: 5, retryDelay: 2, retryBackoff: true }

@@ -4,6 +4,7 @@ import { resolveSceneRoute, type SceneRendering } from "./scene-rendering.ts";
 // change both together. Budgets come from gm-skill-authoring/references/script-for-motion.md.
 import { isLook, type LookId } from "./looks.ts";
 import { getStyleFamily } from "./style-families.ts";
+import { parseScriptBeats, parseScriptNotes, type ScriptBeat, type ScriptNotes } from "./script-stream.ts";
 
 export const aspects = ["16:9", "9:16", "1:1"] as const;
 export const paces = ["calm", "balanced", "fast"] as const;
@@ -31,6 +32,11 @@ export type ScriptBrief = {
   /** The problem description (scriptMode "problem") or the user's own script (scriptMode "own"). */
   text: string;
   durationSeconds: number;
+  /**
+   * Hold the script to `durationSeconds`. Without it the duration is a target: a script whose idea needs longer may run
+   * longer, and the canvas says so (with a one-click rewrite to fit).
+   */
+  lockDuration?: boolean;
   aspect: Aspect;
   motionProfile: MotionProfile;
   pace: Pace;
@@ -53,6 +59,13 @@ export type ScriptBrief = {
   productUrl?: string;
   /** Project screenshot ids in the order the user arranged them. */
   screenshotIds?: string[];
+  /**
+   * The script from the script canvas, already streamed and approved by the user. When present the director keeps these
+   * beats exactly (count, order, words) and only plans the visuals: the storyboard is built from the script, not instead of it.
+   */
+  scriptBeats?: ScriptBeat[];
+  /** The writer's idea and worked example for that script (contracts/script-stream.ts), so the storyboard uses the same data. */
+  scriptNotes?: ScriptNotes;
 };
 
 /** Words per minute for the voiceover at each pace. */
@@ -74,6 +87,12 @@ export function beatCountRange(seconds: number, pace: Pace, family?: string | nu
 /** Voiceover word budget for the whole film (leaves room for gaps, the hook and the landed ending). */
 export function wordBudget(seconds: number, pace: Pace): number {
   return Math.floor((seconds - 2) * (paceWpm[pace] / 60));
+}
+
+/** How long a script runs when read at this pace: its words, plus a short breath between beats (unvoiced: ~2 s a beat). */
+export function scriptSeconds(beats: readonly { line: string | null }[], pace: Pace): number {
+  const words = beats.reduce((total, beat) => total + (beat.line ? beat.line.split(/\s+/).filter(Boolean).length : 0), 0);
+  return words === 0 ? beats.length * 2 : Math.round(words * 60 / paceWpm[pace] + beats.length * 0.4 + 1);
 }
 
 /** Most words a hook line can have and still be said within 3 s at this pace. */
@@ -184,6 +203,7 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     scriptMode: value.scriptMode,
     text,
     durationSeconds,
+    ...(value.lockDuration === true ? { lockDuration: true } : {}),
     aspect: value.aspect,
     motionProfile: value.motionProfile,
     pace: value.pace,
@@ -203,6 +223,8 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     ...(clean(value.productName, 60) ? { productName: clean(value.productName, 60) } : {}),
     ...(typeof value.productUrl === "string" && /^https?:\/\/\S+$/i.test(value.productUrl.trim()) && value.productUrl.trim().length <= 300 ? { productUrl: value.productUrl.trim() } : {}),
     ...(clean(value.audience, 160) ? { audience: clean(value.audience, 160) } : {}),
+    ...(parseScriptBeats(value.scriptBeats) ? { scriptBeats: parseScriptBeats(value.scriptBeats)! } : {}),
+    ...(parseScriptNotes(value.scriptNotes) ? { scriptNotes: parseScriptNotes(value.scriptNotes)! } : {}),
     ...(screenshotIds?.length ? { screenshotIds } : {})
   };
   return { brief };
@@ -226,8 +248,9 @@ export function beatPlanProblems(plan: BeatPlan, brief?: ScriptBrief, { editing 
     if (brief.audio.mode === "voiceover" || brief.audio.mode === "both") {
       const total = plan.beats.reduce((sum, beat) => sum + (beat.line ? words(beat.line) : 0), 0);
       const budget = wordBudget(brief.durationSeconds, brief.pace);
-      // The budget is an estimate (±10%, like the film length): only a clear overrun blocks.
-      if (brief.scriptMode === "problem" && total > Math.round(budget * 1.1)) problems.push(`The voiceover is ${total} words; ${brief.durationSeconds}s at a ${brief.pace} pace fits about ${budget}.`);
+      // The budget is an estimate (±10%, like the film length): only a clear overrun blocks, and only when the length is
+      // locked; otherwise the length is a target and the script may run longer (the script canvas says so).
+      if (brief.scriptMode === "problem" && brief.lockDuration && total > Math.round(budget * 1.1)) problems.push(`The voiceover is ${total} words; ${brief.durationSeconds}s at a ${brief.pace} pace fits about ${budget}.`);
       // The hook must be said within 3 s (watchability → hook): about 2.7 s of speech after the lead-in.
       const hook = plan.beats[0];
       const hookMax = hookWordLimit(brief.pace);

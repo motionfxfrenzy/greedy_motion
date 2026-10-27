@@ -166,6 +166,9 @@ export const config = {
   host: process.env.HOST ?? (env === "local" ? "127.0.0.1" : "0.0.0.0"),
   corsOrigins,
   databaseUrl,
+  // The render-events LISTEN connection (render/events.ts). LISTEN needs a session connection: set this to the direct or
+  // session-pooler URL if DATABASE_URL is ever a transaction pooler (Supabase :6543).
+  listenDatabaseUrl: process.env.LISTEN_DATABASE_URL || databaseUrl,
   databasePoolSize: positiveInt("DATABASE_POOL_SIZE", 10),
   // How long one replica remembers a user's entitlement rows (0 turns the cache off). A grant or revoke made on another
   // replica or by a script is seen within this long; GET /v1/me/entitlements always reads the database.

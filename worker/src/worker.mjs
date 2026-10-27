@@ -31,9 +31,10 @@ if (!Number.isInteger(idleExitSeconds) || idleExitSeconds < 0) throw new Error("
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 const pool = createPool(databaseUrl);
 // The backend owns the pg-boss schema and the queues (migrate: false); the worker only consumes.
-// Same quiet settings as the backend (backend/src/jobs/queues.ts explains each): the worker only consumes, so no cron clock, no instance heartbeat and no
-// dependent-job resolver. It also listens for new jobs instead of polling, when the connection allows it. Takes effect when the worker image is rebuilt.
-const boss = new PgBoss({ connectionString: databaseUrl, max: 4, migrate: false, useListenNotify: true, schedule: false, registerInstance: false, flowIntervalSeconds: 3600, bamIntervalSeconds: 600, queueCacheIntervalSeconds: 300, idleTimeoutMillis: 120_000 });
+// Same quiet settings as the backend (backend/src/jobs/queues.ts explains each): no cron clock, no instance heartbeat, no
+// dependent-job resolver, and it listens for new jobs instead of polling (the video queue is `notify`; polling is a 30 s
+// backstop). It also does not supervise: the backend supervises every queue, so a second supervisor only adds reads.
+const boss = new PgBoss({ connectionString: databaseUrl, max: 4, migrate: false, useListenNotify: true, notifyHeartbeatIntervalMs: 30_000, supervise: false, schedule: false, registerInstance: false, flowIntervalSeconds: 3600, bamIntervalSeconds: 600, queueCacheIntervalSeconds: 300, idleTimeoutMillis: 120_000 });
 boss.on("error", (error) => log("error", "queue_error", { message: error.message }));
 
 let ready = false;
