@@ -109,8 +109,9 @@ function normalizeProject(raw: unknown): VideoProject {
  */
 export async function projectOwnerById(id: string): Promise<string | undefined> {
   if (!idPattern.test(id)) return undefined;
-  const { rows } = await query<{ owner_id: string | null }>("select owner_id from app.projects where id = $1", [id]);
-  return rows[0] ? rows[0].owner_id ?? config.legacyOwnerId : undefined;
+  // The column and the stored ownerId are written together (save()); reading both keeps any older row answering as before.
+  const { rows } = await query<{ owner: string | null }>("select coalesce(owner_id::text, data->>'ownerId') as owner from app.projects where id = $1", [id]);
+  return rows[0] ? rows[0].owner ?? config.legacyOwnerId : undefined;
 }
 
 /** The project whose `renderJobId` is this job (renders from before jobs lived in Postgres), without the frames and motion. */
