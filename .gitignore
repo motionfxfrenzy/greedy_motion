@@ -30,3 +30,14 @@ validation/generated/
 # check:creative failure captures
 validation/creative-libraries/last-failure/
 validation/creative-libraries/last-check.json
+
+
+Effectcraft_templates
+validation
+videos
+.vercel
+.env*
+
+# Local clone of an outside repo (674 MB, its own .git); not part of this repository.
+third_party/lemo-opuscar/
+__pycache__/

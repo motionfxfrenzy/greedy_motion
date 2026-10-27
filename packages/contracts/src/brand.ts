@@ -150,7 +150,7 @@ export function deriveBrandTheme(kit: Pick<BrandKitInput, "name" | "colors" | "f
   if (contrast(fg, bg) < 7) fg = readableOn(fg, [bg, surface], 7);
 
   const tokens: ThemeTokens = {
-    bg, fg, muted, surface, border, brand, accent, accent2: mix(accent, fg, 0.35),
+    bg, fg, muted, surface, border, brand, brandFill: primary, accent, accent2: mix(accent, fg, 0.35),
     fontDisplay: fontStack(kit.fonts.heading, "Inter, Arial, sans-serif"),
     fontBody: fontStack(kit.fonts.body, "Inter, Arial, sans-serif"),
     fontMono: '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',

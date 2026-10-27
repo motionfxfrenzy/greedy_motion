@@ -4,11 +4,14 @@ import type { Job } from "pg-boss";
 import { config } from "../config.ts";
 import { AnthropicPromptPlanner } from "./anthropic-planner.ts";
 import { DeterministicPromptPlanner, VIDEO_SECONDS, applyBrand, planFromValues, requireTemplate, type Plan, type PromptPlanner } from "./planner.ts";
-import { renderJobRepository } from "./repository.ts";
+import { renderJobRepository, type FilmPrep, type StoredRenderJob } from "./repository.ts";
+import { NotReady, prepareBeatPlanRender } from "../plan/readiness.ts";
+import { refundSpend } from "../tokens/store.ts";
 import { getBrand } from "../brand/store.ts";
 import { produceAudio, type WorkerAudio } from "../audio/produce.ts";
 import { getProject, updateProject } from "../projects/store.ts";
-import { boss, POLL, QUEUES, type RenderMessage } from "../jobs/queues.ts";
+import { boss, PLAN_RETRY_DELAY_SECONDS, POLL, QUEUES, type RenderMessage } from "../jobs/queues.ts";
+import { renderEvents } from "./events.ts";
 import { projectTiming } from "../plan/preview.ts";
 import { beatTimes } from "../plan/timing.ts";
 
@@ -16,6 +19,20 @@ const planner: PromptPlanner = config.planner === "anthropic" ? new AnthropicPro
 
 const codeOf = (error: unknown, fallback: string) => (error as { code?: string }).code ?? fallback;
 const messageOf = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
+
+/** A storyboard film's job view: its beats with real lengths, so Review's timeline lines up with the film. */
+function beatPlanRevision(project: VideoProject, durationSeconds: number): RenderJob["revision"] {
+  const plan = project.beatPlan!;
+  const timing = projectTiming(project);
+  const times = timing ? beatTimes(timing) : {};
+  return {
+    id: randomUUID(),
+    title: project.name,
+    scenes: plan.beats.map((beat) => ({ id: beat.id, label: beat.role === "cta" ? "CTA" : beat.role[0]!.toUpperCase() + beat.role.slice(1), detail: beat.keyword, duration: times[beat.id] ? times[beat.id]!.end - times[beat.id]!.start : durationSeconds / plan.beats.length })),
+    ...(project.request.brandId ? { brandId: project.request.brandId } : {}),
+    look: project.brief?.look ?? "clean"
+  };
+}
 
 /**
  * Render pipeline, backend half. `create` persists a job and queues planning; the planning consumer
@@ -38,34 +55,34 @@ export class RenderService {
   }
 
   /**
-   * Renders an approved storyboard exactly as previewed. `prepared` is the folder written by
-   * prepareBeatPlanRender (composition, variables, fonts, shots, voice, music, SFX), so nothing is
-   * planned or generated here: the job goes straight to the render queue.
+   * Renders an approved storyboard exactly as previewed. The request returns at once: the planning consumer
+   * directs the motion, builds the composition (prepareBeatPlanRender) and hands it to the render queue, and
+   * every step reaches the page as a job event. Nothing is planned or generated beyond what the storyboard holds.
    */
-  async createBeatPlanRender(project: VideoProject, jobId: string, prepared: { workerDir: string; projectPrefix?: string; durationSeconds: number; canvas: string }, options: { motionBlur?: boolean } = {}) {
-    const plan = project.beatPlan!;
-    const timing = projectTiming(project);
-    const times = timing ? beatTimes(timing) : {};
-    const job: RenderJob = {
-      id: jobId,
-      state: "rendering",
-      progress: 45,
-      createdAt: new Date().toISOString(),
-      revision: {
-        id: randomUUID(),
-        title: project.name,
-        // Real beat lengths, so Review's timeline lines up with the film.
-        scenes: plan.beats.map((beat) => ({ id: beat.id, label: beat.role === "cta" ? "CTA" : beat.role[0]!.toUpperCase() + beat.role.slice(1), detail: beat.keyword, duration: times[beat.id] ? times[beat.id]!.end - times[beat.id]!.start : prepared.durationSeconds / plan.beats.length })),
-        ...(project.request.brandId ? { brandId: project.request.brandId } : {}),
-        look: project.brief?.look ?? "clean"
-      }
-    };
-    return renderJobRepository.createReadyAndEnqueue(job, {
-      request: project.request,
-      projectId: project.id,
-      // The worker's whole input: a prepared folder on the shared renders volume. No API keys, no planning.
-      renderInput: { kind: "beat-plan", renderContractVersion: 1, id: jobId, workerDir: prepared.workerDir, ...(prepared.projectPrefix ? { projectPrefix: prepared.projectPrefix } : {}), durationSeconds: prepared.durationSeconds, canvas: prepared.canvas, ...(options.motionBlur ? { motionBlur: true } : {}) }
-    });
+  async createBeatPlanRender(project: VideoProject, jobId: string, prep: Omit<FilmPrep, "kind">, durationSeconds: number) {
+    const job: RenderJob = { id: jobId, state: "queued", progress: 0, createdAt: new Date().toISOString(), revision: beatPlanRevision(project, durationSeconds) };
+    return renderJobRepository.createAndEnqueue(job, { request: project.request, projectId: project.id, prep: { kind: "beat-plan", ...prep } });
+  }
+
+  /** The storyboard half of the planning consumer: motion, composition and upload, then the render queue. */
+  private async prepareFilm(id: string, row: StoredRenderJob, prep: FilmPrep) {
+    const project = row.project_id ? await getProject(row.project_id) : null;
+    if (!project?.beatPlan) {
+      await this.failForGood(id, { code: "planning_failed", message: "This project no longer has a storyboard. Open it and render again." }, false);
+      return;
+    }
+    await renderJobRepository.updatePlanning(id, { stage: "directing", progress: 25 });
+    let prepared: Awaited<ReturnType<typeof prepareBeatPlanRender>>;
+    try {
+      prepared = await prepareBeatPlanRender(project, id, { watermark: prep.watermark });
+    } catch (error) {
+      // The storyboard changed after Render and no longer passes its checks: retrying cannot help.
+      if (error instanceof NotReady) { await this.failForGood(id, { code: "not_ready", message: error.message }, false); return; }
+      throw error;
+    }
+    // The worker's whole input: a prepared folder on the shared renders volume (or its R2 prefix). No API keys, no planning.
+    const renderInput = { kind: "beat-plan", renderContractVersion: 1, id, workerDir: prepared.workerDir, ...(prepared.projectPrefix ? { projectPrefix: prepared.projectPrefix } : {}), durationSeconds: prepared.durationSeconds, canvas: prepared.canvas, ...(prep.motionBlur ? { motionBlur: true } : {}) };
+    await renderJobRepository.queueRender(id, { ...beatPlanRevision(project, prepared.durationSeconds), id: row.revision.id }, renderInput);
   }
 
   async draftScript(request: RenderRequest) {
@@ -134,10 +151,22 @@ export class RenderService {
 
   /** Registers this replica's consumers. Safe to run on every backend replica. */
   async startConsumers() {
-    await boss.work<RenderMessage>(QUEUES.plan, { localConcurrency: config.planConcurrency, pollingIntervalSeconds: POLL.live }, async ([job]) => this.plan(job!));
+    this.workers.plan = await boss.work<RenderMessage>(QUEUES.plan, { localConcurrency: config.planConcurrency, pollingIntervalSeconds: POLL.live }, async ([job]) => this.plan(job!));
     await boss.work<RenderMessage>(QUEUES.finished, { localConcurrency: 2, pollingIntervalSeconds: POLL.live }, async ([job]) => this.syncProject(job!.data.jobId));
-    await boss.work<RenderMessage>(QUEUES.planDead, { pollingIntervalSeconds: POLL.dead }, async ([job]) => this.failForGood(job!.data.jobId, { code: "planning_failed", message: "We could not plan this video. Check the brief and brand kit, then render again." }, true));
-    await boss.work<RenderMessage>(QUEUES.videoDead, { pollingIntervalSeconds: POLL.dead }, async ([job]) => this.failForGood(job!.data.jobId, { code: "render_failed", message: `We could not render this video after ${config.renderRetries + 1} attempts. Render again; if it keeps failing, the worker log for this job has the details.` }, false));
+    this.workers.planDead = await boss.work<RenderMessage>(QUEUES.planDead, { pollingIntervalSeconds: POLL.dead }, async ([job]) => this.failForGood(job!.data.jobId, { code: "planning_failed", message: "We could not plan this video. Check the brief and brand kit, then render again." }, true));
+    this.workers.videoDead = await boss.work<RenderMessage>(QUEUES.videoDead, { pollingIntervalSeconds: POLL.dead }, async ([job]) => this.failForGood(job!.data.jobId, { code: "render_failed", message: `We could not render this video after ${config.renderRetries + 1} attempts. Render again; if it keeps failing, the worker log for this job has the details.` }, false));
+    // A failed render attempt (the worker records stage `retrying`) may have been the last: look for its dead letter now.
+    renderEvents.observe((notice) => { if (notice.stage === "retrying") { this.wake(this.workers.videoDead, 1500); this.wake(this.workers.videoDead, 6000); } });
+  }
+
+  private workers: { plan?: string; planDead?: string; videoDead?: string } = {};
+
+  /**
+   * Queue consumers sleep between notifications (pg-boss polls only as a 30 s backstop). A new job wakes them, but a retry
+   * coming due or a dead letter does not, so the code that caused one wakes the consumer itself: one fetch, at the right time.
+   */
+  private wake(workerId: string | undefined, afterMs: number) {
+    if (workerId) setTimeout(() => boss.notifyWorker(workerId), afterMs).unref();
   }
 
   /** Planning consumer: storyboard, audio, worker input. Throwing schedules a pg-boss retry. */
@@ -146,6 +175,7 @@ export class RenderService {
     const row = await renderJobRepository.beginPlanning(id);
     if (!row) return; // Already planned or finished; a duplicate delivery.
     try {
+      if (row.prep?.kind === "beat-plan") return await this.prepareFilm(id, row, row.prep);
       const request = row.request;
       const brand = request.brandId ? await getBrand(request.brandId) : null;
       if (request.brandId && !brand) throw Object.assign(new Error("That brand kit no longer exists. Choose another kit and render again."), { code: "planning_failed" });
@@ -193,9 +223,12 @@ export class RenderService {
       await renderJobRepository.queueRender(id, revision, renderInput);
     } catch (error) {
       const code = codeOf(error, "planning_failed");
-      const failure = { code: code === "audio_failed" ? code : "planning_failed", message: messageOf(error, "Planning failed.") };
+      const failure = { code: code === "audio_failed" ? code : "planning_failed", message: row.prep ? "We could not prepare this film. Your tokens were returned; try again." : messageOf(error, "Planning failed.") };
       console.error(JSON.stringify({ level: "error", event: "render_planning_failed", jobId: id, ...failure }));
       await renderJobRepository.notePlanningError(id, failure);
+      // pg-boss retries after the queue's retryDelay, or moves the job to the dead letter queue once retries run out.
+      this.wake(this.workers.plan, PLAN_RETRY_DELAY_SECONDS * 1000 + 500);
+      this.wake(this.workers.planDead, 1000);
       throw error;
     }
   }
@@ -204,6 +237,10 @@ export class RenderService {
   private async failForGood(jobId: string, failure: { code: string; message: string }, keepRecorded: boolean) {
     const row = await renderJobRepository.failIfUnfinished(jobId, failure, keepRecorded);
     if (row) console.error(JSON.stringify({ level: "error", event: "render_job_failed", jobId, code: row.error?.code, message: row.error?.message }));
+    // A storyboard film paid at Render and never reached the renderer: its tokens go back.
+    if (row?.prep?.spendEvent && row.render_queued_at === null) {
+      await refundSpend(row.prep.ownerId, row.prep.spendEvent).catch((error) => console.error(JSON.stringify({ level: "error", event: "render_refund_failed", jobId, message: error instanceof Error ? error.message : String(error) })));
+    }
     await this.syncProject(jobId);
   }
 

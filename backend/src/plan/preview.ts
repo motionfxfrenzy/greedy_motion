@@ -3,7 +3,7 @@ import { verifyVisualAssets, requireCurrentPalette } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sceneLogo } from "../brand/logos.ts";
-import { themeIds, type VideoProject } from "@videosaas/contracts";
+import { deriveBrandTheme, themeIds, type VideoProject } from "@videosaas/contracts";
 import { getBrand, restoreBrandFiles } from "../brand/store.ts";
 import { config } from "../config.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
@@ -49,7 +49,10 @@ export async function projectLook(project: VideoProject) {
   }
   const theme = project.brief?.theme && themeIds.includes(project.brief.theme) ? project.brief.theme : project.request.theme;
   if (!brand) return { brand: null, theme, themeCss: await requiredText(join(config.themesDir, `${theme}.css`), "The selected preview theme"), brandFontsCss: "", logo: null, logoBug: null };
-  const themeCss = await requiredText(join(config.brandsDir, brand.id, "theme.css"), "The project brand theme");
+  const savedThemeCss = await requiredText(join(config.brandsDir, brand.id, "theme.css"), "The project brand theme");
+  // The kit's primary exactly as set, for full-bleed brand fields; derived here so kits saved before it existed get it too.
+  const brandFill = deriveBrandTheme(brand, `brand-${brand.id}`).theme.tokens.brandFill;
+  const themeCss = brandFill && !savedThemeCss.includes("--brand-fill") ? `${savedThemeCss}\n:root { --brand-fill: ${brandFill}; }\n` : savedThemeCss;
   // Saved brand font CSS points at `brand-fonts/<file>` (the files live in <brandsDir>/<id>/fonts).
   const brandFontsCss = await readFile(join(config.brandsDir, brand.id, "fonts.css"), "utf8").catch(() => "");
   // Which logo version each kind of scene uses (brand/logos.ts): the closing lockup, and a small corner mark.
@@ -58,7 +61,7 @@ export async function projectLook(project: VideoProject) {
 }
 
 export const brandNameFor = (project: VideoProject, brand: { name: string } | null) =>
-  brand?.name ?? project.brief?.productName ?? project.beatPlan?.brand.name ?? project.name;
+  brand?.name ?? project.brief?.productName ?? project.beatPlan?.brand.name ?? "";
 
 export async function planPreviewHtml(project: VideoProject): Promise<string> {
   const plan = project.beatPlan;

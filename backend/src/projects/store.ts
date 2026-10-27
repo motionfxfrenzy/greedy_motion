@@ -13,7 +13,9 @@ import {
   videoTypes,
   type ProjectState,
   type ProjectStudioDraft,
-  type VideoProject
+  type VideoProject,
+  SCRIPT_FRAMES_KEPT,
+  type ScriptFrame
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { query, withRowLock } from "../db/database.ts";
@@ -60,9 +62,10 @@ async function save(project: VideoProject) {
 export async function listProjects(ownerId?: string) {
   // Unowned (pre-ownership) rows belong to config.legacyOwnerId, matching projectOwner().
   const { rows } = ownerId === undefined
-    ? await query<{ data: unknown }>("select data from app.projects order by updated_at desc")
+    // Reference frames are SVG text (a few KB each) that only the open project needs.
+    ? await query<{ data: unknown }>("select data - 'scriptFrames' - 'filmMotion' as data from app.projects order by updated_at desc")
     : await query<{ data: unknown }>(
-        "select data from app.projects where owner_id = $1 or (owner_id is null and $1 = $2) order by updated_at desc",
+        "select data - 'scriptFrames' - 'filmMotion' as data from app.projects where owner_id = $1 or (owner_id is null and $1 = $2) order by updated_at desc",
         [ownerId, config.legacyOwnerId || null]
       );
   return rows.map((row) => normalizeProject(row.data));
@@ -97,6 +100,24 @@ function normalizeProject(raw: unknown): VideoProject {
   const base = { ...project, screenshots, comments } as VideoProject;
   const studio = normalizeStudioDraft(base, rawStudio);
   return { ...base, ...(studio ? { studio } : {}) };
+}
+
+/**
+ * Who owns a project, without loading it: ownership is checked on every project request, and the project row carries the
+ * storyboard, frames and motion. Undefined when there is no such project; unowned (pre-ownership) rows belong to
+ * config.legacyOwnerId, as in projectOwner().
+ */
+export async function projectOwnerById(id: string): Promise<string | undefined> {
+  if (!idPattern.test(id)) return undefined;
+  const { rows } = await query<{ owner_id: string | null }>("select owner_id from app.projects where id = $1", [id]);
+  return rows[0] ? rows[0].owner_id ?? config.legacyOwnerId : undefined;
+}
+
+/** The project whose `renderJobId` is this job (renders from before jobs lived in Postgres), without the frames and motion. */
+export async function projectByRenderJob(jobId: string) {
+  if (!idPattern.test(jobId)) return null;
+  const { rows } = await query<{ data: unknown }>("select data - 'scriptFrames' - 'filmMotion' as data from app.projects where data->>'renderJobId' = $1 limit 1", [jobId]);
+  return rows[0] ? normalizeProject(rows[0].data) : null;
 }
 
 export async function getProject(id: string) {
@@ -371,13 +392,17 @@ export async function screenshotFile(projectId: string, screenshotId: string) {
  * the matching script through the same serialised write path as every other project update.
  * `mutate` receives the current project and returns the fields to change.
  */
-/** Records (or clears) the script director's job on the project, so a reopened page can tell it is still writing. */
-export async function setProjectPlanning(id: string, planning: VideoProject["planning"] | null) {
+/**
+ * Records (or clears) the script director's job on the project, so a reopened page can tell it is still writing.
+ * `brief` is kept only on a project with no storyboard yet: it names the project (style, length) even if this first run
+ * fails or is cancelled, and never pairs a new brief with an older storyboard.
+ */
+export async function setProjectPlanning(id: string, planning: VideoProject["planning"] | null, brief?: VideoProject["brief"]) {
   return serializeProject(id, async () => {
     const current = await getProject(id);
     if (!current) return null;
     const { planning: _old, ...rest } = current;
-    return save({ ...rest, ...(planning ? { planning } : {}), updatedAt: new Date().toISOString() });
+    return save({ ...rest, ...(brief && !current.beatPlan ? { brief } : {}), ...(planning ? { planning } : {}), updatedAt: new Date().toISOString() });
   });
 }
 
@@ -403,6 +428,34 @@ export async function updateProjectAudio(id: string, mutate: (current: VideoProj
     const current = await getProject(id);
     if (!current) return null;
     return save({ ...current, planAudio: mutate(current), updatedAt: new Date().toISOString() });
+  });
+}
+
+/** Adds a drawn reference frame (newest first, one per key, at most SCRIPT_FRAMES_KEPT). */
+export async function saveScriptFrame(id: string, frame: ScriptFrame) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return null;
+    const frames = [frame, ...(current.scriptFrames ?? []).filter((saved) => saved.key !== frame.key)].slice(0, SCRIPT_FRAMES_KEPT);
+    return save({ ...current, scriptFrames: frames, updatedAt: new Date().toISOString() });
+  });
+}
+
+/** The project card's thumbnail: the film's first frame. */
+export async function setCoverFrame(id: string, svg: string, seconds?: number) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current || (current.coverFrame === svg && (seconds === undefined || current.filmSeconds === seconds))) return current;
+    return save({ ...current, coverFrame: svg, ...(seconds !== undefined ? { filmSeconds: Math.round(seconds * 10) / 10 } : {}), updatedAt: new Date().toISOString() });
+  });
+}
+
+/** Saves the motion directed for a film's scenes (replaces the previous set: only the current film's scenes are kept). */
+export async function saveFilmMotion(id: string, motion: NonNullable<VideoProject["filmMotion"]>) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return null;
+    return save({ ...current, filmMotion: motion, updatedAt: new Date().toISOString() });
   });
 }
 

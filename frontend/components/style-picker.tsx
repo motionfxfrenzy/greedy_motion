@@ -42,7 +42,7 @@ function Clip({ style, live }: { style: GalleryStyleCard; live?: boolean }) {
 /** The look of the film. The chosen style is shown first with a real example playing; a few popular ones sit beside it;
  *  "Browse" opens every style, and a style opens to all of its examples across use cases (the SaaS version, the story
  *  version, starters and remakes), so people see what they are choosing before they choose it. */
-export function StylePicker({ value, family, onChange }: { value: LookId; family?: string; onChange: (look: LookId, family?: string) => void }) {
+export function StylePicker({ value, family, example, onChange }: { value: LookId; family?: string; /** The gallery template the brief started from: shown as the selected style's example. */ example?: string; onChange: (look: LookId, family?: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [styles, setStyles] = useState<Record<string, GalleryStyleCard>>({});
   const [group, setGroup] = useState("All");
@@ -55,12 +55,19 @@ export function StylePicker({ value, family, onChange }: { value: LookId; family
   const pick = (id: string) => { const entry = entryOf(id); onChange(entry.look, familiesOfLook(entry.look).length ? entry.id : undefined); };
   const [shown, setShown] = useState<GalleryCard[]>([]);
   const [playing, setPlaying] = useState<GalleryCard | null>(null);
+  // The template the person picked, when it belongs to this style: it is what they chose, so it leads.
+  const [pinned, setPinned] = useState<GalleryCard | null>(null);
   // A few real examples made in the chosen style, so the choice is never abstract.
   useEffect(() => {
     const abort = new AbortController();
-    listGalleryTemplates({ look: current, limit: 4 }, abort.signal).then((page) => setShown(page.items)).catch(() => setShown([]));
+    listGalleryTemplates({ look: current, limit: example ? 48 : 4 }, abort.signal).then((page) => {
+      const mine = example ? page.items.find((item) => item.id === example) ?? null : null;
+      setPinned(mine);
+      setShown(mine ? [mine, ...page.items.filter((item) => item.id !== mine.id)].slice(0, 4) : page.items.slice(0, 4));
+    }).catch(() => { setShown([]); setPinned(null); });
     return () => abort.abort();
-  }, [current]);
+  }, [current, example]);
+  const featured = playing ?? pinned;
 
   useEffect(() => { setPlaying(null); }, [current]);
 
@@ -82,14 +89,14 @@ export function StylePicker({ value, family, onChange }: { value: LookId; family
     <div className="sp-head"><b>Visual style</b><button type="button" className="sp-browse" onClick={() => open(null)} aria-haspopup="dialog">Browse all {entries.length} styles →</button></div>
 
     <div className="sp-current" aria-live="polite">
-      <div className="sp-current-thumb"><Clip key={playing?.id ?? chosen.id} style={playing ? { ...chosen, preview: playing.preview } : chosen} live />{playing && <span className="sp-now">{playing.name}</span>}</div>
+      <div className="sp-current-thumb"><Clip key={featured?.id ?? chosen.id} style={featured ? { ...chosen, preview: featured.preview } : chosen} live />{featured && <span className="sp-now">{featured.id === pinned?.id ? `Your template · ${featured.name}` : featured.name}</span>}</div>
       <div className="sp-current-body">
-        <span className="sp-tag">Selected · {selected.group}</span>
+        <span className="sp-tag">{pinned ? `Selected · from ${pinned.name}` : `Selected · ${selected.group}`}</span>
         <h3>{chosen.name}</h3>
         <p>{chosen.description} Your brand sets the colors and fonts.</p>
         {shown.length > 0 && <div className="sp-mini" aria-label="Examples in this style">
           {shown.map((item) => <button type="button" key={item.id} className={"sp-mini-card" + (playing?.id === item.id ? " playing" : "")} aria-pressed={playing?.id === item.id} onClick={() => setPlaying(playing?.id === item.id ? null : item)} aria-label={`${item.name}, an example in this style`}>
-            <span className="sp-thumb"><Clip style={{ ...chosen, preview: item.preview }} /></span><small>{item.name}</small>
+            <span className="sp-thumb"><Clip style={{ ...chosen, preview: item.preview }} /></span><small>{item.id === pinned?.id ? `${item.name} · yours` : item.name}</small>
           </button>)}
         </div>}
         {chosen.examples > 0 && <button type="button" className="sp-link" onClick={() => open(current)}>See all {chosen.examples} {chosen.examples === 1 ? "example" : "examples"} in this style →</button>}

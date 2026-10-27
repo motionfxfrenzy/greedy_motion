@@ -52,6 +52,9 @@
   function best(list, on) { var r = list[0], v = -1; list.forEach(function (n) { var c = ratio(n, on); if (c > v) { v = c; r = n; } }); return r; }
   function firstOk(list, on, min) { for (var i = 0; i < list.length; i++) if (ratio(list[i], on) >= min) return list[i]; return null; }
   var ON_BRAND = best(["--bg", "--surface", "--fg"], "--brand");
+  // Full-bleed brand fields use the kit's primary exactly as set (--brand-fill) when there is one; --brand is that colour adjusted until text in it reads.
+  var FIELD = tok("--brand-fill") ? "--brand-fill" : "--brand";
+  var ON_FIELD = best(["--bg", "--surface", "--fg"], FIELD);
   var CARD = ["--surface", "--bg", "--fg"].reduce(function (a, n) { return lum(n) > lum(a) ? n : a; }, "--surface");
   var SHADE = ["--fg", "--bg"].reduce(function (a, n) { return lum(n) < lum(a) ? n : a; }, "--fg");
   var INK = {
@@ -59,7 +62,10 @@
     "--bp-accent": firstOk(["--accent", "--brand"], "--bg", 3) || best(["--fg", "--accent"], "--bg"),
     "--bp-accent-on-brand": (tok("--accent") !== tok("--brand") && firstOk(["--accent", "--accent-2"], "--brand", 3)) || ON_BRAND,
     "--bp-muted": firstOk(["--muted"], "--bg", 4.5) || "--fg",
-    "--bp-accent-on-dark": firstOk(["--brand"], SHADE, 3) || "--bg",
+    "--bp-field": FIELD,
+    "--bp-on-field": ON_FIELD,
+    "--bp-accent-on-dark": firstOk([FIELD, "--brand"], SHADE, 3) || "--bg",
+    "--bp-accent-on-light": firstOk([FIELD], "--bg", 3) || "--brand",
     "--bp-card": CARD,
     "--bp-on-card": best(["--fg", "--bg", "--surface"], CARD),
     "--bp-shade": SHADE,
@@ -646,11 +652,11 @@
     return out.slice(0, 10);
   }
   function tyBg(cam, kind) {
-    var bg = kind === "dark" ? "var(--bp-shade)" : kind === "brand" ? "var(--brand)" : "var(--bg)";
-    var ink = kind === "dark" ? "var(--bg)" : kind === "brand" ? "var(--bp-on-brand)" : "var(--fg)";
+    var bg = kind === "dark" ? "var(--bp-shade)" : kind === "brand" ? "var(--bp-field)" : "var(--bg)";
+    var ink = kind === "dark" ? "var(--bg)" : kind === "brand" ? "var(--bp-on-field)" : "var(--fg)";
     free(mk("div", "ty-bg", cam, { position: "absolute", left: -0.12 * W, top: -0.12 * H, width: 1.24 * W, height: 1.24 * H, background: bg }));
     // Typography films mark emphasis in the kit's primary colour only (not its accent): on a light ground the brand colour itself, on a dark one the brand colour if it reads there, on the brand field the ink.
-    return { ink: ink, accent: kind === "brand" ? ink : kind === "dark" ? "var(--bp-accent-on-dark)" : "var(--brand)" };
+    return { ink: ink, accent: kind === "brand" ? ink : kind === "dark" ? "var(--bp-accent-on-dark)" : "var(--bp-accent-on-light)" };
   }
   function tyText(parent, str, fs, color, css) {
     return free(mk("div", "ty-t", parent, Object.assign({ position: "relative", whiteSpace: "nowrap", fontFamily: "var(--font-display)", fontWeight: "900", textTransform: "uppercase", letterSpacing: "-0.025em", lineHeight: "0.9", fontSize: px(fs), color: color }, css || {}), str));
@@ -725,7 +731,7 @@
     var fs = fit(kw.toUpperCase(), 0.88 * W, 2, 0.34 * H, 90, K);
     var holder = free(mk("div", "ty-holder", col, { position: "relative", display: "inline-block" }));
     var base = tyText(holder, kw, fs, c.ink, { whiteSpace: "normal", maxWidth: px(0.88 * W) }); tyOutline(base, c.ink, Math.max(3, H * 0.004));
-    var fill = tyText(holder, kw, fs, c.ink === "var(--bp-on-brand)" ? "var(--bp-on-brand)" : c.accent, { position: "absolute", left: 0, top: 0, whiteSpace: "normal", maxWidth: px(0.88 * W) });
+    var fill = tyText(holder, kw, fs, c.ink === "var(--bp-on-field)" ? "var(--bp-on-field)" : c.accent, { position: "absolute", left: 0, top: 0, whiteSpace: "normal", maxWidth: px(0.88 * W) });
     hide(holder); showAt(holder, s + 0.02);
     tl.fromTo(fill, { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: clamp(0.45 * dur, 0.3, 0.9), ease: "power3.inOut" }, snap(s + 0.15));
     [0.12, 0.88].forEach(function (f, n) {

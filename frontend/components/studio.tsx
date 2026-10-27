@@ -3,29 +3,30 @@
 import { useRouter } from "next/navigation";
 import { optimisticUpdate } from "../lib/optimistic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aspectToFormat, bundledFonts, getLook, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, templates, themes, videoTypeLabels, type ProjectScript, type VideoType, type BeatPlan, type BrandKit, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { aspectToFormat, beatCountRange, scriptSeconds, bundledFonts, findGalleryTemplate, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, parseScriptStream, templates, themes, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard";
-import { ScriptCanvas } from "./script-canvas";
+import { ScriptCanvas, svgSrc, type FrameSlot, type StoryboardState, type VoiceState } from "./script-canvas";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { cancelPlanJob, draftScriptProject, reviseScriptProject, getGalleryTemplate, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
+import { cancelPlanJob, generatePlanAudio, getGalleryTemplate, getProject, planVoiceUrl, streamFrames, streamScript, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 import { proMenuEntry, useEntitlements } from "../lib/entitlements";
 
 type View = "projects" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
 // v2 flow (docs/PRODUCT_FLOW_V2.md): everything the film needs is chosen on Script & style.
-const stepNames = ["Script & style", "Storyboard", "Render", "Review"];
+// Brief → storyboard (the script page: script, reference frames, voice) → render → review.
 const SCRIPT_STYLE: Step = 0, STORYBOARD: Step = 1, RENDER: Step = 2, REVIEW: Step = 3;
+const flowSteps: [Step, string][] = [[SCRIPT_STYLE, "Brief"], [STORYBOARD, "Storyboard"], [RENDER, "Render"], [REVIEW, "Review"]];
 const imageFor = (template: Template) => "/templates/" + template.id + ".jpg";
 
 function statusStep(project: VideoProject): Step {
   if (project.state === "Approved" || project.state === "Ready for review" || project.state === "Revisions needed") return REVIEW;
   if (project.state === "Rendering draft" || project.state === "Render needs attention") return RENDER;
-  if (project.beatPlan) return STORYBOARD;
+  if (project.beatPlan || project.brief?.scriptBeats?.length) return STORYBOARD;
   return SCRIPT_STYLE;
 }
 
@@ -96,9 +97,6 @@ export function Studio() {
   const [brief, setBrief] = useState<ScriptBrief>(defaultBrief);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
   const [starting, setStarting] = useState(false);
-  /** The written script is open for editing (before the storyboard); "write" and "revise" are model calls in flight. */
-  const [canvas, setCanvas] = useState(false);
-  const [scriptBusy, setScriptBusy] = useState<null | "write" | "revise">(null);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [site, setSite] = useState<SiteState>({ reading: false, shots: 0, warnings: [] });
@@ -106,6 +104,10 @@ export function Studio() {
   // The address names the open project (?p=) or an unsaved draft (?d=), plus the step, so a reload or a later visit lands back here.
   const [draftId, setDraftId] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
+  // The script canvas (see writeScript below): declared early because the plan watcher reads it.
+  /** `writing`: the beat the words are streaming into (a scoped change writes only its beats). */
+  type Canvas = { beats: ScriptBeat[]; previous: ScriptBeat[]; open: keyof ScriptBeat | null; writing: number | null; scoped?: boolean; /** The writer's idea and worked example, shared by every frame and change. */ notes?: ScriptNotes | null; streaming: boolean; startedAt: number; firstAt?: number; flags: ScriptFlag[]; error: string | null };
+  const [canvas, setCanvas] = useState<Canvas | null>(null);
   const wanted = useRef<UrlState | null>(null);
 
   const refresh = useCallback(async () => {
@@ -125,13 +127,56 @@ export function Studio() {
     setLoadingProjects(false);
   }, []);
   useEffect(() => { void refresh().catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load the workspace.")); }, [refresh]);
+  // Polling while a script is written or a video renders reads only the open project, not every project and brand kit.
+  const refreshOpen = useCallback(async (id: string) => {
+    const epoch = mutationEpoch.current;
+    const saved = await getProject(id);
+    if (epoch !== mutationEpoch.current || pendingMutation.current) return;
+    setProject((current) => current?.id === saved.id && current.updatedAt !== saved.updatedAt ? saved : current);
+    setProjects((current) => current.map((item) => item.id === saved.id ? saved : item));
+  }, []);
+  const openId = project?.id;
+  // A finished render's project is marked by a queue consumer just after the job (render-finished); read it until it is.
+  const settleProject = useCallback(async (id: string) => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const epoch = mutationEpoch.current;
+        const saved = await getProject(id);
+        if (epoch === mutationEpoch.current && !pendingMutation.current) {
+          setProject((current) => current?.id === saved.id ? saved : current);
+          setProjects((current) => current.map((item) => item.id === saved.id ? saved : item));
+        }
+        if (saved.state !== "Rendering draft") return;
+      } catch { /* The next look may succeed; the job itself is already shown. */ }
+      await new Promise((resolve) => window.setTimeout(resolve, 1500 * (attempt + 1)));
+    }
+  }, []);
+  // A running render is followed as the server pushes it. If the stream drops, a slow poll keeps the page current while the
+  // stream reconnects. The project row is large (storyboard, frames, motion), so it is read once, when the render ends.
+  const jobId = job?.id;
+  const jobLive = Boolean(job && !["ready", "failed"].includes(job.state));
   useEffect(() => {
-    if (!job || ["ready", "failed"].includes(job.state)) return;
-    const timer = window.setInterval(async () => {
-      try { setJob(await getRenderJob(job.id)); await refresh(); } catch { /* Keep the last known server state visible. */ }
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [job, refresh]);
+    if (!jobId || !jobLive) return;
+    const controller = new AbortController();
+    let poll: number | undefined;
+    let retry: number | undefined;
+    let wait = 3000;
+    const take = (next: RenderJob) => {
+      if (controller.signal.aborted) return;
+      setJob(next);
+      if ((next.state === "ready" || next.state === "failed") && openId) void settleProject(openId);
+    };
+    const follow = () => {
+      watchRenderJob(jobId, (next) => { wait = 3000; window.clearInterval(poll); poll = undefined; take(next); }, controller.signal).catch(() => {
+        if (controller.signal.aborted) return;
+        poll ??= window.setInterval(async () => { try { take(await getRenderJob(jobId)); } catch { /* Keep the last known server state visible. */ } }, 15_000);
+        retry = window.setTimeout(follow, wait);
+        wait = Math.min(wait * 2, 60_000);
+      });
+    };
+    follow();
+    return () => { controller.abort(); window.clearInterval(poll); window.clearTimeout(retry); };
+  }, [jobId, jobLive, openId, settleProject]);
   // A render that finishes while its page is open moves on to Review. Opening a finished project does not: the address says where to land.
   const jobWas = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -146,8 +191,6 @@ export function Studio() {
   const generating = starting || running;
   const watching = useRef<string | null>(null);
   useEffect(() => { if (step !== SCRIPT_STYLE) setConfirmRegenerate(false); }, [step]);
-  useEffect(() => { if (step !== SCRIPT_STYLE) setCanvas(false); }, [step]);
-  useEffect(() => { setCanvas(false); }, [project?.id]);
   // Elapsed time is counted from the server's start time, so it is right after leaving and coming back.
   useEffect(() => {
     if (!generating) return;
@@ -158,17 +201,20 @@ export function Studio() {
     return () => window.clearInterval(timer);
   }, [generating, planning?.startedAt]);
   useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => { void refresh().catch(() => undefined); }, 2000);
+    if (!running || !openId) return;
+    const timer = window.setInterval(() => { void refreshOpen(openId).catch(() => undefined); }, 2000);
     return () => window.clearInterval(timer);
-  }, [running, refresh]);
+  }, [running, openId, refreshOpen]);
   // Watch a job we started (or found running); when it ends, show the storyboard, or say why not.
-  useEffect(() => { if (running && planning) watching.current = planning.startedAt; }, [running, planning]);
+  // A storyboard built behind the script canvas is not watched: the page stays on the script until the person continues.
+  useEffect(() => { if (running && planning && !canvas && !project?.brief?.scriptBeats?.length) watching.current = planning.startedAt; }, [running, planning, canvas, project?.brief?.scriptBeats?.length]);
   useEffect(() => {
     if (!watching.current || starting || running) return;
     watching.current = null;
     if (planning?.status === "failed") setError(planning.error ?? "Could not write the script.");
-    else if (planning?.status !== "cancelled" && project?.beatPlan) { setPlanWarnings([]); setStep(STORYBOARD); }
+    // Still "running" past the deadline: the server restarted and lost the job. Say so instead of quietly resetting.
+    else if (planning?.status === "running") setError("Writing was interrupted because our service restarted. Generate again — nothing was charged.");
+    else if (planning?.status !== "cancelled" && project?.beatPlan && !project.brief?.scriptBeats?.length) { setPlanWarnings([]); setStep(STORYBOARD); }
   }, [project, planning, starting, running]);
 
   const replaceProject = useCallback((saved: VideoProject) => {
@@ -378,59 +424,242 @@ export function Studio() {
       setStarting(false);
     }
   };
-  /** Writes the script first and opens it as a document; the storyboard is built from it once the person is happy. */
-  const writeScript = async () => {
+  // ---------- Script canvas: the script streams in first; the storyboard is built from it in the background ----------
+  const [continueWhenReady, setContinueWhenReady] = useState(false);
+  const canvasStop = useRef<AbortController | null>(null);
+  // Reference frames, cached by what they draw (scriptFrameKey): a beat the AI did not change keeps its frame, and frames
+  // saved on the project are seeded in when it opens, so reopening does not redraw them. `frameAt` remembers the
+  // last drawing at each position, shown (marked stale) after an edit until it is redrawn.
+  const frameCache = useRef<Record<string, FrameSlot>>({});
+  const [frameAt, setFrameAt] = useState<Record<number, string>>({});
+  const [, setFrameTick] = useState(0);
+  const frameKey = (beat: ScriptBeat) => scriptFrameKey(beat, brief);
+  const putFrames = (entries: [string, FrameSlot][]) => { for (const [key, slot] of entries) frameCache.current[key] = slot; setFrameTick((tick) => tick + 1); };
+  /** Draws the frames for `indices` (skipping ones drawn or drawing unless `force`), streaming each in as it lands. */
+  const notesRef = useRef<ScriptNotes | null>(null);
+  const drawFrames = (active: VideoProject, beats: ScriptBeat[], indices: number[], force = false) => {
     const checked = parseScriptBrief(brief);
+    if ("error" in checked) return;
+    const todo = indices.filter((i) => beats[i] && (force || !frameCache.current[frameKey(beats[i]!)] || frameCache.current[frameKey(beats[i]!)]!.state === "failed"));
+    if (todo.length === 0) return;
+    putFrames(todo.map((i) => [frameKey(beats[i]!), { state: "drawing", ...(frameCache.current[frameKey(beats[i]!)]?.svg ? { svg: frameCache.current[frameKey(beats[i]!)]!.svg } : {}) }]));
+    void streamFrames(active.id, { brief: checked.brief, beats, indices: todo, ...(notesRef.current ? { notes: notesRef.current } : {}) }, ({ index, svg, error }) => {
+      if (!beats[index]) return;
+      putFrames([[frameKey(beats[index]!), svg ? { state: "ready", svg } : { state: "failed", error: error ?? "Could not draw this frame." }]]);
+      if (svg) setFrameAt((current) => ({ ...current, [index]: svg }));
+    }).catch((caught) => {
+      const message = caught instanceof Error ? caught.message : "Could not draw the frames.";
+      putFrames(todo.map((i) => frameKey(beats[i]!)).filter((key) => frameCache.current[key]?.state === "drawing").map((key) => [key, { state: "failed", error: message }]));
+    });
+  };
+  /** Builds the storyboard from the script (its words fixed) as a server job; the page stays on the script. */
+  const buildStoryboard = async (active: VideoProject, beats: ScriptBeat[], notes: ScriptNotes | null = notesRef.current) => {
+    const checked = parseScriptBrief(brief);
+    if ("error" in checked) return;
+    try { replaceProject((await planProject(active.id, { ...checked.brief, scriptBeats: beats, ...(notes ? { scriptNotes: notes } : {}), screenshotIds: active.screenshots.map((shot) => shot.id) })).project); }
+    catch (caught) { setCanvas((current) => current && { ...current, error: caught instanceof Error ? caught.message : "Could not start the storyboard." }); }
+  };
+  /** Streams a new script, or with `instruction` a changed one, into the canvas. */
+  // Every AI version of a beat is kept (Reimagine, or a change to picked beats) so the person can go back to one.
+  const [versions, setVersions] = useState<Record<number, { list: ScriptBeat[]; at: number }>>({});
+  /** Streams a new script, or with `instruction` a changed one; with `only`, just those beats are rewritten. */
+  const writeScript = async (instruction?: string, override?: Partial<ScriptBrief>, only?: number[]) => {
+    const checked = parseScriptBrief(override ? { ...brief, ...override } : brief);
     if ("error" in checked) { setError(checked.error); return; }
-    setScriptBusy("write");
     setError(null);
+    const previous = instruction && canvas ? canvas.beats : [];
+    setStep(STORYBOARD);
+    const scope = instruction && only?.length ? only : undefined;
+    const notes = instruction ? canvas?.notes ?? null : null;
+    setCanvas({ beats: previous, previous, notes, open: null, writing: scope ? scope[0]! : null, scoped: Boolean(scope), streaming: true, startedAt: Date.now(), flags: [], error: null });
+    canvasStop.current?.abort();
+    const stop = new AbortController();
+    canvasStop.current = stop;
     try {
       const active = await ensureProject();
       const nextRequest = requestFromBrief(active.request, brief);
-      await updateProject(active.id, { request: nextRequest });
-      setRequest(nextRequest);
-      replaceProject(await draftScriptProject(active.id, { ...checked.brief, screenshotIds: active.screenshots.map((shot) => shot.id) }));
-      setCanvas(true);
+      void updateProject(active.id, { request: nextRequest }).then(() => setRequest(nextRequest)).catch(() => undefined);
+      let text = "";
+      let early = false;
+      const result = await streamScript(active.id, { brief: checked.brief, ...(instruction ? { change: { instruction, previous, notes, ...(scope ? { only: scope } : {}) } } : {}) }, (piece) => {
+        text += piece;
+        const parsed = parseScriptStream(text);
+        if (scope) {
+          // Only the picked beats are written: each streamed beat goes to its place, and every other beat stays as it is.
+          const writing = parsed.beats.length ? scope[parsed.beats.length - 1] ?? null : scope[0]!;
+          setCanvas((current) => current && { ...current, beats: current.previous.map((beat, i) => scope.includes(i) ? parsed.beats[scope.indexOf(i)] ?? beat : beat), open: parsed.open, writing, firstAt: current.firstAt ?? Date.now() });
+          return;
+        }
+        // The plan (IDEA, EXAMPLE) comes before the first beat, so the early frames already share the example.
+        if (parsed.notes.example) notesRef.current = parsed.notes;
+        // A beat is complete once the next one starts: the first four go to the artist while the rest are still being written.
+        if (!early && parsed.beats.length > 4) { early = true; drawFrames(active, parsed.beats.slice(0, 4), [0, 1, 2, 3]); }
+        // A change streams the whole script again: beats not rewritten yet keep showing their current words.
+        setCanvas((current) => current && { ...current, beats: [...parsed.beats, ...current.previous.slice(parsed.beats.length)], open: parsed.open, writing: parsed.beats.length ? parsed.beats.length - 1 : null, firstAt: current.firstAt ?? Date.now() });
+      }, stop.signal);
+      notesRef.current = result.notes;
+      setCanvas((current) => current && { ...current, beats: result.beats, notes: result.notes, previous: [], open: null, writing: null, streaming: false, flags: result.flags });
+      setVersions((current) => {
+        if (!scope) return {};
+        const next = { ...current };
+        for (const i of scope) {
+          const entry = current[i] ?? { list: [previous[i]!], at: 0 };
+          const list = [...entry.list];
+          list[entry.at] = previous[i]!;
+          next[i] = { list: [...list, result.beats[i]!], at: list.length };
+        }
+        return next;
+      });
+      void buildStoryboard(active, result.beats, result.notes);
+      drawFrames(active, result.beats, result.beats.map((_, i) => i));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not write the script.");
-    } finally {
-      setScriptBusy(null);
+      if (stop.signal.aborted) { setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: scope ? current.previous : current.beats.length ? current.beats : current.previous }); return; }
+      setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: current.previous.length ? current.previous : current.beats, error: caught instanceof Error ? caught.message : "Could not write the script." });
     }
   };
-  /** Saves the person's edits to the script. The editor keeps its own copy while they type, so the project is not replaced. */
-  const saveScript = async (script: ProjectScript) => { if (project) await updateProject(project.id, { script }); };
-  const reviseScript = async (instruction: string, videoType?: VideoType) => {
-    const checked = parseScriptBrief(brief);
-    if (!project || "error" in checked) return;
-    setScriptBusy("revise");
+  /** Reimagine: a new way to show one beat (the way a scoped change improved beat 8), kept beside the earlier versions. */
+  const reimagineBeat = (index: number) => {
+    if (!canvas) return;
+    const tried = (versions[index]?.list ?? [canvas.beats[index]!]).map((beat) => beat.visual).filter(Boolean);
+    void writeScript([
+      "Reimagine this beat. Show its idea with a more vivid, concrete visual: objects that transform, split, stack or move to make the point, in the template's style.",
+      "Rewrite its voiceover so it lands as a small reveal and still flows from the beat before into the beat after.",
+      "Keep its place in the story and the film's example; keep the key phrase and on-screen words unless the new visual needs different ones.",
+      tried.length ? `Do something different from these earlier visuals: ${tried.map((visual) => `"${visual}"`).join("; ")}.` : ""
+    ].join(" "), undefined, [index]);
+  };
+  /** Shows another kept version of a beat; the one on screen (with any hand edits) is kept in its place. */
+  const showVersion = (index: number, at: number) => {
+    const entry = versions[index];
+    if (!canvas || !entry || !entry.list[at]) return;
+    const list = [...entry.list];
+    list[entry.at] = canvas.beats[index]!;
+    setVersions((current) => ({ ...current, [index]: { list, at } }));
+    setCanvas((current) => current && { ...current, beats: current.beats.map((beat, i) => i === index ? list[at]! : beat), flags: current.flags.filter((flag) => flag.beat !== index) });
+  };
+  /** "Fit to N s": rewrites the script to the chosen length and holds later changes to it. */
+  const fitScript = () => {
+    const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
+    const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+    setBrief((current) => ({ ...current, lockDuration: true }));
+    void writeScript(`Fit the whole script to about ${brief.durationSeconds} seconds: ${range.min}–${range.max} beats${voiced ? ` and at most ${wordBudget(brief.durationSeconds, brief.pace)} spoken words in total` : ""}. Keep the hook, the key idea, the essential steps of the example and the payoff; merge or cut the rest, and keep the lines flowing into each other.`, { lockDuration: true });
+  };
+  const editScriptBeat = (index: number, patch: Partial<ScriptBeat>) => setCanvas((current) => current && { ...current, beats: current.beats.map((beat, i) => i === index ? { ...beat, ...patch } : beat), flags: current.flags.filter((flag) => flag.beat !== index) });
+  // The storyboard is "ready" only while it still carries the script's exact words; any edit makes it stale.
+  const planMatchesScript = (plan: BeatPlan | undefined, beats: ScriptBeat[]) => Boolean(plan && plan.beats.length === beats.length && plan.beats.every((beat, i) => beat.keyword === beats[i]!.keyword && (beat.on_screen ?? null) === beats[i]!.onScreen && (beat.line ?? null) === beats[i]!.line));
+  const visualsMatch = (beats: ScriptBeat[]) => (project?.brief?.scriptBeats ?? []).length === beats.length && project!.brief!.scriptBeats!.every((beat, i) => (beat.visual ?? null) === (beats[i]!.visual ?? null));
+  const storyboardState: StoryboardState = !canvas || canvas.streaming
+    ? { state: "waiting" }
+    : running ? { state: "building", ...(planning?.startedAt ? { startedAt: Date.parse(planning.startedAt) } : {}) }
+    : planning?.status === "failed" ? { state: "failed", error: planning.error ?? "Could not build the storyboard." }
+    : project?.beatPlan ? { state: planMatchesScript(project.beatPlan, canvas.beats) && visualsMatch(canvas.beats) ? "ready" : "stale", plan: project.beatPlan }
+    : { state: "waiting" };
+  const continueFromScript = () => {
+    if (!canvas || !project) return;
+    if (storyboardState.state === "ready") { setStep(STORYBOARD); return; }
+    setContinueWhenReady(true);
+    if (storyboardState.state !== "building") void buildStoryboard(project, canvas.beats);
+  };
+  useEffect(() => {
+    if (continueWhenReady && storyboardState.state === "ready") { setContinueWhenReady(false); setStep(STORYBOARD); }
+    if (continueWhenReady && storyboardState.state === "failed") setContinueWhenReady(false);
+  }, [continueWhenReady, storyboardState.state]);
+  // Confirm script → voiceover. Voicing needs the beat plan (the takes are keyed to its beats), so it waits for the storyboard.
+  const [voiceRun, setVoiceRun] = useState<{ state: "idle" | "storyboard" | "voicing" | "failed"; error?: string }>({ state: "idle" });
+  const voicedBrief = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+  // Takes are matched by their words, so a beat the person did not change keeps its take after another beat is edited.
+  const voiceTakes = (canvas?.beats ?? []).map((beat) => {
+    const text = voiceText(beat.line);
+    const take = text ? project?.planAudio?.voice?.lines.find((line) => line.text === text) : undefined;
+    return take && project ? planVoiceUrl(project.id, take.file) : null;
+  });
+  // The film's sound is ready when every line has its take and, if the brief has music, the bed exists: only then can it render.
+  const musicBrief = brief.audio.mode === "music" || brief.audio.mode === "both";
+  const allVoiced = Boolean(canvas?.beats.length) && canvas!.beats.every((beat, i) => !beat.line || voiceTakes[i]) && (!musicBrief || Boolean(project?.planAudio?.music));
+  const voice: VoiceState = { state: allVoiced ? "ready" : voiceRun.state, takes: voiceTakes, ...(voiceRun.error ? { error: voiceRun.error } : {}) };
+  const recordVoice = async (active: VideoProject) => {
+    setVoiceRun({ state: "voicing" });
+    try { replaceProject((await generatePlanAudio(active.id, musicBrief ? undefined : ["voice"])).project); setVoiceRun({ state: "idle" }); }
+    catch (caught) { setVoiceRun({ state: "failed", error: caught instanceof Error ? caught.message : "Could not record the voiceover." }); }
+  };
+  const confirmScript = () => {
+    if (!canvas || !project) return;
+    if (storyboardState.state === "ready") { void recordVoice(project); return; }
+    setVoiceRun({ state: "storyboard" });
+    if (storyboardState.state !== "building") void buildStoryboard(project, canvas.beats);
+  };
+  useEffect(() => {
+    if (voiceRun.state !== "storyboard" || !project) return;
+    if (storyboardState.state === "ready") void recordVoice(project);
+    if (storyboardState.state === "failed") setVoiceRun({ state: "failed", error: storyboardState.error ?? "Could not plan the beats." });
+  }, [voiceRun.state, storyboardState.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Render straight from the script once its sound is made. The beat plan must match the script, so it waits for a rebuild
+  // after edits; the server still checks every render rule (and refuses a film without its voiceover).
+  const [renderWhenReady, setRenderWhenReady] = useState(false);
+  // Render opens step 3 at once; until the job exists the page shows what is being prepared (sound, scene plan, motion).
+  const [prepping, setPrepping] = useState(false);
+  const startRender = async () => {
+    setRenderWhenReady(false);
+    await submit();
+    setPrepping(false);
+  };
+  // Render works whether or not the sound was previewed: missing takes (and music) are made first, then the film renders.
+  const needsSound = voicedBrief || musicBrief;
+  const renderFromScript = () => {
+    if (!canvas || !project) return;
+    setJob(null);
     setError(null);
-    try {
-      replaceProject(await reviseScriptProject(project.id, instruction, { ...checked.brief, ...(videoType ? { videoType } : {}), screenshotIds: project.screenshots.map((shot) => shot.id) }));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not change the script.");
-    } finally {
-      setScriptBusy(null);
-    }
+    setPrepping(true);
+    setStep(RENDER);
+    setRenderWhenReady(true);
+    if (needsSound && !allVoiced) { if (voiceRun.state === "idle" || voiceRun.state === "failed") confirmScript(); return; }
+    if (storyboardState.state !== "ready" && storyboardState.state !== "building") void buildStoryboard(project, canvas.beats);
   };
-  /** The storyboard from the approved script: its voiceover is the person's own script, kept word for word. */
-  const planFromScript = async (script: ProjectScript) => {
-    if (!project) return;
-    const text = script.lines.map((line) => line.voiceover?.trim()).filter(Boolean).join("\n") || script.lines.map((line) => line.onScreen.trim()).filter(Boolean).join("\n");
-    const checked = parseScriptBrief({ ...brief, scriptMode: "own", text });
-    if ("error" in checked) { setError(checked.error); return; }
-    setStarting(true);
-    setError(null);
-    try {
-      await updateProject(project.id, { script: { ...script, confirmed: true } });
-      const result = await planProject(project.id, { ...checked.brief, ...(script.videoType ? { videoType: script.videoType } : {}), screenshotIds: project.screenshots.map((shot) => shot.id) });
-      watching.current = result.project.planning?.startedAt ?? null;
-      replaceProject(result.project);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not build the storyboard.");
-    } finally {
-      setStarting(false);
+  useEffect(() => {
+    if (!renderWhenReady) return;
+    if (voiceRun.state === "failed" || storyboardState.state === "failed") {
+      setRenderWhenReady(false);
+      setPrepping(false);
+      setError(voiceRun.state === "failed" ? voiceRun.error ?? "Could not make the voiceover." : storyboardState.error ?? "Could not plan the scenes.");
+      return;
     }
-  };
+    if (storyboardState.state === "ready" && (!needsSound || allVoiced) && voiceRun.state === "idle") void startRender();
+  }, [renderWhenReady, storyboardState.state, allVoiced, voiceRun.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The Render step without a job in hand (a reload mid-render, or state lost) picks up the project's own render.
+  useEffect(() => {
+    if (step !== RENDER || job || prepping || !project?.renderJobId) return;
+    let live = true;
+    getRenderJob(project.renderJobId).then((found) => { if (live) setJob(found); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [step, job, prepping, project?.renderJobId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const prepStage: RenderPrep = !prepping ? null : needsSound && !allVoiced ? "sound" : storyboardState.state !== "ready" ? "scenes" : "motion";
+  const frameSlots = (canvas?.beats ?? []).map((beat, i): FrameSlot | undefined => {
+    const slot = frameCache.current[frameKey(beat)];
+    if (slot) return slot.svg || slot.state !== "drawing" || frameAt[i] === undefined ? slot : { state: "drawing", svg: frameAt[i] };
+    return frameAt[i] !== undefined ? { state: "stale", svg: frameAt[i] } : undefined;
+  });
+  // A project reopened after its script was written opens on its script.
+  useEffect(() => {
+    if (!canvas && project?.brief?.scriptBeats?.length) notesRef.current = project.brief?.scriptNotes ?? null;
+    // Older projects have a plan but no script beats: their script page is built from the plan's own words.
+    const planned = project?.beatPlan && !project.brief?.scriptBeats?.length ? project.beatPlan.beats.map((beat) => ({ keyword: beat.keyword, visual: null, onScreen: beat.on_screen ?? null, line: beat.line ?? null })) : null;
+    if (!canvas && planned) setCanvas({ beats: planned, notes: null, previous: [], open: null, writing: null, streaming: false, startedAt: Date.now(), flags: [], error: null });
+    if (!canvas && project?.brief?.scriptBeats?.length) setCanvas({ beats: project.brief.scriptBeats, notes: project.brief.scriptNotes ?? null, previous: [], open: null, writing: null, streaming: false, startedAt: Date.now(), flags: [], error: null });
+    if (!project) { canvasStop.current?.abort(); setCanvas(null); }
+    frameCache.current = {}; setFrameAt({}); setVoiceRun({ state: "idle" }); setVersions({});
+  }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The project list leaves the frames out, so only a fuller copy adds to the cache; nothing here removes from it.
+  useEffect(() => {
+    const saved = (project?.scriptFrames ?? []).filter((frame) => frameCache.current[frame.key]?.state !== "ready");
+    if (saved.length) putFrames(saved.map((frame) => [frame.key, { state: "ready", svg: frame.svg }]));
+  }, [project?.id, project?.scriptFrames]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Frames for a script that was never drawn here (a reopened project): drawn once, not after every edit.
+  useEffect(() => {
+    if (!canvas || canvas.streaming || !project) return;
+    const missing = canvas.beats.map((_, i) => i).filter((i) => frameAt[i] === undefined && !frameCache.current[frameKey(canvas.beats[i]!)]);
+    if (missing.length) drawFrames(project, canvas.beats, missing);
+  }, [project?.id, canvas?.streaming, canvas?.beats.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /** Stops the director on the server; the brief stays as it is. */
   const cancelPlan = async () => {
     if (!project) return;
@@ -489,7 +718,12 @@ export function Studio() {
     setError(null);
     try {
       if (project.script && !project.script.confirmed) replaceProject(await updateProject(project.id, { script: { ...project.script, confirmed: true, updatedAt: new Date().toISOString() } }));
-      setJob(await renderProject(project.id, { motionBlur }));
+      const started = await renderProject(project.id, { motionBlur });
+      setJob(started);
+      // The server has marked the project as rendering this job; mirror it here instead of reading the project back.
+      const rendering = (item: VideoProject) => item.id === project.id ? { ...item, state: "Rendering draft" as const, renderJobId: started.id } : item;
+      setProject((current) => current && rendering(current));
+      setProjects((current) => current.map(rendering));
       setStep(RENDER);
       return true;
     } catch (caught) {
@@ -556,13 +790,24 @@ export function Studio() {
       onRender={async () => { if (await submit()) setView("create"); }}
       onBack={() => setView("create")}
       screenshotUrl={projectScreenshotUrl}
-    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} editorFor={project?.beatPlan ? project.id : undefined} />
-      {error && step !== SCRIPT_STYLE && <p className="workspace-error">{error}</p>}
-      {step === SCRIPT_STYLE && canvas && project?.script && <ScriptCanvas projectId={project.id} script={project.script} screenshots={project.screenshots} durationSeconds={brief.durationSeconds} pace={brief.pace} busy={generating ? "plan" : scriptBusy === "revise" ? "revise" : null} error={error} save={saveScript} revise={(instruction) => reviseScript(instruction)} setType={(type) => reviseScript(`Rewrite this as a ${videoTypeLabels[type]} film, following that kind of film's structure and ending.`, type)} back={() => setCanvas(false)} generate={(script) => void planFromScript(script)} />}
-      {step === SCRIPT_STYLE && !(canvas && project?.script) && <ScriptStyleStep writeScript={() => void writeScript()} writing={scriptBusy === "write"} brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating} elapsed={elapsed} error={error} generate={() => void generatePlan()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
-      {step === STORYBOARD && project?.beatPlan && <BeatStoryboardStep motionBlur={motionBlur} setMotionBlur={setMotionBlur} project={project as VideoProject & { beatPlan: BeatPlan }} look={lookFor(brief, brands)} warnings={planWarnings} busy={busy} onSaved={replaceProject} back={() => setStep(SCRIPT_STYLE)} submit={() => { void submit(); }} regenerate={() => { setConfirmRegenerate(true); setStep(SCRIPT_STYLE); }} />}
-      {step === STORYBOARD && !project?.beatPlan && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Generate the script and storyboard on Script &amp; style first.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to Script &amp; style</button></div>}
-      {step === RENDER && project && <RenderStep look={lookFor(brief, brands)} project={project} job={job} error={error} busy={busy} retry={async () => { await submit(); }} back={() => setStep(STORYBOARD)} />}
+    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan || canvas ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} editorFor={project?.beatPlan ? project.id : undefined} />
+      {error && step !== SCRIPT_STYLE && !(step === STORYBOARD && canvas) && <p className="workspace-error">{error}</p>}
+      {step === STORYBOARD && canvas && <ScriptCanvas
+        beats={canvas.beats} open={canvas.open} streaming={canvas.streaming} startedAt={canvas.startedAt} firstAt={canvas.firstAt} flags={canvas.flags} error={canvas.error ?? error}
+        voiced={voicedBrief}
+        length={{ seconds: brief.durationSeconds, pace: brief.pace, locked: Boolean(brief.lockDuration) }}
+        onFit={fitScript}
+        onEdit={editScriptBeat} onAsk={(instruction, only) => void writeScript(instruction, undefined, only)} writing={canvas.writing} scoped={Boolean(canvas.scoped)}
+        versions={canvas.beats.map((_, i) => versions[i] ? { count: versions[i]!.list.length, at: versions[i]!.at } : null)}
+        onReimagine={reimagineBeat} onVersion={showVersion} onCancel={() => canvasStop.current?.abort()}
+        frames={frameSlots} aspect={brief.aspect} styleName={findGalleryTemplate(brief.styleExample)?.name}
+        onRedraw={(index) => { if (project) drawFrames(project, canvas.beats, [index], true); }}
+        voice={voice} onConfirm={confirmScript} music={musicBrief}
+        onRender={renderFromScript} rendering={busy || renderWhenReady}
+        storyboard={storyboardState} onContinue={continueFromScript} continuing={continueWhenReady} />}
+      {step === STORYBOARD && !canvas && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Describe the film in the brief, then generate the storyboard.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to the brief</button></div>}
+      {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || canvas)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
+      {step === RENDER && project && <RenderStep frames={frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))} prep={prepStage} prepSound={needsSound} fromStoryboard={Boolean(canvas)} look={lookFor(brief, brands)} project={project} job={job} error={error} busy={busy || prepping} retry={async () => { if (canvas) renderFromScript(); else await submit(); }} back={() => setStep(STORYBOARD)} />}
       {step === REVIEW && project && <ReviewStep project={project} job={job} approve={approve} rerender={async () => { await submit(); }} addComment={addReviewComment} removeComment={removeReviewComment} applyChanges={applyReviewComments} openStudio={openStudio} />}
     </> : <><AppHeader active="projects" />
       {error && <p className="workspace-error" role="alert">{error}</p>}
@@ -575,7 +820,7 @@ export function Studio() {
 function CreationHeader({ name, state, step, reachable, back, go, openStudio, editorFor }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void; editorFor?: string }) {
   const { state: planState, retry: retryPlan } = useEntitlements();
   const editorEntry = proMenuEntry(planState);
-  return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{editorFor && <button className="creation-editor" disabled={Boolean(editorEntry?.disabled)} onClick={() => { if (editorEntry?.action === "retry") retryPlan(); else window.location.assign(`/editor/${editorFor}`); }}>{editorEntry?.action === "retry" ? "Editor: retry" : "Open in editor"}</button>}{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: 999, background: "var(--d-bg-ffffff)", color: "var(--d-tx-0058bd)" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{stepNames.map((label, index) => <li key={label}><button className={index === step ? "current" : index <= reachable ? "complete" : ""} disabled={index > reachable} onClick={() => go(index)}><b>{index !== step && index <= reachable ? "✓" : index + 1}</b>{label}</button>{index !== stepNames.length - 1 && <i />}</li>)}</ol></header>;
+  return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{editorFor && <button className="creation-editor" disabled={Boolean(editorEntry?.disabled)} onClick={() => { if (editorEntry?.action === "retry") retryPlan(); else window.location.assign(`/editor/${editorFor}`); }}>{editorEntry?.action === "retry" ? "Editor: retry" : "Open in editor"}</button>}{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: 999, background: "var(--d-bg-ffffff)", color: "var(--d-tx-0058bd)" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{flowSteps.map(([id, label], position) => <li key={label}><button className={id === step ? "current" : id <= reachable ? "complete" : ""} disabled={id > reachable} onClick={() => go(id)}><b>{id !== step && id <= reachable ? "✓" : position + 1}</b>{label}</button>{position !== flowSteps.length - 1 && <i />}</li>)}</ol></header>;
 }
 
 /** The first templates, shown under the empty Projects page. Fetched from the backend: one row that fades out, so it feels like a library. */
@@ -594,7 +839,12 @@ function Projects({ brands, projects, loading, loaded, busy, create, startTempla
     Approved: projects.filter((item) => item.state === "Approved")
   };
   const visibleProjects = groups[filter as keyof typeof groups];
-  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} <span>{items.length}</span></button>)}</div>{projects.length === 0 && !loaded ? <div className="workspace-message" role="status" aria-busy={loading}>{loading ? "Loading your projects…" : "Projects could not be loaded. Use Try again above."}</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}</section>;
+  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} {(loaded || projects.length > 0) && <span>{items.length}</span>}</button>)}</div>{projects.length === 0 && !loaded ? loading ? <ProjectSkeletons /> : <div className="workspace-message" role="status">Projects could not be loaded. Use Try again above.</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}</section>;
+}
+
+/** Placeholder cards shaped like ProjectCard, so the grid is there before the projects arrive. */
+function ProjectSkeletons() {
+  return <div className="project-grid" role="status" aria-busy="true" aria-label="Loading your projects">{Array.from({ length: 3 }, (_, index) => <article className="project-card project-skeleton" key={index} aria-hidden="true"><span className="card-image" /><div className="project-content"><i /><i className="short" /><div className="project-meta"><i className="pill" /><i className="date" /></div></div></article>)}</div>;
 }
 
 function ProjectCard({ brands, project, open, openStudio, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void; brands: BrandKit[] }) {
@@ -604,6 +854,10 @@ function ProjectCard({ brands, project, open, openStudio, menuOpen, setMenuOpen 
   const template = findTemplate(project.request.template);
   const image = project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : imageFor(template ?? templates[0]);
   const firstBeat = project.beatPlan?.beats[0];
+  // A project started from the gallery keeps the default starter in request.template, so name and length come from the brief and plan.
+  const kind = getStyleFamily(project.brief?.styleFamily)?.name ?? template?.name ?? "Template";
+  // The real length once rendered, else the script's estimate, else the target the brief asked for.
+  const seconds = project.filmSeconds ?? (project.brief?.scriptBeats?.length ? scriptSeconds(project.brief.scriptBeats, project.brief.pace) : null) ?? project.beatPlan?.target_duration_s ?? project.brief?.durationSeconds ?? template?.durationSeconds ?? 0;
   const status = project.state === "Approved" ? "approved" : project.state === "Ready for review" ? "review" : "draft";
   const choose = (action: () => void) => { setMenuOpen(false); action(); };
   useEffect(() => {
@@ -614,7 +868,7 @@ function ProjectCard({ brands, project, open, openStudio, menuOpen, setMenuOpen 
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [menuOpen, setMenuOpen]);
-  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}>{firstBeat && project.brief ? <i className="card-frame"><FrameCard family={project.brief.styleFamily} beat={firstBeat} index={0} canvas={project.beatPlan!.canvas} look={lookFor(project.brief, brands)} lookId={project.brief.look ?? "clean"} screenshot={firstBeat.kind === "ui" && project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></i> : <img src={image} alt="" />}<span className="card-badge">{project.request.format === "portrait" ? "9:16" : "16:9"} · 0:{String(template?.durationSeconds ?? 0).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{template?.name ?? "Template"} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
+  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}>{project.coverFrame ? <i className="card-frame"><img className="card-cover" src={svgSrc(project.coverFrame)} alt="" draggable={false} /></i> : firstBeat && project.brief ? <i className="card-frame"><FrameCard family={project.brief.styleFamily} beat={firstBeat} index={0} canvas={project.beatPlan!.canvas} look={lookFor(project.brief, brands)} lookId={project.brief.look ?? "clean"} screenshot={firstBeat.kind === "ui" && project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></i> : project.brief && !project.screenshots[0] ? <i className="card-placeholder">{kind}</i> : <img src={image} alt="" />}<span className="card-badge">{project.request.format === "portrait" ? "9:16" : "16:9"} · {Math.floor(seconds / 60)}:{String(Math.round(seconds % 60)).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{kind} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
 }
 
 function Screenshots({ project, busy, upload, remove }: { project: VideoProject | null; busy: boolean; upload: (file: File) => Promise<void>; remove: (id: string) => Promise<void> }) {
@@ -645,26 +899,51 @@ function ShotViewer({ name, size, src, position, total, step, onClose }: { name:
 const renderSteps: { key: string; label: string; stages: RenderStage[] }[] = [
   { key: "plan", label: "Writing the storyboard", stages: ["queued", "planning"] },
   { key: "audio", label: "Making music and voiceover", stages: ["audio"] },
-  { key: "wait", label: "Waiting for a renderer", stages: ["waiting"] },
+  { key: "wait", label: "Getting your video ready", stages: ["waiting"] },
   { key: "prepare", label: "Preparing composition", stages: ["preparing", "retrying"] },
   { key: "frames", label: "Rendering frames", stages: ["frames"] },
   { key: "encode", label: "Adding audio and encoding", stages: ["encoding"] }
 ];
 
-function RenderStep({ project, job, error, busy, retry, back, look }: { project: VideoProject; job: RenderJob | null; error: string | null; busy: boolean; retry: () => Promise<void>; back: () => void; look?: FrameLook }) {
+type RenderPrep = "sound" | "scenes" | "motion" | null;
+
+/** The storyboard's own frames while the film renders: one large, stepping through them, and the whole strip below. */
+function FrameReel({ frames }: { frames: string[] }) {
+  const [at, setAt] = useState(0);
+  useEffect(() => {
+    if (frames.length < 2) return;
+    const timer = window.setInterval(() => setAt((current) => (current + 1) % frames.length), 2500);
+    return () => window.clearInterval(timer);
+  }, [frames.length]);
+  return <div className="frame-reel">
+    <div className="frame-reel-stage">{frames.map((svg, i) => <img key={i} className={i === at ? "on" : ""} src={svgSrc(svg)} alt={i === at ? `Storyboard frame ${i + 1} of ${frames.length}` : ""} draggable={false} />)}</div>
+    <ol className="frame-reel-strip">{frames.map((svg, i) => <li key={i}><button type="button" aria-label={`Show frame ${i + 1}`} aria-current={i === at} onClick={() => setAt(i)}><img src={svgSrc(svg)} alt="" draggable={false} /></button></li>)}</ol>
+  </div>;
+}
+
+function RenderStep({ project, job, error, busy, retry, back, look, prep, prepSound, fromStoryboard, frames }: { frames: string[]; project: VideoProject; job: RenderJob | null; error: string | null; busy: boolean; retry: () => Promise<void>; back: () => void; look?: FrameLook; prep: RenderPrep; prepSound: boolean; fromStoryboard: boolean }) {
   const title = project.script?.lines[0]?.onScreen || "Your video is rendering.";
   const failed = Boolean(error) || job?.state === "failed";
   const wantsAudio = Boolean(project.request.audio?.music || project.request.audio?.voiceover);
-  // A storyboard was written and voiced before Submit, so its render only waits, prepares, and renders.
-  const steps = renderSteps.filter((item) => project.beatPlan ? item.key !== "plan" && item.key !== "audio" : item.key !== "audio" || wantsAudio);
+  // A film from the storyboard page is prepared first: its sound and scene plan here, then its motion inside the render job.
+  const prepSteps: { key: string; label: string; stages: RenderStage[] }[] = fromStoryboard
+    ? [...(prepSound ? [{ key: "sound", label: "Making the voiceover and music", stages: [] }] : []), { key: "scenes", label: "Planning the scenes", stages: [] }, { key: "motion", label: "Directing the motion", stages: ["queued", "planning", "directing"] }]
+    : [];
+  const steps = [...prepSteps, ...renderSteps.filter((item) => project.beatPlan ? item.key !== "plan" && item.key !== "audio" : item.key !== "audio" || wantsAudio)];
   const stage: RenderStage = job?.stage ?? (job?.state === "ready" ? "done" : job?.state === "rendering" ? "preparing" : "queued");
-  const current = stage === "done" ? steps.length : Math.max(0, steps.findIndex((item) => item.stages.includes(stage)));
+  const current = prep ? Math.max(0, prepSteps.findIndex((item) => item.key === prep))
+    : stage === "done" ? steps.length
+    : !job && fromStoryboard ? prepSteps.length
+    : Math.max(prepSteps.length, steps.findIndex((item) => item.stages.includes(stage)));
   const detail = (key: string) => {
-    if (key === "wait" && stage === "waiting") return job?.queuePosition ? `${job.queuePosition} ahead` : "Starting a renderer";
+    if (key === "wait" && stage === "waiting") return job?.queuePosition ? `${job.queuePosition} ahead` : "Usually under a minute";
     if (key === "frames" && job?.frames) return `${job.frames.done} / ${job.frames.total}`;
     return null;
   };
-  return <div className="render-workspace"><section className="workspace-player"><Preview project={project} title={title} look={look} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></section><aside className="render-card" style={look ? ({ "--rc": look.brand, "--rc-on": readableOnBrand(look.brand) } as React.CSSProperties) : undefined}><header><b>{failed ? "Render needs attention" : job?.state === "ready" ? "Draft render ready" : "Rendering draft"}</b><span>{project.request.format === "portrait" ? "9:16" : "16:9"}</span></header>{failed ? <div className="render-error"><b>We could not render this project.</b><p>{error || job?.error?.message}</p><div className="render-error-actions"><button disabled={busy} onClick={() => void retry()}>{busy ? "Starting…" : "Try again"}</button><button className="render-error-back" onClick={back}>Back to storyboard</button></div></div> : <><p className="render-walkaway"><b>You can walk away.</b> Rendering keeps going on our servers whether or not this page is open. Close the tab, and come back later: this project is in Projects, and Review opens as soon as the draft is ready.</p><ol>{steps.map((item, index) => <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}><i>{index < current ? "✓" : index + 1}</i><span>{item.label}</span>{index === current && detail(item.key) && <small>{detail(item.key)}</small>}</li>)}</ol>{stage === "retrying" && <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>}</>}</aside></div>;
+  // A film from the storyboard shows its own approved frames while it renders, not a generic card.
+  return <div className="render-workspace"><section className="workspace-player">{frames.length
+    ? <FrameReel frames={frames} />
+    : <Preview project={project} title={title} look={look} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} />}</section><aside className="render-card" style={look ? ({ "--rc": look.brand, "--rc-on": readableOnBrand(look.brand) } as React.CSSProperties) : undefined}><header><b>{failed ? "Render needs attention" : job?.state === "ready" ? "Draft render ready" : "Rendering draft"}</b><span>{project.request.format === "portrait" ? "9:16" : "16:9"}</span></header>{failed ? <div className="render-error"><b>We could not render this project.</b><p>{error || job?.error?.message}</p><div className="render-error-actions"><button disabled={busy} onClick={() => void retry()}>{busy ? "Starting…" : "Try again"}</button><button className="render-error-back" onClick={back}>Back to storyboard</button></div></div> : <><p className="render-walkaway"><b>You can walk away.</b> Rendering keeps going on our servers whether or not this page is open. Close the tab, and come back later: this project is in Projects, and Review opens as soon as the draft is ready.</p><ol>{steps.map((item, index) => <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}><i>{index < current ? "✓" : index + 1}</i><span>{item.label}</span>{index === current && detail(item.key) && <small>{detail(item.key)}</small>}</li>)}</ol>{stage === "retrying" && <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>}</>}</aside></div>;
 }
 
 function formatVideoTime(seconds: number) {
@@ -704,7 +983,7 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
   // Scenes with real start/end: a storyboard render carries each beat's duration; older renders split evenly.
   const timed = job?.revision.scenes.length && job.revision.scenes.every((scene) => scene.duration > 0) ? job.revision.scenes : null;
   const scenes = timed ? timed.map((scene) => ({ label: scene.label, onScreen: scene.detail })) : project.script?.lines ?? [];
-  const duration = job?.output?.durationSeconds ?? findTemplate(project.request.template)?.durationSeconds ?? 10;
+  const duration = job?.output?.durationSeconds ?? project.beatPlan?.target_duration_s ?? project.brief?.durationSeconds ?? findTemplate(project.request.template)?.durationSeconds ?? 10;
   const pct = (seconds: number) => `${Math.min(100, Math.max(0, (seconds / Math.max(duration, 0.1)) * 100))}%`;
   const segments = (() => {
     const list = scenes.length ? scenes : [{ label: "Draft", onScreen: "" }];

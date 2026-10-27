@@ -1,118 +1,263 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { videoTypeLabels, videoTypes, wordBudget, type Pace, type ProjectScript, type ProjectScriptLine, type ProjectScreenshot, type VideoType } from "@videosaas/contracts";
-import { projectScreenshotUrl } from "../lib/api";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { PLANS, PAID_TIERS, TOP_UP, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
+import { getMyTokens, startCheckout, type ScriptFlag } from "../lib/api";
 
-const words = (text: string | undefined) => (text ?? "").trim().split(/\s+/).filter(Boolean).length;
-const roleName = (line: ProjectScriptLine) => line.label;
+export type StoryboardState = { state: "waiting" | "building" | "ready" | "stale" | "failed"; plan?: BeatPlan; error?: string; /** When the storyboard job started (ms), while building. */ startedAt?: number };
+/** A beat's reference frame: SVG text drawn by the backend, shown only as an image. `stale` keeps the old drawing after an edit. */
+export type FrameSlot = { state: "drawing" | "ready" | "stale" | "failed"; svg?: string; error?: string };
+/** Confirm script → voiceover. `takes` holds a playable URL per beat once that beat's line is voiced. */
+export type VoiceState = { state: "idle" | "storyboard" | "voicing" | "ready" | "failed"; takes: (string | null)[]; error?: string };
+
+const SUGGESTIONS = ["Make it punchier", "Shorter", "More playful", "Simpler words"];
+const RATIO: Record<Aspect, string> = { "16:9": "16 / 9", "9:16": "9 / 16", "1:1": "1 / 1" };
+
+/** Keeps an input in step with a value that streams in, without fighting the person typing in it. */
+function Field({ value, onChange, readOnly, className, placeholder, caret, label }: { value: string; onChange: (next: string) => void; readOnly: boolean; className?: string; placeholder?: string; caret?: boolean; label: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  // Grow with the text so a beat never scrolls inside itself, and again when the column's width changes (wrapping changes).
+  const fit = () => { const el = ref.current; if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } };
+  useEffect(fit, [value]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let width = -1;
+    const observer = new ResizeObserver(() => { if (el.clientWidth !== width) { width = el.clientWidth; fit(); } });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [readOnly]);
+  if (readOnly) return <p className={`${className ?? ""} sc-static`}>{value || <span className="sc-placeholder">{placeholder}</span>}{caret && <i className="sc-caret" aria-hidden="true" />}</p>;
+  return <textarea ref={ref} rows={1} className={className} value={value} placeholder={placeholder} aria-label={label} onChange={(event) => onChange(event.target.value.replace(/\n/g, " "))} />;
+}
+
+/** A frame is SVG text from the model; as an <img> data URL nothing in it can run or load. */
+export const svgSrc = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(/^<svg[^>]*\sxmlns\s*=/.test(svg) ? svg : svg.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"'))}`;
+
+function Frame({ slot, aspect, index, writing, onRedraw, onPick, picked }: { slot: FrameSlot | undefined; aspect: Aspect; index: number; writing: boolean; onRedraw: () => void; onPick?: (add: boolean) => void; picked: boolean }) {
+  const ratio = { aspectRatio: RATIO[aspect] };
+  if (!slot || (slot.state === "drawing" && !slot.svg)) return <div className="sc-frame sc-frame-wait" style={ratio}><span>{writing || !slot ? "Frame follows the beat" : "Drawing…"}</span></div>;
+  if (slot.state === "failed" && !slot.svg) return <div className="sc-frame sc-frame-wait" style={ratio}><span>{slot.error ?? "Could not draw this frame."}</span><button type="button" onClick={onRedraw}>Try again</button></div>;
+  return <figure className={`sc-frame ${slot.state}`} style={ratio}>
+    {onPick ? <button type="button" className="sc-frame-pick" aria-pressed={picked} aria-label={picked ? `Stop referring to beat ${index + 1}` : `Refer to beat ${index + 1} in the prompt`} onClick={(event) => onPick(event.metaKey || event.ctrlKey || event.shiftKey)}><img src={svgSrc(slot.svg!)} alt="" draggable={false} /></button>
+      : <img src={svgSrc(slot.svg!)} alt={`Reference frame for beat ${index + 1}`} draggable={false} />}
+    {slot.state === "stale" && <button type="button" onClick={onRedraw}>Redraw</button>}
+    {slot.state === "drawing" && <span className="sc-frame-busy">Redrawing…</span>}
+  </figure>;
+}
+
+type Product = "starter" | "pro" | "business" | "topup";
+
+/** Buying tokens without leaving the film: the shortfall, the one-time pack and the plans, each going to checkout. */
+function TokenModal({ cost, balance, onClose }: { cost: number; balance: number; onClose: () => void }) {
+  const [opening, setOpening] = useState<Product | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const need = Math.max(0, Math.round((cost - balance) * 100) / 100);
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onClose]);
+  const buy = async (product: Product) => {
+    setOpening(product);
+    setFailed(null);
+    try { window.location.assign(await startCheckout(product)); }
+    catch (caught) { setFailed(caught instanceof Error ? caught.message : "Could not open checkout."); setOpening(null); }
+  };
+  return <div className="sc-modal-backdrop" onClick={onClose}>
+    <div className="sc-modal" role="dialog" aria-modal="true" aria-labelledby="sc-modal-title" onClick={(event) => event.stopPropagation()}>
+      <header>
+        <h2 id="sc-modal-title">Add tokens to render</h2>
+        <button type="button" className="sc-modal-close" aria-label="Close" onClick={onClose}>×</button>
+      </header>
+      <p className="sc-modal-sum">This film costs <b>{cost} tokens</b>. You have <b>{balance}</b>, so you need <b>{need} more</b>.</p>
+      <div className="sc-modal-options">
+        <div className="sc-option">
+          <div><b>{TOP_UP.tokens} tokens</b><span>One-time pack · ${TOP_UP.priceUsd}</span>{TOP_UP.tokens >= need && <em>Covers this film</em>}</div>
+          <button type="button" className="primary-button" disabled={opening !== null} onClick={() => void buy("topup")}>{opening === "topup" ? "Opening…" : "Buy pack"}</button>
+        </div>
+        {PAID_TIERS.map((tier) => <div className="sc-option" key={tier}>
+          <div><b>{PLANS[tier].name} · {PLANS[tier].tokens} tokens a month</b><span>${PLANS[tier].priceUsd}/month · {PLANS[tier].blurb}</span></div>
+          <button type="button" className="secondary-button" disabled={opening !== null} onClick={() => void buy(tier)}>{opening === tier ? "Opening…" : `Choose ${PLANS[tier].name}`}</button>
+        </div>)}
+      </div>
+      {failed && <p className="sc-modal-error" role="alert">{failed}</p>}
+      <small>Your storyboard is saved. Come back after checkout and render.</small>
+    </div>
+  </div>;
+}
+
+/** Render, or (when the balance does not cover the film) Add tokens, which opens the purchase modal. */
+function RenderAction({ seconds, rendering, label, disabled, onRender }: { seconds: number; rendering: boolean; label: string; disabled: boolean; onRender: () => void }) {
+  const [balance, setBalance] = useState<number | null>(null);
+  const [buying, setBuying] = useState(false);
+  useEffect(() => { getMyTokens().then((summary) => setBalance(summary.remaining)).catch(() => setBalance(null)); }, []);
+  const cost = tokensFromMilli(renderCostMillitokens(seconds));
+  const short = balance !== null && balance < cost && !rendering;
+  return <div className="sc-render">
+    {short
+      ? <button className="primary-button sc-add-tokens" disabled={disabled} onClick={() => setBuying(true)}>Add tokens to render</button>
+      : <button className="primary-button" disabled={disabled || rendering} onClick={onRender}>{label}</button>}
+    <span className={short ? "sc-cost short" : "sc-cost"}>{cost} tokens{balance !== null ? ` · you have ${balance}` : ""}</span>
+    {buying && balance !== null && <TokenModal cost={cost} balance={balance} onClose={() => setBuying(false)} />}
+  </div>;
+}
 
 /**
- * The written script as an editable document, before any storyboard exists: scene by scene, with the voiceover, the words
- * on screen, what the viewer sees and which screenshot is shown. Edits save as the person types; "ask for a change" rewrites
- * the whole script from an instruction; "Generate storyboard" builds the film from exactly this script.
+ * The script canvas: one document. Each beat reads as what is seen, what is read and what is heard, with its reference frame
+ * beside it; a single prompt bar at the bottom asks the AI for changes. Confirming the script voices it; the storyboard is
+ * built from it in the background.
  */
-export function ScriptCanvas({ projectId, script, screenshots, durationSeconds, pace, busy, error, save, revise, setType, back, generate }: {
-  projectId: string;
-  script: ProjectScript;
-  screenshots: ProjectScreenshot[];
-  durationSeconds: number;
-  pace: Pace;
-  /** "revise": an instruction is being applied; "plan": the storyboard is being written. */
-  busy: null | "revise" | "plan";
+export function ScriptCanvas({ music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, storyboard, onContinue, continuing }: {
+  beats: ScriptBeat[];
+  /** The field being written, and the beat it is written into, while streaming. */
+  open: keyof ScriptBeat | null;
+  writing: number | null;
+  /** A change to picked beats: nothing new is appended while it streams. */
+  scoped: boolean;
+  /** Kept AI versions per beat (null until a beat has been changed), and the one on screen. */
+  versions: ({ count: number; at: number } | null)[];
+  onReimagine: (index: number) => void;
+  onVersion: (index: number, at: number) => void;
+  streaming: boolean;
+  startedAt: number;
+  firstAt?: number;
+  flags: ScriptFlag[];
   error: string | null;
-  save: (script: ProjectScript) => Promise<void>;
-  revise: (instruction: string) => Promise<void>;
-  setType: (type: VideoType) => Promise<void>;
-  back: () => void;
-  generate: (script: ProjectScript) => void;
+  voiced: boolean;
+  /** The length the person chose and how the script is read; `locked` holds it to that length. */
+  length: { seconds: number; pace: Pace; locked: boolean };
+  /** Rewrites the script to the chosen length. */
+  onFit: () => void;
+  onEdit: (index: number, patch: Partial<ScriptBeat>) => void;
+  /** `only`: the picked beats; just those are rewritten. */
+  onAsk: (instruction: string, only?: number[]) => void;
+  onCancel: () => void;
+  frames: (FrameSlot | undefined)[];
+  aspect: Aspect;
+  /** The template the frames are drawn in, when one was chosen. */
+  styleName?: string;
+  onRedraw: (index: number) => void;
+  voice: VoiceState;
+  onConfirm: () => void;
+  /** The brief has a music bed, made with the voiceover. */
+  music: boolean;
+  /** Renders the film; offered only once its sound is made. */
+  onRender: () => void;
+  rendering: boolean;
+  storyboard: StoryboardState;
+  onContinue: () => void;
+  continuing: boolean;
 }) {
-  const [draft, setDraft] = useState<ProjectScript>(script);
-  const [saved, setSaved] = useState<"saved" | "saving" | "error">("saved");
-  const [instruction, setInstruction] = useState("");
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef(draft);
-  latest.current = draft;
-  // A rewrite from the server replaces what is on screen; the person's typing never does.
-  const serverStamp = useRef(script.updatedAt);
-  useEffect(() => { if (script.updatedAt !== serverStamp.current) { serverStamp.current = script.updatedAt; setDraft(script); setSaved("saved"); } }, [script]);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const [ask, setAsk] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const busyVoice = voice.state === "storyboard" || voice.state === "voicing";
+  useEffect(() => {
+    if (!streaming && !busyVoice) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(timer);
+  }, [streaming, busyVoice]);
+  const seconds = Math.max(0, Math.round((now - startedAt) / 1000));
+  const words = beats.reduce((total, beat) => total + (beat.line ? beat.line.split(/\s+/).filter(Boolean).length : 0), 0);
+  const writingAt = (index: number) => streaming && index === writing;
+  // Beats picked in the document become chips in the prompt box; a request then names them, so "shorter" means those beats.
+  const [picked, setPicked] = useState<number[]>([]);
+  useEffect(() => setPicked((current) => current.filter((index) => index < beats.length)), [beats.length]);
+  const togglePick = (index: number) => setPicked((current) => current.includes(index) ? current.filter((i) => i !== index) : [...current, index].sort((a, b) => a - b));
+  const send = (instruction: string) => { if (instruction.length >= 3 && !streaming) { onAsk(instruction, picked.length ? picked : undefined); setAsk(""); setPicked([]); } };
+  const submitAsk = () => send(ask.trim());
+  const drawn = frames.filter((slot) => slot?.svg).length;
+  const runs = scriptSeconds(beats, length.pace);
+  // A script may run past the target when its idea needs the time; say so, once it is written, with a way to fit it.
+  const [keptLong, setKeptLong] = useState<number | null>(null);
+  const overLength = !streaming && beats.length > 0 && runs > length.seconds * 1.15 + 2 && keptLong !== runs;
+  // Nothing renders without its sound: a voiced (or scored) film needs its takes first; a silent one can render at once.
+  const confirmed = (!voiced && !music) || voice.state === "ready";
+  const soundLabel = voiced && music ? "voiceover and music" : voiced ? "voiceover" : "music";
+  const status = streaming
+    ? <><i className="sc-live" />{firstAt ? `Writing · ${beats.length} ${beats.length === 1 ? "beat" : "beats"} so far · ${seconds}s` : `Writing your script… ${seconds}s`}</>
+    : error ? error
+    : voice.state === "storyboard" ? <><i className="sc-live" />Planning the beats before voicing…</>
+    : voice.state === "voicing" ? <><i className="sc-live" />{music ? `Making the ${soundLabel} (about 30 s)…` : "Recording the voiceover…"}</>
+    : voice.state === "failed" ? voice.error ?? `Could not make the ${soundLabel}.`
+    : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${runs}s${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}`;
 
-  const change = (next: ProjectScript) => {
-    setDraft(next);
-    setSaved("saving");
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => { void save(latest.current).then(() => setSaved("saved"), () => setSaved("error")); }, 700);
-  };
-  const edit = (index: number, patch: Partial<ProjectScriptLine>) => change({ ...draft, lines: draft.lines.map((line, i) => (i === index ? { ...line, ...patch } : line)) });
-  const move = (index: number, by: -1 | 1) => { const lines = [...draft.lines]; const target = index + by; if (target < 0 || target >= lines.length) return; [lines[index], lines[target]] = [lines[target]!, lines[index]!]; change({ ...draft, lines }); };
-  const remove = (index: number) => draft.lines.length > 1 && change({ ...draft, lines: draft.lines.filter((_, i) => i !== index) });
-  const add = () => draft.lines.length < 12 && change({ ...draft, lines: [...draft.lines, { label: "Step", role: "step", onScreen: "New scene", voiceover: "", visual: "", screenshotId: null }] });
-
-  const totalWords = draft.lines.reduce((sum, line) => sum + words(line.voiceover), 0);
-  const budget = wordBudget(durationSeconds, pace);
-  const used = useMemo(() => new Map(screenshots.map((shot) => [shot.id, draft.lines.map((line, i) => (line.screenshotId === shot.id ? i + 1 : 0)).filter(Boolean)])), [screenshots, draft.lines]);
-  const unused = screenshots.filter((shot) => !(used.get(shot.id)?.length));
-  const type = draft.videoType;
-  const working = busy !== null;
-
-  return <div className="flow-page script-canvas">
-    <div className="flow-title"><h1>Your script</h1><p>Read it, change anything, and ask for bigger changes in plain words. The storyboard is built from exactly this.</p></div>
-    <div className="sc-layout">
-      <div className="sc-doc">
-        <header className="sc-doc-head">
-          <input className="sc-title" value={draft.title ?? ""} placeholder="Untitled script" maxLength={80} aria-label="Script title" onChange={(event) => change({ ...draft, title: event.target.value })} />
-          <label className="sc-type"><span>Kind of film</span>
-            <select value={type ?? "explainer"} disabled={working} onChange={(event) => void setType(event.target.value as VideoType)} aria-label="Kind of film">{videoTypes.map((id) => <option key={id} value={id}>{videoTypeLabels[id]}</option>)}</select>
-          </label>
-          <span className={"sc-save " + saved}>{saved === "saved" ? "All changes saved" : saved === "saving" ? "Saving…" : "Could not save"}</span>
-        </header>
-        <ol className={"sc-scenes" + (busy === "revise" ? " working" : "")}>
-          {draft.lines.map((line, index) => {
-            const shot = screenshots.find((item) => item.id === line.screenshotId);
-            return <li key={index} className="sc-scene">
-              <div className="sc-scene-head"><b>{index + 1}</b><span className={"bs-role " + (line.role ?? "")}>{roleName(line)}</span>
-                <span className="sc-tools"><button type="button" aria-label={`Move scene ${index + 1} up`} disabled={index === 0 || working} onClick={() => move(index, -1)}>↑</button><button type="button" aria-label={`Move scene ${index + 1} down`} disabled={index === draft.lines.length - 1 || working} onClick={() => move(index, 1)}>↓</button><button type="button" aria-label={`Delete scene ${index + 1}`} disabled={draft.lines.length < 2 || working} onClick={() => remove(index)}>✕</button></span></div>
-              <label className="sc-field"><span>Voiceover <small>{words(line.voiceover)} words</small></span><textarea rows={2} value={line.voiceover ?? ""} maxLength={240} placeholder="Silent scene" onChange={(event) => edit(index, { voiceover: event.target.value })} /></label>
-              {index === 0 && (draft.hooks?.length ?? 0) > 0 && <div className="sc-hooks" role="group" aria-label="Other ways to open"><span>Other ways to open</span>{draft.hooks!.filter((hook) => hook !== line.voiceover).map((hook) => <button type="button" key={hook} disabled={working} onClick={() => edit(0, { voiceover: hook })}>{hook}</button>)}</div>}
-              <div className="sc-row">
-                <label className="sc-field"><span>On screen</span><input value={line.onScreen} maxLength={60} onChange={(event) => edit(index, { onScreen: event.target.value })} /></label>
-                <label className="sc-field wide"><span>What the viewer sees</span><input value={line.visual ?? ""} maxLength={240} placeholder="Describe the picture" onChange={(event) => edit(index, { visual: event.target.value })} /></label>
-              </div>
-              {screenshots.length > 0 && <div className="sc-shots" role="radiogroup" aria-label={`Screenshot for scene ${index + 1}`}>
-                <button type="button" role="radio" aria-checked={!shot} className={!shot ? "selected none" : "none"} onClick={() => edit(index, { screenshotId: null })}>No screenshot</button>
-                {screenshots.map((item) => <button type="button" role="radio" aria-checked={shot?.id === item.id} key={item.id} className={shot?.id === item.id ? "selected" : ""} title={item.analysis ? `${item.analysis.title}: ${item.analysis.summary}` : item.name} onClick={() => edit(index, { screenshotId: item.id })}><img src={projectScreenshotUrl(projectId, item.id)} alt="" /><span>{item.analysis?.title ?? item.name}</span></button>)}
-              </div>}
-            </li>;
-          })}
-        </ol>
-        <button type="button" className="secondary-button sc-add" disabled={draft.lines.length >= 12 || working} onClick={add}>+ Add scene</button>
-        <form className="sc-ask" onSubmit={(event) => { event.preventDefault(); const text = instruction.trim(); if (text.length >= 3 && !working) { void revise(text).then(() => setInstruction("")); } }}>
-          <input value={instruction} onChange={(event) => setInstruction(event.target.value)} maxLength={500} disabled={working} placeholder="Ask for a change: “make it shorter”, “add a scene about pricing”, “more playful”…" aria-label="Ask for a change to the script" />
-          <button className="secondary-button" disabled={working || instruction.trim().length < 3}>{busy === "revise" ? "Rewriting…" : "Rewrite"}</button>
-        </form>
+  return <div className="script-canvas">
+    <header className="sc-head">
+      <div>
+        <h1>Storyboard</h1>
+        <p role="status" aria-live="polite">{status}</p>
       </div>
-      <aside className="sc-side">
-        <section className="ss-card">
-          <header><b>Length</b><span>{totalWords} of about {budget} spoken words</span></header>
-          <div className={"sc-meter" + (totalWords > budget * 1.1 ? " over" : "")}><i style={{ width: `${Math.min(100, (totalWords / Math.max(1, budget)) * 100)}%` }} /></div>
-          <p className="sc-hint">{totalWords > budget * 1.1 ? "Longer than the film allows: the voice would run past the end. Trim a line, or ask for it shorter." : `${draft.lines.length} scenes for a ${durationSeconds}-second film.`}</p>
-        </section>
-        <section className="ss-card">
-          <header><b>Post caption</b><span>Ready to paste with the video</span></header>
-          <textarea className="sc-caption" rows={3} maxLength={400} value={draft.caption ?? ""} placeholder="A caption that names your product" aria-label="Post caption" onChange={(event) => change({ ...draft, caption: event.target.value })} />
-        </section>
-        {screenshots.length > 0 && <section className="ss-card">
-          <header><b>What we understood</b><span>{screenshots.length} screenshot{screenshots.length === 1 ? "" : "s"}</span></header>
-          <ul className="sc-understood">{screenshots.map((shot) => <li key={shot.id}><img src={projectScreenshotUrl(projectId, shot.id)} alt="" /><div><b>{shot.analysis?.title ?? shot.name}</b><small>{shot.analysis ? shot.analysis.summary : "Reading this screenshot…"}</small><em>{used.get(shot.id)?.length ? `Used in scene ${used.get(shot.id)!.join(", ")}` : "Not used yet"}</em></div></li>)}</ul>
-          {unused.length > 0 && <p className="sc-hint warn">{unused.length === 1 ? "One screenshot isn't in the script yet." : `${unused.length} screenshots aren't in the script yet.`} The storyboard adds each one to the scene that talks about it, or pick one above.</p>}
-        </section>}
-      </aside>
-    </div>
-    {error && <p className="workspace-error">{error}</p>}
-    <div className="flow-footer">
-      <span className={busy ? "ss-progress" : "ready"}><i />{busy === "plan" ? "Building the storyboard…" : busy === "revise" ? "Rewriting the script…" : "Happy with it? The storyboard comes next."}</span>
-      <div><button className="secondary-button" disabled={working} onClick={back}>Edit brief</button><button className="primary-button" disabled={working || draft.lines.every((line) => !line.voiceover?.trim() && !line.onScreen.trim())} onClick={() => generate(latest.current)}>Generate storyboard</button></div>
-    </div>
+      <div className="sc-actions">
+        {streaming && <button className="secondary-button" onClick={onCancel}>Stop</button>}
+        {/* Hearing the voice first is optional: Render makes any missing sound itself. */}
+        {!streaming && !confirmed && !rendering && <button className="secondary-button" disabled={streaming || beats.length === 0 || busyVoice} title={`Make the ${soundLabel} now to listen before rendering`} onClick={onConfirm}>{busyVoice ? `Building ${soundLabel}…` : voice.state === "failed" ? `Try the ${soundLabel} again` : `Build ${soundLabel}`}</button>}
+        {!streaming && <RenderAction seconds={runs} rendering={rendering} disabled={beats.length === 0} onRender={onRender}
+          label={rendering ? (busyVoice ? `Making ${soundLabel}, then rendering…` : "Directing motion, then rendering…") : "Render video"} />}
+      </div>
+    </header>
+
+    {overLength && <div className="sc-length" role="note">
+      <p><b>Runs about {runs}s</b>, longer than the {length.seconds}s you chose{length.locked ? "" : ", because the idea needs the time"}. A longer film uses more tokens.</p>
+      <div><button className="secondary-button" onClick={() => setKeptLong(runs)}>Keep {runs}s</button><button className="primary-button" disabled={busyVoice} onClick={onFit}>Fit to {length.seconds}s</button></div>
+    </div>}
+    <div className="sc-doc-head" aria-hidden="true"><span>Script</span><span>Reference frames{styleName ? ` · ${styleName} style` : ""}</span></div>
+    <ol className="sc-doc">
+      {beats.map((beat, index) => {
+        const locked = writingAt(index);
+        const beatFlags = flags.filter((flag) => flag.beat === index);
+        const take = voice.takes[index];
+        const isPicked = picked.includes(index);
+        // A click anywhere in a scene picks it for the prompt box (Cmd/Ctrl or Shift adds it to the ones picked); the
+        // number button toggles. Buttons and the audio player keep their own clicks.
+        const pickScene = (event: MouseEvent) => {
+          if (streaming || (event.target as HTMLElement).closest("button, audio, a")) return;
+          const add = event.metaKey || event.ctrlKey || event.shiftKey;
+          setPicked((current) => add ? (current.includes(index) ? current : [...current, index].sort((a, b) => a - b)) : [index]);
+        };
+        return <li key={index} className={`sc-beat${locked ? " writing" : ""}${isPicked ? " picked" : ""}`} onClick={pickScene}>
+          <div className="sc-text">
+            <div className="sc-title-row">
+              <button type="button" className="sc-num" aria-pressed={isPicked} disabled={streaming} aria-label={isPicked ? `Stop referring to beat ${index + 1}` : `Refer to beat ${index + 1} in the prompt`} title={isPicked ? "Remove from the prompt" : "Refer to this beat in the prompt"} onClick={() => togglePick(index)}>{String(index + 1).padStart(2, "0")}</button>
+              <Field label={`Beat ${index + 1} key phrase`} className="sc-keyword" value={beat.keyword} placeholder="Key phrase" readOnly={locked} caret={locked && open === "keyword"} onChange={(keyword) => onEdit(index, { keyword: keyword.slice(0, 28) })} />
+              <div className="sc-beat-tools">
+                {versions[index] && <span className="sc-versions" aria-label={`Version ${versions[index]!.at + 1} of ${versions[index]!.count}`}>
+                  <button type="button" disabled={streaming || versions[index]!.at === 0} aria-label={`Previous version of beat ${index + 1}`} onClick={() => onVersion(index, versions[index]!.at - 1)}>‹</button>
+                  <span>{versions[index]!.at + 1}/{versions[index]!.count}</span>
+                  <button type="button" disabled={streaming || versions[index]!.at === versions[index]!.count - 1} aria-label={`Next version of beat ${index + 1}`} onClick={() => onVersion(index, versions[index]!.at + 1)}>›</button>
+                </span>}
+                <button type="button" className="sc-reimagine" disabled={streaming} title="A new way to show this scene. The current version is kept." aria-label={`Reimagine beat ${index + 1}`} onClick={() => onReimagine(index)}>
+                  {locked ? "Reimagining…" : "Reimagine"}
+                </button>
+              </div>
+            </div>
+            <dl>
+              <div><dt>Visual</dt><dd><Field label={`Beat ${index + 1} visual`} className="sc-visual" value={beat.visual ?? ""} placeholder="What the viewer sees" readOnly={locked} caret={locked && open === "visual"} onChange={(visual) => onEdit(index, { visual: visual.slice(0, 200) || null })} /></dd></div>
+              <div><dt>On screen</dt><dd><Field label={`Beat ${index + 1} on-screen text`} className="sc-screen" value={beat.onScreen ?? ""} placeholder="Only the key phrase" readOnly={locked} caret={locked && open === "onScreen"} onChange={(onScreen) => onEdit(index, { onScreen: onScreen.slice(0, 60) || null })} /></dd></div>
+              {voiced && <div><dt>Voiceover</dt><dd>
+                <Field label={`Beat ${index + 1} voiceover`} className="sc-line" value={beat.line ?? ""} placeholder="Voiceover" readOnly={locked} caret={locked && open === "line"} onChange={(line) => onEdit(index, { line: line || null })} />
+                {take && <audio className="sc-take" controls preload="none" src={take} aria-label={`Voiceover for beat ${index + 1}`} />}
+              </dd></div>}
+            </dl>
+            {beatFlags.map((flag) => <small className="sc-flag" key={flag.message}>{flag.message} Edit it, or keep it if it is right.</small>)}
+          </div>
+          <Frame onPick={streaming ? undefined : (add: boolean) => setPicked((current) => add ? (current.includes(index) ? current : [...current, index].sort((x, y) => x - y)) : [index])} picked={isPicked} slot={frames[index]} aspect={aspect} index={index} writing={locked} onRedraw={() => onRedraw(index)} />
+        </li>;
+      })}
+      {streaming && !scoped && Array.from({ length: beats.length === 0 ? 3 : 1 }, (_, index) => <li key={`s${index}`} className="sc-beat sc-skeleton" aria-hidden="true"><div className="sc-text"><i /><i className="short" /><i className="long" /></div><div className="sc-frame sc-frame-wait" style={{ aspectRatio: RATIO[aspect] }} /></li>)}
+    </ol>
+    {storyboard.state === "failed" && !streaming && <p className="sc-note">{storyboard.error ?? "Could not plan the storyboard."}</p>}
+
+    <form className="sc-ask" onSubmit={(event) => { event.preventDefault(); submitAsk(); }}>
+      {(picked.length > 0 || !ask) && <div className="sc-chips">
+        {picked.map((index) => <span className="sc-chip" key={index}>Beat {index + 1} · {beats[index]?.keyword}<button type="button" aria-label={`Stop referring to beat ${index + 1}`} onClick={() => togglePick(index)}>×</button></span>)}
+        {!ask && SUGGESTIONS.map((label) => <button type="button" className="sc-suggest" key={label} disabled={streaming || beats.length === 0} onClick={() => send(label)}>{label}</button>)}
+      </div>}
+      <div className="sc-ask-row">
+        <input value={ask} onChange={(event) => setAsk(event.target.value)} disabled={streaming || beats.length === 0} maxLength={400} aria-label="Ask the AI to change the script"
+          placeholder={streaming ? "Writing…" : picked.length ? `What should change in ${picked.length === 1 ? `beat ${picked[0]! + 1}` : "these beats"}?` : "Ask for a change, or click a scene to refer to it"} />
+        <button className="sc-send" type="submit" aria-label="Send" disabled={streaming || ask.trim().length < 3}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15V5M5 10l5-5 5 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+      </div>
+    </form>
   </div>;
 }

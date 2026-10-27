@@ -25,7 +25,9 @@ export async function directorContextFor(project: VideoProject, brief: ScriptBri
   // The person's edited script: when they write their own, its scenes (visual intent and screenshot assignments) are the plan.
   const approved = brief.scriptMode === "own" && project.script?.lines.length ? project.script.lines : undefined;
   const context: DirectorContext = {
-    brandName: brand?.name ?? brief.productName ?? project.name, productNamed: Boolean(brand?.name || brief.productName), videoType, screenshots,
+    // No kit and no product name means no product: an empty name. The project name is the brief's first line, and passing it
+    // on made the director sell "Explain binary search…" as a product (a "Try binary search" ending and an end card titled with it).
+    brandName: brand?.name ?? brief.productName ?? "", productNamed: Boolean(brand?.name || brief.productName), videoType, screenshots,
     ...(template ? { template } : {}),
     ...(brand?.description ? { brandDescription: brand.description } : {}),
     ...(site ? { site: { url: site.url, title: site.title, description: site.description, facts: site.facts, text: site.text } } : {}),

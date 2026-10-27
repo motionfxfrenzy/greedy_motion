@@ -7,6 +7,9 @@ import { uploadDirectory } from "../storage.ts";
 import { audioStatus } from "./audio.ts";
 import { projectTiming } from "./preview.ts";
 import { buildPlanRenderProject } from "./render-project.ts";
+import { filmFrames } from "./frame-film.ts";
+import { ensureFilmMotion, filmScenes } from "./frame-motion.ts";
+import { setCoverFrame } from "../projects/store.ts";
 import { TIMING_RULES } from "./timing.ts";
 
 /**
@@ -50,7 +53,8 @@ export function planReadiness(project: VideoProject): Readiness {
   const warnings: Readiness["warnings"] = [];
   for (const message of timing.warnings) {
     // The hook and the length are part of the brief's promise; a voice gap is a pacing note.
-    const hard = /the hook runs|more than \d+s \+ (?:10%|[\d.]+s)|too short for/.test(message);
+    // Running long is a hard stop only when the person locked the length ("Fit exactly").
+    const hard = /the hook runs|too short for/.test(message) || (Boolean(project.brief?.lockDuration) && /more than \d+s \+ (?:10%|[\d.]+s)/.test(message));
     // The hook-length word rule already names this beat; one message per problem.
     if (/the hook runs/.test(message) && blocking.some((item) => /hook line is/.test(item.message))) continue;
     (hard ? blocking : warnings).push({ beat: beatOf(message), message });
@@ -62,7 +66,10 @@ export function planReadiness(project: VideoProject): Readiness {
     warnings.push({ beat: null, message: "This video uses a gallery theme, not your brand. Choose the brand kit read from your website so its colours, fonts and logo are used." });
   }
   const target = plan.target_duration_s;
-  if (Math.abs(timing.total - target) > Math.max(target * TIMING_RULES.tolerance, 3) + 0.05 && !blocking.some((item) => /10%|too short|\d+s \+ [\d.]+s/.test(item.message))) {
+  const offTarget = Math.abs(timing.total - target) > Math.max(target * TIMING_RULES.tolerance, 3) + 0.05;
+  if (offTarget && !project.brief?.lockDuration) {
+    warnings.push({ beat: null, message: `The film runs ${timing.total.toFixed(0)}s; you chose ${target}s as a target. Tick "Fit exactly" in the brief to hold it to ${target}s.` });
+  } else if (offTarget && !blocking.some((item) => /10%|too short|\d+s \+ [\d.]+s/.test(item.message))) {
     blocking.push({ beat: null, message: `The film runs ${timing.total.toFixed(1)}s; the brief asks for ${target}s (${target * TIMING_RULES.tolerance < 3 ? "±3s" : "±10%"}).` });
   }
   return { ok: blocking.length === 0, blocking, warnings, durationSeconds: timing.total };
@@ -86,6 +93,14 @@ export async function prepareBeatPlanRender(project: VideoProject, jobId: string
   const readiness = planReadiness(project);
   if (!readiness.ok) throw new NotReady(readiness);
   const dir = join(config.renderOutputDir, jobId, "project");
+  // A film made from approved frames gets its motion directed now, on the real voiceover timing (cached per scene).
+  const timing = projectTiming(project);
+  const frames = timing ? filmFrames(project, timing) : null;
+  if (timing && frames) {
+    project = await ensureFilmMotion(project, filmScenes(project, timing, frames));
+    // The card shows the film's opening frame.
+    project = (await setCoverFrame(project.id, frames[0]!.svg, timing.total)) ?? project;
+  }
   const built = await buildPlanRenderProject(project, dir, { watermark: options.watermark });
   // Object storage: the worker has no shared disk, so the finished folder goes to the uploads bucket and the
   // job carries only its key prefix. The local copy is then redundant.
