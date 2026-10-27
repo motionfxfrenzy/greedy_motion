@@ -10,12 +10,15 @@ import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, w
 import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
 import { QUEUES, claim, createPool, finish, noteRetry, progress } from "./jobs.mjs";
 import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
+import { SCENE_QUEUE, handleScene, joinScenes } from "./scenes.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 // Railway private networking needs "::"; local Docker uses 0.0.0.0.
 const host = process.env.HOST ?? "0.0.0.0";
 const databaseUrl = process.env.DATABASE_URL ?? "";
 const concurrency = Number.parseInt(process.env.RENDER_CONCURRENCY ?? "1", 10);
+// Scenes drawn in the background while the person is in the Preview (scenes.mjs), each one Chrome; 0 turns drawing off here.
+const sceneConcurrency = Number.parseInt(process.env.SCENE_CONCURRENCY ?? "3", 10);
 // Seconds to let in-flight renders finish on SIGTERM before handing them back to the queue.
 const drainSeconds = Number.parseInt(process.env.DRAIN_SECONDS ?? "25", 10);
 const RENDERS_DIR = "/renders";
@@ -26,6 +29,7 @@ const idleExitSeconds = Number.parseInt(process.env.IDLE_EXIT_SECONDS ?? "0", 10
 
 if (!databaseUrl) throw new Error("DATABASE_URL is not set; the worker reads render jobs from Postgres.");
 if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("RENDER_CONCURRENCY must be a positive integer.");
+if (!Number.isInteger(sceneConcurrency) || sceneConcurrency < 0) throw new Error("SCENE_CONCURRENCY must be 0 or a positive integer.");
 if (!Number.isInteger(idleExitSeconds) || idleExitSeconds < 0) throw new Error("IDLE_EXIT_SECONDS must be 0 or a positive integer.");
 
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
@@ -40,6 +44,7 @@ boss.on("error", (error) => log("error", "queue_error", { message: error.message
 let ready = false;
 let shuttingDown = false;
 let active = 0;
+let activeScenes = 0;
 let lastBusy = Date.now();
 
 /** Errors that would fail the same way on every attempt: fail now instead of retrying. */
@@ -126,7 +131,7 @@ async function renderFolder(folder, output, input, options) {
  * An approved storyboard: the backend wrote the complete HyperFrames project (stamped canvas, variables,
  * fonts, shots, voice, music, SFX) to /renders/<id>/project. Render it as is; nothing is generated here.
  */
-async function renderBeatPlan(id, input, attempt, signal, reporter) {
+async function renderBeatPlan(id, input, attempt, signal, reporter, joined) {
   // Object storage: pull the prepared folder from R2 into a private scratch directory, render there, upload the MP4.
   if (storageEnabled) {
     const scratch = join("/tmp", `render-${id}-a${attempt}`);
@@ -144,7 +149,7 @@ async function renderBeatPlan(id, input, attempt, signal, reporter) {
         if (error?.code === "ENOENT" || /missing in storage|Invalid project prefix/.test(error?.message ?? "")) throw new PermanentError("The prepared storyboard folder is incomplete. Submit the storyboard again.");
         throw error;
       }
-      await renderFolder(folder, output, input, { onLine: reporter.line, signal });
+      if (!(await joined(output))) await renderFolder(folder, output, input, { onLine: reporter.line, signal });
       await uploadOutput(output, key);
       return { url: `/v1/renders/${id}`, format: "mp4", durationSeconds: Number(input.durationSeconds) || 10, file: `${id}-a${attempt}.mp4`, key };
     } finally {
@@ -163,7 +168,7 @@ async function renderBeatPlan(id, input, attempt, signal, reporter) {
   const file = `${id}-a${attempt}.mp4`;
   const output = join(RENDERS_DIR, file);
   try {
-    await renderFolder(folder, output, input, { onLine: reporter.line, signal });
+    if (!(await joined(output))) await renderFolder(folder, output, input, { onLine: reporter.line, signal });
     return { url: `/v1/renders/${id}`, format: "mp4", durationSeconds: Number(input.durationSeconds) || 10, file };
   } catch (error) {
     await rm(output, { force: true });
@@ -171,10 +176,10 @@ async function renderBeatPlan(id, input, attempt, signal, reporter) {
   }
 }
 
-async function renderVideo(input, attempt, signal, reporter) {
+async function renderVideo(input, attempt, signal, reporter, joined) {
   const id = typeof input.id === "string" && /^[a-f0-9-]{36}$/i.test(input.id) ? input.id : "";
   if (!id) throw new PermanentError("A valid render id is required.");
-  if (input.kind === "beat-plan" || input.kind === "pro") return renderBeatPlan(id, input, attempt, signal, reporter);
+  if (input.kind === "beat-plan" || input.kind === "pro") return renderBeatPlan(id, input, attempt, signal, reporter, joined);
   if (storageEnabled) throw new PermanentError("Template renders are not available with object storage yet; render the approved storyboard instead.");
   const template = idOrDefault(input.template, "product-launch");
   const theme = idOrDefault(input.theme, "neutral");
@@ -245,7 +250,20 @@ async function handle(job) {
   const reporter = progressReporter(jobId, attempt, () => lost.abort(new Error("This attempt no longer owns the job.")));
   log("info", "render_started", { jobId, attempt });
   try {
-    const output = await renderVideo(input, attempt, signal, reporter);
+    // A storyboard film whose scenes were drawn in the Preview is joined from them (scenes.mjs); any problem with the
+    // clips falls back to drawing the whole film, so a join can only make a render faster, never fail it.
+    const joined = async (to) => {
+      if (!input.join || input.motionBlur) return false;
+      try {
+        return await joinScenes(input.join, to, { pool, jobId, attempt, signal, onLost: () => lost.abort(new Error("This attempt no longer owns the job.")) });
+      } catch (error) {
+        if (signal.aborted) throw error;
+        log("warn", "scene_join_failed", { jobId, attempt, message: (error instanceof Error ? error.message : String(error)).slice(-400) });
+        await rm(to, { force: true });
+        return false;
+      }
+    };
+    const output = await renderVideo(input, attempt, signal, reporter, joined);
     await reporter.flush();
     const committed = await finish(pool, boss, jobId, attempt, { output });
     if (!committed) {
@@ -288,19 +306,27 @@ async function startConsuming() {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
   await boss.work(QUEUES.video, { localConcurrency: concurrency, pollingIntervalSeconds: 1 }, async ([job]) => handle(job));
+  // A backend from before scene drawing has no scene queue: this worker then only renders.
+  const drawsScenes = sceneConcurrency > 0 && Boolean(await boss.getQueue(SCENE_QUEUE).catch(() => null));
+  if (drawsScenes) await boss.work(SCENE_QUEUE, { localConcurrency: sceneConcurrency, pollingIntervalSeconds: 5 }, async ([job]) => {
+    activeScenes += 1;
+    lastBusy = Date.now();
+    try { await handleScene(job, { pool, boss }); } finally { activeScenes -= 1; lastBusy = Date.now(); }
+  });
   ready = true;
-  log("info", "worker_consuming", { queue: QUEUES.video, concurrency, idleExitSeconds });
+  log("info", "worker_consuming", { queue: QUEUES.video, concurrency, sceneConcurrency: drawsScenes ? sceneConcurrency : 0, idleExitSeconds });
   if (idleExitSeconds > 0) watchIdle();
 }
 
 /** Exits once the worker has had nothing to do for idleExitSeconds and the queue is empty. */
 function watchIdle() {
   const timer = setInterval(async () => {
-    if (shuttingDown || active > 0 || Date.now() - lastBusy < idleExitSeconds * 1000) return;
+    if (shuttingDown || active > 0 || activeScenes > 0 || Date.now() - lastBusy < idleExitSeconds * 1000) return;
     const [stats] = await boss.getQueueStats(QUEUES.video, { force: true }).catch(() => []);
+    const [scenes] = await boss.getQueueStats(SCENE_QUEUE, { force: true }).catch(() => [{ queuedCount: 0, activeCount: 0 }]);
     // Unknown queue state: stay up rather than strand a job; the next tick asks again.
     if (!stats) return;
-    if (stats.queuedCount + stats.activeCount > 0) { lastBusy = Date.now(); return; }
+    if (stats.queuedCount + stats.activeCount + (scenes?.queuedCount ?? 0) + (scenes?.activeCount ?? 0) > 0) { lastBusy = Date.now(); return; }
     clearInterval(timer);
     void shutdown("idle");
   }, 15_000);

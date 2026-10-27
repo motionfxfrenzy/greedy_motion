@@ -14,6 +14,7 @@ import { boss, PLAN_RETRY_DELAY_SECONDS, POLL, QUEUES, type RenderMessage } from
 import { renderEvents } from "./events.ts";
 import { projectTiming } from "../plan/preview.ts";
 import { beatTimes } from "../plan/timing.ts";
+import { joinPlan } from "./scenes.ts";
 
 const planner: PromptPlanner = config.planner === "anthropic" ? new AnthropicPromptPlanner() : new DeterministicPromptPlanner();
 
@@ -80,8 +81,14 @@ export class RenderService {
       if (error instanceof NotReady) { await this.failForGood(id, { code: "not_ready", message: error.message }, false); return; }
       throw error;
     }
+    // Scenes drawn in the Preview (render/scenes.ts) are joined instead of drawing the film again; the worker waits for any
+    // still drawing. Motion blur captures sub-frames, so it draws the full film. Without a plan the full film is drawn too.
+    const join = prep.motionBlur ? null : await joinPlan(project.id, prep.watermark).catch((error) => {
+      console.warn(JSON.stringify({ level: "warn", event: "scene_join_unavailable", jobId: id, message: messageOf(error, "unknown") }));
+      return null;
+    });
     // The worker's whole input: a prepared folder on the shared renders volume (or its R2 prefix). No API keys, no planning.
-    const renderInput = { kind: "beat-plan", renderContractVersion: 1, id, workerDir: prepared.workerDir, ...(prepared.projectPrefix ? { projectPrefix: prepared.projectPrefix } : {}), durationSeconds: prepared.durationSeconds, canvas: prepared.canvas, ...(prep.motionBlur ? { motionBlur: true } : {}) };
+    const renderInput = { kind: "beat-plan", renderContractVersion: 1, id, workerDir: prepared.workerDir, ...(prepared.projectPrefix ? { projectPrefix: prepared.projectPrefix } : {}), durationSeconds: prepared.durationSeconds, canvas: prepared.canvas, ...(prep.motionBlur ? { motionBlur: true } : {}), ...(join ? { join } : {}) };
     await renderJobRepository.queueRender(id, { ...beatPlanRevision(project, prepared.durationSeconds), id: row.revision.id }, renderInput);
   }
 

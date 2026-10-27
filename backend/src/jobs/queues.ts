@@ -18,7 +18,9 @@ export const QUEUES = {
   planDead: "render-plan-dead",
   video: "render-video",
   videoDead: "render-video-dead",
-  finished: "render-finished"
+  finished: "render-finished",
+  // Background scene drawing (render/scenes.ts): { clipId }. The worker retries a failed scene once, then marks it failed.
+  scene: "render-scene"
 } as const;
 
 export type RenderMessage = { jobId: string };
@@ -38,7 +40,9 @@ const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   { name: QUEUES.plan, notify: true, retryLimit: 1, retryDelay: PLAN_RETRY_DELAY_SECONDS, expireInSeconds: 600, heartbeatSeconds: 30, deadLetter: QUEUES.planDead },
   // Rendering: heartbeats detect a dead worker within ~30 s; the expiry bounds a hung render.
   { name: QUEUES.video, notify: true, retryLimit: config.renderRetries, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: config.renderTimeoutSeconds, heartbeatSeconds: 30, deadLetter: QUEUES.videoDead },
-  { name: QUEUES.finished, notify: true, retryLimit: 5, retryDelay: 2, retryBackoff: true }
+  { name: QUEUES.finished, notify: true, retryLimit: 5, retryDelay: 2, retryBackoff: true },
+  // One retry for a scene that failed to draw; heartbeats hand a dead worker's scene to another within ~30 s.
+  { name: QUEUES.scene, notify: true, retryLimit: 1, retryDelay: 3, expireInSeconds: 900, heartbeatSeconds: 30 }
 ];
 
 /**

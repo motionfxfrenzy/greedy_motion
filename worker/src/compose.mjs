@@ -147,10 +147,10 @@ export async function writeVariables(project, variables) {
  * Runs a command. `onLine` receives each output line (progress bars redraw with \r, so both \r and \n
  * end a line). Aborting `signal` kills the whole process group, including Chromium and FFmpeg children.
  */
-export function run(command, args, { onLine, signal } = {}) {
+export function run(command, args, { onLine, signal, env } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason ?? new Error("Aborted."));
-    const child = spawn(command, args, { cwd: APP_ROOT, env: process.env, detached: Boolean(signal) });
+    const child = spawn(command, args, { cwd: APP_ROOT, env: env ? { ...process.env, ...env } : process.env, detached: Boolean(signal) });
     let stdout = "";
     let stderr = "";
     let pending = "";

@@ -23,6 +23,8 @@ import { startWorkerSweep } from "./jobs/worker-launcher.ts";
 import { AssetRejected, readStaged, stageFont, stageLogo } from "./brand/assets.ts";
 import { extractBrand } from "./brand/extract.ts";
 import { registerPlanRoutes, waitForPlans } from "./plan/routes.ts";
+import { registerSceneRoutes } from "./render/scene-routes.ts";
+import { startClipSweep } from "./render/scenes.ts";
 import { registerEntitlementRoutes } from "./entitlements/routes.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerBillingRoutes } from "./billing/routes.ts";
@@ -159,6 +161,7 @@ app.get<{ Params: { id: string; name: string } }>("/v1/preview/brands/:id/fonts/
 // ---------- Persisted projects ----------
 // Product flow v2: Script & Style → beat plan, storyboard edits, live composition (backend/src/plan).
 await registerPlanRoutes(app);
+await registerSceneRoutes(app);
 await registerFormatRoutes(app);
 await registerGalleryRoutes(app);
 await registerLibraryRoutes(app);
@@ -542,6 +545,7 @@ await startQueues();
 await renderService.startConsumers();
 await startVisualConsumers();
 renderEvents.start();
+startClipSweep();
 startWorkerSweep();
 await app.listen({ port: config.port, host: config.host });
 app.log.info({ ...config.environmentSummary, planner: config.anthropicApiKey ? "anthropic" : "deterministic", planConcurrency: config.planConcurrency }, "backend ready");

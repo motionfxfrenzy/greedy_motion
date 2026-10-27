@@ -364,3 +364,38 @@ Result on a fresh Binary Search film: frames 3–7 all draw the same list (3 …
   - Product films keep the snappier default feel.
 - Fixed along the way: the pointer drew behind the range bracket; a `</script>` in a comment broke the inlined player; frames without an SVG namespace showed as broken images.
 - Render page: Render video is a standalone button with the cost under it. When the balance is short, the button becomes **Add tokens to render**, which opens a purchase modal (pack plus plans, through the existing checkout).
+
+## Scenes drawn in the background; final render = join (2026-10-27/28)
+
+- **What changed:**
+  - When the Preview opens (after `/film/animate`) or a fix lands, the backend queues one `render-scene` job per scene, debounced by 2 s (backend `render/scenes.ts`, worker `src/scenes.mjs`, table `app.scene_clips`, migration 009).
+  - Each scene is drawn as a time range of the film page itself: a small clock drives the film's paused timeline from the scene's first frame. Frames, motion, feel and clock are the film's own, and each cut's crossfade sits inside the clip of the scene it cuts to.
+  - The soundtrack is mixed ahead of time: the same page with its pictures hidden, rendered at 1 fps (16 s).
+  - "Render final video" keeps the same job, tokens and Review path, but the worker joins the clips (`ffmpeg concat`, stream copy) and adds the soundtrack. A failed or missing clip, or motion blur, falls back to the full render.
+- **Cache:** each clip has a signature covering:
+  - its own frame and motion, and the previous scene's (its opening crossfade);
+  - the page around the frames (engine, frame-film.js, fonts, theme, watermark);
+  - its frame range and the film's length.
+  Unchanged scenes are never redrawn. A clip that stops being current is dropped mid-draw (fenced by `attempt`). Clips of projects untouched for 7 days are swept.
+- **Live drawing:** progress and the latest drawn frame are pushed over the existing LISTEN connection (channel `scene_clips`) to `GET /v1/projects/:id/scenes/events`. The thumbnail comes from a second ffmpeg output on HyperFrames' own encoder pipe (`ffmpeg-thumbs.sh`), so frames are never captured twice.
+  - In the Preview, each scene in the strip shows Queued, Drawing n% with its latest frame, or Drawn.
+  - "Drawn scenes" plays the actual clips in the player, as an alternative to "Live preview".
+- **Timings (test project, 8 scenes, 1:03, 1,917 frames; host load 15–22 from another session's work):**
+  - Before (full software render): 224 s on a quiet machine, plus about 8 s of prep. Re-measured today: 5 min 12 s under load.
+  - After, all scenes drawn: click to Review in **1.08 s** (prep 0.32 s, join 0.6 s).
+  - After, engine changed 9 s before the click (all 8 scenes redrawn while the job waited): 3 min 53 s (229 s wait, 1.9 s join). The render step showed live frame progress.
+  - Background drawing: 3 scenes at once (one project's cap) took about 3.9 min for the whole film under load. Per-scene speed drops to about 1.6 fps when three run alongside other heavy work.
+  - Re-opening the Preview with nothing changed: all 8 cached, nothing redrawn.
+- **Fixing one scene** ("make the title of this scene a little larger" on scene 4): three clips were redrawn, the other five and the soundtrack were kept.
+  - Scene 4: the fix itself.
+  - Scene 5: it opens on scene 4's crossfade, and its motion is directed from scene 4, so the motion was re-directed too.
+  - Scene 6: it opens on scene 5's end state.
+  - Also fixed: before this, a fix left the next scene's directed motion stale. The Preview played that scene with no motion, and the final render re-directed it. The fix route now re-directs the stale scenes before answering, so the Preview, the drawn scenes and the final render match.
+- **Seams:** the joined film was compared with a full-film software render of the same prepared folder, and with a hardware-GPU render as the glitch-free truth.
+  - Joined vs full software: mean 57.2 dB, worst frame 41.1 dB (encoder noise), so they match frame for frame.
+  - Joined vs GPU: mean 38.1 dB, worst 36.2. Full software vs GPU: mean 38.1, worst 37.5. This is the usual software/hardware rasterising offset; no frame dips.
+  - At all 7 boundaries (frames 82, 315, 585, 861, 1104, 1365, 1560), the change into the first frame of the next scene equals the film's own cut in all three renders (for example 4.37 / 4.30 / 4.31 luma levels at frame 82). The only extra is ≤0.13 luma levels where a clip opens on a fresh keyframe. No visible jump.
+- **Software-render glitch:**
+  - With the engine as of 23:21, the full software render dropped boxes 9–16 and left stale "16 numbers" pixels in scene 3. The per-scene clip of the same page drew that scene correctly (all 16 boxes, previous scene cleared).
+  - With the current engine (later frame-film.js changes), the full software render no longer shows the glitch either: no frame under 37.5 dB against GPU. So per-scene drawing avoided it where it occurred, and it cannot be shown separately any more.
+- **Not tested:** the R2 (staging/production) paths: page upload, clip upload/download, the presigned clip URL. Nothing is deployed.

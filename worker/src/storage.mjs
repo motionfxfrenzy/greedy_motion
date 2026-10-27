@@ -27,7 +27,8 @@ async function list(bucket, prefix) {
 
 /** Downloads every object under `prefix` (uploads bucket) into `dir`, refusing any key that would escape it. */
 export async function downloadProject(prefix, dir) {
-  if (!/^jobs\/[a-f0-9-]{36}\/project$/i.test(prefix)) throw new Error("Invalid project prefix.");
+  // A render job's prepared folder, or a film page the scenes are drawn from (backend render/scenes.ts).
+  if (!/^jobs\/[a-f0-9-]{36}\/project$/i.test(prefix) && !/^scenes\/[a-f0-9-]{36}\/pages\/[a-f0-9]{24}$/i.test(prefix)) throw new Error("Invalid project prefix.");
   const objects = await list(cfg.uploads, `${prefix}/`);
   if (!objects.length) throw new Error("The prepared storyboard folder is missing in storage.");
   const root = resolve(dir);
@@ -52,6 +53,13 @@ export async function uploadOutput(file, key) {
   const head = await client.send(new HeadObjectCommand({ Bucket: cfg.outputs, Key: key }));
   if (head.ContentLength !== size) throw new Error("Uploaded video size does not match the rendered file.");
   return size;
+}
+
+/** Downloads one object from the outputs bucket (a drawn scene clip, for the final join). */
+export async function downloadOutput(key, file) {
+  const response = await client.send(new GetObjectCommand({ Bucket: cfg.outputs, Key: key }));
+  await mkdir(dirname(file), { recursive: true });
+  await pipeline(response.Body, createWriteStream(file));
 }
 
 export async function deleteOutputs(keys) {

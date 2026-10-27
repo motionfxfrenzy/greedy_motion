@@ -57,7 +57,9 @@ const recent = createDemand();
 async function ensure() {
   // force: recount instead of reading the cache (which can be an hour old); kicks cover the last minute that a recount may reuse.
   const [stats] = await boss.getQueueStats(QUEUES.video, { force: true });
-  const demand = recent.count((stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0));
+  // Scenes drawn in the background run on the same workers, several to a task (SCENE_CONCURRENCY): one task per three.
+  const [scenes] = await boss.getQueueStats(QUEUES.scene, { force: true }).catch(() => []);
+  const demand = recent.count((stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0) + Math.ceil(((scenes?.queuedCount ?? 0) + (scenes?.activeCount ?? 0)) / 3));
   lastDemand = demand;
   if (demand === 0) return;
   const listed = await client!.send(new ListTasksCommand({ cluster: launch!.cluster, family, desiredStatus: "RUNNING" }));

@@ -23,11 +23,17 @@ type Notice = {
 };
 
 const CHANNEL = "render_jobs";
+// Scene clips drawn in the background (render/scenes.ts, migration 009) share this connection.
+const SCENE_CHANNEL = "scene_clips";
 const REPLICA = randomUUID();
 const PING_EVERY_MS = Number(process.env.RENDER_EVENTS_PING_MS ?? 15_000);
 const PING_WAIT_MS = 5000;
 const FALLBACK_MS = 3000;
 const watchers = new Map<string, Set<Watcher>>();
+export type SceneNotice = { id: string; projectId: string; kind: "scene" | "soundtrack"; index: number; state: string; current: boolean; framesDone: number | null; framesTotal: number; thumbFrame: number | null; reload: boolean };
+const sceneWatchers = new Map<string, Set<(notice: SceneNotice) => void>>();
+/** Pages watching anything: the heartbeat runs only while there is one. */
+const watching = () => watchers.size + sceneWatchers.size;
 /** Server-side listeners for every job change, watched or not (in memory only: they cost no reads). */
 const observers: Array<(notice: { id: string; stage?: RenderStage }) => void> = [];
 const lastSeen = new Map<string, RenderJob>();
@@ -101,6 +107,12 @@ function onNotice(payload: string | undefined) {
   }
 }
 
+function onSceneNotice(payload: string | undefined) {
+  let notice: SceneNotice;
+  try { notice = JSON.parse(payload ?? "") as SceneNotice; } catch { return; }
+  for (const watcher of sceneWatchers.get(notice.projectId) ?? []) watcher(notice);
+}
+
 /** Without working pushes, every watched job is reloaded on one timer for the whole replica. */
 function syncFallback() {
   const needed = !stopped && !listening && watchers.size > 0;
@@ -121,7 +133,7 @@ function setListening(next: boolean) {
  */
 function ping() {
   const current = client;
-  if (!current || pending || watchers.size === 0) return;
+  if (!current || pending || watching() === 0) return;
   const token = `${REPLICA}:${++pings}`;
   const timer = setTimeout(() => {
     if (pending?.token !== token) return;
@@ -163,7 +175,10 @@ async function connect() {
   if (stopped) return;
   // keepAlive stops a NAT or pooler from dropping the connection while it sits idle between renders.
   const next = new pg.Client({ connectionString: config.listenDatabaseUrl, application_name: "render-events", keepAlive: true });
-  next.on("notification", (message) => { if (message.channel === CHANNEL) onNotice(message.payload); });
+  next.on("notification", (message) => {
+    if (message.channel === CHANNEL) onNotice(message.payload);
+    else if (message.channel === SCENE_CHANNEL) onSceneNotice(message.payload);
+  });
   next.on("error", (error) => log("warn", "render_events_connection_error", { message: error.message }));
   next.on("end", () => {
     if (client !== next) return;
@@ -176,6 +191,7 @@ async function connect() {
   try {
     await next.connect();
     await next.query(`listen ${CHANNEL}`);
+    await next.query(`listen ${SCENE_CHANNEL}`);
     client = next;
     // Live only once a ping comes back; with nobody watching, the first watcher sends it.
     ping();
@@ -209,7 +225,7 @@ export const renderEvents = {
    * caller already sent: it is the base that progress ticks are applied to, and it tells a waiting job apart.
    */
   watch(id: string, watcher: Watcher, current: RenderJob) {
-    const first = watchers.size === 0;
+    const first = watching() === 0;
     const set = watchers.get(id) ?? new Set<Watcher>();
     set.add(watcher);
     watchers.set(id, set);
@@ -221,6 +237,20 @@ export const renderEvents = {
       set.delete(watcher);
       if (set.size === 0) { watchers.delete(id); lastSeen.delete(id); }
       syncFallback();
+    };
+  },
+  /** True while pushes are known to arrive; a scene stream reloads on a timer otherwise. */
+  get live() { return listening; },
+  /** Calls `watcher` with every change to the project's scene clips; returns the unsubscribe function. */
+  watchScenes(projectId: string, watcher: (notice: SceneNotice) => void) {
+    const first = watching() === 0;
+    const set = sceneWatchers.get(projectId) ?? new Set();
+    set.add(watcher);
+    sceneWatchers.set(projectId, set);
+    if (first && client) { verifying = true; setListening(false); ping(); }
+    return () => {
+      set.delete(watcher);
+      if (set.size === 0) sceneWatchers.delete(projectId);
     };
   }
 };

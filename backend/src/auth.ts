@@ -25,6 +25,7 @@ const openGets = [
 const mediaGets = [
   /^\/v1\/preview\/(?:projects|plans|brands)\//,
   /^\/v1\/renders\/[^/]+$/,
+  /^\/v1\/projects\/[^/]+\/scenes\/[^/]+\/clip$/,
   /^\/v1\/projects\/[^/]+\/screenshots\/[^/]+$/,
   /^\/v1\/brands\/[^/]+\/logo$/,
   /^\/v1\/brands\/assets\/[^/]+\/preview$/

@@ -118,6 +118,41 @@ export function outputUrl(path: string) {
   return withMediaToken(new URL(path, apiOrigin).toString());
 }
 
+/** One scene drawn ahead of the final render (backend render/scenes.ts), or the film's soundtrack. */
+export type SceneClip = { id: string; kind: "scene" | "soundtrack"; index: number; state: "queued" | "drawing" | "drawn" | "failed"; framesDone: number; framesTotal: number; thumbFrame: number | null; error?: string };
+export type SceneEvent =
+  | { type: "clips"; clips: SceneClip[] }
+  | { type: "tick"; id: string; state: SceneClip["state"]; framesDone: number; framesTotal: number }
+  | { type: "thumb"; id: string; frame: number | null; image: string };
+
+/**
+ * Follows the film's scenes being drawn: the clip list, a tick per progress change and each scene's latest drawn frame,
+ * as server-sent events (read with fetch, which can send the Authorization header). Resolves when the stream ends.
+ */
+export async function watchScenes(projectId: string, onEvent: (event: SceneEvent) => void, signal: AbortSignal) {
+  const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/scenes/events`, { cache: "no-store", signal });
+  if (!response.ok || !response.body) throw new Error(`Could not follow the scenes (${response.status}).`);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffered += value;
+    let end: number;
+    while ((end = buffered.indexOf("\n\n")) >= 0) {
+      const block = buffered.slice(0, end);
+      buffered = buffered.slice(end + 2);
+      const data = block.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
+      if (data) { try { onEvent(JSON.parse(data) as SceneEvent); } catch { /* a malformed event is skipped */ } }
+    }
+  }
+}
+
+/** A drawn scene's clip (video only), for watching what was actually drawn. */
+export function sceneClipUrl(projectId: string, clipId: string) {
+  return outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/scenes/${encodeURIComponent(clipId)}/clip`);
+}
+
 // ---------- Plan ----------
 
 /** What the caller's plan allows (backend/src/entitlements). A failed lookup throws; it is never read as "no plan". */
