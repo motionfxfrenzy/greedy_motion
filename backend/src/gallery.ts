@@ -59,14 +59,14 @@ export async function registerGalleryRoutes(app: FastifyInstance) {
         return reply.send(object.Body);
       } catch (error) {
         const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-        if (status === 404 || (error as { name?: string }).name === "NoSuchKey") return reply.code(404).header("Cache-Control", "no-store").send({ error: { code: "not_found", message: "Unknown preview." } });
+        if (status === 404 || (error as { name?: string }).name === "NoSuchKey") return reply.code(404).header("Cache-Control", "no-store").type("application/json; charset=utf-8").send({ error: { code: "not_found", message: "Unknown preview." } });
         throw error;
       }
     }
 
     const file = join(config.galleryDir, name);
     const size = await stat(file).then((info) => info.size).catch(() => null);
-    if (size === null) return reply.code(404).header("Cache-Control", "no-store").send({ error: { code: "not_found", message: "Unknown preview." } });
+    if (size === null) return reply.code(404).header("Cache-Control", "no-store").type("application/json; charset=utf-8").send({ error: { code: "not_found", message: "Unknown preview." } });
     const match = /^bytes=(\d*)-(\d*)$/.exec(range ?? "");
     if (!match) return reply.header("Content-Length", size).send(createReadStream(file));
     const start = match[1] ? Number(match[1]) : Math.max(0, size - Number(match[2]));
