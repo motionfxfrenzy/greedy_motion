@@ -116,7 +116,9 @@ export const PLAYBOOKS: Record<VideoType, Playbook> = {
     rules: [
       "One message. Specific details beat general claims.",
       "Conversational, spoken language; short sentences; the brand stays secondary until the ending.",
-      "Show, do not tell: where the line states a feeling, the picture shows its cause."
+      "Show, do not tell: where the line states a feeling, the picture shows its cause.",
+      "Every scene illustrates the specific thing its line names (the lighthouse, the boat, the garage door), drawn as a concrete picture: what it is, where it sits, what moves. Never a generic backdrop or a stock metaphor.",
+      "When the person gives a verse, quote, poem or parable, their words are the script; the film's job is one picture per line or phrase, in the look they asked for, and the shots may be short (two seconds or less) when the lines are short."
     ],
     screenshots: "Use a screenshot only where the story reaches the product, usually in the turn or resolution; keep it brief and in service of the person in the story.",
     music: "Emotional arc; 70-95 BPM building to the resolution; room for the voice."
@@ -142,6 +144,16 @@ export const PLAYBOOKS: Record<VideoType, Playbook> = {
   }
 };
 
+/**
+ * The first line decides whether anyone watches the rest, for every kind of film. Short-form pages that grow on a hook
+ * name exactly who it is for and what they get, and keep testing that opening, so the director writes it that way.
+ */
+export const HOOK_RULES = [
+  "The first line names who it is for or what they get, in concrete words ('For anyone who loses track of tasks', 'Find a number in a million items'), never a generic opener ('Welcome', 'Have you ever wondered'). A viewer should know from that line whether it is for them.",
+  "It makes the next beat necessary: a question the film answers, a promise it keeps, or a surprise it explains. Say the specific thing, not the category.",
+  "Ground it in the brief's own audience and facts; never invent a number, a result or a claim to make it punchier."
+];
+
 /** The playbook as the block of instructions the director reads. */
 export function playbookBlock(type: VideoType): string {
   const book = PLAYBOOKS[type];
@@ -155,6 +167,8 @@ export function playbookBlock(type: VideoType): string {
     ...book.shape.map((line) => `- ${line}`),
     "Rules for this kind of film:",
     ...book.rules.map((line) => `- ${line}`),
+    "The opening line:",
+    ...HOOK_RULES.map((line) => `- ${line}`),
     `Screenshots: ${book.screenshots}`,
     `Music: ${book.music}`
   ].join("\n");

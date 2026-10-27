@@ -4,12 +4,14 @@
 import { beatCountRange, beatRoles, formatForDuration, paceWpm, sceneDirection, wordBudget, type ProjectScript, type ProjectScriptLine, type ScriptBrief, type VideoType } from "@videosaas/contracts";
 import { llmJson, type LlmProvider } from "../llm.ts";
 import { PLAYBOOKS, playbookBlock } from "../skills/playbooks.ts";
-import { contextBlocks, screenshotBlock, resolveVideoType, type DirectorContext } from "./director.ts";
+import { contextBlocks, productLine, screenshotBlock, resolveVideoType, type DirectorContext } from "./director.ts";
 
 const SCHEMA = {
-  type: "object", additionalProperties: false, required: ["title", "video_type", "scenes"],
+  type: "object", additionalProperties: false, required: ["title", "video_type", "hook_alternatives", "caption", "scenes"],
   properties: {
     title: { type: "string" },
+    hook_alternatives: { type: "array", items: { type: "string" } },
+    caption: { type: "string" },
     video_type: { type: "string", enum: ["explainer", "tutorial", "demo", "promo", "story", "data"] },
     scenes: {
       type: "array",
@@ -33,6 +35,8 @@ const SYSTEM = [
   "For each scene write: role (from the playbook's shape), voiceover (the exact words spoken; written for the ear: no colons, parentheses, slashes; acronyms as they are said; at most 24 words), on_screen (the one to three words or the number shown large; no sentences), visual (one plain sentence on what the viewer SEES while it is said: the picture must show what the voice says, never decorate it), screenshot_index (the uploaded screenshot shown in this scene, or null).",
   "Narration adds a layer the picture does not. Use the person's own facts; never invent statistics, names, prices or claims. Never use: magic, revolutionary, seamless, game-changing.",
   "Every uploaded screenshot must appear in at least one scene, in the scene whose voiceover is about what that screenshot shows; the visual sentence names the part of the screen the voice refers to.",
+  "hook_alternatives: exactly three other first lines for scene 1, each in a DIFFERENT pattern from the one you used and from each other (a question; a bold claim or transformation; a line that names exactly who it is for; a pattern interrupt). Each is spoken in the same few seconds, grounded in the brief, and makes the next scene necessary. They replace scene 1's voiceover as they are.",
+  "caption: the text to post with the finished video, one or two sentences in the film's own voice that names the product by its full name (never a hard sell on a taught film); no hashtags unless the brief asks.",
   "title: a working title of at most six words. video_type: the playbook you followed."
 ].join("\n");
 
@@ -41,7 +45,7 @@ export function scriptMessage(brief: ScriptBrief, context: DirectorContext): str
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
   return [
     `PROBLEM / BRIEF:\n${brief.text}`,
-    `Product: ${context.brandName}${context.brandDescription ? ` — ${context.brandDescription}` : ""}${brief.audience ? `\nAudience: ${brief.audience}` : ""}`,
+    productLine(brief, context),
     `Length: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}), pace ${brief.pace} (~${paceWpm[brief.pace]} wpm). Scenes: ${range.min}-${range.max}.${voiced ? ` Total voiceover about ${wordBudget(brief.durationSeconds, brief.pace)} words at most.` : " No voiceover: leave voiceover empty and let on_screen carry the story."}`,
     ...contextBlocks(brief, context),
     ...(sceneDirection(brief.look, brief.styleFamily) ? [sceneDirection(brief.look, brief.styleFamily)] : []),
@@ -59,7 +63,7 @@ const modelOf = (): { provider: LlmProvider; model: string } => {
 type RawScene = { role: string; voiceover: string; on_screen: string; visual: string; screenshot_index: number | null };
 const titleCase = (role: string) => role[0]!.toUpperCase() + role.slice(1);
 
-function toScript(raw: { title: string; video_type: VideoType; scenes: RawScene[] }, context: DirectorContext, source: ProjectScript["source"]): ProjectScript {
+function toScript(raw: { title: string; video_type: VideoType; hook_alternatives?: string[]; caption?: string; scenes: RawScene[] }, context: DirectorContext, source: ProjectScript["source"]): ProjectScript {
   const lines: ProjectScriptLine[] = raw.scenes.slice(0, 12).map((scene) => {
     const shot = scene.screenshot_index !== null && scene.screenshot_index >= 0 ? context.screenshots[scene.screenshot_index] : undefined;
     return {
@@ -70,7 +74,9 @@ function toScript(raw: { title: string; video_type: VideoType; scenes: RawScene[
       screenshotId: shot?.id ?? null
     };
   });
-  return { source, lines, confirmed: false, updatedAt: new Date().toISOString(), title: raw.title.trim().slice(0, 80), videoType: raw.video_type };
+  const hooks = (raw.hook_alternatives ?? []).map((hook) => hook.trim().slice(0, 160)).filter(Boolean).slice(0, 3);
+  const caption = (raw.caption ?? "").trim().slice(0, 400);
+  return { source, lines, confirmed: false, updatedAt: new Date().toISOString(), title: raw.title.trim().slice(0, 80), videoType: raw.video_type, ...(hooks.length ? { hooks } : {}), ...(caption ? { caption } : {}) };
 }
 
 /** Writes the first draft. */
@@ -89,7 +95,7 @@ const REVISE_SYSTEM = [
 export async function reviseScript(script: ProjectScript, instruction: string, brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<ScriptDraft> {
   const { provider, model } = modelOf();
   const current = script.lines.map((line, i) => ({ n: i + 1, role: line.role ?? line.label.toLowerCase(), voiceover: line.voiceover ?? "", on_screen: line.onScreen, visual: line.visual ?? "", screenshot_index: line.screenshotId ? context.screenshots.findIndex((shot) => shot.id === line.screenshotId) : null }));
-  const user = [scriptMessage(brief, context), `\nCURRENT SCRIPT (the person's edited version):\n${JSON.stringify({ title: script.title ?? "", scenes: current })}`, `\nTHE PERSON ASKS: ${instruction}`].join("\n");
+  const user = [scriptMessage(brief, context), `\nCURRENT SCRIPT (the person's edited version):\n${JSON.stringify({ title: script.title ?? "", caption: script.caption ?? "", hook_alternatives: script.hooks ?? [], scenes: current })}`, `\nTHE PERSON ASKS: ${instruction}`].join("\n");
   const result = await llmJson({ provider, model, system: `${REVISE_SYSTEM}\n\n${playbookBlock(resolveVideoType(brief, context))}`, user, schema: SCHEMA as unknown as Record<string, unknown>, maxTokens: 6000, timeoutMs: 90_000, ...(signal ? { signal } : {}) });
   return { script: toScript(JSON.parse(result.text), context, "generated"), model, ms: result.ms };
 }

@@ -53,6 +53,8 @@ export type ScriptBrief = {
   productUrl?: string;
   /** Project screenshot ids in the order the user arranged them. */
   screenshotIds?: string[];
+  /** The person's own words for how the film should look and feel ("soft watercolour, dreamy"); art direction on top of the chosen look. */
+  styleNote?: string;
   /** What kind of film this is; decides its structure, whether it ends on a call to action, and how screenshots are used. Inferred when absent (inferVideoType). */
   videoType?: VideoType;
 };
@@ -81,10 +83,12 @@ export function inferVideoType(input: { videoType?: VideoType | null; text?: str
   if (input.group && GROUP_TYPE[input.group]) return GROUP_TYPE[input.group]!;
   const text = (input.text ?? "").toLowerCase();
   const has = (pattern: RegExp) => pattern.test(text);
+  // A scripture reference ("Matthew 5:43-48", "Psalm 23") or lines of verse are a story told in the person's own words, not a lesson to explain.
+  if (/\b(?:[1-3] ?)?(?:genesis|exodus|psalms?|proverbs|isaiah|matthew|mark|luke|john|acts|romans|corinthians|galatians|ephesians|philippians|hebrews|james|revelation|surah|sutra)\b\s*\d/i.test(input.text ?? "")) return "story";
   if (has(/\b(how to|step[- ]by[- ]step|tutorial|walk(?:through| me through)|guide (?:me|you|them)|set ?up)\b/)) return "tutorial";
   if (has(/\b(explain|how (?:does|do|it|this|the)\b.*\bworks?|what is|why (?:does|do|is)|teach|learn|lesson|algorithm|theorem|concept|sort|search)\b/)) return "explainer";
   if (has(/\b(launch|announc|introducing|new feature|release|sign up|try it|pricing|ad\b|promo|campaign)\b/)) return "promo";
-  if (has(/\b(our story|founder|mission|journey|why we|brand story)\b/)) return "story";
+  if (has(/\b(our story|founder|mission|journey|why we|brand story|verse|quote|poem|parable|fable|bedtime|once upon)\b/)) return "story";
   if (has(/\b(chart|statistic|growth|trend|quarter|report|percent|revenue|data)\b/)) return "data";
   return input.hasScreenshots ? "demo" : "explainer";
 }
@@ -239,7 +243,8 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     ...(typeof value.productUrl === "string" && /^https?:\/\/\S+$/i.test(value.productUrl.trim()) && value.productUrl.trim().length <= 300 ? { productUrl: value.productUrl.trim() } : {}),
     ...(clean(value.audience, 160) ? { audience: clean(value.audience, 160) } : {}),
     ...(screenshotIds?.length ? { screenshotIds } : {}),
-    ...(oneOf(videoTypes, value.videoType) ? { videoType: value.videoType } : {})
+    ...(oneOf(videoTypes, value.videoType) ? { videoType: value.videoType } : {}),
+    ...(clean(value.styleNote, 200) ? { styleNote: clean(value.styleNote, 200) } : {})
   };
   return { brief };
 }

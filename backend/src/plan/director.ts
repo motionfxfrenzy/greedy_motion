@@ -34,6 +34,8 @@ export type DirectorContext = {
   brandDescription?: string;
   /** `analysis`: what a vision read of the image found (backend/src/plan/screenshots.ts); absent while the read is pending or failed. */
   screenshots: { id: string; name: string; purpose: string; width?: number; height?: number; analysis?: ScreenshotAnalysis }[];
+  /** False when the person named no product and there is no brand kit: nothing in the film or caption may name one. */
+  productNamed?: boolean;
   /** What kind of film this is (brief.videoType, else inferred); selects the playbook. */
   videoType?: VideoType;
   /** The person's approved script, scene by scene (their own edited words and the picture they asked for), when they wrote one. */
@@ -304,7 +306,7 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
   return [
     `Mode: ${brief.scriptMode === "own" ? "OWN SCRIPT (keep the user's words verbatim)" : "PROBLEM ONLY (write the script)"}`,
-    `Product: ${context.brandName}${context.brandDescription ? ` — ${context.brandDescription}` : ""}${brief.audience ? `\nAudience: ${brief.audience}` : ""}`,
+    productLine(brief, context),
     `Duration: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`,
     `Beats: ${range.min}–${range.max}.${voiced ? ` Voiceover word budget: about ${wordBudget(brief.durationSeconds, brief.pace)} words in total; the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`,
     lookDirection(brief.look),
@@ -325,12 +327,20 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
 }
 
 
+/** The product the film is about, or a plain statement that none was named (so no line, caption or call to action invents one). */
+export function productLine(brief: ScriptBrief, context: DirectorContext): string {
+  const audience = brief.audience ? `\nAudience: ${brief.audience}` : "";
+  if (context.productNamed === false) return `Product: none named. Do not name or invent a product, brand or "try ..." line anywhere in the film or caption.${audience}`;
+  return `Product: ${context.brandName}${context.brandDescription ? ` — ${context.brandDescription}` : ""}${audience}`;
+}
+
 /** The film's type with its playbook, the template it starts from and the theme, so the director builds for this film and not for a generic ad. */
 export function contextBlocks(brief: ScriptBrief, context: DirectorContext): string[] {
   const type = resolveVideoType(brief, context);
   const out = [`\n${playbookBlock(type)}`];
   const template = context.template;
   if (template) out.push(`Starting template: "${template.name}" (${template.group}). ${template.summary} Best for: ${template.bestFor}. Build the film in this template's language: its scene types, rhythm and visual devices. The template's own arc does not override the VIDEO TYPE playbook.`);
+  if (brief.styleNote) out.push(`The person describes the look in their own words: "${brief.styleNote}". Treat it as art direction: let it decide the mood, the colour feel, the texture words in each beat's picture and which of the style's scenes you choose. The chosen look still decides what can actually be drawn, so never promise a medium it cannot render; use its closest equivalent.`);
   const theme = brief.theme ? findTheme(brief.theme) : undefined;
   if (theme) out.push(`Theme: ${theme.name} (${theme.mode} ground). ${theme.description} Palette: background ${theme.tokens.bg}, text ${theme.tokens.fg}, brand ${theme.tokens.brand}, accent ${theme.tokens.accent}. Choose scenes and emphasis that read well on this ground; the brand kit, when one is chosen, replaces these colours.`);
   return out;

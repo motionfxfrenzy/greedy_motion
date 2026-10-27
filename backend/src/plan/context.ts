@@ -25,7 +25,7 @@ export async function directorContextFor(project: VideoProject, brief: ScriptBri
   // The person's edited script: when they write their own, its scenes (visual intent and screenshot assignments) are the plan.
   const approved = brief.scriptMode === "own" && project.script?.lines.length ? project.script.lines : undefined;
   const context: DirectorContext = {
-    brandName: brand?.name ?? brief.productName ?? project.name, videoType, screenshots,
+    brandName: brand?.name ?? brief.productName ?? project.name, productNamed: Boolean(brand?.name || brief.productName), videoType, screenshots,
     ...(template ? { template } : {}),
     ...(brand?.description ? { brandDescription: brand.description } : {}),
     ...(site ? { site: { url: site.url, title: site.title, description: site.description, facts: site.facts, text: site.text } } : {}),

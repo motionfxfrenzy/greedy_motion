@@ -142,7 +142,9 @@ function cleanScript(value: unknown): ProjectScript | undefined {
   });
   const title = typeof candidate.title === "string" ? candidate.title.trim().slice(0, 80) : undefined;
   const videoType = typeof candidate.videoType === "string" && (videoTypes as readonly string[]).includes(candidate.videoType) ? candidate.videoType as VideoType : undefined;
-  return { source: candidate.source, lines, confirmed: candidate.confirmed === true, updatedAt: new Date().toISOString(), ...(title ? { title } : {}), ...(videoType ? { videoType } : {}) };
+  const hooks = Array.isArray(candidate.hooks) ? candidate.hooks.filter((hook): hook is string => typeof hook === "string" && hook.trim().length > 0).map((hook) => hook.trim().slice(0, 160)).slice(0, 4) : [];
+  const caption = typeof candidate.caption === "string" ? candidate.caption.trim().slice(0, 400) : "";
+  return { source: candidate.source, lines, confirmed: candidate.confirmed === true, updatedAt: new Date().toISOString(), ...(title ? { title } : {}), ...(videoType ? { videoType } : {}), ...(hooks.length ? { hooks } : {}), ...(caption ? { caption } : {}) };
 }
 
 type StudioPatch = { values?: unknown; assets?: unknown };

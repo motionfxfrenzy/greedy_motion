@@ -74,6 +74,7 @@ export function ScriptCanvas({ projectId, script, screenshots, durationSeconds, 
               <div className="sc-scene-head"><b>{index + 1}</b><span className={"bs-role " + (line.role ?? "")}>{roleName(line)}</span>
                 <span className="sc-tools"><button type="button" aria-label={`Move scene ${index + 1} up`} disabled={index === 0 || working} onClick={() => move(index, -1)}>↑</button><button type="button" aria-label={`Move scene ${index + 1} down`} disabled={index === draft.lines.length - 1 || working} onClick={() => move(index, 1)}>↓</button><button type="button" aria-label={`Delete scene ${index + 1}`} disabled={draft.lines.length < 2 || working} onClick={() => remove(index)}>✕</button></span></div>
               <label className="sc-field"><span>Voiceover <small>{words(line.voiceover)} words</small></span><textarea rows={2} value={line.voiceover ?? ""} maxLength={240} placeholder="Silent scene" onChange={(event) => edit(index, { voiceover: event.target.value })} /></label>
+              {index === 0 && (draft.hooks?.length ?? 0) > 0 && <div className="sc-hooks" role="group" aria-label="Other ways to open"><span>Other ways to open</span>{draft.hooks!.filter((hook) => hook !== line.voiceover).map((hook) => <button type="button" key={hook} disabled={working} onClick={() => edit(0, { voiceover: hook })}>{hook}</button>)}</div>}
               <div className="sc-row">
                 <label className="sc-field"><span>On screen</span><input value={line.onScreen} maxLength={60} onChange={(event) => edit(index, { onScreen: event.target.value })} /></label>
                 <label className="sc-field wide"><span>What the viewer sees</span><input value={line.visual ?? ""} maxLength={240} placeholder="Describe the picture" onChange={(event) => edit(index, { visual: event.target.value })} /></label>
@@ -96,6 +97,10 @@ export function ScriptCanvas({ projectId, script, screenshots, durationSeconds, 
           <header><b>Length</b><span>{totalWords} of about {budget} spoken words</span></header>
           <div className={"sc-meter" + (totalWords > budget * 1.1 ? " over" : "")}><i style={{ width: `${Math.min(100, (totalWords / Math.max(1, budget)) * 100)}%` }} /></div>
           <p className="sc-hint">{totalWords > budget * 1.1 ? "Longer than the film allows: the voice would run past the end. Trim a line, or ask for it shorter." : `${draft.lines.length} scenes for a ${durationSeconds}-second film.`}</p>
+        </section>
+        <section className="ss-card">
+          <header><b>Post caption</b><span>Ready to paste with the video</span></header>
+          <textarea className="sc-caption" rows={3} maxLength={400} value={draft.caption ?? ""} placeholder="A caption that names your product" aria-label="Post caption" onChange={(event) => change({ ...draft, caption: event.target.value })} />
         </section>
         {screenshots.length > 0 && <section className="ss-card">
           <header><b>What we understood</b><span>{screenshots.length} screenshot{screenshots.length === 1 ? "" : "s"}</span></header>

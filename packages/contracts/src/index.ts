@@ -119,6 +119,10 @@ export type ProjectScript = {
   /** The film's working title and kind, set by the script writer (backend/src/plan/script-draft.ts). */
   title?: string;
   videoType?: import("./beat-plan.ts").VideoType;
+  /** Other first lines (different patterns: question, bold claim, who-it's-for, pattern interrupt) the person can swap in for scene 1. */
+  hooks?: string[];
+  /** The text to post with the finished video: names the product, ready to paste. */
+  caption?: string;
 };
 
 /** What a vision read found in an uploaded screenshot: what it is, what is on it and where, so the director can place it. */

@@ -124,6 +124,7 @@ export function ScriptStyleStep({ writeScript, writing, brief, update, site, rea
             <div className="ss-field"><b>Brand kit</b><BrandKitField value={brief.brandId} found={siteInUse && !site.savedBrand ? site.brand : null} suggested={siteInUse ? site.savedBrand : null} source={siteInUse ? readHost : null} fromSite={Boolean(site.autoKit && site.savedBrand && brief.brandId === site.savedBrand.id)} onChange={(kit) => update({ brandId: kit?.id })} /><small className="ss-note">Saved kit, website import (paste a URL), or colours and a logo.</small></div>
             <div className={brief.brandId ? "ss-field muted" : "ss-field"}><b>Theme</b><ThemePicker value={brief.theme ?? "neutral"} disabled={Boolean(brief.brandId)} onChange={(theme) => update({ theme })} /></div>
             <StylePicker value={brief.look ?? DEFAULT_LOOK} family={brief.styleFamily} onChange={(look, styleFamily) => update({ look, styleFamily })} />
+            <label className="ss-field"><b>Describe the look in your own words <em>optional</em></b><input value={brief.styleNote ?? ""} maxLength={200} onChange={(event) => update({ styleNote: event.target.value || undefined })} placeholder="soft watercolour, dreamy · bold and punchy · calm and premium" aria-label="Describe the look in your own words" /></label>
           </div>
         </section>
 
