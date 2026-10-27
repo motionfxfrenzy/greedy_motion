@@ -83,7 +83,7 @@ export function takeOptions(plan: BeatPlan, audio: PlanAudio | null | undefined)
 
 type EngineKind = "ui" | "kinetic" | "title";
 
-const ACT: Record<Beat["role"], number> = { hook: 1, problem: 1, reveal: 2, feature: 3, proof: 3, success: 3, cta: 4 };
+const ACT: Record<Beat["role"], number> = { hook: 1, problem: 1, reveal: 2, feature: 3, proof: 3, success: 3, cta: 4, question: 1, setup: 1, step: 2, turn: 2, insight: 3, resolution: 3, recap: 4 };
 
 const wordList = (text: string | null | undefined) => (text ?? "").trim().split(/\s+/).filter(Boolean);
 const frame = (seconds: number) => Math.round(seconds * TIMING_RULES.fps) / TIMING_RULES.fps;

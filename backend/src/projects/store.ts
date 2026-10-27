@@ -8,6 +8,9 @@ import {
   type ProjectReviewComment,
   type ProjectScript,
   type ProjectScreenshot,
+  type ScreenshotAnalysis,
+  type VideoType,
+  videoTypes,
   type ProjectState,
   type ProjectStudioDraft,
   type VideoProject
@@ -132,9 +135,14 @@ function cleanScript(value: unknown): ProjectScript | undefined {
     const onScreen = typeof item.onScreen === "string" ? item.onScreen.trim().slice(0, 180) : "";
     const voiceover = typeof item.voiceover === "string" ? item.voiceover.trim().slice(0, 240) : undefined;
     if (!label || !onScreen) throw new ProjectInvalid("Each script scene needs a label and on-screen text.");
-    return { label, onScreen, ...(voiceover ? { voiceover } : {}) };
+    const role = typeof item.role === "string" && /^[a-z]{2,16}$/.test(item.role) ? item.role : undefined;
+    const visual = typeof item.visual === "string" ? item.visual.trim().slice(0, 240) : undefined;
+    const screenshotId = typeof item.screenshotId === "string" && idPattern.test(item.screenshotId) ? item.screenshotId : item.screenshotId === null ? null : undefined;
+    return { label, onScreen, ...(voiceover ? { voiceover } : {}), ...(role ? { role } : {}), ...(visual ? { visual } : {}), ...(screenshotId !== undefined ? { screenshotId } : {}) };
   });
-  return { source: candidate.source, lines, confirmed: candidate.confirmed === true, updatedAt: new Date().toISOString() };
+  const title = typeof candidate.title === "string" ? candidate.title.trim().slice(0, 80) : undefined;
+  const videoType = typeof candidate.videoType === "string" && (videoTypes as readonly string[]).includes(candidate.videoType) ? candidate.videoType as VideoType : undefined;
+  return { source: candidate.source, lines, confirmed: candidate.confirmed === true, updatedAt: new Date().toISOString(), ...(title ? { title } : {}), ...(videoType ? { videoType } : {}) };
 }
 
 type StudioPatch = { values?: unknown; assets?: unknown };
@@ -248,6 +256,15 @@ export async function addScreenshot(projectId: string, name: string, mime: strin
     if (!project) return null;
     await saveMedia(join(screenshotsDir(projectId), screenshot.id + extension), bytes);
     return save({ ...project, screenshots: [...project.screenshots, screenshot], state: project.state === "Ready to create" ? "Finish your brief" : project.state, updatedAt: new Date().toISOString() });
+  });
+}
+
+/** Stores the vision read of a screenshot (backend/src/plan/screenshots.ts); a no-op if the screenshot was removed meanwhile. */
+export async function setScreenshotAnalysis(projectId: string, screenshotId: string, analysis: ScreenshotAnalysis) {
+  return serializeProject(projectId, async () => {
+    const project = await getProject(projectId);
+    if (!project?.screenshots.some((item) => item.id === screenshotId)) return project;
+    return save({ ...project, screenshots: project.screenshots.map((item) => (item.id === screenshotId ? { ...item, analysis } : item)) });
   });
 }
 

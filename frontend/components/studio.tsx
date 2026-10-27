@@ -3,15 +3,16 @@
 import { useRouter } from "next/navigation";
 import { optimisticUpdate } from "../lib/optimistic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aspectToFormat, bundledFonts, getLook, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, templates, themes, type BeatPlan, type BrandKit, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { aspectToFormat, bundledFonts, getLook, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, templates, themes, videoTypeLabels, type ProjectScript, type VideoType, type BeatPlan, type BrandKit, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard";
+import { ScriptCanvas } from "./script-canvas";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { cancelPlanJob, getGalleryTemplate, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
+import { cancelPlanJob, draftScriptProject, reviseScriptProject, getGalleryTemplate, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot } from "../lib/api";
 import { proMenuEntry, useEntitlements } from "../lib/entitlements";
 
 type View = "projects" | "create" | "studio";
@@ -95,6 +96,9 @@ export function Studio() {
   const [brief, setBrief] = useState<ScriptBrief>(defaultBrief);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
   const [starting, setStarting] = useState(false);
+  /** The written script is open for editing (before the storyboard); "write" and "revise" are model calls in flight. */
+  const [canvas, setCanvas] = useState(false);
+  const [scriptBusy, setScriptBusy] = useState<null | "write" | "revise">(null);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [site, setSite] = useState<SiteState>({ reading: false, shots: 0, warnings: [] });
@@ -142,6 +146,8 @@ export function Studio() {
   const generating = starting || running;
   const watching = useRef<string | null>(null);
   useEffect(() => { if (step !== SCRIPT_STYLE) setConfirmRegenerate(false); }, [step]);
+  useEffect(() => { if (step !== SCRIPT_STYLE) setCanvas(false); }, [step]);
+  useEffect(() => { setCanvas(false); }, [project?.id]);
   // Elapsed time is counted from the server's start time, so it is right after leaving and coming back.
   useEffect(() => {
     if (!generating) return;
@@ -372,6 +378,59 @@ export function Studio() {
       setStarting(false);
     }
   };
+  /** Writes the script first and opens it as a document; the storyboard is built from it once the person is happy. */
+  const writeScript = async () => {
+    const checked = parseScriptBrief(brief);
+    if ("error" in checked) { setError(checked.error); return; }
+    setScriptBusy("write");
+    setError(null);
+    try {
+      const active = await ensureProject();
+      const nextRequest = requestFromBrief(active.request, brief);
+      await updateProject(active.id, { request: nextRequest });
+      setRequest(nextRequest);
+      replaceProject(await draftScriptProject(active.id, { ...checked.brief, screenshotIds: active.screenshots.map((shot) => shot.id) }));
+      setCanvas(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not write the script.");
+    } finally {
+      setScriptBusy(null);
+    }
+  };
+  /** Saves the person's edits to the script. The editor keeps its own copy while they type, so the project is not replaced. */
+  const saveScript = async (script: ProjectScript) => { if (project) await updateProject(project.id, { script }); };
+  const reviseScript = async (instruction: string, videoType?: VideoType) => {
+    const checked = parseScriptBrief(brief);
+    if (!project || "error" in checked) return;
+    setScriptBusy("revise");
+    setError(null);
+    try {
+      replaceProject(await reviseScriptProject(project.id, instruction, { ...checked.brief, ...(videoType ? { videoType } : {}), screenshotIds: project.screenshots.map((shot) => shot.id) }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not change the script.");
+    } finally {
+      setScriptBusy(null);
+    }
+  };
+  /** The storyboard from the approved script: its voiceover is the person's own script, kept word for word. */
+  const planFromScript = async (script: ProjectScript) => {
+    if (!project) return;
+    const text = script.lines.map((line) => line.voiceover?.trim()).filter(Boolean).join("\n") || script.lines.map((line) => line.onScreen.trim()).filter(Boolean).join("\n");
+    const checked = parseScriptBrief({ ...brief, scriptMode: "own", text });
+    if ("error" in checked) { setError(checked.error); return; }
+    setStarting(true);
+    setError(null);
+    try {
+      await updateProject(project.id, { script: { ...script, confirmed: true } });
+      const result = await planProject(project.id, { ...checked.brief, ...(script.videoType ? { videoType: script.videoType } : {}), screenshotIds: project.screenshots.map((shot) => shot.id) });
+      watching.current = result.project.planning?.startedAt ?? null;
+      replaceProject(result.project);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not build the storyboard.");
+    } finally {
+      setStarting(false);
+    }
+  };
   /** Stops the director on the server; the brief stays as it is. */
   const cancelPlan = async () => {
     if (!project) return;
@@ -499,7 +558,8 @@ export function Studio() {
       screenshotUrl={projectScreenshotUrl}
     /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} editorFor={project?.beatPlan ? project.id : undefined} />
       {error && step !== SCRIPT_STYLE && <p className="workspace-error">{error}</p>}
-      {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating} elapsed={elapsed} error={error} generate={() => void generatePlan()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
+      {step === SCRIPT_STYLE && canvas && project?.script && <ScriptCanvas projectId={project.id} script={project.script} screenshots={project.screenshots} durationSeconds={brief.durationSeconds} pace={brief.pace} busy={generating ? "plan" : scriptBusy === "revise" ? "revise" : null} error={error} save={saveScript} revise={(instruction) => reviseScript(instruction)} setType={(type) => reviseScript(`Rewrite this as a ${videoTypeLabels[type]} film, following that kind of film's structure and ending.`, type)} back={() => setCanvas(false)} generate={(script) => void planFromScript(script)} />}
+      {step === SCRIPT_STYLE && !(canvas && project?.script) && <ScriptStyleStep writeScript={() => void writeScript()} writing={scriptBusy === "write"} brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating} elapsed={elapsed} error={error} generate={() => void generatePlan()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
       {step === STORYBOARD && project?.beatPlan && <BeatStoryboardStep motionBlur={motionBlur} setMotionBlur={setMotionBlur} project={project as VideoProject & { beatPlan: BeatPlan }} look={lookFor(brief, brands)} warnings={planWarnings} busy={busy} onSaved={replaceProject} back={() => setStep(SCRIPT_STYLE)} submit={() => { void submit(); }} regenerate={() => { setConfirmRegenerate(true); setStep(SCRIPT_STYLE); }} />}
       {step === STORYBOARD && !project?.beatPlan && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Generate the script and storyboard on Script &amp; style first.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to Script &amp; style</button></div>}
       {step === RENDER && project && <RenderStep look={lookFor(brief, brands)} project={project} job={job} error={error} busy={busy} retry={async () => { await submit(); }} back={() => setStep(STORYBOARD)} />}

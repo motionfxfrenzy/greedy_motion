@@ -11,7 +11,7 @@ import { MaterialGeneration } from "./material-generation";
 export type FrameLook = { bg: string; fg: string; muted: string; brand: string; font: string; /** The kit's accent colour (emphasis marks); falls back to the brand colour. */ accent?: string };
 
 type TextField = "keyword" | "on_screen" | "line";
-const roleLabel: Record<Beat["role"], string> = { hook: "Hook", problem: "Problem", reveal: "Reveal", feature: "Feature", proof: "Proof", success: "Success", cta: "Call to action" };
+const roleLabel: Record<Beat["role"], string> = { hook: "Hook", problem: "Problem", reveal: "Reveal", feature: "Feature", proof: "Proof", success: "Success", cta: "Call to action", question: "Question", step: "Step", insight: "Insight", recap: "Recap", setup: "Setup", turn: "Turn", resolution: "Resolution" };
 const kindLabel: Record<Beat["kind"], string> = { ui: "Product screen", kinetic: "Kinetic type", "3d": "3D shot", footage: "Footage", title: "Title card" };
 const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 /**

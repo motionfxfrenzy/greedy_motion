@@ -103,6 +103,12 @@ export type ProjectScriptLine = {
   label: string;
   onScreen: string;
   voiceover?: string;
+  /** The beat role this scene plays (question, step, recap, hook ...). Set by the script writer. */
+  role?: string;
+  /** In plain words, what the picture shows while this is said: the director's intent for the scene. */
+  visual?: string;
+  /** The uploaded screenshot shown in this scene, or null/absent for none. */
+  screenshotId?: string | null;
 };
 
 export type ProjectScript = {
@@ -110,6 +116,21 @@ export type ProjectScript = {
   lines: ProjectScriptLine[];
   confirmed: boolean;
   updatedAt: string;
+  /** The film's working title and kind, set by the script writer (backend/src/plan/script-draft.ts). */
+  title?: string;
+  videoType?: import("./beat-plan.ts").VideoType;
+};
+
+/** What a vision read found in an uploaded screenshot: what it is, what is on it and where, so the director can place it. */
+export type ScreenshotAnalysis = {
+  title: string;
+  summary: string;
+  /** dashboard, table, chart, form, settings, editor, landing, mobile, chat, code, document or other. */
+  kind: string;
+  elements: string[];
+  /** What a film can honestly use this screen to show. */
+  bestFor: string;
+  regions: { label: string; where: string }[];
 };
 
 export type ProjectScreenshot = {
@@ -119,6 +140,8 @@ export type ProjectScreenshot = {
   width: number;
   height: number;
   createdAt: string;
+  /** Set by the background vision read after upload; absent while pending, or if it failed. */
+  analysis?: ScreenshotAnalysis;
 };
 
 export type ProjectReviewComment = {

@@ -53,7 +53,41 @@ export type ScriptBrief = {
   productUrl?: string;
   /** Project screenshot ids in the order the user arranged them. */
   screenshotIds?: string[];
+  /** What kind of film this is; decides its structure, whether it ends on a call to action, and how screenshots are used. Inferred when absent (inferVideoType). */
+  videoType?: VideoType;
 };
+
+/** The kinds of film the director knows how to structure (backend/src/skills/playbooks.ts holds each one's playbook). */
+export const videoTypes = ["explainer", "tutorial", "demo", "promo", "story", "data"] as const;
+export type VideoType = (typeof videoTypes)[number];
+export const videoTypeLabels: Record<VideoType, string> = { explainer: "Explainer", tutorial: "Tutorial", demo: "Product demo", promo: "Promo / launch", story: "Brand story", data: "Data story" };
+
+/** Template groups (gallery.ts `group`) that already say what kind of film they are. */
+const GROUP_TYPE: Record<string, VideoType> = {
+  Math: "explainer", Tech: "explainer", Whiteboard: "explainer", Blackboard: "explainer", Explainer: "explainer",
+  "Data & maps": "data", Proof: "data",
+  Screencast: "demo", Feature: "demo",
+  Launch: "promo", Product: "promo", Release: "promo", Showreel: "promo",
+  Story: "story", Storybook: "story"
+};
+
+/**
+ * The film's type: what the person chose, else what their template group says, else what they wrote. A person who writes an
+ * educational brief gets an educational film even when a sales-shaped template was the starting point: the words win over a template's group
+ * only when the template says nothing (a look group such as "3D" or "Paper" does not).
+ */
+export function inferVideoType(input: { videoType?: VideoType | null; text?: string; group?: string | null; hasScreenshots?: boolean }): VideoType {
+  if (input.videoType && (videoTypes as readonly string[]).includes(input.videoType)) return input.videoType;
+  if (input.group && GROUP_TYPE[input.group]) return GROUP_TYPE[input.group]!;
+  const text = (input.text ?? "").toLowerCase();
+  const has = (pattern: RegExp) => pattern.test(text);
+  if (has(/\b(how to|step[- ]by[- ]step|tutorial|walk(?:through| me through)|guide (?:me|you|them)|set ?up)\b/)) return "tutorial";
+  if (has(/\b(explain|how (?:does|do|it|this|the)\b.*\bworks?|what is|why (?:does|do|is)|teach|learn|lesson|algorithm|theorem|concept|sort|search)\b/)) return "explainer";
+  if (has(/\b(launch|announc|introducing|new feature|release|sign up|try it|pricing|ad\b|promo|campaign)\b/)) return "promo";
+  if (has(/\b(our story|founder|mission|journey|why we|brand story)\b/)) return "story";
+  if (has(/\b(chart|statistic|growth|trend|quarter|report|percent|revenue|data)\b/)) return "data";
+  return input.hasScreenshots ? "demo" : "explainer";
+}
 
 /** Words per minute for the voiceover at each pace. */
 export const paceWpm: Record<Pace, number> = { calm: 130, balanced: 145, fast: 160 };
@@ -81,7 +115,8 @@ export function hookWordLimit(pace: Pace): number {
   return Math.floor(2.7 * (paceWpm[pace] / 60));
 }
 
-export const beatRoles = ["hook", "problem", "reveal", "feature", "proof", "success", "cta"] as const;
+/** Sales roles (hook ... cta) and the roles the other film types use: educational (question, step, insight, recap) and story (setup, turn, resolution). */
+export const beatRoles = ["hook", "problem", "reveal", "feature", "proof", "success", "cta", "question", "step", "insight", "recap", "setup", "turn", "resolution"] as const;
 export const beatKinds = ["ui", "kinetic", "3d", "footage", "title"] as const;
 export const beatProducers = ["hyperframes", "threejs", "nanobanana+veo", "veo-footage"] as const;
 export const uiActions = ["click", "type", "drag", "toggle", "count", "send", "scroll", "select"] as const;
@@ -203,7 +238,8 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     ...(clean(value.productName, 60) ? { productName: clean(value.productName, 60) } : {}),
     ...(typeof value.productUrl === "string" && /^https?:\/\/\S+$/i.test(value.productUrl.trim()) && value.productUrl.trim().length <= 300 ? { productUrl: value.productUrl.trim() } : {}),
     ...(clean(value.audience, 160) ? { audience: clean(value.audience, 160) } : {}),
-    ...(screenshotIds?.length ? { screenshotIds } : {})
+    ...(screenshotIds?.length ? { screenshotIds } : {}),
+    ...(oneOf(videoTypes, value.videoType) ? { videoType: value.videoType } : {})
   };
   return { brief };
 }

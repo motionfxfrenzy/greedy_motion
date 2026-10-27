@@ -3,15 +3,17 @@ import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { BEAT_LIMITS, getStyleFamily, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, findGalleryTemplate, getStyleFamily, inferVideoType, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
-import { getProject, ProjectInvalid, setProjectPlanning, updateProjectPlan } from "../projects/store.ts";
+import { getProject, ProjectInvalid, setProjectPlanning, updateProject, updateProjectPlan } from "../projects/store.ts";
 import { config } from "../config.ts";
 import { readMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
 import { director } from "./director.ts";
+import { directorContextFor } from "./context.ts";
+import { draftScript, reviseScript } from "./script-draft.ts";
 import { rewriteBeat } from "./rewrite-beat.ts";
 import { SFX } from "./sound.ts";
 import { registerSiteRoutes } from "../site/routes.ts";
@@ -145,30 +147,21 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const parsed = parseScriptBrief(request.body);
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
     const brief = parsed.brief;
-    const screenshots = project.screenshots
-      .filter((shot) => !brief.screenshotIds || brief.screenshotIds.includes(shot.id))
-      .sort((a, b) => (brief.screenshotIds ? brief.screenshotIds.indexOf(a.id) - brief.screenshotIds.indexOf(b.id) : 0))
-      .map((shot) => ({ id: shot.id, name: shot.name, purpose: shot.purpose }));
-    const brandId = brief.brandId ?? project.request.brandId;
-    const brand = brandId ? await getBrand(brandId) : null;
-    const brandName = brand?.name ?? brief.productName ?? project.name;
-    // The site read for this project, when the brief names that product URL (POST /v1/projects/:id/site).
-    const host = (value: string) => { try { return new URL(/^https?:/i.test(value) ? value : `https://${value}`).hostname.replace(/^www\./, ""); } catch { return ""; } };
-    const site = brief.productUrl && project.site && host(project.site.url) === host(brief.productUrl) ? project.site : undefined;
+    const { context, videoType, brandId } = await directorContextFor(project, brief);
     const started = await setProjectPlanning(project.id, { status: "running", startedAt: new Date().toISOString() });
     if (!started) return reply.code(404).send(notFound);
     const controller = new AbortController();
     jobs.set(project.id, controller);
     void (async () => {
       try {
-        const result = await director.plan(brief, { brandName, ...(brand?.description ? { brandDescription: brand.description } : {}), screenshots, ...(site ? { site: { url: site.url, title: site.title, description: site.description, facts: site.facts, text: site.text } } : {}) }, controller.signal);
+        const result = await director.plan({ ...brief, videoType }, context, controller.signal);
         if (controller.signal.aborted) return;
         const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
         const music = brief.audio.mode === "music" || brief.audio.mode === "both";
         await updateProjectPlan(project.id, (current) => ({
-          brief,
+          brief: { ...brief, videoType },
           beatPlan: result.plan,
-          script: scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"),
+          script: { ...scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"), ...(current.script?.title ? { title: current.script.title } : {}), videoType },
           state: "Draft storyboard",
           // Keep the existing render request in step with the brief (format and audio) for the current pipeline.
           request: { ...current.request, format: aspectToFormat(brief.aspect), audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" }, ...(brandId ? { brandId } : {}) }
@@ -184,6 +177,48 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       }
     })();
     return reply.code(202).send({ project: started });
+  });
+
+  /**
+   * The script first: a short call (seconds, not a minute) that writes the film's script scene by scene, so the person can read it,
+   * correct it like a document and only then ask for the storyboard (POST /plan with scriptMode "own", built from this script).
+   */
+  app.post<{ Params: { id: string } }>("/v1/projects/:id/script-draft", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    const parsed = parseScriptBrief(request.body);
+    if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
+    try {
+      // The words come from the problem text here; a pasted script is already a script.
+      const brief = { ...parsed.brief, scriptMode: "problem" as const };
+      const { context } = await directorContextFor(project, brief);
+      const draft = await draftScript(brief, context, AbortSignal.timeout(100_000));
+      const updated = await updateProject(project.id, { script: draft.script });
+      return reply.code(201).send(updated);
+    } catch (error) {
+      app.log.warn({ err: error }, "script draft failed");
+      return reply.code(502).send({ error: { code: "script_failed", message: error instanceof Error && !/\bkey\b|\bapi\b/i.test(error.message) ? error.message : "The script could not be written. Try again." } });
+    }
+  });
+
+  /** Applies an instruction ("make it shorter", "add a scene about pricing") to the script as the person has edited it. */
+  app.post<{ Params: { id: string }; Body: { instruction?: unknown; brief?: unknown } }>("/v1/projects/:id/script-draft/revise", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (!project.script) return reply.code(409).send({ error: { code: "no_script", message: "Write the script first." } });
+    const instruction = typeof request.body?.instruction === "string" ? request.body.instruction.trim().slice(0, 500) : "";
+    if (instruction.length < 3) return reply.code(400).send({ error: { code: "invalid_instruction", message: "Say what to change." } });
+    const parsed = parseScriptBrief(request.body?.brief);
+    if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
+    try {
+      const brief = { ...parsed.brief, scriptMode: "problem" as const };
+      const { context } = await directorContextFor(project, brief);
+      const draft = await reviseScript(project.script, instruction, brief, context, AbortSignal.timeout(100_000));
+      return reply.send(await updateProject(project.id, { script: draft.script }));
+    } catch (error) {
+      app.log.warn({ err: error }, "script revision failed");
+      return reply.code(502).send({ error: { code: "script_failed", message: "The change could not be made. Try again." } });
+    }
   });
 
   /** Stops the director for this project; the model call is cancelled and nothing is applied. */

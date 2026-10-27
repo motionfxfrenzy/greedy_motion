@@ -19,6 +19,7 @@ import { PreviewUnavailable, previewBrandFont, previewBrandLogo, previewFont, pr
 import { databaseReady, migrate, pool } from "./db/database.ts";
 import { boss, startQueues } from "./jobs/queues.ts";
 import { startWorkerSweep } from "./jobs/worker-launcher.ts";
+import { describeScreenshot } from "./plan/screenshots.ts";
 import { AssetRejected, readStaged, stageFont, stageLogo } from "./brand/assets.ts";
 import { extractBrand } from "./brand/extract.ts";
 import { registerPlanRoutes } from "./plan/routes.ts";
@@ -350,6 +351,8 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/screenshots", async (requ
     const allowedPurposes = ["Dashboard", "Setup", "Report", "Mobile"] as const;
     const mime = typeof request.headers["x-file-type"] === "string" ? request.headers["x-file-type"] : "";
     const project = await addScreenshot(request.params.id, name, mime, body, allowedPurposes.includes(purpose as typeof allowedPurposes[number]) ? purpose as typeof allowedPurposes[number] : "Dashboard");
+    // Understand what the screenshot shows in the background; planning waits for it if it is still running (plan/screenshots.ts).
+    if (project) { const added = project.screenshots[project.screenshots.length - 1]; if (added) void describeScreenshot(project.id, added.id).catch(() => undefined); }
     return project ? reply.code(201).send(project) : reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
   } catch (error) {
     return projectError(reply, error);

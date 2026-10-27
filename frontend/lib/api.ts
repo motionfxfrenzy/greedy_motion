@@ -287,6 +287,20 @@ export async function planProject(projectId: string, brief: ScriptBrief) {
   return parse<{ project: VideoProject }>(response, "Could not write the script.");
 }
 
+/** Writes the script first (seconds, not a minute): scene by scene, saved on the project for the person to read and edit. */
+export async function draftScriptProject(projectId: string, brief: ScriptBrief) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(brief) }).catch(() => {
+    throw new Error("The backend is not reachable. Start it with npm run dev:backend.");
+  });
+  return parse<VideoProject>(response, "Could not write the script.");
+}
+
+/** Applies an instruction ("make it shorter") to the script as the person has edited it. */
+export async function reviseScriptProject(projectId: string, instruction: string, brief: ScriptBrief) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script-draft/revise", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction, brief }) });
+  return parse<VideoProject>(response, "Could not change the script.");
+}
+
 /** Stops the script director; nothing is applied. */
 export async function cancelPlanJob(projectId: string) {
   const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan/job", { method: "DELETE" });

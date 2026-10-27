@@ -47,7 +47,10 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
 /** `savedBrand`: a kit already saved for the site; `autoKit`: it was selected automatically by the read. */
 export type SiteState = { reading: boolean; site?: SiteCapture | null; brand?: BrandExtraction | null; savedBrand?: BrandKit | null; autoKit?: boolean; shots: number; warnings: string[]; error?: string | null };
 
-export function ScriptStyleStep({ brief, update, site, readSite, screenshots, generating, elapsed, error, generate, cancel, back, hasPlan, confirmRegenerate, setConfirmRegenerate, continueToStoryboard }: {
+export function ScriptStyleStep({ writeScript, writing, brief, update, site, readSite, screenshots, generating, elapsed, error, generate, cancel, back, hasPlan, confirmRegenerate, setConfirmRegenerate, continueToStoryboard }: {
+  /** Writes the script first and opens it as an editable document; "generate" skips straight to the storyboard. */
+  writeScript: () => void;
+  writing: boolean;
   brief: ScriptBrief;
   update: (patch: Partial<ScriptBrief>) => void;
   /** Product site read: state, and the action that reads `url`. */
@@ -83,7 +86,7 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
   const siteInUse = Boolean(readHost && brief.productUrl && host(brief.productUrl) === readHost);
 
   return <div className="flow-page script-style">
-    <div className="flow-title"><h1>Script &amp; style</h1><p>Describe the problem or paste your script, then choose how the film should look, move, and sound. Generating writes the script and a storyboard you can edit.</p></div>
+    <div className="flow-title"><h1>Script &amp; style</h1><p>Describe the problem or paste your script, then choose how the film should look, move, and sound. We write the script first so you can correct it, then build the storyboard from it.</p></div>
     <div className="ss-layout">
       <div className="ss-main">
         <section className="ss-card">
@@ -151,7 +154,10 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
         <button className="secondary-button" onClick={back}>Back</button>
         {generating ? <button className="secondary-button" onClick={cancel}>Cancel</button> : null}
         {generating ? <button className="primary-button" disabled>Writing…</button>
-          : !hasPlan ? <button className="primary-button" disabled={Boolean(invalid)} onClick={generate}>Generate storyboard</button>
+          : !hasPlan ? <>
+            <button className="secondary-button" disabled={Boolean(invalid) || writing} onClick={generate}>Skip to storyboard</button>
+            <button className="primary-button" disabled={Boolean(invalid) || writing} onClick={writeScript}>{writing ? "Writing your script…" : "Write script"}</button>
+          </>
           : confirmRegenerate ? <>
             <button className="secondary-button" onClick={() => setConfirmRegenerate(false)}>Keep my storyboard</button>
             <button className="primary-button" disabled={Boolean(invalid)} onClick={() => { setConfirmRegenerate(false); generate(); }}>Replace it</button>

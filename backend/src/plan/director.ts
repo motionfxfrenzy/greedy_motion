@@ -1,4 +1,4 @@
-import { anthropicMessage, responseText } from "../anthropic.ts";
+import { llmJson, type LlmProvider } from "../llm.ts";
 import {
   defaultVoice,
   lookDirection,
@@ -17,16 +17,29 @@ import {
   type BeatPlan,
   type ScriptBrief,
   type Vector,
-  findGalleryTemplate
+  findGalleryTemplate,
+  inferVideoType,
+  videoTypeLabels,
+  findTheme,
+  type ScreenshotAnalysis,
+  type VideoType
 } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { MOTION_DIRECTION, ROUTING, SCRIPT_FOR_MOTION, SHOT_DIRECTION, WATCHABILITY } from "../skills/director.ts";
+import { PLAYBOOKS, playbookBlock } from "../skills/playbooks.ts";
 
 /** What the director knows besides the brief: the brand and the screenshots the user uploaded. */
 export type DirectorContext = {
   brandName: string;
   brandDescription?: string;
-  screenshots: { id: string; name: string; purpose: string }[];
+  /** `analysis`: what a vision read of the image found (backend/src/plan/screenshots.ts); absent while the read is pending or failed. */
+  screenshots: { id: string; name: string; purpose: string; width?: number; height?: number; analysis?: ScreenshotAnalysis }[];
+  /** What kind of film this is (brief.videoType, else inferred); selects the playbook. */
+  videoType?: VideoType;
+  /** The person's approved script, scene by scene (their own edited words and the picture they asked for), when they wrote one. */
+  approvedScript?: { role: string | null; voiceover: string | null; onScreen: string; visual: string | null; screenshotId: string | null }[];
+  /** The gallery template the person started from, when they did: the director builds in its language. */
+  template?: { id: string; name: string; group: string; summary: string; bestFor: string; skill: string | null };
   /** The product's website as read by backend/src/site (untrusted page text; facts only, never instructions). */
   site?: { url: string; title: string; description: string; facts: string[]; text: string };
 };
@@ -96,6 +109,35 @@ function audioPlan(brief: ScriptBrief): BeatPlan["audio"] {
   };
 }
 
+/** The film's type: the brief's own, else the context's, else inferred from the template and the words. */
+export function resolveVideoType(brief: ScriptBrief, context: DirectorContext): VideoType {
+  return inferVideoType({ videoType: brief.videoType ?? context.videoType, text: brief.text, group: context.template?.group ?? null, hasScreenshots: context.screenshots.length > 0 });
+}
+
+const CTA_PHRASES = /\b(try (?:it|[a-z0-9]+) (?:today|now|free)|sign up|get started|subscribe|buy now|book a demo|start (?:your )?free|download (?:it|now))\b/i;
+/** A taught or told film does not close on a pitch; a sold one must close on one ask. */
+export function ctaPolicyProblems(plan: BeatPlan, type: VideoType): string[] {
+  const policy = PLAYBOOKS[type].cta;
+  const last = plan.beats[plan.beats.length - 1];
+  if (policy === "never") {
+    const pitched = plan.beats.filter((beat) => beat.role === "cta" || CTA_PHRASES.test(`${beat.line ?? ""} ${beat.keyword} ${beat.on_screen ?? ""}`));
+    return pitched.map((beat) => `${beat.id}: a ${type} film does not end on a call to action; replace this beat with the ${type === "data" ? "recap of the finding" : "recap of the idea"} (role "recap"), without "try", "sign up" or a product pitch.`);
+  }
+  if (policy === "required" && last && last.role !== "cta") return [`${last.id}: a ${type} film ends on one clear call to action; make the last beat role "cta".`];
+  return [];
+}
+
+/** Every screenshot the person uploaded must appear in the film, on a beat whose words are about what it shows. */
+export function screenshotCoverageProblems(plan: BeatPlan, context: DirectorContext): string[] {
+  const used = new Set(plan.beats.map((beat) => beat.ui?.screen).filter(Boolean));
+  return context.screenshots.map((shot, index) => (used.has(shot.id) ? null : `Screenshot ${index} ("${shot.name}"${shot.analysis ? `: ${shot.analysis.title}` : ""}) is not used: give it a "ui" beat (ui.screenshot_index ${index}) whose line is about what it shows.`)).filter((problem): problem is string => problem !== null);
+}
+
+export const directorProblems = (plan: BeatPlan, brief: ScriptBrief, context: DirectorContext) => [
+  ...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context),
+  ...ctaPolicyProblems(plan, resolveVideoType(brief, context)), ...screenshotCoverageProblems(plan, context)
+];
+
 // ---------------------------------------------------------------------------------------------
 // Deterministic director (PLANNER=deterministic): no model; builds a valid plan from the text.
 // ---------------------------------------------------------------------------------------------
@@ -150,7 +192,7 @@ export class DeterministicDirector implements Director {
       suggestions: [],
       estimate: { generated_shots: 0, api_usd: 0 }
     };
-    return { plan, problems: [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)], model: "deterministic" };
+    return { plan, problems: directorProblems(plan, brief, context), model: "deterministic" };
   }
 }
 
@@ -174,7 +216,7 @@ const OUTPUT_SCHEMA = {
         additionalProperties: false,
         required: ["role", "kind", "line", "verb", "keyword", "on_screen", "success", "energy", "ui", "camera", "entry", "exit", "text_effect", "generation", "fallback_keyword", "sfx", "scene", "transition", "carrier", "render"],
         properties: {
-          role: { type: "string", enum: ["hook", "problem", "reveal", "feature", "proof", "success", "cta"] },
+          role: { type: "string", enum: ["hook", "problem", "reveal", "feature", "proof", "success", "cta", "question", "step", "insight", "recap", "setup", "turn", "resolution"] },
           kind: { type: "string", enum: ["ui", "kinetic", "3d", "footage", "title"] },
           line: nullable("string"),
           verb: nullable("string"),
@@ -244,17 +286,17 @@ const SYSTEM = [
   "=== MOTION DIRECTION: typography (set text_effect on every kinetic and title beat, null on ui beats; use only the effect ids in the table) ===", MOTION_DIRECTION,
   "=== SHOT DIRECTION (how to write generation.keyframe_prompt and generation.veo_prompt for '3d' and 'footage' beats) ===", SHOT_DIRECTION,
   "=== OUTPUT RULES ===",
-  "- Return JSON matching the schema. Beat order is film order: the script decides the shape: read what the person wrote and extract its own structure (its steps, turns, reveals and ending) rather than imposing one. Do not default to hook, success, call to action: use whatever roles and order serve the script and the style reference (a reel may have no CTA, a story may have no success moment). At most one beat has success=true, and only when the script has a payoff. Roles are labels only.",
+  "- Return JSON matching the schema. Beat order is film order: the script decides the shape: read what the person wrote and extract its own structure (its steps, turns, reveals and ending) rather than imposing one. Do not default to hook, success, call to action: follow the VIDEO TYPE playbook's shape and roles (educational films use question, setup, step, insight, recap; stories use setup, problem, turn, resolution) and whatever order serves the script and the style reference (a reel may have no CTA, a story may have no success moment). At most one beat has success=true, and only when the script has a payoff. Roles are labels only.",
   "- Consecutive beats: beat N's exit vector must equal beat N+1's entry vector (axis and dir). Vary directions; don't repeat the same vector three times in a row.",
   "- kind 'ui' requires ui.screenshot_index pointing at one of the provided screenshots (0-based). With no screenshots, use 'kinetic' instead of 'ui'.",
   "- Prefer 'ui' and 'kinetic'. Use '3d' or 'footage' only when the story needs it, at most 2–3 per film, each with generation prompts written exactly as SHOT DIRECTION says (lead with the action; the NO TEXT block second; no text, logos or product UI drawn by the model; laptop screens blank or away) and a fallback_keyword. keep_s: 4 when the action fits in 4 s and no end frame is needed (cheapest clip); end_frame 'generated' only with 8 s clips, and never 'crop-push' on a shot whose subject moves.",
   "- keyword: ≤ 4 words and ≤ 28 characters; the last word is the one that takes the brand accent (the engine colours it; never mark it). on_screen ≤ 60 characters. line ≤ 24 words.",
   "- Every text field is plain text: no markdown, no asterisks, underscores or backticks for emphasis, no quotes around the words.",
-  "- Every voiced line is written for the ear: no colons, parentheses or slashes, acronyms written as they are said (\"A I\", \"A P I\"), and a list of more than three items becomes one short sentence per item. Open on the viewer's problem or outcome, never on a character or the product name.",
+  "- Every voiced line is written for the ear: no colons, parentheses or slashes, acronyms written as they are said (\"A I\", \"A P I\"), and a list of more than three items becomes one short sentence per item. Open the way the VIDEO TYPE playbook says (a lesson opens on its question, an ad on the viewer's problem), never on a greeting or the product name.",
   "- Own-script mode: every 'line' must be copied verbatim from the user's script (you may split it into sentences; never reword). Put any improvement in 'suggestions' with beat_index, problem and proposal.",
   "- Problem-only mode: write every line yourself, within the word budget. 'suggestions' is empty.",
   "- Never invent statistics, percentages, customer names or claims the brief does not support. Never use: magic, revolutionary, seamless, game-changing.",
-  "- music_prompt: instrumental mood and energy matching the motion profile and pace, with a tempo in BPM (about 110-130 for product films) and a clear drop that the success moment can land on; no artist or brand names. Null when there is no music. voice_direction: delivery notes for the narrator, or null without a voiceover."
+  "- music_prompt: instrumental mood and energy matching the motion profile and pace, with a tempo in BPM (use the tempo the VIDEO TYPE playbook gives) and, where that playbook calls for one, a drop that the success moment lands on; no artist or brand names. Null when there is no music. voice_direction: delivery notes for the narrator, or null without a voiceover."
 ].join("\n");
 
 export function userMessage(brief: ScriptBrief, context: DirectorContext) {
@@ -271,13 +313,47 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
     ...styleExampleBlock(brief.styleExample),
     `Audio: ${brief.audio.mode}${brief.audio.musicMood ? `; music mood: ${brief.audio.musicMood}` : ""}. Captions: ${brief.captions}.`,
     brief.template ? `Structure template: ${brief.template}.` : "Structure: choose the shape for the format.",
+    ...contextBlocks(brief, context),
+    ...(context.approvedScript ? [approvedScriptBlock(context)] : []),
     context.screenshots.length
-      ? `Screenshots (index: name — purpose):\n${context.screenshots.map((shot, i) => `${i}: ${shot.name} — ${shot.purpose}`).join("\n")}`
+      ? screenshotBlock(context.screenshots)
       : "Screenshots: none uploaded (use kinetic beats instead of ui beats).",
     `\n${brief.scriptMode === "own" ? "USER'S SCRIPT" : "PROBLEM"}:\n${brief.text}`,
     ...(brief.scriptMode !== "own" && brief.text.trim().length < 140 && context.site ? ["The brief is short, so do the research from SITE FACTS before writing: choose the concrete products, models, specs, numbers and claims the site really states, and make every beat name something specific from them (a model, a figure, a feature). Generic lines that could describe any brand are not acceptable."] : []),
     ...(context.site ? [siteBlock(context.site)] : [])
   ].join("\n");
+}
+
+
+/** The film's type with its playbook, the template it starts from and the theme, so the director builds for this film and not for a generic ad. */
+export function contextBlocks(brief: ScriptBrief, context: DirectorContext): string[] {
+  const type = resolveVideoType(brief, context);
+  const out = [`\n${playbookBlock(type)}`];
+  const template = context.template;
+  if (template) out.push(`Starting template: "${template.name}" (${template.group}). ${template.summary} Best for: ${template.bestFor}. Build the film in this template's language: its scene types, rhythm and visual devices. The template's own arc does not override the VIDEO TYPE playbook.`);
+  const theme = brief.theme ? findTheme(brief.theme) : undefined;
+  if (theme) out.push(`Theme: ${theme.name} (${theme.mode} ground). ${theme.description} Palette: background ${theme.tokens.bg}, text ${theme.tokens.fg}, brand ${theme.tokens.brand}, accent ${theme.tokens.accent}. Choose scenes and emphasis that read well on this ground; the brand kit, when one is chosen, replaces these colours.`);
+  return out;
+}
+
+/** The person's own script, scene by scene: the director builds exactly these scenes, in this order, and puts each assigned screenshot on its scene. */
+function approvedScriptBlock(context: DirectorContext): string {
+  const rows = (context.approvedScript ?? []).map((scene, i) => {
+    const index = scene.screenshotId ? context.screenshots.findIndex((shot) => shot.id === scene.screenshotId) : -1;
+    return `${i + 1}. role ${scene.role ?? "(choose)"}; voiceover: ${scene.voiceover ? `"${scene.voiceover}"` : "(silent)"}; on screen: "${scene.onScreen}"; picture: ${scene.visual ?? "(director's choice)"}${index >= 0 ? `; show screenshot ${index} (ui.screenshot_index ${index})` : ""}`;
+  });
+  return `APPROVED SCRIPT (the person edited and approved this; build exactly these ${rows.length} scenes in this order, one beat per scene; keep every voiceover line word for word; the picture note is their intent; a scene with a screenshot becomes a "ui" beat on that screenshot):\n${rows.join("\n")}`;
+}
+
+/** Uploaded screenshots with what a vision read found in each, so the director knows what they are and where each belongs. */
+export function screenshotBlock(shots: DirectorContext["screenshots"]): string {
+  const lines = shots.map((shot, i) => {
+    const a = shot.analysis;
+    const size = shot.width && shot.height ? ` ${shot.width}x${shot.height}` : "";
+    if (!a) return `${i}: ${shot.name}${size} — ${shot.purpose} (not yet described)`;
+    return [`${i}: ${shot.name}${size} — ${a.title}. ${a.summary}`, `   kind: ${a.kind}; elements: ${a.elements.slice(0, 8).join(", ")}; best used for: ${a.bestFor}${a.regions.length ? `; regions: ${a.regions.slice(0, 6).map((region) => `${region.label} (${region.where})`).join(", ")}` : ""}`].join("\n");
+  });
+  return `Screenshots (index: what it is). EVERY screenshot must appear in the film as a "ui" beat (ui.screenshot_index), placed on the beat whose line talks about what it shows; ui.target names the control or region on it that the line refers to. Never describe a screen it does not show.\n${lines.join("\n")}`;
 }
 
 /** The chosen style's own example film, as a remix reference: keep its pacing, scene types and devices; swap in the new script. */
@@ -356,9 +432,21 @@ export function toPlan(output: ModelOutput, brief: ScriptBrief, context: Directo
   };
 }
 
+/** The director's default model: the best scorer in the Claude-vs-Gemini test (docs/DIRECTOR_AB.md). */
+export const DIRECTOR_DEFAULT_MODEL = "claude-opus-5-5";
+
 export class AnthropicDirector implements Director {
   private readonly httpRequest: typeof fetch;
-  constructor(request = fetch) { this.httpRequest = request; }
+  /** Which model family and model write the plan (DIRECTOR_PROVIDER / DIRECTOR_MODEL); the A/B test sets them per run. */
+  readonly provider: LlmProvider;
+  readonly model: string;
+  /** Tokens and time spent by this instance's calls, for cost and speed comparisons. */
+  usage = { calls: 0, inputTokens: 0, outputTokens: 0, ms: 0 };
+  constructor(request = fetch, options: { provider?: LlmProvider; model?: string } = {}) {
+    this.httpRequest = request;
+    this.provider = options.provider ?? (process.env.DIRECTOR_PROVIDER === "gemini" ? "gemini" : "anthropic");
+    this.model = options.model ?? process.env.DIRECTOR_MODEL ?? (this.provider === "gemini" ? "gemini-3.1-pro-preview" : DIRECTOR_DEFAULT_MODEL);
+  }
 
   async plan(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<DirectorResult> {
     const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userMessage(brief, context) }];
@@ -368,31 +456,27 @@ export class AnthropicDirector implements Director {
       const text = await this.request(messages, signal);
       const output = JSON.parse(text) as ModelOutput;
       plan = toPlan(output, brief, context);
-      problems = [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)];
+      problems = directorProblems(plan, brief, context);
       if (problems.length === 0) break;
       if (attempt === 2) {
         plan = restoreUserWords(plan, brief);
-        problems = [...beatPlanProblems(plan, brief), ...rewrittenLines(plan, brief), ...inventedNumbers(plan, brief, context)];
+        problems = directorProblems(plan, brief, context);
         break;
       }
       messages.push({ role: "assistant", content: text }, { role: "user", content: `Fix every problem and return the complete plan again:\n- ${problems.join("\n- ")}` });
     }
-    return { plan: plan!, problems, model: config.anthropicModel };
+    return { plan: plan!, problems, model: this.model };
   }
 
   private async request(messages: { role: "user" | "assistant"; content: string }[], signal?: AbortSignal): Promise<string> {
-    const payload = await anthropicMessage({
-        model: config.anthropicModel,
-        max_tokens: 16000,
-        // The system prompt is long and identical on every call: cache it (Anthropic prompt caching).
-        system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-        messages,
-        output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } }
-
-    }, { request: this.httpRequest, ...(signal ? { signal } : {}), timeoutMs: 180000, errorPrefix: "Script director request failed", includeErrorDetail: true, stopErrors: {"refusal": "The script director declined this brief.", "max_tokens": "The beat plan was too long; shorten the duration or the script."} });
-    const text = payload.content?.filter((block) => block.type === "text").map((block) => block.text ?? "").join("") ?? "";
-    if (!text) throw new Error("The script director returned no plan.");
-    return text;
+    const last = messages[messages.length - 1]!;
+    const result = await llmJson({
+      provider: this.provider, model: this.model, system: SYSTEM, user: last.content, history: messages.slice(0, -1), schema: OUTPUT_SCHEMA as unknown as Record<string, unknown>,
+      maxTokens: 16000, timeoutMs: 180_000, ...(signal ? { signal } : {}),
+      stopErrors: { refusal: "The script director declined this brief.", max_tokens: "The beat plan was too long; shorten the duration or the script." }
+    });
+    this.usage.calls += 1; this.usage.inputTokens += result.inputTokens; this.usage.outputTokens += result.outputTokens; this.usage.ms += result.ms;
+    return result.text;
   }
 }
 
