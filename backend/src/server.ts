@@ -12,6 +12,7 @@ import { callerId, registerAuth } from "./auth.ts";
 import { mediaToken, signPreviewUrls } from "./media-links.ts";
 import { registerOwnership } from "./access.ts";
 import { registerPreviewMeter } from "./plan/preview-meter.ts";
+import { registerRevisionMeter } from "./plan/revision-meter.ts";
 import { renderService } from "./render/service.ts";
 import { renderJobRepository } from "./render/repository.ts";
 import { filmInputsHash } from "./render/revision.ts";
@@ -50,6 +51,7 @@ await app.register(cors, { origin: config.corsOrigins, methods: ["GET", "POST", 
 registerAuth(app);
 registerOwnership(app);
 registerPreviewMeter(app);
+registerRevisionMeter(app);
 // Raw uploads (logo and font files) arrive as bytes; the route validates the content itself.
 app.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLimit: 20_000_000 }, (_request, body, done) => done(null, body));
 

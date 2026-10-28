@@ -97,6 +97,21 @@ test("generated scenes are paid-plan only: a Free account is refused with 402 be
   assert.equal(refused.status, 402);
   assert.equal(refused.body.error.code, "material_requires_plan");
 });
+test("revisions beyond the free ones take tokens: with fewer than 2 tokens left the fix is refused with 402 before any model runs", async () => {
+  const created = await call(bob, "POST", "/v1/projects", { name: "Revision gate", request });
+  const film = created.body.id;
+  await db.query("insert into app.preview_usage (user_id, period, project_id, calls, revisions) values ($1, 'lifetime', $2, 1, 3) on conflict do nothing", [BOB, film]);
+  await db.query("insert into app.token_ledger (user_id, amount, kind, reason, ref, pool) values ($1, 11000, 'grant', 'Free allowance', 'free-allowance', 'free') on conflict do nothing", [BOB]);
+  await db.query("insert into app.token_ledger (user_id, amount, kind, reason, ref, pool) values ($1, -10500, 'spend', 'test drain', 'drain-revision-test', 'free')", [BOB]);
+  const refused = await call(bob, "POST", `/v1/projects/${film}/film/fix`, { fixes: [{ beat: 0, at: 0, comment: "make the title bigger" }] });
+  assert.equal(refused.status, 402);
+  assert.equal(refused.body.error.code, "insufficient_tokens");
+  assert.equal(refused.body.error.needed, 2);
+  const info = await call(bob, "GET", `/v1/projects/${film}/revisions`);
+  assert.deepEqual(info.body, { used: 3, free: 3, tokens: 2 }, "a refused revision is not counted");
+  await db.query("delete from app.token_ledger where user_id = $1", [BOB]);
+  await db.query("delete from app.preview_usage where user_id = $1", [BOB]);
+});
 test("bob gets 404 on alice's project for read, write, delete-style routes", async () => {
   for (const [method, path, body] of [["GET", `/v1/projects/${project.id}`], ["PUT", `/v1/projects/${project.id}`, { name: "pwned" }], ["PUT", `/v1/projects/${project.id}/approve`], ["POST", `/v1/projects/${project.id}/script`], ["POST", `/v1/projects/${project.id}/render`], ["POST", `/v1/projects/${project.id}/comments`, { text: "x" }], ["GET", `/v1/projects/${project.id}/visuals`], ["POST", `/v1/projects/${project.id}/visuals`, { budgetUsd: 25 }], ["GET", `/v1/projects/${project.id}/composition`], ["PATCH", `/v1/projects/${project.id}/studio`, { values: {} }]]) {
     assert.equal((await call(bob, method, path, body)).status, 404, `${method} ${path}`);

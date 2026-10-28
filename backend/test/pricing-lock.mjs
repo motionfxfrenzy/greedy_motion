@@ -2,7 +2,7 @@
 // measured cost of a film (docs/PRICING.md, "What a film costs us"). Changing a number here means changing the document too.
 // Run: node backend/test/pricing-lock.mjs   (no database)
 import assert from "node:assert/strict";
-const { PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, PLANS, TOP_UP, START_FEE_MILLITOKENS, MILLITOKENS_PER_SECOND, TOKEN_USD, MATERIAL_MARKUP, renderCostMillitokens, filmsFromTokens, materialCostMillitokens } = await import("@videosaas/contracts");
+const { FREE_REVISIONS, REVISION_TOKENS, PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, PLANS, TOP_UP, START_FEE_MILLITOKENS, MILLITOKENS_PER_SECOND, TOKEN_USD, MATERIAL_MARKUP, renderCostMillitokens, filmsFromTokens, materialCostMillitokens } = await import("@videosaas/contracts");
 
 // ---- the locked numbers ----
 assert.equal(TOKEN_USD, 0.1);
@@ -29,6 +29,8 @@ for (const tier of ["starter", "pro", "business"]) { const perToken = (PLANS[tie
 
 assert.deepEqual({ ...PREVIEW_ALLOWANCE }, { free: 3, starter: 15, pro: 45, business: 150 }, "films a person may work on per period");
 assert.equal(PREVIEW_CALL_CAP, 150);
+assert.equal(FREE_REVISIONS, 3, "the start fee covers three changes to a film");
+assert.equal(REVISION_TOKENS, 2, "each further change takes two tokens");
 
 // ---- the margin each plan keeps, from measured cost ----
 // Cost of one film (USD), measured 2026-10-28 on the Binary Search template (66.5 s, 9 beats), Claude at Sonnet 4.6 prices:
@@ -63,4 +65,6 @@ for (const tier of ["starter", "pro", "business"]) {
   assert.ok(worst < net, `${tier}: ${PREVIEW_ALLOWANCE[tier]} previews and every film rendered cost $${worst.toFixed(2)}, more than the $${net.toFixed(2)} the plan brings in`);
 }
 assert.ok(PREVIEW_ALLOWANCE.free * PREVIEW_COST < 3, "a Free signup that only previews costs us under $3");
+// A paid revision must cover what it costs us (measured 2026-10-28: a recreate $0.14, an applied fix $0.09) on every plan.
+for (const tier of ["starter", "pro", "business"]) assert.ok(REVISION_TOKENS * ((PLANS[tier].priceUsd * 0.93 - 0.5) / PLANS[tier].tokens) > 0.14, `${tier}: ${REVISION_TOKENS} tokens must pay for a $0.14 recreate`);
 console.log("pricing lock: ok");

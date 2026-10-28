@@ -79,6 +79,7 @@ jobs:
       - run: npm run test:ownership -w backend
       - run: npm run test:scene-claim -w backend
       - run: npm run test:preview-meter -w backend
+      - run: npm run test:revision-meter -w backend
       - run: npm run test:material-billing -w backend
       - run: npm run test:admission -w backend
       - run: npm run test:tokens -w backend

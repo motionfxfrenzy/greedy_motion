@@ -22,6 +22,13 @@ export const MILLITOKENS_PER_SECOND = 300;
  */
 export const PREVIEW_ALLOWANCE = { free: 3, starter: 15, pro: 45, business: 150 } as const;
 export const PREVIEW_CALL_CAP = 150;
+/**
+ * Changes to a film after it was first made that the start fee covers: recreating the preview from an edited script and
+ * applying a comment in the Preview (a comment that changes nothing is not counted). Each further one takes REVISION_TOKENS.
+ * Priced from measured cost: a recreate is about $0.14 and an applied fix about $0.09; two tokens is $0.17 to $0.20.
+ */
+export const FREE_REVISIONS = 3;
+export const REVISION_TOKENS = 2;
 /** What generated image or footage (material styles, 3D shots) is sold for, as a multiple of our provider cost: 67% gross, about 56-61% after the payment fee at plan token rates, with room for generations that fail or are redone. */
 export const MATERIAL_MARKUP = 3;
 

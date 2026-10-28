@@ -131,6 +131,25 @@ at full use and was dropped for that reason.) Free: three previews cost at most 
 - **Tests:** `backend/test/preview-meter.mjs` (limits, months, call cap, concurrency, isolation), an enforcement test through the
   real hooks in `backend/test/ownership.mjs`, and the allowances and worst-case bound in `backend/test/pricing-lock.mjs`.
 
+## Revisions
+
+The start fee (6 tokens) is priced for a film that is changed a little after it is first made: about one recreate and two applied
+fixes, $0.32 of model calls on top of the $0.77 to make it (measured 2026-10-28: a recreate from an edited script $0.14, an applied
+comment $0.09, a comment that changes nothing $0.01).
+
+- **Three changes per film are included.** A change is rebuilding the storyboard of a film that already has one (the "Recreate
+  preview" of an edited script) or applying comments in the Preview. The first storyboard of a film is its making, not a change.
+- **Each further change takes 2 tokens** ($0.17 to $0.20 at the plan rates: it covers a $0.14 recreate on every plan, the lock test
+  checks it, and keeps about half of an applied fix).
+- **Counted per film, per period** (Free: ever; paid plans: each calendar month), in `app.preview_usage.revisions`, under the same
+  per-person lock as the preview allowance.
+- **Given back** if the request fails, if the comments changed nothing, or if the storyboard could not be built or was cancelled. A
+  change that is refused for lack of tokens is not counted: 402 `insufficient_tokens` with the price.
+- **The Preview shows** how many of the three are still included, and the price after that (`GET /v1/projects/:id/revisions`).
+- **Local development:** off when `APP_ENV=local` unless `PREVIEW_LIMITS=on` (same switch as the preview allowance).
+- **Tests:** `backend/test/revision-meter.mjs` (included, charged, returned, refused, concurrent), the 402 through the real server in
+  `backend/test/ownership.mjs`, and the constants and the cost bound in `backend/test/pricing-lock.mjs`.
+
 ## Generated material
 
 Scenes made by an image and video model (the clay, paper, origami and illustration styles, footage and 3D shots) cost real money per
@@ -177,10 +196,10 @@ storyboard; the measured figure is $0.51 (script, frames, director), about 8 tim
 - Free films are built with the watermark; paid plans without.
 - Pro and Business grant Pro-editor access through the entitlement layer; Starter does not.
 - **Generated material is paid-plan only and charged** (2026-10-28): see "Generated material" below.
+- **Revisions are capped and charged** (2026-10-28): see "Revisions" below.
 - **Previews are metered** (2026-10-28, `backend/src/plan/preview-meter.ts`, table `app.preview_usage`): see the next section.
 
 **Not enforced yet, and the margins above assume it will be:**
-- **Revisions are not capped.** The 6-token start fee is priced for about one recreate and two applied fixes; more are free today.
 - No check against one person opening many Free accounts.
 - Other templates are not measured; only Binary Search was run. Voice (Gemini TTS) cost uses the app's own rate card.
 

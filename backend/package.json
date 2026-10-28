@@ -13,6 +13,7 @@
     "test:pricing-lock": "node test/pricing-lock.mjs",
     "test:preview-meter": "node --env-file-if-exists=.env test/preview-meter.mjs",
     "test:material-billing": "node --env-file-if-exists=.env test/material-billing.mjs",
+    "test:revision-meter": "node --env-file-if-exists=.env test/revision-meter.mjs",
     "test:scene-claim": "node --env-file-if-exists=.env test/scene-claim.mjs",
     "test:admission": "node --env-file-if-exists=.env test/admission.mjs",
     "test:ownership": "node --env-file-if-exists=.env test/ownership.mjs",

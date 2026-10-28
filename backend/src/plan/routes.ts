@@ -1,5 +1,6 @@
 import { enqueueVisuals, visualStatus, type MaterialBilling } from "./visuals.ts";
 import { materialBillingOn } from "./visual-state.ts";
+import { failRevision, settleRevision } from "./revision-meter.ts";
 import { tierFor } from "../billing/service.ts";
 import { InsufficientTokens, refundSpend, spendTokens } from "../tokens/store.ts";
 import { insufficientBody } from "../render/admission.ts";
@@ -309,17 +310,25 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         if (controller.signal.aborted) return;
         const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
         const music = brief.audio.mode === "music" || brief.audio.mode === "both";
-        await updateProjectPlan(project.id, (current) => ({
+        await updateProjectPlan(project.id, (current) => {
+          // The narrator's direction is part of every voice take's cache key, and the director words it differently on every
+          // run. Keeping the first one means a rebuilt plan reuses the takes (and the motion timed to them) of every line
+          // that did not change, instead of recording and directing the whole film again.
+          const kept = current.beatPlan?.audio.voice?.direction;
+          const plan = kept && result.plan.audio.voice ? { ...result.plan, audio: { ...result.plan.audio, voice: { ...result.plan.audio.voice, direction: kept } } } : result.plan;
+          return {
           brief,
-          beatPlan: result.plan,
-          script: scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"),
+          beatPlan: plan,
+          script: scriptFromPlan(plan, brief.scriptMode === "own" ? "provided" : "generated"),
           state: "Draft storyboard",
           // Keep the existing render request in step with the brief (format and audio) for the current pipeline.
           request: { ...current.request, format: aspectToFormat(brief.aspect), audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" }, ...(brandId ? { brandId } : {}) }
-        }));
+        };});
+        settleRevision(project.id);
         app.log.info({ event: "plan_done", projectId: project.id, ms: Date.now() - startedAt, model: result.model, ...(result.repairedFrom ? { repairedFrom: result.repairedFrom } : {}), ...(result.problems.length ? { problems: result.problems } : {}) }, "plan applied");
       } catch (error) {
-        if (controller.signal.aborted) return; // cancelled: the cancel route already recorded it
+        if (controller.signal.aborted) { await failRevision(project.id); return; } // cancelled: the cancel route already recorded it
+        await failRevision(project.id);
         app.log.warn({ event: "plan_failed", projectId: project.id, ms: Date.now() - startedAt, err: error }, "script director failed");
         const message = error instanceof ProjectInvalid ? error.message : error instanceof Error ? error.message : "The script director failed.";
         await setProjectPlanning(project.id, { status: "failed", startedAt: started.planning?.startedAt ?? new Date().toISOString(), error: message }).catch(() => undefined);

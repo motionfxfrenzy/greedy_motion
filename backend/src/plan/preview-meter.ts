@@ -62,7 +62,7 @@ export async function previewsUsed(userId: string, tier: PlanTier, now = new Dat
 }
 
 /** On by default wherever real people use it; off for local development unless PREVIEW_LIMITS=on. */
-const enabled = () => (process.env.PREVIEW_LIMITS ? process.env.PREVIEW_LIMITS === "on" : config.appEnv !== "local");
+export const meteringOn = () => (process.env.PREVIEW_LIMITS ? process.env.PREVIEW_LIMITS === "on" : config.appEnv !== "local");
 
 export function registerPreviewMeter(app: FastifyInstance) {
   /** What the profile shows: films worked on this period against the plan's allowance. */
@@ -73,7 +73,7 @@ export function registerPreviewMeter(app: FastifyInstance) {
   });
 
   app.addHook("preHandler", async (request, reply) => {
-    if (request.method !== "POST" || !enabled() || isOpen(request)) return;
+    if (request.method !== "POST" || !meteringOn() || isOpen(request)) return;
     let path: string;
     try { path = decodeURIComponent(request.url.split("?")[0]); } catch { return; }
     const match = COUNTED.exec(path);
