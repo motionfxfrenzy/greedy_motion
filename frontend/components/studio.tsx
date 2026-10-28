@@ -629,9 +629,10 @@ export function Studio() {
     }
     if (storyboardState.state === "ready" && (!needsSound || allVoiced) && voiceRun.state === "idle") void startRender();
   }, [renderWhenReady, storyboardState.state, allVoiced, voiceRun.state]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The Render step without a job in hand (a reload mid-render, or state lost) picks up the project's own render.
+  // The Render or Review step without a job in hand (a reload mid-render, an approved project reopened, or state lost) picks up
+  // the project's own render, so an approved film can still be watched.
   useEffect(() => {
-    if (step !== RENDER || job || prepping || !project?.renderJobId) return;
+    if ((step !== RENDER && step !== REVIEW) || job || prepping || !project?.renderJobId) return;
     let live = true;
     getRenderJob(project.renderJobId).then((found) => { if (live) setJob(found); }).catch(() => undefined);
     return () => { live = false; };
@@ -1084,6 +1085,7 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
         <div className="ce-stage">
           {job?.output ? <video ref={videoRef} playsInline preload="metadata" src={outputUrl(job.output.url)} onClick={togglePlay} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onTimeUpdate={(event) => { if (!scrubbing.current) setCurrentTime(event.currentTarget.currentTime); }} /> : <Preview project={project} title={project.script?.lines[0]?.onScreen || "Waiting for a completed render."} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} />}
           {job?.output && !playing && !done && <span className="ce-hint">Paused · comment on this moment</span>}
+          {!job?.output && <span className="ce-hint">Loading your video… if it does not appear, use Render new draft.</span>}
         </div>
         <div className="ce-controls">
           <button aria-label={playing ? "Pause" : "Play"} disabled={!job?.output} onClick={togglePlay}>{playing ? "❚❚" : "▶"}</button>
