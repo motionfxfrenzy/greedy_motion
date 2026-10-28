@@ -795,7 +795,7 @@ export function FilmPage() {
     <main
       className="relay-shell"
       style={
-        step === STEP_ANIMATION
+        step === STEP_ANIMATION || (step === STEP_RENDER && job?.state === "ready" && Boolean(job.output))
           ? { height: "100vh", maxHeight: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }
           : undefined
       }
@@ -1578,7 +1578,7 @@ export function FilmPage() {
                 </div>
               </div>
 
-              <div className="ce-timeline" style={{ flexShrink: 0, padding: "10px 14px" }}>
+              <div className="ce-timeline" style={{ flexShrink: 0, padding: "8px 14px" }}>
                 <header>
                   <b>Timeline</b>
                   <span>Click to jump · drag to scrub</span>
@@ -1619,26 +1619,28 @@ export function FilmPage() {
                       )
                     )}
                   </div>
-                  <div className="ce-pins">
-                    {sortedComments.map((comment, index) => (
-                      <button
-                        key={comment.id}
-                        type="button"
-                        title={comment.body}
-                        style={{
-                          left: `${Math.min(100, Math.max(0, (comment.timestampSeconds / Math.max(duration, 0.1)) * 100))}%`,
-                          background: PIN_COLORS[index % PIN_COLORS.length]
-                        }}
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          seekAnimation(comment.timestampSeconds);
-                        }}
-                      >
-                        {index + 1}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="ce-strip">
+                  {sortedComments.length > 0 && (
+                    <div className="ce-pins">
+                      {sortedComments.map((comment, index) => (
+                        <button
+                          key={comment.id}
+                          type="button"
+                          title={comment.body}
+                          style={{
+                            left: `${Math.min(100, Math.max(0, (comment.timestampSeconds / Math.max(duration, 0.1)) * 100))}%`,
+                            background: PIN_COLORS[index % PIN_COLORS.length]
+                          }}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            seekAnimation(comment.timestampSeconds);
+                          }}
+                        >
+                          {index + 1}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="ce-strip" style={{ height: 38 }}>
                     {lineTimings.map((seg, index) => (
                       <div
                         key={index}
@@ -1784,70 +1786,161 @@ export function FilmPage() {
       {step === STEP_RENDER && (
         <>
           {job?.state === "ready" && job.output ? (
-            <div className="review-workspace ce-workspace">
-              <section className="ce-left">
-                <div className="ce-heading">
-                  <div>
-                    <h1>Final rendered video</h1>
-                    <p>Your story film has been rendered to an MP4 video. Download it or return to Animation to make further edits.</p>
-                  </div>
-                  <div className="ce-actions">
-                    <button type="button" className="ce-download" onClick={() => setStep(STEP_ANIMATION)}>
-                      ← Back to Animation
+            <div
+              style={{
+                flex: "1 1 0",
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                padding: "12px 24px 16px",
+                boxSizing: "border-box",
+                gap: 10,
+                width: "min(1440px, 100%)",
+                margin: "0 auto"
+              }}
+            >
+              <div
+                className="ce-heading"
+                style={{
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16
+                }}
+              >
+                <div>
+                  <h1>Final rendered video</h1>
+                  <p>Your story film has been rendered to an MP4 video. Download it or return to Animation to make further edits.</p>
+                </div>
+                <div className="ce-actions" style={{ flexShrink: 0 }}>
+                  <button type="button" className="ce-download" onClick={() => setStep(STEP_ANIMATION)}>
+                    ← Back to Animation
+                  </button>
+                  <a className="ce-download" href={outputUrl(job.output.url)} download>
+                    Download MP4
+                  </a>
+                  {project?.state === "Approved" ? (
+                    <span className="ce-locked">✓ Approved · locked</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="ce-approve"
+                      disabled={approving}
+                      onClick={() => void handleApprove()}
+                    >
+                      {approving ? "Approving…" : "Approve final"}
                     </button>
-                    <a className="ce-download" href={outputUrl(job.output.url)} download>
-                      Download MP4
-                    </a>
-                    {project?.state === "Approved" ? (
-                      <span className="ce-locked">✓ Approved · locked</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="ce-approve"
-                        disabled={approving}
-                        onClick={() => void handleApprove()}
-                      >
-                        {approving ? "Approving…" : "Approve final"}
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
-                <div className={"ce-player" + (aspect === "9:16" ? " portrait" : "")}>
-                  <div className="ce-stage">
-                    <video
-                      src={outputUrl(job.output.url)}
-                      controls
-                      playsInline
-                      className="film-video"
-                      style={{ maxHeight: "70vh", margin: "0 auto", display: "block" }}
-                    />
+              </div>
+
+              <div
+                className="review-workspace ce-workspace"
+                style={{
+                  flex: "1 1 0",
+                  minHeight: 0,
+                  overflow: "hidden",
+                  padding: 0,
+                  boxSizing: "border-box",
+                  alignItems: "stretch"
+                }}
+              >
+                <section
+                  className="ce-left"
+                  style={{
+                    height: "100%",
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden"
+                  }}
+                >
+                  <div
+                    className={"ce-player" + (aspect === "9:16" ? " portrait" : "")}
+                    style={{
+                      flex: "1 1 0",
+                      minHeight: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      padding: 12
+                    }}
+                  >
+                    <div
+                      className="ce-stage"
+                      style={{
+                        flex: "1 1 0",
+                        minHeight: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        overflow: "hidden"
+                      }}
+                    >
+                      <video
+                        src={outputUrl(job.output.url)}
+                        controls
+                        playsInline
+                        style={{
+                          height: "100%",
+                          maxHeight: "100%",
+                          width: aspect === "9:16" ? "auto" : "100%",
+                          maxWidth: "100%",
+                          aspectRatio: aspect === "9:16" ? "9 / 16" : "16 / 9",
+                          objectFit: "contain",
+                          borderRadius: 14,
+                          background: "#000",
+                          display: "block",
+                          margin: "0 auto"
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
-              </section>
-              <aside className="ce-aside">
-                <div className="ce-comments">
-                  <header>
-                    <b>Story scenes</b>
-                    <span>{spec?.lines?.length ?? 0} scenes</span>
-                  </header>
-                  <div className="ce-list">
-                    {(spec?.lines ?? []).map((line, idx) => (
-                      <div className="ce-comment" key={idx}>
-                        <div>
-                          <small>Scene {idx + 1}</small>
+                </section>
+                <aside
+                  className="ce-aside"
+                  style={{
+                    height: "100%",
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden"
+                  }}
+                >
+                  <div
+                    className="ce-comments"
+                    style={{
+                      flex: "1 1 0",
+                      minHeight: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      overflow: "hidden"
+                    }}
+                  >
+                    <header style={{ flexShrink: 0 }}>
+                      <b>Story scenes</b>
+                      <span>{spec?.lines?.length ?? 0} scenes</span>
+                    </header>
+                    <div className="ce-list" style={{ flex: "1 1 0", minHeight: 0, maxHeight: "none", overflowY: "auto" }}>
+                      {(spec?.lines ?? []).map((line, idx) => (
+                        <div className="ce-comment" key={idx}>
+                          <div>
+                            <small>Scene {idx + 1}</small>
+                          </div>
+                          <p>{line.say}</p>
                         </div>
-                        <p>{line.say}</p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
+                    <footer style={{ flexShrink: 0 }}>
+                      <button type="button" className="ce-apply" onClick={() => setStep(STEP_ANIMATION)}>
+                        Edit in Animation player
+                      </button>
+                      <span>Need a change? Edit scenes in the browser Animation player before re-rendering.</span>
+                    </footer>
                   </div>
-                  <footer>
-                    <button type="button" className="ce-apply" onClick={() => setStep(STEP_ANIMATION)}>
-                      Edit in Animation player
-                    </button>
-                    <span>Need a change? Edit scenes in the browser Animation player before re-rendering.</span>
-                  </footer>
-                </div>
-              </aside>
+                </aside>
+              </div>
             </div>
           ) : (
             <div className="render-workspace">
