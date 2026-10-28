@@ -12,7 +12,8 @@ import { formatBundle, type FormatSkill } from "./bundle.ts";
 import { buildFormatProject, type FormatLook } from "./build.ts";
 import { fillSlots } from "./fill.ts";
 import { normalizeValues, writableSlots } from "./slots.ts";
-import { busyRefusal } from "../render/admission.ts";
+import { busyRefusal, chargeRender, insufficientBody, returnCharge } from "../render/admission.ts";
+import { InsufficientTokens } from "../tokens/store.ts";
 
 /**
  * Fill-mode formats: the shipped gm-* skills, run by the hosted app. A person supplies the product's facts, the model
@@ -99,11 +100,19 @@ export async function registerFormatRoutes(app: FastifyInstance) {
     // 3. build, hand over to storage, queue
     const jobId = randomUUID();
     const dir = join(config.renderOutputDir, jobId, "project");
+    const owner = callerId(request);
+    let spend = { charged: false, event: "" };
     try {
       const built = await buildFormatProject({ skill, values, look: resolved.look, fontsDir: config.fontsDir, dir });
       if (blur.on) {
         const tooLong = motionBlurProblem(built.durationSeconds);
         if (tooLong) { await rm(join(config.renderOutputDir, jobId), { recursive: true, force: true }).catch(() => undefined); return reply.code(400).send(fail("motion_blur_too_long", tooLong)); }
+      }
+      // Charged like a storyboard film once the length is known; returned if the film cannot be queued.
+      try { spend = await chargeRender(owner, built.durationSeconds, jobId); } catch (error) {
+        await rm(join(config.renderOutputDir, jobId), { recursive: true, force: true }).catch(() => undefined);
+        if (error instanceof InsufficientTokens) return reply.code(402).send(insufficientBody(error));
+        throw error;
       }
       let projectPrefix: string | undefined;
       if (config.storageDriver === "r2") {
@@ -126,6 +135,7 @@ export async function registerFormatRoutes(app: FastifyInstance) {
       });
       return reply.code(202).send({ ...queued, format: { skill: skill.name, version: skill.version, sha256: skill.sha256, bundle } });
     } catch (error) {
+      await returnCharge(owner, spend);
       await rm(join(config.renderOutputDir, jobId), { recursive: true, force: true }).catch(() => undefined);
       request.log.error({ err: error, skill: skill.name }, "could not queue format render");
       return reply.code(503).send(fail("queue_unavailable", "The render queue is not reachable. Nothing was charged; try again in a moment."));

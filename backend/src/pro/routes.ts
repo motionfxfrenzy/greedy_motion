@@ -8,7 +8,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { lintHyperframeHtml } from "@hyperframes/lint";
 import { frameShellHtml, isPreviewQuality, motionBlurProblem, parseMotionBlur, previewSize, type PreviewQuality, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
-import { busyRefusal } from "../render/admission.ts";
+import { busyRefusal, chargeRender, insufficientBody, returnCharge } from "../render/admission.ts";
+import { InsufficientTokens } from "../tokens/store.ts";
 import { config } from "../config.ts";
 import { NotEntitled, requireProEdit, type ProEditAccess } from "../entitlements/access.ts";
 import { EntitlementsUnavailable, entitlementsFor } from "../entitlements/resolve.ts";
@@ -159,9 +160,9 @@ export async function writeProFiles(_access: ProEditAccess, id: string, body: { 
 
 /** Copies the saved folder to where the worker reads it and queues a render job. Spends compute, so it needs the edit capability. */
 /** `motionBlur` is for a final render only; the route validates it (parseMotionBlur, motionBlurProblem) before calling. */
-export async function enqueueProRender(_access: ProEditAccess, project: VideoProject & { pro: ProManifest }, quality: PreviewQuality, options: { motionBlur?: boolean } = {}) {
+export async function enqueueProRender(_access: ProEditAccess, project: VideoProject & { pro: ProManifest }, quality: PreviewQuality, options: { motionBlur?: boolean; jobId?: string } = {}) {
   const pro = project.pro;
-  const jobId = randomUUID();
+  const jobId = options.jobId ?? randomUUID();
   await ensureMediaDir(proDir(project.id));
   const staged = join(config.renderOutputDir, jobId, "project");
   await cp(proDir(project.id), staged, { recursive: true, filter: (source) => !source.includes(`${sep}.history`) });
@@ -351,8 +352,23 @@ function registerEditorRoutes(app: FastifyInstance) {
 
       const busy = await busyRefusal(callerId(request));
       if (busy) return reply.code(429).send(busy);
-      const { created, size } = await enqueueProRender(access, { ...project, pro }, quality, { motionBlur: blur.on });
-      return reply.code(202).send({ job: created, quality, size, rev: pro.rev });
+      // A final render is charged like a storyboard film (previews stay free, bounded by the active-render limit).
+      const owner = callerId(request);
+      const jobId = randomUUID();
+      let spend = { charged: false, event: "" };
+      if (quality === "final") {
+        try { spend = await chargeRender(owner, pro.durationSeconds, jobId, project.id); } catch (error) {
+          if (error instanceof InsufficientTokens) return reply.code(402).send(insufficientBody(error));
+          throw error;
+        }
+      }
+      try {
+        const { created, size } = await enqueueProRender(access, { ...project, pro }, quality, { motionBlur: blur.on, jobId });
+        return reply.code(202).send({ job: created, quality, size, rev: pro.rev });
+      } catch (error) {
+        await returnCharge(owner, spend);
+        throw error;
+      }
     } catch (error) {
       return mapError(reply, error);
     }

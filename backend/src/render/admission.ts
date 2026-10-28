@@ -1,5 +1,7 @@
 import { config } from "../config.ts";
 import { pool } from "../db/database.ts";
+import { InsufficientTokens, refundSpend, spendTokens } from "../tokens/store.ts";
+import { renderCostMillitokens } from "../tokens/plan.ts";
 
 /**
  * One limit on compute every export route shares (storyboard Render, Pro renders and previews, formats, the older
@@ -25,3 +27,16 @@ export async function busyRefusal(userId: string): Promise<{ error: { code: "too
   if (active < limit) return null;
   return { error: { code: "too_many_renders", message: `You already have ${active} films rendering (the limit is ${limit}). Wait for one to finish, then try again.`, active, limit } };
 }
+
+/** Takes the tokens for a film of `seconds` (the same per-second rate as a storyboard film); throws InsufficientTokens. */
+export function chargeRender(owner: string, seconds: number, jobId: string, projectId?: string) {
+  return spendTokens(owner, renderCostMillitokens(seconds), "render", jobId, projectId);
+}
+
+/** Puts a charge back when its film could not be queued; never throws (the failure is logged, the original error matters more). */
+export async function returnCharge(owner: string, spend: { charged: boolean; event: string }) {
+  if (spend.charged) await refundSpend(owner, spend.event).catch((error) => console.error(JSON.stringify({ level: "error", event: "render_refund_failed", message: error instanceof Error ? error.message : String(error) })));
+}
+
+/** The 402 body for a person without enough tokens. */
+export const insufficientBody = (error: InsufficientTokens) => ({ error: { code: "insufficient_tokens", message: `This film needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
