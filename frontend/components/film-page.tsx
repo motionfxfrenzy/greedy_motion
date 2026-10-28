@@ -1880,8 +1880,10 @@ export function FilmPage() {
                     >
                       <video
                         src={outputUrl(job.output.url)}
+                        poster={drawnFrames[0] ?? project?.coverFrame}
                         controls
                         playsInline
+                        preload="metadata"
                         style={{
                           height: "100%",
                           maxHeight: "100%",
