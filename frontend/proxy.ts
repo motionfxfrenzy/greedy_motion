@@ -6,7 +6,7 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // /editor/<project id> needs a session. The demo (fixtures, no backend) and the editor's own files (frame.html, gsap.min.js) are public.
-  const guarded = pathname === "/studio" || pathname.startsWith("/studio/") || pathname === "/app" || pathname.startsWith("/app/") || ["/templates", "/brand-kits", "/library", "/profile"].includes(pathname) || /^\/editor\/(?!demo$)[^/.]+$/.test(pathname);
+  const guarded = pathname === "/studio" || pathname.startsWith("/studio/") || pathname === "/app" || pathname.startsWith("/app/") || ["/templates", "/film", "/brand-kits", "/library", "/profile"].includes(pathname) || /^\/editor\/(?!demo$)[^/.]+$/.test(pathname);
   if (guarded && !signedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
@@ -31,5 +31,5 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Only guarded pages need session validation. API requests are authenticated by the backend;
   // public pages and assets should never wait for an auth round trip.
-  matcher: ["/studio/:path*", "/app/:path*", "/templates", "/brand-kits", "/library", "/profile", "/editor/:path*", "/auth"],
+  matcher: ["/studio/:path*", "/app/:path*", "/templates", "/film", "/brand-kits", "/library", "/profile", "/editor/:path*", "/auth"],
 };
