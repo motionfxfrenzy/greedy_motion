@@ -12,7 +12,7 @@ declare module "fastify" {
 
 // Shared files the preview loads that hold no user data. Everything else under /v1 requires a signed-in user.
 const openGets = [
-  /^\/v1\/preview\/(?:runtime|gsap)\.js$/,
+  /^\/v1\/preview\/(?:runtime|gsap|painted-runtime)\.js$/,
   /^\/v1\/preview\/fonts\/[^/]+$/,
   /^\/v1\/preview\/templates\/[^/]+\/assets\/[^/]+$/,
   /^\/v1\/preview\/plan-sfx\/[^/]+$/,

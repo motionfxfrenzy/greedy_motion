@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { optimisticUpdate } from "../lib/optimistic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aspectToFormat, beatCountRange, scriptSeconds, bundledFonts, findGalleryTemplate, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, parseScriptStream, templates, themes, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { aspectToFormat, beatCountRange, scriptSeconds, bundledFonts, findGalleryTemplate, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, paintedLookById, parseScriptBrief, parseScriptStream, templates, themes, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
@@ -343,6 +343,10 @@ export function Studio() {
     if (id) writeDraft(id, { brief, request, motionBlur, savedAt: Date.now() });
   }, [restored, view, project?.id, draftId, brief, request, motionBlur]);
   const openProject = async (saved: VideoProject) => {
+    if (saved.painted) {
+      router.push(`/film?p=${encodeURIComponent(saved.id)}`);
+      return;
+    }
     const opening = ++openingProject.current;
     setProject(saved);
     setRequest(saved.request);
@@ -855,9 +859,10 @@ function ProjectCard({ brands, project, open, openStudio, menuOpen, setMenuOpen 
   const image = project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : imageFor(template ?? templates[0]);
   const firstBeat = project.beatPlan?.beats[0];
   // A project started from the gallery keeps the default starter in request.template, so name and length come from the brief and plan.
-  const kind = getStyleFamily(project.brief?.styleFamily)?.name ?? template?.name ?? "Template";
+  const paintedLook = project.painted ? paintedLookById(project.painted.look) : undefined;
+  const kind = project.painted ? `Story film · ${paintedLook?.name ?? project.painted.look}` : getStyleFamily(project.brief?.styleFamily)?.name ?? template?.name ?? "Template";
   // The real length once rendered, else the script's estimate, else the target the brief asked for.
-  const seconds = project.filmSeconds ?? (project.brief?.scriptBeats?.length ? scriptSeconds(project.brief.scriptBeats, project.brief.pace) : null) ?? project.beatPlan?.target_duration_s ?? project.brief?.durationSeconds ?? template?.durationSeconds ?? 0;
+  const seconds = project.filmSeconds ?? (project.painted?.timeline?.duration ? Math.round(project.painted.timeline.duration) : null) ?? (project.brief?.scriptBeats?.length ? scriptSeconds(project.brief.scriptBeats, project.brief.pace) : null) ?? project.beatPlan?.target_duration_s ?? project.brief?.durationSeconds ?? template?.durationSeconds ?? 0;
   const status = project.state === "Approved" ? "approved" : project.state === "Ready for review" ? "review" : "draft";
   const choose = (action: () => void) => { setMenuOpen(false); action(); };
   useEffect(() => {

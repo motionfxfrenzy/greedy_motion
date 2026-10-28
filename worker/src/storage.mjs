@@ -68,12 +68,27 @@ export async function otherAttempts(jobId, keep) {
 /** One small file in the outputs bucket (a story film's work folder, kept so a comment can repaint a single scene). */
 export async function putFile(key, file, type = "application/gzip") {
   const { size } = await stat(file);
+  if (!storageEnabled) {
+    const outDir = process.env.RENDER_OUTPUT_DIR || "/renders";
+    const target = resolve(outDir, key);
+    await mkdir(dirname(target), { recursive: true });
+    await pipeline(createReadStream(file), createWriteStream(target));
+    return size;
+  }
   await client.send(new PutObjectCommand({ Bucket: cfg.outputs, Key: key, Body: createReadStream(file), ContentLength: size, ContentType: type }));
   return size;
 }
 
 /** Downloads one outputs-bucket object to `file`; returns false when it does not exist. */
 export async function getFile(key, file) {
+  if (!storageEnabled) {
+    const outDir = process.env.RENDER_OUTPUT_DIR || "/renders";
+    const source = resolve(outDir, key);
+    if (!(await stat(source).then(() => true, () => false))) return false;
+    await mkdir(dirname(file), { recursive: true });
+    await pipeline(createReadStream(source), createWriteStream(file));
+    return true;
+  }
   try {
     const response = await client.send(new GetObjectCommand({ Bucket: cfg.outputs, Key: key }));
     await mkdir(dirname(file), { recursive: true });

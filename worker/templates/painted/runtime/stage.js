@@ -10,14 +10,17 @@
 
   /** Loads the plates (anidoodle films) a spec uses; await it before initShort / the first frame. */
   window.preparePlates = (spec) => window.PaintedPlates.prepare((spec.beats || []).filter((b) => b.shot.place === "plate").map((b) => b.shot.plate));
-  window.initShort = function (spec) {
+  window.initShort = function (spec, canvasEl) {
     S = spec; const { W, H } = S; u = H / 1920;
-    flat = document.createElement("canvas"); flat.width = W; flat.height = H; fg = flat.getContext("2d");
-    avg = document.createElement("canvas"); avg.width = 1; avg.height = 1;
+    if (!flat) { flat = document.createElement("canvas"); fg = flat.getContext("2d"); }
+    flat.width = W; flat.height = H;
+    if (!avg) { avg = document.createElement("canvas"); avg.width = 1; avg.height = 1; }
     FH = H + Math.ceil(FRAME_MAX * H) + 2;                                  // the scene is drawn on a taller canvas: lifting the picture uncovers real scenery, not a stretch
-    scene = document.createElement("canvas"); scene.width = W; scene.height = FH; sg = scene.getContext("2d");
-    glc = document.createElement("canvas"); glc.width = W; glc.height = H; painter = window.PaintedPaint.Painter(glc);
-    out = document.getElementById("out"); out.width = W; out.height = H; og = out.getContext("2d");
+    if (!scene) { scene = document.createElement("canvas"); sg = scene.getContext("2d"); }
+    scene.width = W; scene.height = FH;
+    if (!glc) { glc = document.createElement("canvas"); glc.width = W; glc.height = H; painter = window.PaintedPaint.Painter(glc); }
+    else if (glc.width !== W || glc.height !== H) { glc.width = W; glc.height = H; }
+    out = canvasEl || document.getElementById("out"); out.width = W; out.height = H; og = out.getContext("2d");
     return { renderer: painter.renderer };
   };
 
@@ -180,5 +183,17 @@
     const data = finish(t, 0, !!look);
     if (!text) return data;
     label(text + (window.PaintedScenes.jarState ? "\njar: " + window.PaintedScenes.jarState : "")); return out.toDataURL("image/jpeg", 0.9);
+  };
+  /** Storyboard reference still: every stroke complete (drawIn "none"), no fade darkening, no caption box. */
+  window.stillClean = function (i, at = 0.65) {
+    const b = S.beats[i]; if (!b) return "";
+    const prevDrawIn = S.drawIn; S.drawIn = "none";
+    const t = b.t0 + (b.t1 - b.t0) * at, look = lookOf(b);
+    drawBeat(i, t);
+    S.drawIn = prevDrawIn;
+    if (look) painter.paint(flat, look, Math.round(t * S.fps / S.twos));
+    og.setTransform(1, 0, 0, 1, 0, 0);
+    og.drawImage(look ? glc : flat, 0, 0);
+    return out.toDataURL("image/jpeg", 0.9);
   };
 })();

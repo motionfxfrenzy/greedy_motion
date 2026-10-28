@@ -222,6 +222,8 @@ export type VideoProject = {
   planning?: PlanningState;
   /** Present once a pro user has opened the project in the Pro Editor (backend/src/pro). */
   pro?: ProManifest;
+  /** Present on Story film projects (drawn by the painted engine). */
+  painted?: import("./painted.ts").PaintedProject;
 };
 
 export function parseRenderRequest(value: unknown): RenderRequest | null {

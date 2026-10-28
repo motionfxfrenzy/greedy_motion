@@ -50,3 +50,40 @@ export async function outputExists(key: string): Promise<boolean> {
   if (!client || !config.r2) return false;
   return client.send(new HeadObjectCommand({ Bucket: config.r2.outputsBucket, Key: key })).then(() => true, () => false);
 }
+
+/** Uploads a single archive/file to the outputs bucket (or copies it to renderOutputDir in filesystem mode) so workers can read `painted/<id>/work.tgz`. */
+export async function putOutputFile(key: string, filePath: string, contentType = "application/gzip"): Promise<void> {
+  if (client && config.r2) {
+    const { size } = await stat(filePath);
+    await client.send(new PutObjectCommand({ Bucket: config.r2.outputsBucket, Key: key, Body: createReadStream(filePath), ContentLength: size, ContentType: contentType }));
+    return;
+  }
+  const { copyFile, mkdir } = await import("node:fs/promises");
+  const { dirname } = await import("node:path");
+  const target = join(config.renderOutputDir, key);
+  await mkdir(dirname(target), { recursive: true });
+  await copyFile(filePath, target);
+}
+
+/** Downloads a single archive/file from the outputs bucket (or renderOutputDir in filesystem mode); returns false if missing. */
+export async function getOutputFile(key: string, destPath: string): Promise<boolean> {
+  const { mkdir, writeFile, copyFile } = await import("node:fs/promises");
+  const { dirname } = await import("node:path");
+  if (client && config.r2) {
+    try {
+      const object = await client.send(new GetObjectCommand({ Bucket: config.r2.outputsBucket, Key: key }));
+      const bytes = Buffer.from(await object.Body!.transformToByteArray());
+      await mkdir(dirname(destPath), { recursive: true });
+      await writeFile(destPath, bytes);
+      return true;
+    } catch (error) {
+      if ((error as { name?: string }).name === "NoSuchKey") return false;
+      throw error;
+    }
+  }
+  const source = join(config.renderOutputDir, key);
+  if (!(await stat(source).then(() => true, () => false))) return false;
+  await mkdir(dirname(destPath), { recursive: true });
+  await copyFile(source, destPath);
+  return true;
+}

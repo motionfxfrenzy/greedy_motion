@@ -31,8 +31,11 @@ function Field({ value, onChange, readOnly, className, placeholder, caret, label
   return <textarea ref={ref} rows={1} className={className} value={value} placeholder={placeholder} aria-label={label} onChange={(event) => onChange(event.target.value.replace(/\n/g, " "))} />;
 }
 
-/** A frame is SVG text from the model; as an <img> data URL nothing in it can run or load. */
-export const svgSrc = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(/^<svg[^>]*\sxmlns\s*=/.test(svg) ? svg : svg.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"'))}`;
+/** A frame is SVG text from the model (or a data:/static image URL for painted story films); as an <img> nothing in it can run or load. */
+export const svgSrc = (svg: string) =>
+  svg.startsWith("data:image/") || svg.startsWith("/")
+    ? svg
+    : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(/^<svg[^>]*\sxmlns\s*=/.test(svg) ? svg : svg.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"'))}`;
 
 function Frame({ slot, aspect, index, writing, onRedraw, onPick, picked }: { slot: FrameSlot | undefined; aspect: Aspect; index: number; writing: boolean; onRedraw: () => void; onPick?: (add: boolean) => void; picked: boolean }) {
   const ratio = { aspectRatio: RATIO[aspect] };

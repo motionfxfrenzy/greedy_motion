@@ -68,3 +68,106 @@ export function paintedSeconds(script: string): number {
   const lines = text.split(/\n+/).filter((line) => line.trim()).length;
   return Math.min(120, Math.max(15, Math.ceil(words / 2.5 + lines)));
 }
+
+export type PaintedShot = {
+  place?: string;
+  time?: string;
+  weather?: string;
+  season?: string;
+  ground?: string;
+  room?: string;
+  framing?: string;
+  move?: string;
+  moveAmount?: number;
+  describe?: string;
+  seed?: string;
+  subjects?: Record<string, unknown>[];
+  props?: Record<string, unknown>[];
+  recipe?: Record<string, unknown>;
+  sfx?: string[];
+  [key: string]: unknown;
+};
+
+export type PaintedSpecLine = {
+  say: string;
+  scene?: string;
+  caption?: string;
+  hold?: number;
+  audio?: { file?: string; seconds?: number };
+  shots: PaintedShot[];
+};
+
+export type PaintedSpec = {
+  look?: string;
+  style?: string;
+  doodle?: string;
+  drawIn?: PaintedDrawMode;
+  format?: "9:16" | "16:9";
+  fps?: number;
+  twos?: number;
+  pause?: number;
+  lead?: number;
+  tail?: number;
+  captions?: { style?: string; size?: number; y?: number };
+  audio?: { mood?: string; music?: string; musicVolume?: number };
+  objects?: Record<string, unknown>;
+  lines: PaintedSpecLine[];
+};
+
+export type PaintedTimelineBeat = {
+  id: string;
+  lineIndex: number;
+  shotIndex: number;
+  t0: number;
+  t1: number;
+  move: string;
+  moveAmount?: number;
+  shot: PaintedShot;
+  seed: string;
+  flashes: number[];
+  fadeIn?: number;
+  fadeOut?: number;
+  plateHash?: string;
+};
+
+export type PaintedTimeline = {
+  W: number;
+  H: number;
+  fps: number;
+  twos: number;
+  duration: number;
+  look: string;
+  style?: string;
+  doodle?: string;
+  drawIn?: PaintedDrawMode;
+  beats: PaintedTimelineBeat[];
+  captions: { text: string; t0: number; t1: number }[];
+  captionStyle: string;
+  captionSize?: number;
+  captionY?: number;
+};
+
+export type PaintedBusy = {
+  status: "running" | "failed";
+  phase: "storyboard" | "animate" | "changes";
+  stage: string;
+  startedAt: string;
+  error?: string;
+};
+
+export type PaintedProject = {
+  look: string;
+  drawIn: PaintedDrawMode;
+  aspect: "9:16" | "16:9";
+  voice: string;
+  musicMood?: string;
+  mode: "idea" | "script";
+  idea?: string;
+  script: string;
+  spec?: PaintedSpec;
+  timeline?: PaintedTimeline;
+  /** Incremented whenever the mixed animation audio (voiceover + music + SFX) is built. */
+  audioVersion?: number;
+  /** Present while the server is building the storyboard, recording animation audio, or applying scene comments. */
+  busy?: PaintedBusy | null;
+};

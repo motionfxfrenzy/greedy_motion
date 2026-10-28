@@ -535,7 +535,7 @@ export async function listLibrary(params: { cursor?: string | null; limit?: numb
 // ---------- Story films (painted engine) ----------
 
 export type PaintedLookOption = { id: string; engine: "doodle" | "oil"; name: string; blurb: string; script: string; available: boolean };
-export type PaintedFilm = { id: string; state: RenderJob["state"]; stage: string; progress: number; createdAt: string; look: string; script: string; drawIn: string; changedFrom?: string; durationSeconds?: number | null; lines?: string[]; error?: string };
+export type PaintedFilm = { id: string; projectId?: string; state: RenderJob["state"]; stage: string; progress: number; createdAt: string; look: string; script: string; drawIn: string; changedFrom?: string; durationSeconds?: number | null; lines?: string[]; error?: string };
 
 export async function listPaintedLooks() {
   const response = await apiFetch(`${apiOrigin}/v1/painted/looks`);
@@ -560,4 +560,76 @@ export async function createPaintedFilm(input: { script: string; look: string; d
 export async function changePaintedFilm(id: string, comments: { line: number; text: string }[]) {
   const response = await apiFetch(`${apiOrigin}/v1/painted/films/${encodeURIComponent(id)}/changes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comments }) });
   return parse<RenderJob>(response, "Could not apply the changes.");
+}
+
+export async function generatePaintedProjectStoryboard(input: {
+  projectId?: string;
+  mode: "idea" | "script";
+  text: string;
+  look: string;
+  drawIn: "opening" | "each";
+  aspect: "9:16" | "16:9";
+  voice: string;
+  musicMood?: string;
+}) {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return (await parse<{ project: VideoProject }>(response, "Could not start the storyboard.")).project;
+}
+
+export async function hydratePaintedProject(id: string) {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/projects/${encodeURIComponent(id)}/hydrate`, {
+    method: "POST"
+  });
+  return (await parse<{ project: VideoProject }>(response, "Could not load the film data.")).project;
+}
+
+export async function patchPaintedProject(
+  id: string,
+  patch: {
+    look?: string;
+    drawIn?: "opening" | "each";
+    aspect?: "9:16" | "16:9";
+    voice?: string;
+    musicMood?: string;
+    coverFrame?: string;
+    lines?: { index: number; say?: string; scene?: string }[];
+  }
+) {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/projects/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch)
+  });
+  return (await parse<{ project: VideoProject }>(response, "Could not save your changes.")).project;
+}
+
+export async function changePaintedProjectScenes(id: string, comments: { line: number; text: string }[]) {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/projects/${encodeURIComponent(id)}/changes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ comments })
+  });
+  return (await parse<{ project: VideoProject }>(response, "Could not apply the scene changes.")).project;
+}
+
+export async function animatePaintedProject(id: string) {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/projects/${encodeURIComponent(id)}/animate`, {
+    method: "POST"
+  });
+  return (await parse<{ project: VideoProject }>(response, "Could not start the animation.")).project;
+}
+
+export async function renderPaintedProject(id: string) {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/projects/${encodeURIComponent(id)}/render`, {
+    method: "POST"
+  });
+  return parse<{ job: RenderJob; project: VideoProject; seconds: number; tokens: number }>(response, "Could not start the final render.");
+}
+
+export function paintedAudioUrl(projectId: string, version?: number) {
+  return withMediaToken(`${apiOrigin}/v1/preview/projects/${encodeURIComponent(projectId)}/painted-audio?v=${version ?? 1}`);
 }

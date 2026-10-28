@@ -493,3 +493,21 @@ export async function updateProjectVisuals(id: string, mutate: (current: VideoPr
     return save({ ...current, planVisuals, updatedAt: new Date().toISOString() });
   });
 }
+
+/** Story films (backend/src/painted): updates the project's painted spec, timeline, state and metadata under the project row lock. */
+export async function updateProjectPainted(
+  id: string,
+  mutate: (current: VideoProject) => Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "painted" | "coverFrame" | "filmSeconds" | "renderJobId" | "approvedAt">>
+) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return null;
+    const patch = mutate(current);
+    return save({ ...current, ...patch, updatedAt: new Date().toISOString() });
+  });
+}
+
+/** Saves a newly created or adopted Story film project. */
+export async function savePaintedProject(project: VideoProject) {
+  return serializeProject(project.id, () => save(project));
+}

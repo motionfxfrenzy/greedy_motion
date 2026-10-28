@@ -104,17 +104,17 @@ export const renderJobRepository = {
   },
 
   /**
-   * A format render (formats/routes.ts): ready for the worker, owned by a user, with no project behind it. Same queue,
-   * same worker input as an approved storyboard.
+   * A format render (formats/routes.ts) or story-film render (painted/routes.ts): ready for the worker, owned by a user,
+   * optionally linked to its project so completion updates the project's state.
    */
-  async createFormatAndEnqueue(job: RenderJob, input: { request: Record<string, unknown>; ownerId: string; renderInput: Record<string, unknown>; queue?: string }) {
+  async createFormatAndEnqueue(job: RenderJob, input: { request: Record<string, unknown>; ownerId: string; projectId?: string; renderInput: Record<string, unknown>; queue?: string }) {
     const client = await pool.connect();
     try {
       await client.query("begin");
       await client.query(
-        `insert into app.render_jobs (id, owner_id, state, stage, progress, request, revision, render_input, render_queued_at, created_at)
-         values ($1, $2, 'rendering', 'waiting', 45, $3, $4, $5, now(), $6)`,
-        [job.id, input.ownerId, input.request, job.revision, input.renderInput, job.createdAt]
+        `insert into app.render_jobs (id, project_id, owner_id, state, stage, progress, request, revision, render_input, render_queued_at, created_at)
+         values ($1, $2, $3, 'rendering', 'waiting', 45, $4, $5, $6, now(), $7)`,
+        [job.id, input.projectId ?? null, input.ownerId, input.request, job.revision, input.renderInput, job.createdAt]
       );
       await boss.send(input.queue ?? QUEUES.video, { jobId: job.id }, { db: inTransaction(client), ...blurExpiry(input.renderInput) });
       await client.query("commit");
