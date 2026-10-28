@@ -84,6 +84,10 @@ const ANIMATION_COMMENT_EXAMPLES = [
   "Use a close-up shot here"
 ];
 
+const PIN_COLORS = ["#168BFF", "#FF5A1F", "#7C5CFF", "#16803C", "#B45309", "#0B1F4D"];
+
+type TimedComment = { id: string; body: string; timestampSeconds: number };
+
 const lookMedium = (id: string) => id.split(":")[1] ?? id;
 
 /** Auto-growing textarea so multi-line Dialogue and Visual descriptions never clip or scroll inside themselves. */
@@ -188,8 +192,15 @@ function defaultStepFor(project: VideoProject): Step {
 function maxReachableStep(project: VideoProject | null): Step {
   if (!project?.painted) return STEP_SCRIPT;
   if (project.renderJobId) return STEP_RENDER;
-  if (project.painted.busy?.phase === "animate" || project.painted.audioVersion || project.state === "Ready for review") return STEP_ANIMATION;
-  if (project.painted.busy?.phase === "storyboard" || project.painted.spec?.lines?.length) return STEP_STORYBOARD;
+  if (
+    project.painted.busy?.phase === "animate" ||
+    project.painted.audioVersion ||
+    project.state === "Ready for review" ||
+    Boolean(project.painted.spec?.lines?.length)
+  ) {
+    return STEP_ANIMATION;
+  }
+  if (project.painted.busy?.phase === "storyboard") return STEP_STORYBOARD;
   return STEP_SCRIPT;
 }
 
@@ -232,7 +243,7 @@ export function FilmPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
-  const [sceneComments, setSceneComments] = useState<Record<number, string>>({});
+  const [timedComments, setTimedComments] = useState<TimedComment[]>([]);
   const [activeCommentDraft, setActiveCommentDraft] = useState("");
   const scrubbingRef = useRef(false);
 
@@ -567,7 +578,7 @@ export function FilmPage() {
     try {
       const started = await changePaintedProjectScenes(project.id, list);
       setProject(started);
-      setSceneComments({});
+      setTimedComments([]);
       setActiveCommentDraft("");
       setStoryboardAsk("");
       setPickedScenes([]);
@@ -643,35 +654,36 @@ export function FilmPage() {
     });
   }, [spec?.lines, timeline?.beats, duration]);
 
-  const activeSceneIndex = useMemo(() => {
-    if (!lineTimings.length) return 0;
-    const found = lineTimings.findIndex((seg, idx) => currentTime < seg.end || idx === lineTimings.length - 1);
-    return Math.max(0, found);
-  }, [lineTimings, currentTime]);
+  const sceneIndexAt = useCallback(
+    (seconds: number) => {
+      if (!lineTimings.length) return 0;
+      const found = lineTimings.findIndex((seg, idx) => seconds < seg.end || idx === lineTimings.length - 1);
+      return Math.max(0, found);
+    },
+    [lineTimings]
+  );
+
+  const activeSceneIndex = useMemo(() => sceneIndexAt(currentTime), [sceneIndexAt, currentTime]);
+
+  const ensureCanvasInitialized = useCallback(() => {
+    if (!runtimeReady || !timeline || !canvasRef.current || typeof window.initShort !== "function") return false;
+    if (canvasRef.current.dataset.initKey !== `${timeline.W}x${timeline.H}:${timeline.duration}:${timeline.look}:${timeline.doodle ?? ""}`) {
+      window.initShort(timeline, canvasRef.current);
+      canvasRef.current.dataset.initKey = `${timeline.W}x${timeline.H}:${timeline.duration}:${timeline.look}:${timeline.doodle ?? ""}`;
+    }
+    return true;
+  }, [runtimeReady, timeline]);
 
   // Initialize and draw the in-browser player canvas whenever Step 3 (Animation) is open
   useEffect(() => {
-    if (step !== STEP_ANIMATION || !runtimeReady || !timeline || !canvasRef.current || typeof window.initShort !== "function") {
-      return;
-    }
+    if (step !== STEP_ANIMATION || !ensureCanvasInitialized()) return;
     try {
-      window.initShort(timeline, canvasRef.current);
-      window.playerFrame?.(currentTime, false);
+      const displayTime = !playing && currentTime < 0.4 ? Math.min(1.5, duration * 0.15) : currentTime;
+      window.playerFrame?.(displayTime, false);
     } catch (err) {
       console.warn("Player init error:", err);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, runtimeReady, timeline]);
-
-  // Redraw canvas when seeking while paused
-  useEffect(() => {
-    if (step !== STEP_ANIMATION || playing || !runtimeReady || !timeline || !canvasRef.current) return;
-    try {
-      window.playerFrame?.(currentTime, false);
-    } catch {
-      /* ignore frame draw error */
-    }
-  }, [step, playing, currentTime, runtimeReady, timeline]);
+  }, [step, ensureCanvasInitialized, currentTime, playing, duration]);
 
   // Animation loop driven by <audio> (or wall clock fallback if audio is still loading)
   useEffect(() => {
@@ -750,17 +762,48 @@ export function FilmPage() {
   const reachable = maxReachableStep(project);
   const groupLooks = (engine: "doodle" | "oil") => looks.filter((entry) => entry.engine === engine);
   const wordsCount = (spec?.lines ?? []).reduce((sum, l) => sum + (l.say ? l.say.trim().split(/\s+/).filter(Boolean).length : 0), 0);
-  const pendingSceneComments = Object.entries(sceneComments)
-    .map(([line, text]) => ({ line: Number(line), text: text.trim() }))
-    .filter((entry) => entry.text.length >= 3);
+  const sortedComments = useMemo(
+    () => [...timedComments].sort((a, b) => a.timestampSeconds - b.timestampSeconds),
+    [timedComments]
+  );
+
+  const addTimedComment = () => {
+    const body = activeCommentDraft.trim();
+    if (body.length < 3 || isBusy || submitting) return;
+    setTimedComments((curr) => [
+      ...curr,
+      { id: crypto.randomUUID(), body, timestampSeconds: Math.round(currentTime * 10) / 10 }
+    ]);
+    setActiveCommentDraft("");
+  };
+
+  const applyTimedComments = () => {
+    if (!sortedComments.length) return;
+    const byLine = new Map<number, string[]>();
+    for (const c of sortedComments) {
+      const lineIdx = sceneIndexAt(c.timestampSeconds);
+      const list = byLine.get(lineIdx) ?? [];
+      list.push(c.body);
+      byLine.set(lineIdx, list);
+    }
+    const payload = [...byLine.entries()].slice(0, 5).map(([line, texts]) => ({ line, text: texts.join(". ") }));
+    void handleApplySceneComments(payload);
+  };
 
   return (
-    <main className="relay-shell">
+    <main
+      className="relay-shell"
+      style={
+        step === STEP_ANIMATION
+          ? { height: "100vh", maxHeight: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }
+          : undefined
+      }
+    >
       <div className="ambient ambient-blue" />
       <div className="ambient ambient-peach" />
 
       {/* 4-Step Creation Header matching /studio */}
-      <header className="creation-header">
+      <header className="creation-header" style={{ flexShrink: 0 }}>
         <div className="creation-project">
           <button type="button" onClick={() => router.push("/studio")}>
             ← Projects
@@ -777,7 +820,7 @@ export function FilmPage() {
                 className={id === step ? "current" : id <= reachable ? "complete" : ""}
                 disabled={id > reachable}
                 onClick={() => {
-                  if (id === STEP_ANIMATION && project && !project.painted?.audioVersion && !project.painted?.busy) {
+                  if (id === STEP_ANIMATION && project && !project.painted?.audioVersion && project.painted?.busy?.phase !== "animate") {
                     void handleProceedToAnimation();
                   } else {
                     setStep(id);
@@ -1098,7 +1141,7 @@ export function FilmPage() {
               <button
                 type="button"
                 className="primary-button"
-                disabled={isBusy || submitting || !spec?.lines?.length}
+                disabled={submitting || !spec?.lines?.length}
                 onClick={() => void handleProceedToAnimation()}
               >
                 {project?.painted?.audioVersion ? "Open animation →" : "Create animation →"}
@@ -1110,7 +1153,7 @@ export function FilmPage() {
             className="sc-doc-head"
             aria-hidden="true"
             style={{
-              gridTemplateColumns: aspect === "9:16" ? "minmax(0, 1fr) 240px" : "minmax(0, 1fr) 320px"
+              gridTemplateColumns: aspect === "9:16" ? "minmax(0, 1fr) 150px" : "minmax(0, 1fr) 280px"
             }}
           >
             <span>Dialogues &amp; scenes</span>
@@ -1126,7 +1169,7 @@ export function FilmPage() {
                     .filter(Boolean)
                     .join(" · ")
                 : "meadow · day";
-              const lineFrames = drawnShots[index]?.length ? drawnShots[index]! : drawnFrames[index] ? [drawnFrames[index]!] : [];
+              const frameUrl = drawnFrames[index] ?? drawnShots[index]?.[0];
               const sayValue = lineEdits[index]?.say ?? line.say ?? "";
               const sceneValue = lineEdits[index]?.scene ?? line.scene ?? "";
               const toggleScene = () =>
@@ -1134,20 +1177,17 @@ export function FilmPage() {
                   curr.includes(index) ? curr.filter((i) => i !== index) : [...curr, index].sort((a, b) => a - b)
                 );
 
-              const portraitFrameWidth = lineFrames.length > 1 ? 108 : 126;
-              const portraitFrameHeight = Math.round((portraitFrameWidth * 16) / 9);
-
               return (
                 <li
                   key={index}
-                  className={`sc-beat${isBusy ? " writing" : ""}${isPicked ? " picked" : ""}`}
+                  className={`sc-beat${isBusy && !spec?.lines?.length ? " writing" : ""}${isPicked ? " picked" : ""}`}
                   style={{
-                    gridTemplateColumns: aspect === "9:16" ? "minmax(0, 1fr) 240px" : "minmax(0, 1fr) 320px",
+                    gridTemplateColumns: aspect === "9:16" ? "minmax(0, 1fr) 150px" : "minmax(0, 1fr) 280px",
                     padding: "16px 6px",
                     alignItems: "center"
                   }}
                   onClick={(event) => {
-                    if (isBusy || (event.target as HTMLElement).closest("button, textarea, input")) return;
+                    if ((event.target as HTMLElement).closest("button, textarea, input")) return;
                     const add = event.metaKey || event.ctrlKey || event.shiftKey;
                     setPickedScenes((curr) =>
                       add ? (curr.includes(index) ? curr : [...curr, index].sort((a, b) => a - b)) : [index]
@@ -1160,7 +1200,6 @@ export function FilmPage() {
                         type="button"
                         className="sc-num"
                         aria-pressed={isPicked}
-                        disabled={isBusy}
                         onClick={toggleScene}
                         title={isPicked ? "Remove from prompt" : "Refer to this scene in the prompt"}
                       >
@@ -1173,7 +1212,7 @@ export function FilmPage() {
                         <button
                           type="button"
                           className="sc-reimagine"
-                          disabled={isBusy || submitting}
+                          disabled={submitting}
                           onClick={() =>
                             void handleApplySceneComments([
                               {
@@ -1194,7 +1233,6 @@ export function FilmPage() {
                           <AutoTextarea
                             className="sc-line"
                             value={sayValue}
-                            disabled={isBusy}
                             ariaLabel={`Scene ${index + 1} dialogue`}
                             onChange={(val) => handleLineEdit(index, { say: val })}
                           />
@@ -1206,7 +1244,6 @@ export function FilmPage() {
                           <AutoTextarea
                             className="sc-visual"
                             value={sceneValue}
-                            disabled={isBusy}
                             placeholder="What is drawn in this scene"
                             ariaLabel={`Scene ${index + 1} visual`}
                             onChange={(val) => handleLineEdit(index, { scene: val })}
@@ -1216,55 +1253,33 @@ export function FilmPage() {
                     </dl>
                   </div>
 
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 10,
-                      justifyContent: "flex-start",
-                      alignItems: "center",
-                      flexWrap: "nowrap"
-                    }}
+                  <figure
+                    className={`sc-frame ${frameUrl ? "ready" : "sc-frame-wait"}`}
+                    style={
+                      aspect === "9:16"
+                        ? { width: 132, height: 235, borderRadius: 12, justifySelf: "end" }
+                        : { width: 280, height: 158, borderRadius: 12, justifySelf: "end" }
+                    }
                   >
-                    {lineFrames.length > 0 ? (
-                      lineFrames.slice(0, 2).map((frameUrl, shotIdx) => (
-                        <figure
-                          key={shotIdx}
-                          className="sc-frame ready"
-                          style={
-                            aspect === "9:16"
-                              ? { width: portraitFrameWidth, height: portraitFrameHeight, flexShrink: 0, borderRadius: 12 }
-                              : { width: "100%", aspectRatio: "16 / 9", borderRadius: 12 }
-                          }
-                        >
-                          <button
-                            type="button"
-                            className="sc-frame-pick"
-                            aria-pressed={isPicked}
-                            onClick={toggleScene}
-                            title={`Scene ${index + 1}${lineFrames.length > 1 ? ` · shot ${shotIdx + 1}` : ""}`}
-                          >
-                            <img
-                              src={frameUrl}
-                              alt={`Drawn frame for scene ${index + 1}`}
-                              draggable={false}
-                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                            />
-                          </button>
-                        </figure>
-                      ))
-                    ) : (
-                      <div
-                        className="sc-frame sc-frame-wait"
-                        style={
-                          aspect === "9:16"
-                            ? { width: 126, height: 224, borderRadius: 12 }
-                            : { width: "100%", aspectRatio: "16 / 9", borderRadius: 12 }
-                        }
+                    {frameUrl ? (
+                      <button
+                        type="button"
+                        className="sc-frame-pick"
+                        aria-pressed={isPicked}
+                        onClick={toggleScene}
+                        title={`Scene ${index + 1}`}
                       >
-                        <span>{isBusy ? "Drawing scene…" : "Drawing frame…"}</span>
-                      </div>
+                        <img
+                          src={frameUrl}
+                          alt={`Drawn frame for scene ${index + 1}`}
+                          draggable={false}
+                          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                        />
+                      </button>
+                    ) : (
+                      <span>Drawing frame…</span>
                     )}
-                  </div>
+                  </figure>
                 </li>
               );
             })}
@@ -1362,308 +1377,382 @@ export function FilmPage() {
 
       {/* ==================== STEP 3: IN-BROWSER ANIMATION & COMMENT EDITING ==================== */}
       {step === STEP_ANIMATION && (
-        <div className="review-workspace ce-workspace">
-          <section className="ce-left">
-            <div className="ce-heading">
-              <div>
-                <h1>Animation</h1>
-                <p>
-                  Playing live in your browser — no video rendering needed. Comment on any scene to edit the animation, then start the final render.
-                </p>
-              </div>
-              <div className="ce-howto">
-                {["Watch live", "Comment on a scene", "Final render"].map((label, index) => (
-                  <span key={label}>
-                    <i>{index + 1}</i>
-                    {label}
+        <div
+          style={{
+            flex: "1 1 0",
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            padding: "12px 24px 16px",
+            boxSizing: "border-box",
+            gap: 10
+          }}
+        >
+          {/* Top workspace row: Animation title on the left, Final render button on the far top right */}
+          <div
+            className="ce-heading"
+            style={{
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16
+            }}
+          >
+            <div>
+              <h1>Animation</h1>
+              <p>Playing live in your browser — no video rendering needed. Pause, pick a moment, and comment to edit.</p>
+            </div>
+            <div className="ce-actions" style={{ flexShrink: 0 }}>
+              <button
+                type="button"
+                className="ce-approve"
+                disabled={isBusy || submitting || !spec?.lines?.length}
+                onClick={() => void handleStartFinalRender()}
+              >
+                {submitting ? "Starting render…" : `Final render · ${estimatedTokens} tokens`}
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="review-workspace ce-workspace"
+            style={{
+              flex: "1 1 0",
+              minHeight: 0,
+              overflow: "hidden",
+              padding: 0,
+              boxSizing: "border-box",
+              alignItems: "stretch"
+            }}
+          >
+            <section
+              className="ce-left"
+              style={{
+                height: "100%",
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                overflow: "hidden"
+              }}
+            >
+              {isBusy && (
+                <div className="ce-stale" role="status" style={{ flexShrink: 0, padding: "8px 14px" }}>
+                  <span>
+                    <b>{BUSY_STAGES[busy?.stage ?? "voice"] ?? "Updating animation"}… ({elapsed}s)</b>{" "}
+                    {busy?.phase === "animate"
+                      ? "Recording the narrator and mixing background music for the browser player."
+                      : "Rewriting the commented scenes and updating the live animation."}
                   </span>
-                ))}
-              </div>
-              <div className="ce-actions">
-                <button type="button" className="ce-download" onClick={() => setStep(STEP_STORYBOARD)}>
-                  ← Storyboard
-                </button>
-                <button
-                  type="button"
-                  className="ce-approve"
-                  disabled={isBusy || submitting || !spec?.lines?.length}
-                  onClick={() => void handleStartFinalRender()}
-                >
-                  {submitting ? "Starting render…" : `Final render · ${estimatedTokens} tokens`}
-                </button>
-              </div>
-            </div>
+                </div>
+              )}
 
-            {isBusy && (
-              <div className="ce-stale" role="status">
-                <span>
-                  <b>{BUSY_STAGES[busy?.stage ?? "voice"] ?? "Updating animation"}… ({elapsed}s)</b>{" "}
-                  {busy?.phase === "animate"
-                    ? "Recording the narrator and mixing background music for the browser player."
-                    : "Rewriting the commented scenes and updating the live animation."}
-                </span>
-              </div>
-            )}
-
-            <div className={"ce-player" + (aspect === "9:16" ? " portrait" : "")}>
-              <div className="ce-stage" style={{ position: "relative" }}>
-                <canvas
-                  id="out"
-                  ref={canvasRef}
-                  onClick={togglePlay}
-                  style={{
-                    display: "block",
-                    margin: "0 auto",
-                    maxWidth: "100%",
-                    height: aspect === "9:16" ? "max(280px, calc(100vh - 410px))" : "auto",
-                    maxHeight: "max(280px, calc(100vh - 410px))",
-                    width: "auto",
-                    cursor: "pointer",
-                    borderRadius: 10
-                  }}
-                />
-                {project?.painted?.audioVersion && project.id && (
-                  <audio
-                    ref={audioRef}
-                    src={paintedAudioUrl(project.id, project.painted.audioVersion)}
-                    preload="auto"
-                    onEnded={() => setPlaying(false)}
-                  />
-                )}
-                {!playing && !isBusy && <span className="ce-hint">Click to play · pause anywhere to comment on that scene</span>}
-              </div>
-
-              <div className="ce-controls">
-                <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!timeline} onClick={togglePlay}>
-                  {playing ? "❚❚" : "▶"}
-                </button>
-                <span className="ce-clock">
-                  <b>{formatVideoTime(currentTime)}</b> / {formatVideoTime(duration)}
-                </span>
-                <span className="ce-volume">
-                  <button
-                    type="button"
-                    aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
-                    onClick={() => setMuted((m) => !m)}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />
-                      {muted || volume === 0 ? (
-                        <path d="M16 9.5l5 5M21 9.5l-5 5" />
-                      ) : (
-                        <>
-                          <path d="M15.5 9.2a4 4 0 010 5.6" />
-                          {volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}
-                        </>
-                      )}
-                    </svg>
-                  </button>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={muted ? 0 : volume}
-                    aria-label="Volume"
-                    onChange={(event) => {
-                      const v = Number(event.target.value);
-                      setVolume(v);
-                      setMuted(v === 0);
-                    }}
-                  />
-                </span>
-                {chosenLook?.engine === "doodle" && (
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#d4d8e1", cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={continuous}
-                      onChange={(event) => void handleChangeLookOrDrawIn(look, event.target.checked)}
-                    />
-                    Continuous scene
-                  </label>
-                )}
-                <span className="ce-scene">
-                  {lineTimings[activeSceneIndex] ? `Scene ${activeSceneIndex + 1} of ${lineTimings.length}` : ""}
-                </span>
-              </div>
-            </div>
-
-            <div className="ce-timeline">
-              <header>
-                <b>Timeline</b>
-                <span>Click a scene or drag to scrub the live animation</span>
-              </header>
               <div
-                className="ce-track"
-                role="slider"
-                tabIndex={0}
-                aria-label="Animation timeline"
-                aria-valuemin={0}
-                aria-valuemax={duration}
-                aria-valuenow={Math.round(currentTime * 10) / 10}
-                aria-valuetext={formatVideoTime(currentTime)}
-                onPointerDown={(event) => {
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  scrubbingRef.current = true;
-                  const bounds = event.currentTarget.getBoundingClientRect();
-                  seekAnimation(((event.clientX - bounds.left) / bounds.width) * duration);
-                }}
-                onPointerMove={(event) => {
-                  if (!scrubbingRef.current) return;
-                  const bounds = event.currentTarget.getBoundingClientRect();
-                  seekAnimation(((event.clientX - bounds.left) / bounds.width) * duration);
-                }}
-                onPointerUp={() => {
-                  scrubbingRef.current = false;
-                }}
-                onPointerCancel={() => {
-                  scrubbingRef.current = false;
+                className={"ce-player" + (aspect === "9:16" ? " portrait" : "")}
+                style={{
+                  flex: "1 1 0",
+                  minHeight: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  padding: 10
                 }}
               >
-                <div className="ce-ruler">
-                  {Array.from({ length: Math.floor(duration / rulerStep(duration)) + 1 }, (_, i) => i * rulerStep(duration)).map(
-                    (s) => (
-                      <span key={s} style={{ left: `${Math.min(100, (s / Math.max(duration, 0.1)) * 100)}%` }}>
-                        {formatVideoTime(s)}
-                      </span>
-                    )
-                  )}
-                </div>
-                <div className="ce-strip">
-                  {lineTimings.map((seg, index) => (
-                    <div
-                      key={index}
-                      style={{ flex: Math.max(0.01, seg.end - seg.start) }}
-                      className={index === activeSceneIndex ? "active" : ""}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        seekAnimation(seg.start + 0.05);
-                      }}
-                    >
-                      <b>
-                        {String(index + 1).padStart(2, "0")} · Scene {index + 1}
-                      </b>
-                      <small>
-                        {formatVideoTime(seg.start)}–{formatVideoTime(seg.end)}
-                      </small>
-                    </div>
-                  ))}
-                </div>
-                <i
-                  className="ce-playhead"
-                  style={{ left: `${Math.min(100, Math.max(0, (currentTime / Math.max(duration, 0.1)) * 100))}%` }}
-                />
-              </div>
-            </div>
-          </section>
-
-          <aside className="ce-aside">
-            <div className="ce-composer">
-              <div className="ce-anchor">
-                <span className="ce-chip-time">At {formatVideoTime(currentTime)}</span>
-                <span className="ce-chip-scene">Scene {activeSceneIndex + 1}</span>
-                <button
-                  type="button"
-                  className="ce-add"
-                  disabled={isBusy || submitting || activeCommentDraft.trim().length < 3}
-                  onClick={() => {
-                    const text = activeCommentDraft.trim();
-                    if (text.length < 3) return;
-                    setSceneComments((curr) => ({ ...curr, [activeSceneIndex]: text }));
-                    setActiveCommentDraft("");
+                <div
+                  className="ce-stage"
+                  style={{
+                    position: "relative",
+                    flex: "1 1 0",
+                    minHeight: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    overflow: "hidden"
                   }}
                 >
-                  Add to scene {activeSceneIndex + 1}
-                </button>
-              </div>
-              <textarea
-                rows={2}
-                value={activeCommentDraft}
-                maxLength={300}
-                onChange={(event) => setActiveCommentDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                    const text = activeCommentDraft.trim();
-                    if (text.length >= 3) {
-                      setSceneComments((curr) => ({ ...curr, [activeSceneIndex]: text }));
-                      setActiveCommentDraft("");
-                    }
-                  }
-                }}
-                placeholder={`What should change in Scene ${activeSceneIndex + 1}?`}
-                aria-label="Scene comment"
-              />
-              <div className="ce-examples">
-                {ANIMATION_COMMENT_EXAMPLES.map((example) => (
-                  <button type="button" key={example} onClick={() => setActiveCommentDraft(example)}>
-                    {example}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="ce-comments">
-              <header>
-                <b>Scenes &amp; comments</b>
-                <span>{pendingSceneComments.length} pending</span>
-              </header>
-              <div className="ce-list" style={{ maxHeight: 420, overflowY: "auto" }}>
-                {lineTimings.map((seg, index) => (
-                  <div
-                    className="ce-comment"
-                    key={index}
+                  <canvas
+                    id="out"
+                    ref={canvasRef}
+                    onClick={togglePlay}
                     style={{
-                      borderLeft: index === activeSceneIndex ? "3px solid var(--blue)" : "3px solid transparent",
-                      paddingLeft: 10
+                      display: "block",
+                      margin: "0 auto",
+                      maxWidth: "100%",
+                      maxHeight: "100%",
+                      height: "100%",
+                      width: "auto",
+                      objectFit: "contain",
+                      cursor: "pointer",
+                      borderRadius: 10
                     }}
-                  >
-                    <div>
-                      <button
-                        type="button"
-                        className="ce-when"
-                        onClick={() => seekAnimation(seg.start + 0.05)}
-                      >
-                        Scene {index + 1} ({formatVideoTime(seg.start)})
-                      </button>
-                    </div>
-                    <p style={{ fontSize: 13, margin: "4px 0 6px" }}>{seg.say}</p>
+                  />
+                  {project?.painted?.audioVersion && project.id && (
+                    <audio
+                      ref={audioRef}
+                      src={paintedAudioUrl(project.id, project.painted.audioVersion)}
+                      preload="auto"
+                      onEnded={() => setPlaying(false)}
+                    />
+                  )}
+                  {!playing && !isBusy && <span className="ce-hint">Paused · comment on this moment</span>}
+                </div>
+
+                <div className="ce-controls" style={{ flexShrink: 0 }}>
+                  <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!timeline} onClick={togglePlay}>
+                    {playing ? "❚❚" : "▶"}
+                  </button>
+                  <span className="ce-clock">
+                    <b>{formatVideoTime(currentTime)}</b> / {formatVideoTime(duration)}
+                  </span>
+                  <span className="ce-volume">
+                    <button
+                      type="button"
+                      aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+                      onClick={() => setMuted((m) => !m)}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />
+                        {muted || volume === 0 ? (
+                          <path d="M16 9.5l5 5M21 9.5l-5 5" />
+                        ) : (
+                          <>
+                            <path d="M15.5 9.2a4 4 0 010 5.6" />
+                            {volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}
+                          </>
+                        )}
+                      </svg>
+                    </button>
                     <input
-                      type="text"
-                      maxLength={300}
-                      placeholder={`Comment on scene ${index + 1}…`}
-                      value={sceneComments[index] ?? ""}
-                      disabled={isBusy || submitting}
-                      onChange={(event) =>
-                        setSceneComments((curr) => ({ ...curr, [index]: event.target.value }))
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "6px 10px",
-                        borderRadius: 8,
-                        border: "1px solid var(--d-bd-d6e4f2)",
-                        fontSize: 13
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={muted ? 0 : volume}
+                      aria-label="Volume"
+                      onChange={(event) => {
+                        const v = Number(event.target.value);
+                        setVolume(v);
+                        setMuted(v === 0);
                       }}
                     />
-                  </div>
-                ))}
+                  </span>
+                  {chosenLook?.engine === "doodle" && (
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#d4d8e1", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={continuous}
+                        onChange={(event) => void handleChangeLookOrDrawIn(look, event.target.checked)}
+                      />
+                      Continuous scene
+                    </label>
+                  )}
+                  <span className="ce-scene">
+                    {lineTimings[activeSceneIndex] ? `Scene ${activeSceneIndex + 1} of ${lineTimings.length}` : ""}
+                  </span>
+                </div>
               </div>
-              <footer>
-                <button
-                  type="button"
-                  className="ce-apply"
-                  disabled={isBusy || submitting || pendingSceneComments.length === 0 || pendingSceneComments.length > 5}
-                  onClick={() => void handleApplySceneComments(pendingSceneComments)}
+
+              <div className="ce-timeline" style={{ flexShrink: 0, padding: "10px 14px" }}>
+                <header>
+                  <b>Timeline</b>
+                  <span>Click to jump · drag to scrub</span>
+                </header>
+                <div
+                  className="ce-track"
+                  role="slider"
+                  tabIndex={0}
+                  aria-label="Animation timeline"
+                  aria-valuemin={0}
+                  aria-valuemax={duration}
+                  aria-valuenow={Math.round(currentTime * 10) / 10}
+                  aria-valuetext={formatVideoTime(currentTime)}
+                  onPointerDown={(event) => {
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    scrubbingRef.current = true;
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    seekAnimation(((event.clientX - bounds.left) / bounds.width) * duration);
+                  }}
+                  onPointerMove={(event) => {
+                    if (!scrubbingRef.current) return;
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    seekAnimation(((event.clientX - bounds.left) / bounds.width) * duration);
+                  }}
+                  onPointerUp={() => {
+                    scrubbingRef.current = false;
+                  }}
+                  onPointerCancel={() => {
+                    scrubbingRef.current = false;
+                  }}
                 >
-                  {isBusy && busy?.phase === "changes"
-                    ? "Applying with AI…"
-                    : pendingSceneComments.length
-                    ? `Apply ${pendingSceneComments.length} change${pendingSceneComments.length > 1 ? "s" : ""} with AI`
-                    : "Apply changes with AI"}
-                </button>
-                <span>Only the commented scenes are rewritten; updates directly in the browser player.</span>
-              </footer>
-            </div>
-          </aside>
+                  <div className="ce-ruler">
+                    {Array.from({ length: Math.floor(duration / rulerStep(duration)) + 1 }, (_, i) => i * rulerStep(duration)).map(
+                      (s) => (
+                        <span key={s} style={{ left: `${Math.min(100, (s / Math.max(duration, 0.1)) * 100)}%` }}>
+                          {formatVideoTime(s)}
+                        </span>
+                      )
+                    )}
+                  </div>
+                  <div className="ce-pins">
+                    {sortedComments.map((comment, index) => (
+                      <button
+                        key={comment.id}
+                        type="button"
+                        title={comment.body}
+                        style={{
+                          left: `${Math.min(100, Math.max(0, (comment.timestampSeconds / Math.max(duration, 0.1)) * 100))}%`,
+                          background: PIN_COLORS[index % PIN_COLORS.length]
+                        }}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          seekAnimation(comment.timestampSeconds);
+                        }}
+                      >
+                        {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="ce-strip">
+                    {lineTimings.map((seg, index) => (
+                      <div
+                        key={index}
+                        style={{ flex: Math.max(0.01, seg.end - seg.start) }}
+                        className={index === activeSceneIndex ? "active" : ""}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          seekAnimation(seg.start + 0.05);
+                        }}
+                      >
+                        <b>
+                          {String(index + 1).padStart(2, "0")} · Scene {index + 1}
+                        </b>
+                        <small>
+                          {formatVideoTime(seg.start)}–{formatVideoTime(seg.end)}
+                        </small>
+                      </div>
+                    ))}
+                  </div>
+                  <i
+                    className="ce-playhead"
+                    style={{ left: `${Math.min(100, Math.max(0, (currentTime / Math.max(duration, 0.1)) * 100))}%` }}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <aside
+              className="ce-aside"
+              style={{
+                height: "100%",
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                overflow: "hidden"
+              }}
+            >
+              <div className="ce-composer" style={{ flexShrink: 0, padding: 12 }}>
+                <div className="ce-anchor">
+                  <span className="ce-chip-time">At {formatVideoTime(currentTime)}</span>
+                  <span className="ce-chip-scene">Scene {activeSceneIndex + 1}</span>
+                  <button
+                    type="button"
+                    className="ce-add"
+                    disabled={isBusy || submitting || activeCommentDraft.trim().length < 3}
+                    onClick={addTimedComment}
+                  >
+                    Add
+                  </button>
+                </div>
+                <textarea
+                  rows={2}
+                  value={activeCommentDraft}
+                  maxLength={300}
+                  onChange={(event) => setActiveCommentDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                      addTimedComment();
+                    }
+                  }}
+                  placeholder="What should change here?"
+                  aria-label="Review comment"
+                />
+                <div className="ce-examples">
+                  {ANIMATION_COMMENT_EXAMPLES.map((example) => (
+                    <button type="button" key={example} onClick={() => setActiveCommentDraft(example)}>
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                className="ce-comments"
+                style={{
+                  flex: "1 1 0",
+                  minHeight: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden"
+                }}
+              >
+                <header style={{ flexShrink: 0 }}>
+                  <b>Comments</b>
+                  <span>{sortedComments.length} open</span>
+                </header>
+                <div className="ce-list" style={{ flex: "1 1 0", minHeight: 0, maxHeight: "none", overflowY: "auto" }}>
+                  {sortedComments.length === 0 ? (
+                    <p className="ce-empty">No comments yet. Pause the video and add one.</p>
+                  ) : (
+                    sortedComments.map((comment, index) => (
+                      <div className="ce-comment" key={comment.id}>
+                        <div>
+                          <span className="ce-pin" style={{ background: PIN_COLORS[index % PIN_COLORS.length] }}>
+                            {index + 1}
+                          </span>
+                          <button
+                            type="button"
+                            className="ce-when"
+                            onClick={() => seekAnimation(comment.timestampSeconds)}
+                          >
+                            {formatVideoTime(comment.timestampSeconds)}
+                          </button>
+                          <small>Scene {sceneIndexAt(comment.timestampSeconds) + 1}</small>
+                        </div>
+                        <p>{comment.body}</p>
+                        <button
+                          type="button"
+                          className="ce-remove"
+                          aria-label="Delete comment"
+                          disabled={isBusy || submitting}
+                          onClick={() => setTimedComments((curr) => curr.filter((c) => c.id !== comment.id))}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <footer style={{ flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    className="ce-apply"
+                    disabled={isBusy || submitting || sortedComments.length === 0}
+                    onClick={applyTimedComments}
+                  >
+                    {isBusy && busy?.phase === "changes"
+                      ? "Applying with AI…"
+                      : sortedComments.length
+                      ? `Apply ${sortedComments.length} with AI`
+                      : "Apply with AI"}
+                  </button>
+                  <span>Each comment becomes one proposed change.</span>
+                </footer>
+              </div>
+            </aside>
+          </div>
         </div>
       )}
 

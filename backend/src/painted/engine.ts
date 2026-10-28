@@ -29,6 +29,8 @@ const paintedTemplateDir = join(config.templatesDir, "painted");
 function configurePaintedEnv() {
   if (config.geminiApiKey) process.env.GEMINI_API_KEY = config.geminiApiKey;
   if (config.anthropicApiKey) process.env.ANTHROPIC_API_KEY = config.anthropicApiKey;
+  process.env.PAINTED_GEMINI_MODEL ||= "gemini-2.5-flash";
+  process.env.PAINTED_ORACLE_MODEL ||= "gemini-2.5-flash";
   process.env.PAINTED_WORLD_DB ||= join(config.projectsDir, "_painted-world-db");
   process.env.PAINTED_RECIPE_CACHE ||= join(config.projectsDir, "_painted-recipes");
 }
@@ -240,12 +242,7 @@ function checkVerbatim(script: string, spec: PaintedSpec) {
 }
 
 const needsSupervise = (s: PaintedSpec) =>
-  !(s.lines ?? []).every(
-    (l) =>
-      l.scene &&
-      (l.shots ?? []).length &&
-      (l.shots ?? []).every((sh) => sh.place && ((sh.subjects ?? []).length + (sh.props ?? []).length > 0))
-  );
+  !(s.lines ?? []).every((l) => (l.shots ?? []).length > 0 && (l.shots ?? []).every((sh) => Boolean(sh.place)));
 
 /**
  * Step 1 -> Step 2: Generates the Storyboard (`spec` + `timeline`) from either an idea (`mode === "idea"`)

@@ -613,7 +613,7 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
     if (!project || project.ownerId !== owner || !project.painted?.spec) {
       return reply.code(404).send(fail("not_found", "Generate the storyboard first."));
     }
-    if (project.painted.busy?.status === "running") {
+    if (project.painted.busy?.status === "running" && project.painted.busy.phase === "animate") {
       return reply.code(202).send({ project });
     }
 
