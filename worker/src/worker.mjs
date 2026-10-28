@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { PgBoss } from "pg-boss";
 import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
 import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
+import { PaintedFailure, renderPainted } from "./painted.mjs";
 import { QUEUES, claim, createPool, finish, noteRetry, progress } from "./jobs.mjs";
 import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
 
@@ -50,12 +51,13 @@ function progressReporter(jobId, attempt, onLost) {
   let last = 0;
   let frames = null;
   let stage = "preparing";
+  let fixedPercent = null;
   let writing = Promise.resolve();
   const write = (force = false) => {
     const now = Date.now();
     if (!force && now - last < 1000) return;
     last = now;
-    const percent = stage === "encoding" ? 92 : frames ? 52 + Math.round((frames.done / frames.total) * 38) : 50;
+    const percent = fixedPercent ?? (stage === "encoding" ? 92 : frames ? 52 + Math.round((frames.done / frames.total) * 38) : 50);
     writing = writing
       .then(() => progress(pool, jobId, attempt, { stage, progress: percent, framesDone: frames?.done ?? null, framesTotal: frames?.total ?? null }))
       .then((owned) => { if (!owned) onLost(); })
@@ -75,6 +77,8 @@ function progressReporter(jobId, attempt, onLost) {
         write(true);
       }
     },
+    /** A job that reports its own stages (painted films): name the stage and the percent directly. */
+    set(next, percent) { stage = next; fixedPercent = percent; frames = null; write(true); },
     flush: () => writing
   };
 }
@@ -171,10 +175,22 @@ async function renderBeatPlan(id, input, attempt, signal, reporter) {
   }
 }
 
+/** A story film (worker/templates/painted): script to narrated hand-drawn film. The backend already vetted the look and charged for it. */
+async function renderPaintedFilm(id, input, attempt, signal, reporter) {
+  if (!storageEnabled) throw new PermanentError("Story films need object storage.");
+  try {
+    return await renderPainted({ id, input, attempt, signal, reporter, run });
+  } catch (error) {
+    if (error instanceof PaintedFailure) throw new PermanentError(error.message);
+    throw error;
+  }
+}
+
 async function renderVideo(input, attempt, signal, reporter) {
   const id = typeof input.id === "string" && /^[a-f0-9-]{36}$/i.test(input.id) ? input.id : "";
   if (!id) throw new PermanentError("A valid render id is required.");
   if (input.kind === "beat-plan" || input.kind === "pro") return renderBeatPlan(id, input, attempt, signal, reporter);
+  if (input.kind === "painted") return renderPaintedFilm(id, input, attempt, signal, reporter);
   if (storageEnabled) throw new PermanentError("Template renders are not available with object storage yet; render the approved storyboard instead.");
   const template = idOrDefault(input.template, "product-launch");
   const theme = idOrDefault(input.theme, "neutral");

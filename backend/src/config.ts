@@ -152,6 +152,8 @@ const environmentSummary = {
 };
 
 export const config = {
+  // Story films (worker/templates/painted). Doodle looks run on any worker; oil looks need a GPU worker, so they stay locked until PAINTED_OIL=1.
+  painted: { oil: process.env.PAINTED_OIL === "1" },
   auth,
   mediaUrlSecret,
   legacyOwnerId,

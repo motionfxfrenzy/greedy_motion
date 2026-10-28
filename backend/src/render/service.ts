@@ -247,6 +247,11 @@ export class RenderService {
   /** Mirrors a finished job onto its project, unless the project has since moved to a newer render. */
   private async syncProject(jobId: string) {
     const row = await renderJobRepository.row(jobId);
+    // A story film that could not be made (the engine failed for good): the tokens taken for it go back. Once per spend.
+    const painted = row?.request as { kind?: string; spend?: string } | undefined;
+    if (row?.state === "failed" && row.owner_id && painted?.kind === "painted" && painted.spend) {
+      await refundSpend(row.owner_id, painted.spend).catch((error) => console.error(JSON.stringify({ level: "error", event: "painted_refund_failed", jobId, message: error instanceof Error ? error.message : String(error) })));
+    }
     if (!row?.project_id || (row.state !== "ready" && row.state !== "failed")) return;
     const project = await getProject(row.project_id);
     if (!project || project.renderJobId !== jobId) return;

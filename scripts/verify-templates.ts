@@ -11,7 +11,7 @@ const problems: string[] = [];
 
 // Engines, not gallery templates: `beat-plan` is the storyboard engine (one composition driven by the beat plan),
 // `frame-film` the player that animates a storyboard's approved frames inside it, `showreel` the showreel generator.
-const ENGINES = new Set(["beat-plan", "frame-film", "showreel"]);
+const ENGINES = new Set(["beat-plan", "frame-film", "showreel", "painted"]);
 const folders = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory() && !ENGINES.has(entry.name)).map((entry) => entry.name);
 for (const folder of folders) if (!templates.some((template) => template.id === folder)) problems.push(`${folder}: folder has no catalog entry`);
 

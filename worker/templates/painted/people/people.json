@@ -1,0 +1,500 @@
+{
+ "version": 1,
+ "generated": "2026-10-27",
+ "groups": {
+  "boy": {
+   "age": "child",
+   "gender": "m",
+   "heightM": 1.4,
+   "people": [
+    {
+     "id": "boy_1",
+     "name": "Jamal",
+     "desc": "A young boy in blue overalls and a striped shirt.",
+     "hair": "short",
+     "hairColor": "#1a1818",
+     "skin": "#7a4b3a",
+     "top": "#d97b48",
+     "bottom": "#5b7c99",
+     "dress": false,
+     "build": "stocky",
+     "heightM": 1.32,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "boy_2",
+     "name": "Leo",
+     "desc": "A tall boy wearing a green sweater vest and tan trousers.",
+     "hair": "short",
+     "hairColor": "#b84d25",
+     "skin": "#f4d2c2",
+     "top": "#5c8242",
+     "bottom": "#bba77b",
+     "dress": false,
+     "build": "slim",
+     "heightM": 1.48,
+     "extras": []
+    },
+    {
+     "id": "boy_3",
+     "name": "Sam",
+     "desc": "A boy in a red hoodie and blue jeans.",
+     "hair": "short",
+     "hairColor": "#8b653b",
+     "skin": "#c78b68",
+     "top": "#a73232",
+     "bottom": "#3b5474",
+     "dress": false,
+     "build": "average",
+     "heightM": 1.4,
+     "extras": []
+    },
+    {
+     "id": "boy_4",
+     "name": "Chen",
+     "desc": "A boy with tied-back hair wearing a green long-sleeve shirt.",
+     "hair": "long",
+     "hairColor": "#1c1e20",
+     "skin": "#dcb078",
+     "top": "#4a7c59",
+     "bottom": "#5a4332",
+     "dress": false,
+     "build": "slim",
+     "heightM": 1.4,
+     "extras": []
+    },
+    {
+     "id": "boy_5",
+     "name": "Max",
+     "desc": "A boy with blonde hair in a blue sweatshirt and grey cargo pants.",
+     "hair": "short",
+     "hairColor": "#dcb468",
+     "skin": "#e2b88f",
+     "top": "#5c84b4",
+     "bottom": "#8c8c84",
+     "dress": false,
+     "build": "stocky",
+     "heightM": 1.32,
+     "extras": []
+    }
+   ]
+  },
+  "girl": {
+   "age": "child",
+   "gender": "f",
+   "heightM": 1.35,
+   "people": [
+    {
+     "id": "girl_1",
+     "name": "Priya",
+     "desc": "Girl in a teal tunic and yellow trousers.",
+     "hair": "long",
+     "hairColor": "#33221c",
+     "skin": "#a87352",
+     "top": "#5c9a92",
+     "bottom": "#cfa342",
+     "dress": false,
+     "build": "average",
+     "heightM": 1.35,
+     "extras": [
+      "braid"
+     ]
+    },
+    {
+     "id": "girl_2",
+     "name": "Nia",
+     "desc": "Girl in denim overalls and an orange striped shirt.",
+     "hair": "bun",
+     "hairColor": "#2b2422",
+     "skin": "#5e3c26",
+     "top": "#3d5c7d",
+     "bottom": "#3d5c7d",
+     "dress": false,
+     "build": "average",
+     "heightM": 1.43,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "girl_3",
+     "name": "Emma",
+     "desc": "Girl in a red sweater and plaid skirt.",
+     "hair": "short",
+     "hairColor": "#e8c87d",
+     "skin": "#f5d0b5",
+     "top": "#c23b31",
+     "bottom": "#809096",
+     "dress": true,
+     "build": "average",
+     "heightM": 1.27,
+     "extras": []
+    },
+    {
+     "id": "girl_4",
+     "name": "Su",
+     "desc": "Girl in a cream jacket and pink dress.",
+     "hair": "long",
+     "hairColor": "#292728",
+     "skin": "#ebd2a9",
+     "top": "#eee5d2",
+     "bottom": "#e0ddd8",
+     "dress": true,
+     "build": "slim",
+     "heightM": 1.35,
+     "extras": []
+    },
+    {
+     "id": "girl_5",
+     "name": "Cleo",
+     "desc": "Girl in a blue hoodie and patterned skirt.",
+     "hair": "short",
+     "hairColor": "#a84f24",
+     "skin": "#b87c55",
+     "top": "#4a7a9e",
+     "bottom": "#b87c55",
+     "dress": true,
+     "build": "average",
+     "heightM": 1.35,
+     "extras": [
+      "curly"
+     ]
+    }
+   ]
+  },
+  "young_man": {
+   "age": "young",
+   "gender": "m",
+   "heightM": 1.78,
+   "people": [
+    {
+     "id": "young_man_1",
+     "name": "Marcus",
+     "desc": "A bearded man in a green sweater.",
+     "hair": "beard",
+     "hairColor": "#1a1a1a",
+     "skin": "#6b442a",
+     "top": "#4a7c49",
+     "bottom": "#c29b62",
+     "dress": false,
+     "build": "average",
+     "heightM": 1.78,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "young_man_2",
+     "name": "Leo",
+     "desc": "A pale man with ginger hair in a denim vest.",
+     "hair": "long",
+     "hairColor": "#d98246",
+     "skin": "#f4d2b8",
+     "top": "#4b7395",
+     "bottom": "#8a8a85",
+     "dress": false,
+     "build": "slim",
+     "heightM": 1.78,
+     "extras": []
+    },
+    {
+     "id": "young_man_3",
+     "name": "Jamal",
+     "desc": "A bearded man wearing a yellow plaid shirt.",
+     "hair": "beard",
+     "hairColor": "#2a211c",
+     "skin": "#a67c52",
+     "top": "#d4a338",
+     "bottom": "#3b557b",
+     "dress": false,
+     "build": "average",
+     "heightM": 1.78,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "young_man_4",
+     "name": "Toby",
+     "desc": "A fair man with curly blonde hair in a striped shirt.",
+     "hair": "short",
+     "hairColor": "#e8c371",
+     "skin": "#f4d0b5",
+     "top": "#4c8a8c",
+     "bottom": "#7a8b55",
+     "dress": false,
+     "build": "slim",
+     "heightM": 1.67,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "young_man_5",
+     "name": "Andre",
+     "desc": "A tall man with a goatee in a maroon jacket.",
+     "hair": "beard",
+     "hairColor": "#2b221e",
+     "skin": "#7a4b31",
+     "top": "#7a5264",
+     "bottom": "#545756",
+     "dress": false,
+     "build": "stocky",
+     "heightM": 1.89,
+     "extras": []
+    }
+   ]
+  },
+  "young_woman": {
+   "age": "young",
+   "gender": "f",
+   "heightM": 1.65,
+   "people": [
+    {
+     "id": "young_woman_1",
+     "name": "Zoe",
+     "desc": "A slim woman with an afro wearing a yellow dress.",
+     "hair": "short",
+     "hairColor": "#221e1d",
+     "skin": "#6b4433",
+     "top": "#d89e29",
+     "bottom": "#6b4433",
+     "dress": true,
+     "build": "slim",
+     "heightM": 1.65,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "young_woman_2",
+     "name": "Maya",
+     "desc": "A stocky woman with braided hair wearing a rust tunic.",
+     "hair": "bun",
+     "hairColor": "#4a3021",
+     "skin": "#a66d4f",
+     "top": "#b8573b",
+     "bottom": "#6b615c",
+     "dress": false,
+     "build": "stocky",
+     "heightM": 1.75,
+     "extras": [
+      "braid"
+     ]
+    },
+    {
+     "id": "young_woman_3",
+     "name": "Elena",
+     "desc": "A woman with a ponytail wearing a blue striped sweater.",
+     "hair": "long",
+     "hairColor": "#362a24",
+     "skin": "#dcb484",
+     "top": "#547b9e",
+     "bottom": "#2c3e42",
+     "dress": false,
+     "build": "average",
+     "heightM": 1.65,
+     "extras": []
+    },
+    {
+     "id": "young_woman_4",
+     "name": "Chloe",
+     "desc": "A slim woman with curly red hair wearing a green dress.",
+     "hair": "short",
+     "hairColor": "#b84b22",
+     "skin": "#fcdbd0",
+     "top": "#4f8f79",
+     "bottom": "#fcdbd0",
+     "dress": true,
+     "build": "slim",
+     "heightM": 1.75,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "young_woman_5",
+     "name": "Lin",
+     "desc": "A short stocky woman with a black bob wearing an orange sweater.",
+     "hair": "short",
+     "hairColor": "#1a1a1a",
+     "skin": "#e0a65c",
+     "top": "#e36b27",
+     "bottom": "#354b5e",
+     "dress": false,
+     "build": "stocky",
+     "heightM": 1.55,
+     "extras": []
+    }
+   ]
+  },
+  "old_man": {
+   "age": "old",
+   "gender": "m",
+   "heightM": 1.7,
+   "people": [
+    {
+     "id": "old_man_1",
+     "name": "Arthur",
+     "desc": "A stocky man in a blue sweater with glasses and curly hair.",
+     "hair": "short",
+     "hairColor": "#6b7078",
+     "skin": "#e5b895",
+     "top": "#345173",
+     "bottom": "#2d4a32",
+     "dress": false,
+     "build": "stocky",
+     "heightM": 1.6,
+     "extras": [
+      "glasses",
+      "curly"
+     ]
+    },
+    {
+     "id": "old_man_2",
+     "name": "Bernard",
+     "desc": "A slim man in a mustard jacket holding a cane.",
+     "hair": "short",
+     "hairColor": "#e6e8e6",
+     "skin": "#e8c4a2",
+     "top": "#c49a3b",
+     "bottom": "#6b5744",
+     "dress": false,
+     "build": "slim",
+     "heightM": 1.8,
+     "extras": [
+      "glasses",
+      "cane"
+     ]
+    },
+    {
+     "id": "old_man_3",
+     "name": "Carl",
+     "desc": "A bald man with a grey beard in an orange work jacket.",
+     "hair": "beard",
+     "hairColor": "#9ca3a8",
+     "skin": "#d9a077",
+     "top": "#c46b33",
+     "bottom": "#4a4843",
+     "dress": false,
+     "build": "stocky",
+     "heightM": 1.7,
+     "extras": []
+    },
+    {
+     "id": "old_man_4",
+     "name": "David",
+     "desc": "A slim man wearing a teal cardigan and grey trousers.",
+     "hair": "short",
+     "hairColor": "#636b73",
+     "skin": "#d4a363",
+     "top": "#2d5c63",
+     "bottom": "#4f5359",
+     "dress": false,
+     "build": "slim",
+     "heightM": 1.7,
+     "extras": []
+    },
+    {
+     "id": "old_man_5",
+     "name": "Earl",
+     "desc": "A tall man in a long dark coat and striped sweater.",
+     "hair": "short",
+     "hairColor": "#8a8682",
+     "skin": "#6b442e",
+     "top": "#4a4d52",
+     "bottom": "#4a3829",
+     "dress": false,
+     "build": "average",
+     "heightM": 1.8,
+     "extras": []
+    }
+   ]
+  },
+  "old_woman": {
+   "age": "old",
+   "gender": "f",
+   "heightM": 1.58,
+   "people": [
+    {
+     "id": "old_woman_1",
+     "name": "Martha",
+     "desc": "A stocky woman with curly grey hair in a green tunic.",
+     "hair": "short",
+     "hairColor": "#6b7278",
+     "skin": "#8c5a3b",
+     "top": "#547340",
+     "bottom": "#8c5a3b",
+     "dress": true,
+     "build": "stocky",
+     "heightM": 1.49,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "old_woman_2",
+     "name": "Helen",
+     "desc": "A tall woman with a white bun in an orange cardigan.",
+     "hair": "bun",
+     "hairColor": "#e6e8ea",
+     "skin": "#e3b69b",
+     "top": "#b85227",
+     "bottom": "#5c554f",
+     "dress": true,
+     "build": "slim",
+     "heightM": 1.67,
+     "extras": []
+    },
+    {
+     "id": "old_woman_3",
+     "name": "Carol",
+     "desc": "A woman with curly brown hair in a patterned green sweater.",
+     "hair": "short",
+     "hairColor": "#b58257",
+     "skin": "#d9a07b",
+     "top": "#707548",
+     "bottom": "#31445e",
+     "dress": false,
+     "build": "stocky",
+     "heightM": 1.58,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "old_woman_4",
+     "name": "Betty",
+     "desc": "A woman with short grey hair in a yellow vest.",
+     "hair": "short",
+     "hairColor": "#8c9296",
+     "skin": "#c48a5e",
+     "top": "#d4a342",
+     "bottom": "#635345",
+     "dress": false,
+     "build": "stocky",
+     "heightM": 1.58,
+     "extras": [
+      "curly"
+     ]
+    },
+    {
+     "id": "old_woman_5",
+     "name": "Ruth",
+     "desc": "A short, slim woman with white hair in a purple tunic.",
+     "hair": "short",
+     "hairColor": "#e3e6e8",
+     "skin": "#e3b59a",
+     "top": "#563c6e",
+     "bottom": "#e3b59a",
+     "dress": true,
+     "build": "slim",
+     "heightM": 1.49,
+     "extras": []
+    }
+   ]
+  }
+ }
+}

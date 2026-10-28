@@ -11,6 +11,7 @@ import previewManifest from "./gallery-previews.json" with { type: "json" };
 import { getLook, looks, type LookId } from "./looks.ts";
 import { themes } from "./themes.ts";
 import { familiesOfLook } from "./style-families.ts";
+import { paintedLooks } from "./painted.ts";
 
 export type GalleryKind = "starter" | "explainer" | "skill" | "style";
 
@@ -43,6 +44,8 @@ export type GalleryTemplate = {
   captions: CaptionMode;
   /** The example brief the script field starts with; the person replaces the product details. */
   prompt: string;
+  /** Set on story films: the template opens the Story film page, drawn by the painted engine in this look (painted.ts). */
+  paintedLook?: string;
 };
 
 export const skillLabels: Record<string, string> = {
@@ -252,7 +255,20 @@ const withLookTheme = (item: GalleryTemplate): GalleryTemplate => {
   const rule = item.group === "Colour" ? undefined : lookThemes.find((entry) => entry.match.test(item.look));
   return rule ? { ...item, theme: rule.theme } : item;
 };
-const everyGalleryTemplate: readonly GalleryTemplate[] = [...curated, ...sceneTemplates.filter(hasClip), ...opusTemplates, ...styleVersions.filter(hasClip), ...styleTemplates, ...themeTemplates].map(withLookTheme).map(withRendered);
+/**
+ * Story films: one template per look. Each opens the Story film page with that look chosen; the page and the worker route the
+ * film to the doodle or the oil engine from the look alone. Previews are short clips of the same story in each look.
+ */
+const paintedTemplates: readonly GalleryTemplate[] = paintedLooks.map((look): GalleryTemplate => ({
+  id: `story-${look.engine === "oil" ? "painted" : "doodle"}-${look.medium}`, kind: "style", name: `${look.name} story`, group: "Story films",
+  summary: look.blurb,
+  bestFor: "A narrated short film from your own words, drawn scene by scene",
+  preview: { src: `/painted/${look.medium}.jpg`, kind: "video", label: "Preview of this style", video: `/painted/${look.medium}.mp4` },
+  skill: null, look: "doodle", theme: "neutral", aspect: "9:16", durationSeconds: 60, motionProfile: "smooth", pace: "calm", audio: "both", captions: "key-phrases",
+  prompt: look.script, paintedLook: look.id
+}));
+
+const everyGalleryTemplate: readonly GalleryTemplate[] = [...paintedTemplates, ...curated, ...sceneTemplates.filter(hasClip), ...opusTemplates, ...styleVersions.filter(hasClip), ...styleTemplates, ...themeTemplates].map(withLookTheme).map(withRendered);
 
 /**
  * Held for v2 (docs/v2/PLAN.md #2): every style whose look is rendered from generated material (paper, clay, illustration,
@@ -274,6 +290,7 @@ const explainGroups = new Set(["Math", "Tech", "Flat vector", "Whiteboard", "Bla
 const brandGroups = new Set(["Showreel", "Typography", "Social"]);
 
 export function useCaseOf(item: GalleryTemplate): GalleryUseCase {
+  if (item.paintedLook) return "story";
   if (item.group === "Colour") return "colour";
   if (item.group === "3D") return "threed";
   if (explainGroups.has(item.group)) return "explain";
@@ -315,12 +332,13 @@ export function styleBrief(look: LookId): Pick<ScriptBrief, "look"> {
 }
 
 /** What a card needs. The prompt and the brief presets stay on the server until a template is chosen. */
-export type GalleryCard = Pick<GalleryTemplate, "id" | "name" | "group" | "summary" | "preview" | "source" | "aspect"> & { generated: boolean; useCase: GalleryUseCase };
+export type GalleryCard = Pick<GalleryTemplate, "id" | "name" | "group" | "summary" | "preview" | "source" | "aspect"> & { generated: boolean; useCase: GalleryUseCase; paintedLook?: string; /** Story film whose look needs a worker this deployment does not have yet. */ locked?: boolean };
 export type GalleryPage = { items: GalleryCard[]; total: number; nextCursor: string | null; counts: Record<GalleryUseCase | "all", number> };
 
 export const galleryCard = (item: GalleryTemplate): GalleryCard => ({
   id: item.id, name: item.name, group: item.group, summary: item.summary, preview: item.preview, aspect: item.aspect,
-  ...(item.source ? { source: item.source } : {}), generated: needsGeneration(item), useCase: useCaseOf(item)
+  ...(item.source ? { source: item.source } : {}), generated: needsGeneration(item), useCase: useCaseOf(item),
+  ...(item.paintedLook ? { paintedLook: item.paintedLook } : {})
 });
 
 /** The templates shown on the landing page, in order. */
@@ -365,7 +383,7 @@ export const familyOf = (item: GalleryTemplate): string => {
 
 /** Every example of one style: a look id (all of its families) or a family id (just that family). Colour themes are
  *  palettes, not styles, so they are not examples. */
-const styleExamples = (id: string): readonly GalleryTemplate[] => galleryTemplates.filter((item) => item.group !== "Colour" && (item.look === id || familyOf(item) === id));
+const styleExamples = (id: string): readonly GalleryTemplate[] => galleryTemplates.filter((item) => item.group !== "Colour" && !item.paintedLook && (item.look === id || familyOf(item) === id));
 
 /** A visual style as the style picker shows it. `id` is a look id, or a family id for a look that is split into families
  *  (`look` is the look to set either way); `examples` is how many templates are made in it; `preview` is one real clip. */

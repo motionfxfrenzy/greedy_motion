@@ -18,6 +18,7 @@ export * from "./looks.ts";
 export * from "./style-families.ts";
 export * from "./scenes.ts";
 export * from "./motion-blur.ts";
+export * from "./painted.ts";
 export * from "./pricing.ts";
 export * from "./script-stream.ts";
 export * from "./templates.ts";
@@ -57,7 +58,7 @@ export type RenderJobState = "queued" | "planning" | "rendering" | "ready" | "fa
  *   `frames` (capturing frames; see `frames`), `encoding` (muxing audio and writing the MP4),
  *   `retrying` (an attempt failed and is scheduled to run again)
  */
-export type RenderStage = "queued" | "planning" | "audio" | "directing" | "waiting" | "preparing" | "frames" | "encoding" | "retrying" | "done" | "failed";
+export type RenderStage = "queued" | "planning" | "audio" | "directing" | "waiting" | "preparing" | "objects" | "voice" | "music" | "painting" | "frames" | "encoding" | "retrying" | "done" | "failed";
 
 /** Which planner produced the storyboard, so the UI can show whether Claude was used. */
 export type PlannerInfo = { provider: "anthropic" | "deterministic"; model?: string };

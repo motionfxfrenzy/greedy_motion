@@ -64,3 +64,23 @@ export async function otherAttempts(jobId, keep) {
   const found = await list(cfg.outputs, `renders/${jobId}/`);
   return found.map((item) => item.key).filter((key) => key !== keep);
 }
+
+/** One small file in the outputs bucket (a story film's work folder, kept so a comment can repaint a single scene). */
+export async function putFile(key, file, type = "application/gzip") {
+  const { size } = await stat(file);
+  await client.send(new PutObjectCommand({ Bucket: cfg.outputs, Key: key, Body: createReadStream(file), ContentLength: size, ContentType: type }));
+  return size;
+}
+
+/** Downloads one outputs-bucket object to `file`; returns false when it does not exist. */
+export async function getFile(key, file) {
+  try {
+    const response = await client.send(new GetObjectCommand({ Bucket: cfg.outputs, Key: key }));
+    await mkdir(dirname(file), { recursive: true });
+    await pipeline(response.Body, createWriteStream(file));
+    return true;
+  } catch (error) {
+    if (error?.name === "NoSuchKey" || error?.$metadata?.httpStatusCode === 404) return false;
+    throw error;
+  }
+}

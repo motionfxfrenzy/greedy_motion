@@ -1,0 +1,22 @@
+# Painted-shorts renderer: script in, narrated painted film out. Build context: repository root.
+#   docker build -f worker/Dockerfile.painted -t painted-shorts .
+#   docker run --rm -e ANTHROPIC_API_KEY -e GEMINI_API_KEY -v "$PWD/out:/out" painted-shorts --script /out/script.txt --out /out/film.mp4
+# On an NVIDIA GPU host: add `--gpus all -e PAINTED_ANGLE=vulkan` (needs the NVIDIA container toolkit). The image
+# refuses to paint on a software renderer (SwiftShader / llvmpipe / Mesa) via PAINTED_REQUIRE_GPU=1 + the renderer
+# check in render.mjs, so a CPU-fallback container fails fast instead of shipping a slow film.
+ARG NODE_IMAGE=node:24-bookworm-slim
+FROM ${NODE_IMAGE}
+ENV DEBIAN_FRONTEND=noninteractive NODE_ENV=production PAINTED_BROWSER=/usr/bin/chromium PAINTED_REQUIRE_GPU=1 \
+    NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility,video NVIDIA_VISIBLE_DEVICES=all
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends chromium ffmpeg fonts-liberation fonts-dejavu-core ca-certificates tini libvulkan1 libegl1 libgl1 libgles2 \
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd -f -r video && groupadd -f -r render && usermod -a -G video,render node
+WORKDIR /app
+COPY worker/templates/painted/package.json ./
+RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
+COPY worker/templates/painted ./
+RUN mkdir -p /out && chown -R node:node /app /out
+USER node
+WORKDIR /out
+ENTRYPOINT ["tini", "--", "node", "/app/cli.mjs"]

@@ -1,0 +1,416 @@
+{
+ "balloon": {
+  "title": "Hot-air balloon · crayon",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 1,
+  "kind": "film",
+  "hash": "()=>{let g=i.getImageData(0,0,n.width,n.height).data,x=2166136261;for(let w=0;w<g.length;w++)x^=g[w],x=Math.imul(x,16777619);return(x>>>0).toString(16)}"
+ },
+ "balloonDraw": {
+  "title": "Hot-air balloon · crayon, drawn on",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 450,
+  "kind": "film",
+  "hash": "()=>{let g=i.getImageData(0,0,t.width,t.height).data,x=2166136261;for(let w=0;w<g.length;w++)x^=g[w],x=Math.imul(x,16777619);return(x>>>0).toString(16)}"
+ },
+ "blueprint": {
+  "title": "Going train · cyanotype drafting sheet",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "film",
+  "hash": "()=>{let w=c.getImageData(0,0,r.width,r.height).data,g=2166136261;for(let x=0;x<w.length;x++)g^=w[x],g=Math.imul(g,16777619);return(g>>>0).toString(16)}"
+ },
+ "brokenColour": {
+  "title": "Broken colour · harbour at sunrise",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 450,
+  "kind": "film",
+  "hash": "()=>{let w=c.getImageData(0,0,e.width,e.height).data,y=2166136261;for(let P=0;P<w.length;P++)y^=w[P],y=Math.imul(y,16777619);return(y>>>0).toString(16)}"
+ },
+ "charcoalErasure": {
+  "title": "One tree, four seasons · charcoal",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "film",
+  "hash": "()=>{let w=i.getImageData(0,0,e.width,e.height).data,y=2166136261;for(let P=0;P<w.length;P++)y^=w[P],y=Math.imul(y,16777619);return(y>>>0).toString(16)}"
+ },
+ "colouredPencil": {
+  "title": "The tin repairman · coloured pencil",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "drawing",
+  "hash": "()=>{let A=c.getImageData(0,0,a.width,a.height).data,k=2166136261;for(let S=0;S<A.length;S++)k^=A[S],k=Math.imul(k,16777619);return(k>>>0).toString(16)}"
+ },
+ "embroidery": {
+  "title": "A wreath and a bee · hand embroidery",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "film",
+  "hash": "()=>{let P=l.getImageData(0,0,e.width,e.height).data,w=2166136261;for(let S=0;S<P.length;S++)w^=P[S],w=Math.imul(w,16777619);return(w>>>0).toString(16)}"
+ },
+ "embroideryAlive": {
+  "title": "A wreath and a bee · embroidery, alive",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 240,
+  "kind": "loop",
+  "hash": "()=>{let P=l.getImageData(0,0,e.width,e.height).data,w=2166136261;for(let v=0;v<P.length;v++)w^=P[v],w=Math.imul(w,16777619);return(w>>>0).toString(16)}"
+ },
+ "flatVector": {
+  "title": "Flat vector · the regatta",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 525,
+  "kind": "film",
+  "hash": "()=>{let p=s.getImageData(0,0,n.width,n.height).data,d=2166136261;for(let P=0;P<p.length;P++)d^=p[P],d=Math.imul(d,16777619);return(d>>>0).toString(16)}"
+ },
+ "folkTale": {
+  "title": "The boy with the rooster · folk-tale storybook",
+  "W": 1920,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "drawing",
+  "hash": "()=>{let w=o.getImageData(0,0,t.width,t.height).data,A=2166136261;for(let I=0;I<w.length;I++)A^=w[I],A=Math.imul(A,16777619);return(A>>>0).toString(16)}"
+ },
+ "fox": {
+  "title": "Fox at dusk · cut-paper collage",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 1,
+  "kind": "film",
+  "hash": "()=>{let g=s.getImageData(0,0,t.width,t.height).data,d=2166136261;for(let P=0;P<g.length;P++)d^=g[P],d=Math.imul(d,16777619);return(d>>>0).toString(16)}"
+ },
+ "foxDraw": {
+  "title": "Fox at dusk · laid down",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 480,
+  "kind": "film",
+  "hash": "()=>{let x=s.getImageData(0,0,t.width,t.height).data,d=2166136261;for(let w=0;w<x.length;w++)d^=x[w],d=Math.imul(d,16777619);return(d>>>0).toString(16)}"
+ },
+ "halftone": {
+  "title": "Viaduct at golden hour · newsprint halftone",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 420,
+  "kind": "film",
+  "hash": "()=>{let C=i.getImageData(0,0,r.width,r.height).data,S=2166136261;for(let c=0;c<C.length;c++)S^=C[c],S=Math.imul(S,16777619);return(S>>>0).toString(16)}"
+ },
+ "isometric": {
+  "title": "Isometric · the night bake",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 480,
+  "kind": "film",
+  "hash": "()=>{let M=n.getImageData(0,0,c.width,c.height).data,d=2166136261;for(let A=0;A<M.length;A++)d^=M[A],d=Math.imul(d,16777619);return(d>>>0).toString(16)}"
+ },
+ "koi": {
+  "title": "Koi · marker comic",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 1,
+  "kind": "film",
+  "hash": "()=>{let P=o.getImageData(0,0,e.width,e.height).data,A=2166136261;for(let M=0;M<P.length;M++)A^=P[M],A=Math.imul(A,16777619);return(A>>>0).toString(16)}"
+ },
+ "koiAlive": {
+  "title": "Koi · marker comic, alive",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 120,
+  "kind": "loop",
+  "hash": "()=>{let P=o.getImageData(0,0,e.width,e.height).data,A=2166136261;for(let M=0;M<P.length;M++)A^=P[M],A=Math.imul(A,16777619);return(A>>>0).toString(16)}"
+ },
+ "koiDraw": {
+  "title": "Koi · marker comic, drawn",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "drawing",
+  "hash": "()=>{let P=o.getImageData(0,0,e.width,e.height).data,A=2166136261;for(let y=0;y<P.length;y++)A^=P[y],A=Math.imul(A,16777619);return(A>>>0).toString(16)}"
+ },
+ "lighthouse": {
+  "title": "Lighthouse at sunset · risograph",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 1,
+  "kind": "film",
+  "hash": "()=>{let x=e.getImageData(0,0,n.width,n.height).data,g=2166136261;for(let P=0;P<x.length;P++)g^=x[P],g=Math.imul(g,16777619);return(g>>>0).toString(16)}"
+ },
+ "lighthouseDraw": {
+  "title": "Lighthouse at sunset · the print, drum by drum",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 330,
+  "kind": "film",
+  "hash": "()=>{let M=e.getImageData(0,0,n.width,n.height).data,g=2166136261;for(let P=0;P<M.length;P++)g^=M[P],g=Math.imul(g,16777619);return(g>>>0).toString(16)}"
+ },
+ "lighthouseStorm": {
+  "title": "The keeper's light · marker doodle, 9:16",
+  "W": 1080,
+  "H": 1920,
+  "fps": 30,
+  "frames": 840,
+  "kind": "story",
+  "hash": "()=>{let v=s.getImageData(0,0,n.width,n.height).data,A=2166136261;for(let x=0;x<v.length;x++)A^=v[x],A=Math.imul(A,16777619);return(A>>>0).toString(16)}"
+ },
+ "lowPoly": {
+  "title": "A mountain lake at dawn · low-poly",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 450,
+  "kind": "film",
+  "hash": "()=>{let P=d.getImageData(0,0,r.width,r.height).data,w=2166136261;for(let R=0;R<P.length;R++)w^=P[R],w=Math.imul(w,16777619);return(w>>>0).toString(16)}"
+ },
+ "mellan": {
+  "title": "Mellan spiral · a lit moon",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 1,
+  "kind": "film",
+  "hash": "()=>{let b=m.getImageData(0,0,e.width,e.height).data,h=2166136261;for(let x=0;x<b.length;x++)h^=b[x],h=Math.imul(h,16777619);return(h>>>0).toString(16)}"
+ },
+ "mellanUnspool": {
+  "title": "Mellan spiral · unspooling",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 240,
+  "kind": "film",
+  "hash": "()=>{let p=h.getImageData(0,0,n.width,n.height).data,c=2166136261;for(let x=0;x<p.length;x++)c^=p[x],c=Math.imul(c,16777619);return(c>>>0).toString(16)}"
+ },
+ "midCentury": {
+  "title": "Mid-century gouache · the kite",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "film",
+  "hash": "()=>{let k=o.getImageData(0,0,n.width,n.height).data,A=2166136261;for(let I=0;I<k.length;I++)A^=k[I],A=Math.imul(A,16777619);return(A>>>0).toString(16)}"
+ },
+ "moonPhases": {
+  "title": "Moon phases · chalkboard",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 1,
+  "kind": "film",
+  "hash": "()=>{let P=i.getImageData(0,0,r.width,r.height).data,y=2166136261;for(let v=0;v<P.length;v++)y^=P[v],y=Math.imul(y,16777619);return(y>>>0).toString(16)}"
+ },
+ "moonPhasesDraw": {
+  "title": "Moon phases · the lesson being written",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "film",
+  "hash": "()=>{let P=i.getImageData(0,0,r.width,r.height).data,y=2166136261;for(let v=0;v<P.length;v++)y^=P[v],y=Math.imul(y,16777619);return(y>>>0).toString(16)}"
+ },
+ "overlay": {
+  "title": "overlay · doodle callouts on transparent",
+  "W": 1920,
+  "H": 1080,
+  "fps": 30,
+  "frames": 150,
+  "kind": "film",
+  "hash": "()=>{let M=l.getImageData(0,0,t.width,t.height).data,y=2166136261;for(let P=0;P<M.length;P++)y^=M[P],y=Math.imul(y,16777619);return(y>>>0).toString(16)}"
+ },
+ "paintedOil": {
+  "title": "Two pears and a copper pot · oil",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "film",
+  "hash": "()=>{let A=s.getImageData(0,0,n.width,n.height).data,k=2166136261;for(let g=0;g<A.length;g++)k^=A[g],k=Math.imul(k,16777619);return(k>>>0).toString(16)}"
+ },
+ "pandaDraw": {
+  "title": "Panda in bamboo · marker comic, drawn",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 300,
+  "kind": "drawing",
+  "hash": "()=>{let v=s.getImageData(0,0,e.width,e.height).data,k=2166136261;for(let y=0;y<v.length;y++)k^=v[y],k=Math.imul(k,16777619);return(k>>>0).toString(16)}"
+ },
+ "paperCraft": {
+  "title": "A seaside town in a toy theatre · paper collage on twos",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 390,
+  "kind": "film",
+  "hash": "()=>{let M=s.getImageData(0,0,e.width,e.height).data,P=2166136261;for(let S=0;S<M.length;S++)P^=M[S],P=Math.imul(P,16777619);return(P>>>0).toString(16)}"
+ },
+ "pixelArt": {
+  "title": "Pixel art · the pounce",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 450,
+  "kind": "drawing",
+  "hash": "()=>{let M=u.getImageData(0,0,a.width,a.height).data,y=2166136261;for(let k=0;k<M.length;k++)y^=M[k],y=Math.imul(y,16777619);return(y>>>0).toString(16)}"
+ },
+ "pocketWatch": {
+  "title": "Pocket watch · ballpoint sketch",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 1,
+  "kind": "film",
+  "hash": "()=>{let k=a.getImageData(0,0,n.width,n.height).data,v=2166136261;for(let I=0;I<k.length;I++)v^=k[I],v=Math.imul(v,16777619);return(v>>>0).toString(16)}"
+ },
+ "pocketWatchDraw": {
+  "title": "Pocket watch · drawn in biro",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 450,
+  "kind": "film",
+  "hash": "()=>{let k=o.getImageData(0,0,t.width,t.height).data,v=2166136261;for(let I=0;I<k.length;I++)v^=k[I],v=Math.imul(v,16777619);return(v>>>0).toString(16)}"
+ },
+ "pond": {
+  "title": "The old man and the koi · marker doodle, 9:16",
+  "W": 1080,
+  "H": 1920,
+  "fps": 30,
+  "frames": 660,
+  "kind": "story",
+  "hash": "()=>{let v=s.getImageData(0,0,e.width,e.height).data,A=2166136261;for(let x=0;x<v.length;x++)A^=v[x],A=Math.imul(A,16777619);return(A>>>0).toString(16)}"
+ },
+ "ranunculus": {
+  "title": "Ranunculus · pencil + watercolour",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 1,
+  "kind": "film",
+  "hash": "()=>{let y=o.getImageData(0,0,e.width,e.height).data,g=2166136261;for(let v=0;v<y.length;v++)g^=y[v],g=Math.imul(g,16777619);return(g>>>0).toString(16)}"
+ },
+ "ranunculusDraw": {
+  "title": "Ranunculus · drawn",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 450,
+  "kind": "film",
+  "hash": "()=>{let w=l.getImageData(0,0,e.width,e.height).data,g=2166136261;for(let v=0;v<w.length;v++)g^=w[v],g=Math.imul(g,16777619);return(g>>>0).toString(16)}"
+ },
+ "rubberHose": {
+  "title": "Rubber hose · the dancing coffee pot",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 435,
+  "kind": "film",
+  "hash": "()=>{let d=a.getImageData(0,0,e.width,e.height).data,g=2166136261;for(let k=0;k<d.length;k++)g^=d[k],g=Math.imul(g,16777619);return(g>>>0).toString(16)}"
+ },
+ "scrapbook": {
+  "title": "How a honeybee finds flowers · archival scrapbook",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 510,
+  "kind": "film",
+  "hash": "()=>{let S=s.getImageData(0,0,e.width,e.height).data,k=2166136261;for(let O=0;O<S.length;O++)k^=S[O],k=Math.imul(k,16777619);return(k>>>0).toString(16)}"
+ },
+ "scratchboard": {
+  "title": "Lynx in moonlight · scratchboard",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 480,
+  "kind": "film",
+  "hash": "()=>{let C=o.getImageData(0,0,t.width,t.height).data,E=2166136261;for(let j=0;j<C.length;j++)E^=C[j],E=Math.imul(E,16777619);return(E>>>0).toString(16)}"
+ },
+ "stipple": {
+  "title": "Nautilus · stipple",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 450,
+  "kind": "film",
+  "hash": "()=>{let w=h.getImageData(0,0,t.width,t.height).data,M=2166136261;for(let P=0;P<w.length;P++)M^=w[P],M=Math.imul(M,16777619);return(M>>>0).toString(16)}"
+ },
+ "storybookDraw": {
+  "title": "Storybook · Bit, drawn",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 450,
+  "kind": "film",
+  "hash": "()=>{let P=s.getImageData(0,0,e.width,e.height).data,M=2166136261;for(let R=0;R<P.length;R++)M^=P[R],M=Math.imul(M,16777619);return(M>>>0).toString(16)}"
+ },
+ "sumiE": {
+  "title": "Bamboo in wind · sumi-e",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 510,
+  "kind": "film",
+  "hash": "()=>{let w=s.getImageData(0,0,e.width,e.height).data,g=2166136261;for(let v=0;v<w.length;v++)g^=w[v],g=Math.imul(g,16777619);return(g>>>0).toString(16)}"
+ },
+ "toyBrick": {
+  "title": "Toy brick · the tug",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "film",
+  "hash": "()=>{let y=u.getImageData(0,0,e.width,e.height).data,c=2166136261;for(let x=0;x<y.length;x++)c^=y[x],c=Math.imul(c,16777619);return(c>>>0).toString(16)}"
+ },
+ "woodcut": {
+  "title": "Herons in rain on the drum bridge · ukiyo-e woodblock",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 420,
+  "kind": "drawing",
+  "hash": "()=>{let x=s.getImageData(0,0,r.width,r.height).data,y=2166136261;for(let M=0;M<x.length;M++)y^=x[M],y=Math.imul(y,16777619);return(y>>>0).toString(16)}"
+ },
+ "wren": {
+  "title": "Wren on a twig · ink + line-wash",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 1,
+  "kind": "film",
+  "hash": "()=>{let w=s.getImageData(0,0,n.width,n.height).data,x=2166136261;for(let P=0;P<w.length;P++)x^=w[P],x=Math.imul(x,16777619);return(x>>>0).toString(16)}"
+ },
+ "wrenDraw": {
+  "title": "Wren on a twig · drawing itself",
+  "W": 1080,
+  "H": 1080,
+  "fps": 30,
+  "frames": 540,
+  "kind": "film",
+  "hash": "()=>{let A=a.getImageData(0,0,e.width,e.height).data,w=2166136261;for(let k=0;k<A.length;k++)w^=A[k],w=Math.imul(w,16777619);return(w>>>0).toString(16)}"
+ }
+}

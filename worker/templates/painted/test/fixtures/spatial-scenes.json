@@ -1,0 +1,161 @@
+{
+  "title": "Spatial continuity checks",
+  "format": "9:16",
+  "look": "oil",
+  "captions": {
+    "style": "none"
+  },
+  "objects": {
+    "island": {
+      "kind": "rock",
+      "x": 0.55,
+      "w": 0.62,
+      "h": 0.18
+    },
+    "lighthouse": {
+      "kind": "lighthouse",
+      "on": "island",
+      "h": 0.32
+    },
+    "table": {
+      "kind": "table",
+      "x": 0.5,
+      "w": 0.5,
+      "bread": false
+    },
+    "jar": {
+      "kind": "jar",
+      "on": "table",
+      "h": 0.14,
+      "offset": 0.14
+    },
+    "cliff": {
+      "kind": "rock",
+      "x": 0.5,
+      "w": 0.7,
+      "h": 0.25
+    },
+    "cottage": {
+      "kind": "house",
+      "on": "cliff",
+      "w": 0.26,
+      "h": 0.2
+    }
+  },
+  "lines": [
+    {
+      "say": "Day: supported tower",
+      "audio": {
+        "seconds": 2.5
+      },
+      "shots": [
+        {
+          "place": "sea",
+          "time": "day",
+          "props": [
+            {
+              "id": "lighthouse"
+            }
+          ],
+          "move": "still"
+        }
+      ]
+    },
+    {
+      "say": "Night: same structure",
+      "audio": {
+        "seconds": 2.5
+      },
+      "shots": [
+        {
+          "place": "sea",
+          "time": "night",
+          "props": [
+            {
+              "id": "lighthouse"
+            },
+            {
+              "id": "island",
+              "x": 0.42
+            }
+          ],
+          "move": "still"
+        }
+      ]
+    },
+    {
+      "say": "Storm: no drifting tower",
+      "audio": {
+        "seconds": 2.5
+      },
+      "shots": [
+        {
+          "place": "sea",
+          "time": "night",
+          "weather": "storm",
+          "props": [
+            {
+              "id": "lighthouse"
+            }
+          ],
+          "move": "still"
+        }
+      ]
+    },
+    {
+      "say": "Dawn: support restored",
+      "audio": {
+        "seconds": 2.5
+      },
+      "shots": [
+        {
+          "place": "sea",
+          "time": "dawn",
+          "props": [
+            {
+              "id": "lighthouse"
+            }
+          ],
+          "move": "still"
+        }
+      ]
+    },
+    {
+      "say": "Jar resting on table",
+      "audio": {
+        "seconds": 2.5
+      },
+      "shots": [
+        {
+          "place": "interior",
+          "room": "workshop",
+          "time": "day",
+          "props": [
+            {
+              "id": "jar"
+            }
+          ],
+          "move": "still"
+        }
+      ]
+    },
+    {
+      "say": "House on a cliff",
+      "audio": {
+        "seconds": 2.5
+      },
+      "shots": [
+        {
+          "place": "sea",
+          "time": "day",
+          "props": [
+            {
+              "id": "cottage"
+            }
+          ],
+          "move": "still"
+        }
+      ]
+    }
+  ]
+}

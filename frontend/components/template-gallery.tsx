@@ -52,7 +52,13 @@ function Preview({ item, onOpen }: { item: GalleryCard; onOpen: () => void }) {
 /** One starting point: a real preview, what it is, and the action. With `href` it is a link, otherwise a button. */
 export function GalleryCardView({ item, onUse, href, action = "Use this", busy }: { item: GalleryCard; onUse?: (item: GalleryCard) => void; href?: string; action?: string; busy?: boolean }) {
   const [open, setOpen] = useState(false);
-  const use = href
+  // A story film opens its own page with the look chosen; one in a look this deployment cannot draw yet is shown but locked.
+  const painted = item.paintedLook ? `/film?look=${encodeURIComponent(item.paintedLook)}` : null;
+  const use = item.locked
+    ? <button type="button" className="secondary-button gallery-action" disabled>Coming soon</button>
+    : painted
+    ? <Link className="primary-button gallery-action" href={painted}>Make a story film</Link>
+    : href
     ? <Link className="primary-button gallery-action" href={href}>{action}</Link>
     : <button type="button" className="primary-button gallery-action" disabled={busy} aria-busy={busy} onClick={() => onUse?.(item)}>{action}</button>;
   return <article className="gallery-card">

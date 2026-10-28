@@ -531,3 +531,33 @@ export async function listLibrary(params: { cursor?: string | null; limit?: numb
   if (!response.ok) throw new Error("Could not load the library.");
   return response.json() as Promise<LibraryPage>;
 }
+
+// ---------- Story films (painted engine) ----------
+
+export type PaintedLookOption = { id: string; engine: "doodle" | "oil"; name: string; blurb: string; script: string; available: boolean };
+export type PaintedFilm = { id: string; state: RenderJob["state"]; stage: string; progress: number; createdAt: string; look: string; script: string; drawIn: string; changedFrom?: string; durationSeconds?: number | null; lines?: string[]; error?: string };
+
+export async function listPaintedLooks() {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/looks`);
+  return parse<{ looks: PaintedLookOption[]; scriptMin: number; scriptMax: number }>(response, "Could not load the looks.");
+}
+
+export async function listPaintedFilms() {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/films`, { cache: "no-store" });
+  return (await parse<{ films: PaintedFilm[] }>(response, "Could not load your films.")).films;
+}
+
+export async function getPaintedFilm(id: string) {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/films/${encodeURIComponent(id)}`, { cache: "no-store" });
+  return parse<PaintedFilm>(response, "Could not load the film.");
+}
+
+export async function createPaintedFilm(input: { script: string; look: string; drawIn: "opening" | "each" }) {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/films`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  return parse<RenderJob & { seconds: number; tokens: number }>(response, "Could not start the film.");
+}
+
+export async function changePaintedFilm(id: string, comments: { line: number; text: string }[]) {
+  const response = await apiFetch(`${apiOrigin}/v1/painted/films/${encodeURIComponent(id)}/changes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comments }) });
+  return parse<RenderJob>(response, "Could not apply the changes.");
+}

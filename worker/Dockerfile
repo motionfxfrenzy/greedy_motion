@@ -11,7 +11,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
     HYPERFRAMES_BROWSER_PATH=/usr/bin/chromium \
     HYPERFRAMES_NO_TELEMETRY=1 \
-    HYPERFRAMES_NO_UPDATE_CHECK=1
+    HYPERFRAMES_NO_UPDATE_CHECK=1 \
+    PAINTED_BROWSER=/usr/bin/chromium
 RUN apt-get update \
   && apt-get install -y --no-install-recommends chromium ffmpeg fonts-liberation fonts-dejavu-core ca-certificates tini \
   && rm -rf /var/lib/apt/lists/* \
