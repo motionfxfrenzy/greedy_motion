@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { config, LOCAL_USER_ID } from "./config.ts";
 import { verifyMediaToken } from "./media-links.ts";
 
-export type AuthUser = { id: string; email?: string };
+export type AuthUser = { id: string; email?: string; name?: string };
 declare module "fastify" {
   interface FastifyRequest {
     user?: AuthUser;
@@ -36,6 +36,8 @@ export const isOpen = (request: FastifyRequest) => {
   if (request.method === "OPTIONS" || !path.startsWith("/v1/")) return true;
   // Signed by the billing provider, not by a user; the route checks the signature itself.
   if (request.method === "POST" && path === "/v1/billing/webhook") return true;
+  // Signed by Supabase's Send Email hook (mail/hook.ts), likewise checked by the route.
+  if (request.method === "POST" && path === "/v1/auth/email-hook") return true;
   return request.method === "GET" && openGets.some((pattern) => pattern.test(path));
 };
 
@@ -76,7 +78,8 @@ export function registerAuth(app: FastifyInstance) {
     try {
       const { payload } = await jwtVerify(token, jwks, { issuer, audience: "authenticated" });
       if (typeof payload.sub !== "string") throw new Error("Token has no subject.");
-      request.user = { id: payload.sub, email: typeof payload.email === "string" ? payload.email : undefined };
+      const fullName = (payload.user_metadata as { full_name?: unknown } | undefined)?.full_name;
+      request.user = { id: payload.sub, email: typeof payload.email === "string" ? payload.email : undefined, name: typeof fullName === "string" && fullName.trim() ? fullName.trim() : undefined };
     } catch (error) {
       if (!(error instanceof errors.JOSEError)) request.log.warn({ err: error }, "Auth verification failed");
       return reply.code(401).send({ error: { code: "invalid_token", message: "Your session has expired. Sign in again." } });

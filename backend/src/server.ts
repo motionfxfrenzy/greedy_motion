@@ -33,6 +33,7 @@ import { startClipSweep } from "./render/scenes.ts";
 import { registerEntitlementRoutes } from "./entitlements/routes.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerBillingRoutes } from "./billing/routes.ts";
+import { registerMailRoutes } from "./mail/routes.ts";
 import { InsufficientTokens, refundSpend, spendTokens } from "./tokens/store.ts";
 import { PLANS, renderCostMillitokens } from "./tokens/plan.ts";
 import { tierFor } from "./billing/service.ts";
@@ -177,6 +178,7 @@ await registerProRoutes(app);
 await registerEntitlementRoutes(app);
 await registerTokenRoutes(app);
 await registerBillingRoutes(app);
+await registerMailRoutes(app);
 
 // The token the browser adds as ?t= to media URLs (<img>, <video>, the preview iframe); see media-links.ts.
 app.get("/v1/media-token", async (request, reply) => reply.header("Cache-Control", "no-store").send(mediaToken(callerId(request))));

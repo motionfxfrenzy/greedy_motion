@@ -207,6 +207,20 @@ export const config = {
   // Generated audio per job; shared read-only with the worker at /audio locally.
   audioDir: storagePath(process.env.AUDIO_DIR, "audio"),
   anthropicModel: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+  // Account emails (mail/): Resend first, Brevo when Resend fails. Either key alone works. The hook secret is the
+  // `v1,whsec_...` value Supabase shows when the Send Email hook is created; without it the hook endpoint answers 503.
+  mail: {
+    resendApiKey: process.env.RESEND_API_KEY || "",
+    brevoApiKey: process.env.BREVO_API_KEY || "",
+    // Sign-up and password emails come from noreply@; the welcome email comes from hello@ and its replies go to support@.
+    from: process.env.MAIL_FROM || "GreedyMotion <noreply@greedymotion.com>",
+    welcomeFrom: process.env.MAIL_WELCOME_FROM || "GreedyMotion <hello@greedymotion.com>",
+    // The app the welcome email's button opens: the first HTTPS front-end origin, else the first one.
+    appUrl: (process.env.MAIL_APP_URL || corsOrigins.find((origin) => origin.startsWith("https://")) || corsOrigins[0] || "http://localhost:3000").replace(/\/$/, ""),
+    hookSecret: process.env.SEND_EMAIL_HOOK_SECRET || "",
+    // Supabase's Email OTP expiration (Authentication > Email), in minutes, so the email can say how long the code lasts.
+    expiresMinutes: Math.max(1, Math.round(positiveInt("AUTH_EMAIL_EXPIRES_SECONDS", 300) / 60))
+  },
   // Lemon Squeezy (merchant of record). Checkout is off until the key, store and every variant are set; the webhook
   // needs only the signing secret. Ids come from the Lemon Squeezy dashboard (docs/PRICING.md lists what to create).
   billing: {
