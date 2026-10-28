@@ -4,8 +4,11 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
+import { sendWelcomeEmail } from "../lib/api";
 import { ThemeToggle } from "./theme-toggle";
 import { SceneFrame, type SceneItem } from "./scene-frame";
+import { PasswordRules } from "./password-rules";
+import { EMAIL_CODE_MINUTES, MIN_PASSWORD_LENGTH, passwordProblem } from "../lib/password";
 
 const SCENES: SceneItem[] = [
   { kind: "hook", headline: "Finally see what every sale is really worth.", copy: "" },
@@ -23,10 +26,14 @@ export function AuthPage() {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [sent, setSent] = useState(false);
+  const [code, setCode] = useState("");
   const [forgot, setForgot] = useState(false);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [authError, setAuthError] = useState(searchParams.get("error") ? "Sign-in failed. Please try again." : "");
+  const [authError, setAuthError] = useState(
+    searchParams.get("error") === "reset" ? "That reset link expired, or was opened in a different browser from the one you asked in. Choose Forgot password to get a new one."
+      : searchParams.get("error") ? "Sign-in failed. Please try again." : ""
+  );
   const [sceneIdx, setSceneIdx] = useState(0);
   const router = useRouter();
   // Only same-origin relative paths are honoured, so ?next= can't redirect off-site.
@@ -44,14 +51,16 @@ export function AuthPage() {
 
   const isValidEmail = /.+@.+\..+/.test(email);
   const emailError = tried && !isValidEmail;
-  const passwordError = tried && password.length < 8;
+  // Creating an account must meet the project's password rules; signing in only needs the password to be plausible.
+  const weakPassword = mode === "signup" ? passwordProblem(password) !== null : password.length < MIN_PASSWORD_LENGTH;
+  const passwordError = tried && weakPassword;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
     setTried(true);
     setAuthError("");
-    if (!isValidEmail || password.length < 8) return;
+    if (!isValidEmail || weakPassword) return;
     setBusy(true);
     try {
       const supabase = createClient();
@@ -65,7 +74,10 @@ export function AuthPage() {
         if (error) return setAuthError(error.message);
         // Supabase returns an obfuscated user with no identities when the email is already registered.
         if (data.user && data.user.identities?.length === 0) return setAuthError("An account with this email already exists. Sign in instead.");
-        if (data.session) return router.replace(next);
+        if (data.session) {
+          void sendWelcomeEmail();
+          return router.replace(next);
+        }
         setSent(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -110,6 +122,27 @@ export function AuthPage() {
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Could not send the reset link. Please try again.");
     } finally { setBusy(false); }
+  };
+
+  // The confirmation and reset emails carry a code as well as a link; entering it works the same as opening the link.
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    const token = code.replace(/\s/g, "");
+    if (!/^\d{6,10}$/.test(token)) return setAuthError("Enter the code from the email.");
+    setBusy(true);
+    setAuthError("");
+    try {
+      const signup = mode === "signup";
+      const { error } = await createClient().auth.verifyOtp({ email, token, type: signup ? "signup" : "recovery" });
+      if (error) throw error;
+      if (signup) void sendWelcomeEmail();
+      router.replace(signup ? next : "/auth/reset");
+      router.refresh();
+    } catch {
+      setAuthError(`That code is wrong or has expired. Codes last ${EMAIL_CODE_MINUTES} minutes; check the email or use a different email to start again.`);
+      setBusy(false);
+    }
   };
 
   const isSignup = mode === "signup";
@@ -259,13 +292,13 @@ export function AuthPage() {
 
               {forgot ? (
                 <form onSubmit={(event) => { event.preventDefault(); void handleForgot(); }} style={{ display: "grid", gap: 16 }}>
-                  <h2>Reset your password</h2>
-                  <p>Enter your email and we’ll send you a reset link.</p>
-                  <label htmlFor="reset-email">Email address</label>
+                  <h2 style={{ margin: 0, fontWeight: 600, fontSize: "20px", letterSpacing: "-0.02em" }}>Reset your password</h2>
+                  <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.5, color: "var(--d-tx-535862)" }}>Enter your email and we’ll send you a reset link and a code.</p>
+                  <label htmlFor="reset-email" style={{ fontSize: "14px", fontWeight: 500, marginBottom: -8 }}>Email address</label>
                   <input style={{ padding: "13px 16px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: 16, background: "var(--d-bg-ffffff)", color: "var(--d-tx-0a0d12)", fontSize: 15 }} id="reset-email" type="email" autoComplete="email" autoFocus required value={email} onChange={(event) => setEmail(event.target.value)} />
-                  {authError && <p role="alert">{authError}</p>}
-                  <button className="primary-button" type="submit" disabled={busy} aria-busy={busy}>{busy ? "Sending reset link…" : "Send reset link"}</button>
-                  <button type="button" disabled={busy} onClick={() => { setForgot(false); setTried(false); setAuthError(""); }}>Back to sign in</button>
+                  {authError && <span role="alert" style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>{authError}</span>}
+                  <button className="primary-button" type="submit" disabled={busy} aria-busy={busy}>{busy ? "Sending…" : "Send reset email"}</button>
+                  <button type="button" disabled={busy} onClick={() => { setForgot(false); setTried(false); setAuthError(""); }} style={{ alignSelf: "center", border: 0, background: "transparent", padding: "4px 0", color: "var(--d-tx-535862)", fontSize: "14px", cursor: "pointer", textDecoration: "underline" }}>Back to sign in</button>
                 </form>
               ) : sent ? (
                 <div
@@ -281,13 +314,30 @@ export function AuthPage() {
                 >
                   <strong style={{ fontSize: "18px", fontWeight: 600 }}>Check your inbox</strong>
                   <span style={{ fontSize: "15px", color: "var(--d-tx-535862)", lineHeight: 1.5 }}>
-                    We sent a link to <strong>{email}</strong>. {isSignup ? "Open it to confirm your email and finish creating your account." : "Open it to choose a new password."}
+                    We sent {isSignup ? "a confirmation email" : "a reset email"} to <strong>{email}</strong>. Open the link in it, or enter the code below. Both expire in {EMAIL_CODE_MINUTES} minutes.
                   </span>
+                  <form onSubmit={(e) => void handleVerify(e)} style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <input
+                      aria-label="Code from the email"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="Code from the email"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                      style={{ flex: "1 1 160px", minWidth: 0, padding: "13px 16px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: "16px", background: "var(--d-bg-ffffff)", fontSize: "15px", letterSpacing: "0.12em", outline: "none" }}
+                    />
+                    <button className="primary-button" type="submit" disabled={busy} aria-busy={busy}>
+                      {busy ? "Checking…" : isSignup ? "Confirm" : "Continue"}
+                    </button>
+                  </form>
+                  {authError && <span role="alert" style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>{authError}</span>}
                   <button
                     type="button"
                     onClick={() => {
                       setSent(false);
                       setTried(false);
+                      setCode("");
+                      setAuthError("");
                     }}
                     style={{
                       alignSelf: "flex-start",
@@ -403,7 +453,7 @@ export function AuthPage() {
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder={isSignup ? "At least 8 characters" : "Your password"}
+                        placeholder={isSignup ? "Create a password" : "Your password"}
                         autoComplete={isSignup ? "new-password" : "current-password"}
                         style={{
                           padding: "13px 16px",
@@ -416,8 +466,10 @@ export function AuthPage() {
                       />
                     </label>
 
-                    {passwordError && (
-                      <span style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>Use at least 8 characters.</span>
+                    {isSignup ? (
+                      <PasswordRules password={password} tried={tried} />
+                    ) : (
+                      passwordError && <span style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>Use at least {MIN_PASSWORD_LENGTH} characters.</span>
                     )}
 
                     {authError && (
@@ -429,7 +481,7 @@ export function AuthPage() {
                         type="button"
                         disabled={busy}
                         onClick={() => { setForgot(true); setTried(false); setAuthError(""); }}
-                        style={{ alignSelf: "flex-start", border: 0, background: "transparent", padding: 0, color: "var(--d-tx-535862)", fontSize: "13px", cursor: "pointer", textDecoration: "underline" }}
+                        style={{ alignSelf: "flex-end", border: 0, background: "transparent", padding: 0, color: "var(--d-tx-535862)", fontSize: "13px", cursor: "pointer", textDecoration: "underline" }}
                       >
                         Forgot password?
                       </button>

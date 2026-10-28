@@ -14,6 +14,7 @@
     "import:file-records": "node --env-file=.env scripts/import-file-records.ts",
     "test:brand-files": "node --env-file-if-exists=.env test/brand-files.mjs",
     "test:media": "node test/media.mjs",
+    "test:mail": "node test/mail.mjs",
     "backfill:media": "node --env-file-if-exists=.env scripts/backfill-media.ts",
     "test:formats": "node test/formats.mjs",
     "test:pro": "node test/pro.mjs",

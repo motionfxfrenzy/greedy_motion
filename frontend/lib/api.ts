@@ -26,6 +26,15 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
 
 type ApiError = { error?: { message?: string } };
 
+/** Asks the backend to send the one-time welcome email to the signed-in person. Best effort: it must never get in the way of signing up. */
+export async function sendWelcomeEmail() {
+  try {
+    await apiFetch(`${apiOrigin}/v1/me/welcome`, { method: "POST" });
+  } catch {
+    // The welcome email is a nicety; the account is already created.
+  }
+}
+
 // ---------- Media links ----------
 // <img>, <video> and the preview iframe cannot send the Authorization header, so media URLs carry a
 // short-lived media token as ?t= (backend/src/media-links.ts). It is fetched once, shared, and renewed an
