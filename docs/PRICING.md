@@ -38,6 +38,41 @@ cost**: $1 of generation = 30 tokens. It is paid-plan only (below).
 A pack costs $0.12 a token, more than every plan, so a regular buyer sees why to subscribe. Price steps are 2.6x (Starter to
 Pro) and 3x (Pro to Business). Annual billing is a Lemon Squeezy variant set up at launch (see setup below); it is not in code.
 
+## How a video's tokens are worked out
+
+Everything a video can cost, in the order a person meets it. **The price of the final render is worked out once, on the server
+(`GET /v1/projects/:id/render/quote`, `backend/src/render/quote.ts`), with the function the render charges with, and the page shows
+that figure**: what is on the button is what is taken. Before 2026-10-28 the page worked it out itself from a duration it had kept,
+and after a script edit changed the voiceover the button could say 25.8 tokens while the render took 26.1.
+
+| Step | What it costs the person | Our cost | When it is taken |
+| --- | --- | --- | --- |
+| Storyboard, preview, voice, motion | free, up to the plan's films (Free 3, Starter 15, Pro 45, Business 150) | about $0.79 a film | never; counted per film |
+| Changes after the first version | 3 included per film, then **2 tokens** each | $0.09 to $0.14 | when asked; given back on failure or no change |
+| Generated scenes (clay, paper, footage, 3D) | **3 x provider cost**: 26.1 tokens a scene, paid plans only | $0.87 a scene | when generation is queued; resumed runs pay only what is not yet paid |
+| **Final render** | **6 tokens + 0.3 per finished second**, each started second counts | about $0.02 render plus the film's making | at Render, before anything is built; returned if the film cannot start |
+| Watermark, resolution, motion blur, Pro editor | no token cost (watermark is Free only; the Pro editor is a plan feature; blur is several times the render time, about $0.02 to $0.1 of worker time, not charged) | | |
+
+Worked example, the measured Binary Search film: the voiceover runs 66.5 s, so the render is charged for 67 s: 6 + 67 x 0.3 = **26.1
+tokens**, $2.61 at list, $2.24 at the Starter rate. A 30 s film is 15 tokens, a 90 s film 33. The same film in a generated style adds
+26.1 tokens a scene (a six-scene film, 158.7 with the style key) when its scenes are generated, and one more 2-token change after three.
+
+**What a token costs us, by kind of use** (measured and list-price cost divided by the tokens charged), against what we receive per
+token ($0.083 to $0.095 on a plan, $0.12 on a pack):
+
+| Use | Tokens | Our cost | Our cost per token |
+| --- | --- | --- | --- |
+| A 15 s film | 10.5 | $0.36 | $0.034 |
+| A 30 s film | 15 | $0.50 | $0.033 |
+| A 60 s film | 24 | $0.77 | $0.032 |
+| A 90 s film | 33 | $1.04 | $0.031 |
+| A generated scene | 26.1 | $0.87 | $0.033 |
+| A paid change (recreate / applied fix) | 2 | $0.14 / $0.09 | $0.070 / $0.045 |
+
+So a token costs us about **3 cents** on films and generated scenes (4 to 7 cents on a paid change) and sells for 8 to 12 cents:
+the price is the same multiple whichever way the tokens are spent, which is why a longer film, a generated one or a revised one is
+paid for in proportion to what it costs.
+
 ## What a film costs us (measured)
 
 One real run through the site on 2026-10-28: the Binary Search template, 9 beats, 66.5 s finished (45 s was asked for). Every model
@@ -247,6 +282,7 @@ storyboard; the measured figure is $0.51 (script, frames, director), about 8 tim
 - Pro and Business grant Pro-editor access through the entitlement layer; Starter does not.
 - **Generated material is paid-plan only and charged** (2026-10-28): see "Generated material" below.
 - **Revisions are capped and charged** (2026-10-28): see "Revisions" below.
+- **The render price is quoted by the server** (`GET /v1/projects/:id/render/quote`) and shown as quoted; `backend/test/render-quote.mjs` checks the quote equals what the render charges for every length.
 - **Previews are metered** (2026-10-28, `backend/src/plan/preview-meter.ts`, table `app.preview_usage`): see the next section.
 
 **Not enforced yet, and the margins above assume it will be:**

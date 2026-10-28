@@ -112,6 +112,12 @@ test("revisions beyond the free ones take tokens: with fewer than 2 tokens left 
   await db.query("delete from app.token_ledger where user_id = $1", [BOB]);
   await db.query("delete from app.preview_usage where user_id = $1", [BOB]);
 });
+test("the render quote is the owner's: 404 for others, and null price before a storyboard exists", async () => {
+  const own = await call(alice, "GET", `/v1/projects/${project.id}/render/quote`);
+  assert.equal(own.status, 200);
+  assert.deepEqual([own.body.seconds, own.body.tokens, own.body.ready], [null, null, false]);
+  assert.equal((await call(bob, "GET", `/v1/projects/${project.id}/render/quote`)).status, 404);
+});
 test("bob gets 404 on alice's project for read, write, delete-style routes", async () => {
   for (const [method, path, body] of [["GET", `/v1/projects/${project.id}`], ["PUT", `/v1/projects/${project.id}`, { name: "pwned" }], ["PUT", `/v1/projects/${project.id}/approve`], ["POST", `/v1/projects/${project.id}/script`], ["POST", `/v1/projects/${project.id}/render`], ["POST", `/v1/projects/${project.id}/comments`, { text: "x" }], ["GET", `/v1/projects/${project.id}/visuals`], ["POST", `/v1/projects/${project.id}/visuals`, { budgetUsd: 25 }], ["GET", `/v1/projects/${project.id}/composition`], ["PATCH", `/v1/projects/${project.id}/studio`, { values: {} }]]) {
     assert.equal((await call(bob, method, path, body)).status, 404, `${method} ${path}`);
