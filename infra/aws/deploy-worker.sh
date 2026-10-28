@@ -62,5 +62,10 @@ case "${1:-up}" in
       [ "$T" = None ] || { S="$(aws ecs describe-tasks --region "$REGION" --cluster "$N" --tasks "$T" --query 'tasks[0].[taskDefinitionArn,lastStatus]' --output text)"; echo "  $S"; case "$S" in "$TD"*RUNNING) break;; esac; }
       sleep 10
     done; sleep 20; "$0" logs ;;
-  *) echo "usage: $0 secrets|up|ondemand|logs|stop" >&2; exit 2 ;;
+  gpu)
+    # Register the GPU task definition (x86, NVIDIA GPU, host networking) for the image already pushed as IMAGE_TAG (gpu-<commit>).
+    TAG="${IMAGE_TAG:?IMAGE_TAG is required, e.g. gpu-73418f3}"
+    sed -e "s#@ACCOUNT@#$ACCOUNT#g" -e "s#@REGION@#$REGION#g" -e "s#@PROJECT@#$PROJECT#g" -e "s#@ENV@#$ENV#g" -e "s#@IMAGE_TAG@#$TAG#g" -e "s#@R2_ENDPOINT@#$R2_ENDPOINT#g" policies/worker-taskdef-gpu.json > "$OUT/taskdef-gpu.json"
+    aws ecs register-task-definition --region "$REGION" --cli-input-json "file://$OUT/taskdef-gpu.json" --query taskDefinition.taskDefinitionArn --output text ;;
+  *) echo "usage: $0 secrets|up|ondemand|gpu|logs|stop" >&2; exit 2 ;;
 esac

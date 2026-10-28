@@ -1,0 +1,125 @@
+{
+  "family": "@PROJECT@-@ENV@-worker-gpu",
+  "requiresCompatibilities": [
+    "EC2"
+  ],
+  "networkMode": "host",
+  "cpu": "3072",
+  "memory": "12288",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::@ACCOUNT@:role/@PROJECT@-@ENV@-worker-exec",
+  "taskRoleArn": "arn:aws:iam::@ACCOUNT@:role/@PROJECT@-@ENV@-worker-task",
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "@ACCOUNT@.dkr.ecr.@REGION@.amazonaws.com/@PROJECT@-@ENV@-worker:@IMAGE_TAG@",
+      "essential": true,
+      "stopTimeout": 30,
+      "environment": [
+        {
+          "name": "APP_ENV",
+          "value": "@ENV@"
+        },
+        {
+          "name": "PORT",
+          "value": "8080"
+        },
+        {
+          "name": "RENDER_MAX_SECONDS",
+          "value": "300"
+        },
+        {
+          "name": "IDLE_EXIT_SECONDS",
+          "value": "600"
+        },
+        {
+          "name": "DRAIN_SECONDS",
+          "value": "25"
+        },
+        {
+          "name": "HYPERFRAMES_NO_TELEMETRY",
+          "value": "1"
+        },
+        {
+          "name": "HYPERFRAMES_NO_UPDATE_CHECK",
+          "value": "1"
+        },
+        {
+          "name": "PAINTED_ENGINE",
+          "value": "gemini"
+        },
+        {
+          "name": "STORAGE_DRIVER",
+          "value": "r2"
+        },
+        {
+          "name": "R2_ENDPOINT",
+          "value": "@R2_ENDPOINT@"
+        },
+        {
+          "name": "R2_UPLOADS_BUCKET",
+          "value": "@PROJECT@-@ENV@-uploads"
+        },
+        {
+          "name": "R2_OUTPUTS_BUCKET",
+          "value": "@PROJECT@-@ENV@-outputs"
+        },
+        {
+          "name": "RENDER_CONCURRENCY",
+          "value": "1"
+        },
+        {
+          "name": "WORKER_QUEUE",
+          "value": "gpu"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/database-url"
+        },
+        {
+          "name": "GEMINI_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/gemini-api-key"
+        },
+        {
+          "name": "R2_ACCESS_KEY_ID",
+          "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/r2-access-key-id"
+        },
+        {
+          "name": "R2_SECRET_ACCESS_KEY",
+          "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/r2-secret-access-key"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/@PROJECT@-@ENV@-worker",
+          "awslogs-region": "@REGION@",
+          "awslogs-stream-prefix": "worker"
+        }
+      },
+      "resourceRequirements": [
+        {
+          "type": "GPU",
+          "value": "1"
+        }
+      ]
+    }
+  ]
+}
