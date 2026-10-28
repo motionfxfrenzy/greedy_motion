@@ -29,6 +29,14 @@ export const PREVIEW_CALL_CAP = 150;
  */
 export const FREE_REVISIONS = 3;
 export const REVISION_TOKENS = 2;
+/**
+ * Painted (GPU) films: the painted-shorts engine makes the whole film in one job (director, objects, voice, music, painting on a GPU
+ * worker), so there is no free preview and the price has to cover all of it. 6 tokens to start plus 0.7 a second, about double a normal
+ * film (docs/PRICING.md, "Painted (GPU) films"). Not used by the app until the engine is merged onto this price list.
+ */
+export const PAINTED_MILLITOKENS_PER_SECOND = 700;
+export const paintedCostMillitokens = (seconds: number) => START_FEE_MILLITOKENS + Math.max(1, Math.ceil(seconds)) * PAINTED_MILLITOKENS_PER_SECOND;
+
 /** What generated image or footage (material styles, 3D shots) is sold for, as a multiple of our provider cost: 67% gross, about 56-61% after the payment fee at plan token rates, with room for generations that fail or are redone. */
 export const MATERIAL_MARKUP = 3;
 

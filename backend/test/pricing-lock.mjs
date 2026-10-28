@@ -2,7 +2,7 @@
 // measured cost of a film (docs/PRICING.md, "What a film costs us"). Changing a number here means changing the document too.
 // Run: node backend/test/pricing-lock.mjs   (no database)
 import assert from "node:assert/strict";
-const { FREE_REVISIONS, REVISION_TOKENS, PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, PLANS, TOP_UP, START_FEE_MILLITOKENS, MILLITOKENS_PER_SECOND, TOKEN_USD, MATERIAL_MARKUP, renderCostMillitokens, filmsFromTokens, materialCostMillitokens } = await import("@videosaas/contracts");
+const { paintedCostMillitokens, FREE_REVISIONS, REVISION_TOKENS, PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, PLANS, TOP_UP, START_FEE_MILLITOKENS, MILLITOKENS_PER_SECOND, TOKEN_USD, MATERIAL_MARKUP, renderCostMillitokens, filmsFromTokens, materialCostMillitokens } = await import("@videosaas/contracts");
 
 // ---- the locked numbers ----
 assert.equal(TOKEN_USD, 0.1);
@@ -77,4 +77,17 @@ for (const tier of ["starter", "pro", "business"]) {
 assert.ok(PREVIEW_ALLOWANCE.free * PREVIEW_COST < 3, "a Free signup that only previews costs us under $3");
 // A paid revision must cover what it costs us (measured 2026-10-28: a recreate $0.14, an applied fix $0.09) on every plan.
 for (const tier of ["starter", "pro", "business"]) assert.ok(REVISION_TOKENS * ((PLANS[tier].priceUsd * 0.93 - 0.5) / PLANS[tier].tokens) > 0.14, `${tier}: ${REVISION_TOKENS} tokens must pay for a $0.14 recreate`);
+// Painted (GPU) films: 6 tokens + 0.7 a second. Cost cases per docs/PRICING.md (voice and music included, GPU time for the whole job):
+// low = Gemini brain on a warm GPU $0.94 at 60 s, mid = Claude brain with a cold on-demand start $1.98, with a $0.25 fixed part.
+assert.equal(paintedCostMillitokens(60), 48000, "a 60 s painted film is 48 tokens");
+assert.equal(paintedCostMillitokens(80), 62000);
+assert.equal(paintedCostMillitokens(30), 27000);
+const painted = (seconds, at60) => 0.25 + ((at60 - 0.25) / 60) * seconds;
+for (const tier of ["starter", "pro", "business"]) {
+  for (const seconds of [30, 60, 90]) {
+    const revenue = (paintedCostMillitokens(seconds) / 1000) * netPerToken(PLANS[tier]);
+    assert.ok(1 - painted(seconds, 0.94) / revenue >= 0.7, `${tier} painted ${seconds} s keeps ${((1 - painted(seconds, 0.94) / revenue) * 100).toFixed(0)}% on the default (Gemini) brain; the floor is 70%`);
+    assert.ok(1 - painted(seconds, 1.98) / revenue >= 0.45, `${tier} painted ${seconds} s keeps ${((1 - painted(seconds, 1.98) / revenue) * 100).toFixed(0)}% on the Claude brain with a cold start; the floor is 45%`);
+  }
+}
 console.log("pricing lock: ok");
