@@ -4,8 +4,8 @@
     "FARGATE"
   ],
   "networkMode": "awsvpc",
-  "cpu": "2048",
-  "memory": "4096",
+  "cpu": "4096",
+  "memory": "8192",
   "runtimePlatform": {
     "cpuArchitecture": "ARM64",
     "operatingSystemFamily": "LINUX"
@@ -58,6 +58,10 @@
           "value": "1"
         },
         {
+          "name": "PAINTED_ENGINE",
+          "value": "gemini"
+        },
+        {
           "name": "STORAGE_DRIVER",
           "value": "r2"
         },
@@ -78,6 +82,10 @@
         {
           "name": "DATABASE_URL",
           "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/database-url"
+        },
+        {
+          "name": "GEMINI_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/gemini-api-key"
         },
         {
           "name": "R2_ACCESS_KEY_ID",

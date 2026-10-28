@@ -8,7 +8,9 @@ import { kickWorkers } from "../jobs/worker-launcher.ts";
 import type { Plan } from "./planner.ts";
 
 /** A motion-blur render captures several times the frames, so its queue expiry (and the worker's claim) is stretched by the same factor. */
-const blurExpiry = (renderInput: Record<string, unknown>) => (renderInput.motionBlur === true ? { expireInSeconds: config.renderTimeoutSeconds * motionBlur.slowdown } : {});
+const blurExpiry = (renderInput: Record<string, unknown>) => (renderInput.motionBlur === true ? { expireInSeconds: config.renderTimeoutSeconds * motionBlur.slowdown } : renderInput.kind === "painted" ? { expireInSeconds: PAINTED_EXPIRY_SECONDS } : {});
+/** A story film writes, draws props, speaks, composes and paints in one job: far longer than a template render. */
+const PAINTED_EXPIRY_SECONDS = 2700;
 
 type Row = {
   id: string;

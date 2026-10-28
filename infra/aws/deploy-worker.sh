@@ -19,7 +19,8 @@ if [ "$ENV" = production ]; then
 fi
 set +a
 export AWS_PAGER=""
-PROJECT=greedymotion REGION=ap-southeast-1
+# Staging runs in ap-southeast-1 with its Supabase project. Production runs in us-east-1, beside its Supabase project: REGION=us-east-1 ENV=production ./deploy-worker.sh …
+PROJECT=greedymotion REGION="${REGION:-ap-southeast-1}"
 UPPER="$(printf %s "$ENV" | tr '[:lower:]' '[:upper:]')"
 from_env() { local name="${1/@/$UPPER}"; printf %s "${!name:-}"; }  # from_env SUPABASE_@_DATABASE_URL
 N="$PROJECT-$ENV"
@@ -34,7 +35,9 @@ case "${1:-up}" in
   secrets)
     secret "$PROJECT/$ENV/worker/database-url" "$(from_env SUPABASE_@_DATABASE_URL)"
     secret "$PROJECT/$ENV/worker/r2-access-key-id" "$(from_env R2_@_ACCESS_KEY_ID)"
-    secret "$PROJECT/$ENV/worker/r2-secret-access-key" "$(from_env R2_@_SECRET_ACCESS_KEY)" ;;
+    secret "$PROJECT/$ENV/worker/r2-secret-access-key" "$(from_env R2_@_SECRET_ACCESS_KEY)"
+    # Story films (worker/templates/painted): the director, drawings, voice and music all use one Gemini key.
+    secret "$PROJECT/$ENV/worker/gemini-api-key" "${GEMINI_API_KEY:?GEMINI_API_KEY is not set in .env.credentials}" ;;
   logs) aws logs filter-log-events --region "$REGION" --log-group-name "/ecs/$N-worker" --limit 60 --query 'events[].message' --output text | tr '\t' '\n' | tail -40 ;;
   stop) aws ecs update-service --region "$REGION" --cluster "$N" --service worker --desired-count 0 --query 'service.[serviceName,desiredCount]' --output text ;;
   up|ondemand)
