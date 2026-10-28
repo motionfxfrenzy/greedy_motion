@@ -79,7 +79,7 @@ try {
   assert.equal((await entitlementsFor(U, { fresh: true })).features.proEditor, "edit");
   assert.equal(await applyWebhook(invoice("5001", "initial", U)), "applied");
   let t = await tokenSummary(U);
-  assert.deepEqual([t.plan.granted, t.plan.used, t.plan.remaining, t.remaining], [550, 0, 550, 561], "the Pro plan's 550 tokens, plus the free allowance");
+  assert.deepEqual([t.plan.granted, t.plan.used, t.plan.remaining, t.remaining], [550, 0, 550, 565], "the Pro plan's 550 tokens, plus the free allowance");
   const delivered = invoice("5001", "initial", U);
   assert.equal(await applyWebhook(delivered), "ignored", "a new delivery of the same invoice (new update time) changes nothing");
   assert.equal((await tokenSummary(U)).plan.granted, 550, "but the invoice grants its tokens once");
@@ -94,7 +94,7 @@ try {
   assert.equal(await applyWebhook(invoice("5002", "renewal", U)), "applied");
   t = await tokenSummary(U);
   assert.deepEqual([t.plan.granted, t.plan.used, t.plan.remaining], [550, 0, 550], "renewed: 0% used, full allowance, the unused 440 expired");
-  assert.equal(t.remaining, 561);
+  assert.equal(t.remaining, 565);
   assert.equal(await applyWebhook(invoice("5003", "updated", U)), "ignored");
   assert.equal((await tokenSummary(U)).plan.remaining, 550, "a plan-change invoice grants nothing");
 
@@ -112,7 +112,7 @@ try {
   assert.equal(await tierFor(U), "free");
   assert.equal((await entitlementsFor(U, { fresh: true })).features.proEditor, "view");
   t = await tokenSummary(U);
-  assert.deepEqual([t.plan.remaining, t.free.remaining, t.remaining], [0, 11, 11], "the plan's monthly tokens end with the plan; the free allowance stays");
+  assert.deepEqual([t.plan.remaining, t.free.remaining, t.remaining], [0, 15, 15], "the plan's monthly tokens end with the plan; the free allowance stays");
 
   // An older event cannot undo a newer one.
   const stale = sub("subscription_updated", U, { status: "active", updated_at: iso(now - 5 * day) });

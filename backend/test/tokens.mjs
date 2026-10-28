@@ -15,24 +15,24 @@ await clean();
 try {
   // The numbers the price list rests on.
   assert.equal(renderCostMillitokens(30), 15000, "30 s = 6 tokens to start + 9 = 15 tokens");
-  assert.equal(PLANS.free.tokens, 11);
-  assert.equal(filmsFromTokens(PLANS.free.tokens, 16), 1, "the free allowance is one film of up to 16 seconds");
+  assert.equal(PLANS.free.tokens, 15);
+  assert.equal(filmsFromTokens(PLANS.free.tokens, 30), 1, "the free allowance is one film of up to 30 seconds");
   assert.equal(materialCostMillitokens(1), 30000, "$1 of generation costs 30 tokens");
 
   let s = await tokenSummary(A);
-  assert.deepEqual([s.free.granted, s.free.used, s.remaining, s.plan], [11, 0, 11, null], "a new account gets the free allowance, once");
+  assert.deepEqual([s.free.granted, s.free.used, s.remaining, s.plan], [15, 0, 15, null], "a new account gets the free allowance, once");
   s = await tokenSummary(A);
-  assert.equal(s.free.granted, 11, "looking again does not grant again");
+  assert.equal(s.free.granted, 15, "looking again does not grant again");
 
-  // A 5 s film (6 + 1.5 tokens) fits inside the 11 free tokens; a 16 s film does not fit in what is left.
+  // A 5 s film (6 + 1.5 tokens) fits inside the 15 free tokens; a 16 s film does not fit in what is left.
   assert.equal((await spendTokens(A, renderCostMillitokens(5), "render", "job1")).charged, true);
   assert.equal((await spendTokens(A, renderCostMillitokens(5), "render", "job1")).charged, false, "the same event is stored once");
   s = await tokenSummary(A);
-  assert.deepEqual([s.free.used, s.remaining], [7.5, 3.5]);
-  await assert.rejects(() => spendTokens(A, renderCostMillitokens(16), "render", "job3"), InsufficientTokens, "16 s needs 10.8 tokens and 3.5 are left");
+  assert.deepEqual([s.free.used, s.remaining], [7.5, 7.5]);
+  await assert.rejects(() => spendTokens(A, renderCostMillitokens(16), "render", "job3"), InsufficientTokens, "16 s needs 10.8 tokens and 7.5 are left");
   assert.equal((await tokenSummary(A)).free.used, 7.5, "a refused spend moves nothing");
-  await spendTokens(A, 3500, "render", "job4");
-  assert.equal((await tokenSummary(A)).remaining, 0, "exactly the 11 free tokens were used");
+  await spendTokens(A, 7500, "render", "job4");
+  assert.equal((await tokenSummary(A)).remaining, 0, "exactly the 15 free tokens were used");
 
   // A film that could not start gets its tokens back, once.
   await grantTokens(A, 10, "test pack", "cli:test", "order:t1", "pack");
@@ -44,10 +44,10 @@ try {
 
   // Two renders started together cannot both spend what is left.
   await grantTokens(B, 1, "test", "cli:test");
-  const results = await Promise.allSettled([spendTokens(B, 8000, "render", "r1"), spendTokens(B, 8000, "render", "r2")]);
-  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1, "free allowance 11 + 1 = 12 tokens: one 8-token render fits, not two");
+  const results = await Promise.allSettled([spendTokens(B, 9000, "render", "r1"), spendTokens(B, 9000, "render", "r2")]);
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1, "free allowance 15 + 1 = 16 tokens: one 9-token render fits, not two");
 
-  assert.equal(12 - (await tokenSummary(B)).remaining, 8, "isolated from the other account");
+  assert.equal(16 - (await tokenSummary(B)).remaining, 9, "isolated from the other account");
 
   // Monthly plan tokens: a render spends them before free and pack tokens; the next month starts full and unused is gone.
   const C = "00000000-0000-4000-8000-0000000f0003";
@@ -57,21 +57,21 @@ try {
   await spendTokens(C, 20000, "render", "m1a");
   let c = await tokenSummary(C);
   assert.deepEqual([c.plan.granted, c.plan.used, c.plan.remaining], [100, 20, 80], "20% of the month used");
-  assert.equal(c.free.remaining, 11, "plan tokens are spent first: free is untouched");
+  assert.equal(c.free.remaining, 15, "plan tokens are spent first: free is untouched");
   assert.equal(c.packs.remaining, 10);
   assert.equal(await expirePlanTokens(C, "expiry:inv2"), 80, "80 unused tokens expire at renewal");
   assert.equal(await expirePlanTokens(C, "expiry:inv2"), 0, "once");
   await grantTokens(C, 100, "Pro plan tokens", "lemonsqueezy", "invoice:m2", "plan");
   c = await tokenSummary(C);
   assert.deepEqual([c.plan.granted, c.plan.used, c.plan.remaining], [100, 0, 100], "the new month shows 0% used and a full allowance, not 180");
-  assert.equal(c.remaining, 100 + 11 + 10);
+  assert.equal(c.remaining, 100 + 15 + 10);
   // A render bigger than the plan's tokens spills into free, then packs; a refund returns each part to its own pool.
   const big = await spendTokens(C, 110000, "render", "m2a");
   c = await tokenSummary(C);
-  assert.deepEqual([c.plan.remaining, c.free.remaining, c.packs.remaining], [0, 1, 10], "100 plan + 10 of the 11 free tokens");
+  assert.deepEqual([c.plan.remaining, c.free.remaining, c.packs.remaining], [0, 5, 10], "100 plan + 10 of the 15 free tokens");
   await refundSpend(C, big.event);
   c = await tokenSummary(C);
-  assert.deepEqual([c.plan.remaining, c.free.remaining, c.packs.remaining], [100, 11, 10], "refunded to the pools they came from");
+  assert.deepEqual([c.plan.remaining, c.free.remaining, c.packs.remaining], [100, 15, 10], "refunded to the pools they came from");
   await pool.query("delete from app.token_ledger where user_id = $1", [C]);
   await assert.rejects(() => grantTokens(A, 0, "x", "cli:test"));
   console.log("tokens: ok");

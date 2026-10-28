@@ -68,7 +68,7 @@ export function CompareTable() {
 
 const faq: { q: string; a: string }[] = [
   { q: "What is a token?", a: "Tokens are what you spend to make films. Every plan comes with a token balance, and the length of the finished film decides how many tokens it uses. Writing the storyboard and rewriting frames cost nothing." },
-  { q: "What do I get for free?", a: "One finished film of up to 16 seconds for your account, with its storyboard, voice and motion. Free films carry a Greedy Motion watermark. There is no card and no trial that turns into a charge." },
+  { q: "What do I get for free?", a: "One finished film of up to 30 seconds for your account, with its storyboard, voice and motion. Free films carry a Greedy Motion watermark. There is no card and no trial that turns into a charge." },
   { q: "Do tokens expire?", a: "Your plan's tokens renew every month. Each renewal starts you again with the full amount, and what you did not use last month does not carry over. Token packs and your free allowance never expire, and a render uses your plan tokens first." },
   { q: "What happens when I run out?", a: `Render tells you how many tokens the film needs and how many you have. Nothing is charged automatically: add a ${TOP_UP.tokens}-token pack for $${TOP_UP.priceUsd} or move to a bigger plan.` },
   { q: "Can I cancel or change my plan?", a: "Yes, any time from billing. A cancelled plan keeps working until the end of the period you paid for, and the tokens you already have stay yours." },

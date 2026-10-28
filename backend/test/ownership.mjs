@@ -101,8 +101,8 @@ test("revisions beyond the free ones take tokens: with fewer than 2 tokens left 
   const created = await call(bob, "POST", "/v1/projects", { name: "Revision gate", request });
   const film = created.body.id;
   await db.query("insert into app.preview_usage (user_id, period, project_id, calls, revisions) values ($1, 'lifetime', $2, 1, 3) on conflict do nothing", [BOB, film]);
-  await db.query("insert into app.token_ledger (user_id, amount, kind, reason, ref, pool) values ($1, 11000, 'grant', 'Free allowance', 'free-allowance', 'free') on conflict do nothing", [BOB]);
-  await db.query("insert into app.token_ledger (user_id, amount, kind, reason, ref, pool) values ($1, -10500, 'spend', 'test drain', 'drain-revision-test', 'free')", [BOB]);
+  await db.query("insert into app.token_ledger (user_id, amount, kind, reason, ref, pool) values ($1, 15000, 'grant', 'Free allowance', 'free-allowance', 'free') on conflict do nothing", [BOB]);
+  await db.query("insert into app.token_ledger (user_id, amount, kind, reason, ref, pool) select $1::uuid, -(coalesce(sum(amount), 0) - 500), 'spend', 'test drain', 'drain-revision-test', 'free' from app.token_ledger where user_id = $1::uuid", [BOB]);
   const refused = await call(bob, "POST", `/v1/projects/${film}/film/fix`, { fixes: [{ beat: 0, at: 0, comment: "make the title bigger" }] });
   assert.equal(refused.status, 402);
   assert.equal(refused.body.error.code, "insufficient_tokens");

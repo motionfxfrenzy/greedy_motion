@@ -152,13 +152,7 @@ The skill's test fails on the first line: marginal cost per free user is **not n
 ## Competitive Position
 **Value-to-parity, not premium.** Competitor numbers are from memory and **not verified** *(assumed, confirm)*:
 
-| Competitor | Model | Price (approx.) | Leads with |
-|---|---|---|---|
-| Synthesia | seat tiers with minutes | about $29–$89/mo | presenter avatars |
-| HeyGen | credits and tiers | about $29–$89/mo | avatars, translation |
-| Canva (Pro) | seat | about $15/mo | templates, everything else |
-| Runway | credits | about $15–$95/mo | generative footage |
-| Descript / Veed | seat tiers | about $24–$40/mo | editing |
+Competitor prices were later read from each company's pricing page on 2026-10-28; see "Market fit" in `docs/PRICING.md` for the verified table and sources (this document's earlier figures were from memory and are superseded).
 
 At $19–$49 a month, Greedy Motion sits at parity with them. It is not an avatar tool, and its edge is on-brand explainer and product films from a script. Do not price below parity: unit economics above show there is no room for value pricing, particularly on Free and short films.
 

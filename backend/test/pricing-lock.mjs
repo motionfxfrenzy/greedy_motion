@@ -10,7 +10,7 @@ assert.equal(START_FEE_MILLITOKENS, 6000, "a film costs 6 tokens to start");
 assert.equal(MILLITOKENS_PER_SECOND, 300, "and 0.3 token per finished second");
 assert.equal(MATERIAL_MARKUP, 3, "generated material is sold at 3x the provider cost");
 assert.deepEqual(Object.fromEntries(Object.entries(PLANS).map(([tier, plan]) => [tier, [plan.priceUsd, plan.tokens, plan.watermark, plan.proEditor]])), {
-  free: [0, 11, true, false],
+  free: [0, 15, true, false],
   starter: [19, 200, false, false],
   pro: [49, 550, false, true],
   business: [149, 1800, false, true]
@@ -20,8 +20,8 @@ assert.equal(renderCostMillitokens(15), 10500);
 assert.equal(renderCostMillitokens(30), 15000);
 assert.equal(renderCostMillitokens(60), 24000);
 assert.equal(renderCostMillitokens(0.2), 6300, "a started second counts whole");
-assert.equal(filmsFromTokens(PLANS.free.tokens, 16), 1, "Free makes one film of up to 16 s");
-assert.equal(filmsFromTokens(PLANS.free.tokens, 17), 0);
+assert.equal(filmsFromTokens(PLANS.free.tokens, 30), 1, "Free makes one film of up to 30 s");
+assert.equal(filmsFromTokens(PLANS.free.tokens, 31), 0);
 assert.equal(materialCostMillitokens(1), 30000, "$1 of generation costs 30 tokens");
 assert.equal(materialCostMillitokens(0.94), 28200, "one generated scene ($0.07 style key + $0.07 keyframe + $0.80 clip) is 28.2 tokens");
 // Margin on generated material: 3x the provider cost, after the payment fee at each plan's token rate.
@@ -50,11 +50,20 @@ for (const tier of ["starter", "pro", "business"]) {
     assert.ok(revised > 0, `${tier} ${seconds} s must never lose money, revisions included`);
   }
 }
+// Annual billing (2 months free: ten monthly prices, one payment fee a year) keeps the plan's monthly token grant, so it earns less per token.
+for (const tier of ["starter", "pro", "business"]) {
+  const perToken = ((PLANS[tier].priceUsd * 10 * 0.93 - 0.5) / 12) / PLANS[tier].tokens;
+  for (const seconds of [30, 45, 60, 90]) {
+    const revenue = (renderCostMillitokens(seconds) / 1000) * perToken;
+    assert.ok(1 - cost(seconds, false) / revenue >= 0.45, `${tier} annual ${seconds} s keeps ${((1 - cost(seconds, false) / revenue) * 100).toFixed(0)}% with no revisions; the floor is 45%`);
+    if (seconds >= 60) assert.ok(1 - cost(seconds, true) / revenue >= 0.28, `${tier} annual ${seconds} s keeps ${((1 - cost(seconds, true) / revenue) * 100).toFixed(0)}% with revisions; the floor is 28%`);
+  }
+}
 // Not greedy: no plan keeps more than about two thirds, and a pack costs more per token than any plan.
 for (const tier of ["starter", "pro", "business"]) assert.ok(1 - cost(60, false) / ((renderCostMillitokens(60) / 1000) * netPerToken(PLANS[tier])) <= 0.67);
 assert.ok(TOP_UP.priceUsd / TOP_UP.tokens > PLANS.starter.priceUsd / PLANS.starter.tokens, "packs are dearer per token than the cheapest-to-leave plan");
-// Free costs us less than a dollar: one film of at most 16 s.
-assert.ok(cost(16, false) < 0.5, "a free signup that makes its one film costs us under 50 cents");
+// Free costs us about half a dollar: one film of at most 30 s.
+assert.ok(cost(30, false) <= 0.55, "a free signup that makes its one film costs us about 50 cents");
 // Previews are not paid by tokens until a film is rendered, so the allowances are sized to the worst case: a person who uses every
 // preview and also renders every film their tokens allow (60 s films, $0.02 of render each) must still cost us less than the plan
 // brings in after the payment fee. A preview is $0.79 (measured). Free: the most a signup can cost before it pays anything.

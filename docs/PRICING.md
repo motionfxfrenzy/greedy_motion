@@ -29,7 +29,7 @@ cost**: $1 of generation = 30 tokens. It is paid-plan only (below).
 
 | Plan | Price | Annual | Tokens a month | 60 s films | 30 s films | Per token | Watermark | Pro editor |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Free | $0 | | 11, once, for the account | 0 (one film up to 16 s) | 0 | | yes | no |
+| Free | $0 | | 15, once, for the account | 0 (one film up to 30 s) | 1 | | yes | no |
 | Starter | $19 | $190 (2 months free) | 200 | 8 | 13 | $0.095 | no | no |
 | Pro | $49 | $490 | 550 | 22 | 36 | $0.089 | no | yes |
 | Business | $149 | $1,490 | 1,800 | 75 | 120 | $0.083 | no | yes |
@@ -96,9 +96,59 @@ with typical revisions.
 
 ## Free, exactly
 
-**11 tokens once per account**: one watermarked film of up to 16 seconds, with its storyboard, voice and motion. It costs us about
-$0.37 if the person finishes it (measured cost model). Every Free film carries a "Made with Greedy Motion" watermark for its whole
-length. When the tokens are used, Render says what is needed and offers a plan or a pack.
+**15 tokens once per account**: one watermarked film of up to 30 seconds, with its storyboard, voice and motion, and 3 films to try
+(previews). It costs us about $0.50 if the person finishes the film (measured cost model), at most $2.37 more if all three previews are
+used and never rendered. Every Free film carries a "Made with Greedy Motion" watermark for its whole length. When the tokens are
+used, Render says what is needed and offers a plan or a pack. (It was 11 tokens, a 16-second film, until 2026-10-28; see "Market
+fit": a 16-second film is too short to show what the product does.)
+
+## Market fit
+
+Prices read from each company's public pricing page on 2026-10-28 (links below); a page that did not load fully is marked.
+"Per month on annual" is the plan's yearly price divided by 12 as the page states it.
+
+| Product | What it makes | Entry | Mid | Top | Annual discount | Free |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Greedy Motion** | explainer and product films from a script, in your brand | Starter $19 | Pro $49 | Business $149 | 17% (2 months free) | one 30 s watermarked film + 3 previews, once |
+| Synthesia | presenter-avatar videos | Starter $19 ($14 annual) | Pro $89 ($59) | Enterprise | 26% | free plan: 10 min, watermark |
+| HeyGen | avatar videos | Creator $29 ($24) | Pro $49 | Business $149 + $20 a seat | 17% | 3 videos a month, 1 min each, watermark |
+| InVideo | AI video from a prompt, credit based | Starter $20 a seat ($10 annual) | Plus $60 ($30) | Max $150 ($75) | 50% | not read |
+| Runway | generated video clips, 12 credits a second | Standard $15 ($12) | Pro $35 ($28) | Max $95 ($76) | 20% | 125 credits once (about 10 s) |
+| Descript | video and audio editing | Hobbyist $24 ($16) | Creator $35 ($24) | Business $65 ($50) | 33% | 60 media minutes, watermark |
+| Canva | design with video | Pro $144 a year ($12) | Business $250 a year per person | | | free tier, limited AI video |
+
+Sources: [Synthesia](https://www.synthesia.io/pricing), [HeyGen](https://www.heygen.com/pricing), [InVideo](https://invideo.io/pricing/),
+[Runway](https://runway.com/pricing), [Descript](https://www.descript.com/pricing), [Canva](https://www.canva.com/pricing/). Veed's page
+returned no prices. Canva's page showed yearly prices only. Descript's page showed two prices per plan without labels; the higher is
+read as monthly. HeyGen's Pro and Business annual prices are not on the page.
+
+**Where we sit.** The ladder is the market's: $19 / $49 / $149 against HeyGen $29 / $49 / $149, InVideo $20 / $60 / $150 and
+Synthesia $19 / $89. The entry price matches Synthesia's and is below HeyGen's and InVideo's seat prices, the middle plan equals
+HeyGen Pro, and the top equals HeyGen Business and InVideo Max. That is **parity**, deliberately: nothing in the cost data allows
+value pricing, and there is no reason to price above tools that make a different thing.
+
+**What a customer gets for the money.**
+- *Standard films* (storyboard, voice, motion graphics, in the customer's brand): Starter makes about 8 one-minute films a month,
+  $2.28 a finished minute ($1.90 on annual). Synthesia Starter gives about 22 minutes of avatar video for $19 (about $0.86 a minute,
+  $0.64 on annual), so we cost roughly 2 to 3 times as much a minute; but a presenter reading a script is not a storyboarded
+  explainer with diagrams and a brand kit, and the comparison is about price, not equivalence.
+- *Generated clips* (clay, paper, footage): 26.1 tokens an 8 second scene is $2.50 at the Starter rate, about $19 a minute. Runway
+  Standard is about $17 a minute (625 credits is 52 s), Runway Pro about $11 and Max about $7. We match Runway's entry plan and are
+  dearer than its volume plans, for a clip that comes with the script, voice and brand around it.
+
+**What was changed for the market.**
+- **Free is a 30-second film, not 16 seconds** (15 tokens, not 11). HeyGen gives 3 one-minute videos a month, Synthesia 10 minutes,
+  Descript 60 minutes: all more than we give, and all monthly. We cannot match them (3 films a month would cost us about $2.40 a
+  signup a month, forever), so the lifetime film is made long enough to show the product: a 30-second explainer is the shortest film
+  with a hook, a point and a close. It costs us about $0.13 more per signup.
+- **Everything else stays**: prices, tokens, the annual discount (17%, below the 20 to 50% most competitors give; the lock test shows
+  annual Business already falls to 24 to 29% with revisions, so a deeper discount would take it under the floor), the $12 pack.
+- **Not done, because it does not exist yet:** seats and teams (HeyGen charges $20 a seat, InVideo prices per seat), 4K export,
+  presenter avatars. Plans do not promise them. Per-seat pricing becomes a question when teams can share a workspace.
+
+**Risks the table shows.** InVideo's annual price is half its monthly, so a customer shopping on annual price sees us dearer than
+InVideo and Descript. Synthesia's Starter minute is cheaper than ours. Runway Max undercuts our generated clips for a heavy user.
+Mitigation: the product is sold on the finished film, not the minute; revisit after 30 days of real conversion data.
 
 ## Preview allowance
 

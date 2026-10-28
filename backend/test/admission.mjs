@@ -44,7 +44,7 @@ try {
   assert.equal((await chargeRender(PAYER, 10, film)).charged, false, "the same film is charged once");
   await returnCharge(PAYER, spend);
   assert.equal((await tokenSummary(PAYER)).remaining, start, "a film that could not be queued gets its tokens back");
-  await assert.rejects(() => chargeRender(PAYER, 60, randomUUID()), InsufficientTokens);
+  await assert.rejects(() => chargeRender(PAYER, 90, randomUUID()), InsufficientTokens);
   await pool.query("delete from app.token_ledger where user_id = $1", [PAYER]);
   console.log("admission: ok");
 } finally {
