@@ -12,6 +12,7 @@ import { formatBundle, type FormatSkill } from "./bundle.ts";
 import { buildFormatProject, type FormatLook } from "./build.ts";
 import { fillSlots } from "./fill.ts";
 import { normalizeValues, writableSlots } from "./slots.ts";
+import { busyRefusal } from "../render/admission.ts";
 
 /**
  * Fill-mode formats: the shipped gm-* skills, run by the hosted app. A person supplies the product's facts, the model
@@ -63,6 +64,8 @@ export async function registerFormatRoutes(app: FastifyInstance) {
   app.post<{ Params: { skill: string }; Body: { values?: unknown; brief?: unknown; brandId?: unknown; theme?: unknown } }>("/v1/formats/:skill/render", async (request, reply) => {
     const skill = skills.get(request.params.skill);
     if (!skill) return reply.code(404).send(fail("not_found", "That format does not exist."));
+    const busy = await busyRefusal(callerId(request));
+    if (busy) return reply.code(429).send(busy);
     const body = (request.body ?? {}) as { values?: unknown; brief?: unknown; brandId?: unknown; theme?: unknown; motionBlur?: unknown };
     if (body.values !== undefined && (typeof body.values !== "object" || body.values === null || Array.isArray(body.values))) return reply.code(400).send(fail("invalid_request", "`values` must be an object of slot values."));
     const supplied = { ...((body.values as Record<string, unknown> | undefined) ?? {}) };

@@ -77,6 +77,7 @@ jobs:
       - run: npm ci
       - run: npm run test:ownership -w backend
       - run: npm run test:scene-claim -w backend
+      - run: npm run test:admission -w backend
       - run: npm run test:tokens -w backend
       - run: npm run test:billing -w backend
       - run: npm run test:render-prep -w backend

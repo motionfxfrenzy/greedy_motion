@@ -14,6 +14,7 @@ import { registerOwnership } from "./access.ts";
 import { renderService } from "./render/service.ts";
 import { renderJobRepository } from "./render/repository.ts";
 import { filmInputsHash } from "./render/revision.ts";
+import { busyRefusal } from "./render/admission.ts";
 import { renderEvents } from "./render/events.ts";
 import { NotReady, planReadiness } from "./plan/readiness.ts";
 import type { Plan } from "./render/planner.ts";
@@ -237,6 +238,8 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>
         const tooLong = seconds === null ? null : motionBlurProblem(seconds);
         if (tooLong) return reply.code(400).send({ error: { code: "motion_blur_too_long", message: tooLong } });
       }
+      const busy = await busyRefusal(callerId(request));
+      if (busy) return reply.code(429).send(busy);
       // Checked here so a storyboard that cannot render is refused before tokens are taken; the job checks again.
       const readiness = planReadiness(project);
       if (!readiness.ok) return reply.code(409).send({ error: { code: "not_ready", message: new NotReady(readiness).message }, readiness });
@@ -389,6 +392,8 @@ app.post("/v1/render-jobs", async (request, reply) => {
 });
 
 app.get<{ Params: { id: string } }>("/v1/render-jobs/:id", async (request, reply) => {
+  const busy = await busyRefusal(callerId(request));
+  if (busy) return reply.code(429).send(busy);
   const job = uuid.test(request.params.id) ? await renderService.get(request.params.id) ?? await recoveredRenderJob(request.params.id) : null;
   if (!job) return reply.code(404).send({ error: { code: "not_found", message: "That render job does not exist." } });
   return reply.header("Cache-Control", "no-store").send(job);

@@ -11,6 +11,7 @@
     "start": "node src/server.ts",
     "typecheck": "tsc --noEmit -p .",
     "test:scene-claim": "node --env-file-if-exists=.env test/scene-claim.mjs",
+    "test:admission": "node --env-file-if-exists=.env test/admission.mjs",
     "test:ownership": "node --env-file-if-exists=.env test/ownership.mjs",
     "import:file-records": "node --env-file=.env scripts/import-file-records.ts",
     "test:brand-files": "node --env-file-if-exists=.env test/brand-files.mjs",

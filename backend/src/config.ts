@@ -177,6 +177,8 @@ export const config = {
   planConcurrency: positiveInt("PLAN_CONCURRENCY", 4),
   // A render attempt that runs longer than this is abandoned and retried (pg-boss expireInSeconds).
   renderTimeoutSeconds: positiveInt("RENDER_TIMEOUT_SECONDS", 900),
+  // Films one person may have queued or running at once, across every render route (render/admission.ts).
+  maxActiveRenders: positiveInt("RENDER_MAX_ACTIVE_PER_USER", 3),
   // Automatic retries after a failed render attempt (crash, timeout, transient renderer error).
   renderRetries: positiveInt("RENDER_RETRIES", 2),
   // Directory shared with the worker locally (mounted at /renders in the worker container).

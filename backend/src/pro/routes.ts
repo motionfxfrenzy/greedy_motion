@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { lintHyperframeHtml } from "@hyperframes/lint";
 import { frameShellHtml, isPreviewQuality, motionBlurProblem, parseMotionBlur, previewSize, type PreviewQuality, type ProManifest, type RenderJob, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
+import { busyRefusal } from "../render/admission.ts";
 import { config } from "../config.ts";
 import { NotEntitled, requireProEdit, type ProEditAccess } from "../entitlements/access.ts";
 import { EntitlementsUnavailable, entitlementsFor } from "../entitlements/resolve.ts";
@@ -348,6 +349,8 @@ function registerEditorRoutes(app: FastifyInstance) {
         if (lint.errorCount > 0) return fail(reply, 409, "lint_errors", `${lint.errorCount} error${lint.errorCount === 1 ? "" : "s"} block a full render. Fix them in Checks.`, { findings: lint.findings.filter((f) => f.severity === "error").map((f) => ({ code: f.code, message: f.message, elementId: f.elementId, fixHint: f.fixHint })) });
       }
 
+      const busy = await busyRefusal(callerId(request));
+      if (busy) return reply.code(429).send(busy);
       const { created, size } = await enqueueProRender(access, { ...project, pro }, quality, { motionBlur: blur.on });
       return reply.code(202).send({ job: created, quality, size, rev: pro.rev });
     } catch (error) {
