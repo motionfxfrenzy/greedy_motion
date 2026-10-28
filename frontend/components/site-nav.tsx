@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { appHref } from "../lib/hosts";
 import { useEffect, useState } from "react";
 import { createClient } from "../utils/supabase/client";
 import { AccountMenu } from "./account-menu";
@@ -28,7 +29,7 @@ export function SiteNav({ active }: { active?: "pricing" }) {
       <div className="site-nav">
         <Link href="/" className="site-brand" aria-label="Greedy Motion home"><img src="/brand/gm-mark.svg" alt="" /><span><b>Greedy</b> <em>Motion</em></span></Link>
         <nav className="site-links" aria-label="Main">
-          {signedIn === true ? <Link href="/studio">Projects</Link> : <><Link href="/#how">How it works</Link><Link href="/#features">Features</Link></>}
+          {signedIn === true ? <Link href={appHref("/studio")}>Projects</Link> : <><Link href="/#how">How it works</Link><Link href="/#features">Features</Link></>}
           <Link href="/pricing" aria-current={active === "pricing" ? "page" : undefined} className={active === "pricing" ? "on" : ""}>Pricing</Link>
         </nav>
         <div className="site-right">
@@ -36,8 +37,8 @@ export function SiteNav({ active }: { active?: "pricing" }) {
             <>
               <ThemeToggle />
               <span className="site-auth" style={{ visibility: signedIn === null ? "hidden" : "visible" }}>
-                <Link href="/auth" className="site-signin">Sign in</Link>
-                <Link href="/auth" className="primary-button">Create account</Link>
+                <Link href={appHref("/auth")} className="site-signin">Sign in</Link>
+                <Link href={appHref("/auth")} className="primary-button">Create account</Link>
               </span>
             </>
           )}

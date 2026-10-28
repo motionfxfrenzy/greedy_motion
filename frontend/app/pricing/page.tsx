@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { appHref } from "../../lib/hosts";
 import { CompareTable, Faq, PlanFinder } from "../../components/pricing-extras";
 import { PricingHero, PricingPlans } from "../../components/plan-cards";
 import { PublicLinks } from "../../components/public-links";
@@ -25,7 +26,7 @@ export default function Pricing() {
         <Faq />
         <section className="closing">
           <h2>Ready to see your product in motion?</h2>
-          <div className="hero-actions"><Link className="accent-button" href="/auth">Start free</Link><Link className="secondary-button" href="/profile#plan">Choose a plan</Link></div>
+          <div className="hero-actions"><Link className="accent-button" href={appHref("/auth")}>Start free</Link><Link className="secondary-button" href={appHref("/profile#plan")}>Choose a plan</Link></div>
           <p className="pricing-fine">Prices are in US dollars. Taxes are added at checkout. Unused prepaid tokens can be refunded within 30 days under the <Link href="/refunds">refund policy</Link>.</p>
         </section>
       </div>

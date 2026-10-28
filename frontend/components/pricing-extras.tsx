@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { appHref } from "../lib/hosts";
 import { useState } from "react";
 import { PAID_TIERS, PLANS, PLAN_TIERS, TOP_UP, secondsFromTokens, type PlanTier } from "@videosaas/contracts";
 
@@ -37,7 +38,7 @@ export function PlanFinder() {
         <small>About {minutes} minutes of video a month</small>
         <b>{chosen.name}{packs > 0 ? ` + ${packs} token ${packs === 1 ? "pack" : "packs"}` : ""}</b>
         <span className="finder-price">${monthly}<i> / month</i></span>
-        <Link className="accent-button" href="/profile#plan">{plan ? `Choose ${chosen.name}` : "Choose Business"}</Link>
+        <Link className="accent-button" href={appHref("/profile#plan")}>{plan ? `Choose ${chosen.name}` : "Choose Business"}</Link>
       </div>
     </section>
   );

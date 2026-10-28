@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { appHref } from "../lib/hosts";
 import { ThemeToggle } from "./theme-toggle";
 import { PublicLinks } from "./public-links";
 import { createClient } from "../utils/supabase/client";
@@ -389,7 +390,7 @@ export function LandingPage() {
             <div className="gm-landing-actions" style={{ marginLeft: "auto", alignItems: "center", gap: "10px" }}>
               {signedIn === true ? (
                 <Link
-                  href="/studio"
+                  href={appHref("/studio")}
                   className="gm-btn-primary"
                   style={{ padding: "9px 20px", borderRadius: "9999px", background: "var(--d-bg-181d27)", color: "var(--d-btn-ink)", fontSize: "15px", fontWeight: 500, whiteSpace: "nowrap", textDecoration: "none", boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12" }}
                 >
@@ -399,7 +400,7 @@ export function LandingPage() {
                 // Hidden (not removed) until the session is known, so a signed-in visitor never sees Sign in flash.
                 <span style={{ display: "contents", visibility: signedIn === null ? "hidden" : "visible" }} aria-hidden={signedIn === null}>
                 <Link
-                  href="/auth"
+                  href={appHref("/auth")}
                   style={{
                     padding: "9px 16px",
                     color: "var(--d-tx-0a0d12)",
@@ -412,7 +413,7 @@ export function LandingPage() {
                   Sign in
                 </Link>
                 <Link
-                  href="/auth?mode=signup"
+                  href={appHref("/auth?mode=signup")}
                   className="gm-btn-primary"
                   style={{
                     padding: "9px 20px",
@@ -547,7 +548,7 @@ export function LandingPage() {
           {/* CTA Buttons */}
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", justifyContent: "center" }}>
             <Link
-              href="/studio"
+              href={appHref("/studio")}
               className="gm-btn-primary"
               style={{
                 padding: "13px 26px",
@@ -924,8 +925,8 @@ export function LandingPage() {
           <GalleryGrid items={featured.items} loading={featured.loading} skeletons={4} hrefFor={(item) => signedIn ? `/studio?template=${item.id}` : startHref(item.id)} action={signedIn ? "Use this template" : "Start with this template"} />
           <p style={{ margin: "20px 0 0", textAlign: "center", fontSize: "14px", color: "var(--d-tx-535862)" }}>
             {signedIn
-              ? <><Link href="/studio" style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Open Studio</Link> to see every template and style.</>
-              : <><Link href="/auth?mode=signup" style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Create a free account</Link> to see every template and style.</>}
+              ? <><Link href={appHref("/studio")} style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Open Studio</Link> to see every template and style.</>
+              : <><Link href={appHref("/auth?mode=signup")} style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Create a free account</Link> to see every template and style.</>}
           </p>
         </section>
 
@@ -1307,7 +1308,7 @@ export function LandingPage() {
               with a video.
             </h2>
             <Link
-              href="/studio"
+              href={appHref("/studio")}
               className="gm-btn-light"
               style={{
                 position: "relative",

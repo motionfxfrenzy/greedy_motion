@@ -2,6 +2,7 @@
 
 import { PLAN_TIERS, PLANS, TOP_UP, secondsFromTokens, type PlanTier } from "@videosaas/contracts";
 import Link from "next/link";
+import { appHref } from "../lib/hosts";
 import { useEffect, useState, type ReactNode } from "react";
 import { getMySubscription, getMyTokens, startCheckout, type Subscription, type TokenSummary } from "../lib/api";
 import { useSignedIn } from "./site-nav";
@@ -58,10 +59,10 @@ export function PricingPlans() {
   return (
     <>
       <PlanCards current={signedIn ? sub?.tier : undefined} action={(tier, isCurrent) => {
-        if (isCurrent) return <Link className="secondary-button here-btn" href="/profile#plan">Your plan · manage</Link>;
-        if (tier === "free") return signedIn ? <span className="here">Free to start</span> : <Link className="secondary-button" href="/auth">Start free</Link>;
+        if (isCurrent) return <Link className="secondary-button here-btn" href={appHref("/profile#plan")}>Your plan · manage</Link>;
+        if (tier === "free") return signedIn ? <span className="here">Free to start</span> : <Link className="secondary-button" href={appHref("/auth")}>Start free</Link>;
         const cls = tier === "pro" ? "accent-button" : "secondary-button";
-        if (!signedIn) return <Link className={cls} href="/auth?next=/pricing">Choose {PLANS[tier].name}</Link>;
+        if (!signedIn) return <Link className={cls} href={appHref("/auth?next=/pricing")}>Choose {PLANS[tier].name}</Link>;
         if (sub && sub.tier !== "free") return sub.portalUrl ? <a className="secondary-button" href={sub.portalUrl} target="_blank" rel="noreferrer">Change in billing</a> : <span className="here">Change in billing</span>;
         return <button className={cls} disabled={buying !== null || sub === null} onClick={() => void buy(tier)}>{buying === tier ? "Opening…" : `Choose ${PLANS[tier].name}`}</button>;
       }} />
@@ -86,11 +87,11 @@ export function PricingHero() {
         <div className="your-plan" role="status">
           <span className="plan-chip pro">{PLANS[sub.tier].name} plan</span>
           {tokens && <span>{Math.round(Math.max(tokens.remaining, 0) * 100) / 100} tokens left</span>}
-          <Link href="/profile#plan">Manage</Link>
+          <Link href={appHref("/profile#plan")}>Manage</Link>
         </div>
       )}
       <div className="hero-actions">
-        {signedIn ? <Link className="accent-button" href="/studio">Open Studio</Link> : <Link className="accent-button" href="/auth">Start free</Link>}
+        {signedIn ? <Link className="accent-button" href={appHref("/studio")}>Open Studio</Link> : <Link className="accent-button" href={appHref("/auth")}>Start free</Link>}
         <a className="secondary-button" href="#plans">See plans</a>
       </div>
     </>

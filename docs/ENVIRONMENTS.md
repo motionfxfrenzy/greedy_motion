@@ -22,6 +22,29 @@ backend and serves the "Coming soon" site. Live resources are listed below; the 
 | Other media | `var/` folders | Railway volume `/data` | Railway volume `/data` |
 | Render worker | Docker Compose `worker` | AWS ECS Fargate scripts in `infra/aws/` (deployment state not recorded here) | same |
 
+## Landing and app on two hosts
+
+One Vercel project serves both hosts; `frontend/proxy.ts` splits them. `www.greedymotion.com` (and the apex) shows the landing page, pricing and policies; `app.greedymotion.com` shows the product (`/studio`, `/auth`, `/profile`, `/templates`, `/brand-kits`, `/library`, `/editor`). Product paths on the landing host redirect to the app host, and landing paths on the app host redirect back; `app.…/` goes to `/studio`. Landing buttons link to the app host through `appHref()` in `frontend/lib/hosts.ts`.
+
+Vercel project variables (all three unset locally and on preview deploys means no split):
+
+| Variable | Production | Staging |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SITE_ORIGIN` | `https://www.greedymotion.com` | leave unset, or its own pair |
+| `NEXT_PUBLIC_APP_ORIGIN` | `https://app.greedymotion.com` | leave unset, or its own pair |
+| `NEXT_PUBLIC_COOKIE_DOMAIN` | `.greedymotion.com` | unset |
+
+The cookie domain lets the landing page see the signed-in session the app sets (so it shows "Open Studio", not "Sign in"). Existing sessions on `www` are host-only cookies and sign out once, on first visit to the app host.
+
+To switch production on (not done yet, each step is outside the code):
+
+1. DNS: add `app` as a CNAME to Vercel (the target Vercel shows when the domain is added), and add the domain to the `greedy-motion` project.
+2. Vercel: set the three variables above on the Production environment, then redeploy `production`.
+3. Supabase production: add `https://app.greedymotion.com/**` to Redirect URLs (Site URL can move to the app host).
+4. Google OAuth client: add `https://app.greedymotion.com` to Authorized JavaScript origins (the redirect URI is Supabase's, unchanged).
+5. Railway production backend: add `https://app.greedymotion.com` to `CORS_ORIGINS`.
+6. Check: signed out, `app.greedymotion.com` shows the sign-in page; `www.greedymotion.com/studio` lands on the app host; sign in on the app host and `www` shows "Open Studio".
+
 ## One environment, one set of services
 
 `APP_ENV` (backend) and `NEXT_PUBLIC_APP_ENV` (frontend) decide where everything lives, and a mismatch fails at startup instead of
