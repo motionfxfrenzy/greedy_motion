@@ -40,6 +40,8 @@ export const BUILTIN_WORLD_OBJECTS = {
   campfire:     { slug: "campfire",     aliases: ["campfire", "bonfire", "fire pit"],            zone: "grounded", dimensions: { width: 0.75, height: 0.55 }, nativeDoodle: true },
   well:         { slug: "well",         aliases: ["stone well", "water well", "well"],           zone: "grounded", dimensions: { width: 1.2, height: 1.6 }, nativeDoodle: true },
   signpost:     { slug: "signpost",     aliases: ["signpost", "wooden sign", "milestone"],       zone: "grounded", dimensions: { width: 0.65, height: 1.5 }, nativeDoodle: true },
+  bicycle:      { slug: "bicycle",      aliases: ["bicycle", "bike"],                            zone: "grounded", dimensions: { width: 1.5, height: 1.0 }, nativeDoodle: true },
+  loaves:       { slug: "loaves",       aliases: ["loaf", "loaves", "bread", "warm loaves"],     zone: "handheld", dimensions: { width: 0.45, height: 0.18 }, nativeDoodle: true },
 };
 
 /**

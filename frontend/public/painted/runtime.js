@@ -1127,8 +1127,39 @@
   }
   const ridge = (y, amp, color, seed, W, FH, kind = "soft") => { const r = rng(seed), pts = [[-40, FH + 40]]; for (let x = -40; x <= W + 40; x += 64) pts.push([x, y + (kind === "peaks" ? (r() - 0.25) * amp * 2.1 : (Math.sin(x / 180 + seed) * 0.65 + (r() - 0.5) * 0.5) * amp)]); pts.push([W + 40, FH + 40]); return poly(pts, color, { flat: kind === "peaks", shade: 0.14 }); };
 
-  function house(x, y, w, h, wall, roof, lit) {
+  function house(x, y, w, h, wall, roof, lit, style) {
     const shWall = mix(wall, "#1c1824", 0.16), doorC = "#6e4228", winC = lit ? "#ffe89e" : "#8fa8bc", winRim = "#4a3322";
+    if (style === "shop") {
+      const awningA = "#d84a38", awningB = "#fbf6e8";
+      const stripes = [];
+      const nStripes = 6, awW = w * 0.96, awX0 = x - awW / 2, awY0 = y - h * 0.62, awY1 = y - h * 0.46;
+      for (let i = 0; i < nStripes; i++) {
+        const sx0 = awX0 + (i / nStripes) * awW, sx1 = awX0 + ((i + 1) / nStripes) * awW;
+        stripes.push(poly([[sx0, awY0], [sx1, awY0], [sx1 + (i - 2.5) * 2, awY1], [sx0 + (i - 2.5) * 2, awY1]], i % 2 === 0 ? awningA : awningB, { flat: true, w: 3.2 }));
+      }
+      return [
+        cast(x, y + 6, w * 0.6, Math.max(10, h * 0.1)),
+        // Main building facade
+        poly([[x - w / 2, y], [x + w / 2, y], [x + w / 2, y - h], [x - w / 2, y - h]], wall, { flat: true, shade: 0.12 }),
+        poly([[x + w * 0.24, y], [x + w / 2, y], [x + w / 2, y - h], [x + w * 0.24, y - h]], shWall, { flat: true, line: null }),
+        // Cornice & pitched town roof
+        poly([[x - w * 0.54, y - h], [x + w * 0.54, y - h], [x + w * 0.44, y - h * 1.32], [x - w * 0.44, y - h * 1.32]], roof, { flat: true, shade: 0.16 }),
+        rect(x - w * 0.54, y - h * 1.04, x + w * 0.54, y - h * 0.96, mix(roof, "#1a120e", 0.25), { line: "ink", w: 3.8 }),
+        // Upper floor windows
+        rect(x - w * 0.34, y - h * 0.88, x - w * 0.08, y - h * 0.7, winC, { line: "ink", w: 3.5 }),
+        rect(x + w * 0.08, y - h * 0.88, x + w * 0.34, y - h * 0.7, winC, { line: "ink", w: 3.5 }),
+        // Shop door on left
+        rect(x - w * 0.4, y - h * 0.46, x - w * 0.18, y, doorC, { line: "ink", w: 4 }),
+        rect(x - w * 0.36, y - h * 0.42, x - w * 0.22, y - h * 0.24, winC, { line: "ink", w: 2.8 }),
+        // Wide shop display window on right with warm loaves visible inside
+        rect(x - w * 0.1, y - h * 0.42, x + w * 0.4, y - h * 0.12, "#ffe89e", { line: "ink", w: 4 }),
+        blob(x + w * 0.04, y - h * 0.17, w * 0.07, h * 0.045, "#d88a38", { w: 2.5 }),
+        blob(x + w * 0.18, y - h * 0.17, w * 0.07, h * 0.045, "#d88a38", { w: 2.5 }),
+        blob(x + w * 0.31, y - h * 0.17, w * 0.06, h * 0.04, "#c97a2b", { w: 2.5 }),
+        // Striped shop awning
+        ...stripes,
+      ];
+    }
     return [
       cast(x, y + 6, w * 0.58, Math.max(10, h * 0.11)),
       poly([[x - w * 0.34, y - h * 0.95], [x - w * 0.2, y - h * 0.95], [x - w * 0.2, y - h * 1.38], [x - w * 0.34, y - h * 1.38]], mix(roof, "#3a251c", 0.25), { flat: true, w: 4 }),
@@ -1171,6 +1202,8 @@
     ["campfire", /\b(campfire|bonfire|fire\s+pit)\b/i],
     ["well", /\b(stone\s+well|water\s+well|\bwell\b)\b/i],
     ["signpost", /\b(signpost|wooden\s+sign|milestone)\b/i],
+    ["bicycle", /\b(bicycle|bike)\b/i],
+    ["loaves", /\b(loaf|loaves|bread|roll|rolls|pastry|pastries)\b/i],
   ];
   const commonKind = (p) => {
     if (p.kind !== "custom") return null;
@@ -1325,6 +1358,32 @@
         cast(px, py + 3, 22, 6),
         rect(px - 6, py - h, px + 6, py, tint("#5c3f26"), { line: "ink", w: 4 }),
         poly([[px - w * 0.35, py - h * 0.84], [px + w * 0.42, py - h * 0.84], [px + w * 0.54, py - h * 0.74], [px + w * 0.42, py - h * 0.64], [px - w * 0.35, py - h * 0.64]], wood, { flat: true, w: 4, shade: 0.14 }),
+      ];
+    }
+    if (kind === "bicycle") {
+      const w = Math.max(pw, 110), h = Math.max(ph, 76), r = Math.min(w * 0.22, h * 0.34);
+      const wx1 = px - w * 0.3, wx2 = px + w * 0.3, wy = py - r;
+      const frameCol = tint("#c84232"), metal = tint("#3a404d"), basketCol = tint("#c49655");
+      return [
+        cast(px, py + 3, w * 0.55, 6),
+        blob(wx1, wy, r, r, "rgba(0,0,0,0)", { w: 5 }),
+        blob(wx2, wy, r, r, "rgba(0,0,0,0)", { w: 5 }),
+        blob(wx1, wy, 4, 4, metal, { w: 2 }),
+        blob(wx2, wy, 4, 4, metal, { w: 2 }),
+        stroke([[wx1, wy], [px - w * 0.05, wy - r * 0.95], [px + w * 0.2, wy - r * 0.95], [wx2, wy]], frameCol, 5),
+        stroke([[wx1, wy], [px + w * 0.02, wy - r * 0.1], [px + w * 0.2, wy - r * 0.95]], frameCol, 4.5),
+        stroke([[px - w * 0.05, wy - r * 0.95], [px + w * 0.02, wy - r * 0.1]], frameCol, 4.5),
+        stroke([[wx2, wy], [px + w * 0.18, wy - r * 1.45], [px + w * 0.08, wy - r * 1.48]], metal, 4.5),
+        poly([[px - w * 0.14, wy - r * 1.05], [px + w * 0.02, wy - r * 1.05], [px, wy - r * 1.18], [px - w * 0.12, wy - r * 1.18]], tint("#4a3322"), { flat: true, w: 3.5 }),
+        poly([[px + w * 0.2, wy - r * 0.85], [px + w * 0.38, wy - r * 0.85], [px + w * 0.42, wy - r * 1.32], [px + w * 0.18, wy - r * 1.32]], basketCol, { flat: true, w: 3.5, shade: 0.15 }),
+      ];
+    }
+    if (kind === "loaves") {
+      const w = Math.max(pw, 64), h = Math.max(ph, 24), crust = tint("#d68835"), warm = tint("#f0b65b");
+      return [
+        rect(px - w * 0.48, py - h * 0.22, px + w * 0.48, py, tint("#7a5230"), { line: "ink", w: 3.5 }),
+        blob(px - w * 0.24, py - h * 0.48, w * 0.2, h * 0.38, crust, { w: 3.5, shade: 0.15 }),
+        blob(px + w * 0.18, py - h * 0.48, w * 0.2, h * 0.38, warm, { w: 3.5, shade: 0.15 }),
       ];
     }
     return [];
@@ -1580,7 +1639,7 @@
         poly([[-40, yTop + H * 0.08], [W * 0.28, yTop + H * 0.065], [W * 0.68, yTop + H * 0.09], [W + 40, yTop + H * 0.07], [W + 40, FH + 40], [-40, FH + 40]], nearCol, { w: 4.5 }),
         poly([[-40, yTop + H * 0.22], [W * 0.42, yTop + H * 0.2], [W + 40, yTop + H * 0.23], [W + 40, FH + 40], [-40, FH + 40]], tint(gc(mix(baseCol, "#3d7a28", 0.22))), { line: null })
       );
-      if (place === "road" || place === "street" || place === "river" || (place === "hills" && shot.path === true)) {     // hills and meadows are walked on the ground; a road or path is drawn only when the words name one (lint sets path: true then)
+      if (place === "road" || place === "river" || (place === "hills" && shot.path === true)) {     // hills and meadows are walked on the ground; a road or path is drawn only when the words name one (lint sets path: true then)
         const isRiv = place === "river", pCol = tint(isRiv ? "#4892b8" : place === "hills" ? "#d6be8c" : "#9e9589"), bankC = tint(isRiv ? "#7a6648" : "#b8a682");
         scene.push(
           poly([[W * 0.43, yTop + 4], [W * 0.57, yTop + 4], [W * 0.84, FH + 40], [W * 0.16, FH + 40]], bankC, { flat: true, line: null }),
@@ -1608,6 +1667,34 @@
       case "mountains": scene.push(ridge(hz, 130, tint("#8aa0bf"), 5, W, FH, "peaks"), ridge(hz + H * 0.1, 80, tint("#566b88"), 8, W, FH, "peaks")); meadowFoliage(hz + H * 0.19, "#5c8a58"); break;
       case "desert": scene.push(ridge(hz, 50, tint("#d9a860"), 3, W, FH), ridge(hz + H * 0.08, 40, tint("#c9944f"), 6, W, FH), poly([[-40, hz + H * 0.16], [W * 0.45, hz + H * 0.14], [W + 40, hz + H * 0.17], [W + 40, FH + 40], [-40, FH + 40]], tint("#bf8642"), { shade: 0.15 })); break;
       case "city": for (let i = 0; i < 12; i++) { const x = i * (W / 11), h = 160 + ((i * 97) % 200) * 1.2, bx = x + W / 11 + 6; scene.push(rect(x, hz - h, bx, FH, tint(["#2a2f5a", "#343a6a", "#242a50"][i % 3]), { line: "ink", w: 4, shade: 0.15 })); for (let wy = hz - h + 24; wy < hz + 20; wy += 42) if ((i + wy) % 3 === 0) scene.push(rect(x + 14, wy, bx - 18, wy + 18, T.amt > 0.3 ? "#ffe28a" : "#7082a8", { line: null })); } scene.push(rect(-40, hz + H * 0.14, W + 40, FH + 40, tint("#3a3f6a"), { line: "ink", w: 4 })); break;
+      case "street": {
+        const curbY = hz + H * 0.16, walkY = hz + H * 0.06;
+        // Background row of neighbouring shops & town buildings lining the sidewalk facing the street
+        const rowShops = [
+          [W * 0.12, walkY + 12, W * 0.25, H * 0.22, "#d8b894", "#6e3b2e"],
+          [W * 0.37, walkY + 12, W * 0.25, H * 0.25, "#e2c9a6", "#4f3a4b"],
+          [W * 0.63, walkY + 12, W * 0.26, H * 0.23, "#c9a882", "#7a3f31"],
+          [W * 0.88, walkY + 12, W * 0.24, H * 0.21, "#d4b499", "#3f4e5e"]
+        ];
+        for (const [sx, sy, sw, sh, wl, rf] of rowShops) {
+          scene.push(...house(sx, sy, sw, sh, tint(snowy ? mix(wl, "#e8eff5", 0.35) : wl), tint(rf), T.amt > 0.25, "shop"));
+        }
+        // Stone sidewalk in front of the shops + curb + cobbled street road in foreground
+        scene.push(
+          rect(-40, walkY, W + 40, curbY, snowy ? "#dce6ee" : tint("#b8aea0"), { line: "ink", w: 4 }),
+          rect(-40, curbY, W + 40, FH + 40, snowy ? "#c8d4de" : tint("#7a756c"), { line: "ink", w: 4.5 }),
+          stroke([[-40, curbY + 6], [W + 40, curbY + 6]], tint("#54504a"), 4, { flat: true })
+        );
+        // Cobblestone courses across the street
+        for (let r = 0; r < 5; r++) {
+          const cy = curbY + 42 + r * (H * 0.062);
+          for (let c = 0; c < 8; c++) {
+            const cx = ((c * 145 + r * 68) % (W - 40)) + 20;
+            scene.push(blob(cx, cy, 13 + (r % 2) * 3, 4.5, snowy ? "#e6eef5" : tint("#656058"), { w: 1.8 }));
+          }
+        }
+        break;
+      }
       case "forest": scene.push(ridge(hz, 30, tint("#3b5a3a"), 5, W, FH)); meadowFoliage(hz + H * 0.1, "#4e8034"); for (let i = 0; i < 6; i++) { const tx = 55 + i * 165; scene.push(poly([[tx - 6, hz - 240], [tx + 34, hz - 240], [tx + 42, hz + H * 0.18], [tx - 14, hz + H * 0.18]], tint("#4a3525"), { flat: true, shade: 0.24, w: 4.5 }), blob(tx + 14, hz - 230, 85, 65, tint(gc("#386b2c")), { w: 4.5 })); } break;
       case "interior": scene.push(...room(shot, W, H, FH, tint, T, Wo, t, shot.flashes)); break;
       case "custom": if (shot.recipe && (shot.recipe.layers || []).length) { scene.push(...placeItems(shot.recipe, W, H, FH, tint)); break; }   // the oracle drew this place: draw it
@@ -1633,13 +1720,17 @@
     window.PaintedScenes.frameBounds = detail ? null : world.frameBounds;
     const aboard = (s) => boatNode && isAboard(s);
     if (needsLand && !world.props.some((n) => n.prop.kind === "rock" && !n.prop.dressing)) props.push(poly([[-40, H * 0.8], [W * 0.5, H * 0.78], [W + 40, H * 0.8], [W + 40, FH + 40], [-40, FH + 40]], snowy ? "#e6edf2" : place === "lake" ? tint(gc("#7ab050")) : tint("#6b6a66"), { shade: 0.14 }));   // a lake has a bank to stand on; open sea has rock
-    let lampPos = null, markTip = null; const boatFront = [], anchors = new Map(), handsByPerson = new Map(), pondAt = [], marks = [], fruitProps = [], heldProps = [];
+    let lampPos = null, beamPos = null, markTip = null; const boatFront = [], anchors = new Map(), handsByPerson = new Map(), pondAt = [], marks = [], fruitProps = [], heldProps = [];
     for (const node of [...world.props].sort((a, b) => (b.depth || 0) - (a.depth || 0))) {
       const p = node.prop, px = node.x * W, py = node.y * H; let ph = node.h * H, pw = node.w * W;
       anchors.set(p, [px, py - ph * .25]);
       if (p.kind === "rock") props.push(...rock(px, py, pw, ph, tint));
-      else if (p.kind === "lighthouse") { props.push(cast(px, py + 6, pw * 0.65, 14), ...lighthouse(px, py, ph * 1.05, pw, T.amt > 0.3, tint)); lampPos = [px, py - ph * 1.05 * 0.945]; }
-      else if (p.kind === "house") props.push(...house(px, py, pw, ph * 0.7, tint("#a08a70"), tint("#6a3f31"), T.amt > 0.3));
+      else if (p.kind === "lighthouse") { props.push(cast(px, py + 6, pw * 0.65, 14), ...lighthouse(px, py, ph * 1.05, pw, T.amt > 0.3, tint)); lampPos = [px, py - ph * 1.05 * 0.945]; beamPos = lampPos; }
+      else if (p.kind === "house") {
+        // On a street, the row of shops is already drawn behind the sidewalk; only draw an explicit foreground house if not redundant, and style it as a shop on streets
+        if (place === "street") continue;
+        props.push(...house(px, py, pw, ph * 0.7, tint("#a08a70"), tint("#6a3f31"), T.amt > 0.3, p.style));
+      }
       else if (p.kind === "tree") props.push(...tree(px, py, ph, tint(gc("#4f8a3a")), tint("#6a4a2c"), t, 1, p.fruit));
       else if (p.kind === "lamp" && indoors) { props.push(...lampPost(px, py, ph, true, tint)); lampPos = [px, py - ph * 0.62]; }
       else if (p.kind === "lamp") { props.push(...lampPost(px, py, ph, false, tint)); lampPos = lampPos || [px, py - ph]; }
@@ -1710,7 +1801,7 @@
       else if (p.kind === "heart") props.push(blob(px, (p.y ?? 0.5) * H, 80, 70, "#e0405a", { w: 6, shade: 0.16 }));
       else if (p.kind === "moon") props.push(blob(px, (p.y ?? 0.22) * H, 64, 64, "#f4efcf", { w: 5, shade: 0.12 }));
       else if (p.kind === "sun") props.push(blob(px, (p.y ?? 0.35) * H, 80, 80, "#ffd23c", { w: 6, shade: 0.12 }));
-      else if (p.kind === "beam") lampPos = lampPos || [px, hz - 40];
+      else if (p.kind === "beam") { lampPos = lampPos || [px, hz - 40]; beamPos = beamPos || [px, hz - 40]; }
     }
     // people
     const drawerIx = markTip ? Math.max(0, (shot.subjects || []).findIndex((s) => s.pose === "point" || s.pose === "reach")) : -1;   // who draws the mark: the first person pointing or reaching
@@ -1756,7 +1847,7 @@
     // draw: scenery is always complete from the first frame so the sky/ground are never half-blank; props and people draw in when requested
     drawItems(g, M, scene, t, 0, 0.03, 0.4, true, zoom);
     const beamK = sceneDone ? 1 : clamp((t - 1.0) / 0.4);
-    if (lampPos && T.amt > 0.3 && beamK > 0) { const a = Math.PI * (0.5 + Math.sin(t * 1.1) * 0.45), len = 1700, sp = 0.12; for (const d of [0]) g.save(), (g.fillStyle = `rgba(255,224,110,${0.42 * beamK})`, g.beginPath(), g.moveTo(lampPos[0], lampPos[1]), g.lineTo(lampPos[0] + Math.cos(a + d - sp) * len, lampPos[1] + Math.sin(a + d - sp) * len), g.lineTo(lampPos[0] + Math.cos(a + d + sp) * len, lampPos[1] + Math.sin(a + d + sp) * len), g.closePath(), g.fill()), g.restore(); }
+    if (beamPos && T.amt > 0.3 && beamK > 0) { const a = Math.PI * (0.5 + Math.sin(t * 1.1) * 0.45), len = 1700, sp = 0.12; for (const d of [0]) g.save(), (g.fillStyle = `rgba(255,224,110,${0.42 * beamK})`, g.beginPath(), g.moveTo(beamPos[0], beamPos[1]), g.lineTo(beamPos[0] + Math.cos(a + d - sp) * len, beamPos[1] + Math.sin(a + d - sp) * len), g.lineTo(beamPos[0] + Math.cos(a + d + sp) * len, beamPos[1] + Math.sin(a + d + sp) * len), g.closePath(), g.fill()), g.restore(); }
     if (glow) { const gr = g.createRadialGradient(glow[0], glow[1], 4, glow[0], glow[1], 260); gr.addColorStop(0, "rgba(255,236,150,0.55)"); gr.addColorStop(1, "rgba(255,236,150,0)"); g.fillStyle = gr; g.fillRect(glow[0] - 260, glow[1] - 260, 520, 520); }
     drawItems(g, M, marks, t, 0, 0, 1, true, zoom);
     drawItems(g, M, props, t, 0, 0.012, 0.18, propsDone, zoom);

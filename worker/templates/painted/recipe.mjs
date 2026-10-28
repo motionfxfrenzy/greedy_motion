@@ -188,7 +188,7 @@ export async function recipeFor(kind, describe, { cacheDir, apiKey, context, sur
   return best.recipe;
 }
 
-const NATIVE_DOODLE_PROP = /\b(hat|cap|bonnet|beret|lemon|orange|apple|cherry|plum|pear|peach|fig|fence|railing|paling|armchair|chair|bench|stool|seat|watering\s*can|burlap|cloth\s+wrap|trunk\s+wrap|walking\s+cane|wooden\s+cane|\bcane\b|walking\s+stick|shelf|shelves|bookcase|cupboard|book|notebook|journal|diary|bible|letter|envelope|paper\s+note|scroll|map|basket|crate|hamper|bucket|pail|flower\s*pot|potted\s+plant|planter|clock|pocket\s*watch|hourglass|compass|teacup|mug|cup\s+of|teapot|kettle|bowl|campfire|bonfire|fire\s+pit|stone\s+well|water\s+well|\bwell\b|signpost|wooden\s+sign|milestone)\b/i;
+const NATIVE_DOODLE_PROP = /\b(hat|cap|bonnet|beret|lemon|orange|apple|cherry|plum|pear|peach|fig|fence|railing|paling|armchair|chair|bench|stool|seat|watering\s*can|burlap|cloth\s+wrap|trunk\s+wrap|walking\s+cane|wooden\s+cane|\bcane\b|walking\s+stick|shelf|shelves|bookcase|cupboard|book|notebook|journal|diary|bible|letter|envelope|paper\s+note|scroll|map|basket|crate|hamper|bucket|pail|flower\s*pot|potted\s+plant|planter|clock|pocket\s*watch|hourglass|compass|teacup|mug|cup\s+of|teapot|kettle|bowl|campfire|bonfire|fire\s+pit|stone\s+well|water\s+well|\bwell\b|signpost|wooden\s+sign|milestone|bicycle|bike|loaf|loaves|bread|roll|rolls)\b/i;
 
 /**
  * Draws many things with ONE look per round instead of one look per thing. Round 1 draws every missing thing at once (`concurrency` at a time) and `reviewBatch` judges all of them on a single sheet;
