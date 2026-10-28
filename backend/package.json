@@ -11,6 +11,7 @@
     "start": "node src/server.ts",
     "typecheck": "tsc --noEmit -p .",
     "test:pricing-lock": "node test/pricing-lock.mjs",
+    "test:preview-meter": "node --env-file-if-exists=.env test/preview-meter.mjs",
     "test:scene-claim": "node --env-file-if-exists=.env test/scene-claim.mjs",
     "test:admission": "node --env-file-if-exists=.env test/admission.mjs",
     "test:ownership": "node --env-file-if-exists=.env test/ownership.mjs",

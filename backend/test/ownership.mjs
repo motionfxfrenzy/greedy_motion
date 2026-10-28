@@ -22,7 +22,7 @@ const sign = (sub, extra = {}) => new SignJWT({ email: `${sub}@example.test`, ..
 
 const data = await mkdtemp(join(tmpdir(), "ownership-"));
 const server = spawn("node", ["src/server.ts"], {
-  env: { ...process.env, PORT: String(apiPort), HOST: "127.0.0.1", APP_ENV: "local", AUTH_MODE: "supabase", SUPABASE_URL: issuerBase, SUPABASE_JWKS_URL: `${issuerBase}/jwks`, EXPECTED_SUPABASE_PROJECT_REF: "", LEGACY_OWNER_ID: "", MEDIA_URL_SECRET: "ownership-test-media-url-secret-0123456789", STORAGE_DRIVER: "filesystem", AUDIO_DIR: join(data, "audio"), PROJECTS_DIR: join(data, "projects"), BRANDS_DIR: join(data, "brands"), LOG_LEVEL: "error" },
+  env: { ...process.env, PORT: String(apiPort), HOST: "127.0.0.1", APP_ENV: "local", AUTH_MODE: "supabase", SUPABASE_URL: issuerBase, SUPABASE_JWKS_URL: `${issuerBase}/jwks`, EXPECTED_SUPABASE_PROJECT_REF: "", LEGACY_OWNER_ID: "", MEDIA_URL_SECRET: "ownership-test-media-url-secret-0123456789", STORAGE_DRIVER: "filesystem", AUDIO_DIR: join(data, "audio"), PROJECTS_DIR: join(data, "projects"), BRANDS_DIR: join(data, "brands"), LOG_LEVEL: "error", PREVIEW_LIMITS: "on" },
   stdio: ["ignore", "inherit", "inherit"]
 });
 const ALICE = "00000000-0000-4000-8000-00000000000a", BOB = "00000000-0000-4000-8000-00000000000b";
@@ -75,6 +75,21 @@ test("a percent-encoded project id does not bypass the ownership check", async (
   assert.equal((await call(bob, "PUT", `/v1/projects/${encoded}`, { name: "Hijacked" })).status, 404);
   assert.equal((await call(bob, "GET", `/v1/projects/${project.id.toUpperCase()}`)).status, 404);
   assert.equal((await call(alice, "GET", `/v1/projects/${project.id}`)).body.name, "Alice project");
+});
+test("the preview allowance is enforced on the model-backed routes: Free gets 3 films, the fourth is refused with 402", async () => {
+  const made = [];
+  for (let i = 0; i < 4; i++) {
+    const created = await call(bob, "POST", "/v1/projects", { name: `Meter ${i}`, request });
+    assert.equal(created.status, 201);
+    made.push(created.body.id);
+  }
+  // An empty fix list reaches the route (400) without calling a model; the meter counts the call before it.
+  for (const id of made.slice(0, 3)) assert.equal((await call(bob, "POST", `/v1/projects/${id}/film/fix`, { fixes: [] })).status, 400);
+  const refused = await call(bob, "POST", `/v1/projects/${made[3]}/film/fix`, { fixes: [] });
+  assert.equal(refused.status, 402);
+  assert.equal(refused.body.error.code, "preview_limit");
+  assert.equal((await call(bob, "POST", `/v1/projects/${made[0]}/film/fix`, { fixes: [] })).status, 400, "a film already counted keeps working");
+  await db.query("delete from app.preview_usage where user_id = $1", [BOB]);
 });
 test("bob gets 404 on alice's project for read, write, delete-style routes", async () => {
   for (const [method, path, body] of [["GET", `/v1/projects/${project.id}`], ["PUT", `/v1/projects/${project.id}`, { name: "pwned" }], ["PUT", `/v1/projects/${project.id}/approve`], ["POST", `/v1/projects/${project.id}/script`], ["POST", `/v1/projects/${project.id}/render`], ["POST", `/v1/projects/${project.id}/comments`, { text: "x" }], ["GET", `/v1/projects/${project.id}/visuals`], ["POST", `/v1/projects/${project.id}/visuals`, { budgetUsd: 25 }], ["GET", `/v1/projects/${project.id}/composition`], ["PATCH", `/v1/projects/${project.id}/studio`, { values: {} }]]) {

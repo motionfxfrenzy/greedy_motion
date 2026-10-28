@@ -2,7 +2,7 @@
 // measured cost of a film (docs/PRICING.md, "What a film costs us"). Changing a number here means changing the document too.
 // Run: node backend/test/pricing-lock.mjs   (no database)
 import assert from "node:assert/strict";
-const { PLANS, TOP_UP, START_FEE_MILLITOKENS, MILLITOKENS_PER_SECOND, TOKEN_USD, MATERIAL_MARKUP, renderCostMillitokens, filmsFromTokens, materialCostMillitokens } = await import("@videosaas/contracts");
+const { PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, PLANS, TOP_UP, START_FEE_MILLITOKENS, MILLITOKENS_PER_SECOND, TOKEN_USD, MATERIAL_MARKUP, renderCostMillitokens, filmsFromTokens, materialCostMillitokens } = await import("@videosaas/contracts");
 
 // ---- the locked numbers ----
 assert.equal(TOKEN_USD, 0.1);
@@ -23,6 +23,9 @@ assert.equal(renderCostMillitokens(0.2), 6300, "a started second counts whole");
 assert.equal(filmsFromTokens(PLANS.free.tokens, 16), 1, "Free makes one film of up to 16 s");
 assert.equal(filmsFromTokens(PLANS.free.tokens, 17), 0);
 assert.equal(materialCostMillitokens(0.667), Math.ceil((0.667 * 4 / 0.1) * 1000), "generated material is sold at 4x provider cost");
+
+assert.deepEqual({ ...PREVIEW_ALLOWANCE }, { free: 3, starter: 15, pro: 45, business: 150 }, "films a person may work on per period");
+assert.equal(PREVIEW_CALL_CAP, 150);
 
 // ---- the margin each plan keeps, from measured cost ----
 // Cost of one film (USD), measured 2026-10-28 on the Binary Search template (66.5 s, 9 beats), Claude at Sonnet 4.6 prices:
@@ -47,4 +50,14 @@ for (const tier of ["starter", "pro", "business"]) assert.ok(1 - cost(60, false)
 assert.ok(TOP_UP.priceUsd / TOP_UP.tokens > PLANS.starter.priceUsd / PLANS.starter.tokens, "packs are dearer per token than the cheapest-to-leave plan");
 // Free costs us less than a dollar: one film of at most 16 s.
 assert.ok(cost(16, false) < 0.5, "a free signup that makes its one film costs us under 50 cents");
+// Previews are not paid by tokens until a film is rendered, so the allowances are sized to the worst case: a person who uses every
+// preview and also renders every film their tokens allow (60 s films, $0.02 of render each) must still cost us less than the plan
+// brings in after the payment fee. A preview is $0.79 (measured). Free: the most a signup can cost before it pays anything.
+const PREVIEW_COST = 0.79, RENDER_ONLY = 0.02;
+for (const tier of ["starter", "pro", "business"]) {
+  const worst = PREVIEW_ALLOWANCE[tier] * PREVIEW_COST + Math.floor(PLANS[tier].tokens / 24) * RENDER_ONLY;
+  const net = PLANS[tier].priceUsd * 0.93 - 0.5;
+  assert.ok(worst < net, `${tier}: ${PREVIEW_ALLOWANCE[tier]} previews and every film rendered cost $${worst.toFixed(2)}, more than the $${net.toFixed(2)} the plan brings in`);
+}
+assert.ok(PREVIEW_ALLOWANCE.free * PREVIEW_COST < 3, "a Free signup that only previews costs us under $3");
 console.log("pricing lock: ok");

@@ -13,6 +13,15 @@ export const MILLITOKENS_PER_TOKEN = 1000;
 export const START_FEE_MILLITOKENS = 6000;
 /** Millitokens each finished second of video costs. */
 export const MILLITOKENS_PER_SECOND = 300;
+/**
+ * Films a person may work on in a period (docs/PRICING.md): the storyboard, voice, motion and fixes of one project count once.
+ * Free is a lifetime allowance for the account; paid plans reset each calendar month (UTC). A preview costs about $0.79 in
+ * model calls (a rendered film's own preview is paid for by its tokens), so each allowance is about twice the films the plan's
+ * tokens can render: room to start a film and change your mind, while a plan used to the limit on previews alone still pays. `PREVIEW_CALL_CAP` is a safety limit on calls inside one
+ * project in one period.
+ */
+export const PREVIEW_ALLOWANCE = { free: 3, starter: 15, pro: 45, business: 150 } as const;
+export const PREVIEW_CALL_CAP = 150;
 /** What generated image or footage (material styles, 3D shots) is sold for, as a multiple of our provider cost. */
 export const MATERIAL_MARKUP = 4;
 

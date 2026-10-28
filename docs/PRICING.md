@@ -100,6 +100,37 @@ with typical revisions.
 $0.37 if the person finishes it (measured cost model). Every Free film carries a "Made with Greedy Motion" watermark for its whole
 length. When the tokens are used, Render says what is needed and offers a plan or a pack.
 
+## Preview allowance
+
+Making a film costs about $0.79 in model calls (storyboard, frames, director, voice, motion) before anything is rendered, and the
+tokens are taken only at **Render final video**. So each plan may work on a number of films per period; all the work on one film
+(storyboard, voice, motion, fixes, rewrites) counts once.
+
+| Plan | Films you may work on | Period |
+| --- | --- | --- |
+| Free | 3 | for the account, ever |
+| Starter | 15 | each calendar month (UTC) |
+| Pro | 45 | each calendar month |
+| Business | 150 | each calendar month |
+
+**How the numbers were chosen.** A rendered film's own preview is already paid for by its tokens (the $0.77 cost per film in the
+margin table includes it), so the allowance only has to cover the previews that are never rendered: each is about twice the films
+the plan's tokens can render (Starter renders about 8 one-minute films, Pro about 22, Business about 75). In the worst case, a
+person who uses every preview and also renders every film their tokens allow costs us $12.0 on Starter against $17.17 it brings in
+after the payment fee, $36.0 on Pro against $45.07, $120 on Business against $138.07: no plan loses money at full use of
+everything, and the lock test checks it. (The first draft of these allowances, 60, 200 and 600, would have cost $47, $158 and $474
+at full use and was dropped for that reason.) Free: three previews cost at most $2.37, plus $0.37 if the one free film is rendered.
+
+- **What counts:** a call to the model-backed routes of a project: script stream, frames, plan, plan audio, film animate, film fix
+  and beat rewrite. Opening a project or a preview, comments, the intent reader and the final render are not counted.
+- **Refusal:** the next new film gets 402 `preview_limit` with a plain message and the plan that allows more; films already counted
+  keep working. A per-film safety cap of 150 calls a period answers 402 `preview_call_cap`.
+- **Concurrency:** counting runs under a per-person lock, so two requests cannot both take the last place.
+- **Profile:** the profile page shows "N of M films" and how many are left.
+- **Local development:** off when `APP_ENV=local` unless `PREVIEW_LIMITS=on`; `PREVIEW_LIMITS=off` turns it off anywhere.
+- **Tests:** `backend/test/preview-meter.mjs` (limits, months, call cap, concurrency, isolation), an enforcement test through the
+  real hooks in `backend/test/ownership.mjs`, and the allowances and worst-case bound in `backend/test/pricing-lock.mjs`.
+
 ## Why the old price was replaced
 
 Measured on the same film at 0.25 token per second: 16.75 tokens ($1.59 at the Starter rate) against $0.81 of cost is 49% before
@@ -120,11 +151,9 @@ storyboard; the measured figure is $0.51 (script, frames, director), about 8 tim
   and returns the tokens (`revision_changed`).
 - Free films are built with the watermark; paid plans without.
 - Pro and Business grant Pro-editor access through the entitlement layer; Starter does not.
+- **Previews are metered** (2026-10-28, `backend/src/plan/preview-meter.ts`, table `app.preview_usage`): see the next section.
 
 **Not enforced yet, and the margins above assume it will be:**
-- **Preview creation is not metered.** Each preview costs about $0.79 (66 s) in model calls whatever the plan, and a Free account can
-  make as many as it likes. The planned allowance is Free 3, Starter 60, Pro 200, Business 600 previews a month; until it ships a
-  determined user can cost more than the start fee brings in. This is the largest open exposure.
 - **Revisions are not capped.** The 6-token start fee is priced for about one recreate and two applied fixes; more are free today.
 - **Generated material is not metered** (material styles, footage, 3D shots cost $0.667 to $1.40 a shot against nothing charged); it
   should be paid-plan only and charged at 4 x provider cost (`materialCostMillitokens`) before it is offered to Free.

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "../utils/supabase/client";
 import { PLANS, TOP_UP, secondsFromTokens } from "@videosaas/contracts";
-import { getMySubscription, getMyTokens, startCheckout, type Subscription, type TokenSummary } from "../lib/api";
+import { getMyPreviews, getMySubscription, getMyTokens, startCheckout, type PreviewUsage, type Subscription, type TokenSummary } from "../lib/api";
 import { useEntitlements, type Entitlements } from "../lib/entitlements";
 import { AppShell } from "./app-shell";
 import { planLabel, useAccount } from "./account-menu";
@@ -143,6 +143,15 @@ const planLine = (s: Subscription) => {
   return `$${plan.priceUsd} a month, ${plan.tokens} tokens each renewal.${s.renewsAt ? ` Renews ${date(s.renewsAt)}.` : ""}`;
 };
 
+/** Films worked on this period against the plan's allowance: storyboards, voice and motion are free to try, up to this many films. */
+function PreviewMeter() {
+  const [usage, setUsage] = useState<PreviewUsage | null>(null);
+  useEffect(() => { getMyPreviews().then(setUsage, () => setUsage(null)); }, []);
+  if (!usage) return null;
+  const left = Math.max(usage.limit - usage.used, 0);
+  return <p className="token-extra">{usage.used} of {usage.limit} films {usage.tier === "free" ? "tried on the free plan" : "started this month"} · {left} {left === 1 ? "film" : "films"} left to preview{usage.tier === "free" ? "" : ", resets on the 1st"}.</p>;
+}
+
 function TokenMeter({ value, renewsAt }: { value: TokenSummary; renewsAt: string | null }) {
   const plan = value.plan;
   // With a plan the meter is the month: it starts at 0% used on every renewal. Without one it is the free allowance.
@@ -155,6 +164,7 @@ function TokenMeter({ value, renewsAt }: { value: TokenSummary; renewsAt: string
       <b>{num(Math.max(view.remaining, 0))} {plan ? "plan " : ""}tokens left</b>
       <span className="token-sub">{plan ? `${usedPct}% of this month used · ${num(view.used)} of ${num(view.granted)}` : `${usedPct}% used · ${num(view.used)} of ${num(view.granted)}`}{plan && renewsAt ? ` · resets ${new Date(renewsAt).toLocaleDateString(undefined, { month: "long", day: "numeric" })}` : ""}</span>
       <div className="token-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={usedPct} aria-label="Share of this month's tokens used"><i style={{ width: `${usedPct}%` }} /></div>
+      <PreviewMeter />
       {extra > 0 && <p className="token-extra">Plus {num(extra)} extra tokens ({plan ? "free allowance and packs" : "packs"}) that do not expire.</p>}
       <p className="token-extra">Enough for about {films} {films === 1 ? "film" : "films"} of 30 seconds in total.{plan ? " Unused plan tokens do not carry over to next month." : ""}</p>
       {value.recent.length === 0 ? <p>Nothing used yet.</p> : (

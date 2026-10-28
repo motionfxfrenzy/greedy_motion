@@ -140,6 +140,13 @@ export async function watchScenes(projectId: string, onEvent: (event: SceneEvent
     buffered += value;
     let end: number;
     while ((end = buffered.indexOf("\n\n")) >= 0) {
+export type PreviewUsage = { tier: string; period: string; used: number; limit: number };
+/** Films the person has worked on this period (Free: ever) against their plan's allowance. */
+export async function getMyPreviews(): Promise<PreviewUsage> {
+  const response = await apiFetch(apiOrigin + "/v1/me/previews", { cache: "no-store" });
+  return parse<PreviewUsage>(response, "Could not load your film allowance.");
+}
+
       const block = buffered.slice(0, end);
       buffered = buffered.slice(end + 2);
       const data = block.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
