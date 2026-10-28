@@ -53,18 +53,24 @@ async function runTasks(count: number) {
 /** Render jobs waiting or running at the last check; the sweep slows down while this is 0. */
 let lastDemand = 0;
 const recent = createDemand();
+// The worker's SCENE_CONCURRENCY default (worker.mjs): background scenes drawn at once on one task.
+const SCENE_SLOTS = Math.max(1, Number.parseInt(process.env.SCENE_CONCURRENCY ?? "3", 10) || 3);
 
 async function ensure() {
   // force: recount instead of reading the cache (which can be an hour old); kicks cover the last minute that a recount may reuse.
   const [stats] = await boss.getQueueStats(QUEUES.video, { force: true });
-  // Scenes drawn in the background run on the same workers, several to a task (SCENE_CONCURRENCY): one task per three.
+  // Scenes drawn in the background run on the same workers beside the finals, SCENE_CONCURRENCY to a task, so each kind of
+  // work is counted in tasks on its own and the two are added (a task that is full of finals has no room for scenes).
   const [scenes] = await boss.getQueueStats(QUEUES.scene, { force: true }).catch(() => []);
-  const demand = recent.count((stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0) + Math.ceil(((scenes?.queuedCount ?? 0) + (scenes?.activeCount ?? 0)) / 3));
+  const finals = recent.count((stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0));
+  const sceneWork = (scenes?.queuedCount ?? 0) + (scenes?.activeCount ?? 0);
+  const demand = finals + sceneWork;
   lastDemand = demand;
   if (demand === 0) return;
   const listed = await client!.send(new ListTasksCommand({ cluster: launch!.cluster, family, desiredStatus: "RUNNING" }));
   const running = listed.taskArns?.length ?? 0;
-  const wanted = tasksToStart(demand, running, launch!.perTask, launch!.maxTasks);
+  const needed = Math.ceil(finals / launch!.perTask) + Math.ceil(sceneWork / SCENE_SLOTS);
+  const wanted = Math.max(0, Math.min(launch!.maxTasks, needed) - running);
   if (wanted === 0) return;
   const started = await runTasks(wanted);
   log("info", "worker_launched", { demand, running, wanted, started });

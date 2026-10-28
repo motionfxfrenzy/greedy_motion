@@ -156,11 +156,15 @@ export const renderJobRepository = {
     return toView(row, row.ahead === null ? undefined : Number(row.ahead));
   },
 
-  /** Claims a queued job for planning. Returns null when another delivery already moved it on. */
+  /**
+   * Claims a job for planning: a queued one, or one whose previous attempt failed (its error was noted for the retry) or went
+   * silent for three minutes. Returns null when another delivery is planning it or has moved it on, so two overlapping
+   * deliveries cannot both pay for the same planning.
+   */
   async beginPlanning(id: string) {
     const result = await pool.query<Row>(
       `update app.render_jobs set state = 'planning', stage = 'planning', progress = 15, error = null, updated_at = now()
-       where id = $1 and state in ('queued', 'planning') returning *`,
+       where id = $1 and (state = 'queued' or (state = 'planning' and (error is not null or updated_at < now() - interval '180 seconds'))) returning *`,
       [id]
     );
     return result.rows[0] ?? null;

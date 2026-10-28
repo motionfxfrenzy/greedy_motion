@@ -35,6 +35,10 @@ export async function registerSceneRoutes(app: FastifyInstance) {
    * progress change, the list again when a clip changes state, and the latest drawn frame as it is drawn. Pushed by the
    * LISTEN hub (events.ts); without it, the list is reloaded every 3 s.
    */
+  // Hijacked streams are not closed by the server on shutdown; end them first so closing does not wait for each client to leave.
+  const sceneStreams = new Set<() => void>();
+  app.addHook("preClose", async () => { for (const end of [...sceneStreams]) end(); });
+
   app.get<{ Params: { id: string } }>("/v1/projects/:id/scenes/events", async (request, reply) => {
     const projectId = request.params.id;
     if (!uuid.test(projectId)) return reply.code(404).send(notFound);
@@ -76,7 +80,9 @@ export async function registerSceneRoutes(app: FastifyInstance) {
     const unwatch = renderEvents.watchScenes(projectId, onNotice);
     const fallback = setInterval(() => { if (!renderEvents.live) void reload(); }, 3000);
     const ping = setInterval(() => { if (!closed) reply.raw.write(": ping\n\n"); }, 20_000);
-    request.raw.on("close", () => { closed = true; unwatch(); clearInterval(fallback); clearInterval(ping); if (!reply.raw.writableEnded) reply.raw.end(); });
+    const end = () => { closed = true; sceneStreams.delete(end); unwatch(); clearInterval(fallback); clearInterval(ping); if (!reply.raw.writableEnded) reply.raw.end(); };
+    sceneStreams.add(end);
+    request.raw.on("close", end);
     send({ type: "clips", clips: first });
     for (const clip of first) if (clip.state !== "queued") thumb(clip.id, clip.thumbFrame);
   });

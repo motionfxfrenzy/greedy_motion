@@ -46,6 +46,17 @@ const sha = (...parts: (string | Buffer)[]) => {
   return hash.digest("hex");
 };
 
+/** A digest of every file in a folder (names and bytes), so a font, logo or script changed under the same name changes it. */
+async function folderDigest(dir: string, prefix = ""): Promise<string> {
+  const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : 1));
+  const parts: string[] = [];
+  for (const entry of entries) {
+    const name = `${prefix}${entry.name}`;
+    parts.push(entry.isDirectory() ? await folderDigest(join(dir, entry.name), `${name}/`) : sha(name, await readFile(join(dir, entry.name))));
+  }
+  return sha(...parts);
+}
+
 /** HyperFrames' frame count for a length (it rounds to the nearest frame when within a hair of one). */
 export function framesFor(seconds: number, fps = SCENE_FPS) {
   const raw = seconds * fps;
@@ -66,7 +77,7 @@ export async function planClips(pageDir: string, html: string): Promise<Planned[
   const data = JSON.parse(match[1]!) as { beats: Array<{ start: number; end: number; svg: string; motion: unknown }> } & Record<string, unknown>;
   const { beats, ...look } = data;
   // Everything on the page except the frames and the soundtrack: engine, frame-film script, fonts, theme, watermark.
-  const chrome = sha(html.replace(match[0], "").replace(AUDIO_TAG, ""), JSON.stringify(look));
+  const chrome = sha(html.replace(match[0], "").replace(AUDIO_TAG, ""), JSON.stringify(look), await folderDigest(pageDir));
   const total = framesFor(beats[beats.length - 1]!.end);
   const starts = beats.map((beat, i) => (i === 0 ? 0 : Math.round(beat.start * SCENE_FPS)));
   const scene = (beat: (typeof beats)[number] | undefined) => (beat ? sha(beat.svg, JSON.stringify(beat.motion), String(beat.start), String(beat.end)) : "");
@@ -130,7 +141,7 @@ async function buildPage(projectId: string, watermark: boolean) {
   try {
     await buildPlanRenderProject(project, building, { watermark });
     const html = await readFile(join(building, "index.html"), "utf8");
-    const hash = sha(html, await readFile(join(building, "variables.json"), "utf8")).slice(0, 24);
+    const hash = sha(html, await readFile(join(building, "variables.json"), "utf8"), await folderDigest(building)).slice(0, 24);
     const dir = join(pagesDir(projectId), hash);
     if (await access(dir).then(() => true, () => false)) await rm(building, { recursive: true, force: true });
     else await rename(building, dir);
@@ -182,7 +193,10 @@ export async function ensureClips(projectId: string, watermark: boolean): Promis
     client.release();
   }
   // Scenes first, in film order (the soundtrack is quick); a clip already waiting keeps its single message.
-  for (const id of queue) await boss.send(QUEUES.scene, { clipId: id }, { singletonKey: id });
+  // A send that fails leaves its row queued; the next call (Preview opening, a fix) sends it again, so one failure must not stop the rest.
+  for (const id of queue) {
+    await boss.send(QUEUES.scene, { clipId: id }, { singletonKey: id }).catch(() => boss.send(QUEUES.scene, { clipId: id }, { singletonKey: id })).catch((error) => console.error(JSON.stringify({ level: "error", event: "scene_send_failed", clipId: id, message: error instanceof Error ? error.message : String(error) })));
+  }
   if (queue.length) void kickWorkers(true);
   return currentClips(projectId);
 }

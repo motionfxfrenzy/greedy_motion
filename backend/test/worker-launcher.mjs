@@ -26,10 +26,11 @@ ECSClient.prototype.send = async function (command) {
   throw new Error(`unexpected ${name}`);
 };
 
-const { boss } = await import("../src/jobs/queues.ts");
+const { boss, QUEUES } = await import("../src/jobs/queues.ts");
+let sceneStats = { queuedCount: 0, activeCount: 0 };
 const { kickWorkers, tasksToStart } = await import("../src/jobs/worker-launcher.ts");
 let stats = { queuedCount: 0, activeCount: 0 };
-boss.getQueueStats = async () => [stats];
+boss.getQueueStats = async (name) => [name === QUEUES.scene ? sceneStats : stats];
 const runs = () => calls.filter((call) => call.name === "RunTaskCommand");
 
 // Arithmetic: two renders per task, capped at three tasks, minus what is already up.
@@ -66,6 +67,13 @@ assert.equal(runs().length, 2);
 assert.equal(runs()[1].input.launchType, "FARGATE");
 assert.equal(runs()[1].input.count, 3);
 
+// Scenes and finals are counted in tasks separately: 2 finals fit one task of two, 6 scenes need two tasks of three, so three together.
+{
+  calls.length = 0; running = 0; spotCapacity = Infinity; stats = { queuedCount: 2, activeCount: 0 }; sceneStats = { queuedCount: 6, activeCount: 0 };
+  await kickWorkers(true);
+  assert.equal(runs().reduce((sum, call) => sum + call.input.count, 0), 3, "2 finals + 6 scenes request three tasks");
+  sceneStats = { queuedCount: 0, activeCount: 0 };
+  }
 // AWS errors are logged, never thrown into the request that queued the render.
 ECSClient.prototype.send = async () => { throw new Error("AccessDenied"); };
 await kickWorkers();

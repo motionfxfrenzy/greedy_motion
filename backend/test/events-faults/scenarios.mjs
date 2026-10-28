@@ -15,6 +15,7 @@ const J1 = "00000000-0000-4000-8000-0000000e0e11", J2 = "00000000-0000-4000-8000
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const proxy = (mode) => fetch(`http://127.0.0.1:55434/${mode}`).then((r) => r.json());
 const results = [];
+let failed = false;
 
 async function clean() { await db.query("delete from app.render_jobs where id = any($1)", [[J1, J2]]); }
 await clean();
@@ -107,9 +108,13 @@ try {
   await db.query("update app.render_jobs set state = 'ready', stage = 'done', progress = 100 where id = $1", [J1]);
   const closed = await Promise.race([Promise.all([B.done, C.done]), sleep(8000).then(() => "timeout")]);
   console.log("ready closes both streams:", closed);
+  if (closed === "timeout") throw new Error("streams did not close when the job finished");
+} catch (error) {
+  failed = true;
+  console.error("FAILED:", error);
 } finally {
   await proxy("pass").catch(() => undefined);
   await clean();
   await db.end();
-  process.exit(0);
+  process.exit(failed ? 1 : 0);
 }
