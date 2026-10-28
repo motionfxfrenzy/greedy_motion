@@ -38,9 +38,16 @@ export function FilmPage() {
   const watching = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    listPaintedLooks().then((result) => { setLooks(result.looks); setLimits({ min: result.scriptMin, max: result.scriptMax }); }).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load the looks."));
-    listPaintedFilms().then(setFilms).catch(() => undefined);
-    return () => watching.current?.abort();
+    let live = true;
+    // A request cut off by a page change or a dropped connection is tried again, a few times, before the person sees an error.
+    const retry = async <T,>(load: () => Promise<T>): Promise<T> => {
+      for (let attempt = 0; ; attempt++) {
+        try { return await load(); } catch (e) { if (!live || attempt >= 3) throw e; await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1))); }
+      }
+    };
+    retry(listPaintedLooks).then((result) => { if (live) { setLooks(result.looks); setLimits({ min: result.scriptMin, max: result.scriptMax }); } }).catch((e: unknown) => { if (live) setError(e instanceof Error ? e.message : "Could not load the looks."); });
+    retry(listPaintedFilms).then((list) => { if (live) setFilms(list); }).catch(() => undefined);
+    return () => { live = false; watching.current?.abort(); };
   }, []);
 
   const chosen = looks.find((entry) => entry.id === look) ?? looks.find((entry) => entry.available);
