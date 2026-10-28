@@ -10,7 +10,8 @@ const { migrate, pool } = await import("../src/db/database.ts");
 const { boss, startQueues } = await import("../src/jobs/queues.ts");
 const { renderService } = await import("../src/render/service.ts");
 const { renderJobRepository } = await import("../src/render/repository.ts");
-const { createProject } = await import("../src/projects/store.ts");
+const { filmInputsHash } = await import("../src/render/revision.ts");
+const { createProject, getProject } = await import("../src/projects/store.ts");
 const { grantTokens, spendTokens, tokenSummary } = await import("../src/tokens/store.ts");
 await migrate();
 await startQueues();
@@ -36,13 +37,13 @@ async function project(beatPlan) {
 }
 
 /** What POST /render does for a storyboard film: take the tokens, then queue the job with its prep. */
-async function render(projectId) {
+async function render(projectId, revisionHash) {
   const id = randomUUID();
   jobs.push(id);
   const spend = await spendTokens(U, COST, "render", id, projectId);
   await renderJobRepository.createAndEnqueue(
     { id, state: "queued", progress: 0, createdAt: new Date().toISOString(), revision: { id: randomUUID(), title: "test", scenes: [] } },
-    { request: { prompt: "A render prep test project", format: "landscape", style: "kinetic" }, projectId, prep: { kind: "beat-plan", watermark: false, motionBlur: false, ownerId: U, spendEvent: spend.event } }
+    { request: { prompt: "A render prep test project", format: "landscape", style: "kinetic" }, projectId, prep: { kind: "beat-plan", watermark: false, motionBlur: false, ownerId: U, spendEvent: spend.event, ...(revisionHash ? { revisionHash } : {}) } }
   );
   return id;
 }
@@ -76,6 +77,19 @@ try {
   assert.deepEqual([row.state, row.error.code], ["failed", "not_ready"]);
   assert.match(row.error.message, /at least three beats/);
   assert.equal(await balance(), start, "not ready: tokens back");
+
+  // The storyboard was edited after Render (the charged revision no longer matches): stops before any work, tokens back.
+  const editedId = await project({ beats: [], target_duration_s: 30, canvas: "1920x1080", audio: {} });
+  const chargedHash = filmInputsHash(await getProject(editedId));
+  await pool.query("update app.projects set data = jsonb_set(data, '{beatPlan,target_duration_s}', '45') where id = $1", [editedId]);
+  const edited = await render(editedId, chargedHash);
+  row = await finished(edited);
+  assert.deepEqual([row.state, row.error.code], ["failed", "revision_changed"]);
+  assert.equal(await balance(), start, "an edit after Render returns the tokens");
+  // Bookkeeping that is not film input (state, render pointer) does not change the revision.
+  const before = filmInputsHash(await getProject(editedId));
+  await pool.query("update app.projects set data = data || '{\"state\":\"Rendering draft\",\"renderJobId\":\"00000000-0000-4000-8000-000000000001\"}'::jsonb where id = $1", [editedId]);
+  assert.equal(filmInputsHash(await getProject(editedId)), before, "state and render pointer are not film inputs");
 
   // An unexpected error: one retry, then the dead letter fails the job and returns the tokens.
   const broken = await render(await project({ target_duration_s: 30 }));

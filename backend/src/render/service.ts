@@ -12,6 +12,7 @@ import { produceAudio, type WorkerAudio } from "../audio/produce.ts";
 import { getProject, updateProject } from "../projects/store.ts";
 import { boss, PLAN_RETRY_DELAY_SECONDS, POLL, QUEUES, type RenderMessage } from "../jobs/queues.ts";
 import { renderEvents } from "./events.ts";
+import { filmInputsHash } from "./revision.ts";
 import { projectTiming } from "../plan/preview.ts";
 import { beatTimes } from "../plan/timing.ts";
 import { joinPlan } from "./scenes.ts";
@@ -72,6 +73,9 @@ export class RenderService {
       await this.failForGood(id, { code: "planning_failed", message: "This project no longer has a storyboard. Open it and render again." }, false);
       return;
     }
+    // The film the person paid for is the one they saw when they pressed Render; an edit since then must not slip into it.
+    const changed = () => ({ code: "revision_changed", message: "The storyboard was edited after Render was pressed, so this film was stopped and your tokens were returned. Render again to export the latest version." });
+    if (prep.revisionHash && filmInputsHash(project) !== prep.revisionHash) { await this.failForGood(id, changed(), false); return; }
     await renderJobRepository.updatePlanning(id, { stage: "directing", progress: 25 });
     let prepared: Awaited<ReturnType<typeof prepareBeatPlanRender>>;
     try {
@@ -87,6 +91,11 @@ export class RenderService {
       console.warn(JSON.stringify({ level: "warn", event: "scene_join_unavailable", jobId: id, message: messageOf(error, "unknown") }));
       return null;
     });
+    // Preparation and the scene join each read the project again; the film they were built from must still be the charged one.
+    if (prep.revisionHash) {
+      const latest = await getProject(project.id);
+      if (!latest || filmInputsHash(latest) !== prep.revisionHash) { await this.failForGood(id, changed(), false); return; }
+    }
     // The worker's whole input: a prepared folder on the shared renders volume (or its R2 prefix). No API keys, no planning.
     const renderInput = { kind: "beat-plan", renderContractVersion: 1, id, workerDir: prepared.workerDir, ...(prepared.projectPrefix ? { projectPrefix: prepared.projectPrefix } : {}), durationSeconds: prepared.durationSeconds, canvas: prepared.canvas, ...(prep.motionBlur ? { motionBlur: true } : {}), ...(join ? { join } : {}) };
     await renderJobRepository.queueRender(id, { ...beatPlanRevision(project, prepared.durationSeconds), id: row.revision.id }, renderInput);

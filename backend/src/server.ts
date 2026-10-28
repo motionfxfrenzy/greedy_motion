@@ -13,6 +13,7 @@ import { mediaToken, signPreviewUrls } from "./media-links.ts";
 import { registerOwnership } from "./access.ts";
 import { renderService } from "./render/service.ts";
 import { renderJobRepository } from "./render/repository.ts";
+import { filmInputsHash } from "./render/revision.ts";
 import { renderEvents } from "./render/events.ts";
 import { NotReady, planReadiness } from "./plan/readiness.ts";
 import type { Plan } from "./render/planner.ts";
@@ -264,7 +265,7 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>
       // and the page follows every stage on /v1/renders/:id/events. A job that cannot be prepared returns the tokens.
       try {
         await updateProject(project.id, { state: "Rendering draft", renderJobId: jobId });
-        return reply.code(202).send(await renderService.createBeatPlanRender(project, jobId, { watermark, motionBlur: blur.on, ownerId: owner, spendEvent: spend.charged ? spend.event : null }, seconds ?? 0));
+        return reply.code(202).send(await renderService.createBeatPlanRender(project, jobId, { watermark, motionBlur: blur.on, ownerId: owner, spendEvent: spend.charged ? spend.event : null, revisionHash: filmInputsHash(project) }, seconds ?? 0));
       } catch (error) {
         if (spend.charged && spend.event) await refundSpend(owner, spend.event).catch((refundError) => app.log.error({ err: refundError }, "could not return tokens"));
         throw error;

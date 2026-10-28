@@ -32,7 +32,7 @@ type Row = {
 };
 
 /** A storyboard film's backend preparation, done by the planning consumer before the job reaches the render queue. */
-export type FilmPrep = { kind: "beat-plan"; watermark: boolean; motionBlur: boolean; ownerId: string; spendEvent: string | null };
+export type FilmPrep = { kind: "beat-plan"; watermark: boolean; motionBlur: boolean; ownerId: string; spendEvent: string | null; revisionHash?: string };
 
 export type StoredRenderJob = Row;
 
