@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { PAID_TIERS, PLANS, PLAN_TIERS, TOP_UP, filmsFromTokens, renderCostMillitokens, tokensFromMilli, type PlanTier } from "@videosaas/contracts";
+import { FREE_REVISIONS, MILLITOKENS_PER_SECOND, PAID_TIERS, PLANS, PLAN_TIERS, PREVIEW_ALLOWANCE, REVISION_TOKENS, START_FEE_MILLITOKENS, TOKEN_USD, TOP_UP, filmsFromTokens, materialCostMillitokens, renderCostMillitokens, tokensFromMilli, type PlanTier } from "@videosaas/contracts";
 
 const LENGTHS = [15, 30, 60] as const;
 const plain = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10));
@@ -43,6 +43,30 @@ export function PlanFinder() {
   );
 }
 
+/** What things cost in tokens: the figures the render, the generated scenes and the changes are charged with, computed from the price list. */
+export function TokenCosts() {
+  const film = (seconds: number) => plain(tokensFromMilli(renderCostMillitokens(seconds)));
+  const usd = (tokens: number) => `$${(Math.round(tokens * TOKEN_USD * 100) / 100).toFixed(2)}`;
+  const scene = tokensFromMilli(materialCostMillitokens(0.87));
+  return (
+    <section aria-labelledby="token-costs-title" className="compare">
+      <h2 id="token-costs-title">What a film costs in tokens</h2>
+      <p className="pricing-fine">A film takes {START_FEE_MILLITOKENS / 1000} tokens to start plus {MILLITOKENS_PER_SECOND / 1000} for each second of finished video. The price is shown before you render and is exactly what is taken. At list price a token is {usd(1)}; on a plan it costs less.</p>
+      <div className="compare-scroll">
+        <table>
+          <thead><tr><th scope="col">What</th><th scope="col">Tokens</th><th scope="col">At list price</th></tr></thead>
+          <tbody>
+            {[15, 30, 60, 90].map((seconds) => <tr key={seconds}><th scope="row">A {seconds}-second film</th><td>{film(seconds)}</td><td>{usd(Number(film(seconds)))}</td></tr>)}
+            <tr><th scope="row">Trying a film (storyboard, voice, motion, preview)</th><td>0</td><td>up to {PREVIEW_ALLOWANCE.free} on Free, {PREVIEW_ALLOWANCE.starter} to {PREVIEW_ALLOWANCE.business} a month on plans</td></tr>
+            <tr><th scope="row">Changes after the first version</th><td>{FREE_REVISIONS} included, then {REVISION_TOKENS} each</td><td>{usd(REVISION_TOKENS)} each</td></tr>
+            <tr><th scope="row">A generated scene (clay, paper, footage), paid plans</th><td>{plain(scene)}</td><td>{usd(scene)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 const rows: { label: string; value: (tier: PlanTier) => string }[] = [
   { label: "Price", value: (t) => (PLANS[t].priceUsd ? `$${PLANS[t].priceUsd} / month` : "Free") },
   { label: "Tokens", value: (t) => (t === "free" ? `${plain(PLANS[t].tokens)}, once` : `${PLANS[t].tokens.toLocaleString()} each month`) },
@@ -67,7 +91,9 @@ export function CompareTable() {
 }
 
 const faq: { q: string; a: string }[] = [
-  { q: "What is a token?", a: "Tokens are what you spend to make films. Every plan comes with a token balance, and the length of the finished film decides how many tokens it uses. Writing the storyboard and rewriting frames cost nothing." },
+  { q: "What is a token?", a: `Tokens are what you spend to make films. A film takes ${START_FEE_MILLITOKENS / 1000} tokens to start plus ${MILLITOKENS_PER_SECOND / 1000} for every second of finished video, so a 30-second film is ${plain(tokensFromMilli(renderCostMillitokens(30)))} tokens. The price is shown before you render and is the price taken. Trying a film costs nothing: your plan includes ${PREVIEW_ALLOWANCE.starter} to ${PREVIEW_ALLOWANCE.business} previews a month (Free: ${PREVIEW_ALLOWANCE.free}), with the storyboard, voice and motion, and tokens are taken only when you render.` },
+  { q: "What if I change my mind after the first version?", a: `The first ${FREE_REVISIONS} changes to a film are included: rebuilding it after an edit, or applying comments in the preview. Each one after that takes ${REVISION_TOKENS} tokens, and a change that does not happen is never charged.` },
+  { q: "What do generated scenes cost?", a: `Styles whose scenes are made by an image and video model (clay, paper, footage) are for paid plans and cost ${plain(tokensFromMilli(materialCostMillitokens(0.87)))} tokens a scene, shown before you generate them. They are paid when they are generated, on top of the film.` },
   { q: "What do I get for free?", a: "One finished film of up to 30 seconds for your account, with its storyboard, voice and motion. Free films carry a Greedy Motion watermark. There is no card and no trial that turns into a charge." },
   { q: "Do tokens expire?", a: "Your plan's tokens renew every month. Each renewal starts you again with the full amount, and what you did not use last month does not carry over. Token packs and your free allowance never expire, and a render uses your plan tokens first." },
   { q: "What happens when I run out?", a: `Render tells you how many tokens the film needs and how many you have. Nothing is charged automatically: add a ${TOP_UP.tokens}-token pack for $${TOP_UP.priceUsd} or move to a bigger plan.` },

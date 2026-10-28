@@ -132,7 +132,7 @@ export function ProfilePage() {
   );
 }
 
-const REASONS: Record<string, string> = { render: "Video rendered", grant: "Tokens added", adjust: "Adjustment", refund: "Tokens returned", expiry: "Last month's unused tokens expired" };
+const REASONS: Record<string, string> = { render: "Video rendered", material: "Generated scenes", revision: "Change to a film", grant: "Tokens added", adjust: "Adjustment", refund: "Tokens returned", expiry: "Last month's unused tokens expired" };
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const num = (n: number) => String(Math.round(n * 100) / 100);
 const planLine = (s: Subscription) => {

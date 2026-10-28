@@ -37,7 +37,7 @@ export function visualStatus(p: VideoProject): VisualStatus {
   return { required: beats.length > 0, available: Boolean(config.geminiApiKey), status: !v ? "not-started" : current ? v.status : "stale", total: beats.length,
     ready: current ? beats.filter(b => v?.shots[b.id]?.clip).length : 0,
     estimateUsd: Math.ceil((IMAGE_RESERVE + beats.length * (IMAGE_RESERVE + VIDEO_RESERVE + (p.brief?.look === "paper-cut" ? IMAGE_RESERVE : 0))) * 100) / 100,
-    reservedUsd: totalReserved(v), priceTokens: v?.status === "ready" && current ? 0 : tokensFromMilli(materialCostMillitokens(materialOwedUsd(p))), maxBudgetUsd: config.visualMaxBudgetUsd, error: current ? v?.error : undefined, runId: v?.runId };
+    reservedUsd: totalReserved(v), priceTokens: beats.length === 0 || (v?.status === "ready" && current) ? 0 : tokensFromMilli(materialCostMillitokens(materialOwedUsd(p))), maxBudgetUsd: config.visualMaxBudgetUsd, error: current ? v?.error : undefined, runId: v?.runId };
 }
 export function currentClips(p: VideoProject) {
   if (p.planVisuals?.fingerprint !== visualFingerprint(p)) return {};

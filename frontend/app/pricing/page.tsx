@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CompareTable, Faq, PlanFinder } from "../../components/pricing-extras";
+import { CompareTable, Faq, PlanFinder, TokenCosts } from "../../components/pricing-extras";
 import { PricingHero, PricingPlans } from "../../components/plan-cards";
 import { PublicLinks } from "../../components/public-links";
 import { SiteNav } from "../../components/site-nav";
 import styles from "../../components/public-page.module.css";
 
-export const metadata: Metadata = { title: "Pricing — Greedy Motion", description: "Start free with 30 seconds of video. Paid plans from $19 a month, priced in tokens." };
+export const metadata: Metadata = { title: "Pricing — Greedy Motion", description: "Start free with a 30-second film. Paid plans from $19 a month, priced in tokens." };
 
 export default function Pricing() {
   return (
@@ -16,12 +16,13 @@ export default function Pricing() {
         <section className="pricing-hero">
           <span className="pricing-kicker">Pricing</span>
           <h1>Your first 30 seconds are free.</h1>
-          <p className="lead">Make a real product film with no card. When you want more, pick a plan or top up: you only pay for the seconds you make.</p>
+          <p className="lead">Make a real product film with no card. When you want more, pick a plan or top up: a film takes a few tokens to start and a few more for every second you make, and you see the price before you render.</p>
           <PricingHero />
         </section>
         <PlanFinder />
         <div id="plans" className="plans-anchor"><PricingPlans /></div>
         <CompareTable />
+        <TokenCosts />
         <Faq />
         <section className="closing">
           <h2>Ready to see your product in motion?</h2>
