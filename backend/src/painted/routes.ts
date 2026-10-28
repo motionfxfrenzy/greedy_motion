@@ -21,7 +21,7 @@ import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
 import { pool } from "../db/database.ts";
 import { QUEUES } from "../jobs/queues.ts";
-import { readMedia } from "../media.ts";
+import { ensureMedia, readMedia } from "../media.ts";
 import { getProject, savePaintedProject, updateProjectPainted } from "../projects/store.ts";
 import { renderJobRepository } from "../render/repository.ts";
 import { InsufficientTokens, refundSpend, spendTokens } from "../tokens/store.ts";
@@ -263,6 +263,7 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
       aspect?: unknown;
       voice?: unknown;
       musicMood?: unknown;
+      forceRegenerate?: unknown;
     };
   }>("/v1/painted/projects", async (request, reply) => {
     const body = request.body ?? {};
@@ -279,11 +280,44 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
     const aspect: "9:16" | "16:9" = body.aspect === "16:9" ? "16:9" : "9:16";
     const voice = typeof body.voice === "string" && voiceIds.includes(body.voice) ? body.voice : "Charon";
     const musicMood = typeof body.musicMood === "string" ? body.musicMood.trim().slice(0, 80) : undefined;
+    const forceRegenerate = body.forceRegenerate === true;
 
     const owner = callerId(request);
     const existingId = typeof body.projectId === "string" && /^[0-9a-f-]{36}$/i.test(body.projectId) ? body.projectId : null;
     const existing = existingId ? await getProject(existingId) : null;
     if (existing && existing.ownerId !== owner) return reply.code(404).send(fail("not_found", "Project not found."));
+
+    // If the project already has a storyboard/animation for the same script and the user didn't ask to regenerate from scratch,
+    // keep the existing storyboard and animation and only update look/aspect/drawIn!
+    if (
+      existing?.painted?.spec?.lines?.length &&
+      !forceRegenerate &&
+      ((mode === "script" && existing.painted.script.trim() === text) || (mode === "idea" && existing.painted.idea?.trim() === text))
+    ) {
+      const updatedSpec = applyLookToSpec(existing.painted.spec, look.id, drawIn, aspect);
+      const updatedTimeline = buildPaintedTimeline(updatedSpec);
+      const voiceChanged = voice !== existing.painted.voice;
+      const kept = await updateProjectPainted(existing.id, (current) => ({
+        request: {
+          ...current.request,
+          format: aspect === "16:9" ? "landscape" : "portrait",
+          audio: { music: true, voiceover: true, voice }
+        },
+        painted: {
+          ...current.painted!,
+          look: look.id,
+          drawIn,
+          aspect,
+          voice,
+          ...(musicMood !== undefined ? { musicMood: musicMood || undefined } : {}),
+          spec: updatedSpec,
+          timeline: updatedTimeline,
+          ...(voiceChanged ? { audioVersion: undefined } : {}),
+          busy: null
+        }
+      }));
+      return reply.code(200).send({ project: kept ?? existing });
+    }
 
     const now = new Date().toISOString();
     const projectId = existing?.id ?? randomUUID();
@@ -557,8 +591,10 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
         let finalSpec = changed.spec;
         let finalTimeline = changed.timeline;
         let nextAudioVersion = project.painted!.audioVersion;
+        const hasAudioFile = wasAnimated && (await ensureMedia(join(workDir, "audio.m4a")));
 
-        if (wasAnimated) {
+        // Keep the existing animation audio unless a comment actually changed the spoken dialogue words (or audio.m4a is missing)
+        if (wasAnimated && (changed.linesChanged || !hasAudioFile)) {
           const animated = await producePaintedAnimation({
             spec: finalSpec,
             look: project.painted!.look,
@@ -616,6 +652,11 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
     if (project.painted.busy?.status === "running" && project.painted.busy.phase === "animate") {
       return reply.code(202).send({ project });
     }
+    const workDir = paintedWorkDir(project.id);
+    const allLinesVoiced = project.painted.spec.lines.every((l) => Boolean(l.audio?.seconds && l.audio.seconds > 0));
+    if (project.painted.audioVersion && allLinesVoiced && (await ensureMedia(join(workDir, "audio.m4a")))) {
+      return reply.code(200).send({ project });
+    }
 
     const busy = {
       status: "running" as const,
@@ -626,8 +667,6 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
     const started = await updateProjectPainted(project.id, (current) => ({
       painted: { ...current.painted!, busy }
     }));
-
-    const workDir = paintedWorkDir(project.id);
     void (async () => {
       try {
         const result = await producePaintedAnimation({

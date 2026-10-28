@@ -571,6 +571,7 @@ export async function generatePaintedProjectStoryboard(input: {
   aspect: "9:16" | "16:9";
   voice: string;
   musicMood?: string;
+  forceRegenerate?: boolean;
 }) {
   const response = await apiFetch(`${apiOrigin}/v1/painted/projects`, {
     method: "POST",

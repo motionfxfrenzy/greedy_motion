@@ -505,7 +505,7 @@ export function FilmPage() {
   );
   const estimatedTokens = useMemo(() => tokensFromMilli(renderCostMillitokens(estimatedSeconds)), [estimatedSeconds]);
 
-  const handleGenerateStoryboard = async () => {
+  const handleGenerateStoryboard = async (forceRegenerate = false) => {
     if (!chosenLook) return;
     setSubmitting(true);
     setError(null);
@@ -518,7 +518,8 @@ export function FilmPage() {
         drawIn: continuous ? "opening" : "each",
         aspect,
         voice,
-        ...(musicMood.trim() ? { musicMood: musicMood.trim() } : {})
+        ...(musicMood.trim() ? { musicMood: musicMood.trim() } : {}),
+        ...(forceRegenerate ? { forceRegenerate: true } : {})
       });
       setProject(started);
       setStep(STEP_STORYBOARD);
@@ -1093,23 +1094,45 @@ export function FilmPage() {
               <button type="button" className="secondary-button" onClick={() => router.push("/studio")}>
                 Back
               </button>
-              {project?.painted?.spec && !isBusy && (
-                <button type="button" className="secondary-button" onClick={() => setStep(STEP_STORYBOARD)}>
-                  Continue to storyboard
+              {project?.painted?.spec ? (
+                <>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={submitting || isBusy || !chosenLook?.available || activeInputText.trim().length < limits.min}
+                    onClick={() => void handleGenerateStoryboard(true)}
+                  >
+                    {submitting || (isBusy && busy?.phase === "storyboard") ? "Regenerating…" : "Regenerate storyboard"}
+                  </button>
+                  {project.painted.audioVersion && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={submitting}
+                      onClick={() => setStep(STEP_ANIMATION)}
+                    >
+                      Open animation →
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={submitting}
+                    onClick={() => void handleGenerateStoryboard(false)}
+                  >
+                    Continue to storyboard →
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={submitting || isBusy || !chosenLook?.available || activeInputText.trim().length < limits.min}
+                  onClick={() => void handleGenerateStoryboard(false)}
+                >
+                  {submitting || (isBusy && busy?.phase === "storyboard") ? "Generating storyboard…" : "Generate storyboard"}
                 </button>
               )}
-              <button
-                type="button"
-                className="primary-button"
-                disabled={submitting || isBusy || !chosenLook?.available || activeInputText.trim().length < limits.min}
-                onClick={() => void handleGenerateStoryboard()}
-              >
-                {submitting || (isBusy && busy?.phase === "storyboard")
-                  ? "Generating storyboard…"
-                  : project?.painted?.spec
-                  ? "Regenerate storyboard"
-                  : "Generate storyboard"}
-              </button>
             </div>
           </div>
         </div>
