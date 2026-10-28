@@ -846,11 +846,74 @@ export function FilmPage() {
       {/* ==================== STEP 1: SCRIPT & STYLE ==================== */}
       {step === STEP_SCRIPT && (
         <div className="flow-page script-style">
-          <div className="flow-title">
-            <h1>Script &amp; style</h1>
-            <p>
-              Give an idea or write your script, then choose how the story film is drawn and voiced. We build the storyboard first so you can review the dialogues and drawn frames before creating the animation.
-            </p>
+          <div className="flow-head">
+            <div className="flow-title">
+              <h1>Script &amp; style</h1>
+              <p>
+                Give an idea or write your script, then choose how the story film is drawn and voiced. We build the storyboard first so you can review the dialogues and drawn frames before creating the animation.
+              </p>
+            </div>
+            <div className="flow-footer top">
+              {isBusy && busy?.phase === "storyboard" ? (
+                <span className="ss-progress">
+                  <i />
+                  {BUSY_STAGES[busy.stage] ?? "Building your storyboard"}… {elapsed}s
+                </span>
+              ) : (
+                <span className={activeInputText.trim().length >= limits.min ? "ready" : ""}>
+                  <i />
+                  {activeInputText.trim().length < limits.min
+                    ? `Write at least ${limits.min} characters to generate the storyboard.`
+                    : project?.painted?.spec
+                    ? "Your storyboard is saved. Continue to it, or regenerate from this script."
+                    : "Ready. Generate the storyboard to see the dialogues and drawn frames."}
+                </span>
+              )}
+              <div>
+                <button type="button" className="secondary-button" onClick={() => router.push("/studio")}>
+                  Back
+                </button>
+                {project?.painted?.spec ? (
+                  <>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={submitting || isBusy || !chosenLook?.available || activeInputText.trim().length < limits.min}
+                      onClick={() => void handleGenerateStoryboard(true)}
+                    >
+                      {submitting || (isBusy && busy?.phase === "storyboard") ? "Regenerating…" : "Regenerate storyboard"}
+                    </button>
+                    {project.painted.audioVersion && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={submitting}
+                        onClick={() => setStep(STEP_ANIMATION)}
+                      >
+                        Open animation →
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={submitting}
+                      onClick={() => void handleGenerateStoryboard(false)}
+                    >
+                      Continue to storyboard →
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={submitting || isBusy || !chosenLook?.available || activeInputText.trim().length < limits.min}
+                    onClick={() => void handleGenerateStoryboard(false)}
+                  >
+                    {submitting || (isBusy && busy?.phase === "storyboard") ? "Generating storyboard…" : "Generate storyboard"}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {isBusy && busy?.phase === "storyboard" && (
@@ -1072,68 +1135,6 @@ export function FilmPage() {
                 </div>
               </section>
             </aside>
-          </div>
-
-          <div className="flow-footer">
-            {isBusy && busy?.phase === "storyboard" ? (
-              <span className="ss-progress">
-                <i />
-                {BUSY_STAGES[busy.stage] ?? "Building your storyboard"}… {elapsed}s
-              </span>
-            ) : (
-              <span className={activeInputText.trim().length >= limits.min ? "ready" : ""}>
-                <i />
-                {activeInputText.trim().length < limits.min
-                  ? `Write at least ${limits.min} characters to generate the storyboard.`
-                  : project?.painted?.spec
-                  ? "Your storyboard is saved. Continue to it, or regenerate from this script."
-                  : "Ready. Generate the storyboard to see the dialogues and drawn frames."}
-              </span>
-            )}
-            <div>
-              <button type="button" className="secondary-button" onClick={() => router.push("/studio")}>
-                Back
-              </button>
-              {project?.painted?.spec ? (
-                <>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={submitting || isBusy || !chosenLook?.available || activeInputText.trim().length < limits.min}
-                    onClick={() => void handleGenerateStoryboard(true)}
-                  >
-                    {submitting || (isBusy && busy?.phase === "storyboard") ? "Regenerating…" : "Regenerate storyboard"}
-                  </button>
-                  {project.painted.audioVersion && (
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={submitting}
-                      onClick={() => setStep(STEP_ANIMATION)}
-                    >
-                      Open animation →
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={submitting}
-                    onClick={() => void handleGenerateStoryboard(false)}
-                  >
-                    Continue to storyboard →
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={submitting || isBusy || !chosenLook?.available || activeInputText.trim().length < limits.min}
-                  onClick={() => void handleGenerateStoryboard(false)}
-                >
-                  {submitting || (isBusy && busy?.phase === "storyboard") ? "Generating storyboard…" : "Generate storyboard"}
-                </button>
-              )}
-            </div>
           </div>
         </div>
       )}
