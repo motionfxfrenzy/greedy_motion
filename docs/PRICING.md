@@ -198,6 +198,47 @@ former $149 top plan here was priced against them, which was wrong for a product
 InVideo and Descript. Synthesia's Starter minute is cheaper than ours. Runway Max undercuts our generated clips for a heavy user.
 Mitigation: the product is sold on the finished film, not the minute; revisit after 30 days of real conversion data.
 
+## Painted (GPU) films: estimate, not offered yet
+
+The painted-shorts engine (oil, pastel and watercolour looks, worker `Dockerfile.painted`) is local only today and its Linux GPU path has
+never run: nothing here is charged or enforced, and nothing in the code prices it. This is the price to put in when it ships, from the
+engine's own notes (`docs/PAINTED_INTEGRATION_PLAN.md` section 6 and `docs/HANDOFF_PAINTED_SHORTS.md`, in the painted-shorts worktree), with
+every figure below an estimate until the GPU spike runs. The session working on the engine was asked on 2026-10-28 for measured numbers
+(GPU speed, hosting cost, per-film model calls); this section is to be revised with its answer.
+
+**Why it costs more.** Fargate has no GPU, so oil needs a separate fleet (ECS on EC2 GPU instances, g4dn.xlarge with a T4, scaling to
+zero). Software rendering is not an option for oil: about 9.5 s a drawing, about 108 minutes for a 57 s film; a GPU paints a 60 s film in
+20 to 40 s (measured on an M1 Pro; the T4 is unmeasured). The model calls cost more too: a director, an object oracle, a vision review,
+voice and music, about **$0.73 per film with a Gemini brain and $1.59 with a Claude brain** (the engine's own run-2 estimate), against about
+$0.79 for a normal film's whole making.
+
+**Estimated cost of a 60 s painted film** (g4dn.xlarge in Singapore about $0.74 an hour on demand per the plan's notes, Spot taken as 40% of
+that, one task of about 4 min boot, 3 min work and a 10 min idle wait; the GPU instance cannot start in under a minute like Fargate):
+
+| Case | Model calls | GPU time | Total | Against a normal 60 s film ($0.77) |
+| --- | --- | --- | --- | --- |
+| Low: Gemini brain, shared warm GPU | $0.73 | $0.04 | **$0.77** | 1.0 x |
+| Mid: Claude brain, cold start on Spot | $1.59 | $0.08 | **$1.67** | 2.2 x |
+| High: Claude brain, cold start on demand, 15% retries | $1.59 | $0.21 | **$2.07** | 2.7 x |
+
+GPU time is small either way; the language calls are most of it, and a GPU instance left running for one customer would be $540 a month,
+so it must scale to zero.
+
+**What to charge: 6 tokens to start plus 0.7 token a second**, about double a normal film (60 s is 48 tokens, $4.80 at list; 30 s is 27;
+90 s is 69). Margin after the payment fee, Starter / Studio rates, with the cost split into $0.25 fixed plus a per-second part:
+
+| Film | Tokens | Low | Mid | High |
+| --- | --- | --- | --- | --- |
+| 30 s | 27 | 78% / 75% | 59% / 53% | 50% / 44% |
+| 60 s | 48 | 81% / 79% | 59% / 54% | 50% / 43% |
+| 90 s | 69 | 83% / 81% | 60% / 55% | 50% / 43% |
+
+(Each cell is Starter / Studio.) That keeps at least 50% in the mid case on every plan and about 43 to 50% in the high case, the same
+floors as a normal film, without charging for the cheap case what the dear case needs. The same plan allowances apply; a painted film
+uses one of the plan's previews and its changes count as changes (what a painted change costs, a one-scene rewrite, is unmeasured).
+Before it ships: run the one-day T4 spike, replace the estimates, add a film class to the render price (`renderCostMillitokens` takes
+only seconds today) and to the quote, and set a model-budget guard per film.
+
 ## Preview allowance
 
 Making a film costs about $0.79 in model calls (storyboard, frames, director, voice, motion) before anything is rendered, and the
