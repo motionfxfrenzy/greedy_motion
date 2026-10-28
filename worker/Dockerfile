@@ -12,7 +12,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HYPERFRAMES_BROWSER_PATH=/usr/bin/chromium \
     HYPERFRAMES_NO_TELEMETRY=1 \
     HYPERFRAMES_NO_UPDATE_CHECK=1 \
-    PAINTED_BROWSER=/usr/bin/chromium
+    PAINTED_BROWSER=/usr/bin/chromium \
+    PAINTED_WORLD_DB=/tmp/painted-cache/world-db PAINTED_RECIPE_CACHE=/tmp/painted-cache/recipes
 RUN apt-get update \
   && apt-get install -y --no-install-recommends chromium ffmpeg fonts-liberation fonts-dejavu-core ca-certificates tini \
   && rm -rf /var/lib/apt/lists/* \

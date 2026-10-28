@@ -16,6 +16,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HYPERFRAMES_NO_TELEMETRY=1 \
     HYPERFRAMES_NO_UPDATE_CHECK=1 \
     PAINTED_BROWSER=/usr/bin/chromium \
+    PAINTED_WORLD_DB=/tmp/painted-cache/world-db PAINTED_RECIPE_CACHE=/tmp/painted-cache/recipes \
     WORKER_QUEUE=gpu PAINTED_ANGLE=vulkan PAINTED_REQUIRE_GPU=1 \
     NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility,video NVIDIA_VISIBLE_DEVICES=all
 RUN apt-get update \
