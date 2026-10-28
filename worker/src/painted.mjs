@@ -38,7 +38,7 @@ export async function renderPainted({ id, input, attempt, signal, reporter, run 
     await mkdir(work, { recursive: true });
     reporter.set("directing", 8);
 
-    const args = [CLI, "--out", out, "--work", work, "--width", String(input.width ?? 720), "--format", input.format === "16:9" ? "16:9" : "9:16"];
+    const args = [CLI, "--out", out, "--work", work, "--width", String(input.width ?? 540), "--format", input.format === "16:9" ? "16:9" : "9:16"];
     if (input.baseJobId) {
       // A comment: take the earlier film's work folder (spec, recipes, voice, music), rewrite the named scenes, paint again.
       const archive = join(scratch, "work.tgz");
@@ -59,7 +59,7 @@ export async function renderPainted({ id, input, attempt, signal, reporter, run 
       for (const [pattern, name, percent] of STAGES) {
         if (pattern.test(line) && name !== stage) { stage = name; reporter.set(name, percent); break; }
       }
-      const frame = /(?:painting|frame)\s+(\d+)\s*\/\s*(\d+)/i.exec(line);
+      const frame = /(?:drawing|painting|frame)\s+(\d+)\s*\/\s*(\d+)/i.exec(line);
       if (frame) reporter.set("painting", 72 + Math.round((Number(frame[1]) / Number(frame[2])) * 18));
     };
     await run("node", args, { onLine, signal });
