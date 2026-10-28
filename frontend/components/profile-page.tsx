@@ -137,7 +137,7 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: "
 const num = (n: number) => String(Math.round(n * 100) / 100);
 const planLine = (s: Subscription) => {
   const date = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-  if (s.tier === "free") return `30 seconds of watermarked video in total.${s.checkoutAvailable ? "" : " Paid plans are not open yet."}`;
+  if (s.tier === "free") return `One watermarked film of up to 16 seconds.${s.checkoutAvailable ? "" : " Paid plans are not open yet."}`;
   const plan = PLANS[s.tier];
   if (s.cancelAtPeriodEnd && s.endsAt) return `$${plan.priceUsd} a month. Cancelled: you keep this plan until ${date(s.endsAt)}.`;
   return `$${plan.priceUsd} a month, ${plan.tokens} tokens each renewal.${s.renewsAt ? ` Renews ${date(s.renewsAt)}.` : ""}`;

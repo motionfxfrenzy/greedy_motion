@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { PAID_TIERS, PLANS, PLAN_TIERS, TOP_UP, secondsFromTokens, type PlanTier } from "@videosaas/contracts";
+import { PAID_TIERS, PLANS, PLAN_TIERS, TOP_UP, filmsFromTokens, renderCostMillitokens, tokensFromMilli, type PlanTier } from "@videosaas/contracts";
 
 const LENGTHS = [15, 30, 60] as const;
 const plain = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10));
@@ -12,7 +12,7 @@ export function PlanFinder() {
   const [films, setFilms] = useState(8);
   const [length, setLength] = useState<(typeof LENGTHS)[number]>(30);
   const seconds = films * length;
-  const needed = seconds / 4; // tokens a month at four seconds a token
+  const needed = films * tokensFromMilli(renderCostMillitokens(length)); // tokens a month: each film costs its start fee plus its seconds
   const plan = PAID_TIERS.find((tier) => PLANS[tier].tokens >= needed);
   const top = PLANS.business;
   const packs = plan ? 0 : Math.ceil((needed - top.tokens) / TOP_UP.tokens);
@@ -46,7 +46,7 @@ export function PlanFinder() {
 const rows: { label: string; value: (tier: PlanTier) => string }[] = [
   { label: "Price", value: (t) => (PLANS[t].priceUsd ? `$${PLANS[t].priceUsd} / month` : "Free") },
   { label: "Tokens", value: (t) => (t === "free" ? `${plain(PLANS[t].tokens)}, once` : `${PLANS[t].tokens.toLocaleString()} each month`) },
-  { label: "Films of 30 seconds", value: (t) => String(Math.floor(secondsFromTokens(PLANS[t].tokens) / 30)) + (t === "free" ? " in total" : " a month") },
+  { label: "Films of 30 seconds", value: (t) => String(filmsFromTokens(PLANS[t].tokens, 30)) + (t === "free" ? " in total" : " a month") },
   { label: "Watermark", value: (t) => (PLANS[t].watermark ? "Yes" : "None") },
   { label: "Pro editor", value: (t) => (PLANS[t].proEditor ? "Included" : "—") },
   { label: "Storyboard, rewrites and brand kits", value: () => "Included" }
@@ -68,7 +68,7 @@ export function CompareTable() {
 
 const faq: { q: string; a: string }[] = [
   { q: "What is a token?", a: "Tokens are what you spend to make films. Every plan comes with a token balance, and the length of the finished film decides how many tokens it uses. Writing the storyboard and rewriting frames cost nothing." },
-  { q: "What do I get for free?", a: "30 seconds of finished video for your account, in one film or several. Free films carry a Greedy Motion watermark. There is no card and no trial that turns into a charge." },
+  { q: "What do I get for free?", a: "One finished film of up to 16 seconds for your account, with its storyboard, voice and motion. Free films carry a Greedy Motion watermark. There is no card and no trial that turns into a charge." },
   { q: "Do tokens expire?", a: "Your plan's tokens renew every month. Each renewal starts you again with the full amount, and what you did not use last month does not carry over. Token packs and your free allowance never expire, and a render uses your plan tokens first." },
   { q: "What happens when I run out?", a: `Render tells you how many tokens the film needs and how many you have. Nothing is charged automatically: add a ${TOP_UP.tokens}-token pack for $${TOP_UP.priceUsd} or move to a bigger plan.` },
   { q: "Can I cancel or change my plan?", a: "Yes, any time from billing. A cancelled plan keeps working until the end of the period you paid for, and the tokens you already have stay yours." },

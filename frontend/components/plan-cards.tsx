@@ -1,6 +1,6 @@
 "use client";
 
-import { PLAN_TIERS, PLANS, TOP_UP, secondsFromTokens, type PlanTier } from "@videosaas/contracts";
+import { PLAN_TIERS, PLANS, TOP_UP, filmsFromTokens, secondsFromTokens, type PlanTier } from "@videosaas/contracts";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { getMySubscription, getMyTokens, startCheckout, type Subscription, type TokenSummary } from "../lib/api";
@@ -12,7 +12,7 @@ const minutes = (tokens: number) => {
 };
 
 /** How many films of `length` seconds a token balance makes. */
-export const filmsFrom = (tokens: number, length = 30) => Math.floor(secondsFromTokens(tokens) / length);
+export const filmsFrom = (tokens: number, length = 30) => filmsFromTokens(tokens, length);
 const plain = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10));
 
 /** The four plans side by side. `action` renders each card's button, so the same cards serve the pricing page and the profile. */

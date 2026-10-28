@@ -42,6 +42,7 @@ jobs:
       - run: npm run test:script-rules -w backend
       - run: npm run test:scene-rendering
       - run: node worker/test/motion-blur.mjs
+      - run: npm run test:pricing-lock -w backend
       - run: npm run test:formats -w backend
       - run: npm run test:pro -w backend
       - run: npm run test:entitlements-eval -w backend

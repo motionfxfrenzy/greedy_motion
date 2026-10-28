@@ -32,15 +32,15 @@ try {
   assert.deepEqual([refusal.error.active, refusal.error.limit], [3, 3]);
   assert.equal(await busyRefusal(OTHER), null, "another person is not affected");
 
-  // Pro and format films are charged at the storyboard rate (10 s = 2.5 tokens), returned when they cannot be queued, and refused when unaffordable.
+  // Pro and format films are charged at the storyboard rate (10 s = 9 tokens), returned when they cannot be queued, and refused when unaffordable.
   const PAYER = "00000000-0000-4000-8000-0000000a0403";
   await pool.query("delete from app.token_ledger where user_id = $1", [PAYER]);
-  await grantTokens(PAYER, 5, "admission test", "cli:test", "order:admission-test", "pack");
+  await grantTokens(PAYER, 10, "admission test", "cli:test", "order:admission-test", "pack");
   const start = (await tokenSummary(PAYER)).remaining;
   const film = randomUUID();
   const spend = await chargeRender(PAYER, 10, film);
   assert.equal(spend.charged, true);
-  assert.equal((await tokenSummary(PAYER)).remaining, start - 2.5, "10 s costs 2.5 tokens");
+  assert.equal((await tokenSummary(PAYER)).remaining, start - 9, "10 s costs 6 + 3 = 9 tokens");
   assert.equal((await chargeRender(PAYER, 10, film)).charged, false, "the same film is charged once");
   await returnCharge(PAYER, spend);
   assert.equal((await tokenSummary(PAYER)).remaining, start, "a film that could not be queued gets its tokens back");
