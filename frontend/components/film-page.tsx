@@ -86,6 +86,53 @@ const ANIMATION_COMMENT_EXAMPLES = [
 
 const lookMedium = (id: string) => id.split(":")[1] ?? id;
 
+/** Auto-growing textarea so multi-line Dialogue and Visual descriptions never clip or scroll inside themselves. */
+function AutoTextarea({
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  className,
+  ariaLabel
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  className?: string;
+  ariaLabel: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  const fit = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.max(32, el.scrollHeight)}px`;
+  }, []);
+  useEffect(() => {
+    fit();
+  }, [value, fit]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new ResizeObserver(() => fit());
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [fit]);
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      className={className}
+      value={value}
+      disabled={disabled}
+      placeholder={placeholder}
+      aria-label={ariaLabel}
+      onChange={(event) => onChange(event.target.value.replace(/\n/g, " "))}
+    />
+  );
+}
+
 function formatVideoTime(seconds: number) {
   const whole = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
@@ -172,6 +219,7 @@ export function FilmPage() {
   // Storyboard state
   const [runtimeReady, setRuntimeReady] = useState(false);
   const [drawnFrames, setDrawnFrames] = useState<string[]>([]);
+  const [drawnShots, setDrawnShots] = useState<string[][]>([]);
   const [pickedScenes, setPickedScenes] = useState<number[]>([]);
   const [storyboardAsk, setStoryboardAsk] = useState("");
   const [lineEdits, setLineEdits] = useState<Record<number, { say?: string; scene?: string }>>({});
@@ -374,11 +422,15 @@ export function FilmPage() {
       window.initShort(timeline, offscreen);
       const lineCount = spec?.lines?.length ?? 0;
       const frames: string[] = [];
+      const shotsPerLine: string[][] = [];
       for (let li = 0; li < lineCount; li++) {
-        const beatIndex = timeline.beats.findIndex((b) => b.lineIndex === li);
-        const targetBeat = beatIndex >= 0 ? beatIndex : Math.min(li, timeline.beats.length - 1);
-        frames.push(window.stillClean(targetBeat, 0.65));
+        const beatIndices = timeline.beats.map((b, idx) => (b.lineIndex === li ? idx : -1)).filter((idx) => idx >= 0);
+        const targets = beatIndices.length ? beatIndices : [Math.min(li, timeline.beats.length - 1)];
+        const lineImages = targets.map((bIdx) => window.stillClean!(bIdx, 0.65));
+        shotsPerLine.push(lineImages);
+        frames.push(lineImages[0] ?? "");
       }
+      setDrawnShots(shotsPerLine);
       setDrawnFrames(frames);
 
       // Save frame 0 as the project's coverFrame so the Projects card in /studio shows the real drawn frame
@@ -1054,7 +1106,13 @@ export function FilmPage() {
             </div>
           </header>
 
-          <div className="sc-doc-head" aria-hidden="true">
+          <div
+            className="sc-doc-head"
+            aria-hidden="true"
+            style={{
+              gridTemplateColumns: aspect === "9:16" ? "minmax(0, 1fr) 240px" : "minmax(0, 1fr) 320px"
+            }}
+          >
             <span>Dialogues &amp; scenes</span>
             <span>Drawn frames · {chosenLook?.name ?? look} style</span>
           </div>
@@ -1068,7 +1126,7 @@ export function FilmPage() {
                     .filter(Boolean)
                     .join(" · ")
                 : "meadow · day";
-              const frameUrl = drawnFrames[index];
+              const lineFrames = drawnShots[index]?.length ? drawnShots[index]! : drawnFrames[index] ? [drawnFrames[index]!] : [];
               const sayValue = lineEdits[index]?.say ?? line.say ?? "";
               const sceneValue = lineEdits[index]?.scene ?? line.scene ?? "";
               const toggleScene = () =>
@@ -1076,10 +1134,18 @@ export function FilmPage() {
                   curr.includes(index) ? curr.filter((i) => i !== index) : [...curr, index].sort((a, b) => a - b)
                 );
 
+              const portraitFrameWidth = lineFrames.length > 1 ? 108 : 126;
+              const portraitFrameHeight = Math.round((portraitFrameWidth * 16) / 9);
+
               return (
                 <li
                   key={index}
                   className={`sc-beat${isBusy ? " writing" : ""}${isPicked ? " picked" : ""}`}
+                  style={{
+                    gridTemplateColumns: aspect === "9:16" ? "minmax(0, 1fr) 240px" : "minmax(0, 1fr) 320px",
+                    padding: "16px 6px",
+                    alignItems: "center"
+                  }}
                   onClick={(event) => {
                     if (isBusy || (event.target as HTMLElement).closest("button, textarea, input")) return;
                     const add = event.metaKey || event.ctrlKey || event.shiftKey;
@@ -1125,50 +1191,80 @@ export function FilmPage() {
                       <div>
                         <dt>Dialogue</dt>
                         <dd>
-                          <textarea
-                            rows={2}
+                          <AutoTextarea
                             className="sc-line"
                             value={sayValue}
                             disabled={isBusy}
-                            aria-label={`Scene ${index + 1} dialogue`}
-                            onChange={(event) => handleLineEdit(index, { say: event.target.value.replace(/\n/g, " ") })}
+                            ariaLabel={`Scene ${index + 1} dialogue`}
+                            onChange={(val) => handleLineEdit(index, { say: val })}
                           />
                         </dd>
                       </div>
                       <div>
                         <dt>Visual</dt>
                         <dd>
-                          <textarea
-                            rows={2}
+                          <AutoTextarea
                             className="sc-visual"
                             value={sceneValue}
                             disabled={isBusy}
                             placeholder="What is drawn in this scene"
-                            aria-label={`Scene ${index + 1} visual`}
-                            onChange={(event) => handleLineEdit(index, { scene: event.target.value.replace(/\n/g, " ") })}
+                            ariaLabel={`Scene ${index + 1} visual`}
+                            onChange={(val) => handleLineEdit(index, { scene: val })}
                           />
                         </dd>
                       </div>
                     </dl>
                   </div>
 
-                  <figure
-                    className={`sc-frame ${frameUrl ? "ready" : "sc-frame-wait"}`}
-                    style={{ aspectRatio: aspect === "16:9" ? "16 / 9" : "9 / 16" }}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      justifyContent: "flex-start",
+                      alignItems: "center",
+                      flexWrap: "nowrap"
+                    }}
                   >
-                    {frameUrl ? (
-                      <button
-                        type="button"
-                        className="sc-frame-pick"
-                        aria-pressed={isPicked}
-                        onClick={toggleScene}
-                      >
-                        <img src={frameUrl} alt={`Drawn frame for scene ${index + 1}`} draggable={false} />
-                      </button>
+                    {lineFrames.length > 0 ? (
+                      lineFrames.slice(0, 2).map((frameUrl, shotIdx) => (
+                        <figure
+                          key={shotIdx}
+                          className="sc-frame ready"
+                          style={
+                            aspect === "9:16"
+                              ? { width: portraitFrameWidth, height: portraitFrameHeight, flexShrink: 0, borderRadius: 12 }
+                              : { width: "100%", aspectRatio: "16 / 9", borderRadius: 12 }
+                          }
+                        >
+                          <button
+                            type="button"
+                            className="sc-frame-pick"
+                            aria-pressed={isPicked}
+                            onClick={toggleScene}
+                            title={`Scene ${index + 1}${lineFrames.length > 1 ? ` · shot ${shotIdx + 1}` : ""}`}
+                          >
+                            <img
+                              src={frameUrl}
+                              alt={`Drawn frame for scene ${index + 1}`}
+                              draggable={false}
+                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            />
+                          </button>
+                        </figure>
+                      ))
                     ) : (
-                      <span>{isBusy ? "Drawing scene…" : "Drawing frame…"}</span>
+                      <div
+                        className="sc-frame sc-frame-wait"
+                        style={
+                          aspect === "9:16"
+                            ? { width: 126, height: 224, borderRadius: 12 }
+                            : { width: "100%", aspectRatio: "16 / 9", borderRadius: 12 }
+                        }
+                      >
+                        <span>{isBusy ? "Drawing scene…" : "Drawing frame…"}</span>
+                      </div>
                     )}
-                  </figure>
+                  </div>
                 </li>
               );
             })}
@@ -1319,11 +1415,11 @@ export function FilmPage() {
                     display: "block",
                     margin: "0 auto",
                     maxWidth: "100%",
-                    maxHeight: aspect === "9:16" ? "68vh" : "56vh",
+                    height: aspect === "9:16" ? "max(280px, calc(100vh - 410px))" : "auto",
+                    maxHeight: "max(280px, calc(100vh - 410px))",
                     width: "auto",
-                    height: "auto",
                     cursor: "pointer",
-                    borderRadius: 8
+                    borderRadius: 10
                   }}
                 />
                 {project?.painted?.audioVersion && project.id && (
@@ -1350,7 +1446,17 @@ export function FilmPage() {
                     aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
                     onClick={() => setMuted((m) => !m)}
                   >
-                    {muted || volume === 0 ? "🔇" : "🔊"}
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />
+                      {muted || volume === 0 ? (
+                        <path d="M16 9.5l5 5M21 9.5l-5 5" />
+                      ) : (
+                        <>
+                          <path d="M15.5 9.2a4 4 0 010 5.6" />
+                          {volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}
+                        </>
+                      )}
+                    </svg>
                   </button>
                   <input
                     type="range"
@@ -1367,7 +1473,7 @@ export function FilmPage() {
                   />
                 </span>
                 {chosenLook?.engine === "doodle" && (
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#d4d8e1", cursor: "pointer" }}>
                     <input
                       type="checkbox"
                       checked={continuous}
