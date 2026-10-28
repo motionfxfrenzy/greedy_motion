@@ -3,7 +3,7 @@ import { PublicPage } from "../../components/public-page";
 import { businessProfile } from "../../lib/business-profile";
 import { publicPageMetadata } from "../../lib/public-policies";
 
-export const metadata = publicPageMetadata("About", "Product video software for founders, marketers and SaaS teams.");
+export const metadata = publicPageMetadata("About", "Product video software for founders, marketers and independent creators.");
 export default function AboutPage() {
   return <PublicPage title="About Greedy Motion" description="Turn your product story into a video you can review and refine.">
     <section><h2>What we build</h2><p>Greedy Motion is browser-based software for creating product motion videos from screenshots, approved copy and brand assets. It is designed for founders, marketers and SaaS teams making product launches, feature demonstrations and release updates.</p></section>

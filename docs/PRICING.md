@@ -35,6 +35,11 @@ cost**: $1 of generation = 30 tokens. It is paid-plan only (below).
 | Business | $149 | $1,490 | 1,800 | 75 | 120 | $0.083 | no | yes |
 | Token pack | $12 once | | 100 | 4 | 6 | $0.12 | per plan | per plan |
 
+**Every plan is for one person.** An account has one token balance and one brand library, and nothing is shared. The plans differ by
+how many films that person makes: Starter about 8 one-minute films a month (a founder or creator shipping product videos), Pro about 22
+(a creator who also edits every frame in the Pro editor), Business about 75, more than two a day (a freelancer or creator making
+films for clients every week; there is no client or team access, so the work is theirs to deliver).
+
 A pack costs $0.12 a token, more than every plan, so a regular buyer sees why to subscribe. Price steps are 2.6x (Starter to
 Pro) and 3x (Pro to Business). Annual billing is a Lemon Squeezy variant set up at launch (see setup below); it is not in code.
 
@@ -178,8 +183,10 @@ value pricing, and there is no reason to price above tools that make a different
   with a hook, a point and a close. It costs us about $0.13 more per signup.
 - **Everything else stays**: prices, tokens, the annual discount (17%, below the 20 to 50% most competitors give; the lock test shows
   annual Business already falls to 24 to 29% with revisions, so a deeper discount would take it under the floor), the $12 pack.
-- **Not done, because it does not exist yet:** seats and teams (HeyGen charges $20 a seat, InVideo prices per seat), 4K export,
-  presenter avatars. Plans do not promise them. Per-seat pricing becomes a question when teams can share a workspace.
+- **One person, by design (2026-10-28):** an account is one person, with one token balance, one brand library and no seats or
+  shared workspace, so every competitor comparison above is one seat of theirs (HeyGen Creator, Synthesia Starter, InVideo Starter per
+  seat). Seats, teams, 4K export and presenter avatars do not exist and the plans do not promise them. Per-seat pricing becomes a
+  question only if a shared workspace is built.
 
 **Risks the table shows.** InVideo's annual price is half its monthly, so a customer shopping on annual price sees us dearer than
 InVideo and Descript. Synthesia's Starter minute is cheaper than ours. Runway Max undercuts our generated clips for a heavy user.

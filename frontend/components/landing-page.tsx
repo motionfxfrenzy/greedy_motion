@@ -1091,7 +1091,7 @@ export function LandingPage() {
             </strong>
             <span style={{ fontSize: "16px", color: "var(--d-tx-93979f)", lineHeight: 1.5 }}>
               Timeline, layers, keyframes, and scoped AI comments. Publish a composition as a
-              locked template for your team.
+              locked template to reuse.
             </span>
             <div
               style={{

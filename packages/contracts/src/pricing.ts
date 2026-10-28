@@ -59,17 +59,17 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
   },
   starter: {
     tier: "starter", name: "Starter", priceUsd: 19, tokens: 200, watermark: false, proEditor: false,
-    blurb: "For a founder shipping product videos.",
+    blurb: "For a founder or creator shipping product videos.",
     features: ["No watermark", "Guided flow, storyboard and brand kits"]
   },
   pro: {
     tier: "pro", name: "Pro", priceUsd: 49, tokens: 550, watermark: false, proEditor: true,
-    blurb: "For teams who edit every frame.",
+    blurb: "For creators who edit every frame.",
     features: ["No watermark", "Pro editor: layers, keyframes and timeline", "Everything in Starter"]
   },
   business: {
     tier: "business", name: "Business", priceUsd: 149, tokens: 1800, watermark: false, proEditor: true,
-    blurb: "For agencies and product marketing teams.",
+    blurb: "For freelancers and creators who make films every week.",
     features: ["No watermark", "Pro editor", "Everything in Pro"]
   }
 };
