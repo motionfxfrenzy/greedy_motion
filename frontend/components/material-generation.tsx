@@ -34,6 +34,7 @@ export function MaterialGeneration({ project, onReady }: { project: VideoProject
     {(error || status?.error) && <p role="alert">{error ?? status?.error}</p>}
     {status && !status.available && <p>Material generation is unavailable until the service’s generation provider is configured.</p>}
     {status && status.status !== "ready" && <>
+      {status.priceTokens > 0 && <p><b>{status.priceTokens} tokens</b> for the generated scenes, taken when you start. Resuming a stopped run only charges for what is not paid yet. Paid plans only; your storyboard preview stays free.</p>}
       <p>New-run estimate: ${status.estimateUsd.toFixed(2)} · Project reservations: ${status.reservedUsd.toFixed(2)}. Includes earlier runs. This is an application estimate, not a provider billing cap.</p>
       <label>Project reservation ceiling (USD) <input type="number" min="1" max={status.maxBudgetUsd} step="0.01" value={budget} disabled={busy} onChange={e => setBudget(Number(e.target.value))} /></label>{" "}
       <button type="button" disabled={busy || !status.available || budget <= 0 || budget > status.maxBudgetUsd} onClick={async () => {

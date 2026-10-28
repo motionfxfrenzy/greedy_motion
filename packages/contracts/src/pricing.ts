@@ -22,8 +22,8 @@ export const MILLITOKENS_PER_SECOND = 300;
  */
 export const PREVIEW_ALLOWANCE = { free: 3, starter: 15, pro: 45, business: 150 } as const;
 export const PREVIEW_CALL_CAP = 150;
-/** What generated image or footage (material styles, 3D shots) is sold for, as a multiple of our provider cost. */
-export const MATERIAL_MARKUP = 4;
+/** What generated image or footage (material styles, 3D shots) is sold for, as a multiple of our provider cost: 67% gross, about 56-61% after the payment fee at plan token rates, with room for generations that fail or are redone. */
+export const MATERIAL_MARKUP = 3;
 
 export const PLAN_TIERS = ["free", "starter", "pro", "business"] as const;
 export type PlanTier = (typeof PLAN_TIERS)[number];

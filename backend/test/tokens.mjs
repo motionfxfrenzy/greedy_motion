@@ -17,7 +17,7 @@ try {
   assert.equal(renderCostMillitokens(30), 15000, "30 s = 6 tokens to start + 9 = 15 tokens");
   assert.equal(PLANS.free.tokens, 11);
   assert.equal(filmsFromTokens(PLANS.free.tokens, 16), 1, "the free allowance is one film of up to 16 seconds");
-  assert.equal(materialCostMillitokens(1), 40000, "$1 of generation costs 40 tokens");
+  assert.equal(materialCostMillitokens(1), 30000, "$1 of generation costs 30 tokens");
 
   let s = await tokenSummary(A);
   assert.deepEqual([s.free.granted, s.free.used, s.remaining, s.plan], [11, 0, 11, null], "a new account gets the free allowance, once");

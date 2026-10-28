@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { getLook, type VideoProject, type VisualStatus } from "@videosaas/contracts";
+import { getLook, materialCostMillitokens, tokensFromMilli, type VideoProject, type VisualStatus } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { readMedia } from "../media.ts";
 
@@ -20,13 +20,24 @@ export const totalReserved = (v: VideoProject["planVisuals"]) => (v?.reservedUsd
 // Conservative request reservations, not metered billing. No automatic re-submission after an ambiguous request.
 export const IMAGE_RESERVE = 0.25;
 export const VIDEO_RESERVE = 1.60;
+// What a generated part costs us at the provider's list price (docs/PRICING.md): an image about $0.067 (Gemini 3.1 Flash Image, 1K), an
+// eight-second Veo 3.1 Fast 720p clip $0.80 ($0.10 a second). The person is charged these at MATERIAL_MARKUP, not the larger reservations above.
+export const IMAGE_PRICE = 0.07;
+export const VIDEO_PRICE = 0.80;
+/** Provider-price estimate of generating every material scene of the film: a style key, then a keyframe and a clip per scene (and an assembly image for paper-cut). */
+export const materialPriceUsd = (p: VideoProject) => Math.round((IMAGE_PRICE + materialBeats(p).length * (IMAGE_PRICE + VIDEO_PRICE + (p.brief?.look === "paper-cut" ? IMAGE_PRICE : 0))) * 100) / 100;
+/** What is still unpaid for this film's current visuals: its full price less what earlier runs of the same visuals already charged. */
+export const materialOwedUsd = (p: VideoProject) => {
+  const paid = p.planVisuals?.fingerprint === visualFingerprint(p) ? p.planVisuals?.paidUsd ?? 0 : 0;
+  return Math.round(Math.max(0, materialPriceUsd(p) - paid) * 100) / 100;
+};
 export function visualStatus(p: VideoProject): VisualStatus {
   const beats = materialBeats(p), v = p.planVisuals;
   const current = v?.fingerprint === visualFingerprint(p);
   return { required: beats.length > 0, available: Boolean(config.geminiApiKey), status: !v ? "not-started" : current ? v.status : "stale", total: beats.length,
     ready: current ? beats.filter(b => v?.shots[b.id]?.clip).length : 0,
     estimateUsd: Math.ceil((IMAGE_RESERVE + beats.length * (IMAGE_RESERVE + VIDEO_RESERVE + (p.brief?.look === "paper-cut" ? IMAGE_RESERVE : 0))) * 100) / 100,
-    reservedUsd: totalReserved(v), maxBudgetUsd: config.visualMaxBudgetUsd, error: current ? v?.error : undefined, runId: v?.runId };
+    reservedUsd: totalReserved(v), priceTokens: v?.status === "ready" && current ? 0 : tokensFromMilli(materialCostMillitokens(materialOwedUsd(p))), maxBudgetUsd: config.visualMaxBudgetUsd, error: current ? v?.error : undefined, runId: v?.runId };
 }
 export function currentClips(p: VideoProject) {
   if (p.planVisuals?.fingerprint !== visualFingerprint(p)) return {};
@@ -50,3 +61,6 @@ export function requireCurrentPalette(p: VideoProject, brand: { colors: unknown;
   const signature = brand ? digest(JSON.stringify({ colors: brand.colors, mode: brand.mode })) : undefined;
   if (signature !== p.visualBrandSignature) throw new Error("The brand palette changed. Refresh the storyboard and regenerate material scenes before export.");
 }
+
+/** Charging for generated scenes: on wherever real people use it; off for local development unless MATERIAL_BILLING=on. */
+export const materialBillingOn = () => (process.env.MATERIAL_BILLING ? process.env.MATERIAL_BILLING === "on" : config.appEnv !== "local");

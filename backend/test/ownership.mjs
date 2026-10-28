@@ -22,7 +22,7 @@ const sign = (sub, extra = {}) => new SignJWT({ email: `${sub}@example.test`, ..
 
 const data = await mkdtemp(join(tmpdir(), "ownership-"));
 const server = spawn("node", ["src/server.ts"], {
-  env: { ...process.env, PORT: String(apiPort), HOST: "127.0.0.1", APP_ENV: "local", AUTH_MODE: "supabase", SUPABASE_URL: issuerBase, SUPABASE_JWKS_URL: `${issuerBase}/jwks`, EXPECTED_SUPABASE_PROJECT_REF: "", LEGACY_OWNER_ID: "", MEDIA_URL_SECRET: "ownership-test-media-url-secret-0123456789", STORAGE_DRIVER: "filesystem", AUDIO_DIR: join(data, "audio"), PROJECTS_DIR: join(data, "projects"), BRANDS_DIR: join(data, "brands"), LOG_LEVEL: "error", PREVIEW_LIMITS: "on" },
+  env: { ...process.env, PORT: String(apiPort), HOST: "127.0.0.1", APP_ENV: "local", AUTH_MODE: "supabase", SUPABASE_URL: issuerBase, SUPABASE_JWKS_URL: `${issuerBase}/jwks`, EXPECTED_SUPABASE_PROJECT_REF: "", LEGACY_OWNER_ID: "", MEDIA_URL_SECRET: "ownership-test-media-url-secret-0123456789", STORAGE_DRIVER: "filesystem", AUDIO_DIR: join(data, "audio"), PROJECTS_DIR: join(data, "projects"), BRANDS_DIR: join(data, "brands"), LOG_LEVEL: "error", PREVIEW_LIMITS: "on", MATERIAL_BILLING: "on" },
   stdio: ["ignore", "inherit", "inherit"]
 });
 const ALICE = "00000000-0000-4000-8000-00000000000a", BOB = "00000000-0000-4000-8000-00000000000b";
@@ -90,6 +90,12 @@ test("the preview allowance is enforced on the model-backed routes: Free gets 3 
   assert.equal(refused.body.error.code, "preview_limit");
   assert.equal((await call(bob, "POST", `/v1/projects/${made[0]}/film/fix`, { fixes: [] })).status, 400, "a film already counted keeps working");
   await db.query("delete from app.preview_usage where user_id = $1", [BOB]);
+});
+test("generated scenes are paid-plan only: a Free account is refused with 402 before anything is generated", async () => {
+  const created = await call(bob, "POST", "/v1/projects", { name: "Material gate", request });
+  const refused = await call(bob, "POST", `/v1/projects/${created.body.id}/visuals`, { budgetUsd: 25 });
+  assert.equal(refused.status, 402);
+  assert.equal(refused.body.error.code, "material_requires_plan");
 });
 test("bob gets 404 on alice's project for read, write, delete-style routes", async () => {
   for (const [method, path, body] of [["GET", `/v1/projects/${project.id}`], ["PUT", `/v1/projects/${project.id}`, { name: "pwned" }], ["PUT", `/v1/projects/${project.id}/approve`], ["POST", `/v1/projects/${project.id}/script`], ["POST", `/v1/projects/${project.id}/render`], ["POST", `/v1/projects/${project.id}/comments`, { text: "x" }], ["GET", `/v1/projects/${project.id}/visuals`], ["POST", `/v1/projects/${project.id}/visuals`, { budgetUsd: 25 }], ["GET", `/v1/projects/${project.id}/composition`], ["PATCH", `/v1/projects/${project.id}/studio`, { values: {} }]]) {

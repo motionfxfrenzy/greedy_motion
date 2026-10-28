@@ -1,4 +1,9 @@
-import { enqueueVisuals, visualStatus } from "./visuals.ts";
+import { enqueueVisuals, visualStatus, type MaterialBilling } from "./visuals.ts";
+import { materialBillingOn } from "./visual-state.ts";
+import { tierFor } from "../billing/service.ts";
+import { InsufficientTokens, refundSpend, spendTokens } from "../tokens/store.ts";
+import { insufficientBody } from "../render/admission.ts";
+import { materialCostMillitokens } from "../tokens/plan.ts";
 import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -144,9 +149,20 @@ export async function registerPlanRoutes(app: FastifyInstance) {
   });
   app.post<{ Params: { id: string }; Body: { budgetUsd?: number } }>("/v1/projects/:id/visuals", async (request, reply) => {
     try {
-      const project = await enqueueVisuals(request.params.id, Number(request.body?.budgetUsd));
+      // Generated scenes cost real provider money (about $0.87 a scene): paid plans only, charged in tokens at 3x that cost.
+      const billed = materialBillingOn();
+      const owner = callerId(request);
+      if (billed && (await tierFor(owner)) === "free") return reply.code(402).send({ error: { code: "material_requires_plan", message: "Generated scenes (clay, paper, footage, 3D) are part of the paid plans. Choose a plan to generate them; the preview of your storyboard stays free." } });
+      const billing: MaterialBilling | undefined = billed ? { charge: async (usd, runId) => {
+        const spend = await spendTokens(owner, materialCostMillitokens(usd), "material", `${request.params.id}:${runId}`, request.params.id);
+        return async () => { if (spend.charged) await refundSpend(owner, spend.event); };
+      } } : undefined;
+      const project = await enqueueVisuals(request.params.id, Number(request.body?.budgetUsd), undefined, billing);
       return project ? reply.code(202).send(visualStatus(project)) : reply.code(404).send(notFound);
-    } catch (error) { return reply.code(409).send({ error: { code: "visual_generation", message: error instanceof Error ? error.message : "Generation unavailable." } }); }
+    } catch (error) {
+      if (error instanceof InsufficientTokens) return reply.code(402).send(insufficientBody(error));
+      return reply.code(409).send({ error: { code: "visual_generation", message: error instanceof Error ? error.message : "Generation unavailable." } });
+    }
   });
   app.get<{ Params: { id: string; file: string } }>("/v1/preview/plans/:id/visuals/:file", async (request, reply) => {
     const { id, file } = request.params;

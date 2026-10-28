@@ -22,8 +22,8 @@ the first revisions. Each started second counts whole.
 Plan tokens reset every month: each paid invoice first writes off what is left of the previous month's plan tokens, then grants the
 plan's full allowance. When a subscription ends its remaining plan tokens end with it. Free and token-pack tokens never expire. A
 render spends plan tokens first (they expire soonest), then the free allowance, then packs. Unused prepaid packs refund within 30
-days under the approved refund policy. Generated material (material styles, image and footage scenes, 3D shots) is sold at **4 x
-our provider cost** ($1 of generation = 40 tokens).
+days under the approved refund policy. Generated material (material styles such as clay and paper, image and footage scenes, 3D shots) is sold at **3 x our provider
+cost**: $1 of generation = 30 tokens. It is paid-plan only (below).
 
 ## Plans
 
@@ -131,6 +131,31 @@ at full use and was dropped for that reason.) Free: three previews cost at most 
 - **Tests:** `backend/test/preview-meter.mjs` (limits, months, call cap, concurrency, isolation), an enforcement test through the
   real hooks in `backend/test/ownership.mjs`, and the allowances and worst-case bound in `backend/test/pricing-lock.mjs`.
 
+## Generated material
+
+Scenes made by an image and video model (the clay, paper, origami and illustration styles, footage and 3D shots) cost real money per
+scene whatever happens to the film afterwards, so they are charged on their own, in tokens, on top of the film's burn.
+
+- **Provider cost per scene** (Google list prices, from `docs/STYLE_PRODUCTION_PROGRESS.md`, checked 2026-10-09 and not re-checked):
+  an image about $0.067 (Gemini 3.1 Flash Image, 1K), an eight-second clip $0.80 (Veo 3.1 Fast 720p, $0.10 a second). A film pays one
+  style-key image, then a keyframe and a clip per scene (and an assembly image per scene for paper-cut): **$0.07 + $0.87 per scene**
+  ($0.94 for one scene, $5.29 for six).
+- **Price: 3 x that**, so $0.87 a scene is 26.1 tokens and a six-scene film is 158.7 tokens (about $15.9 at list). The margin is 67%
+  before fees and 56 to 61% after the payment fee at the plan token rates, which leaves room for generations that fail or are redone
+  (not measured; no generation call was made in the 2026-10-28 run).
+- **The application's own reservation is larger** ($0.25 per image, $1.60 per clip, "not metered billing") and stays a safety
+  ceiling; the person is charged the list-price estimate, not the reservation.
+- **Paid plans only.** A Free account gets 402 `material_requires_plan` before anything is generated; the storyboard preview stays
+  free.
+- **When it is charged.** At the moment a run is queued, for what is not yet paid for; the Generate button shows the token price
+  first. If the run cannot be queued the tokens are returned. A run stopped half way and resumed on the same storyboard owes
+  nothing more (the charge is kept in `planVisuals.paidUsd`); a changed storyboard is a new film and is paid for in full.
+- **Not refunded:** a run that was queued and then fails keeps its charge, because the provider bills submitted requests.
+- **Local development:** off when `APP_ENV=local` unless `MATERIAL_BILLING=on`.
+- **Tests:** `backend/test/material-billing.mjs` (price, charge once, refund on failed queueing, no double charge on resume, new
+  storyboard pays in full), the paid-plan gate through the real server in `backend/test/ownership.mjs`, and the markup and the
+  margin floor in `backend/test/pricing-lock.mjs`.
+
 ## Why the old price was replaced
 
 Measured on the same film at 0.25 token per second: 16.75 tokens ($1.59 at the Starter rate) against $0.81 of cost is 49% before
@@ -151,12 +176,11 @@ storyboard; the measured figure is $0.51 (script, frames, director), about 8 tim
   and returns the tokens (`revision_changed`).
 - Free films are built with the watermark; paid plans without.
 - Pro and Business grant Pro-editor access through the entitlement layer; Starter does not.
+- **Generated material is paid-plan only and charged** (2026-10-28): see "Generated material" below.
 - **Previews are metered** (2026-10-28, `backend/src/plan/preview-meter.ts`, table `app.preview_usage`): see the next section.
 
 **Not enforced yet, and the margins above assume it will be:**
 - **Revisions are not capped.** The 6-token start fee is priced for about one recreate and two applied fixes; more are free today.
-- **Generated material is not metered** (material styles, footage, 3D shots cost $0.667 to $1.40 a shot against nothing charged); it
-  should be paid-plan only and charged at 4 x provider cost (`materialCostMillitokens`) before it is offered to Free.
 - No check against one person opening many Free accounts.
 - Other templates are not measured; only Binary Search was run. Voice (Gemini TTS) cost uses the app's own rate card.
 

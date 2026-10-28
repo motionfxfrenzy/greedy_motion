@@ -8,7 +8,7 @@ const { PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, PLANS, TOP_UP, START_FEE_MILLITOKEN
 assert.equal(TOKEN_USD, 0.1);
 assert.equal(START_FEE_MILLITOKENS, 6000, "a film costs 6 tokens to start");
 assert.equal(MILLITOKENS_PER_SECOND, 300, "and 0.3 token per finished second");
-assert.equal(MATERIAL_MARKUP, 4);
+assert.equal(MATERIAL_MARKUP, 3, "generated material is sold at 3x the provider cost");
 assert.deepEqual(Object.fromEntries(Object.entries(PLANS).map(([tier, plan]) => [tier, [plan.priceUsd, plan.tokens, plan.watermark, plan.proEditor]])), {
   free: [0, 11, true, false],
   starter: [19, 200, false, false],
@@ -22,7 +22,10 @@ assert.equal(renderCostMillitokens(60), 24000);
 assert.equal(renderCostMillitokens(0.2), 6300, "a started second counts whole");
 assert.equal(filmsFromTokens(PLANS.free.tokens, 16), 1, "Free makes one film of up to 16 s");
 assert.equal(filmsFromTokens(PLANS.free.tokens, 17), 0);
-assert.equal(materialCostMillitokens(0.667), Math.ceil((0.667 * 4 / 0.1) * 1000), "generated material is sold at 4x provider cost");
+assert.equal(materialCostMillitokens(1), 30000, "$1 of generation costs 30 tokens");
+assert.equal(materialCostMillitokens(0.94), 28200, "one generated scene ($0.07 style key + $0.07 keyframe + $0.80 clip) is 28.2 tokens");
+// Margin on generated material: 3x the provider cost, after the payment fee at each plan's token rate.
+for (const tier of ["starter", "pro", "business"]) { const perToken = (PLANS[tier].priceUsd * 0.93 - 0.5) / PLANS[tier].tokens; const margin = 1 - 1 / (3 * (1 / 0.1) * perToken); assert.ok(margin >= 0.5, `${tier} keeps ${(margin * 100).toFixed(0)}% on generated material; the floor is 50%`); }
 
 assert.deepEqual({ ...PREVIEW_ALLOWANCE }, { free: 3, starter: 15, pro: 45, business: 150 }, "films a person may work on per period");
 assert.equal(PREVIEW_CALL_CAP, 150);
