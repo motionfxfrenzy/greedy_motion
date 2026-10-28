@@ -242,11 +242,12 @@ export class RenderService {
 
   /** Dead-letter consumer: retries are exhausted, so the job fails and the project shows why. */
   private async failForGood(jobId: string, failure: { code: string; message: string }, keepRecorded: boolean) {
-    const row = await renderJobRepository.failIfUnfinished(jobId, failure, keepRecorded);
-    if (row) console.error(JSON.stringify({ level: "error", event: "render_job_failed", jobId, code: row.error?.code, message: row.error?.message }));
-    // A storyboard film paid at Render and never reached the renderer: its tokens go back.
-    if (row?.prep?.spendEvent && row.render_queued_at === null) {
-      await refundSpend(row.prep.ownerId, row.prep.spendEvent).catch((error) => console.error(JSON.stringify({ level: "error", event: "render_refund_failed", jobId, message: error instanceof Error ? error.message : String(error) })));
+    // A replay finds the job already failed; the refund below is idempotent, so it is attempted again from the stored row.
+    const row = (await renderJobRepository.failIfUnfinished(jobId, failure, keepRecorded)) ?? (await renderJobRepository.row(jobId));
+    if (row?.state === "failed") console.error(JSON.stringify({ level: "error", event: "render_job_failed", jobId, code: row.error?.code, message: row.error?.message }));
+    // A storyboard film paid at Render and never reached the renderer: its tokens go back. A failed refund throws so the queue retries it.
+    if (row?.state === "failed" && row.prep?.spendEvent && row.render_queued_at === null) {
+      await refundSpend(row.prep.ownerId, row.prep.spendEvent);
     }
     await this.syncProject(jobId);
   }

@@ -253,7 +253,13 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>
           throw error;
         }
       }
-      const watermark = PLANS[await tierFor(owner)].watermark;
+      let watermark: boolean;
+      try {
+        watermark = PLANS[await tierFor(owner)].watermark;
+      } catch (error) {
+        if (spend.charged && spend.event) await refundSpend(owner, spend.event).catch((refundError) => app.log.error({ err: refundError }, "could not return tokens"));
+        throw error;
+      }
       // Motion, the composition build and the upload run in the job (render/service.ts prepareFilm), so this answers at once
       // and the page follows every stage on /v1/renders/:id/events. A job that cannot be prepared returns the tokens.
       try {

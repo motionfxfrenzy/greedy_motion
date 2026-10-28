@@ -39,17 +39,40 @@ export function soundtrackPage(html) {
   return html.replace("</head>", () => `  <style id="ff-soundtrack">#frame-film, #gm-watermark { display: none !important; }</style>\n</head>`);
 }
 
-/** Claims a queued clip for one attempt. Null when it is gone, drawn, no longer current, or the project is at its cap. */
-async function claim(pool, clipId) {
-  const result = await pool.query(
-    `update app.scene_clips c
-        set state = 'drawing', attempt = attempt + 1, frames_done = 0, thumb = null, thumb_frame = null, error = null, updated_at = now()
-      where id = $1 and state = 'queued' and current
-        and (select count(*) from app.scene_clips d where d.project_id = c.project_id and d.state = 'drawing') < $2
-      returning id, project_id, kind, signature, attempt, frames_total, render_input`,
-    [clipId, PROJECT_CAP]
-  );
-  return result.rows[0] ?? null;
+// A drawing clip writes progress about every second; one silent for this long belongs to a worker that died.
+const STALE_SECONDS = Number.parseInt(process.env.SCENE_STALE_SECONDS ?? "90", 10);
+
+/**
+ * Claims a clip for one attempt: a queued one, or (on a redelivery) a drawing one whose worker went silent, which raises
+ * `attempt` so the dead worker's late writes are rejected. Admission to the project cap is serialized by an advisory lock,
+ * so concurrent claims cannot all see room. Silent drawings do not count against the cap. Null when the clip is gone,
+ * drawn, no longer current, held by a live worker, or the project is at its cap.
+ */
+export async function claim(pool, clipId, redelivery = false) {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const found = await client.query("select project_id from app.scene_clips where id = $1", [clipId]);
+    if (!found.rows.length) { await client.query("rollback"); return null; }
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`scene-cap:${found.rows[0].project_id}`]);
+    const result = await client.query(
+      `update app.scene_clips c
+          set state = 'drawing', attempt = attempt + 1, frames_done = 0, thumb = null, thumb_frame = null, error = null, updated_at = now()
+        where id = $1 and current
+          and (state = 'queued' or ($3 and state = 'drawing' and updated_at < now() - make_interval(secs => $4)))
+          and (select count(*) from app.scene_clips d where d.project_id = c.project_id and d.state = 'drawing' and d.id <> c.id
+                 and d.updated_at >= now() - make_interval(secs => $4)) < $2
+        returning id, project_id, kind, signature, attempt, frames_total, render_input`,
+      [clipId, PROJECT_CAP, redelivery, STALE_SECONDS]
+    );
+    await client.query("commit");
+    return result.rows[0] ?? null;
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 const write = (pool, clip, sql, values) => pool.query(`update app.scene_clips set ${sql}, updated_at = now() where id = $1 and attempt = $2 and state = 'drawing' returning current`, [clip.id, clip.attempt, ...values]);
@@ -157,11 +180,13 @@ async function draw(pool, clip, signal) {
 export async function handleScene(job, { pool, boss }) {
   const clipId = job.data?.clipId;
   if (typeof clipId !== "string" || !UUID.test(clipId)) return;
-  const clip = await claim(pool, clipId);
+  const clip = await claim(pool, clipId, (job.retryCount ?? 0) > 0 || job.data?.reclaim === true);
   if (!clip) {
     // Still wanted but its project is at the cap: look again shortly, without spending a retry.
-    const { rows } = await pool.query("select 1 from app.scene_clips where id = $1 and state = 'queued' and current", [clipId]);
-    if (rows.length) await boss.send(SCENE_QUEUE, { clipId }, { startAfter: 4 });
+    const { rows } = await pool.query("select state from app.scene_clips where id = $1 and current and state in ('queued', 'drawing')", [clipId]);
+    if (rows[0]?.state === "queued") await boss.send(SCENE_QUEUE, { clipId }, { startAfter: 4 });
+    // Redelivered while the previous holder's last write is still recent: look again once it would count as dead.
+    else if (rows[0]?.state === "drawing" && (job.retryCount > 0 || job.data?.reclaim) && (job.data?.looks ?? 0) < 20) await boss.send(SCENE_QUEUE, { clipId, reclaim: true, looks: (job.data?.looks ?? 0) + 1 }, { startAfter: STALE_SECONDS / 3 });
     return;
   }
   const started = Date.now();

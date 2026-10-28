@@ -69,6 +69,13 @@ test("alice sees her project, bob sees only his own", async () => {
   assert.deepEqual(mine, ["Alice project"]);
   assert.deepEqual(his, ["Forged"]);
 });
+test("a percent-encoded project id does not bypass the ownership check", async () => {
+  const encoded = `%${project.id.charCodeAt(0).toString(16)}${project.id.slice(1)}`;
+  assert.equal((await call(bob, "GET", `/v1/projects/${encoded}`)).status, 404);
+  assert.equal((await call(bob, "PUT", `/v1/projects/${encoded}`, { name: "Hijacked" })).status, 404);
+  assert.equal((await call(bob, "GET", `/v1/projects/${project.id.toUpperCase()}`)).status, 404);
+  assert.equal((await call(alice, "GET", `/v1/projects/${project.id}`)).body.name, "Alice project");
+});
 test("bob gets 404 on alice's project for read, write, delete-style routes", async () => {
   for (const [method, path, body] of [["GET", `/v1/projects/${project.id}`], ["PUT", `/v1/projects/${project.id}`, { name: "pwned" }], ["PUT", `/v1/projects/${project.id}/approve`], ["POST", `/v1/projects/${project.id}/script`], ["POST", `/v1/projects/${project.id}/render`], ["POST", `/v1/projects/${project.id}/comments`, { text: "x" }], ["GET", `/v1/projects/${project.id}/visuals`], ["POST", `/v1/projects/${project.id}/visuals`, { budgetUsd: 25 }], ["GET", `/v1/projects/${project.id}/composition`], ["PATCH", `/v1/projects/${project.id}/studio`, { values: {} }]]) {
     assert.equal((await call(bob, method, path, body)).status, 404, `${method} ${path}`);
