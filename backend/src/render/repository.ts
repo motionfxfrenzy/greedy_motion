@@ -107,7 +107,7 @@ export const renderJobRepository = {
    * A format render (formats/routes.ts): ready for the worker, owned by a user, with no project behind it. Same queue,
    * same worker input as an approved storyboard.
    */
-  async createFormatAndEnqueue(job: RenderJob, input: { request: Record<string, unknown>; ownerId: string; renderInput: Record<string, unknown> }) {
+  async createFormatAndEnqueue(job: RenderJob, input: { request: Record<string, unknown>; ownerId: string; renderInput: Record<string, unknown>; queue?: string }) {
     const client = await pool.connect();
     try {
       await client.query("begin");
@@ -116,7 +116,7 @@ export const renderJobRepository = {
          values ($1, $2, 'rendering', 'waiting', 45, $3, $4, $5, now(), $6)`,
         [job.id, input.ownerId, input.request, job.revision, input.renderInput, job.createdAt]
       );
-      await boss.send(QUEUES.video, { jobId: job.id }, { db: inTransaction(client), ...blurExpiry(input.renderInput) });
+      await boss.send(input.queue ?? QUEUES.video, { jobId: job.id }, { db: inTransaction(client), ...blurExpiry(input.renderInput) });
       await client.query("commit");
     } catch (error) {
       await client.query("rollback");
@@ -124,7 +124,7 @@ export const renderJobRepository = {
     } finally {
       client.release();
     }
-    void kickWorkers(true);
+    void kickWorkers(true, input.queue === QUEUES.videoGpu);
     return { ...job, state: "rendering" as const, stage: "waiting" as const, progress: 45 };
   },
 

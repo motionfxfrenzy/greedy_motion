@@ -8,7 +8,7 @@
 import pg from "pg";
 
 // Keep in sync with backend/src/jobs/queues.ts.
-export const QUEUES = { video: "render-video", finished: "render-finished" };
+export const QUEUES = { video: "render-video", videoGpu: "render-video-gpu", finished: "render-finished" };
 
 export function createPool(connectionString) {
   const pool = new pg.Pool({ connectionString, max: 4 });

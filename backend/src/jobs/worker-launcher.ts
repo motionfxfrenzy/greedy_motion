@@ -50,15 +50,36 @@ async function runTasks(count: number) {
   return result.tasks?.length ?? 0;
 }
 
+/**
+ * GPU workers for painted (oil) films: one task per film up to ECS_GPU_MAX_TASKS, started through the GPU capacity provider (its
+ * instance group scales from zero). The task uses host networking on the instance, so it gets no awsvpc settings.
+ */
+async function ensureGpu() {
+  const gpu = launch?.gpu;
+  if (!gpu) return 0;
+  const [stats] = await boss.getQueueStats(QUEUES.videoGpu, { force: true });
+  const demand = recentGpu.count((stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0));
+  if (demand === 0) return 0;
+  const gpuFamily = gpu.taskDefinition.split("/").pop()!.split(":")[0];
+  const listed = await client!.send(new ListTasksCommand({ cluster: launch!.cluster, family: gpuFamily, desiredStatus: "RUNNING" }));
+  const wanted = tasksToStart(demand, listed.taskArns?.length ?? 0, 1, gpu.maxTasks);
+  if (wanted === 0) return demand;
+  const result = await client!.send(new RunTaskCommand({ cluster: launch!.cluster, taskDefinition: gpu.taskDefinition, count: wanted, capacityProviderStrategy: [{ capacityProvider: gpu.capacityProvider, weight: 1 }], startedBy: "backend-launcher" }));
+  log(result.tasks?.length ? "info" : "warn", "gpu_worker_launched", { demand, wanted, started: result.tasks?.length ?? 0, failures: result.failures?.map((failure) => failure.reason) });
+  return demand;
+}
+
 /** Render jobs waiting or running at the last check; the sweep slows down while this is 0. */
 let lastDemand = 0;
 const recent = createDemand();
+const recentGpu = createDemand();
 
 async function ensure() {
   // force: recount instead of reading the cache (which can be an hour old); kicks cover the last minute that a recount may reuse.
   const [stats] = await boss.getQueueStats(QUEUES.video, { force: true });
   const demand = recent.count((stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0));
-  lastDemand = demand;
+  const gpuDemand = await ensureGpu();
+  lastDemand = demand + gpuDemand;
   if (demand === 0) return;
   const listed = await client!.send(new ListTasksCommand({ cluster: launch!.cluster, family, desiredStatus: "RUNNING" }));
   const running = listed.taskArns?.length ?? 0;
@@ -72,9 +93,9 @@ let inFlight: Promise<void> | null = null;
 let again = false;
 
 /** Makes sure enough workers exist for the render queue. Safe to call often; never throws. Pass true right after queueing a job. */
-export function kickWorkers(queuedJob = false): Promise<void> {
+export function kickWorkers(queuedJob = false, gpu = false): Promise<void> {
   if (!launch) return Promise.resolve();
-  if (queuedJob) recent.kick();
+  if (queuedJob) (gpu ? recentGpu : recent).kick();
   if (inFlight) {
     again = true;
     return inFlight;

@@ -29,6 +29,8 @@ if (!databaseUrl) throw new Error("DATABASE_URL is not set; the worker reads ren
 if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("RENDER_CONCURRENCY must be a positive integer.");
 if (!Number.isInteger(idleExitSeconds) || idleExitSeconds < 0) throw new Error("IDLE_EXIT_SECONDS must be 0 or a positive integer.");
 
+// WORKER_QUEUE=gpu: this worker has a GPU and takes only painted (oil) films from their own queue; the CPU pool never sees them.
+const QUEUE = process.env.WORKER_QUEUE === "gpu" ? QUEUES.videoGpu : QUEUES.video;
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 const pool = createPool(databaseUrl);
 // The backend owns the pg-boss schema and the queues (migrate: false); the worker only consumes.
@@ -296,16 +298,16 @@ async function startConsuming() {
     if (shuttingDown) return;
     try {
       await boss.start();
-      if (await boss.getQueue(QUEUES.video)) break;
-      log("info", "waiting_for_queue", { queue: QUEUES.video });
+      if (await boss.getQueue(QUEUE)) break;
+      log("info", "waiting_for_queue", { queue: QUEUE });
     } catch (error) {
       log("warn", "queue_unavailable", { message: error instanceof Error ? error.message : String(error) });
     }
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
-  await boss.work(QUEUES.video, { localConcurrency: concurrency, pollingIntervalSeconds: 1 }, async ([job]) => handle(job));
+  await boss.work(QUEUE, { localConcurrency: concurrency, pollingIntervalSeconds: 1 }, async ([job]) => handle(job));
   ready = true;
-  log("info", "worker_consuming", { queue: QUEUES.video, concurrency, idleExitSeconds });
+  log("info", "worker_consuming", { queue: QUEUE, concurrency, idleExitSeconds });
   if (idleExitSeconds > 0) watchIdle();
 }
 
@@ -313,7 +315,7 @@ async function startConsuming() {
 function watchIdle() {
   const timer = setInterval(async () => {
     if (shuttingDown || active > 0 || Date.now() - lastBusy < idleExitSeconds * 1000) return;
-    const [stats] = await boss.getQueueStats(QUEUES.video, { force: true }).catch(() => []);
+    const [stats] = await boss.getQueueStats(QUEUE, { force: true }).catch(() => []);
     // Unknown queue state: stay up rather than strand a job; the next tick asks again.
     if (!stats) return;
     if (stats.queuedCount + stats.activeCount > 0) { lastBusy = Date.now(); return; }

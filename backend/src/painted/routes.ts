@@ -4,6 +4,7 @@ import { PAINTED_SCRIPT_MAX, PAINTED_SCRIPT_MIN, paintedDrawModes, paintedLookBy
 import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
 import { pool } from "../db/database.ts";
+import { QUEUES } from "../jobs/queues.ts";
 import { renderJobRepository } from "../render/repository.ts";
 import { InsufficientTokens, refundSpend, spendTokens } from "../tokens/store.ts";
 
@@ -94,7 +95,9 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
         ownerId: owner,
         // `kind` and `spend` stay on the server: the list views read them, the dead-letter consumer refunds from `spend`.
         request: { kind: "painted", look: look.id, script, drawIn, ...(spend.charged ? { spend: spend.event } : {}) },
-        renderInput: { kind: "painted", id: jobId, look: look.id, script, drawIn, durationSeconds: seconds }
+        renderInput: { kind: "painted", id: jobId, look: look.id, script, drawIn, durationSeconds: seconds },
+        // An oil look is painted by the GPU pass: its own queue and workers.
+        ...(look.engine === "oil" ? { queue: QUEUES.videoGpu } : {})
       });
       return reply.code(202).send({ ...queued, seconds, tokens: renderCostMillitokens(seconds) / 1000 });
     } catch (error) {
@@ -136,7 +139,8 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
       const queued = await renderJobRepository.createFormatAndEnqueue(job, {
         ownerId: owner,
         request: { kind: "painted", look: base.request.look, script: base.request.script, drawIn: base.request.drawIn, baseJobId: base.id, comments, ...(spend.charged ? { spend: spend.event } : {}) },
-        renderInput: { kind: "painted", id: jobId, look: base.request.look, drawIn: base.request.drawIn, baseJobId: base.id, fixes: comments, durationSeconds: base.output?.durationSeconds ?? 60 }
+        renderInput: { kind: "painted", id: jobId, look: base.request.look, drawIn: base.request.drawIn, baseJobId: base.id, fixes: comments, durationSeconds: base.output?.durationSeconds ?? 60 },
+        ...(base.request.look?.startsWith("oil:") ? { queue: QUEUES.videoGpu } : {})
       });
       return reply.code(202).send(queued);
     } catch (error) {
