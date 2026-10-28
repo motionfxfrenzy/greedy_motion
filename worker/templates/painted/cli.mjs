@@ -80,7 +80,7 @@ for (const fix of fixes) {
   const m = /^\s*(\d+)\s*:\s*(.+)$/s.exec(fix); if (!m || !spec.lines[Number(m[1])]) { console.error(`--fix "${fix}": expected "<line number>: <what to change>"`); process.exit(2); }
   const li = Number(m[1]), vocab = directorBrief().split("# Example")[0];
   const brief = spec.lines.map((l, i) => `${i}${i === li ? " (THE ONE TO FIX)" : ""}: "${l.say}" -> ${JSON.stringify((l.shots ?? []).map(({ place, time, weather, ground, subjects, props }) => ({ place, time, weather, ground, subjects, props })))}`).join("\n");
-  const shots = await askJson({ engine, maxTokens: 4000, system: `You repair ONE scene of a painted short film. The spec vocabulary:\n\n${vocab}\n\nOutput ONLY a JSON array of 1-3 replacement shots for the scene to fix (same shape as the shots shown), keeping people, clothes and the weather/time continuity of the scenes around it. No prose, no code fence.`, user: `Story objects: ${JSON.stringify(spec.objects ?? {})}\n\nThe film, line by line:\n${brief}\n\nFix scene ${li}: ${m[2]}` });
+  const shots = await askJson({ engine, maxTokens: 16000, system: `You repair ONE scene of a painted short film. The spec vocabulary:\n\n${vocab}\n\nOutput ONLY a JSON array of 1-3 replacement shots for the scene to fix (same shape as the shots shown), keeping people, clothes and the weather/time continuity of the scenes around it. No prose, no code fence.`, user: `Story objects: ${JSON.stringify(spec.objects ?? {})}\n\nThe film, line by line:\n${brief}\n\nFix scene ${li}: ${m[2]}` });
   if (!Array.isArray(shots) || !shots.length) throw new Error("Fix returned no shots.");
   const before = structuredClone(spec.lines[li].shots ?? []);
   spec.lines[li].shots = shots;
