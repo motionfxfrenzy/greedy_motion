@@ -217,8 +217,10 @@ builds the engine on 2026-10-28 (M = measured, E = estimate); nothing GPU has ru
 - Model calls (E, from the engine's `docs/BRAIN_COMPARE_2026-10-28.md`, run 2): **$0.73 a film with the default Gemini brain** ($0.16 for
   the director and review calls plus about $0.57 for about 5 object-oracle calls at $0.11, measured on 3 samples) and **$1.59 with the Claude
   brain**. Voice (Gemini TTS, about $0.035) and music (Lyria, about $0.08) are **not** in those figures, so $0.115 is added below. No video
-  or image generation. The recipe cache of drawn objects is not shared across films yet, so every film pays the oracle again; sharing it
-  would take most of the $0.57 off.
+  or image generation. The recipe cache of drawn objects is not shared across films yet, so every film pays the oracle again. A shared cache
+  (a Postgres table keyed by the object description) would remove the oracle calls for repeated objects, but its hit rate is unknown, it is
+  not built and its owner has not been asked to build it: **it is not priced in** (native drawings such as a hat, fruit, bench or chair
+  already cost no call).
 - A change re-runs from the saved spec: voice and music are reused, one language call per comment, the whole film is repainted (the frame
   cache is not kept). So a change is a full repaint and little in model calls: about $0.05 (a language call plus 90 s of GPU).
 
@@ -252,11 +254,22 @@ about 48% in the low case and loses 8 to 29% in the mid and high cases.
 **Changes to a painted film** follow the same rule as any film (three included, then 2 tokens each): a change costs about $0.05, so 2
 tokens ($0.15 to $0.19) covers it and the engine's staging charge of 1 token a comment ($0.08 to $0.09) is thin only when comments are many.
 
+**What the engine's staging code already does right:** it charges at job start and returns the tokens when the film fails (`backend/src/painted/routes.ts`,
+`syncProject` in `render/service.ts`), is not behind the preview meter and does not count as a revision. Only its amounts (0.25 token a second, 1
+token a comment) are wrong, and its branch (`feat/painted-templates`, on origin/staging) is based on staging, so it does not have this price list
+yet; its owner will change the amounts and the changes rule when merging with main.
+
 **Before oil is turned on:** the quota (pending), the one-day T4 spike (Vulkan and Chrome on an NVIDIA host is untested; check the renderer
-string, `nvidia-smi` proves nothing), measured T4 seconds per film, the Free-plan watermark on painted films (not built), the shared
-recipe cache, the engine's staging price replaced by `paintedCostMillitokens`, a model-budget guard per film, and a film class in the render
-quote so the page shows this price. Doodle films need none of the GPU work and can be priced now: the same 6 + 0.7 a second covers them
-(model calls are the same; the render is CPU), with a lower GPU line, but their Fargate render time is unmeasured.
+string, `nvidia-smi` proves nothing; **starting a GPU needs the engine owner's go-ahead, not given yet**), measured T4 seconds per film, the
+Free-plan watermark on painted films (not built), the engine's amounts replaced by `paintedCostMillitokens` and the revision rule, a
+model-budget guard per film, and a film class in the render quote so the page shows this price.
+
+**Doodle films** (the 15 CPU looks) make the same model calls and need no GPU, so the same 6 + 0.7 a second covers them with a smaller compute
+line. Their render time on Fargate is **unmeasured**: the only figure is a Mac CPU, 100 s of film painted in 229 s at 360 px inside the arm64
+worker container, about 2.3 s of paint per finished second. The staging task is 4 vCPU / 8 GB and the default width is 540 px, so about 2.5 times
+that is expected (about 5.8 s of paint per finished second, 460 s for an 80 s film); at the published Singapore rate for that task ($0.197 an
+hour, $0.0000547 a second) that is about $0.025 of paint, $0.06 with the job's other steps and the idle tail. One run on staging will replace
+this estimate.
 
 ## Preview allowance
 
