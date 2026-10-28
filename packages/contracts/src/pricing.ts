@@ -20,7 +20,7 @@ export const MILLITOKENS_PER_SECOND = 300;
  * tokens can render: room to start a film and change your mind, while a plan used to the limit on previews alone still pays. `PREVIEW_CALL_CAP` is a safety limit on calls inside one
  * project in one period.
  */
-export const PREVIEW_ALLOWANCE = { free: 3, starter: 15, pro: 45, business: 150 } as const;
+export const PREVIEW_ALLOWANCE = { free: 3, starter: 15, pro: 45, business: 100 } as const;
 export const PREVIEW_CALL_CAP = 150;
 /**
  * Changes to a film after it was first made that the start fee covers: recreating the preview from an edited script and
@@ -68,8 +68,8 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
     features: ["No watermark", "Pro editor: layers, keyframes and timeline", "Everything in Starter"]
   },
   business: {
-    tier: "business", name: "Business", priceUsd: 149, tokens: 1800, watermark: false, proEditor: true,
-    blurb: "For freelancers and creators who make films every week.",
+    tier: "business", name: "Studio", priceUsd: 99, tokens: 1200, watermark: false, proEditor: true,
+    blurb: "For creators who make films every week.",
     features: ["No watermark", "Pro editor", "Everything in Pro"]
   }
 };

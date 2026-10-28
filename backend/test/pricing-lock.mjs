@@ -13,8 +13,9 @@ assert.deepEqual(Object.fromEntries(Object.entries(PLANS).map(([tier, plan]) => 
   free: [0, 15, true, false],
   starter: [19, 200, false, false],
   pro: [49, 550, false, true],
-  business: [149, 1800, false, true]
+  business: [99, 1200, false, true]
 });
+assert.deepEqual(Object.fromEntries(Object.entries(PLANS).map(([tier, plan]) => [tier, plan.name])), { free: "Free", starter: "Starter", pro: "Pro", business: "Studio" }, "the internal id of the top plan stays business; it is shown as Studio");
 assert.deepEqual({ ...TOP_UP }, { priceUsd: 12, tokens: 100 });
 assert.equal(renderCostMillitokens(15), 10500);
 assert.equal(renderCostMillitokens(30), 15000);
@@ -27,7 +28,7 @@ assert.equal(materialCostMillitokens(0.94), 28200, "one generated scene ($0.07 s
 // Margin on generated material: 3x the provider cost, after the payment fee at each plan's token rate.
 for (const tier of ["starter", "pro", "business"]) { const perToken = (PLANS[tier].priceUsd * 0.93 - 0.5) / PLANS[tier].tokens; const margin = 1 - 1 / (3 * (1 / 0.1) * perToken); assert.ok(margin >= 0.5, `${tier} keeps ${(margin * 100).toFixed(0)}% on generated material; the floor is 50%`); }
 
-assert.deepEqual({ ...PREVIEW_ALLOWANCE }, { free: 3, starter: 15, pro: 45, business: 150 }, "films a person may work on per period");
+assert.deepEqual({ ...PREVIEW_ALLOWANCE }, { free: 3, starter: 15, pro: 45, business: 100 }, "films a person may work on per period");
 assert.equal(PREVIEW_CALL_CAP, 150);
 assert.equal(FREE_REVISIONS, 3, "the start fee covers three changes to a film");
 assert.equal(REVISION_TOKENS, 2, "each further change takes two tokens");

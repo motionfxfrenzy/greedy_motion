@@ -32,16 +32,20 @@ cost**: $1 of generation = 30 tokens. It is paid-plan only (below).
 | Free | $0 | | 15, once, for the account | 0 (one film up to 30 s) | 1 | | yes | no |
 | Starter | $19 | $190 (2 months free) | 200 | 8 | 13 | $0.095 | no | no |
 | Pro | $49 | $490 | 550 | 22 | 36 | $0.089 | no | yes |
-| Business | $149 | $1,490 | 1,800 | 75 | 120 | $0.083 | no | yes |
+| Studio | $99 | $990 | 1,200 | 50 | 80 | $0.083 | no | yes |
 | Token pack | $12 once | | 100 | 4 | 6 | $0.12 | per plan | per plan |
 
 **Every plan is for one person.** An account has one token balance and one brand library, and nothing is shared. The plans differ by
 how many films that person makes: Starter about 8 one-minute films a month (a founder or creator shipping product videos), Pro about 22
-(a creator who also edits every frame in the Pro editor), Business about 75, more than two a day (a freelancer or creator making
-films for clients every week; there is no client or team access, so the work is theirs to deliver).
+(a creator who also edits every frame in the Pro editor), Studio about 50, nearly two a day (a creator posting films every
+week; there is no client or team access, so the work is theirs to deliver). The top plan was a $149 "Business" plan with 1,800
+tokens (75 films a month) until 2026-10-28; that is more films than one person makes and $50 to $60 above the dearest
+single-person plans in the market (Synthesia Pro $89, Runway Max $95), so it became Studio at $99 for 1,200 tokens, which keeps
+the same price per token and the same margins. Internally the tier id is still `business` (database rows, the Lemon Squeezy variable);
+only the name shown to people changed.
 
 A pack costs $0.12 a token, more than every plan, so a regular buyer sees why to subscribe. Price steps are 2.6x (Starter to
-Pro) and 3x (Pro to Business). Annual billing is a Lemon Squeezy variant set up at launch (see setup below); it is not in code.
+Pro) and 2x (Pro to Studio). Annual billing is a Lemon Squeezy variant set up at launch (see setup below); it is not in code.
 
 ## How a video's tokens are worked out
 
@@ -52,7 +56,7 @@ and after a script edit changed the voiceover the button could say 25.8 tokens w
 
 | Step | What it costs the person | Our cost | When it is taken |
 | --- | --- | --- | --- |
-| Storyboard, preview, voice, motion | free, up to the plan's films (Free 3, Starter 15, Pro 45, Business 150) | about $0.79 a film | never; counted per film |
+| Storyboard, preview, voice, motion | free, up to the plan's films (Free 3, Starter 15, Pro 45, Studio 100) | about $0.79 a film | never; counted per film |
 | Changes after the first version | 3 included per film, then **2 tokens** each | $0.09 to $0.14 | when asked; given back on failure or no change |
 | Generated scenes (clay, paper, footage, 3D) | **3 x provider cost**: 26.1 tokens a scene, paid plans only | $0.87 a scene | when generation is queued; resumed runs pay only what is not yet paid |
 | **Final render** | **6 tokens + 0.3 per finished second**, each started second counts | about $0.02 render plus the film's making | at Render, before anything is built; returned if the film cannot start |
@@ -115,23 +119,23 @@ figure: (script and frames $0.304 + motion $0.239) / 9 beats / 7.4 s per beat, p
 ## Margins
 
 Margin is after the Lemon Squeezy fee (7% + $0.50 per order, modelled), before fixed cost. Each cell is "no revisions / typical
-revisions". Revenue per token: Starter $0.086, Pro $0.082, Business $0.077.
+revisions". Revenue per token: Starter $0.086, Pro $0.082, Studio $0.076.
 
-| Film | Tokens | Our cost | with revisions | Starter | Pro | Business |
+| Film | Tokens | Our cost | with revisions | Starter | Pro | Studio |
 | --- | --- | --- | --- | --- | --- | --- |
-| 15 s | 10.5 | $0.36 | $0.69 | 60% / 24% | 58% / 20% | 55% / 15% |
-| 30 s | 15 | $0.50 | $0.82 | 61% / 36% | 59% / 33% | 57% / 29% |
-| 60 s | 24 | $0.77 | $1.09 | 63% / 47% | 61% / 45% | 58% / 41% |
+| 15 s | 10.5 | $0.36 | $0.69 | 60% / 24% | 58% / 20% | 54% / 15% |
+| 30 s | 15 | $0.50 | $0.82 | 61% / 36% | 59% / 33% | 56% / 28% |
+| 60 s | 24 | $0.77 | $1.09 | 63% / 47% | 61% / 45% | 58% / 40% |
 | 90 s | 33 | $1.04 | $1.36 | 63% / 52% | 62% / 50% | 59% / 46% |
 
 The rule behind the numbers: **good, not greedy.** Every plan keeps at least 50% on a film with no revisions (about 60% typical),
 and at least 35% on films of 45 s or more with typical revisions; nothing ever loses money. No plan keeps more than about two thirds.
 The shortest films with many revisions are the thin spot (15 to 36% at 15 to 30 s with revisions): the start fee is the same for
 every film, and raising it would punish the customers who make short ones. A plan used to the last token on 60 s films keeps
-63% (Starter), 61% (Pro), 58% (Business) with no revisions and 47%, 45%, 41% with revisions.
+63% (Starter), 61% (Pro), 58% (Studio) with no revisions and 47%, 45%, 40% with revisions.
 
-Break-even on about $90 of fixed monthly cost (unverified): about 8 Starter subscribers using their full plan, or 3 Pro, or 1
-Business, at the no-revision margin (a subscriber's net revenue minus cost: $10.75, $27.42 and $80.31 a month); about a third more
+Break-even on about $90 of fixed monthly cost (unverified): about 8 Starter subscribers using their full plan, or 3 Pro, or 2
+Studio, at the no-revision margin (a subscriber's net revenue minus cost: $10.75, $27.42 and $53.07 a month); about a third more
 with typical revisions.
 
 ## Free, exactly
@@ -149,7 +153,7 @@ Prices read from each company's public pricing page on 2026-10-28 (links below);
 
 | Product | What it makes | Entry | Mid | Top | Annual discount | Free |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Greedy Motion** | explainer and product films from a script, in your brand | Starter $19 | Pro $49 | Business $149 | 17% (2 months free) | one 30 s watermarked film + 3 previews, once |
+| **Greedy Motion** | explainer and product films from a script, in your brand | Starter $19 | Pro $49 | Studio $99 | 17% (2 months free) | one 30 s watermarked film + 3 previews, once |
 | Synthesia | presenter-avatar videos | Starter $19 ($14 annual) | Pro $89 ($59) | Enterprise | 26% | free plan: 10 min, watermark |
 | HeyGen | avatar videos | Creator $29 ($24) | Pro $49 | Business $149 + $20 a seat | 17% | 3 videos a month, 1 min each, watermark |
 | InVideo | AI video from a prompt, credit based | Starter $20 a seat ($10 annual) | Plus $60 ($30) | Max $150 ($75) | 50% | not read |
@@ -162,10 +166,12 @@ Sources: [Synthesia](https://www.synthesia.io/pricing), [HeyGen](https://www.hey
 returned no prices. Canva's page showed yearly prices only. Descript's page showed two prices per plan without labels; the higher is
 read as monthly. HeyGen's Pro and Business annual prices are not on the page.
 
-**Where we sit.** The ladder is the market's: $19 / $49 / $149 against HeyGen $29 / $49 / $149, InVideo $20 / $60 / $150 and
-Synthesia $19 / $89. The entry price matches Synthesia's and is below HeyGen's and InVideo's seat prices, the middle plan equals
-HeyGen Pro, and the top equals HeyGen Business and InVideo Max. That is **parity**, deliberately: nothing in the cost data allows
-value pricing, and there is no reason to price above tools that make a different thing.
+**Where we sit.** The ladder is the market's for one person: $19 / $49 / $99 against Synthesia $19 / $89, HeyGen $29 / $49, Runway
+$15 / $35 / $95, InVideo $20 / $60 / $150 a seat and Descript $24 / $35 / $65. The entry price matches Synthesia's and is below
+HeyGen's and InVideo's, the middle plan equals HeyGen Pro, and the top sits just above Synthesia Pro and Runway Max, the dearest
+single-person plans read. That is **parity**, deliberately: nothing in the cost data allows value pricing, and there is no reason to
+price above tools that make a different thing. (HeyGen Business at $149 and InVideo Max at $150 are team-sized plans with seats; the
+former $149 top plan here was priced against them, which was wrong for a product with no teams.)
 
 **What a customer gets for the money.**
 - *Standard films* (storyboard, voice, motion graphics, in the customer's brand): Starter makes about 8 one-minute films a month,
@@ -182,7 +188,7 @@ value pricing, and there is no reason to price above tools that make a different
   signup a month, forever), so the lifetime film is made long enough to show the product: a 30-second explainer is the shortest film
   with a hook, a point and a close. It costs us about $0.13 more per signup.
 - **Everything else stays**: prices, tokens, the annual discount (17%, below the 20 to 50% most competitors give; the lock test shows
-  annual Business already falls to 24 to 29% with revisions, so a deeper discount would take it under the floor), the $12 pack.
+  annual Studio already falls to 23 to 29% with revisions, so a deeper discount would take it under the floor), the $12 pack.
 - **One person, by design (2026-10-28):** an account is one person, with one token balance, one brand library and no seats or
   shared workspace, so every competitor comparison above is one seat of theirs (HeyGen Creator, Synthesia Starter, InVideo Starter per
   seat). Seats, teams, 4K export and presenter avatars do not exist and the plans do not promise them. Per-seat pricing becomes a
@@ -203,15 +209,15 @@ tokens are taken only at **Render final video**. So each plan may work on a numb
 | Free | 3 | for the account, ever |
 | Starter | 15 | each calendar month (UTC) |
 | Pro | 45 | each calendar month |
-| Business | 150 | each calendar month |
+| Studio | 100 | each calendar month |
 
 **How the numbers were chosen.** A rendered film's own preview is already paid for by its tokens (the $0.77 cost per film in the
 margin table includes it), so the allowance only has to cover the previews that are never rendered: each is about twice the films
-the plan's tokens can render (Starter renders about 8 one-minute films, Pro about 22, Business about 75). In the worst case, a
+the plan's tokens can render (Starter renders about 8 one-minute films, Pro about 22, Studio about 50). In the worst case, a
 person who uses every preview and also renders every film their tokens allow costs us $12.0 on Starter against $17.17 it brings in
-after the payment fee, $36.0 on Pro against $45.07, $120 on Business against $138.07: no plan loses money at full use of
+after the payment fee, $36.0 on Pro against $45.07, $80.0 on Studio against $91.57: no plan loses money at full use of
 everything, and the lock test checks it. (The first draft of these allowances, 60, 200 and 600, would have cost $47, $158 and $474
-at full use and was dropped for that reason.) Free: three previews cost at most $2.37, plus $0.37 if the one free film is rendered.
+at full use and was dropped for that reason; Studio's 100 was 150 when the top plan was Business.) Free: three previews cost at most $2.37, plus $0.37 if the one free film is rendered.
 
 - **What counts:** a call to the model-backed routes of a project: script stream, frames, plan, plan audio, film animate, film fix
   and beat rewrite. Opening a project or a preview, comments, the intent reader and the final render are not counted.
@@ -286,7 +292,7 @@ storyboard; the measured figure is $0.51 (script, frames, director), about 8 tim
 - A render is bound to the storyboard it was charged for: if the storyboard changes before the renderer is queued, the job stops
   and returns the tokens (`revision_changed`).
 - Free films are built with the watermark; paid plans without.
-- Pro and Business grant Pro-editor access through the entitlement layer; Starter does not.
+- Pro and Studio grant Pro-editor access through the entitlement layer; Starter does not.
 - **Generated material is paid-plan only and charged** (2026-10-28): see "Generated material" below.
 - **Revisions are capped and charged** (2026-10-28): see "Revisions" below.
 - **The render price is quoted by the server** (`GET /v1/projects/:id/render/quote`) and shown as quoted; `backend/test/render-quote.mjs` checks the quote equals what the render charges for every length.
@@ -311,7 +317,7 @@ In the Lemon Squeezy dashboard, create one store and four products, all USD, the
 | --- | --- | --- | --- |
 | Starter | subscription, monthly | $19 | `LEMONSQUEEZY_VARIANT_STARTER` |
 | Pro | subscription, monthly | $49 | `LEMONSQUEEZY_VARIANT_PRO` |
-| Business | subscription, monthly | $149 | `LEMONSQUEEZY_VARIANT_BUSINESS` |
+| Studio | subscription, monthly | $99 | `LEMONSQUEEZY_VARIANT_BUSINESS` (the tier id is still business) |
 | Token pack | one-time | **$12** | `LEMONSQUEEZY_VARIANT_TOPUP` |
 
 Also: `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`, optionally `LEMONSQUEEZY_TEST_MODE=true`

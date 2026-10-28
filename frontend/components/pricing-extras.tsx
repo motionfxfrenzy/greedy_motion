@@ -37,7 +37,7 @@ export function PlanFinder() {
         <small>About {minutes} minutes of video a month</small>
         <b>{chosen.name}{packs > 0 ? ` + ${packs} token ${packs === 1 ? "pack" : "packs"}` : ""}</b>
         <span className="finder-price">${monthly}<i> / month</i></span>
-        <Link className="accent-button" href="/profile#plan">{plan ? `Choose ${chosen.name}` : "Choose Business"}</Link>
+        <Link className="accent-button" href="/profile#plan">{plan ? `Choose ${chosen.name}` : `Choose ${PLANS.business.name}`}</Link>
       </div>
     </section>
   );
