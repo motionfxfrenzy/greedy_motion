@@ -271,7 +271,7 @@ export async function addScreenshot(projectId: string, name: string, mime: strin
   const extension = extensions[mime];
   if (!extension) throw new ProjectInvalid("Upload a PNG or JPEG screenshot.");
   if (bytes.length === 0 || bytes.length > 20_000_000) throw new ProjectInvalid("Screenshots must be between 1 byte and 20 MB.");
-  let metadata: sharp.Metadata;
+  let metadata: Awaited<ReturnType<ReturnType<typeof sharp>["metadata"]>>;
   try { metadata = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata(); } catch { throw new ProjectInvalid("That screenshot could not be read."); }
   if (!metadata.width || !metadata.height || metadata.width < 640) throw new ProjectInvalid("Screenshots need to be at least 640 pixels wide.");
   const screenshot: ProjectScreenshot = { id: randomUUID(), name: name.trim().slice(0, 120) || "screenshot", purpose, width: metadata.width, height: metadata.height, createdAt: new Date().toISOString() };

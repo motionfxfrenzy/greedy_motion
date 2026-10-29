@@ -2,7 +2,7 @@
 // would: a subscription row (provider "manual"), Pro-editor access for Pro and Business, and the plan's monthly tokens
 // (last month's unused plan tokens expire first). Run it again to renew or change the plan.
 //
-//   node --env-file=.env scripts/plan.ts grant <email|uuid> <starter|pro|business> [--days 30] [--by name] [--yes]
+//   node --env-file=.env scripts/plan.ts grant <email|uuid> <starter|pro|business> [--interval month|year] [--days 30] [--by name] [--yes]
 //   node --env-file=.env scripts/plan.ts end   <email|uuid> [--by name] [--yes]
 //   node --env-file=.env scripts/plan.ts show  <email|uuid>
 //
@@ -14,11 +14,11 @@ import { pool, withTransaction, query } from "../src/db/database.ts";
 import { CliError, maskEmail, parseArgs, resolveUser } from "../src/entitlements/cli.ts";
 import { revokeEntitlements, upsertEntitlement } from "../src/entitlements/store.ts";
 import { expirePlanTokens, grantTokens, tokenSummary } from "../src/tokens/store.ts";
-import { isPaidTier, PLANS } from "../src/tokens/plan.ts";
+import { isBillingInterval, isPaidTier, PLANS } from "../src/tokens/plan.ts";
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
-  const { positional, options } = parseArgs(rest, ["days", "by"]);
+  const { positional, options } = parseArgs(rest, ["days", "by", "interval"]);
   const text = (name: string) => (typeof options[name] === "string" ? (options[name] as string) : undefined);
   const local = config.appEnv === "local";
   const operator = text("by") ?? (local ? (process.env.USER ?? "local") : undefined);
@@ -39,15 +39,17 @@ async function main() {
     if (command === "grant") {
       const tier = positional[1];
       if (!isPaidTier(tier)) throw new CliError(`Tier must be starter, pro or business; got "${tier}".`);
-      const days = Number(text("days") ?? 30);
+      const interval = text("interval") ?? "month";
+      if (!isBillingInterval(interval)) throw new CliError(`--interval must be month or year; got "${interval}".`);
+      const days = Number(text("days") ?? (interval === "year" ? 365 : 30));
       if (!Number.isFinite(days) || days <= 0 || days > 3650) throw new CliError("--days must be between 0 and 3650.");
       const renews = new Date(now.getTime() + days * 86_400_000);
       await withTransaction(async () => {
         await query(
-          `insert into app.subscriptions (user_id, provider, provider_ref, variant_id, tier, status, renews_at, ends_at, cancel_at_period_end, provider_updated_at)
-           values ($1, 'manual', $2, 'manual', $3, 'active', $4, null, false, $5)
-           on conflict (provider, provider_ref) do update set tier = excluded.tier, status = 'active', renews_at = excluded.renews_at, ends_at = null, cancel_at_period_end = false, provider_updated_at = excluded.provider_updated_at, updated_at = now()`,
-          [user.id, ref, tier, renews, now]
+          `insert into app.subscriptions (user_id, provider, provider_ref, variant_id, tier, billing_interval, cycle_anchor_at, cycle_months_granted, status, renews_at, ends_at, cancel_at_period_end, provider_updated_at)
+           values ($1, 'manual', $2, 'manual', $3, $4, $5, $6, 'active', $7, null, false, $8)
+           on conflict (provider, provider_ref) do update set tier = excluded.tier, billing_interval = excluded.billing_interval, cycle_anchor_at = excluded.cycle_anchor_at, cycle_months_granted = excluded.cycle_months_granted, status = 'active', renews_at = excluded.renews_at, ends_at = null, cancel_at_period_end = false, provider_updated_at = excluded.provider_updated_at, updated_at = now()`,
+          [user.id, ref, tier, interval, interval === "year" ? now : null, interval === "year" ? 1 : 0, renews, now]
         );
         if (PLANS[tier].proEditor) {
           await upsertEntitlement({ userId: user.id, plan: "pro", status: "active", source: "manual", expiresAt: renews, note: `${tier} plan (manual)`, meta: { tier } }, { actor, action: "grant" });

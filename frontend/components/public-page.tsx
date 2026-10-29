@@ -19,7 +19,7 @@ export function PublicPage({ title, description, children }: { title: string; de
         </div>
         {isDraft && (
           <aside className={styles.draft} aria-label="Draft notice">
-            <strong>Draft for owner review — not published terms.</strong>
+            <strong>Draft for owner review, not published terms.</strong>
             <p>Awaiting confirmation: {missingBusinessFacts().join(", ")}.</p>
           </aside>
         )}

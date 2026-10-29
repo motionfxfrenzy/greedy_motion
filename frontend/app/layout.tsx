@@ -4,7 +4,7 @@ import "./theme.css";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "Greedy Motion — Product video studio",
+  title: "Greedy Motion · Product video studio",
   description: "Turn approved product updates into customer-ready motion videos.",
   applicationName: "Greedy Motion",
   icons: {

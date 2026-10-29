@@ -213,7 +213,7 @@ export function Studio() {
     watching.current = null;
     if (planning?.status === "failed") setError(planning.error ?? "Could not write the script.");
     // Still "running" past the deadline: the server restarted and lost the job. Say so instead of quietly resetting.
-    else if (planning?.status === "running") setError("Writing was interrupted because our service restarted. Generate again — nothing was charged.");
+    else if (planning?.status === "running") setError("Writing was interrupted because our service restarted. Generate again; nothing was charged.");
     else if (planning?.status !== "cancelled" && project?.beatPlan && !project.brief?.scriptBeats?.length) { setPlanWarnings([]); setStep(STORYBOARD); }
   }, [project, planning, starting, running]);
 
@@ -1094,7 +1094,7 @@ function ReviewStep({ project, job, approve, rerender, addComment, removeComment
             <button type="button" aria-label={muted || volume === 0 ? "Unmute" : "Mute"} disabled={!job?.output} onClick={toggleMute}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />{muted || volume === 0 ? <path d="M16 9.5l5 5M21 9.5l-5 5" /> : <><path d="M15.5 9.2a4 4 0 010 5.6" />{volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}</>}</svg></button>
             <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="Volume" disabled={!job?.output} onChange={(event) => changeVolume(Number(event.target.value))} />
           </span>
-          <span className="ce-scene">{activeScene ? `Scene ${activeSceneIndex + 1} — ${activeScene.label}` : ""}</span>
+          <span className="ce-scene">{activeScene ? `Scene ${activeSceneIndex + 1} · ${activeScene.label}` : ""}</span>
         </div>
       </div>
       <div className="ce-timeline">

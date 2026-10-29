@@ -1,31 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "../utils/supabase/client";
-import { PLANS, TOP_UP, secondsFromTokens } from "@videosaas/contracts";
-import { getMySubscription, getMyTokens, startCheckout, type Subscription, type TokenSummary } from "../lib/api";
-import { useEntitlements, type Entitlements } from "../lib/entitlements";
+import { PLANS, PREVIEW_ALLOWANCE, TOP_UP, annualMonthlyUsd, filmsFromTokens, isPaidTier } from "@videosaas/contracts";
+import { getMyPreviews, getMySubscription, getMyTokens, startCheckout, type PreviewUsage, type Subscription, type TokenSummary } from "../lib/api";
 import { AppShell } from "./app-shell";
-import { planLabel, useAccount } from "./account-menu";
-import { PlanCards, filmsFrom } from "./plan-cards";
+import { useAccount } from "./account-menu";
+import { filmsFrom } from "./plan-cards";
 import { ThemeChoicePicker } from "./theme-choice";
 
-const date = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-
-/** One plain sentence about where the plan stands. */
-function planDetail(e: Entitlements): string {
-  if (e.plan === "pro") {
-    if (!e.validUntil) return "Your Pro plan is active.";
-    return e.cancelAtPeriodEnd ? `Pro. Cancelled: you keep editing until ${date(e.validUntil)}.` : `Pro. Renews ${date(e.validUntil)}.`;
-  }
-  const why = { expired: "Your Pro plan has ended. Your projects stay viewable.", canceled: "Your Pro plan was cancelled.", revoked: "Pro access was removed from this account.", payment_failed: "Your last payment failed, so Pro is paused." }[e.reason ?? "expired"];
-  return e.reason ? why : "You are on the Free plan. The guided flow is included.";
-}
-
-/** Profile: who you are, how the site looks, what you subscribe to, and what is left to generate with. */
+/** Profile: who you are, how the site looks, what plan you are on, and what is left to generate with. */
 export function ProfilePage() {
   const account = useAccount();
-  const { state, retry } = useEntitlements();
   const [name, setName] = useState("");
   const [saved, setSaved] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [reset, setReset] = useState<"idle" | "sending" | "sent" | "error">("idle");
@@ -37,7 +24,7 @@ export function ProfilePage() {
   useEffect(loadSub, []);
   const [buying, setBuying] = useState<string | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
-  const buy = async (product: "starter" | "pro" | "business" | "topup") => {
+  const buy = async (product: "topup") => {
     setBuying(product); setBuyError(null);
     try { window.location.assign(await startCheckout(product)); }
     catch (caught) { setBuyError(caught instanceof Error ? caught.message : "Could not open checkout."); setBuying(null); }
@@ -97,51 +84,56 @@ export function ProfilePage() {
           {sub.status === "ready" && <>
             <div className="profile-row">
               <div>
-                <b>{PLANS[sub.value.tier].name} plan</b>
+                <b>{PLANS[sub.value.tier].name} plan{sub.value.tier !== "free" && sub.value.interval === "year" ? " (Annual)" : ""}</b>
                 <p>{planLine(sub.value)}</p>
               </div>
-              {sub.value.portalUrl && <a className="secondary-button" href={sub.value.portalUrl} target="_blank" rel="noreferrer">Manage billing</a>}
+              <div className="profile-actions">
+                {sub.value.portalUrl && <a className="secondary-button" href={sub.value.portalUrl} target="_blank" rel="noreferrer">Manage billing</a>}
+                <Link className={sub.value.tier === "free" ? "primary-button" : "secondary-button"} href="/pricing">{sub.value.tier === "free" ? "Upgrade plan" : "View plans"}</Link>
+              </div>
             </div>
             {sub.value.status === "past_due" && sub.value.updatePaymentUrl && <p className="profile-note bad" role="alert">Your last payment failed. <a href={sub.value.updatePaymentUrl} target="_blank" rel="noreferrer">Update your payment method</a> to keep your plan.</p>}
-            <div className="profile-plans">
-              <PlanCards current={sub.value.tier} action={(tier, isCurrent) => {
-                if (isCurrent) return <span className="here">Your plan</span>;
-                if (tier === "free") return <span className="here">{sub.value.tier === "free" ? "Included" : "Free"}</span>;
-                if (sub.value.tier !== "free") return sub.value.portalUrl ? <a className="secondary-button" href={sub.value.portalUrl} target="_blank" rel="noreferrer">Change in billing</a> : <span className="here">Change in billing</span>;
-                return <button className={tier === "pro" ? "accent-button" : "secondary-button"} disabled={buying !== null} onClick={() => void buy(tier)}>{buying === tier ? "Opening…" : `Choose ${PLANS[tier].name}`}</button>;
-              }} />
-            </div>
-            {buyError && <p className="profile-note bad" role="alert">{buyError}</p>}
           </>}
-          <p className="profile-note">Prices are in US dollars, taxes are added at checkout and payments are handled by Lemon Squeezy. Cancel any time and keep your plan until the end of the period you paid for.</p>
         </article>
 
         <article className="profile-card" id="tokens">
           <h2>Tokens</h2>
           {tokens.status === "loading" && <p className="profile-note">Reading your tokens…</p>}
           {tokens.status === "error" && <div className="profile-row"><div><b>Tokens unavailable</b><p>We could not read your balance just now.</p></div><button className="secondary-button" onClick={loadTokens}>Try again</button></div>}
-          {tokens.status === "ready" && <TokenMeter value={tokens.value} renewsAt={sub.status === "ready" ? sub.value.renewsAt : null} />}
+          {tokens.status === "ready" && <TokenMeter value={tokens.value} renewsAt={sub.status === "ready" ? (sub.value.tokensResetAt ?? sub.value.renewsAt) : null} />}
           <div className="profile-row topup">
             <div><b>Need more?</b><p>{TOP_UP.tokens} tokens for ${TOP_UP.priceUsd}. They never expire.</p></div>
             <button className="secondary-button" disabled={buying !== null} onClick={() => void buy("topup")}>{buying === "topup" ? "Opening…" : "Buy tokens"}</button>
           </div>
-
+          {buyError && <p className="profile-note bad" role="alert">{buyError}</p>}
         </article>
       </section>
     </AppShell>
   );
 }
 
-const REASONS: Record<string, string> = { render: "Video rendered", grant: "Tokens added", adjust: "Adjustment", refund: "Tokens returned", expiry: "Last month's unused tokens expired" };
+const REASONS: Record<string, string> = { render: "Video rendered", material: "Generated scenes", revision: "Change to a film", grant: "Tokens added", adjust: "Adjustment", refund: "Tokens returned", expiry: "Last month's unused tokens expired" };
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const num = (n: number) => String(Math.round(n * 100) / 100);
 const planLine = (s: Subscription) => {
   const date = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-  if (s.tier === "free") return `30 seconds of watermarked video in total.${s.checkoutAvailable ? "" : " Paid plans are not open yet."}`;
+  if (s.tier === "free") return `One watermarked film of up to 30 seconds, with ${PREVIEW_ALLOWANCE.free} films to try.`;
   const plan = PLANS[s.tier];
-  if (s.cancelAtPeriodEnd && s.endsAt) return `$${plan.priceUsd} a month. Cancelled: you keep this plan until ${date(s.endsAt)}.`;
-  return `$${plan.priceUsd} a month, ${plan.tokens} tokens each renewal.${s.renewsAt ? ` Renews ${date(s.renewsAt)}.` : ""}`;
+  const priceText = s.interval === "year" && isPaidTier(s.tier)
+    ? `$${plan.annualPriceUsd} a year ($${annualMonthlyUsd(s.tier).toFixed(2)} a month)`
+    : `$${plan.priceUsd} a month`;
+  if (s.cancelAtPeriodEnd && s.endsAt) return `${priceText}. Cancelled: you keep this plan until ${date(s.endsAt)}.`;
+  return `${priceText} · ${plan.tokens.toLocaleString()} tokens each month.${s.renewsAt ? ` Renews ${date(s.renewsAt)}.` : ""}`;
 };
+
+/** Films worked on this period against the plan's allowance: storyboards, voice and motion are free to try, up to this many films. */
+function PreviewMeter() {
+  const [usage, setUsage] = useState<PreviewUsage | null>(null);
+  useEffect(() => { getMyPreviews().then(setUsage, () => setUsage(null)); }, []);
+  if (!usage) return null;
+  const left = Math.max(usage.limit - usage.used, 0);
+  return <p className="token-extra">{usage.used} of {usage.limit} films {usage.tier === "free" ? "tried on the free plan" : "started this month"} · {left} {left === 1 ? "film" : "films"} left to preview{usage.tier === "free" ? "" : ", resets on the 1st"}.</p>;
+}
 
 function TokenMeter({ value, renewsAt }: { value: TokenSummary; renewsAt: string | null }) {
   const plan = value.plan;
@@ -155,6 +147,7 @@ function TokenMeter({ value, renewsAt }: { value: TokenSummary; renewsAt: string
       <b>{num(Math.max(view.remaining, 0))} {plan ? "plan " : ""}tokens left</b>
       <span className="token-sub">{plan ? `${usedPct}% of this month used · ${num(view.used)} of ${num(view.granted)}` : `${usedPct}% used · ${num(view.used)} of ${num(view.granted)}`}{plan && renewsAt ? ` · resets ${new Date(renewsAt).toLocaleDateString(undefined, { month: "long", day: "numeric" })}` : ""}</span>
       <div className="token-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={usedPct} aria-label="Share of this month's tokens used"><i style={{ width: `${usedPct}%` }} /></div>
+      <PreviewMeter />
       {extra > 0 && <p className="token-extra">Plus {num(extra)} extra tokens ({plan ? "free allowance and packs" : "packs"}) that do not expire.</p>}
       <p className="token-extra">Enough for about {films} {films === 1 ? "film" : "films"} of 30 seconds in total.{plan ? " Unused plan tokens do not carry over to next month." : ""}</p>
       {value.recent.length === 0 ? <p>Nothing used yet.</p> : (

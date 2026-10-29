@@ -20,6 +20,8 @@ export type PlanVisuals = {
   status: "queued" | "generating" | "ready" | "failed";
   budgetUsd: number;
   reservedUsd: number;
+  /** Provider-price estimate, in USD, already charged to the person for these visuals (tokens at the material markup). */
+  paidUsd?: number;
   imageModel: string;
   videoModel: string;
   styleKey?: VisualAsset;
@@ -39,6 +41,8 @@ export type VisualStatus = {
   ready: number;
   estimateUsd: number;
   reservedUsd: number;
+  /** Tokens the next run will take (what is not yet paid for, at the material markup); 0 when nothing is owed. */
+  priceTokens: number;
   maxBudgetUsd: number;
   error?: string;
   runId?: string;

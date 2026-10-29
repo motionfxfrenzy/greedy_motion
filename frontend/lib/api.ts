@@ -149,6 +149,27 @@ export type TokenSummary = {
 };
 
 /** The caller's token balance and recent activity, read from the backend's ledger. */
+/** What the final render takes, worked out by the server with the same function the render charges with (backend: render/quote.ts). */
+export type RenderQuote = { seconds: number | null; tokens: number | null; parts: { start: number; perSecond: number; seconds: number | null }; ready: boolean; material: { required: boolean; owedTokens: number }; balance: number; enough: boolean };
+export async function getRenderQuote(projectId: string): Promise<RenderQuote> {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/render/quote", { cache: "no-store" });
+  return parse<RenderQuote>(response, "Could not work out the price.");
+}
+
+/** Changes made to a film after it was first made, against the ones its start fee covers (backend: revision-meter). */
+export type RevisionInfo = { used: number; free: number; tokens: number };
+export async function getRevisions(projectId: string): Promise<RevisionInfo> {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/revisions", { cache: "no-store" });
+  return parse<RevisionInfo>(response, "Could not load the changes used.");
+}
+
+export type PreviewUsage = { tier: string; period: string; used: number; limit: number };
+/** Films the person has worked on this period (Free: ever) against their plan's allowance. */
+export async function getMyPreviews(): Promise<PreviewUsage> {
+  const response = await apiFetch(apiOrigin + "/v1/me/previews", { cache: "no-store" });
+  return parse<PreviewUsage>(response, "Could not load your film allowance.");
+}
+
 export async function getMyTokens(): Promise<TokenSummary> {
   const response = await apiFetch(apiOrigin + "/v1/me/tokens", { cache: "no-store" });
   if (!response.ok) throw new Error(`Could not read your tokens (${response.status}).`);
@@ -159,14 +180,17 @@ export async function getMyTokens(): Promise<TokenSummary> {
 
 export type Subscription = {
   tier: "free" | "starter" | "pro" | "business";
+  interval?: "month" | "year" | null;
   status: string | null;
   renewsAt: string | null;
+  tokensResetAt?: string | null;
   endsAt: string | null;
   cancelAtPeriodEnd: boolean;
   portalUrl: string | null;
   updatePaymentUrl: string | null;
   /** False until the billing provider is configured: buy buttons then say paid plans are not open. */
   checkoutAvailable: boolean;
+  annualCheckoutAvailable?: boolean;
 };
 
 export async function getMySubscription(): Promise<Subscription> {
@@ -175,9 +199,10 @@ export async function getMySubscription(): Promise<Subscription> {
   return response.json() as Promise<Subscription>;
 }
 
-/** A hosted checkout for a plan or the token pack. The caller sends the browser to the returned link. */
-export async function startCheckout(product: "starter" | "pro" | "business" | "topup"): Promise<string> {
-  const response = await apiFetch(apiOrigin + "/v1/billing/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product }) });
+/** A hosted checkout for a plan (monthly or annual) or the token pack. The caller sends the browser to the returned link. */
+export async function startCheckout(product: "starter" | "pro" | "business" | "topup", interval: "month" | "year" = "month"): Promise<string> {
+  const payload = product === "topup" || interval === "month" ? { product } : { product, interval };
+  const response = await apiFetch(apiOrigin + "/v1/billing/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   const body = (await response.json().catch(() => ({}))) as { url?: string; error?: { message?: string; portalUrl?: string } };
   if (!response.ok || !body.url) throw new Error(body.error?.message ?? "Could not open checkout.");
   return body.url;

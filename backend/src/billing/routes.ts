@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
-import { isPaidTier } from "../tokens/plan.ts";
-import { checkoutConfigured, CheckoutError, createCheckout, validSignature, type WebhookBody } from "./lemonsqueezy.ts";
+import { isBillingInterval, isPaidTier, type BillingInterval } from "../tokens/plan.ts";
+import { annualCheckoutConfigured, checkoutConfigured, CheckoutError, createCheckout, validSignature, variantIdFor, type WebhookBody } from "./lemonsqueezy.ts";
 import { applyWebhook, RetryLater, subscriptionFor } from "./service.ts";
 
 const unavailable = { error: { code: "billing_unavailable", message: "Paid plans are not open yet." } };
@@ -29,16 +29,27 @@ export async function registerBillingRoutes(app: FastifyInstance) {
 
   app.get("/v1/me/subscription", async (request, reply) => {
     try {
-      return reply.header("Cache-Control", "no-store").send({ ...(await subscriptionFor(callerId(request))), checkoutAvailable: checkoutConfigured() });
+      return reply.header("Cache-Control", "no-store").send({
+        ...(await subscriptionFor(callerId(request))),
+        checkoutAvailable: checkoutConfigured("month"),
+        annualCheckoutAvailable: annualCheckoutConfigured()
+      });
     } catch (error) {
       request.log.error({ err: error }, "subscription lookup failed");
       return reply.code(503).header("Retry-After", "5").send({ error: { code: "subscription_unavailable", message: "Could not read your plan right now. Try again in a moment." } });
     }
   });
 
-  app.post<{ Body: { product?: unknown } | undefined }>("/v1/billing/checkout", async (request, reply) => {
-    if (!checkoutConfigured()) return reply.code(501).send(unavailable);
-    const product = request.body?.product;
+  app.post<{ Body: { product?: unknown; interval?: unknown } | undefined }>("/v1/billing/checkout", async (request, reply) => {
+    const rawProduct = typeof request.body?.product === "string" ? request.body.product : "";
+    const rawInterval = request.body?.interval;
+    if (rawInterval !== undefined && !isBillingInterval(rawInterval)) {
+      return reply.code(400).send({ error: { code: "invalid_interval", message: "Billing interval must be month or year." } });
+    }
+    const suffixAnnual = rawProduct.endsWith("_annual");
+    const product = suffixAnnual ? rawProduct.slice(0, -"_annual".length) : rawProduct;
+    const interval: BillingInterval = rawInterval === "year" || suffixAnnual ? "year" : "month";
+    if (!checkoutConfigured(product === "topup" ? "month" : interval)) return reply.code(501).send(unavailable);
     if (product !== "topup" && !isPaidTier(product)) return reply.code(400).send({ error: { code: "invalid_product", message: "Choose a plan or a token pack." } });
     const userId = callerId(request);
     if (isPaidTier(product)) {
@@ -46,7 +57,7 @@ export async function registerBillingRoutes(app: FastifyInstance) {
       if (current.tier !== "free") return reply.code(409).send({ error: { code: "already_subscribed", message: "You already have a plan. Change or cancel it from billing.", portalUrl: current.portalUrl } });
     }
     try {
-      const url = await createCheckout({ userId, email: request.user?.email, variantId: config.billing.variants[product] });
+      const url = await createCheckout({ userId, email: request.user?.email, variantId: variantIdFor(product, interval) });
       return reply.send({ url });
     } catch (error) {
       if (!(error instanceof CheckoutError)) throw error;

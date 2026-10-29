@@ -10,7 +10,7 @@ import { boss, POLL, QUEUES } from "../jobs/queues.ts";
 import { readMedia, saveMedia } from "../media.ts";
 import { getProject, updateProjectVisuals } from "../projects/store.ts";
 import { googleVisualProvider, validateVideo, VisualProviderTerminalError, type VisualProvider } from "./visual-provider.ts";
-import { currentClips, digest, IMAGE_RESERVE, materialBeats, VIDEO_RESERVE, visualDir, visualFingerprint, visualStatus, totalReserved } from "./visual-state.ts";
+import { currentClips, digest, IMAGE_RESERVE, materialBeats, materialOwedUsd, VIDEO_RESERVE, visualDir, visualFingerprint, visualStatus, totalReserved } from "./visual-state.ts";
 import { projectLook } from "./preview.ts";
 export { currentClips, visualStatus } from "./visual-state.ts";
 
@@ -18,7 +18,10 @@ export const VISUAL_LEASE_MS = 300_000;
 export class VisualWorkerBusy extends Error {}
 const pending = (v: PlanVisuals) => v.stylePending || Object.values(v.shots).some(s => s.pending);
 
-export async function enqueueVisuals(id: string, budgetUsd: number, deps = dependencies) {
+/** Takes payment for `usd` of provider cost (at the material markup) and returns the way to give it back; supplied by the route (billing is off in local development). */
+export type MaterialBilling = { charge: (usd: number, runId: string) => Promise<() => Promise<void>> };
+
+export async function enqueueVisuals(id: string, budgetUsd: number, deps = dependencies, billing?: MaterialBilling) {
   if (!config.geminiApiKey) throw new Error("Material generation needs GEMINI_API_KEY on the backend.");
   if (!Number.isFinite(budgetUsd) || budgetUsd <= 0 || budgetUsd > config.visualMaxBudgetUsd) throw new Error(`Choose a project reservation ceiling up to $${config.visualMaxBudgetUsd}.`);
   return deps.update(id, async p => {
@@ -36,7 +39,13 @@ export async function enqueueVisuals(id: string, budgetUsd: number, deps = depen
     const history = previous ? previous.history : [...(oldHistory ?? []), ...(existing ? [archived as Omit<PlanVisuals, "history">] : [])];
     const state: PlanVisuals = { ...previous, runId, fingerprint: visualFingerprint(p), look: look.id, recipeVersion: look.version, status: "queued", budgetUsd, reservedUsd: previous?.reservedUsd ?? 0,
       imageModel: previous?.imageModel ?? config.visualImageModel, videoModel: previous?.videoModel ?? config.visualVideoModel, shots: previous?.shots ?? {}, history, worker: undefined, error: undefined, updatedAt: new Date().toISOString() };
-    await deps.enqueue(id, runId);
+    // Charged for what is not yet paid for, before the work is queued; returned if it cannot be queued. A resumed run pays only for
+    // parts the earlier runs of these same visuals did not (their charge is kept in paidUsd), a changed storyboard pays for a new film.
+    const owed = materialOwedUsd({ ...p, planVisuals: previous ?? (existing && existing.fingerprint === visualFingerprint(p) ? existing : undefined) });
+    const undo = billing && owed > 0 ? await billing.charge(owed, runId) : undefined;
+    try { await deps.enqueue(id, runId); }
+    catch (error) { await undo?.(); throw error; }
+    state.paidUsd = Math.round(((previous?.paidUsd ?? 0) + (billing ? owed : 0)) * 100) / 100;
     return state;
   });
 }

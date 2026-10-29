@@ -3,7 +3,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "../config.ts";
 import type { SubscriptionSnapshot } from "../entitlements/lifecycle.ts";
-import { isPaidTier, TOP_UP, type PaidTier } from "../tokens/plan.ts";
+import { isPaidTier, TOP_UP, type BillingInterval, type PaidTier } from "../tokens/plan.ts";
 
 const API = "https://api.lemonsqueezy.com/v1";
 
@@ -14,18 +14,34 @@ export function validSignature(rawBody: Buffer, signature: string | undefined, s
   return timingSafeEqual(expected, Buffer.from(signature, "hex"));
 }
 
-export type Variant = { kind: "subscription"; tier: PaidTier } | { kind: "topup"; tokens: number };
+export type Variant = { kind: "subscription"; tier: PaidTier; interval: BillingInterval } | { kind: "topup"; tokens: number };
 
 /** Which product a variant id is. Null for a variant this deployment does not sell. */
 export function variantOf(variantId: string | number | null | undefined): Variant | null {
   const id = String(variantId ?? "");
   if (!id) return null;
-  for (const tier of ["starter", "pro", "business"] as const) if (config.billing.variants[tier] === id) return { kind: "subscription", tier };
+  for (const tier of ["starter", "pro", "business"] as const) {
+    if (config.billing.variants[tier] === id) return { kind: "subscription", tier, interval: "month" };
+    const annualKey = `${tier}Annual` as const;
+    if (config.billing.variants[annualKey] === id) return { kind: "subscription", tier, interval: "year" };
+  }
   if (config.billing.variants.topup === id) return { kind: "topup", tokens: TOP_UP.tokens };
   return null;
 }
 
-export const checkoutConfigured = () => Boolean(config.billing.apiKey && config.billing.storeId && config.billing.variants.starter && config.billing.variants.pro && config.billing.variants.business && config.billing.variants.topup);
+export function variantIdFor(product: PaidTier | "topup", interval: BillingInterval = "month"): string {
+  if (product === "topup") return config.billing.variants.topup;
+  if (interval === "year") return config.billing.variants[`${product}Annual` as const];
+  return config.billing.variants[product];
+}
+
+export const checkoutConfigured = (interval: BillingInterval = "month"): boolean => {
+  const monthlyReady = Boolean(config.billing.apiKey && config.billing.storeId && config.billing.variants.starter && config.billing.variants.pro && config.billing.variants.business && config.billing.variants.topup);
+  if (interval === "month") return monthlyReady;
+  return Boolean(monthlyReady && config.billing.variants.starterAnnual && config.billing.variants.proAnnual && config.billing.variants.businessAnnual);
+};
+
+export const annualCheckoutConfigured = () => checkoutConfigured("year");
 
 export class CheckoutError extends Error {}
 

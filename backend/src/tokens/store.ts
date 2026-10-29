@@ -4,11 +4,29 @@
 // Three pools: `plan` tokens come with a subscription and reset every month (what is left at renewal expires, then the
 // full allowance is granted again); `free` is the one-time 30-second allowance; `pack` is bought packs and manual grants.
 // Neither free nor pack expire. A render spends plan tokens first (they expire soonest), then free, then packs.
-import { FREE_TOKENS_REF, PLANS, tokensFromMilli } from "./plan.ts";
+import { ANNUAL_MONTHS_GRANTED, FREE_TOKENS_REF, isPaidTier, PLANS, tokensFromMilli, type PaidTier } from "./plan.ts";
 import { query, withTransaction } from "../db/database.ts";
 
 export type Pool = "plan" | "free" | "pack";
 const SPEND_ORDER: Pool[] = ["plan", "free", "pack"];
+
+/** Adds `months` calendar months in UTC, clamping the day to the target month's last day (so Jan 31 + 1 month = Feb 28/29, + 2 = Mar 31). */
+export function addUtcMonths(anchor: Date, months: number): Date {
+  const year = anchor.getUTCFullYear();
+  const totalMonths = anchor.getUTCMonth() + months;
+  const targetYear = year + Math.floor(totalMonths / 12);
+  const targetMonth = ((totalMonths % 12) + 12) % 12;
+  const maxDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(
+    targetYear,
+    targetMonth,
+    Math.min(anchor.getUTCDate(), maxDay),
+    anchor.getUTCHours(),
+    anchor.getUTCMinutes(),
+    anchor.getUTCSeconds(),
+    anchor.getUTCMilliseconds()
+  ));
+}
 
 export type TokenEntry = { id: number; amount: number; kind: string; reason: string; pool: Pool; projectId: string | null; createdAt: string };
 export type PoolView = { granted: number; used: number; remaining: number };
@@ -40,7 +58,7 @@ const FREE_MILLI = Math.round(PLANS.free.tokens * 1000);
 /** Gives every account its one-time free allowance (30 seconds of video). Idempotent: the reference is unique per user. */
 export async function ensureFreeAllowance(userId: string): Promise<void> {
   await query(
-    "insert into app.token_ledger (user_id, amount, kind, reason, ref, actor, pool) values ($1, $2, 'grant', 'Free allowance', $3, 'system', 'free') on conflict (user_id, ref) where ref is not null do nothing",
+    "insert into app.token_ledger (user_id, amount, kind, reason, ref, actor, pool) values ($1, $2, 'grant', 'Free allowance', $3, 'system', 'free') on conflict (user_id, ref) where ref is not null do update set amount = excluded.amount where app.token_ledger.amount < excluded.amount",
     [userId, FREE_MILLI, FREE_TOKENS_REF]
   );
 }
@@ -58,7 +76,8 @@ async function poolBalances(userId: string): Promise<Record<Pool, number>> {
  * under a per-user lock, so two renders started together cannot both spend the last tokens. `ref` names the event; the
  * same event twice is stored once and returns `{ charged: false }`. The returned `event` is what `refundSpend` takes.
  */
-export async function spendTokens(userId: string, milli: number, reason: string, ref: string, projectId?: string): Promise<{ charged: boolean; event: string }> {
+export async function spendTokens(userId: string, milli: number, reason: string, ref: string, projectId?: string, now = new Date()): Promise<{ charged: boolean; event: string }> {
+  await grantDueAnnualTokens(now, userId);
   await ensureFreeAllowance(userId);
   const event = `${reason}:${ref}`;
   return withTransaction(async () => {
@@ -114,7 +133,91 @@ export async function expirePlanTokens(userId: string, ref: string, reason = "Un
   });
 }
 
-export async function tokenSummary(userId: string, recentLimit = 20): Promise<TokenSummary> {
+type AnnualSubRow = {
+  id: string;
+  user_id: string;
+  provider_ref: string;
+  tier: string;
+  status: string;
+  renews_at: Date | null;
+  ends_at: Date | null;
+  cycle_anchor_at: Date | null;
+  cycle_months_granted: number;
+};
+
+const annualSubServing = (row: AnnualSubRow, now: Date) => {
+  if (row.status === "expired" || row.status === "paused" || row.status === "unpaid" || row.status === "past_due") return false;
+  if (row.status === "cancelled") return row.ends_at !== null && row.ends_at.getTime() > now.getTime();
+  return true;
+};
+
+/**
+ * Grants due monthly token allowances for annual subscriptions (months 2 through 12 after the paid annual invoice).
+ * Each reached monthly anniversary of `cycle_anchor_at` expires the previous month's unused plan tokens and grants
+ * a fresh monthly allowance once, up to 12 grants for the year. Also expires remaining plan tokens if a cancelled
+ * subscription's paid period (`ends_at`) has passed. Returns the number of subscriptions granted tokens.
+ */
+export async function grantDueAnnualTokens(now = new Date(), userId?: string): Promise<number> {
+  const { rows } = await query<AnnualSubRow>(
+    userId
+      ? "select id, user_id, provider_ref, tier, status, renews_at, ends_at, cycle_anchor_at, cycle_months_granted from app.subscriptions where user_id = $1 and (billing_interval = 'year' or (status = 'cancelled' and ends_at is not null))"
+      : "select id, user_id, provider_ref, tier, status, renews_at, ends_at, cycle_anchor_at, cycle_months_granted from app.subscriptions where billing_interval = 'year' or (status = 'cancelled' and ends_at is not null)",
+    userId ? [userId] : []
+  );
+  let grantedCount = 0;
+  for (const row of rows) {
+    if (row.status === "cancelled" && row.ends_at !== null && row.ends_at.getTime() <= now.getTime()) {
+      await expirePlanTokens(row.user_id, `expiry:end:${row.provider_ref}`, "Plan ended");
+      continue;
+    }
+    if (!isPaidTier(row.tier) || !annualSubServing(row, now) || !row.cycle_anchor_at) continue;
+    if (row.cycle_months_granted < 1 || row.cycle_months_granted >= ANNUAL_MONTHS_GRANTED) continue;
+    const periodEnd = row.ends_at ?? row.renews_at ?? addUtcMonths(row.cycle_anchor_at, ANNUAL_MONTHS_GRANTED);
+    if (now.getTime() >= periodEnd.getTime()) continue;
+    let latestDue = -1;
+    for (let m = row.cycle_months_granted; m < ANNUAL_MONTHS_GRANTED; m++) {
+      const monthDate = addUtcMonths(row.cycle_anchor_at, m);
+      if (monthDate.getTime() <= now.getTime() && monthDate.getTime() < periodEnd.getTime()) latestDue = m;
+      else break;
+    }
+    if (latestDue < row.cycle_months_granted) continue;
+    const applied = await withTransaction(async () => {
+      const lockedRes = await query<AnnualSubRow>(
+        "select id, user_id, provider_ref, tier, status, renews_at, ends_at, cycle_anchor_at, cycle_months_granted from app.subscriptions where id = $1 for update",
+        [row.id]
+      );
+      const locked = lockedRes.rows[0];
+      if (!locked || !isPaidTier(locked.tier) || !annualSubServing(locked, now) || !locked.cycle_anchor_at) return false;
+      if (locked.cycle_months_granted < 1 || locked.cycle_months_granted >= ANNUAL_MONTHS_GRANTED) return false;
+      const lockedEnd = locked.ends_at ?? locked.renews_at ?? addUtcMonths(locked.cycle_anchor_at, ANNUAL_MONTHS_GRANTED);
+      if (now.getTime() >= lockedEnd.getTime()) return false;
+      let due = -1;
+      for (let m = locked.cycle_months_granted; m < ANNUAL_MONTHS_GRANTED; m++) {
+        const monthDate = addUtcMonths(locked.cycle_anchor_at, m);
+        if (monthDate.getTime() <= now.getTime() && monthDate.getTime() < lockedEnd.getTime()) due = m;
+        else break;
+      }
+      if (due < locked.cycle_months_granted) return false;
+      const anchorKey = locked.cycle_anchor_at.toISOString();
+      await expirePlanTokens(locked.user_id, `expiry:annual:${locked.provider_ref}:${anchorKey}:m${due}`);
+      await grantTokens(
+        locked.user_id,
+        PLANS[locked.tier as PaidTier].tokens,
+        `${PLANS[locked.tier as PaidTier].name} plan tokens`,
+        "lemonsqueezy",
+        `annual:${locked.provider_ref}:${anchorKey}:m${due}`,
+        "plan"
+      );
+      await query("update app.subscriptions set cycle_months_granted = $1, updated_at = now() where id = $2", [due + 1, locked.id]);
+      return true;
+    });
+    if (applied) grantedCount++;
+  }
+  return grantedCount;
+}
+
+export async function tokenSummary(userId: string, recentLimit = 20, now = new Date()): Promise<TokenSummary> {
+  await grantDueAnnualTokens(now, userId);
   await ensureFreeAllowance(userId);
   const have = await poolBalances(userId);
   const free = await query<{ granted: string; used: string }>(

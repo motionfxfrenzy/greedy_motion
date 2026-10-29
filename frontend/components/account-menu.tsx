@@ -71,6 +71,7 @@ export function AccountMenu() {
           </div>
           <Link href="/profile" role="menuitem" className="account-item" onClick={() => setOpen(false)}>Profile &amp; settings</Link>
           <Link href="/profile#plan" role="menuitem" className="account-item" onClick={() => setOpen(false)}>Subscription &amp; tokens</Link>
+          <Link href="/pricing" role="menuitem" className="account-item" onClick={() => setOpen(false)}>Plans &amp; pricing</Link>
           <div className="account-theme"><span>Theme</span><ThemeChoicePicker /></div>
           <button type="button" role="menuitem" className="account-item danger" onClick={() => { setOpen(false); dialogRef.current?.showModal(); }}>Sign out</button>
         </div>

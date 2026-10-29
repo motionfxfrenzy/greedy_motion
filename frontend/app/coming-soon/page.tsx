@@ -5,7 +5,7 @@ import { PublicLinks } from "../../components/public-links";
 import "./coming-soon.css";
 
 export const metadata: Metadata = {
-  title: "Coming soon — Greedy Motion",
+  title: "Coming soon · Greedy Motion",
   description: "Greedy Motion is preparing a faster, clearer way to turn product updates into motion videos."
 };
 

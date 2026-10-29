@@ -236,6 +236,9 @@ export const config = {
       starter: process.env.LEMONSQUEEZY_VARIANT_STARTER || "",
       pro: process.env.LEMONSQUEEZY_VARIANT_PRO || "",
       business: process.env.LEMONSQUEEZY_VARIANT_BUSINESS || "",
+      starterAnnual: process.env.LEMONSQUEEZY_VARIANT_STARTER_ANNUAL || "",
+      proAnnual: process.env.LEMONSQUEEZY_VARIANT_PRO_ANNUAL || "",
+      businessAnnual: process.env.LEMONSQUEEZY_VARIANT_BUSINESS_ANNUAL || "",
       topup: process.env.LEMONSQUEEZY_VARIANT_TOPUP || ""
     },
     /** Where checkout sends the buyer afterwards. */

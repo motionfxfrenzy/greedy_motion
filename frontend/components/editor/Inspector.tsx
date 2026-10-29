@@ -246,7 +246,7 @@ function ClipProps({ clip }: { clip: Clip }) {
           <section className="ed-sec"><Cap>Animation</Cap>
             {tweens.map((tw, i) => (
               <div key={tw.id + i} className={`ed-tween-card ${useEditor.getState().keySel[0]?.prop === tw.id ? "on" : ""}`} onClick={() => useEditor.getState().ui({ keySel: [{ id: clip.id, prop: tw.id, t: 0 }] })}>
-                <div className="ed-tween-h"><b>{tw.prop}</b><span className="ed-mono ed-muted">{tw.from || "—"} → {tw.to}</span><button type="button" className="ed-x" aria-label={`Remove ${tw.prop} tween`} onClick={() => edit("Remove tween", (d) => { d.html = removeTween(d.html, tw.id); })}><Icon name="close" size={11} /></button></div>
+                <div className="ed-tween-h"><b>{tw.prop}</b><span className="ed-mono ed-muted">{tw.from || "auto"} → {tw.to}</span><button type="button" className="ed-x" aria-label={`Remove ${tw.prop} tween`} onClick={() => edit("Remove tween", (d) => { d.html = removeTween(d.html, tw.id); })}><Icon name="close" size={11} /></button></div>
                 <div className="ed-tween-g">
                   <PlainRow label="From"><input className="ed-mono" aria-label="From" defaultValue={tw.from} key={tw.id + tw.from} onKeyDown={(e) => e.stopPropagation()} onBlur={(e) => e.target.value !== tw.from && edit("Edit tween", (d) => { d.html = updateTween(d.html, tw.id, clip.start, { from: e.target.value }); })} /></PlainRow>
                   <PlainRow label="To"><input className="ed-mono" aria-label="To" defaultValue={tw.to} key={tw.id + tw.to} onKeyDown={(e) => e.stopPropagation()} onBlur={(e) => e.target.value !== tw.to && edit("Edit tween", (d) => { d.html = updateTween(d.html, tw.id, clip.start, { to: e.target.value }); })} /></PlainRow>

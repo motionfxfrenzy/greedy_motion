@@ -174,7 +174,7 @@ export function BrandKitDialog({ kit, onClose, onSaved }: { kit: BrandKit | null
               {brandLogoVariants.map((variant) => {
                 const src = variantSrc(variant);
                 return <div className="brand-variant" key={variant}>
-                  <span className="brand-logo-box">{src ? <img src={src} alt={variantInfo[variant].label} /> : <span aria-hidden="true">—</span>}</span>
+                  <span className="brand-logo-box">{src ? <img src={src} alt={variantInfo[variant].label} /> : <span aria-hidden="true">-</span>}</span>
                   <span className="brand-variant-meta"><b>{variantInfo[variant].label}</b><small>{variantInfo[variant].hint}</small>
                     <span className="brand-variant-actions">
                       <label className="brand-file"><input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadVariant(variant, file); event.target.value = ""; }} /><span>{variantBusy === variant ? "Uploading…" : src ? "Replace" : "Upload"}</span></label>
