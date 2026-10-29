@@ -3,7 +3,7 @@ import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { BEAT_LIMITS, findGalleryTemplate, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voiceText, type BeatPlan, type LookId, type PlanAudio, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, findGalleryTemplate, formatForDuration, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voiceText, type Beat, type BeatPlan, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
 import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan } from "../projects/store.ts";
@@ -12,6 +12,8 @@ import { TTS_MODEL } from "../audio/gemini-tts.ts";
 import { readMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
+import { filmFrames } from "./frame-film.ts";
+import { ensureFilmMotion, filmScenes } from "./frame-motion.ts";
 import { musicPrompt, produceMusic } from "./music.ts";
 import { VOICE_RULES, voiceOneLine, voiceSettings } from "./voice.ts";
 import { director } from "./director.ts";
@@ -47,6 +49,84 @@ function scriptFromPlan(plan: BeatPlan, source: ProjectScript["source"]): Projec
     lines: plan.beats.slice(0, 12).map((beat) => ({ label: beat.role[0].toUpperCase() + beat.role.slice(1), onScreen: (beat.on_screen ?? beat.keyword).slice(0, 180), ...(beat.line ? { voiceover: beat.line.slice(0, 240) } : {}) })),
     confirmed: false,
     updatedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Builds or updates a BeatPlan directly from the Script Canvas beats in <1ms so the in-browser animation
+ * does not have to wait 90-120s for a separate LLM director pass when the user has already approved the script and frames.
+ */
+function buildPlanFromScriptBeats(brief: ScriptBrief, beats: ScriptBeat[], existing?: BeatPlan): BeatPlan {
+  const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+  const music = brief.audio.mode === "music" || brief.audio.mode === "both";
+  const count = beats.length;
+  const planBeats: Beat[] = beats.map((beat, index) => {
+    const prev = existing?.beats[index];
+    const role: Beat["role"] =
+      prev?.role ??
+      (index === 0 ? "hook" : index === count - 1 ? "cta" : index === count - 2 ? "insight" : "step");
+    const kind: Beat["kind"] = prev?.kind ?? (index === count - 1 && !brief.scriptNotes?.example ? "title" : "kinetic");
+    return {
+      ...(prev?.render ? { render: prev.render } : {}),
+      id: `b${index + 1}`,
+      role,
+      kind,
+      producer: prev?.producer ?? "hyperframes",
+      line: beat.line ?? null,
+      verb: prev?.verb ?? null,
+      keyword: (beat.keyword || `Scene ${index + 1}`).trim(),
+      on_screen: beat.onScreen ?? null,
+      success: prev?.success ?? (index === count - 2 && count >= 3),
+      energy: prev?.energy ?? (index === 0 || index === count - 1 ? "high" : "medium"),
+      ...(prev?.ui ? { ui: prev.ui } : {}),
+      motion: prev?.motion ?? {
+        camera: "steady",
+        entry: { axis: "x", dir: -1 },
+        exit: { axis: "x", dir: -1 },
+        text_effect: "waterfall"
+      },
+      ...(prev?.fallback ? { fallback: prev.fallback } : {}),
+      sfx: prev?.sfx ?? null,
+      scene: prev?.scene ?? null,
+      transition_out: { type: index === count - 1 ? "end" : (prev?.transition_out.type && prev.transition_out.type !== "end" ? prev.transition_out.type : "j-cut") }
+    };
+  });
+  return {
+    version: "1.0",
+    mode: brief.scriptMode === "own" ? "own-script" : "problem-only",
+    template: brief.template ?? existing?.template ?? null,
+    format: formatForDuration(brief.durationSeconds),
+    canvas: brief.aspect,
+    target_duration_s: brief.durationSeconds,
+    clock: voiced ? "voiceover" : "beats",
+    brand: {
+      name: brief.productName ?? existing?.brand.name ?? "",
+      motion_profile: brief.motionProfile,
+      style_frame: existing?.brand.style_frame ?? null
+    },
+    characters: existing?.characters ?? [],
+    beats: planBeats,
+    audio: {
+      voice: voiced
+        ? {
+            engine: "gemini-tts",
+            voice: brief.audio.voice ?? existing?.audio.voice?.voice ?? "Kore",
+            speed: 1,
+            direction: existing?.audio.voice?.direction ?? "clear, engaging narration"
+          }
+        : null,
+      music: music
+        ? {
+            source: "lyria",
+            prompt: brief.audio.musicMood ?? existing?.audio.music?.prompt ?? "warm modern instrumental",
+            ...(existing?.audio.music?.bpm ? { bpm: existing.audio.music.bpm } : {})
+          }
+        : null,
+      captions: brief.captions
+    },
+    approvals: ["script", "storyboard", "motion-preview"],
+    suggestions: existing?.suggestions ?? [],
+    estimate: existing?.estimate ?? { generated_shots: 0, api_usd: 0.25 }
   };
 }
 
@@ -417,6 +497,215 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const latest = await getProject(project.id);
     send({ type: "done", progress: 100, failed, project: latest });
     reply.raw.end();
+  });
+
+  /**
+   * Step 2 (Storyboard) -> Step 3 (Animation): Prepares ONLY the in-browser animation (no MP4 worker encoding!).
+   * Streams SSE progress (`0% -> 100%`) as missing frames, voiceover/music, and per-scene SVG animations (`ensureFilmMotion`)
+   * finish in parallel.
+   */
+  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown } }>("/v1/projects/:id/script/animate", async (request, reply) => {
+    let project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+
+    const parsedBrief = request.body?.brief ? parseScriptBrief(request.body.brief) : null;
+    const rawBrief = parsedBrief && !("error" in parsedBrief) ? parsedBrief.brief : project.brief;
+    if (!rawBrief) return reply.code(400).send({ error: { code: "invalid_brief", message: "Send the project brief." } });
+
+    const beats = parseScriptBeats(request.body?.beats) ?? rawBrief.scriptBeats ?? project.brief?.scriptBeats;
+    if (!beats || !beats.length) return reply.code(400).send({ error: { code: "invalid_script", message: "Send the storyboard scenes." } });
+
+    // Cancel any slow background director job since we build/sync the BeatPlan from the approved Storyboard beats here
+    jobs.get(project.id)?.abort();
+    jobs.delete(project.id);
+
+    const brief: ScriptBrief = { ...rawBrief, scriptBeats: beats };
+    const plan = buildPlanFromScriptBeats(brief, beats, project.beatPlan);
+    const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+    const music = brief.audio.mode === "music" || brief.audio.mode === "both";
+    project =
+      (await updateProjectPlan(project.id, (current) => ({
+        brief,
+        beatPlan: plan,
+        script: { ...scriptFromPlan(plan, brief.scriptMode === "own" ? "provided" : "generated"), confirmed: true },
+        state: current.state === "Approved" ? "Approved" : "Ready for review",
+        request: {
+          ...current.request,
+          format: aspectToFormat(brief.aspect),
+          audio: { music, voiceover: voiced, voice: brief.audio.voice ?? current.request.audio?.voice ?? "Kore" },
+          ...(brief.brandId ? { brandId: brief.brandId } : {})
+        }
+      }))) ?? project;
+
+    const controller = new AbortController();
+    request.raw.on("close", () => controller.abort());
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+    const send = (event: unknown) => {
+      if (!reply.raw.writableEnded) reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    try {
+      // 1. Check any missing reference frames and draw them in parallel (4 at a time)
+      const keyFor = (index: number) => scriptFrameKey(beats[index]!, brief);
+      const savedFrames = new Map((project.scriptFrames ?? []).map((frame) => [frame.key, frame.svg]));
+      const missingFrames = beats.map((_, i) => i).filter((i) => !savedFrames.has(keyFor(i)));
+      if (missingFrames.length > 0) {
+        const template = brief.styleExample ? findGalleryTemplate(brief.styleExample) : undefined;
+        const code = template?.reference ? await readGalleryText(template.reference) : null;
+        const style = template && code ? { name: template.name, code } : null;
+        const notes = brief.scriptNotes ?? null;
+        let framesDone = beats.length - missingFrames.length;
+        send({ type: "stage", stage: "frames", done: framesDone, total: beats.length, progress: Math.round((framesDone / beats.length) * 25) });
+        const frameQueue = [...missingFrames];
+        await Promise.all(
+          Array.from({ length: Math.min(4, frameQueue.length) }, async () => {
+            for (let idx = frameQueue.shift(); idx !== undefined && !controller.signal.aborted; idx = frameQueue.shift()) {
+              try {
+                const svg = await sketchFrame(
+                  { beat: beats[idx]!, index: idx, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes },
+                  controller.signal
+                );
+                await saveScriptFrame(project!.id, { key: keyFor(idx), svg });
+                if (idx === 0) await setCoverFrame(project!.id, svg).catch(() => undefined);
+              } catch {
+                // Keep going if a single frame sketch fails
+              }
+              framesDone += 1;
+              send({ type: "frame", index: idx, done: framesDone, total: beats.length, progress: Math.round((framesDone / beats.length) * 25) });
+            }
+          })
+        );
+        project = (await getProject(project.id)) ?? project;
+      }
+
+      // 2. Record any missing voiceover takes (4 in parallel) and music bed in parallel
+      if ((voiced || music) && config.geminiApiKey) {
+        const settings = voiceSettings({ ...project, brief });
+        const dir = planAudioDir(project.id);
+        const existingVoiceMatches = project.planAudio?.voice?.voice === settings.voice;
+        const existingByText = new Map(existingVoiceMatches ? (project.planAudio?.voice?.lines ?? []).map((l) => [l.text, l]) : []);
+        const wantedVoice = voiced
+          ? beats.map((_, i) => i).filter((i) => {
+              const cleaned = voiceText(beats[i]?.line);
+              return Boolean(cleaned) && !existingByText.has(cleaned);
+            })
+          : [];
+        const wantMusicBed = music && !project.planAudio?.music;
+        const audioTotal = wantedVoice.length + (wantMusicBed ? 1 : 0);
+        if (audioTotal > 0) {
+          let audioDone = 0;
+          send({ type: "stage", stage: "voice", done: 0, total: audioTotal, progress: 28 });
+          const voiceQueue = [...wantedVoice];
+          const voiceWorkers = Array.from({ length: Math.min(VOICE_RULES.concurrency, voiceQueue.length) }, async () => {
+            for (let idx = voiceQueue.shift(); idx !== undefined && !controller.signal.aborted; idx = voiceQueue.shift()) {
+              const beatId = `b${idx + 1}`;
+              try {
+                const res = await voiceOneLine(config.geminiApiKey, dir, settings, beatId, beats[idx]?.line ?? "", false);
+                const spentUsd = Math.round(res.spentSeconds * VOICE_RULES.usdPerSecond * 10000) / 10000;
+                await updateProjectAudio(project!.id, (current) => {
+                  const before = current.planAudio;
+                  const prevLines = before?.voice?.voice === settings.voice ? (before.voice.lines ?? []) : [];
+                  const filtered = prevLines.filter((l) => l.beat !== beatId && l.text !== res.line.text);
+                  return {
+                    voice: {
+                      engine: "gemini-tts",
+                      model: TTS_MODEL,
+                      voice: settings.voice,
+                      direction: settings.direction,
+                      pace: settings.pace,
+                      lines: [...filtered, res.line]
+                    },
+                    music: before?.music ?? null,
+                    cost_usd: Math.round(((before?.cost_usd ?? 0) + spentUsd) * 10000) / 10000,
+                    updatedAt: new Date().toISOString()
+                  } satisfies PlanAudio;
+                });
+              } catch {
+                // Non-fatal: timing falls back to estimate for any unvoiced beat
+              }
+              audioDone += 1;
+              send({
+                type: "voice",
+                index: idx,
+                done: audioDone,
+                total: audioTotal,
+                progress: 25 + Math.round((audioDone / audioTotal) * 25)
+              });
+            }
+          });
+          const musicPromise = wantMusicBed
+            ? (async () => {
+                try {
+                  const targetSeconds = plan.target_duration_s || 30;
+                  const prompt = musicPrompt(plan, brief, targetSeconds);
+                  const track = await produceMusic(config.geminiApiKey, dir, prompt, targetSeconds);
+                  await updateProjectAudio(project!.id, (current) => {
+                    const before = current.planAudio;
+                    return {
+                      voice: before?.voice ?? null,
+                      music: {
+                        source: "lyria",
+                        model: track.model,
+                        prompt: track.prompt,
+                        file: track.file,
+                        seconds: Math.round(track.seconds * 1000) / 1000
+                      },
+                      cost_usd: Math.round(((before?.cost_usd ?? 0) + (track.spentUsd ?? 0)) * 10000) / 10000,
+                      updatedAt: new Date().toISOString()
+                    } satisfies PlanAudio;
+                  });
+                } catch {
+                  // Non-fatal: plays without music bed
+                }
+                audioDone += 1;
+                send({
+                  type: "music",
+                  done: audioDone,
+                  total: audioTotal,
+                  progress: 25 + Math.round((audioDone / audioTotal) * 25)
+                });
+              })()
+            : Promise.resolve();
+          await Promise.all([...voiceWorkers, musicPromise]);
+          project = (await getProject(project.id)) ?? project;
+        }
+      }
+
+      // 3. Direct per-scene SVG motion in parallel across all scenes, streaming each scene's completion
+      const timing = projectTiming(project);
+      const frames = timing ? filmFrames(project, timing) : null;
+      if (timing && frames) {
+        const scenes = filmScenes(project, timing, frames);
+        send({ type: "stage", stage: "motion", done: 0, total: scenes.length, progress: 52 });
+        project = await ensureFilmMotion(project, scenes, 60_000, ({ index, done, total, cached }) => {
+          send({
+            type: "motion",
+            index,
+            done,
+            total,
+            cached,
+            progress: 50 + Math.round((done / Math.max(1, total)) * 48)
+          });
+        });
+        project = (await setCoverFrame(project.id, frames[0]!.svg, timing.total)) ?? project;
+      }
+
+      const finalProject = (await getProject(project.id)) ?? project;
+      send({ type: "done", progress: 100, project: finalProject });
+    } catch (error) {
+      send({
+        type: "error",
+        error: error instanceof Error ? error.message : "Could not prepare the browser animation."
+      });
+    } finally {
+      reply.raw.end();
+    }
   });
 
   app.post<{ Params: { id: string } }>("/v1/projects/:id/plan", async (request, reply) => {

@@ -9,6 +9,7 @@ import { config } from "../config.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
 import { ENGINE_TEMPLATE, engineVariables, fillTextBlock, scriptJson, stampCanvas, textValues } from "./composition.ts";
 import { audioMode } from "./audio.ts";
+import { filmFeel, filmFrames, withFrameFilm } from "./frame-film.ts";
 import { soundTracks, withSoundtrack } from "./sound.ts";
 import { planTiming, takeOptions, type PlanTiming } from "./timing.ts";
 
@@ -121,6 +122,9 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
     mode: audioMode(project)
   });
   html = withSoundtrack(html, tracks);
+  // A film written in the script canvas animates its approved SVG reference frames directly in the browser player.
+  const frames = filmFrames(project, timing);
+  if (frames) html = await withFrameFilm(html, frames, filmFeel(project));
   html = withVisuals(html, project, timing, file => `${studioAssetBase}/plans/${project.id}/visuals/${file}`);
   const fontCss = rewriteFontUrls(bundledFonts, "fonts", `${studioAssetBase}/fonts`);
   return html.replace(

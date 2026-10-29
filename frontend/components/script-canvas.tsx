@@ -66,7 +66,7 @@ function Frame({ slot, aspect, index, writing, onRedraw, onPick, picked }: { slo
 type Product = "starter" | "pro" | "business" | "topup";
 
 /** Buying tokens without leaving the film: the shortfall, the one-time pack and the plans, each going to checkout. */
-function TokenModal({ cost, balance, onClose }: { cost: number; balance: number; onClose: () => void }) {
+export function TokenModal({ cost, balance, onClose }: { cost: number; balance: number; onClose: () => void }) {
   const [opening, setOpening] = useState<Product | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const need = Math.max(0, Math.round((cost - balance) * 100) / 100);
@@ -268,8 +268,16 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
             </button>
           )
         )}
-        {!streaming && <RenderAction seconds={runs} rendering={rendering} disabled={beats.length === 0} onRender={onRender}
-          label={rendering ? (busyVoice ? `Making ${soundLabel} (${voicePct}%), then rendering…` : "Directing motion, then rendering…") : "Render video"} />}
+        {!streaming && (
+          <button
+            type="button"
+            className="primary-button"
+            disabled={beats.length === 0 || rendering}
+            onClick={onRender}
+          >
+            {rendering ? "Preparing animation…" : "Create animation →"}
+          </button>
+        )}
       </div>
     </header>
 

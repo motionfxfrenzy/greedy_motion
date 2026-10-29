@@ -330,7 +330,7 @@ export async function addReviewComment(projectId: string, input: unknown) {
   return serializeProject(projectId, async () => {
     const project = await getProject(projectId);
     if (!project) return null;
-    if (project.state !== "Ready for review" && project.state !== "Revisions needed") throw new ProjectInvalid("Comments can be added after a draft render is ready.");
+    if (project.state === "Approved") throw new ProjectInvalid("This project is already approved.");
     const saved: ProjectReviewComment = { id: randomUUID(), ...comment, createdAt: new Date().toISOString() };
     return save({ ...project, comments: [...project.comments, saved], state: "Revisions needed", updatedAt: new Date().toISOString() });
   });

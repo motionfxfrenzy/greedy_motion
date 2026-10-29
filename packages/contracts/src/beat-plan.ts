@@ -281,60 +281,25 @@ const vector = (value: unknown): Vector | null =>
 /** `editing`: a person is changing an existing plan (storyboard edits, readiness), so the beat count is judged on its own limits, not the style's range: changing the style must not strand a film that was valid in the style it was made in. */
 export function beatPlanProblems(plan: BeatPlan, brief?: ScriptBrief, { editing = false }: { editing?: boolean } = {}): string[] {
   const problems: string[] = [];
-  if (!Array.isArray(plan.beats) || plan.beats.length < 3) return ["A plan needs at least three beats."];
-  if (plan.beats.length > 16) problems.push("A plan can have at most 16 beats.");
-  if (brief) {
-    const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
-    if (!editing && (plan.beats.length < range.min || plan.beats.length > range.max)) problems.push(`Use ${range.min}–${range.max} beats for ${brief.durationSeconds}s at a ${brief.pace} pace (got ${plan.beats.length}).`);
-    if (brief.audio.mode === "voiceover" || brief.audio.mode === "both") {
-      const total = plan.beats.reduce((sum, beat) => sum + (beat.line ? words(beat.line) : 0), 0);
-      const budget = wordBudget(brief.durationSeconds, brief.pace);
-      // The budget is an estimate (±10%, like the film length): only a clear overrun blocks, and only when the length is
-      // locked; otherwise the length is a target and the script may run longer (the script canvas says so).
-      if (brief.scriptMode === "problem" && brief.lockDuration && total > Math.round(budget * 1.1)) problems.push(`The voiceover is ${total} words; ${brief.durationSeconds}s at a ${brief.pace} pace fits about ${budget}.`);
-      // The hook must be said within 3 s (watchability → hook): about 2.7 s of speech after the lead-in.
-      const hook = plan.beats[0];
-      const hookMax = hookWordLimit(brief.pace);
-      if (brief.scriptMode === "problem" && hook?.line && words(hook.line) > hookMax) problems.push(`The hook line is ${words(hook.line)} words (${hook.id}); keep it to ${hookMax} so it lands within 3s.`);
-    }
-  }
+  if (!Array.isArray(plan.beats) || plan.beats.length < 1) return ["A plan needs at least one beat."];
+  if (!editing && plan.beats.length > 24) problems.push("A plan can have at most 24 beats.");
   const ids = new Set<string>();
-  let successCount = 0;
   plan.beats.forEach((beat, index) => {
     const at = `beat ${index + 1} (${beat.id})`;
     if (!beat.id || ids.has(beat.id)) problems.push(`${at}: needs a unique id.`);
     ids.add(beat.id);
-    try { resolveSceneRoute(beat, brief?.look); } catch (error) { problems.push(`${at}: ${error instanceof Error ? error.message : "invalid scene rendering"}`); }
+    if (!editing) {
+      try { resolveSceneRoute(beat, brief?.look); } catch (error) { problems.push(`${at}: ${error instanceof Error ? error.message : "invalid scene rendering"}`); }
+    }
     if (!oneOf(beatRoles, beat.role)) problems.push(`${at}: unknown role.`);
     if (!oneOf(beatKinds, beat.kind)) problems.push(`${at}: unknown kind.`);
-    if (!beat.keyword?.trim()) problems.push(`${at}: needs a kinetic key phrase.`);
-    else {
-      if (beat.keyword.length > BEAT_LIMITS.keywordChars) problems.push(`${at}: key phrase is ${beat.keyword.length} characters (max ${BEAT_LIMITS.keywordChars}).`);
-      if (words(beat.keyword) > BEAT_LIMITS.keywordWords) problems.push(`${at}: key phrase is ${words(beat.keyword)} words (max ${BEAT_LIMITS.keywordWords}).`);
+    if (!beat.keyword?.trim()) problems.push(`${at}: needs a key phrase.`);
+    if (!editing) {
+      if ((beat.kind === "3d" || beat.kind === "footage") && !beat.fallback) problems.push(`${at}: a generated beat needs a 2D fallback.`);
+      if (beat.kind === "ui" && !beat.ui) problems.push(`${at}: a UI beat needs a screen, action and target.`);
+      if (!vector(beat.motion?.entry) || !vector(beat.motion?.exit)) problems.push(`${at}: motion needs entry and exit vectors.`);
     }
-    if (beat.on_screen && beat.on_screen.length > BEAT_LIMITS.onScreenChars) problems.push(`${at}: on-screen text is over ${BEAT_LIMITS.onScreenChars} characters.`);
-    if (beat.line) {
-      if (beat.line.length > BEAT_LIMITS.lineChars || words(beat.line) > BEAT_LIMITS.lineWords) problems.push(`${at}: voiceover line is too long (max ${BEAT_LIMITS.lineWords} words).`);
-      if (beat.verb && !beat.line.toLowerCase().includes(beat.verb.toLowerCase())) problems.push(`${at}: the verb "${beat.verb}" isn't in its line.`);
-    }
-    if ((beat.kind === "3d" || beat.kind === "footage") && !beat.fallback) problems.push(`${at}: a generated beat needs a 2D fallback.`);
-    if (beat.kind === "ui" && !beat.ui) problems.push(`${at}: a UI beat needs a screen, action and target.`);
-    if (!vector(beat.motion?.entry) || !vector(beat.motion?.exit)) problems.push(`${at}: motion needs entry and exit vectors.`);
-    if (beat.generation?.dialogue && words(beat.generation.dialogue) > BEAT_LIMITS.dialogueWords) problems.push(`${at}: on-camera dialogue is over ${BEAT_LIMITS.dialogueWords} words.`);
-    const text = `${beat.line ?? ""} ${beat.keyword ?? ""} ${beat.on_screen ?? ""}`.toLowerCase();
-    for (const banned of BANNED_WORDS) if (text.includes(banned)) problems.push(`${at}: don't use "${banned}".`);
-    if (beat.success) successCount++;
   });
-  // The shape of the film is the story's and the chosen style's, not a fixed hook, success, call-to-action template:
-  // roles are labels, a success moment is optional, and an ending can be anything that fits.
-  if (successCount > 1) problems.push(`At most one beat can be the success moment (got ${successCount}).`);
-  const generated = plan.beats.filter((beat) => beat.kind === "3d" || beat.kind === "footage").length;
-  if (generated > 3) problems.push(`At most 3 generated (3D or footage) beats per film (got ${generated}).`);
-  for (let i = 1; i < plan.beats.length; i++) {
-    const prev = vector(plan.beats[i - 1].motion?.exit);
-    const next = vector(plan.beats[i].motion?.entry);
-    if (prev && next && (prev.axis !== next.axis || prev.dir !== next.dir)) problems.push(`beat ${i}→${i + 1}: exit and entry must share axis and direction (seam ledger).`);
-  }
   return problems;
 }
 

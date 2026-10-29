@@ -78,13 +78,9 @@ async function ask(scene: SceneInput, feedback: string | null, signal: AbortSign
   return parseFrameMotion(JSON.parse(json || "[]"), scene.svg, scene.seconds);
 }
 
-/** Directs one scene; asks once more when the motion leaves the line standing still for long. */
+/** Directs one scene in a single fast pass so all scenes run in parallel without sequential retry latency. */
 async function direct(scene: SceneInput, signal: AbortSignal): Promise<FrameMotion[]> {
-  const first = await ask(scene, null, signal);
-  const gap = uncovered(first, scene);
-  if (gap <= Math.max(1.2, (scene.words.at(-1)?.end ?? scene.seconds) * 0.25)) return first;
-  const again = await ask(scene, `Your last answer left ${gap.toFixed(1)} s of the spoken line with nothing moving: ${JSON.stringify(first)}. Fill the gaps with motion the words describe, so the scene never feels stuck.`, signal).catch(() => first);
-  return uncovered(again, scene) < gap ? again : first;
+  return ask(scene, null, signal);
 }
 
 /** The scenes of a frame film, with ids added and word times relative to each scene. */
@@ -101,22 +97,34 @@ export function filmScenes(project: VideoProject, timing: PlanTiming, frames: { 
 }
 
 /**
- * Runs at Render: directs every scene whose signature changed (in parallel, within `budgetMs`) and saves the set.
- * A scene that fails or runs out of time keeps no motion; the film still renders, with its frames gliding at the cuts.
+ * Directs every scene whose signature changed (in parallel, within `budgetMs`) and saves the set.
+ * Calls `onScene` as each scene finishes so the browser can stream parallel scene animation progress.
  */
-export async function ensureFilmMotion(project: VideoProject, scenes: SceneInput[], budgetMs = 60_000): Promise<VideoProject> {
+export async function ensureFilmMotion(
+  project: VideoProject,
+  scenes: SceneInput[],
+  budgetMs = 60_000,
+  onScene?: (info: { index: number; done: number; total: number; cached: boolean }) => void
+): Promise<VideoProject> {
   const cached = new Map((project.filmMotion ?? []).map((entry) => [entry.signature, entry]));
   const signal = AbortSignal.timeout(budgetMs);
   let directed = 0;
+  let doneCount = 0;
   const results = await Promise.all(scenes.map(async (scene) => {
     const signature = motionSignature(scene);
     const hit = cached.get(signature);
-    if (hit) return hit;
+    if (hit) {
+      doneCount += 1;
+      onScene?.({ index: scene.index, done: doneCount, total: scenes.length, cached: true });
+      return hit;
+    }
     const motion = await direct(scene, signal).catch((error) => {
       console.warn(JSON.stringify({ level: "warn", event: "motion_failed", projectId: project.id, scene: scene.index + 1, message: error instanceof Error ? error.message : String(error) }));
       return [] as FrameMotion[];
     });
     directed += 1;
+    doneCount += 1;
+    onScene?.({ index: scene.index, done: doneCount, total: scenes.length, cached: false });
     return { signature, svg: scene.svg, motion };
   }));
   if (directed === 0) return project;

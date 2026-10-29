@@ -2,29 +2,29 @@
 
 import { useRouter } from "next/navigation";
 import { optimisticUpdate } from "../lib/optimistic";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { aspectToFormat, beatCountRange, scriptSeconds, bundledFonts, findGalleryTemplate, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, paintedLookById, parseScriptBrief, parseScriptStream, templates, themes, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { useCallback, useEffect, useRef, useState, createElement } from "react";
+import type { HyperframesPlayer } from "@hyperframes/player";
+import { aspectToFormat, beatCountRange, scriptSeconds, bundledFonts, findGalleryTemplate, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, paintedLookById, parseScriptBrief, parseScriptStream, renderCostMillitokens, tokensFromMilli, templates, themes, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard";
-import { ScriptCanvas, svgSrc, type FrameSlot, type StoryboardState, type VoiceState } from "./script-canvas";
+import { ScriptCanvas, TokenModal, svgSrc, type FrameSlot, type StoryboardState, type VoiceState } from "./script-canvas";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, planVoiceUrl, streamFrames, streamScript, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
+import { cancelPlanJob, deleteProject, ensureMediaToken, generatePlanAudio, getComposition, getGalleryTemplate, getMyTokens, getProject, planVoiceUrl, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 
 type View = "projects" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
-// v2 flow (docs/PRODUCT_FLOW_V2.md): everything the film needs is chosen on Script & style.
-// Brief → storyboard (the script page: script, reference frames, voice) → render → review.
+// Unified 4-step flow: 1 Brief → 2 Storyboard → 3 Animation (in-browser live player & comment review) → 4 Render (final MP4 encode).
 const SCRIPT_STYLE: Step = 0, STORYBOARD: Step = 1, RENDER: Step = 2, REVIEW: Step = 3;
-const flowSteps: [Step, string][] = [[SCRIPT_STYLE, "Brief"], [STORYBOARD, "Storyboard"], [RENDER, "Render"], [REVIEW, "Review"]];
+const flowSteps: [Step, string][] = [[SCRIPT_STYLE, "Brief"], [STORYBOARD, "Storyboard"], [RENDER, "Animation"], [REVIEW, "Render"]];
 const imageFor = (template: Template) => "/templates/" + template.id + ".jpg";
 
 function statusStep(project: VideoProject): Step {
-  if (project.state === "Approved" || project.state === "Ready for review" || project.state === "Revisions needed") return REVIEW;
-  if (project.state === "Rendering draft" || project.state === "Render needs attention") return RENDER;
+  if (project.renderJobId && (project.state === "Rendering draft" || project.state === "Approved" || project.state === "Render needs attention")) return REVIEW;
+  if (project.state === "Ready for review" || project.state === "Revisions needed" || project.filmMotion?.length) return RENDER;
   if (project.beatPlan || project.brief?.scriptBeats?.length) return STORYBOARD;
   return SCRIPT_STYLE;
 }
@@ -690,47 +690,81 @@ export function Studio() {
       void recordVoice(project, undefined, true);
     }
   };
-  // Render straight from the script once its sound is made. The beat plan must match the script, so it waits for a rebuild
-  // after edits; the server still checks every render rule (and refuses a film without its voiceover).
-  const [renderWhenReady, setRenderWhenReady] = useState(false);
-  // Render opens step 3 at once; until the job exists the page shows what is being prepared (sound, scene plan, motion).
-  const [prepping, setPrepping] = useState(false);
-  const startRender = async () => {
-    setRenderWhenReady(false);
-    await submit();
-    setPrepping(false);
-  };
-  // Render works whether or not the sound was previewed: missing takes (and music) are made first, then the film renders.
-  const needsSound = voicedBrief || musicBrief;
-  const renderFromScript = () => {
-    if (!canvas || !project) return;
-    setJob(null);
-    setError(null);
-    setPrepping(true);
-    setStep(RENDER);
-    setRenderWhenReady(true);
-    if (needsSound && !allVoiced) { if (voiceRun.state === "idle" || voiceRun.state === "failed") confirmScript(); return; }
-    if (storyboardState.state !== "ready" && storyboardState.state !== "building") void buildStoryboard(project, canvas.beats);
-  };
+  // Step 2 (Storyboard) -> Step 3 (Animation): prepares ONLY the in-browser animation (no MP4 worker encoding!),
+  // streaming 0 -> 100% progress as missing frames, voiceover/music, and per-scene SVG motion finish in parallel.
+  const [animating, setAnimating] = useState(false);
+  const [animProgress, setAnimProgress] = useState(0);
+  const [animStage, setAnimStage] = useState<"frames" | "voice" | "motion">("motion");
+  const [animScenesDone, setAnimScenesDone] = useState<number[]>([]);
+  const [animError, setAnimError] = useState<string | null>(null);
+  const [animVersion, setAnimVersion] = useState(0);
+
   useEffect(() => {
-    if (!renderWhenReady) return;
-    if (voiceRun.state === "failed" || storyboardState.state === "failed") {
-      setRenderWhenReady(false);
-      setPrepping(false);
-      setError(voiceRun.state === "failed" ? voiceRun.error ?? "Could not make the voiceover." : storyboardState.error ?? "Could not plan the scenes.");
+    if (!animating) return;
+    const timer = window.setInterval(() => {
+      setAnimProgress((curr) => (curr < 94 ? curr + 1 : curr));
+    }, 350);
+    return () => window.clearInterval(timer);
+  }, [animating]);
+
+  const needsSound = voicedBrief || musicBrief;
+  const startBrowserAnimation = async (beatsOverride?: ScriptBeat[]) => {
+    const activeBeats = beatsOverride ?? canvas?.beats;
+    if (!activeBeats?.length || !project) return;
+    const checked = parseScriptBrief(brief);
+    if ("error" in checked) {
+      setError(checked.error);
       return;
     }
-    if (storyboardState.state === "ready" && (!needsSound || allVoiced) && voiceRun.state === "idle") void startRender();
-  }, [renderWhenReady, storyboardState.state, allVoiced, voiceRun.state]); // eslint-disable-line react-hooks/exhaustive-deps
+    setError(null);
+    setAnimError(null);
+    setStep(RENDER);
+    setAnimating(true);
+    setAnimProgress(4);
+    setAnimStage("frames");
+    setAnimScenesDone([]);
+    try {
+      const updated = await streamScriptAnimate(
+        project.id,
+        { brief: checked.brief, beats: activeBeats },
+        (ev) => {
+          if ("progress" in ev && typeof ev.progress === "number") {
+            setAnimProgress((curr) => Math.max(curr, ev.progress));
+          }
+          if (ev.type === "stage") {
+            setAnimStage(ev.stage);
+          } else if (ev.type === "frame") {
+            setAnimStage("frames");
+          } else if (ev.type === "voice" || ev.type === "music") {
+            setAnimStage("voice");
+          } else if (ev.type === "motion") {
+            setAnimStage("motion");
+            setAnimScenesDone((curr) => (curr.includes(ev.index) ? curr : [...curr, ev.index]));
+          } else if (ev.type === "done" && ev.project) {
+            replaceProject(ev.project);
+          }
+        }
+      );
+      if (updated) replaceProject(updated);
+      setAnimProgress(100);
+      setAnimVersion((v) => v + 1);
+    } catch (caught) {
+      setAnimError(caught instanceof Error ? caught.message : "Could not prepare the browser animation.");
+    } finally {
+      setAnimating(false);
+    }
+  };
+  const renderFromScript = () => {
+    void startBrowserAnimation();
+  };
   // The Render or Review step without a job in hand (a reload mid-render, an approved project reopened, or state lost) picks up
   // the project's own render, so an approved film can still be watched.
   useEffect(() => {
-    if ((step !== RENDER && step !== REVIEW) || job || prepping || !project?.renderJobId) return;
+    if (step !== REVIEW || job || !project?.renderJobId) return;
     let live = true;
     getRenderJob(project.renderJobId).then((found) => { if (live) setJob(found); }).catch(() => undefined);
     return () => { live = false; };
-  }, [step, job, prepping, project?.renderJobId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const prepStage: RenderPrep = !prepping ? null : needsSound && !allVoiced ? "sound" : storyboardState.state !== "ready" ? "scenes" : "motion";
+  }, [step, job, project?.renderJobId]); // eslint-disable-line react-hooks/exhaustive-deps
   const frameSlots = (canvas?.beats ?? []).map((beat, i): FrameSlot | undefined => {
     const slot = frameCache.current[frameKey(beat)];
     if (slot) return slot.svg || slot.state !== "drawing" || frameAt[i] === undefined ? slot : { state: "drawing", svg: frameAt[i] };
@@ -814,6 +848,8 @@ export function Studio() {
     if (!project) return false;
     setBusy(true);
     setError(null);
+    setJob(null);
+    setStep(REVIEW);
     try {
       if (project.script && !project.script.confirmed) replaceProject(await updateProject(project.id, { script: { ...project.script, confirmed: true, updatedAt: new Date().toISOString() } }));
       const started = await renderProject(project.id, { motionBlur });
@@ -822,7 +858,6 @@ export function Studio() {
       const rendering = (item: VideoProject) => item.id === project.id ? { ...item, state: "Rendering draft" as const, renderJobId: started.id } : item;
       setProject((current) => current && rendering(current));
       setProjects((current) => current.map(rendering));
-      setStep(RENDER);
       return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not start the render.");
@@ -879,7 +914,14 @@ export function Studio() {
     setStep(RENDER);
   };
 
-  return <main className="relay-shell">
+  return <main
+    className="relay-shell"
+    style={
+      view === "create" && (step === RENDER || step === REVIEW)
+        ? { height: "100vh", maxHeight: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }
+        : undefined
+    }
+  >
     <div className="ambient ambient-blue" /><div className="ambient ambient-peach" />
     {view === "studio" ? project ? <StudioEditor
       project={project}
@@ -889,7 +931,7 @@ export function Studio() {
       onBack={() => setView("create")}
       screenshotUrl={projectScreenshotUrl}
     /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan || canvas ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} />
-      {error && step !== SCRIPT_STYLE && !(step === STORYBOARD && canvas) && <p className="workspace-error">{error}</p>}
+      {error && step !== SCRIPT_STYLE && !(step === STORYBOARD && canvas) && step !== RENDER && step !== REVIEW && <p className="workspace-error">{error}</p>}
       {step === STORYBOARD && canvas && <ScriptCanvas
         beats={canvas.beats} open={canvas.open} streaming={canvas.streaming} startedAt={canvas.startedAt} firstAt={canvas.firstAt} flags={canvas.flags} error={canvas.error ?? error}
         voiced={voicedBrief}
@@ -901,12 +943,44 @@ export function Studio() {
         frames={frameSlots} aspect={brief.aspect} styleName={findGalleryTemplate(brief.styleExample)?.name}
         onRedraw={(index) => { if (project) drawFrames(project, canvas.beats, [index], true); }}
         voice={voice} onConfirm={confirmScript} onRetryVoice={retryVoice} music={musicBrief}
-        onRender={renderFromScript} rendering={busy || renderWhenReady}
+        onRender={renderFromScript} rendering={busy || animating}
         storyboard={storyboardState} onContinue={continueFromScript} continuing={continueWhenReady} />}
       {step === STORYBOARD && !canvas && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Describe the film in the brief, then generate the storyboard.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to the brief</button></div>}
       {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || canvas)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
-      {step === RENDER && project && <RenderStep frames={frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))} prep={prepStage} prepSound={needsSound} fromStoryboard={Boolean(canvas)} look={lookFor(brief, brands)} project={project} job={job} error={error} busy={busy || prepping} retry={async () => { if (canvas) renderFromScript(); else await submit(); }} back={() => setStep(STORYBOARD)} />}
-      {step === REVIEW && project && <ReviewStep project={project} job={job} approve={approve} rerender={async () => { await submit(); }} addComment={addReviewComment} removeComment={removeReviewComment} applyChanges={applyReviewComments} openStudio={openStudio} />}
+      {step === RENDER && project && <BrowserAnimationStep
+        project={project}
+        beats={canvas?.beats ?? []}
+        frames={frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))}
+        aspect={brief.aspect}
+        animating={animating}
+        animProgress={animProgress}
+        animStage={animStage}
+        animScenesDone={animScenesDone}
+        animError={animError ?? error}
+        animVersion={animVersion}
+        busy={busy}
+        onRetryAnimate={() => void startBrowserAnimation()}
+        onBackToStoryboard={() => setStep(STORYBOARD)}
+        onStartFinalRender={() => void submit()}
+        onApplySceneComments={async (items) => {
+          if (!canvas || !items.length) return;
+          const instruction = items.map((c) => `Scene ${c.line + 1}: ${c.text}`).join("\n");
+          const only = [...new Set(items.map((c) => c.line))];
+          await writeScript(instruction, undefined, only);
+        }}
+      />}
+      {step === REVIEW && project && <FinalRenderStep
+        project={project}
+        job={job}
+        frames={frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))}
+        aspect={brief.aspect}
+        look={lookFor(brief, brands)}
+        error={error}
+        busy={busy}
+        retry={async () => { await submit(); }}
+        backToAnimation={() => setStep(RENDER)}
+        approve={approve}
+      />}
     </> : <><AppHeader active="projects" />
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {loadError && <div className="workspace-error" role="alert">{loadError} <button disabled={loadingProjects} onClick={() => { setLoadingProjects(true); void refresh(); }}>{loadingProjects ? "Retrying…" : "Try again"}</button></div>}
@@ -1047,211 +1121,1091 @@ function FrameReel({ frames }: { frames: string[] }) {
   </div>;
 }
 
-function RenderStep({ project, job, error, busy, retry, back, look, prep, prepSound, fromStoryboard, frames }: { frames: string[]; project: VideoProject; job: RenderJob | null; error: string | null; busy: boolean; retry: () => Promise<void>; back: () => void; look?: FrameLook; prep: RenderPrep; prepSound: boolean; fromStoryboard: boolean }) {
-  const title = project.script?.lines[0]?.onScreen || "Your video is rendering.";
-  const failed = Boolean(error) || job?.state === "failed";
-  const wantsAudio = Boolean(project.request.audio?.music || project.request.audio?.voiceover);
-  // A film from the storyboard page is prepared first: its sound and scene plan here, then its motion inside the render job.
-  const prepSteps: { key: string; label: string; stages: RenderStage[] }[] = fromStoryboard
-    ? [...(prepSound ? [{ key: "sound", label: "Making the voiceover and music", stages: [] }] : []), { key: "scenes", label: "Planning the scenes", stages: [] }, { key: "motion", label: "Directing the motion", stages: ["queued", "planning", "directing"] }]
-    : [];
-  const steps = [...prepSteps, ...renderSteps.filter((item) => project.beatPlan ? item.key !== "plan" && item.key !== "audio" : item.key !== "audio" || wantsAudio)];
-  const stage: RenderStage = job?.stage ?? (job?.state === "ready" ? "done" : job?.state === "rendering" ? "preparing" : "queued");
-  const current = prep ? Math.max(0, prepSteps.findIndex((item) => item.key === prep))
-    : stage === "done" ? steps.length
-    : !job && fromStoryboard ? prepSteps.length
-    : Math.max(prepSteps.length, steps.findIndex((item) => item.stages.includes(stage)));
-  const detail = (key: string) => {
-    if (key === "wait" && stage === "waiting") return job?.queuePosition ? `${job.queuePosition} ahead` : "Usually under a minute";
-    if (key === "frames" && job?.frames) return `${job.frames.done} / ${job.frames.total}`;
-    return null;
-  };
-  // A film from the storyboard shows its own approved frames while it renders, not a generic card.
-  return <div className="render-workspace"><section className="workspace-player">{frames.length
-    ? <FrameReel frames={frames} />
-    : <Preview project={project} title={title} look={look} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} />}</section><aside className="render-card" style={look ? ({ "--rc": look.brand, "--rc-on": readableOnBrand(look.brand) } as React.CSSProperties) : undefined}><header><b>{failed ? "Render needs attention" : job?.state === "ready" ? "Draft render ready" : "Rendering draft"}</b><span>{project.request.format === "portrait" ? "9:16" : "16:9"}</span></header>{failed ? <div className="render-error"><b>We could not render this project.</b><p>{error || job?.error?.message}</p><div className="render-error-actions"><button disabled={busy} onClick={() => void retry()}>{busy ? "Starting…" : "Try again"}</button><button className="render-error-back" onClick={back}>Back to storyboard</button></div></div> : <><p className="render-walkaway"><b>You can walk away.</b> Rendering keeps going on our servers whether or not this page is open. Close the tab, and come back later: this project is in Projects, and Review opens as soon as the draft is ready.</p><ol>{steps.map((item, index) => <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}><i>{index < current ? "✓" : index + 1}</i><span>{item.label}</span>{index === current && detail(item.key) && <small>{detail(item.key)}</small>}</li>)}</ol>{stage === "retrying" && <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>}</>}</aside></div>;
-}
-
 function formatVideoTime(seconds: number) {
   const wholeSeconds = Math.max(0, Math.floor(seconds));
   return Math.floor(wholeSeconds / 60) + ":" + String(wholeSeconds % 60).padStart(2, "0");
 }
 
 const pinColors = ["#168BFF", "#FF5A1F", "#7C5CFF", "#16803C", "#B45309", "#0B1F4D"];
-const commentExamples = ["Make this headline shorter.", "Use our brand color here.", "Show the screenshot for longer.", "Make this part faster.", "Make the logo bigger."];
+const commentExamples = [
+  "Make this headline shorter.",
+  "Use a clearer diagram here.",
+  "Show this step for a bit longer.",
+  "Make the transition smoother.",
+  "Explain this idea with a simpler example."
+];
 
 function rulerStep(duration: number) {
   return [1, 2, 5, 10, 15, 30, 60].find((step) => duration / step <= 6) ?? 120;
 }
 
-function ReviewStep({ project, job, approve, rerender, addComment, removeComment, applyChanges, openStudio }: { project: VideoProject; job: RenderJob | null; approve: () => Promise<void>; rerender: () => Promise<void>; addComment: (input: { body: string; timestampSeconds: number }) => Promise<void>; removeComment: (commentId: string) => Promise<void>; applyChanges: () => Promise<void>; openStudio: () => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const scrubbing = useRef(false);
+/**
+ * Step 3 (Animation): Vertically locked (100vh) in-browser animation & review workspace.
+ * While preparing, shows the compact FrameReel on the left and a 0->100% progress bar + parallel per-scene
+ * animation checklist on the right. Once ready, plays the live HyperFrames animation in the browser
+ * (zero MP4 encoding) with timestamped comments and the top-right "Final render" button.
+ */
+function BrowserAnimationStep({
+  project,
+  beats,
+  frames,
+  aspect,
+  animating,
+  animProgress,
+  animStage,
+  animScenesDone,
+  animError,
+  animVersion,
+  busy,
+  onRetryAnimate,
+  onBackToStoryboard,
+  onStartFinalRender,
+  onApplySceneComments
+}: {
+  project: VideoProject;
+  beats: ScriptBeat[];
+  frames: string[];
+  aspect: string;
+  animating: boolean;
+  animProgress: number;
+  animStage: "frames" | "voice" | "motion";
+  animScenesDone: number[];
+  animError: string | null;
+  animVersion: number;
+  busy: boolean;
+  onRetryAnimate: () => void;
+  onBackToStoryboard: () => void;
+  onStartFinalRender: () => void;
+  onApplySceneComments: (items: { line: number; text: string }[]) => Promise<void>;
+}) {
+  const playerRef = useRef<HyperframesPlayer | null>(null);
+  const scrubbingRef = useRef(false);
+  const autoTriggered = useRef(false);
+  const [playerLoaded, setPlayerLoaded] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(project.beatPlan?.target_duration_s ?? project.brief?.durationSeconds ?? 30);
+  const [beatSpans, setBeatSpans] = useState<{ label: string; start: number; end: number }[]>([]);
   const [playing, setPlaying] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [approving, setApproving] = useState(false);
-  const [commentError, setCommentError] = useState<string | null>(null);
-  // Volume and mute are remembered on this device, and applied whenever the video element appears.
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
-  useEffect(() => { try { const saved = Number(localStorage.getItem("gm-review-volume")); if (Number.isFinite(saved) && localStorage.getItem("gm-review-volume") !== null) setVolume(Math.min(1, Math.max(0, saved))); setMuted(localStorage.getItem("gm-review-muted") === "1"); } catch { /* storage unavailable: defaults */ } }, []);
-  useEffect(() => { const node = videoRef.current; if (node) { node.volume = volume; node.muted = muted; } }, [volume, muted, job?.output]);
-  const changeVolume = (next: number) => { setVolume(next); setMuted(next === 0); try { localStorage.setItem("gm-review-volume", String(next)); localStorage.setItem("gm-review-muted", next === 0 ? "1" : "0"); } catch { /* ignore */ } };
-  const toggleMute = () => { const next = !muted; setMuted(next); if (!next && volume === 0) setVolume(0.6); try { localStorage.setItem("gm-review-muted", next ? "1" : "0"); } catch { /* ignore */ } };
-  const done = project.state === "Approved";
-  // The draft is out of date when the style was changed after it was rendered (older drafts did not record theirs, so a newer project edit counts).
-  const projectLook = project.brief?.look ?? "clean";
-  const staleLook = Boolean(job?.output && (job.revision.look ? job.revision.look !== projectLook : projectLook !== "clean" && Date.parse(project.updatedAt) > Date.parse(job.createdAt) + 60_000));
-  const comments = [...(project.comments ?? [])].sort((a, b) => a.timestampSeconds - b.timestampSeconds);
-  // Scenes with real start/end: a storyboard render carries each beat's duration; older renders split evenly.
-  const timed = job?.revision.scenes.length && job.revision.scenes.every((scene) => scene.duration > 0) ? job.revision.scenes : null;
-  const scenes = timed ? timed.map((scene) => ({ label: scene.label, onScreen: scene.detail })) : project.script?.lines ?? [];
-  const duration = job?.output?.durationSeconds ?? project.beatPlan?.target_duration_s ?? project.brief?.durationSeconds ?? findTemplate(project.request.template)?.durationSeconds ?? 10;
-  const pct = (seconds: number) => `${Math.min(100, Math.max(0, (seconds / Math.max(duration, 0.1)) * 100))}%`;
-  const segments = (() => {
-    const list = scenes.length ? scenes : [{ label: "Draft", onScreen: "" }];
-    if (timed) {
-      const total = timed.reduce((sum, scene) => sum + scene.duration, 0) || 1;
-      let start = 0;
-      return list.map((scene, index) => { const length = (timed[index]!.duration / total) * duration; const segment = { ...scene, start, end: start + length }; start += length; return segment; });
+  const [draft, setDraft] = useState("");
+  const [timedComments, setTimedComments] = useState<{ id: string; body: string; timestampSeconds: number }[]>([]);
+  const [applyingComments, setApplyingComments] = useState(false);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [buyingTokens, setBuyingTokens] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    void import("@hyperframes/player")
+      .then(() => {
+        if (live) setPlayerLoaded(true);
+      })
+      .catch(() => undefined);
+    getMyTokens()
+      .then((t) => {
+        if (live) setBalance(t.remaining);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // If the user jumped to Step 3 (Animation) before beatPlan was built, kick off the parallel animation preparation once
+  useEffect(() => {
+    if (!project.beatPlan && beats.length > 0 && !animating && !animError && !autoTriggered.current) {
+      autoTriggered.current = true;
+      onRetryAnimate();
     }
-    return list.map((scene, index) => ({ ...scene, start: (index / list.length) * duration, end: ((index + 1) / list.length) * duration }));
-  })();
-  const sceneAt = (seconds: number) => scenes.length ? Math.max(0, segments.findIndex((segment, index) => seconds < segment.end || index === segments.length - 1)) : 0;
-  const activeSceneIndex = sceneAt(currentTime);
-  const activeScene = scenes[activeSceneIndex];
-  const sceneName = (index: number) => scenes[index] ? `Scene ${index + 1} · ${scenes[index].label}` : "Whole video";
-  const step = rulerStep(duration);
-  const ruler = Array.from({ length: Math.floor(duration / step) + 1 }, (_, index) => index * step);
-  const seek = (seconds: number) => {
-    const next = Math.max(0, Math.min(seconds, duration));
-    setCurrentTime(next);
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = next;
-    }
-  };
+  }, [project.beatPlan, beats.length, animating, animError, onRetryAnimate]);
+
+  // Load the live HyperFrames composition HTML (/api/preview/plans/:id) once animation preparation finishes
+  useEffect(() => {
+    if (animating || !project.beatPlan) return;
+    let live = true;
+    const controller = new AbortController();
+    setPreviewError(null);
+    void (async () => {
+      try {
+        const comp = await getComposition(project.id);
+        const token = encodeURIComponent(await ensureMediaToken());
+        const res = await fetch(`${comp.baseUrl.replace(/^\/v1\/preview\//, "/api/preview/")}?t=${token}&v=${animVersion}`, {
+          cache: "no-store",
+          signal: controller.signal
+        });
+        if (!res.ok) throw new Error(`Preview returned ${res.status}.`);
+        const html = await res.text();
+        if (!live) return;
+        setDuration(comp.durationSeconds || project.beatPlan?.target_duration_s || 30);
+        const spans = (project.beatPlan?.beats ?? []).map((b, i) => {
+          const bt = comp.beatTimes?.[b.id];
+          return {
+            label: b.keyword || `Scene ${i + 1}`,
+            start: bt?.start ?? (i / Math.max(1, project.beatPlan!.beats.length)) * comp.durationSeconds,
+            end: bt?.end ?? ((i + 1) / Math.max(1, project.beatPlan!.beats.length)) * comp.durationSeconds
+          };
+        });
+        setBeatSpans(spans);
+        setPreviewHtml(html);
+      } catch (caught) {
+        if (!live || controller.signal.aborted) return;
+        setPreviewError(caught instanceof Error ? caught.message : "Could not load the browser animation.");
+      }
+    })();
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [animating, project.id, project.beatPlan, animVersion]);
+
+  // Wire <hyperframes-player> events and srcdoc
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player || !playerLoaded || !previewHtml) return;
+    const onReady = (ev: Event) => {
+      const d = (ev as CustomEvent<{ duration: number }>).detail?.duration;
+      if (typeof d === "number" && d > 0) setDuration(d);
+    };
+    const onTime = (ev: Event) => {
+      if (!scrubbingRef.current) {
+        const t = (ev as CustomEvent<{ currentTime: number }>).detail?.currentTime;
+        if (typeof t === "number") setCurrentTime(t);
+      }
+    };
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    const onEnded = () => setPlaying(false);
+    player.addEventListener("ready", onReady);
+    player.addEventListener("timeupdate", onTime);
+    player.addEventListener("play", onPlay);
+    player.addEventListener("pause", onPause);
+    player.addEventListener("ended", onEnded);
+    player.setAttribute("srcdoc", previewHtml);
+    player.muted = muted;
+    player.volume = volume;
+    return () => {
+      player.removeEventListener("ready", onReady);
+      player.removeEventListener("timeupdate", onTime);
+      player.removeEventListener("play", onPlay);
+      player.removeEventListener("pause", onPause);
+      player.removeEventListener("ended", onEnded);
+    };
+  }, [playerLoaded, previewHtml]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    player.muted = muted;
+    player.volume = volume;
+  }, [muted, volume]);
+
   const togglePlay = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.paused) void video.play();
-    else video.pause();
-  };
-  const timeAtPointer = (event: React.PointerEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    return ((event.clientX - bounds.left) / bounds.width) * duration;
-  };
-  const saveComment = async () => {
-    if (saving || applying || approving || draft.trim().length < 3) return;
-    setSaving(true);
-    setCommentError(null);
-    try {
-      await addComment({ body: draft, timestampSeconds: currentTime });
-      setDraft((current) => current === draft ? "" : current);
-    } catch (caught) {
-      setCommentError(caught instanceof Error ? caught.message : "Could not save the review comment.");
-    } finally {
-      setSaving(false);
-    }
-  };
-  const deleteComment = async (commentId: string) => {
-    if (saving || applying || approving) return;
-    setSaving(true);
-    setCommentError(null);
-    try {
-      await removeComment(commentId);
-    } catch (caught) {
-      setCommentError(caught instanceof Error ? caught.message : "Could not remove the review comment.");
-    } finally {
-      setSaving(false);
-    }
-  };
-  const confirmApproval = async () => {
-    if (saving || applying || approving) return;
-    setApproving(true);
-    setCommentError(null);
-    try { await approve(); }
-    catch (caught) { setCommentError(caught instanceof Error ? caught.message : "Could not approve the video."); }
-    finally { setApproving(false); }
-  };
-  const apply = async () => {
-    if (saving || applying || approving) return;
-    setApplying(true);
-    setCommentError(null);
-    try {
-      await applyChanges();
-    } catch (caught) {
-      setCommentError(caught instanceof Error ? caught.message : "Could not apply the review comments.");
-      setApplying(false);
+    const player = playerRef.current;
+    if (!player) return;
+    if (playing) {
+      player.pause();
+      setPlaying(false);
+    } else {
+      player.muted = muted;
+      player.volume = volume;
+      player.play();
+      setPlaying(true);
     }
   };
 
-  return <div className="review-workspace ce-workspace">
-    <section className="ce-left">
-      {staleLook && !done && <div className="ce-stale" role="status"><span><b>This draft was made in a different style.</b> The project now uses {getLook(project.brief?.look).name}. Render a new draft to see it.</span><button className="ce-download" onClick={() => void rerender()}>Render new draft</button></div>}
-      <div className="ce-heading">
-        <div><h1>Comment on the video</h1><p>Pause, pick the moment, and say what to change. Nothing changes until you apply it.</p></div>
-        <div className="ce-howto">{["Pause", "Pick a moment", "Comment"].map((label, index) => <span key={label}><i>{index + 1}</i>{label}</span>)}</div>
-        <div className="ce-actions">
-          {job?.output && <a className="ce-download" href={outputUrl(job.output.url)} download>Download draft</a>}
-          {!project.beatPlan && <button className="ce-download" onClick={openStudio}>Open Studio</button>}
-          {done ? <><span className="ce-locked">✓ Approved · locked</span><button className="ce-download" onClick={() => void rerender()}>Render new draft</button></> : <button className="ce-approve" disabled={saving || applying || approving || !job?.output || comments.length > 0} title={comments.length ? "Apply or remove open comments before approving." : undefined} onClick={() => void confirmApproval()}>{approving ? "Approving…" : "Approve final"}</button>}
+  const seek = (seconds: number) => {
+    const clamped = Math.max(0, Math.min(duration, seconds));
+    setCurrentTime(clamped);
+    const player = playerRef.current;
+    if (player) {
+      player.pause();
+      setPlaying(false);
+      player.currentTime = clamped;
+    }
+  };
+
+  const segments = beatSpans.length
+    ? beatSpans
+    : (beats.length ? beats : [{ keyword: "Scene 1", onScreen: null, line: null, visual: null }]).map((b, i, arr) => ({
+        label: b.keyword || `Scene ${i + 1}`,
+        start: (i / arr.length) * duration,
+        end: ((i + 1) / arr.length) * duration
+      }));
+
+  const sceneAt = (sec: number) =>
+    Math.max(0, segments.findIndex((seg, idx) => sec < seg.end || idx === segments.length - 1));
+  const activeSceneIndex = sceneAt(currentTime);
+  const sortedComments = [...timedComments].sort((a, b) => a.timestampSeconds - b.timestampSeconds);
+  const stepRuler = rulerStep(duration);
+  const ruler = Array.from({ length: Math.floor(duration / stepRuler) + 1 }, (_, i) => i * stepRuler);
+  const pct = (sec: number) => `${Math.min(100, Math.max(0, (sec / Math.max(duration, 0.1)) * 100))}%`;
+
+  const cost = tokensFromMilli(renderCostMillitokens(Math.max(5, Math.round(duration))));
+  const shortTokens = balance !== null && balance < cost;
+
+  const addComment = () => {
+    const body = draft.trim();
+    if (body.length < 3 || animating || applyingComments) return;
+    setTimedComments((curr) => [
+      ...curr,
+      { id: crypto.randomUUID(), body, timestampSeconds: Math.round(currentTime * 10) / 10 }
+    ]);
+    setDraft("");
+  };
+
+  const applyComments = async () => {
+    if (!sortedComments.length || animating || applyingComments) return;
+    setApplyingComments(true);
+    try {
+      const byLine = new Map<number, string[]>();
+      for (const c of sortedComments) {
+        const lineIdx = sceneAt(c.timestampSeconds);
+        const list = byLine.get(lineIdx) ?? [];
+        list.push(c.body);
+        byLine.set(lineIdx, list);
+      }
+      const payload = [...byLine.entries()].map(([line, texts]) => ({ line, text: texts.join(". ") }));
+      setTimedComments([]);
+      await onApplySceneComments(payload);
+      onRetryAnimate();
+    } finally {
+      setApplyingComments(false);
+    }
+  };
+
+  // While preparing the browser animation (or if an error occurred before previewHtml is ready):
+  // show the vertically locked two-column Animation Prep screen with 0->100% progress bar & parallel scene status
+  if (animating || animError || (!previewHtml && !project.beatPlan)) {
+    const pctNum = Math.max(0, Math.min(100, Math.round(animProgress)));
+    const sceneCount = Math.max(beats.length, project.beatPlan?.beats.length ?? 0, frames.length);
+    const stageLabel =
+      animStage === "frames"
+        ? "Drawing missing reference frames in parallel…"
+        : animStage === "voice"
+        ? "Recording voiceover & background music in parallel…"
+        : `Directing scene animations in parallel (${animScenesDone.length}/${sceneCount || 1} scenes ready)…`;
+
+    return (
+      <div
+        className="render-workspace"
+        style={{
+          flex: "1 1 0",
+          minHeight: 0,
+          overflow: "hidden",
+          padding: "16px 28px 20px",
+          boxSizing: "border-box",
+          alignItems: "stretch"
+        }}
+      >
+        <section
+          className="workspace-player"
+          style={{
+            height: "100%",
+            minHeight: 0,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column"
+          }}
+        >
+          {frames.length > 0 ? (
+            <FrameReel frames={frames} />
+          ) : (
+            <Preview
+              project={project}
+              title={project.name}
+              screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined}
+            />
+          )}
+        </section>
+
+        <aside
+          className="render-card"
+          style={{
+            height: "100%",
+            minHeight: 0,
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14
+          }}
+        >
+          <header>
+            <b>{animError ? "Animation needs attention" : "Preparing browser animation"}</b>
+            <span>{aspect}</span>
+          </header>
+
+          {animError ? (
+            <div className="render-error">
+              <b>We could not prepare the browser animation.</b>
+              <p>{animError}</p>
+              <div className="render-error-actions">
+                <button type="button" disabled={animating} onClick={onRetryAnimate}>
+                  Try again
+                </button>
+                <button type="button" className="render-error-back" onClick={onBackToStoryboard}>
+                  Back to storyboard
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="render-walkaway" style={{ margin: 0 }}>
+                <b>No video encoding yet.</b> We are directing the live browser animation across all {sceneCount} scenes in parallel so you can watch and edit it immediately before rendering the final MP4.
+              </p>
+
+              <div style={{ display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
+                    <i className="sc-live" />
+                    {stageLabel}
+                  </span>
+                  <b style={{ fontVariantNumeric: "tabular-nums" }}>{pctNum}%</b>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={pctNum}
+                  style={{
+                    height: 10,
+                    borderRadius: 999,
+                    background: "rgba(148, 163, 184, 0.22)",
+                    overflow: "hidden"
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${pctNum}%`,
+                      height: "100%",
+                      borderRadius: 999,
+                      background: "linear-gradient(90deg, #168bff, #0a6cff)",
+                      transition: "width 0.28s ease"
+                    }}
+                  />
+                </div>
+              </div>
+
+              {sceneCount > 0 && (
+                <div style={{ display: "grid", gap: 6 }}>
+                  <small style={{ color: "var(--muted)", fontWeight: 600, fontSize: 12 }}>
+                    Parallel scene animation status ({animScenesDone.length}/{sceneCount})
+                  </small>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6 }}>
+                    {Array.from({ length: sceneCount }, (_, idx) => {
+                      const done = animScenesDone.includes(idx);
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "6px 10px",
+                            borderRadius: 10,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            background: done ? "rgba(22, 128, 60, 0.16)" : "rgba(148, 163, 184, 0.12)",
+                            color: done ? "#22c55e" : "var(--muted)"
+                          }}
+                        >
+                          <span>{done ? "✓" : "⋯"}</span>
+                          <span>Scene {idx + 1}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="secondary-button"
+                style={{ marginTop: "auto" }}
+                onClick={onBackToStoryboard}
+              >
+                ← Back to Storyboard
+              </button>
+            </>
+          )}
+        </aside>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        flex: "1 1 0",
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        padding: "12px 24px 16px",
+        boxSizing: "border-box",
+        gap: 10,
+        width: "min(1440px, 100%)",
+        margin: "0 auto"
+      }}
+    >
+      <div
+        className="ce-heading"
+        style={{
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16
+        }}
+      >
+        <div>
+          <h1>Animation</h1>
+          <p>Playing live in your browser — no video rendering needed. Pause, pick a moment, and comment to edit.</p>
+        </div>
+        <div className="ce-actions" style={{ flexShrink: 0 }}>
+          <button type="button" className="ce-download" onClick={onRetryAnimate} disabled={busy || applyingComments}>
+            ↻ Rebuild animation
+          </button>
+          {shortTokens ? (
+            <button type="button" className="ce-approve" onClick={() => setBuyingTokens(true)}>
+              Add tokens for Final render · {cost} tokens
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="ce-approve"
+              disabled={busy || applyingComments}
+              onClick={onStartFinalRender}
+            >
+              {busy ? "Starting render…" : `Final render · ${cost} tokens`}
+            </button>
+          )}
         </div>
       </div>
-      <div className={"ce-player" + (project.request.format === "portrait" ? " portrait" : "")}>
-        <div className="ce-stage">
-          {job?.output ? <video ref={videoRef} playsInline preload="metadata" src={outputUrl(job.output.url)} onClick={togglePlay} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onTimeUpdate={(event) => { if (!scrubbing.current) setCurrentTime(event.currentTarget.currentTime); }} /> : <Preview project={project} title={project.script?.lines[0]?.onScreen || "Waiting for a completed render."} screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} />}
-          {job?.output && !playing && !done && <span className="ce-hint">Paused · comment on this moment</span>}
-          {!job?.output && <span className="ce-hint">Loading your video… if it does not appear, use Render new draft.</span>}
+
+      {buyingTokens && balance !== null && (
+        <TokenModal cost={cost} balance={balance} onClose={() => setBuyingTokens(false)} />
+      )}
+
+      <div
+        className="review-workspace ce-workspace"
+        style={{
+          flex: "1 1 0",
+          minHeight: 0,
+          overflow: "hidden",
+          padding: 0,
+          boxSizing: "border-box",
+          alignItems: "stretch"
+        }}
+      >
+        <section
+          className="ce-left"
+          style={{
+            height: "100%",
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            overflow: "hidden"
+          }}
+        >
+          <div
+            className={"ce-player" + (aspect === "9:16" ? " portrait" : "")}
+            style={{
+              flex: "1 1 0",
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              padding: 10
+            }}
+          >
+            <div
+              className="ce-stage"
+              onClick={togglePlay}
+              style={{
+                position: "relative",
+                flex: "1 1 0",
+                minHeight: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+                cursor: "pointer"
+              }}
+            >
+              {previewError ? (
+                <div className="render-error" style={{ padding: 24, textAlign: "center" }}>
+                  <b>{previewError}</b>
+                  <div className="render-error-actions" style={{ justifyContent: "center", marginTop: 12 }}>
+                    <button type="button" onClick={onRetryAnimate}>
+                      Reload animation
+                    </button>
+                  </div>
+                </div>
+              ) : playerLoaded && previewHtml ? (
+                <div
+                  style={{
+                    height: "100%",
+                    maxHeight: "100%",
+                    width: aspect === "9:16" ? "auto" : "100%",
+                    maxWidth: "100%",
+                    aspectRatio: aspect === "9:16" ? "9 / 16" : aspect === "1:1" ? "1 / 1" : "16 / 9",
+                    position: "relative",
+                    borderRadius: 12,
+                    overflow: "hidden",
+                    background: "#0b0d12"
+                  }}
+                >
+                  {createElement("hyperframes-player", {
+                    ref: playerRef,
+                    className: "studio-hyperframes-player",
+                    "disable-click-to-play": "",
+                    "assets-loading-ui": "none",
+                    "aria-label": "In-browser animation preview",
+                    style: { width: "100%", height: "100%", display: "block" }
+                  })}
+                </div>
+              ) : (
+                <div style={{ color: "#93979f", fontSize: 13 }}>Loading browser animation…</div>
+              )}
+              {!playing && !previewError && <span className="ce-hint">Paused · comment on this moment</span>}
+            </div>
+
+            <div className="ce-controls" style={{ flexShrink: 0 }}>
+              <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!previewHtml} onClick={togglePlay}>
+                {playing ? "❚❚" : "▶"}
+              </button>
+              <span className="ce-clock">
+                <b>{formatVideoTime(currentTime)}</b> / {formatVideoTime(duration)}
+              </span>
+              <span className="ce-volume">
+                <button
+                  type="button"
+                  aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+                  onClick={() => setMuted((m) => !m)}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />
+                    {muted || volume === 0 ? (
+                      <path d="M16 9.5l5 5M21 9.5l-5 5" />
+                    ) : (
+                      <>
+                        <path d="M15.5 9.2a4 4 0 010 5.6" />
+                        {volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}
+                      </>
+                    )}
+                  </svg>
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={muted ? 0 : volume}
+                  aria-label="Volume"
+                  onChange={(ev) => {
+                    const v = Number(ev.target.value);
+                    setVolume(v);
+                    setMuted(v === 0);
+                  }}
+                />
+              </span>
+              <span className="ce-scene">
+                {segments[activeSceneIndex] ? `Scene ${activeSceneIndex + 1} of ${segments.length} · ${segments[activeSceneIndex].label}` : ""}
+              </span>
+            </div>
+          </div>
+
+          <div className="ce-timeline" style={{ flexShrink: 0, padding: "8px 14px" }}>
+            <header>
+              <b>Timeline</b>
+              <span>Click to jump · drag to scrub</span>
+            </header>
+            <div
+              className="ce-track"
+              role="slider"
+              tabIndex={0}
+              aria-label="Animation timeline"
+              aria-valuemin={0}
+              aria-valuemax={duration}
+              aria-valuenow={Math.round(currentTime * 10) / 10}
+              aria-valuetext={formatVideoTime(currentTime)}
+              onPointerDown={(ev) => {
+                ev.currentTarget.setPointerCapture(ev.pointerId);
+                scrubbingRef.current = true;
+                const bounds = ev.currentTarget.getBoundingClientRect();
+                seek(((ev.clientX - bounds.left) / bounds.width) * duration);
+              }}
+              onPointerMove={(ev) => {
+                if (!scrubbingRef.current) return;
+                const bounds = ev.currentTarget.getBoundingClientRect();
+                seek(((ev.clientX - bounds.left) / bounds.width) * duration);
+              }}
+              onPointerUp={() => {
+                scrubbingRef.current = false;
+              }}
+              onPointerCancel={() => {
+                scrubbingRef.current = false;
+              }}
+            >
+              <div className="ce-ruler">
+                {ruler.map((sec) => (
+                  <span key={sec} style={{ left: pct(sec) }}>
+                    {formatVideoTime(sec)}
+                  </span>
+                ))}
+              </div>
+              {sortedComments.length > 0 && (
+                <div className="ce-pins">
+                  {sortedComments.map((c, idx) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      title={c.body}
+                      style={{ left: pct(c.timestampSeconds), background: pinColors[idx % pinColors.length] }}
+                      onPointerDown={(ev) => {
+                        ev.stopPropagation();
+                        seek(c.timestampSeconds);
+                      }}
+                    >
+                      {idx + 1}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="ce-strip" style={{ height: 38 }}>
+                {segments.map((seg, idx) => (
+                  <div
+                    key={idx}
+                    style={{ flex: Math.max(0.01, seg.end - seg.start) }}
+                    className={idx === activeSceneIndex ? "active" : ""}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      seek(seg.start + 0.05);
+                    }}
+                  >
+                    <b>
+                      {String(idx + 1).padStart(2, "0")} · {seg.label}
+                    </b>
+                    <small>
+                      {formatVideoTime(seg.start)}–{formatVideoTime(seg.end)}
+                    </small>
+                  </div>
+                ))}
+              </div>
+              <i className="ce-playhead" style={{ left: pct(currentTime) }} />
+            </div>
+          </div>
+        </section>
+
+        <aside
+          className="ce-aside"
+          style={{
+            height: "100%",
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            overflow: "hidden"
+          }}
+        >
+          <div className="ce-composer" style={{ flexShrink: 0, padding: 12 }}>
+            <div className="ce-anchor">
+              <span className="ce-chip-time">At {formatVideoTime(currentTime)}</span>
+              <span className="ce-chip-scene">Scene {activeSceneIndex + 1}</span>
+              <button
+                type="button"
+                className="ce-add"
+                disabled={animating || applyingComments || draft.trim().length < 3}
+                onClick={addComment}
+              >
+                Add
+              </button>
+            </div>
+            <textarea
+              rows={2}
+              value={draft}
+              maxLength={400}
+              onChange={(ev) => setDraft(ev.target.value)}
+              onKeyDown={(ev) => {
+                if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) addComment();
+              }}
+              placeholder="What should change here?"
+              aria-label="Review comment"
+            />
+            <div className="ce-examples">
+              {commentExamples.map((ex) => (
+                <button type="button" key={ex} onClick={() => setDraft(ex)}>
+                  {ex}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div
+            className="ce-comments"
+            style={{
+              flex: "1 1 0",
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden"
+            }}
+          >
+            <header style={{ flexShrink: 0 }}>
+              <b>Comments</b>
+              <span>{sortedComments.length} open</span>
+            </header>
+            <div className="ce-list" style={{ flex: "1 1 0", minHeight: 0, maxHeight: "none", overflowY: "auto" }}>
+              {sortedComments.length === 0 ? (
+                <p className="ce-empty">No comments yet. Pause the video and add one.</p>
+              ) : (
+                sortedComments.map((c, idx) => (
+                  <div className="ce-comment" key={c.id}>
+                    <div>
+                      <span className="ce-pin" style={{ background: pinColors[idx % pinColors.length] }}>
+                        {idx + 1}
+                      </span>
+                      <button type="button" className="ce-when" onClick={() => seek(c.timestampSeconds)}>
+                        {formatVideoTime(c.timestampSeconds)}
+                      </button>
+                      <small>Scene {sceneAt(c.timestampSeconds) + 1}</small>
+                    </div>
+                    <p>{c.body}</p>
+                    <button
+                      type="button"
+                      className="ce-remove"
+                      aria-label="Delete comment"
+                      onClick={() => setTimedComments((curr) => curr.filter((item) => item.id !== c.id))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <footer style={{ flexShrink: 0 }}>
+              <button
+                type="button"
+                className="ce-apply"
+                disabled={animating || applyingComments || sortedComments.length === 0}
+                onClick={() => void applyComments()}
+              >
+                {applyingComments
+                  ? "Applying with AI…"
+                  : sortedComments.length
+                  ? `Apply ${sortedComments.length} with AI`
+                  : "Apply with AI"}
+              </button>
+              <span>Each comment updates the scene and refreshes the browser animation.</span>
+            </footer>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Step 4 (Render): Vertically locked (100vh) final MP4 encoding & download/approval view.
+ * Reached after the user reviews the browser animation in Step 3 and clicks "Final render".
+ */
+function FinalRenderStep({
+  project,
+  job,
+  frames,
+  aspect,
+  look,
+  error,
+  busy,
+  retry,
+  backToAnimation,
+  approve
+}: {
+  project: VideoProject;
+  job: RenderJob | null;
+  frames: string[];
+  aspect: string;
+  look?: FrameLook;
+  error: string | null;
+  busy: boolean;
+  retry: () => Promise<void>;
+  backToAnimation: () => void;
+  approve: () => Promise<void>;
+}) {
+  const [approving, setApproving] = useState(false);
+
+  if (job?.state === "ready" && job.output) {
+    const scenes = project.beatPlan?.beats ?? [];
+    return (
+      <div
+        style={{
+          flex: "1 1 0",
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          padding: "12px 24px 16px",
+          boxSizing: "border-box",
+          gap: 10,
+          width: "min(1440px, 100%)",
+          margin: "0 auto"
+        }}
+      >
+        <div
+          className="ce-heading"
+          style={{
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16
+          }}
+        >
+          <div>
+            <h1>Final rendered video</h1>
+            <p>Your video has been rendered to an MP4 file. Download it or return to Animation to make further edits.</p>
+          </div>
+          <div className="ce-actions" style={{ flexShrink: 0 }}>
+            <button type="button" className="ce-download" onClick={backToAnimation}>
+              ← Back to Animation
+            </button>
+            <a className="ce-download" href={outputUrl(job.output.url)} download>
+              Download MP4
+            </a>
+            {project.state === "Approved" ? (
+              <span className="ce-locked">✓ Approved · locked</span>
+            ) : (
+              <button
+                type="button"
+                className="ce-approve"
+                disabled={approving}
+                onClick={async () => {
+                  setApproving(true);
+                  try {
+                    await approve();
+                  } finally {
+                    setApproving(false);
+                  }
+                }}
+              >
+                {approving ? "Approving…" : "Approve final"}
+              </button>
+            )}
+          </div>
         </div>
-        <div className="ce-controls">
-          <button aria-label={playing ? "Pause" : "Play"} disabled={!job?.output} onClick={togglePlay}>{playing ? "❚❚" : "▶"}</button>
-          <span className="ce-clock"><b>{formatVideoTime(currentTime)}</b> / {formatVideoTime(duration)}</span>
-          <span className="ce-volume">
-            <button type="button" aria-label={muted || volume === 0 ? "Unmute" : "Mute"} disabled={!job?.output} onClick={toggleMute}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />{muted || volume === 0 ? <path d="M16 9.5l5 5M21 9.5l-5 5" /> : <><path d="M15.5 9.2a4 4 0 010 5.6" />{volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}</>}</svg></button>
-            <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="Volume" disabled={!job?.output} onChange={(event) => changeVolume(Number(event.target.value))} />
-          </span>
-          <span className="ce-scene">{activeScene ? `Scene ${activeSceneIndex + 1} · ${activeScene.label}` : ""}</span>
+
+        <div
+          className="review-workspace ce-workspace"
+          style={{
+            flex: "1 1 0",
+            minHeight: 0,
+            overflow: "hidden",
+            padding: 0,
+            boxSizing: "border-box",
+            alignItems: "stretch"
+          }}
+        >
+          <section
+            className="ce-left"
+            style={{
+              height: "100%",
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden"
+            }}
+          >
+            <div
+              className={"ce-player" + (aspect === "9:16" ? " portrait" : "")}
+              style={{
+                flex: "1 1 0",
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                padding: 12
+              }}
+            >
+              <div
+                className="ce-stage"
+                style={{
+                  flex: "1 1 0",
+                  minHeight: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden"
+                }}
+              >
+                <video
+                  src={outputUrl(job.output.url)}
+                  poster={frames[0] ? svgSrc(frames[0]) : project.coverFrame ? svgSrc(project.coverFrame) : undefined}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  style={{
+                    height: "100%",
+                    maxHeight: "100%",
+                    width: aspect === "9:16" ? "auto" : "100%",
+                    maxWidth: "100%",
+                    aspectRatio: aspect === "9:16" ? "9 / 16" : aspect === "1:1" ? "1 / 1" : "16 / 9",
+                    objectFit: "contain",
+                    borderRadius: 14,
+                    background: "#000",
+                    display: "block",
+                    margin: "0 auto"
+                  }}
+                />
+              </div>
+            </div>
+          </section>
+
+          <aside
+            className="ce-aside"
+            style={{
+              height: "100%",
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden"
+            }}
+          >
+            <div
+              className="ce-comments"
+              style={{
+                flex: "1 1 0",
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden"
+              }}
+            >
+              <header style={{ flexShrink: 0 }}>
+                <b>Scenes</b>
+                <span>{scenes.length} scenes</span>
+              </header>
+              <div className="ce-list" style={{ flex: "1 1 0", minHeight: 0, maxHeight: "none", overflowY: "auto" }}>
+                {scenes.map((beat, idx) => (
+                  <div className="ce-comment" key={beat.id}>
+                    <div>
+                      <small>
+                        Scene {idx + 1} · {beat.keyword}
+                      </small>
+                    </div>
+                    {beat.line && <p>{beat.line}</p>}
+                  </div>
+                ))}
+              </div>
+              <footer style={{ flexShrink: 0 }}>
+                <button type="button" className="ce-apply" onClick={backToAnimation}>
+                  Edit in Animation player
+                </button>
+                <span>Need a change? Edit scenes in the browser Animation player before re-rendering.</span>
+              </footer>
+            </div>
+          </aside>
         </div>
       </div>
-      <div className="ce-timeline">
-        <header><b>Timeline</b><span>Click to jump · drag to scrub</span></header>
-        <div className="ce-track" role="slider" tabIndex={0} aria-label="Video timeline" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={Math.round(currentTime * 10) / 10} aria-valuetext={formatVideoTime(currentTime)}
-          onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); scrubbing.current = true; seek(timeAtPointer(event)); }}
-          onPointerMove={(event) => { if (scrubbing.current) seek(timeAtPointer(event)); }}
-          onPointerUp={() => { scrubbing.current = false; }}
-          onPointerCancel={() => { scrubbing.current = false; }}
-          onKeyDown={(event) => { if (event.key === "ArrowLeft") seek(currentTime - 0.5); if (event.key === "ArrowRight") seek(currentTime + 0.5); if (event.key === " ") { event.preventDefault(); togglePlay(); } }}>
-          <div className="ce-ruler">{ruler.map((seconds) => <span key={seconds} style={{ left: pct(seconds) }}>{formatVideoTime(seconds)}</span>)}</div>
-          <div className="ce-pins">{comments.map((comment, index) => <button key={comment.id} title={comment.body} style={{ left: pct(comment.timestampSeconds), background: pinColors[index % pinColors.length] }} onPointerDown={(event) => { event.stopPropagation(); seek(comment.timestampSeconds); }}>{index + 1}</button>)}</div>
-          <div className="ce-strip">{segments.map((segment, index) => <div key={segment.label + index} style={{ flex: Math.max(0.01, segment.end - segment.start) }} className={index === activeSceneIndex ? "active" : ""}><b>{String(index + 1).padStart(2, "0")} · {segment.label}</b><small>{formatVideoTime(segment.start)}–{formatVideoTime(segment.end)}</small></div>)}</div>
-          <i className="ce-playhead" style={{ left: pct(currentTime) }} />
-        </div>
-      </div>
-    </section>
-    <aside className="ce-aside">
-      {!done && <div className="ce-composer">
-        <div className="ce-anchor"><span className="ce-chip-time">At {formatVideoTime(currentTime)}</span><span className="ce-chip-scene">{sceneName(activeSceneIndex)}</span><button className="ce-add" disabled={saving || applying || approving || draft.trim().length < 3} onClick={() => void saveComment()}>{saving ? "Saving…" : "Add"}</button></div>
-        <textarea rows={2} value={draft} maxLength={600} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void saveComment(); }} placeholder="What should change here?" aria-label="Review comment" />
-        <div className="ce-examples">{commentExamples.map((example) => <button key={example} onClick={() => setDraft(example)}>{example}</button>)}</div>
-        {commentError && <p className="ce-error">{commentError}</p>}
-      </div>}
-      <div className="ce-comments">
-        <header><b>Comments</b><span>{comments.length} open</span></header>
-        <div className="ce-list">
-          {comments.length === 0 ? <p className="ce-empty">{done ? "This revision was approved without open comments." : "No comments yet. Pause the video and add one."}</p> : comments.map((comment, index) => <div className="ce-comment" key={comment.id}>
-            <div><span className="ce-pin" style={{ background: pinColors[index % pinColors.length] }}>{index + 1}</span><button className="ce-when" onClick={() => seek(comment.timestampSeconds)}>{formatVideoTime(comment.timestampSeconds)}</button><small>{sceneName(sceneAt(comment.timestampSeconds))}</small></div>
-            <p>{comment.body}</p>
-            {!done && <button className="ce-remove" aria-label="Delete comment" disabled={saving || applying || approving} onClick={() => void deleteComment(comment.id)}>✕</button>}
-          </div>)}
-        </div>
-        {!done && <footer><button className="ce-apply" disabled={saving || approving || applying || comments.length === 0 || !job?.output} onClick={() => void apply()}>{applying ? "Applying with AI…" : comments.length ? `Apply ${comments.length} with AI` : "Apply with AI"}</button><span>Each comment becomes one proposed change.</span></footer>}
-      </div>
-    </aside>
-  </div>;
+    );
+  }
+
+  const title = project.script?.lines[0]?.onScreen || "Your video is rendering.";
+  const failed = Boolean(error) || job?.state === "failed";
+  const steps = renderSteps.filter((item) => item.key !== "plan" && item.key !== "audio");
+  const stage: RenderStage = job?.stage ?? (job?.state === "ready" ? "done" : job?.state === "rendering" ? "preparing" : "queued");
+  const current = stage === "done" ? steps.length : Math.max(0, steps.findIndex((item) => item.stages.includes(stage)));
+  const detail = (key: string) => {
+    if (key === "wait" && stage === "waiting") return job?.queuePosition ? `${job.queuePosition} ahead` : "Usually under a minute";
+    if (key === "frames" && job?.frames) return `${job.frames.done} / ${job.frames.total}`;
+    return null;
+  };
+
+  return (
+    <div
+      className="render-workspace"
+      style={{
+        flex: "1 1 0",
+        minHeight: 0,
+        overflow: "hidden",
+        padding: "16px 28px 20px",
+        boxSizing: "border-box",
+        alignItems: "stretch"
+      }}
+    >
+      <section
+        className="workspace-player"
+        style={{
+          height: "100%",
+          minHeight: 0,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column"
+        }}
+      >
+        {frames.length ? (
+          <FrameReel frames={frames} />
+        ) : (
+          <Preview
+            project={project}
+            title={title}
+            look={look}
+            screenshot={project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined}
+          />
+        )}
+      </section>
+      <aside
+        className="render-card"
+        style={{
+          ...(look ? ({ "--rc": look.brand, "--rc-on": readableOnBrand(look.brand) } as React.CSSProperties) : {}),
+          height: "100%",
+          minHeight: 0,
+          overflowY: "auto"
+        }}
+      >
+        <header>
+          <b>{failed ? "Render needs attention" : "Rendering final MP4"}</b>
+          <span>{aspect}</span>
+        </header>
+        {failed ? (
+          <div className="render-error">
+            <b>We could not render this project.</b>
+            <p>{error || job?.error?.message}</p>
+            <div className="render-error-actions">
+              <button disabled={busy} onClick={() => void retry()}>
+                {busy ? "Starting…" : "Try again"}
+              </button>
+              <button className="render-error-back" onClick={backToAnimation}>
+                Back to Animation
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="render-walkaway">
+              <b>You can walk away.</b> Final MP4 encoding keeps going on our servers whether or not this page is open.
+            </p>
+            <ol>
+              {steps.map((item, index) => (
+                <li className={index < current ? "done" : index === current ? "current" : ""} key={item.key}>
+                  <i>{index < current ? "✓" : index + 1}</i>
+                  <span>{item.label}</span>
+                  {index === current && detail(item.key) && <small>{detail(item.key)}</small>}
+                </li>
+              ))}
+            </ol>
+            {stage === "retrying" && (
+              <p className="render-retry">Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.</p>
+            )}
+            <button type="button" className="secondary-button" style={{ marginTop: 12 }} onClick={backToAnimation}>
+              ← Back to browser Animation
+            </button>
+          </>
+        )}
+      </aside>
+    </div>
+  );
 }
 
 function Preview({ project, title, screenshot, look }: { project: VideoProject; title: string; screenshot?: string; look?: FrameLook }) {

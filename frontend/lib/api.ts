@@ -488,6 +488,53 @@ export async function streamScriptVoice(
   }
 }
 
+export type AnimateStreamEvent =
+  | { type: "stage"; stage: "frames" | "voice" | "motion"; done: number; total: number; progress: number }
+  | { type: "frame"; index: number; done: number; total: number; progress: number }
+  | { type: "voice"; index: number; done: number; total: number; progress: number }
+  | { type: "music"; done: number; total: number; progress: number }
+  | { type: "motion"; index: number; done: number; total: number; cached: boolean; progress: number }
+  | { type: "done"; progress: number; project: VideoProject | null }
+  | { type: "error"; error: string };
+
+/**
+ * Prepares the in-browser animation (drawing any missing frames, recording any missing voice/music,
+ * and directing per-scene SVG motion in parallel) while streaming `0% -> 100%` progress.
+ */
+export async function streamScriptAnimate(
+  projectId: string,
+  input: { brief: ScriptBrief; beats: ScriptBeat[] },
+  onEvent: (event: AnimateStreamEvent) => void,
+  signal?: AbortSignal
+): Promise<VideoProject | null> {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script/animate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    ...(signal ? { signal } : {})
+  });
+  if (!response.ok || !response.body) {
+    const failed = (await response.json().catch(() => ({}))) as ApiError;
+    throw new Error(failed.error?.message ?? "Could not prepare the browser animation.");
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = "";
+  let finalProject: VideoProject | null = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return finalProject;
+    buffered += value;
+    let end: number;
+    while ((end = buffered.indexOf("\n\n")) >= 0) {
+      const event = JSON.parse(buffered.slice(0, end).replace(/^data:\s*/, "")) as AnimateStreamEvent;
+      buffered = buffered.slice(end + 2);
+      onEvent(event);
+      if (event.type === "error") throw new Error(event.error);
+      if (event.type === "done") finalProject = event.project ?? null;
+    }
+  }
+}
+
 export async function cancelPlanJob(projectId: string) {
   const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan/job", { method: "DELETE" });
   return parse<{ project: VideoProject }>(response, "Could not cancel the script.");

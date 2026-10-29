@@ -52,12 +52,7 @@ export function planReadiness(project: VideoProject): Readiness {
   const timing = projectTiming(project)!;
   const warnings: Readiness["warnings"] = [];
   for (const message of timing.warnings) {
-    // The hook and the length are part of the brief's promise; a voice gap is a pacing note.
-    // Running long is a hard stop only when the person locked the length ("Fit exactly").
-    const hard = /the hook runs|too short for/.test(message) || (Boolean(project.brief?.lockDuration) && /more than \d+s \+ (?:10%|[\d.]+s)/.test(message));
-    // The hook-length word rule already names this beat; one message per problem.
-    if (/the hook runs/.test(message) && blocking.some((item) => /hook line is/.test(item.message))) continue;
-    (hard ? blocking : warnings).push({ beat: beatOf(message), message });
+    warnings.push({ beat: beatOf(message), message });
   }
   // Brand consistency: a project made from a product website should wear that website's brand kit. Without one
   // it renders in a gallery theme, which is allowed but almost never intended.
@@ -67,10 +62,8 @@ export function planReadiness(project: VideoProject): Readiness {
   }
   const target = plan.target_duration_s;
   const offTarget = Math.abs(timing.total - target) > Math.max(target * TIMING_RULES.tolerance, 3) + 0.05;
-  if (offTarget && !project.brief?.lockDuration) {
-    warnings.push({ beat: null, message: `The film runs ${timing.total.toFixed(0)}s; you chose ${target}s as a target. Tick "Fit exactly" in the brief to hold it to ${target}s.` });
-  } else if (offTarget && !blocking.some((item) => /10%|too short|\d+s \+ [\d.]+s/.test(item.message))) {
-    blocking.push({ beat: null, message: `The film runs ${timing.total.toFixed(1)}s; the brief asks for ${target}s (${target * TIMING_RULES.tolerance < 3 ? "±3s" : "±10%"}).` });
+  if (offTarget) {
+    warnings.push({ beat: null, message: `The film runs ${timing.total.toFixed(0)}s; you chose ${target}s as a target.` });
   }
   return { ok: blocking.length === 0, blocking, warnings, durationSeconds: timing.total };
 }
