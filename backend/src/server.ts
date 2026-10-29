@@ -43,7 +43,7 @@ import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
 import { presignOutput } from "./storage.ts";
 import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, removedVariants, updateBrand, validateBrandInput } from "./brand/store.ts";
-import { addReviewComment, addScreenshot, applyReviewComments, createProject, getProject, listProjects, projectByRenderJob, ProjectInvalid, removeReviewComment, removeScreenshot, screenshotFile, updateProject, updateProjectStudio } from "./projects/store.ts";
+import { addReviewComment, addScreenshot, applyReviewComments, createProject, deleteProject, getProject, listProjects, projectByRenderJob, ProjectInvalid, removeReviewComment, removeScreenshot, screenshotFile, updateProject, updateProjectStudio } from "./projects/store.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
@@ -201,6 +201,16 @@ app.put<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) =
   try {
     const project = await updateProject(request.params.id, request.body as Record<string, unknown>);
     return project ?? reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
+  } catch (error) {
+    return projectError(reply, error);
+  }
+});
+
+app.delete<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) => {
+  try {
+    const deleted = await deleteProject(request.params.id);
+    if (!deleted) return reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
+    return reply.code(204).send();
   } catch (error) {
     return projectError(reply, error);
   }

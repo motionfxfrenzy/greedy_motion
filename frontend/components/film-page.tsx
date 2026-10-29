@@ -252,6 +252,10 @@ export function FilmPage() {
   const [approving, setApproving] = useState(false);
   const watchingRender = useRef<AbortController | null>(null);
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [step]);
+
   // Load runtime + looks + token balance
   useEffect(() => {
     let live = true;

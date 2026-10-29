@@ -12,7 +12,7 @@ import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard
 import { ScriptCanvas, svgSrc, type FrameSlot, type StoryboardState, type VoiceState } from "./script-canvas";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { cancelPlanJob, generatePlanAudio, getGalleryTemplate, getProject, planVoiceUrl, streamFrames, streamScript, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
+import { cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, planVoiceUrl, streamFrames, streamScript, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 import { proMenuEntry, useEntitlements } from "../lib/entitlements";
 
 type View = "projects" | "create" | "studio";
@@ -190,7 +190,10 @@ export function Studio() {
   const running = planning?.status === "running" && Date.now() - Date.parse(planning.startedAt) < 270_000;
   const generating = starting || running;
   const watching = useRef<string | null>(null);
-  useEffect(() => { if (step !== SCRIPT_STYLE) setConfirmRegenerate(false); }, [step]);
+  useEffect(() => {
+    if (step !== SCRIPT_STYLE) setConfirmRegenerate(false);
+    window.scrollTo(0, 0);
+  }, [step, view]);
   // Elapsed time is counted from the server's start time, so it is right after leaving and coming back.
   useEffect(() => {
     if (!generating) return;
@@ -817,7 +820,7 @@ export function Studio() {
     </> : <><AppHeader active="projects" />
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {loadError && <div className="workspace-error" role="alert">{loadError} <button disabled={loadingProjects} onClick={() => { setLoadingProjects(true); void refresh(); }}>{loadingProjects ? "Retrying…" : "Try again"}</button></div>}
-      {view === "projects" && <Projects brands={brands} projects={projects} loading={loadingProjects} loaded={projectsLoaded} busy={busy} create={() => void begin()} startTemplate={(item) => void beginFromGallery(item)} browseTemplates={() => router.push("/templates")} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} />}
+      {view === "projects" && <Projects brands={brands} projects={projects} loading={loadingProjects} loaded={projectsLoaded} busy={busy} create={() => void begin()} startTemplate={(item) => void beginFromGallery(item)} browseTemplates={() => router.push("/templates")} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} remove={async (item) => { await deleteProject(item.id); setProjects((current) => current.filter((entry) => entry.id !== item.id)); }} />}
     </>}
   </main>;
 }
@@ -834,9 +837,12 @@ function TemplateShelf({ startTemplate, browseTemplates, busy }: { startTemplate
   return <div className="gallery-shelf"><div className="gallery-shelf-head"><div><h2>Start from a template</h2><p>Each one fills in the script prompt, structure and style for you. Edit anything before you generate.</p></div><button className="secondary-button" onClick={browseTemplates}>Browse all templates</button></div><GalleryGrid row onMore={browseTemplates} items={items} onUse={startTemplate} busy={busy} loading={loading} skeletons={4} /></div>;
 }
 
-function Projects({ brands, projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; brands: BrandKit[] }) {
+function Projects({ brands, projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio, remove }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; remove: (project: VideoProject) => Promise<void>; brands: BrandKit[] }) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [filter, setFilter] = useState("All");
+  const [deletingProject, setDeletingProject] = useState<VideoProject | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const groups = {
     All: projects,
     Drafts: projects.filter((item) => !["Ready for review", "Approved"].includes(item.state)),
@@ -844,7 +850,35 @@ function Projects({ brands, projects, loading, loaded, busy, create, startTempla
     Approved: projects.filter((item) => item.state === "Approved")
   };
   const visibleProjects = groups[filter as keyof typeof groups];
-  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} {(loaded || projects.length > 0) && <span>{items.length}</span>}</button>)}</div>{projects.length === 0 && !loaded ? loading ? <ProjectSkeletons /> : <div className="workspace-message" role="status">Projects could not be loaded. Use Try again above.</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}</section>;
+  const confirmDelete = async () => {
+    if (!deletingProject || deletingBusy) return;
+    setDeletingBusy(true);
+    setDeleteError(null);
+    try {
+      await remove(deletingProject);
+      setDeletingProject(null);
+    } catch (caught) {
+      setDeleteError(caught instanceof Error ? caught.message : "Could not delete the project.");
+    } finally {
+      setDeletingBusy(false);
+    }
+  };
+  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} {(loaded || projects.length > 0) && <span>{items.length}</span>}</button>)}</div>{projects.length === 0 && !loaded ? loading ? <ProjectSkeletons /> : <div className="workspace-message" role="status">Projects could not be loaded. Use Try again above.</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} onDelete={() => { setDeleteError(null); setDeletingProject(project); }} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}
+    {deletingProject && <div className="sc-modal-backdrop" onClick={() => { if (!deletingBusy) setDeletingProject(null); }}>
+      <div className="sc-modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-title" style={{ width: "min(440px, 100%)" }} onClick={(event) => event.stopPropagation()}>
+        <header>
+          <h2 id="delete-project-title">Delete project?</h2>
+          <button type="button" className="sc-modal-close" aria-label="Close" disabled={deletingBusy} onClick={() => setDeletingProject(null)}>×</button>
+        </header>
+        <p className="sc-modal-sum">Are you sure you want to delete <b>{deletingProject.name}</b>? This will permanently remove its storyboard, scenes, and rendered video.</p>
+        {deleteError && <p className="sc-modal-error" role="alert">{deleteError}</p>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
+          <button type="button" className="secondary-button" disabled={deletingBusy} onClick={() => setDeletingProject(null)}>Cancel</button>
+          <button type="button" className="primary-button" disabled={deletingBusy} style={{ background: "#dc2626", borderColor: "#dc2626", color: "#fff" }} onClick={() => void confirmDelete()}>{deletingBusy ? "Deleting…" : "Delete project"}</button>
+        </div>
+      </div>
+    </div>}
+  </section>;
 }
 
 /** Placeholder cards shaped like ProjectCard, so the grid is there before the projects arrive. */
@@ -852,7 +886,7 @@ function ProjectSkeletons() {
   return <div className="project-grid" role="status" aria-busy="true" aria-label="Loading your projects">{Array.from({ length: 3 }, (_, index) => <article className="project-card project-skeleton" key={index} aria-hidden="true"><span className="card-image" /><div className="project-content"><i /><i className="short" /><div className="project-meta"><i className="pill" /><i className="date" /></div></div></article>)}</div>;
 }
 
-function ProjectCard({ brands, project, open, openStudio, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void; brands: BrandKit[] }) {
+function ProjectCard({ brands, project, open, openStudio, onDelete, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; onDelete: () => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void; brands: BrandKit[] }) {
   const actionsRef = useRef<HTMLDivElement>(null);
   const { state: planState, retry: retryPlan } = useEntitlements();
   const proEntry = proMenuEntry(planState);
@@ -874,7 +908,7 @@ function ProjectCard({ brands, project, open, openStudio, menuOpen, setMenuOpen 
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [menuOpen, setMenuOpen]);
-  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}>{project.coverFrame ? <i className="card-frame"><img className="card-cover" src={svgSrc(project.coverFrame)} alt="" draggable={false} /></i> : firstBeat && project.brief ? <i className="card-frame"><FrameCard family={project.brief.styleFamily} beat={firstBeat} index={0} canvas={project.beatPlan!.canvas} look={lookFor(project.brief, brands)} lookId={project.brief.look ?? "clean"} screenshot={firstBeat.kind === "ui" && project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></i> : project.brief && !project.screenshots[0] ? <i className="card-placeholder">{kind}</i> : <img src={image} alt="" />}<span className="card-badge">{project.request.format === "portrait" ? "9:16" : "16:9"} · {Math.floor(seconds / 60)}:{String(Math.round(seconds % 60)).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{kind} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}</div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
+  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}>{project.coverFrame ? <i className="card-frame"><img className="card-cover" src={svgSrc(project.coverFrame)} alt="" draggable={false} /></i> : firstBeat && project.brief ? <i className="card-frame"><FrameCard family={project.brief.styleFamily} beat={firstBeat} index={0} canvas={project.beatPlan!.canvas} look={lookFor(project.brief, brands)} lookId={project.brief.look ?? "clean"} screenshot={firstBeat.kind === "ui" && project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></i> : project.brief && !project.screenshots[0] ? <i className="card-placeholder">{kind}</i> : <img src={image} alt="" />}<span className="card-badge">{project.request.format === "portrait" ? "9:16" : "16:9"} · {Math.floor(seconds / 60)}:{String(Math.round(seconds % 60)).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{kind} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}{proEntry && <button type="button" role="menuitem" disabled={proEntry.disabled} onClick={() => { if (proEntry.action === "retry") retryPlan(); else choose(() => window.location.assign(`/editor/${project.id}`)); }}>{proEntry.label}</button>}<button type="button" role="menuitem" className="danger" onClick={() => choose(onDelete)}>Delete project</button></div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
 }
 
 function Screenshots({ project, busy, upload, remove }: { project: VideoProject | null; busy: boolean; upload: (file: File) => Promise<void>; remove: (id: string) => Promise<void> }) {

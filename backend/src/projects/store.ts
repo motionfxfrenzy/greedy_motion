@@ -511,3 +511,20 @@ export async function updateProjectPainted(
 export async function savePaintedProject(project: VideoProject) {
   return serializeProject(project.id, () => save(project));
 }
+
+export async function deleteProject(id: string): Promise<boolean> {
+  if (!idPattern.test(id)) return false;
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return false;
+    if (current.state === "Rendering draft") {
+      throw new ProjectInvalid("Wait for the current render to finish before deleting this project.");
+    }
+    for (const screenshot of current.screenshots) {
+      await Promise.all([".png", ".jpg"].map((ext) => removeMedia(join(screenshotsDir(id), screenshot.id + ext)).catch(() => undefined)));
+    }
+    await query("delete from app.render_jobs where (id = $1 or project_id = $1) and request->>'kind' = 'painted'", [id]);
+    const removed = await query("delete from app.projects where id = $1", [id]);
+    return (removed.rowCount ?? 0) > 0;
+  });
+}

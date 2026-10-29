@@ -37,13 +37,20 @@ export const svgSrc = (svg: string) =>
     ? svg
     : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(/^<svg[^>]*\sxmlns\s*=/.test(svg) ? svg : svg.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"'))}`;
 
+const FRAME_BOX: Record<Aspect, { width: number; height: number; col: string }> = {
+  "9:16": { width: 156, height: 277, col: "minmax(0, 1fr) 172px" },
+  "1:1": { width: 210, height: 210, col: "minmax(0, 1fr) 224px" },
+  "16:9": { width: 300, height: 169, col: "minmax(0, 1fr) 312px" }
+};
+
 function Frame({ slot, aspect, index, writing, onRedraw, onPick, picked }: { slot: FrameSlot | undefined; aspect: Aspect; index: number; writing: boolean; onRedraw: () => void; onPick?: (add: boolean) => void; picked: boolean }) {
-  const ratio = { aspectRatio: RATIO[aspect] };
-  if (!slot || (slot.state === "drawing" && !slot.svg)) return <div className="sc-frame sc-frame-wait" style={ratio}><span>{writing || !slot ? "Frame follows the beat" : "Drawing…"}</span></div>;
-  if (slot.state === "failed" && !slot.svg) return <div className="sc-frame sc-frame-wait" style={ratio}><span>{slot.error ?? "Could not draw this frame."}</span><button type="button" onClick={onRedraw}>Try again</button></div>;
-  return <figure className={`sc-frame ${slot.state}`} style={ratio}>
-    {onPick ? <button type="button" className="sc-frame-pick" aria-pressed={picked} aria-label={picked ? `Stop referring to beat ${index + 1}` : `Refer to beat ${index + 1} in the prompt`} onClick={(event) => onPick(event.metaKey || event.ctrlKey || event.shiftKey)}><img src={svgSrc(slot.svg!)} alt="" draggable={false} /></button>
-      : <img src={svgSrc(slot.svg!)} alt={`Reference frame for beat ${index + 1}`} draggable={false} />}
+  const box = FRAME_BOX[aspect] ?? FRAME_BOX["16:9"];
+  const frameStyle = { width: box.width, height: box.height, aspectRatio: RATIO[aspect], borderRadius: 12, justifySelf: "end" as const };
+  if (!slot || (slot.state === "drawing" && !slot.svg)) return <div className="sc-frame sc-frame-wait" style={frameStyle}><span>{writing || !slot ? "Frame follows the beat" : "Drawing…"}</span></div>;
+  if (slot.state === "failed" && !slot.svg) return <div className="sc-frame sc-frame-wait" style={frameStyle}><span>{slot.error ?? "Could not draw this frame."}</span><button type="button" onClick={onRedraw}>Try again</button></div>;
+  return <figure className={`sc-frame ${slot.state}`} style={frameStyle}>
+    {onPick ? <button type="button" className="sc-frame-pick" aria-pressed={picked} aria-label={picked ? `Stop referring to beat ${index + 1}` : `Refer to beat ${index + 1} in the prompt`} onClick={(event) => onPick(event.metaKey || event.ctrlKey || event.shiftKey)}><img src={svgSrc(slot.svg!)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain" }} /></button>
+      : <img src={svgSrc(slot.svg!)} alt={`Reference frame for beat ${index + 1}`} draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
     {slot.state === "stale" && <button type="button" onClick={onRedraw}>Redraw</button>}
     {slot.state === "drawing" && <span className="sc-frame-busy">Redrawing…</span>}
   </figure>;
@@ -204,7 +211,7 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
       <p><b>Runs about {runs}s</b>, longer than the {length.seconds}s you chose{length.locked ? "" : ", because the idea needs the time"}. A longer film uses more tokens.</p>
       <div><button className="secondary-button" onClick={() => setKeptLong(runs)}>Keep {runs}s</button><button className="primary-button" disabled={busyVoice} onClick={onFit}>Fit to {length.seconds}s</button></div>
     </div>}
-    <div className="sc-doc-head" aria-hidden="true"><span>Script</span><span>Reference frames{styleName ? ` · ${styleName} style` : ""}</span></div>
+    <div className="sc-doc-head" aria-hidden="true" style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col }}><span>Script</span><span>Reference frames{styleName ? ` · ${styleName} style` : ""}</span></div>
     <ol className="sc-doc">
       {beats.map((beat, index) => {
         const locked = writingAt(index);
@@ -218,7 +225,7 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
           const add = event.metaKey || event.ctrlKey || event.shiftKey;
           setPicked((current) => add ? (current.includes(index) ? current : [...current, index].sort((a, b) => a - b)) : [index]);
         };
-        return <li key={index} className={`sc-beat${locked ? " writing" : ""}${isPicked ? " picked" : ""}`} onClick={pickScene}>
+        return <li key={index} className={`sc-beat${locked ? " writing" : ""}${isPicked ? " picked" : ""}`} style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col, padding: "16px 6px", alignItems: "center" }} onClick={pickScene}>
           <div className="sc-text">
             <div className="sc-title-row">
               <button type="button" className="sc-num" aria-pressed={isPicked} disabled={streaming} aria-label={isPicked ? `Stop referring to beat ${index + 1}` : `Refer to beat ${index + 1} in the prompt`} title={isPicked ? "Remove from the prompt" : "Refer to this beat in the prompt"} onClick={() => togglePick(index)}>{String(index + 1).padStart(2, "0")}</button>
@@ -247,7 +254,10 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
           <Frame onPick={streaming ? undefined : (add: boolean) => setPicked((current) => add ? (current.includes(index) ? current : [...current, index].sort((x, y) => x - y)) : [index])} picked={isPicked} slot={frames[index]} aspect={aspect} index={index} writing={locked} onRedraw={() => onRedraw(index)} />
         </li>;
       })}
-      {streaming && !scoped && Array.from({ length: beats.length === 0 ? 3 : 1 }, (_, index) => <li key={`s${index}`} className="sc-beat sc-skeleton" aria-hidden="true"><div className="sc-text"><i /><i className="short" /><i className="long" /></div><div className="sc-frame sc-frame-wait" style={{ aspectRatio: RATIO[aspect] }} /></li>)}
+      {streaming && !scoped && Array.from({ length: beats.length === 0 ? 3 : 1 }, (_, index) => {
+        const box = FRAME_BOX[aspect] ?? FRAME_BOX["16:9"];
+        return <li key={`s${index}`} className="sc-beat sc-skeleton" aria-hidden="true" style={{ gridTemplateColumns: box.col, padding: "16px 6px", alignItems: "center" }}><div className="sc-text"><i /><i className="short" /><i className="long" /></div><div className="sc-frame sc-frame-wait" style={{ width: box.width, height: box.height, aspectRatio: RATIO[aspect], borderRadius: 12, justifySelf: "end" }} /></li>;
+      })}
     </ol>
     {storyboard.state === "failed" && !streaming && <p className="sc-note">{storyboard.error ?? "Could not plan the storyboard."}</p>}
 

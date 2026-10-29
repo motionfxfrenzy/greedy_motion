@@ -231,6 +231,14 @@ export async function updateProject(id: string, input: Partial<Pick<VideoProject
   return parse<VideoProject>(response, "Could not save the project.");
 }
 
+export async function deleteProject(id: string): Promise<void> {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(id), { method: "DELETE" });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(payload?.error?.message ?? "Could not delete the project.");
+  }
+}
+
 /**
  * Persist only template-declared text/number values and verified screenshot ids.
  * The backend validates the payload and increments the authoritative revision.
