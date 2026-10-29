@@ -3,14 +3,17 @@ import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { BEAT_LIMITS, findGalleryTemplate, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, type BeatPlan, type LookId, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, findGalleryTemplate, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voiceText, type BeatPlan, type LookId, type PlanAudio, type ProjectScript, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
-import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectPlan } from "../projects/store.ts";
+import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan } from "../projects/store.ts";
 import { config } from "../config.ts";
+import { TTS_MODEL } from "../audio/gemini-tts.ts";
 import { readMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
+import { musicPrompt, produceMusic } from "./music.ts";
+import { VOICE_RULES, voiceOneLine, voiceSettings } from "./voice.ts";
 import { director } from "./director.ts";
 import { directorContextFor } from "./context.ts";
 import { draftScript, reviseScript } from "./script-draft.ts";
@@ -30,6 +33,8 @@ const notFound = { error: { code: "not_found", message: "Project not found." } }
 
 /** Director jobs running in this process. Shutdown waits for them, so a deploy does not drop a script half-written. */
 const runningPlans = new Set<Promise<void>>();
+const jobs = new Map<string, AbortController>();
+export const isPlanRunning = (projectId: string) => jobs.has(projectId);
 export async function waitForPlans(timeoutMs: number) {
   if (runningPlans.size === 0) return;
   await Promise.race([Promise.allSettled([...runningPlans]), new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
@@ -141,7 +146,6 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     return bytes && digest(bytes) === asset.sha256 ? sendMedia(request, reply, bytes, file.endsWith(".mp4") ? "video/mp4" : "image/png") : reply.code(404).send(notFound);
   });
   /** Jobs in flight on this server, so a cancel can reach the model call. A job record older than the director's own deadline is stale (a restart lost it). */
-  const jobs = new Map<string, AbortController>();
   const STALE_MS = 4 * 60_000;
   const stale = (planning: { startedAt: string } | undefined) => !planning || Date.now() - Date.parse(planning.startedAt) > STALE_MS;
 
@@ -252,6 +256,166 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     await Promise.all(Array.from({ length: Math.min(4, queue.length) }, draw));
     send({ done: true, ms: Date.now() - started });
     app.log.info({ event: "frames_sketched", projectId: project.id, frames: wanted.length, drawn: drawnCount, failed, styled: Boolean(style), ms: Date.now() - started }, "frames sketched");
+    reply.raw.end();
+  });
+
+  /**
+   * Streams scene-by-scene voiceover takes (and optional music bed) in parallel as Server-Sent Events
+   * (`{ type: "take", index, file, seconds, progress }`, `{ type: "take-error", index, error, progress }`,
+   * `{ type: "music", file, seconds, progress }`, `{ type: "done", progress: 100, failed, project }`).
+   * Does not wait for `beatPlan`: works directly from the Storyboard's `beats` and `brief`, and saves each
+   * take onto `project.planAudio` as soon as it finishes so the browser can play each scene immediately.
+   */
+  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown; indices?: unknown; force?: unknown; includeMusic?: unknown } }>("/v1/projects/:id/script/voice", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (!config.geminiApiKey) return reply.code(503).send({ error: { code: "audio_unavailable", message: "Voiceover and music need GEMINI_API_KEY." } });
+
+    const parsedBrief = request.body?.brief ? parseScriptBrief(request.body.brief) : null;
+    const brief = parsedBrief && !("error" in parsedBrief) ? parsedBrief.brief : project.brief;
+    if (!brief) return reply.code(400).send({ error: { code: "invalid_brief", message: "Send the project brief." } });
+
+    const parsedBeats = parseScriptBeats(request.body?.beats) ?? project.brief?.scriptBeats;
+    const beats = parsedBeats ?? (project.beatPlan?.beats ?? []).map((b) => ({ keyword: b.keyword, onScreen: b.on_screen ?? null, line: b.line ?? null, visual: null }));
+    if (!beats.length) return reply.code(400).send({ error: { code: "invalid_script", message: "Send the script scenes to voice." } });
+
+    const force = request.body?.force === true;
+    const hasScopedIndices = Array.isArray(request.body?.indices);
+    const candidateIndices = hasScopedIndices
+      ? [...new Set((request.body!.indices as unknown[]).filter((i): i is number => Number.isInteger(i) && Number(i) >= 0 && Number(i) < beats.length))]
+      : beats.map((_, i) => i);
+    const wanted = candidateIndices.filter((i) => Boolean(voiceText(beats[i]?.line)));
+    const wantMusic =
+      request.body?.includeMusic !== false &&
+      !hasScopedIndices &&
+      (brief.audio.mode === "music" || brief.audio.mode === "both") &&
+      (force || !project.planAudio?.music);
+
+    const controller = new AbortController();
+    request.raw.on("close", () => controller.abort());
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+    const send = (event: unknown) => {
+      if (!reply.raw.writableEnded) reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    const settings = voiceSettings({ ...project, brief });
+    const dir = planAudioDir(project.id);
+    const totalSteps = Math.max(1, wanted.length + (wantMusic ? 1 : 0));
+    let completedSteps = 0;
+    let failed = 0;
+    const progressPct = () => Math.min(99, Math.round((completedSteps / totalSteps) * 100));
+
+    send({ type: "start", total: totalSteps, progress: 2 });
+
+    // Emit any already-cached takes on the project immediately when not forcing a re-record
+    const existingVoiceMatches = !force && project.planAudio?.voice?.voice === settings.voice;
+    const existingByText = new Map(
+      existingVoiceMatches ? (project.planAudio?.voice?.lines ?? []).map((l) => [l.text, l]) : []
+    );
+    const queue: number[] = [];
+    for (const index of wanted) {
+      const cleaned = voiceText(beats[index]?.line);
+      const cached = existingByText.get(cleaned);
+      if (cached) {
+        completedSteps += 1;
+        send({ type: "take", index, file: cached.file, seconds: cached.seconds, progress: progressPct() });
+      } else {
+        queue.push(index);
+      }
+    }
+
+    const voiceWorker = async () => {
+      for (let index = queue.shift(); index !== undefined && !controller.signal.aborted; index = queue.shift()) {
+        const beatId = project.beatPlan?.beats[index]?.id ?? `b${index + 1}`;
+        const rawLine = beats[index]?.line ?? "";
+        try {
+          const res = await voiceOneLine(config.geminiApiKey, dir, settings, beatId, rawLine, force);
+          if (controller.signal.aborted) return;
+          const spentUsd = Math.round(res.spentSeconds * VOICE_RULES.usdPerSecond * 10000) / 10000;
+          await updateProjectAudio(project.id, (current) => {
+            const before = current.planAudio;
+            const prevLines = before?.voice?.voice === settings.voice ? (before.voice.lines ?? []) : [];
+            const filtered = prevLines.filter((l) => l.beat !== beatId && l.text !== res.line.text);
+            const nextLines = [...filtered, res.line];
+            return {
+              voice: {
+                engine: "gemini-tts",
+                model: TTS_MODEL,
+                voice: settings.voice,
+                direction: settings.direction,
+                pace: settings.pace,
+                lines: nextLines
+              },
+              music: before?.music ?? null,
+              cost_usd: Math.round(((before?.cost_usd ?? 0) + spentUsd) * 10000) / 10000,
+              updatedAt: new Date().toISOString()
+            } satisfies PlanAudio;
+          });
+          completedSteps += 1;
+          send({ type: "take", index, file: res.line.file, seconds: res.line.seconds, progress: progressPct() });
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          failed += 1;
+          completedSteps += 1;
+          send({
+            type: "take-error",
+            index,
+            error: error instanceof Error ? error.message : "Could not record voiceover for this scene.",
+            progress: progressPct()
+          });
+        }
+      }
+    };
+
+    const musicJob = wantMusic
+      ? (async () => {
+          try {
+            const targetSeconds = project.beatPlan?.target_duration_s ?? brief.durationSeconds ?? 30;
+            const prompt = musicPrompt(project.beatPlan, brief, targetSeconds);
+            const track = await produceMusic(config.geminiApiKey, dir, prompt, targetSeconds);
+            if (controller.signal.aborted) return;
+            await updateProjectAudio(project.id, (current) => {
+              const before = current.planAudio;
+              return {
+                voice: before?.voice ?? null,
+                music: {
+                  source: "lyria",
+                  model: track.model,
+                  prompt: track.prompt,
+                  file: track.file,
+                  seconds: Math.round(track.seconds * 1000) / 1000
+                },
+                cost_usd: Math.round(((before?.cost_usd ?? 0) + (track.spentUsd ?? 0)) * 10000) / 10000,
+                updatedAt: new Date().toISOString()
+              } satisfies PlanAudio;
+            });
+            completedSteps += 1;
+            send({ type: "music", file: track.file, seconds: track.seconds, progress: progressPct() });
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            completedSteps += 1;
+            send({
+              type: "music-error",
+              error: error instanceof Error ? error.message : "Could not generate background music.",
+              progress: progressPct()
+            });
+          }
+        })()
+      : Promise.resolve();
+
+    await Promise.all([
+      Promise.all(Array.from({ length: Math.min(VOICE_RULES.concurrency, queue.length) }, voiceWorker)),
+      musicJob
+    ]);
+
+    const latest = await getProject(project.id);
+    send({ type: "done", progress: 100, failed, project: latest });
     reply.raw.end();
   });
 
@@ -409,7 +573,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { parts?: unknown } }>("/v1/projects/:id/plan/audio", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
-    if (!project.beatPlan) return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
+    if (!project.beatPlan && !project.brief?.scriptBeats?.length) return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
     const raw = request.body?.parts;
     if (raw !== undefined && (!Array.isArray(raw) || raw.some((part) => part !== "voice" && part !== "music"))) {
       return reply.code(400).send({ error: { code: "invalid_parts", message: "parts must list \"voice\" and/or \"music\"." } });
@@ -417,13 +581,13 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     try {
       const result = await producePlanAudio(project.id, () => getProject(project.id), raw as AudioPart[] | undefined);
       if (!result) return reply.code(404).send(notFound);
-      const timing = projectTiming(result.project)!;
+      const timing = projectTiming(result.project);
       return {
         project: result.project,
         audio: audioStatus(result.project),
-        durationSeconds: timing.total,
-        beatTimes: beatTimes(timing),
-        warnings: [...result.warnings, ...timing.warnings],
+        durationSeconds: timing?.total ?? (result.project.brief?.durationSeconds ?? 30),
+        beatTimes: timing ? beatTimes(timing) : {},
+        warnings: [...result.warnings, ...(timing?.warnings ?? [])],
         spent_usd: result.spentUsd
       };
     } catch (error) {

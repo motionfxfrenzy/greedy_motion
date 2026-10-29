@@ -63,20 +63,23 @@ export function producePlanAudio(projectId: string, load: () => Promise<VideoPro
 
 async function run(project: VideoProject, requested?: AudioPart[]): Promise<AudioRun> {
   const plan = project.beatPlan;
-  if (!plan) throw new AudioUnavailable("Generate the plan first.");
+  const scriptBeats = project.brief?.scriptBeats;
+  if (!plan && !scriptBeats?.length) throw new AudioUnavailable("Generate the plan first.");
   const mode = audioMode(project);
   const wantVoice = (mode === "voiceover" || mode === "both") && (!requested || requested.includes("voice"));
   const wantMusic = (mode === "music" || mode === "both") && (!requested || requested.includes("music"));
-  const jobs = wantVoice ? plan.beats.filter((beat) => voiceText(beat.line)).map((beat) => ({ beat: beat.id, text: beat.line! })) : [];
+  const sourceBeats = plan ? plan.beats.map((b) => ({ id: b.id, line: b.line })) : (scriptBeats ?? []).map((b, i) => ({ id: `b${i + 1}`, line: b.line }));
+  const jobs = wantVoice ? sourceBeats.filter((beat) => voiceText(beat.line)).map((beat) => ({ beat: beat.id, text: beat.line! })) : [];
   if (!jobs.length && !wantMusic) return { project, warnings: [], spentUsd: 0 };
   if (!config.geminiApiKey) throw new AudioUnavailable("Voiceover and music need GEMINI_API_KEY in backend/.env.");
 
   const dir = planAudioDir(project.id);
   const settings = voiceSettings(project);
-  const prompt = musicPrompt(plan, project.brief, plan.target_duration_s);
+  const targetSeconds = plan?.target_duration_s ?? project.brief?.durationSeconds ?? 30;
+  const prompt = musicPrompt(plan, project.brief, targetSeconds);
   const [voice, music] = await Promise.allSettled([
     jobs.length ? produceVoice(config.geminiApiKey, dir, settings, jobs, project.planAudio?.voice?.lines ?? []) : Promise.resolve(null),
-    wantMusic ? produceMusic(config.geminiApiKey, dir, prompt, plan.target_duration_s) : Promise.resolve(null)
+    wantMusic ? produceMusic(config.geminiApiKey, dir, prompt, targetSeconds) : Promise.resolve(null)
   ]);
   // The voice is the clock: without it there is nothing to save. A failed bed only warns.
   if (voice.status === "rejected") throw voice.reason instanceof Error ? voice.reason : new Error("The voiceover failed.");

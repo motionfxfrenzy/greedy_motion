@@ -12,7 +12,7 @@ import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard
 import { ScriptCanvas, svgSrc, type FrameSlot, type StoryboardState, type VoiceState } from "./script-canvas";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, planVoiceUrl, streamFrames, streamScript, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
+import { cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, planVoiceUrl, streamFrames, streamScript, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 
 type View = "projects" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
@@ -570,35 +570,126 @@ export function Studio() {
     if (continueWhenReady && storyboardState.state === "ready") { setContinueWhenReady(false); setStep(STORYBOARD); }
     if (continueWhenReady && storyboardState.state === "failed") setContinueWhenReady(false);
   }, [continueWhenReady, storyboardState.state]);
-  // Confirm script → voiceover. Voicing needs the beat plan (the takes are keyed to its beats), so it waits for the storyboard.
+  // Confirm script → voiceover. Streams takes scene-by-scene in parallel immediately (without waiting for beatPlan).
   const [voiceRun, setVoiceRun] = useState<{ state: "idle" | "storyboard" | "voicing" | "failed"; error?: string }>({ state: "idle" });
+  const [voiceProgress, setVoiceProgress] = useState(0);
+  const [voicingIndices, setVoicingIndices] = useState<number[]>([]);
+  const [voiceErrors, setVoiceErrors] = useState<Record<number, string>>({});
+  const [streamedTakeFiles, setStreamedTakeFiles] = useState<Record<string, string>>({});
+  const [streamedMusicReady, setStreamedMusicReady] = useState(false);
+
+  // Smoothly advance the progress bar between server events so the user sees continuous 0 -> 100 feedback
+  useEffect(() => {
+    if (voiceRun.state !== "voicing") return;
+    const timer = window.setInterval(() => {
+      setVoiceProgress((curr) => (curr < 92 ? curr + 1 : curr));
+    }, 350);
+    return () => window.clearInterval(timer);
+  }, [voiceRun.state]);
+
   const voicedBrief = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
   // Takes are matched by their words, so a beat the person did not change keeps its take after another beat is edited.
   const voiceTakes = (canvas?.beats ?? []).map((beat) => {
     const text = voiceText(beat.line);
-    const take = text ? project?.planAudio?.voice?.lines.find((line) => line.text === text) : undefined;
-    return take && project ? planVoiceUrl(project.id, take.file) : null;
+    if (!text || !project) return null;
+    const streamedFile = streamedTakeFiles[text];
+    if (streamedFile) return planVoiceUrl(project.id, streamedFile);
+    const take = project.planAudio?.voice?.lines.find((line) => line.text === text);
+    return take ? planVoiceUrl(project.id, take.file) : null;
   });
   // The film's sound is ready when every line has its take and, if the brief has music, the bed exists: only then can it render.
   const musicBrief = brief.audio.mode === "music" || brief.audio.mode === "both";
-  const allVoiced = Boolean(canvas?.beats.length) && canvas!.beats.every((beat, i) => !beat.line || voiceTakes[i]) && (!musicBrief || Boolean(project?.planAudio?.music));
-  const voice: VoiceState = { state: allVoiced ? "ready" : voiceRun.state, takes: voiceTakes, ...(voiceRun.error ? { error: voiceRun.error } : {}) };
-  const recordVoice = async (active: VideoProject) => {
+  const hasMusicBed = Boolean(project?.planAudio?.music) || streamedMusicReady;
+  const allVoiced = Boolean(canvas?.beats.length) && canvas!.beats.every((beat, i) => !voiceText(beat.line) || Boolean(voiceTakes[i])) && (!musicBrief || hasMusicBed);
+  const voice: VoiceState = {
+    state: voiceRun.state === "voicing" ? "voicing" : voiceRun.state === "failed" ? "failed" : allVoiced ? "ready" : voiceRun.state,
+    takes: voiceTakes,
+    progress: voiceProgress,
+    busyIndices: voicingIndices,
+    errors: voiceErrors,
+    ...(voiceRun.error ? { error: voiceRun.error } : {})
+  };
+  const recordVoice = async (active: VideoProject, indices?: number[], force = false) => {
+    if (!canvas) return;
+    const checked = parseScriptBrief(brief);
+    if ("error" in checked) {
+      setVoiceRun({ state: "failed", error: checked.error });
+      return;
+    }
+    const targetIndices = indices ?? canvas.beats.map((_, i) => i).filter((i) => Boolean(voiceText(canvas.beats[i]?.line)));
     setVoiceRun({ state: "voicing" });
-    try { replaceProject((await generatePlanAudio(active.id, musicBrief ? undefined : ["voice"])).project); setVoiceRun({ state: "idle" }); }
-    catch (caught) { setVoiceRun({ state: "failed", error: caught instanceof Error ? caught.message : "Could not record the voiceover." }); }
+    setVoiceProgress(3);
+    setVoicingIndices(targetIndices);
+    if (indices) {
+      setVoiceErrors((curr) => {
+        const next = { ...curr };
+        for (const idx of indices) delete next[idx];
+        return next;
+      });
+    } else {
+      setVoiceErrors({});
+    }
+    try {
+      const updated = await streamScriptVoice(
+        active.id,
+        {
+          brief: checked.brief,
+          beats: canvas.beats,
+          ...(indices ? { indices } : {}),
+          ...(force ? { force: true } : {}),
+          includeMusic: !indices && musicBrief
+        },
+        (ev) => {
+          if (typeof ev.progress === "number") {
+            setVoiceProgress((curr) => Math.max(curr, ev.progress));
+          }
+          if (ev.type === "take") {
+            const text = voiceText(canvas.beats[ev.index]?.line);
+            if (text) {
+              setStreamedTakeFiles((curr) => ({ ...curr, [text]: ev.file }));
+            }
+            setVoicingIndices((curr) => curr.filter((i) => i !== ev.index));
+          } else if (ev.type === "take-error") {
+            setVoicingIndices((curr) => curr.filter((i) => i !== ev.index));
+            setVoiceErrors((curr) => ({ ...curr, [ev.index]: ev.error }));
+          } else if (ev.type === "music") {
+            setStreamedMusicReady(true);
+          } else if (ev.type === "done" && ev.project) {
+            replaceProject(ev.project);
+          }
+        }
+      );
+      if (updated) replaceProject(updated);
+      setVoicingIndices([]);
+      setVoiceProgress(100);
+      setVoiceRun({ state: "idle" });
+    } catch (caught) {
+      setVoicingIndices([]);
+      setVoiceRun({ state: "failed", error: caught instanceof Error ? caught.message : "Could not record the voiceover." });
+    }
   };
   const confirmScript = () => {
     if (!canvas || !project) return;
-    if (storyboardState.state === "ready") { void recordVoice(project); return; }
-    setVoiceRun({ state: "storyboard" });
-    if (storyboardState.state !== "building") void buildStoryboard(project, canvas.beats);
+    void recordVoice(project);
+    if (storyboardState.state !== "ready" && storyboardState.state !== "building") {
+      void buildStoryboard(project, canvas.beats);
+    }
   };
-  useEffect(() => {
-    if (voiceRun.state !== "storyboard" || !project) return;
-    if (storyboardState.state === "ready") void recordVoice(project);
-    if (storyboardState.state === "failed") setVoiceRun({ state: "failed", error: storyboardState.error ?? "Could not plan the beats." });
-  }, [voiceRun.state, storyboardState.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  const retryVoice = (index?: number) => {
+    if (!canvas || !project) return;
+    if (typeof index === "number") {
+      void recordVoice(project, [index], true);
+      return;
+    }
+    const missingOrFailed = canvas.beats
+      .map((b, i) => (voiceText(b.line) && (!voiceTakes[i] || voiceErrors[i]) ? i : -1))
+      .filter((i) => i >= 0);
+    if (missingOrFailed.length > 0) {
+      void recordVoice(project, missingOrFailed, true);
+    } else {
+      void recordVoice(project, undefined, true);
+    }
+  };
   // Render straight from the script once its sound is made. The beat plan must match the script, so it waits for a rebuild
   // after edits; the server still checks every render rule (and refuses a film without its voiceover).
   const [renderWhenReady, setRenderWhenReady] = useState(false);
@@ -809,7 +900,7 @@ export function Studio() {
         onReimagine={reimagineBeat} onVersion={showVersion} onCancel={() => canvasStop.current?.abort()}
         frames={frameSlots} aspect={brief.aspect} styleName={findGalleryTemplate(brief.styleExample)?.name}
         onRedraw={(index) => { if (project) drawFrames(project, canvas.beats, [index], true); }}
-        voice={voice} onConfirm={confirmScript} music={musicBrief}
+        voice={voice} onConfirm={confirmScript} onRetryVoice={retryVoice} music={musicBrief}
         onRender={renderFromScript} rendering={busy || renderWhenReady}
         storyboard={storyboardState} onContinue={continueFromScript} continuing={continueWhenReady} />}
       {step === STORYBOARD && !canvas && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Describe the film in the brief, then generate the storyboard.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to the brief</button></div>}

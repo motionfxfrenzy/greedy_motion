@@ -443,6 +443,51 @@ export async function streamFrames(projectId: string, input: { brief: ScriptBrie
   }
 }
 
+export type VoiceStreamEvent =
+  | { type: "start"; total: number; progress: number }
+  | { type: "take"; index: number; file: string; seconds: number; progress: number }
+  | { type: "take-error"; index: number; error: string; progress: number }
+  | { type: "music"; file: string; seconds: number; progress: number }
+  | { type: "music-error"; error: string; progress: number }
+  | { type: "done"; progress: number; failed: number; project: VideoProject | null };
+
+/**
+ * Streams voiceover takes (4 in parallel) and optional background music as each finishes, so each scene's
+ * audio player appears immediately and the progress bar advances from 0% to 100%.
+ */
+export async function streamScriptVoice(
+  projectId: string,
+  input: { brief: ScriptBrief; beats: ScriptBeat[]; indices?: number[]; force?: boolean; includeMusic?: boolean },
+  onEvent: (event: VoiceStreamEvent) => void,
+  signal?: AbortSignal
+): Promise<VideoProject | null> {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script/voice", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    ...(signal ? { signal } : {})
+  });
+  if (!response.ok || !response.body) {
+    const failed = (await response.json().catch(() => ({}))) as ApiError;
+    throw new Error(failed.error?.message ?? "Could not record the voiceover.");
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = "";
+  let finalProject: VideoProject | null = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return finalProject;
+    buffered += value;
+    let end: number;
+    while ((end = buffered.indexOf("\n\n")) >= 0) {
+      const event = JSON.parse(buffered.slice(0, end).replace(/^data:\s*/, "")) as VoiceStreamEvent;
+      buffered = buffered.slice(end + 2);
+      onEvent(event);
+      if (event.type === "done") finalProject = event.project ?? null;
+    }
+  }
+}
+
 export async function cancelPlanJob(projectId: string) {
   const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/plan/job", { method: "DELETE" });
   return parse<{ project: VideoProject }>(response, "Could not cancel the script.");

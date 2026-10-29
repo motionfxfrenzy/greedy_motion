@@ -385,7 +385,11 @@ export const voiceText = (line: string | null | undefined) =>
 export function currentTake(audio: PlanAudio | null | undefined, beat: Pick<Beat, "id" | "line">): PlanVoiceLine | null {
   const text = voiceText(beat.line);
   if (!text || !audio?.voice) return null;
-  return audio.voice.lines.find((line) => line.beat === beat.id && line.text === text) ?? null;
+  return (
+    audio.voice.lines.find((line) => line.beat === beat.id && line.text === text) ??
+    audio.voice.lines.find((line) => line.text === text) ??
+    null
+  );
 }
 
 /**

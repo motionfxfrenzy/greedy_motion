@@ -8,7 +8,14 @@ export type StoryboardState = { state: "waiting" | "building" | "ready" | "stale
 /** A beat's reference frame: SVG text drawn by the backend, shown only as an image. `stale` keeps the old drawing after an edit. */
 export type FrameSlot = { state: "drawing" | "ready" | "stale" | "failed"; svg?: string; error?: string };
 /** Confirm script → voiceover. `takes` holds a playable URL per beat once that beat's line is voiced. */
-export type VoiceState = { state: "idle" | "storyboard" | "voicing" | "ready" | "failed"; takes: (string | null)[]; error?: string };
+export type VoiceState = {
+  state: "idle" | "storyboard" | "voicing" | "ready" | "failed";
+  takes: (string | null)[];
+  progress?: number;
+  busyIndices?: number[];
+  errors?: Record<number, string>;
+  error?: string;
+};
 
 const SUGGESTIONS = ["Make it punchier", "Shorter", "More playful", "Simpler words"];
 const RATIO: Record<Aspect, string> = { "16:9": "16 / 9", "9:16": "9 / 16", "1:1": "1 / 1" };
@@ -118,7 +125,7 @@ function RenderAction({ seconds, rendering, label, disabled, onRender }: { secon
  * beside it; a single prompt bar at the bottom asks the AI for changes. Confirming the script voices it; the storyboard is
  * built from it in the background.
  */
-export function ScriptCanvas({ music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, storyboard, onContinue, continuing }: {
+export function ScriptCanvas({ music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing }: {
   beats: ScriptBeat[];
   /** The field being written, and the beat it is written into, while streaming. */
   open: keyof ScriptBeat | null;
@@ -150,6 +157,7 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
   onRedraw: (index: number) => void;
   voice: VoiceState;
   onConfirm: () => void;
+  onRetryVoice?: (index?: number) => void;
   /** The brief has a music bed, made with the voiceover. */
   music: boolean;
   /** Renders the film; offered only once its sound is made. */
@@ -184,13 +192,17 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
   // Nothing renders without its sound: a voiced (or scored) film needs its takes first; a silent one can render at once.
   const confirmed = (!voiced && !music) || voice.state === "ready";
   const soundLabel = voiced && music ? "voiceover and music" : voiced ? "voiceover" : "music";
+  const voicePct = Math.max(0, Math.min(100, Math.round(voice.progress ?? 0)));
+  const voicedCount = voice.takes.filter(Boolean).length;
+  const totalVoicedBeats = beats.filter((b) => b.line?.trim()).length;
+  const hasVoiceErrors = Boolean(voice.errors && Object.keys(voice.errors).length > 0);
   const status = streaming
     ? <><i className="sc-live" />{firstAt ? `Writing · ${beats.length} ${beats.length === 1 ? "beat" : "beats"} so far · ${seconds}s` : `Writing your script… ${seconds}s`}</>
     : error ? error
-    : voice.state === "storyboard" ? <><i className="sc-live" />Planning the beats before voicing…</>
-    : voice.state === "voicing" ? <><i className="sc-live" />{music ? `Making the ${soundLabel} (about 30 s)…` : "Recording the voiceover…"}</>
+    : voice.state === "storyboard" || voice.state === "voicing"
+    ? <><i className="sc-live" />{`Recording ${soundLabel} in parallel · ${voicedCount}/${totalVoicedBeats} scenes ready · ${voicePct}%`}</>
     : voice.state === "failed" ? voice.error ?? `Could not make the ${soundLabel}.`
-    : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${runs}s${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}`;
+    : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${runs}s${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}${voicedCount > 0 ? ` · ${voicedCount}/${totalVoicedBeats} voiced` : ""}`;
 
   return <div className="script-canvas">
     <header className="sc-head">
@@ -201,9 +213,63 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
       <div className="sc-actions">
         {streaming && <button className="secondary-button" onClick={onCancel}>Stop</button>}
         {/* Hearing the voice first is optional: Render makes any missing sound itself. */}
-        {!streaming && !confirmed && !rendering && <button className="secondary-button" disabled={streaming || beats.length === 0 || busyVoice} title={`Make the ${soundLabel} now to listen before rendering`} onClick={onConfirm}>{busyVoice ? `Building ${soundLabel}…` : voice.state === "failed" ? `Try the ${soundLabel} again` : `Build ${soundLabel}`}</button>}
+        {!streaming && (voiced || music) && !rendering && (
+          busyVoice ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={voicePct}
+              style={{
+                position: "relative",
+                overflow: "hidden",
+                minWidth: 230,
+                fontVariantNumeric: "tabular-nums"
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  width: `${voicePct}%`,
+                  background: "linear-gradient(90deg, rgba(22, 139, 255, 0.25), rgba(22, 139, 255, 0.42))",
+                  transition: "width 0.28s ease",
+                  pointerEvents: "none"
+                }}
+              />
+              <span style={{ position: "relative", zIndex: 1, display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <i className="sc-live" />
+                Building {soundLabel}… {voicePct}%
+              </span>
+            </button>
+          ) : !confirmed || voice.state === "failed" || hasVoiceErrors ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={streaming || beats.length === 0}
+              title={`Make the ${soundLabel} now to listen before rendering`}
+              onClick={() => (voice.state === "failed" || hasVoiceErrors ? (onRetryVoice ? onRetryVoice() : onConfirm()) : onConfirm())}
+            >
+              {voice.state === "failed" || hasVoiceErrors ? `Retry ${soundLabel}` : `Build ${soundLabel}`}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={streaming || beats.length === 0}
+              title={`Rebuild ${soundLabel}`}
+              onClick={() => (onRetryVoice ? onRetryVoice() : onConfirm())}
+            >
+              ↻ Rebuild {soundLabel}
+            </button>
+          )
+        )}
         {!streaming && <RenderAction seconds={runs} rendering={rendering} disabled={beats.length === 0} onRender={onRender}
-          label={rendering ? (busyVoice ? `Making ${soundLabel}, then rendering…` : "Directing motion, then rendering…") : "Render video"} />}
+          label={rendering ? (busyVoice ? `Making ${soundLabel} (${voicePct}%), then rendering…` : "Directing motion, then rendering…") : "Render video"} />}
       </div>
     </header>
 
@@ -246,7 +312,43 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
               <div><dt>On screen</dt><dd><Field label={`Beat ${index + 1} on-screen text`} className="sc-screen" value={beat.onScreen ?? ""} placeholder="Only the key phrase" readOnly={locked} caret={locked && open === "onScreen"} onChange={(onScreen) => onEdit(index, { onScreen: onScreen.slice(0, 60) || null })} /></dd></div>
               {voiced && <div><dt>Voiceover</dt><dd>
                 <Field label={`Beat ${index + 1} voiceover`} className="sc-line" value={beat.line ?? ""} placeholder="Voiceover" readOnly={locked} caret={locked && open === "line"} onChange={(line) => onEdit(index, { line: line || null })} />
-                {take && <audio className="sc-take" controls preload="none" src={take} aria-label={`Voiceover for beat ${index + 1}`} />}
+                {voice.busyIndices?.includes(index) && (
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 6, fontSize: 12, color: "var(--muted)" }}>
+                    <i className="sc-live" />
+                    <span>Recording scene {index + 1} voiceover…</span>
+                  </div>
+                )}
+                {take && !voice.busyIndices?.includes(index) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                    <audio key={take} className="sc-take" controls preload="metadata" src={take} aria-label={`Voiceover for beat ${index + 1}`} style={{ marginTop: 0, flex: "1 1 220px" }} />
+                    {onRetryVoice && (
+                      <button
+                        type="button"
+                        className="sc-reimagine"
+                        disabled={busyVoice || streaming}
+                        title="Record a fresh take for this scene"
+                        onClick={() => onRetryVoice(index)}
+                      >
+                        ↻ Retry voice
+                      </button>
+                    )}
+                  </div>
+                )}
+                {!take && !voice.busyIndices?.includes(index) && voice.errors?.[index] && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                    <small className="sc-flag" style={{ margin: 0 }}>{voice.errors[index]}</small>
+                    {onRetryVoice && (
+                      <button
+                        type="button"
+                        className="sc-reimagine"
+                        disabled={busyVoice || streaming}
+                        onClick={() => onRetryVoice(index)}
+                      >
+                        ↻ Retry scene voice
+                      </button>
+                    )}
+                  </div>
+                )}
               </dd></div>}
             </dl>
             {beatFlags.map((flag) => <small className="sc-flag" key={flag.message}>{flag.message} Edit it, or keep it if it is right.</small>)}

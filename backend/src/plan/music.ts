@@ -29,14 +29,15 @@ const PROFILE_FEEL: Record<MotionProfile, string> = {
 const PACE_BPM: Record<Pace, number> = { calm: 96, balanced: 112, fast: 124 };
 
 /** The Lyria prompt: the director's (or the user's) mood plus the hard constraints every bed needs. */
-export function musicPrompt(plan: BeatPlan, brief: Pick<ScriptBrief, "pace" | "audio"> | undefined, seconds: number): string {
-  const mood = plan.audio.music?.prompt?.trim() || brief?.audio.musicMood?.trim() || PROFILE_FEEL[plan.brand.motion_profile];
-  const bpm = plan.audio.music?.bpm ?? PACE_BPM[brief?.pace ?? "balanced"];
-  const voiced = plan.beats.some((beat) => beat.line?.trim());
+export function musicPrompt(plan: BeatPlan | null | undefined, brief: Pick<ScriptBrief, "pace" | "audio" | "motionProfile"> | undefined, seconds: number): string {
+  const profile = plan?.brand.motion_profile ?? brief?.motionProfile ?? "smooth";
+  const mood = plan?.audio.music?.prompt?.trim() || brief?.audio.musicMood?.trim() || PROFILE_FEEL[profile];
+  const bpm = plan?.audio.music?.bpm ?? PACE_BPM[brief?.pace ?? "balanced"];
+  const voiced = plan ? plan.beats.some((beat) => beat.line?.trim()) : brief?.audio.mode === "voiceover" || brief?.audio.mode === "both";
   return [
     `Instrumental background music for a ${Math.round(seconds)}-second software product video.`,
     `${mood.replace(/\.$/, "")}.`,
-    `About ${bpm} BPM, ${PROFILE_FEEL[plan.brand.motion_profile]}.`,
+    `About ${bpm} BPM, ${PROFILE_FEEL[profile]}.`,
     voiced ? "It sits under a narrator: no vocals, no lead melody in the voice range, no big drops." : "No vocals; a clear, confident lead is fine.",
     "Starts immediately with no long intro, lifts toward the final third, and ends on a clean, resolved final hit."
   ].join(" ").slice(0, 600);

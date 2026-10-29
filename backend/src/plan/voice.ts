@@ -66,6 +66,55 @@ async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R
 export type VoiceJob = { beat: string; text: string };
 type Take = { beat: string; text: string; file: string; pcm: Pcm; seconds: number; spentSeconds: number };
 
+/** Voices a single scene line into `dir/vo/` (reusing cached takes unless `force` is true). */
+export async function voiceOneLine(
+  apiKey: string,
+  dir: string,
+  settings: VoiceSettings,
+  beat: string,
+  rawText: string,
+  force = false
+): Promise<{ line: PlanVoiceLine; spentSeconds: number }> {
+  await mkdir(join(dir, "vo"), { recursive: true });
+  const text = voiceText(rawText);
+  if (!text) throw new Error("This scene has no spoken voiceover text.");
+  const style = `${settings.direction}; ${PACE_DELIVERY[settings.pace]}`;
+  const hash = force
+    ? createHash("sha256").update([TTS_MODEL, settings.voice, settings.direction, settings.pace, text, String(Date.now())].join("\u0000")).digest("hex").slice(0, 20)
+    : takeKey(settings, text);
+  const file = `vo/${hash}.wav`;
+  const path = join(dir, file);
+  if (!force) {
+    const cached = await readMedia(path).catch(() => null);
+    if (cached) {
+      const pcm = readWav(cached);
+      const seconds = round(pcmSeconds(pcm));
+      return {
+        line: { beat, text, file, seconds, words: estimateWords(text, seconds), aligned: "estimate" },
+        spentSeconds: 0
+      };
+    }
+  }
+  const read = async (extra = "") => {
+    const take = await synthesizeVoiceover(apiKey, { text, voice: settings.voice, style: style + extra });
+    return { pcm: trimSilence(readWav(take.wav)), billed: take.seconds };
+  };
+  let take = await read();
+  let spent = take.billed;
+  const estimate = estimateLineSeconds(text, paceWpm[settings.pace]);
+  if (pcmSeconds(take.pcm) > estimate * VOICE_RULES.retryOver && estimate > 1) {
+    const brisk = await read(", noticeably brisker, no pauses between phrases");
+    spent += brisk.billed;
+    if (pcmSeconds(brisk.pcm) < pcmSeconds(take.pcm)) take = brisk;
+  }
+  await saveMedia(path, writeWav(take.pcm));
+  const seconds = round(pcmSeconds(take.pcm));
+  return {
+    line: { beat, text, file, seconds, words: estimateWords(text, seconds), aligned: "estimate" },
+    spentSeconds: spent
+  };
+}
+
 /** Voices every line (reusing cached takes) into `dir/vo/`. Returns the takes and the speech billed. */
 async function voiceTakes(apiKey: string, dir: string, settings: VoiceSettings, jobs: VoiceJob[]): Promise<Take[]> {
   await mkdir(join(dir, "vo"), { recursive: true });
