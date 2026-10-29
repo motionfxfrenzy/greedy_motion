@@ -71,10 +71,10 @@ export type PlanSpec = {
 
 export const PLANS: Record<PlanTier, PlanSpec> = {
   free: {
-    tier: "free", name: "Free", priceUsd: 0, annualPriceUsd: 0, tokens: 15, watermark: true, proEditor: false,
+    tier: "free", name: "Free", priceUsd: 0, annualPriceUsd: 0, tokens: 33, watermark: true, proEditor: false,
     blurb: "Try it on a real product. No card.",
     features: [
-      "One short film, up to 30 seconds",
+      "One short film, up to 90 seconds",
       "Storyboard, voice and motion included",
       "3 films to try before you decide",
       "Watermark on every film",

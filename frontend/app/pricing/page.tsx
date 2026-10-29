@@ -7,7 +7,7 @@ import { PublicLinks } from "../../components/public-links";
 import { SiteNav } from "../../components/site-nav";
 import styles from "../../components/public-page.module.css";
 
-export const metadata: Metadata = { title: "Pricing · Greedy Motion", description: "Start free with a 30-second film. Paid plans from $19 a month ($15.83/mo billed annually), priced in tokens." };
+export const metadata: Metadata = { title: "Pricing · Greedy Motion", description: "Start free with a 90-second film. Paid plans from $19 a month ($15.83/mo billed annually), priced in tokens." };
 
 export default function Pricing() {
   return (

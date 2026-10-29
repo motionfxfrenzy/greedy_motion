@@ -72,8 +72,8 @@ export function PlanCards({
             <div className="plan-action">{action(tier, isCurrent)}</div>
             <div className="plan-gets" aria-label="What it includes">
               <div className="plan-gets-main">
-                <b>{films30} {films30 === 1 ? "film" : "films"}</b>
-                <span>of 30 seconds {tier === "free" ? "in total" : "each month"}</span>
+                <b>{tier === "free" ? "1 film" : `${films30} ${films30 === 1 ? "film" : "films"}`}</b>
+                <span>{tier === "free" ? "of up to 90 seconds in total" : "of 30 seconds each month"}</span>
               </div>
               <small>
                 {plan.tokens.toLocaleString()} tokens{tier === "free" ? ", once" : " a month"}

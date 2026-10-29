@@ -2,7 +2,7 @@
 // millitokens (1 token = 1000) and returned to callers in tokens.
 //
 // Three pools: `plan` tokens come with a subscription and reset every month (what is left at renewal expires, then the
-// full allowance is granted again); `free` is the one-time 30-second allowance; `pack` is bought packs and manual grants.
+// full allowance is granted again); `free` is the one-time 90-second allowance; `pack` is bought packs and manual grants.
 // Neither free nor pack expire. A render spends plan tokens first (they expire soonest), then free, then packs.
 import { ANNUAL_MONTHS_GRANTED, FREE_TOKENS_REF, isPaidTier, PLANS, tokensFromMilli, type PaidTier } from "./plan.ts";
 import { query, withTransaction } from "../db/database.ts";
@@ -35,7 +35,7 @@ export type TokenSummary = {
   remaining: number;
   /** This month's plan allowance: null when the user has no paid plan. `used` counts only since the last renewal, so it starts again at zero. */
   plan: (PoolView & { since: string }) | null;
-  /** The one-time free allowance (30 seconds of video). */
+  /** The one-time free allowance (90 seconds of video). */
   free: PoolView;
   /** Bought packs and manual grants; they do not expire. */
   packs: { remaining: number };
@@ -55,7 +55,7 @@ export class InsufficientTokens extends Error {
 
 const FREE_MILLI = Math.round(PLANS.free.tokens * 1000);
 
-/** Gives every account its one-time free allowance (30 seconds of video). Idempotent: the reference is unique per user. */
+/** Gives every account its one-time free allowance (90 seconds of video). Idempotent: the reference is unique per user. */
 export async function ensureFreeAllowance(userId: string): Promise<void> {
   await query(
     "insert into app.token_ledger (user_id, amount, kind, reason, ref, actor, pool) values ($1, $2, 'grant', 'Free allowance', $3, 'system', 'free') on conflict (user_id, ref) where ref is not null do update set amount = excluded.amount where app.token_ledger.amount < excluded.amount",

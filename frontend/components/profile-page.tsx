@@ -117,7 +117,7 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: "
 const num = (n: number) => String(Math.round(n * 100) / 100);
 const planLine = (s: Subscription) => {
   const date = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-  if (s.tier === "free") return `One watermarked film of up to 30 seconds, with ${PREVIEW_ALLOWANCE.free} films to try.`;
+  if (s.tier === "free") return `One watermarked film of up to 90 seconds, with ${PREVIEW_ALLOWANCE.free} films to try.`;
   const plan = PLANS[s.tier];
   const priceText = s.interval === "year" && isPaidTier(s.tier)
     ? `$${plan.annualPriceUsd} a year ($${annualMonthlyUsd(s.tier).toFixed(2)} a month)`
