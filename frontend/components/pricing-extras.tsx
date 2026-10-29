@@ -186,7 +186,7 @@ const faq: { q: string; a: string }[] = [
   { q: "Is it for teams?", a: "Each account is for one person: one token balance, one brand library, no seats. Plans differ by how many films you make a month." },
   { q: "Can I cancel or change my plan?", a: "Yes, any time from billing. A cancelled plan keeps working until the end of the period you paid for, and the tokens you already have stay yours." },
   { q: "Can I get a refund?", a: "Unused prepaid tokens can be refunded within 30 days, under the refund policy. A film that has been delivered is normally not refundable for a change of mind. If a film cannot be started, its tokens are returned automatically." },
-  { q: "What about taxes and payment?", a: "Prices are in US dollars and taxes are added at checkout. Payments are handled by Lemon Squeezy, which is the merchant of record." }
+  { q: "What about taxes and payment?", a: "Prices are in US dollars and taxes are added at checkout. Payments are handled by Paddle, which is the merchant of record." }
 ];
 
 export function Faq() {
