@@ -224,6 +224,8 @@ export type VideoProject = {
   pro?: ProManifest;
   /** Present on Story film projects (drawn by the painted engine). */
   painted?: import("./painted.ts").PaintedProject;
+  /** True when the user archived this project from the Projects list. */
+  archived?: boolean;
 };
 
 export function parseRenderRequest(value: unknown): RenderRequest | null {
