@@ -614,10 +614,16 @@ dialog[open] { overscroll-behavior: contain; }
 .account-trigger:focus-visible{outline:3px solid var(--bright);outline-offset:3px}
 .account-avatar{display:inline-grid;place-items:center;flex:none;width:30px;height:30px;border-radius:50%;background:linear-gradient(180deg,#168bff,#0a6cff);color:#fff;font-size:13px;font-weight:700}
 .account-avatar.large{width:40px;height:40px;font-size:16px}
-.account-pop{position:absolute;top:calc(100% + 10px);right:0;z-index:30;display:grid;gap:2px;width:min(300px,calc(100vw - 32px));padding:8px;border:1px solid var(--line);border-radius:18px;background:var(--d-bg-ffffff);box-shadow:0 20px 50px rgba(4,32,82,.22)}
+.account-pop{position:absolute;top:calc(100% + 10px);right:0;z-index:30;display:grid;gap:2px;width:min(316px,calc(100vw - 32px));padding:8px;border:1px solid var(--line);border-radius:18px;background:var(--d-bg-ffffff);box-shadow:0 20px 50px rgba(4,32,82,.22)}
 .account-who{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center;padding:10px 10px 12px;border-bottom:1px solid var(--line);margin-bottom:6px}
-.account-who div{min-width:0}.account-who b,.account-who small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.account-who b{font-size:14px;color:var(--ink)}.account-who small{font-size:12px;color:var(--muted)}
-.account-who .plan-chip{grid-column:1/-1;justify-self:start;margin-top:4px}
+.account-who>div{min-width:0}.account-who>div>b,.account-who>div>small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.account-who>div>b{font-size:14px;color:var(--ink)}.account-who>div>small{font-size:12px;color:var(--muted)}
+.account-who .plan-chip{justify-self:start;flex-shrink:0}
+.account-plan-tokens{grid-column:1/-1;display:grid;gap:6px;margin-top:6px}
+.account-plan-row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.account-token-text{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.account-token-text b{color:var(--ink);font-weight:650}
+.account-token-meter{height:6px;width:100%;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow:hidden}
+.account-token-meter i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#168bff,#0a6cff);transition:width .25s ease}
 .plan-chip{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--soft);color:var(--body);border:1px solid var(--line);font-size:12px;font-weight:600}
 .plan-chip.pro{background:var(--d-bg-d3f6e3);color:var(--d-tx-0a5c35);border-color:transparent}
 .account-item{display:block;width:100%;padding:9px 10px;border:0;border-radius:10px;background:transparent;color:var(--ink);font-size:14px;font-weight:500;text-align:left;text-decoration:none;cursor:pointer}
