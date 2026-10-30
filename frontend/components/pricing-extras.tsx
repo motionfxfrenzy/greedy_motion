@@ -96,7 +96,7 @@ export function TokenCosts() {
             {[15, 30, 60, 90].map((seconds) => <tr key={seconds}><th scope="row">A {seconds}-second film</th><td>{film(seconds)}</td><td>{usd(Number(film(seconds)))}</td></tr>)}
             <tr><th scope="row">Trying a film (storyboard, voice, motion, preview)</th><td>0</td><td>up to {PREVIEW_ALLOWANCE.free} on Free, {PREVIEW_ALLOWANCE.starter} to {PREVIEW_ALLOWANCE.business} a month on plans</td></tr>
             <tr><th scope="row">Changes after the first version</th><td>{FREE_REVISIONS} included, then {REVISION_TOKENS} each</td><td>{usd(REVISION_TOKENS)} each</td></tr>
-            <tr><th scope="row">A generated scene (clay, paper, footage), paid plans</th><td>{plain(scene)}</td><td>{usd(scene)}</td></tr>
+            <tr><th scope="row">Custom visual style plate (clay, paper, studio), paid plans</th><td>{plain(scene)}</td><td>{usd(scene)}</td></tr>
           </tbody>
         </table>
       </div>
@@ -130,7 +130,7 @@ const rows: { label: string; value: (tier: PlanTier) => string }[] = [
   { label: "Films of 60 seconds", value: (t) => (t === "free" ? "Up to 90 sec" : `${filmsFromTokens(PLANS[t].tokens, 60)} a month`) },
   { label: "Films to try (storyboard, voice, motion)", value: (t) => `${PREVIEW_ALLOWANCE[t]} ${t === "free" ? "in total" : "a month"}` },
   { label: "Changes after the first version", value: () => `${FREE_REVISIONS} included per film, then ${REVISION_TOKENS} tokens each` },
-  { label: "Generated scenes (clay, paper, footage)", value: (t) => (t === "free" ? "Paid plans only" : `${sceneTokens} tokens a scene`) },
+  { label: "Custom visual style plates (clay, paper, studio)", value: (t) => (t === "free" ? "Paid plans only" : `${sceneTokens} tokens a scene`) },
   { label: "Watermark", value: (t) => (PLANS[t].watermark ? "Yes" : "None") },
   { label: "Storyboard, rewrites and brand kits", value: () => "Included" },
   { label: "Seats", value: () => "1" }
@@ -180,13 +180,13 @@ const faq: { q: string; a: string }[] = [
   { q: "What is a token?", a: `Tokens are what you spend to make films. A film takes ${START_FEE_MILLITOKENS / 1000} tokens to start plus ${MILLITOKENS_PER_SECOND / 1000} for every second of finished video, so a 30-second film is ${plain(tokensFromMilli(renderCostMillitokens(30)))} tokens. The price is shown before you render and is the price taken. Trying a film costs nothing: your plan includes ${PREVIEW_ALLOWANCE.starter} to ${PREVIEW_ALLOWANCE.business} films to try a month (Free: ${PREVIEW_ALLOWANCE.free}), with the storyboard, voice and motion, and tokens are taken only when you render.` },
   { q: "What do I get for free?", a: `One finished film of up to 90 seconds for your account, with its storyboard, voice and motion, and ${PREVIEW_ALLOWANCE.free} films to try. Free films carry a Greedy Motion watermark. There is no card and no trial that turns into a charge.` },
   { q: "What if I change my mind after the first version?", a: `The first ${FREE_REVISIONS} changes to a film are included: rebuilding it after an edit, or applying comments in the preview. Each one after that takes ${REVISION_TOKENS} tokens, and a change that does not happen is never charged.` },
-  { q: "What do generated scenes cost?", a: `Styles whose scenes are made by an image and video model (clay, paper, footage) are for paid plans and cost ${sceneTokens} tokens a scene, shown before you generate them. They are paid when they are generated, on top of the film.` },
+  { q: "What do custom visual style plates cost?", a: `Premium visual styles with custom 3D and crafted motion plates (clay, paper, studio) are for paid plans and cost ${sceneTokens} tokens a scene, shown before you render them. They are billed per scene on top of the film.` },
   { q: "Do tokens expire?", a: "Your plan's tokens renew every month. Each renewal starts you again with the full amount, and what you did not use last month does not carry over. On an annual plan, your monthly tokens are granted on the same date each month through the year. Token packs and your free allowance never expire, and a render uses your plan tokens first." },
   { q: "What happens when I run out?", a: `Render tells you how many tokens the film needs and how many you have. Nothing is charged automatically: add a ${TOP_UP.tokens}-token pack for $${TOP_UP.priceUsd} or move to a bigger plan.` },
   { q: "Is it for teams?", a: "Each account is for one person: one token balance, one brand library, no seats. Plans differ by how many films you make a month." },
   { q: "Can I cancel or change my plan?", a: "Yes, any time from billing. A cancelled plan keeps working until the end of the period you paid for, and the tokens you already have stay yours." },
   { q: "Can I get a refund?", a: "Unused prepaid tokens can be refunded within 30 days, under the refund policy. A film that has been delivered is normally not refundable for a change of mind. If a film cannot be started, its tokens are returned automatically." },
-  { q: "What about taxes and payment?", a: "Prices are in US dollars and taxes are added at checkout. Payments are handled by Paddle, which is the merchant of record." }
+  { q: "What about taxes and payment?", a: "Prices are in US dollars and taxes are added at checkout. Payments, tax calculation and invoicing are handled by our authorized merchant of record shown at checkout." }
 ];
 
 export function Faq() {

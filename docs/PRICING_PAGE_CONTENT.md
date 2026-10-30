@@ -51,7 +51,7 @@ Order: Free, Starter, **Pro (flag "Most chosen")**, Studio. Every plan is for on
   - 15 films a month to try (storyboard, voice, motion)
   - 3 changes per film included
   - Guided flow, storyboard and brand kits
-  - Generated scenes (clay, paper, footage), paid per scene
+  - Custom visual styles & 3D motion plates (clay, paper, studio), per scene
 - **Button:** Choose Starter
 
 ### Pro — $49 / month  *(Most chosen)*
@@ -62,7 +62,7 @@ Order: Free, Starter, **Pro (flag "Most chosen")**, Studio. Every plan is for on
   - 45 films a month to try (storyboard, voice, motion)
   - 3 changes per film included
   - Guided flow, storyboard and brand kits
-  - Generated scenes (clay, paper, footage), paid per scene
+  - Custom visual styles & 3D motion plates (clay, paper, studio), per scene
 - **Button:** Choose Pro
 
 ### Studio — $99 / month
@@ -73,7 +73,7 @@ Order: Free, Starter, **Pro (flag "Most chosen")**, Studio. Every plan is for on
   - 100 films a month to try (storyboard, voice, motion)
   - 3 changes per film included
   - Guided flow, storyboard and brand kits
-  - Generated scenes (clay, paper, footage), paid per scene
+  - Custom visual styles & 3D motion plates (clay, paper, studio), per scene
 - **Button:** Choose Studio
 
 ### Signed-in button states
@@ -116,7 +116,7 @@ Your plan · manage · Change in billing · Free to start · Opening…
 | Films of 60 seconds | — | 8 a month | 22 a month | 50 a month |
 | Films to try (storyboard, voice, motion) | 3 in total | 15 a month | 45 a month | 100 a month |
 | Changes after the first version | 3 included per film, then 2 tokens each | same | same | same |
-| Generated scenes (clay, paper, footage) | — | 26.1 tokens a scene | 26.1 tokens a scene | 26.1 tokens a scene |
+| Custom visual style plates (clay, paper, studio) | — | 26.1 tokens a scene | 26.1 tokens a scene | 26.1 tokens a scene |
 | Watermark | Yes | None | None | None |
 | Storyboard, rewrites and brand kits | Included | Included | Included | Included |
 | Seats | 1 | 1 | 1 | 1 |

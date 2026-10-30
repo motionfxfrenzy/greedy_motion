@@ -17,7 +17,7 @@ const SCENES: SceneItem[] = [
   { kind: "cta", headline: "See your real margins", copy: "acme.com/profit" }
 ];
 
-const WORDS = ["product launches", "feature demos", "release notes", "social clips"];
+const WORDS = ["product launches", "feature demos", "social stories", "visual explainers", "release notes"];
 
 const FAQS = [
   {
@@ -541,7 +541,7 @@ export function LandingPage() {
               textWrap: "pretty"
             }}
           >
-            Turn approved screenshots and product messaging into on-brand motion videos.
+            Turn your brief, screenshots, and brand into on-brand motion videos, visual explainers, and 9:16 social stories.
             Review a storyboard, ask for changes, approve, download.
           </p>
 

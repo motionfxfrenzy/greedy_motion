@@ -89,7 +89,7 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
       "15 films a month to try (storyboard, voice, motion)",
       "3 changes per film included",
       "Guided flow, storyboard and brand kits",
-      "Generated scenes (clay, paper, footage), paid per scene"
+      "Custom visual styles & 3D motion plates (clay, paper, studio), per scene"
     ]
   },
   pro: {
@@ -100,7 +100,7 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
       "45 films a month to try (storyboard, voice, motion)",
       "3 changes per film included",
       "Guided flow, storyboard and brand kits",
-      "Generated scenes (clay, paper, footage), paid per scene"
+      "Custom visual styles & 3D motion plates (clay, paper, studio), per scene"
     ]
   },
   business: {
@@ -111,7 +111,7 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
       "100 films a month to try (storyboard, voice, motion)",
       "3 changes per film included",
       "Guided flow, storyboard and brand kits",
-      "Generated scenes (clay, paper, footage), paid per scene"
+      "Custom visual styles & 3D motion plates (clay, paper, studio), per scene"
     ]
   }
 };
