@@ -143,7 +143,7 @@ export async function createProject(input: { name?: unknown; request?: unknown }
   return save({ id: randomUUID(), ownerId, name: name || "Untitled video", state: "Ready to create", createdAt: now, updatedAt: now, request, screenshots: [], comments: [] });
 }
 
-type ProjectUpdate = { name?: unknown; request?: unknown; state?: unknown; script?: unknown; renderJobId?: unknown; approvedAt?: unknown };
+type ProjectUpdate = { name?: unknown; request?: unknown; state?: unknown; script?: unknown; renderJobId?: unknown; approvedAt?: unknown; archived?: unknown };
 
 function cleanScript(value: unknown): ProjectScript | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -257,11 +257,12 @@ export async function updateProject(id: string, update: ProjectUpdate) {
     const script = update.script === undefined ? current.script : cleanScript(update.script);
     const renderJobId = update.renderJobId === undefined ? current.renderJobId : typeof update.renderJobId === "string" && idPattern.test(update.renderJobId) ? update.renderJobId : undefined;
     const approvedAt = update.approvedAt === undefined ? current.approvedAt : typeof update.approvedAt === "string" ? update.approvedAt : undefined;
+    const archived = typeof update.archived === "boolean" ? update.archived : current.archived;
     // Variable ids belong to a template. Dropping a draft on a template switch
     // is safer than carrying values into unrelated slots.
     const { studio: _studio, ...withoutStudio } = current;
     const base = request.template === current.request.template ? current : withoutStudio;
-    return save({ ...base, name, request, state, ...(script ? { script } : {}), ...(renderJobId ? { renderJobId } : {}), ...(approvedAt ? { approvedAt } : {}), updatedAt: new Date().toISOString() });
+    return save({ ...base, name, request, state, ...(script ? { script } : {}), ...(renderJobId ? { renderJobId } : {}), ...(approvedAt ? { approvedAt } : {}), ...(archived !== undefined ? { archived } : {}), updatedAt: new Date().toISOString() });
   });
 }
 

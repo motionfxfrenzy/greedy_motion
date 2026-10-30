@@ -251,6 +251,11 @@ export function FilmPage() {
   const [job, setJob] = useState<RenderJob | null>(null);
   const [approving, setApproving] = useState(false);
   const watchingRender = useRef<AbortController | null>(null);
+  const finalVideoRef = useRef<HTMLVideoElement | null>(null);
+  const finalScrubbingRef = useRef(false);
+  const [finalPlaying, setFinalPlaying] = useState(false);
+  const [finalTime, setFinalTime] = useState(0);
+  const [finalDuration, setFinalDuration] = useState(0);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -1529,18 +1534,63 @@ export function FilmPage() {
 
                 <div className="ce-controls" style={{ flexShrink: 0 }}>
                   <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!timeline} onClick={togglePlay}>
-                    {playing ? "❚❚" : "▶"}
+                    {playing ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <rect x="6" y="4" width="4" height="16" rx="1" />
+                        <rect x="14" y="4" width="4" height="16" rx="1" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M8 5.14v14l11-7-11-7z" />
+                      </svg>
+                    )}
                   </button>
                   <span className="ce-clock">
                     <b>{formatVideoTime(currentTime)}</b> / {formatVideoTime(duration)}
                   </span>
+                  <div
+                    className="ce-scrubber"
+                    role="slider"
+                    tabIndex={0}
+                    aria-label="Seek animation"
+                    aria-valuemin={0}
+                    aria-valuemax={duration}
+                    aria-valuenow={Math.round(currentTime * 10) / 10}
+                    onPointerDown={(event) => {
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      scrubbingRef.current = true;
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      seekAnimation(((event.clientX - bounds.left) / bounds.width) * duration);
+                    }}
+                    onPointerMove={(event) => {
+                      if (!scrubbingRef.current) return;
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      seekAnimation(((event.clientX - bounds.left) / bounds.width) * duration);
+                    }}
+                    onPointerUp={() => {
+                      scrubbingRef.current = false;
+                    }}
+                    onPointerCancel={() => {
+                      scrubbingRef.current = false;
+                    }}
+                  >
+                    <div
+                      className="ce-scrubber-fill"
+                      style={{ width: `${Math.min(100, Math.max(0, (currentTime / Math.max(duration, 0.1)) * 100))}%` }}
+                    />
+                    <div
+                      className="ce-scrubber-thumb"
+                      style={{ left: `${Math.min(100, Math.max(0, (currentTime / Math.max(duration, 0.1)) * 100))}%` }}
+                    />
+                  </div>
                   <span className="ce-volume">
                     <button
                       type="button"
+                      className="ce-icon-btn"
                       aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
                       onClick={() => setMuted((m) => !m)}
                     >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                         <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />
                         {muted || volume === 0 ? (
                           <path d="M16 9.5l5 5M21 9.5l-5 5" />
@@ -1573,11 +1623,12 @@ export function FilmPage() {
                         checked={continuous}
                         onChange={(event) => void handleChangeLookOrDrawIn(look, event.target.checked)}
                       />
-                      Continuous scene
+                      Continuous
                     </label>
                   )}
+                  <span className="ce-badge-ratio">{aspect}</span>
                   <span className="ce-scene">
-                    {lineTimings[activeSceneIndex] ? `Scene ${activeSceneIndex + 1} of ${lineTimings.length}` : ""}
+                    {lineTimings[activeSceneIndex] ? `Scene ${activeSceneIndex + 1}/${lineTimings.length}` : ""}
                   </span>
                 </div>
               </div>
@@ -1873,21 +1924,39 @@ export function FilmPage() {
                   >
                     <div
                       className="ce-stage"
+                      onClick={() => {
+                        const v = finalVideoRef.current;
+                        if (!v) return;
+                        if (v.paused) void v.play();
+                        else v.pause();
+                      }}
                       style={{
                         flex: "1 1 0",
                         minHeight: 0,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        overflow: "hidden"
+                        overflow: "hidden",
+                        cursor: "pointer"
                       }}
                     >
                       <video
+                        ref={finalVideoRef}
                         src={outputUrl(job.output.url)}
                         poster={drawnFrames[0] ?? project?.coverFrame}
-                        controls
                         playsInline
                         preload="metadata"
+                        onPlay={() => setFinalPlaying(true)}
+                        onPause={() => setFinalPlaying(false)}
+                        onEnded={() => setFinalPlaying(false)}
+                        onLoadedMetadata={(ev) => {
+                          if (ev.currentTarget.duration > 0) setFinalDuration(ev.currentTarget.duration);
+                          ev.currentTarget.volume = volume;
+                          ev.currentTarget.muted = muted;
+                        }}
+                        onTimeUpdate={(ev) => {
+                          if (!finalScrubbingRef.current) setFinalTime(ev.currentTarget.currentTime);
+                        }}
                         style={{
                           height: "100%",
                           maxHeight: "100%",
@@ -1896,11 +1965,135 @@ export function FilmPage() {
                           aspectRatio: aspect === "9:16" ? "9 / 16" : "16 / 9",
                           objectFit: "contain",
                           borderRadius: 14,
-                          background: "#000",
+                          background: "#05070b",
                           display: "block",
                           margin: "0 auto"
                         }}
                       />
+                      {!finalPlaying && <span className="ce-hint">Click to play</span>}
+                    </div>
+
+                    <div className="ce-controls" style={{ flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        aria-label={finalPlaying ? "Pause" : "Play"}
+                        onClick={() => {
+                          const v = finalVideoRef.current;
+                          if (!v) return;
+                          if (v.paused) void v.play();
+                          else v.pause();
+                        }}
+                      >
+                        {finalPlaying ? (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <rect x="6" y="4" width="4" height="16" rx="1" />
+                            <rect x="14" y="4" width="4" height="16" rx="1" />
+                          </svg>
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M8 5.14v14l11-7-11-7z" />
+                          </svg>
+                        )}
+                      </button>
+                      <span className="ce-clock">
+                        <b>{formatVideoTime(finalTime)}</b> / {formatVideoTime(finalDuration || duration)}
+                      </span>
+                      <div
+                        className="ce-scrubber"
+                        role="slider"
+                        tabIndex={0}
+                        aria-label="Seek video"
+                        aria-valuemin={0}
+                        aria-valuemax={finalDuration || duration}
+                        aria-valuenow={Math.round(finalTime * 10) / 10}
+                        onPointerDown={(event) => {
+                          event.currentTarget.setPointerCapture(event.pointerId);
+                          finalScrubbingRef.current = true;
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          const total = Math.max(0.1, finalDuration || duration);
+                          const next = Math.max(0, Math.min(total, ((event.clientX - bounds.left) / bounds.width) * total));
+                          setFinalTime(next);
+                          if (finalVideoRef.current) finalVideoRef.current.currentTime = next;
+                        }}
+                        onPointerMove={(event) => {
+                          if (!finalScrubbingRef.current) return;
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          const total = Math.max(0.1, finalDuration || duration);
+                          const next = Math.max(0, Math.min(total, ((event.clientX - bounds.left) / bounds.width) * total));
+                          setFinalTime(next);
+                          if (finalVideoRef.current) finalVideoRef.current.currentTime = next;
+                        }}
+                        onPointerUp={() => {
+                          finalScrubbingRef.current = false;
+                        }}
+                        onPointerCancel={() => {
+                          finalScrubbingRef.current = false;
+                        }}
+                      >
+                        <div
+                          className="ce-scrubber-fill"
+                          style={{ width: `${Math.min(100, Math.max(0, (finalTime / Math.max(finalDuration || duration, 0.1)) * 100))}%` }}
+                        />
+                        <div
+                          className="ce-scrubber-thumb"
+                          style={{ left: `${Math.min(100, Math.max(0, (finalTime / Math.max(finalDuration || duration, 0.1)) * 100))}%` }}
+                        />
+                      </div>
+                      <span className="ce-volume">
+                        <button
+                          type="button"
+                          className="ce-icon-btn"
+                          aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+                          onClick={() => {
+                            const nextMuted = !muted;
+                            setMuted(nextMuted);
+                            if (finalVideoRef.current) finalVideoRef.current.muted = nextMuted;
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />
+                            {muted || volume === 0 ? (
+                              <path d="M16 9.5l5 5M21 9.5l-5 5" />
+                            ) : (
+                              <>
+                                <path d="M15.5 9.2a4 4 0 010 5.6" />
+                                {volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}
+                              </>
+                            )}
+                          </svg>
+                        </button>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={muted ? 0 : volume}
+                          aria-label="Volume"
+                          onChange={(event) => {
+                            const v = Number(event.target.value);
+                            setVolume(v);
+                            setMuted(v === 0);
+                            if (finalVideoRef.current) {
+                              finalVideoRef.current.volume = v;
+                              finalVideoRef.current.muted = v === 0;
+                            }
+                          }}
+                        />
+                      </span>
+                      <span className="ce-badge-ratio">{aspect}</span>
+                      <button
+                        type="button"
+                        className="ce-icon-btn"
+                        aria-label="Fullscreen"
+                        title="Fullscreen"
+                        onClick={() => {
+                          void finalVideoRef.current?.requestFullscreen?.();
+                        }}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" />
+                        </svg>
+                      </button>
                     </div>
                   </div>
                 </section>

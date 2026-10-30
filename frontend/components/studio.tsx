@@ -984,7 +984,7 @@ export function Studio() {
     </> : <><AppHeader active="projects" />
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {loadError && <div className="workspace-error" role="alert">{loadError} <button disabled={loadingProjects} onClick={() => { setLoadingProjects(true); void refresh(); }}>{loadingProjects ? "Retrying…" : "Try again"}</button></div>}
-      {view === "projects" && <Projects brands={brands} projects={projects} loading={loadingProjects} loaded={projectsLoaded} busy={busy} create={() => void begin()} startTemplate={(item) => void beginFromGallery(item)} browseTemplates={() => router.push("/templates")} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} remove={async (item) => { await deleteProject(item.id); setProjects((current) => current.filter((entry) => entry.id !== item.id)); }} />}
+      {view === "projects" && <Projects brands={brands} projects={projects} loading={loadingProjects} loaded={projectsLoaded} busy={busy} create={() => void begin()} startTemplate={(item) => void beginFromGallery(item)} browseTemplates={() => router.push("/templates")} open={(item) => void openProject(item)} openStudio={(item) => void openProjectStudio(item)} archive={async (item, nextArchived) => { const saved = await updateProject(item.id, { archived: nextArchived }); setProjects((current) => current.map((entry) => (entry.id === item.id ? saved : entry))); }} remove={async (item) => { await deleteProject(item.id); setProjects((current) => current.filter((entry) => entry.id !== item.id)); }} />}
     </>}
   </main>;
 }
@@ -999,19 +999,22 @@ function TemplateShelf({ startTemplate, browseTemplates, busy }: { startTemplate
   return <div className="gallery-shelf"><div className="gallery-shelf-head"><div><h2>Start from a template</h2><p>Each one fills in the script prompt, structure and style for you. Edit anything before you generate.</p></div><button className="secondary-button" onClick={browseTemplates}>Browse all templates</button></div><GalleryGrid row onMore={browseTemplates} items={items} onUse={startTemplate} busy={busy} loading={loading} skeletons={4} /></div>;
 }
 
-function Projects({ brands, projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio, remove }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; remove: (project: VideoProject) => Promise<void>; brands: BrandKit[] }) {
+function Projects({ brands, projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio, archive, remove }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; archive: (project: VideoProject, archived: boolean) => Promise<void>; remove: (project: VideoProject) => Promise<void>; brands: BrandKit[] }) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [filter, setFilter] = useState("All");
   const [deletingProject, setDeletingProject] = useState<VideoProject | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const activeProjects = projects.filter((item) => !item.archived);
+  const archivedProjects = projects.filter((item) => Boolean(item.archived));
   const groups = {
-    All: projects,
-    Drafts: projects.filter((item) => !["Ready for review", "Approved"].includes(item.state)),
-    Review: projects.filter((item) => item.state === "Ready for review"),
-    Approved: projects.filter((item) => item.state === "Approved")
+    All: activeProjects,
+    Drafts: activeProjects.filter((item) => !["Ready for review", "Approved"].includes(item.state)),
+    Review: activeProjects.filter((item) => item.state === "Ready for review"),
+    Approved: activeProjects.filter((item) => item.state === "Approved"),
+    ...(archivedProjects.length > 0 || filter === "Archived" ? { Archived: archivedProjects } : {})
   };
-  const visibleProjects = groups[filter as keyof typeof groups];
+  const visibleProjects = groups[filter as keyof typeof groups] ?? activeProjects;
   const confirmDelete = async () => {
     if (!deletingProject || deletingBusy) return;
     setDeletingBusy(true);
@@ -1025,7 +1028,7 @@ function Projects({ brands, projects, loading, loaded, busy, create, startTempla
       setDeletingBusy(false);
     }
   };
-  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} {(loaded || projects.length > 0) && <span>{items.length}</span>}</button>)}</div>{projects.length === 0 && !loaded ? loading ? <ProjectSkeletons /> : <div className="workspace-message" role="status">Projects could not be loaded. Use Try again above.</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} onDelete={() => { setDeleteError(null); setDeletingProject(project); }} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}
+  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} {(loaded || projects.length > 0) && <span>{items?.length ?? 0}</span>}</button>)}</div>{projects.length === 0 && !loaded ? loading ? <ProjectSkeletons /> : <div className="workspace-message" role="status">Projects could not be loaded. Use Try again above.</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} onArchive={() => void archive(project, !project.archived)} onDelete={() => { setDeleteError(null); setDeletingProject(project); }} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}
     {deletingProject && <div className="sc-modal-backdrop" onClick={() => { if (!deletingBusy) setDeletingProject(null); }}>
       <div className="sc-modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-title" style={{ width: "min(440px, 100%)" }} onClick={(event) => event.stopPropagation()}>
         <header>
@@ -1048,7 +1051,7 @@ function ProjectSkeletons() {
   return <div className="project-grid" role="status" aria-busy="true" aria-label="Loading your projects">{Array.from({ length: 3 }, (_, index) => <article className="project-card project-skeleton" key={index} aria-hidden="true"><span className="card-image" /><div className="project-content"><i /><i className="short" /><div className="project-meta"><i className="pill" /><i className="date" /></div></div></article>)}</div>;
 }
 
-function ProjectCard({ brands, project, open, openStudio, onDelete, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; onDelete: () => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void; brands: BrandKit[] }) {
+function ProjectCard({ brands, project, open, openStudio, onArchive, onDelete, menuOpen, setMenuOpen }: { project: VideoProject; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; onArchive: () => void; onDelete: () => void; menuOpen: boolean; setMenuOpen: (next: boolean) => void; brands: BrandKit[] }) {
   const actionsRef = useRef<HTMLDivElement>(null);
   const template = findTemplate(project.request.template);
   const image = project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : imageFor(template ?? templates[0]);
@@ -1068,7 +1071,7 @@ function ProjectCard({ brands, project, open, openStudio, onDelete, menuOpen, se
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [menuOpen, setMenuOpen]);
-  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}>{project.coverFrame ? <i className="card-frame"><img className="card-cover" src={svgSrc(project.coverFrame)} alt="" draggable={false} /></i> : firstBeat && project.brief ? <i className="card-frame"><FrameCard family={project.brief.styleFamily} beat={firstBeat} index={0} canvas={project.beatPlan!.canvas} look={lookFor(project.brief, brands)} lookId={project.brief.look ?? "clean"} screenshot={firstBeat.kind === "ui" && project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></i> : project.brief && !project.screenshots[0] ? <i className="card-placeholder">{kind}</i> : <img src={image} alt="" />}<span className="card-badge">{project.request.format === "portrait" ? "9:16" : "16:9"} · {Math.floor(seconds / 60)}:{String(Math.round(seconds % 60)).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{kind} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}<button type="button" role="menuitem" className="danger" onClick={() => choose(onDelete)}>Delete project</button></div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
+  return <article className={menuOpen ? "project-card menu-open" : "project-card"}><button className="card-image" onClick={() => open(project)}>{project.coverFrame ? <i className="card-frame"><img className="card-cover" src={svgSrc(project.coverFrame)} alt="" draggable={false} /></i> : firstBeat && project.brief ? <i className="card-frame"><FrameCard family={project.brief.styleFamily} beat={firstBeat} index={0} canvas={project.beatPlan!.canvas} look={lookFor(project.brief, brands)} lookId={project.brief.look ?? "clean"} screenshot={firstBeat.kind === "ui" && project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : undefined} /></i> : project.brief && !project.screenshots[0] ? <i className="card-placeholder">{kind}</i> : <img src={image} alt="" />}<span className="card-badge">{project.request.format === "portrait" ? "9:16" : "16:9"} · {Math.floor(seconds / 60)}:{String(Math.round(seconds % 60)).padStart(2, "0")}</span></button><div className="project-content"><div className="project-title"><h2>{project.name}</h2><p>{kind} · {project.request.brandId ? "Brand kit" : "No branding"}</p></div><div className="project-actions" ref={actionsRef}><button className="dots" type="button" aria-label={`Project actions for ${project.name}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(!menuOpen)}><span className="dots-mark" aria-hidden="true"><i /><i /><i /></span></button>{menuOpen && <div className="project-menu" role="menu" aria-label={`Actions for ${project.name}`}><button type="button" role="menuitem" onClick={() => choose(() => open(project))}>Open project</button>{project.script && !project.beatPlan && <button type="button" role="menuitem" onClick={() => choose(() => openStudio(project))}>Open Studio</button>}<button type="button" role="menuitem" onClick={() => choose(onArchive)}>{project.archived ? "Unarchive project" : "Archive project"}</button><button type="button" role="menuitem" className="danger" onClick={() => choose(onDelete)}>Delete project</button></div>}</div><div className="project-meta"><b className={"status " + status}>{project.state}</b><time>{new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(project.updatedAt))}</time></div></div></article>;
 }
 
 function Screenshots({ project, busy, upload, remove }: { project: VideoProject | null; busy: boolean; upload: (file: File) => Promise<void>; remove: (id: string) => Promise<void> }) {
@@ -1646,6 +1649,7 @@ function BrowserAnimationStep({
                 </div>
               ) : playerLoaded && previewHtml ? (
                 <div
+                  className="ce-frame-box"
                   style={{
                     height: "100%",
                     maxHeight: "100%",
@@ -1653,9 +1657,9 @@ function BrowserAnimationStep({
                     maxWidth: "100%",
                     aspectRatio: aspect === "9:16" ? "9 / 16" : aspect === "1:1" ? "1 / 1" : "16 / 9",
                     position: "relative",
-                    borderRadius: 12,
+                    borderRadius: 14,
                     overflow: "hidden",
-                    background: "#0b0d12"
+                    background: "#05070b"
                   }}
                 >
                   {createElement("hyperframes-player", {
@@ -1675,18 +1679,57 @@ function BrowserAnimationStep({
 
             <div className="ce-controls" style={{ flexShrink: 0 }}>
               <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!previewHtml} onClick={togglePlay}>
-                {playing ? "❚❚" : "▶"}
+                {playing ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <rect x="6" y="4" width="4" height="16" rx="1" />
+                    <rect x="14" y="4" width="4" height="16" rx="1" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M8 5.14v14l11-7-11-7z" />
+                  </svg>
+                )}
               </button>
               <span className="ce-clock">
                 <b>{formatVideoTime(currentTime)}</b> / {formatVideoTime(duration)}
               </span>
+              <div
+                className="ce-scrubber"
+                role="slider"
+                tabIndex={0}
+                aria-label="Seek animation"
+                aria-valuemin={0}
+                aria-valuemax={duration}
+                aria-valuenow={Math.round(currentTime * 10) / 10}
+                onPointerDown={(ev) => {
+                  ev.currentTarget.setPointerCapture(ev.pointerId);
+                  scrubbingRef.current = true;
+                  const bounds = ev.currentTarget.getBoundingClientRect();
+                  seek(((ev.clientX - bounds.left) / bounds.width) * duration);
+                }}
+                onPointerMove={(ev) => {
+                  if (!scrubbingRef.current) return;
+                  const bounds = ev.currentTarget.getBoundingClientRect();
+                  seek(((ev.clientX - bounds.left) / bounds.width) * duration);
+                }}
+                onPointerUp={() => {
+                  scrubbingRef.current = false;
+                }}
+                onPointerCancel={() => {
+                  scrubbingRef.current = false;
+                }}
+              >
+                <div className="ce-scrubber-fill" style={{ width: pct(currentTime) }} />
+                <div className="ce-scrubber-thumb" style={{ left: pct(currentTime) }} />
+              </div>
               <span className="ce-volume">
                 <button
                   type="button"
+                  className="ce-icon-btn"
                   aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
                   onClick={() => setMuted((m) => !m)}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />
                     {muted || volume === 0 ? (
                       <path d="M16 9.5l5 5M21 9.5l-5 5" />
@@ -1712,8 +1755,9 @@ function BrowserAnimationStep({
                   }}
                 />
               </span>
+              <span className="ce-badge-ratio">{aspect}</span>
               <span className="ce-scene">
-                {segments[activeSceneIndex] ? `Scene ${activeSceneIndex + 1} of ${segments.length} · ${segments[activeSceneIndex].label}` : ""}
+                {segments[activeSceneIndex] ? `Scene ${activeSceneIndex + 1}/${segments.length}` : ""}
               </span>
             </div>
           </div>
@@ -1936,6 +1980,39 @@ function FinalRenderStep({
   approve: () => Promise<void>;
 }) {
   const [approving, setApproving] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const scrubbingRef = useRef(false);
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(
+    job?.output?.durationSeconds ?? project.filmSeconds ?? project.beatPlan?.target_duration_s ?? project.brief?.durationSeconds ?? 30
+  );
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+
+  useEffect(() => {
+    const node = videoRef.current;
+    if (node) {
+      node.volume = volume;
+      node.muted = muted;
+    }
+  }, [volume, muted, job?.output]);
+
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) void v.play();
+    else v.pause();
+  };
+
+  const seek = (sec: number) => {
+    const clamped = Math.max(0, Math.min(duration, sec));
+    setCurrentTime(clamped);
+    const v = videoRef.current;
+    if (v) v.currentTime = clamped;
+  };
+
+  const pct = (sec: number) => `${Math.min(100, Math.max(0, (sec / Math.max(duration, 0.1)) * 100))}%`;
 
   if (job?.state === "ready" && job.output) {
     const scenes = project.beatPlan?.beats ?? [];
@@ -2025,26 +2102,38 @@ function FinalRenderStep({
                 minHeight: 0,
                 display: "flex",
                 flexDirection: "column",
+                gap: 10,
                 padding: 12
               }}
             >
               <div
                 className="ce-stage"
+                onClick={togglePlay}
                 style={{
                   flex: "1 1 0",
                   minHeight: 0,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  overflow: "hidden"
+                  overflow: "hidden",
+                  cursor: "pointer"
                 }}
               >
                 <video
+                  ref={videoRef}
                   src={outputUrl(job.output.url)}
                   poster={frames[0] ? svgSrc(frames[0]) : project.coverFrame ? svgSrc(project.coverFrame) : undefined}
-                  controls
                   playsInline
                   preload="metadata"
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                  onEnded={() => setPlaying(false)}
+                  onLoadedMetadata={(ev) => {
+                    if (ev.currentTarget.duration > 0) setDuration(ev.currentTarget.duration);
+                  }}
+                  onTimeUpdate={(ev) => {
+                    if (!scrubbingRef.current) setCurrentTime(ev.currentTarget.currentTime);
+                  }}
                   style={{
                     height: "100%",
                     maxHeight: "100%",
@@ -2053,11 +2142,106 @@ function FinalRenderStep({
                     aspectRatio: aspect === "9:16" ? "9 / 16" : aspect === "1:1" ? "1 / 1" : "16 / 9",
                     objectFit: "contain",
                     borderRadius: 14,
-                    background: "#000",
+                    background: "#05070b",
                     display: "block",
                     margin: "0 auto"
                   }}
                 />
+                {!playing && <span className="ce-hint">Click to play</span>}
+              </div>
+
+              <div className="ce-controls" style={{ flexShrink: 0 }}>
+                <button type="button" aria-label={playing ? "Pause" : "Play"} onClick={togglePlay}>
+                  {playing ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <rect x="6" y="4" width="4" height="16" rx="1" />
+                      <rect x="14" y="4" width="4" height="16" rx="1" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M8 5.14v14l11-7-11-7z" />
+                    </svg>
+                  )}
+                </button>
+                <span className="ce-clock">
+                  <b>{formatVideoTime(currentTime)}</b> / {formatVideoTime(duration)}
+                </span>
+                <div
+                  className="ce-scrubber"
+                  role="slider"
+                  tabIndex={0}
+                  aria-label="Seek video"
+                  aria-valuemin={0}
+                  aria-valuemax={duration}
+                  aria-valuenow={Math.round(currentTime * 10) / 10}
+                  onPointerDown={(ev) => {
+                    ev.currentTarget.setPointerCapture(ev.pointerId);
+                    scrubbingRef.current = true;
+                    const bounds = ev.currentTarget.getBoundingClientRect();
+                    seek(((ev.clientX - bounds.left) / bounds.width) * duration);
+                  }}
+                  onPointerMove={(ev) => {
+                    if (!scrubbingRef.current) return;
+                    const bounds = ev.currentTarget.getBoundingClientRect();
+                    seek(((ev.clientX - bounds.left) / bounds.width) * duration);
+                  }}
+                  onPointerUp={() => {
+                    scrubbingRef.current = false;
+                  }}
+                  onPointerCancel={() => {
+                    scrubbingRef.current = false;
+                  }}
+                >
+                  <div className="ce-scrubber-fill" style={{ width: pct(currentTime) }} />
+                  <div className="ce-scrubber-thumb" style={{ left: pct(currentTime) }} />
+                </div>
+                <span className="ce-volume">
+                  <button
+                    type="button"
+                    className="ce-icon-btn"
+                    aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+                    onClick={() => setMuted((m) => !m)}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none" />
+                      {muted || volume === 0 ? (
+                        <path d="M16 9.5l5 5M21 9.5l-5 5" />
+                      ) : (
+                        <>
+                          <path d="M15.5 9.2a4 4 0 010 5.6" />
+                          {volume >= 0.5 ? <path d="M18.3 6.5a8 8 0 010 11" /> : null}
+                        </>
+                      )}
+                    </svg>
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={muted ? 0 : volume}
+                    aria-label="Volume"
+                    onChange={(ev) => {
+                      const v = Number(ev.target.value);
+                      setVolume(v);
+                      setMuted(v === 0);
+                    }}
+                  />
+                </span>
+                <span className="ce-badge-ratio">{aspect}</span>
+                <button
+                  type="button"
+                  className="ce-icon-btn"
+                  aria-label="Fullscreen"
+                  title="Fullscreen"
+                  onClick={() => {
+                    void videoRef.current?.requestFullscreen?.();
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" />
+                  </svg>
+                </button>
               </div>
             </div>
           </section>
