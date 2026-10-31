@@ -55,8 +55,12 @@ try {
         first.push(hash(image));
         await writeFile(join(dir,`${width}-${t}.png`),image);
         if (width===1920 && t===1.6) {
-          assert.ok(!unique.has(hash(image)),`${look.id} visually duplicates another style`);
-          unique.add(hash(image));
+          // A generated look takes its appearance from provider footage, which a fixture does not have: the engine frame is the same
+          // for all of them, so only the natively drawn looks must differ from each other.
+          if (look.renderMode === "native") {
+            assert.ok(!unique.has(hash(image)),`${look.id} visually duplicates another style`);
+            unique.add(hash(image));
+          }
           hashes.push(hash(image));
           if (process.argv.includes("--previews") && look.preview.kind === "image" && look.preview.src.endsWith(".png")) {
             await sharp(image).resize(480,270).png().toFile(join(root,"frontend/public",look.preview.src));
