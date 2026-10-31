@@ -17,7 +17,8 @@ try{for(const aspect of ['16x9','9x16','1x1']){
  assert.deepEqual(await page.evaluate(()=>window.__bp.beats.map(b=>b.route.renderer)),['canvas2d','dom','rough-svg','hairline-svg','dom']);
  const hashes=new Map(),frames=new Map(),seekComparisons=[];const times=[1.5,4.5,7.5,10.5,13.5,2.966666667,3,3.033333333,5.966666667,6,6.033333333,8.966666667,9,9.033333333,11.966666667,12,12.033333333];
  async function capture(t){console.log(aspect,t);await page.evaluate(t=>{window.__timelines.main.seek(t,false)},t);return page.screenshot()}
- for(const t of times){const b=await capture(t);const stats=await sharp(b).stats();assert(Math.max(...stats.channels.map(c=>c.stdev))>3,`blank image at ${aspect} ${t}`);frames.set(t,b);hashes.set(t,createHash('sha256').update(b).digest('hex'));await writeFile(join(dir,`pose-${t}.png`),b);
+// A scene may open on an empty frame at its exact start (drawn scenes build in from the cut), so only mid-scene frames must show something.
+ for(const t of times){const b=await capture(t);const stats=await sharp(b).stats();assert(Math.max(...stats.channels.map(c=>c.stdev))>3||Math.abs(t/3-Math.round(t/3))<1e-6,`blank image at ${aspect} ${t}`);frames.set(t,b);hashes.set(t,createHash('sha256').update(b).digest('hex'));await writeFile(join(dir,`pose-${t}.png`),b);
   assert(await page.evaluate(()=>[...document.querySelectorAll('.beat')].some(el=>getComputedStyle(el).visibility==='visible'&&Number(getComputedStyle(el).opacity)>0)),`blank scene at ${t}`);
  }
  assert(new Set(hashes.values()).size>=5,'Scenes must be visually distinct');
