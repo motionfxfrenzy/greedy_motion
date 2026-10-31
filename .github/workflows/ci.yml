@@ -67,6 +67,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node worker/templates/beat-plan/build.mjs --check
+      # validation/ is gitignored, so the fixtures styles:check compares against are generated first
+      - run: node scripts/build-engine-fixtures.mjs
       - run: npm run styles:check
       - run: npm run skills:check
 
