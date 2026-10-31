@@ -22,41 +22,41 @@ const WORDS = ["product launches", "feature demos", "social stories", "visual ex
 const FAQS = [
   {
     q: "Do I need video-editing skills?",
-    a: "No. The guided flow asks for a goal, a short brief, and screenshots. Pros can open the same project in Studio."
+    a: "No. Pick a template or goal, enter a short brief (and optional screenshots), and Studio builds the script, storyboard, voiceover, and motion for you to review scene by scene."
   },
   {
     q: "Will it change my video without asking?",
-    a: "Never. Every requested change comes back as a proposal with a before and after. You accept or reject it."
+    a: "Never. Every requested change is scoped to the scene you select, so you can review and approve revisions before rendering your final MP4."
   },
   {
-    q: "What formats can I export?",
-    a: "MP4 in 16:9 and 9:16 today. Square 1:1 is coming soon."
+    q: "What formats and Pricing plans are available?",
+    a: "Export crisp MP4 videos in 16:9 widescreen and 9:16 vertical (Reels, Shorts, TikTok). Your first 90-second film is free with no credit card required, and paid plans start at $19/month."
   }
 ];
 
 const HOW_STEPS = [
   {
     n: "01",
-    title: "Choose a goal",
-    body: "Launch, feature spotlight, what’s new, or a stat. Length and format come recommended.",
+    title: "Choose a goal or style",
+    body: "Product launch, feature demo, visual explainer, or 9:16 social story. Format and pacing come ready.",
     bg: "var(--d-bg-f1e6ff)"
   },
   {
     n: "02",
-    title: "Add screenshots and copy",
-    body: "A short structured brief and your real product screenshots.",
+    title: "Add your brief & brand",
+    body: "Write a short prompt, import your brand kit from your website, and drop in product screenshots if you have them.",
     bg: "var(--d-bg-cce7ff)"
   },
   {
     n: "03",
-    title: "Review the storyboard",
-    body: "Five scenes before anything renders. Edit copy, timing, and motion safely.",
+    title: "Review storyboard & voice",
+    body: "Preview every scene, script beat, voiceover take, and motion preview in your browser before rendering.",
     bg: "var(--d-bg-d3f6e3)"
   },
   {
     n: "04",
-    title: "Approve and download",
-    body: "Render a draft, request changes, approve the final, download the MP4.",
+    title: "Refine and download MP4",
+    body: "Ask for scoped scene changes in plain language, approve the preview, and download the finished 1080p MP4.",
     bg: "var(--d-bg-fff2be)"
   }
 ];
@@ -783,7 +783,7 @@ export function LandingPage() {
                           key={idx}
                           type="button"
                           onClick={() => {
-                            setT(idx * 10);
+                            setT(idx * SCENE_TICKS);
                           }}
                           aria-label={`Jump to scene ${idx + 1}`}
                           style={{
@@ -837,7 +837,7 @@ export function LandingPage() {
                 maxWidth: "760px"
               }}
             >
-              From screenshots to an approved MP4.
+              From brief to an approved MP4.
             </h2>
             <p style={{ margin: 0, fontSize: "16px", color: "var(--d-tx-535862)" }}>
               Four steps. You stay in control of every one.
@@ -964,7 +964,7 @@ export function LandingPage() {
               Guardrails for everyone. Control for pros.
             </h2>
             <p style={{ margin: 0, fontSize: "16px", color: "var(--d-tx-535862)", maxWidth: "560px" }}>
-              Marketers move through a guided flow. Designers open the exact same project in Studio.
+              Move through a guided storyboard flow—from script and voiceover to live browser motion previews—in one Studio.
             </p>
           </div>
 
@@ -985,8 +985,7 @@ export function LandingPage() {
               Ask to change this
             </strong>
             <span style={{ fontSize: "16px", color: "var(--d-tx-535862)", lineHeight: 1.5 }}>
-              Pause anywhere and describe the change. You see a before and after, and nothing
-              changes until you accept.
+              Select any scene and describe the change in plain language. Every revision is scoped to that scene, and your first 3 changes per film are included.
             </span>
 
             {/* Interactive diff box */}
@@ -1088,11 +1087,10 @@ export function LandingPage() {
             }}
           >
             <strong style={{ fontSize: "21px", fontWeight: 600, letterSpacing: "-.02em" }}>
-              Studio for the details
+              Studio for every scene
             </strong>
             <span style={{ fontSize: "16px", color: "var(--d-tx-93979f)", lineHeight: 1.5 }}>
-              Timeline, layers, keyframes, and scoped AI comments. Publish a composition as a
-              locked template for your team.
+              Edit script beats, per-scene voiceover takes, visual styles, and live browser motion previews before you spend tokens on a final MP4 render.
             </span>
             <div
               style={{
@@ -1339,9 +1337,12 @@ export function LandingPage() {
               color: "var(--d-tx-93979f)"
             }}
           >
-            <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
               <img src="/brand/gm-mark.svg" alt="" style={{ height: "18px", width: "auto" }} />
-              © Greedy Motion 2026
+              © Greedy Motion 2026 · Operated by Ramolabs ·{" "}
+              <a href="mailto:support@greedymotion.com" style={{ color: "inherit", textDecoration: "underline" }}>
+                support@greedymotion.com
+              </a>
             </span>
             <PublicLinks />
           </footer>
