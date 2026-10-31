@@ -5,7 +5,7 @@
       "id": "clean",
       "version": 1,
       "recipe": "clean.json",
-      "sourceSha256": "8fe62be840463995db6d3480fb88f164b856543759191e4ee839fd7c98105651"
+      "sourceSha256": "204ec7988455d3fb7df729948fb32f3167240ed1014622af3911d0a623c629f4"
     },
     {
       "id": "sketch",

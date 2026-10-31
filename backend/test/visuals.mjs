@@ -22,7 +22,7 @@ execFileSync('ffmpeg', ['-v','error','-f','lavfi','-i','testsrc2=size=160x90:rat
 const video = await readFile(join(temp,'clip.mp4'));
 await rm(temp,{recursive:true,force:true});
 const imageBytes=await sharp({create:{width:300,height:180,channels:3,background:'#336699'}}).png().toBuffer();
-export function harness(look = 'vox-collage') {
+export function harness(look = 'paper-diorama') {
   let p = { id:'00000000-0000-4000-8000-000000000001', name:'Test', request:{theme:'neutral'}, screenshots:[], brief:{look,productName:'Test'}, beatPlan:{canvas:'16:9', beats:[{id:'hook',kind:'kinetic',keyword:'Build',line:'One action'},{id:'title',kind:'title'},{id:'cta',role:'cta',kind:'kinetic'}]} };
   const files = new Map(), calls = {image:[],submit:[],poll:[]}, queued = [];
   let time = 0, chain = Promise.resolve();

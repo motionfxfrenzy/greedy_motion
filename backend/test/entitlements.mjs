@@ -249,7 +249,11 @@ test("isolation: one user's plan is not another's, and there is no way to ask ab
 });
 
 test("script safety outside local development: a dry run by default, --by required, --yes writes", async () => {
-  const staging = { APP_ENV: "staging" };
+  // The environment guard (config.ts) refuses a staging profile that points at a local database, local disk or the offline planner,
+  // so the profile is dressed as staging; 0.0.0.0 is not on the local-host list yet reaches the same test Postgres.
+  const staging = { APP_ENV: "staging", DATABASE_URL: process.env.DATABASE_URL.replace(/@[^:/]+/, "@0.0.0.0"), PLANNER: "anthropic", ANTHROPIC_API_KEY: "offline-test-never-sent",
+    STORAGE_DRIVER: "r2", R2_ENDPOINT: "https://example.r2.cloudflarestorage.com", R2_ACCESS_KEY_ID: "a", R2_SECRET_ACCESS_KEY: "b", R2_UPLOADS_BUCKET: "u", R2_OUTPUTS_BUCKET: "o",
+    AUTH_MODE: "supabase", SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co", MEDIA_URL_SECRET: "x".repeat(40) };
   let result = await script(["grant", DAVE], staging);
   assert.equal(result.code, 1, result.out);
   assert.match(result.out, /--by/);

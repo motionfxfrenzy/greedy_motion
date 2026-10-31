@@ -14,7 +14,7 @@ const { getProject, updateProjectVisuals } = await import('../src/projects/store
 const { enqueueVisuals, produceVisuals } = await import('../src/plan/visuals.ts');
 const brandId=randomUUID();
 const id=randomUUID(),owner=randomUUID(),now=new Date().toISOString();
-const project={id,ownerId:owner,name:'Material queue test',state:'Draft storyboard',createdAt:now,updatedAt:now,request:{theme:'neutral',template:'product-launch',format:'landscape',style:'kinetic'},screenshots:[],comments:[],brief:{look:'vox-collage'},beatPlan:{canvas:'16:9',beats:[{id:'b1',kind:'kinetic',keyword:'Build'}]}};
+const project={id,ownerId:owner,name:'Material queue test',state:'Draft storyboard',createdAt:now,updatedAt:now,request:{theme:'neutral',template:'product-launch',format:'landscape',style:'kinetic'},screenshots:[],comments:[],brief:{look:'paper-diorama'},beatPlan:{canvas:'16:9',beats:[{id:'b1',kind:'kinetic',keyword:'Build'}]}};
 const deps={get:getProject,update:updateProjectVisuals,read:async()=>null,save:async()=>{},wait:async()=>{},palette:async()=>'',references:async()=>[],enqueue:(projectId,runId)=>boss.send(QUEUES.visuals,{projectId,runId},{db:{executeSql:(sql,values)=>query(sql,values)}})};
 const count=async()=>Number((await query("select count(*) from pgboss.job where name=$1 and data->>'projectId'=$2",[QUEUES.visuals,id])).rows[0].count);
 try {

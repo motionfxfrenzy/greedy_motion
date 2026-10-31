@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 process.env.PLANNER ??= "deterministic";
 process.env.DATABASE_URL ??= "postgres://unused@127.0.0.1:1/unused";
 Object.assign(process.env, {
-  WORKER_LAUNCH: "ecs", ECS_REGION: "ap-southeast-1", ECS_CLUSTER: "greedymotion-staging",
+  ALLOW_CLOUD_IN_LOCAL: "1", WORKER_LAUNCH: "ecs", ECS_REGION: "ap-southeast-1", ECS_CLUSTER: "greedymotion-staging",
   ECS_WORKER_TASK_DEFINITION: "greedymotion-staging-worker", ECS_SUBNETS: "subnet-a, subnet-b", ECS_SECURITY_GROUPS: "sg-1",
   ECS_WORKER_CONCURRENCY: "2", ECS_WORKER_MAX_TASKS: "3", AWS_ACCESS_KEY_ID: "test", AWS_SECRET_ACCESS_KEY: "test"
 });

@@ -147,7 +147,7 @@ if (flag("gates")) {
     await writeFile(join(project, "meta.json"), JSON.stringify({ id: skill.name, name: skill.name }));
     const run = (label, cmd, args) => { const r = spawnSync(cmd, args, { cwd: project, encoding: "utf8" }); const text = (r.stdout || "") + (r.stderr || ""); console.log(`\n== ${skill.name}: ${label} (exit ${r.status})\n${text.trim().split("\n").slice(-6).join("\n")}`); return r.status === 0; };
     const gates = join(root, ".claude/skills/gm-skill-authoring/scripts");
-    settle("check", run("hyperframes check", join(root, "worker/node_modules/.bin/hyperframes"), ["check"]));
+    settle("check", run("hyperframes check", [join(root, "worker/node_modules/.bin/hyperframes"), join(root, "node_modules/.bin/hyperframes")].find(existsSync) ?? "hyperframes", ["check"]));
     settle("seek-safety", run("seek safety", process.execPath, [join(gates, "seek_safety.mjs"), "--project", project, "--frames", "--require-motion"]));
     settle("text-size", run("text-size floors", process.execPath, [join(gates, "text_size_gate.mjs"), "--project", project, "--step", "0.5"]));
     await rm(dir, { recursive: true, force: true });
