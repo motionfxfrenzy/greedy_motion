@@ -203,6 +203,7 @@ export const config = {
   hyperframesRuntimePath: resolve(process.env.HYPERFRAMES_RUNTIME_PATH ?? resolve(repositoryDir, "node_modules", "hyperframes", "dist", "hyperframe-runtime.js")),
   gsapPath: resolve(process.env.GSAP_PATH ?? resolve(repositoryDir, "node_modules", "gsap", "dist", "gsap.min.js")),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+  creemApiKey: process.env.CREEM_API_KEY || "",
   // Google Gemini API: Lyria background music and Gemini TTS voiceover. Optional; audio options need it.
   visualImageModel: process.env.VISUAL_IMAGE_MODEL || "gemini-3.1-flash-image",
   visualVideoModel: process.env.VISUAL_VIDEO_MODEL || "veo-3.1-fast-generate-preview",

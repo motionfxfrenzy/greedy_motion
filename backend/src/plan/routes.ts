@@ -30,6 +30,7 @@ import { textValues } from "./composition.ts";
 import { planPreviewHtml, projectTiming } from "./preview.ts";
 import { beatTimes } from "./timing.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
+import { ensurePromptAllowed } from "../moderation/creem.ts";
 
 const notFound = { error: { code: "not_found", message: "Project not found." } };
 
@@ -248,6 +249,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const instruction = typeof request.body?.instruction === "string" ? request.body.instruction.trim().slice(0, 400) : "";
     const previous = parseScriptBeats(request.body?.previous) ?? undefined;
     if (instruction && !previous) return reply.code(400).send({ error: { code: "invalid_script", message: "Send the current script with the change." } });
+    if (!(await ensurePromptAllowed(reply, [parsed.brief.text, parsed.brief.productName, instruction], `project_${project.id}:script_stream`))) return;
     const only = previous && Array.isArray(request.body?.only)
       ? [...new Set(request.body.only.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < previous.length))].sort((a, b) => a - b)
       : [];
@@ -295,6 +297,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
     const beats = parseScriptBeats(request.body?.beats);
     if (!beats) return reply.code(400).send({ error: { code: "invalid_script", message: "Send the script to draw." } });
+    if (!(await ensurePromptAllowed(reply, [parsed.brief.text, ...beats.map((b) => [b.keyword, b.onScreen, b.line, b.visual].filter(Boolean).join(" "))], `project_${project.id}:script_frames`))) return;
     const wanted = Array.isArray(request.body?.indices)
       ? [...new Set(request.body.indices.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < beats.length))]
       : beats.map((_, i) => i);
@@ -715,6 +718,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const parsed = parseScriptBrief(request.body);
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
     const brief = parsed.brief;
+    if (!(await ensurePromptAllowed(reply, [brief.text, brief.productName], `project_${project.id}:plan`))) return;
     const { context, videoType, brandId } = await directorContextFor(project, brief);
     const started = await setProjectPlanning(project.id, { status: "running", startedAt: new Date().toISOString() }, brief);
     if (!started) return reply.code(404).send(notFound);
@@ -812,6 +816,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (!project.beatPlan || !beat) return reply.code(404).send({ error: { code: "not_found", message: "Frame not found." } });
     const instruction = typeof request.body?.instruction === "string" ? plainText(request.body.instruction).slice(0, 300).trim() : "";
     if (instruction.length < 3) return reply.code(400).send({ error: { code: "invalid_instruction", message: "Say what to change in a few words." } });
+    if (!(await ensurePromptAllowed(reply, [instruction], `project_${project.id}:beat_rewrite_${beat.id}`))) return;
     let rewrite;
     try { rewrite = await rewriteBeat(project.beatPlan, beat, instruction, project.brief); }
     catch (error) { return reply.code(502).send({ error: { code: "rewrite_failed", message: error instanceof Error ? error.message : "Could not rewrite the frame." } }); }

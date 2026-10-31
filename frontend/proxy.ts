@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { APP_ORIGIN, APP_PATH, SITE_ORIGIN, hostsSplit } from "./lib/hosts";
 import { updateSession } from "./utils/supabase/middleware";
 
-const MARKETING_PATH = /^\/(about|contact|pricing|privacy|terms|refunds|coming-soon)(\/|$)/;
-const SITE_ONLY_PATH = /^\/(about|contact|privacy|terms|refunds|coming-soon)(\/|$)/;
+const MARKETING_PATH = /^\/(about|contact|pricing|privacy|terms|acceptable-use|refunds|coming-soon)(\/|$)/;
+const SITE_ONLY_PATH = /^\/(about|contact|privacy|terms|acceptable-use|refunds|coming-soon)(\/|$)/;
 
 // Landing and app are one deployment on two hosts: product paths on the landing host go to the app host, and the landing
 // page and policies on the app host go to the landing host. `/pricing` is served on both hosts so signed-in users on the
@@ -55,5 +55,5 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Only guarded pages need session validation. API requests are authenticated by the backend;
   // public pages and assets should never wait for an auth round trip.
-  matcher: ["/", "/about", "/contact", "/pricing", "/privacy", "/terms", "/refunds", "/coming-soon", "/studio/:path*", "/app/:path*", "/templates", "/brand-kits", "/library", "/profile", "/editor/:path*", "/auth"],
+  matcher: ["/", "/about", "/contact", "/pricing", "/privacy", "/terms", "/acceptable-use", "/refunds", "/coming-soon", "/studio/:path*", "/app/:path*", "/templates", "/brand-kits", "/library", "/profile", "/editor/:path*", "/auth"],
 };

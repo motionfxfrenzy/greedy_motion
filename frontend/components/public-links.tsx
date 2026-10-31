@@ -7,6 +7,7 @@ export function PublicLinks() {
       <Link href="/about">About</Link>
       <Link href="/privacy">Privacy</Link>
       <Link href="/terms">Terms</Link>
+      <Link href="/acceptable-use">Acceptable use</Link>
       <Link href="/refunds">Refunds &amp; cancellation</Link>
       <Link href="/contact">Contact</Link>
     </nav>

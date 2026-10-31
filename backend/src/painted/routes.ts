@@ -19,6 +19,7 @@ import {
 } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
+import { ensurePromptAllowed } from "../moderation/creem.ts";
 import { pool } from "../db/database.ts";
 import { QUEUES } from "../jobs/queues.ts";
 import { ensureMedia, readMedia } from "../media.ts";
@@ -286,6 +287,7 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
     const existingId = typeof body.projectId === "string" && /^[0-9a-f-]{36}$/i.test(body.projectId) ? body.projectId : null;
     const existing = existingId ? await getProject(existingId) : null;
     if (existing && existing.ownerId !== owner) return reply.code(404).send(fail("not_found", "Project not found."));
+    if (!(await ensurePromptAllowed(reply, [text, musicMood], `user_${owner}:painted_storyboard`))) return;
 
     // If the project already has a storyboard/animation for the same script and the user didn't ask to regenerate from scratch,
     // keep the existing storyboard and animation and only update look/aspect/drawIn!
@@ -558,6 +560,7 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
     if (!comments.length || comments.length > MAX_COMMENTS) {
       return reply.code(400).send(fail("invalid_request", `Comment on 1 to ${MAX_COMMENTS} scenes.`));
     }
+    if (!(await ensurePromptAllowed(reply, comments.map((c) => c.text), `project_${project.id}:painted_changes`))) return;
 
     const busy = {
       status: "running" as const,
