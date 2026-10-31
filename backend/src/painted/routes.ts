@@ -820,6 +820,7 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
     const drawIn: PaintedDrawMode = paintedDrawModes.includes(body.drawIn as PaintedDrawMode) ? (body.drawIn as PaintedDrawMode) : "opening";
 
     const owner = callerId(request);
+    if (!(await ensurePromptAllowed(reply, [script], `user_${owner}:painted_film`))) return;
     const active = await pool.query<{ n: string }>(
       "select count(*) as n from app.render_jobs where owner_id = $1 and request->>'kind' = 'painted' and state in ('queued', 'planning', 'rendering')",
       [owner]
@@ -879,6 +880,7 @@ export async function registerPaintedRoutes(app: FastifyInstance) {
       return Number.isInteger(line) && line >= 0 && line < lineCount && text.length >= 3 ? [{ line, say: text.slice(0, 300) }] : [];
     });
     if (!comments.length || comments.length > MAX_COMMENTS) return reply.code(400).send(fail("invalid_request", `Comment on 1 to ${MAX_COMMENTS} scenes.`));
+    if (!(await ensurePromptAllowed(reply, comments.map((c) => c.say), `film_${request.params.id}:painted_film_changes`))) return;
     const active = await pool.query<{ n: string }>(
       "select count(*) as n from app.render_jobs where owner_id = $1 and request->>'kind' = 'painted' and state in ('queued', 'planning', 'rendering')",
       [owner]

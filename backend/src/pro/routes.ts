@@ -1,3 +1,4 @@
+import { ensurePromptAllowed } from "../moderation/creem.ts";
 import { isAuthorStage } from "../author-skills/bundle.ts";
 import { proposeCompositionEdit } from "./assistant.ts";
 import { randomUUID } from "node:crypto";
@@ -301,6 +302,7 @@ function registerEditorRoutes(app: FastifyInstance) {
       const { task, target, html, stage } = request.body ?? {};
       if (stage !== undefined && !isAuthorStage(stage)) return fail(reply, 400, "invalid_request", "Unknown author stage.");
       if (typeof task !== "string" || typeof target !== "string" || typeof html !== "string" || task.length > 1200 || target.length > 200 || html.length > 2_000_000) return fail(reply, 400, "invalid_request", "Send a task, selected target and current composition HTML.");
+      if (!(await ensurePromptAllowed(reply, [task], `project_${project.id}:pro_assist`))) return reply;
       return await proposeCompositionEdit(task, target, html, fetch, stage);
     } catch (error) {
       if (error instanceof ProConflict || error instanceof ProInvalid || error instanceof NotEntitled) return mapError(reply, error);

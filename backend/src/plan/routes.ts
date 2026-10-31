@@ -764,6 +764,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (!project) return reply.code(404).send(notFound);
     const parsed = parseScriptBrief(request.body);
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
+    if (!(await ensurePromptAllowed(reply, [parsed.brief.text, parsed.brief.productName], `project_${project.id}:script_draft`))) return;
     try {
       // The words come from the problem text here; a pasted script is already a script.
       const brief = { ...parsed.brief, scriptMode: "problem" as const };
@@ -786,6 +787,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (instruction.length < 3) return reply.code(400).send({ error: { code: "invalid_instruction", message: "Say what to change." } });
     const parsed = parseScriptBrief(request.body?.brief);
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
+    if (!(await ensurePromptAllowed(reply, [instruction, parsed.brief.text, parsed.brief.productName], `project_${project.id}:script_revise`))) return;
     try {
       const brief = { ...parsed.brief, scriptMode: "problem" as const };
       const { context } = await directorContextFor(project, brief);

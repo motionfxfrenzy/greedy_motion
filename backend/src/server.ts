@@ -1,3 +1,4 @@
+import { ensurePromptAllowed } from "./moderation/creem.ts";
 import { loadAuthorSkills } from "./author-skills/bundle.ts";
 import { startVisualConsumers } from "./plan/visuals.ts";
 import { randomUUID } from "node:crypto";
@@ -186,6 +187,8 @@ app.get("/v1/projects", async (request) => ({ projects: await listProjects(calle
 
 app.post("/v1/projects", async (request, reply) => {
   try {
+    const requested = (request.body as { request?: { prompt?: unknown } } | undefined)?.request?.prompt;
+    if (typeof requested === "string" && !(await ensurePromptAllowed(reply, [requested], `user_${callerId(request)}:project_create`))) return;
     return reply.code(201).send(await createProject(request.body as { name?: unknown; request?: unknown }, callerId(request)));
   } catch (error) {
     return projectError(reply, error);
@@ -338,6 +341,8 @@ app.put<{ Params: { id: string } }>("/v1/projects/:id/approve", async (request, 
 
 app.post<{ Params: { id: string } }>("/v1/projects/:id/comments", async (request, reply) => {
   try {
+    const note = (request.body as { body?: unknown } | undefined)?.body;
+    if (typeof note === "string" && !(await ensurePromptAllowed(reply, [note], `project_${request.params.id}:review_comment`))) return;
     const project = await addReviewComment(request.params.id, request.body);
     return project ? reply.code(201).send(project) : reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
   } catch (error) {
@@ -412,7 +417,9 @@ app.post("/v1/render-jobs", async (request, reply) => {
   if (!renderRequest) {
     return reply.code(400).send({ error: { code: "invalid_request", message: "Write a prompt between 12 and 600 characters and choose a supported format and motion system." } });
   }
-  return reply.code(202).send(await renderService.create(renderRequest, { ownerId: callerId(request) }));
+  const owner = callerId(request);
+  if (!(await ensurePromptAllowed(reply, [renderRequest.prompt], `user_${owner}:render_job`))) return;
+  return reply.code(202).send(await renderService.create(renderRequest, { ownerId: owner }));
 });
 
 app.get<{ Params: { id: string } }>("/v1/render-jobs/:id", async (request, reply) => {

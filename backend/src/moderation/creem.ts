@@ -32,12 +32,16 @@ type CreemModerationResponse = {
  *
  * - Blocks both `deny` and `flag` decisions (`PromptRejectedError` -> 400).
  * - Fails closed on network/HTTP timeouts or unexpected responses (`ModerationUnavailableError` -> 503).
- * - No-ops only in local/test environments when `CREEM_API_KEY` is not set.
+ * - A missing `CREEM_API_KEY` fails closed (503) in staging and production; it is skipped only when APP_ENV is local.
  */
 export async function screenPromptWithCreem(promptText: string, externalId: string): Promise<void> {
   const key = config.creemApiKey.trim();
   const cleaned = promptText.replace(/\s+/g, " ").trim();
-  if (!key || !cleaned) return;
+  if (!cleaned) return;
+  if (!key) {
+    if (config.appEnv === "local") return;
+    throw new ModerationUnavailableError();
+  }
 
   const baseUrl = key.startsWith("creem_test_") ? "https://test-api.creem.io" : "https://api.creem.io";
   let data: CreemModerationResponse;
