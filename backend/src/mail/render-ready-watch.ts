@@ -17,8 +17,9 @@ const log = (level: "info" | "warn", event: string, fields: Record<string, unkno
   console[level === "info" ? "log" : level](JSON.stringify({ level, event, ...fields }));
 
 // A person's address and name come from Supabase's auth.users; a local Postgres has none, so no email goes out there.
-const SELECT = `select j.id, j.owner_id, nullif(j.revision->>'title', '') as title, u.email, nullif(u.raw_user_meta_data->>'full_name', '') as name
-  from app.render_jobs j join auth.users u on u.id = j.owner_id`;
+// A final render started from a project has no owner of its own: the owner is the project's.
+const SELECT = `select j.id, u.id as owner_id, coalesce(nullif(j.revision->>'title', ''), nullif(p.name, '')) as title, u.email, nullif(u.raw_user_meta_data->>'full_name', '') as name
+  from app.render_jobs j left join app.projects p on p.id = j.project_id join auth.users u on u.id = coalesce(j.owner_id, p.owner_id)`;
 
 async function authUsersPresent() {
   return Boolean((await query<{ present: boolean }>("select to_regclass('auth.users') is not null as present")).rows[0]?.present);
@@ -61,14 +62,14 @@ export function startRenderReadyEmails(overrides: { deps?: Partial<ReadyDeps> } 
 
   const onFinished = async (id: string) => {
     if (!(await ready())) return;
-    const { rows } = await query<Row>(`${SELECT} where j.id = $1 and j.state = 'ready' and j.owner_id is not null`, [id]).catch((error) => { log("warn", "render_ready_email_lookup_failed", { jobId: id, message: error instanceof Error ? error.message : String(error) }); return { rows: [] as Row[] }; });
+    const { rows } = await query<Row>(`${SELECT} where j.id = $1 and j.state = 'ready'`, [id]).catch((error) => { log("warn", "render_ready_email_lookup_failed", { jobId: id, message: error instanceof Error ? error.message : String(error) }); return { rows: [] as Row[] }; });
     if (rows[0]) await deliver(rows[0]);
   };
 
   const pass = async () => {
     if (!(await ready())) return;
     const { rows } = await query<Row>(
-      `${SELECT} where j.state = 'ready' and j.owner_id is not null and j.updated_at > now() - interval '${LOOKBACK}'
+      `${SELECT} where j.state = 'ready' and j.updated_at > now() - interval '${LOOKBACK}'
          and not exists (select 1 from app.render_ready_emails e where e.job_id = j.id) order by j.updated_at limit 25`
     ).catch((error) => { log("warn", "render_ready_email_pass_failed", { message: error instanceof Error ? error.message : String(error) }); return { rows: [] as Row[] }; });
     for (const row of rows) await deliver(row);
