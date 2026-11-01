@@ -44,6 +44,7 @@ export function startRenderReadyEmails(overrides: { deps?: Partial<ReadyDeps> } 
     try {
       const outcome = await sendRenderReady(job, deps);
       if (outcome.status === "sent") log("info", "render_ready_email_sent", { jobId: job.id, provider: outcome.provider });
+      else if (outcome.status === "no_email") log("warn", "render_ready_email_skipped", { jobId: job.id, reason: "the account has no email address" });
     } catch (error) {
       log("warn", "render_ready_email_failed", { jobId: job.id, message: error instanceof MailError ? error.message : error instanceof Error ? error.message : String(error) });
     }
@@ -51,13 +52,16 @@ export function startRenderReadyEmails(overrides: { deps?: Partial<ReadyDeps> } 
 
   const ready = async () => {
     if (!configured || stopped) return false;
-    usable ??= await authUsersPresent().catch(() => false);
+    if (usable === null) {
+      usable = await authUsersPresent().catch((error) => { log("warn", "render_ready_email_off", { reason: "could not look for auth.users", message: error instanceof Error ? error.message : String(error) }); return false; });
+      if (!usable) log("warn", "render_ready_email_off", { reason: "this database has no auth.users, so there are no addresses to mail" });
+    }
     return usable;
   };
 
   const onFinished = async (id: string) => {
     if (!(await ready())) return;
-    const { rows } = await query<Row>(`${SELECT} where j.id = $1 and j.state = 'ready' and j.owner_id is not null`, [id]).catch(() => ({ rows: [] as Row[] }));
+    const { rows } = await query<Row>(`${SELECT} where j.id = $1 and j.state = 'ready' and j.owner_id is not null`, [id]).catch((error) => { log("warn", "render_ready_email_lookup_failed", { jobId: id, message: error instanceof Error ? error.message : String(error) }); return { rows: [] as Row[] }; });
     if (rows[0]) await deliver(rows[0]);
   };
 
@@ -66,13 +70,15 @@ export function startRenderReadyEmails(overrides: { deps?: Partial<ReadyDeps> } 
     const { rows } = await query<Row>(
       `${SELECT} where j.state = 'ready' and j.owner_id is not null and j.updated_at > now() - interval '${LOOKBACK}'
          and not exists (select 1 from app.render_ready_emails e where e.job_id = j.id) order by j.updated_at limit 25`
-    ).catch(() => ({ rows: [] as Row[] }));
+    ).catch((error) => { log("warn", "render_ready_email_pass_failed", { message: error instanceof Error ? error.message : String(error) }); return { rows: [] as Row[] }; });
     for (const row of rows) await deliver(row);
   };
 
   renderEvents.observe((notice) => { if (notice.stage === "done") void onFinished(notice.id); });
   timer = setInterval(() => void pass(), PASS_EVERY_MS);
   timer.unref();
+  // Once shortly after start too, so a film that finished while the backend was restarting is mailed within a minute.
+  setTimeout(() => void pass(), 30_000).unref();
   if (!configured) log("warn", "render_ready_email_off", { reason: "RESEND_API_KEY and BREVO_API_KEY are not set" });
 
   return { pass, onFinished, stop() { stopped = true; if (timer) clearInterval(timer); } };
