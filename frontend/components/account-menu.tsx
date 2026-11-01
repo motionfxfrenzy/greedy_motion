@@ -10,20 +10,41 @@ import { ThemeChoicePicker } from "./theme-choice";
 
 export type Account = { name: string; email: string; initial: string };
 
+type SessionUser = { email?: string | null; user_metadata?: Record<string, unknown> | null };
+
+function accountOf(user: SessionUser): Account {
+  const meta = user.user_metadata ?? {};
+  const email = user.email ?? "";
+  const name = String(meta.full_name ?? meta.name ?? "").trim() || email.split("@")[0] || "Account";
+  return { name, email, initial: name.slice(0, 1).toUpperCase() };
+}
+
+// One lookup shared by every component on the page, and kept while the person moves between pages.
+let known: Account | null = null;
+let lookup: Promise<void> | null = null;
+const listeners = new Set<(account: Account) => void>();
+const publish = (account: Account) => { known = account; listeners.forEach((listen) => listen(account)); };
+
+/** Show the stored session at once (no network), then confirm it with the auth server in the background. */
+function lookUp(): void {
+  if (lookup) return;
+  const auth = createClient().auth;
+  lookup = (async () => {
+    const { data } = await auth.getSession();
+    if (data.session?.user) publish(accountOf(data.session.user));
+    const { data: checked } = await auth.getUser();
+    if (checked.user) publish(accountOf(checked.user));
+  })().catch(() => undefined).finally(() => { lookup = null; });
+}
+
 /** The signed-in person, read from the session. `null` until it is known. */
 export function useAccount(): Account | null {
-  const [account, setAccount] = useState<Account | null>(null);
+  const [account, setAccount] = useState<Account | null>(known);
   useEffect(() => {
-    let live = true;
-    void createClient().auth.getUser().then(({ data }) => {
-      const user = data.user;
-      if (!live || !user) return;
-      const meta = user.user_metadata ?? {};
-      const email = user.email ?? "";
-      const name = String(meta.full_name ?? meta.name ?? "").trim() || email.split("@")[0] || "Account";
-      setAccount({ name, email, initial: name.slice(0, 1).toUpperCase() });
-    }).catch(() => undefined);
-    return () => { live = false; };
+    listeners.add(setAccount);
+    if (known) setAccount(known);
+    if (!known) lookUp();
+    return () => { listeners.delete(setAccount); };
   }, []);
   return account;
 }

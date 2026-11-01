@@ -894,3 +894,15 @@ button.sc-num[aria-pressed="true"]{border-color:var(--blue);background:var(--blu
 .paddle-tier ul { margin: 0; padding-left: 1.1rem; }
 .paddle-error { color: #b42318; }
 .paddle-fine { max-width: 48rem; margin: 1.5rem auto 0; text-align: center; font-size: .875rem; opacity: .8; }
+
+
+/* Plan buttons: an outlined blue button that reads as clickable in light and dark, and answers on hover, press and keyboard focus. */
+.plan-action .secondary-button { border: 1.5px solid color-mix(in srgb, var(--blue) 60%, var(--line)); color: var(--blue); font-weight: 700; box-shadow: 0 1px 2px rgba(10,13,18,.12); transition: background-color .18s, color .18s, border-color .18s, box-shadow .18s, transform .18s; }
+.plan-action a.secondary-button, .plan-action a.here-btn { color: var(--blue); }
+.plan-action .secondary-button:hover:not(:disabled), .plan-action a.secondary-button:hover { border-color: var(--blue); background: var(--blue); color: var(--canvas); box-shadow: 0 8px 20px color-mix(in srgb, var(--blue) 32%, transparent); transform: translateY(-1px); }
+.plan-action .secondary-button:active:not(:disabled) { transform: translateY(0); box-shadow: 0 1px 2px rgba(10,13,18,.2); }
+.plan-action .accent-button { transition: filter .18s, box-shadow .18s, transform .18s; }
+.plan-action .accent-button:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 8px 22px color-mix(in srgb, var(--blue) 40%, transparent); }
+.plan-action .accent-button:active:not(:disabled) { transform: translateY(0); }
+.plan-action .secondary-button:focus-visible, .plan-action .accent-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .plan-action .secondary-button, .plan-action .accent-button { transition: none; transform: none !important; } }
