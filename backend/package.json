@@ -15,6 +15,7 @@
     "test:brand-files": "node --env-file-if-exists=.env test/brand-files.mjs",
     "test:media": "node test/media.mjs",
     "test:mail": "node test/mail.mjs",
+    "test:render-ready-email": "node --env-file-if-exists=.env test/render-ready-email.mjs",
     "backfill:media": "node --env-file-if-exists=.env scripts/backfill-media.ts",
     "test:formats": "node test/formats.mjs",
     "test:pro": "node test/pro.mjs",

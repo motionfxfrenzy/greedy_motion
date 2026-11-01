@@ -139,3 +139,39 @@ export function welcomeEmail({ to, name, appUrl }: WelcomeEmailInput): MailMessa
 
   return { to, subject, html, text };
 }
+
+export type RenderReadyEmailInput = { to: string; name?: string; title?: string; appUrl: string };
+
+/** Sent once when a render finishes: the film's name and a button to the library, where it plays and downloads. */
+export function renderReadyEmail({ to, name, title, appUrl }: RenderReadyEmailInput): MailMessage {
+  const film = (title ?? "").trim().slice(0, 120);
+  const subject = film ? `Your film "${film}" is ready` : "Your film is ready";
+  const hello = name ? `Hi ${esc(name)},` : "Hi,";
+  const open = `${appUrl.replace(/\/$/, "")}/library`;
+  const lead = film ? `"${film}" has finished rendering. Open your library to watch it and download the video.` : "Your film has finished rendering. Open your library to watch it and download the video.";
+
+  const html = frame({
+    title: subject,
+    preheader: "Your video is ready to watch and download.",
+    rows: `<tr><td style="font-family:${font};font-size:24px;line-height:30px;font-weight:800;color:#0a0d12;padding:0 0 12px">Your film is ready</td></tr>
+        <tr><td style="font-family:${font};font-size:15px;line-height:24px;color:#52525b;padding:0 0 24px">${hello}<br>${esc(lead)}</td></tr>
+        <tr><td align="center" style="padding:8px 0 28px">${bluePill(open, "Watch and download")}</td></tr>
+        <tr><td style="padding:22px 0 0;border-top:1px solid #e1eaf4;font-family:${font};font-size:14px;line-height:22px;color:#52525b">Anything not right with the film? Reply to this email and our support team will help.</td></tr>`,
+    footer: `This was sent to ${esc(to)} because a film you rendered on GreedyMotion finished. Replying to this email reaches our support team.`
+  });
+
+  const text = [
+    "Your film is ready",
+    "",
+    `${name ? `Hi ${name},` : "Hi,"} ${lead}`,
+    "",
+    `Watch and download: ${open}`,
+    "",
+    "Anything not right with the film? Reply to this email and our support team will help.",
+    "",
+    `This was sent to ${to} because a film you rendered on GreedyMotion finished. Replying to this email reaches our support team.`,
+    `GreedyMotion · ${SITE_URL}`
+  ].join("\n");
+
+  return { to, subject, html, text };
+}

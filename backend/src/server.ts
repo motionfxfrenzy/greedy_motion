@@ -33,6 +33,7 @@ import { registerEntitlementRoutes } from "./entitlements/routes.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerBillingRoutes } from "./billing/routes.ts";
 import { registerMailRoutes } from "./mail/routes.ts";
+import { startRenderReadyEmails } from "./mail/render-ready-watch.ts";
 import { InsufficientTokens, refundSpend, spendTokens } from "./tokens/store.ts";
 import { PLANS, renderCostMillitokens } from "./tokens/plan.ts";
 import { grantDueAnnualTokens, tierFor } from "./billing/service.ts";
@@ -573,6 +574,7 @@ async function shutdown(signal: string) {
   await waitForPlans(Number(process.env.PLAN_DRAIN_SECONDS ?? 150) * 1000);
   // Let in-flight planning finish; anything left is redelivered to another replica after its heartbeat lapses.
   await boss.stop({ graceful: true, timeout: 20_000 }).catch(() => undefined);
+  renderReadyEmails.stop();
   await renderEvents.stop();
   await pool.end().catch(() => undefined);
   process.exit(0);
@@ -586,6 +588,7 @@ await startQueues();
 await renderService.startConsumers();
 await startVisualConsumers();
 renderEvents.start();
+const renderReadyEmails = startRenderReadyEmails();
 startWorkerSweep();
 startSweep(() => grantDueAnnualTokens(), 60_000, 3_600_000);
 await app.listen({ port: config.port, host: config.host });
