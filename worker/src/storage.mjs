@@ -12,7 +12,7 @@ const need = (name) => process.env[name] || (() => { throw new Error(`${name} is
 const cfg = storageEnabled
   ? { endpoint: need("R2_ENDPOINT"), accessKeyId: need("R2_ACCESS_KEY_ID"), secretAccessKey: need("R2_SECRET_ACCESS_KEY"), uploads: need("R2_UPLOADS_BUCKET"), outputs: need("R2_OUTPUTS_BUCKET") }
   : null;
-const client = cfg ? new S3Client({ region: "auto", endpoint: cfg.endpoint, credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey } }) : null;
+const client = cfg ? new S3Client({ region: "auto", endpoint: cfg.endpoint, forcePathStyle: process.env.R2_FORCE_PATH_STYLE === "1", credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey } }) : null;
 
 async function list(bucket, prefix) {
   const keys = [];
@@ -98,4 +98,29 @@ export async function getFile(key, file) {
     if (error?.name === "NoSuchKey" || error?.$metadata?.httpStatusCode === 404) return false;
     throw error;
   }
+}
+
+// ---------- Plate artifacts (worker/src/plates.mjs) ----------
+// The backend writes authored sources, bundles, manifests and audio to the uploads bucket; the worker writes stills, scene
+// clips and finished exports to the outputs bucket. Keys are checked against one shape, so a row can never point the worker
+// at another project's objects or outside the plate folders.
+const PLATE_KEY = /^plates\/([a-f0-9-]{36})\/[A-Za-z0-9_./-]+$/i;
+export const plateKeyOk = (key, projectId) => typeof key === "string" && !key.includes("..") && PLATE_KEY.exec(key)?.[1] === projectId;
+
+async function toFile(bucket, key, file) {
+  const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  await mkdir(dirname(file), { recursive: true });
+  await pipeline(response.Body, createWriteStream(file));
+  return file;
+}
+export const downloadPlateInput = (key, file) => toFile(cfg.uploads, key, file);
+export const downloadPlateOutput = (key, file) => toFile(cfg.outputs, key, file);
+
+/** Uploads to the outputs bucket and verifies the stored size before the caller publishes the key. */
+export async function uploadPlateOutput(file, key, contentType) {
+  const { size } = await stat(file);
+  await client.send(new PutObjectCommand({ Bucket: cfg.outputs, Key: key, Body: createReadStream(file), ContentLength: size, ContentType: contentType }));
+  const head = await client.send(new HeadObjectCommand({ Bucket: cfg.outputs, Key: key }));
+  if (head.ContentLength !== size) throw new Error("Uploaded file size does not match.");
+  return size;
 }

@@ -6,7 +6,7 @@ import { readMedia } from "../media.ts";
 
 export const digest = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 export const visualDir = (id: string) => join(config.projectsDir, id, "visuals");
-export const materialBeats = (p: VideoProject) => getLook(p.brief?.look).renderMode === "generated" ? (p.beatPlan?.beats.filter(b => b.kind !== "title" && b.role !== "cta") ?? []) : [];
+export const materialBeats = (p: VideoProject) => !p.brief?.look?.startsWith("illus-") && getLook(p.brief?.look).renderMode === "generated" ? (p.beatPlan?.beats.filter(b => b.kind !== "title" && b.role !== "cta") ?? []) : [];
 export const visualFingerprint = (p: VideoProject) => {
   const look = getLook(p.brief?.look);
   return digest(JSON.stringify({

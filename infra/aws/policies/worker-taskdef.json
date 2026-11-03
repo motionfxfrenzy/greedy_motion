@@ -50,6 +50,10 @@
           "value": "25"
         },
         {
+          "name": "PLATE_CONCURRENCY",
+          "value": "1"
+        },
+        {
           "name": "HYPERFRAMES_NO_TELEMETRY",
           "value": "1"
         },

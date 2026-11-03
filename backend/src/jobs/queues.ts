@@ -20,7 +20,14 @@ export const QUEUES = {
   videoDead: "render-video-dead",
   // Story films in a painted (oil) look: they need a GPU, so they run on their own workers (WORKER_QUEUE=gpu), never on the CPU pool.
   videoGpu: "render-video-gpu",
-  finished: "render-finished"
+  finished: "render-finished",
+  // Plate scenes (plates/): authoring runs in the backend, verification + rendering + export on the worker. Messages carry
+  // only { variantId, gen } / { exportId }; consumers reload the row and act only if their fence still matches.
+  plateAuthor: "plate-author",
+  plateAuthorDead: "plate-author-dead",
+  plateRender: "plate-render",
+  plateRenderDead: "plate-render-dead",
+  plateExport: "plate-export"
 } as const;
 
 export type RenderMessage = { jobId: string };
@@ -41,7 +48,16 @@ const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   // Rendering: heartbeats detect a dead worker within ~30 s; the expiry bounds a hung render.
   { name: QUEUES.video, notify: true, retryLimit: config.renderRetries, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: config.renderTimeoutSeconds, heartbeatSeconds: 30, deadLetter: QUEUES.videoDead },
   { name: QUEUES.videoGpu, notify: true, retryLimit: 1, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 2700, heartbeatSeconds: 30, deadLetter: QUEUES.videoDead },
-  { name: QUEUES.finished, notify: true, retryLimit: 5, retryDelay: 2, retryBackoff: true }
+  { name: QUEUES.finished, notify: true, retryLimit: 5, retryDelay: 2, retryBackoff: true },
+  // Plate authoring calls the model (up to three authoring calls of up to five minutes each); an interrupted or failed model
+  // call is retried with the SAME row, which keeps what was already authored.
+  { name: QUEUES.plateAuthorDead, notify: true, retryLimit: 0 },
+  { name: QUEUES.plateAuthor, notify: true, retryLimit: 2, retryDelay: 15, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 1800, heartbeatSeconds: 30, deadLetter: QUEUES.plateAuthorDead },
+  // Verification + rendering of one scene: browser start-up failures, Spot interruptions and network errors retry the same
+  // bundle (no model call). Deterministic scene-code failures never retry here; they go back to authoring as a bounded repair.
+  { name: QUEUES.plateRenderDead, notify: true, retryLimit: 0 },
+  { name: QUEUES.plateRender, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 1200, heartbeatSeconds: 30, deadLetter: QUEUES.plateRenderDead },
+  { name: QUEUES.plateExport, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 1800, heartbeatSeconds: 30 }
 ];
 
 /**

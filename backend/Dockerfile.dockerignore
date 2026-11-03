@@ -8,6 +8,11 @@
 !packages/
 !packages/contracts/
 !packages/contracts/**
+# The plate engine (styles + scene bundler); its tests and fixtures stay out of the image.
+!packages/plate-engine/
+!packages/plate-engine/**
+packages/plate-engine/test
+packages/plate-engine/node_modules
 !worker/
 !worker/templates/
 !worker/templates/**

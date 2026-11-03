@@ -17,6 +17,8 @@
     "hyperframes": "0.8.111",
     "pg": "8.23.1",
     "pg-boss": "12.36.0",
-    "puppeteer-core": "24.10.0"
+    "playwright-core": "1.63.0",
+    "puppeteer-core": "24.10.0",
+    "sharp": "^0.35.5"
   }
 }

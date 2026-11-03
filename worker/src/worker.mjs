@@ -3,7 +3,7 @@ import { preflightRender, RenderContractError, RENDER_CAPABILITIES } from "./ren
 // HyperFrames, reports real progress into app.render_jobs, and publishes `render-finished`.
 // Scale out by adding replicas; each one runs RENDER_CONCURRENCY renders at a time (default 1).
 import http from "node:http";
-import { access, readdir, rename, rm } from "node:fs/promises";
+import { access, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PgBoss } from "pg-boss";
 import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
@@ -11,12 +11,15 @@ import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOu
 import { PaintedFailure, renderPainted } from "./painted.mjs";
 import { QUEUES, claim, createPool, finish, noteRetry, progress } from "./jobs.mjs";
 import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
+import { PLATE_EXPORT_QUEUE, PLATE_RENDER_QUEUE, handlePlateExport, handlePlateRender, plateCapability, renderPlateFilmJob } from "./plates.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 // Railway private networking needs "::"; local Docker uses 0.0.0.0.
 const host = process.env.HOST ?? "0.0.0.0";
 const databaseUrl = process.env.DATABASE_URL ?? "";
 const concurrency = Number.parseInt(process.env.RENDER_CONCURRENCY ?? "1", 10);
+// Plate scenes (plates.mjs): verified and drawn in Chromium, each one a browser; PLATE_CONCURRENCY at a time on this task (CPU workers only).
+const plateConcurrency = Number.parseInt(process.env.PLATE_CONCURRENCY ?? "2", 10);
 // Seconds to let in-flight renders finish on SIGTERM before handing them back to the queue.
 const drainSeconds = Number.parseInt(process.env.DRAIN_SECONDS ?? "25", 10);
 const RENDERS_DIR = "/renders";
@@ -43,6 +46,7 @@ boss.on("error", (error) => log("error", "queue_error", { message: error.message
 let ready = false;
 let shuttingDown = false;
 let active = 0;
+let activePlates = 0;
 let lastBusy = Date.now();
 
 /** Errors that would fail the same way on every attempt: fail now instead of retrying. */
@@ -188,10 +192,40 @@ async function renderPaintedFilm(id, input, attempt, signal, reporter) {
   }
 }
 
+/**
+ * The final film of a code-drawn plate project: waits for its scenes, assembles voice, music, effects and subtitles from the
+ * export manifest (plates.mjs), and uploads under the usual per-attempt key. Progress and fencing are the job's own.
+ */
+async function renderPlateFilm(id, input, attempt, signal) {
+  if (!storageEnabled) throw new PermanentError("Plate films need object storage.");
+  const scratch = join("/tmp", `render-${id}-a${attempt}`);
+  const output = join(scratch, "out.mp4");
+  const key = `renders/${id}/a${attempt}.mp4`;
+  const report = async ({ stage, progress: percent, framesDone = null, framesTotal = null }) => {
+    if (!(await progress(pool, id, attempt, { stage, progress: percent, framesDone, framesTotal }))) throw new Error("This attempt no longer owns the job.");
+  };
+  try {
+    await rm(scratch, { recursive: true, force: true });
+    await mkdir(scratch, { recursive: true });
+    let result;
+    try {
+      result = await renderPlateFilmJob(id, input, attempt, { pool, signal, report, output });
+    } catch (error) {
+      if (error?.permanent) throw new PermanentError(error.message);
+      throw error;
+    }
+    await uploadOutput(output, key);
+    return { url: `/v1/renders/${id}`, format: "mp4", durationSeconds: result.durationSeconds, file: `${id}-a${attempt}.mp4`, key };
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
 async function renderVideo(input, attempt, signal, reporter) {
   const id = typeof input.id === "string" && /^[a-f0-9-]{36}$/i.test(input.id) ? input.id : "";
   if (!id) throw new PermanentError("A valid render id is required.");
   if (input.kind === "beat-plan" || input.kind === "pro") return renderBeatPlan(id, input, attempt, signal, reporter);
+  if (input.kind === "plate-film") return renderPlateFilm(id, input, attempt, signal);
   if (input.kind === "painted") return renderPaintedFilm(id, input, attempt, signal, reporter);
   if (storageEnabled) throw new PermanentError("Template renders are not available with object storage yet; render the approved storyboard instead.");
   const template = idOrDefault(input.template, "product-launch");
@@ -306,16 +340,43 @@ async function startConsuming() {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
   await boss.work(QUEUE, { localConcurrency: concurrency, pollingIntervalSeconds: 1 }, async ([job]) => handle(job));
+  // Plate scenes: CPU workers only, and only where this image can draw them (Chromium + the engine's capture adapter) and the
+  // backend created the queues. The backend creates the queues in order; a worker that came up first waits a little for them
+  // (an older backend never creates them).
+  const capability = QUEUE === QUEUES.video && plateConcurrency > 0 ? await plateCapability() : null;
+  let drawsPlates = false;
+  for (let tries = 0; capability && tries < 10 && !drawsPlates; tries++) {
+    drawsPlates = Boolean(await boss.getQueue(PLATE_RENDER_QUEUE).catch(() => null));
+    if (!drawsPlates) await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  if (drawsPlates) {
+    await boss.work(PLATE_RENDER_QUEUE, { localConcurrency: plateConcurrency, pollingIntervalSeconds: 3 }, async ([job]) => {
+      activePlates += 1;
+      lastBusy = Date.now();
+      try { await handlePlateRender(job, { pool, boss }); } finally { activePlates -= 1; lastBusy = Date.now(); }
+    });
+    if (await boss.getQueue(PLATE_EXPORT_QUEUE).catch(() => null)) await boss.work(PLATE_EXPORT_QUEUE, { localConcurrency: 1, pollingIntervalSeconds: 3 }, async ([job]) => {
+      activePlates += 1;
+      lastBusy = Date.now();
+      try { await handlePlateExport(job, { pool }); } finally { activePlates -= 1; lastBusy = Date.now(); }
+    });
+  }
   ready = true;
-  log("info", "worker_consuming", { queue: QUEUE, concurrency, idleExitSeconds });
+  log("info", "worker_consuming", { queue: QUEUE, concurrency, plateConcurrency: drawsPlates ? plateConcurrency : 0, idleExitSeconds });
   if (idleExitSeconds > 0) watchIdle();
 }
 
 /** Exits once the worker has had nothing to do for idleExitSeconds and the queue is empty. */
 function watchIdle() {
   const timer = setInterval(async () => {
-    if (shuttingDown || active > 0 || Date.now() - lastBusy < idleExitSeconds * 1000) return;
+    if (shuttingDown || active > 0 || activePlates > 0 || Date.now() - lastBusy < idleExitSeconds * 1000) return;
     const [stats] = await boss.getQueueStats(QUEUE, { force: true }).catch(() => []);
+    // Plate work counts from the tables (queue statistics lag): a bundled scene or an unfinished export keeps a worker alive.
+    // Where the plate tables do not exist yet (an older backend) the query fails and counts as no work.
+    if (QUEUE === QUEUES.video) {
+      const plate = await pool.query("select (select count(*) from app.plate_variants where state in ('bundled', 'rendering')) + (select count(*) from app.plate_exports where state in ('queued', 'assembling')) as n").then((r) => Number(r.rows[0].n), (error) => (/does not exist/.test(error.message) ? 0 : null));
+      if (plate === null || plate > 0) { lastBusy = Date.now(); return; }
+    }
     // Unknown queue state: stay up rather than strand a job; the next tick asks again.
     if (!stats) return;
     if (stats.queuedCount + stats.activeCount > 0) { lastBusy = Date.now(); return; }
@@ -332,7 +393,7 @@ function send(response, status, payload) {
 
 // Health only. Renders arrive through the queue, never over HTTP.
 const server = http.createServer((request, response) => {
-  if (request.method === "GET" && request.url === "/capabilities") return send(response, 200, RENDER_CAPABILITIES);
+  if (request.method === "GET" && request.url === "/capabilities") return void plateCapability().then((plates) => send(response, 200, { ...RENDER_CAPABILITIES, ...(plates ? { plates } : {}) }));
   if (request.method === "GET" && request.url === "/healthz") return send(response, 200, { status: "ok", service: "worker" });
   if (request.method === "GET" && request.url === "/readyz") return send(response, ready && !shuttingDown ? 200 : 503, { ready: ready && !shuttingDown, active, concurrency });
   return send(response, 404, { error: { code: "not_found", message: "Not found." } });

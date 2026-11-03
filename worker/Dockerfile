@@ -26,6 +26,8 @@ COPY --chown=renderer:renderer worker/templates ./templates
 COPY --chown=renderer:renderer worker/fonts ./fonts
 COPY --chown=renderer:renderer worker/themes ./themes
 COPY --chown=renderer:renderer worker/fixtures ./fixtures
+# Plate scenes: the capture adapter and assembly rules from the versioned engine package (plates.mjs imports ./plate-engine/).
+COPY --chown=renderer:renderer packages/plate-engine/lib/capture.mjs packages/plate-engine/lib/rules.mjs ./plate-engine/
 RUN mkdir -p fixtures/smoke/fonts /renders \
   && cp /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf fixtures/smoke/fonts/LiberationSans-Regular.ttf \
   && chown -R renderer:renderer fixtures/smoke/fonts /renders

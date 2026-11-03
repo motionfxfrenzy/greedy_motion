@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
 import type { Job } from "pg-boss";
 import { config } from "../config.ts";
+import { buildExport } from "../plates/exports.ts";
+import { primaryAspect } from "../plates/model.ts";
+import { isPlateLook, startPlates } from "../plates/service.ts";
 import { AnthropicPromptPlanner } from "./anthropic-planner.ts";
 import { DeterministicPromptPlanner, VIDEO_SECONDS, applyBrand, planFromValues, requireTemplate, type Plan, type PromptPlanner } from "./planner.ts";
 import { renderJobRepository, type FilmPrep, type StoredRenderJob } from "./repository.ts";
@@ -69,6 +72,23 @@ export class RenderService {
     const project = row.project_id ? await getProject(row.project_id) : null;
     if (!project?.beatPlan) {
       await this.failForGood(id, { code: "planning_failed", message: "This project no longer has a storyboard. Open it and render again." }, false);
+      return;
+    }
+    if (isPlateLook(project.brief?.look)) {
+      // Code-drawn plate scenes: nothing is drawn or assembled in this process. Make sure every scene of the ratio exists (the
+      // queues draw what is missing), write the export manifest, and hand the job to the render worker, which waits for the
+      // scenes, assembles voice, music, effects and subtitles, and uploads the film. Billing, progress, retries and completion
+      // are the ordinary render job's.
+      await renderJobRepository.updatePlanning(id, { stage: "directing", progress: 25 });
+      try {
+        const aspect = primaryAspect(project);
+        await startPlates(project.id);
+        const built = await buildExport(project, aspect, prep.watermark, { pending: true });
+        const renderInput = { kind: "plate-film", renderContractVersion: 1, id, projectId: project.id, aspect, manifestKey: built.manifestKey, durationSeconds: built.durationSeconds };
+        await renderJobRepository.queueRender(id, { ...beatPlanRevision(project, built.durationSeconds), id: row.revision.id }, renderInput);
+      } catch (error) {
+        await this.failForGood(id, { code: "render_failed", message: messageOf(error, "Could not start the final video.") }, false);
+      }
       return;
     }
     await renderJobRepository.updatePlanning(id, { stage: "directing", progress: 25 });

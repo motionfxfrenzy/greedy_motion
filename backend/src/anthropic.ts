@@ -28,7 +28,7 @@ export async function anthropicMessage(body: Record<string, unknown>, options: O
   const signal = options.signal ? AbortSignal.any([deadline, options.signal]) : deadline;
   for (let attempt = 0; attempt < 3; attempt++) {
     signal.throwIfAborted();
-    const response = await request("https://api.anthropic.com/v1/messages", {
+    const response = await request(`${config.anthropicBaseUrl}/v1/messages`, {
       method: "POST", headers: { "content-type": "application/json", "x-api-key": config.anthropicApiKey, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({ ...body, model }), signal
     });

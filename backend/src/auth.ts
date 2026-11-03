@@ -27,7 +27,10 @@ const mediaGets = [
   /^\/v1\/renders\/[^/]+$/,
   /^\/v1\/projects\/[^/]+\/screenshots\/[^/]+$/,
   /^\/v1\/brands\/[^/]+\/logo$/,
-  /^\/v1\/brands\/assets\/[^/]+\/preview$/
+  /^\/v1\/brands\/assets\/[^/]+\/preview$/,
+  // Code-drawn plate scenes (plates/routes.ts): clips and stills in <video>/<img>, exports as downloads.
+  /^\/v1\/projects\/[^/]+\/plates\/\d+\/(?:clip|still)$/,
+  /^\/v1\/projects\/[^/]+\/plates\/export\/(?:16-9|9-16|1-1)$/
 ];
 
 export const isOpen = (request: FastifyRequest) => {

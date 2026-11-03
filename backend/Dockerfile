@@ -9,9 +9,12 @@ COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 COPY frontend/package.json frontend/
 COPY packages/contracts/package.json packages/contracts/
+COPY packages/plate-engine/package.json packages/plate-engine/
 RUN npm ci --workspace @videosaas/backend --omit=dev --no-audit --no-fund
 
 COPY packages/contracts packages/contracts
+# The plate engine (styles, scene bundler): the API only bundles authored source with esbuild; it never runs a browser.
+COPY packages/plate-engine packages/plate-engine
 COPY backend backend
 # One immutable skill bundle; verification is offline and requires no developer files.
 RUN PLANNER=deterministic DATABASE_URL=postgres://unused@localhost/unused node -e "import('./backend/src/skills/loader.ts').then(m => m.loadSkillBundle())"

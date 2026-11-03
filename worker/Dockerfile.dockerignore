@@ -13,6 +13,12 @@
 !worker/themes/**
 !worker/fixtures/
 !worker/fixtures/**
+# The plate engine's browser adapter and assembly rules (copied into the image as plate-engine/).
+!packages/
+!packages/plate-engine/
+!packages/plate-engine/lib/
+!packages/plate-engine/lib/capture.mjs
+!packages/plate-engine/lib/rules.mjs
 **/node_modules
 **/.env*
 **/.DS_Store

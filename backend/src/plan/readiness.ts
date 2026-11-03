@@ -36,12 +36,15 @@ export function planReadiness(project: VideoProject): Readiness {
   const visuals = visualStatus(project);
   if (visuals.required && (visuals.status !== "ready" || visuals.ready !== visuals.total)) blocking.push({ beat: null, message: `Generate the selected style’s material scenes before rendering (${visuals.ready}/${visuals.total} ready${visuals.status === "stale" ? "; storyboard changed" : ""}).` });
   const clips = currentClips(project);
-  for (const beat of plan.beats) {
-    try {
-      const route = resolveSceneRoute(beat, project.brief?.look);
-      if (route.renderer === "media" && !visuals.required && !clips[beat.id]) blocking.push({beat:beat.id,message:"This scene needs footage before export; its graphic fallback is preview-only."});
-      if (route.renderer !== "media" && beat.kind === "ui" && !project.screenshots.some(s=>s.id === beat.ui?.screen)) blocking.push({beat:beat.id,message:"Restore or choose this scene’s screenshot before export."});
-    } catch { /* beatPlanProblems reports invalid scene directions above. */ }
+  const isPlate = Boolean(project.brief?.look?.startsWith("illus-"));
+  if (!isPlate) {
+    for (const beat of plan.beats) {
+      try {
+        const route = resolveSceneRoute(beat, project.brief?.look);
+        if (route.renderer === "media" && !visuals.required && !clips[beat.id]) blocking.push({beat:beat.id,message:"This scene needs footage before export; its graphic fallback is preview-only."});
+        if (route.renderer !== "media" && beat.kind === "ui" && !project.screenshots.some(s=>s.id === beat.ui?.screen)) blocking.push({beat:beat.id,message:"Restore or choose this scene’s screenshot before export."});
+      } catch { /* beatPlanProblems reports invalid scene directions above. */ }
+    }
   }
   const audio = audioStatus(project);
   if (audio.voice && audio.voice.stale.length) {
@@ -50,6 +53,11 @@ export function planReadiness(project: VideoProject): Readiness {
   if (audio.music && !audio.music.ready) blocking.push({ beat: null, message: "The music hasn't been generated yet." });
 
   const timing = projectTiming(project)!;
+  // A film rendered from its approved frames draws its words inside those frames, so the scene engine's text-layout
+  // limits (key phrase length, on-screen length) do not apply to it.
+  if (filmFrames(project, timing) || isPlate) {
+    for (let i = blocking.length - 1; i >= 0; i--) if (/key phrase is \d+ (?:words|characters)|on-screen text is over/.test(blocking[i]!.message)) blocking.splice(i, 1);
+  }
   const warnings: Readiness["warnings"] = [];
   for (const message of timing.warnings) {
     warnings.push({ beat: beatOf(message), message });

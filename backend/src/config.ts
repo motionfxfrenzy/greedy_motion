@@ -131,11 +131,12 @@ if (mediaUrlSecret.length < 32) throw new Error("MEDIA_URL_SECRET (32+ random ch
 // mismatch (a laptop writing to the staging database, or a hosted backend keeping media on its own disk) fails at startup.
 // ALLOW_CLOUD_IN_LOCAL=1 is the one explicit escape hatch for debugging local code against a hosted service.
 const hostOf = (value: string) => { try { return new URL(value).hostname.replace(/^\[|\]$/g, ""); } catch { return ""; } };
-const isLocalHost = (host: string) => ["localhost", "127.0.0.1", "::1", "host.docker.internal", "postgres"].includes(host) || host.endsWith(".localhost");
+const isLocalHost = (host: string) => ["localhost", "127.0.0.1", "::1", "host.docker.internal", "postgres", "objectstore"].includes(host) || host.endsWith(".localhost");
 const environmentProblems: string[] = [];
 if (env === "local" && process.env.ALLOW_CLOUD_IN_LOCAL !== "1") {
   if (!isLocalHost(hostOf(databaseUrl))) environmentProblems.push(`DATABASE_URL points at ${hostOf(databaseUrl) || "a non-local host"}; APP_ENV=local uses the Compose Postgres (docker compose up -d postgres).`);
-  if (storageDriver !== "filesystem") environmentProblems.push("STORAGE_DRIVER=r2 is a cloud setting; APP_ENV=local keeps media on disk (STORAGE_DRIVER=filesystem).");
+  // An S3-compatible store on this machine (the Compose object store) is local; only a hosted endpoint is refused.
+  if (storageDriver !== "filesystem" && !(r2 && isLocalHost(hostOf(r2.endpoint)))) environmentProblems.push("STORAGE_DRIVER=r2 is a cloud setting; APP_ENV=local keeps media on disk (STORAGE_DRIVER=filesystem), or uses the Compose object store.");
   if (workerLaunchMode !== "external") environmentProblems.push("WORKER_LAUNCH=ecs starts paid cloud workers; APP_ENV=local renders in the Compose worker (WORKER_LAUNCH=external).");
 }
 if (env !== "local") {
@@ -203,6 +204,17 @@ export const config = {
   hyperframesRuntimePath: resolve(process.env.HYPERFRAMES_RUNTIME_PATH ?? resolve(repositoryDir, "node_modules", "hyperframes", "dist", "hyperframe-runtime.js")),
   gsapPath: resolve(process.env.GSAP_PATH ?? resolve(repositoryDir, "node_modules", "gsap", "dist", "gsap.min.js")),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+  // Only for the offline acceptance stack, where a stub answers authoring with fixed modules; hosted environments leave it unset.
+  anthropicBaseUrl: (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/$/, ""),
+  // Code-drawn plate scenes (backend/src/plates/). Authoring runs here (model calls, bundling); browser verification, frame
+  // rendering and final assembly run on the render worker. Off unless PLATE_PIPELINE=worker, which needs object storage:
+  // artifacts live in R2, never on this server's disk.
+  plates: (() => {
+    const mode = process.env.PLATE_PIPELINE ?? "off";
+    if (mode !== "off" && mode !== "worker") throw new Error(`PLATE_PIPELINE must be "off" or "worker"; got "${mode}".`);
+    if (mode === "worker" && storageDriver !== "r2") throw new Error("PLATE_PIPELINE=worker needs STORAGE_DRIVER=r2: plate artifacts live in object storage.");
+    return { enabled: mode === "worker", authorConcurrency: positiveInt("PLATE_AUTHOR_CONCURRENCY", 3), projectAuthorCap: positiveInt("PLATE_PROJECT_AUTHOR_CAP", 4), maxAuthorCalls: positiveInt("PLATE_MAX_AUTHOR_CALLS", 3) };
+  })(),
   creemApiKey: process.env.CREEM_API_KEY || "",
   // Google Gemini API: Lyria background music and Gemini TTS voiceover. Optional; audio options need it.
   visualImageModel: process.env.VISUAL_IMAGE_MODEL || "gemini-3.1-flash-image",

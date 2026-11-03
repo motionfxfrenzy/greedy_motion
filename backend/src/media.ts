@@ -3,6 +3,7 @@
 // directories (config.projectsDir, brandsDir, audioDir) are then only a cache: every write is mirrored to
 // R2, every read fetches a missing file back, so the backend can lose its disk or run as several replicas.
 // With STORAGE_DRIVER=filesystem (local dev, CI) these helpers only touch the local disk.
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
@@ -10,7 +11,7 @@ import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, PutObject
 import { config } from "./config.ts";
 
 const r2 = config.r2;
-const client = r2 ? new S3Client({ region: "auto", endpoint: r2.endpoint, credentials: { accessKeyId: r2.accessKeyId, secretAccessKey: r2.secretAccessKey } }) : null;
+const client = r2 ? new S3Client({ region: "auto", endpoint: r2.endpoint, forcePathStyle: process.env.R2_FORCE_PATH_STYLE === "1", credentials: { accessKeyId: r2.accessKeyId, secretAccessKey: r2.secretAccessKey } }) : null;
 export const mediaInR2 = Boolean(client);
 
 const roots = [
@@ -57,7 +58,7 @@ async function download(key: string, path: string): Promise<boolean> {
     const bytes = Buffer.from(await object.Body!.transformToByteArray());
     await mkdir(dirname(path), { recursive: true });
     // Write beside and rename, so a concurrent reader never sees half a file.
-    const temp = `${path}.${process.pid}.${Date.now()}.part`;
+    const temp = `${path}.${process.pid}.${randomUUID()}.part`;
     await writeFile(temp, bytes);
     await rename(temp, path);
     return true;

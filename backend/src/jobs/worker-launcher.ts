@@ -11,6 +11,7 @@
 // moment a job arrives (the enqueue saw it running, the sweep sees it gone and starts another).
 import { ECSClient, ListTasksCommand, RunTaskCommand, type RunTaskCommandInput } from "@aws-sdk/client-ecs";
 import { config } from "../config.ts";
+import { pool } from "../db/database.ts";
 import { QUEUES, boss } from "./queues.ts";
 import { createDemand } from "./demand.ts";
 import { startSweep } from "./sweep.ts";
@@ -77,16 +78,35 @@ const recentGpu = createDemand();
 async function ensure() {
   // force: recount instead of reading the cache (which can be an hour old); kicks cover the last minute that a recount may reuse.
   const [stats] = await boss.getQueueStats(QUEUES.video, { force: true });
-  const demand = recent.count((stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0));
+  const finals = recent.count((stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0));
   const gpuDemand = await ensureGpu();
+  // Plate work is counted from the tables, not the queue statistics: those can be minutes old, and a plate message that was
+  // lost is still work (the reconciler re-sends it; this makes sure a worker exists for it).
+  const plateWork = await plateDemand();
+  const demand = finals + plateWork;
   lastDemand = demand + gpuDemand;
   if (demand === 0) return;
   const listed = await client!.send(new ListTasksCommand({ cluster: launch!.cluster, family, desiredStatus: "RUNNING" }));
   const running = listed.taskArns?.length ?? 0;
-  const wanted = tasksToStart(demand, running, launch!.perTask, launch!.maxTasks);
+  const needed = Math.ceil(finals / launch!.perTask) + Math.ceil(plateWork / PLATE_SLOTS);
+  const wanted = Math.max(0, Math.min(launch!.maxTasks, needed) - running);
   if (wanted === 0) return;
   const started = await runTasks(wanted);
   log("info", "worker_launched", { demand, running, wanted, started });
+}
+
+// Plate scenes and exports (plates/): PLATE_CONCURRENCY plate renders per task (worker.mjs), counted as their own kind of work.
+const PLATE_SLOTS = Math.max(1, Number.parseInt(process.env.PLATE_CONCURRENCY ?? "1", 10) || 1);
+
+/** Plate variants waiting for or in the worker, plus exports not finished: what needs worker capacity right now. */
+async function plateDemand(): Promise<number> {
+  if (!config.plates.enabled) return 0;
+  try {
+    const { rows } = await pool.query<{ n: string }>(
+      "select (select count(*) from app.plate_variants where state in ('bundled', 'rendering')) + (select count(*) from app.plate_exports where state in ('queued', 'assembling')) as n"
+    );
+    return Number(rows[0]?.n ?? 0);
+  } catch { return 0; }
 }
 
 let inFlight: Promise<void> | null = null;

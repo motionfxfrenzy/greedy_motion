@@ -58,5 +58,79 @@ services:
     command: ["node", "src/self-test.mjs"]
     profiles: ["selftest"]
 
+  # ---------------------------------------------------------------------------------------------------------------------
+  # Plate scenes acceptance stack (profile `plates-e2e`): production-shaped API and worker images that share NOTHING but
+  # Postgres (its own database) and an S3-compatible store. The model API is a stub that returns fixed scene modules.
+  #   docker compose --profile plates-e2e up -d --build plate-api plate-worker
+  # See docs/PLATES_PIPELINE.md.
+  # S3-compatible store for the acceptance stack (Adobe S3Mock: path-style, presigned URLs, range reads). Not R2: the staging
+  # run uses real R2.
+  objectstore:
+    image: adobe/s3mock:4.7.0
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: plates-uploads,plates-outputs
+      COM_ADOBE_TESTING_S3MOCK_STORE_ROOT: /data
+      COM_ADOBE_TESTING_S3MOCK_STORE_RETAIN_FILES_ON_EXIT: "true"
+    volumes: ["plates-objects:/data"]
+    ports: ["127.0.0.1:59000:9090"]
+    profiles: ["plates-e2e"]
+
+  llm-stub:
+    image: node:24-bookworm-slim
+    command: ["node", "/stub/llm-stub.mjs"]
+    volumes:
+      - ./scripts/plates-e2e/llm-stub.mjs:/stub/llm-stub.mjs:ro
+      - ./packages/plate-engine/test/fixtures:/fixtures:ro
+    ports: ["127.0.0.1:58787:8787"]
+    profiles: ["plates-e2e"]
+
+  plate-api:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    image: videosaas-backend:plates-e2e
+    environment: &plate-env
+      APP_ENV: local
+      DATABASE_URL: postgres://videosaas:videosaas@postgres:5432/plates_e2e
+      AUTH_MODE: none
+      PLANNER: deterministic
+      PRO_USER_IDS: "*"
+      STORAGE_DRIVER: r2
+      R2_ENDPOINT: http://objectstore:9090
+      R2_PUBLIC_ENDPOINT: http://localhost:59000
+      R2_FORCE_PATH_STYLE: "1"
+      R2_ACCESS_KEY_ID: plates
+      R2_SECRET_ACCESS_KEY: plates-secret-1
+      R2_UPLOADS_BUCKET: plates-uploads
+      R2_OUTPUTS_BUCKET: plates-outputs
+      PLATE_PIPELINE: worker
+      WORKER_LAUNCH: external
+      # The stub by default; E2E_ANTHROPIC_KEY / E2E_ANTHROPIC_URL point one run at the real model API.
+      ANTHROPIC_API_KEY: ${E2E_ANTHROPIC_KEY:-stub}
+      ANTHROPIC_BASE_URL: ${E2E_ANTHROPIC_URL:-http://llm-stub:8787}
+      ANTHROPIC_MODEL: ${E2E_ANTHROPIC_MODEL:-claude-opus-5-5}
+      # Disposable local caches (every file is mirrored in the object store); nothing here is needed to recover.
+      AUDIO_DIR: /tmp/cache/audio
+      PROJECTS_DIR: /tmp/cache/projects
+      BRANDS_DIR: /tmp/cache/brands
+      RENDER_OUTPUT_DIR: /tmp/cache/renders
+      PORT: "4000"
+      HOST: 0.0.0.0
+      CORS_ORIGINS: http://localhost:3001,http://localhost:3000
+    ports: ["127.0.0.1:4100:4000"]
+    depends_on: { postgres: { condition: service_healthy }, objectstore: { condition: service_started }, llm-stub: { condition: service_started } }
+    profiles: ["plates-e2e"]
+
+  plate-worker:
+    build: { context: ., dockerfile: worker/Dockerfile }
+    image: videosaas-worker:plates-e2e
+    environment:
+      <<: *plate-env
+      PORT: "8080"
+      PLATE_CONCURRENCY: "2"
+      DRAIN_SECONDS: "5"
+    depends_on: { plate-api: { condition: service_started } }
+    stop_grace_period: 15s
+    profiles: ["plates-e2e"]
+
 volumes:
   postgres-data:
+  plates-objects:
