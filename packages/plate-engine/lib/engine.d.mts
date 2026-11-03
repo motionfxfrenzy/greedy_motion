@@ -1,0 +1,18 @@
+export const ENGINE_DIR: string;
+export const SRC_DIR: string;
+export const FPS: number;
+export const ASPECTS: Record<string, { w: number; h: number; label: string }>;
+export function sizeForAspect(aspect?: string): { w: number; h: number; label: string };
+export function engineDigest(): string;
+export function engineVersion(): string;
+export function plateNameOf(look: string | undefined | null): string | null;
+export function plateFile(name: string): string;
+export function kitFile(name: string): string;
+export function loadManifest(): { schema: number; engine: string; engineVersion: string; license: string; styles: Record<string, { file: string; kit: string | null; files: string[] }> };
+export function isSupportedStyle(look: string | undefined | null): boolean;
+export function styleDigest(look: string): string;
+export function allowedImports(name: string): Set<string>;
+export function validateSceneSource(code: string, look: string): { code: string; message: string } | null;
+export function prepareSceneSource(code: string, options: { frames: number; aspect: string }): string;
+export type BundleManifest = { schema: 1; kind: "anidoodle"; engineVersion: string; engineDigest: string; styleDigest: string; width: number; height: number; fps: number; frames: number; aspect: string; sourceSha: string; bundleSha: string; imports: string[] };
+export function bundleScene(input: { look: string; code: string; frames: number; aspect: string }): Promise<{ html: string; manifest: BundleManifest }>;

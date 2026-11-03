@@ -1,0 +1,33 @@
+{
+  "name": "@videosaas/plate-engine",
+  "private": true,
+  "version": "0.6.4",
+  "type": "module",
+  "description": "Vendored subset of the anidoodle engine (Apache-2.0): canvas runtime, style plates and kits, scene bundler, and the browser capture adapter used by the render worker.",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./lib/engine.mjs",
+    "./capture": "./lib/capture.mjs",
+    "./manifest": "./manifest.json",
+    "./rules": "./lib/rules.mjs"
+  },
+  "scripts": {
+    "manifest": "node scripts/build-manifest.mjs",
+    "manifest:check": "node scripts/build-manifest.mjs --check",
+    "test": "node test/engine.test.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.25.12"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  },
+  "peerDependencies": {
+    "playwright-core": "1.63.0"
+  },
+  "peerDependenciesMeta": {
+    "playwright-core": {
+      "optional": true
+    }
+  }
+}

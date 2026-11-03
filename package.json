@@ -6,7 +6,8 @@
   "workspaces": [
     "frontend",
     "backend",
-    "packages/contracts"
+    "packages/contracts",
+    "packages/plate-engine"
   ],
   "engines": {
     "node": ">=24"

@@ -1,0 +1,7 @@
+[
+ {"name":"fox-0","look":"illus-fox","frames":90,"aspect":"9:16"},
+ {"name":"fox-0","look":"illus-fox","frames":90,"aspect":"16:9"},
+ {"name":"blueprint-0","look":"illus-blueprint","frames":90,"aspect":"16:9"},
+ {"name":"balloon-0","look":"illus-balloon","frames":105,"aspect":"16:9"},
+ {"name":"balloon-0","look":"illus-balloon","frames":105,"aspect":"9:16"}
+]

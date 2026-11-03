@@ -1,0 +1,122 @@
+import { Gfx, rng, type Ctx, type Env, type Medium, type P } from "./core";
+import type { Film } from "./film";
+import { blob, bounds, clipped, fillShape as fillShape0, hatchRuns, inside, mix, smooth } from "./gallery";
+
+// SANDBAGS · crayon. A new subject in the balloon plate's medium (balloon.ts is the recipe): wax on toothy
+// paper. Every fill is a back-and-forth scribble that skips the valleys of the sheet, a darker crayon is worked
+// across the shade side, and the contour is a fat wobbly line. Light from the upper left.
+// Storyboard beat 3 of the "balloon that won't rise" film: the basket's side, three sandbags hanging on ropes,
+// swinging gently, the girl leaning over the rim to look down at them. 16:9, 4 s, the bags are the only motion.
+
+const W = 1920, H = 1080, FPS = 30, FRAMES = 120;
+const CRAYON_M: Medium = { nib: 2.9, taper: 0.3, pressure: 0.8, retrace: true, wobble: 2.2, rough: 1.3 };
+const K = { red: "#e5392d", orange: "#f68b1f", yellow: "#ffd21f", green: "#3dae49", leaf: "#2f8a3a", blue: "#2f7de1", sky: "#69c3f2", brown: "#8b5a3c", tan: "#c98f4e", grey: "#9aa3ad", black: "#26222a" };
+const PAPER = "#fdf8ea";
+
+const scribble = (g: Gfx, region: P[], color: string, o: { angle: number; gap: number; w: number; alpha: number; seed: number; keep?: (x: number, y: number) => boolean; over?: number }) => {
+  const { angle, gap, w, alpha, seed, keep = () => true, over = 1.035 } = o, r = rng(seed), b = bounds(region);
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, grown = region.map(([x, y]) => [cx + (x - cx) * over, cy + (y - cy) * over] as P);
+  const runs = hatchRuns({ x0: b.x0 - 8, y0: b.y0 - 8, x1: b.x1 + 8, y1: b.y1 + 8 }, angle, gap, (x, y) => inside(grown, x, y) && keep(x, y), 5, seed);
+  const c = g.cur; g.touch(b.x0 - 14, b.y0 - 14, b.x1 + 14, b.y1 + 14);
+  c.save(); c.lineCap = "round"; c.lineJoin = "round"; c.strokeStyle = color; c.lineWidth = w;
+  let prev: P | null = null;
+  runs.forEach((run, i) => {
+    const pts = (i % 2 ? [...run].reverse() : run).filter((_, k, a) => k % 3 === 0 || k === a.length - 1).map(([x, y]) => [x + (r() - 0.5) * 1.6, y + (r() - 0.5) * 1.6] as P);
+    const jump = prev ? Math.hypot(pts[0][0] - prev[0], pts[0][1] - prev[1]) : 0;
+    c.globalAlpha = alpha * (0.72 + r() * 0.4);
+    c.beginPath();
+    if (prev && jump < gap * 3.2) { c.moveTo(prev[0], prev[1]); pts.forEach(([x, y]) => c.lineTo(x, y)); }
+    else pts.forEach(([x, y], k) => (k ? c.lineTo(x, y) : c.moveTo(x, y)));
+    c.stroke(); prev = pts[pts.length - 1];
+  });
+  c.restore();
+};
+const line = (g: Gfx, pts: P[], color: string, w: number, seed: number, op = 0.92, wob = 1) => g.pen(pts, { w, color, seed, wobble: wob, boil: 0, opacity: op, retrace: true, taper: 1 });
+const fillShape = (g: Gfx, pts: P[], color: string, alpha?: number) => fillShape0(g, pts, color, alpha);
+const wax = (g: Gfx, fn: () => void) => g.group("plain", fn, { textures: ["pencilTooth"] });
+/** paper knocked out under the shape, then the crayon, a darker crayon on the shade side, a fat contour */
+const solid = (g: Gfx, pts: P[], color: string, seed: number, o: { shade?: string; shadeFrom?: (x: number, y: number) => boolean; ink?: string; ink_w?: number; angle?: number } = {}) => {
+  fillShape(g, pts, PAPER);
+  scribble(g, pts, color, { angle: o.angle ?? 0.9, gap: 4.5, w: 5, alpha: 0.92, seed });
+  if (o.shade) scribble(g, pts, o.shade, { angle: -0.6, gap: 7, w: 4, alpha: 0.5, seed: seed + 1, keep: o.shadeFrom });
+  line(g, [...pts, pts[0]].filter((_, i) => i % 2 === 0), o.ink ?? mix(color, "#2a1d3a", 0.55), o.ink_w ?? 2, seed + 2, 0.9, 0.9);
+};
+
+const sky = (g: Gfx) => wax(g, () => {
+  const all: P[] = [[0, 0], [W, 0], [W, H], [0, H]];
+  scribble(g, all, K.sky, { angle: 0.38, gap: 8, w: 6.5, alpha: 0.6, seed: 10, over: 1 });
+  scribble(g, all, mix(K.sky, K.blue, 0.4), { angle: -0.5, gap: 13, w: 5, alpha: 0.35, seed: 11, over: 1, keep: (x, y) => y < 300 });
+  // the heavy cloud-bank the balloon is stuck under: a grey crayon over the top of the sheet, paper left bare in its puffs
+  const bank = smooth([[-40, -20], [W + 40, -20], [W + 40, 190], [1700, 235], [1450, 205], [1180, 250], [900, 215], [620, 255], [330, 210], [60, 240], [-40, 200]], true, 8);
+  fillShape(g, bank, PAPER); scribble(g, bank, "#b7bec7", { angle: 0.15, gap: 6, w: 6, alpha: 0.9, seed: 20, over: 1 }); scribble(g, bank, K.grey, { angle: -0.4, gap: 9, w: 5, alpha: 0.6, seed: 21, over: 1, keep: (x, y) => y > 90 });
+  line(g, bank.filter((_, i) => i % 3 === 0 && bank[i][1] > 150), "#6d7681", 2.2, 22, 0.9, 1.1);
+  // far land, a green band along the bottom with a few round trees
+  const land = smooth([[-40, 1010], [300, 985], [700, 1005], [1100, 978], [1500, 1002], [W + 40, 980], [W + 40, H + 40], [-40, H + 40]], true, 10);
+  fillShape(g, land, PAPER); scribble(g, land, "#8ccf5a", { angle: 0.12, gap: 6, w: 6.5, alpha: 0.9, seed: 30, over: 1 }); scribble(g, land, K.green, { angle: -0.35, gap: 9, w: 5, alpha: 0.5, seed: 31, over: 1 });
+  line(g, land.filter((_, i) => i % 4 === 0 && land[i][1] < 1040), "#2f7a33", 2, 32, 0.9, 1);
+  [[220, 990], [610, 1004], [1250, 984], [1790, 986]].forEach(([x, y], i) => {
+    const c = blob(x, y - 26, 20, 22, 40 + i, 0.12, 12);
+    line(g, [[x, y + 2], [x, y - 8]], K.brown, 2.4, 50 + i, 0.95, 0.4); solid(g, c, K.green, 60 + i * 4, { shade: K.leaf, shadeFrom: (px) => px > x, ink: "#1f5a28", ink_w: 1.5, angle: 1.1 });
+  });
+});
+
+// ---------------------------------------------------------------- the basket, the girl, the bags
+const BX0 = 980, BX1 = 1740, RIM = 470, BOT = 905;
+const basket = (g: Gfx) => wax(g, () => {
+  // cables rising from the rim corners into the cloud, taut
+  [[BX0 + 14, 880], [BX0 + 250, 940], [BX1 - 250, 960], [BX1 - 14, 900]].forEach(([tx, _], i) => line(g, [[tx - ([-40, -10, 10, 40][i]) * 0.0, RIM - 6], [tx + [-130, -60, 60, 130][i] * 0.0 + [-60, -20, 20, 60][i], 190]], "#5a4636", 3.2, 100 + i, 0.95, 0.5));
+  // the girl, leaning over the rim, looking down at the bags: plait, round head, a hat, an arm along the rim
+  const hx = 1400, hy = RIM - 118;
+  solid(g, smooth([[hx - 64, hy + 96], [hx - 52, hy + 20], [hx + 60, hy + 14], [hx + 76, hy + 100]], true, 8), K.red, 120, { shade: "#b02a20", shadeFrom: (x) => x > hx + 10 });
+  const head = blob(hx - 4, hy - 8, 52, 56, 130, 0.07, 14);
+  solid(g, head, "#f6c8a0", 131, { shade: "#e8a37c", shadeFrom: (x) => x > hx + 8, ink: "#6b3e2e", ink_w: 1.7, angle: 0.4 });
+  line(g, [[hx - 24, hy - 4], [hx - 12, hy + 2]], "#4a2c1c", 2.2, 135, 0.95, 0.3); line(g, [[hx + 14, hy], [hx + 26, hy + 6]], "#4a2c1c", 2.2, 136, 0.95, 0.3); // eyes cast down
+  line(g, [[hx - 4, hy + 30], [hx + 10, hy + 34]], "#a04a3a", 2, 137, 0.9, 0.3);
+  const hat = smooth([[hx - 62, hy - 28], [hx - 44, hy - 76], [hx + 8, hy - 92], [hx + 52, hy - 70], [hx + 62, hy - 26], [hx + 14, hy - 38], [hx - 30, hy - 36]], true, 8);
+  solid(g, hat, K.orange, 140, { shade: "#c25f10", shadeFrom: (x) => x > hx, angle: 0.5 });
+  const plait = blob(hx - 62, hy + 40, 14, 36, 145, 0.1, 10, 0.15); solid(g, plait, K.brown, 146, { ink: "#4a2c1c", ink_w: 1.5, angle: 1.3 });
+  // the basket: wicker, woven stitches, a darker rim
+  const body = smooth([[BX0, RIM], [BX1, RIM], [BX1 - 40, BOT], [BX0 + 40, BOT]], true, 6);
+  fillShape(g, body, PAPER); scribble(g, body, K.tan, { angle: 1.4, gap: 5, w: 5.5, alpha: 0.92, seed: 150 });
+  for (let yy = RIM + 22; yy < BOT - 6; yy += 14) for (let xx = BX0 + 18 + ((yy / 14) % 2) * 9; xx < BX1 - 30; xx += 20) line(g, [[xx, yy], [xx + 11, yy + 4]], K.brown, 1.3, 151 + xx * 3 + yy, 0.7, 0.3);
+  scribble(g, body, K.brown, { angle: 0.35, gap: 8, w: 4.5, alpha: 0.55, seed: 152, keep: (x) => x > (BX0 + BX1) / 2 + 160 });
+  line(g, [...body, body[0]].filter((_, i) => i % 2 === 0), "#4a2c1c", 2.4, 153, 0.9, 0.8);
+  const rim: P[] = [[BX0 - 14, RIM - 18], [BX1 + 14, RIM - 18], [BX1 + 14, RIM + 16], [BX0 - 14, RIM + 16]];
+  fillShape(g, rim, PAPER); scribble(g, rim, "#7a4a2c", { angle: 0.05, gap: 4, w: 4.5, alpha: 0.95, seed: 154 }); scribble(g, rim, "#5a3420", { angle: 0.1, gap: 7, w: 3.5, alpha: 0.6, seed: 155, keep: (x) => x > 1300 });
+  line(g, [...rim, rim[0]], "#3a2216", 2.2, 156, 0.9, 0.6);
+  // the girl's hand on the rim, over it
+  const hand = blob(hx + 96, RIM - 22, 22, 17, 157, 0.1, 10); solid(g, hand, "#f6c8a0", 158, { ink: "#6b3e2e", ink_w: 1.5, angle: 0.4 });
+  line(g, [[hx + 60, hy + 80], [hx + 80, RIM - 18]], "#e8a37c", 5, 159, 0.9, 0.5);
+});
+
+/** one sandbag on its rope, swinging from a hook on the rim */
+const bag = (g: Gfx, frame: number, i: number) => {
+  const px = [1150, 1360, 1580][i], py = RIM + 22, L = [250, 300, 275][i], sway = 0.1 * Math.sin((frame / FRAMES) * Math.PI * 4 + i * 1.9);
+  const bx = px + Math.sin(sway) * L, by = py + Math.cos(sway) * L;
+  wax(g, () => {
+    // the rope, a little slack
+    line(g, [[px, py], [(px + bx) / 2 + 3, (py + by) / 2 - 4], [bx, by - 40]], "#5a4636", 3.2, 200 + i, 0.95, 0.5);
+    // the sack: a rounded bag, gathered at the neck, a tied cord, stitched seam, shaded on its right
+    const rot = sway * 0.9, sack = blob(bx, by + 6, 46, 58, 210 + i, 0.09, 14, rot);
+    solid(g, sack, ["#d9b87a", "#cfa56a", "#dcc08a"][i], 220 + i * 4, { shade: "#a87d45", shadeFrom: (x) => x > bx + 8, ink: "#5a3f22", ink_w: 2.2, angle: 0.7 });
+    const neck = smooth([[bx - 18, by - 42], [bx - 8, by - 56], [bx + 8, by - 56], [bx + 18, by - 42]], false, 6);
+    line(g, neck, "#5a3f22", 3, 230 + i, 0.95, 0.5); line(g, [[bx - 16, by - 44], [bx + 16, by - 44]], K.red, 3.4, 235 + i, 0.95, 0.4);
+    line(g, [[bx, by - 28], [bx + 2, by + 4], [bx - 1, by + 34]], "#7a5c34", 1.6, 240 + i, 0.8, 0.5);
+    for (let s = 0; s < 3; s++) line(g, [[bx - 8, by - 20 + s * 18], [bx + 8, by - 20 + s * 18 + 2]], "#7a5c34", 1.4, 245 + i * 3 + s, 0.8, 0.3);
+  });
+};
+
+export const drawSandbags = (ctx: Ctx, frame: number, env: Env) => {
+  const g = new Gfx(ctx, env, 0, CRAYON_M);
+  ctx.setTransform(env.scale, 0, 0, env.scale, 0, 0);
+  ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
+  sky(g); basket(g); for (let i = 0; i < 3; i++) bag(g, frame, i);
+  g.paper("paper", 0.08);
+};
+void clipped;
+
+export const film: Film = {
+  meta: { title: "Three sandbags · crayon", W, H, fps: FPS, bpm: 120, durationFrames: FRAMES },
+  assets: { images: {} },
+  shots: [{ id: "sandbags", start: 0, end: FRAMES, draw: drawSandbags }],
+};

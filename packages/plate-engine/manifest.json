@@ -1,0 +1,304 @@
+{
+ "schema": 1,
+ "engine": "anidoodle",
+ "engineVersion": "0.6.4",
+ "license": "Apache-2.0",
+ "styles": {
+  "balloon": {
+   "file": "canvas-core/balloon.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/balloon.ts",
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts"
+   ]
+  },
+  "blueprint": {
+   "file": "canvas-core/blueprint.ts",
+   "kit": "canvas-core/blueprintKit.ts",
+   "files": [
+    "canvas-core/blueprint.ts",
+    "canvas-core/blueprintKit.ts",
+    "canvas-core/core.ts",
+    "canvas-core/drafting.ts",
+    "canvas-core/riso.ts"
+   ]
+  },
+  "brokenColour": {
+   "file": "canvas-core/brokenColour.ts",
+   "kit": "canvas-core/brokenColourKit.ts",
+   "files": [
+    "canvas-core/brokenColour.ts",
+    "canvas-core/brokenColourKit.ts",
+    "canvas-core/core.ts"
+   ]
+  },
+  "charcoalErasure": {
+   "file": "canvas-core/charcoalErasure.ts",
+   "kit": "canvas-core/charcoalErasureKit.ts",
+   "files": [
+    "canvas-core/charcoalErasure.ts",
+    "canvas-core/charcoalErasureKit.ts",
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts"
+   ]
+  },
+  "colouredPencil": {
+   "file": "canvas-core/colouredPencil.ts",
+   "kit": "canvas-core/colouredPencilKit.ts",
+   "files": [
+    "canvas-core/colouredPencil.ts",
+    "canvas-core/colouredPencilCrow.ts",
+    "canvas-core/colouredPencilKit.ts",
+    "canvas-core/core.ts"
+   ]
+  },
+  "embroidery": {
+   "file": "canvas-core/embroidery.ts",
+   "kit": "canvas-core/embroideryKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/embroidery.ts",
+    "canvas-core/embroideryKit.ts",
+    "canvas-core/gallery.ts"
+   ]
+  },
+  "flatVector": {
+   "file": "canvas-core/flatVector.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/flatVector.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/koiDrawKit.ts"
+   ]
+  },
+  "folkTale": {
+   "file": "canvas-core/folkTale.ts",
+   "kit": "canvas-core/folkTaleKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/folkTale.ts",
+    "canvas-core/folkTaleKit.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/sumiEKit.ts"
+   ]
+  },
+  "fox": {
+   "file": "canvas-core/fox.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/fox.ts",
+    "canvas-core/gallery.ts"
+   ]
+  },
+  "halftone": {
+   "file": "canvas-core/halftone.ts",
+   "kit": "canvas-core/halftoneKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/halftone.ts",
+    "canvas-core/halftoneKit.ts",
+    "canvas-core/halftoneScene.ts"
+   ]
+  },
+  "isometric": {
+   "file": "canvas-core/isometric.ts",
+   "kit": "canvas-core/isometricKit.ts",
+   "files": [
+    "canvas-core/isometric.ts",
+    "canvas-core/isometricKit.ts"
+   ]
+  },
+  "koi": {
+   "file": "canvas-core/koi.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/koi.ts",
+    "canvas-core/koiDrawKit.ts"
+   ]
+  },
+  "lighthouse": {
+   "file": "canvas-core/lighthouse.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/lighthouse.ts",
+    "canvas-core/riso.ts"
+   ]
+  },
+  "lowPoly": {
+   "file": "canvas-core/lowPoly.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/lowPoly.ts",
+    "canvas-core/scrapbookKit.ts"
+   ]
+  },
+  "mellan": {
+   "file": "canvas-core/mellan.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/mellan.ts"
+   ]
+  },
+  "midCentury": {
+   "file": "canvas-core/midCentury.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/koiDrawKit.ts",
+    "canvas-core/midCentury.ts"
+   ]
+  },
+  "moonPhases": {
+   "file": "canvas-core/moonPhases.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/drafting.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/moonPhases.ts"
+   ]
+  },
+  "paintedOil": {
+   "file": "canvas-core/paintedOil.ts",
+   "kit": "canvas-core/paintedOilKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/paintedOil.ts",
+    "canvas-core/paintedOilKit.ts",
+    "canvas-core/sumiEKit.ts"
+   ]
+  },
+  "paperCraft": {
+   "file": "canvas-core/paperCraft.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/paperCraft.ts",
+    "canvas-core/scrapbookKit.ts"
+   ]
+  },
+  "pixelArt": {
+   "file": "canvas-core/pixelArt.ts",
+   "kit": "canvas-core/pixelArtKit.ts",
+   "files": [
+    "canvas-core/pixelArt.ts",
+    "canvas-core/pixelArtKit.ts"
+   ]
+  },
+  "pocketWatch": {
+   "file": "canvas-core/pocketWatch.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/pocketWatch.ts"
+   ]
+  },
+  "ranunculus": {
+   "file": "canvas-core/ranunculus.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/ranunculus.ts"
+   ]
+  },
+  "rubberHose": {
+   "file": "canvas-core/rubberHose.ts",
+   "kit": "canvas-core/rubberHoseKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/koiDrawKit.ts",
+    "canvas-core/rubberHose.ts",
+    "canvas-core/rubberHoseKit.ts"
+   ]
+  },
+  "scrapbook": {
+   "file": "canvas-core/scrapbook.ts",
+   "kit": "canvas-core/scrapbookKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/scrapbook.ts",
+    "canvas-core/scrapbookEngraving.ts",
+    "canvas-core/scrapbookKit.ts"
+   ]
+  },
+  "scratchboard": {
+   "file": "canvas-core/scratchboard.ts",
+   "kit": "canvas-core/scratchboardKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/scratchboard.ts",
+    "canvas-core/scratchboardKit.ts"
+   ]
+  },
+  "stipple": {
+   "file": "canvas-core/stipple.ts",
+   "kit": "canvas-core/stippleKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/stipple.ts",
+    "canvas-core/stippleKit.ts"
+   ]
+  },
+  "storybook": {
+   "file": "canvas-core/storybook.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/storybook.ts"
+   ]
+  },
+  "sumiE": {
+   "file": "canvas-core/sumiE.ts",
+   "kit": "canvas-core/sumiEKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/sumiE.ts",
+    "canvas-core/sumiEKit.ts"
+   ]
+  },
+  "toyBrick": {
+   "file": "canvas-core/toyBrick.ts",
+   "kit": "canvas-core/toyBrickKit.ts",
+   "files": [
+    "canvas-core/toyBrick.ts",
+    "canvas-core/toyBrickKit.ts"
+   ]
+  },
+  "woodcut": {
+   "file": "canvas-core/woodcut.ts",
+   "kit": "canvas-core/woodcutKit.ts",
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/woodcut.ts",
+    "canvas-core/woodcutKit.ts"
+   ]
+  },
+  "wren": {
+   "file": "canvas-core/wren.ts",
+   "kit": null,
+   "files": [
+    "canvas-core/core.ts",
+    "canvas-core/gallery.ts",
+    "canvas-core/wren.ts"
+   ]
+  }
+ }
+}
