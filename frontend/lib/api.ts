@@ -621,6 +621,79 @@ export async function generatePlanVisuals(projectId: string, budgetUsd: number):
   return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/visuals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ budgetUsd }) }), "Could not start material generation.");
 }
 
+/** Code-drawn plate scenes (backend plates/): one clip per storyboard beat, authored and drawn in the chosen style. */
+export type PlateAspect = "16:9" | "9:16" | "1:1";
+/** One ratio of one scene: `v` changes whenever its stored clip changes, so the player fetches the new one. */
+export type PlateVariant = { state: "queued" | "authoring" | "rendering" | "drawn" | "failed"; sig: string; v: string | null; stage?: string; error?: string };
+export type PlateScene = { index: number; keyword: string; state: "queued" | "authoring" | "rendering" | "drawn" | "failed"; seconds: number; frames?: number; sig: string; rev?: number; error?: string; attempts?: number; variants?: Partial<Record<PlateAspect, PlateVariant>> };
+export type PlateComment = { id: string; at: number; scene: number; sceneAt: number; body: string };
+export type SubtitleMode = "none" | "key-phrases" | "full";
+export type SubtitleStyle = "pill" | "cinema" | "kinetic" | "paper" | "blueprint";
+export type PlateSubtitles = {
+  mode: SubtitleMode;
+  style: SubtitleStyle;
+  size?: number;
+  opacity?: number;
+  color?: string | null;
+  bgColor?: string | null;
+  x?: number;
+  y?: number;
+  scenePositions?: Record<string, { x: number; y: number } | null> | null;
+  voice?: boolean;
+  music?: boolean;
+  sfx?: boolean;
+  transitions?: boolean;
+  aspects?: ("16:9" | "9:16" | "1:1")[];
+};
+export type PlateSfxName = "whoosh-short" | "click" | "pop" | "chime" | "typing" | "impact-bass-1";
+export const planSfxUrl = (name: PlateSfxName) => `${apiOrigin}/v1/preview/plan-sfx/${encodeURIComponent(name)}.mp3`;
+export type PlateStatus = {
+  available: boolean;
+  look: string | null;
+  scenes: PlateScene[];
+  comments: PlateComment[];
+  subtitles?: PlateSubtitles;
+  running: boolean;
+  drawnAspects?: ("16:9" | "9:16" | "1:1")[];
+  drawingAspects?: ("16:9" | "9:16" | "1:1")[];
+};
+export async function getPlates(projectId: string): Promise<PlateStatus> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates`), "Could not load the scenes.");
+}
+export async function savePlateSubtitles(projectId: string, input: Partial<PlateSubtitles>): Promise<PlateSubtitles> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/subtitles`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }), "Could not update subtitles.");
+}
+export async function drawPlates(projectId: string): Promise<PlateStatus> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/draw`, { method: "POST" }), "Could not start drawing the scenes.");
+}
+export async function drawPlateAspect(projectId: string, aspect: "16:9" | "9:16" | "1:1"): Promise<PlateStatus> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/draw-aspect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aspect }) }), "Could not draw this dimension.");
+}
+export async function addPlateComment(projectId: string, at: number, body: string): Promise<PlateComment> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/comments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ at, body }) }), "Could not add the comment.");
+}
+export async function removePlateComment(projectId: string, id: string): Promise<void> {
+  const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/comments/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 204) throw new Error("Could not remove the comment.");
+}
+export async function fixPlates(projectId: string): Promise<PlateStatus> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/fix`, { method: "POST" }), "Could not redraw the scenes.");
+}
+export function plateClipUrl(projectId: string, index: number, version: string, aspect?: "16:9" | "9:16" | "1:1") {
+  const base = outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/plates/${index}/clip`) + (outputUrl("/x").includes("?") ? "&" : "?") + `v=${encodeURIComponent(version)}`;
+  return aspect ? `${base}&aspect=${encodeURIComponent(aspect)}` : base;
+}
+/** Where a companion export of one ratio stands. It is assembled on the render worker; this asks for it (once) and reports progress. */
+export type PlateExportState = { state: "queued" | "assembling" | "ready" | "failed" | "drawing"; progress: number; stage?: string | null; error?: string };
+export async function requestPlateExport(projectId: string, aspect: PlateAspect): Promise<PlateExportState> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/export`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aspect }) }), "Could not prepare the video.");
+}
+export function plateExportUrl(projectId: string, aspect: "16:9" | "9:16" | "1:1") {
+  const slug = aspect === "9:16" ? "9-16" : aspect === "1:1" ? "1-1" : "16-9";
+  return outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/plates/export/${slug}`);
+}
+
+
 // ---------- Template gallery (public; paging, filtering and search run on the backend) ----------
 /** `reference` is the hand-built clip's source code (plain text), when the template has one: the author can reuse its structure and components. */
 export type GalleryTemplateBrief = { id: string; name: string; starterId?: string; brief: Partial<ScriptBrief>; reference?: { name: string; url: string } };

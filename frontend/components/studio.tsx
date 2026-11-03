@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, createElement } from "react";
 import type { HyperframesPlayer } from "@hyperframes/player";
 import { aspectToFormat, beatCountRange, scriptSeconds, bundledFonts, findGalleryTemplate, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, paintedLookById, parseScriptBrief, parseScriptStream, renderCostMillitokens, tokensFromMilli, templates, themes, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
+import { PlateExports, PlatePreview } from "./plate-preview";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
@@ -13,7 +14,7 @@ import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard
 import { ScriptCanvas, TokenModal, svgSrc, type FrameSlot, type StoryboardState, type VoiceState } from "./script-canvas";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { cancelPlanJob, deleteProject, ensureMediaToken, generatePlanAudio, getComposition, getGalleryTemplate, getMyTokens, getProject, planVoiceUrl, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
+import { getPlates, getRenderQuote, cancelPlanJob, deleteProject, ensureMediaToken, generatePlanAudio, getComposition, getGalleryTemplate, getMyTokens, getProject, planVoiceUrl, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 
 type View = "projects" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
@@ -707,6 +708,25 @@ export function Studio() {
     return () => window.clearInterval(timer);
   }, [animating]);
 
+  // Code-drawn plate styles draw their scenes in PlatePreview (drawing, verification and assembly run on the render worker).
+  // Only where the backend has the plate pipeline on (PLATE_PIPELINE=worker): elsewhere these styles keep their previous behaviour.
+  const plateLook = Boolean((project?.brief?.look ?? brief.look)?.startsWith("illus-"));
+  const [plateAvailable, setPlateAvailable] = useState(false);
+  useEffect(() => {
+    if (!plateLook || !project?.id) { setPlateAvailable(false); return; }
+    let live = true;
+    getPlates(project.id).then((status) => { if (live) setPlateAvailable(status.available); }).catch(() => { if (live) setPlateAvailable(false); });
+    return () => { live = false; };
+  }, [plateLook, project?.id]);
+  const isPlateStyle = plateLook && plateAvailable;
+  const [plateTokens, setPlateTokens] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isPlateStyle || !project?.id || !project.beatPlan) { setPlateTokens(null); return; }
+    let live = true;
+    getRenderQuote(project.id).then((quote) => { if (live) setPlateTokens(quote.tokens); }).catch(() => { if (live) setPlateTokens(null); });
+    return () => { live = false; };
+  }, [isPlateStyle, project?.id, project?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const needsSound = voicedBrief || musicBrief;
   const startBrowserAnimation = async (beatsOverride?: ScriptBeat[]) => {
     const activeBeats = beatsOverride ?? canvas?.beats;
@@ -947,7 +967,14 @@ export function Studio() {
         storyboard={storyboardState} onContinue={continueFromScript} continuing={continueWhenReady} />}
       {step === STORYBOARD && !canvas && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Describe the film in the brief, then generate the storyboard.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to the brief</button></div>}
       {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || canvas)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
-      {step === RENDER && project && <BrowserAnimationStep
+      {step === RENDER && project && isPlateStyle && !animating && project.beatPlan && <PlatePreview
+        project={project}
+        onBack={() => setStep(STORYBOARD)}
+        onRender={() => void submit()}
+        rendering={busy}
+        {...(plateTokens !== null ? { cost: plateTokens } : {})}
+      />}
+      {step === RENDER && project && !(isPlateStyle && !animating && project.beatPlan) && <BrowserAnimationStep
         project={project}
         beats={canvas?.beats ?? []}
         frames={frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))}
@@ -969,6 +996,7 @@ export function Studio() {
           await writeScript(instruction, undefined, only);
         }}
       />}
+      {step === REVIEW && project && isPlateStyle && job?.state === "ready" && <PlateExports project={project} />}
       {step === REVIEW && project && <FinalRenderStep
         project={project}
         job={job}

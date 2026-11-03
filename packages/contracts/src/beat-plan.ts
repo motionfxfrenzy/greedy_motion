@@ -38,6 +38,8 @@ export type ScriptBrief = {
    */
   lockDuration?: boolean;
   aspect: Aspect;
+  /** Multiple dimensions selected by the user to draw frames and animation in (1, 2, or all 3 of "16:9", "9:16", "1:1"). */
+  aspects?: Aspect[];
   motionProfile: MotionProfile;
   pace: Pace;
   audio: { mode: AudioMode; voice?: string; musicMood?: string };
@@ -238,12 +240,16 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
   const family = typeof value.styleFamily === "string" ? getStyleFamily(value.styleFamily) : undefined;
   if (value.styleFamily !== undefined && value.styleFamily !== null && !family) return { error: "Unknown style family." };
   const screenshotIds = Array.isArray(value.screenshotIds) ? value.screenshotIds.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 20) : undefined;
+  const selectedAspects = Array.isArray(value.aspects)
+    ? [...new Set(value.aspects.filter((a): a is Aspect => oneOf(aspects, a)))]
+    : undefined;
   const brief: ScriptBrief = {
     scriptMode: value.scriptMode,
     text,
     durationSeconds,
     ...(value.lockDuration === true ? { lockDuration: true } : {}),
-    aspect: value.aspect,
+    aspect: selectedAspects?.[0] ?? value.aspect,
+    ...(selectedAspects?.length ? { aspects: selectedAspects } : {}),
     motionProfile: value.motionProfile,
     pace: value.pace,
     audio: {

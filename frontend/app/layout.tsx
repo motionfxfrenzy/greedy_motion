@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { themeBootScript } from "../components/theme-toggle";
 import "./theme.css";
 import "./styles.css";
+import "./plate-preview.css";
 
 export const metadata: Metadata = {
   title: "Greedy Motion · Product video studio",
