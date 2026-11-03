@@ -21,7 +21,13 @@ export async function api(path, { method = "GET", body, raw } = {}) {
   let json; try { json = JSON.parse(text); } catch { json = text; }
   return { status: res.status, json };
 }
-export const stub = async (path, body) => (await fetch(`${STUB}${path}`, body ? { method: "POST", body: JSON.stringify(body) } : undefined)).json();
+// Retried once: the stub is a bare node server and may close an idle keep-alive socket just as a request reuses it.
+export const stub = async (path, body) => {
+  for (let attempt = 0; ; attempt++) {
+    try { return await (await fetch(`${STUB}${path}`, { ...(body ? { method: "POST", body: JSON.stringify(body) } : {}), headers: { connection: "close" } })).json(); }
+    catch (error) { if (attempt >= 2) throw error; await sleep(500); }
+  }
+};
 export const stubStats = () => stub("/stats");
 
 const SOURCE = "397b0ec8-263e-44a8-b9ab-4620c782094c"; // a real fox storyboard with recorded voice + music, in the developer's database
