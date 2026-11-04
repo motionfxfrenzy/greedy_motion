@@ -476,3 +476,7 @@ One UI, one set of behaviours the user sees; each engine does whatever it needs 
 | Final render | CPU worker draws the frozen scene code | the existing HyperFrames render |
 
 **Optional extras** (shown only when an engine supports them, never disabled): caption style, size, colour, opacity, position, SFX and transitions switches. Plates have them today; HyperFrames gains them in phase 3d if wanted. They are not part of the contract: a film without them is fully usable.
+
+## 23. Element and scene edits (deferred until all phases are done)
+
+Decision (product owner, 2026-11-05): a comment that changes something **no other element depends on** (colour, opacity, equal-length text, a clear nudge) is applied at element level, instantly and undoably; a change that **affects other elements or the layout** (making something bigger or smaller, longer text, moving into another element's space) is handled at **scene level**, with the whole space reconsidered (an engine layout hint for HyperFrames, a scene re-authoring for plates). The system decides the scope by measurement, not the model: apply the change on the live scene, check other elements' boxes, overlaps and the safe area, and escalate if anything is affected. Facts and measurements: `docs/phase3/element-edit-spike.md`. Brief for the agent, to be released only after the other phases are finished and reviewed: `tools/phase4/TASK-element-edits.md`. Estimate: about 2 to 3 working days for the HyperFrames side with review, plates after their phase 4 params work.
