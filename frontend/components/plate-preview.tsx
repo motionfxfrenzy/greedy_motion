@@ -1096,9 +1096,9 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
         <span className="pp-clock"><b>{clock(time)}</b> / {clock(total)}</span>
         <span className="pp-scene">{shown ? `Scene ${shown.index + 1} · ${shown.keyword}` : ""}</span>
         <span className="pp-options">
-          <button type="button" className="pp-opt" onClick={() => setMuted((m) => !m)} aria-pressed={muted} aria-label={muted ? "Unmute" : "Mute"}>{muted || master === 0 ? "🔇" : master < 0.5 ? "🔉" : "🔊"}</button>
+          <button type="button" className="pp-opt" onClick={() => setMuted((m) => !m)} aria-pressed={muted} aria-label={muted ? "Unmute" : "Mute"}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4Z" />{muted || master === 0 ? <path d="M16 9.5l5 5M21 9.5l-5 5" /> : <><path d="M15.5 9.2a4 4 0 0 1 0 5.6" />{master >= 0.5 && <path d="M18 6.8a7.5 7.5 0 0 1 0 10.4" />}</>}</svg></button>
           <input className="pp-volume" type="range" min={0} max={1} step={0.05} value={muted ? 0 : master} aria-label="Volume" onChange={(e) => { const v = Number(e.target.value); setMaster(v); setMuted(v === 0); }} />
-          <button type="button" className="pp-opt" onClick={() => { const el = stageRef.current; if (!el) return; if (document.fullscreenElement) void document.exitFullscreen(); else void el.requestFullscreen?.(); }} aria-label="Full screen">⛶</button>
+          <button type="button" className="pp-opt" onClick={() => { const el = stageRef.current; if (!el) return; if (document.fullscreenElement) void document.exitFullscreen(); else void el.requestFullscreen?.(); }} aria-label="Full screen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>
         </span>
       </div>
       <div className="pp-track" ref={track} role="slider" tabIndex={0} aria-label="Film timeline" aria-valuemin={0} aria-valuemax={Math.round(total)} aria-valuenow={Math.round(time)} aria-valuetext={clock(time)}
