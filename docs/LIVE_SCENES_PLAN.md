@@ -422,3 +422,13 @@ Goal: a user can write or paste a script in **any language the LLM and the speec
 * **429 handling:** honour the retry-after the API gives, jittered backoff, queue the rest; a burst must never become failed films. Surface "waiting for capacity" as a stage event, not an error.
 * **Prompt caching** for the shared prefix (style guide, film context) cuts input tokens and latency.
 * Tests: 429 storm drains without failures; the global budget is never exceeded; no database connection is held across a model call; cached prefix is byte-identical across scenes.
+
+## 20. Live first, clip as the per-scene fallback
+
+* **Priority:** the user's browser draws the code. The worker-drawn clip is the exception, never the default path.
+* **Per scene, not per film.** A film may mix live scenes and clip scenes; the player switches between them at scene boundaries without a visible seam (the clip is cached by `bundleDigest`, the live scene starts from its first frame).
+* **A scene uses a clip only when:** (a) it fails the buffering gate (draw speed too low to stay ahead of playback); (b) the host's byte count of frames it must hold exceeds its budget; (c) its Worker was terminated twice by the watchdog; (d) the device or browser is `unverified` or lacks Worker + OffscreenCanvas 2D. Otherwise it is live.
+* **The page never lags either way:** drawing is in the Worker, so a heavy scene cannot freeze the UI thread; the fallback exists for smooth playback, not for page safety.
+* **Make heavy scenes rarer:** authoring gets a draw-cost budget (target at most about 30 ms per frame at preview size on the reference machine, measured by the validation step), so the model avoids very expensive effects. The fox scenes (35 to 54 ms) are the first targets.
+* **The fallback has a cost:** clips are drawn on AWS in step 3. Cap clips queued per project and per user, record the live-vs-clip ratio, and alert if clips become the common path.
+* **Tests:** a heavy scene falls back while its neighbours stay live; the switch at a boundary shows no stall or blank frame; the clip cap holds; the ratio metric is emitted.
