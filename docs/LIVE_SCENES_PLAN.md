@@ -2,6 +2,22 @@
 
 Status: plan, 2026-11-04. Branch `codex/live-scenes`. Nothing here is deployed.
 
+## 0. Review round 1 (2026-11-04): what changed and why
+
+An external review checked this plan against the code. All seven points held; the plan below is revised accordingly.
+
+| # | Finding | Verified in code | Change |
+| --- | --- | --- | --- |
+| 1 | The "signature" is not a hash of the authored code | `backend/src/plates/store.ts` `reviseScene` comment: "The signature stays (the inputs did not change); `rev` and `gen` rise". `variantSignature` hashes look, digests, film, beat text, frames, aspect, never the code | Cache and clip identity use a **bundle digest**: the manifest's existing `bundleSha` (sha256 of the bundle HTML) plus a font-set digest and size (§6, §9) |
+| 2 | An iframe is not a separate thread; a parent timeout cannot rescue a blocked main thread | `packages/plate-engine/src/hosts/page.ts` runs on the page main thread (DOM `<canvas>`, `Image`, `AudioContext`) | Primary path is a **terminable Worker with `OffscreenCanvas`**; the iframe path is only a fallback; no Worker host support → worker-drawn clip (§10, new phase 0) |
+| 3 | Repair at export breaks "render what I previewed" | §9 allowed code repair during export | **Frozen export manifest** with exact bundle digests; the worker may only verify; a repair creates a new revision returned to the preview, never a silent render (§9) |
+| 4 | The cache cannot deliver the stated guarantees | 160 MB / 1.64 MB ≈ 97 frames ≈ 3.2 s at 30 fps; two pinned scenes exceed it | **Rolling frame window**, buffering gate before play, worker fallback in the **first** release (§6) |
+| 5 | The patch check proves nothing for an element that exists the whole scene | §8 compared frames outside the element's active range | **Structured element parameters** instead of free code edits; continuity checks are best-effort and labelled so (§8) |
+| 6 | Rollback and migration were not real | `018_plate_pipeline.sql` exists; `reviseScene` sweeps superseded objects after 24 h | Migration **019**; explicit state transitions for rollback; a **revisions table** for undo; fenced, deduplicated check reports (§11) |
+| 7 | `document.fonts.check()` does not prove glyph coverage; CSP blocks fonts | MDN: `check()` is about font loading state, not coverage | Glyph coverage from font tables + render fixtures; explicit `font-src` policy; **original / display / spoken** text kept separate (§16) |
+
+The first milestone is now a **feasibility spike on real scenes** (phase 0, §14), not more infrastructure.
+
 ## 1. Goal
 
 Both engines follow one workflow and one UI. They differ only in what draws a frame.
@@ -95,14 +111,16 @@ interface ScenePlayer {
 
 ## 6. Frame cache (plates)
 
-* **Key:** `signature | frame | size` (signature = hash of code + style + engine version, existing `plate_variants.signature`). A frame is a pure function of the key, so a hit is always valid.
-* **Entry:** `ImageBitmap` at preview size (default 854×480; 9:16 → 480×854; 1:1 → 640×640). ~1.6 MB each.
-* **Budget:** `LIVE_CACHE_MB` (default 160, halved on devices with `deviceMemory <= 4`). LRU **by scene**: the active scene and the next one are pinned; evict the farthest scene first, then frames farthest from the playhead.
-* **Draw-ahead scheduler:** time-sliced (≤ 8 ms per slice via `requestIdleCallback`/MessageChannel); order: playhead → playhead + lookahead (2 s) → rest of the active scene → first 15 frames of the next scene → remaining scenes. Re-prioritises on seek. Pauses when the tab is hidden.
-* **Draw cost model:** keeps a moving average of ms/frame per scene. If it exceeds the frame budget (33 ms) the player lowers cache resolution one step (854→640→480) before giving up.
-* **Real-time fallback:** if the median draw cost stays above 2 × budget after downscaling, show "This device is slow for live preview" with `Draw a preview video instead` (queues the existing worker clip path for that scene; cached by signature).
-* **Persistence (phase 2):** optional IndexedDB store of encoded frames (WebP) per signature, 100 MB cap, cleared on version change.
-* **Observability:** `live_preview_stats` event (cache hit rate, dropped frames, ms/frame p50/p95, device class) sent once per session.
+* **Identity (fixes review #1):** the existing `variantSignature` hashes *inputs* (look, digests, film, beat text, frames, aspect) and deliberately **stays the same after a comment** (`reviseScene`), so it must never key frames or clips. A new immutable **`bundleDigest`** is used everywhere a frame or clip is cached or compared: `sha256(bundle.html)` (the manifest already stores it as `bundleSha`) combined with `fontSetDigest` (hash of the font files available to the renderer) and `engineDigest`. Any change to code, embedded assets, fonts or engine changes the digest; an unchanged digest means identical drawing input.
+* **Key:** `bundleDigest | frame | previewSize`. A frame is a pure function of the key *for one renderer environment*; entries are never shared across devices.
+* **Entry:** `ImageBitmap` at preview size (default 854×480 ≈ 1.6 MB; 9:16 → 480×854; 1:1 → 640×640). Every bitmap is `close()`d on eviction, drop, replace and `destroy()`.
+* **Rolling window, not whole scenes (review #4):** the budget (`LIVE_CACHE_MB`, default 160, 80 on `deviceMemory <= 4`, 60 on iOS) holds about 3 s of film at default size, so the cache is a **window around the playhead**: 1 s behind, 4 s ahead, plus the first 15 frames of the next scene. Whole-scene pinning is removed; pins only decide eviction order. A scene longer than the window is simply never fully resident.
+* **Buffering gate:** playback starts when `bufferedAhead >= lead`, where `lead = clipSeconds * max(0, 1 - produceFps / consumeFps)` (+ 0.5 s margin) measured from the draw-cost average. If `lead` exceeds the window (the device draws slower than real time by too much, e.g. 20 fps scenes on a 30 fps film), live playback is **not offered**: the scene uses the worker-drawn clip (§6, fallback) from the first release.
+* **Draw-ahead scheduler:** runs **inside the same Worker as the scene** (§10), so a slow draw never blocks the page and the 8 ms slice problem disappears: the scheduler budgets between frames, the Worker thread absorbs the 50 ms draw. On the main-thread fallback host, slices are `requestIdleCallback` based and a single draw longer than the slice is accepted (documented limit; see watchdog §10).
+* **Order:** playhead → 4 s ahead → first 15 frames of the next scene → remaining window behind the playhead. Re-prioritises on seek.
+* **Real-time fallback (first release):** `Draw a preview video for this scene` queues the existing worker clip path (`plate-render`), cached by `bundleDigest`. It is a normal, supported path, not an afterthought.
+* **Persistence (later):** optional IndexedDB store of encoded frames per `bundleDigest`, 100 MB cap.
+* **Observability:** `live_preview_stats` (cache hit rate, dropped frames, ms/frame p50/p95, device class, host type) once per session.
 
 ## 7. Authoring, checks and states
 
@@ -118,39 +136,53 @@ Browser check (runs in the sandboxed iframe, reports to `POST /v1/projects/:id/p
 
 Result handling: `ok` → state `checked`; `code` failure → existing repair loop (bounded by `PLATE_MAX_AUTHOR_CALLS`); `env` failure (device cannot draw) → not the model's fault, no repair, offer worker fallback. The report is **advisory**: the worker verifies again at step 4, so a lying client cannot get an invalid scene rendered.
 
-## 8. Comment → code patch
+## 8. Comment → change
 
-* **Stable elements:** scene code declares named elements (`light`, `boat`, `moon`) via helper `el("light", ...)`; the bundle manifest lists `{ id, kind, activeFrames }`. Authoring prompt requires ids; the checker rejects scenes without them.
-* **Edit request:** `{ sceneIndex, atFrame, text }` → the model gets: current source, element list active at `atFrame`, the comment, and the rule "return a patch, change only what the comment asks, keep every other id and value".
-* **Patch format:** list of `{ id, find, replace }` blocks anchored on element ids (not line numbers). Server applies, then validates:
-  1. every `find` matches exactly once; 2. touched ids ⊆ allowed ids (comment's element + explicit extras the model names); 3. diff size ≤ `PLATE_PATCH_MAX_LINES` (default 80) else it is a rewrite → rejected and retried once with "smaller change"; 4. compiles; 5. browser check passes.
-* **Continuity ("the same light from before, whole light green"):** the model is told the element ids and their previous values; the validator checks that frames outside the element's `activeFrames` render identically (hash in the browser check) - catches accidental changes elsewhere.
-* **Cost:** one model call per apply (counts against `PREVIEW_ALLOWANCE`/`preview_call_cap`); several comments on one scene in one apply = one call. No worker call.
-* **Undo:** every apply creates a new generation `gen+1`; previous source/bundle kept until final render (user can revert one step). Fencing as today.
-* **HyperFrames:** same API shape; its composition HTML already has element ids, so the same patch format applies to the composition file.
+Review #5: free-form code patches cannot be *proven* local. The edit path therefore changes **structured parameters first**, code only when parameters cannot express the request.
+
+* **Scene = code + parameters.** Authoring emits scene code that reads every tunable value from a `params` object (`params.light.color`, `params.boat.x`, `params.moon.size`), declared with a schema (type, range, element id, `activeFrames`). The bundle manifest lists `{ id, kind, params schema, activeFrames }`. The code is fixed by authoring; most comments only change values.
+* **Edit request:** `{ sceneIndex, atFrame, text }` → the model gets the params schema + current values, the elements active at `atFrame`, and the comment. It returns a **params patch** (`{ "light.color": "#3fbf5a" }`), validated against the schema (type, range, element exists). The allow-list is the schema: there are no "extras".
+* **Code change fallback:** when a request needs something the parameters cannot express ("add a second boat"), the model returns a code patch (`{ find, replace }` blocks, ≤ `PLATE_PATCH_MAX_LINES` = 80, must compile, must pass the browser check). This is labelled to the user ("changes the drawing, not just a value") and keeps its previous revision for undo.
+* **Continuity checks are best-effort:** after a params patch we compare frames of **other elements** by drawing them in isolation (element layers are drawn separately when the manifest provides them) and flag differences; for code patches, a frame-hash comparison outside the element's `activeFrames` runs only when such frames exist, and the UI says "no unrelated changes detected" (never "guaranteed").
+* **"The same light as before":** element ids are stable across revisions (the schema is carried forward); a revision that renames or drops an id is rejected unless the user asked.
+* **Cost:** one model call per apply (allowance/`preview_call_cap`); several comments on one scene in one apply = one call. No worker call.
+* **Undo:** every apply writes a row in `plate_revisions` (variant id, rev, `bundleDigest`, source key, bundle key, params, author = comment id, created at) that is retained for the life of the project; the objects it points to are exempt from the 24 h garbage sweep until the project is deleted or the revision is pruned (keep last 20 per scene). Undo creates a new revision that points to the old objects (history is append-only).
+* **HyperFrames:** same API shape; compositions already carry element ids, so the params-first rule applies to their `data-*`/CSS variables and the code fallback to the composition file.
 
 ## 9. Final render (step 4)
 
+Review #3: the render must produce what the user previewed.
+
+* **Frozen export manifest:** clicking `Render` creates an immutable manifest `{ projectId, revisions: [{ scene, aspect, bundleDigest, bundleKey }], timing (frames per scene), audio (voice + music object keys + digests), subtitle settings, aspect, fps, engineDigest, fontSetDigest }`, stored in R2 and referenced by the job. The worker renders **only** that manifest.
+* **No silent repair:** the worker verifies each bundle (§7). If a scene fails verification, the job **stops before drawing**, nothing is charged, and the scene is marked `needs fix` with a new repair revision produced by the bounded repair loop **and returned to step 3 for preview**. The user re-approves and clicks Render again with a new manifest.
 * Worker Chromium is launched with software GL flags (`--use-gl=angle --use-angle=swiftshader`, `--disable-gpu`); a startup self-check records the renderer string and **refuses to render** if a GPU path is detected.
-* Draw only scenes without a cached clip for their current signature; verify first (§7); repair bounded; then encode + audio + subtitles.
-* **Billing:** price shown at click; tokens are held when the job is accepted and **settled on success**. A job that fails for any reason except the user's own cancellation is released in full. Idempotency key per click prevents double holds.
-* Parallelism: scenes are independent jobs on `plate-render`; capped per project (`PLATE_PROJECT_CAP`) and by the DB connection budget (see `JOB_CONTROL.md`).
+* Draw only scenes without a clip for their `bundleDigest` (+ font set); then encode + audio + subtitles.
+* **Billing:** price shown at click; tokens are **held** when the job is accepted and **settled on success**; any failure other than user cancellation releases the hold. Idempotency key per click.
+* Parallelism: scenes are independent jobs on `plate-render`; capped per project (`PLATE_PROJECT_CAP`) and by the DB connection budget (`JOB_CONTROL.md`).
 
-## 10. Security and safety of running model code in the user's browser
+## 10. Execution and safety of running model code in the user's browser
 
-* Sandboxed iframe: `sandbox="allow-scripts"` (no same-origin), `srcdoc` from a fetched blob, CSP `default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:`. No top navigation, no popups, no storage, no network.
-* Talk only via `postMessage` with a per-iframe nonce; the parent validates message shapes and sizes.
-* Watchdog: a draw that takes > 2 s, or a frame that never returns, marks the scene `stalled`, destroys the iframe, and offers the worker fallback. Memory guard: destroy scenes not within ±1 of the playhead after 60 s.
-* The scene never sees user data; bundles are served from R2 via short-lived signed URLs after the ownership check.
+Review #2: an iframe shares the page's thread unless the browser happens to isolate it, so it cannot be the primary safety mechanism.
 
-## 11. API and data changes
+* **Primary: a terminable Worker host.** A new `worker` host for the plate engine (`packages/plate-engine/src/hosts/worker.ts`) runs the scene core in a dedicated **Web Worker** with `OffscreenCanvas` (the core already draws on `Layer` surfaces that are `OffscreenCanvas` when available and "cannot tell the difference"). Images load with `createImageBitmap`, fonts with `FontFace` in the worker. The page receives `ImageBitmap`s by transfer. The watchdog is `worker.terminate()`: a draw that takes > 2 s, a missing heartbeat for 3 s, or a memory-guard breach terminates and recreates the worker without touching the page.
+* **Fallback host: sandboxed iframe** (`sandbox="allow-scripts"`, opaque origin), used **only** where Worker + `OffscreenCanvas` 2D are unsupported **and** the scene passed the browser check on this device before. It cannot be terminated safely; it is therefore allowed only after a successful check and only with a timing watchdog that stops *scheduling* work (it cannot rescue a blocked thread). Where neither host is acceptable, the scene uses the worker-drawn clip.
+* **Prototype first (phase 0):** run real scenes in the Worker host on Chrome, Safari (macOS + iOS), Firefox and a low-end Android; record draw ms/frame, memory, whether `OffscreenCanvas` 2D filters/`shadowBlur`/`globalCompositeOperation` render the same as the DOM canvas, and whether `terminate()` recovers an infinite loop within the watchdog budget.
+* **CSP and fonts:** bundles run with `default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; font-src data: blob:`. Fonts the scene needs are **embedded as data URLs by the bundler** (size budget 300 KB per bundle, subset per script) or provided by the host via `FontFace` objects loaded from signed same-project URLs through the parent (not by the scene). Scenes cannot load fonts by URL.
+* **Messages:** `postMessage` with a per-host nonce; the parent validates shapes and sizes; bitmaps are transferred, never shared memory.
+* **Memory guard:** destroy scenes not within ±1 of the playhead after 60 s; a Worker allocating beyond its quota is terminated.
+* The scene never sees user data; bundles come from R2 through short-lived signed URLs after the ownership check.
 
-* `GET /v1/projects/:id/plates/:variantId/bundle` → `{ url, expiresAt, manifest }` (signed R2 URL; ownership-checked).
-* `POST /v1/projects/:id/plates/:variantId/check` → body = browser check report; 204.
-* `POST /v1/projects/:id/plates/edit` → `{ scene, atFrame, text }[]` → 202 + new generations.
-* `POST /v1/projects/:id/plates/render` → starts step 4 (idempotency key).
-* Migration `018_plate_live.sql`: `plate_variants.checked_at`, `check_report jsonb`, `check_env text`; state check constraint gains `checked`; manifest elements stored in `manifest`.
-* Flag `PLATE_LIVE_PREVIEW=on|off` (default off); off = today's behaviour, so rollout and rollback are a variable change.
+## 11. API, data and rollout
+
+* `GET /v1/projects/:id/plates/:variantId/bundle` → `{ url, expiresAt, manifest }`.
+* `POST /v1/projects/:id/plates/:variantId/check` → body `{ gen, bundleDigest, host, device, results }`; **fenced** by `(variant, gen, bundleDigest)`: a report for an older generation or a different digest is dropped (204, logged); duplicates are idempotent (unique on `(variant_id, gen, bundle_digest, host)`); a client report can only move `bundled → checked`, never to `drawn`.
+* `POST /v1/projects/:id/plates/edit` → `{ scene, atFrame, text }[]` → 202; returns the new `rev`/`gen` per scene.
+* `POST /v1/projects/:id/plates/revisions/:variantId/undo` → new revision pointing at an earlier one.
+* `POST /v1/projects/:id/plates/render` → freezes the export manifest and starts step 4 (idempotency key).
+* **Migration `019_plate_live.sql`** (018 is `018_plate_pipeline.sql`): `plate_variants.checked_at`, `check_report jsonb`, `bundle_digest text`, `host text`; state constraint gains `checked`; new `plate_revisions` table; `plate_garbage` skips objects referenced by a revision.
+* **State transitions with the flag:** `PLATE_LIVE_PREVIEW=on`: `bundled → checked` by a fenced report, no `plate-render` enqueued. `=off`: `bundled → rendering → drawn` as today.
+* **Rollback (flag off):** the reconciler (`plates/reconcile.ts`) treats `checked` like `bundled` and enqueues `plate-render` for every `checked` variant of projects in step ≥ 3 (rate-limited, project cap respected). In-flight edits finish normally (an edit is an authoring job, independent of the flag); a `checked` report arriving after the flag is off is accepted but changes nothing. Existing clips (`drawn`) are untouched. Users mid-session see the old clip player after a reload.
+* **Roll-forward safety:** `PLATE_LIVE_PREVIEW` is evaluated per project at step 3 entry and stored on the project (`live_mode`), so a flag flip never changes a film that is already open.
 
 ## 12. Edge cases
 
@@ -216,6 +248,15 @@ Result handling: `ok` → state `checked`; `code` failure → existing repair lo
 * `live-patch.mjs` (backend): apply/validate patches: ambiguous/missing find, size cap, id allow-list, unchanged code.
 * `plate-contract.mjs`: both adapters satisfy `ScenePlayer` (fake FILM and fake hyperframes-player).
 
+**Review-driven tests (new)**
+* `bundle-digest.mjs`: a comment (params or code) changes `bundleDigest` while `variantSignature` stays; a font-set change changes the digest; identical inputs give identical digests; frame/clip caches never hit across digests.
+* `live-worker-host` (browser): terminate-on-hang recovers within the watchdog; page stays responsive during a 2 s blocking draw; memory stays flat across 20 loops; OffscreenCanvas frames match DOM-canvas frames within a measured tolerance per look.
+* `export-manifest.mjs`: manifest freezes digests; a bundle changed after the click is not rendered; verification failure produces a returned revision and **no** render and **no** charge.
+* `plate-checks-fencing.mjs`: stale `gen`, wrong digest, duplicate and forged reports; a report cannot set `drawn`.
+* `plate-rollback.mjs`: flag off with `checked` variants queues `plate-render`; in-flight edits finish; per-project `live_mode` is stable.
+* `plate-revisions.mjs`: undo restores objects after the 24 h sweep; revisions survive garbage collection; prune keeps the last 20.
+* `plate-params.mjs`: schema validation rejects out-of-range/unknown ids; a params patch changes only the named element's isolated layer.
+
 **Integration (backend, real Postgres, `backend/test/`)**
 * `plate-live.mjs`: state machine `bundled → checked`, no `plate-render` enqueued with the flag on, enqueued with it off; check report fencing by `gen`; forged/late reports; edit creates `gen+1`; undo.
 * `plate-edit.mjs`: patch pipeline with a stub model: success, retry on bad patch, reject rewrite, allowance accounting.
@@ -240,12 +281,13 @@ Result handling: `ok` → state `checked`; `code` failure → existing repair lo
 
 | Phase | Deliverable | Exit criteria |
 | --- | --- | --- |
-| 1 | `ScenePlayer` contract, `FrameCache`, `FrameScheduler`, `PlaybackClock` + unit tests | all unit tests green; fake-FILM benchmark shows scheduler meets budget |
-| 2 | Plate live adapter (sandboxed iframe), bundle/check routes, state `checked`, flag | plates play live on staging with the flag on; sandbox tests green |
+| **0 (first milestone)** | **Real-scene feasibility spike**: (a) Worker + `OffscreenCanvas` host for 5+ real production scenes across looks; (b) terminate-on-hang proven; (c) memory bounded over a 3-minute loop and 20 scrubs; (d) slow-device behaviour (6× CPU throttle, iOS Safari, low-end Android) with the buffering gate and worker-clip fallback; (e) export of an **immutable previewed bundle** (digest equals what the worker renders); (f) live-vs-worker difference report | written results with numbers; decision recorded: Worker host viable on which browsers; fallback matrix; go/no-go for phase 2 |
+| 1 | `ScenePlayer` contract, `FrameCache`, `FrameScheduler`, `PlaybackClock` + unit tests (done) | all unit tests green; revised to key on `bundleDigest` and a rolling window after phase 0 |
+| 2 | Plate live adapter (Worker host; iframe only as fallback), bundle/check routes, state `checked`, flag, migration 019 | plates play live on staging with the flag on; sandbox tests green |
 | 3 | Shared `AnimationWorkspace` + `AnimationPrep` extracted from `PlatePreview`; HyperFrames moves onto it | screenshot diff shows identical shell; old HyperFrames `ce-*` layout removed |
 | 4 | Comment → patch editing with element ids | patch tests green; real scene "make the light green" changes only that element |
 | 5 | Step 4: worker draws on demand, GPU-off self-check, billing hold/settle | e2e green; failed render releases tokens |
-| 6 | Background clip prefetch, IndexedDB cache, worker fallback for slow devices | final render of a cached film ≤ 15 s |
+| 6 | Background clip prefetch, IndexedDB cache (the slow-device worker fallback ships in the first release, phase 2) | final render of a cached film ≤ 15 s |
 
 Rollout: each phase behind `PLATE_LIVE_PREVIEW` on staging first; production only after the staging e2e and a manual pass on Safari/iOS and a low-end Android.
 
@@ -271,7 +313,8 @@ Goal: a user can write or paste a script in **any language the LLM and the speec
 5. **Captions and on-screen text:** font stacks per script (Noto Sans Devanagari/Arabic/Nastaliq Urdu/CJK as required), shaping and RTL handled in **three** renderers that must agree: the live scene canvas (`fillText` with `direction`), the worker's subtitle PNG renderer (`renderSubtitlePng`, SVG text), and HyperFrames compositions (CSS `direction`, `lang` attributes). The studio's own interface stays English for now (interface localisation is a separate, later item).
 6. **Comments in any language:** the comment→patch model call takes the comment as written, replies and edits in the film's language, and never translates unless asked.
 7. **Keywords and key phrases:** generated in the film language by default; a per-film switch keeps key phrases in English for brand-style films (the open item above).
-8. **Scene code and RTL/complex scripts:** the plate authoring prompt gets a rule that text inside scenes must use the shared text helper (`text(ctx, str, {lang, dir})`) so direction, font fallback and line breaking are consistent; the browser check fails scenes that draw text with missing glyphs (tofu detection via `document.fonts.check` and canvas measurement).
+9. **Three text forms, never mixed (review #7):** `originalText` (what the user typed, verbatim, in whatever script), `displayText` (what appears on screen / captions, in the film's script, may be a transliteration), `spokenText` (what the voice reads, normalised for speech). Normalisation produces display/spoken from the original and never overwrites it; "own words stay verbatim" applies to `originalText` and to `displayText` when the user did not ask for transliteration. Each form has its own edit surface and its own signature input.
+8. **Scene code and RTL/complex scripts:** the plate authoring prompt gets a rule that text inside scenes must use the shared text helper (`text(ctx, str, {lang, dir})`) so direction, font fallback and line breaking are consistent; glyph coverage is checked from the **font tables** (cmap coverage of the exact fonts in the font set, computed in the bundler/worker and reported in the manifest) plus **render fixtures** per script that compare drawn text against expected non-tofu pixels. `document.fonts.check()` is **not** used for this: it reports loading state, not coverage.
 
 **Edge cases (languages)**
 * Mixed-language lines (Hinglish): language per line is kept; TTS receives the line with its dominant language; captions break at language switches only when needed.
@@ -287,7 +330,8 @@ Goal: a user can write or paste a script in **any language the LLM and the speec
 * `backend/test/voice-language.mjs` (the other session's) stays the home for voice/timing; extend with `hi`, `ur`, `ar`, `es` fixtures.
 * Normalisation unit tests: Roman Hindi → Devanagari, Roman Urdu, Arabizi, mixed lines, numbers (stub model with golden pairs; a live-model check run manually and recorded).
 * Caption rendering golden images per script (Latin, Devanagari, Arabic, Nastaliq) in all three renderers, checked for glyph coverage and direction; tofu detector unit test.
-* Browser check: scene with missing glyphs is rejected; RTL scene passes.
+* Browser check: scene with missing glyphs (by cmap coverage and by render fixture) is rejected; RTL scene passes; CSP `font-src` blocks a scene that tries to load a font by URL.
+* Acceptance scope for languages is **separate** from live preview: it ships per language behind its own flag with its own fixtures (§16 tests); live preview does not wait for it and it does not block live preview.
 * E2E: one short film per language family (en, hi-Devanagari, hi-Roman, ur, ar, es) through step 3 and step 4, asserting audio language, caption script, frame counts follow audio.
 
 **Phases:** language table and `inputScript` (P1 of this section, with phase 1 of §14); normalisation step and editable script (with phase 2); text helper, font stacks and tofu check (with phase 2/3); per-language e2e (with phase 5). Coordination: the voice and director parts stay with the other session; this plan owns the studio shell, the check and the render side.

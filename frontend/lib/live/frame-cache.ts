@@ -1,8 +1,9 @@
 /**
  * Frame cache for live scenes (docs/LIVE_SCENES_PLAN.md §6).
  *
- * A frame is a pure function of (scene signature, frame number, size), so an entry is valid for as long as it exists: there
- * is no invalidation, only eviction. Entries are grouped by scene so eviction can drop the scenes the viewer is farthest
+ * A frame is a pure function of (bundle digest, frame number, size) for one renderer environment, so an entry is valid for as
+ * long as it exists: there is no invalidation, only eviction. The "scene" id passed in is the **bundle digest**, never the
+ * project's input signature (which stays the same after a comment). Entries are grouped by scene so eviction can drop the scenes the viewer is farthest
  * from first, then the frames of a scene that are farthest from the playhead. The active scene and its neighbours can be pinned.
  */
 export interface Disposable { close?: () => void }
