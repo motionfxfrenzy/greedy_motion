@@ -952,7 +952,7 @@ export function Studio() {
       onRender={async () => { if (await submit()) setView("create"); }}
       onBack={() => setView("create")}
       screenshotUrl={projectScreenshotUrl}
-    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan || canvas ? STORYBOARD : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} />
+    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan || canvas ? STORYBOARD : SCRIPT_STYLE, project.renderJobId && (project.state === "Ready for review" || project.state === "Revisions needed") ? REVIEW : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} />
       {error && step !== SCRIPT_STYLE && !(step === STORYBOARD && canvas) && step !== RENDER && step !== REVIEW && <p className="workspace-error">{error}</p>}
       {step === STORYBOARD && canvas && <ScriptCanvas
         beats={canvas.beats} open={canvas.open} streaming={canvas.streaming} startedAt={canvas.startedAt} firstAt={canvas.firstAt} flags={canvas.flags} error={canvas.error ?? error}
