@@ -89,10 +89,17 @@ export async function verifyBundleHtmlSha(html: string, bundleShaPrefix?: string
 }
 
 function resolveApiUrl(path: string, baseUrl?: string): string {
-  const base = (baseUrl ?? process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+  // Written as a plain `process.env.NEXT_PUBLIC_API_URL` member access so Next.js can inline it at build time; the try covers
+  // plain browser bundles where `process` does not exist.
+  const envBase = (() => { try { return process.env.NEXT_PUBLIC_API_URL; } catch { return undefined; } })();
+  const base = (baseUrl ?? envBase ?? "").replace(/\/$/, "");
   if (!base) return path;
   if (/^https?:\/\//i.test(path)) return path;
-  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if ((base.endsWith("/api/backend") || base.endsWith("/v1")) && normalizedPath.startsWith("/v1/")) {
+    return `${base}${normalizedPath.slice(3)}`;
+  }
+  return `${base}${normalizedPath}`;
 }
 
 type BundleRouteResponse = {

@@ -351,3 +351,64 @@ test("runCheck verifies meta, determinism across frames 0/mid/last, and distingu
   assert.deepEqual(nullFail.ok, false);
   assert.equal(nullFail.kind, "env");
 });
+
+test("fetchBundle, reportCheck, and requestClip work in browser environments where globalThis.process is undefined", async () => {
+  const savedProcess = Object.getOwnPropertyDescriptor(globalThis, "process");
+  const html = "<!doctype html><html><body><script>window.FILM={};</script></body></html>";
+  const bundleSha = (await sha256Hex(html)).slice(0, 24);
+  try {
+    Object.defineProperty(globalThis, "process", { value: undefined, configurable: true, writable: true });
+    const fakeFetch = async (url) => {
+      const s = String(url);
+      if (s.endsWith("/bundle")) {
+        return new Response(
+          JSON.stringify({
+            url: "https://r2.test/bundle.html",
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            bundleDigest: "c".repeat(64),
+            manifest: { bundleSha },
+            params: {}
+          }),
+          { status: 200 }
+        );
+      }
+      if (s.endsWith("/check")) {
+        return new Response(JSON.stringify({ state: "checked" }), { status: 200 });
+      }
+      if (s.endsWith("/clip-request")) {
+        return new Response(JSON.stringify({ state: "rendering" }), { status: 202 });
+      }
+      return new Response(html, { status: 200 });
+    };
+
+    const bundle = await fetchBundle("p1", "v1", { fetch: fakeFetch });
+    assert.equal(bundle.html, html);
+
+    const check = await reportCheck(
+      "p1",
+      "v1",
+      { gen: 1, bundleDigest: bundle.bundleDigest, results: { ok: true } },
+      { fetch: fakeFetch }
+    );
+    assert.equal(check.status, "ok");
+
+    const clip = await requestClip("p1", "v1", { fetch: fakeFetch });
+    assert.equal(clip.status, "rendering");
+
+    // Verify Next.js `/api/backend` proxy baseUrl does not duplicate `/v1`
+    const seenUrls = [];
+    await fetchBundle("p1", "v1", {
+      baseUrl: "/api/backend",
+      fetch: async (url) => {
+        seenUrls.push(String(url));
+        return fakeFetch(url);
+      }
+    });
+    assert.equal(seenUrls[0], "/api/backend/projects/p1/plates/v1/bundle");
+    assert.equal(seenUrls[1], "https://r2.test/bundle.html");
+  } finally {
+    if (savedProcess) {
+      Object.defineProperty(globalThis, "process", savedProcess);
+    }
+  }
+});

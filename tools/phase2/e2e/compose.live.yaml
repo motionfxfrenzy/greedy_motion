@@ -1,0 +1,7 @@
+services:
+  plate-api:
+    environment:
+      PLATE_LIVE_PREVIEW: "on"
+  plate-worker:
+    environment:
+      PLATE_LIVE_PREVIEW: "on"
