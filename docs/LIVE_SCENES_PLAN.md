@@ -9,7 +9,7 @@ An external review checked this plan against the code. All seven points held; th
 | # | Finding | Verified in code | Change |
 | --- | --- | --- | --- |
 | 1 | The "signature" is not a hash of the authored code | `backend/src/plates/store.ts` `reviseScene` comment: "The signature stays (the inputs did not change); `rev` and `gen` rise". `variantSignature` hashes look, digests, film, beat text, frames, aspect, never the code | Cache and clip identity use a **bundle digest**: the manifest's existing `bundleSha` (sha256 of the bundle HTML) plus a font-set digest and size (§6, §9) |
-| 2 | An iframe is not a separate thread; a parent timeout cannot rescue a blocked main thread | `packages/plate-engine/src/hosts/page.ts` runs on the page main thread (DOM `<canvas>`, `Image`, `AudioContext`) | Primary path is a **terminable Worker with `OffscreenCanvas`**; the iframe path is only a fallback; no Worker host support → worker-drawn clip (§10, new phase 0) |
+| 2 | An iframe is not a separate thread; a parent timeout cannot rescue a blocked main thread | `packages/plate-engine/src/hosts/page.ts` runs on the page main thread (DOM `<canvas>`, `Image`, `AudioContext`) | Primary path is a **terminable Worker with `OffscreenCanvas`**; there is no iframe host; no Worker host support → worker-drawn clip (§10, new phase 0) |
 | 3 | Repair at export breaks "render what I previewed" | §9 allowed code repair during export | **Frozen export manifest** with exact bundle digests; the worker may only verify; a repair creates a new revision returned to the preview, never a silent render (§9) |
 | 4 | The cache cannot deliver the stated guarantees | 160 MB / 1.64 MB ≈ 97 frames ≈ 3.2 s at 30 fps; two pinned scenes exceed it | **Rolling frame window**, buffering gate before play, worker fallback in the **first** release (§6) |
 | 5 | The patch check proves nothing for an element that exists the whole scene | §8 compared frames outside the element's active range | **Structured element parameters** instead of free code edits; continuity checks are best-effort and labelled so (§8) |
@@ -60,7 +60,7 @@ Principles:
 ### Step 4
 
 1. Worker receives the frozen export manifest (§9), downloads exactly those bundles, **verifies each again**, draws missing scenes on CPU (software GL, no GPU), reuses clips cached by `bundleDigest` (+ font set), encodes, adds audio/subtitles, uploads the MP4.
-2. A failed verification at this point runs the bounded repair loop before any frame is drawn; if it still fails the job fails **without charge** (§9).
+2. A failed verification at this point **never repairs and never draws**: the job stops before any frame, nothing is charged, and the scene returns to step 3 as `needs fix` with a repair revision the user previews and approves (§9).
 3. Optional (phase 4): when the user is idle in step 3, the backend schedules background clip drawing for finished scenes so step 4 is often just a join.
 
 ## 4. UI consistency
@@ -101,21 +101,21 @@ interface ScenePlayer {
   ready(frame: number): boolean;                  // is this frame available without drawing?
   buffered(): { from: number; to: number }[];     // for the buffer bar
   on(event: "error" | "buffering" | "ready", cb): () => void;
-  destroy(): void;                                // free memory, stop timers, remove iframes
+  destroy(): void;                                // free memory, stop timers, terminate Workers
 }
 ```
 
 * **HyperFrames adapter** (the player inside the plates shell): wraps `<hyperframes-player>` (seek by seconds). DOM animation is drawn natively by the browser, so no frame cache; `ready()` is always true.
-* **Plate adapter:** one sandboxed iframe per scene (bundle from a signed URL via `srcdoc`/blob), `window.FILM` (`ready`, `mount`, `warm`, `seek`, `meta`) behind a message channel; draws into the frame cache.
+* **Plate adapter:** one terminable Worker per playing scene (bundle from a signed URL, `OffscreenCanvas`), `window.FILM`-equivalent API (`ready`, `mount`, `warm`, `seek`, `meta`) behind a message channel; draws into the frame cache. Where the Worker host is unsupported the scene plays its worker-drawn clip (§10); there is no iframe host.
 * **Clock:** `PlaybackClock` (audio element = master). Player asks `clock.now()` → frame index. If `ready(frame)` is false the player **holds the last frame**, never stalls audio, and shows the buffer indicator.
 
 ## 6. Frame cache (plates)
 
-* **Identity (fixes review #1):** the existing `variantSignature` hashes *inputs* (look, digests, film, beat text, frames, aspect) and deliberately **stays the same after a comment** (`reviseScene`), so it must never key frames or clips. A new immutable **`bundleDigest`** is used everywhere a frame or clip is cached or compared: `sha256(bundle.html)` (the manifest already stores it as `bundleSha`) combined with `fontSetDigest` (hash of the font files available to the renderer) and `engineDigest`. Any change to code, embedded assets, fonts or engine changes the digest; an unchanged digest means identical drawing input.
+* **Identity (fixes review #1):** the existing `variantSignature` hashes *inputs* (look, digests, film, beat text, frames, aspect) and deliberately **stays the same after a comment** (`reviseScene`), so it must never key frames or clips. A new immutable **`bundleDigest`** is used everywhere a frame or clip is cached or compared: `sha256(bundle.html)` (the manifest already stores it as `bundleSha`) combined with **`paramsDigest`** (sha256 of the canonical, key-sorted JSON of the scene's current params, which live in `plate_revisions` and not in the HTML), `fontSetDigest` (hash of the font files available to the renderer) and `engineDigest`. A params-only comment therefore changes `bundleDigest`. The previewed Worker host and the CPU export receive the **same** code, params, assets and fonts (phase 0 proves it). Any change to code, embedded assets, fonts or engine changes the digest; an unchanged digest means identical drawing input.
 * **Key:** `bundleDigest | frame | previewSize`. A frame is a pure function of the key *for one renderer environment*; entries are never shared across devices.
 * **Entry:** `ImageBitmap` at preview size (default 854×480 ≈ 1.6 MB; 9:16 → 480×854; 1:1 → 640×640). Every bitmap is `close()`d on eviction, drop, replace and `destroy()`.
-* **Rolling window, not whole scenes (review #4):** the budget (`LIVE_CACHE_MB`, default 160, 80 on `deviceMemory <= 4`, 60 on iOS) holds about 3 s of film at default size, so the cache is a **window around the playhead**: 1 s behind, 4 s ahead, plus the first 15 frames of the next scene. Whole-scene pinning is removed; pins only decide eviction order. A scene longer than the window is simply never fully resident.
-* **Buffering gate:** playback starts when `bufferedAhead >= lead`, where `lead = clipSeconds * max(0, 1 - produceFps / consumeFps)` (+ 0.5 s margin) measured from the draw-cost average. If `lead` exceeds the window (the device draws slower than real time by too much, e.g. 20 fps scenes on a 30 fps film), live playback is **not offered**: the scene uses the worker-drawn clip (§6, fallback) from the first release.
+* **Rolling window derived from the byte budget (not from seconds):** `windowFrames = floor(budgetBytes / bytesPerFrame)`; at 160 MB and 1.64 MB that is **97 frames (~3.2 s at 30 fps)**. The window is split 20 % behind the playhead, 15 % (capped at 15 frames) head of the next scene, and the remainder ahead: about 19 / 14 / 64 frames, i.e. **~2.1 s of lead** at the default budget. Budget (`LIVE_CACHE_MB`): 160 default, 80 on `deviceMemory <= 4`, 60 on iOS; a larger preview size shrinks the window, never the budget. Whole-scene pinning is removed; pins only decide eviction order. A test asserts `resident bytes <= budget` for every window split.
+* **Buffering gate:** playback starts when `bufferedAhead >= lead`, where `lead = clipSeconds * max(0, 1 - produceFps / consumeFps)` (+ 0.5 s margin) measured from the draw-cost average, and the gate uses the **actual ahead capacity** from the byte budget above. If `lead` exceeds that ahead capacity (the device draws slower than real time by too much, e.g. 20 fps scenes on a 30 fps film), live playback is **not offered**: the scene uses the worker-drawn clip (§6, fallback) from the first release.
 * **Draw-ahead scheduler:** runs **inside the same Worker as the scene** (§10), so a slow draw never blocks the page and the 8 ms slice problem disappears: the scheduler budgets between frames, the Worker thread absorbs the 50 ms draw. On the main-thread fallback host, slices are `requestIdleCallback` based and a single draw longer than the slice is accepted (documented limit; see watchdog §10).
 * **Order:** playhead → 4 s ahead → first 15 frames of the next scene → remaining window behind the playhead. Re-prioritises on seek.
 * **Real-time fallback (first release):** `Draw a preview video for this scene` queues the existing worker clip path (`plate-render`), cached by `bundleDigest`. It is a normal, supported path, not an afterthought.
@@ -128,7 +128,7 @@ Today: `queued → authoring → bundled → (worker) rendering → drawn | fail
 
 New (flag `PLATE_LIVE_PREVIEW`): `queued → authoring → bundled → checked` where **`checked`** means the browser check passed and the scene is playable. `plate-render` is **not** enqueued at `bundled`; it is enqueued at step 4 (or by background prefetch). `drawn` keeps its meaning: a CPU-drawn clip exists in R2.
 
-Browser check (runs in the sandboxed iframe, reports to `POST /v1/projects/:id/plates/:variantId/check`):
+Browser check (runs in the Worker host, reports to `POST /v1/projects/:id/plates/:variantId/check`):
 
 * no page errors; `FILM.meta` matches the plan (size, fps, frames);
 * frames 0, mid, last drawn twice give identical pixels (determinism) - same rule as the worker;
@@ -153,7 +153,7 @@ Review #5: free-form code patches cannot be *proven* local. The edit path theref
 
 Review #3: the render must produce what the user previewed.
 
-* **Frozen export manifest:** clicking `Render` creates an immutable manifest `{ projectId, revisions: [{ scene, aspect, bundleDigest, bundleKey }], timing (frames per scene), audio (voice + music object keys + digests), subtitle settings, aspect, fps, engineDigest, fontSetDigest }`, stored in R2 and referenced by the job. The worker renders **only** that manifest.
+* **Frozen export manifest:** clicking `Render` creates an immutable manifest `{ projectId, revisions: [{ scene, aspect, bundleDigest, bundleKey, paramsDigest, params }], timing (frames per scene), audio (voice + music object keys + digests), subtitle settings, aspect, fps, engineDigest, fontSetDigest }`, stored in R2 and referenced by the job. The worker renders **only** that manifest.
 * **No silent repair:** the worker verifies each bundle (§7). If a scene fails verification, the job **stops before drawing**, nothing is charged, and the scene is marked `needs fix` with a new repair revision produced by the bounded repair loop **and returned to step 3 for preview**. The user re-approves and clicks Render again with a new manifest.
 * Worker Chromium is launched with software GL flags (`--use-gl=angle --use-angle=swiftshader`, `--disable-gpu`); a startup self-check records the renderer string and **refuses to render** if a GPU path is detected.
 * Draw only scenes without a clip for their `bundleDigest` (+ font set); then encode + audio + subtitles.
@@ -165,7 +165,8 @@ Review #3: the render must produce what the user previewed.
 Review #2: an iframe shares the page's thread unless the browser happens to isolate it, so it cannot be the primary safety mechanism.
 
 * **Primary: a terminable Worker host.** A new `worker` host for the plate engine (`packages/plate-engine/src/hosts/worker.ts`) runs the scene core in a dedicated **Web Worker** with `OffscreenCanvas` (the core already draws on `Layer` surfaces that are `OffscreenCanvas` when available and "cannot tell the difference"). Images load with `createImageBitmap`, fonts with `FontFace` in the worker. The page receives `ImageBitmap`s by transfer. The watchdog is `worker.terminate()`: a draw that takes > 2 s, a missing heartbeat for 3 s, or a memory-guard breach terminates and recreates the worker without touching the page.
-* **Fallback host: sandboxed iframe** (`sandbox="allow-scripts"`, opaque origin), used **only** where Worker + `OffscreenCanvas` 2D are unsupported **and** the scene passed the browser check on this device before. It cannot be terminated safely; it is therefore allowed only after a successful check and only with a timing watchdog that stops *scheduling* work (it cannot rescue a blocked thread). Where neither host is acceptable, the scene uses the worker-drawn clip.
+* **No iframe host.** Where Worker + `OffscreenCanvas` 2D are unsupported, or the device is untested, the scene uses the **worker-drawn clip** directly. A sampled check cannot prove later frames will not hang a non-terminable host, so no host that cannot be terminated ever runs model code on the page thread.
+* **Containment is verified, not assumed (phase 0):** a Worker has no DOM but still has `fetch`, `importScripts`, IndexedDB, `BroadcastChannel`. Mitigation to be proven in the spike: the Worker is created from a blob with its own CSP (`connect-src 'none'`) and the bundle is stripped of those globals before the scene runs (`self.fetch = undefined` etc. is defence in depth, not the boundary); memory is **not** observable per Worker, so the guard is a frame/bitmap byte count kept by the host plus a draw-time and heartbeat watchdog, and a tab-level `performance.measureUserAgentSpecificMemory` where available.
 * **Prototype first (phase 0):** run real scenes in the Worker host on Chrome, Safari (macOS + iOS), Firefox and a low-end Android; record draw ms/frame, memory, whether `OffscreenCanvas` 2D filters/`shadowBlur`/`globalCompositeOperation` render the same as the DOM canvas, and whether `terminate()` recovers an infinite loop within the watchdog budget.
 * **CSP and fonts:** bundles run with `default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; font-src data: blob:`. Fonts the scene needs are **embedded as data URLs by the bundler** (size budget 300 KB per bundle, subset per script) or provided by the host via `FontFace` objects loaded from signed same-project URLs through the parent (not by the scene). Scenes cannot load fonts by URL.
 * **Messages:** `postMessage` with a per-host nonce; the parent validates shapes and sizes; bitmaps are transferred, never shared memory.
@@ -181,8 +182,8 @@ Review #2: an iframe shares the page's thread unless the browser happens to isol
 * `POST /v1/projects/:id/plates/render` → freezes the export manifest and starts step 4 (idempotency key).
 * **Migration `019_plate_live.sql`** (018 is `018_plate_pipeline.sql`): `plate_variants.checked_at`, `check_report jsonb`, `bundle_digest text`, `host text`; state constraint gains `checked`; new `plate_revisions` table; `plate_garbage` skips objects referenced by a revision.
 * **State transitions with the flag:** `PLATE_LIVE_PREVIEW=on`: `bundled → checked` by a fenced report, no `plate-render` enqueued. `=off`: `bundled → rendering → drawn` as today.
-* **Rollback (flag off):** the reconciler (`plates/reconcile.ts`) treats `checked` like `bundled` and enqueues `plate-render` for every `checked` variant of projects in step ≥ 3 (rate-limited, project cap respected). In-flight edits finish normally (an edit is an authoring job, independent of the flag); a `checked` report arriving after the flag is off is accepted but changes nothing. Existing clips (`drawn`) are untouched. Users mid-session see the old clip player after a reload.
-* **Roll-forward safety:** `PLATE_LIVE_PREVIEW` is evaluated per project at step 3 entry and stored on the project (`live_mode`), so a flag flip never changes a film that is already open.
+* **Flag precedence:** `PLATE_LIVE_PREVIEW` decides the mode only for a project's **first entry to step 3**; the result is stored as `live_mode` and **survives flag changes**. Normal rollout (flag on→off) therefore affects new projects only; existing live projects keep playing live. Reconciling existing projects needs an **explicit rollback override** `PLATE_LIVE_FORCE_OFF=1` (operator action, logged).
+* **Rollback (override on):** the reconciler (`plates/reconcile.ts`) sets `live_mode=clip`, treats `checked` like `bundled` and enqueues `plate-render` for every `checked` variant of projects in step >= 3 (rate-limited, project cap respected). In-flight edits finish normally; a `checked` report arriving afterwards is accepted but changes nothing. Existing clips (`drawn`) are untouched. Users mid-session see the clip player after a reload.
 
 ## 12. Edge cases
 
@@ -235,7 +236,7 @@ Review #2: an iframe shares the page's thread unless the browser happens to isol
 
 **Security**
 35. Scene code tries `fetch`, `XMLHttpRequest`, `WebSocket`, `window.top`, `localStorage`, `eval` of remote code: blocked by sandbox/CSP; attempt is logged as `blocked` and fails the check.
-36. Scene allocates memory in a loop / infinite loop: watchdog destroys the iframe; the page stays responsive (iframe is a separate frame; if the tab freezes, see §10 memory guard and fall back to worker).
+36. Scene allocates memory in a loop / infinite loop: the watchdog `terminate()`s the Worker and recreates it; the page stays responsive; after two terminations the scene switches to its worker-drawn clip.
 37. Bundle URL leak: short TTL, ownership-checked, `Cache-Control: private`.
 38. Forged check report: advisory only; worker re-verifies.
 
@@ -281,9 +282,9 @@ Review #2: an iframe shares the page's thread unless the browser happens to isol
 
 | Phase | Deliverable | Exit criteria |
 | --- | --- | --- |
-| **0 (first milestone)** | **Real-scene feasibility spike**: (a) Worker + `OffscreenCanvas` host for 5+ real production scenes across looks; (b) terminate-on-hang proven; (c) memory bounded over a 3-minute loop and 20 scrubs; (d) slow-device behaviour (6× CPU throttle, iOS Safari, low-end Android) with the buffering gate and worker-clip fallback; (e) export of an **immutable previewed bundle** (digest equals what the worker renders); (f) live-vs-worker difference report | written results with numbers; decision recorded: Worker host viable on which browsers; fallback matrix; go/no-go for phase 2 |
+| **0 (first milestone)** | **Real-scene feasibility spike**: (a) Worker + `OffscreenCanvas` host for 5+ real production scenes across looks; (b) terminate-on-hang proven; (c) memory bounded over a 3-minute loop and 20 scrubs; (d) slow-device behaviour (6× CPU throttle, iOS Safari, low-end Android) with the buffering gate and worker-clip fallback; (e) export of an **immutable previewed bundle** (digest equals what the worker renders); (f) live-vs-worker difference report; (g) **containment**: show what network/storage access a Worker scene has and how it is restricted, and what memory can actually be accounted for; (h) **identity through both hosts**: Worker preview and CPU export run the same code, params, assets and fonts (digests equal, pixel diff reported); output is measurements plus a **browser support / fallback matrix** where untested browsers stay explicitly `unverified` | written results with numbers; decision recorded: Worker host viable on which browsers; fallback matrix; go/no-go for phase 2 |
 | 1 | `ScenePlayer` contract, `FrameCache`, `FrameScheduler`, `PlaybackClock` + unit tests (done) | all unit tests green; revised to key on `bundleDigest` and a rolling window after phase 0 |
-| 2 | Plate live adapter (Worker host; iframe only as fallback), bundle/check routes, state `checked`, flag, migration 019 | plates play live on staging with the flag on; sandbox tests green |
+| 2 | **Gated on phase 0 results.** Plate live adapter (Worker host; unsupported devices use the clip), bundle/check routes, state `checked`, flag, migration 019 | plates play live on staging with the flag on; sandbox tests green |
 | 3 | Shared `AnimationWorkspace` + `AnimationPrep` extracted from `PlatePreview`; HyperFrames moves onto it | screenshot diff shows identical shell; old HyperFrames `ce-*` layout removed |
 | 4 | Comment → patch editing with element ids | patch tests green; real scene "make the light green" changes only that element |
 | 5 | Step 4: worker draws on demand, GPU-off self-check, billing hold/settle | e2e green; failed render releases tokens |
