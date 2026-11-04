@@ -1,0 +1,16 @@
+import { chromium } from "/Users/osamaehsaan/Code/Market_apps/VideoSaaS-live-scenes/node_modules/playwright-core/index.mjs";
+import { createServer } from "node:http"; import { readFileSync, existsSync } from "node:fs"; import { join, extname } from "node:path";
+const S = new URL(".", import.meta.url).pathname;
+const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
+const srv = createServer((q, r) => { const p = join(S, decodeURIComponent(new URL(q.url, "http://x").pathname)); if (!existsSync(p) || p.endsWith("/")) { r.writeHead(404); return r.end(); } r.writeHead(200, { "content-type": types[extname(p)] ?? "application/octet-stream" }); r.end(readFileSync(p)); }).listen(0, "127.0.0.1");
+await new Promise((ok) => srv.once("listening", ok)); const port = srv.address().port;
+const b = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
+const pg = await b.newPage({ viewport: { width: 1920, height: 1080 } });
+const logs = []; pg.on("console", (m) => logs.push(m.type() + ": " + m.text().slice(0, 200))); pg.on("pageerror", (e) => logs.push("PAGEERROR " + String(e).slice(0, 300)));
+await pg.addInitScript({ path: S + "runtime.js" });
+let html = readFileSync(S + "index.html", "utf8").replace("</head>", '<link rel="stylesheet" href="theme.css"></head>');
+await pg.route("**/probe.html", (r) => r.fulfill({ contentType: "text/html", body: html }));
+await pg.goto(`http://127.0.0.1:${port}/probe.html`); await pg.waitForTimeout(1500);
+const info = await pg.evaluate(() => ({ tl: Object.keys(window.__timelines || {}), dur: window.__timelines?.main?.duration?.(), stageKids: document.getElementById("stage")?.children.length, hf: typeof window.__hyperframes, vars: Object.keys(window.__hyperframes?.getVariables?.() ?? {}) }));
+console.log(JSON.stringify(info)); console.log(logs.slice(0, 12).join("\n"));
+await pg.screenshot({ path: S + "t0.png" }); await b.close(); srv.close();
