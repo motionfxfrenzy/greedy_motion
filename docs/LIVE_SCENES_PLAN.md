@@ -63,6 +63,17 @@ One shell, two adapters. The shell is **extracted from `PlatePreview`** (not fro
 
 Rules: the same copy, empty and error states, keyboard shortcuts and responsive layout (stage + side panel stack under 900 px), dark and light tokens, for both engines. `BrowserAnimationStep`'s `ce-*` classes and `plate-preview.css` are replaced by one stylesheet for the shell. The plates controls the user likes (minimal icons, hover-only volume slider) are kept as they are.
 
+### Patterns to keep (from the production storyboard and animation steps the user likes)
+
+Verified in the production app on 2026-11-04 (`script-canvas.tsx` for the storyboard, `plate-preview.tsx` for the animation step). These become named, reusable pieces, not copies:
+
+1. **Button becomes a bar.** A long action (`Build voiceover and music`, `Rebuild voiceover and music`) turns into a disabled `role="progressbar"` button with the percentage inside (`aria-valuenow`, tabular numbers), same width, no layout jump; when done it returns to the action. `ProgressButton` component. Used for: preparing live scenes, applying comments, final render, background clip drawing.
+2. **Live status line under the title.** `● Recording voiceover and music in parallel · 5/5 scenes ready · 78%` with the pulsing `sc-live` dot, `aria-live="polite"`; at rest it reads `5 beats · 46 spoken words · about 24s · 5/5 voiced`. `StatusLine` component; step 3 reads `● Preparing live scenes · 3/5 ready · 60%`, at rest `5 scenes · 24s · all playable`.
+3. **Per-scene rows with their own controls.** Beat title, `Reimagine`, visual / on-screen / voiceover lines, an inline audio player with `Retry voice`, and the reference frame on the right. Scene tabs `01…05` in the animation step carry the same per-scene state (ready / updating / needs update).
+4. **Floating command bar** (`Ask for a change, or click a scene to refer to it` with quick chips such as `Make it punchier`, `Shorter`, `More playful`) stays on the storyboard; in step 3 the timed comment composer is its sibling and uses the same chip row for comment examples.
+5. **One primary action per step** (`Create animation →`, then `Render · N tokens`), top right, with the token modal; disabled with a reason, never hidden.
+6. **Animation step chrome:** top options bar (`Audio`, `Subtitle`, key phrases, style, size, colours, position, status chip), stage with ratio picker, minimal control row, scene tabs, right-hand `Comments` panel, `Apply comments` (a `ProgressButton`).
+
 ## 5. Player contract
 
 ```ts
