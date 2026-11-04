@@ -72,7 +72,8 @@ Verified in the production app on 2026-11-04 (`script-canvas.tsx` for the storyb
 3. **Per-scene rows with their own controls.** Beat title, `Reimagine`, visual / on-screen / voiceover lines, an inline audio player with `Retry voice`, and the reference frame on the right. Scene tabs `01…05` in the animation step carry the same per-scene state (ready / updating / needs update).
 4. **Floating command bar** (`Ask for a change, or click a scene to refer to it` with quick chips such as `Make it punchier`, `Shorter`, `More playful`) stays on the storyboard; in step 3 the timed comment composer is its sibling and uses the same chip row for comment examples.
 5. **One primary action per step** (`Create animation →`, then `Render · N tokens`), top right, with the token modal; disabled with a reason, never hidden.
-6. **Animation step chrome:** top options bar (`Audio`, `Subtitle`, key phrases, style, size, colours, position, status chip), stage with ratio picker, minimal control row, scene tabs, right-hand `Comments` panel, `Apply comments` (a `ProgressButton`).
+6. **Reference first, real frame later (keep exactly).** The storyboard shows a **reference frame** per scene: a cheap model-drawn sketch that only represents the idea (`frames_sketched`, instant, no scene code). The animation step builds the **actual drawn frame** from the scene code. Live scenes keep this two-tier shape: while a scene is not playable yet, its reference frame fills the stage (and the scene tab); when the first live frame is drawn it cross-fades in (150 ms); if the live scene later fails or stalls, the stage falls back to the last good frame or the reference with a notice. The reference frame is never presented as the final look, and storyboard edits (`Reimagine`) change only the reference until the user continues.
+7. **Animation step chrome:** top options bar (`Audio`, `Subtitle`, key phrases, style, size, colours, position, status chip), stage with ratio picker, minimal control row, scene tabs, right-hand `Comments` panel, `Apply comments` (a `ProgressButton`).
 
 ## 5. Player contract
 
@@ -171,6 +172,11 @@ Result handling: `ok` → state `checked`; `code` failure → existing repair lo
 13. Voiceover not ready yet: play silently with a "voice is being recorded" badge; start audio when it arrives at the right offset.
 14. Loop/replay: cache retained; no re-mount.
 15. Aspect change (three ratios): only the viewed ratio's bundles are loaded; switching unloads the others.
+
+**Reference to live handoff**
+15a. Live scene ready before its reference frame loads: show the live frame only; never flash the reference after it.
+15b. Reference exists but the scene code failed authoring: the tab shows the reference with "Scene could not be built" and `Fix this scene`; nothing blank.
+15c. User changes the reference (`Reimagine`) after scenes were built: scenes are marked "needs update" (reference and scene differ) instead of silently rebuilding.
 
 **Authoring and edits**
 16. Scene code compiles but throws at frame N: check catches only sampled frames - runtime error mid-playback marks the scene `failed-live`, shows the last good frame, and offers `Fix this scene` (repair loop).
