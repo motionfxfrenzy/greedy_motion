@@ -1,0 +1,160 @@
+import type { Disposable, FrameCache } from "./frame-cache.ts";
+
+export type SceneInfo = { id: string; frames: number };
+export type DrawResult<T> = { value: T; bytes: number };
+export type Draw<T> = (scene: string, frame: number) => Promise<DrawResult<T>> | DrawResult<T>;
+
+export type SchedulerOptions<T extends Disposable> = {
+  cache: FrameCache<T>;
+  scenes: SceneInfo[];
+  draw: Draw<T>;
+  fps?: number;
+  /** Frames drawn ahead of the playhead before the rest of the scene (default 2 s of frames). */
+  lookahead?: number;
+  /** Frames of the next scenes drawn before the far end of the active scene (default 15). */
+  head?: number;
+  /** After this many failures in a row the scheduler stops (a broken scene must not spin). */
+  maxConsecutiveFailures?: number;
+  now?: () => number;
+  onError?: (scene: string, frame: number, error: unknown) => void;
+};
+
+type Slot = { scene: string; frame: number; phase: 1 | 2 | 3 | 4 | 5 };
+
+/**
+ * Draw-ahead scheduler (docs/LIVE_SCENES_PLAN.md §6). Fills the frame cache in short, time-sliced runs so the page stays
+ * responsive; the order follows the viewer: the playhead first, then what is about to play, then the rest of the scene, then
+ * the first frames of the scenes around it, then everything else. A seek changes the order immediately (the order is computed
+ * lazily from the current focus), so stale work is never "cancelled": it is simply no longer next.
+ */
+export class FrameScheduler<T extends Disposable = Disposable> {
+  private scenes: SceneInfo[];
+  private focusScene: string;
+  private focusFrame = 0;
+  private paused = false;
+  private failed = new Set<string>();
+  private consecutiveFailures = 0;
+  private avgMs = 0;
+  private avgBytes = 0;
+  drawn = 0;
+  failures = 0;
+  halted = false;
+
+  private opts: SchedulerOptions<T>;
+
+  constructor(opts: SchedulerOptions<T>) {
+    this.opts = opts;
+    this.scenes = opts.scenes.map((s) => ({ ...s }));
+    this.focusScene = this.scenes[0]?.id ?? "";
+    opts.cache.setOrder(this.scenes.map((s) => s.id));
+  }
+
+  private get fps() { return this.opts.fps ?? 30; }
+  private get lookahead() { return this.opts.lookahead ?? Math.round(this.fps * 2); }
+  private get head() { return this.opts.head ?? 15; }
+  private now() { return (this.opts.now ?? (() => performance.now()))(); }
+
+  setScenes(scenes: SceneInfo[]) {
+    this.scenes = scenes.map((s) => ({ ...s }));
+    this.opts.cache.setOrder(this.scenes.map((s) => s.id));
+    if (!this.scenes.some((s) => s.id === this.focusScene)) this.focusScene = this.scenes[0]?.id ?? "";
+    this.halted = false;
+    this.consecutiveFailures = 0;
+  }
+
+  focus(scene: string, frame: number) {
+    this.focusScene = scene;
+    this.focusFrame = Math.max(0, Math.floor(frame));
+    this.opts.cache.setFocus(scene, this.focusFrame);
+  }
+
+  pause() { this.paused = true; }
+  resume() { this.paused = false; }
+  get isPaused() { return this.paused; }
+
+  /** A scene's code changed: forget it (cache, failures) so it is drawn again from its new signature. */
+  invalidate(scene: string) {
+    this.opts.cache.drop(scene);
+    for (const key of [...this.failed]) if (key.startsWith(`${scene}\u0000`)) this.failed.delete(key);
+    this.halted = false;
+    this.consecutiveFailures = 0;
+  }
+
+  /** Average cost of one draw in ms, and what the player should do about it (plan §6, "draw cost model"). */
+  get cost() { return this.avgMs; }
+  advice(): "ok" | "downscale" | "fallback" {
+    const budget = 1000 / this.fps;
+    if (this.drawn < 5) return "ok";
+    if (this.avgMs > 2 * budget) return "fallback";
+    if (this.avgMs > budget) return "downscale";
+    return "ok";
+  }
+
+  private *order(): Generator<Slot> {
+    const i = this.scenes.findIndex((s) => s.id === this.focusScene);
+    if (i < 0) return;
+    const active = this.scenes[i]!;
+    const f = Math.min(this.focusFrame, Math.max(0, active.frames - 1));
+    yield { scene: active.id, frame: f, phase: 1 };
+    // 2. what plays next: lookahead frames, continuing into following scenes if the active one ends first
+    let remaining = this.lookahead, s = i, frame = f + 1;
+    while (remaining > 0 && s < this.scenes.length) {
+      const scene = this.scenes[s]!;
+      if (frame >= scene.frames) { s++; frame = 0; continue; }
+      yield { scene: scene.id, frame, phase: 2 };
+      frame++; remaining--;
+    }
+    // 3. the rest of the active scene: forward to the end, then backwards from the playhead
+    for (let n = f + 1 + this.lookahead; n < active.frames; n++) yield { scene: active.id, frame: n, phase: 3 };
+    for (let n = f - 1; n >= 0; n--) yield { scene: active.id, frame: n, phase: 3 };
+    // 4. the first frames of the scenes around, nearest first, next before previous
+    const around: SceneInfo[] = [];
+    for (let d = 1; d < this.scenes.length; d++) {
+      if (this.scenes[i + d]) around.push(this.scenes[i + d]!);
+      if (this.scenes[i - d]) around.push(this.scenes[i - d]!);
+    }
+    for (const scene of around) for (let n = 0; n < Math.min(this.head, scene.frames); n++) yield { scene: scene.id, frame: n, phase: 4 };
+    // 5. everything else, nearest scene first
+    for (const scene of around) for (let n = this.head; n < scene.frames; n++) yield { scene: scene.id, frame: n, phase: 5 };
+  }
+
+  /** The next frame worth drawing, or null when there is nothing (left) to do. */
+  next(): Slot | null {
+    if (this.halted) return null;
+    const cache = this.opts.cache;
+    const full = cache.bytes + this.avgBytes > cache.budget;
+    for (const slot of this.order()) {
+      if (cache.has(slot.scene, slot.frame) || this.failed.has(`${slot.scene}\u0000${slot.frame}`)) continue;
+      // A full cache only takes what is about to play; far frames would just evict nearer ones.
+      if (full && slot.phase > 2) return null;
+      return slot;
+    }
+    return null;
+  }
+
+  /** Draws frames until `budgetMs` is used up. Returns how many were drawn. Safe to call repeatedly from idle callbacks. */
+  async runSlice(budgetMs: number): Promise<number> {
+    const start = this.now();
+    let count = 0;
+    while (!this.paused && !this.halted && this.now() - start < budgetMs) {
+      const slot = this.next();
+      if (!slot) break;
+      const t0 = this.now();
+      try {
+        const result = await this.opts.draw(slot.scene, slot.frame);
+        this.opts.cache.put(slot.scene, slot.frame, result.value, result.bytes);
+        this.avgBytes = this.avgBytes === 0 ? result.bytes : this.avgBytes * 0.8 + result.bytes * 0.2;
+        const ms = this.now() - t0;
+        this.avgMs = this.drawn === 0 ? ms : this.avgMs * 0.8 + ms * 0.2;
+        this.drawn++; count++;
+        this.consecutiveFailures = 0;
+      } catch (error) {
+        this.failed.add(`${slot.scene}\u0000${slot.frame}`);
+        this.failures++; this.consecutiveFailures++;
+        this.opts.onError?.(slot.scene, slot.frame, error);
+        if (this.consecutiveFailures >= (this.opts.maxConsecutiveFailures ?? 5)) { this.halted = true; break; }
+      }
+    }
+    return count;
+  }
+}
