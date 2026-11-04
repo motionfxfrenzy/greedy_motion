@@ -133,6 +133,10 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
   const [voiceOn, setVoiceOn] = useState<boolean>(true);
   const [musicOn, setMusicOn] = useState<boolean>(true);
   const [sfxOn, setSfxOn] = useState<boolean>(true);
+  // Player options: master volume and mute for voice, music and effects together.
+  const [master, setMaster] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const stageRef = useRef<HTMLElement>(null);
   const [transitionsOn, setTransitionsOn] = useState<boolean>(false);
   const [barMode, setBarMode] = useState<"audio" | "subtitles" | null>("subtitles");
   const [openMenu, setOpenMenu] = useState<"captions" | "style" | "colors" | "opacity" | "position" | null>(null);
@@ -481,14 +485,19 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
     voices.current.forEach((el) => { if (el) el.muted = !nextVoice; });
     void savePlateSubtitles(project.id, { voice: nextVoice }).catch(() => undefined);
   };
+  useEffect(() => {
+    voices.current.forEach((el) => { if (el) el.volume = master; });
+    if (musicAudio.current) musicAudio.current.volume = 0.22 * master;
+  }, [master]);
+
   const toggleMusic = () => {
     subLoaded.current = true;
     const nextMusic = !musicOn;
     setMusicOn(nextMusic);
     if (musicAudio.current) {
-      musicAudio.current.muted = !nextMusic;
+      musicAudio.current.muted = !nextMusic || muted;
       if (nextMusic && wantPlay.current && musicAudio.current.paused) {
-        musicAudio.current.volume = 0.22;
+        musicAudio.current.volume = 0.22 * master;
         musicAudio.current.currentTime = time;
         void musicAudio.current.play().catch(() => undefined);
       }
@@ -556,7 +565,7 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
         sfxSlot.current[cue.name] = slot + 1;
         const el = sfxAudios.current[`${cue.name}:${slot}`] ?? sfxAudios.current[`${cue.name}:0`];
         if (!el) return;
-        el.volume = Math.min(1, Math.max(0, cue.volume));
+        el.volume = Math.min(1, Math.max(0, cue.volume * master));
         el.currentTime = cue.mediaStart ?? 0;
         void el.play().catch(() => undefined);
       }, delayMs);
@@ -637,7 +646,7 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
     {error && <p className="pp-error" role="alert">{error}</p>}
     {status && !status.available && <p className="pp-error">Code-drawn scenes aren't available for this project right now.</p>}
 
-    <section className="pp-stage" aria-label="Film player">
+    <section className="pp-stage" aria-label="Film player" ref={stageRef}>
       <div className="pp-floating-bar" ref={headBarRef} role="toolbar" aria-label="Canvas options">
         {/* Top-level 2-mode switcher: Audio | Subtitle */}
         <div className="pp-mode-tabs" role="tablist" aria-label="Toolbar mode">
@@ -980,11 +989,11 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
                 if (vo) {
                   vo.muted = !voiceOn;
                   vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), realOffset) : realOffset;
-                  void vo.play().catch(() => undefined);
+                  vo.volume = master; void vo.play().catch(() => undefined);
                 }
                 if (musicAudio.current && musicSrc) {
-                  musicAudio.current.muted = !musicOn;
-                  musicAudio.current.volume = 0.22;
+                  musicAudio.current.muted = !musicOn || muted;
+                  musicAudio.current.volume = 0.22 * master;
                   if (musicAudio.current.paused) {
                     musicAudio.current.currentTime = (starts[scene.index] ?? 0) + realOffset;
                     void musicAudio.current.play().catch(() => undefined);
@@ -1068,7 +1077,7 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
             key={`${idx}-${take.url}`}
             ref={(el) => { voices.current[idx] = el; }}
             src={take.url}
-            muted={!voiceOn}
+            muted={!voiceOn || muted}
             preload="auto"
             onLoadedMetadata={(e) => {
               const dur = e.currentTarget.duration;
@@ -1077,15 +1086,20 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
             onEnded={() => onVoiceEnded(idx)}
           />
         ) : null)}
-        {musicSrc && <audio ref={musicAudio} src={musicSrc} muted={!musicOn} loop preload="auto" />}
+        {musicSrc && <audio ref={musicAudio} src={musicSrc} muted={!musicOn || muted} loop preload="auto" />}
         {SFX_NAMES.flatMap((sfxName) => [0, 1].map((slot) => (
-          <audio key={`${sfxName}:${slot}`} ref={(el) => { sfxAudios.current[`${sfxName}:${slot}`] = el; }} src={planSfxUrl(sfxName)} preload="auto" />
+          <audio key={`${sfxName}:${slot}`} ref={(el) => { sfxAudios.current[`${sfxName}:${slot}`] = el; }} src={planSfxUrl(sfxName)} muted={muted} preload="auto" />
         )))}
       </div>
       <div className="pp-controls">
         <button type="button" className="pp-play" onClick={toggle} disabled={shown?.state !== "drawn" || !isViewAspectDrawn} aria-label={playing ? "Pause" : "Play"}>{playing ? "❚❚" : "▶"}</button>
         <span className="pp-clock"><b>{clock(time)}</b> / {clock(total)}</span>
         <span className="pp-scene">{shown ? `Scene ${shown.index + 1} · ${shown.keyword}` : ""}</span>
+        <span className="pp-options">
+          <button type="button" className="pp-opt" onClick={() => setMuted((m) => !m)} aria-pressed={muted} aria-label={muted ? "Unmute" : "Mute"}>{muted || master === 0 ? "🔇" : master < 0.5 ? "🔉" : "🔊"}</button>
+          <input className="pp-volume" type="range" min={0} max={1} step={0.05} value={muted ? 0 : master} aria-label="Volume" onChange={(e) => { const v = Number(e.target.value); setMaster(v); setMuted(v === 0); }} />
+          <button type="button" className="pp-opt" onClick={() => { const el = stageRef.current; if (!el) return; if (document.fullscreenElement) void document.exitFullscreen(); else void el.requestFullscreen?.(); }} aria-label="Full screen">⛶</button>
+        </span>
       </div>
       <div className="pp-track" ref={track} role="slider" tabIndex={0} aria-label="Film timeline" aria-valuemin={0} aria-valuemax={Math.round(total)} aria-valuenow={Math.round(time)} aria-valuetext={clock(time)}
         onPointerDown={(e) => { drag.current = true; e.currentTarget.setPointerCapture(e.pointerId); seek(at(e)); }}

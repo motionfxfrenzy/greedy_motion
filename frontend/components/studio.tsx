@@ -711,16 +711,19 @@ export function Studio() {
   // Code-drawn plate styles draw their scenes in PlatePreview (drawing, verification and assembly run on the render worker).
   // Only where the backend has the plate pipeline on (PLATE_PIPELINE=worker): elsewhere these styles keep their previous behaviour.
   const plateLook = Boolean((project?.brief?.look ?? brief.look)?.startsWith("illus-"));
-  // null until the backend has answered: the previous animation step must not flash up while a plate project is still being checked.
-  const [plateAvailable, setPlateAvailable] = useState<boolean | null>(null);
+  // The answer is kept with the project it belongs to, so there is no render in which a plate project is "not yet known" and the
+  // previous animation editor flashes up.
+  const [plateAnswer, setPlateAnswer] = useState<{ id: string; available: boolean } | null>(null);
   useEffect(() => {
-    if (!plateLook || !project?.id) { setPlateAvailable(plateLook ? null : false); return; }
+    if (!plateLook || !project?.id) return;
     let live = true;
-    getPlates(project.id).then((status) => { if (live) setPlateAvailable(status.available); }).catch(() => { if (live) setPlateAvailable(false); });
+    const id = project.id;
+    getPlates(id).then((status) => { if (live) setPlateAnswer({ id, available: status.available }); }).catch(() => { if (live) setPlateAnswer({ id, available: false }); });
     return () => { live = false; };
   }, [plateLook, project?.id]);
-  const isPlateStyle = plateLook && plateAvailable === true;
-  const plateChecking = plateLook && plateAvailable === null && Boolean(project?.id);
+  const plateKnown = Boolean(project?.id) && plateAnswer?.id === project?.id;
+  const isPlateStyle = plateLook && plateKnown && plateAnswer?.available === true;
+  const plateChecking = plateLook && Boolean(project?.id) && !plateKnown;
   const [plateTokens, setPlateTokens] = useState<number | null>(null);
   useEffect(() => {
     if (!isPlateStyle || !project?.id || !project.beatPlan) { setPlateTokens(null); return; }
