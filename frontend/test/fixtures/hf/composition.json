@@ -1,0 +1,197 @@
+{
+  "engine": "beat-plan",
+  "baseUrl": "/v1/preview/plans/00000000-0000-4000-8000-000000000302",
+  "canvas": "16:9",
+  "durationSeconds": 20,
+  "variables": {
+    "b1.keyword": "Launch in minutes",
+    "b1.on_screen": "Turn release notes into motion",
+    "b1.line": "Every product update deserves a clear story that customers actually watch.",
+    "b2.keyword": "Paste your brief",
+    "b2.on_screen": "One prompt builds the plan",
+    "b2.line": "Start from a short brief or your own script and get a timed storyboard.",
+    "b3.keyword": "Voice and music",
+    "b3.on_screen": "Narration sets the clock",
+    "b3.line": "Natural voiceover and a ducked music bed lock every cut to the spoken words.",
+    "b4.keyword": "Preview in browser",
+    "b4.on_screen": "Instant playback, zero wait",
+    "b4.line": "Watch the live composition in your browser and pin comments to any second.",
+    "b5.keyword": "Render when ready",
+    "b5.on_screen": "Export MP4",
+    "b5.line": "Approve the animation and render the finished film in a single click."
+  },
+  "beatTimes": {
+    "b1": {
+      "start": 0,
+      "end": 4
+    },
+    "b2": {
+      "start": 4,
+      "end": 8
+    },
+    "b3": {
+      "start": 8,
+      "end": 12
+    },
+    "b4": {
+      "start": 12,
+      "end": 16
+    },
+    "b5": {
+      "start": 16,
+      "end": 20
+    }
+  },
+  "audio": {
+    "mode": "both",
+    "voice": {
+      "voice": "Kore",
+      "lines": 5,
+      "ready": 5,
+      "stale": [],
+      "aligned": "whisper"
+    },
+    "music": {
+      "ready": true,
+      "model": "lyria-002",
+      "seconds": 22
+    },
+    "ready": true,
+    "cost_usd": 0.02
+  },
+  "readiness": {
+    "ok": true,
+    "blocking": [],
+    "warnings": [
+      {
+        "beat": "b1",
+        "message": "b1→b2: the voice stops for 2.0s (keep gaps under 1s). Give the beats between a line, or shorten the film."
+      },
+      {
+        "beat": "b2",
+        "message": "b2→b3: the voice stops for 1.5s (keep gaps under 1s). Give the beats between a line, or shorten the film."
+      },
+      {
+        "beat": "b3",
+        "message": "b3→b4: the voice stops for 1.6s (keep gaps under 1s). Give the beats between a line, or shorten the film."
+      },
+      {
+        "beat": "b4",
+        "message": "b4→b5: the voice stops for 1.8s (keep gaps under 1s). Give the beats between a line, or shorten the film."
+      }
+    ],
+    "durationSeconds": 20
+  },
+  "slots": [
+    {
+      "id": "b1.keyword",
+      "beat": "b1",
+      "budget": {
+        "chars": 28,
+        "words": 4
+      }
+    },
+    {
+      "id": "b1.on_screen",
+      "beat": "b1",
+      "budget": {
+        "chars": 60
+      }
+    },
+    {
+      "id": "b1.line",
+      "beat": "b1",
+      "budget": {
+        "words": 24
+      }
+    },
+    {
+      "id": "b2.keyword",
+      "beat": "b2",
+      "budget": {
+        "chars": 28,
+        "words": 4
+      }
+    },
+    {
+      "id": "b2.on_screen",
+      "beat": "b2",
+      "budget": {
+        "chars": 60
+      }
+    },
+    {
+      "id": "b2.line",
+      "beat": "b2",
+      "budget": {
+        "words": 24
+      }
+    },
+    {
+      "id": "b3.keyword",
+      "beat": "b3",
+      "budget": {
+        "chars": 28,
+        "words": 4
+      }
+    },
+    {
+      "id": "b3.on_screen",
+      "beat": "b3",
+      "budget": {
+        "chars": 60
+      }
+    },
+    {
+      "id": "b3.line",
+      "beat": "b3",
+      "budget": {
+        "words": 24
+      }
+    },
+    {
+      "id": "b4.keyword",
+      "beat": "b4",
+      "budget": {
+        "chars": 28,
+        "words": 4
+      }
+    },
+    {
+      "id": "b4.on_screen",
+      "beat": "b4",
+      "budget": {
+        "chars": 60
+      }
+    },
+    {
+      "id": "b4.line",
+      "beat": "b4",
+      "budget": {
+        "words": 24
+      }
+    },
+    {
+      "id": "b5.keyword",
+      "beat": "b5",
+      "budget": {
+        "chars": 28,
+        "words": 4
+      }
+    },
+    {
+      "id": "b5.on_screen",
+      "beat": "b5",
+      "budget": {
+        "chars": 60
+      }
+    },
+    {
+      "id": "b5.line",
+      "beat": "b5",
+      "budget": {
+        "words": 24
+      }
+    }
+  ]
+}

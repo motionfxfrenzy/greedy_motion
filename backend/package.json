@@ -37,6 +37,7 @@
     "test:billing": "node --env-file-if-exists=.env test/billing.mjs",
     "test:tokens": "node --env-file-if-exists=.env test/tokens.mjs",
     "test:render-prep": "node --env-file-if-exists=.env test/render-prep.mjs",
+    "test:plan-captions-audio-patch": "node --env-file-if-exists=.env test/plan-captions-audio-patch.mjs",
     "test:entitlements": "node --env-file-if-exists=.env test/entitlements.mjs",
     "entitlements": "node --env-file-if-exists=.env scripts/entitlements.ts",
     "plan": "node --env-file-if-exists=.env scripts/plan.ts",

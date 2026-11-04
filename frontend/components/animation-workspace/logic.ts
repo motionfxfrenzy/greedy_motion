@@ -233,3 +233,136 @@ export function activeSubtitleCueAt(
   if (mode === "none" || !cues.length) return null;
   return cues.find((c) => time >= c.start && time < c.end) ?? cues.find((c) => c.scene === currentScene) ?? null;
 }
+
+export type HfAudioMode = "voiceover" | "music" | "both" | "none";
+
+export interface HfBeatSpan extends WorkspaceSceneSpan {
+  label: string;
+}
+
+/**
+ * Builds contiguous scene spans `[{ index, label, start, end, duration }]` from a beat list and
+ * optional `beatTimes` dictionary (`{ [beatId]: { start, end } }`), falling back to equal slices of `totalDuration`.
+ */
+export function sceneSpansFromBeatTimes(
+  beats: readonly { id?: string; keyword?: string | null }[],
+  beatTimes: Readonly<Record<string, { start: number; end: number }>> | undefined,
+  totalDuration: number
+): HfBeatSpan[] {
+  const safeTotal = Number.isFinite(totalDuration) && totalDuration > 0 ? totalDuration : 30;
+  const list = beats.length > 0 ? beats : [{ id: "b1", keyword: "Scene 1" }];
+  const count = Math.max(1, list.length);
+  return list.map((b, i) => {
+    const bt = b.id && beatTimes ? beatTimes[b.id] : undefined;
+    const start = typeof bt?.start === "number" && Number.isFinite(bt.start) ? bt.start : (i / count) * safeTotal;
+    const end = typeof bt?.end === "number" && Number.isFinite(bt.end) ? bt.end : ((i + 1) / count) * safeTotal;
+    const duration = Math.max(0.01, end - start);
+    return {
+      index: i,
+      label: (b.keyword ?? "").trim() || `Scene ${i + 1}`,
+      start,
+      end,
+      duration
+    };
+  });
+}
+
+/**
+ * Groups timed comments by the scene they fall into and formats them into `{ line, text }[]`
+ * for `onApplySceneComments`.
+ */
+export function groupCommentsByScene(
+  comments: readonly { at: number; body: string }[],
+  spans: readonly WorkspaceSceneSpan[]
+): { line: number; text: string }[] {
+  const sorted = sortWorkspaceComments(comments);
+  const byLine = new Map<number, string[]>();
+  for (const c of sorted) {
+    const { scene } = anchorCommentAtTime(c.at, spans);
+    const list = byLine.get(scene) ?? [];
+    list.push(c.body);
+    byLine.set(scene, list);
+  }
+  return [...byLine.entries()].map(([line, texts]) => ({
+    line,
+    text: texts.join(". ")
+  }));
+}
+
+/**
+ * Determines which audio tracks (voice, music) have been generated and exist for a HyperFrames project.
+ * Toggles are only shown for tracks that exist; toggling never triggers generation.
+ */
+export function hfAvailableAudioTracks(
+  project: {
+    planAudio?: {
+      voice?: { lines?: readonly unknown[] } | null;
+      music?: { file?: string | null } | null;
+    } | null;
+  },
+  compAudio?: {
+    voice?: { ready?: number } | null;
+    music?: { ready?: boolean } | null;
+  } | null
+): { voice: boolean; music: boolean } {
+  const voice = Boolean(
+    (project.planAudio?.voice?.lines?.length ?? 0) > 0 || (compAudio?.voice?.ready ?? 0) > 0
+  );
+  const music = Boolean(project.planAudio?.music?.file || compAudio?.music?.ready);
+  return { voice, music };
+}
+
+/**
+ * Builds the `WorkspaceOptionsConfig` for HyperFrames in phase 3b:
+ * - Only `voice` and/or `music` toggles that exist on the project
+ * - Subtitle modes `["none", "key-phrases", "full"]`
+ * - Style, size, colors, opacity, position, SFX, and transitions are hidden (`false` / omitted)
+ */
+export function hfOptionsConfig(availableAudio: { voice: boolean; music: boolean }): WorkspaceOptionsConfig {
+  const audioTracks: WorkspaceAudioTrackId[] = [];
+  if (availableAudio.voice) audioTracks.push("voice");
+  if (availableAudio.music) audioTracks.push("music");
+  return {
+    audioTracks,
+    subtitleModes: ["none", "key-phrases", "full"],
+    subtitleStyle: false,
+    subtitleSize: false,
+    subtitleColors: false,
+    subtitleOpacity: false,
+    subtitlePosition: false
+  };
+}
+
+/** Maps a film's audio mode (`"voiceover" | "music" | "both" | "none"`) to `{ voice, music }` toggle states. */
+export function audioTogglesFromMode(
+  mode: HfAudioMode,
+  available: { voice: boolean; music: boolean } = { voice: true, music: true }
+): { voice: boolean; music: boolean } {
+  return {
+    voice: available.voice && (mode === "voiceover" || mode === "both"),
+    music: available.music && (mode === "music" || mode === "both")
+  };
+}
+
+/** Maps `{ voice, music }` toggle states back to the film's `HfAudioMode` (`"voiceover" | "music" | "both" | "none"`). */
+export function audioModeFromToggles(toggles: { voice: boolean; music: boolean }): HfAudioMode {
+  if (toggles.voice && toggles.music) return "both";
+  if (toggles.voice) return "voiceover";
+  if (toggles.music) return "music";
+  return "none";
+}
+
+/** Computes the next `HfAudioMode` when a user clicks the `voice` or `music` toggle chip. */
+export function toggleAudioTrackMode(
+  currentMode: HfAudioMode,
+  track: "voice" | "music",
+  available: { voice: boolean; music: boolean } = { voice: true, music: true }
+): HfAudioMode {
+  if (!available[track]) return currentMode;
+  const current = audioTogglesFromMode(currentMode, available);
+  const next = {
+    voice: track === "voice" ? !current.voice : current.voice,
+    music: track === "music" ? !current.music : current.music
+  };
+  return audioModeFromToggles(next);
+}

@@ -339,6 +339,10 @@ export type PlanPatch = {
   look?: string;
   /** The style family (a look split into kinds of film); null clears it. */
   styleFamily?: string | null;
+  /** Caption mode ("key-phrases" | "full" | "none"). */
+  captions?: "key-phrases" | "full" | "none";
+  /** Film audio mode ("voiceover" | "music" | "both" | "none"). */
+  audioMode?: "voiceover" | "music" | "both" | "none";
 };
 /** A rejected storyboard edit: `problems` lists every rule it broke, in user-facing words. */
 export class PlanProblems extends Error {

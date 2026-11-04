@@ -3,7 +3,7 @@ import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { BEAT_LIMITS, findGalleryTemplate, formatForDuration, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voiceText, type Beat, type BeatPlan, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { audioModes, captionModes, BEAT_LIMITS, findGalleryTemplate, formatForDuration, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voiceText, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
 import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan } from "../projects/store.ts";
@@ -138,12 +138,23 @@ const withLook = (brief: ScriptBrief, look: LookId): ScriptBrief => {
   return look === "clean" ? rest : { ...rest, look };
 };
 
-type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown };
+type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown; captions?: unknown; audioMode?: unknown };
 
 /** Applies storyboard edits. Returns the edited plan, or the problems that block it. */
 export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan: BeatPlan } | { problems: string[] } {
   if (!project.beatPlan || !project.brief) return { problems: ["Generate the plan first."] };
   const plan: BeatPlan = structuredClone(project.beatPlan);
+  if (patch.captions !== undefined) {
+    if (typeof patch.captions !== "string" || !(captionModes as readonly string[]).includes(patch.captions)) {
+      return { problems: ["Choose captions: key phrases, full or off."] };
+    }
+    plan.audio.captions = patch.captions as CaptionMode;
+  }
+  if (patch.audioMode !== undefined) {
+    if (typeof patch.audioMode !== "string" || !(audioModes as readonly string[]).includes(patch.audioMode)) {
+      return { problems: ["Choose voiceover, music, both or none."] };
+    }
+  }
   // Plain text only (markdown markers would be drawn and voiced literally).
   const text = (value: unknown, max: number) => (typeof value === "string" ? plainText(value).slice(0, max) : undefined);
   for (const edit of patch.beats ?? []) {
@@ -845,6 +856,12 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           const { styleFamily: _old, ...rest } = brief;
           const family = typeof patch.styleFamily === "string" ? getStyleFamily(patch.styleFamily) : undefined;
           brief = family && family.look === (brief.look ?? "clean") ? { ...rest, styleFamily: family.id } : rest;
+        }
+        if (brief && typeof patch.captions === "string" && (captionModes as readonly string[]).includes(patch.captions)) {
+          brief = { ...brief, captions: patch.captions as CaptionMode };
+        }
+        if (brief && typeof patch.audioMode === "string" && (audioModes as readonly string[]).includes(patch.audioMode)) {
+          brief = { ...brief, audio: { ...brief.audio, mode: patch.audioMode as AudioMode } };
         }
         const valid = new Set(scenesFor(brief?.look, brief?.styleFamily).map((scene) => scene.id));
         const plan = { ...result.plan, beats: result.plan.beats.map((beat) => (beat.scene && !valid.has(beat.scene) ? { ...beat, scene: null } : beat)) };
