@@ -11,10 +11,10 @@ import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
 import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard";
-import { ScriptCanvas, TokenModal, svgSrc, type FrameSlot, type StoryboardState, type VoiceState } from "./script-canvas";
+import { ScriptCanvas, TokenModal, PlanLimitModal, svgSrc, type FrameSlot, type StoryboardState, type VoiceState } from "./script-canvas";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { getPlates, getRenderQuote, cancelPlanJob, deleteProject, ensureMediaToken, generatePlanAudio, getComposition, getGalleryTemplate, getMyTokens, getProject, planVoiceUrl, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
+import { LimitError, getPlates, getRenderQuote, cancelPlanJob, deleteProject, ensureMediaToken, generatePlanAudio, getComposition, getGalleryTemplate, getMyTokens, getProject, planVoiceUrl, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 
 type View = "projects" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
@@ -91,6 +91,9 @@ export function Studio() {
   const [request, setRequest] = useState<RenderRequest>({ prompt: "", format: "landscape", style: "clean", theme: findTemplate(defaultTemplateId)!.defaultTheme, template: defaultTemplateId, audio: { music: false, voiceover: false, voice: "Kore" } });
   const [job, setJob] = useState<RenderJob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The plan's allowance is used up (free previews, a month's films): answered with a plan choice, not an error line.
+  const [limit, setLimit] = useState<LimitError | null>(null);
+  const [seePlans, setSeePlans] = useState(false);
   const [busy, setBusy] = useState(false);
   // Chosen on the storyboard's Submit; kept for a retry or a re-render. Previews never use it.
   const [motionBlur, setMotionBlur] = useState(false);
@@ -422,6 +425,7 @@ export function Studio() {
       watching.current = result.project.planning?.startedAt ?? null;
       replaceProject(result.project);
     } catch (caught) {
+      if (caught instanceof LimitError) { setLimit(caught); setSeePlans(true); }
       setError(caught instanceof Error ? caught.message : "Could not write the script.");
     } finally {
       setStarting(false);
@@ -470,6 +474,7 @@ export function Studio() {
     const checked = parseScriptBrief(override ? { ...brief, ...override } : brief);
     if ("error" in checked) { setError(checked.error); return; }
     setError(null);
+    setLimit(null);
     const previous = instruction && canvas ? canvas.beats : [];
     setStep(STORYBOARD);
     const scope = instruction && only?.length ? only : undefined;
@@ -517,6 +522,7 @@ export function Studio() {
       drawFrames(active, result.beats, result.beats.map((_, i) => i));
     } catch (caught) {
       if (stop.signal.aborted) { setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: scope ? current.previous : current.beats.length ? current.beats : current.previous }); return; }
+      if (caught instanceof LimitError) { setLimit(caught); setSeePlans(true); }
       setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: current.previous.length ? current.previous : current.beats, error: caught instanceof Error ? caught.message : "Could not write the script." });
     }
   };
@@ -955,6 +961,7 @@ export function Studio() {
       {error && step !== SCRIPT_STYLE && !(step === STORYBOARD && canvas) && step !== RENDER && step !== REVIEW && <p className="workspace-error">{error}</p>}
       {step === STORYBOARD && canvas && <ScriptCanvas
         beats={canvas.beats} open={canvas.open} streaming={canvas.streaming} startedAt={canvas.startedAt} firstAt={canvas.firstAt} flags={canvas.flags} error={canvas.error ?? error}
+        limit={limit} onSeePlans={() => setSeePlans(true)} onTryAgain={() => void writeScript()} onBackToBrief={() => setStep(SCRIPT_STYLE)}
         voiced={voicedBrief}
         length={{ seconds: brief.durationSeconds, pace: brief.pace, locked: Boolean(brief.lockDuration) }}
         onFit={fitScript}
@@ -966,8 +973,9 @@ export function Studio() {
         voice={voice} onConfirm={confirmScript} onRetryVoice={retryVoice} music={musicBrief}
         onRender={renderFromScript} rendering={busy || animating}
         storyboard={storyboardState} onContinue={continueFromScript} continuing={continueWhenReady} />}
+      {seePlans && limit && <PlanLimitModal limit={limit} onClose={() => setSeePlans(false)} onBack={step === STORYBOARD ? () => { setSeePlans(false); setStep(SCRIPT_STYLE); } : undefined} />}
       {step === STORYBOARD && !canvas && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Describe the film in the brief, then generate the storyboard.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to the brief</button></div>}
-      {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || canvas)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
+      {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || (canvas && canvas.beats.length > 0))} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
       {step === RENDER && project && plateChecking && !animating && <div className="workspace-message" role="status">Opening your scenes…</div>}
       {step === RENDER && project && isPlateStyle && !animating && project.beatPlan && <PlatePreview
         project={project}

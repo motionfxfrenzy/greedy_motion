@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { PLANS, PAID_TIERS, TOP_UP, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
-import { getMyTokens, startCheckout, type ScriptFlag } from "../lib/api";
+import { PLANS, PAID_TIERS, PREVIEW_ALLOWANCE, TOP_UP, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
+import { getMyTokens, startCheckout, type LimitError, type ScriptFlag } from "../lib/api";
 
 export type StoryboardState = { state: "waiting" | "building" | "ready" | "stale" | "failed"; plan?: BeatPlan; error?: string; /** When the storyboard job started (ms), while building. */ startedAt?: number };
 /** A beat's reference frame: SVG text drawn by the backend, shown only as an image. `stale` keeps the old drawing after an edit. */
@@ -104,6 +104,52 @@ export function TokenModal({ cost, balance, onClose }: { cost: number; balance: 
   </div>;
 }
 
+/**
+ * The plan's allowance for films is used up. Says what happened in plain words, what is kept, and offers the plans that would
+ * continue it, each going straight to checkout. A film that simply had too many changes gets an explanation and no payment.
+ */
+export function PlanLimitModal({ limit, onClose, onBack }: { limit: LimitError; onClose: () => void; onBack?: () => void }) {
+  const [opening, setOpening] = useState<Product | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onClose]);
+  const capped = limit.code === "preview_call_cap";
+  const free = limit.tier === "free" || limit.tier === null;
+  const have = limit.limit ?? 0;
+  const options = PAID_TIERS.filter((tier) => PREVIEW_ALLOWANCE[tier] > have);
+  const buy = async (product: Product) => {
+    setOpening(product);
+    setFailed(null);
+    try { window.location.assign(await startCheckout(product)); }
+    catch (caught) { setFailed(caught instanceof Error ? caught.message : "Could not open checkout."); setOpening(null); }
+  };
+  const title = capped ? "This film has had a lot of changes" : free ? `You've used your ${have || 3} free previews` : "You've reached this month's film limit";
+  return <div className="sc-modal-backdrop" onClick={onClose}>
+    <div className="sc-modal" role="dialog" aria-modal="true" aria-labelledby="sc-limit-title" onClick={(event) => event.stopPropagation()}>
+      <header>
+        <h2 id="sc-limit-title">{title}</h2>
+        <button type="button" className="sc-modal-close" aria-label="Close" onClick={onClose}>×</button>
+      </header>
+      <p className="sc-modal-sum">{limit.message}</p>
+      {!capped && options.length > 0 && <div className="sc-modal-options">
+        {options.map((tier) => <div className="sc-option" key={tier}>
+          <div><b>{PLANS[tier].name} · {PREVIEW_ALLOWANCE[tier]} films a month</b><span>${PLANS[tier].priceUsd}/month · {PLANS[tier].tokens} tokens · {PLANS[tier].blurb}</span></div>
+          <button type="button" className={tier === options[0] ? "primary-button" : "secondary-button"} disabled={opening !== null} onClick={() => void buy(tier)}>{opening === tier ? "Opening…" : `Choose ${PLANS[tier].name}`}</button>
+        </div>)}
+      </div>}
+      {failed && <p className="sc-modal-error" role="alert">{failed}</p>}
+      <small>{capped ? "Start a new film to keep going; your other films are not affected." : "Nothing is lost: your brief and settings are saved, and you can pick up where you left off after checkout."}</small>
+      <div className="sc-modal-actions">
+        {onBack && <button type="button" className="secondary-button" onClick={onBack}>Back to brief</button>}
+        <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+      </div>
+    </div>
+  </div>;
+}
+
 /** Render, or (when the balance does not cover the film) Add tokens, which opens the purchase modal. */
 function RenderAction({ seconds, rendering, label, disabled, onRender }: { seconds: number; rendering: boolean; label: string; disabled: boolean; onRender: () => void }) {
   const [balance, setBalance] = useState<number | null>(null);
@@ -125,7 +171,7 @@ function RenderAction({ seconds, rendering, label, disabled, onRender }: { secon
  * beside it; a single prompt bar at the bottom asks the AI for changes. Confirming the script voices it; the storyboard is
  * built from it in the background.
  */
-export function ScriptCanvas({ music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing }: {
+export function ScriptCanvas({ music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onSeePlans, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing }: {
   beats: ScriptBeat[];
   /** The field being written, and the beat it is written into, while streaming. */
   open: keyof ScriptBeat | null;
@@ -141,6 +187,11 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
   firstAt?: number;
   flags: ScriptFlag[];
   error: string | null;
+  /** Set when the failure is the plan's allowance: the empty page offers the plans. */
+  limit?: LimitError | null;
+  onSeePlans?: () => void;
+  onTryAgain?: () => void;
+  onBackToBrief?: () => void;
   voiced: boolean;
   /** The length the person chose and how the script is read; `locked` holds it to that length. */
   length: { seconds: number; pace: Pace; locked: boolean };
@@ -203,6 +254,20 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
     ? <><i className="sc-live" />{`Recording ${soundLabel} in parallel · ${voicedCount}/${totalVoicedBeats} scenes ready · ${voicePct}%`}</>
     : voice.state === "failed" ? voice.error ?? `Could not make the ${soundLabel}.`
     : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${runs}s${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}${voicedCount > 0 ? ` · ${voicedCount}/${totalVoicedBeats} voiced` : ""}`;
+
+  if (!streaming && beats.length === 0 && error) return <div className="script-canvas">
+    <header className="sc-head"><div><h1>Storyboard</h1></div></header>
+    <section className="sc-empty" role="alert">
+      <h2>{limit ? (limit.code === "preview_call_cap" ? "This film has had a lot of changes" : limit.tier === "free" || limit.tier === null ? "You've used your free previews" : "You've reached this month's film limit") : "We couldn't write your script"}</h2>
+      <p>{error}</p>
+      <p className="sc-empty-note">{limit && limit.code !== "preview_call_cap" ? "Your brief is saved. Choose a plan and this storyboard is written straight away." : "Your brief is saved. Nothing was charged."}</p>
+      <div className="sc-empty-actions">
+        {limit && limit.code !== "preview_call_cap" && onSeePlans && <button type="button" className="primary-button" onClick={onSeePlans}>See plans</button>}
+        {!limit && onTryAgain && <button type="button" className="primary-button" onClick={onTryAgain}>Try again</button>}
+        {onBackToBrief && <button type="button" className="secondary-button" onClick={onBackToBrief}>Back to brief</button>}
+      </div>
+    </section>
+  </div>;
 
   return <div className="script-canvas">
     <header className="sc-head">

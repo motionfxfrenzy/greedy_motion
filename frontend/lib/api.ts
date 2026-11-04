@@ -24,7 +24,27 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
   return response;
 }
 
-type ApiError = { error?: { message?: string } };
+type ApiError = { error?: { message?: string; code?: string; tier?: string; used?: number; limit?: number } };
+
+/**
+ * The plan's allowance for films (free previews, or a month's films) is used up, or this film has had too many changes. The
+ * screen answers it with a plan choice (`code` "preview_limit") or a plain explanation ("preview_call_cap"), never a raw error line.
+ */
+export class LimitError extends Error {
+  constructor(message: string, readonly code: "preview_limit" | "preview_call_cap", readonly tier: string | null, readonly used: number | null, readonly limit: number | null) {
+    super(message);
+    this.name = "LimitError";
+  }
+}
+
+/** The error to throw for a failed backend answer: a LimitError for an allowance refusal (402), else a plain Error with the backend's message. */
+function failure(response: Response, body: ApiError, fallback: string): Error {
+  const error = body.error;
+  if (response.status === 402 && (error?.code === "preview_limit" || error?.code === "preview_call_cap")) {
+    return new LimitError(error.message ?? fallback, error.code, error.tier ?? null, error.used ?? null, error.limit ?? null);
+  }
+  return new Error(error?.message ?? fallback);
+}
 
 /** Asks the backend to send the one-time welcome email to the signed-in person. Best effort: it must never get in the way of signing up. */
 export async function sendWelcomeEmail() {
@@ -76,7 +96,7 @@ export function withMediaToken(url: string) {
 
 async function parse<T>(response: Response, fallback: string): Promise<T> {
   const payload = (await response.json().catch(() => ({}))) as T & ApiError;
-  if (!response.ok) throw new Error(payload.error?.message ?? fallback);
+  if (!response.ok) throw failure(response, payload, fallback);
   return payload;
 }
 
@@ -390,7 +410,7 @@ export async function streamScript(projectId: string, input: { brief: ScriptBrie
   const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
   if (!response.ok || !response.body) {
     const failed = (await response.json().catch(() => ({}))) as ApiError;
-    throw new Error(failed.error?.message ?? "Could not write the script.");
+    throw failure(response, failed, "Could not write the script.");
   }
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffered = "";
@@ -425,7 +445,7 @@ export async function streamFrames(projectId: string, input: { brief: ScriptBrie
   const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/script/frames", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), ...(signal ? { signal } : {}) });
   if (!response.ok || !response.body) {
     const failed = (await response.json().catch(() => ({}))) as ApiError;
-    throw new Error(failed.error?.message ?? "Could not draw the frames.");
+    throw failure(response, failed, "Could not draw the frames.");
   }
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffered = "";
@@ -469,7 +489,7 @@ export async function streamScriptVoice(
   });
   if (!response.ok || !response.body) {
     const failed = (await response.json().catch(() => ({}))) as ApiError;
-    throw new Error(failed.error?.message ?? "Could not record the voiceover.");
+    throw failure(response, failed, "Could not record the voiceover.");
   }
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffered = "";
@@ -515,7 +535,7 @@ export async function streamScriptAnimate(
   });
   if (!response.ok || !response.body) {
     const failed = (await response.json().catch(() => ({}))) as ApiError;
-    throw new Error(failed.error?.message ?? "Could not prepare the browser animation.");
+    throw failure(response, failed, "Could not prepare the browser animation.");
   }
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffered = "";
