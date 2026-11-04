@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { pool } from "../db/database.ts";
 import { boss, inTransaction, QUEUES } from "../jobs/queues.ts";
-import { kickWorkers } from "../jobs/worker-launcher.ts";
+import { kickPlateWorkers } from "../jobs/worker-launcher.ts";
 import { aspectSlug, type Aspect, type PlateComment, type PlateSubtitles, type VariantState } from "./model.ts";
 
 /**
@@ -125,7 +125,7 @@ export async function reconcileVariants(projectId: string, desired: Desired[], o
   } finally {
     client.release();
   }
-  if (queued) void kickWorkers(true);
+  if (queued) void kickPlateWorkers();
   return { queued };
 }
 
@@ -158,7 +158,7 @@ export async function reviseScene(projectId: string, sceneIndex: number, notes: 
   } finally {
     client.release();
   }
-  if (n) void kickWorkers(true);
+  if (n) void kickPlateWorkers();
   return n;
 }
 
@@ -219,7 +219,7 @@ export async function commitBundle(row: VariantRow, owner: string, artifacts: { 
     );
     if (res.rowCount === 1) await queue(client, res.rows[0]!, QUEUES.plateRender);
     await client.query("commit");
-    if (res.rowCount === 1) void kickWorkers(true);
+    if (res.rowCount === 1) void kickPlateWorkers();
     return res.rowCount === 1;
   } catch (error) {
     await client.query("rollback").catch(() => undefined);

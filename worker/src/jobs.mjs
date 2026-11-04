@@ -11,7 +11,8 @@ import pg from "pg";
 export const QUEUES = { video: "render-video", videoGpu: "render-video-gpu", finished: "render-finished" };
 
 export function createPool(connectionString) {
-  const pool = new pg.Pool({ connectionString, max: 4 });
+  // Supabase's session pooler allows a handful of clients per project (15 on staging): keep a worker's share small and settable.
+  const pool = new pg.Pool({ connectionString, max: Number.parseInt(process.env.PG_POOL_MAX ?? "4", 10) });
   pool.on("error", (error) => console.error(JSON.stringify({ level: "error", event: "postgres_pool_error", message: error.message })));
   return pool;
 }

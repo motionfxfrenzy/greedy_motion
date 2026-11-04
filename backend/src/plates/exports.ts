@@ -3,7 +3,7 @@ import { extname, join } from "node:path";
 import type { VideoProject } from "@videosaas/contracts";
 import { pool } from "../db/database.ts";
 import { boss, QUEUES } from "../jobs/queues.ts";
-import { kickWorkers } from "../jobs/worker-launcher.ts";
+import { kickPlateWorkers } from "../jobs/worker-launcher.ts";
 import { readMedia } from "../media.ts";
 import { planAudioDir } from "../plan/audio.ts";
 import { objectSize, putObject } from "../storage.ts";
@@ -113,7 +113,7 @@ export async function requestExport(project: VideoProject, aspect: Aspect, water
     await client.query("update app.plate_exports set enqueued_at = now() where id = $1", [row.id]);
     await boss.send(QUEUES.plateExport, { exportId: row.id }, { db: { executeSql: (text: string, values?: unknown[]) => client.query(text, values) } });
     await client.query("commit");
-    void kickWorkers(true);
+    void kickPlateWorkers();
     return row;
   } catch (error) {
     await client.query("rollback").catch(() => undefined);

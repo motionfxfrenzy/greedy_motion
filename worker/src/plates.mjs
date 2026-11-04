@@ -111,6 +111,9 @@ export async function handlePlateRender(job, { pool, boss }) {
     // At the project's cap: look again shortly without spending a retry. Superseded, drawn, or held by a live attempt: nothing to do.
     const { rows } = await pool.query("select state, gen from app.plate_variants where id = $1", [variantId]);
     if (rows[0]?.gen === gen && rows[0]?.state === "bundled") await boss.send(PLATE_RENDER_QUEUE, { variantId, gen }, { startAfter: 4 });
+    // Redelivered (a worker died or was stopped) while the previous holder's last write is still recent: look again once it would
+    // count as silent, instead of letting this delivery complete and nothing take the scene over. Bounded.
+    else if (rows[0]?.gen === gen && rows[0]?.state === "rendering" && (job.retryCount > 0 || job.data?.looks > 0) && (job.data?.looks ?? 0) < 6) await boss.send(PLATE_RENDER_QUEUE, { variantId, gen, looks: (job.data?.looks ?? 0) + 1 }, { startAfter: Math.ceil(STALE_SECONDS / 2) });
     return;
   }
   const started = Date.now();

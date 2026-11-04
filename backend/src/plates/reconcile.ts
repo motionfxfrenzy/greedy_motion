@@ -1,7 +1,7 @@
 import { pool } from "../db/database.ts";
 import { boss, inTransaction, POLL, QUEUES } from "../jobs/queues.ts";
 import { startSweep } from "../jobs/sweep.ts";
-import { kickWorkers } from "../jobs/worker-launcher.ts";
+import { kickPlateWorkers } from "../jobs/worker-launcher.ts";
 import { config } from "../config.ts";
 import { deletePrefix } from "../storage.ts";
 import { handleAuthor, handleAuthorDead, type AuthorMessage } from "./author.ts";
@@ -43,6 +43,14 @@ export async function reconcilePlates(): Promise<number> {
       await boss.send(QUEUES.plateExport, { exportId: e.id }, { db: inTransaction(client) });
       resent++;
     }
+    // A render that could not even be claimed (database/pooler/worker trouble) is dead-lettered as `render_unavailable`; its bundle is
+    // intact, so retry it from the bundle (no model call) up to twice before leaving it for the person's Draw.
+    const revived = await client.query<{ id: string; gen: number }>(
+      `update app.plate_variants set state = 'bundled', gen = gen + 1, render_attempt = 0, error = null, stage = 'retrying', enqueued_at = now(), updated_at = now(),
+         timings = timings || jsonb_build_object('autoRetries', coalesce((timings->>'autoRetries')::int, 0) + 1)
+        where state = 'failed' and error->>'code' = 'render_unavailable' and bundle_key is not null and updated_at < now() - $1::interval
+          and coalesce((timings->>'autoRetries')::int, 0) < 2 returning id, gen`, [RESEND_AFTER]);
+    for (const v of revived.rows) { await boss.send(QUEUES.plateRender, { variantId: v.id, gen: v.gen }, { db: inTransaction(client) }); resent++; }
     open = Number((await client.query("select (select count(*) from app.plate_variants where state in ('queued','authoring','bundled','rendering')) + (select count(*) from app.plate_exports where state in ('queued','assembling')) as n")).rows[0].n);
     await client.query("commit");
   } catch (error) {
@@ -53,7 +61,7 @@ export async function reconcilePlates(): Promise<number> {
   }
   if (resent) log("info", "plate_reconciled", { resent, open });
   // Workers for the open work: covers a kick that failed at enqueue time and workers that exited with jobs still queued.
-  if (open) await kickWorkers(true).catch(() => undefined);
+  if (open) await kickPlateWorkers().catch(() => undefined);
   await sweepGarbage().catch((error) => log("warn", "plate_garbage_failed", { message: error instanceof Error ? error.message : String(error) }));
   return open;
 }

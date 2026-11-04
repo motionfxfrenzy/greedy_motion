@@ -40,7 +40,7 @@ const pool = createPool(databaseUrl);
 // Same quiet settings as the backend (backend/src/jobs/queues.ts explains each): no cron clock, no instance heartbeat, no
 // dependent-job resolver, and it listens for new jobs instead of polling (the video queue is `notify`; polling is a 30 s
 // backstop). It also does not supervise: the backend supervises every queue, so a second supervisor only adds reads.
-const boss = new PgBoss({ connectionString: databaseUrl, max: 4, migrate: false, useListenNotify: true, notifyHeartbeatIntervalMs: 30_000, supervise: false, schedule: false, registerInstance: false, flowIntervalSeconds: 3600, bamIntervalSeconds: 600, queueCacheIntervalSeconds: 300, idleTimeoutMillis: 120_000 });
+const boss = new PgBoss({ connectionString: databaseUrl, max: Number.parseInt(process.env.BOSS_POOL_MAX ?? "4", 10), migrate: false, useListenNotify: true, notifyHeartbeatIntervalMs: 30_000, supervise: false, schedule: false, registerInstance: false, flowIntervalSeconds: 3600, bamIntervalSeconds: 600, queueCacheIntervalSeconds: 300, idleTimeoutMillis: 120_000 });
 boss.on("error", (error) => log("error", "queue_error", { message: error.message }));
 
 let ready = false;

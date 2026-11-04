@@ -54,6 +54,14 @@
           "value": "1"
         },
         {
+          "name": "PG_POOL_MAX",
+          "value": "2"
+        },
+        {
+          "name": "BOSS_POOL_MAX",
+          "value": "2"
+        },
+        {
           "name": "HYPERFRAMES_NO_TELEMETRY",
           "value": "1"
         },

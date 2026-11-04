@@ -101,12 +101,22 @@ const PLATE_SLOTS = Math.max(1, Number.parseInt(process.env.PLATE_CONCURRENCY ??
 /** Plate variants waiting for or in the worker, plus exports not finished: what needs worker capacity right now. */
 async function plateDemand(): Promise<number> {
   if (!config.plates.enabled) return 0;
+  // Work just queued but not yet authored still needs ONE worker soon: its cold start then overlaps the model call. The ping is a
+  // single worker's worth however many scenes were queued (it must not look like that many render jobs).
+  const pinged = Date.now() - platePingAt < 120_000 ? 1 : 0;
   try {
     const { rows } = await pool.query<{ n: string }>(
       "select (select count(*) from app.plate_variants where state in ('bundled', 'rendering')) + (select count(*) from app.plate_exports where state in ('queued', 'assembling')) as n"
     );
-    return Number(rows[0]?.n ?? 0);
-  } catch { return 0; }
+    return Math.max(Number(rows[0]?.n ?? 0), pinged);
+  } catch { return pinged; }
+}
+
+let platePingAt = 0;
+/** Plate work was queued: make sure a worker is on its way (counted as one worker, not one per scene). Never throws. */
+export function kickPlateWorkers(): Promise<void> {
+  platePingAt = Date.now();
+  return kickWorkers(false);
 }
 
 let inFlight: Promise<void> | null = null;
