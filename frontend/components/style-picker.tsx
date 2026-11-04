@@ -18,9 +18,6 @@ const entryOf = (id: string) => entries.find((entry) => entry.id === id) ?? entr
 /** The entry a brief points at: its family, or the look's first family (Clean opens as Product UI), or the look itself. */
 const currentId = (look: LookId, family?: string) => { const first = familiesOfLook(look)[0]; return family && getStyleFamily(family)?.look === look ? family : first ? first.id : look; };
 const groups = ["All", ...new Set(entries.map((entry) => entry.group))];
-/** The few styles shown inline; every other style is one click away in the browser. */
-const featuredIds: readonly string[] = ["clean-ui", "clean-3d", "clean-type", "clean-data", "sketch", "hairline", "doodle", "vox-collage", "paper-diorama", "clay-clean", "illus-balloon", "illus-blueprint"];
-const FEATURED = 6;
 const PAGE = 12;
 
 /** Until the backend answers (or if it cannot), a style shows its still. */
@@ -42,7 +39,7 @@ function Clip({ style, live }: { style: GalleryStyleCard; live?: boolean }) {
 /** The look of the film. The chosen style is shown first with a real example playing; a few popular ones sit beside it;
  *  "Browse" opens every style, and a style opens to all of its examples across use cases (the SaaS version, the story
  *  version, starters and remakes), so people see what they are choosing before they choose it. */
-export function StylePicker({ value, family, example, onChange }: { value: LookId; family?: string; /** The gallery template the brief started from: shown as the selected style's example. */ example?: string; onChange: (look: LookId, family?: string) => void }) {
+export function StylePicker({ value, family, example, onChange }: { value: LookId; family?: string; /** The gallery template the brief started from: shown as the selected style's example. */ example?: string; onChange: (look: LookId, family?: string, example?: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [styles, setStyles] = useState<Record<string, GalleryStyleCard>>({});
   const [group, setGroup] = useState("All");
@@ -52,19 +49,18 @@ export function StylePicker({ value, family, example, onChange }: { value: LookI
   const current = currentId(value, family);
   const style = (id: string) => styles[id] ?? fallbackStyle(id);
   const chosen = style(current);
-  const pick = (id: string) => { const entry = entryOf(id); onChange(entry.look, familiesOfLook(entry.look).length ? entry.id : undefined); };
-  const [shown, setShown] = useState<GalleryCard[]>([]);
+  const pick = (id: string, template?: string) => { const entry = entryOf(id); onChange(entry.look, familiesOfLook(entry.look).length ? entry.id : undefined, template); };
   const [playing, setPlaying] = useState<GalleryCard | null>(null);
   // The template the person picked, when it belongs to this style: it is what they chose, so it leads.
   const [pinned, setPinned] = useState<GalleryCard | null>(null);
-  // A few real examples made in the chosen style, so the choice is never abstract.
+  // The template the brief started from, when it belongs to this style, is shown as the selected example.
   useEffect(() => {
     const abort = new AbortController();
-    listGalleryTemplates({ look: current, limit: example ? 48 : 4 }, abort.signal).then((page) => {
+    listGalleryTemplates({ look: current, limit: example ? 48 : 1 }, abort.signal).then((page) => {
       const mine = example ? page.items.find((item) => item.id === example) ?? null : null;
       setPinned(mine);
-      setShown(mine ? [mine, ...page.items.filter((item) => item.id !== mine.id)].slice(0, 4) : page.items.slice(0, 4));
-    }).catch(() => { setShown([]); setPinned(null); });
+      
+    }).catch(() => { setPinned(null); });
     return () => abort.abort();
   }, [current, example]);
   const featured = playing ?? pinned;
@@ -77,16 +73,15 @@ export function StylePicker({ value, family, example, onChange }: { value: LookI
     return () => abort.abort();
   }, []);
 
-  const quick = featuredIds.filter((id) => id !== current && entries.some((entry) => entry.id === id)).slice(0, FEATURED);
   const needle = normalizeSearch(query).toLowerCase();
   const visible = entries.filter((entry) => (group === "All" || entry.group === group) && (!needle || `${entry.name} ${entry.group} ${entry.description}`.toLowerCase().includes(needle)));
 
   const open = (id: string | null) => { setGroup("All"); setQuery(""); setDetail(id); if (!dialog.current?.open) dialog.current?.showModal(); };
   const close = () => dialog.current?.close();
-  const choose = (id: string) => { pick(id); close(); };
+  const choose = (id: string, template?: string) => { pick(id, template); close(); };
 
   return <div className="style-library sp">
-    <div className="sp-head"><b>Visual style</b><button type="button" className="sp-browse" onClick={() => open(null)} aria-haspopup="dialog">Browse all {entries.length} styles →</button></div>
+    <div className="sp-head"><b>Visual style</b><button type="button" className="sp-browse" onClick={() => open(current)} aria-haspopup="dialog">Change style →</button></div>
 
     <div className="sp-current" aria-live="polite">
       <div className="sp-current-thumb"><Clip key={featured?.id ?? chosen.id} style={featured ? { ...chosen, preview: featured.preview } : chosen} live />{featured && <span className="sp-now">{featured.id === pinned?.id ? `Your template · ${featured.name}` : featured.name}</span>}</div>
@@ -94,25 +89,12 @@ export function StylePicker({ value, family, example, onChange }: { value: LookI
         <span className="sp-tag">{pinned ? `Selected · from ${pinned.name}` : `Selected · ${selected.group}`}</span>
         <h3>{chosen.name}</h3>
         <p>{chosen.description} Your brand sets the colors and fonts.</p>
-        {shown.length > 0 && <div className="sp-mini" aria-label="Examples in this style">
-          {shown.map((item) => <button type="button" key={item.id} className={"sp-mini-card" + (playing?.id === item.id ? " playing" : "")} aria-pressed={playing?.id === item.id} onClick={() => setPlaying(playing?.id === item.id ? null : item)} aria-label={`${item.name}, an example in this style`}>
-            <span className="sp-thumb"><Clip style={{ ...chosen, preview: item.preview }} /></span><small>{item.id === pinned?.id ? `${item.name} · yours` : item.name}</small>
-          </button>)}
-        </div>}
-        {chosen.examples > 0 && <button type="button" className="sp-link" onClick={() => open(current)}>See all {chosen.examples} {chosen.examples === 1 ? "example" : "examples"} in this style →</button>}
         {selected.renderMode === "generated" && <p className="sp-note">Generating material scenes on the storyboard produces this style. The preview is a layout draft, and generation needs a confirmed budget. Product screenshots and text stay crisp.</p>}
         <details><summary>Style direction &amp; references</summary>
           <p>{selected.instructions.image}</p><p>{selected.instructions.motion}</p>
           {selected.referenceAssets.map((asset) => <a key={asset} href={`/previews/looks/references/${asset}`} target="_blank" rel="noreferrer"><img src={`/previews/looks/references/${asset}`} alt={`${selected.group} source style reference sheet`} loading="lazy" /><span>Open reference image</span></a>)}
         </details>
       </div>
-    </div>
-
-    <div className="sp-quick" role="group" aria-label="Popular styles">
-      {quick.map((id) => <button type="button" className="sp-card" key={id} onClick={() => pick(id)} aria-label={`Use ${style(id).name}`}>
-        <span className="sp-thumb"><Clip style={style(id)} />{style(id).examples > 0 && <i className="sp-pill">{style(id).examples} examples</i>}<i className="sp-play" aria-hidden="true">▶</i></span><b>{style(id).name}</b>
-      </button>)}
-      <button type="button" className="sp-card sp-more" onClick={() => open(null)}><span className="sp-more-plus" aria-hidden="true">+{Math.max(entries.length - quick.length - 1, 0)}</span><b>More styles</b></button>
     </div>
 
     <dialog ref={dialog} className="theme-dialog" aria-labelledby="style-dialog-title" onClose={() => setDetail(null)} onClick={(event) => { if (event.target === dialog.current) close(); }}>
@@ -139,7 +121,7 @@ export function StylePicker({ value, family, example, onChange }: { value: LookI
 }
 
 /** One style opened up: its real examples, filtered by what the video is for. Choosing any of them picks the style. */
-function StyleDetail({ style, current, back, close, choose }: { style: GalleryStyleCard; current: boolean; back: () => void; close: () => void; choose: (id: string) => void }) {
+function StyleDetail({ style, current, back, close, choose }: { style: GalleryStyleCard; current: boolean; back: () => void; close: () => void; choose: (id: string, template?: string) => void }) {
   const [useCase, setUseCase] = useState<GalleryUseCase | "all">("all");
   const [items, setItems] = useState<GalleryCard[]>([]);
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
@@ -190,7 +172,7 @@ function StyleDetail({ style, current, back, close, choose }: { style: GallerySt
     {failed ? <p className="sp-empty" role="alert">Examples could not be loaded. <button type="button" className="secondary-button" onClick={() => void load(null)}>Try again</button></p>
       : !loading && total === 0 ? <p className="sp-empty" role="status">No examples in this style yet. You can still use it: your video is created in this style.</p>
       : <div ref={scroller} className={`sp-examples${loading && items.length ? " is-loading" : ""}`} aria-busy={loading || undefined}>
-        {items.map((item) => <GalleryCardView key={item.id} item={item} action="Use this style" onUse={() => choose(style.id)} />)}
+        {items.map((item) => <GalleryCardView key={item.id} item={item} action="Use this style" onUse={() => choose(style.id, item.id)} />)}
         {loading && Array.from({ length: items.length ? 4 : 8 }, (_, index) => <article className="gallery-card gallery-skeleton" key={`s${index}`} aria-hidden="true"><span className="gallery-media" /><div className="gallery-body"><i /><i /><i className="short" /></div></article>)}
         {next && <div ref={sentinel} className="sp-sentinel"><button type="button" className="secondary-button" disabled={loading} onClick={() => void load(next)}>{loading ? "Loading…" : `Show more (${total - items.length} left)`}</button></div>}
       </div>}
