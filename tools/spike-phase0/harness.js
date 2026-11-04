@@ -47,6 +47,8 @@ async function handle(e) {
       else if (m.mode === "png") { const blob = await __canvas.convertToBlob({ type: "image/png" }); out.png = await blob.arrayBuffer(); post(out, [out.png]); }
       else post(out);
     }
+    else if (m.t === "params") post({ t: "params", id: m.id, echo: JSON.stringify(self.__PARAMS__ ?? null) });
+    else if (m.t === "leak") { for (let i = 0; i < m.mb / 10; i++) { const a = new Uint8Array(10 * 1024 * 1024); a.fill(3); held.push(a); } post({ t: "leak", id: m.id, heldMB: held.length * 10 }); }
     else if (m.t === "hb") post({ t: "hb", id: m.id });
     else if (m.t === "probe") { const res = {}; for (const [k, fn] of Object.entries(probes)) { try { res[k] = "ALLOWED: " + await fn(m.origin); } catch (err) { res[k] = "blocked: " + (err && err.name || "Error") + " " + String(err && err.message || err).slice(0, 60); } } post({ t: "probe", id: m.id, res }); }
     else if (m.t === "mem") post({ t: "mem", id: m.id, perfMemory: self.performance.memory ? self.performance.memory.usedJSHeapSize : null, heldMB: held.length * m.chunkMB });
@@ -57,13 +59,13 @@ async function handle(e) {
   } catch (err) { post({ t: "fail", id: m.id, message: String(err && err.message || err) }); }
 }
 `;
-const buildSource = (html, { neuter }) => PRELUDE + (neuter ? NEUTER : "") + scriptsOf(html) + "\n;\n" + HANDLER;
+const buildSource = (html, { neuter, params }) => PRELUDE + (params ? `self.__PARAMS__ = ${params};\n` : "") + (neuter ? NEUTER : "") + scriptsOf(html) + "\n;\n" + HANDLER;
 
 // ---- host ----------------------------------------------------------------------------------------------------------
 // kind: "plain" (Worker straight from the page), "csp" (Worker created inside a sandboxed, CSP'd iframe), plus "+neuter"
-async function createHost(html, kind = "csp+neuter") {
+async function createHost(html, kind = "csp+neuter", params = null) {
   const neuter = kind.endsWith("+neuter"), contained = kind.startsWith("csp");
-  const src = buildSource(html, { neuter }), channel = new MessageChannel();
+  const src = buildSource(html, { neuter, params }), channel = new MessageChannel();
   let iframe = null, worker = null, portP;
   if (contained) {
     iframe = document.createElement("iframe"); iframe.setAttribute("sandbox", "allow-scripts"); iframe.style.display = "none";
@@ -193,6 +195,26 @@ api.soak = async (name, seconds, ringFrames = 64, sample = true) => {
   return { name, seconds, produced, lateFrames: lateMs.length, lateMsP95: r1(pct(lateMs, 0.95)), scrubMs: { mean: r1(mean(scrubs)), p95: r1(pct(scrubs, 0.95)), max: r1(Math.max(...scrubs)) }, samples, afterScrubs: after };
 };
 
+// one real parameter edit through both hosts: the scene reads self.__PARAMS__ (Worker preview) / a baked window.__PARAMS__ (CPU export)
+api.paramEdit = async () => {
+  const idx = await (await fetch("foxparams.json")).json(), html = await (await fetch("foxparams.html")).text(), out = { frames: {} };
+  const draw = async (set) => { const host = await createHost(html, "csp+neuter", idx.sets[set].canonical); await host.call({ t: "init", scale: 1 }); const echo = (await host.call({ t: "params" })).echo, px = {}; for (const n of [0, 45]) px[n] = await pixelsOf((await host.call({ t: "frame", n, mode: "png" })).png); host.kill(); return { echo, px }; };
+  const A = await draw("A"), B = await draw("B");
+  for (const [k, w] of [["A", A], ["B", B]]) out["echoedParamsDigest" + k + "MatchesManifest"] = (await sha256(canonical(JSON.parse(w.echo)))) === idx.sets[k].paramsDigest;
+  for (const n of [0, 45]) {
+    const eA = await pixelsOf(await (await fetch(`foxparamsA-ref-${n}.png`)).arrayBuffer()), eB = await pixelsOf(await (await fetch(`foxparamsB-ref-${n}.png`)).arrayBuffer());
+    out.frames[n] = { workerA_vs_exportA: diffImages(A.px[n], eA), workerB_vs_exportB: diffImages(B.px[n], eB), editChangesWorkerPixels: diffImages(A.px[n], B.px[n]), editChangesExportPixels: diffImages(eA, eB) };
+  }
+  const bd = async (k) => sha256([idx.htmlSha, idx.sets[k].paramsDigest, "fonts:none", "engine:fox"].join("|"));
+  out.bundleDigestChangesWithParams = (await bd("A")) !== (await bd("B")); out.htmlShaUnchanged = true;
+  return out;
+};
+// a scene that keeps heartbeating while retaining memory: the watchdog cannot see it
+api.leak = async (mbPerFrame = 20, frames = 40) => {
+  const s = (await loadIndex()).find((x) => x.name === "fox-397b0ec8-0"), host = await createHost(await loadHtml(s), "csp+neuter"); await host.call({ t: "init", scale: 0.445 });
+  let hbOk = 0, held = 0; for (let i = 0; i < frames; i++) { await host.call({ t: "frame", n: i % 90, mode: "none" }); held = (await host.call({ t: "leak", mb: mbPerFrame })).heldMB; try { await host.call({ t: "hb" }, 500); hbOk++; } catch {} await sleep(150); }
+  await sleep(1500); host.kill(); await sleep(1500); return { frames, retainedMB: held, heartbeatsAnswered: hbOk, watchdogTripped: hbOk < frames };
+};
 api.deviceReport = async () => {
   const index = await loadIndex(), rep = { when: new Date().toISOString(), features: await api.features(), speed: [], containment: null, hang: null, identity: [] };
   for (const s of index) rep.speed.push(await api.speed(s.name, 0.445));
