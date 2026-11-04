@@ -24,14 +24,23 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
   return response;
 }
 
-type ApiError = { error?: { message?: string; code?: string; tier?: string; used?: number; limit?: number } };
+type ApiError = { error?: { message?: string; code?: string; tier?: string; used?: number; limit?: number; needed?: number; remaining?: number } };
 
 /**
  * The plan's allowance for films (free previews, or a month's films) is used up, or this film has had too many changes. The
  * screen answers it with a plan choice (`code` "preview_limit") or a plain explanation ("preview_call_cap"), never a raw error line.
  */
 export class LimitError extends Error {
-  constructor(message: string, readonly code: "preview_limit" | "preview_call_cap", readonly tier: string | null, readonly used: number | null, readonly limit: number | null) {
+  constructor(
+    message: string,
+    /** preview_limit: films allowed by the plan are used; preview_call_cap: this film has had too many changes; insufficient_tokens: the balance does not cover the action. */
+    readonly code: "preview_limit" | "preview_call_cap" | "insufficient_tokens",
+    readonly tier: string | null,
+    readonly used: number | null,
+    readonly limit: number | null,
+    readonly needed: number | null = null,
+    readonly remaining: number | null = null
+  ) {
     super(message);
     this.name = "LimitError";
   }
@@ -40,8 +49,8 @@ export class LimitError extends Error {
 /** The error to throw for a failed backend answer: a LimitError for an allowance refusal (402), else a plain Error with the backend's message. */
 function failure(response: Response, body: ApiError, fallback: string): Error {
   const error = body.error;
-  if (response.status === 402 && (error?.code === "preview_limit" || error?.code === "preview_call_cap")) {
-    return new LimitError(error.message ?? fallback, error.code, error.tier ?? null, error.used ?? null, error.limit ?? null);
+  if (response.status === 402 && (error?.code === "preview_limit" || error?.code === "preview_call_cap" || error?.code === "insufficient_tokens")) {
+    return new LimitError(error.message ?? fallback, error.code, error.tier ?? null, error.used ?? null, error.limit ?? null, error.needed ?? null, error.remaining ?? null);
   }
   return new Error(error?.message ?? fallback);
 }

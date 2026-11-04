@@ -94,6 +94,8 @@ export function Studio() {
   // The plan's allowance is used up (free previews, a month's films): answered with a plan choice, not an error line.
   const [limit, setLimit] = useState<LimitError | null>(null);
   const [seePlans, setSeePlans] = useState(false);
+  /** A refusal for allowance or tokens opens the plan dialog (and is remembered for the storyboard page); returns whether it was one. */
+  const showLimit = (caught: unknown) => { if (!(caught instanceof LimitError)) return false; setLimit(caught); setSeePlans(true); return true; };
   const [busy, setBusy] = useState(false);
   // Chosen on the storyboard's Submit; kept for a retry or a re-render. Previews never use it.
   const [motionBlur, setMotionBlur] = useState(false);
@@ -235,7 +237,7 @@ export function Studio() {
   const chosenFamily = brief.styleFamily ?? null;
   useEffect(() => {
     if (!project?.beatPlan || !project.brief || (chosenLook === savedLook && chosenFamily === savedFamily)) return;
-    void editPlan(project.id, { look: chosenLook, styleFamily: chosenFamily }).then(replaceProject).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not save the drawing style."));
+    void editPlan(project.id, { look: chosenLook, styleFamily: chosenFamily }).then(replaceProject).catch((caught) => { showLimit(caught); setError(caught instanceof Error ? caught.message : "Could not save the drawing style."); });
   }, [project?.id, project?.beatPlan, project?.brief, chosenLook, savedLook, chosenFamily, savedFamily, replaceProject]);
 
   const saveProject = useCallback(async (patch: Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "approvedAt">>) => {
@@ -425,7 +427,7 @@ export function Studio() {
       watching.current = result.project.planning?.startedAt ?? null;
       replaceProject(result.project);
     } catch (caught) {
-      if (caught instanceof LimitError) { setLimit(caught); setSeePlans(true); }
+      showLimit(caught);
       setError(caught instanceof Error ? caught.message : "Could not write the script.");
     } finally {
       setStarting(false);
@@ -455,7 +457,7 @@ export function Studio() {
       putFrames([[frameKey(beats[index]!), svg ? { state: "ready", svg } : { state: "failed", error: error ?? "Could not draw this frame." }]]);
       if (svg) setFrameAt((current) => ({ ...current, [index]: svg }));
     }).catch((caught) => {
-      const message = caught instanceof Error ? caught.message : "Could not draw the frames.";
+      showLimit(caught); const message = caught instanceof Error ? caught.message : "Could not draw the frames.";
       putFrames(todo.map((i) => frameKey(beats[i]!)).filter((key) => frameCache.current[key]?.state === "drawing").map((key) => [key, { state: "failed", error: message }]));
     });
   };
@@ -522,7 +524,7 @@ export function Studio() {
       drawFrames(active, result.beats, result.beats.map((_, i) => i));
     } catch (caught) {
       if (stop.signal.aborted) { setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: scope ? current.previous : current.beats.length ? current.beats : current.previous }); return; }
-      if (caught instanceof LimitError) { setLimit(caught); setSeePlans(true); }
+      showLimit(caught);
       setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: current.previous.length ? current.previous : current.beats, error: caught instanceof Error ? caught.message : "Could not write the script." });
     }
   };
@@ -668,7 +670,7 @@ export function Studio() {
       setVoiceRun({ state: "idle" });
     } catch (caught) {
       setVoicingIndices([]);
-      setVoiceRun({ state: "failed", error: caught instanceof Error ? caught.message : "Could not record the voiceover." });
+      showLimit(caught); setVoiceRun({ state: "failed", error: caught instanceof Error ? caught.message : "Could not record the voiceover." });
     }
   };
   const confirmScript = () => {
@@ -776,7 +778,7 @@ export function Studio() {
       setAnimProgress(100);
       setAnimVersion((v) => v + 1);
     } catch (caught) {
-      setAnimError(caught instanceof Error ? caught.message : "Could not prepare the browser animation.");
+      showLimit(caught); setAnimError(caught instanceof Error ? caught.message : "Could not prepare the browser animation.");
     } finally {
       setAnimating(false);
     }
@@ -887,7 +889,7 @@ export function Studio() {
       setProjects((current) => current.map(rendering));
       return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not start the render.");
+      showLimit(caught); setError(caught instanceof Error ? caught.message : "Could not start the render.");
       return false;
     } finally {
       setBusy(false);
@@ -961,7 +963,7 @@ export function Studio() {
       {error && step !== SCRIPT_STYLE && !(step === STORYBOARD && canvas) && step !== RENDER && step !== REVIEW && <p className="workspace-error">{error}</p>}
       {step === STORYBOARD && canvas && <ScriptCanvas
         beats={canvas.beats} open={canvas.open} streaming={canvas.streaming} startedAt={canvas.startedAt} firstAt={canvas.firstAt} flags={canvas.flags} error={canvas.error ?? error}
-        limit={limit} onSeePlans={() => setSeePlans(true)} onTryAgain={() => void writeScript()} onBackToBrief={() => setStep(SCRIPT_STYLE)}
+        limit={limit} onTryAgain={() => void writeScript()} onBackToBrief={() => setStep(SCRIPT_STYLE)}
         voiced={voicedBrief}
         length={{ seconds: brief.durationSeconds, pace: brief.pace, locked: Boolean(brief.lockDuration) }}
         onFit={fitScript}

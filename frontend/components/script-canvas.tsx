@@ -104,43 +104,70 @@ export function TokenModal({ cost, balance, onClose }: { cost: number; balance: 
   </div>;
 }
 
+/** What a refusal means for the person, in words: the heading, and whether a purchase (plan or token pack) can resolve it. */
+export function limitCopy(limit: LimitError) {
+  const have = limit.limit ?? 0;
+  if (limit.code === "preview_call_cap") return { title: "This film has had a lot of changes", plans: false, pack: false };
+  if (limit.code === "insufficient_tokens") return { title: "You need more tokens for this", plans: true, pack: true };
+  if (limit.tier === "free" || limit.tier === null) return { title: `You've used your ${have || 3} free previews`, plans: true, pack: false };
+  return { title: "You've reached this month's film limit", plans: true, pack: false };
+}
+
 /**
- * The plan's allowance for films is used up. Says what happened in plain words, what is kept, and offers the plans that would
- * continue it, each going straight to checkout. A film that simply had too many changes gets an explanation and no payment.
+ * The way forward for a refusal, shown beside the message: the plans that would continue it (each straight to checkout), a token pack
+ * when only tokens are short, and an honest note when nothing can be bought (this film's changes are capped, or the top plan's
+ * monthly films are used and reset on the 1st).
  */
-export function PlanLimitModal({ limit, onClose, onBack }: { limit: LimitError; onClose: () => void; onBack?: () => void }) {
+export function PlanLimitOptions({ limit }: { limit: LimitError }) {
   const [opening, setOpening] = useState<Product | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
-  const capped = limit.code === "preview_call_cap";
-  const free = limit.tier === "free" || limit.tier === null;
+  const copy = limitCopy(limit);
   const have = limit.limit ?? 0;
-  const options = PAID_TIERS.filter((tier) => PREVIEW_ALLOWANCE[tier] > have);
+  const tokens = limit.code === "insufficient_tokens";
+  // Plans that raise what is short: more films a month, or (for tokens) a bigger monthly grant than the current plan's.
+  const current = PAID_TIERS.find((tier) => tier === limit.tier);
+  const options = !copy.plans ? [] : PAID_TIERS.filter((tier) => tokens ? (!current || PLANS[tier].tokens > PLANS[current].tokens) : PREVIEW_ALLOWANCE[tier] > have);
+  const need = tokens && limit.needed !== null && limit.remaining !== null ? Math.max(0, Math.round((limit.needed - limit.remaining) * 100) / 100) : null;
   const buy = async (product: Product) => {
     setOpening(product);
     setFailed(null);
     try { window.location.assign(await startCheckout(product)); }
     catch (caught) { setFailed(caught instanceof Error ? caught.message : "Could not open checkout."); setOpening(null); }
   };
-  const title = capped ? "This film has had a lot of changes" : free ? `You've used your ${have || 3} free previews` : "You've reached this month's film limit";
+  const top = copy.plans && !tokens && options.length === 0;
+  return <div className="sc-limit-options">
+    {need !== null && <p className="sc-modal-sum">This needs <b>{limit.needed} tokens</b>. You have <b>{limit.remaining}</b>, so you need <b>{need} more</b>.</p>}
+    <div className="sc-modal-options">
+      {copy.pack && <div className="sc-option">
+        <div><b>{TOP_UP.tokens} tokens</b><span>One-time pack · ${TOP_UP.priceUsd}{need !== null && TOP_UP.tokens >= need ? " · covers this" : ""}</span></div>
+        <button type="button" className="primary-button" disabled={opening !== null} onClick={() => void buy("topup")}>{opening === "topup" ? "Opening…" : "Buy pack"}</button>
+      </div>}
+      {options.map((tier, i) => <div className="sc-option" key={tier}>
+        <div><b>{PLANS[tier].name} · {tokens ? `${PLANS[tier].tokens} tokens a month` : `${PREVIEW_ALLOWANCE[tier]} films a month`}</b><span>${PLANS[tier].priceUsd}/month · {tokens ? `${PREVIEW_ALLOWANCE[tier]} films a month` : `${PLANS[tier].tokens} tokens`} · {PLANS[tier].blurb}</span></div>
+        <button type="button" className={i === 0 && !copy.pack ? "primary-button" : "secondary-button"} disabled={opening !== null} onClick={() => void buy(tier)}>{opening === tier ? "Opening…" : `Choose ${PLANS[tier].name}`}</button>
+      </div>)}
+    </div>
+    {top && <p className="sc-limit-note">You are on our top plan, so there is nothing to upgrade to. Your films reset on the 1st; until then you can keep working on the films you have started, or write to us if you need more.</p>}
+    {failed && <p className="sc-modal-error" role="alert">{failed}</p>}
+  </div>;
+}
+
+/** The refusal as a dialog (used away from the storyboard page). */
+export function PlanLimitModal({ limit, onClose, onBack }: { limit: LimitError; onClose: () => void; onBack?: () => void }) {
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onClose]);
+  const capped = limit.code === "preview_call_cap";
   return <div className="sc-modal-backdrop" onClick={onClose}>
     <div className="sc-modal" role="dialog" aria-modal="true" aria-labelledby="sc-limit-title" onClick={(event) => event.stopPropagation()}>
       <header>
-        <h2 id="sc-limit-title">{title}</h2>
+        <h2 id="sc-limit-title">{limitCopy(limit).title}</h2>
         <button type="button" className="sc-modal-close" aria-label="Close" onClick={onClose}>×</button>
       </header>
       <p className="sc-modal-sum">{limit.message}</p>
-      {!capped && options.length > 0 && <div className="sc-modal-options">
-        {options.map((tier) => <div className="sc-option" key={tier}>
-          <div><b>{PLANS[tier].name} · {PREVIEW_ALLOWANCE[tier]} films a month</b><span>${PLANS[tier].priceUsd}/month · {PLANS[tier].tokens} tokens · {PLANS[tier].blurb}</span></div>
-          <button type="button" className={tier === options[0] ? "primary-button" : "secondary-button"} disabled={opening !== null} onClick={() => void buy(tier)}>{opening === tier ? "Opening…" : `Choose ${PLANS[tier].name}`}</button>
-        </div>)}
-      </div>}
-      {failed && <p className="sc-modal-error" role="alert">{failed}</p>}
+      <PlanLimitOptions limit={limit} />
       <small>{capped ? "Start a new film to keep going; your other films are not affected." : "Nothing is lost: your brief and settings are saved, and you can pick up where you left off after checkout."}</small>
       <div className="sc-modal-actions">
         {onBack && <button type="button" className="secondary-button" onClick={onBack}>Back to brief</button>}
@@ -171,7 +198,7 @@ function RenderAction({ seconds, rendering, label, disabled, onRender }: { secon
  * beside it; a single prompt bar at the bottom asks the AI for changes. Confirming the script voices it; the storyboard is
  * built from it in the background.
  */
-export function ScriptCanvas({ music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onSeePlans, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing }: {
+export function ScriptCanvas({ music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing }: {
   beats: ScriptBeat[];
   /** The field being written, and the beat it is written into, while streaming. */
   open: keyof ScriptBeat | null;
@@ -189,7 +216,6 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
   error: string | null;
   /** Set when the failure is the plan's allowance: the empty page offers the plans. */
   limit?: LimitError | null;
-  onSeePlans?: () => void;
   onTryAgain?: () => void;
   onBackToBrief?: () => void;
   voiced: boolean;
@@ -258,12 +284,12 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
   if (!streaming && beats.length === 0 && error) return <div className="script-canvas">
     <header className="sc-head"><div><h1>Storyboard</h1></div></header>
     <section className="sc-empty" role="alert">
-      <h2>{limit ? (limit.code === "preview_call_cap" ? "This film has had a lot of changes" : limit.tier === "free" || limit.tier === null ? "You've used your free previews" : "You've reached this month's film limit") : "We couldn't write your script"}</h2>
+      <h2>{limit ? limitCopy(limit).title : "We couldn't write your script"}</h2>
       <p>{error}</p>
-      <p className="sc-empty-note">{limit && limit.code !== "preview_call_cap" ? "Your brief is saved. Choose a plan and this storyboard is written straight away." : "Your brief is saved. Nothing was charged."}</p>
+      {limit && <PlanLimitOptions limit={limit} />}
+      <p className="sc-empty-note">{limit?.code === "preview_call_cap" ? "Start a new film to keep going; your other films are not affected." : limit ? "Your brief is saved. After checkout, come back here and press Try again: the storyboard is written straight away." : "Your brief is saved. Nothing was charged."}</p>
       <div className="sc-empty-actions">
-        {limit && limit.code !== "preview_call_cap" && onSeePlans && <button type="button" className="primary-button" onClick={onSeePlans}>See plans</button>}
-        {!limit && onTryAgain && <button type="button" className="primary-button" onClick={onTryAgain}>Try again</button>}
+        {onTryAgain && limit?.code !== "preview_call_cap" && <button type="button" className={limit ? "secondary-button" : "primary-button"} onClick={onTryAgain}>Try again</button>}
         {onBackToBrief && <button type="button" className="secondary-button" onClick={onBackToBrief}>Back to brief</button>}
       </div>
     </section>
