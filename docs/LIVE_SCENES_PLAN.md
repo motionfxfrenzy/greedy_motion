@@ -18,6 +18,37 @@ An external review checked this plan against the code. All seven points held; th
 
 The first milestone is now a **feasibility spike on real scenes** (phase 0, §14), not more infrastructure.
 
+## 0b. Phase 0 spike results (2026-11-04, this Mac, Chrome 156; harness `tools/spike-phase0/`)
+
+Nine real model-authored scenes (balloon, fox, blueprint; 90 to 225 frames) run in a terminable Worker with `OffscreenCanvas`. **Verdict: the Worker host is viable on Chrome; everything else is unverified.** Phase 2 stays gated on the items under "Open".
+
+| Question | Result |
+| --- | --- |
+| Do real scenes run in a Worker? | Yes, with a small shim (`window`, `document.getElementById`, `createElement`, `Image`). No scene change. Image assets are not supported by the shim yet (none of the scenes use them). |
+| Draw speed at preview size (854x481) | blueprint 8 to 10 ms/frame (3x real time); balloon 14 to 18 ms (about 2x); fox 35 to 54 ms (0.6 to 0.9x). Full size (1920x1080) is about the same on this machine, so the scene cost, not the pixel count, dominates. |
+| Real-time pacing (40 s loop) | blueprint holds 30 fps; balloon holds with a few late frames (p95 lateness 119 ms); fox cannot (1093 of 1200 frames). Matches the buffering gate. |
+| Slow devices | Chrome's CPU throttle barely reaches Workers (about 1.35x at "6x"), so slow devices were emulated by repeating each draw. At 3x slower only blueprint stays live; at 6x everything uses the clip fallback. **Real low-end devices are untested.** |
+| Containment | A plain Worker has full network, IndexedDB and Cache Storage; deleting globals is not a boundary (prototype chain recovers `fetch`). A Worker created **inside a sandboxed iframe with CSP `connect-src 'none'; worker-src blob:`** blocked fetch, XHR, WebSocket, importScripts, dynamic import, nested Workers, IndexedDB and Cache Storage, and the test server saw **zero** requests from it. BroadcastChannel still exists but is isolated (opaque origin; it did not reach the page). **Decision: the contained host is the only host.** |
+| Hang and memory bomb | An infinite loop is detected and terminated after about 2.3 s (2 s watchdog); a fresh Worker draws a frame about 0.6 s later; the page's longest stall was 17 ms. A 1.5 GB allocation bomb was terminated and the page survived. |
+| Memory accounting | A 300 MB allocation inside the Worker was **invisible** to `performance.memory` (absent in Workers) and to `measureUserAgentSpecificMemory`. The guard therefore cannot read memory: it is a **host-side byte count of frames and bitmaps plus the watchdog**. Over a 180 s loop with 20 scrubs, OS resident memory of the browser stayed between 887 and 1241 MB with no upward trend, and scrub latency was 40 ms mean, 72 ms p95. (The first soak's pacing numbers were invalid because the memory API stalled the loop; pacing was re-measured without it.) |
+| Identity, Worker vs CPU export | Balloon and fox (6 scenes): **0 differing pixels** against the export, and against the page-thread host. Blueprint (3 scenes): about 46 % of pixels differ by 1 level, about 3 000 by up to 4 levels (GPU export); against a **software-rendered** export (what the AWS worker uses) line edges also differ, about 21 000 pixels by 8+ levels. Invisible at normal viewing; cause not proven (rasteriser rounding and anti-aliasing; gradients alone do not explain it because fox and balloon use them too). **Rule: parity is "visually identical within a written tolerance", not byte-identical (section 9).** |
+| Digests | Same params in any key order give the same digest; a changed param changes it; no bundle embeds fonts (the only font string is a `10px sans-serif` measuring probe). Params flowing through both hosts is **not** tested because scenes do not read params yet. |
+
+**Open before phase 2:** (1) parity on the real worker image (Linux software GL), with the tolerance below; (2) Safari macOS/iOS, Firefox and a low-end Android, listed `unverified` until someone runs the device report page (`harness.html`, "Run device report"); (3) why blueprint differs; (4) one scene with a text-bearing look and one with image assets.
+
+**Browser support and fallback matrix**
+
+| Environment | Worker + OffscreenCanvas host | Status |
+| --- | --- | --- |
+| Chrome 156, macOS, GPU | Live | verified |
+| Chrome, slower CPU (emulated) | Live only if the gate passes, else clip | emulated only |
+| Safari macOS / iOS | Clip until verified | **unverified** |
+| Firefox | Clip until verified | **unverified** |
+| Android Chrome (low end) | Clip until verified | **unverified** |
+| Any browser lacking Worker + OffscreenCanvas 2D | Clip (worker-drawn) | by design |
+
+Live preview is offered only on a verified environment whose measured gate passes; everything else gets the clip. "Untested" never means "live".
+
 ## 1. Goal
 
 Both engines follow one workflow and one UI. They differ only in what draws a frame.
@@ -155,6 +186,7 @@ Review #3: the render must produce what the user previewed.
 
 * **Frozen export manifest:** clicking `Render` creates an immutable manifest `{ projectId, revisions: [{ scene, aspect, bundleDigest, bundleKey, paramsDigest, params }], timing (frames per scene), audio (voice + music object keys + digests), subtitle settings, aspect, fps, engineDigest, fontSetDigest }`, stored in R2 and referenced by the job. The worker renders **only** that manifest.
 * **No silent repair:** the worker verifies each bundle (§7). If a scene fails verification, the job **stops before drawing**, nothing is charged, and the scene is marked `needs fix` with a new repair revision produced by the bounded repair loop **and returned to step 3 for preview**. The user re-approves and clicks Render again with a new manifest.
+* **Parity rule:** preview and export are "visually identical within tolerance", not byte-identical (see 0b). Tolerance, to be confirmed on the real worker image: no more than 2 % of pixels differ by more than 2 levels and no pixel differs by more than 16 levels. A test compares Worker preview frames with real-image export frames for every look.
 * Worker Chromium is launched with software GL flags (`--use-gl=angle --use-angle=swiftshader`, `--disable-gpu`); a startup self-check records the renderer string and **refuses to render** if a GPU path is detected.
 * Draw only scenes without a clip for their `bundleDigest` (+ font set); then encode + audio + subtitles.
 * **Billing:** price shown at click; tokens are **held** when the job is accepted and **settled on success**; any failure other than user cancellation releases the hold. Idempotency key per click.
@@ -170,7 +202,7 @@ Review #2: an iframe shares the page's thread unless the browser happens to isol
 * **Prototype first (phase 0):** run real scenes in the Worker host on Chrome, Safari (macOS + iOS), Firefox and a low-end Android; record draw ms/frame, memory, whether `OffscreenCanvas` 2D filters/`shadowBlur`/`globalCompositeOperation` render the same as the DOM canvas, and whether `terminate()` recovers an infinite loop within the watchdog budget.
 * **CSP and fonts:** bundles run with `default-src 'none'; script-src 'unsafe-inline'; img-src data: blob:; font-src data: blob:`. Fonts the scene needs are **embedded as data URLs by the bundler** (size budget 300 KB per bundle, subset per script) or provided by the host via `FontFace` objects loaded from signed same-project URLs through the parent (not by the scene). Scenes cannot load fonts by URL.
 * **Messages:** `postMessage` with a per-host nonce; the parent validates shapes and sizes; bitmaps are transferred, never shared memory.
-* **Memory guard:** destroy scenes not within ±1 of the playhead after 60 s; a Worker allocating beyond its quota is terminated.
+* **Memory guard (measured, section 0b):** a Worker's memory cannot be read, so the host keeps a byte count of frames and bitmaps it holds and the page terminates a Worker on a missed heartbeat (2 s), a draw over 2 s, or a count above its share of the budget. Destroy scenes not within ±1 of the playhead after 60 s; a Worker allocating beyond its quota is terminated.
 * The scene never sees user data; bundles come from R2 through short-lived signed URLs after the ownership check.
 
 ## 11. API, data and rollout
@@ -288,11 +320,16 @@ Goal: the user always sees progress, never a raw failure, and Railway load does 
 **Performance budgets (enforced in CI where possible)**
 * time to first frame ≤ 1.5 s after bundle ready; steady state ≥ 24 fps for the reference scenes on a mid laptop profile; cache memory ≤ budget; patch apply+check ≤ 15 s p95 (model time excluded).
 
+* `parity-tolerance`: Worker preview vs export frames per look stay within the tolerance (section 9).
+* `plate-author-no-conn`: no database connection is held across the model call; 429 storm drains; global budget respected.
+* `authoring-stream`: only validated content is emitted (section 11b).
+* `job-control-chaos` / `job-control-load`: staging gates in section 18.
+
 ## 14. Phases
 
 | Phase | Deliverable | Exit criteria |
 | --- | --- | --- |
-| **0 (first milestone)** | **Real-scene feasibility spike**: (a) Worker + `OffscreenCanvas` host for 5+ real production scenes across looks; (b) terminate-on-hang proven; (c) memory bounded over a 3-minute loop and 20 scrubs; (d) slow-device behaviour (6× CPU throttle, iOS Safari, low-end Android) with the buffering gate and worker-clip fallback; (e) export of an **immutable previewed bundle** (digest equals what the worker renders); (f) live-vs-worker difference report; (g) **containment**: show what network/storage access a Worker scene has and how it is restricted, and what memory can actually be accounted for; (h) **identity through both hosts**: Worker preview and CPU export run the same code, params, assets and fonts (digests equal, pixel diff reported); output is measurements plus a **browser support / fallback matrix** where untested browsers stay explicitly `unverified` | written results with numbers; decision recorded: Worker host viable on which browsers; fallback matrix; go/no-go for phase 2 |
+| **0 (first milestone) · DONE except the items in 0b "Open"** | **Real-scene feasibility spike**: (a) Worker + `OffscreenCanvas` host for 5+ real production scenes across looks; (b) terminate-on-hang proven; (c) memory bounded over a 3-minute loop and 20 scrubs; (d) slow-device behaviour (6× CPU throttle, iOS Safari, low-end Android) with the buffering gate and worker-clip fallback; (e) export of an **immutable previewed bundle** (digest equals what the worker renders); (f) live-vs-worker difference report; (g) **containment**: show what network/storage access a Worker scene has and how it is restricted, and what memory can actually be accounted for; (h) **identity through both hosts**: Worker preview and CPU export run the same code, params, assets and fonts (digests equal, pixel diff reported); output is measurements plus a **browser support / fallback matrix** where untested browsers stay explicitly `unverified` | written results with numbers; decision recorded: Worker host viable on which browsers; fallback matrix; go/no-go for phase 2 |
 | 1 | `ScenePlayer` contract, `FrameCache`, `FrameScheduler`, `PlaybackClock` + unit tests (done) | all unit tests green; revised to key on `bundleDigest` and a rolling window after phase 0 |
 | 2 | **Gated on phase 0 results.** Plate live adapter (Worker host; unsupported devices use the clip), bundle/check routes, state `checked`, flag, migration 019 | plates play live on staging with the flag on; sandbox tests green |
 | 3 | Shared `AnimationWorkspace` + `AnimationPrep` extracted from `PlatePreview`; HyperFrames moves onto it | screenshot diff shows identical shell; old HyperFrames `ce-*` layout removed |
@@ -346,3 +383,42 @@ Goal: a user can write or paste a script in **any language the LLM and the speec
 * E2E: one short film per language family (en, hi-Devanagari, hi-Roman, ur, ar, es) through step 3 and step 4, asserting audio language, caption script, frame counts follow audio.
 
 **Phases:** language table and `inputScript` (P1 of this section, with phase 1 of §14); normalisation step and editable script (with phase 2); text helper, font stacks and tofu check (with phase 2/3); per-language e2e (with phase 5). Coordination: the voice and director parts stay with the other session; this plan owns the studio shell, the check and the render side.
+
+## 17. Architecture summary (where each thing runs and lives)
+
+| Step | Runs on | Stored in |
+| --- | --- | --- |
+| Authoring (model call, validation, esbuild bundle) | Backend (Railway) as a queued `plate-author` job; the consumer can later move to ECS or Lambda unchanged | Source and bundle in **R2**; metadata, digests, states in **Postgres** |
+| Step 3 drawing | **User's browser**: Worker in a sandboxed CSP iframe, frames in a byte-budgeted rolling window | Browser memory (IndexedDB later) |
+| Comment, parameter change | Browser applies a validated params patch locally; a small backend call may translate free text to the patch | New row in `plate_revisions` (R2 objects retained) |
+| Comment, structural change | Backend authoring job returns a params or code patch for that scene only | New revision, new bundle in R2 |
+| Fallback preview (unsupported or slow device) | **AWS worker** draws a clip | Clip in R2, keyed by `bundleDigest` |
+| Step 4 final render | **AWS ECS worker** from the frozen manifest, CPU only | MP4 in R2 |
+
+* R2 stays the object store (no egress fees to browsers; the worker already reads it). S3 would add cost for nothing.
+* Authoring stays on Railway while measurements allow (section 18). It is I/O bound (30 to 90 s waiting on the model), so it must never hold a database connection during the model call (test below).
+* Streaming (section 11b) improves perceived speed; it does **not** reduce Railway load. The load lever is the queue plus the consumer location.
+
+## 18. Capacity, job control and polling
+
+**Problem.** Workers used to open Postgres and pg-boss connections themselves. The production Supabase session pooler allows 15 clients; the backend uses 7 to 9 at rest and each worker about 5, so a second worker produced `EMAXCONNSESSION` and a stalled film. Contained today by `ECS_WORKER_MAX_TASKS=1`.
+
+**Design (branch `codex/job-control`, `docs/JOB_CONTROL.md`; local tests pass, not deployed).**
+* Workers hold **no database connection**. They reach the backend over HTTPS (`/internal/worker/*`, bearer token): long request, up to 25 s, answered the moment a job exists; one dispatcher fetch loop per queue with a 3 s backstop; leases renewed by heartbeat; attempt number fences stale workers; `finish`, `drawn`, `ready` are idempotent; claims are never retried blindly; named operation allow-list.
+* The "poll" is a held request, functionally push over a worker-initiated connection (Fargate tasks have no stable inbound address, and scale to zero leaves nothing to push to). Cost: one request per worker per 25 s and no connection. 100 workers is about 4 requests/s and 100 idle sockets.
+* **Cold start is accepted.** Workers run only at render (step 4) and users render after reviewing, so a few seconds of start-up is fine. **Job-id-at-launch is not adopted**: the wait is the container start, a hinted job can be taken by a running worker, and the lease and fencing machinery is still needed. If cold start ever matters: a warm worker in busy hours, a smaller image, or launching when the user opens step 4.
+* **Cross-instance wake-ups:** when more than one backend instance runs, add Postgres `LISTEN/NOTIFY` so the backstop becomes a rare safety net.
+
+**Raising the limit, in order.** (1) Deploy job-control, then raise `ECS_WORKER_MAX_TASKS`; (2) per-environment connection budgets written in Terraform with validation (transaction-mode pooler for short API queries, a small session-mode pool only for pg-boss); (3) colocate: production worker already in us-east-1, verify the API region, and treat any database move as a separate reviewed migration; (4) a larger database tier only if measured.
+
+**What scales with users** (not the polling): ordinary API requests (about 1 busy connection per 200 requests/s at 5 ms each), job-control writes (throttle progress updates), authoring concurrency, Anthropic limits, ECS task-start quotas. pg-boss is fine at tens of jobs per second.
+
+**Staging gates before any promotion.** Chaos tests (kill a worker mid-render, drop the control link, restart the backend, duplicate completion), the HyperFrames path through job-control, a **load test** (simulated workers and users against the control routes and API; record connections in use, p95 latency, event-loop lag), and a **cold-start measurement**. Alerts on pool saturation and queue age. Repair loops are included in success-rate and cost metrics, with generated-code failures separated from infrastructure failures, and artifacts verified usable before a job is marked successful. SQS stays deferred until these measurements justify it. Production changes need explicit approval.
+
+## 19. Model calls: parallelism, limits and cost
+
+* Parallel calls to Anthropic are fine and non-blocking. Scenes of one film are authored in parallel **only after** the shared context (cast, palette, story, style guide) is fixed and passed to every call.
+* Ceilings are the account's **requests and output tokens per minute** (each scene call may ask for up to 24 000 output tokens), our own `PLATE_CONCURRENCY` and `PLATE_PROJECT_CAP`, and cost (repair loops add calls). A **global authoring budget** is derived from the account's real limits (to be looked up before numbers are set).
+* **429 handling:** honour the retry-after the API gives, jittered backoff, queue the rest; a burst must never become failed films. Surface "waiting for capacity" as a stage event, not an error.
+* **Prompt caching** for the shared prefix (style guide, film context) cuts input tokens and latency.
+* Tests: 429 storm drains without failures; the global budget is never exceeded; no database connection is held across a model call; cached prefix is byte-identical across scenes.
