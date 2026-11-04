@@ -467,11 +467,24 @@ export async function runCheck(
       } catch {}
       const sig1 = pass1.get(f);
       if (sig1 !== sig2) {
-        return {
-          ok: false,
-          kind: "code",
-          error: `Non-deterministic draw on frame ${f} (${sig1} !== ${sig2}).`
-        };
+        // A mismatch can be the browser changing raster path under load (for example a GPU canvas falling back to software while
+        // several scenes are checked at once), which says nothing about the scene's code and must never start a paid repair.
+        // Draw the frame twice more, one after the other: a scene whose code is really non-deterministic keeps disagreeing with
+        // itself; a transient raster change settles.
+        const r3 = await host.frame(f, { includeHash: true });
+        const sig3 = signatureOfFrame(r3);
+        try { r3.bitmap?.close?.(); } catch {}
+        const r4 = await host.frame(f, { includeHash: true });
+        const sig4 = signatureOfFrame(r4);
+        try { r4.bitmap?.close?.(); } catch {}
+        if (sig3 !== sig4) {
+          return {
+            ok: false,
+            kind: "code",
+            error: `Non-deterministic draw on frame ${f} (${sig1} !== ${sig2}, and again ${sig3} !== ${sig4}).`
+          };
+        }
+        pass1.set(f, sig4);
       }
     }
   } catch (err) {

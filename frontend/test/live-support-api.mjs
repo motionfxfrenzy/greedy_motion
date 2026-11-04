@@ -412,3 +412,21 @@ test("fetchBundle, reportCheck, and requestClip work in browser environments whe
     }
   }
 });
+
+test("runCheck does not report a scene as non-deterministic when only the first draw differed (transient raster change under load)", async () => {
+  const manifest = { width: 1920, height: 1080, fps: 30, frames: 90 };
+  const host = (hashFor) => ({
+    async init() { return { w: 1920, h: 1080, meta: { W: 1920, H: 1080, fps: 30, durationFrames: 90 } }; },
+    async frame(n) { return { n, drawMs: 10, hash: hashFor(n), bitmap: { width: 1920, height: 1080, close() {} } }; }
+  });
+  // frame 45 is drawn a first time as GPU (gpu-45), then, once the browser has fallen back to software, always as soft-45
+  let draws45 = 0;
+  const transient = await runCheck(host((n) => { if (n !== 45) return `det-${n}`; draws45++; return draws45 === 1 ? "gpu-45" : "soft-45"; }), manifest);
+  assert.deepEqual(transient, { ok: true }, "a one-off change that then settles is not the scene's fault");
+  // a scene that really disagrees with itself every time is still a code failure
+  let rand = 0;
+  const real = await runCheck(host((n) => (n === 45 ? `rand-${++rand}` : `det-${n}`)), manifest);
+  assert.equal(real.ok, false);
+  assert.equal(real.kind, "code");
+  assert.match(real.error, /Non-deterministic draw on frame 45/);
+});

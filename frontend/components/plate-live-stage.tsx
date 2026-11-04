@@ -164,6 +164,7 @@ export function PlateLiveStage({
   const playerReadyRef = useRef<Set<number>>(new Set());
   const bufferingScenesRef = useRef<Set<number>>(new Set());
   const activeCheckHostsRef = useRef<Set<WorkerHost>>(new Set());
+  const checkQueueRef = useRef<Promise<void>>(Promise.resolve());
   const checksRunRef = useRef<number>(0);
   const stillFailedRef = useRef<Set<number>>(new Set());
 
@@ -380,6 +381,12 @@ export function PlateLiveStage({
         if (!checkTrackerRef.current.shouldCheck(v.variantId, gen, digest, v.state)) return;
         if (!checkTrackerRef.current.begin(v.variantId!, gen, digest)) return;
 
+        // One check at a time per page: several full-size Workers drawing at once can push the browser off its GPU canvas path
+        // and make a healthy scene look non-deterministic.
+        const previousChecks = checkQueueRef.current;
+        let releaseCheckSlot: () => void = () => {};
+        checkQueueRef.current = new Promise<void>((resolve) => { releaseCheckSlot = resolve; });
+        await previousChecks;
         const checkHost = new WorkerHost({ html: b.html, params: b.params });
         activeCheckHostsRef.current.add(checkHost);
         let outcome;
@@ -389,6 +396,7 @@ export function PlateLiveStage({
         } finally {
           activeCheckHostsRef.current.delete(checkHost);
           checkHost.destroy();
+          releaseCheckSlot();
         }
 
         if (!mountedRef.current) {
