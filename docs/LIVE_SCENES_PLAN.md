@@ -441,3 +441,11 @@ Goal: a user can write or paste a script in **any language the LLM and the speec
 * **Make heavy scenes rarer:** authoring gets a draw-cost budget (target at most about 30 ms per frame at preview size on the reference machine, measured by the validation step), so the model avoids very expensive effects. The fox scenes (35 to 54 ms) are the first targets.
 * **The fallback has a cost:** clips are drawn on AWS in step 3. Cap clips queued per project and per user, record the live-vs-clip ratio, and alert if clips become the common path.
 * **Tests:** a heavy scene falls back while its neighbours stay live; the switch at a boundary shows no stall or blank frame; the clip cap holds; the ratio metric is emitted.
+
+## 21. Follow-ups noted at the phase 2a review (none blocks staging with the flag off)
+
+* **Clip request versus `checked`:** `clip-request` sets a `checked` variant back to `bundled` while the clip draws, so another device of the same project loses live play until the clip is ready. Keep `checked` and track the clip request on its own column or table. Revisit when more than one device per project is realistic or when phase 3 wires the UI.
+* **Repair logic is duplicated** (`worker/src/plates.mjs` and `backend/src/plates/store.ts`). Move it to one shared module when `worker/` is next touched.
+* **Revision pruning:** `plate_revisions` is unbounded until phase 4 (keep the last 20 per scene).
+* **Companion exports in live mode** report "drawing" until clips exist; phase 5 (frozen manifest, on-demand draw) fixes this.
+* **Browser fetch of the signed bundle** needs CORS on the uploads bucket and the app's CSP to allow the bootstrap iframe and blob Workers; verify on staging before enabling the flag there.
