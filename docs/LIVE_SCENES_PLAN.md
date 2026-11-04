@@ -59,7 +59,7 @@ Principles:
 
 ### Step 4
 
-1. Worker receives `{ project, signatures }`, downloads the same bundles, **verifies each again**, draws missing scenes on CPU (software GL, no GPU), reuses clips cached by signature, encodes, adds audio/subtitles, uploads the MP4.
+1. Worker receives the frozen export manifest (§9), downloads exactly those bundles, **verifies each again**, draws missing scenes on CPU (software GL, no GPU), reuses clips cached by `bundleDigest` (+ font set), encodes, adds audio/subtitles, uploads the MP4.
 2. A failed verification at this point runs the bounded repair loop before any frame is drawn; if it still fails the job fails **without charge** (§9).
 3. Optional (phase 4): when the user is idle in step 3, the backend schedules background clip drawing for finished scenes so step 4 is often just a join.
 
@@ -219,19 +219,19 @@ Review #2: an iframe shares the page's thread unless the browser happens to isol
 21. Comment on a frame with no element: model told "no element active"; asks for scene-level change or applies to the background layer; never silently ignores.
 22. Edit while another edit is applying (same scene): second queued; generation fencing; the UI disables `Apply` for that scene only.
 23. Two tabs editing the same project: last writer wins by generation; the other tab sees "Updated elsewhere" and reloads the scene.
-24. Voiceover timing changes scene length: signature changes, scene is re-authored/retimed; cached frames dropped for that scene only.
+24. Voiceover timing changes scene length: the input signature changes, the scene is re-authored/retimed and gets a new `bundleDigest`; cached frames of the old digest are dropped for that scene only.
 25. Preview allowance exhausted mid-apply: existing `preview_limit` dialog; scene unchanged.
 26. User edits the storyboard text after animation exists: affected scenes become stale; step 3 shows them as "needs update".
 
 **Final render**
 27. Worker unavailable / cold start: job shows "Starting render worker"; retries; no charge until accepted.
 28. Verification fails at the worker though the browser passed: repair loop; if exhausted, fail with no charge and tell the user which scene.
-29. Worker killed mid-render (Spot): attempt fenced, retried; clips already drawn are kept by signature.
+29. Worker killed mid-render (Spot): attempt fenced, retried; clips already drawn are kept by `bundleDigest`.
 30. User clicks `Final render` twice: idempotency key → one job.
 31. User leaves the page mid-render: job continues; Projects shows progress; email when ready (existing).
 32. Insufficient tokens: existing token modal before the job is created.
 33. Different CPU architecture produces a different frame than the preview: documented; the worker is the source of truth; step 3 never promises byte equality.
-34. Clip cache hit with stale engine version: signature includes engine digest, so no hit.
+34. Clip cache hit with stale engine version: `bundleDigest` is keyed with `engineDigest` and `fontSetDigest`, so no hit.
 
 **Security**
 35. Scene code tries `fetch`, `XMLHttpRequest`, `WebSocket`, `window.top`, `localStorage`, `eval` of remote code: blocked by sandbox/CSP; attempt is logged as `blocked` and fails the check.
@@ -322,7 +322,7 @@ Goal: a user can write or paste a script in **any language the LLM and the speec
 * Very long words / no spaces (Thai, CJK): caption line breaking uses `Intl.Segmenter`; fallback to character breaks.
 * RTL text with LTR product names: bidi isolation so names do not reorder punctuation.
 * Missing font in the worker or the browser: the check lists the missing codepoints; the preview shows a notice and the worker image is rebuilt with the fonts before step 4 (never render with tofu).
-* Language set after the script was written, or changed later: scenes that depend on language are marked "needs update"; cached frames for them are dropped by signature (language is part of the signature).
+* Language set after the script was written, or changed later: scenes that depend on language are marked "needs update"; cached frames for them are dropped when their `bundleDigest` changes (language is part of the signature).
 * Speech model returns another language than requested (the Urdu → Hindi case): detected by the alignment step and shown to the user, who can pick a supported voice or continue.
 * Script too short or too long in a language where speaking is slower/faster: duration estimates use per-language speaking rates; final timing follows audio.
 
