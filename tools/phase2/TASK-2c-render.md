@@ -1,0 +1,44 @@
+# Task for the coding agent: phase 2c, final render and exports must work for live projects
+
+You work for a manager (Claude) who reviews everything you produce. Read this whole file first. Do what it says, nothing more. If a rule blocks you, stop that part and say so in the report; never work around a rule.
+
+## The defect (found by the phase 2 end-to-end run; read `docs/phase2/e2e-report.md` section 4 and section 7 first)
+
+In live mode a scene never gets an MP4 clip unless someone asks for one: `bundled` does not enqueue `plate-render`. But the billed final render (`prepareFilm` in `backend/src/render/service.ts`) and the worker's `resolveClips` (`worker/src/plates.mjs`) wait for every scene to be `drawn` with a `clip_key`. Result: **a live project's final render waits 20 minutes and then fails**, and companion exports (`backend/src/plates/exports.ts`, `buildExport`) answer "drawing" forever. Live mode cannot be enabled for real users until this works. This is the interim version of the plan's phase 5 ("final render draws on demand"); the frozen export manifest and repair-free verification come later, do not build them.
+
+## Read first
+`docs/LIVE_SCENES_PLAN.md` sections 3, 9, 11, 17, 20, 21; `docs/phase2/2a-report.md`; `backend/src/plates/store.ts`, `service.ts`, `reconcile.ts`, `exports.ts`, `routes.ts`; `backend/src/render/service.ts` (the plate branch of `prepareFilm`); `worker/src/plates.mjs` (`claimVariant`, `resolveClips`, `renderPlateFilmJob`; read only); `tools/phase2/e2e/live-e2e.mjs` and the compose overrides; `scripts/plates-e2e/lib.mjs`.
+
+## What to build
+
+1. **Draw on demand (backend).** A function `requestDraws(projectId, aspects)` in `backend/src/plates/store.ts`:
+   - For every variant of the project in the given aspects that is `checked` or `bundled` and has no `clip_key`: under the row lock, set `state='bundled'`, `stage='queued for rendering'`, `enqueued_at=now()` and enqueue `plate-render` once (use a singleton key per variant id and `gen`, so calling it twice, or the reconciler running meanwhile, never enqueues twice). Same semantics as the existing `requestVariantClip` for one variant (reuse its code path, do not copy it), but **without the per-project clip cap** (the cap protects the optional preview fallback; a billed render needs every scene).
+   - Persist the intent so scenes that are still `queued` or `authoring` when the render is requested are drawn as soon as they are bundled: add migration `backend/src/db/migrations/020_plate_draw_on_demand.sql` (idempotent; 019 is already applied on dev databases, do not edit it) adding `app.plate_state.draw_aspects text[] not null default '{}'` and, in `commitBundle` for a `live` project whose `draw_aspects` contains the variant's aspect, behave as clip mode (state `bundled`, enqueue `plate-render`) in the same transaction.
+   - The reconciler (`reconcile.ts`) must treat variants of live projects whose aspect is in `draw_aspects` like clip-mode variants (re-enqueue a lost `plate-render` message), and must not touch live variants whose aspect is not in `draw_aspects`.
+   - `draw_aspects` entries are removed when the project returns to `queued` for that aspect through a storyboard change that creates a new signature? No: keep them; they only cause drawing of scenes that exist. They are cleared by `PLATE_LIVE_FORCE_OFF` rollback (project becomes `clip` mode).
+2. **Call sites.**
+   - `prepareFilm` plate branch in `backend/src/render/service.ts`: after `startPlates(project.id)`, call `requestDraws(project.id, [aspect])` before `buildExport(..., { pending: true })`. Minimal change; do not restructure the function. Clip-mode projects must behave exactly as before (the function must be a no-op for them).
+   - `requestExport` in `backend/src/plates/exports.ts`: when a live project's ratio is not fully drawn, call `requestDraws(projectId, [aspect])` and keep returning the existing `NotDrawn("...", "drawing")` answer so the UI shows "drawing"; when clips arrive, the existing idempotent export request completes as today.
+3. **The render must not depend on the browser check.** A live project whose variants are `bundled` (nobody has opened the page, so nothing was checked) must render fine. The browser check is advisory.
+4. **The worker needs no change** (`resolveClips` already waits for `drawn` clips). If you find the worker must change, stop and report; `worker/` is off limits.
+
+## Tests (acceptance criteria)
+
+- `backend/test/plate-live-render.mjs` (new, style of `plate-live.mjs`; real Postgres and pg-boss; hermetic): `requestDraws` on `checked` and on `bundled` variants enqueues exactly one `plate-render` each; calling it twice enqueues nothing more; variants that already have a clip are untouched; no clip cap applies (6 variants all enqueued); a variant still `queued`/`authoring` when `requestDraws` ran is drawn right after `commitBundle`; the reconciler re-enqueues a lost message for a `draw_aspects` live variant and never touches a live variant outside `draw_aspects`; clip-mode projects: `requestDraws` is a no-op; `PLATE_LIVE_FORCE_OFF` clears `draw_aspects`; migration 020 is idempotent (apply twice).
+- Extend `tools/phase2/e2e/live-e2e.mjs` with two scenarios and keep A to I green:
+  - **J. Final render of a live project that was fully checked in the browser** (reuse scenario A's setup): `POST /v1/projects/:id/render` completes to a finished MP4 (use the same download and `ffprobe` checks as `scripts/plates-e2e/run.mjs`: size 1920x1080, an audio stream, frame count matching the manifest) within a bounded time; `pgboss.job` has exactly one `plate-render` per scene; repeating the render request does not enqueue more.
+  - **K. Final render with no browser at all**: seed a project, start the plates, and request the final render **immediately**, before scenes are bundled and without any check report; it completes to a valid MP4; no row ever reaches `checked`; `plate-render` count equals the number of scenes. Also request a companion export for another ratio of a live project and assert it becomes `ready` and downloads.
+  - Scenario H's expectations change from "waits forever" to the new behaviour; update its assertions and say so in the report.
+- Existing tests must still pass: run the full `backend` test suite and `npm run typecheck` before and after (known pre-existing failures: `billing`, `brand-files`, `render-prep`, `styles`, `visuals`, which must be identical before and after) and the `frontend` suite.
+
+How to run: as in `tools/phase2/TASK-e2e.md`: `docker compose -f compose.yaml -f tools/phase2/e2e/compose.live.yaml --profile plates-e2e up -d --build plate-api plate-worker`, then `node tools/phase2/e2e/live-e2e.mjs`. Backend tests: from `backend/`, `DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_unit PLANNER=deterministic node --experimental-strip-types test/<file>.mjs`.
+**Teardown**: only `docker compose -f compose.yaml -f tools/phase2/e2e/compose.live.yaml --profile plates-e2e down plate-worker plate-api llm-stub objectstore` (a bare `down` would stop the user's Postgres and worker). Confirm with `docker ps` that `videosaas-local-postgres-1` and `videosaas-local-worker-1` are still running.
+
+## Rules (hard limits)
+- Edit or create files ONLY in: `backend/src/plates/`, `backend/src/render/service.ts` (the plate branch of `prepareFilm` only), `backend/src/db/migrations/020_plate_draw_on_demand.sql`, `backend/test/`, `backend/package.json` (test script only if needed), `tools/phase2/e2e/`, `docs/phase2/`. Do NOT touch `worker/`, `packages/`, `frontend/`, `compose.yaml`, `scripts/plates-e2e/`, other worktrees, or the main folder.
+- Local only: no `git commit`, no `git push`, no deploys, no cloud, AWS, Railway, Supabase or real model API calls (the stub only), no secrets. Servers bind `127.0.0.1`. Stop everything you started; never kill processes or containers you did not start (a stale Python server may hold port 8766).
+- Do not weaken, skip or delete any existing test; do not add dependencies; clip-mode behaviour must not change.
+- If the brief contradicts the code, keep to its intent and write the contradiction in the report.
+
+## Deliverable
+`docs/phase2/2c-report.md`: (1) files created and changed, one line each; (2) the exact commands run; (3) results of the new backend test and of scenarios A to K with the key numbers (time from render request to finished MP4, scenes drawn, `plate-render` count); (4) before and after for the full backend and frontend suites; (5) decisions where the brief was silent and deviations, with reasons; (6) risks and open questions (for example what happens if a user edits a scene while a render waits, and whether the 20-minute stall limit in the worker is adequate when drawing happens only at render time). Then print `DONE` and the report path on a line by itself.

@@ -17,6 +17,7 @@
     "test:plate-rollback": "node --env-file-if-exists=.env test/plate-rollback.mjs",
     "test:plate-revisions": "node --env-file-if-exists=.env test/plate-revisions.mjs",
     "test:plate-live-routes": "node --env-file-if-exists=.env test/plate-live-routes.mjs",
+    "test:plate-live-render": "node --env-file-if-exists=.env test/plate-live-render.mjs",
     "test:ownership": "node --env-file-if-exists=.env test/ownership.mjs",
     "import:file-records": "node --env-file=.env scripts/import-file-records.ts",
     "test:brand-files": "node --env-file-if-exists=.env test/brand-files.mjs",

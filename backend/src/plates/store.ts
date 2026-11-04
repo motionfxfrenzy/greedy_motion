@@ -135,6 +135,8 @@ export async function reconcileVariants(projectId: string, desired: Desired[], o
     await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate:${projectId}`]);
     const liveMode = await decideLiveModeWithClient(client, projectId, config.plates.live);
     const isLive = liveMode === "live";
+    const drawRes = await client.query<{ draw_aspects: string[] | null }>("select draw_aspects from app.plate_state where project_id = $1", [projectId]);
+    const drawAspects = new Set(drawRes.rows[0]?.draw_aspects ?? []);
     const { rows } = await client.query<VariantRow>("select * from app.plate_variants where project_id = $1 for update", [projectId]);
     const byKey = new Map(rows.map((r) => [`${r.scene_index}:${r.aspect}`, r]));
     const wanted = new Set(desired.map((d) => `${d.index}:${d.aspect}`));
@@ -174,19 +176,20 @@ export async function reconcileVariants(projectId: string, desired: Desired[], o
       if (row.state === "failed") {
         // A retry of the same inputs: from the saved bundle when there is one (no model call), else from authoring.
         const fromBundle = Boolean(row.bundle_key);
+        const shouldRender = !isLive || drawAspects.has(d.aspect);
         const next = await client.query<VariantRow>(
           `update app.plate_variants set gen = gen + 1, state = $2, stage = $4, frames_done = null, author_owner = null, author_until = null,
              authored = case when $3 then authored else 0 end, repairs = case when $3 then repairs else 0 end, repair = null, render_attempt = 0,
              checked_at = null, check_report = null, host = null, error = null,
              enqueued_at = case when $5 then null else enqueued_at end, updated_at = now()
            where id = $1 returning *`,
-          [row.id, fromBundle ? "bundled" : "queued", fromBundle, fromBundle ? (isLive ? "checking" : "queued for rendering") : null, fromBundle && isLive]
+          [row.id, fromBundle ? "bundled" : "queued", fromBundle, fromBundle ? (shouldRender ? "queued for rendering" : "checking") : null, fromBundle && !shouldRender]
         );
         if (!fromBundle) {
           await queue(client, next.rows[0]!, QUEUES.plateAuthor);
           queued++;
-        } else if (!isLive) {
-          await queue(client, next.rows[0]!, QUEUES.plateRender);
+        } else if (shouldRender) {
+          await queue(client, next.rows[0]!, QUEUES.plateRender, `${next.rows[0]!.id}:${next.rows[0]!.gen}`);
           queued++;
         }
       }
@@ -287,8 +290,9 @@ export async function noteAuthorCall(variantId: string, gen: number, owner: stri
 }
 
 /**
- * Publishes the authored source and its bundle, writes the revision row, and (in clip mode only) queues `plate-render`,
- * atomically in one transaction. Returns false when this authoring was superseded.
+ * Publishes the authored source and its bundle, writes the revision row, and (in clip mode, or in live mode when the
+ * variant's aspect is in `draw_aspects`) queues `plate-render`, atomically in one transaction.
+ * Returns false when this authoring was superseded.
  */
 export async function commitBundle(
   row: VariantRow,
@@ -301,16 +305,21 @@ export async function commitBundle(
   let shouldKick = false;
   try {
     await client.query("begin");
-    const modeRes = await client.query<{ live_mode: LiveMode | null }>("select live_mode from app.plate_state where project_id = $1", [row.project_id]);
+    const modeRes = await client.query<{ live_mode: LiveMode | null; draw_aspects: string[] | null }>(
+      "select live_mode, draw_aspects from app.plate_state where project_id = $1",
+      [row.project_id]
+    );
     const isLive = modeRes.rows[0]?.live_mode === "live";
-    const stage = isLive ? "checking" : "queued for rendering";
+    const drawOnDemand = isLive && (modeRes.rows[0]?.draw_aspects ?? []).includes(row.aspect);
+    const shouldRender = !isLive || drawOnDemand;
+    const stage = shouldRender ? "queued for rendering" : "checking";
     const res = await client.query<VariantRow>(
       `update app.plate_variants set state = 'bundled', stage = $8, source_key = $4, bundle_key = $5, bundle_manifest = $6::jsonb, bundle_digest = $9,
          checked_at = null, check_report = null, host = null, author_owner = null, author_until = null,
          repair = null, revise = null, draft_source = null, enqueued_at = case when $10 then null else enqueued_at end,
          timings = timings || $7::jsonb, updated_at = now()
        where id = $1 and gen = $2 and author_owner = $3 and state = 'authoring' returning *`,
-      [row.id, row.gen, owner, artifacts.sourceKey, artifacts.bundleKey, JSON.stringify(artifacts.manifest), JSON.stringify(artifacts.timings), stage, digest, isLive]
+      [row.id, row.gen, owner, artifacts.sourceKey, artifacts.bundleKey, JSON.stringify(artifacts.manifest), JSON.stringify(artifacts.timings), stage, digest, !shouldRender]
     );
     if (res.rowCount === 1) {
       const updated = res.rows[0]!;
@@ -327,8 +336,8 @@ export async function commitBundle(
                created_at = now()`,
         [updated.id, updated.rev, digest, artifacts.sourceKey, artifacts.bundleKey, pDigest]
       );
-      if (!isLive) {
-        await queue(client, updated, QUEUES.plateRender);
+      if (shouldRender) {
+        await queue(client, updated, QUEUES.plateRender, `${updated.id}:${updated.gen}`);
         shouldKick = true;
       }
     }
@@ -484,9 +493,9 @@ export async function submitCheckReport(variantId: string, input: CheckReportInp
       return { status: "dropped", reason: "digest" };
     }
 
-    if (row.state !== "bundled") {
+    if (row.state !== "bundled" || row.stage === "queued for rendering") {
       await client.query("rollback");
-      log("info", "plate_check_dropped", { variantId, gen: input.gen, state: row.state, reason: "state" });
+      log("info", "plate_check_dropped", { variantId, gen: input.gen, state: row.state, stage: row.stage, reason: "state" });
       return { status: "dropped", reason: "state" };
     }
 
@@ -548,41 +557,27 @@ export type ClipRequestOutcome =
   | { status: "clip_cap" }
   | { status: "ok"; duplicate: boolean; body: { state: "rendering" } };
 
-/**
- * Enqueues `plate-render` once (idempotently) for a `bundled` or `checked` variant, subject to the per-project cap
- * (`PLATE_PROJECT_CLIP_CAP`, default 4). Keeps DB `state = 'bundled'` with `stage = 'queued for rendering'` so the worker's
- * `claimVariant` can claim it immediately, while returning `{ state: "rendering" }` to the caller.
- */
-export async function requestVariantClip(projectId: string, variantId: string, cap: number = config.plates.projectClipCap): Promise<ClipRequestOutcome> {
-  const client = await pool.connect();
-  let shouldKick = false;
-  try {
-    await client.query("begin");
-    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate:${projectId}`]);
-    const vRes = await client.query<VariantRow>("select * from app.plate_variants where id = $1 for update", [variantId]);
-    const row = vRes.rows[0];
-    if (!row || row.project_id !== projectId) {
-      await client.query("rollback");
-      return { status: "not_found" };
-    }
+async function enqueueVariantClipWithClient(
+  client: SendClient,
+  row: VariantRow,
+  cap: number | null
+): Promise<ClipRequestOutcome> {
+  const alreadyJob = await client.query<{ n: string }>(
+    `select count(*) as n from pgboss.job
+      where name = $1 and data->>'variantId' = $2 and (data->>'gen')::int = $3 and state in ('created', 'retry', 'active')`,
+    [QUEUES.plateRender, row.id, row.gen]
+  );
+  const hasPendingRenderJob = Number(alreadyJob.rows[0]?.n ?? 0) > 0;
 
-    const alreadyJob = await client.query<{ n: string }>(
-      `select count(*) as n from pgboss.job
-        where name = $1 and data->>'variantId' = $2 and (data->>'gen')::int = $3 and state in ('created', 'retry', 'active')`,
-      [QUEUES.plateRender, row.id, row.gen]
-    );
-    const hasPendingRenderJob = Number(alreadyJob.rows[0]?.n ?? 0) > 0;
+  if (row.state === "rendering" || (row.state === "bundled" && (row.stage === "queued for rendering" || hasPendingRenderJob))) {
+    return { status: "ok", duplicate: true, body: { state: "rendering" } };
+  }
 
-    if (row.state === "rendering" || (row.state === "bundled" && (row.stage === "queued for rendering" || hasPendingRenderJob))) {
-      await client.query("commit");
-      return { status: "ok", duplicate: true, body: { state: "rendering" } };
-    }
+  if (row.state !== "bundled" && row.state !== "checked") {
+    return { status: "invalid_state", state: row.state };
+  }
 
-    if (row.state !== "bundled" && row.state !== "checked") {
-      await client.query("rollback");
-      return { status: "invalid_state", state: row.state };
-    }
-
+  if (cap !== null) {
     const activeCountRes = await client.query<{ n: string }>(
       `select count(*) as n
          from app.plate_variants o
@@ -604,28 +599,122 @@ export async function requestVariantClip(projectId: string, variantId: string, c
               )
             )
           )`,
-      [projectId, row.id, QUEUES.plateRender]
+      [row.project_id, row.id, QUEUES.plateRender]
     );
     if (Number(activeCountRes.rows[0]?.n ?? 0) >= cap) {
-      await client.query("rollback");
       return { status: "clip_cap" };
     }
+  }
 
-    await client.query(
-      "update app.plate_variants set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(), updated_at = now() where id = $1",
-      [row.id]
-    );
-    await boss.send(QUEUES.plateRender, { variantId: row.id, gen: row.gen }, { db: inTransaction(client), singletonKey: `${row.id}:${row.gen}` });
-    shouldKick = true;
+  await client.query(
+    "update app.plate_variants set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(), updated_at = now() where id = $1",
+    [row.id]
+  );
+  await boss.send(QUEUES.plateRender, { variantId: row.id, gen: row.gen }, { db: inTransaction(client), singletonKey: `${row.id}:${row.gen}` });
+  return { status: "ok", duplicate: false, body: { state: "rendering" } };
+}
+
+/**
+ * Enqueues `plate-render` once (idempotently) for a `bundled` or `checked` variant, subject to the per-project cap
+ * (`PLATE_PROJECT_CLIP_CAP`, default 4). Keeps DB `state = 'bundled'` with `stage = 'queued for rendering'` so the worker's
+ * `claimVariant` can claim it immediately, while returning `{ state: "rendering" }` to the caller.
+ */
+export async function requestVariantClip(projectId: string, variantId: string, cap: number = config.plates.projectClipCap): Promise<ClipRequestOutcome> {
+  const client = await pool.connect();
+  let shouldKick = false;
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate:${projectId}`]);
+    const vRes = await client.query<VariantRow>("select * from app.plate_variants where id = $1 for update", [variantId]);
+    const row = vRes.rows[0];
+    if (!row || row.project_id !== projectId) {
+      await client.query("rollback");
+      return { status: "not_found" };
+    }
+
+    const outcome = await enqueueVariantClipWithClient(client, row, cap);
+    if (outcome.status !== "ok") {
+      await client.query("rollback");
+      return outcome;
+    }
+
+    shouldKick = !outcome.duplicate;
     await client.query("commit");
     if (shouldKick) void kickPlateWorkers();
-    return { status: "ok", duplicate: false, body: { state: "rendering" } };
+    return outcome;
   } catch (error) {
     await client.query("rollback").catch(() => undefined);
     throw error;
   } finally {
     client.release();
   }
+}
+
+/**
+ * Requests on-demand worker clip rendering for every variant of a live project in `aspects`:
+ *  - No-op for clip-mode projects.
+ *  - Persists `aspects` in `app.plate_state.draw_aspects` so variants still `queued` or `authoring` enqueue `plate-render`
+ *    when `commitBundle` runs, and the reconciler recovers lost `plate-render` messages for those aspects.
+ *  - For every `checked` or `bundled` variant without a `clip_key` in `aspects`, reuses `enqueueVariantClipWithClient`
+ *    with `cap = null` (no per-project clip cap) and `singletonKey = "${row.id}:${row.gen}"`.
+ */
+export async function requestDraws(projectId: string, aspects: Aspect[]): Promise<{ enqueued: number }> {
+  const uniqueAspects = [...new Set(aspects)];
+  if (!uniqueAspects.length) return { enqueued: 0 };
+  const client = await pool.connect();
+  let enqueued = 0;
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate:${projectId}`]);
+    let stateRes = await client.query<{ live_mode: LiveMode | null; draw_aspects: string[] }>(
+      "select live_mode, draw_aspects from app.plate_state where project_id = $1 for update",
+      [projectId]
+    );
+    if ((!stateRes.rows.length || stateRes.rows[0]!.live_mode === null) && config.plates.live) {
+      await decideLiveModeWithClient(client, projectId, true);
+      stateRes = await client.query<{ live_mode: LiveMode | null; draw_aspects: string[] }>(
+        "select live_mode, draw_aspects from app.plate_state where project_id = $1 for update",
+        [projectId]
+      );
+    }
+    if (stateRes.rows[0]?.live_mode !== "live") {
+      await client.query("commit");
+      return { enqueued: 0 };
+    }
+    await client.query(
+      `update app.plate_state
+          set draw_aspects = (
+            select coalesce(array_agg(distinct a order by a), '{}'::text[])
+              from unnest(coalesce(draw_aspects, '{}'::text[]) || $2::text[]) as a
+          ),
+          updated_at = now()
+        where project_id = $1`,
+      [projectId, uniqueAspects]
+    );
+    const { rows } = await client.query<VariantRow>(
+      `select * from app.plate_variants
+        where project_id = $1 and aspect = any($2::text[])
+        order by scene_index, aspect
+        for update`,
+      [projectId, uniqueAspects]
+    );
+    for (const row of rows) {
+      if ((row.state === "checked" || row.state === "bundled") && !row.clip_key) {
+        const outcome = await enqueueVariantClipWithClient(client, row, null);
+        if (outcome.status === "ok" && !outcome.duplicate) {
+          enqueued++;
+        }
+      }
+    }
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+  if (enqueued) void kickPlateWorkers();
+  return { enqueued };
 }
 
 /** Marks an authoring that cannot succeed (or an exhausted model-failure retry). Fenced by gen + owner (owner null: by gen and state). */
@@ -661,13 +750,13 @@ export async function primarySource(projectId: string, sceneIndex: number, prima
 }
 
 // ---------------------------------------------------------------- project-level state
-export async function readProjectState(projectId: string): Promise<{ comments: PlateComment[]; subtitles: PlateSubtitles | null; liveMode: LiveMode | null }> {
-  const { rows } = await pool.query<{ comments: PlateComment[]; subtitles: PlateSubtitles | null; live_mode: LiveMode | null }>(
-    "select comments, subtitles, live_mode from app.plate_state where project_id = $1",
+export async function readProjectState(projectId: string): Promise<{ comments: PlateComment[]; subtitles: PlateSubtitles | null; liveMode: LiveMode | null; drawAspects: Aspect[] }> {
+  const { rows } = await pool.query<{ comments: PlateComment[]; subtitles: PlateSubtitles | null; live_mode: LiveMode | null; draw_aspects: Aspect[] | null }>(
+    "select comments, subtitles, live_mode, draw_aspects from app.plate_state where project_id = $1",
     [projectId]
   );
-  if (!rows[0]) return { comments: [], subtitles: null, liveMode: null };
-  return { comments: rows[0].comments ?? [], subtitles: rows[0].subtitles ?? null, liveMode: rows[0].live_mode ?? null };
+  if (!rows[0]) return { comments: [], subtitles: null, liveMode: null, drawAspects: [] };
+  return { comments: rows[0].comments ?? [], subtitles: rows[0].subtitles ?? null, liveMode: rows[0].live_mode ?? null, drawAspects: rows[0].draw_aspects ?? [] };
 }
 
 async function ensureState(projectId: string) {

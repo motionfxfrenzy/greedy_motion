@@ -11,7 +11,7 @@ import {
   ASSEMBLER_VERSION, FPS, buildSubtitleCues, buildTimeline, defaultSubtitlesFor, exportSignature, sceneSfxCues, sceneTransitionCues, sizeForAspect, takeFor,
   type Aspect, type PlateSfxCue, type PlateSubtitles
 } from "./model.ts";
-import { listVariants, readProjectState } from "./store.ts";
+import { listVariants, readProjectState, requestDraws } from "./store.ts";
 
 /**
  * The export manifest: ONE document that tells the worker how to assemble the film, so the worker needs no project data, no
@@ -95,7 +95,15 @@ export type ExportRow = { id: string; project_id: string; aspect: Aspect; signat
  * is, a failed one is queued again, the queue message commits with the row.
  */
 export async function requestExport(project: VideoProject, aspect: Aspect, watermark: boolean): Promise<ExportRow> {
-  const built = await buildExport(project, aspect, watermark);
+  let built: Awaited<ReturnType<typeof buildExport>>;
+  try {
+    built = await buildExport(project, aspect, watermark);
+  } catch (error) {
+    if (error instanceof NotDrawn && error.state === "drawing") {
+      await requestDraws(project.id, [aspect]);
+    }
+    throw error;
+  }
   const client = await pool.connect();
   try {
     await client.query("begin");

@@ -26,7 +26,7 @@ export async function reconcilePlates(): Promise<number> {
 
     if (forceOff) {
       const flipped = await client.query<{ project_id: string }>(
-        "update app.plate_state set live_mode = 'clip', updated_at = now() where live_mode = 'live' returning project_id"
+        "update app.plate_state set live_mode = 'clip', draw_aspects = '{}'::text[], updated_at = now() where live_mode = 'live' or cardinality(draw_aspects) > 0 returning project_id"
       );
       if (flipped.rowCount && flipped.rowCount > 0) {
         log("info", "plate_live_force_off", { projects: flipped.rows.map((r) => r.project_id) });
@@ -71,7 +71,12 @@ export async function reconcilePlates(): Promise<number> {
          left join app.plate_state s on s.project_id = v.project_id
         where (
             v.state in ('queued', 'authoring', 'rendering')
-            or (not $2::boolean and v.state = 'bundled' and (coalesce(s.live_mode, 'clip') <> 'live' or v.stage = 'queued for rendering'))
+            or (
+              not $2::boolean
+              and v.state in ('bundled', 'checked')
+              and v.clip_key is null
+              and (coalesce(s.live_mode, 'clip') <> 'live' or v.aspect = any(coalesce(s.draw_aspects, '{}'::text[])))
+            )
           )
           and (v.enqueued_at is null or v.enqueued_at < now() - $1::interval)
           and (v.state <> 'authoring' or v.author_until < now())
@@ -80,9 +85,21 @@ export async function reconcilePlates(): Promise<number> {
       [RESEND_AFTER, forceOff]
     );
     for (const v of variants.rows) {
-      const kind = v.state === "bundled" || v.state === "rendering" ? "render" : "author";
-      await client.query("update app.plate_variants set enqueued_at = now() where id = $1", [v.id]);
-      await boss.send(kind === "render" ? QUEUES.plateRender : QUEUES.plateAuthor, { variantId: v.id, gen: v.gen }, { db: inTransaction(client) });
+      const kind = v.state === "bundled" || v.state === "checked" || v.state === "rendering" ? "render" : "author";
+      if (kind === "render" && (v.state === "bundled" || v.state === "checked")) {
+        await client.query(
+          "update app.plate_variants set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(), updated_at = now() where id = $1",
+          [v.id]
+        );
+        await boss.send(QUEUES.plateRender, { variantId: v.id, gen: v.gen }, { db: inTransaction(client), singletonKey: `${v.id}:${v.gen}` });
+      } else {
+        await client.query("update app.plate_variants set enqueued_at = now() where id = $1", [v.id]);
+        await boss.send(
+          kind === "render" ? QUEUES.plateRender : QUEUES.plateAuthor,
+          { variantId: v.id, gen: v.gen },
+          { db: inTransaction(client), ...(kind === "render" ? { singletonKey: `${v.id}:${v.gen}` } : {}) }
+        );
+      }
       resent++;
     }
     const exports = await client.query<{ id: string }>(
@@ -101,7 +118,7 @@ export async function reconcilePlates(): Promise<number> {
          timings = timings || jsonb_build_object('autoRetries', coalesce((timings->>'autoRetries')::int, 0) + 1)
         where state = 'failed' and error->>'code' = 'render_unavailable' and bundle_key is not null and updated_at < now() - $1::interval
           and coalesce((timings->>'autoRetries')::int, 0) < 2 returning id, gen`, [RESEND_AFTER]);
-    for (const v of revived.rows) { await boss.send(QUEUES.plateRender, { variantId: v.id, gen: v.gen }, { db: inTransaction(client) }); resent++; }
+    for (const v of revived.rows) { await boss.send(QUEUES.plateRender, { variantId: v.id, gen: v.gen }, { db: inTransaction(client), singletonKey: `${v.id}:${v.gen}` }); resent++; }
     open = Number(
       (
         await client.query(
@@ -110,7 +127,15 @@ export async function reconcilePlates(): Promise<number> {
                from app.plate_variants v
                left join app.plate_state s on s.project_id = v.project_id
               where v.state in ('queued', 'authoring', 'rendering')
-                 or (v.state = 'bundled' and (coalesce(s.live_mode, 'clip') <> 'live' or v.stage = 'queued for rendering'))
+                 or (
+                   v.state in ('bundled', 'checked')
+                   and v.clip_key is null
+                   and (
+                     coalesce(s.live_mode, 'clip') <> 'live'
+                     or v.aspect = any(coalesce(s.draw_aspects, '{}'::text[]))
+                     or v.stage = 'queued for rendering'
+                   )
+                 )
            ) + (
              select count(*) from app.plate_exports where state in ('queued', 'assembling')
            ) as n`

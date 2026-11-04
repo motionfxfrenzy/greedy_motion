@@ -5,6 +5,7 @@ import { config } from "../config.ts";
 import { buildExport } from "../plates/exports.ts";
 import { primaryAspect } from "../plates/model.ts";
 import { isPlateLook, startPlates } from "../plates/service.ts";
+import { requestDraws } from "../plates/store.ts";
 import { AnthropicPromptPlanner } from "./anthropic-planner.ts";
 import { DeterministicPromptPlanner, VIDEO_SECONDS, applyBrand, planFromValues, requireTemplate, type Plan, type PromptPlanner } from "./planner.ts";
 import { renderJobRepository, type FilmPrep, type StoredRenderJob } from "./repository.ts";
@@ -83,6 +84,7 @@ export class RenderService {
       try {
         const aspect = primaryAspect(project);
         await startPlates(project.id);
+        await requestDraws(project.id, [aspect]);
         const built = await buildExport(project, aspect, prep.watermark, { pending: true });
         const renderInput = { kind: "plate-film", renderContractVersion: 1, id, projectId: project.id, aspect, manifestKey: built.manifestKey, durationSeconds: built.durationSeconds };
         await renderJobRepository.queueRender(id, { ...beatPlanRevision(project, built.durationSeconds), id: row.revision.id }, renderInput);

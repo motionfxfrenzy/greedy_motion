@@ -95,12 +95,19 @@ async function ensureDatabaseAndCleanState() {
       app.plate_garbage,
       app.plate_exports,
       app.plate_variants,
-      app.plate_state
+      app.plate_state,
+      app.render_jobs
     CASCADE
   `);
+  await pool.query("DELETE FROM app.token_ledger WHERE kind = 'spend'");
+  await pool.query(
+    `INSERT INTO app.token_ledger (user_id, amount, kind, reason, ref, actor, pool)
+     VALUES ('00000000-0000-4000-8000-000000000000', 1000000, 'grant', 'e2e test allowance', 'e2e-pack-grant', 'system', 'pack')
+     ON CONFLICT (user_id, ref) WHERE ref IS NOT NULL DO UPDATE SET amount = EXCLUDED.amount`
+  );
   await pool.query(`
     DELETE FROM pgboss.job
-    WHERE name IN ('plate-author', 'plate-render', 'plate-export', '__pgboss__send-it')
+    WHERE name IN ('plate-author', 'plate-render', 'plate-export', 'render-plan', 'render-video', 'render-finished', '__pgboss__send-it')
   `);
   await resetStub();
 }
@@ -1220,9 +1227,9 @@ async function main() {
     }
 
     // =========================================================================
-    // Scenario H: Final render expectation (document behaviour on a live project whose variants are 'checked', never drawn).
+    // Scenario H: Final render & companion export draw-on-demand behaviour on a live project.
     // =========================================================================
-    log("== Scenario H: Final render expectation");
+    log("== Scenario H: Final render expectation (Phase 2c draw-on-demand)");
     {
       const scen = "H";
       const liveExportProj = await seedProject({ look: "illus-fox", aspect: "16:9", beats: 2, audio: true });
@@ -1242,13 +1249,14 @@ async function main() {
         });
       }
       const checkedRows = await variants(liveExportProj.id);
+      const checkedIds = checkedRows.map((r) => r.id);
       assertCheck(
         scen,
         checkedRows.every((r) => r.state === "checked" && r.clip_key === null),
         "Scenario H project has all variants 'checked' and never drawn (clip_key=null)"
       );
 
-      // 1. Companion export (`POST /v1/projects/:id/plates/export`)
+      // 1. Companion export (`POST /v1/projects/:id/plates/export`) returns 202 {state:'drawing'} AND triggers requestDraws
       const companionExportRes = await api(`/v1/projects/${liveExportProj.id}/plates/export`, {
         method: "POST",
         body: { aspect: "16:9" }
@@ -1258,39 +1266,78 @@ async function main() {
       assertCheck(
         scen,
         companionExportRes.status === 202 && companionExportRes.json?.state === "drawing",
-        "companion export POST /plates/export returns 202 {state:'drawing', progress:0} when variants are 'checked' without clips",
+        "companion export POST /plates/export returns 202 {state:'drawing', progress:0} while triggering draw-on-demand",
         JSON.stringify(companionExportRes.json)
       );
 
-      // 2. Billed final render (`POST /v1/projects/:id/render`)
+      const stateAfterExport = (
+        await pool.query("select draw_aspects from app.plate_state where project_id = $1", [liveExportProj.id])
+      ).rows[0];
+      const jobsAfterExport = (
+        await pool.query(
+          "select count(*)::int as n from pgboss.job where name = 'plate-render' and (data->>'variantId') = any($1::text[])",
+          [checkedIds]
+        )
+      ).rows[0].n;
+      const rowsAfterExport = await variants(liveExportProj.id);
+
+      assertCheck(
+        scen,
+        Array.isArray(stateAfterExport?.draw_aspects) &&
+          stateAfterExport.draw_aspects.includes("16:9") &&
+          jobsAfterExport === 2 &&
+          rowsAfterExport.every(
+            (r) => r.state === "rendering" || (r.state === "bundled" && r.stage === "queued for rendering")
+          ),
+        "companion export request persists '16:9' in draw_aspects and enqueues 1 plate-render job per scene",
+        `draw_aspects=${JSON.stringify(stateAfterExport?.draw_aspects)}, jobs=${jobsAfterExport}`
+      );
+
+      // 2. Billed final render (`POST /v1/projects/:id/render`) also calls requestDraws idempotently (no extra plate-render jobs)
       const finalRenderRes = await api(`/v1/projects/${liveExportProj.id}/render`, {
         method: "POST",
         body: {}
       });
-      let renderJobAfter5s = null;
-      if (finalRenderRes.status === 202 && finalRenderRes.json?.id) {
-        await sleep(5000);
-        renderJobAfter5s = (await api(`/v1/render-jobs/${finalRenderRes.json.id}`)).json;
-        // Clean up the render-video job so plate-worker doesn't stay polling in resolveClips for 20 minutes
-        await pool.query("delete from pgboss.job where name = 'render-video'");
-        await pool.query("update app.render_jobs set state = 'failed' where id = $1", [finalRenderRes.json.id]);
-        composeLive("restart", "plate-worker");
-      }
+      assertCheck(scen, finalRenderRes.status === 202 && Boolean(finalRenderRes.json?.id), "POST /render returns 202");
+
+      const preparedWait = await waitFor(
+        "Scenario H render job prepared",
+        async () => {
+          const r = (await pool.query("select state, render_input from app.render_jobs where id = $1", [finalRenderRes.json.id])).rows[0];
+          return r?.render_input?.manifestKey ? r : false;
+        },
+        { timeout: 30_000, every: 200 }
+      );
+      const jobsAfterRender = (
+        await pool.query(
+          "select count(*)::int as n from pgboss.job where name = 'plate-render' and (data->>'variantId') = any($1::text[])",
+          [checkedIds]
+        )
+      ).rows[0].n;
+      assertCheck(
+        scen,
+        Boolean(preparedWait.value?.render_input?.manifestKey) && jobsAfterRender === 2,
+        "prepareFilm queues plate-film render without duplicating plate-render jobs",
+        `jobsAfterRender=${jobsAfterRender}`
+      );
+
+      // Clean up Scenario H's in-flight jobs so Scenarios J and K measure clean end-to-end renders
+      await pool.query("delete from pgboss.job where name in ('plate-render', 'render-plan', 'render-video')");
+      await pool.query("delete from app.plate_variants where project_id = $1", [liveExportProj.id]);
+      await pool.query("delete from app.plate_state where project_id = $1", [liveExportProj.id]);
+      await pool.query("update app.render_jobs set state = 'failed' where id = $1", [finalRenderRes.json.id]);
+      await sleep(2500);
 
       metrics.scenarioH = {
         companionExportPost: { status: companionExportRes.status, body: companionExportRes.json },
         companionExportGet: { status: companionDownloadRes.status, body: companionDownloadRes.json },
-        finalRenderPost: { status: finalRenderRes.status, body: finalRenderRes.json },
-        finalRenderJobAfter5s: renderJobAfter5s
+        drawAspectsAfterExport: stateAfterExport?.draw_aspects ?? [],
+        plateRenderJobsAfterExport: jobsAfterExport,
+        plateRenderJobsAfterRender: jobsAfterRender,
+        finalRenderPost: { status: finalRenderRes.status, body: finalRenderRes.json }
       };
-      assertCheck(
-        scen,
-        true,
-        "documented both companion export and final render behaviour for 'checked' live variants",
-        `export=${JSON.stringify(companionExportRes.json)}, renderJobStage=${renderJobAfter5s?.stage ?? "n/a"}/${renderJobAfter5s?.progress ?? "n/a"}`
-      );
 
-      scenarioResults.H = { pass: true };
+      scenarioResults.H = { pass: true, jobsAfterExport, jobsAfterRender };
     }
 
     // =========================================================================
@@ -1381,12 +1428,357 @@ async function main() {
       }
     }
 
+    // =========================================================================
+    // Scenario J: Final render of a live project that was fully checked in the browser.
+    // =========================================================================
+    log("== Scenario J: Final render of a live project that was fully checked in the browser");
+    {
+      const scen = "J";
+      // Reuse Scenario A's setup (illus-fox, 16:9, 3 beats, with recorded audio for final film assembly)
+      const { id } = await seedProject({ look: "illus-fox", aspect: "16:9", beats: 3, audio: true });
+      const drawRes = await api(`/v1/projects/${id}/plates/draw`, { method: "POST" });
+      assertCheck(scen, drawRes.status === 202, "POST /plates/draw returns 202");
+
+      const bundledWait = await waitFor(
+        "Scenario J all 3 variants bundled",
+        async () => {
+          const rows = await variants(id);
+          return rows.length === 3 && rows.every((r) => r.state === "bundled") ? rows : false;
+        },
+        { timeout: 120_000, every: 300 }
+      );
+      const variantIds = bundledWait.value.map((r) => r.id);
+
+      // Check all 3 variants in the browser (same flow as Scenario A)
+      const { page } = await harness.newReadyPage();
+      try {
+        for (const v of bundledWait.value) {
+          const res = await page.evaluate(
+            async ({ projectId, variantId, gen }) => {
+              const b = await window.Live.fetchBundle(projectId, variantId);
+              const shaOk = await window.Live.verifyBundleHtmlSha(b.html, b.manifest.bundleSha);
+              const host = new window.Live.WorkerHost({ html: b.html, params: b.params });
+              const checkOut = await window.Live.runCheck(host, b.manifest);
+              host.destroy();
+              const rep = await window.Live.reportCheck(projectId, variantId, {
+                gen,
+                bundleDigest: b.bundleDigest,
+                results: checkOut,
+                device: { ua: navigator.userAgent }
+              });
+              return { shaOk, checkOut, rep };
+            },
+            { projectId: id, variantId: v.id, gen: v.gen }
+          );
+          assertCheck(
+            scen,
+            res.shaOk && res.checkOut.ok && res.rep.httpStatus === 200 && res.rep.state === "checked",
+            `scene ${v.scene_index} checked in browser`
+          );
+        }
+      } finally {
+        await page.close();
+      }
+
+      const checkedRows = await variants(id);
+      assertCheck(
+        scen,
+        checkedRows.length === 3 && checkedRows.every((r) => r.state === "checked" && !r.clip_key),
+        "all 3 variants are 'checked' with no clip_key before final render"
+      );
+
+      // Start billed final render (`POST /v1/projects/:id/render`)
+      const tRenderStart = now();
+      const renderRes1 = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      assertCheck(
+        scen,
+        renderRes1.status === 202 && Boolean(renderRes1.json?.id),
+        "POST /v1/projects/:id/render returns 202",
+        `jobId=${renderRes1.json?.id}`
+      );
+      const jobId1 = renderRes1.json.id;
+
+      // Wait for prepareFilm to enqueue plate-render jobs
+      await waitFor(
+        "Scenario J prepareFilm enqueued plate-render",
+        async () => {
+          const r = (await pool.query("select render_input from app.render_jobs where id = $1", [jobId1])).rows[0];
+          return r?.render_input?.manifestKey ? r : false;
+        },
+        { timeout: 30_000, every: 200 }
+      );
+
+      const countJobsForJ = async () =>
+        (
+          await pool.query(
+            "select count(*)::int as n from pgboss.job where name = 'plate-render' and (data->>'variantId') = any($1::text[])",
+            [variantIds]
+          )
+        ).rows[0].n;
+
+      const jobsAfterFirstRender = await countJobsForJ();
+      assertCheck(
+        scen,
+        jobsAfterFirstRender === 3,
+        "pgboss.job has exactly 1 plate-render per scene (3 total)",
+        `count=${jobsAfterFirstRender}`
+      );
+
+      // Wait for the final render to complete to 'ready'
+      const readyWait = await waitFor(
+        "Scenario J final render ready",
+        async () => {
+          const r = await api(`/v1/render-jobs/${jobId1}`);
+          if (r.json?.state === "failed") {
+            throw new Error(`Scenario J render failed: ${JSON.stringify(r.json?.error)}`);
+          }
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 360_000, every: 1000 }
+      );
+      const renderMs = now() - tRenderStart;
+      metrics.scenarioJRenderMs = renderMs;
+      assertCheck(scen, readyWait.value.state === "ready", "final render completed to state:'ready'", `in ${renderMs}ms`);
+
+      //Repeating the render request does not enqueue more plate-render jobs
+      const renderRes2 = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      assertCheck(
+        scen,
+        renderRes2.status === 202 && Boolean(renderRes2.json?.id),
+        "repeated POST /render returns 202",
+        `status=${renderRes2.status}, body=${JSON.stringify(renderRes2.json)}`
+      );
+      const jobId2 = renderRes2.json.id;
+      await waitFor(
+        "Scenario J second render job prepared",
+        async () => {
+          const r = (await pool.query("select render_input from app.render_jobs where id = $1", [jobId2])).rows[0];
+          return r?.render_input?.manifestKey ? r : false;
+        },
+        { timeout: 30_000, every: 200 }
+      );
+      // Clean up second render-video job if still queued so worker stays free, and check plate-render job count
+      await pool.query("delete from pgboss.job where name = 'render-video' and data->>'jobId' = $1", [jobId2]);
+      const jobsAfterSecondRender = await countJobsForJ();
+      assertCheck(
+        scen,
+        jobsAfterSecondRender === 3,
+        "repeating the render request does not enqueue more plate-render jobs",
+        `count=${jobsAfterSecondRender}`
+      );
+
+      // Download the finished MP4 from jobId1 and run ffprobe checks (size 1920x1080, audio stream, frame count matching manifest)
+      const jobRow = (await pool.query("select render_input from app.render_jobs where id = $1", [jobId1])).rows[0];
+      const manifestJson = JSON.parse(await s3GetText("plates-uploads", jobRow.render_input.manifestKey));
+      const redir = await redirectOf(`/v1/renders/${jobId1}`);
+      assertCheck(scen, redir.status === 302 && Boolean(redir.location), "GET /v1/renders/:id redirects (302) to MP4");
+      const mp4File = await download(redir.location, join(tempDir, "scenario-j-final.mp4"));
+      const probe = ffprobe(mp4File);
+      const vStream = probe.streams.find((s) => s.codec_type === "video");
+      const aStream = probe.streams.find((s) => s.codec_type === "audio");
+
+      assertCheck(
+        scen,
+        vStream?.width === 1920 && vStream?.height === 1080,
+        "rendered MP4 dimensions are 1920x1080",
+        `${vStream?.width}x${vStream?.height}`
+      );
+      assertCheck(scen, Boolean(aStream), "rendered MP4 has an audio stream", `codec=${aStream?.codec_name}`);
+      assertCheck(
+        scen,
+        Number(vStream?.nb_read_packets) === manifestJson.totalFrames,
+        "rendered MP4 frame count matches manifest totalFrames",
+        `packets=${vStream?.nb_read_packets}, manifest=${manifestJson.totalFrames}`
+      );
+
+      scenarioResults.J = {
+        pass: true,
+        renderMs,
+        scenesDrawn: 3,
+        plateRenderCount: jobsAfterSecondRender,
+        totalFrames: manifestJson.totalFrames
+      };
+    }
+
+    // =========================================================================
+    // Scenario K: Final render with no browser at all + companion export for another ratio.
+    // =========================================================================
+    log("== Scenario K: Final render with no browser at all");
+    {
+      const scen = "K";
+      // Seed a project with 2 ratios (16:9 primary + 9:16 secondary) and 2 beats
+      const { id } = await seedProject({
+        look: "illus-balloon",
+        aspect: "16:9",
+        aspects: ["16:9", "9:16"],
+        beats: 2,
+        audio: true
+      });
+
+      // Start plates and request final render IMMEDIATELY, before scenes are bundled and without any browser check report
+      const tRenderStart = now();
+      const drawRes = await api(`/v1/projects/${id}/plates/draw`, { method: "POST" });
+      assertCheck(scen, drawRes.status === 202, "POST /plates/draw returns 202");
+
+      const initialRows = await variants(id);
+      const noneBundledYet = initialRows.every((r) => r.state === "queued" || r.state === "authoring");
+      assertCheck(
+        scen,
+        initialRows.length === 4 && noneBundledYet,
+        "render requested immediately while variants are still queued/authoring (before bundled)",
+        initialRows.map((r) => `${r.scene_index}/${r.aspect}:${r.state}`).join(", ")
+      );
+
+      const renderRes = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      assertCheck(
+        scen,
+        renderRes.status === 202 && Boolean(renderRes.json?.id),
+        "POST /v1/projects/:id/render returns 202 immediately",
+        `jobId=${renderRes.json?.id}`
+      );
+      const jobId = renderRes.json.id;
+
+      // Poll until final render completes while verifying NO row ever reaches 'checked'
+      let everChecked = false;
+      const readyWait = await waitFor(
+        "Scenario K final render ready (no browser)",
+        async () => {
+          const curVars = await variants(id);
+          if (curVars.some((r) => r.state === "checked" || r.checked_at !== null)) {
+            everChecked = true;
+          }
+          const r = await api(`/v1/render-jobs/${jobId}`);
+          if (r.json?.state === "failed") {
+            throw new Error(`Scenario K render failed: ${JSON.stringify(r.json?.error)}`);
+          }
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 360_000, every: 500 }
+      );
+      const renderMs = now() - tRenderStart;
+      metrics.scenarioKRenderMs = renderMs;
+
+      const rowsAfterRender = await variants(id);
+      if (rowsAfterRender.some((r) => r.state === "checked" || r.checked_at !== null)) {
+        everChecked = true;
+      }
+      const rows169 = rowsAfterRender.filter((r) => r.aspect === "16:9");
+      const rows916 = rowsAfterRender.filter((r) => r.aspect === "9:16");
+
+      assertCheck(scen, readyWait.value.state === "ready", "final render with no browser completed to state:'ready'", `in ${renderMs}ms`);
+      assertCheck(
+        scen,
+        everChecked === false && rowsAfterRender.every((r) => r.checked_at === null && r.check_report === null),
+        "no variant row ever reached 'checked'"
+      );
+
+      const jobs169 = (
+        await pool.query(
+          "select count(*)::int as n from pgboss.job where name = 'plate-render' and (data->>'variantId') = any($1::text[])",
+          [rows169.map((r) => r.id)]
+        )
+      ).rows[0].n;
+      assertCheck(
+        scen,
+        jobs169 === 2 && rows169.every((r) => r.state === "drawn" && Boolean(r.clip_key)),
+        "plate-render count for primary ratio equals number of scenes (2)",
+        `jobs169=${jobs169}`
+      );
+
+      // Verify final render MP4 via ffprobe
+      const jobRow = (await pool.query("select render_input from app.render_jobs where id = $1", [jobId])).rows[0];
+      const manifestJson = JSON.parse(await s3GetText("plates-uploads", jobRow.render_input.manifestKey));
+      const redir = await redirectOf(`/v1/renders/${jobId}`);
+      assertCheck(scen, redir.status === 302 && Boolean(redir.location), "GET /v1/renders/:id redirects (302)");
+      const mp4File = await download(redir.location, join(tempDir, "scenario-k-final.mp4"));
+      const probe = ffprobe(mp4File);
+      const vStream = probe.streams.find((s) => s.codec_type === "video");
+      const aStream = probe.streams.find((s) => s.codec_type === "audio");
+
+      assertCheck(
+        scen,
+        vStream?.width === 1920 && vStream?.height === 1080 && Boolean(aStream) && Number(vStream?.nb_read_packets) === manifestJson.totalFrames,
+        "final render MP4 is valid 1920x1080 with audio and matching frame count",
+        `size=${vStream?.width}x${vStream?.height}, packets=${vStream?.nb_read_packets}/${manifestJson.totalFrames}`
+      );
+
+      // Also request a companion export for another ratio (9:16) of this live project and assert it becomes ready and downloads
+      const tExportStart = now();
+      const exportInitRes = await api(`/v1/projects/${id}/plates/export`, {
+        method: "POST",
+        body: { aspect: "9:16" }
+      });
+      assertCheck(
+        scen,
+        exportInitRes.status === 202 && exportInitRes.json?.state === "drawing",
+        "first companion export request for 9:16 returns 202 {state:'drawing'} and triggers draw-on-demand",
+        JSON.stringify(exportInitRes.json)
+      );
+
+      const exportReadyWait = await waitFor(
+        "Scenario K companion export 9:16 ready",
+        async () => {
+          const r = await api(`/v1/projects/${id}/plates/export`, {
+            method: "POST",
+            body: { aspect: "9:16" }
+          });
+          if (r.json?.state === "failed") {
+            throw new Error(`Scenario K 9:16 export failed: ${JSON.stringify(r.json)}`);
+          }
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 360_000, every: 1000 }
+      );
+      const exportMs = now() - tExportStart;
+      metrics.scenarioKCompanionExportMs = exportMs;
+
+      assertCheck(
+        scen,
+        exportReadyWait.value.state === "ready",
+        "companion export for 9:16 becomes 'ready'",
+        `in ${exportMs}ms`
+      );
+
+      const expRedir = await redirectOf(`/v1/projects/${id}/plates/export/9-16`);
+      assertCheck(scen, expRedir.status === 302 && Boolean(expRedir.location), "GET /plates/export/9-16 redirects (302)");
+      const expMp4File = await download(expRedir.location, join(tempDir, "scenario-k-export-9x16.mp4"));
+      const expProbe = ffprobe(expMp4File);
+      const expV = expProbe.streams.find((s) => s.codec_type === "video");
+      const expA = expProbe.streams.find((s) => s.codec_type === "audio");
+
+      assertCheck(
+        scen,
+        expV?.width === 1080 && expV?.height === 1920 && Boolean(expA) && Number(expV?.nb_read_packets) === manifestJson.totalFrames,
+        "downloaded 9:16 companion export is valid 1080x1920 MP4 with audio and matching frames",
+        `size=${expV?.width}x${expV?.height}, packets=${expV?.nb_read_packets}`
+      );
+
+      const jobs916 = (
+        await pool.query(
+          "select count(*)::int as n from pgboss.job where name = 'plate-render' and (data->>'variantId') = any($1::text[])",
+          [rows916.map((r) => r.id)]
+        )
+      ).rows[0].n;
+      assertCheck(scen, jobs916 === 2, "plate-render count for 9:16 companion export equals number of scenes (2)", `jobs916=${jobs916}`);
+
+      scenarioResults.K = {
+        pass: true,
+        renderMs,
+        companionExportMs: exportMs,
+        scenesDrawn169: 2,
+        scenesDrawn916: 2,
+        plateRenderCount169: jobs169,
+        plateRenderCount916: jobs916,
+        totalFrames: manifestJson.totalFrames
+      };
+    }
+
     const totalAssertions = assertions.length;
     const passedAssertions = assertions.filter((a) => a.ok).length;
     const failedAssertions = totalAssertions - passedAssertions;
 
     console.log(
-      `\nSUMMARY: ${passedAssertions}/${totalAssertions} assertions passed (${failedAssertions} failed) across scenarios A-I.`
+      `\nSUMMARY: ${passedAssertions}/${totalAssertions} assertions passed (${failedAssertions} failed) across scenarios A-K.`
     );
     console.log("E2E_METRICS_JSON:" + JSON.stringify({ scenarioResults, metrics }));
 
