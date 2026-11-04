@@ -1,20 +1,42 @@
 import type { FastifyInstance } from "fastify";
 import { tierFor } from "../billing/service.ts";
+import { config } from "../config.ts";
 import { projectOwner, getProject } from "../projects/store.ts";
 import { PLANS } from "../tokens/plan.ts";
-import { presignKey } from "../storage.ts";
+import { presignKey, type Bucket } from "../storage.ts";
+import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
 import { isAspect, primaryAspect, type Aspect } from "./model.ts";
 import { addPlateComment, drawAspectPlates, fixPlates, plateStatus, removePlateComment, setPlateSubtitles, startPlates } from "./service.ts";
-import { listVariants } from "./store.ts";
+import { getRevision, getVariant, listVariants, requestVariantClip, submitCheckReport, type CheckReportInput } from "./store.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const notFound = { error: { code: "not_found", message: "Not found." } };
 const slugAspect = (slug: string): Aspect | null => slug === "16-9" ? "16:9" : slug === "9-16" ? "9:16" : slug === "1-1" ? "1:1" : null;
 const slugOf = (aspect: Aspect) => aspect === "16:9" ? "16-9" : aspect === "9:16" ? "9-16" : "1-1";
+const BUNDLE_STATES = new Set(["bundled", "checked", "rendering", "drawn"]);
+const MAX_CHECK_PART_BYTES = 16_384;
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === "object" && !Array.isArray(v));
+const withinBytes = (v: unknown, maxBytes: number): boolean => {
+  try {
+    return Buffer.byteLength(JSON.stringify(v), "utf8") <= maxBytes;
+  } catch {
+    return false;
+  }
+};
+
+const defaultPresign: typeof presignKey = async (bucket: Bucket, key: string, options = {}) => {
+  if (config.storageDriver !== "r2") {
+    return `/local-storage/${bucket}/${encodeURIComponent(key)}?expires=${options.seconds ?? 3600}`;
+  }
+  return presignKey(bucket, key, options);
+};
 
 /** Code-drawn plate scenes. Ownership is checked by the access hook as for every /v1/projects/:id route; every file is served from object storage. */
-export async function registerPlateRoutes(app: FastifyInstance) {
+export async function registerPlateRoutes(app: FastifyInstance, options?: { presign?: typeof presignKey }) {
+  const signKey = options?.presign ?? defaultPresign;
+
   app.get<{ Params: { id: string } }>("/v1/projects/:id/plates", async (request, reply) => {
     if (!uuid.test(request.params.id)) return reply.code(404).send(notFound);
     return plateStatus(request.params.id);
@@ -54,6 +76,97 @@ export async function registerPlateRoutes(app: FastifyInstance) {
     catch (error) { return reply.code(409).send({ error: { code: "plates", message: error instanceof Error ? error.message : "Could not draw this dimension." } }); }
   });
 
+  /** Short-lived bundle URL, manifest, digest and current revision params for live browser execution. */
+  app.get<{ Params: { id: string; variantId: string } }>("/v1/projects/:id/plates/:variantId/bundle", async (request, reply) => {
+    const { id, variantId } = request.params;
+    if (!uuid.test(id) || !uuid.test(variantId)) return reply.code(404).send(notFound);
+    const row = await getVariant(variantId);
+    if (!row || row.project_id !== id || !BUNDLE_STATES.has(row.state) || !row.bundle_key) {
+      return reply.code(404).send(notFound);
+    }
+    const rev = await getRevision(row.id, row.rev);
+    const params = rev?.params ?? {};
+    const digest = row.bundle_digest ?? rev?.bundle_digest ?? bundleDigest({ manifest: row.bundle_manifest, params });
+    const seconds = 900;
+    const expiresAt = new Date(Date.now() + seconds * 1000).toISOString();
+    const url = await signKey("uploads", row.bundle_key, { seconds, contentType: "text/html" });
+    return reply
+      .header("Cache-Control", "no-store")
+      .code(200)
+      .send({ url, expiresAt, bundleDigest: digest, manifest: row.bundle_manifest ?? {}, params });
+  });
+
+  /** Fenced, idempotent browser check report for a live variant. */
+  app.post<{ Params: { id: string; variantId: string }; Body: Record<string, unknown> }>(
+    "/v1/projects/:id/plates/:variantId/check",
+    async (request, reply) => {
+      const { id, variantId } = request.params;
+      if (!uuid.test(id) || !uuid.test(variantId)) return reply.code(404).send(notFound);
+      const body = request.body;
+      if (!isPlainObject(body)) {
+        return reply.code(400).send({ code: "invalid_check", error: { code: "invalid_check", message: "Request body must be a JSON object." } });
+      }
+      const { gen, bundleDigest: digest, host, device, results } = body;
+      if (typeof gen !== "number" || !Number.isInteger(gen) || gen < 1) {
+        return reply.code(400).send({ code: "invalid_check", error: { code: "invalid_check", message: "gen must be a positive integer." } });
+      }
+      if (typeof digest !== "string" || !digest.trim() || digest.length > 128) {
+        return reply.code(400).send({ code: "invalid_check", error: { code: "invalid_check", message: "bundleDigest must be a non-empty string." } });
+      }
+      if (host !== "worker") {
+        return reply.code(400).send({ code: "invalid_check", error: { code: "invalid_check", message: 'host must be "worker".' } });
+      }
+      if (device !== undefined && (!isPlainObject(device) || !withinBytes(device, MAX_CHECK_PART_BYTES))) {
+        return reply.code(400).send({ code: "invalid_check", error: { code: "invalid_check", message: "device must be an object of at most 16 KB." } });
+      }
+      if (!isPlainObject(results) || typeof results.ok !== "boolean" || !withinBytes(results, MAX_CHECK_PART_BYTES)) {
+        return reply.code(400).send({ code: "invalid_check", error: { code: "invalid_check", message: "results must be an object with boolean ok and at most 16 KB." } });
+      }
+      if (results.ok === false && results.kind !== "code" && results.kind !== "env") {
+        return reply.code(400).send({ code: "invalid_check", error: { code: "invalid_check", message: 'Failed check results must specify kind "code" or "env".' } });
+      }
+
+      const outcome = await submitCheckReport(
+        variantId,
+        {
+          gen,
+          bundleDigest: digest,
+          host,
+          ...(device ? { device } : {}),
+          results: results as CheckReportInput["results"]
+        },
+        id
+      );
+
+      if (outcome.status === "not_found") return reply.code(404).send(notFound);
+      if (outcome.status === "not_live") {
+        return reply.code(409).send({ code: "not_live", error: { code: "not_live", message: "This project is not in live preview mode." } });
+      }
+      if (outcome.status === "invalid_host") {
+        return reply.code(400).send({ code: "invalid_check", error: { code: "invalid_check", message: 'host must be "worker".' } });
+      }
+      if (outcome.status === "dropped") {
+        return reply.code(204).send();
+      }
+      return reply.code(200).send(outcome.body);
+    }
+  );
+
+  /** Fallback clip request: enqueues `plate-render` once for a `bundled` or `checked` variant, capped per project. */
+  app.post<{ Params: { id: string; variantId: string } }>("/v1/projects/:id/plates/:variantId/clip-request", async (request, reply) => {
+    const { id, variantId } = request.params;
+    if (!uuid.test(id) || !uuid.test(variantId)) return reply.code(404).send(notFound);
+    const outcome = await requestVariantClip(id, variantId);
+    if (outcome.status === "not_found") return reply.code(404).send(notFound);
+    if (outcome.status === "invalid_state") {
+      return reply.code(409).send({ code: "invalid_state", error: { code: "invalid_state", message: "Scene is not in bundled or checked state." } });
+    }
+    if (outcome.status === "clip_cap") {
+      return reply.code(429).send({ code: "clip_cap", error: { code: "clip_cap", message: "Too many preview clips are already queued or rendering for this project." } });
+    }
+    return reply.code(202).send(outcome.body);
+  });
+
   /** A scene's clip: a short-lived link into object storage (the browser's player does its own range requests there). */
   app.get<{ Params: { id: string; index: string }; Querystring: { aspect?: string } }>("/v1/projects/:id/plates/:index/clip", async (request, reply) => {
     const { id, index } = request.params;
@@ -62,7 +175,7 @@ export async function registerPlateRoutes(app: FastifyInstance) {
     const aspect = isAspect(request.query.aspect) ? request.query.aspect : project ? primaryAspect(project) : "16:9";
     const row = (await listVariants(id)).find((v) => v.scene_index === Number(index) && v.aspect === aspect && v.clip_key);
     if (!row?.clip_key) return reply.code(404).send(notFound);
-    return reply.header("Cache-Control", "no-store").redirect(await presignKey("outputs", row.clip_key, { seconds: 900, contentType: "video/mp4" }), 302);
+    return reply.header("Cache-Control", "no-store").redirect(await signKey("outputs", row.clip_key, { seconds: 900, contentType: "video/mp4" }), 302);
   });
 
   /** A scene's verified mid-scene still. */
@@ -73,7 +186,7 @@ export async function registerPlateRoutes(app: FastifyInstance) {
     const aspect = isAspect(request.query.aspect) ? request.query.aspect : project ? primaryAspect(project) : "16:9";
     const row = (await listVariants(id)).find((v) => v.scene_index === Number(index) && v.aspect === aspect && v.still_key);
     if (!row?.still_key) return reply.code(404).send(notFound);
-    return reply.header("Cache-Control", "no-store").redirect(await presignKey("outputs", row.still_key, { seconds: 900, contentType: "image/png" }), 302);
+    return reply.header("Cache-Control", "no-store").redirect(await signKey("outputs", row.still_key, { seconds: 900, contentType: "image/png" }), 302);
   });
 
   /**
@@ -103,6 +216,6 @@ export async function registerPlateRoutes(app: FastifyInstance) {
     const row = await currentExport(id, aspect);
     if (!row) return reply.code(404).send(notFound);
     if (row.state !== "ready" || !row.output_key) return reply.code(409).send({ error: { code: "export_not_ready", message: "This export is not finished yet." }, state: row.state, progress: row.progress });
-    return reply.header("Cache-Control", "no-store").redirect(await presignKey("outputs", row.output_key, { seconds: 900, filename: `film-${slugOf(aspect)}.mp4`, contentType: "video/mp4" }), 302);
+    return reply.header("Cache-Control", "no-store").redirect(await signKey("outputs", row.output_key, { seconds: 900, filename: `film-${slugOf(aspect)}.mp4`, contentType: "video/mp4" }), 302);
   });
 }

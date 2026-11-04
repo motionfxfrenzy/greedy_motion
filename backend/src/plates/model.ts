@@ -26,10 +26,21 @@ export const SIGNATURE_PREFIX = `v${PIPELINE_VERSION}:`;
 /** Bump when the final assembly (worker/src/plates.mjs) produces different bytes from the same inputs. */
 export const ASSEMBLER_VERSION = 1;
 
-export type PlateState = "queued" | "authoring" | "rendering" | "drawn" | "failed";
-/** The stored state: `bundled` (authored, waiting for a worker) is shown as `rendering`. */
-export type VariantState = PlateState | "bundled";
-export type PlateVariantView = { state: PlateState; sig: string; /** Changes whenever the stored clip changes, so the browser fetches the new one. */ v: string | null; stage?: string; error?: string };
+export type LiveMode = "live" | "clip";
+export type PlateState = "queued" | "authoring" | "bundled" | "checked" | "rendering" | "drawn" | "failed";
+/** The stored state: `bundled` (authored, waiting for a worker in clip mode or a browser check in live mode). */
+export type VariantState = PlateState;
+export type PlateVariantView = {
+  state: PlateState;
+  sig: string;
+  /** Changes whenever the stored clip changes, so the browser fetches the new one. */
+  v: string | null;
+  stage?: string;
+  error?: string;
+  variantId?: string;
+  bundleDigest?: string | null;
+  live?: boolean;
+};
 export type PlateScene = {
   index: number;
   keyword: string;
@@ -42,6 +53,9 @@ export type PlateScene = {
   rev?: number;
   error?: string;
   attempts?: number;
+  variantId?: string;
+  bundleDigest?: string | null;
+  live?: boolean;
   /** Per aspect ratio: each ratio is authored, verified and drawn on its own. */
   variants?: Partial<Record<Aspect, PlateVariantView>>;
 };
@@ -80,6 +94,7 @@ export type PlateSubtitles = {
 export type PlateStatus = {
   available: boolean;
   look: string | null;
+  mode?: LiveMode;
   scenes: PlateScene[];
   comments: PlateComment[];
   subtitles: PlateSubtitles;

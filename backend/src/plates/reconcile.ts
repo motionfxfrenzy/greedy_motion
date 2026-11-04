@@ -15,19 +15,70 @@ import { failVariant } from "./store.ts";
  */
 const log = (level: string, event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 const RESEND_AFTER = "90 seconds";
+const ROLLBACK_PASS_LIMIT = 20;
 
 export async function reconcilePlates(): Promise<number> {
   const client = await pool.connect();
   let resent = 0, open = 0;
+  const forceOff = config.plates.liveForceOff;
   try {
     await client.query("begin");
+
+    if (forceOff) {
+      const flipped = await client.query<{ project_id: string }>(
+        "update app.plate_state set live_mode = 'clip', updated_at = now() where live_mode = 'live' returning project_id"
+      );
+      if (flipped.rowCount && flipped.rowCount > 0) {
+        log("info", "plate_live_force_off", { projects: flipped.rows.map((r) => r.project_id) });
+      }
+      const rollbackRows = await client.query<{ id: string; gen: number }>(
+        `select v.id, v.gen
+           from app.plate_variants v
+           left join app.plate_state s on s.project_id = v.project_id
+          where v.state in ('checked', 'bundled')
+            and coalesce(s.live_mode, 'clip') = 'clip'
+            and not exists (
+              select 1 from pgboss.job j
+               where j.name = $1
+                 and j.data->>'variantId' = v.id::text
+                 and (j.data->>'gen')::int = v.gen
+                 and j.state in ('created', 'retry', 'active')
+            )
+            and (
+              select count(*) from app.plate_variants o
+               where o.project_id = v.project_id
+                 and o.state = 'rendering'
+                 and o.updated_at >= now() - $2::interval
+            ) < $3
+          order by v.created_at, v.scene_index, v.aspect
+          limit $4
+          for update of v skip locked`,
+        [QUEUES.plateRender, RESEND_AFTER, config.plates.projectClipCap, ROLLBACK_PASS_LIMIT]
+      );
+      for (const v of rollbackRows.rows) {
+        await client.query(
+          "update app.plate_variants set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(), updated_at = now() where id = $1",
+          [v.id]
+        );
+        await boss.send(QUEUES.plateRender, { variantId: v.id, gen: v.gen }, { db: inTransaction(client), singletonKey: `${v.id}:${v.gen}` });
+        resent++;
+      }
+    }
+
     const variants = await client.query<{ id: string; gen: number; state: string }>(
-      `select id, gen, state from app.plate_variants
-        where state in ('queued', 'authoring', 'bundled', 'rendering')
-          and (enqueued_at is null or enqueued_at < now() - $1::interval)
-          and (state <> 'authoring' or author_until < now())
-          and (state <> 'rendering' or updated_at < now() - $1::interval)
-        for update skip locked`, [RESEND_AFTER]);
+      `select v.id, v.gen, v.state
+         from app.plate_variants v
+         left join app.plate_state s on s.project_id = v.project_id
+        where (
+            v.state in ('queued', 'authoring', 'rendering')
+            or (not $2::boolean and v.state = 'bundled' and (coalesce(s.live_mode, 'clip') <> 'live' or v.stage = 'queued for rendering'))
+          )
+          and (v.enqueued_at is null or v.enqueued_at < now() - $1::interval)
+          and (v.state <> 'authoring' or v.author_until < now())
+          and (v.state <> 'rendering' or v.updated_at < now() - $1::interval)
+        for update of v skip locked`,
+      [RESEND_AFTER, forceOff]
+    );
     for (const v of variants.rows) {
       const kind = v.state === "bundled" || v.state === "rendering" ? "render" : "author";
       await client.query("update app.plate_variants set enqueued_at = now() where id = $1", [v.id]);
@@ -51,7 +102,21 @@ export async function reconcilePlates(): Promise<number> {
         where state = 'failed' and error->>'code' = 'render_unavailable' and bundle_key is not null and updated_at < now() - $1::interval
           and coalesce((timings->>'autoRetries')::int, 0) < 2 returning id, gen`, [RESEND_AFTER]);
     for (const v of revived.rows) { await boss.send(QUEUES.plateRender, { variantId: v.id, gen: v.gen }, { db: inTransaction(client) }); resent++; }
-    open = Number((await client.query("select (select count(*) from app.plate_variants where state in ('queued','authoring','bundled','rendering')) + (select count(*) from app.plate_exports where state in ('queued','assembling')) as n")).rows[0].n);
+    open = Number(
+      (
+        await client.query(
+          `select (
+             select count(*)
+               from app.plate_variants v
+               left join app.plate_state s on s.project_id = v.project_id
+              where v.state in ('queued', 'authoring', 'rendering')
+                 or (v.state = 'bundled' and (coalesce(s.live_mode, 'clip') <> 'live' or v.stage = 'queued for rendering'))
+           ) + (
+             select count(*) from app.plate_exports where state in ('queued', 'assembling')
+           ) as n`
+        )
+      ).rows[0].n
+    );
     await client.query("commit");
   } catch (error) {
     await client.query("rollback").catch(() => undefined);
@@ -66,14 +131,40 @@ export async function reconcilePlates(): Promise<number> {
   return open;
 }
 
-/** Deletes the artifacts of superseded generations, twice (an hour and a day apart) so a late upload from a stale worker is caught too. */
-async function sweepGarbage(limit = 20) {
-  const { rows } = await pool.query<{ prefix: string; sweeps: number }>("select prefix, sweeps from app.plate_garbage where next_sweep_at <= now() order by next_sweep_at limit $1", [limit]);
+const defaultRemove = async (bucket: "uploads" | "outputs", prefix: string) => {
+  if (config.storageDriver !== "r2") return 0;
+  return deletePrefix(bucket, prefix);
+};
+
+/**
+ * Deletes the artifacts of superseded generations, twice (an hour and a day apart) so a late upload from a stale worker is
+ * caught too. Skips any prefix whose object keys are still referenced by `app.plate_revisions`.
+ */
+export async function sweepGarbage(
+  limit = 20,
+  remove: (bucket: "uploads" | "outputs", prefix: string) => Promise<unknown> = defaultRemove
+): Promise<string[]> {
+  const { rows } = await pool.query<{ prefix: string; sweeps: number }>(
+    `select g.prefix, g.sweeps
+       from app.plate_garbage g
+      where g.next_sweep_at <= now()
+        and not exists (
+          select 1 from app.plate_revisions r
+           where (r.source_key is not null and (r.source_key = g.prefix or starts_with(r.source_key, rtrim(g.prefix, '/') || '/')))
+              or (r.bundle_key is not null and (r.bundle_key = g.prefix or starts_with(r.bundle_key, rtrim(g.prefix, '/') || '/')))
+        )
+      order by g.next_sweep_at
+      limit $1`,
+    [limit]
+  );
+  const swept: string[] = [];
   for (const row of rows) {
-    await Promise.all([deletePrefix("uploads", row.prefix), deletePrefix("outputs", row.prefix)]);
+    await Promise.all([remove("uploads", row.prefix), remove("outputs", row.prefix)]);
     if (row.sweeps >= 1) await pool.query("delete from app.plate_garbage where prefix = $1", [row.prefix]);
     else await pool.query("update app.plate_garbage set sweeps = sweeps + 1, next_sweep_at = now() + interval '24 hours' where prefix = $1", [row.prefix]);
+    swept.push(row.prefix);
   }
+  return swept;
 }
 
 /** Starts the consumers and the recovery sweep. Returns a stop function. A no-op unless PLATE_PIPELINE=worker. */

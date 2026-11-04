@@ -207,7 +207,19 @@ export const config = {
     const mode = process.env.PLATE_PIPELINE ?? "off";
     if (mode !== "off" && mode !== "worker") throw new Error(`PLATE_PIPELINE must be "off" or "worker"; got "${mode}".`);
     if (mode === "worker" && storageDriver !== "r2") throw new Error("PLATE_PIPELINE=worker needs STORAGE_DRIVER=r2: plate artifacts live in object storage.");
-    return { enabled: mode === "worker", authorConcurrency: positiveInt("PLATE_AUTHOR_CONCURRENCY", 3), projectAuthorCap: positiveInt("PLATE_PROJECT_AUTHOR_CAP", 4), maxAuthorCalls: positiveInt("PLATE_MAX_AUTHOR_CALLS", 3) };
+    const livePreview = process.env.PLATE_LIVE_PREVIEW ?? "off";
+    if (livePreview !== "off" && livePreview !== "on") throw new Error(`PLATE_LIVE_PREVIEW must be "off" or "on"; got "${livePreview}".`);
+    if (livePreview === "on" && mode !== "worker") throw new Error("PLATE_LIVE_PREVIEW=on requires PLATE_PIPELINE=worker.");
+    const liveForceOff = process.env.PLATE_LIVE_FORCE_OFF === "1";
+    return {
+      enabled: mode === "worker",
+      live: livePreview === "on",
+      liveForceOff,
+      authorConcurrency: positiveInt("PLATE_AUTHOR_CONCURRENCY", 3),
+      projectAuthorCap: positiveInt("PLATE_PROJECT_AUTHOR_CAP", 4),
+      projectClipCap: positiveInt("PLATE_PROJECT_CLIP_CAP", 4),
+      maxAuthorCalls: positiveInt("PLATE_MAX_AUTHOR_CALLS", 3)
+    };
   })(),
   creemApiKey: process.env.CREEM_API_KEY || "",
   // Google Gemini API: Lyria background music and Gemini TTS voiceover. Optional; audio options need it.

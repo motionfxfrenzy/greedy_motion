@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { config } from "../config.ts";
 import { getProject } from "../projects/store.ts";
 import { desiredVariants, isPlateLook, wantedAspects } from "./inputs.ts";
 import {
-  ASPECTS, defaultSubtitlesFor, isAspect, mergeSubtitles, primaryAspect, type Aspect, type PlateComment, type PlateScene, type PlateState, type PlateStatus, type VariantState, type PlateSubtitles, type PlateVariantView
+  ASPECTS, defaultSubtitlesFor, isAspect, mergeSubtitles, primaryAspect, type Aspect, type LiveMode, type PlateComment, type PlateScene, type PlateState, type PlateStatus, type VariantState, type PlateSubtitles, type PlateVariantView
 } from "./model.ts";
-import { editComments, listVariants, readProjectState, reconcileVariants, reviseScene, writeSubtitles, type VariantRow } from "./store.ts";
+import { decideLiveMode, editComments, listVariants, readProjectState, reconcileVariants, reviseScene, writeSubtitles, type VariantRow } from "./store.ts";
 
 export { isPlateLook };
 const OPEN: VariantState[] = ["queued", "authoring", "bundled", "rendering"];
@@ -16,11 +17,24 @@ async function plateProject(projectId: string) {
 }
 
 const clipVersion = (v: VariantRow) => (v.clip_key ? createHash("md5").update(v.clip_key).digest("hex").slice(0, 10) : null);
-// "bundled" (waiting for a worker) is rendering as far as the person is concerned.
-const shown = (state: VariantState): PlateState => (state === "bundled" ? "rendering" : state);
+// In clip mode (or when a clip fallback render was requested), "bundled" (waiting for a worker) is rendering as far as the person is concerned.
+const shown = (v: VariantRow, mode: LiveMode): PlateState =>
+  v.state === "bundled" && (mode === "clip" || v.stage === "queued for rendering") ? "rendering" : v.state;
 
-function viewOf(v: VariantRow): PlateVariantView {
-  return { state: shown(v.state), sig: v.signature, v: clipVersion(v), ...(v.stage && OPEN.includes(v.state) ? { stage: v.stage } : {}), ...(v.state === "failed" && v.error ? { error: v.error.message } : {}) };
+const isLivePlayable = (v: VariantRow, mode: LiveMode): boolean => mode === "live" && v.state === "checked";
+const isPlayable = (v: VariantRow, mode: LiveMode): boolean => v.state === "drawn" || isLivePlayable(v, mode);
+
+function viewOf(v: VariantRow, mode: LiveMode): PlateVariantView {
+  return {
+    state: shown(v, mode),
+    sig: v.signature,
+    v: clipVersion(v),
+    variantId: v.id,
+    bundleDigest: v.bundle_digest ?? null,
+    live: isLivePlayable(v, mode),
+    ...(v.stage && OPEN.includes(v.state) ? { stage: v.stage } : {}),
+    ...(v.state === "failed" && v.error ? { error: v.error.message } : {})
+  };
 }
 
 /** What the browser shows. Built from Postgres only. */
@@ -28,6 +42,7 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
   const project = await getProject(projectId);
   const look = project?.brief?.look ?? null;
   const [variants, stored] = await Promise.all([listVariants(projectId), readProjectState(projectId)]);
+  const mode: LiveMode = stored.liveMode ?? (config.plates.live ? "live" : "clip");
   const primary = project ? primaryAspect(project) : "16:9";
   const subtitles: PlateSubtitles = { ...defaultSubtitlesFor(project), ...(stored.subtitles ?? {}) };
   if (!subtitles.aspects?.length) subtitles.aspects = [primary];
@@ -36,24 +51,28 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
   for (const v of variants) { if (!byScene.has(v.scene_index)) byScene.set(v.scene_index, new Map()); byScene.get(v.scene_index)!.set(v.aspect, v); }
   const primaryRows = [...byScene.entries()].sort((a, b) => a[0] - b[0]).map(([, m]) => m.get(primary) ?? [...m.values()][0]!);
   const scenes: PlateScene[] = primaryRows.map((v) => ({
-    index: v.scene_index, keyword: v.keyword, state: shown(v.state), seconds: v.frames / v.fps, frames: v.frames, sig: v.signature, rev: v.rev,
+    index: v.scene_index, keyword: v.keyword, state: shown(v, mode), seconds: v.frames / v.fps, frames: v.frames, sig: v.signature, rev: v.rev,
+    variantId: v.id, bundleDigest: v.bundle_digest ?? null, live: isLivePlayable(v, mode),
     ...(v.state === "failed" && v.error ? { error: v.error.message } : {}), ...(v.authored ? { attempts: v.authored } : {}),
-    variants: Object.fromEntries([...byScene.get(v.scene_index)!.entries()].map(([a, row]) => [a, viewOf(row)]))
+    variants: Object.fromEntries([...byScene.get(v.scene_index)!.entries()].map(([a, row]) => [a, viewOf(row, mode)]))
   }));
 
   const drawnAspects: Aspect[] = [], drawingAspects: Aspect[] = [];
   const count = byScene.size;
   for (const aspect of ASPECTS) {
     const rows = variants.filter((v) => v.aspect === aspect);
-    if (rows.length === count && count > 0 && rows.every((v) => v.state === "drawn")) drawnAspects.push(aspect);
+    if (rows.length === count && count > 0 && rows.every((v) => isPlayable(v, mode))) drawnAspects.push(aspect);
     if (rows.some((v) => OPEN.includes(v.state))) drawingAspects.push(aspect);
   }
 
-  // Comments answered by a redraw (the scene's variant is drawn again at the revision that took them) are done.
-  const answered = (c: PlateComment & { fixing?: number }) => c.fixing !== undefined && ((primaryRows.find((v) => v.scene_index === c.scene)?.rev ?? 0) >= c.fixing) && primaryRows.find((v) => v.scene_index === c.scene)?.state === "drawn";
+  // Comments answered by a redraw (the scene's variant is playable again at the revision that took them) are done.
+  const answered = (c: PlateComment & { fixing?: number }) => {
+    const row = primaryRows.find((v) => v.scene_index === c.scene);
+    return c.fixing !== undefined && (row?.rev ?? 0) >= c.fixing && Boolean(row && isPlayable(row, mode));
+  };
   let comments = stored.comments as (PlateComment & { fixing?: number })[];
   if (comments.some(answered)) comments = (await editComments(projectId, (all) => (all as (PlateComment & { fixing?: number })[]).filter((c) => !answered(c)))) as typeof comments;
-  return { available: isPlateLook(look ?? undefined), look, scenes, comments, subtitles, running: variants.some((v) => OPEN.includes(v.state)), drawnAspects, drawingAspects };
+  return { available: isPlateLook(look ?? undefined), look, mode, scenes, comments, subtitles, running: variants.some((v) => OPEN.includes(v.state)), drawnAspects, drawingAspects };
 }
 
 export async function setPlateSubtitles(projectId: string, input: Record<string, unknown>): Promise<PlateSubtitles> {
@@ -74,6 +93,7 @@ export async function startPlates(projectId: string, extraAspects: Aspect[] = []
   const project = await plateProject(projectId);
   const beats = project.brief?.scriptBeats ?? [];
   if (!beats.length) throw new Error("Write the script and storyboard first.");
+  await decideLiveMode(projectId, config.plates.live);
   const stored = await readProjectState(projectId);
   const aspects = [...new Set([...wantedAspects(project, [...(project.brief?.aspects ?? []), ...(stored.subtitles?.aspects ?? []), ...extraAspects])])];
   const desired = await desiredVariants(project, aspects);
@@ -111,7 +131,7 @@ export async function addPlateComment(projectId: string, input: { at: unknown; b
 }
 export async function removePlateComment(projectId: string, id: string) { await editComments(projectId, (all) => all.filter((c) => c.id !== id)); }
 
-/** Sends the scenes that have comments back to the model with the notes; every drawn ratio of such a scene is redrawn. */
+/** Sends the scenes that have comments back to the model with the notes; every drawn or checked ratio of such a scene is redrawn. */
 export async function fixPlates(projectId: string): Promise<PlateStatus> {
   await plateProject(projectId);
   const stored = await readProjectState(projectId);
@@ -131,4 +151,3 @@ export async function fixPlates(projectId: string): Promise<PlateStatus> {
   await editComments(projectId, (all) => (all as (PlateComment & { fixing?: number })[]).map((c) => noted.has(c.scene) ? { ...c, fixing: revOf(c.scene) } : c));
   return plateStatus(projectId);
 }
-
