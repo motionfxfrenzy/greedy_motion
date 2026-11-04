@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { voiceText, type VideoProject } from "@videosaas/contracts";
-import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, getPlates, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
+import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, getPlates, planSfxUrl, planVoiceUrl, outputUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
 import { useMediaToken } from "../lib/use-media-token";
 
 const SFX_NAMES: PlateSfxName[] = ["whoosh-short", "click", "pop", "chime", "typing", "impact-bass-1"];
@@ -1140,21 +1140,18 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
   </div>;
 }
 
-/**
- * Downloads of the other selected ratios (the primary ratio is the final render itself). Each is assembled on the render worker
- * (free): this asks once per ratio and follows it until it is ready.
- */
-export function PlateExports({ project }: { project: VideoProject }) {
+/** The ratios of a film (its own first) and where each one's finished export stands: asked once, followed until ready. */
+function usePlateRatios(project: VideoProject) {
   useMediaToken();
   const primary: PlateAspect = project.brief?.aspect === "1:1" ? "1:1" : project.request.format === "portrait" || project.brief?.aspect === "9:16" ? "9:16" : "16:9";
-  const [ratios, setRatios] = useState<PlateAspect[]>([]);
+  const [others, setOthers] = useState<PlateAspect[]>([]);
   const [exports, setExports] = useState<Partial<Record<PlateAspect, PlateExportState>>>({});
   useEffect(() => {
     let live = true;
-    getPlates(project.id).then((st) => { if (live) setRatios([...new Set([...(st.subtitles?.aspects ?? []), ...(st.drawnAspects ?? [])])].filter((a) => a !== primary)); }).catch(() => undefined);
+    getPlates(project.id).then((st) => { if (live) setOthers([...new Set([...(st.subtitles?.aspects ?? []), ...(st.drawnAspects ?? [])])].filter((a) => a !== primary)); }).catch(() => undefined);
     return () => { live = false; };
   }, [project.id, primary]);
-  const key = ratios.join(",");
+  const key = others.join(",");
   useEffect(() => {
     if (!key) return;
     let live = true, timer: ReturnType<typeof setTimeout>;
@@ -1180,12 +1177,46 @@ export function PlateExports({ project }: { project: VideoProject }) {
     void tick();
     return () => { live = false; clearTimeout(timer); };
   }, [project.id, key]);
-  if (!ratios.length) return null;
-  return <div className="pp-exports" role="group" aria-label="Other ratios" style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "8px 24px", justifyContent: "center" }}>
-    {ratios.map((ratio) => exports[ratio]?.state === "ready"
-      ? <a key={ratio} className="ce-download" href={plateExportUrl(project.id, ratio)} download={`${project.id}-${ratio.replace(":", "x")}.mp4`}>Download {ratio}</a>
-      : <span key={ratio} className="ce-download" role="status" aria-busy={exports[ratio]?.state !== "failed"}>
-        {exports[ratio]?.state === "failed" ? `${ratio}: ${exports[ratio]?.error ?? "Could not prepare the video."}` : `Preparing ${ratio}${exports[ratio]?.progress ? ` ${exports[ratio]?.progress}%` : "…"}`}
-      </span>)}
+  return { primary, ratios: [primary, ...others] as PlateAspect[], exports };
+}
+
+const SHAPE: Record<PlateAspect, string> = { "16:9": "16 / 9", "9:16": "9 / 16", "1:1": "1 / 1" };
+
+/**
+ * The finished film of a code-drawn project: one player with a switch for every ratio (each plays its own finished file), a
+ * download for each, and the approve / back actions. Replaces the scene list: the film itself is the page.
+ */
+export function PlateFinal({ project, finalUrl, onBack, onApprove, approved }: { project: VideoProject; finalUrl: string; onBack: () => void; onApprove: () => void | Promise<void>; approved: boolean }) {
+  const { primary, ratios, exports } = usePlateRatios(project);
+  const [view, setView] = useState<PlateAspect>(primary);
+  const [approving, setApproving] = useState(false);
+  const urlFor = (ratio: PlateAspect) => ratio === primary ? finalUrl : exports[ratio]?.state === "ready" ? plateExportUrl(project.id, ratio) : null;
+  const src = urlFor(view);
+  const status = (ratio: PlateAspect) => ratio === primary || exports[ratio]?.state === "ready" ? "ready" : exports[ratio]?.state === "failed" ? "failed" : "preparing";
+  return <div className="pf" role="region" aria-label="Final film">
+    <div className="pf-head">
+      <div><h1>Your film</h1><p>Watch and download every ratio. Each one was drawn for its own frame, not cropped.</p></div>
+      <div className="pf-actions">
+        <button type="button" className="ce-download" onClick={onBack}>← Back to Animation</button>
+        {approved ? <span className="ce-locked">✓ Approved · locked</span> : <button type="button" className="ce-approve" disabled={approving} onClick={async () => { setApproving(true); try { await onApprove(); } finally { setApproving(false); } }}>{approving ? "Approving…" : "Approve final"}</button>}
+      </div>
+    </div>
+    <div className="pf-tabs" role="tablist" aria-label="Ratio">
+      {ratios.map((ratio) => <button key={ratio} type="button" role="tab" aria-selected={view === ratio} className={`pp-track-chip${view === ratio ? " on" : ""}`} onClick={() => setView(ratio)}>
+        {ratio}{status(ratio) === "preparing" ? ` · ${exports[ratio]?.progress ?? 0}%` : status(ratio) === "failed" ? " · failed" : ""}
+      </button>)}
+    </div>
+    <div className="pf-stage">
+      <div className="pf-frame" style={{ aspectRatio: SHAPE[view] }} data-ratio={view}>
+        {src
+          ? <video key={src} src={src} controls playsInline preload="metadata" className="pf-video" />
+          : <p className="pf-wait" role="status">{status(view) === "failed" ? (exports[view]?.error ?? "This ratio could not be prepared.") : `Preparing ${view}… ${exports[view]?.progress ?? 0}%`}</p>}
+      </div>
+    </div>
+    <div className="pf-downloads">
+      {ratios.map((ratio) => urlFor(ratio)
+        ? <a key={ratio} className="ce-download" href={urlFor(ratio)!} download={`${project.id}-${ratio.replace(":", "x")}.mp4`}>Download {ratio}</a>
+        : <span key={ratio} className="ce-download" aria-busy={status(ratio) === "preparing"}>{ratio}: {status(ratio) === "failed" ? "failed" : "preparing…"}</span>)}
+    </div>
   </div>;
 }

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState, createElement } from "react";
 import type { HyperframesPlayer } from "@hyperframes/player";
 import { aspectToFormat, beatCountRange, scriptSeconds, bundledFonts, findGalleryTemplate, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, paintedLookById, parseScriptBrief, parseScriptStream, renderCostMillitokens, tokensFromMilli, templates, themes, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderStage, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
-import { PlateExports, PlatePreview } from "./plate-preview";
+import { PlateFinal, PlatePreview } from "./plate-preview";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
@@ -1002,8 +1002,9 @@ export function Studio() {
           await writeScript(instruction, undefined, only);
         }}
       />}
-      {step === REVIEW && project && isPlateStyle && job?.state === "ready" && <PlateExports project={project} />}
-      {step === REVIEW && project && <FinalRenderStep
+      {step === REVIEW && project && isPlateStyle && job?.state === "ready" && job.output && <PlateFinal project={project} finalUrl={outputUrl(job.output.url)} onBack={() => setStep(RENDER)} onApprove={approve} approved={project.state === "Approved"} />}
+      {step === REVIEW && project && plateChecking && <div className="workspace-message" role="status">Opening your film…</div>}
+      {step === REVIEW && project && !plateChecking && !(isPlateStyle && job?.state === "ready" && job.output) && <FinalRenderStep
         project={project}
         job={job}
         frames={plateLook ? [] : frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))}
