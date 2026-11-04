@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { voiceText, type VideoProject } from "@videosaas/contracts";
 import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, getPlates, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
 import { useMediaToken } from "../lib/use-media-token";
-import { AnimationPrep, AnimationWorkspace, activeSubtitleCueAt, buildSubtitleCues, sortWorkspaceComments, type WorkspaceAspectOption } from "./animation-workspace";
+import { AnimationPrep, AnimationWorkspace, FinalView, activeSubtitleCueAt, buildPlateFinalRatios, buildSubtitleCues, sortWorkspaceComments, type WorkspaceAspectOption } from "./animation-workspace";
 
 const SFX_NAMES: PlateSfxName[] = ["whoosh-short", "click", "pop", "chime", "typing", "impact-bass-1"];
 type PlateSfxCue = { name: PlateSfxName; offset: number; volume: number; mediaStart?: number };
@@ -776,35 +776,15 @@ const SHAPE: Record<PlateAspect, string> = { "16:9": "16 / 9", "9:16": "9 / 16",
  */
 export function PlateFinal({ project, finalUrl, onBack, onApprove, approved }: { project: VideoProject; finalUrl: string; onBack: () => void; onApprove: () => void | Promise<void>; approved: boolean }) {
   const { primary, ratios, exports } = usePlateRatios(project);
-  const [view, setView] = useState<PlateAspect>(primary);
-  const [approving, setApproving] = useState(false);
-  const urlFor = (ratio: PlateAspect) => ratio === primary ? finalUrl : exports[ratio]?.state === "ready" ? plateExportUrl(project.id, ratio) : null;
-  const src = urlFor(view);
-  const status = (ratio: PlateAspect) => ratio === primary || exports[ratio]?.state === "ready" ? "ready" : exports[ratio]?.state === "failed" ? "failed" : "preparing";
-  return <div className="pf" role="region" aria-label="Final film">
-    <div className="pf-head">
-      <div><h1>Your film</h1><p>Watch and download every ratio. Each one was drawn for its own frame, not cropped.</p></div>
-      <div className="pf-actions">
-        <button type="button" className="ce-download" onClick={onBack}>← Back to Animation</button>
-        {approved ? <span className="ce-locked">✓ Approved · locked</span> : <button type="button" className="ce-approve" disabled={approving} onClick={async () => { setApproving(true); try { await onApprove(); } finally { setApproving(false); } }}>{approving ? "Approving…" : "Approve final"}</button>}
-      </div>
-    </div>
-    <div className="pf-tabs" role="tablist" aria-label="Ratio">
-      {ratios.map((ratio) => <button key={ratio} type="button" role="tab" aria-selected={view === ratio} className={`pp-track-chip${view === ratio ? " on" : ""}`} onClick={() => setView(ratio)}>
-        {ratio}{status(ratio) === "preparing" ? ` · ${exports[ratio]?.progress ?? 0}%` : status(ratio) === "failed" ? " · failed" : ""}
-      </button>)}
-    </div>
-    <div className="pf-stage">
-      <div className="pf-frame" style={{ aspectRatio: SHAPE[view] }} data-ratio={view}>
-        {src
-          ? <video key={src} src={src} controls playsInline preload="metadata" className="pf-video" />
-          : <p className="pf-wait" role="status">{status(view) === "failed" ? (exports[view]?.error ?? "This ratio could not be prepared.") : `Preparing ${view}… ${exports[view]?.progress ?? 0}%`}</p>}
-      </div>
-    </div>
-    <div className="pf-downloads">
-      {ratios.map((ratio) => urlFor(ratio)
-        ? <a key={ratio} className="ce-download" href={urlFor(ratio)!} download={`${project.id}-${ratio.replace(":", "x")}.mp4`}>Download {ratio}</a>
-        : <span key={ratio} className="ce-download" aria-busy={status(ratio) === "preparing"}>{ratio}: {status(ratio) === "failed" ? "failed" : "preparing…"}</span>)}
-    </div>
-  </div>;
+  const ratioItems = buildPlateFinalRatios(project.id, primary, ratios, finalUrl, exports, (ratio) => plateExportUrl(project.id, ratio));
+  return <FinalView
+    title="Your film"
+    subtitle="Watch and download every ratio. Each one was drawn for its own frame, not cropped."
+    ratios={ratioItems}
+    initialRatio={primary}
+    shape={(ratioId) => SHAPE[ratioId as PlateAspect] ?? "16 / 9"}
+    onBack={onBack}
+    onApprove={onApprove}
+    approved={approved}
+  />;
 }

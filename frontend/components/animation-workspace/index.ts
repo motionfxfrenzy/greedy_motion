@@ -6,5 +6,6 @@ export { ControlRow, type ControlRowProps } from "./ControlRow";
 export { SceneTabs, type SceneTabsProps } from "./SceneTabs";
 export { CommentsPanel, type CommentsPanelProps } from "./CommentsPanel";
 export { AnimationPrep, type AnimationPrepProps, type AnimationPrepStageProps, type AnimationPrepFullProps } from "./AnimationPrep";
+export { FinalView } from "./FinalView";
 export * from "./types";
 export * from "./logic";

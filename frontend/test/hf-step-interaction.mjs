@@ -63,7 +63,8 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
         NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "local-dev-anon-key"
       },
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true
     }
   );
 
@@ -276,11 +277,15 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
     assert.ok(modalText?.includes("7 more"), "token modal displays 7 more needed");
   } finally {
     if (browser) await browser.close().catch(() => {});
-    if (nextProc && !nextProc.killed) {
+    if (nextProc && nextProc.pid) {
       try {
-        nextProc.kill("SIGTERM");
+        process.kill(-nextProc.pid, "SIGTERM");
       } catch {
-        // ignore
+        try {
+          nextProc.kill("SIGTERM");
+        } catch {
+          // ignore
+        }
       }
     }
     await new Promise((r) => setTimeout(r, 300));

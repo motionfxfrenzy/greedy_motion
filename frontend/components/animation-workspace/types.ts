@@ -168,3 +168,30 @@ export interface AnimationWorkspaceProps {
   rendering?: boolean;
   cost?: number;
 }
+
+export type FinalViewRatioStatus = "ready" | "preparing" | "failed";
+
+export interface FinalViewRatio {
+  id: string;
+  label: string;
+  status: FinalViewRatioStatus;
+  progress?: number;
+  url: string | null;
+  error?: string;
+  downloadName: string;
+}
+
+export interface FinalViewProps {
+  title: string;
+  subtitle: string;
+  ratios: readonly FinalViewRatio[];
+  initialRatio: string;
+  shape: (ratioId: string) => string;
+  poster?: string;
+  onBack: () => void;
+  onApprove: () => void | Promise<void>;
+  approved: boolean;
+  backLabel?: string;
+  renderPreparingText?: (ratio: FinalViewRatio) => string;
+  renderFailedText?: (ratio: FinalViewRatio) => string;
+}

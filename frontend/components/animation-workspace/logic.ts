@@ -1,4 +1,6 @@
 import type {
+  FinalViewRatio,
+  FinalViewRatioStatus,
   ResolvedWorkspaceOptions,
   WorkspaceAudioTrackId,
   WorkspaceComment,
@@ -365,4 +367,107 @@ export function toggleAudioTrackMode(
     music: track === "music" ? !current.music : current.music
   };
   return audioModeFromToggles(next);
+}
+
+const FINAL_RATIO_SHAPES: Readonly<Record<string, string>> = {
+  "16:9": "16 / 9",
+  "9:16": "9 / 16",
+  "1:1": "1 / 1"
+};
+
+/** Maps a ratio identifier (`"16:9"`, `"9:16"`, `"1:1"`) to its CSS `aspect-ratio` value. */
+export function finalRatioShape(ratioId: string): string {
+  return FINAL_RATIO_SHAPES[ratioId] ?? "16 / 9";
+}
+
+/** Builds the canonical MP4 download filename `<projectId>-<ratio>.mp4` (with `:` replaced by `x`). */
+export function finalRatioDownloadName(projectId: string, ratioId: string): string {
+  return `${projectId}-${ratioId.replace(/:/g, "x")}.mp4`;
+}
+
+/** Returns whether the ratio tablist should be rendered (hidden when there is only a single ratio). */
+export function shouldShowFinalRatioTabs(ratios: readonly { id: string }[]): boolean {
+  return ratios.length > 1;
+}
+
+/** Maps a plate ratio's export state to `"ready" | "preparing" | "failed"`. */
+export function mapPlateRatioStatus(
+  ratio: string,
+  primary: string,
+  exportState?: { state?: string; progress?: number; error?: string } | null
+): FinalViewRatioStatus {
+  if (ratio === primary || exportState?.state === "ready") return "ready";
+  if (exportState?.state === "failed") return "failed";
+  return "preparing";
+}
+
+/** Builds the `FinalViewRatio[]` list for `PlateFinal`. */
+export function buildPlateFinalRatios<R extends string>(
+  projectId: string,
+  primary: R,
+  ratios: readonly R[],
+  finalUrl: string,
+  exportsMap: Partial<Record<R, { state?: string; progress?: number; error?: string }>>,
+  exportUrlFor: (ratio: R) => string
+): FinalViewRatio[] {
+  return ratios.map((ratio) => {
+    const exp = exportsMap[ratio];
+    const status = mapPlateRatioStatus(ratio, primary, exp);
+    const url =
+      ratio === primary
+        ? finalUrl
+        : exp?.state === "ready"
+        ? exportUrlFor(ratio)
+        : null;
+    return {
+      id: ratio,
+      label: ratio,
+      status,
+      progress: exp?.progress ?? 0,
+      url,
+      ...(exp?.error ? { error: exp.error } : {}),
+      downloadName: finalRatioDownloadName(projectId, ratio)
+    };
+  });
+}
+
+/** Builds the single-item `FinalViewRatio[]` list for HyperFrames `FinalRenderStep`. */
+export function buildHfFinalRatios(
+  projectId: string,
+  aspect: string,
+  url: string
+): FinalViewRatio[] {
+  const ratioId = aspect === "9:16" || aspect === "1:1" ? aspect : "16:9";
+  return [
+    {
+      id: ratioId,
+      label: ratioId,
+      status: "ready",
+      url,
+      downloadName: finalRatioDownloadName(projectId, ratioId)
+    }
+  ];
+}
+
+/** Formats the ratio tab chip text (`"16:9"`, `"1:1 · 65%"`, `"1:1 · failed"`). */
+export function formatFinalRatioTabLabel(
+  ratio: Pick<FinalViewRatio, "label" | "status" | "progress">
+): string {
+  if (ratio.status === "preparing") {
+    return `${ratio.label} · ${ratio.progress ?? 0}%`;
+  }
+  if (ratio.status === "failed") {
+    return `${ratio.label} · failed`;
+  }
+  return ratio.label;
+}
+
+/** Formats the default waiting / failed status message inside `.pf-frame` when `url` is null. */
+export function formatFinalWaitMessage(
+  ratio: Pick<FinalViewRatio, "label" | "status" | "progress" | "error">
+): string {
+  if (ratio.status === "failed") {
+    return ratio.error ?? "This ratio could not be prepared.";
+  }
+  return `Preparing ${ratio.label}… ${ratio.progress ?? 0}%`;
 }

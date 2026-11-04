@@ -301,3 +301,8 @@
 .aw-prep-error{display:grid;gap:10px}
 .aw-prep-actions{display:flex;gap:8px;flex-wrap:wrap}
 @media (max-width:860px){.aw-prep-screen{grid-template-columns:minmax(0,1fr);height:auto;overflow:visible}}
+
+/* Shared FinalView action buttons */
+.aw-btn,.aw-btn-primary,.aw-locked{padding:8px 14px;border:0;border-radius:9999px;background:var(--d-bg-fafdff);color:var(--d-tx-0a0d12);font-size:13px;font-weight:600;white-space:nowrap;text-decoration:none;cursor:pointer}
+.aw-btn-primary{padding:8px 16px;background:#16803c;color:#fff}
+.aw-locked{background:var(--d-bg-d3f6e3);color:var(--d-tx-0a5c35);cursor:default}

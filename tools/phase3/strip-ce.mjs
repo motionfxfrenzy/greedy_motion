@@ -17,19 +17,26 @@ const dryRun = process.argv.includes("--dry-run");
  */
 function findUsedCeClasses() {
   const used = new Map(); // className -> Set of "file:line"
-  const files = readdirSync(COMPONENTS_DIR).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
-  for (const file of files) {
-    const full = join(COMPONENTS_DIR, file);
-    const lines = readFileSync(full, "utf8").split("\n");
-    lines.forEach((line, idx) => {
-      const matches = line.matchAll(/\bce-[a-z0-9-]+/g);
-      for (const m of matches) {
-        const cls = m[0];
-        if (!used.has(cls)) used.set(cls, new Set());
-        used.get(cls).add(`frontend/components/${file}:${idx + 1}`);
+  const walk = (dir, prefix = "frontend/components") => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      const rel = `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        walk(full, rel);
+      } else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) {
+        const lines = readFileSync(full, "utf8").split("\n");
+        lines.forEach((line, idx) => {
+          const matches = line.matchAll(/\bce-[a-z0-9-]+/g);
+          for (const m of matches) {
+            const cls = m[0];
+            if (!used.has(cls)) used.set(cls, new Set());
+            used.get(cls).add(`${rel}:${idx + 1}`);
+          }
+        });
       }
-    });
-  }
+    }
+  };
+  walk(COMPONENTS_DIR);
   return used;
 }
 
@@ -281,11 +288,12 @@ function main() {
   const nodes = parseCssNodes(originalCss);
   const transformed = transformNodes(nodes, usedCeClasses, removedSelectors, keptCeSelectors);
 
-  // Clean up orphaned comments that preceded removed .ce-* sections (`/* Review: the draft is older... */`)
+  // Clean up orphaned comments that preceded removed .ce-* sections
   const cleanedCss = transformed
     .map((n) => n.raw)
     .join("")
-    .replace(/\/\* Review: the draft is older than the chosen style\. \*\/\s*\n?/g, "");
+    .replace(/\/\* Review: the draft is older than the chosen style\. \*\/\s*\n?/g, "")
+    .replace(/\/\* Review player: volume sits between the clock and the scene name\. \*\/\s*\n?/g, "");
 
   // Verify that every non-.ce-* rule is 100% identical before and after
   const beforeNonCe = collectNonCeRules(originalCss);
