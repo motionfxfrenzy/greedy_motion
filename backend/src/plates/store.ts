@@ -299,7 +299,7 @@ export async function commitBundle(
   owner: string,
   artifacts: { sourceKey: string; bundleKey: string; manifest: Record<string, unknown>; timings: Record<string, number>; bundleDigest?: string }
 ): Promise<boolean> {
-  const digest = artifacts.bundleDigest ?? bundleDigest({ manifest: artifacts.manifest, params: {} });
+  const digest = artifacts.bundleDigest ?? bundleDigest({ manifest: artifacts.manifest, params: row.repairs > 0 ? { __repair: row.repairs } : {} });
   const pDigest = paramsDigest({});
   const client = await pool.connect();
   let shouldKick = false;
@@ -311,7 +311,7 @@ export async function commitBundle(
     );
     const isLive = modeRes.rows[0]?.live_mode === "live";
     const drawOnDemand = isLive && (modeRes.rows[0]?.draw_aspects ?? []).includes(row.aspect);
-    const shouldRender = !isLive || drawOnDemand;
+    const shouldRender = !isLive || drawOnDemand || row.render_attempt > 0;
     const stage = shouldRender ? "queued for rendering" : "checking";
     const res = await client.query<VariantRow>(
       `update app.plate_variants set state = 'bundled', stage = $8, source_key = $4, bundle_key = $5, bundle_manifest = $6::jsonb, bundle_digest = $9,
@@ -323,6 +323,9 @@ export async function commitBundle(
     );
     if (res.rowCount === 1) {
       const updated = res.rows[0]!;
+      if (row.repairs > 0) {
+        await client.query("delete from app.plate_check_reports where variant_id = $1 and gen = $2", [updated.id, updated.gen]);
+      }
       await client.query(
         `insert into app.plate_revisions (variant_id, rev, bundle_digest, source_key, bundle_key, params, params_digest, author)
          values ($1, $2, $3, $4, $5, '{}'::jsonb, $6, null)

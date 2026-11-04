@@ -75,7 +75,11 @@ export async function reconcilePlates(): Promise<number> {
               not $2::boolean
               and v.state in ('bundled', 'checked')
               and v.clip_key is null
-              and (coalesce(s.live_mode, 'clip') <> 'live' or v.aspect = any(coalesce(s.draw_aspects, '{}'::text[])))
+              and (
+                coalesce(s.live_mode, 'clip') <> 'live'
+                or v.aspect = any(coalesce(s.draw_aspects, '{}'::text[]))
+                or v.stage = 'queued for rendering'
+              )
             )
           )
           and (v.enqueued_at is null or v.enqueued_at < now() - $1::interval)

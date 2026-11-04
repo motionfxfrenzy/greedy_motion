@@ -1,7 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { pool } from "../db/database.ts";
 import { boss, inTransaction, QUEUES } from "./queues.ts";
+
+const loopDelay = monitorEventLoopDelay({ resolution: 10 });
+loopDelay.enable();
 
 /**
  * Job control: the only place render workers touch Postgres and pg-boss (docs/JOB_CONTROL.md). Workers call these routes with a
@@ -33,33 +37,37 @@ type Leased = { queue: string; id: string; attempt: number; data: unknown; lease
 type Waiter = { workerId: string; slots: Record<string, number>; got: Leased[]; resolve: (jobs: Leased[]) => void };
 const waiters = new Set<Waiter>();
 let dispatching = false;
+let dispatchPending = false;
 let backstop: NodeJS.Timeout | null = null;
 
 const freeSlots = (queue: string) => [...waiters].reduce((sum, w) => sum + Math.max(0, Math.floor(w.slots[queue] ?? 0)), 0);
 
 /** One fetch per queue that has waiting workers, however many workers wait. Idle platform cost: no loop, no query. */
 async function dispatch() {
-  if (dispatching) return;
+  if (dispatching) { dispatchPending = true; return; }
   dispatching = true;
   try {
-    for (const queue of QUEUE_NAMES) {
-      const free = freeSlots(queue);
-      if (free <= 0) continue;
-      const jobs = await boss.fetch<Args>(queue, { batchSize: Math.min(free, 5) }).catch((error: unknown) => {
-        console.warn(JSON.stringify({ level: "warn", event: "control_fetch_failed", queue, message: error instanceof Error ? error.message : String(error) }));
-        return [];
-      });
-      for (const job of jobs) {
-        const lease: Leased = { queue, id: job.id, attempt: job.retryCount + 1, data: job.data, leaseSeconds: LEASE_SECONDS };
-        const taker = [...waiters].find((w) => (w.slots[queue] ?? 0) > 0);
-        if (!taker) { await boss.fail(queue, { id: job.id, retryCount: job.retryCount }, { reason: "no taker" }).catch(() => undefined); continue; }
-        taker.slots[queue] = (taker.slots[queue] ?? 0) - 1;
-        taker.got.push(lease);
+    do {
+      dispatchPending = false;
+      for (const queue of QUEUE_NAMES) {
+        const free = freeSlots(queue);
+        if (free <= 0) continue;
+        const jobs = await boss.fetch<Args>(queue, { batchSize: Math.min(free, 5) }).catch((error: unknown) => {
+          console.warn(JSON.stringify({ level: "warn", event: "control_fetch_failed", queue, message: error instanceof Error ? error.message : String(error) }));
+          return [];
+        });
+        for (const job of jobs) {
+          const lease: Leased = { queue, id: job.id, attempt: job.retryCount + 1, data: job.data, leaseSeconds: LEASE_SECONDS };
+          const taker = [...waiters].find((w) => (w.slots[queue] ?? 0) > 0);
+          if (!taker) { await boss.fail(queue, { id: job.id, retryCount: job.retryCount }, { reason: "no taker" }).catch(() => undefined); continue; }
+          taker.slots[queue] = (taker.slots[queue] ?? 0) - 1;
+          taker.got.push(lease);
+        }
       }
-    }
-    for (const w of [...waiters]) {
-      if (w.got.length) { waiters.delete(w); w.resolve(w.got); }
-    }
+      for (const w of [...waiters]) {
+        if (w.got.length) { waiters.delete(w); w.resolve(w.got); }
+      }
+    } while (dispatchPending && waiters.size > 0);
   } finally {
     dispatching = false;
     if (waiters.size === 0 && backstop) { clearInterval(backstop); backstop = null; }
@@ -149,7 +157,7 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
         `update app.plate_variants v
             set state = 'rendering', render_attempt = render_attempt + 1, stage = 'verifying', frames_done = 0, error = null, updated_at = now()
           where v.id = $1 and v.gen = $2
-            and (v.state = 'bundled' or (v.state = 'rendering' and v.updated_at < now() - make_interval(secs => $4)))
+            and (v.state in ('bundled', 'checked') or (v.state = 'rendering' and v.updated_at < now() - make_interval(secs => $4)))
             and (select count(*) from app.plate_variants o where o.project_id = v.project_id and o.state = 'rendering' and o.id <> v.id
                    and o.updated_at >= now() - make_interval(secs => $4)) < $3
           returning v.*`, [variantId, gen, PROJECT_CAP, STALE_SECONDS]);
@@ -236,8 +244,35 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
   async "demand.idle"() {
     const stats = await Promise.all(QUEUE_NAMES.map((q) => boss.getQueueStats(q, { force: true }).then((rows) => rows[0] ?? null).catch(() => null)));
     const queued = stats.reduce((n, s) => n + Number(s?.queuedCount ?? 0) + Number(s?.activeCount ?? 0), 0);
-    const plate = await pool.query("select (select count(*) from app.plate_variants where state in ('bundled', 'rendering')) + (select count(*) from app.plate_exports where state in ('queued', 'assembling')) as n").then((r) => Number(r.rows[0]?.n ?? 0)).catch(() => null);
-    return { queued, plate };
+    const plate = await pool.query(
+      `select (
+         select count(*)
+           from app.plate_variants v
+           left join app.plate_state s on s.project_id = v.project_id
+          where v.state = 'rendering'
+             or (
+               v.state in ('bundled', 'checked')
+               and v.clip_key is null
+               and (
+                 coalesce(s.live_mode, 'clip') <> 'live'
+                 or v.aspect = any(coalesce(s.draw_aspects, '{}'::text[]))
+                 or v.stage = 'queued for rendering'
+               )
+             )
+       ) + (select count(*) from app.plate_exports where state in ('queued', 'assembling')) as n`
+    ).then((r) => Number(r.rows[0]?.n ?? 0)).catch(() => null);
+    const lagMs = {
+      p50: Math.round((loopDelay.percentile(50) / 1e6) * 100) / 100,
+      p95: Math.round((loopDelay.percentile(95) / 1e6) * 100) / 100,
+      max: Math.round((loopDelay.max / 1e6) * 100) / 100
+    };
+    loopDelay.reset();
+    return {
+      queued,
+      plate,
+      lagMs,
+      pool: { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount }
+    };
   }
 };
 

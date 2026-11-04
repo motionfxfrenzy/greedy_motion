@@ -71,7 +71,7 @@ export async function handlePlateRender(job, { control }) {
   if (!row) {
     // At the project's cap: look again shortly without spending a retry. Superseded, drawn, or held by a live attempt: nothing to do.
     const { row: now } = await control.op("plate.state", { variantId });
-    if (now?.gen === gen && now?.state === "bundled") await control.op("plate.sendLater", { variantId, gen, startAfter: 4 });
+    if (now?.gen === gen && (now?.state === "bundled" || now?.state === "checked")) await control.op("plate.sendLater", { variantId, gen, startAfter: 4 });
     // Redelivered (a worker died or was stopped) while the previous holder's last write is still recent: look again once it would
     // count as silent, instead of letting this delivery complete and nothing take the scene over. Bounded.
     else if (now?.gen === gen && now?.state === "rendering" && (job.retryCount > 0 || job.data?.looks > 0) && (job.data?.looks ?? 0) < 6) await control.op("plate.sendLater", { variantId, gen, looks: (job.data?.looks ?? 0) + 1, startAfter: Math.ceil(STALE_SECONDS / 2) });
