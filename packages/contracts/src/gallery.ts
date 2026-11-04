@@ -179,7 +179,7 @@ const withRendered = (item: GalleryTemplate): GalleryTemplate => {
   if (!entry) return item;
   const reference = entry.reference ? { reference: entry.reference } : {};
   if (!entry.video) return { ...item, ...reference, preview: { ...item.preview, src: `gallery:${entry.poster}` } };
-  return { ...item, ...reference, preview: { src: `gallery:${entry.poster}`, kind: "video", video: `gallery:${entry.video}`, label: getLook(item.look).renderMode === "generated" ? "Layout draft: generated footage replaces it" : "Preview of this style" } };
+  return { ...item, ...reference, preview: { src: `gallery:${entry.poster}`, kind: "video", video: `gallery:${entry.video}`, label: item.id.startsWith("story-illus-") ? "A code-drawn example of this style" : getLook(item.look).renderMode === "generated" ? "Layout draft: generated footage replaces it" : "Preview of this style" } };
 };
 
 const exampleStylePrompt = "A 30-second explainer for Pocket, an app that turns receipts into a tidy monthly budget. Show the problem of a pile of receipts, how Pocket sorts them, and a call to try it free.";
@@ -278,7 +278,9 @@ const everyGalleryTemplate: readonly GalleryTemplate[] = [...paintedTemplates, .
  */
 export const HOLD_GENERATED_STYLES = true;
 export const heldForV2 = (look: string) => HOLD_GENERATED_STYLES && getLook(look).renderMode === "generated";
-export const galleryTemplates: readonly GalleryTemplate[] = everyGalleryTemplate.filter((item) => !heldForV2(item.look));
+/** The Story & film plates of the illustration styles: each is code-drawn (anidoodle), so they stay in the gallery while the generated looks are held. */
+export const isStylePlate = (item: GalleryTemplate) => item.id.startsWith("story-illus-");
+export const galleryTemplates: readonly GalleryTemplate[] = everyGalleryTemplate.filter((item) => !heldForV2(item.look) || isStylePlate(item));
 
 import { galleryUseCases, normalizeSearch, type GalleryUseCase } from "./gallery-use-cases.ts";
 export { galleryUseCases, type GalleryUseCase };
@@ -295,6 +297,8 @@ export function useCaseOf(item: GalleryTemplate): GalleryUseCase {
   if (item.group === "3D") return "threed";
   if (explainGroups.has(item.group)) return "explain";
   if (item.group === "Paper" || item.group === "Clay") return "story";
+  // The editorial collage is drawn by the engine from a script, with product screens on top: it is a product look, not a film.
+  if (item.id === "story-vox-collage") return "saas";
   if (item.kind === "style" && item.group === "Story") return "story";
   if (brandGroups.has(item.group)) return "brand";
   return "saas";
@@ -307,15 +311,18 @@ export const findGalleryTemplate = (id: string | null | undefined) => everyGalle
 export const needsGeneration = (item: GalleryTemplate) => getLook(item.look).renderMode === "generated";
 
 /** The brief fields a gallery entry presets. Everything else (brand kit, screenshots, product site) stays the person's. */
+/** A film starts from a small story, never a product pitch: a template in the Story & film group that has no story of its own gets this. */
+const dummyFilmPrompt = "A short film about a lighthouse keeper who lights an old lantern by hand when the lamp goes dark, and guides the fishing boats home before morning.";
+
 export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMode" | "text" | "durationSeconds" | "aspect" | "motionProfile" | "pace" | "audio" | "captions" | "template" | "theme" | "look" | "styleFamily" | "styleExample"> {
   return {
     scriptMode: "problem",
-    text: item.prompt,
+    text: useCaseOf(item) === "story" && !item.id.startsWith("story-") ? dummyFilmPrompt : item.prompt,
     durationSeconds: item.durationSeconds,
     aspect: item.aspect,
     motionProfile: item.motionProfile,
     pace: item.pace,
-    audio: { mode: item.audio, voice: "Kore" },
+    audio: { mode: "both", voice: "Kore" },
     captions: item.captions,
     template: item.skill,
     theme: item.theme,
@@ -337,7 +344,7 @@ export type GalleryPage = { items: GalleryCard[]; total: number; nextCursor: str
 
 export const galleryCard = (item: GalleryTemplate): GalleryCard => ({
   id: item.id, name: item.name, group: item.group, summary: item.summary, preview: item.preview, aspect: item.aspect,
-  ...(item.source ? { source: item.source } : {}), generated: needsGeneration(item), useCase: useCaseOf(item),
+  ...(item.source ? { source: item.source } : {}), generated: needsGeneration(item) && !isStylePlate(item), useCase: useCaseOf(item),
   ...(item.paintedLook ? { paintedLook: item.paintedLook } : {})
 });
 
@@ -351,16 +358,21 @@ export const GALLERY_PAGE_MAX = 48;
  * ever holds the page it shows. `cursor` is the offset of the next item; `counts` are for the search text across all
  * use cases, so the tabs stay truthful while someone searches.
  */
-export function queryGallery(options: { useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[]; look?: string /* a look id or a family id */ } = {}): GalleryPage {
+/** Use-case groups held back from the gallery for now. Remove an id here to show it again. */
+const hiddenUseCases: readonly GalleryUseCase[] = ["threed"];
+
+export function queryGallery(options: { useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[]; look?: string /* a look id or a family id */; /** Include the code-drawn plate templates (only where the backend has the plate pipeline on). */ plates?: boolean } = {}): GalleryPage {
   const needle = normalizeSearch(options.q).toLowerCase();
   const base = options.look ? styleExamples(options.look) : galleryTemplates;
   const matches = needle ? base.filter((item) => `${item.name} ${item.summary} ${item.bestFor} ${item.group} ${item.look}`.toLowerCase().includes(needle)) : base;
-  const counts = { all: matches.length } as Record<GalleryUseCase | "all", number>;
+  // Hidden groups stay out of browsing and counts (so their tab disappears); a template asked for by id still resolves.
+  const shown = matches.filter((item) => !hiddenUseCases.includes(useCaseOf(item)) && (options.plates || !isStylePlate(item)));
+  const counts = { all: shown.length } as Record<GalleryUseCase | "all", number>;
   for (const entry of galleryUseCases) counts[entry.id] = 0;
-  for (const item of matches) counts[useCaseOf(item)]++;
+  for (const item of shown) counts[useCaseOf(item)]++;
   const pool = options.ids
     ? options.ids.flatMap((id) => matches.filter((item) => item.id === id))
-    : options.useCase && galleryUseCases.some((entry) => entry.id === options.useCase) ? matches.filter((item) => useCaseOf(item) === options.useCase) : matches;
+    : options.useCase && galleryUseCases.some((entry) => entry.id === options.useCase) ? shown.filter((item) => useCaseOf(item) === options.useCase) : shown;
   const limit = Math.min(Math.max(Math.floor(options.limit ?? 24) || 24, 1), GALLERY_PAGE_MAX);
   const offset = Math.max(Math.floor(Number(options.cursor)) || 0, 0);
   const page = pool.slice(offset, offset + limit);
