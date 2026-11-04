@@ -47,73 +47,34 @@ export async function plateCapability() {
 // ================================================================ render one scene
 const DIM = { "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080] };
 
-export async function claimVariant(pool, variantId, gen) {
-  const client = await pool.connect();
-  try {
-    await client.query("begin");
-    const found = await client.query("select project_id from app.plate_variants where id = $1", [variantId]);
-    if (!found.rows.length) { await client.query("rollback"); return null; }
-    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate-cap:${found.rows[0].project_id}`]);
-    const result = await client.query(
-      `update app.plate_variants v
-          set state = 'rendering', render_attempt = render_attempt + 1, stage = 'verifying', frames_done = 0, error = null, updated_at = now()
-        where v.id = $1 and v.gen = $2
-          and (v.state = 'bundled' or (v.state = 'rendering' and v.updated_at < now() - make_interval(secs => $4)))
-          and (select count(*) from app.plate_variants o where o.project_id = v.project_id and o.state = 'rendering' and o.id <> v.id
-                 and o.updated_at >= now() - make_interval(secs => $4)) < $3
-        returning v.*`,
-      [variantId, gen, PROJECT_CAP, STALE_SECONDS]
-    );
-    await client.query("commit");
-    return result.rows[0] ?? null;
-  } catch (error) {
-    await client.query("rollback").catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
+/** Claims the scene for this attempt (cap per project, stale takeover). On the backend, in one transaction. Never retried: see control.mjs. */
+export async function claimVariant(control, variantId, gen) {
+  return (await control.op("plate.claim", { variantId, gen }, { retry: false })).row ?? null;
 }
 
-const fenced = (pool, row, set, values = []) =>
-  pool.query(`update app.plate_variants set ${set}, updated_at = now() where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'`, [row.id, row.gen, row.render_attempt, ...values]);
+/** Fenced writes of the one attempt that owns the row; each returns true while this attempt still owns it. */
+const ref = (row) => ({ id: row.id, gen: row.gen, renderAttempt: row.render_attempt });
+const fenceProgress = async (control, row, stage, framesDone) => (await control.op("plate.progress", { ...ref(row), stage, framesDone })).ok === true;
+const fenceDrawn = async (control, row, args) => (await control.op("plate.drawn", { ...ref(row), ...args })).ok === true;
+const fenceFailed = async (control, row, error) => (await control.op("plate.failed", { ...ref(row), error })).ok === true;
+const fenceRetry = async (control, row) => (await control.op("plate.retry", ref(row))).ok === true;
 
 /** A deterministic defect of the scene code goes back to authoring (bounded); anything else is infrastructure. */
-async function sendBackForRepair(pool, boss, row, detail) {
-  const client = await pool.connect();
-  try {
-    await client.query("begin");
-    const exhausted = row.authored >= MAX_AUTHOR_CALLS;
-    const result = exhausted
-      ? await client.query(
-        `update app.plate_variants set state = 'failed', stage = null, error = $4::jsonb, updated_at = now()
-          where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'`,
-        [row.id, row.gen, row.render_attempt, JSON.stringify({ code: "scene_invalid", message: `This scene could not be drawn after ${row.authored} attempts. Press Draw to try again.`, detail: detail.slice(0, 800) })])
-      : await client.query(
-        `update app.plate_variants set state = 'queued', stage = 'repairing', repair = $4::jsonb, repairs = repairs + 1, author_owner = null, author_until = null, enqueued_at = now(), updated_at = now()
-          where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'`,
-        [row.id, row.gen, row.render_attempt, JSON.stringify({ error: detail.slice(-2500), previousKey: row.source_key })]);
-    if (result.rowCount === 1 && !exhausted) await boss.send(AUTHOR_QUEUE, { variantId: row.id, gen: row.gen }, { db: { executeSql: (text, values) => client.query(text, values) } });
-    await client.query("commit");
-    return { applied: result.rowCount === 1, exhausted };
-  } catch (error) {
-    await client.query("rollback").catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
+async function sendBackForRepair(control, row, detail) {
+  return control.op("plate.sendBackForRepair", { ...ref(row), authored: row.authored, sourceKey: row.source_key, detail });
 }
 
-export async function handlePlateRender(job, { pool, boss }) {
+export async function handlePlateRender(job, { control }) {
   const { variantId, gen } = job.data ?? {};
   if (typeof variantId !== "string" || !UUID.test(variantId) || !Number.isInteger(gen)) return;
-  const row = await claimVariant(pool, variantId, gen);
+  const row = await claimVariant(control, variantId, gen);
   if (!row) {
     // At the project's cap: look again shortly without spending a retry. Superseded, drawn, or held by a live attempt: nothing to do.
-    const { rows } = await pool.query("select state, gen from app.plate_variants where id = $1", [variantId]);
-    if (rows[0]?.gen === gen && rows[0]?.state === "bundled") await boss.send(PLATE_RENDER_QUEUE, { variantId, gen }, { startAfter: 4 });
+    const { row: now } = await control.op("plate.state", { variantId });
+    if (now?.gen === gen && now?.state === "bundled") await control.op("plate.sendLater", { variantId, gen, startAfter: 4 });
     // Redelivered (a worker died or was stopped) while the previous holder's last write is still recent: look again once it would
     // count as silent, instead of letting this delivery complete and nothing take the scene over. Bounded.
-    else if (rows[0]?.gen === gen && rows[0]?.state === "rendering" && (job.retryCount > 0 || job.data?.looks > 0) && (job.data?.looks ?? 0) < 6) await boss.send(PLATE_RENDER_QUEUE, { variantId, gen, looks: (job.data?.looks ?? 0) + 1 }, { startAfter: Math.ceil(STALE_SECONDS / 2) });
+    else if (now?.gen === gen && now?.state === "rendering" && (job.retryCount > 0 || job.data?.looks > 0) && (job.data?.looks ?? 0) < 6) await control.op("plate.sendLater", { variantId, gen, looks: (job.data?.looks ?? 0) + 1, startAfter: Math.ceil(STALE_SECONDS / 2) });
     return;
   }
   const started = Date.now();
@@ -124,8 +85,7 @@ export async function handlePlateRender(job, { pool, boss }) {
   let framesDone = 0, stage = "verifying", ticking = Promise.resolve();
   const tick = setInterval(() => {
     ticking = ticking.then(async () => {
-      const res = await fenced(pool, row, "stage = $4, frames_done = $5", [stage, framesDone]);
-      if (res.rowCount === 0) lost.abort(new Error("superseded"));
+      if (!(await fenceProgress(control, row, stage, framesDone))) lost.abort(new Error("superseded"));
     }).catch((error) => log("warn", "plate_progress_failed", { variantId, message: messageOf(error) }));
   }, 2000);
   log("info", "plate_render_started", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, gen: row.gen, attempt: row.render_attempt });
@@ -149,7 +109,7 @@ export async function handlePlateRender(job, { pool, boss }) {
       if (lost.signal.aborted) return;
       if (job.signal.aborted) throw error;
       if (classifyFailure(error) === "code") {
-        const sent = await sendBackForRepair(pool, boss, row, messageOf(error));
+        const sent = await sendBackForRepair(control, row, messageOf(error));
         log("warn", "plate_scene_code_failure", { variantId, scene: row.scene_index, aspect: row.aspect, exhausted: sent.exhausted, message: messageOf(error).slice(0, 300) });
         return;
       }
@@ -180,9 +140,8 @@ export async function handlePlateRender(job, { pool, boss }) {
     const uploadMs = Date.now() - t2;
 
     // 3. publish: only the attempt that still owns the row can put its key there
-    const published = await fenced(pool, row, "state = 'drawn', stage = null, frames_done = frames, clip_key = $4, still_key = $5, clip_meta = $6::jsonb, error = null, drawn_at = now(), timings = timings || $7::jsonb",
-      [clipKey, stillKey, JSON.stringify({ ...facts, worker: hostname(), attempt: row.render_attempt }), JSON.stringify({ verifyMs, renderMs, uploadMs, workerTotalMs: Date.now() - started })]);
-    if (published.rowCount === 0) {
+    const published = await fenceDrawn(control, row, { clipKey, stillKey, clipMeta: { ...facts, worker: hostname(), attempt: row.render_attempt }, timings: { verifyMs, renderMs, uploadMs, workerTotalMs: Date.now() - started } });
+    if (!published) {
       await deleteOutputs(uploaded).catch(() => undefined);
       log("info", "plate_render_superseded", { variantId, gen: row.gen, attempt: row.render_attempt });
       return;
@@ -195,13 +154,13 @@ export async function handlePlateRender(job, { pool, boss }) {
       return;
     }
     if (error?.permanent) {
-      await fenced(pool, row, "state = 'failed', stage = null, error = $4::jsonb", [JSON.stringify({ code: "scene_invalid", message: error.message })]);
+      await fenceFailed(control, row, { code: "scene_invalid", message: error.message });
       return;
     }
     const { classifyFailure } = await engine();
     if (!job.signal.aborted && classifyFailure(error) === "code") {
       // A scene that fails while drawing (or draws a clip that breaks its contract) is a code defect: bounded repair.
-      await sendBackForRepair(pool, boss, row, messageOf(error));
+      await sendBackForRepair(control, row, messageOf(error));
       return;
     }
     const final = (job.retryCount ?? 0) >= 2;
@@ -209,8 +168,8 @@ export async function handlePlateRender(job, { pool, boss }) {
     await deleteOutputs(uploaded).catch(() => undefined);
     if (job.signal.aborted) throw error; // worker stopping or heartbeat lost: the lease ages out and a retry takes over
     // Browser start-up, Spot interruption, storage or network failure: the same bundle is tried again, no model call.
-    if (final) await fenced(pool, row, "state = 'failed', stage = null, error = $4::jsonb", [JSON.stringify({ code: "render_failed", message: "Drawing this scene did not finish. Press Draw to try again.", detail: messageOf(error).slice(-400) })]);
-    else await fenced(pool, row, "state = 'bundled', stage = 'retrying'");
+    if (final) await fenceFailed(control, row, { code: "render_failed", message: "Drawing this scene did not finish. Press Draw to try again.", detail: messageOf(error).slice(-400) });
+    else await fenceRetry(control, row);
     if (!final) throw error;
   } finally {
     clearInterval(tick);
@@ -404,12 +363,12 @@ async function loadManifest(manifestKey, projectId, scratch) {
 }
 
 /** Waits for every scene of the manifest to be drawn (they may still be in the authoring/render queues). */
-async function resolveClips(pool, manifest, { signal, report }) {
+async function resolveClips(control, manifest, { signal, report }) {
   const ids = manifest.scenes.map((s) => s.variantId);
   let lastDone = -1, stalledSince = Date.now();
   for (;;) {
     if (signal.aborted) throw signal.reason ?? new Error("Aborted.");
-    const { rows } = await pool.query("select id, project_id, signature, state, clip_key, error from app.plate_variants where id = any($1)", [ids]);
+    const { rows } = await control.op("scenes.states", { ids });
     const byId = new Map(rows.map((r) => [r.id, r]));
     let done = 0;
     for (const scene of manifest.scenes) {
@@ -441,14 +400,14 @@ async function downloadClips(manifest, keys, scratch) {
  * The billed final render (render-video, kind "plate-film"): wait for the scenes, assemble, return the file for the ordinary
  * upload/commit path. `report({ stage, progress, framesDone, framesTotal })` is the job's fenced progress write.
  */
-export async function renderPlateFilmJob(id, input, attempt, { pool, signal, report, output }) {
+export async function renderPlateFilmJob(id, input, attempt, { control, signal, report, output }) {
   if (!UUID.test(input.projectId ?? "")) throw new InputError("A valid project id is required.");
   const scratch = join("/tmp", `plate-film-${id}-a${attempt}`);
   await rm(scratch, { recursive: true, force: true });
   await mkdir(scratch, { recursive: true });
   try {
     const manifest = await loadManifest(input.manifestKey, input.projectId, scratch);
-    const keys = await resolveClips(pool, manifest, { signal, report: ({ done, total }) => report({ stage: "frames", progress: 52 + Math.round((done / total) * 30), framesDone: done, framesTotal: total }) });
+    const keys = await resolveClips(control, manifest, { signal, report: ({ done, total }) => report({ stage: "frames", progress: 52 + Math.round((done / total) * 30), framesDone: done, framesTotal: total }) });
     await report({ stage: "encoding", progress: 84, framesDone: manifest.totalFrames, framesTotal: manifest.totalFrames });
     const clips = await downloadClips(manifest, keys, scratch);
     const started = Date.now();
@@ -461,17 +420,11 @@ export async function renderPlateFilmJob(id, input, attempt, { pool, signal, rep
 }
 
 // ================================================================ companion export
-export async function handlePlateExport(job, { pool }) {
+export async function handlePlateExport(job, { control }) {
   const { exportId } = job.data ?? {};
   if (typeof exportId !== "string" || !UUID.test(exportId)) return;
-  const claimed = await pool.query(
-    `update app.plate_exports set state = 'assembling', attempt = attempt + 1, stage = 'preparing', progress = 5, error = null, updated_at = now()
-      where id = $1 and (state = 'queued' or (state = 'assembling' and updated_at < now() - make_interval(secs => $2))) returning *`,
-    [exportId, STALE_SECONDS]
-  );
-  const row = claimed.rows[0];
+  const { row } = await control.op("export.claim", { exportId }, { retry: false });
   if (!row) return;
-  const fence = (set, values = []) => pool.query(`update app.plate_exports set ${set}, updated_at = now() where id = $1 and attempt = $2 and state = 'assembling'`, [row.id, row.attempt, ...values]);
   const lost = new AbortController();
   const signal = AbortSignal.any([job.signal, lost.signal]);
   const scratch = join("/tmp", `plate-export-${row.id}-a${row.attempt}`);
@@ -480,7 +433,7 @@ export async function handlePlateExport(job, { pool }) {
   const report = async (stage, progress) => {
     if (Date.now() - last < 1000) return;
     last = Date.now();
-    if ((await fence("stage = $3, progress = $4", [stage, progress])).rowCount === 0) lost.abort(new Error("superseded"));
+    if (!(await control.op("export.progress", { id: row.id, attempt: row.attempt, stage, progress })).ok) lost.abort(new Error("superseded"));
   };
   try {
     await rm(scratch, { recursive: true, force: true });
@@ -495,8 +448,8 @@ export async function handlePlateExport(job, { pool }) {
     const facts = await assemble(manifest, { clipFiles: clips, scratch, output, signal, onProgress: (p) => void report("encoding", 15 + Math.round(p * 75)).catch(() => undefined) });
     await uploadPlateOutput(output, key, "video/mp4");
     uploaded = true;
-    const done = await fence("state = 'ready', stage = 'done', progress = 100, output_key = $3, finished_at = now()", [key]);
-    if (done.rowCount === 0) { await deleteOutputs([key]).catch(() => undefined); return; }
+    const done = await control.op("export.ready", { id: row.id, attempt: row.attempt, outputKey: key });
+    if (!done.ok) { await deleteOutputs([key]).catch(() => undefined); return; }
     log("info", "plate_export_ready", { exportId, projectId: row.project_id, aspect: row.aspect, ...facts, seconds: Math.round((Date.now() - started) / 100) / 10 });
   } catch (error) {
     if (uploaded) await deleteOutputs([key]).catch(() => undefined);
@@ -504,8 +457,8 @@ export async function handlePlateExport(job, { pool }) {
     if (job.signal.aborted) throw error;
     const final = error?.permanent || (job.retryCount ?? 0) >= 2;
     log("warn", "plate_export_failed", { exportId, final, message: messageOf(error).slice(-300) });
-    if (final) { await fence("state = 'failed', stage = null, error = $3::jsonb", [JSON.stringify({ code: "export_failed", message: error?.permanent ? error.message : "The export did not finish. Try again." })]); return; }
-    await fence("state = 'queued', stage = 'retrying'");
+    if (final) { await control.op("export.failed", { id: row.id, attempt: row.attempt, error: { code: "export_failed", message: error?.permanent ? error.message : "The export did not finish. Try again." } }); return; }
+    await control.op("export.requeue", { id: row.id, attempt: row.attempt });
     throw error;
   } finally {
     await rm(scratch, { recursive: true, force: true });

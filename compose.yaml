@@ -103,6 +103,8 @@ services:
       R2_OUTPUTS_BUCKET: plates-outputs
       PLATE_PIPELINE: worker
       WORKER_LAUNCH: external
+      # Workers reach Postgres only through the API's job-control routes (docs/JOB_CONTROL.md).
+      WORKER_CONTROL_TOKEN: plates-e2e-control-token-0123456789
       # The stub by default; E2E_ANTHROPIC_KEY / E2E_ANTHROPIC_URL point one run at the real model API.
       ANTHROPIC_API_KEY: ${E2E_ANTHROPIC_KEY:-stub}
       ANTHROPIC_BASE_URL: ${E2E_ANTHROPIC_URL:-http://llm-stub:8787}
@@ -127,6 +129,9 @@ services:
       PORT: "8080"
       PLATE_CONCURRENCY: "2"
       DRAIN_SECONDS: "5"
+      WORKER_CONTROL_URL: http://plate-api:4000
+      # The worker holds no database credentials: this one points nowhere, so any stray connection attempt fails the run.
+      DATABASE_URL: postgres://nobody:nobody@127.0.0.1:1/none
     depends_on: { plate-api: { condition: service_started } }
     stop_grace_period: 15s
     profiles: ["plates-e2e"]

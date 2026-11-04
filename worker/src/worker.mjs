@@ -1,21 +1,20 @@
 import { preflightRender, RenderContractError, RENDER_CAPABILITIES } from "./render-preflight.mjs";
-// Render worker (Railway service "worker"). Consumes `render-video` from pg-boss, renders with
+// Render worker. Takes `render-video` and plate work from the backend dispatcher (control.mjs), renders with
 // HyperFrames, reports real progress into app.render_jobs, and publishes `render-finished`.
 // Scale out by adding replicas; each one runs RENDER_CONCURRENCY renders at a time (default 1).
 import http from "node:http";
 import { access, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { PgBoss } from "pg-boss";
 import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
 import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
-import { QUEUES, claim, createPool, finish, noteRetry, progress } from "./jobs.mjs";
+import { QUEUES, claim, finish, noteRetry, progress } from "./jobs.mjs";
+import { consume, createControl, runLeased } from "./control.mjs";
 import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
 import { PLATE_EXPORT_QUEUE, PLATE_RENDER_QUEUE, handlePlateExport, handlePlateRender, plateCapability, renderPlateFilmJob } from "./plates.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 // Railway private networking needs "::"; local Docker uses 0.0.0.0.
 const host = process.env.HOST ?? "0.0.0.0";
-const databaseUrl = process.env.DATABASE_URL ?? "";
 const concurrency = Number.parseInt(process.env.RENDER_CONCURRENCY ?? "1", 10);
 // Plate scenes (plates.mjs): verified and drawn in Chromium, each one a browser; PLATE_CONCURRENCY at a time on this task (CPU workers only).
 const plateConcurrency = Number.parseInt(process.env.PLATE_CONCURRENCY ?? "2", 10);
@@ -27,19 +26,14 @@ const RENDERS_DIR = "/renders";
 // 0 (the default) keeps the worker running, as a long-lived service or local Docker needs.
 const idleExitSeconds = Number.parseInt(process.env.IDLE_EXIT_SECONDS ?? "0", 10);
 
-if (!databaseUrl) throw new Error("DATABASE_URL is not set; the worker reads render jobs from Postgres.");
 if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("RENDER_CONCURRENCY must be a positive integer.");
 if (!Number.isInteger(idleExitSeconds) || idleExitSeconds < 0) throw new Error("IDLE_EXIT_SECONDS must be 0 or a positive integer.");
 
 const QUEUE = QUEUES.video;
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
-const pool = createPool(databaseUrl);
-// The backend owns the pg-boss schema and the queues (migrate: false); the worker only consumes.
-// Same quiet settings as the backend (backend/src/jobs/queues.ts explains each): no cron clock, no instance heartbeat, no
-// dependent-job resolver, and it listens for new jobs instead of polling (the video queue is `notify`; polling is a 30 s
-// backstop). It also does not supervise: the backend supervises every queue, so a second supervisor only adds reads.
-const boss = new PgBoss({ connectionString: databaseUrl, max: Number.parseInt(process.env.BOSS_POOL_MAX ?? "4", 10), migrate: false, useListenNotify: true, notifyHeartbeatIntervalMs: 30_000, supervise: false, schedule: false, registerInstance: false, flowIntervalSeconds: 3600, bamIntervalSeconds: 600, queueCacheIntervalSeconds: 300, idleTimeoutMillis: 120_000 });
-boss.on("error", (error) => log("error", "queue_error", { message: error.message }));
+// The worker holds no database connection and no pg-boss client: every claim, heartbeat, write and acknowledgment goes through the
+// backend's job-control routes (control.mjs, docs/JOB_CONTROL.md), so adding workers never adds pooler clients.
+const control = createControl();
 
 let ready = false;
 let shuttingDown = false;
@@ -63,7 +57,7 @@ function progressReporter(jobId, attempt, onLost) {
     last = now;
     const percent = fixedPercent ?? (stage === "encoding" ? 92 : frames ? 52 + Math.round((frames.done / frames.total) * 38) : 50);
     writing = writing
-      .then(() => progress(pool, jobId, attempt, { stage, progress: percent, framesDone: frames?.done ?? null, framesTotal: frames?.total ?? null }))
+      .then(() => progress(control, jobId, attempt, { stage, progress: percent, framesDone: frames?.done ?? null, framesTotal: frames?.total ?? null }))
       .then((owned) => { if (!owned) onLost(); })
       .catch((error) => log("warn", "progress_write_failed", { jobId, message: error.message }));
   };
@@ -189,14 +183,14 @@ async function renderPlateFilm(id, input, attempt, signal) {
   const output = join(scratch, "out.mp4");
   const key = `renders/${id}/a${attempt}.mp4`;
   const report = async ({ stage, progress: percent, framesDone = null, framesTotal = null }) => {
-    if (!(await progress(pool, id, attempt, { stage, progress: percent, framesDone, framesTotal }))) throw new Error("This attempt no longer owns the job.");
+    if (!(await progress(control, id, attempt, { stage, progress: percent, framesDone, framesTotal }))) throw new Error("This attempt no longer owns the job.");
   };
   try {
     await rm(scratch, { recursive: true, force: true });
     await mkdir(scratch, { recursive: true });
     let result;
     try {
-      result = await renderPlateFilmJob(id, input, attempt, { pool, signal, report, output });
+      result = await renderPlateFilmJob(id, input, attempt, { control, signal, report, output });
     } catch (error) {
       if (error?.permanent) throw new PermanentError(error.message);
       throw error;
@@ -268,7 +262,7 @@ async function removeEarlierAttempts(jobId, attempt) {
 async function handle(job) {
   const { jobId } = job.data ?? {};
   const attempt = job.retryCount + 1;
-  const input = await claim(pool, jobId, attempt);
+  const input = await claim(control, jobId, attempt);
   if (!input) {
     log("info", "render_skipped", { jobId, attempt, reason: "not claimable (finished, failed, or superseded)" });
     return;
@@ -285,7 +279,7 @@ async function handle(job) {
   try {
     const output = await renderVideo(input, attempt, signal, reporter);
     await reporter.flush();
-    const committed = await finish(pool, boss, jobId, attempt, { output });
+    const committed = await finish(control, jobId, attempt, { output });
     if (!committed) {
       if (output.key) await deleteOutputs([output.key]).catch(() => undefined);
       else await rm(join(RENDERS_DIR, output.file), { force: true });
@@ -299,11 +293,11 @@ async function handle(job) {
       throw error;
     }
     if (error instanceof PermanentError) {
-      await finish(pool, boss, jobId, attempt, { error: { code: "render_invalid", message } });
+      await finish(control, jobId, attempt, { error: { code: "render_invalid", message } });
       log("error", "render_failed_permanently", { jobId, attempt, message });
       return;
     }
-    await noteRetry(pool, jobId, attempt, { code: "render_failed", message: "The renderer hit an error and is trying again.", detail: message.slice(-800) });
+    await noteRetry(control, jobId, attempt, { code: "render_failed", message: "The renderer hit an error and is trying again.", detail: message.slice(-800) });
     log("error", "render_attempt_failed", { jobId, attempt, message: message.slice(-400) });
     throw error;
   } finally {
@@ -312,60 +306,63 @@ async function handle(job) {
   }
 }
 
-/** The backend creates the pg-boss schema and queues; wait for them instead of crashing on a cold start. */
+/**
+ * Takes work from the backend's dispatcher with long-held polls (control.mjs). One loop; each leased job runs under runLeased, which
+ * renews its lease and acknowledges the outcome. Plate scenes: CPU workers only, and only where this image can draw them
+ * (Chromium + the engine's capture adapter).
+ */
+const stop = new AbortController();
+let activeExports = 0;
+const leased = { [QUEUES.video]: 0, [PLATE_RENDER_QUEUE]: 0, [PLATE_EXPORT_QUEUE]: 0 };
+let drawsPlates = false;
+
 async function startConsuming() {
-  for (let delay = 1000; ; delay = Math.min(delay * 2, 15_000)) {
-    if (shuttingDown) return;
-    try {
-      await boss.start();
-      if (await boss.getQueue(QUEUE)) break;
-      log("info", "waiting_for_queue", { queue: QUEUE });
-    } catch (error) {
-      log("warn", "queue_unavailable", { message: error instanceof Error ? error.message : String(error) });
-    }
-    await new Promise((resolve) => setTimeout(resolve, delay));
-  }
-  await boss.work(QUEUE, { localConcurrency: concurrency, pollingIntervalSeconds: 1 }, async ([job]) => handle(job));
-  // Plate scenes: CPU workers only, and only where this image can draw them (Chromium + the engine's capture adapter) and the
-  // backend created the queues. The backend creates the queues in order; a worker that came up first waits a little for them
-  // (an older backend never creates them).
   const capability = QUEUE === QUEUES.video && plateConcurrency > 0 ? await plateCapability() : null;
-  let drawsPlates = false;
-  for (let tries = 0; capability && tries < 10 && !drawsPlates; tries++) {
-    drawsPlates = Boolean(await boss.getQueue(PLATE_RENDER_QUEUE).catch(() => null));
-    if (!drawsPlates) await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-  if (drawsPlates) {
-    await boss.work(PLATE_RENDER_QUEUE, { localConcurrency: plateConcurrency, pollingIntervalSeconds: 3 }, async ([job]) => {
-      activePlates += 1;
-      lastBusy = Date.now();
-      try { await handlePlateRender(job, { pool, boss }); } finally { activePlates -= 1; lastBusy = Date.now(); }
-    });
-    if (await boss.getQueue(PLATE_EXPORT_QUEUE).catch(() => null)) await boss.work(PLATE_EXPORT_QUEUE, { localConcurrency: 1, pollingIntervalSeconds: 3 }, async ([job]) => {
-      activePlates += 1;
-      lastBusy = Date.now();
-      try { await handlePlateExport(job, { pool }); } finally { activePlates -= 1; lastBusy = Date.now(); }
-    });
-  }
+  drawsPlates = Boolean(capability);
+  const handlers = {
+    [QUEUES.video]: async (job) => { await handle(job); },
+    [PLATE_RENDER_QUEUE]: async (job) => {
+      activePlates += 1; lastBusy = Date.now();
+      try { await handlePlateRender(job, { control }); } finally { activePlates -= 1; lastBusy = Date.now(); }
+    },
+    [PLATE_EXPORT_QUEUE]: async (job) => {
+      activePlates += 1; activeExports += 1; lastBusy = Date.now();
+      try { await handlePlateExport(job, { control }); } finally { activePlates -= 1; activeExports -= 1; lastBusy = Date.now(); }
+    }
+  };
   ready = true;
-  log("info", "worker_consuming", { queue: QUEUE, concurrency, plateConcurrency: drawsPlates ? plateConcurrency : 0, idleExitSeconds });
+  log("info", "worker_consuming", { queue: QUEUE, concurrency, plateConcurrency: drawsPlates ? plateConcurrency : 0, idleExitSeconds, workerId: control.workerId });
   if (idleExitSeconds > 0) watchIdle();
+  const inFlight = new Set();
+  await consume(control, {
+    stop: stop.signal,
+    log,
+    slots: () => shuttingDown ? {} : {
+      [QUEUES.video]: Math.max(0, concurrency - leased[QUEUES.video]),
+      [PLATE_RENDER_QUEUE]: drawsPlates ? Math.max(0, plateConcurrency - leased[PLATE_RENDER_QUEUE]) : 0,
+      [PLATE_EXPORT_QUEUE]: drawsPlates ? Math.max(0, 1 - leased[PLATE_EXPORT_QUEUE]) : 0
+    },
+    onJob: (lease) => {
+      const handler = handlers[lease.queue];
+      if (!handler) { void control.fail(lease.queue, lease.id, lease.attempt, "unknown queue").catch(() => undefined); return; }
+      // Counted from the moment it is leased (not when the handler starts), so the next poll never offers this slot again.
+      leased[lease.queue] += 1;
+      lastBusy = Date.now();
+      const run = runLeased(control, lease, handler, { shutdown: stop.signal }).then((outcome) => log("info", "job_ended", { queue: lease.queue, id: lease.id, attempt: lease.attempt, outcome })).finally(() => { leased[lease.queue] -= 1; lastBusy = Date.now(); inFlight.delete(run); });
+      inFlight.add(run);
+    }
+  });
+  await Promise.allSettled([...inFlight]);
 }
 
-/** Exits once the worker has had nothing to do for idleExitSeconds and the queue is empty. */
+/** Exits once the worker has had nothing to do for idleExitSeconds and nothing is queued. */
 function watchIdle() {
   const timer = setInterval(async () => {
-    if (shuttingDown || active > 0 || activePlates > 0 || Date.now() - lastBusy < idleExitSeconds * 1000) return;
-    const [stats] = await boss.getQueueStats(QUEUE, { force: true }).catch(() => []);
-    // Plate work counts from the tables (queue statistics lag): a bundled scene or an unfinished export keeps a worker alive.
-    // Where the plate tables do not exist yet (an older backend) the query fails and counts as no work.
-    if (QUEUE === QUEUES.video) {
-      const plate = await pool.query("select (select count(*) from app.plate_variants where state in ('bundled', 'rendering')) + (select count(*) from app.plate_exports where state in ('queued', 'assembling')) as n").then((r) => Number(r.rows[0].n), (error) => (/does not exist/.test(error.message) ? 0 : null));
-      if (plate === null || plate > 0) { lastBusy = Date.now(); return; }
-    }
-    // Unknown queue state: stay up rather than strand a job; the next tick asks again.
-    if (!stats) return;
-    if (stats.queuedCount + stats.activeCount > 0) { lastBusy = Date.now(); return; }
+    if (shuttingDown || active > 0 || activePlates > 0 || Object.values(leased).some((n) => n > 0) || Date.now() - lastBusy < idleExitSeconds * 1000) return;
+    // Unknown state (backend unreachable): stay up rather than strand a job; the next tick asks again.
+    const demand = await control.op("demand.idle").catch(() => null);
+    if (!demand || demand.plate === null) return;
+    if (demand.queued + demand.plate > 0) { lastBusy = Date.now(); return; }
     clearInterval(timer);
     void shutdown("idle");
   }, 15_000);
@@ -391,8 +388,10 @@ async function shutdown(signal) {
   log("info", "worker_shutdown", { signal, active });
   // Stop taking jobs and let running renders finish. Anything still running at the deadline is handed
   // back: its heartbeat lapses and another replica retries it as a new, fenced attempt.
-  await boss.stop({ graceful: true, timeout: drainSeconds * 1000 }).catch(() => undefined);
-  await pool.end().catch(() => undefined);
+  // Stop polling; in-flight jobs get DRAIN_SECONDS, then their lease lapses and another worker retries them as a new, fenced attempt.
+  const deadline = Date.now() + drainSeconds * 1000;
+  stop.abort();
+  while ((active > 0 || activePlates > 0) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 500));
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 2000).unref();
 }

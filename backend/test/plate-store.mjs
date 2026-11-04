@@ -10,7 +10,9 @@ const { migrate, pool } = await import("../src/db/database.ts");
 const { boss, startQueues } = await import("../src/jobs/queues.ts");
 const store = await import("../src/plates/store.ts");
 const { reconcilePlates } = await import("../src/plates/reconcile.ts");
-const { claimVariant } = await import("../../worker/src/plates.mjs");
+const { operations } = await import("../src/jobs/control.ts");
+// The worker claims through job control; here the same operation runs in-process.
+const claimVariant = async (_pool, variantId, gen) => (await operations["plate.claim"]({ variantId, gen })).row;
 await migrate();
 await startQueues();
 
