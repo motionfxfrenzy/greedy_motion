@@ -8,7 +8,7 @@
 import pg from "pg";
 
 // Keep in sync with backend/src/jobs/queues.ts.
-export const QUEUES = { video: "render-video", videoGpu: "render-video-gpu", finished: "render-finished" };
+export const QUEUES = { video: "render-video", finished: "render-finished" };
 
 export function createPool(connectionString) {
   // Supabase's session pooler allows a handful of clients per project (15 on staging): keep a worker's share small and settable.

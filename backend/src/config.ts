@@ -91,10 +91,6 @@ const workerLaunch = workerLaunchMode === "ecs"
         maxTasks: positiveInt("ECS_WORKER_MAX_TASKS", 3),
         // Spot is ~70% cheaper; an interrupted render is retried by the queue. "0" uses on-demand only.
         spot: process.env.ECS_USE_SPOT !== "0",
-        // Painted (oil) films run on GPU workers: an ECS capacity provider over a scale-to-zero GPU instance group. Unset: no GPU workers are launched.
-        gpu: process.env.ECS_GPU_TASK_DEFINITION
-          ? { taskDefinition: need("ECS_GPU_TASK_DEFINITION"), capacityProvider: need("ECS_GPU_CAPACITY_PROVIDER"), maxTasks: positiveInt("ECS_GPU_MAX_TASKS", 1) }
-          : null
       };
     })()
   : { mode: "external" as const };
@@ -157,8 +153,6 @@ const environmentSummary = {
 };
 
 export const config = {
-  // Story films (worker/templates/painted). Doodle looks run on any worker; oil looks need a GPU worker, so they stay locked until PAINTED_OIL=1.
-  painted: { oil: process.env.PAINTED_OIL === "1" },
   auth,
   mediaUrlSecret,
   legacyOwnerId,

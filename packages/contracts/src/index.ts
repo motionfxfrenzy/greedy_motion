@@ -18,7 +18,6 @@ export * from "./looks.ts";
 export * from "./style-families.ts";
 export * from "./scenes.ts";
 export * from "./motion-blur.ts";
-export * from "./painted.ts";
 export * from "./pricing.ts";
 export * from "./script-stream.ts";
 export * from "./templates.ts";
@@ -222,8 +221,6 @@ export type VideoProject = {
   planning?: PlanningState;
   /** Present once a pro user has opened the project in the Pro Editor (backend/src/pro). */
   pro?: ProManifest;
-  /** Present on Story film projects (drawn by the painted engine). */
-  painted?: import("./painted.ts").PaintedProject;
   /** True when the user archived this project from the Projects list. */
   archived?: boolean;
 };

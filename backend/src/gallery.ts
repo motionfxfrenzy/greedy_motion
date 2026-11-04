@@ -32,8 +32,7 @@ export async function registerGalleryRoutes(app: FastifyInstance) {
     if (cursor !== undefined && !/^\d{1,6}$/.test(cursor)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown cursor." } });
     if (limit !== undefined && !/^\d{1,3}$/.test(limit)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown limit." } });
     const page = queryGallery({ plates: config.plates.enabled, useCase: use_case, q, look, cursor, limit: limit === undefined ? undefined : Number(limit), ...(featured === "1" ? { ids: featuredGalleryIds } : {}) });
-    // A story film in an oil look is shown but locked until this deployment has a GPU worker (PAINTED_OIL=1).
-    return reply.header("Cache-Control", cache).send({ ...page, items: page.items.map((card) => (card.paintedLook?.startsWith("oil:") && !config.painted.oil ? { ...card, locked: true } : card)) });
+    return reply.header("Cache-Control", cache).send(page);
   });
 
   /** Every visual style with its example count and one real example clip: what the style picker lists. */

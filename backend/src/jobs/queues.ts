@@ -18,8 +18,6 @@ export const QUEUES = {
   planDead: "render-plan-dead",
   video: "render-video",
   videoDead: "render-video-dead",
-  // Story films in a painted (oil) look: they need a GPU, so they run on their own workers (WORKER_QUEUE=gpu), never on the CPU pool.
-  videoGpu: "render-video-gpu",
   finished: "render-finished",
   // Plate scenes (plates/): authoring runs in the backend, verification + rendering + export on the worker. Messages carry
   // only { variantId, gen } / { exportId }; consumers reload the row and act only if their fence still matches.
@@ -47,7 +45,6 @@ const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   { name: QUEUES.plan, notify: true, retryLimit: 1, retryDelay: PLAN_RETRY_DELAY_SECONDS, expireInSeconds: 600, heartbeatSeconds: 30, deadLetter: QUEUES.planDead },
   // Rendering: heartbeats detect a dead worker within ~30 s; the expiry bounds a hung render.
   { name: QUEUES.video, notify: true, retryLimit: config.renderRetries, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: config.renderTimeoutSeconds, heartbeatSeconds: 30, deadLetter: QUEUES.videoDead },
-  { name: QUEUES.videoGpu, notify: true, retryLimit: 1, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 2700, heartbeatSeconds: 30, deadLetter: QUEUES.videoDead },
   { name: QUEUES.finished, notify: true, retryLimit: 5, retryDelay: 2, retryBackoff: true },
   // Plate authoring calls the model (up to three authoring calls of up to five minutes each); an interrupted or failed model
   // call is retried with the SAME row, which keeps what was already authored.

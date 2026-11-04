@@ -495,24 +495,6 @@ export async function updateProjectVisuals(id: string, mutate: (current: VideoPr
   });
 }
 
-/** Story films (backend/src/painted): updates the project's painted spec, timeline, state and metadata under the project row lock. */
-export async function updateProjectPainted(
-  id: string,
-  mutate: (current: VideoProject) => Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "painted" | "coverFrame" | "filmSeconds" | "renderJobId" | "approvedAt">>
-) {
-  return serializeProject(id, async () => {
-    const current = await getProject(id);
-    if (!current) return null;
-    const patch = mutate(current);
-    return save({ ...current, ...patch, updatedAt: new Date().toISOString() });
-  });
-}
-
-/** Saves a newly created or adopted Story film project. */
-export async function savePaintedProject(project: VideoProject) {
-  return serializeProject(project.id, () => save(project));
-}
-
 export async function deleteProject(id: string): Promise<boolean> {
   if (!idPattern.test(id)) return false;
   return serializeProject(id, async () => {
@@ -524,7 +506,6 @@ export async function deleteProject(id: string): Promise<boolean> {
     for (const screenshot of current.screenshots) {
       await Promise.all([".png", ".jpg"].map((ext) => removeMedia(join(screenshotsDir(id), screenshot.id + ext)).catch(() => undefined)));
     }
-    await query("delete from app.render_jobs where (id = $1 or project_id = $1) and request->>'kind' = 'painted'", [id]);
     const removed = await query("delete from app.projects where id = $1", [id]);
     return (removed.rowCount ?? 0) > 0;
   });

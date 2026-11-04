@@ -8,9 +8,8 @@ import { kickWorkers } from "../jobs/worker-launcher.ts";
 import type { Plan } from "./planner.ts";
 
 /** A motion-blur render captures several times the frames, so its queue expiry (and the worker's claim) is stretched by the same factor. */
-const blurExpiry = (renderInput: Record<string, unknown>) => (renderInput.motionBlur === true ? { expireInSeconds: config.renderTimeoutSeconds * motionBlur.slowdown } : renderInput.kind === "painted" ? { expireInSeconds: PAINTED_EXPIRY_SECONDS } : {});
+const blurExpiry = (renderInput: Record<string, unknown>) => (renderInput.motionBlur === true ? { expireInSeconds: config.renderTimeoutSeconds * motionBlur.slowdown } : {});
 /** A story film writes, draws props, speaks, composes and paints in one job: far longer than a template render. */
-const PAINTED_EXPIRY_SECONDS = 2700;
 
 type Row = {
   id: string;
@@ -104,7 +103,7 @@ export const renderJobRepository = {
   },
 
   /**
-   * A format render (formats/routes.ts) or story-film render (painted/routes.ts): ready for the worker, owned by a user,
+   * A format render (formats/routes.ts): ready for the worker, owned by a user,
    * optionally linked to its project so completion updates the project's state.
    */
   async createFormatAndEnqueue(job: RenderJob, input: { request: Record<string, unknown>; ownerId: string; projectId?: string; renderInput: Record<string, unknown>; queue?: string }) {
@@ -124,7 +123,7 @@ export const renderJobRepository = {
     } finally {
       client.release();
     }
-    void kickWorkers(true, input.queue === QUEUES.videoGpu);
+    void kickWorkers(true);
     return { ...job, state: "rendering" as const, stage: "waiting" as const, progress: 45 };
   },
 

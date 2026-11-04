@@ -8,7 +8,6 @@ import { join } from "node:path";
 import { PgBoss } from "pg-boss";
 import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
 import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
-import { PaintedFailure, renderPainted } from "./painted.mjs";
 import { QUEUES, claim, createPool, finish, noteRetry, progress } from "./jobs.mjs";
 import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
 import { PLATE_EXPORT_QUEUE, PLATE_RENDER_QUEUE, handlePlateExport, handlePlateRender, plateCapability, renderPlateFilmJob } from "./plates.mjs";
@@ -32,8 +31,7 @@ if (!databaseUrl) throw new Error("DATABASE_URL is not set; the worker reads ren
 if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("RENDER_CONCURRENCY must be a positive integer.");
 if (!Number.isInteger(idleExitSeconds) || idleExitSeconds < 0) throw new Error("IDLE_EXIT_SECONDS must be 0 or a positive integer.");
 
-// WORKER_QUEUE=gpu: this worker has a GPU and takes only painted (oil) films from their own queue; the CPU pool never sees them.
-const QUEUE = process.env.WORKER_QUEUE === "gpu" ? QUEUES.videoGpu : QUEUES.video;
+const QUEUE = QUEUES.video;
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 const pool = createPool(databaseUrl);
 // The backend owns the pg-boss schema and the queues (migrate: false); the worker only consumes.
@@ -83,7 +81,7 @@ function progressReporter(jobId, attempt, onLost) {
         write(true);
       }
     },
-    /** A job that reports its own stages (painted films): name the stage and the percent directly. */
+    /** A job that reports its own stages: name the stage and the percent directly. */
     set(next, percent) { stage = next; fixedPercent = percent; frames = null; write(true); },
     flush: () => writing
   };
@@ -181,17 +179,6 @@ async function renderBeatPlan(id, input, attempt, signal, reporter) {
   }
 }
 
-/** A story film (worker/templates/painted): script to narrated hand-drawn film. The backend already vetted the look and charged for it. */
-async function renderPaintedFilm(id, input, attempt, signal, reporter) {
-  if (!storageEnabled) throw new PermanentError("Story films need object storage.");
-  try {
-    return await renderPainted({ id, input, attempt, signal, reporter, run });
-  } catch (error) {
-    if (error instanceof PaintedFailure) throw new PermanentError(error.message);
-    throw error;
-  }
-}
-
 /**
  * The final film of a code-drawn plate project: waits for its scenes, assembles voice, music, effects and subtitles from the
  * export manifest (plates.mjs), and uploads under the usual per-attempt key. Progress and fencing are the job's own.
@@ -226,7 +213,6 @@ async function renderVideo(input, attempt, signal, reporter) {
   if (!id) throw new PermanentError("A valid render id is required.");
   if (input.kind === "beat-plan" || input.kind === "pro") return renderBeatPlan(id, input, attempt, signal, reporter);
   if (input.kind === "plate-film") return renderPlateFilm(id, input, attempt, signal);
-  if (input.kind === "painted") return renderPaintedFilm(id, input, attempt, signal, reporter);
   if (storageEnabled) throw new PermanentError("Template renders are not available with object storage yet; render the approved storyboard instead.");
   const template = idOrDefault(input.template, "product-launch");
   const theme = idOrDefault(input.theme, "neutral");

@@ -36,8 +36,7 @@ case "${1:-up}" in
     secret "$PROJECT/$ENV/worker/database-url" "$(from_env SUPABASE_@_DATABASE_URL)"
     secret "$PROJECT/$ENV/worker/r2-access-key-id" "$(from_env R2_@_ACCESS_KEY_ID)"
     secret "$PROJECT/$ENV/worker/r2-secret-access-key" "$(from_env R2_@_SECRET_ACCESS_KEY)"
-    # Story films (worker/templates/painted): the director, drawings, voice and music all use one Gemini key.
-    secret "$PROJECT/$ENV/worker/gemini-api-key" "${GEMINI_API_KEY:?GEMINI_API_KEY is not set in .env.credentials}" ;;
+    ;;
   logs) aws logs filter-log-events --region "$REGION" --log-group-name "/ecs/$N-worker" --limit 60 --query 'events[].message' --output text | tr '\t' '\n' | tail -40 ;;
   stop) aws ecs update-service --region "$REGION" --cluster "$N" --service worker --desired-count 0 --query 'service.[serviceName,desiredCount]' --output text ;;
   up|ondemand)
@@ -62,10 +61,5 @@ case "${1:-up}" in
       [ "$T" = None ] || { S="$(aws ecs describe-tasks --region "$REGION" --cluster "$N" --tasks "$T" --query 'tasks[0].[taskDefinitionArn,lastStatus]' --output text)"; echo "  $S"; case "$S" in "$TD"*RUNNING) break;; esac; }
       sleep 10
     done; sleep 20; "$0" logs ;;
-  gpu)
-    # Register the GPU task definition (x86, NVIDIA GPU, host networking) for the image already pushed as IMAGE_TAG (gpu-<commit>).
-    TAG="${IMAGE_TAG:?IMAGE_TAG is required, e.g. gpu-73418f3}"
-    sed -e "s#@ACCOUNT@#$ACCOUNT#g" -e "s#@REGION@#$REGION#g" -e "s#@PROJECT@#$PROJECT#g" -e "s#@ENV@#$ENV#g" -e "s#@IMAGE_TAG@#$TAG#g" -e "s#@R2_ENDPOINT@#$R2_ENDPOINT#g" policies/worker-taskdef-gpu.json > "$OUT/taskdef-gpu.json"
-    aws ecs register-task-definition --region "$REGION" --cli-input-json "file://$OUT/taskdef-gpu.json" --query taskDefinition.taskDefinitionArn --output text ;;
-  *) echo "usage: $0 secrets|up|ondemand|gpu|logs|stop" >&2; exit 2 ;;
+  *) echo "usage: $0 secrets|up|ondemand|logs|stop" >&2; exit 2 ;;
 esac
