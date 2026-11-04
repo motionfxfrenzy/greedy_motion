@@ -455,3 +455,24 @@ Goal: a user can write or paste a script in **any language the LLM and the speec
 * **`draw_aspects` never expires (found at the 2c review).** After a first final render or export, `plate_state.draw_aspects` keeps the aspect, so every later comment revision of that project is drawn to an MP4 on AWS as soon as it is bundled, which defeats "a comment costs no render". **Must fix before the flag is enabled for real users:** make the intent time-bounded (for example an active window of 60 minutes refreshed by each `requestDraws`) or clear it when the render or export finishes or fails; add a test that a revision after the window stays live.
 * **Mid-render edits (phase 5):** a comment revision while a render waits can make the render assemble the revised clip; a storyboard change fails it with "scenes were changed". The frozen manifest in phase 5 fixes both.
 * **`render-video` holds a worker slot** while scenes are authored and drawn (idle polling in `resolveClips`); phase 5 should queue it only when the clips are ready.
+
+## 22. The shared capability contract (decided with the product owner, 2026-11-05)
+
+One UI, one set of behaviours the user sees; each engine does whatever it needs behind the scenes.
+
+**Every engine must provide (the contract the shell is built on):**
+1. Watch the film: play, pause, seek, volume, mute, full screen, ratio picker, scene tabs.
+2. Voice on or off, and music on or off (with the other sound following the film's audio mode).
+3. Captions off or on (Off, Key phrases, Full).
+4. **Timed comments:** a comment pinned to a moment (`At 0:03`, `Scene 2`), several allowed, then `Apply comments`. The engine turns them into corrections of the user's original request.
+5. Render, with the token cost and the purchase flow.
+
+**Behind the scenes (free to differ):**
+| Behaviour | Plates | HyperFrames |
+| --- | --- | --- |
+| Drawing | live in a Worker; clip fallback per scene | the composition HTML in `<hyperframes-player>` |
+| A comment at time T | scene, element or params patch (browser or authoring job) | storyboard line rewrite for that scene, then composition reload |
+| Voice, music, captions | engine settings through the plan | plan patch, then composition reload |
+| Final render | CPU worker draws the frozen scene code | the existing HyperFrames render |
+
+**Optional extras** (shown only when an engine supports them, never disabled): caption style, size, colour, opacity, position, SFX and transitions switches. Plates have them today; HyperFrames gains them in phase 3d if wanted. They are not part of the contract: a film without them is fully usable.
