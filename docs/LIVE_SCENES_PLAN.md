@@ -185,6 +185,16 @@ Review #2: an iframe shares the page's thread unless the browser happens to isol
 * **Flag precedence:** `PLATE_LIVE_PREVIEW` decides the mode only for a project's **first entry to step 3**; the result is stored as `live_mode` and **survives flag changes**. Normal rollout (flag on→off) therefore affects new projects only; existing live projects keep playing live. Reconciling existing projects needs an **explicit rollback override** `PLATE_LIVE_FORCE_OFF=1` (operator action, logged).
 * **Rollback (override on):** the reconciler (`plates/reconcile.ts`) sets `live_mode=clip`, treats `checked` like `bundled` and enqueues `plate-render` for every `checked` variant of projects in step >= 3 (rate-limited, project cap respected). In-flight edits finish normally; a `checked` report arriving afterwards is accepted but changes nothing. Existing clips (`drawn`) are untouched. Users mid-session see the clip player after a reload.
 
+## 11b. Authoring stream (plan only, not built)
+
+Goal: the user always sees progress, never a raw failure, and Railway load does not grow.
+
+* **Only validated content reaches the user.** Raw model tokens are never forwarded: they can be partial, invalid or unsafe. The stream carries (1) **stage events** (`queued`, `sketching`, `checking`, `refining`, `ready`) and (2) after the bundle passes server validation (schema, esbuild compile, static rules), the **validated source as a typed replay** followed by `ready`.
+* **Failures are absorbed.** A failed validation or a repair attempt is reported as `refining` with no error text. The user sees an error only when the bounded repair budget is exhausted, and then as a retry offer, never a stack trace.
+* **Transport:** the existing push channel (SSE, as for render events); the authoring job publishes events, the API relays them. Cost: one idle connection per active author, no extra model or DB work. This does **not** reduce Railway load; moving authoring to a queue consumer (ECS/Lambda) is the load lever, decided by measurement.
+* **Later option, separate decision:** layered authoring (sky, ground, objects) so each validated layer can draw as it arrives.
+* **Tests:** no unvalidated byte is ever emitted; a failed attempt emits only `refining`; reconnect resumes from the last event id; an exhausted budget emits one user-facing retry state.
+
 ## 12. Edge cases
 
 **Device and browser**
