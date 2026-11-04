@@ -1003,7 +1003,7 @@ export function Studio() {
       {step === REVIEW && project && <FinalRenderStep
         project={project}
         job={job}
-        frames={frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))}
+        frames={plateLook ? [] : frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))}
         aspect={brief.aspect}
         look={lookFor(brief, brands)}
         error={error}
@@ -2153,7 +2153,7 @@ function FinalRenderStep({
                 <video
                   ref={videoRef}
                   src={outputUrl(job.output.url)}
-                  poster={frames[0] ? svgSrc(frames[0]) : project.coverFrame ? svgSrc(project.coverFrame) : undefined}
+                  poster={project.brief?.look?.startsWith("illus-") ? outputUrl(`/v1/projects/${encodeURIComponent(project.id)}/plates/0/still`) : frames[0] ? svgSrc(frames[0]) : project.coverFrame ? svgSrc(project.coverFrame) : undefined}
                   playsInline
                   preload="metadata"
                   onPlay={() => setPlaying(true)}
