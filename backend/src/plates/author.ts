@@ -88,7 +88,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
         draft = undefined;
       } else try {
         const request = await buildAuthorMessages({ look, plateName, film: project.brief?.text ?? "", beats, aspect: row.aspect, index: row.scene_index, frames: row.frames, ...(reference ? { reference } : {}), ...(revise && !lastError ? { revise } : {}), ...(lastError ? { error: lastError, previous: previous ?? "" } : {}) });
-        const reply = await anthropicMessage({ max_tokens: 24_000, system: request.system, messages: request.messages }, { errorPrefix: "Scene authoring failed", includeErrorDetail: true, timeoutMs: 300_000, signal, stopErrors: { max_tokens: "CUT OFF: the module was longer than the output limit. Write a MUCH MORE COMPACT module (under 200 lines): fewer, simpler elements, reuse small helper functions, loops instead of repeated calls." } });
+        const reply = await anthropicMessage({ model: config.plateModel, max_tokens: 24_000, system: request.system, messages: request.messages }, { errorPrefix: "Scene authoring failed", includeErrorDetail: true, timeoutMs: 300_000, signal, stopErrors: { max_tokens: "CUT OFF: the module was longer than the output limit. Write a MUCH MORE COMPACT module (under 200 lines): fewer, simpler elements, reuse small helper functions, loops instead of repeated calls." } });
         code = moduleFrom(responseText(reply));
       } catch (error) {
         if (!(error as { repairable?: boolean }).repairable) throw error; // model service / network: retried by the queue, same row
