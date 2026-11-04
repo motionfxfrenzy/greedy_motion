@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { PasswordInput } from "./password-input";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
@@ -449,8 +450,7 @@ export function AuthPage() {
 
                     <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                       <span style={{ fontSize: "14px", fontWeight: 500 }}>Password</span>
-                      <input
-                        type="password"
+                      <PasswordInput
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder={isSignup ? "Create a password" : "Your password"}

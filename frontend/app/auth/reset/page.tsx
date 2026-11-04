@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../../utils/supabase/client";
 import { PasswordRules } from "../../../components/password-rules";
+import { PasswordInput } from "../../../components/password-input";
 import { passwordProblem } from "../../../lib/password";
 
 export default function ResetPassword() {
@@ -56,8 +57,7 @@ export default function ResetPassword() {
   return shell(
     <form onSubmit={(e) => void submit(e)} style={{ width: "100%", maxWidth: "400px", display: "flex", flexDirection: "column", gap: "14px" }}>
       <h1 style={{ margin: 0, fontWeight: 600, fontSize: "30px", letterSpacing: "-0.03em" }}>Choose a new password</h1>
-      <input
-        type="password"
+      <PasswordInput
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         placeholder="Create a new password"
