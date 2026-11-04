@@ -2,16 +2,17 @@
 <canvas id=c></canvas><pre id=t></pre>
 <script>
 const q=new URLSearchParams(location.search),name=q.get("name"),n=q.get("n"),amp=+q.get("amp")||40;
+const wUrl=q.get("w")||`${name}-${n}-worker.png`,rUrl=q.get("r")||`${name}-ref-${n}.png`,rLabel=q.get("rl")||"CPU export (reference)";
 const load=async u=>{const b=await createImageBitmap(await (await fetch(u)).blob(),{premultiplyAlpha:"none",colorSpaceConversion:"none"});const c=new OffscreenCanvas(b.width,b.height),x=c.getContext("2d");x.drawImage(b,0,0);return x.getImageData(0,0,b.width,b.height)};
 (async()=>{
- const w=await load(`${name}-${n}-worker.png`),r=await load(`${name}-ref-${n}.png`),W=w.width,H=w.height;
+ const w=await load(wUrl),r=await load(rUrl),W=w.width,H=w.height;
  const d=new ImageData(W,H);const hist=new Array(9).fill(0);let sumSigned=[0,0,0];const rows=new Array(12).fill(0),cols=new Array(12).fill(0);
  for(let i=0;i<w.data.length;i+=4){let m=0;for(let k=0;k<3;k++){const e=w.data[i+k]-r.data[i+k];sumSigned[k]+=e;m=Math.max(m,Math.abs(e))}hist[Math.min(8,m)]++;
   const p=i/4,y=Math.floor(p/W),x=p%W;if(m){rows[Math.floor(y*12/H)]++;cols[Math.floor(x*12/W)]++}
   const v=Math.min(255,m*amp);d.data[i]=v;d.data[i+1]=v;d.data[i+2]=v;d.data[i+3]=255}
  const c=document.getElementById("c");c.width=W*3/2;c.height=H/2;const x=c.getContext("2d");
  const put=(img,ox)=>{const t=new OffscreenCanvas(W,H);t.getContext("2d").putImageData(img,0,0);x.drawImage(t,ox,0,W/2,H/2)};
- put(r,0);put(w,W/2);put(d,W);x.fillStyle="#ff0";x.font="20px system-ui";x.fillText("CPU export (reference)",10,24);x.fillText("Worker preview",W/2+10,24);x.fillText("difference x"+amp,W+10,24);
+ put(r,0);put(w,W/2);put(d,W);x.fillStyle="#ff0";x.font="20px system-ui";x.fillText(rLabel,10,24);x.fillText("Worker preview",W/2+10,24);x.fillText("difference x"+amp,W+10,24);
  document.getElementById("t").textContent=JSON.stringify({maxDiffLevelHistogram_0to8plus:hist,meanSignedErrorRGB:sumSigned.map(s=>+(s/(W*H)).toFixed(3)),diffPixelsByRowBand:rows,diffPixelsByColBand:cols});
  window.done=true;
 })();

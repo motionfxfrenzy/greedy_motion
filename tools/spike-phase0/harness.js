@@ -7,14 +7,54 @@ const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s.length 
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 const r1 = (n) => (n == null ? null : Math.round(n * 10) / 10);
 const canonical = (v) => (v && typeof v === "object" ? (Array.isArray(v) ? `[${v.map(canonical)}]` : `{${Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canonical(v[k]))}}`) : JSON.stringify(v));
-const scriptsOf = (html) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n;\n");
+const scriptsOf = (html) => {
+  const list = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  if (list.length > 1) return `${list[0]}\n;self.__SCRIPTS_READY__ = (async () => {\nawait __preloadAssets();\n${list.slice(1).join("\n;\n")}\n})();\n`;
+  return list.join("\n;\n");
+};
 
 // ---- worker source -------------------------------------------------------------------------------------------------
 const PRELUDE = `"use strict";
 const __canvas = new OffscreenCanvas(1, 1);
 self.window = self;
 self.document = { getElementById: () => __canvas, createElement: () => new OffscreenCanvas(1, 1), fonts: self.fonts };
-self.Image = class { set src(v) { throw new Error("image assets are not supported by the worker host yet"); } decode() { return Promise.resolve(); } };
+const __assetBitmaps = new Map();
+self.Image = class {
+  constructor() { this._src = ""; this._bm = null; this.width = 0; this.height = 0; }
+  get src() { return this._src; }
+  set src(v) { this._src = String(v ?? ""); this._bm = __assetBitmaps.get(this._src) || null; if (this._bm) { this.width = this._bm.width; this.height = this._bm.height; } }
+  async decode() {
+    if (!this._bm) {
+      if (!this._src.startsWith("data:")) throw new Error("image assets in worker host must be preloaded or data: URLs");
+      const [head, body = ""] = this._src.slice(5).split(",");
+      const mime = head.split(";")[0] || "image/png";
+      const bin = head.includes(";base64") ? atob(body) : decodeURIComponent(body);
+      const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      this._bm = await createImageBitmap(new Blob([u8], { type: mime }));
+      __assetBitmaps.set(this._src, this._bm);
+    }
+    this.width = this._bm.width; this.height = this._bm.height;
+  }
+};
+for (const __P of [typeof OffscreenCanvasRenderingContext2D !== "undefined" && OffscreenCanvasRenderingContext2D.prototype, typeof CanvasRenderingContext2D !== "undefined" && CanvasRenderingContext2D.prototype]) {
+  if (__P && !__P.__imgPatched) {
+    const __origDraw = __P.drawImage;
+    __P.drawImage = function(img, ...rest) { return __origDraw.call(this, img && img._bm ? img._bm : img, ...rest); };
+    __P.__imgPatched = true;
+  }
+}
+const __preloadAssets = async () => {
+  const map = self.__ASSETS__ || {};
+  for (const url of Object.values(map)) {
+    if (typeof url === "string" && url.startsWith("data:") && !__assetBitmaps.has(url)) {
+      const [head, body = ""] = url.slice(5).split(",");
+      const mime = head.split(";")[0] || "image/png";
+      const bin = head.includes(";base64") ? atob(body) : decodeURIComponent(body);
+      const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      __assetBitmaps.set(url, await createImageBitmap(new Blob([u8], { type: mime })));
+    }
+  }
+};
 const __fetch0 = self.fetch, __XHR0 = self.XMLHttpRequest, __WS0 = self.WebSocket, __IS0 = self.importScripts, __IDB0 = self.indexedDB, __CA0 = self.caches, __BC0 = self.BroadcastChannel, __W0 = self.Worker;
 `;
 const NEUTER = `for (const k of ["fetch","XMLHttpRequest","WebSocket","EventSource","importScripts","indexedDB","caches","BroadcastChannel","SharedWorker","Worker","WebTransport"]) { try { Object.defineProperty(self, k, { value: undefined, configurable: false, writable: false }); } catch (e) {} }\n`;
@@ -39,7 +79,7 @@ const probes = {
 async function handle(e) {
   const m = e.data;
   try {
-    if (m.t === "init") { const t0 = performance.now(); await self.FILM.ready; self.FILM.mount(m.scale); post({ t: "ready", id: m.id, ms: performance.now() - t0, w: __canvas.width, h: __canvas.height, meta: self.FILM.meta }); }
+    if (m.t === "init") { const t0 = performance.now(); if (self.__SCRIPTS_READY__) await self.__SCRIPTS_READY__; await self.FILM.ready; self.FILM.mount(m.scale); post({ t: "ready", id: m.id, ms: performance.now() - t0, w: __canvas.width, h: __canvas.height, meta: self.FILM.meta }); }
     else if (m.t === "frame") {
       const t0 = performance.now(); for (let i = 0; i < (m.repeat || 1); i++) self.FILM.seek(m.n); const draw = (performance.now() - t0) / (m.repeat || 1);
       const out = { t: "frame", id: m.id, n: m.n, draw };
@@ -221,6 +261,51 @@ api.deviceReport = async () => {
   rep.containment = await api.containment(); rep.hang = await api.hang("csp+neuter");
   for (const s of index.slice(0, 3)) rep.identity.push(await api.identity(s.name));
   return rep;
+};
+function judgeTolerance(d) {
+  const pass = d.over2Pct <= 2 && d.maxChannel <= 16;
+  return { ...d, pass };
+}
+api.linuxParity = async (name, framesOpt = null, kind = "csp+neuter") => {
+  const all = [...(await loadIndex()), ...(await (await fetch("job-b.json")).json().catch(() => []))];
+  const s = all.find((x) => x.name === name);
+  const html = await (await fetch(`${name}.html`)).text();
+  const host = await createHost(html, kind); await host.call({ t: "init", scale: 1 });
+  const frames = framesOpt || Object.keys(s.refs).map(Number).sort((a, b) => a - b);
+  const out = { name, look: s?.look ?? "custom", frames: {}, scenePassWorkerVsLinux: true, scenePassMacVsLinux: true };
+  for (const n of frames) {
+    const r = await host.call({ t: "frame", n, mode: "png" }); const worker = await pixelsOf(r.png);
+    const mac = await pixelsOf(await (await fetch(`${name}-ref-${n}.png`)).arrayBuffer());
+    const linux = await pixelsOf(await (await fetch(`linux/${name}-ref-${n}.png`)).arrayBuffer());
+    const wVsL = judgeTolerance(diffImages(worker, linux));
+    const mVsL = judgeTolerance(diffImages(mac, linux));
+    const wVsM = judgeTolerance(diffImages(worker, mac));
+    if (!wVsL.pass) out.scenePassWorkerVsLinux = false;
+    if (!mVsL.pass) out.scenePassMacVsLinux = false;
+    out.frames[n] = { workerVsLinux: wVsL, macExportVsLinux: mVsL, workerVsMacExport: wVsM };
+  }
+  host.kill(); return out;
+};
+api.linuxParamsParity = async () => {
+  const idx = await (await fetch("foxparams.json")).json(), html = await (await fetch("foxparams.html")).text(), out = {};
+  for (const k of ["A", "B"]) {
+    const name = `foxparams${k}`;
+    const host = await createHost(html, "csp+neuter", idx.sets[k].canonical); await host.call({ t: "init", scale: 1 });
+    out[name] = { name, frames: {}, scenePassWorkerVsLinux: true, scenePassMacVsLinux: true };
+    for (const n of [0, 45]) {
+      const worker = await pixelsOf((await host.call({ t: "frame", n, mode: "png" })).png);
+      const mac = await pixelsOf(await (await fetch(`${name}-ref-${n}.png`)).arrayBuffer());
+      const linux = await pixelsOf(await (await fetch(`linux/${name}-ref-${n}.png`)).arrayBuffer());
+      const wVsL = judgeTolerance(diffImages(worker, linux));
+      const mVsL = judgeTolerance(diffImages(mac, linux));
+      const wVsM = judgeTolerance(diffImages(worker, mac));
+      if (!wVsL.pass) out[name].scenePassWorkerVsLinux = false;
+      if (!mVsL.pass) out[name].scenePassMacVsLinux = false;
+      out[name].frames[n] = { workerVsLinux: wVsL, macExportVsLinux: mVsL, workerVsMacExport: wVsM };
+    }
+    host.kill();
+  }
+  return out;
 };
 window.phase0 = api;
 document.getElementById("run").onclick = async () => { const st = document.getElementById("state"); st.textContent = "running…"; try { const r = await api.deviceReport(); const txt = JSON.stringify(r, null, 1); document.getElementById("out").textContent = txt; st.textContent = "done"; try { await navigator.clipboard.writeText(txt); st.textContent = "done (copied)"; } catch {} } catch (e) { st.textContent = "failed"; document.getElementById("out").textContent = String(e.stack || e); } };

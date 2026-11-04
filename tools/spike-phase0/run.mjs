@@ -24,4 +24,17 @@ try {
   if (step === "leak") { const base = rssMB(), samples = []; const t = setInterval(() => samples.push(rssMB()), 400); const r = await ev(() => phase0.leak(20, 40)); clearInterval(t); await new Promise((ok) => setTimeout(ok, 1500)); show("heartbeating memory leak (20 MB per frame)", { ...r, rssBeforeMB: base, rssPeakMB: Math.max(...samples), rssAfterTerminateMB: rssMB() }); }
   if (step === "pace") { const rows = []; for (const n of [names[4], names[8], names[0]]) { const x = await ev((n) => phase0.soak(n, 40, 64, false), n); rows.push({ name: x.name, produced40s: x.produced, expected: 1200, lateFrames: x.lateFrames, lateMsP95: x.lateMsP95 }); } show("real-time pacing, no memory sampling", rows); }
   if (step === "soak") { const seconds = Number(rest[0] ?? 180), samples = []; const timer = setInterval(() => samples.push(rssMB()), 5000); const r = await ev((n, s) => phase0.soak(n, s), names[4], seconds); clearInterval(timer); show("soak " + seconds + "s", { ...r, osRssMBEvery5s: samples }); }
+  if (step === "linux") {
+    const rows = [];
+    for (const n of names) rows.push(await ev((n) => phase0.linuxParity(n), n));
+    const params = await ev(() => phase0.linuxParamsParity());
+    show("linux-parity-9-scenes", rows);
+    show("linux-parity-params", params);
+  }
+  if (step === "job-b") {
+    const bNames = await ev(async () => (await (await fetch("job-b.json")).json()).map((s) => s.name));
+    const rows = [];
+    for (const n of bNames) rows.push(await ev((n) => phase0.linuxParity(n), n));
+    show("job-b-parity", rows);
+  }
 } finally { await browser.close(); }
