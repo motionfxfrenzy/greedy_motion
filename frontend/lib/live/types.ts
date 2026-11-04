@@ -3,7 +3,9 @@ export type SceneSpan = { id: string; start: number; end: number };
 
 export type PlayerMeta = { width: number; height: number; fps: number; frames: number; sceneSpans: SceneSpan[] };
 
-export type PlayerEvent = "ready" | "buffering" | "error";
+export type PlayerEvent = "ready" | "buffering" | "error" | "mode";
+
+export type PlayerDecision = { mode: "live" | "clip"; reason: string };
 
 /**
  * What the studio's animation workspace needs from an engine (docs/LIVE_SCENES_PLAN.md §5). The HyperFrames adapter wraps

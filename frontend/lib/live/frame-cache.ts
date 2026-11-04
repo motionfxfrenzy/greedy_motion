@@ -8,6 +8,46 @@
  */
 export interface Disposable { close?: () => void }
 
+/** Canonical scene-group cache key combining `bundleDigest` and `previewSize` (e.g. `"854x480"`). */
+export function sceneCacheKey(bundleDigest: string, previewSize?: string): string {
+  return previewSize ? `${bundleDigest}|${previewSize}` : bundleDigest;
+}
+
+/** Full frame cache key `bundleDigest | frame | previewSize` (docs/LIVE_SCENES_PLAN.md §6). */
+export function frameCacheKey(bundleDigest: string, frame: number, previewSize = "854x480"): string {
+  return `${bundleDigest}|${frame}|${previewSize}`;
+}
+
+export type RollingWindowSplit = {
+  windowFrames: number;
+  behindFrames: number;
+  headFrames: number;
+  aheadFrames: number;
+};
+
+/**
+ * Computes the rolling frame window from the byte budget and frame byte size (docs/LIVE_SCENES_PLAN.md §6):
+ * `windowFrames = floor(budgetBytes / bytesPerFrame)`, split 20% behind the playhead,
+ * 15% (capped at 15 frames) head of the next scene, and the remainder ahead.
+ */
+export function computeRollingWindow(
+  budgetBytes: number,
+  bytesPerFrame: number,
+  hasNextScene = true
+): RollingWindowSplit {
+  if (!(budgetBytes > 0) || !(bytesPerFrame > 0)) {
+    return { windowFrames: 0, behindFrames: 0, headFrames: 0, aheadFrames: 0 };
+  }
+  const windowFrames = Math.floor(budgetBytes / bytesPerFrame);
+  if (windowFrames <= 0) {
+    return { windowFrames: 0, behindFrames: 0, headFrames: 0, aheadFrames: 0 };
+  }
+  const behindFrames = Math.floor(windowFrames * 0.2);
+  const headFrames = hasNextScene ? Math.min(15, Math.floor(windowFrames * 0.15)) : 0;
+  const aheadFrames = Math.max(0, windowFrames - behindFrames - headFrames);
+  return { windowFrames, behindFrames, headFrames, aheadFrames };
+}
+
 type Entry<T> = { value: T; bytes: number };
 type Scene<T> = { frames: Map<number, Entry<T>>; bytes: number };
 
@@ -140,10 +180,15 @@ export class FrameCache<T extends Disposable = Disposable> {
       const group = this.scenes.get(id);
       if (!group) continue;
       // Inside a scene, drop the frame farthest from the playhead (or from the start, for a scene that is not the focus).
-      const anchor = id === this.focusScene ? this.focusFrame : 0;
+      // For the focus scene, weight distances by the rolling-window split (20% behind vs 65% ahead) so frames behind
+      // the 20% tail are evicted before frames inside the 65% ahead window.
+      const isFocus = id === this.focusScene;
+      const anchor = isFocus ? this.focusFrame : 0;
       for (const frame of group.frames.keys()) {
         if (exempt(id) && frame === keepFrame) continue;
-        const d = Math.abs(frame - anchor);
+        const d = isFocus
+          ? (frame < anchor ? (anchor - frame) / 0.2 : (frame - anchor) / 0.65)
+          : Math.abs(frame - anchor);
         if (d > bestDistance) { bestDistance = d; best = { scene: id, frame }; }
       }
     }

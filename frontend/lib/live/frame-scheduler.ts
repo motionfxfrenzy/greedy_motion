@@ -13,6 +13,8 @@ export type SchedulerOptions<T extends Disposable> = {
   lookahead?: number;
   /** Frames of the next scenes drawn before the far end of the active scene (default 15). */
   head?: number;
+  /** When set, uses the Plan §6 rolling window order: playhead -> ahead share -> head of next scene -> behind share. */
+  behind?: number;
   /** After this many failures in a row the scheduler stops (a broken scene must not spin). */
   maxConsecutiveFailures?: number;
   now?: () => number;
@@ -52,7 +54,15 @@ export class FrameScheduler<T extends Disposable = Disposable> {
   private get fps() { return this.opts.fps ?? 30; }
   private get lookahead() { return this.opts.lookahead ?? Math.round(this.fps * 2); }
   private get head() { return this.opts.head ?? 15; }
+  private get behind() { return this.opts.behind; }
   private now() { return (this.opts.now ?? (() => performance.now()))(); }
+
+  /** Updates the rolling-window shares (ahead, head of next scene, behind) when frame byte size or budget changes. */
+  setWindow(win: { lookahead?: number; head?: number; behind?: number }) {
+    if (win.lookahead !== undefined) this.opts.lookahead = win.lookahead;
+    if (win.head !== undefined) this.opts.head = win.head;
+    if (win.behind !== undefined) this.opts.behind = win.behind;
+  }
 
   setScenes(scenes: SceneInfo[]) {
     this.scenes = scenes.map((s) => ({ ...s }));
@@ -96,17 +106,31 @@ export class FrameScheduler<T extends Disposable = Disposable> {
     const active = this.scenes[i]!;
     const f = Math.min(this.focusFrame, Math.max(0, active.frames - 1));
     yield { scene: active.id, frame: f, phase: 1 };
-    // 2. what plays next: lookahead frames, continuing into following scenes if the active one ends first
-    let remaining = this.lookahead, s = i, frame = f + 1;
+    // 2. what plays next: lookahead frames (when rolling-window `behind` is set, `lookahead` is the total ahead share including playhead)
+    let remaining = this.behind !== undefined ? Math.max(0, this.lookahead - 1) : this.lookahead, s = i, frame = f + 1;
     while (remaining > 0 && s < this.scenes.length) {
       const scene = this.scenes[s]!;
       if (frame >= scene.frames) { s++; frame = 0; continue; }
       yield { scene: scene.id, frame, phase: 2 };
       frame++; remaining--;
     }
+    if (this.behind !== undefined) {
+      // Rolling window order (Plan §6): playhead -> ahead share -> head of next scene -> behind share.
+      const nextScene = this.scenes[i + 1];
+      if (nextScene) {
+        for (let n = 0; n < Math.min(this.head, nextScene.frames); n++) {
+          yield { scene: nextScene.id, frame: n, phase: 2 };
+        }
+      }
+      const minBehind = Math.max(0, f - this.behind);
+      for (let n = f - 1; n >= minBehind; n--) {
+        yield { scene: active.id, frame: n, phase: 2 };
+      }
+    }
     // 3. the rest of the active scene: forward to the end, then backwards from the playhead
     for (let n = f + 1 + this.lookahead; n < active.frames; n++) yield { scene: active.id, frame: n, phase: 3 };
-    for (let n = f - 1; n >= 0; n--) yield { scene: active.id, frame: n, phase: 3 };
+    const backStart = this.behind !== undefined ? Math.max(0, f - this.behind) - 1 : f - 1;
+    for (let n = backStart; n >= 0; n--) yield { scene: active.id, frame: n, phase: 3 };
     // 4. the first frames of the scenes around, nearest first, next before previous
     const around: SceneInfo[] = [];
     for (let d = 1; d < this.scenes.length; d++) {
@@ -116,6 +140,33 @@ export class FrameScheduler<T extends Disposable = Disposable> {
     for (const scene of around) for (let n = 0; n < Math.min(this.head, scene.frames); n++) yield { scene: scene.id, frame: n, phase: 4 };
     // 5. everything else, nearest scene first
     for (const scene of around) for (let n = this.head; n < scene.frames; n++) yield { scene: scene.id, frame: n, phase: 5 };
+  }
+
+  /** Draws the single highest-priority next frame (for Worker-driven draw loops). Returns true if a frame was drawn. */
+  async runNext(): Promise<boolean> {
+    if (this.paused || this.halted) return false;
+    const slot = this.next();
+    if (!slot) return false;
+    const t0 = this.now();
+    try {
+      const result = await this.opts.draw(slot.scene, slot.frame);
+      this.opts.cache.put(slot.scene, slot.frame, result.value, result.bytes);
+      this.avgBytes = this.avgBytes === 0 ? result.bytes : this.avgBytes * 0.8 + result.bytes * 0.2;
+      const ms = this.now() - t0;
+      this.avgMs = this.drawn === 0 ? ms : this.avgMs * 0.8 + ms * 0.2;
+      this.drawn++;
+      this.consecutiveFailures = 0;
+      return true;
+    } catch (error) {
+      this.failed.add(`${slot.scene}\u0000${slot.frame}`);
+      this.failures++;
+      this.consecutiveFailures++;
+      this.opts.onError?.(slot.scene, slot.frame, error);
+      if (this.consecutiveFailures >= (this.opts.maxConsecutiveFailures ?? 5)) {
+        this.halted = true;
+      }
+      return false;
+    }
   }
 
   /** The next frame worth drawing, or null when there is nothing (left) to do. */
