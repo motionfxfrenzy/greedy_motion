@@ -47,7 +47,10 @@ export interface WorkerTransport {
   terminate(): void;
 }
 
-export type WorkerTransportFactory = (workerSource: string) => Promise<WorkerTransport>;
+export type WorkerTransportFactory = (
+  workerSource: string,
+  onRegisterAbort?: (abort: () => void) => void
+) => Promise<WorkerTransport>;
 
 export interface HostClock {
   now(): number;
@@ -253,8 +256,18 @@ parent.postMessage({ t: "iframe-up" }, "*");
 </script></body></html>`;
 }
 
+let activeBrowserTransports = 0;
+
+/** Returns the count of currently live sandboxed Worker transports in the browser. */
+export function getActiveBrowserTransportCount(): number {
+  return activeBrowserTransports;
+}
+
 /** Default browser transport: creates the hidden sandboxed bootstrap iframe, spawns the blob Worker inside it, and returns the direct MessagePort. */
-export const createBrowserTransport: WorkerTransportFactory = async (workerSource: string): Promise<WorkerTransport> => {
+export const createBrowserTransport: WorkerTransportFactory = async (
+  workerSource: string,
+  onRegisterAbort?: (abort: () => void) => void
+): Promise<WorkerTransport> => {
   if (typeof document === "undefined" || typeof window === "undefined") {
     throw new Error("Sandboxed iframe Worker transport requires a browser document.");
   }
@@ -264,10 +277,34 @@ export const createBrowserTransport: WorkerTransportFactory = async (workerSourc
   iframe.style.display = "none";
   const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
 
+  let terminated = false;
+  let resolvedPort: HostMessagePort | null = null;
+  let rejectPortPromise: ((err: Error) => void) | null = null;
+
+  const terminateNow = () => {
+    if (terminated) return;
+    terminated = true;
+    activeBrowserTransports = Math.max(0, activeBrowserTransports - 1);
+    try {
+      iframe.contentWindow?.postMessage({ t: "terminate" }, "*");
+    } catch {}
+    try {
+      if (resolvedPort) {
+        resolvedPort.onmessage = null;
+        resolvedPort.close?.();
+      }
+    } catch {}
+    try {
+      iframe.remove();
+    } catch {}
+    rejectPortPromise?.(new Error("Worker transport terminated before bootstrap completed."));
+  };
+
   const portPromise = new Promise<HostMessagePort>((resolve, reject) => {
+    rejectPortPromise = reject;
     const timer = setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      try { iframe.remove(); } catch {}
+      terminateNow();
       reject(new Error("Timed out waiting for bootstrap iframe Worker port."));
     }, 5_000);
 
@@ -280,6 +317,7 @@ export const createBrowserTransport: WorkerTransportFactory = async (workerSourc
       } else if (data.t === "port" && data.nonce === nonce && data.port) {
         clearTimeout(timer);
         window.removeEventListener("message", onMessage);
+        rejectPortPromise = null;
         resolve(data.port);
       }
     };
@@ -288,25 +326,21 @@ export const createBrowserTransport: WorkerTransportFactory = async (workerSourc
 
   iframe.srcdoc = buildBootstrapSrcdoc();
   document.body.appendChild(iframe);
+  activeBrowserTransports++;
+  onRegisterAbort?.(terminateNow);
 
   const port = await portPromise;
-  let terminated = false;
+  resolvedPort = port;
+  if (terminated) {
+    try {
+      port.onmessage = null;
+      port.close?.();
+    } catch {}
+    throw new Error("Worker transport was terminated.");
+  }
   return {
     port,
-    terminate() {
-      if (terminated) return;
-      terminated = true;
-      try {
-        iframe.contentWindow?.postMessage({ t: "terminate" }, "*");
-      } catch {}
-      try {
-        port.onmessage = null;
-        port.close?.();
-      } catch {}
-      try {
-        iframe.remove();
-      } catch {}
-    }
+    terminate: terminateNow
   };
 };
 
@@ -380,6 +414,7 @@ export class WorkerHost {
 
   private transport: WorkerTransport | null = null;
   private spawning: Promise<WorkerTransport> | null = null;
+  private pendingSpawnAbort: (() => void) | null = null;
   private seq = 0;
   private waiting = new Map<number, PendingCall>();
   private spawnedAt = 0;
@@ -473,7 +508,10 @@ export class WorkerHost {
 
     const src = buildWorkerSource(this.html, this.params);
     this.spawning = (async () => {
-      const t = await this.transportFactory(src);
+      const t = await this.transportFactory(src, (abort) => {
+        this.pendingSpawnAbort = abort;
+      });
+      this.pendingSpawnAbort = null;
       if (this.isDestroyed) {
         t.terminate();
         throw new Error("WorkerHost has been destroyed.");
@@ -485,6 +523,7 @@ export class WorkerHost {
       return t;
     })().finally(() => {
       this.spawning = null;
+      this.pendingSpawnAbort = null;
     });
 
     return this.spawning;
@@ -594,6 +633,14 @@ export class WorkerHost {
 
   private terminateCurrentTransport(reason: string) {
     this.clearTimers();
+    const currentAbort = this.pendingSpawnAbort;
+    this.pendingSpawnAbort = null;
+    if (currentAbort) {
+      try {
+        currentAbort();
+      } catch {}
+    }
+
     const current = this.transport;
     this.transport = null;
     for (const [id, pending] of this.waiting.entries()) {
@@ -827,6 +874,14 @@ export class WorkerHost {
     }
     this.heldBitmaps.clear();
     this.heldBytes = 0;
+
+    const currentAbort = this.pendingSpawnAbort;
+    this.pendingSpawnAbort = null;
+    if (currentAbort) {
+      try {
+        currentAbort();
+      } catch {}
+    }
 
     const current = this.transport;
     this.transport = null;

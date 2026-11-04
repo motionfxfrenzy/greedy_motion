@@ -6,3 +6,5 @@ export * from "./support.ts";
 export * from "./worker-host.ts";
 export * from "./api.ts";
 export * from "./plate-player.ts";
+export * from "./flag.ts";
+export * from "./live-stage-logic.ts";

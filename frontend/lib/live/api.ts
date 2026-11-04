@@ -31,7 +31,24 @@ export type FetchedBundle = {
   manifest: BundleManifest;
   params: Record<string, unknown>;
   expiresAt: string;
+  url?: string;
+  gen?: number;
 };
+
+/**
+ * Extracts the variant generation (`gen`) from a presigned bundle URL (`.../g<gen>/bundle.html`),
+ * falling back to `fallbackGen` (default `1`).
+ */
+export function parseGenFromBundleUrl(url?: string | null, fallbackGen = 1): number {
+  if (typeof url === "string" && url.length > 0) {
+    const m = /(?:\/|%2F)g(\d+)(?:\/|%2F)bundle\.html/i.exec(url);
+    if (m && m[1]) {
+      const n = Number(m[1]);
+      if (Number.isInteger(n) && n >= 1) return n;
+    }
+  }
+  return Number.isInteger(fallbackGen) && fallbackGen >= 1 ? fallbackGen : 1;
+}
 
 export type CheckOutcome =
   | { ok: true }
@@ -108,6 +125,7 @@ type BundleRouteResponse = {
   bundleDigest: string;
   manifest?: BundleManifest;
   params?: Record<string, unknown>;
+  gen?: number;
 };
 
 /**
@@ -175,12 +193,22 @@ export async function fetchBundle(
     );
   }
 
+  const matchedUrlGen = /(?:\/|%2F)g(\d+)(?:\/|%2F)bundle\.html/i.exec(meta.url ?? "");
+  const resolvedGen =
+    typeof meta.gen === "number" && Number.isInteger(meta.gen) && meta.gen >= 1
+      ? meta.gen
+      : matchedUrlGen?.[1]
+        ? Number(matchedUrlGen[1])
+        : undefined;
+
   return {
     html,
     bundleDigest: meta.bundleDigest,
     manifest,
     params: meta.params ?? {},
-    expiresAt: meta.expiresAt
+    expiresAt: meta.expiresAt,
+    url: meta.url,
+    ...(resolvedGen !== undefined ? { gen: resolvedGen } : {})
   };
 }
 

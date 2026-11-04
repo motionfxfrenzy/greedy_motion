@@ -182,6 +182,49 @@ function makeScenes(states: PlateScene["state"][], errors?: Partial<Record<numbe
   });
 }
 
+function makeLiveScenes(
+  configs: {
+    state: "bundled" | "checked" | "drawn" | "rendering" | "failed";
+    hasBundle?: boolean;
+    hasClip?: boolean;
+    error?: string;
+  }[]
+): PlateScene[] {
+  return BEATS.map((b, index) => {
+    const cfg = configs[index] ?? { state: "checked", hasBundle: true, hasClip: false };
+    const variantId = `00000000-0000-4000-8000-00000000040${index + 1}`;
+    const bundleDigest = cfg.hasBundle !== false ? `digest-live-scene-${index + 1}-${"a".repeat(48)}` : null;
+    const clipV = cfg.hasClip || cfg.state === "drawn" ? "v1" : null;
+    const live = cfg.state === "checked";
+    const sceneObj = {
+      index,
+      keyword: b.keyword,
+      state: cfg.state as PlateScene["state"],
+      seconds: 4,
+      frames: 120,
+      sig: `sig-fox-${index}`,
+      rev: 1,
+      variantId: cfg.hasBundle !== false ? variantId : undefined,
+      bundleDigest,
+      live,
+      ...(cfg.error ? { error: cfg.error } : {}),
+      variants: {
+        "16:9": {
+          state: cfg.state as PlateScene["state"],
+          sig: `sig-fox-${index}-16x9`,
+          v: clipV,
+          variantId: cfg.hasBundle !== false ? variantId : undefined,
+          bundleDigest,
+          live
+        },
+        "9:16": { state: "drawn" as PlateScene["state"], sig: `sig-fox-${index}-9x16`, v: "v1" },
+        "1:1": { state: "drawn" as PlateScene["state"], sig: `sig-fox-${index}-1x1`, v: "v1" }
+      }
+    };
+    return sceneObj as PlateScene;
+  });
+}
+
 export function fixturePlateStatus(stateName: string): PlateStatus {
   const baseSubtitles = {
     mode: "full" as const,
@@ -309,6 +352,98 @@ export function fixturePlateStatus(stateName: string): PlateStatus {
         drawnAspects: ["16:9"],
         drawingAspects: ["9:16"]
       };
+
+    case "live-a-playing":
+    case "live-d-buffering":
+      return {
+        available: true,
+        look: "illus-fox",
+        mode: "live",
+        scenes: makeLiveScenes([
+          { state: "checked", hasBundle: true },
+          { state: "checked", hasBundle: true },
+          { state: "checked", hasBundle: true },
+          { state: "checked", hasBundle: true },
+          { state: "checked", hasBundle: true }
+        ]),
+        comments: [],
+        subtitles: baseSubtitles,
+        running: false,
+        drawnAspects: ["16:9"],
+        drawingAspects: []
+      } as PlateStatus;
+
+    case "live-b-clip-fallback":
+      return {
+        available: true,
+        look: "illus-fox",
+        mode: "live",
+        scenes: makeLiveScenes([
+          { state: "drawn", hasBundle: true, hasClip: true },
+          { state: "drawn", hasBundle: true, hasClip: true },
+          { state: "drawn", hasBundle: true, hasClip: true },
+          { state: "drawn", hasBundle: true, hasClip: true },
+          { state: "drawn", hasBundle: true, hasClip: true }
+        ]),
+        comments: [],
+        subtitles: baseSubtitles,
+        running: false,
+        drawnAspects: ["16:9"],
+        drawingAspects: []
+      } as PlateStatus;
+
+    case "live-c-mixed":
+      return {
+        available: true,
+        look: "illus-fox",
+        mode: "live",
+        scenes: makeLiveScenes([
+          { state: "checked", hasBundle: true, hasClip: false },
+          { state: "drawn", hasBundle: false, hasClip: true },
+          { state: "checked", hasBundle: true, hasClip: false },
+          { state: "drawn", hasBundle: false, hasClip: true },
+          { state: "checked", hasBundle: true, hasClip: false }
+        ]),
+        comments: [],
+        subtitles: baseSubtitles,
+        running: false,
+        drawnAspects: ["16:9"],
+        drawingAspects: []
+      } as PlateStatus;
+
+    case "live-e-needs-update":
+      return {
+        available: true,
+        look: "illus-fox",
+        mode: "live",
+        scenes: makeLiveScenes([
+          { state: "checked", hasBundle: true },
+          { state: "checked", hasBundle: true },
+          { state: "checked", hasBundle: true },
+          { state: "checked", hasBundle: true },
+          { state: "checked", hasBundle: true }
+        ]),
+        comments: [
+          {
+            id: "comment-1",
+            at: 0,
+            scene: 0,
+            sceneAt: 0,
+            body: "Keep the fox's scarf a warmer rust colour throughout."
+          },
+          {
+            id: "comment-2",
+            at: 6.4,
+            scene: 1,
+            sceneAt: 2.4,
+            body: "Make the snow footprints glow softly as she steps."
+          }
+        ],
+        subtitles: baseSubtitles,
+        running: false,
+        drawnAspects: ["16:9"],
+        drawingAspects: []
+      } as PlateStatus;
 
     default:
       return {

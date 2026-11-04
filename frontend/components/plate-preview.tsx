@@ -1,9 +1,12 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { voiceText, type VideoProject } from "@videosaas/contracts";
+import { scriptFrameKey, voiceText, type VideoProject } from "@videosaas/contracts";
 import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, getPlates, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
+import { isPlateLiveEnabled, type LivePlateScene, type LivePlateStatus, type SceneModeResolution } from "../lib/live";
 import { useMediaToken } from "../lib/use-media-token";
 import { AnimationPrep, AnimationWorkspace, FinalView, activeSubtitleCueAt, buildPlateFinalRatios, buildSubtitleCues, sortWorkspaceComments, type WorkspaceAspectOption } from "./animation-workspace";
+import { PlateLiveStage, type PlateLiveOptions } from "./plate-live-stage";
+import { svgSrc } from "./script-canvas";
 
 const SFX_NAMES: PlateSfxName[] = ["whoosh-short", "click", "pop", "chime", "typing", "impact-bass-1"];
 type PlateSfxCue = { name: PlateSfxName; offset: number; volume: number; mediaStart?: number };
@@ -90,20 +93,24 @@ function sceneTransitionCues(duration: number, index: number, totalScenes: numbe
   ];
 }
 
-const LABEL: Record<PlateScene["state"], string> = { queued: "Waiting", authoring: "Writing the scene", rendering: "Drawing", drawn: "Drawn", failed: "Failed" };
-const working = (scene?: PlateScene) => scene?.state === "queued" || scene?.state === "authoring" || scene?.state === "rendering";
+const LABEL: Record<string, string> = { queued: "Waiting", authoring: "Writing the scene", bundled: "Checking", checked: "Ready", rendering: "Drawing", drawn: "Drawn", failed: "Failed" };
+const working = (scene?: PlateScene) => {
+  const st = (scene as LivePlateScene | undefined)?.state;
+  return st === "queued" || st === "authoring" || st === "bundled" || st === "rendering";
+};
 
 /**
  * The Preview of a code-drawn style (backend plates/): the storyboard's scenes drawn in the style's medium, played as ONE film on
  * one timeline. Comments are pinned to a moment of the film; applying them redraws only the scenes they fall in.
  */
-export function PlatePreview({ project, onBack: _onBack, onRender, rendering, cost, prep }: { project: VideoProject; onBack: () => void; onRender?: () => void; rendering?: boolean; cost?: number; prep?: "sound" | "scenes" | "motion" | null }) {
+export function PlatePreview({ project, onBack: _onBack, onRender, rendering, cost, prep, liveOptions }: { project: VideoProject; onBack: () => void; onRender?: () => void; rendering?: boolean; cost?: number; prep?: "sound" | "scenes" | "motion" | null; liveOptions?: PlateLiveOptions }) {
   useMediaToken();
   const [status, setStatus] = useState<PlateStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [current, setCurrent] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [time, setTime] = useState(0);
+  const [playing, setPlaying] = useState(Boolean(liveOptions?.initialPlaying));
+  const [time, setTime] = useState(liveOptions?.freezeClockAt ?? liveOptions?.initialTime ?? 0);
+  const [liveResolutions, setLiveResolutions] = useState<SceneModeResolution[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [voiceDurations, setVoiceDurations] = useState<Record<number, number>>({});
@@ -154,11 +161,35 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   );
   const starts = useMemo(() => durations.reduce<number[]>((acc, _, i) => { acc.push(i ? acc[i - 1]! + durations[i - 1]! : 0); return acc; }, []), [durations]);
   const total = durations.reduce((sum, sec) => sum + sec, 0);
+  const flagEnabled = isPlateLiveEnabled(liveOptions?.flagOverride);
+  const liveStatus = status as (PlateStatus & Partial<LivePlateStatus>) | null;
+  const isLiveMode = flagEnabled && liveStatus?.mode === "live";
   const drawn = scenes.filter((scene) => scene.state === "drawn").length;
-  const busy = Boolean(status?.running) || scenes.some(working);
+  const liveReadyCount = scenes.filter((scene, idx) => liveResolutions[idx]?.isReady ?? ((scene as LivePlateScene).state === "checked" || scene.state === "drawn")).length;
+  const readyCount = isLiveMode ? liveReadyCount : drawn;
+  const busy = Boolean(status?.running) || scenes.some(working) || (isLiveMode && liveResolutions.some((r) => r.tabState === "updating"));
   const failed = scenes.filter((scene) => scene.state === "failed").length;
   const shown = scenes[current];
   const musicSrc = project.planAudio?.music?.file ? planVoiceUrl(project.id, project.planAudio.music.file) : null;
+  const pendingCommentScenes = useMemo(() => new Set(comments.map((c) => c.scene)), [comments]);
+  const referenceFrames = useMemo(() => {
+    const saved = project.scriptFrames ?? [];
+    if (!saved.length) return [];
+    const byKey = new Map(saved.map((f) => [f.key, f.svg]));
+    const beats = project.brief?.scriptBeats ?? [];
+    return scenes.map((_, idx) => {
+      const beat = beats[idx];
+      const svg = (beat && project.brief ? byKey.get(scriptFrameKey(beat, project.brief)) : undefined) ?? saved[idx]?.svg;
+      return svg ? svgSrc(svg) : null;
+    });
+  }, [project.scriptFrames, project.brief, scenes]);
+
+  const refreshStatus = useCallback(() => {
+    void ensureMediaToken()
+      .then(() => getPlates(project.id))
+      .then((next) => { setStatus(next); setError(null); })
+      .catch(() => undefined);
+  }, [project.id]);
 
   const rateFor = useCallback((index: number, el: HTMLVideoElement | null) => {
     const sceneDur = durations[index] ?? scenes[index]?.seconds ?? 0;
@@ -201,13 +232,16 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
         let shouldKeepPolling = Boolean(next.running) || next.scenes.some(working) || (next.drawingAspects?.length ?? 0) > 0;
         if (next.available && !started.current && !next.running) {
           started.current = true;
-          if (!next.scenes.length || next.scenes.some((s) => s.state !== "drawn")) {
+          const nextMode = (next as Partial<LivePlateStatus>).mode;
+          const isSceneDone = (s: { state: string }) =>
+            flagEnabled && nextMode === "live" ? s.state === "checked" || s.state === "drawn" : s.state === "drawn";
+          if (!next.scenes.length || next.scenes.some((s) => !isSceneDone(s))) {
             const drawnStatus = await drawPlates(project.id);
             setStatus(drawnStatus);
             shouldKeepPolling = Boolean(drawnStatus.running) || drawnStatus.scenes.some(working) || (drawnStatus.drawingAspects?.length ?? 0) > 0;
           }
         }
-        if (live && shouldKeepPolling) timer = setTimeout(poll, 3000);
+        if (live && shouldKeepPolling) timer = setTimeout(poll, flagEnabled ? 1500 : 3000);
       } catch (e) {
         if (live) {
           setError(e instanceof Error ? e.message : "Could not load the scenes.");
@@ -217,10 +251,11 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     };
     void poll();
     return () => { live = false; clearTimeout(timer); };
-  }, [project.id, project.brief?.scriptBeats?.length, prep, busy]);
+  }, [project.id, project.brief?.scriptBeats?.length, prep, busy, flagEnabled]);
 
   useEffect(() => {
     if (!playing) return;
+    if (isLiveMode && liveResolutions[current]?.mode === "live") return;
     let frame = 0;
     const tick = () => {
       const el = videos.current[current];
@@ -234,11 +269,20 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, current, starts, durations, rateFor]);
+  }, [playing, current, starts, durations, rateFor, isLiveMode, liveResolutions]);
 
   useEffect(() => {
     videos.current.forEach((el, idx) => { if (idx !== current && el && !el.paused) el.pause(); });
     voices.current.forEach((el, idx) => { if (idx !== current && el && !el.paused) el.pause(); });
+    if (isLiveMode && liveResolutions[current]?.mode === "live") {
+      if (pending.current !== null) {
+        const offset = pending.current;
+        const vo = voices.current[current];
+        if (vo && vo.readyState >= 1) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), offset) : offset;
+        pending.current = null;
+      }
+      return;
+    }
     const el = videos.current[current];
     const vo = voices.current[current];
     if (!el) return;
@@ -251,7 +295,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       pending.current = null;
     }
     if (wantPlay.current) void el.play().catch(() => setPlaying(false));
-  }, [current, rateFor]);
+  }, [current, rateFor, isLiveMode, liveResolutions]);
 
   const clearSfxTimers = () => {
     sfxTimers.current.forEach((id) => clearTimeout(id));
@@ -305,8 +349,21 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     const local = clamped - starts[index]!;
     setTime(clamped);
     if (musicAudio.current) musicAudio.current.currentTime = clamped;
-    const el = videos.current[index];
     const vo = voices.current[index];
+    if (isLiveMode && liveResolutions[index]?.mode === "live") {
+      videos.current.forEach((v) => { if (v && !v.paused) v.pause(); });
+      voices.current.forEach((v, idx) => { if (idx !== index && v && !v.paused) v.pause(); });
+      if (vo && vo.readyState >= 1) {
+        vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), local) : local;
+      } else {
+        pending.current = local;
+      }
+      if (wantPlay.current) playSceneSfx(index, local);
+      else clearSfxTimers();
+      if (index !== current) setCurrent(index);
+      return;
+    }
+    const el = videos.current[index];
     const rate = rateFor(index, el);
     if (index === current && el) {
       el.playbackRate = rate;
@@ -325,7 +382,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       }
       setCurrent(index);
     }
-  }, [scenes, starts, durations, total, current, rateFor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scenes, starts, durations, total, current, rateFor, isLiveMode, liveResolutions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onLoaded = (index: number) => {
     const el = videos.current[index];
@@ -342,12 +399,35 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     } else if (!wantPlay.current && el.currentTime === 0) {
       el.currentTime = 0.001;
     }
-    if (wantPlay.current) void el.play().catch(() => setPlaying(false));
+    if (wantPlay.current && (!isLiveMode || liveResolutions[index]?.mode === "clip")) void el.play().catch(() => setPlaying(false));
   };
 
   const toggle = () => {
     const el = videos.current[current];
     const vo = voices.current[current];
+    if (isLiveMode) {
+      const curRes = liveResolutions[current];
+      if (!curRes?.isPlayable) return;
+      if (!playing) {
+        wantPlay.current = true;
+        if (time >= total - 0.1) seek(0);
+        if (curRes.mode === "live") {
+          setPlaying(true);
+        } else if (el) {
+          el.playbackRate = rateFor(current, el);
+          void el.play().catch(() => setPlaying(false));
+        }
+      } else {
+        wantPlay.current = false;
+        el?.pause();
+        vo?.pause();
+        musicAudio.current?.pause();
+        clearSfxTimers();
+        Object.values(sfxAudios.current).forEach((s) => s?.pause());
+        setPlaying(false);
+      }
+      return;
+    }
     if (!el || shown?.state !== "drawn") return;
     if (!playing) {
       wantPlay.current = true;
@@ -363,29 +443,38 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     }
   };
 
-  const advanceFrom = (index: number) => {
+  const advanceFrom = useCallback((index: number) => {
     if (index !== current) return;
     voices.current[index]?.pause();
-    const after = scenes.findIndex((scene, i) => i > current && scene.state === "drawn");
+    const after = scenes.findIndex((scene, i) =>
+      i > current && (isLiveMode ? Boolean(liveResolutions[i]?.isPlayable) : scene.state === "drawn")
+    );
     if (after >= 0) {
       const nextVideo = videos.current[after];
       const nextVoice = voices.current[after];
-      if (nextVideo && nextVideo.readyState >= 1) {
-        nextVideo.playbackRate = rateFor(after, nextVideo);
-        nextVideo.currentTime = 0;
+      if (isLiveMode && liveResolutions[after]?.mode === "live") {
         if (nextVoice && nextVoice.readyState >= 1) nextVoice.currentTime = 0;
         pending.current = null;
+        setTime(starts[after] ?? 0);
+        setCurrent(after);
       } else {
-        pending.current = 0;
+        if (nextVideo && nextVideo.readyState >= 1) {
+          nextVideo.playbackRate = rateFor(after, nextVideo);
+          nextVideo.currentTime = 0;
+          if (nextVoice && nextVoice.readyState >= 1) nextVoice.currentTime = 0;
+          pending.current = null;
+        } else {
+          pending.current = 0;
+        }
+        setCurrent(after);
       }
-      setCurrent(after);
     } else {
       wantPlay.current = false;
       setPlaying(false);
       musicAudio.current?.pause();
       setTime(total);
     }
-  };
+  }, [current, scenes, isLiveMode, liveResolutions, starts, rateFor, total]);
 
   const onVideoEnded = (index: number) => {
     if (index !== current) return;
@@ -396,6 +485,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
 
   const onVoiceEnded = (index: number) => {
     if (index !== current) return;
+    if (isLiveMode && liveResolutions[index]?.mode === "live") return;
     const el = videos.current[index];
     if (!el || el.ended || el.paused || (Number.isFinite(el.duration) && el.duration - el.currentTime <= 0.2)) {
       advanceFrom(index);
@@ -405,7 +495,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const add = async () => {
     const body = draft.trim();
     if (!body || sending) return;
-    setSending(true); wantPlay.current = false; videos.current[current]?.pause();
+    setSending(true); wantPlay.current = false; setPlaying(false); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause();
     try { await addPlateComment(project.id, time, body); setDraft(""); setStatus(await getPlates(project.id)); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not add the comment."); }
     finally { setSending(false); }
@@ -541,9 +631,12 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
 
   const selectOrDrawAspect = (asp: "16:9" | "9:16" | "1:1") => {
     wantPlay.current = false;
+    setPlaying(false);
     videos.current[current]?.pause();
+    voices.current[current]?.pause();
+    musicAudio.current?.pause();
     setViewAspect(asp);
-    if (!drawnAspects.includes(asp) && !drawingAspects.includes(asp) && drawn === scenes.length && scenes.length > 0) {
+    if (!drawnAspects.includes(asp) && !drawingAspects.includes(asp) && readyCount === scenes.length && scenes.length > 0) {
       void drawPlateAspect(project.id, asp).then(setStatus).catch((e) => setError(e instanceof Error ? e.message : "Could not draw this dimension."));
     }
   };
@@ -562,13 +655,15 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   if (error) errors.push(error);
   if (status && !status.available) errors.push("Code-drawn scenes aren't available for this project right now.");
 
-  const statusBadge = busy || failed > 0 || (scenes.length > 0 && drawn < scenes.length)
+  const statusBadge = busy || failed > 0 || (scenes.length > 0 && readyCount < scenes.length)
     ? {
-        text: <>{drawn}/{scenes.length || "…"} drawn{busy ? "…" : ""}</>,
+        text: isLiveMode ? <>{readyCount}/{scenes.length || "…"} ready{busy ? "…" : ""}</> : <>{drawn}/{scenes.length || "…"} drawn{busy ? "…" : ""}</>,
         showRetry: !busy,
         onRetry: () => { void drawPlates(project.id).then(setStatus).catch((e) => setError(e instanceof Error ? e.message : "Could not start drawing.")); }
       }
     : null;
+
+  const isCurrentScenePlayable = isLiveMode ? Boolean(liveResolutions[current]?.isPlayable) : (shown?.state === "drawn" && isViewAspectDrawn);
 
   return <AnimationWorkspace
     aspect={viewAspect}
@@ -581,72 +676,115 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     canvasRef={canvasRef}
     onStageClick={toggle}
     renderStage={() => <>
-      {isViewAspectDrawn && scenes.map((scene) => {
-        if (scene.state !== "drawn") return null;
-        const clipSrc = plateClipUrl(project.id, scene.index, `${scene.variants?.[viewAspect]?.v ?? scene.sig}-${scene.rev ?? 0}-${viewAspect}`, viewAspect);
-        return <video
-          key={`${scene.index}-${clipSrc}`}
-          ref={(el) => { videos.current[scene.index] = el; }}
-          className={scene.index === current ? "on" : ""}
-          src={clipSrc}
-          preload="auto"
-          muted
-          playsInline
-          onLoadedData={() => onLoaded(scene.index)}
-          onError={(e) => {
-            const el = e.currentTarget;
-            const tries = Number(el.dataset.retries ?? "0");
-            if (tries >= 2) return;
-            el.dataset.retries = String(tries + 1);
-            window.setTimeout(() => el.load(), 1500 * (tries + 1));
-          }}
-          onPlay={(e) => {
-            if (scene.index !== current) return;
-            setPlaying(true);
-            const rate = rateFor(scene.index, e.currentTarget);
-            e.currentTarget.playbackRate = rate;
-            const realOffset = e.currentTarget.currentTime / (rate || 1);
-            const vo = voices.current[scene.index];
-            if (vo) {
-              vo.muted = !voiceOn;
-              vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), realOffset) : realOffset;
-              vo.volume = master; void vo.play().catch(() => undefined);
-            }
-            if (musicAudio.current && musicSrc) {
-              musicAudio.current.muted = !musicOn || muted;
-              musicAudio.current.volume = 0.22 * master;
-              if (musicAudio.current.paused) {
-                musicAudio.current.currentTime = (starts[scene.index] ?? 0) + realOffset;
-                void musicAudio.current.play().catch(() => undefined);
-              }
-            }
-            playSceneSfx(scene.index, realOffset);
-          }}
-          onPause={(e) => {
-            if (scene.index !== current) return;
-            if (!wantPlay.current || !e.currentTarget.ended) voices.current[scene.index]?.pause();
-            if (!wantPlay.current) {
-              setPlaying(false);
-              musicAudio.current?.pause();
-              clearSfxTimers();
-              Object.values(sfxAudios.current).forEach((el) => el?.pause());
-            }
-          }}
-          onEnded={() => onVideoEnded(scene.index)}
-          onTimeUpdate={(e) => {
-            if (scene.index === current && !playing) {
-              const rate = rateFor(current, e.currentTarget);
-              setTime((starts[current] ?? 0) + e.currentTarget.currentTime / (rate || 1));
-            }
-          }}
-        />;
-      })}
-      {(shown?.state !== "drawn" || !isViewAspectDrawn) && <AnimationPrep
-        failed={shown?.state === "failed"}
-        title={shown?.state === "failed" ? "This scene didn't draw" : isViewAspectDrawing || (shown?.state === "drawn" && !isViewAspectDrawn) ? <>Drawing scenes in {viewAspect}…</> : prep === "sound" ? "Making the voiceover and music…" : prep === "scenes" ? "Planning the scenes…" : shown ? `${LABEL[shown.state]}…` : "Preparing the scenes…"}
-        detail={shown?.state === "failed" ? shown.error : isViewAspectDrawing || (shown?.state === "drawn" && !isViewAspectDrawn) ? <>Drawing every scene on a {viewAspect} canvas so no character is cropped</> : prep === "sound" ? "Recording the narration and building the music bed" : prep === "scenes" ? "Preparing the storyboard timing" : <>Scene {(shown?.index ?? 0) + 1} of {scenes.length || "…"}</>}
-      />}
-      {shown?.state === "drawn" && isViewAspectDrawn && activeCue && <div
+      {isLiveMode ? (
+        <PlateLiveStage
+          projectId={project.id}
+          scenes={scenes as LivePlateScene[]}
+          referenceFrames={referenceFrames}
+          viewAspect={viewAspect}
+          primaryAspect={defaultAspect}
+          isViewAspectDrawn={isViewAspectDrawn}
+          isViewAspectDrawing={isViewAspectDrawing}
+          prep={prep}
+          current={current}
+          playing={playing}
+          time={time}
+          durations={durations}
+          starts={starts}
+          total={total}
+          voiceOn={voiceOn}
+          musicOn={musicOn}
+          master={master}
+          muted={muted}
+          musicSrc={musicSrc}
+          pendingCommentScenes={pendingCommentScenes}
+          videos={videos}
+          voices={voices}
+          musicAudio={musicAudio}
+          sfxAudios={sfxAudios}
+          wantPlay={wantPlay}
+          rateFor={rateFor}
+          onLoadedVideo={onLoaded}
+          onVideoEnded={onVideoEnded}
+          onAdvanceScene={advanceFrom}
+          onSetPlaying={setPlaying}
+          onSetTime={setTime}
+          playSceneSfx={playSceneSfx}
+          clearSfxTimers={clearSfxTimers}
+          onStatusRefresh={refreshStatus}
+          onResolutionsChange={setLiveResolutions}
+          liveOptions={liveOptions}
+        />
+      ) : (
+        <>
+          {isViewAspectDrawn && scenes.map((scene) => {
+            if (scene.state !== "drawn") return null;
+            const clipSrc = plateClipUrl(project.id, scene.index, `${scene.variants?.[viewAspect]?.v ?? scene.sig}-${scene.rev ?? 0}-${viewAspect}`, viewAspect);
+            return <video
+              key={`${scene.index}-${clipSrc}`}
+              ref={(el) => { videos.current[scene.index] = el; }}
+              className={scene.index === current ? "on" : ""}
+              src={clipSrc}
+              preload="auto"
+              muted
+              playsInline
+              onLoadedData={() => onLoaded(scene.index)}
+              onError={(e) => {
+                const el = e.currentTarget;
+                const tries = Number(el.dataset.retries ?? "0");
+                if (tries >= 2) return;
+                el.dataset.retries = String(tries + 1);
+                window.setTimeout(() => el.load(), 1500 * (tries + 1));
+              }}
+              onPlay={(e) => {
+                if (scene.index !== current) return;
+                setPlaying(true);
+                const rate = rateFor(scene.index, e.currentTarget);
+                e.currentTarget.playbackRate = rate;
+                const realOffset = e.currentTarget.currentTime / (rate || 1);
+                const vo = voices.current[scene.index];
+                if (vo) {
+                  vo.muted = !voiceOn;
+                  vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), realOffset) : realOffset;
+                  vo.volume = master; void vo.play().catch(() => undefined);
+                }
+                if (musicAudio.current && musicSrc) {
+                  musicAudio.current.muted = !musicOn || muted;
+                  musicAudio.current.volume = 0.22 * master;
+                  if (musicAudio.current.paused) {
+                    musicAudio.current.currentTime = (starts[scene.index] ?? 0) + realOffset;
+                    void musicAudio.current.play().catch(() => undefined);
+                  }
+                }
+                playSceneSfx(scene.index, realOffset);
+              }}
+              onPause={(e) => {
+                if (scene.index !== current) return;
+                if (!wantPlay.current || !e.currentTarget.ended) voices.current[scene.index]?.pause();
+                if (!wantPlay.current) {
+                  setPlaying(false);
+                  musicAudio.current?.pause();
+                  clearSfxTimers();
+                  Object.values(sfxAudios.current).forEach((el) => el?.pause());
+                }
+              }}
+              onEnded={() => onVideoEnded(scene.index)}
+              onTimeUpdate={(e) => {
+                if (scene.index === current && !playing) {
+                  const rate = rateFor(current, e.currentTarget);
+                  setTime((starts[current] ?? 0) + e.currentTarget.currentTime / (rate || 1));
+                }
+              }}
+            />;
+          })}
+          {(shown?.state !== "drawn" || !isViewAspectDrawn) && <AnimationPrep
+            failed={shown?.state === "failed"}
+            title={shown?.state === "failed" ? "This scene didn't draw" : isViewAspectDrawing || (shown?.state === "drawn" && !isViewAspectDrawn) ? <>Drawing scenes in {viewAspect}…</> : prep === "sound" ? "Making the voiceover and music…" : prep === "scenes" ? "Planning the scenes…" : shown ? `${LABEL[shown.state]}…` : "Preparing the scenes…"}
+            detail={shown?.state === "failed" ? shown.error : isViewAspectDrawing || (shown?.state === "drawn" && !isViewAspectDrawn) ? <>Drawing every scene on a {viewAspect} canvas so no character is cropped</> : prep === "sound" ? "Recording the narration and building the music bed" : prep === "scenes" ? "Preparing the storyboard timing" : <>Scene {(shown?.index ?? 0) + 1} of {scenes.length || "…"}</>}
+          />}
+        </>
+      )}
+      {isCurrentScenePlayable && activeCue && <div
         className={`aw-subtitle aw-sub-${subStyle}`}
         aria-live="polite"
         title={`Drag to move Scene ${current + 1}'s subtitle anywhere on the screen`}
@@ -701,7 +839,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       {SFX_NAMES.flatMap((sfxName) => [0, 1].map((slot) => <audio key={`${sfxName}:${slot}`} ref={(el) => { sfxAudios.current[`${sfxName}:${slot}`] = el; }} src={planSfxUrl(sfxName)} muted={muted} preload="auto" />))}
     </>}
     playing={playing}
-    playDisabled={shown?.state !== "drawn" || !isViewAspectDrawn}
+    playDisabled={!isCurrentScenePlayable}
     onTogglePlay={toggle}
     currentTime={time}
     totalDuration={total}
@@ -711,19 +849,33 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     muted={muted}
     onToggleMute={() => setMuted((m) => !m)}
     onChangeVolume={(v) => { setMaster(v); setMuted(v === 0); }}
-    scenes={scenes.map((scene) => ({ index: scene.index, keyword: scene.keyword, duration: durations[scene.index] ?? scene.seconds, state: scene.state, stateLabel: LABEL[scene.state], stateClassName: scene.state, error: scene.error }))}
+    scenes={scenes.map((scene, idx) => {
+      if (!isLiveMode) {
+        return { index: scene.index, keyword: scene.keyword, duration: durations[scene.index] ?? scene.seconds, state: scene.state, stateLabel: LABEL[scene.state], stateClassName: scene.state, error: scene.error };
+      }
+      const res = liveResolutions[idx];
+      return {
+        index: scene.index,
+        keyword: scene.keyword,
+        duration: durations[scene.index] ?? scene.seconds,
+        state: res?.tabState ?? scene.state,
+        stateLabel: res?.tabLabel ?? LABEL[scene.state] ?? "Ready",
+        stateClassName: res?.tabClassName ?? scene.state,
+        error: scene.error
+      };
+    })}
     onSeek={seek}
     comments={comments}
     commentDraft={draft}
     onChangeCommentDraft={setDraft}
-    onCommentFocus={() => { wantPlay.current = false; videos.current[current]?.pause(); }}
-    canAddComment={drawn > 0}
+    onCommentFocus={() => { wantPlay.current = false; setPlaying(false); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause(); }}
+    canAddComment={readyCount > 0}
     addingComment={sending}
     onAddComment={() => void add()}
     onRemoveComment={(id) => void remove(id)}
     onApplyComments={() => void apply()}
     applyingComments={busy}
-    onRender={onRender ? () => { wantPlay.current = false; videos.current[current]?.pause(); onRender(); } : undefined}
+    onRender={onRender ? () => { wantPlay.current = false; setPlaying(false); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause(); onRender(); } : undefined}
     rendering={rendering}
     cost={cost}
   />;

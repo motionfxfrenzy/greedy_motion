@@ -5,15 +5,22 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "../../node_modules/playwright-core/index.mjs";
+import { bundleScene } from "../../packages/plate-engine/lib/engine.mjs";
 import { fixturePlateExport, fixturePlateStatus } from "../../frontend/test/fixtures/workspace/data.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");
 const FRONTEND_DIR = join(REPO_ROOT, "frontend");
 const FIXTURES_DIR = join(FRONTEND_DIR, "test/fixtures/workspace");
+const ENGINE_FIXTURES_DIR = join(REPO_ROOT, "packages/plate-engine/test/fixtures");
 const CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-const outDirArg = process.argv[2] ? resolve(process.cwd(), process.argv[2]) : join(HERE, "baseline");
+const rawArgs = process.argv.slice(2);
+const liveMode = rawArgs.includes("--live");
+const nonFlagArgs = rawArgs.filter((a) => !a.startsWith("--"));
+const outDirArg = nonFlagArgs[0]
+  ? resolve(process.cwd(), nonFlagArgs[0])
+  : join(HERE, liveMode ? "live-after" : "baseline");
 mkdirSync(outDirArg, { recursive: true });
 
 const CLIP_16X9 = readFileSync(join(FIXTURES_DIR, "clip-16x9.mp4"));
@@ -75,6 +82,49 @@ export const STATES = [
   "p-aspect-drawing",
   "q-plate-final-approved"
 ];
+
+export const LIVE_STATES = [
+  "live-a-playing",
+  "live-b-clip-fallback",
+  "live-c-mixed",
+  "live-d-buffering",
+  "live-e-needs-update"
+];
+
+const SHELL_REGIONS = [
+  { id: "workspace", selector: ".animation-workspace", mode: "box" },
+  { id: "options-bar", selector: '.aw-floating-bar[role="toolbar"]', mode: "toolbar" },
+  { id: "stage-frame", selector: ".aw-frame", mode: "box" },
+  { id: "stage-canvas", selector: ".aw-canvas", mode: "box" },
+  { id: "ratio-rail", selector: '.aw-dim-rail[role="group"]', mode: "box" },
+  { id: "control-row", selector: ".aw-controls", mode: "box" },
+  { id: "scene-tabs", selector: '.aw-track[role="slider"]', mode: "box" },
+  { id: "render-button", selector: ".aw-render-top", mode: "box" },
+  { id: "comments-panel", selector: 'aside.aw-side[aria-label="Comments"]', mode: "box" }
+];
+
+async function measureRegions(page) {
+  return await page.evaluate((regions) => {
+    window.scrollTo(0, 0);
+    const out = {};
+    for (const r of regions) {
+      const el = document.querySelector(r.selector);
+      if (!el) {
+        out[r.id] = null;
+        continue;
+      }
+      const rect = el.getBoundingClientRect();
+      out[r.id] = {
+        x: Math.round(rect.x * 100) / 100,
+        y: Math.round(rect.y * 100) / 100,
+        width: Math.round(rect.width * 100) / 100,
+        height: Math.round(rect.height * 100) / 100,
+        centerX: Math.round((rect.x + rect.width / 2) * 100) / 100
+      };
+    }
+    return out;
+  }, SHELL_REGIONS);
+}
 
 const WIDTHS = [1280, 400];
 const THEMES = ["light", "dark"];
@@ -215,10 +265,80 @@ async function waitForVideosReady(page) {
   });
 }
 
+async function waitForLiveStageReady(page, state) {
+  await page.waitForSelector('[data-testid="dev-live-decisions"]', { timeout: 30_000 });
+  if (state === "live-b-clip-fallback") {
+    await waitForVideosReady(page);
+    await freezeVideosForScreenshot(page);
+    return;
+  }
+  await page.waitForFunction(
+    (expectedState) => {
+      const host = document.querySelector(".aw-live-canvas-host");
+      if (!host || host.getAttribute("data-live-active") !== "true") return false;
+      const canvas = host.querySelector("canvas");
+      if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return false;
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonZero = 0;
+      for (let i = 0; i < data.length; i += 400) {
+        if (data[i] !== 0 || data[i + 1] !== 0 || data[i + 2] !== 0 || data[i + 3] !== 0) {
+          nonZero++;
+          if (nonZero >= 5) break;
+        }
+      }
+      if (nonZero < 5) return false;
+      const waitEl = document.querySelector(".aw-wait");
+      if (expectedState === "live-d-buffering") {
+        return Boolean(waitEl && (waitEl.textContent ?? "").includes("Buffering"));
+      }
+      if (waitEl) return false;
+      const devLine = document.querySelector('[data-testid="dev-live-decisions"]')?.textContent ?? "";
+      return devLine.includes("S1:live(ok)");
+    },
+    state,
+    { timeout: 30_000 }
+  );
+  await page.evaluate(async () => {
+    document.querySelectorAll("nextjs-portal").forEach((el) => el.remove());
+    await document.fonts.ready;
+    const audios = Array.from(document.querySelectorAll("audio"));
+    for (const a of audios) {
+      a.pause();
+    }
+    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  });
+}
+
 async function main() {
+  let liveBundlesByVariant = new Map();
+  if (liveMode) {
+    console.log("Building real scene bundles with bundleScene from packages/plate-engine/test/fixtures/...");
+    const adaptFrames = (src, ownFrames, wantedFrames) =>
+      src.replace(new RegExp(`(FRAMES\\s*=\\s*|durationFrames:\\s*|end:\\s*)${ownFrames}\\b`, "g"), `$1${wantedFrames}`);
+    const balloonCode = adaptFrames(readFileSync(join(ENGINE_FIXTURES_DIR, "balloon-0.ts"), "utf8"), 105, 120);
+    const blueprintCode = adaptFrames(readFileSync(join(ENGINE_FIXTURES_DIR, "blueprint-0.ts"), "utf8"), 90, 120);
+    const foxCode = adaptFrames(readFileSync(join(ENGINE_FIXTURES_DIR, "fox-0.ts"), "utf8"), 90, 120);
+    const [bBalloon, bBlueprint, bFox] = await Promise.all([
+      bundleScene({ look: "illus-balloon", code: balloonCode, frames: 120, aspect: "16:9" }),
+      bundleScene({ look: "illus-blueprint", code: blueprintCode, frames: 120, aspect: "16:9" }),
+      bundleScene({ look: "illus-fox", code: foxCode, frames: 120, aspect: "16:9" })
+    ]);
+    const list = [bBalloon, bBlueprint, bBalloon, bBlueprint, bFox];
+    for (let i = 0; i < 5; i++) {
+      const variantId = `00000000-0000-4000-8000-00000000040${i + 1}`;
+      liveBundlesByVariant.set(variantId, {
+        bundle: list[i],
+        bundleDigest: `digest-live-scene-${i + 1}-${"a".repeat(48)}`
+      });
+    }
+  }
+
   const port = await findFreePort();
   const origin = `http://127.0.0.1:${port}`;
-  console.log(`Starting Next dev server on ${origin}...`);
+  console.log(`Starting Next dev server on ${origin} (NEXT_PUBLIC_PLATE_LIVE=${liveMode ? "1" : "0"})...`);
 
   const nextProc = spawn(
     "npx",
@@ -228,22 +348,28 @@ async function main() {
       env: {
         ...process.env,
         NEXT_PUBLIC_LIVE_DEV: "1",
+        ...(liveMode ? { NEXT_PUBLIC_PLATE_LIVE: "1" } : {}),
         NEXT_PUBLIC_APP_ENV: "local",
         NEXT_PUBLIC_API_URL: "http://127.0.0.1:4000",
         NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "local-dev-anon-key"
       },
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true
     }
   );
 
   let browser = null;
   const cleanup = () => {
-    if (nextProc && !nextProc.killed) {
+    if (nextProc && nextProc.pid) {
       try {
-        nextProc.kill("SIGTERM");
+        process.kill(-nextProc.pid, "SIGTERM");
       } catch {
-        // ignore
+        try {
+          nextProc.kill("SIGTERM");
+        } catch {
+          // ignore
+        }
       }
     }
   };
@@ -295,6 +421,60 @@ async function main() {
             token: "fixture-token",
             expiresAt: "2099-01-01T00:00:00.000Z"
           })
+        });
+        return;
+      }
+
+      // Intercept live bundle metadata route
+      const bundleMatch = /\/projects\/[^/]+\/plates\/([^/]+)\/bundle$/.exec(url.pathname);
+      if (bundleMatch) {
+        const variantId = decodeURIComponent(bundleMatch[1]);
+        const entry = liveBundlesByVariant.get(variantId);
+        if (!entry) {
+          await route.fulfill({ status: 404, body: JSON.stringify({ error: { code: "not_found", message: "Not found." } }) });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            url: `${origin}/__fixture-bundle/${encodeURIComponent(variantId)}/g1/bundle.html`,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            bundleDigest: entry.bundleDigest,
+            manifest: entry.bundle.manifest,
+            params: {}
+          })
+        });
+        return;
+      }
+
+      // Intercept live bundle HTML download
+      const htmlMatch = /^\/__fixture-bundle\/([^/]+)\/g\d+\/bundle\.html$/.exec(url.pathname);
+      if (htmlMatch) {
+        const variantId = decodeURIComponent(htmlMatch[1]);
+        const entry = liveBundlesByVariant.get(variantId);
+        await route.fulfill({
+          status: entry ? 200 : 404,
+          contentType: "text/html; charset=utf-8",
+          body: entry ? entry.bundle.html : "not found"
+        });
+        return;
+      }
+
+      // Intercept live browser check & clip-request routes
+      if (/\/projects\/[^/]+\/plates\/[^/]+\/check$/.test(url.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ state: "checked" })
+        });
+        return;
+      }
+      if (/\/projects\/[^/]+\/plates\/[^/]+\/clip-request$/.test(url.pathname)) {
+        await route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          body: JSON.stringify({ state: "rendering" })
         });
         return;
       }
@@ -374,6 +554,104 @@ async function main() {
     });
 
     const page = await context.newPage();
+
+    if (liveMode) {
+      // First measure baseline plates shell regions for c-ready and d-comments
+      const baselineRects = {};
+      for (const refState of ["c-ready", "d-comments"]) {
+        activeState = refState;
+        baselineRects[refState] = {};
+        for (const theme of THEMES) {
+          baselineRects[refState][theme] = {};
+          for (const width of WIDTHS) {
+            await page.setViewportSize({ width, height: 800 });
+            await page.goto(
+              `${origin}/dev/plate-preview-fixture?state=${encodeURIComponent(refState)}&theme=${encodeURIComponent(theme)}`,
+              { waitUntil: "networkidle" }
+            );
+            await page.addStyleTag({ content: DETERMINISTIC_CSS });
+            await page.evaluate((t) => {
+              document.documentElement.dataset.theme = t;
+              document.querySelectorAll("nextjs-portal").forEach((el) => el.remove());
+            }, theme);
+            await page.waitForSelector(".aw-segments li:nth-child(5)");
+            await waitForVideosReady(page);
+            baselineRects[refState][theme][width] = await measureRegions(page);
+          }
+        }
+      }
+
+      const regionRows = [];
+      let anyLayoutFailed = false;
+
+      for (const state of LIVE_STATES) {
+        activeState = state;
+        const refState = state === "live-e-needs-update" ? "d-comments" : "c-ready";
+        for (const theme of THEMES) {
+          for (const width of WIDTHS) {
+            await page.setViewportSize({ width, height: 800 });
+            await page.mouse.move(0, 0);
+            await page.evaluate((t) => {
+              try {
+                localStorage.setItem("gm-theme", t);
+                document.documentElement.dataset.theme = t;
+              } catch {}
+            }, theme);
+
+            const targetUrl = `${origin}/dev/plate-preview-fixture?state=${encodeURIComponent(state)}&theme=${encodeURIComponent(theme)}`;
+            await page.goto(targetUrl, { waitUntil: "networkidle" });
+            await page.addStyleTag({ content: DETERMINISTIC_CSS });
+            await page.evaluate((t) => {
+              document.documentElement.dataset.theme = t;
+              localStorage.setItem("gm-theme", t);
+              document.querySelectorAll("nextjs-portal").forEach((el) => el.remove());
+            }, theme);
+
+            await page.waitForSelector(".aw-segments li:nth-child(5)");
+            await waitForLiveStageReady(page, state);
+            await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+            const liveRects = await measureRegions(page);
+            const refRects = baselineRects[refState][theme][width];
+            for (const reg of SHELL_REGIONS) {
+              const p = refRects[reg.id];
+              const l = liveRects[reg.id];
+              const dy = p && l ? Math.abs(p.y - l.y) : 999;
+              const dh = p && l ? Math.abs(p.height - l.height) : 999;
+              const dx = p && l ? (reg.mode === "toolbar" ? Math.abs(p.centerX - l.centerX) : Math.abs(p.x - l.x)) : 999;
+              const dw = p && l ? (reg.mode === "toolbar" ? 0 : Math.abs(p.width - l.width)) : 999;
+              const maxDiffPx = Math.round(Math.max(dx, dy, dw, dh) * 100) / 100;
+              const pass = maxDiffPx <= 2;
+              if (!pass) anyLayoutFailed = true;
+              regionRows.push({
+                state,
+                viewport: `${width}x800`,
+                theme,
+                region: reg.id,
+                plateBox: p ? `${p.x},${p.y} ${p.width}×${p.height}` : "MISSING",
+                liveBox: l ? `${l.x},${l.y} ${l.width}×${l.height}` : "MISSING",
+                maxDiffPx,
+                pass
+              });
+            }
+
+            const fileName = `${state}-${width}-${theme}.png`;
+            const filePath = join(outDirArg, fileName);
+            await page.screenshot({ path: filePath, fullPage: false });
+            console.log(`Captured ${fileName}`);
+          }
+        }
+      }
+
+      const passedCount = regionRows.filter((r) => r.pass).length;
+      console.log(`\nLive shell region layout check: ${passedCount}/${regionRows.length} coincided within <= 2 px.`);
+      const maxObserved = Math.max(0, ...regionRows.map((r) => r.maxDiffPx));
+      console.log(`Max region delta across all ${regionRows.length} region checks: ${maxObserved} px.`);
+      if (anyLayoutFailed) {
+        process.exit(1);
+      }
+      return;
+    }
 
     for (const state of STATES) {
       activeState = state;

@@ -146,6 +146,7 @@ export type PlatePlayerOptions = {
   hostOptions?: Partial<WorkerHostOptions>;
   transportFactory?: WorkerTransportFactory;
   environment?: string | EnvironmentProbeInput;
+  forceClipReason?: string;
   gateSampleFrames?: number;
   autoPump?: boolean;
 };
@@ -179,6 +180,7 @@ export class PlatePlayer implements ScenePlayer {
   private readyEmitted = false;
   private currentDecision: PlayerDecision = { mode: "live", reason: "ok" };
   private pumping = false;
+  private repumpRequested = false;
   private isDestroyed = false;
 
   private listeners: Record<PlayerEvent, Set<(detail?: unknown) => void>> = {
@@ -230,12 +232,26 @@ export class PlatePlayer implements ScenePlayer {
       this.envSupported = supportsWorkerHost();
     }
 
-    if (!this.envSupported) {
+    if (options.forceClipReason) {
+      this.ownsHost = false;
+      this.host = null;
+      this.currentDecision = {
+        mode: "clip",
+        reason: options.forceClipReason
+      };
+    } else if (!this.envSupported) {
       this.ownsHost = false;
       this.host = null;
       this.currentDecision = {
         mode: "clip",
         reason: this.envState === "unverified" ? "unverified-environment" : "unsupported-environment"
+      };
+    } else if (!this.html.trim()) {
+      this.ownsHost = false;
+      this.host = null;
+      this.currentDecision = {
+        mode: "clip",
+        reason: "no-bundle"
       };
     } else if (options.host) {
       this.ownsHost = false;
@@ -315,9 +331,10 @@ export class PlatePlayer implements ScenePlayer {
     this.emit("mode", payload);
   }
 
-  async mount(el: HTMLElement): Promise<void> {
+  async mount(el: HTMLElement, options?: { active?: boolean }): Promise<void> {
     if (this.isDestroyed) throw new Error("Player has been destroyed.");
     this.container = el;
+    const isActive = options?.active ?? true;
 
     if (typeof el.ownerDocument?.createElement === "function") {
       const canvas = el.ownerDocument.createElement("canvas");
@@ -326,6 +343,10 @@ export class PlatePlayer implements ScenePlayer {
       canvas.style.width = "100%";
       canvas.style.height = "100%";
       canvas.style.display = "block";
+      canvas.style.objectFit = "contain";
+      if (canvas.dataset) {
+        canvas.dataset.sceneId = this.sceneId;
+      }
       el.appendChild(canvas);
       this.canvas = canvas;
       this.ctx = canvas.getContext("2d");
@@ -398,6 +419,14 @@ export class PlatePlayer implements ScenePlayer {
       this.blitFrame(0);
     }
 
+    if (!isActive) {
+      if (!this.readyEmitted) {
+        this.readyEmitted = true;
+        this.emit("ready", { leadSeconds: gate.leadSeconds, bufferedAheadSeconds: aheadBufferedSec });
+      }
+      return;
+    }
+
     // Buffer up to `lead` (or start background pump) so `ready` fires when bufferedAhead >= lead.
     await this.fillUntilGate(gate.leadSeconds);
 
@@ -448,14 +477,31 @@ export class PlatePlayer implements ScenePlayer {
 
   /** Pumps the draw-ahead scheduler inside the Worker until the rolling window is full. */
   async pumpScheduler(maxFrames = this.windowSplit.windowFrames): Promise<number> {
-    if (this.pumping || this.isDestroyed || this.currentDecision.mode !== "live") return 0;
+    if (this.isDestroyed || this.currentDecision.mode !== "live") return 0;
+    if (this.pumping) {
+      this.repumpRequested = true;
+      return 0;
+    }
     this.pumping = true;
     let count = 0;
     try {
       while (!this.isDestroyed && this.currentDecision.mode === "live" && count < maxFrames) {
+        if (this.repumpRequested) {
+          this.repumpRequested = false;
+          count = 0;
+        }
         const drew = await this.scheduler.runNext();
         if (!drew) break;
         count++;
+        if (this.autoPump && this.cache.has(this.cacheKey, this.currentFrame)) {
+          if (this.lastShownFrame !== this.currentFrame) {
+            this.blitFrame(this.currentFrame);
+          }
+          if (this.isBuffering) {
+            this.isBuffering = false;
+            this.emit("buffering", { buffering: false, frame: this.currentFrame });
+          }
+        }
         if (this.host?.unhealthy) {
           this.switchToClip("worker-unhealthy");
           break;
@@ -542,6 +588,13 @@ export class PlatePlayer implements ScenePlayer {
     }
   }
 
+  /** Toggles visibility of this scene's canvas inside a multi-scene stage container. */
+  setCanvasVisible(visible: boolean): void {
+    if (this.canvas) {
+      this.canvas.style.display = visible ? "block" : "none";
+    }
+  }
+
   destroy(): void {
     if (this.isDestroyed) return;
     this.isDestroyed = true;
@@ -578,6 +631,9 @@ export type FilmSceneSpec = {
   html: string;
   params?: Record<string, unknown>;
   frames: number;
+  durationSeconds?: number;
+  environment?: string | EnvironmentProbeInput;
+  forceClipReason?: string;
 };
 
 export type FilmPlayerOptions = {
@@ -599,6 +655,7 @@ export interface FilmPlayer extends ScenePlayer {
   readonly activeSceneIndex: number;
   decision(sceneIndex?: number): PlayerDecision;
   syncToClock(): void;
+  updateScene(sceneIndex: number, spec: FilmSceneSpec): Promise<void>;
 }
 
 /**
@@ -611,46 +668,38 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
   const preview = previewSizeForAspect(aspect);
   const budgetBytes = options.budgetBytes ?? resolveCacheBudgetBytes();
   const sharedCache = new FrameCache<ImageBitmapLike>(budgetBytes);
+  const sceneSpecs = options.scenes.map((s) => ({ ...s }));
 
   const spans: SceneSpan[] = [];
   const startFrames: number[] = [];
-  let cursorFrames = 0;
+  let totalFrames = 1;
 
-  for (const s of options.scenes) {
-    const startSec = cursorFrames / fps;
-    startFrames.push(cursorFrames);
-    cursorFrames += s.frames;
-    const endSec = cursorFrames / fps;
-    spans.push({ id: s.id, start: startSec, end: endSec });
-  }
+  const rebuildSpans = () => {
+    spans.length = 0;
+    startFrames.length = 0;
+    let cursorFrames = 0;
+    for (const s of sceneSpecs) {
+      const startSec = cursorFrames / fps;
+      startFrames.push(cursorFrames);
+      const spanFrames =
+        typeof s.durationSeconds === "number" && s.durationSeconds > 0
+          ? Math.max(s.frames, Math.round(s.durationSeconds * fps))
+          : s.frames;
+      cursorFrames += spanFrames;
+      const endSec = cursorFrames / fps;
+      spans.push({ id: s.id, start: startSec, end: endSec });
+    }
+    totalFrames = Math.max(1, cursorFrames);
+  };
 
-  const totalFrames = Math.max(1, cursorFrames);
+  rebuildSpans();
+
   const defaultSource: TimeSource = options.timeSource ?? { currentTime: () => 0, playing: () => false };
   const clock = options.clock ?? new PlaybackClock(defaultSource, fps, totalFrames);
 
-  const players = options.scenes.map(
-    (s, idx) =>
-      new PlatePlayer({
-        id: s.id,
-        bundleDigest: s.bundleDigest,
-        html: s.html,
-        params: s.params,
-        aspect,
-        fps,
-        frames: s.frames,
-        hasNextScene: idx < options.scenes.length - 1,
-        cache: sharedCache,
-        budgetBytes,
-        transportFactory: options.transportFactory,
-        environment: options.environment,
-        autoPump: options.autoPump ?? true
-      })
-  );
-
-  sharedCache.setOrder(players.map((p) => p.cacheKey));
-
   let activeIdx = 0;
   let destroyed = false;
+  let mountedEl: HTMLElement | null = null;
   const listeners: Record<PlayerEvent, Set<(detail?: unknown) => void>> = {
     ready: new Set(),
     buffering: new Set(),
@@ -666,17 +715,47 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     }
   };
 
-  players.forEach((p, idx) => {
+  const makeScenePlayer = (s: FilmSceneSpec, idx: number): PlatePlayer => {
+    const p = new PlatePlayer({
+      id: s.id,
+      bundleDigest: s.bundleDigest,
+      html: s.html,
+      params: s.params,
+      aspect,
+      fps,
+      frames: s.frames,
+      hasNextScene: idx < sceneSpecs.length - 1,
+      cache: sharedCache,
+      budgetBytes,
+      transportFactory: options.transportFactory,
+      environment: s.environment ?? options.environment,
+      forceClipReason: s.forceClipReason,
+      autoPump: options.autoPump ?? true
+    });
     p.on("buffering", (d) => emit("buffering", { sceneIndex: idx, ...(typeof d === "object" && d ? d : {}) }));
     p.on("error", (d) => emit("error", { sceneIndex: idx, error: d }));
-    p.on("mode", (d) => emit("mode", { sceneIndex: idx, ...(typeof d === "object" && d ? d : {}) }));
-  });
+    p.on("mode", (d) => {
+      updateCanvasVisibility();
+      emit("mode", { sceneIndex: idx, ...(typeof d === "object" && d ? d : {}) });
+    });
+    return p;
+  };
+
+  const players: PlatePlayer[] = sceneSpecs.map((s, idx) => makeScenePlayer(s, idx));
+
+  const updateCanvasVisibility = () => {
+    players.forEach((p, idx) => {
+      p.setCanvasVisible(idx === activeIdx && p.decision().mode === "live");
+    });
+  };
+
+  sharedCache.setOrder(players.map((p) => p.cacheKey));
 
   const sceneForGlobalFrame = (globalFrame: number): { sceneIndex: number; localFrame: number } => {
     const clamped = Math.max(0, Math.min(totalFrames - 1, Math.floor(globalFrame)));
     const t = clamped / fps;
     const idx = Math.max(0, sceneAt(spans, t));
-    const localFrame = Math.max(0, Math.min((options.scenes[idx]?.frames ?? 1) - 1, clamped - (startFrames[idx] ?? 0)));
+    const localFrame = Math.max(0, Math.min((sceneSpecs[idx]?.frames ?? 1) - 1, clamped - (startFrames[idx] ?? 0)));
     return { sceneIndex: idx, localFrame };
   };
 
@@ -684,7 +763,9 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     width: preview.width,
     height: preview.height,
     fps,
-    frames: totalFrames,
+    get frames() {
+      return totalFrames;
+    },
     sceneSpans: spans
   };
 
@@ -701,10 +782,47 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     },
     async mount(el: HTMLElement): Promise<void> {
       if (destroyed) throw new Error("FilmPlayer has been destroyed.");
-      for (const p of players) {
-        await p.mount(el);
+      mountedEl = el;
+      for (let i = 0; i < players.length; i++) {
+        const p = players[i]!;
+        if (destroyed) return;
+        await p.mount(el, { active: false });
+        if (destroyed) {
+          p.destroy();
+          return;
+        }
+      }
+      updateCanvasVisibility();
+      const activePlayer = players[activeIdx];
+      if (activePlayer && !destroyed) {
+        const f = frameAt(clock.now(), fps, totalFrames);
+        this.showFrame(f);
       }
       emit("ready");
+    },
+    async updateScene(sceneIndex: number, spec: FilmSceneSpec): Promise<void> {
+      if (destroyed || sceneIndex < 0 || sceneIndex >= players.length) return;
+      const oldPlayer = players[sceneIndex];
+      if (oldPlayer) {
+        oldPlayer.destroy();
+      }
+      sceneSpecs[sceneIndex] = { ...spec };
+      rebuildSpans();
+      const nextPlayer = makeScenePlayer(spec, sceneIndex);
+      players[sceneIndex] = nextPlayer;
+      sharedCache.setOrder(players.map((p) => p.cacheKey));
+      if (mountedEl && !destroyed) {
+        await nextPlayer.mount(mountedEl, { active: false });
+        if (destroyed) {
+          nextPlayer.destroy();
+          return;
+        }
+        updateCanvasVisibility();
+        if (sceneIndex === activeIdx) {
+          const f = frameAt(clock.now(), fps, totalFrames);
+          this.showFrame(f);
+        }
+      }
     },
     showFrame(globalFrame: number): void {
       if (destroyed || !players.length) return;
@@ -717,6 +835,7 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
           void previous.recycle().catch(() => {});
         }
       }
+      updateCanvasVisibility();
       const current = players[sceneIndex];
       if (!current) return;
       const next = players[sceneIndex + 1];
