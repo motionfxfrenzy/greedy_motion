@@ -916,3 +916,26 @@ button.sc-num[aria-pressed="true"]{border-color:var(--blue);background:var(--blu
 .sc-limit-options{display:grid;gap:12px;width:100%}
 .sc-limit-note{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
 .sc-empty{max-width:640px}
+
+.lim-modal{width:min(880px,100%)}
+.lim{display:grid;gap:16px;width:100%}
+.lim .billing-toggle{justify-self:center}
+.lim-need{margin:0;line-height:1.5}
+.lim-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:stretch}
+.lim-grid[data-count="1"]{grid-template-columns:minmax(0,320px);justify-content:center}
+.lim-grid[data-count="2"]{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:760px){.lim-grid,.lim-grid[data-count="2"]{grid-template-columns:1fr}}
+.lim-card{position:relative;display:flex;flex-direction:column;gap:10px;padding:22px 18px 18px;border:1px solid var(--line);border-radius:20px;background:var(--soft)}
+.lim-card.featured{border-color:#168bff;box-shadow:0 0 0 1px #168bff,0 14px 40px rgba(10,108,255,.2);background:linear-gradient(180deg,var(--d-bg-ffffff),var(--d-bg-ebf5ff))}
+.lim-top h3{margin:0;font-size:18px;letter-spacing:-.02em}
+.lim-top p{margin:4px 0 0;min-height:2.6em;color:var(--body);font-size:13px;line-height:1.4}
+.lim-price{display:flex;align-items:baseline;gap:5px;margin:0;color:var(--body);font-size:13px}
+.lim-price b{color:var(--ink);font-size:30px;letter-spacing:-.04em;line-height:1}
+.lim-note{margin:0;color:var(--muted);font-size:12.5px;line-height:1.4}
+.lim-gets{margin:0;font-size:14px}
+.lim-card ul{display:grid;gap:7px;margin:0 0 4px;padding:12px 0 0;border-top:1px solid var(--line);list-style:none;font-size:13px;line-height:1.4;color:var(--ink)}
+.lim-card li{position:relative;padding-left:20px}
+.lim-card li::before{content:"";position:absolute;left:3px;top:.4em;width:6px;height:10px;border:solid var(--d-tx-16803c);border-width:0 2px 2px 0;transform:rotate(45deg) scale(.7)}
+.lim-card button{margin-top:auto;width:100%}
+.lim-compare{justify-self:center;color:var(--d-tx-0058bd);font-size:14px;font-weight:600;text-decoration:none}
+.lim-compare:hover{text-decoration:underline}

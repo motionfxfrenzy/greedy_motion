@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { PLANS, PAID_TIERS, PREVIEW_ALLOWANCE, TOP_UP, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
+import { PLANS, PAID_TIERS, PREVIEW_ALLOWANCE, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, type BillingInterval, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
+import Link from "next/link";
 import { getMyTokens, startCheckout, type LimitError, type ScriptFlag } from "../lib/api";
 
 export type StoryboardState = { state: "waiting" | "building" | "ready" | "stale" | "failed"; plan?: BeatPlan; error?: string; /** When the storyboard job started (ms), while building. */ startedAt?: number };
@@ -121,6 +122,7 @@ export function limitCopy(limit: LimitError) {
 export function PlanLimitOptions({ limit }: { limit: LimitError }) {
   const [opening, setOpening] = useState<Product | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const [interval, setInterval] = useState<BillingInterval>("month");
   const copy = limitCopy(limit);
   const have = limit.limit ?? 0;
   const tokens = limit.code === "insufficient_tokens";
@@ -131,23 +133,45 @@ export function PlanLimitOptions({ limit }: { limit: LimitError }) {
   const buy = async (product: Product) => {
     setOpening(product);
     setFailed(null);
-    try { window.location.assign(await startCheckout(product)); }
+    try { window.location.assign(await startCheckout(product, interval)); }
     catch (caught) { setFailed(caught instanceof Error ? caught.message : "Could not open checkout."); setOpening(null); }
   };
   const top = copy.plans && !tokens && options.length === 0;
-  return <div className="sc-limit-options">
-    {need !== null && <p className="sc-modal-sum">This needs <b>{limit.needed} tokens</b>. You have <b>{limit.remaining}</b>, so you need <b>{need} more</b>.</p>}
-    <div className="sc-modal-options">
-      {copy.pack && <div className="sc-option">
-        <div><b>{TOP_UP.tokens} tokens</b><span>One-time pack · ${TOP_UP.priceUsd}{need !== null && TOP_UP.tokens >= need ? " · covers this" : ""}</span></div>
-        <button type="button" className="primary-button" disabled={opening !== null} onClick={() => void buy("topup")}>{opening === "topup" ? "Opening…" : "Buy pack"}</button>
-      </div>}
-      {options.map((tier, i) => <div className="sc-option" key={tier}>
-        <div><b>{PLANS[tier].name} · {tokens ? `${PLANS[tier].tokens} tokens a month` : `${PREVIEW_ALLOWANCE[tier]} films a month`}</b><span>${PLANS[tier].priceUsd}/month · {tokens ? `${PREVIEW_ALLOWANCE[tier]} films a month` : `${PLANS[tier].tokens} tokens`} · {PLANS[tier].blurb}</span></div>
-        <button type="button" className={i === 0 && !copy.pack ? "primary-button" : "secondary-button"} disabled={opening !== null} onClick={() => void buy(tier)}>{opening === tier ? "Opening…" : `Choose ${PLANS[tier].name}`}</button>
-      </div>)}
+  const featured = options.includes("pro") ? "pro" : options[0];
+  const money = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
+  return <div className="lim">
+    {need !== null && <p className="lim-need">This needs <b>{limit.needed} tokens</b>. You have <b>{limit.remaining}</b>, so you need <b>{need} more</b>.</p>}
+    {options.length > 0 && <div className="billing-toggle" role="radiogroup" aria-label="Billing period">
+      <button type="button" role="radio" aria-checked={interval === "month"} className={interval === "month" ? "on" : ""} onClick={() => setInterval("month")}>Monthly</button>
+      <button type="button" role="radio" aria-checked={interval === "year"} className={interval === "year" ? "on" : ""} onClick={() => setInterval("year")}>Annual<span className="billing-save-pill">Save 17%</span></button>
+    </div>}
+    <div className="lim-grid" data-count={options.length + (copy.pack ? 1 : 0)}>
+      {copy.pack && <article className="lim-card">
+        <div className="lim-top"><h3>Token pack</h3><p>One-time, no subscription.</p></div>
+        <p className="lim-price"><b>${TOP_UP.priceUsd}</b><span> once</span></p>
+        <p className="lim-gets"><b>{TOP_UP.tokens} tokens</b>{need !== null && TOP_UP.tokens >= need ? " · covers this" : ""}</p>
+        <button type="button" className="secondary-button" disabled={opening !== null} onClick={() => void buy("topup")}>{opening === "topup" ? "Opening…" : "Buy pack"}</button>
+      </article>}
+      {options.map((tier) => {
+        const plan = PLANS[tier];
+        const annual = interval === "year";
+        const films = filmsFromTokens(plan.tokens, 30);
+        return <article key={tier} className={`lim-card${tier === featured ? " featured" : ""}`} aria-label={`${plan.name} plan`}>
+          {tier === featured && <span className="plan-flag">Most chosen</span>}
+          <div className="lim-top"><h3>{plan.name}</h3><p>{plan.blurb}</p></div>
+          <p className="lim-price"><b>${annual ? money(annualMonthlyUsd(tier)) : plan.priceUsd}</b><span> / month</span></p>
+          <p className="lim-note">{annual ? `$${plan.annualPriceUsd} billed yearly · save ${annualSavingsPercent(tier)}%` : "Billed monthly"}</p>
+          <ul>
+            <li><b>{PREVIEW_ALLOWANCE[tier]} films</b> a month to try</li>
+            <li><b>{plan.tokens.toLocaleString()} tokens</b> a month · about {films} thirty-second films</li>
+            <li>No watermark{plan.proEditor ? " · Pro editor" : ""}</li>
+          </ul>
+          <button type="button" className={tier === featured ? "accent-button" : "secondary-button"} disabled={opening !== null} onClick={() => void buy(tier)}>{opening === tier ? "Opening…" : `Choose ${plan.name}`}</button>
+        </article>;
+      })}
     </div>
-    {top && <p className="sc-limit-note">You are on our top plan, so there is nothing to upgrade to. Your films reset on the 1st; until then you can keep working on the films you have started, or write to us if you need more.</p>}
+    {top && <p className="lim-note">You are on our top plan, so there is nothing to upgrade to. Your films reset on the 1st; until then you can keep working on the films you have started, or write to us if you need more.</p>}
+    {copy.plans && <Link className="lim-compare" href="/pricing" target="_blank" rel="noreferrer">Compare all plans on the pricing page →</Link>}
     {failed && <p className="sc-modal-error" role="alert">{failed}</p>}
   </div>;
 }
@@ -161,7 +185,7 @@ export function PlanLimitModal({ limit, onClose, onBack }: { limit: LimitError; 
   }, [onClose]);
   const capped = limit.code === "preview_call_cap";
   return <div className="sc-modal-backdrop" onClick={onClose}>
-    <div className="sc-modal" role="dialog" aria-modal="true" aria-labelledby="sc-limit-title" onClick={(event) => event.stopPropagation()}>
+    <div className="sc-modal lim-modal" role="dialog" aria-modal="true" aria-labelledby="sc-limit-title" onClick={(event) => event.stopPropagation()}>
       <header>
         <h2 id="sc-limit-title">{limitCopy(limit).title}</h2>
         <button type="button" className="sc-modal-close" aria-label="Close" onClick={onClose}>×</button>
