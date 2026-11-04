@@ -962,6 +962,14 @@ export function PlatePreview({ project, onBack, onRender, rendering, cost, prep 
               muted
               playsInline
               onLoadedData={() => onLoaded(scene.index)}
+              // A clip that failed to load (a hiccup while the link was being made) is asked for again, twice, instead of staying black.
+              onError={(e) => {
+                const el = e.currentTarget;
+                const tries = Number(el.dataset.retries ?? "0");
+                if (tries >= 2) return;
+                el.dataset.retries = String(tries + 1);
+                window.setTimeout(() => el.load(), 1500 * (tries + 1));
+              }}
               onPlay={(e) => {
                 if (scene.index !== current) return;
                 setPlaying(true);

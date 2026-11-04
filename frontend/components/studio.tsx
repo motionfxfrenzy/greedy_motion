@@ -711,14 +711,16 @@ export function Studio() {
   // Code-drawn plate styles draw their scenes in PlatePreview (drawing, verification and assembly run on the render worker).
   // Only where the backend has the plate pipeline on (PLATE_PIPELINE=worker): elsewhere these styles keep their previous behaviour.
   const plateLook = Boolean((project?.brief?.look ?? brief.look)?.startsWith("illus-"));
-  const [plateAvailable, setPlateAvailable] = useState(false);
+  // null until the backend has answered: the previous animation step must not flash up while a plate project is still being checked.
+  const [plateAvailable, setPlateAvailable] = useState<boolean | null>(null);
   useEffect(() => {
-    if (!plateLook || !project?.id) { setPlateAvailable(false); return; }
+    if (!plateLook || !project?.id) { setPlateAvailable(plateLook ? null : false); return; }
     let live = true;
     getPlates(project.id).then((status) => { if (live) setPlateAvailable(status.available); }).catch(() => { if (live) setPlateAvailable(false); });
     return () => { live = false; };
   }, [plateLook, project?.id]);
-  const isPlateStyle = plateLook && plateAvailable;
+  const isPlateStyle = plateLook && plateAvailable === true;
+  const plateChecking = plateLook && plateAvailable === null && Boolean(project?.id);
   const [plateTokens, setPlateTokens] = useState<number | null>(null);
   useEffect(() => {
     if (!isPlateStyle || !project?.id || !project.beatPlan) { setPlateTokens(null); return; }
@@ -967,6 +969,7 @@ export function Studio() {
         storyboard={storyboardState} onContinue={continueFromScript} continuing={continueWhenReady} />}
       {step === STORYBOARD && !canvas && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Describe the film in the brief, then generate the storyboard.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to the brief</button></div>}
       {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || canvas)} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
+      {step === RENDER && project && plateChecking && !animating && <div className="workspace-message" role="status">Opening your scenes…</div>}
       {step === RENDER && project && isPlateStyle && !animating && project.beatPlan && <PlatePreview
         project={project}
         onBack={() => setStep(STORYBOARD)}
@@ -974,7 +977,7 @@ export function Studio() {
         rendering={busy}
         {...(plateTokens !== null ? { cost: plateTokens } : {})}
       />}
-      {step === RENDER && project && !(isPlateStyle && !animating && project.beatPlan) && <BrowserAnimationStep
+      {step === RENDER && project && !plateChecking && !(isPlateStyle && !animating && project.beatPlan) && <BrowserAnimationStep
         project={project}
         beats={canvas?.beats ?? []}
         frames={frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))}
