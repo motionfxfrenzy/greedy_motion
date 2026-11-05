@@ -1,4 +1,5 @@
 import type { SceneSpan } from "./types.ts";
+import type { WebAudioFilmTimeline } from "./film-audio.ts";
 
 /** Frame shown at time `t` (seconds): floor(t * fps), clamped to the film. */
 export function frameAt(t: number, fps: number, frames: number): number {
@@ -151,6 +152,8 @@ export interface AudioElementLike {
 }
 
 export type FilmAudioBinding<Name extends string = string> = {
+  /** Single Web Audio timeline (`AudioContext` master time). When present, drives the clock and all audio. */
+  timeline?: WebAudioFilmTimeline<Name> | null;
   voices?: (AudioElementLike | null | undefined)[];
   music?: AudioElementLike | null;
   sfxAudios?: Record<string, AudioElementLike | null | undefined>;
@@ -166,6 +169,7 @@ export type FilmAudioBinding<Name extends string = string> = {
 /**
  * Single film clock built on `PlaybackClock` that drives both the picture and all audio (voiceover, music, and SFX)
  * in lockstep (phase 3g, plan change C).
+ * When `audio.timeline` (`WebAudioFilmTimeline`) is attached, `now()` is derived from `AudioContext.currentTime - offset`.
  */
 export class FilmClock<Name extends string = string> extends PlaybackClock {
   private timeSec = 0;
@@ -188,8 +192,18 @@ export class FilmClock<Name extends string = string> extends PlaybackClock {
     let selfRef: FilmClock<Name> | null = null;
     super(
       {
-        currentTime: () => selfRef?.timeSec ?? 0,
-        playing: () => Boolean(selfRef && selfRef.wantPlayFlag && !selfRef.pausedForBuffer)
+        currentTime: () => {
+          if (!selfRef) return 0;
+          const tl = selfRef.audioBinding?.timeline;
+          if (tl) return tl.currentTime();
+          return selfRef.timeSec;
+        },
+        playing: () => {
+          if (!selfRef) return false;
+          const tl = selfRef.audioBinding?.timeline;
+          if (tl) return tl.playing();
+          return Boolean(selfRef.wantPlayFlag && !selfRef.pausedForBuffer);
+        }
       },
       options.fps ?? 30,
       options.frames
@@ -205,6 +219,7 @@ export class FilmClock<Name extends string = string> extends PlaybackClock {
 
   setSpans(spans: SceneSpan[]): void {
     this.spans = [...spans];
+    this.audioBinding?.timeline?.setSpans(spans);
   }
 
   setAudioBinding(binding: FilmAudioBinding<Name> | null): void {
@@ -218,29 +233,40 @@ export class FilmClock<Name extends string = string> extends PlaybackClock {
   }
 
   reloadCues(): void {
+    this.audioBinding?.timeline?.reloadCues();
     this.loadSceneCues(this.activeScene, this.sceneLocalTime(this.activeScene));
   }
 
-  sceneLocalTime(sceneIdx = Math.max(0, sceneAt(this.spans, this.timeSec))): number {
+  sceneLocalTime(sceneIdx = Math.max(0, sceneAt(this.spans, this.now()))): number {
+    const tl = this.audioBinding?.timeline;
+    if (tl) return tl.sceneLocalTime(sceneIdx);
     const span = this.spans[sceneIdx];
     if (!span) return this.timeSec;
     return Math.max(0, this.timeSec - span.start);
   }
 
   get wantPlaying(): boolean {
+    const tl = this.audioBinding?.timeline;
+    if (tl) return tl.wantPlaying;
     return this.wantPlayFlag;
   }
 
   get buffering(): boolean {
+    const tl = this.audioBinding?.timeline;
+    if (tl) return tl.buffering;
     return this.pausedForBuffer;
   }
 
   /**
    * Enters or exits `buffering` (or `drawing` wait):
-   * - On `buffering = true`: pauses the clock and immediately pauses voice, music, and SFX audio elements at the same instant.
-   * - On `buffering = false`: if `wantPlaying`, sets each audio element's `currentTime` from the clock and plays them together.
+   * - On `buffering = true`: suspends the `AudioContext` (or pauses fallback `<audio>` elements) at the same instant.
+   * - On `buffering = false`: resumes the `AudioContext` and reschedules sources from the clock.
    */
   setBuffering(buffering: boolean): void {
+    const tl = this.audioBinding?.timeline;
+    if (tl) {
+      tl.setBuffering(buffering);
+    }
     const next = Boolean(buffering);
     if (this.pausedForBuffer === next) {
       if (next) this.pauseAllAudio();
@@ -256,6 +282,10 @@ export class FilmClock<Name extends string = string> extends PlaybackClock {
 
   play(): void {
     this.wantPlayFlag = true;
+    const tl = this.audioBinding?.timeline;
+    if (tl) {
+      void tl.play({ fromUserGesture: true });
+    }
     if (!this.pausedForBuffer) {
       this.syncAndPlayAudio();
     }
@@ -263,6 +293,7 @@ export class FilmClock<Name extends string = string> extends PlaybackClock {
 
   pause(): void {
     this.wantPlayFlag = false;
+    this.audioBinding?.timeline?.pause();
     this.pauseAllAudio();
   }
 
@@ -270,8 +301,9 @@ export class FilmClock<Name extends string = string> extends PlaybackClock {
     const maxEnd = this.spans.length > 0 ? this.spans[this.spans.length - 1]!.end : Number.POSITIVE_INFINITY;
     const clamped = Math.max(0, Math.min(maxEnd, Number.isFinite(globalSeconds) ? globalSeconds : 0));
     this.timeSec = clamped;
+    this.audioBinding?.timeline?.seek(clamped);
     const nextScene = Math.max(0, sceneAt(this.spans, clamped));
-    const local = this.sceneLocalTime(nextScene);
+    const local = Math.max(0, clamped - (this.spans[nextScene]?.start ?? 0));
     this.activeScene = nextScene;
     this.loadSceneCues(nextScene, local);
 
@@ -312,13 +344,20 @@ export class FilmClock<Name extends string = string> extends PlaybackClock {
 
   /**
    * Advances (or sets) the clock time on a playback tick when not buffering, checks SFX cue crossings,
-   * and keeps audio elements in step with the clock.
+   * and keeps audio in step with the clock.
    */
-  tickTo(globalSeconds: number): SfxCue<Name>[] {
+  tickTo(globalSeconds?: number): SfxCue<Name>[] {
+    const tl = this.audioBinding?.timeline;
+    if (tl) {
+      const res = tl.tick();
+      this.timeSec = res.filmTime;
+      this.activeScene = res.sceneIndex;
+      return res.crossedCues;
+    }
     if (!this.wantPlayFlag || this.pausedForBuffer) {
       return [];
     }
-    const clamped = Math.max(0, Number.isFinite(globalSeconds) ? globalSeconds : this.timeSec);
+    const clamped = Math.max(0, Number.isFinite(globalSeconds) ? (globalSeconds as number) : this.timeSec);
     const nextScene = Math.max(0, sceneAt(this.spans, clamped));
     if (nextScene !== this.activeScene) {
       const prevVo = this.audioBinding?.voices?.[this.activeScene];

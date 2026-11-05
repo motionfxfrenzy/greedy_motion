@@ -4,7 +4,9 @@ import { scriptFrameKey, voiceText, type VideoProject } from "@videosaas/contrac
 import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, getPlates, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
 import {
   SfxCueTracker,
+  WebAudioFilmTimeline,
   isPlateLiveEnabled,
+  isWebAudioSupported,
   readStoredPreviewQuality,
   writeStoredPreviewQuality,
   type FrameStoreStatus,
@@ -152,6 +154,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const sfxSlot = useRef<Record<string, number>>({});
   const sfxTracker = useRef<SfxCueTracker<PlateSfxName>>(new SfxCueTracker());
   const sfxSceneIndex = useRef<number>(-1);
+  const audioTimelineRef = useRef<WebAudioFilmTimeline<PlateSfxName> | null>(null);
   const musicAudio = useRef<HTMLAudioElement>(null);
   const started = useRef(false);
   const wantPlay = useRef(false);
@@ -307,9 +310,86 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       sfxSceneIndex.current = index;
       const cues = buildCuesForScene(index, overrides);
       sfxTracker.current.setCues(cues, realOffset);
+      audioTimelineRef.current?.reloadCues();
     },
     [buildCuesForScene]
   );
+
+  // Initialize and keep the single Web Audio timeline in sync when AudioContext is available.
+  useEffect(() => {
+    if (!isWebAudioSupported()) return;
+    const spans = durations.map((dur, idx) => ({
+      id: `scene-${idx}`,
+      start: starts[idx] ?? 0,
+      end: (starts[idx] ?? 0) + dur
+    }));
+    const tl = new WebAudioFilmTimeline<PlateSfxName>({
+      fps: 30,
+      spans,
+      sceneCues: (idx) => buildCuesForScene(idx),
+      voiceOn,
+      musicOn,
+      sfxOn: sfxOn || transitionsOn,
+      muted,
+      masterVolume: master,
+      initialTime: time,
+      onAutoplayBlocked: () => {
+        wantPlay.current = false;
+        setPlaying(false);
+      },
+      onVoiceDurationDecoded: (idx, durSec) => {
+        if (Number.isFinite(durSec) && durSec > 0) {
+          setVoiceDurations((prev) => (prev[idx] === durSec ? prev : { ...prev, [idx]: durSec }));
+        }
+      }
+    });
+    audioTimelineRef.current = tl;
+    for (const sfxName of SFX_NAMES) {
+      void tl.loadSfx(sfxName, planSfxUrl(sfxName));
+    }
+    return () => {
+      tl.destroy();
+      if (audioTimelineRef.current === tl) {
+        audioTimelineRef.current = null;
+      }
+    };
+  }, [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const tl = audioTimelineRef.current;
+    if (!tl) return;
+    const spans = durations.map((dur, idx) => ({
+      id: `scene-${idx}`,
+      start: starts[idx] ?? 0,
+      end: (starts[idx] ?? 0) + dur
+    }));
+    tl.setSpans(spans);
+    tl.setSceneCuesProvider((idx) => buildCuesForScene(idx));
+  }, [durations, starts, buildCuesForScene]);
+
+  useEffect(() => {
+    const tl = audioTimelineRef.current;
+    if (!tl) return;
+    voiceTakes.forEach((take, idx) => {
+      void tl.loadVoice(idx, take?.url);
+    });
+  }, [voiceTakes]);
+
+  useEffect(() => {
+    const tl = audioTimelineRef.current;
+    if (!tl) return;
+    void tl.loadMusic(musicSrc);
+  }, [musicSrc]);
+
+  useEffect(() => {
+    const tl = audioTimelineRef.current;
+    if (!tl) return;
+    tl.setVoiceOn(voiceOn);
+    tl.setMusicOn(musicOn);
+    tl.setSfxOn(sfxOn || transitionsOn);
+    tl.setMuted(muted);
+    tl.setMasterVolume(master);
+  }, [voiceOn, musicOn, sfxOn, transitionsOn, muted, master]);
 
   const tickSceneSfx = useCallback(
     (index: number, localOffset: number, state: { playing: boolean; buffering: boolean }) => {
@@ -319,7 +399,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
         sfxTracker.current.setCues(buildCuesForScene(index), localOffset);
       }
       const crossed = sfxTracker.current.tick(localOffset, state);
-      if (muted || !wantPlay.current) return;
+      if (muted || !wantPlay.current || state.buffering) return;
       for (const cue of crossed) {
         const slot = (sfxSlot.current[cue.name] ?? 0) % 2;
         sfxSlot.current[cue.name] = slot + 1;
@@ -338,6 +418,16 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     if (isLiveMode && liveResolutions[current]?.mode === "live") return;
     let frame = 0;
     const tick = () => {
+      const isSceneBuffering = Boolean(liveResolutions[current]?.isBuffering || liveResolutions[current]?.isPreparing);
+      if (isSceneBuffering) {
+        audioTimelineRef.current?.setBuffering(true);
+        voices.current[current]?.pause();
+        musicAudio.current?.pause();
+        Object.values(sfxAudios.current).forEach((s) => s?.pause());
+        frame = requestAnimationFrame(tick);
+        return;
+      }
+      audioTimelineRef.current?.setBuffering(false);
       const el = videos.current[current];
       const vo = voices.current[current];
       const rate = rateFor(current, el);
@@ -345,7 +435,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       const voElapsed = vo && (!vo.paused || vo.ended) ? vo.currentTime : 0;
       const local = Math.min(durations[current] ?? 0, Math.max(vidElapsed, voElapsed));
       setTime((starts[current] ?? 0) + local);
-      tickSceneSfx(current, local, { playing: true, buffering: false });
+      tickSceneSfx(current, local, { playing: true, buffering: isSceneBuffering });
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -385,6 +475,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     for (let i = 0; i < scenes.length; i++) if (clamped < starts[i]! + durations[i]!) { index = i; break; }
     const local = clamped - starts[index]!;
     setTime(clamped);
+    audioTimelineRef.current?.seek(clamped);
     if (musicAudio.current) musicAudio.current.currentTime = clamped;
     const vo = voices.current[index];
     if (isLiveMode && liveResolutions[index]?.mode === "live") {
@@ -448,14 +539,17 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       if (!playing) {
         wantPlay.current = true;
         if (time >= total - 0.1) seek(0);
+        void audioTimelineRef.current?.unlockFromUserGesture();
         if (curRes.mode === "live") {
           setPlaying(true);
+          void audioTimelineRef.current?.play({ fromUserGesture: true });
         } else if (el) {
           el.playbackRate = rateFor(current, el);
           void el.play().catch(() => setPlaying(false));
         }
       } else {
         wantPlay.current = false;
+        audioTimelineRef.current?.pause();
         el?.pause();
         vo?.pause();
         musicAudio.current?.pause();
@@ -469,10 +563,12 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     if (!playing) {
       wantPlay.current = true;
       if (time >= total - 0.1) seek(0);
+      void audioTimelineRef.current?.unlockFromUserGesture();
       el.playbackRate = rateFor(current, el);
       void el.play().catch(() => undefined);
     } else {
       wantPlay.current = false;
+      audioTimelineRef.current?.pause();
       el.pause();
       vo?.pause();
       musicAudio.current?.pause();
@@ -492,9 +588,12 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       if (isLiveMode && liveResolutions[after]?.mode === "live") {
         if (nextVoice && nextVoice.readyState >= 1) nextVoice.currentTime = 0;
         pending.current = null;
-        setTime(starts[after] ?? 0);
+        const nextStart = starts[after] ?? 0;
+        setTime(nextStart);
+        audioTimelineRef.current?.seek(nextStart);
         setCurrent(after);
       } else {
+        audioTimelineRef.current?.pause();
         if (nextVideo && nextVideo.readyState >= 1) {
           nextVideo.playbackRate = rateFor(after, nextVideo);
           nextVideo.currentTime = 0;
@@ -507,6 +606,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       }
     } else {
       wantPlay.current = false;
+      audioTimelineRef.current?.pause();
       setPlaying(false);
       musicAudio.current?.pause();
       setTime(total);
@@ -532,7 +632,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const add = async () => {
     const body = draft.trim();
     if (!body || sending) return;
-    setSending(true); wantPlay.current = false; setPlaying(false); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause();
+    setSending(true); wantPlay.current = false; setPlaying(false); audioTimelineRef.current?.pause(); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause();
     try { await addPlateComment(project.id, time, body); setDraft(""); setStatus(await getPlates(project.id)); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not add the comment."); }
     finally { setSending(false); }
@@ -669,6 +769,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const selectOrDrawAspect = (asp: "16:9" | "9:16" | "1:1") => {
     wantPlay.current = false;
     setPlaying(false);
+    audioTimelineRef.current?.pause();
     videos.current[current]?.pause();
     voices.current[current]?.pause();
     musicAudio.current?.pause();
@@ -698,10 +799,12 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   if (status && !status.available) errors.push("Code-drawn scenes aren't available for this project right now.");
 
   const currentLiveStatusText = isLiveMode ? liveResolutions[current]?.statusText : undefined;
+  const activeQualityJobText =
+    (qualityJobProgress?.running && qualityJobProgress.text) ? qualityJobProgress.text : (storeStatus?.qualityJobText ?? null);
 
-  const statusBadge = qualityJobProgress?.running && qualityJobProgress.text
+  const statusBadge = activeQualityJobText
     ? {
-        text: qualityJobProgress.text,
+        text: activeQualityJobText,
         showRetry: false
       }
     : currentLiveStatusText
@@ -777,6 +880,9 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
           previewQuality={previewQuality}
           onQualityJobProgress={setQualityJobProgress}
           onStoreStatusChange={setStoreStatus}
+          audioTimeline={audioTimelineRef.current}
+          qualityJobText={activeQualityJobText}
+          storeDisabledReason={storeStatus?.disabled ? storeStatus.disabledReason : null}
           liveOptions={liveOptions}
         />
       ) : (
@@ -932,14 +1038,14 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     comments={comments}
     commentDraft={draft}
     onChangeCommentDraft={setDraft}
-    onCommentFocus={() => { wantPlay.current = false; setPlaying(false); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause(); }}
+    onCommentFocus={() => { wantPlay.current = false; setPlaying(false); audioTimelineRef.current?.pause(); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause(); }}
     canAddComment={readyCount > 0}
     addingComment={sending}
     onAddComment={() => void add()}
     onRemoveComment={(id) => void remove(id)}
     onApplyComments={() => void apply()}
     applyingComments={busy}
-    onRender={onRender ? () => { wantPlay.current = false; setPlaying(false); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause(); onRender(); } : undefined}
+    onRender={onRender ? () => { wantPlay.current = false; setPlaying(false); audioTimelineRef.current?.pause(); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause(); onRender(); } : undefined}
     rendering={rendering}
     cost={cost}
   />;

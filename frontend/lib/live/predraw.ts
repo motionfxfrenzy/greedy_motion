@@ -19,8 +19,12 @@ export const PREVIEW_FRAME_STEP = 1;
 /** Minimum start buffer in frames (1 s at 30 fps): playback starts when `max(START_BUFFER_FRAMES, L)` frames are ready ahead. */
 export const START_BUFFER_FRAMES = 30;
 
-/** Decoded `ImageBitmap` window kept ahead of the playhead in memory (~3 s at 30 fps, within `resolveCacheBudgetBytes`). */
-export const PLAYBACK_WINDOW_FRAMES = 90;
+/** Safety margin applied to the measured draw time (`avgDrawMs * 1.25`) when computing the start buffer lead `L`. */
+export const DRAW_TIME_SAFETY_MARGIN = 1.25;
+
+/** Decoded `ImageBitmap` memory window kept ahead of the playhead in RAM (~3 s at 30 fps, within `resolveCacheBudgetBytes`). */
+export const DECODED_WINDOW_FRAMES = 90;
+export const PLAYBACK_WINDOW_FRAMES = DECODED_WINDOW_FRAMES;
 
 /** Catch-up resume threshold in frames: buffering resumes when `min(RESUME_BUFFER_FRAMES, framesLeft)` frames are ready ahead. */
 export const RESUME_BUFFER_FRAMES = 30;
@@ -93,6 +97,8 @@ export type PredrawInput = {
   rate?: number;
   /** Measured average cost of one draw, in ms (0 or less: not measured yet). */
   avgDrawMs: number;
+  /** Safety margin factor applied to `avgDrawMs` when planning the lead `L` (default `DRAW_TIME_SAFETY_MARGIN` = 1.25). */
+  safetyMargin?: number;
   bytesPerFrame?: number;
   budgetBytes?: number;
   /** Re-assessment while drawing: seconds waited so far, and frames already ready ahead. */
@@ -107,13 +113,20 @@ export type PredrawInput = {
 export type PredrawDecision = {
   mode: "live" | "predraw" | "clip";
   reason: string;
-  /** Lead `L` computed from the draw rate (`ceil(N * max(0, 1 - p/r)) + cushion`, capped at `N`). */
+  /** Lead `L` computed from the draw rate with the 1.25x safety margin on measured draw time (`ceil(N * max(0, 1 - p_safe/r)) + cushion`, capped at `N`). */
   neededFrames: number;
   /** Frames required to start playback (`min(N, max(30, L))`). */
   startFrames: number;
-  /** Predicted wait in seconds (`L / p`; for re-assessments: waited so far plus the rest). */
+  /** Predicted wait in seconds (`L / p_safe`; for re-assessments: waited so far plus the rest). */
   waitSeconds: number;
+  /** Raw measured drawing rate (`1000 / avgDrawMs`). */
   produceFps: number;
+  /** Planned drawing rate after applying the 1.25x safety margin (`1000 / (avgDrawMs * 1.25)`). */
+  plannedProduceFps: number;
+  /** Planned draw cost per frame in ms (`avgDrawMs * 1.25`). */
+  plannedDrawMs: number;
+  /** Safety margin applied to `avgDrawMs` (default 1.25). */
+  safetyMargin: number;
   consumeFps: number;
   /** Memory the needed frames would occupy if all held in RAM. */
   bytesNeeded: number;
@@ -124,17 +137,19 @@ export type PredrawDecision = {
 };
 
 /**
- * Computes the pre-draw lead `L` from the scene's draw rate `p = 1000 / avgDrawMs`:
+ * Computes the pre-draw lead `L` from the scene's measured draw time `avgDrawMs` with a 1.25x safety margin
+ * (`plannedDrawMs = avgDrawMs * 1.25`, `p_safe = 1000 / plannedDrawMs`):
  * - `clip` ONLY when `supported === false` (`unverified-environment` or `unsupported-environment`) or `unhealthy` (`worker-unhealthy`).
  *   Never falls back to `clip` for slowness or memory budget.
- * - `live` when `p >= rate`: `L = min(N, cushionFrames)`, `startFrames = min(N, max(30, L))`.
- * - `predraw` when `p < rate`: `L = min(N, ceil(N * (1 - p/rate)) + cushionFrames)`, `startFrames = min(N, max(30, L))`.
+ * - `live` when `p_safe >= rate`: `L = min(N, cushionFrames)`, `startFrames = min(N, max(30, L))`.
+ * - `predraw` when `p_safe < rate`: `L = min(N, ceil(N * (1 - p_safe/rate)) + cushionFrames)`, `startFrames = min(N, max(30, L))`.
  */
 export function decidePredraw(input: PredrawInput): PredrawDecision {
   const rate = input.rate && input.rate > 0 ? input.rate : PREVIEW_FRAME_STEP > 0 ? 30 / PREVIEW_FRAME_STEP : 30;
   const n = Math.max(1, Math.floor(input.previewFrames));
   const bpf = input.bytesPerFrame && input.bytesPerFrame > 0 ? input.bytesPerFrame : 640 * 360 * 4;
-  const budgetFrames = input.budgetBytes && input.budgetBytes > 0 ? Math.floor(input.budgetBytes / bpf) : PLAYBACK_WINDOW_FRAMES;
+  const budgetFrames = input.budgetBytes && input.budgetBytes > 0 ? Math.floor(input.budgetBytes / bpf) : DECODED_WINDOW_FRAMES;
+  const safetyMargin = input.safetyMargin && input.safetyMargin > 0 ? input.safetyMargin : DRAW_TIME_SAFETY_MARGIN;
   const base = {
     consumeFps: rate,
     budgetFrames,
@@ -142,6 +157,9 @@ export function decidePredraw(input: PredrawInput): PredrawDecision {
     startFrames: 0,
     waitSeconds: 0,
     produceFps: 0,
+    plannedProduceFps: 0,
+    plannedDrawMs: 0,
+    safetyMargin,
     bytesNeeded: 0
   };
 
@@ -165,21 +183,33 @@ export function decidePredraw(input: PredrawInput): PredrawDecision {
       neededFrames: needed,
       startFrames,
       produceFps: rate,
+      plannedProduceFps: rate,
       bytesNeeded: needed * bpf
     };
   }
 
-  const p = 1000 / input.avgDrawMs;
-  const needed = Math.min(n, Math.ceil(n * Math.max(0, 1 - p / rate) - 1e-9) + cushionFrames);
+  const produceFps = 1000 / input.avgDrawMs;
+  const plannedDrawMs = input.avgDrawMs * safetyMargin;
+  const plannedProduceFps = 1000 / plannedDrawMs;
+  const needed = Math.min(n, Math.ceil(n * Math.max(0, 1 - plannedProduceFps / rate) - 1e-9) + cushionFrames);
   const startFrames = startBufferFrames(n, needed);
   const bytesNeeded = needed * bpf;
-  const ready = Math.max(0, Math.min(needed, input.readyAhead ?? 0));
+  const ready = Math.max(0, Math.min(startFrames, input.readyAhead ?? 0));
   const wait =
     (input.elapsedSeconds ?? 0) +
-    (input.elapsedSeconds !== undefined ? Math.max(0, needed - ready) / p : needed / p);
-  const out = { ...base, neededFrames: needed, startFrames, waitSeconds: wait, produceFps: p, bytesNeeded };
+    (input.elapsedSeconds !== undefined ? Math.max(0, startFrames - ready) / plannedProduceFps : startFrames / plannedProduceFps);
+  const out = {
+    ...base,
+    neededFrames: needed,
+    startFrames,
+    waitSeconds: wait,
+    produceFps,
+    plannedProduceFps,
+    plannedDrawMs,
+    bytesNeeded
+  };
 
-  if (p >= rate) {
+  if (plannedProduceFps >= rate) {
     return { ...out, mode: "live", reason: "ok" };
   }
   return { ...out, mode: "predraw", reason: "predraw" };

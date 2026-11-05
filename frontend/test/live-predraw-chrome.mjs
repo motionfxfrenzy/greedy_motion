@@ -9,10 +9,11 @@ import { chromium } from "../../node_modules/playwright-core/index.mjs";
 
 // Phase 3g: the four real crayon scenes from staging at 30 fps (PREVIEW_FRAME_STEP = 1), tested end-to-end in headless Chrome
 // with the browser's real IndexedDB (`gm-live-frames`) and WebP encoder Worker:
-// 1. First play at 30 fps (0.4 quality): zero wrong frames, buffering pause & audio sync within 1 frame (33 ms).
+// 1. First play at 30 fps (0.4 quality): zero wrong frames, buffering pause & Web Audio (`AudioContext`) sync within 1 frame (33 ms),
+//    and zero drift across 20 buffering pauses.
 // 2. Replay after page reload: zero WorkerHost.frame calls for complete scenes, zero wrong frames, zero buffering.
-// 3. Quality change 0.4 -> 0.6 during playback (no pause caused by job, frames nearest playhead first) and 0.6 -> 0.2 (zero WorkerHost.frame calls).
-// 4. Changed bundleDigest for one scene: only that scene redraws, superseded digest deleted.
+// 3. Quality change 0.4 -> 0.6 and 0.6 -> 0.2 during playback: no pause caused by job, frames nearest playhead first, BOTH redraw (540 WorkerHost.frame calls each).
+// 4. Changed bundleDigest for one scene: only that scene redraws, old background work cancelled, superseded digest deleted.
 // 5. Stored bytes per frame at 0.2 / 0.4 / 0.6 within 20% of 20 / 34 / 48 KB.
 const CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -65,7 +66,11 @@ test(
     });
     await new Promise((r) => server.listen(0, "127.0.0.1", r));
     const origin = `http://127.0.0.1:${server.address().port}`;
-    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    const browser = await chromium.launch({
+      executablePath: CHROME_PATH,
+      headless: true,
+      args: ["--autoplay-policy=no-user-gesture-required"]
+    });
 
     try {
       const page = await browser.newPage();
@@ -115,7 +120,14 @@ test(
           const parsed = L.parseStoreFrameKey(key);
           if (bm && parsed) {
             bm.__n = parsed.frame;
+            bm.__closed = false;
             bm.__fresh = false;
+            const c = bm.close.bind(bm);
+            bm.close = () => {
+              bm.__closed = true;
+              c();
+            };
+            bitmaps.push(bm);
           }
           return bm;
         };
@@ -135,22 +147,29 @@ test(
 
         const htmls = await Promise.all(specs.map((_, i) => fetch(`/scene${i}.html`).then((r) => r.text())));
 
-        // Stub audio track per scene
-        const voices = specs.map((s) => ({
-          currentTime: 0,
-          duration: s.frames / 30,
-          paused: true,
-          ended: false,
-          muted: false,
-          volume: 1,
-          readyState: 4,
-          play() {
-            this.paused = false;
-          },
-          pause() {
-            this.paused = true;
-          }
-        }));
+        // Real browser AudioContext + WebAudioFilmTimeline with one stub AudioBuffer per scene
+        const audioCtx = new AudioContext();
+        await audioCtx.resume();
+        let cursorSec = 0;
+        const initialSpans = specs.map((s, i) => {
+          const start = cursorSec;
+          const end = start + s.frames / 30;
+          cursorSec = end;
+          return { id: `scene-${i}`, start, end };
+        });
+        const audioTimeline = new L.WebAudioFilmTimeline({
+          fps: 30,
+          spans: initialSpans,
+          context: audioCtx
+        });
+        specs.forEach((s, i) => {
+          const buf = audioCtx.createBuffer(1, Math.max(1, Math.round((s.frames / 30) * 44100)), 44100);
+          audioTimeline.setVoiceBuffer(i, buf);
+        });
+        await audioTimeline.unlockFromUserGesture();
+        await audioTimeline.play({ fromUserGesture: true });
+        // Honest-audio guard: the sync numbers below only mean something if the REAL context is running (not the wall-clock fallback).
+        const audioHonest = { stateAfterPlay: audioCtx.state, suspendedDuringPause: 0, runningAfterResume: 0, pausesChecked: 0, ctxFrozenMaxMs: 0, ctxAdvanceMinMs: 1e9, ctxVsTimelineMaxMs: 0 };
 
         let t = 0;
         let wantPlaying = true;
@@ -167,33 +186,33 @@ test(
           fps: 30,
           previewQuality: 0.4,
           timeSource: { currentTime: () => t, playing: () => wantPlaying },
-          audio: { voices }
+          audioTimeline
         });
 
         const audioSyncEvents = [];
         let pendingBufferCheck = null;
         film.on("buffering", (ev) => {
           const idx = ev.sceneIndex ?? film.activeSceneIndex;
-          const vo = voices[idx];
           if (ev.buffering) {
             pendingBufferCheck = {
               scene: idx,
-              atTime: t,
+              atTime: Math.round(t * 1000) / 1000,
               frame: ev.frame,
               heldFrame: ev.heldFrame,
-              audioPausedImmediately: Boolean(vo?.paused),
-              lagFrames: vo?.paused ? 0 : 1
+              audioPausedImmediately: audioTimeline.buffering === true && !audioTimeline.playing(),
+              lagFrames: audioTimeline.buffering ? 0 : 1
             };
           } else if (pendingBufferCheck && pendingBufferCheck.scene === idx) {
             const spanStart = film.meta.sceneSpans[idx]?.start ?? 0;
-            const localPicSec = Math.max(0, t - spanStart);
-            const audioSec = vo?.currentTime ?? 0;
-            const diffMs = Math.round(Math.abs(localPicSec - audioSec) * 1000 * 100) / 100;
+            const shownFrameSec = (typeof ev.frame === "number" ? ev.frame : (film.scenes[idx]?.currentPreviewFrame ?? 0)) / 30;
+            const audioFilmSec = audioTimeline.currentTime();
+            const audioLocalSec = Math.max(0, audioFilmSec - spanStart);
+            const diffMs = Math.round(Math.abs(shownFrameSec - audioLocalSec) * 1000 * 100) / 100;
             audioSyncEvents.push({
               ...pendingBufferCheck,
-              audioResumedImmediately: Boolean(vo && !vo.paused),
-              pictureLocalSec: Math.round(localPicSec * 1000) / 1000,
-              audioCurrentTimeSec: Math.round(audioSec * 1000) / 1000,
+              audioResumedImmediately: !audioTimeline.buffering && audioTimeline.playing(),
+              shownFrameLocalSec: Math.round(shownFrameSec * 1000) / 1000,
+              audioContextLocalSec: Math.round(audioLocalSec * 1000) / 1000,
               resumeDiffMs: diffMs
             });
             pendingBufferCheck = null;
@@ -205,9 +224,6 @@ test(
         const mountMs = Math.round(performance.now() - t0);
 
         // Induce one deterministic mid-scene catch-up buffering pause on scene 0 to verify audio pause/resume sync:
-        // Wait until scene 0 has finished its initial start buffer (`L` frames), then drop frames 45..89 so playback
-        // runs smoothly from frame 0..44, hits a real catch-up buffering pause at frame 45, pauses audio within 1 frame,
-        // buffers `min(30, 45) = 30` frames (45..74), and resumes with audio in step!
         const s0 = film.scenes[0];
         while (s0.isPreparing || !s0.measuredYet || s0.isPumping) {
           film.syncToClock();
@@ -255,9 +271,7 @@ test(
               delete prepStart[curIdx];
             }
             t += dt;
-            if (voices[curIdx] && !voices[curIdx].paused) {
-              voices[curIdx].currentTime = Math.max(0, t - spans[curIdx].start);
-            }
+            audioTimeline.seek(t);
             film.syncToClock();
             const a = film.activeSceneIndex;
             const pa = film.scenes[a];
@@ -300,6 +314,65 @@ test(
         }
         await film.flushStore();
 
+        // Now run 20 consecutive buffering pauses & resumes on the real AudioContext timeline + FilmPlayer
+        // to prove zero drift and <= 33 ms sync across 20 buffering pauses!
+        const twentyPauseDiffsMs = [];
+        let twentyPauseMaxLagFrames = 0;
+        const s3 = film.scenes[3];
+        t = spans[3].start + 10 / 30;
+        audioTimeline.seek(t);
+        await s3.pumpScheduler(60);
+        film.syncToClock();
+        for (let p = 0; p < 20; p++) {
+          const frameIdx = 10 + p;
+          t = spans[3].start + frameIdx / 30;
+          audioTimeline.seek(t);
+          // Drop frameIdx from RAM cache so showFrame enters buffering, then restore it from FrameStore to resume
+          s3.cache.release(s3.cacheKey, frameIdx);
+          film.syncToClock();
+          if (!audioTimeline.buffering) twentyPauseMaxLagFrames = Math.max(twentyPauseMaxLagFrames, 1);
+          await new Promise((r) => setTimeout(r, 5));
+          await s3.pumpScheduler(35);
+          film.syncToClock();
+          const audioFilmSec = audioTimeline.currentTime();
+          const shownGlobalSec = spans[3].start + (s3.currentPreviewFrame / 30);
+          const diffMs = Math.round(Math.abs(audioFilmSec - shownGlobalSec) * 1000 * 100) / 100;
+          twentyPauseDiffsMs.push(diffMs);
+        }
+        const maxDiffAcross20PausesMs = Math.max(...twentyPauseDiffsMs);
+        const driftAcross20PausesMs = Math.round(Math.abs(twentyPauseDiffsMs[19] - twentyPauseDiffsMs[0]) * 100) / 100;
+
+        // Honest-audio pass (independent of the timeline's own flags): the REAL AudioContext must be suspended the moment buffering starts,
+        // its clock frozen while still buffering, running again after resume, and the timeline's film time must advance with the context clock.
+        audioHonest.suspendedAtEntry = 0; audioHonest.bufferingEntered = 0; audioHonest.frozenChecks = 0;
+        for (let p = 0; p < 20; p++) {
+          const frameIdx = 40 + p;
+          t = spans[3].start + frameIdx / 30;
+          audioTimeline.seek(t);
+          s3.cache.release(s3.cacheKey, frameIdx);
+          film.syncToClock();
+          if (audioTimeline.buffering) {
+            audioHonest.bufferingEntered++;
+            if (audioCtx.state === "suspended") audioHonest.suspendedAtEntry++;
+            const c0 = audioCtx.currentTime;
+            await new Promise((r) => setTimeout(r, 15));
+            if (audioTimeline.buffering && audioCtx.state === "suspended") {
+              audioHonest.frozenChecks++;
+              audioHonest.ctxFrozenMaxMs = Math.max(audioHonest.ctxFrozenMaxMs, Math.round((audioCtx.currentTime - c0) * 1000));
+            }
+          }
+          await s3.pumpScheduler(35);
+          film.syncToClock();
+          await new Promise((r) => setTimeout(r, 30));
+          const c1 = audioCtx.currentTime, tl1 = audioTimeline.currentTime();
+          await new Promise((r) => setTimeout(r, 120));
+          const c2 = audioCtx.currentTime, tl2 = audioTimeline.currentTime();
+          if (audioCtx.state === "running") audioHonest.runningAfterResume++;
+          audioHonest.ctxAdvanceMinMs = Math.min(audioHonest.ctxAdvanceMinMs, Math.round((c2 - c1) * 1000));
+          audioHonest.ctxVsTimelineMaxMs = Math.max(audioHonest.ctxVsTimelineMaxMs, Math.round(Math.abs((tl2 - tl1) - (c2 - c1)) * 1000));
+          audioHonest.pausesChecked++;
+        }
+
         for (let i = 0; i < film.scenes.length; i++) {
           per[i].bufferingPauses = film.scenes[i].bufferingPauses;
         }
@@ -308,6 +381,7 @@ test(
         const totalBytes04 = film.frameStore.totalBytes();
         const totalFrames04 = specs.reduce((acc, s) => acc + s.frames, 0);
         const avgBytesPerFrame04 = Math.round(totalBytes04 / totalFrames04);
+        const peakEncoderQueue = film.frameStore.peakEncoderQueue;
 
         const decisions = film.scenes.map((q, i) => ({
           scene: i,
@@ -318,12 +392,16 @@ test(
           L: q.predrawPlan?.neededFrames ?? null,
           startFrames: q.predrawPlan?.startFrames ?? null,
           W: q.predrawPlan ? Math.round(q.predrawPlan.waitSeconds * 10) / 10 : null,
-          drawFps: q.predrawPlan ? Math.round(q.predrawPlan.produceFps * 10) / 10 : null
+          drawFps: q.predrawPlan ? Math.round(q.predrawPlan.produceFps * 10) / 10 : null,
+          plannedFps: q.predrawPlan ? Math.round(q.predrawPlan.plannedProduceFps * 10) / 10 : null
         }));
 
         const budget = film.cache.budget;
+        audioTimeline.destroy();
         film.destroy();
         const openAfterDestroy = bitmaps.filter((b) => !b.__closed).length;
+        const bitmapsOpened = bitmaps.length;
+        const bitmapsClosed = bitmaps.filter((b) => b.__closed).length;
 
         return {
           mountMs,
@@ -332,9 +410,24 @@ test(
           storeBlits,
           bufferingPauses: film.bufferingPauses,
           audioSyncEvents,
+          audioHonest,
+          twentyBufferingPauses: {
+            count: twentyPauseDiffsMs.length,
+            maxLagFrames: twentyPauseMaxLagFrames,
+            maxResumeDiffMs: maxDiffAcross20PausesMs,
+            driftAcross20PausesMs,
+            diffsMs: twentyPauseDiffsMs
+          },
           decisions,
           per,
-          peak: { cacheBytes: peakCacheBytes, hostBytes: peakHostBytes, budget },
+          peak: {
+            cacheBytes: peakCacheBytes,
+            hostBytes: peakHostBytes,
+            budget,
+            peakEncoderQueue
+          },
+          bitmapsOpened,
+          bitmapsClosed,
           openAfterDestroy,
           store04: {
             totalBytes: totalBytes04,
@@ -362,6 +455,29 @@ test(
           `after resume, picture time and audio currentTime differ by at most 33 ms (got ${syncEv.resumeDiffMs} ms)`
         );
       }
+      const ah = phase1.audioHonest;
+      assert.equal(ah.stateAfterPlay, "running", "the real AudioContext is running after play (else sync numbers are the wall-clock fallback)");
+      assert.equal(ah.pausesChecked, 20, "independent audio check ran on 20 pauses");
+      assert.equal(ah.bufferingEntered, 20, "every one of the 20 induced pauses entered buffering");
+      assert.equal(ah.suspendedAtEntry, 20, "the real AudioContext was suspended the moment every buffering pause began");
+      assert.ok(ah.ctxFrozenMaxMs <= 15, `the context clock stayed frozen while still buffering (${ah.frozenChecks} checks, max advance ${ah.ctxFrozenMaxMs} ms)`);
+      assert.equal(ah.runningAfterResume, 20, "the real AudioContext was running after every resume");
+      assert.ok(ah.ctxAdvanceMinMs >= 40, `the context clock advances after resume (min ${ah.ctxAdvanceMinMs} ms over a 120 ms wait; the scheduler may re-enter buffering briefly)`);
+      assert.ok(ah.ctxVsTimelineMaxMs <= 33, `timeline film time tracks the context clock within 33 ms after every resume (max ${ah.ctxVsTimelineMaxMs} ms)`);
+      assert.equal(phase1.twentyBufferingPauses.count, 20, "measured 20 buffering pauses on real AudioContext");
+      assert.equal(phase1.twentyBufferingPauses.maxLagFrames, 0, "all 20 buffering pauses suspended audio within 1 frame");
+      assert.ok(
+        phase1.twentyBufferingPauses.maxResumeDiffMs <= 33,
+        `max diff across 20 buffering pauses (${phase1.twentyBufferingPauses.maxResumeDiffMs} ms) <= 33 ms`
+      );
+      assert.ok(
+        phase1.twentyBufferingPauses.driftAcross20PausesMs <= 33,
+        `no drift across 20 buffering pauses (${phase1.twentyBufferingPauses.driftAcross20PausesMs} ms <= 33 ms)`
+      );
+      assert.ok(phase1.freshBlits >= 1, "frame shown at the moment it is drawn is exact (freshBlits >= 1)");
+      assert.ok(phase1.storeBlits > 0, "frames drawn ahead of playback are shown from stored WebP copies (storeBlits > 0)");
+      assert.ok(phase1.peak.peakEncoderQueue <= 8, `encoder queue peak (${phase1.peak.peakEncoderQueue}) <= 8`);
+      assert.equal(phase1.bitmapsOpened, phase1.bitmapsClosed, `bitmap opens (${phase1.bitmapsOpened}) == closes (${phase1.bitmapsClosed})`);
       assert.deepEqual(phase1.store04.scenesComplete, [true, true, true, true], "all 4 scenes saved and marked complete in IndexedDB");
       assert.equal(phase1.openAfterDestroy, 0, "all bitmaps closed on destroy");
       assert.ok(phase1.peak.cacheBytes <= phase1.peak.budget, "peak RAM cache bytes within budget");
@@ -523,13 +639,24 @@ test(
         const avgBytesPerFrame06 = Math.round(totalBytes06 / totalFrames);
         const qualitiesAfter06 = specs.map((s) => film.frameStore.getSceneRecord(s.digest, "640x360")?.quality);
 
-        // Now lower quality 0.6 -> 0.2: must complete with ZERO WorkerHost.frame calls!
+        // Now lower quality 0.6 -> 0.2 during playback: must ALSO redraw with scene code (540 WorkerHost.frame calls) and cause 0 pauses!
+        const bufferingBeforeLower = film.bufferingPauses;
         window.__resetWorkerFrameCalls();
         const tLower0 = performance.now();
-        await film.setPreviewQuality(0.2);
+        const lowerPromise = film.setPreviewQuality(0.2);
+        const lowerJob = film.qualityJob;
+        for (let step = 0; step < 10; step++) {
+          currentT += 1 / 30;
+          window.__setTestClock(currentT);
+          film.syncToClock();
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        const pausesCausedByLowerJob = film.bufferingPauses - bufferingBeforeLower;
+        await lowerPromise;
         await film.flushStore();
         const lowerMs = Math.round(performance.now() - tLower0);
         const workerCallsOnLower = window.__getWorkerFrameCalls();
+        const firstLowered = (lowerJob?.processedOrder ?? []).slice(0, 6).map((s) => `S${s.sceneIndex}:${s.frame}`);
 
         const totalBytes02 = film.frameStore.totalBytes();
         const avgBytesPerFrame02 = Math.round(totalBytes02 / totalFrames);
@@ -548,7 +675,9 @@ test(
           },
           lower06to02: {
             lowerMs,
+            pausesCausedByLowerJob,
             workerCallsOnLower,
+            firstLowered,
             qualitiesAfter02,
             totalBytes: totalBytes02,
             avgBytesPerFrame: avgBytesPerFrame02,
@@ -568,10 +697,11 @@ test(
       );
       assert.deepEqual(phase3.raise04to06.qualitiesAfter06, [0.6, 0.6, 0.6, 0.6]);
 
+      assert.equal(phase3.lower06to02.pausesCausedByLowerJob, 0, "quality change 0.6 -> 0.2 caused zero playback pauses");
       assert.equal(
         phase3.lower06to02.workerCallsOnLower,
-        0,
-        "lowering quality 0.6 -> 0.2 completed with ZERO WorkerHost.frame calls"
+        540,
+        "lowering quality 0.6 -> 0.2 redrew all 540 frames with scene code (never re-encoded stored copy)"
       );
       assert.deepEqual(phase3.lower06to02.qualitiesAfter02, [0.2, 0.2, 0.2, 0.2]);
 

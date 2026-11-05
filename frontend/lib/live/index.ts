@@ -1,5 +1,6 @@
 export * from "./types.ts";
 export * from "./clock.ts";
+export * from "./film-audio.ts";
 export * from "./frame-cache.ts";
 export * from "./frame-scheduler.ts";
 export * from "./frame-store.ts";

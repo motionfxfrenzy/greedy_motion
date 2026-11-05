@@ -571,8 +571,14 @@ export class WorkerHost {
   }
 
   private handlePortMessage(fromTransport: WorkerTransport, raw: unknown) {
-    if (this.transport !== fromTransport || this.isDestroyed) return;
     const msg = raw as Record<string, unknown> | null;
+    const maybeBitmap = msg && typeof msg === "object" ? (msg.bitmap as ImageBitmapLike | undefined) : undefined;
+    if (this.transport !== fromTransport || this.isDestroyed) {
+      try {
+        maybeBitmap?.close?.();
+      } catch {}
+      return;
+    }
     if (!msg || typeof msg !== "object") return;
 
     if (msg.t === "error") {
@@ -588,12 +594,19 @@ export class WorkerHost {
       this.waiting.delete(id);
       this.clock.clearTimeout(pending.timer);
       if (msg.t === "fail") {
+        try {
+          maybeBitmap?.close?.();
+        } catch {}
         const errText = String(msg.message ?? "Worker operation failed");
         this.workerErrors.push(errText);
         pending.reject(new Error(errText));
       } else {
         pending.resolve(msg);
       }
+    } else if (maybeBitmap) {
+      try {
+        maybeBitmap.close();
+      } catch {}
     }
   }
 

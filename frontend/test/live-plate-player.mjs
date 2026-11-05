@@ -243,7 +243,7 @@ test("PlatePlayer: showFrame never blocks, holds last good frame and emits buffe
   player.showFrame(0);
   assert.equal(el.drawn.at(-1)?.frameIndex, 0);
 
-  // Seek to uncached frame 75 (preview draws source frames 0, 2, 4, ...: source 75 is shown from preview frame 74): never blocks, holds frame 0, emits buffering: true, and re-prioritises scheduler to 75
+  // Seek to uncached frame 75: never blocks, holds frame 0, emits buffering: true, and re-prioritises scheduler to 75
   assert.equal(player.ready(75), false);
   player.showFrame(75);
   assert.equal(bufferingEvents.at(-1)?.buffering, true);

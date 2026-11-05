@@ -26,6 +26,7 @@ import {
   type PreviewQuality,
   type QualityJobProgress,
   type SceneModeResolution,
+  type WebAudioFilmTimeline,
   withBackendAuth
 } from "../lib/live";
 import { createClient } from "../utils/supabase/client";
@@ -110,6 +111,9 @@ export interface PlateLiveStageProps {
   previewQuality?: PreviewQuality;
   onQualityJobProgress?: (progress: QualityJobProgress) => void;
   onStoreStatusChange?: (status: FrameStoreStatus) => void;
+  audioTimeline?: WebAudioFilmTimeline<any> | null;
+  qualityJobText?: string | null;
+  storeDisabledReason?: string | null;
   liveOptions?: PlateLiveOptions;
 }
 
@@ -166,6 +170,9 @@ export function PlateLiveStage({
   previewQuality,
   onQualityJobProgress,
   onStoreStatusChange,
+  audioTimeline,
+  qualityJobText,
+  storeDisabledReason,
   liveOptions
 }: PlateLiveStageProps) {
   const hostContainerRef = useRef<HTMLDivElement | null>(null);
@@ -266,7 +273,9 @@ export function PlateLiveStage({
         forcedClipReason: forcedReason,
         clipRequestStatus: clipStatus,
         isBuffering,
-        hasPendingComment: pendingCommentScenes.has(idx)
+        hasPendingComment: pendingCommentScenes.has(idx),
+        qualityJobText,
+        storeDisabledReason
       });
     });
   }, [
@@ -276,7 +285,9 @@ export function PlateLiveStage({
     liveOptions?.environment,
     liveOptions?.forceBuffering,
     current,
-    pendingCommentScenes
+    pendingCommentScenes,
+    qualityJobText,
+    storeDisabledReason
   ]);
 
   useEffect(() => {
@@ -620,6 +631,7 @@ export function PlateLiveStage({
           if (d.buffering) {
             bufferingScenesRef.current.add(d.sceneIndex);
             if (d.sceneIndex === current) {
+              audioTimeline?.setBuffering(true);
               voices.current[current]?.pause();
               musicAudio.current?.pause();
               clearSfxTimers();
@@ -627,6 +639,9 @@ export function PlateLiveStage({
             }
           } else {
             bufferingScenesRef.current.delete(d.sceneIndex);
+            if (d.sceneIndex === current) {
+              audioTimeline?.setBuffering(false);
+            }
           }
           bump();
         }
@@ -724,7 +739,8 @@ export function PlateLiveStage({
   useEffect(() => {
     if (!playing || !activeSceneIsLive) {
       if (playing && activeSceneShowsLive && activeScenePausedForBuffer) {
-        // Hold clock and pause voice, music and sound effects at the same instant while buffering or drawing.
+        // Hold clock and suspend Web Audio timeline (and pause fallback elements) at the same instant while buffering or drawing.
+        audioTimeline?.setBuffering(true);
         voices.current[current]?.pause();
         musicAudio.current?.pause();
         clearSfxTimers();
@@ -745,28 +761,41 @@ export function PlateLiveStage({
     }
 
     const startLocal = Math.max(0, clockTimeRef.current - (starts[current] ?? 0));
-    const vo = voices.current[current];
-    if (vo) {
-      vo.muted = !voiceOn || muted;
-      vo.volume = master;
-      if (vo.readyState >= 1) {
-        vo.currentTime = Number.isFinite(vo.duration)
-          ? Math.min(Math.max(0, vo.duration - 0.05), startLocal)
-          : startLocal;
-      }
-      void vo.play().catch(() => undefined);
-    }
+    const useWebAudio = Boolean(audioTimeline && audioTimeline.hasDecodedAudio());
 
-    if (musicAudio.current && musicSrc) {
-      musicAudio.current.muted = !musicOn || muted;
-      musicAudio.current.volume = 0.22 * master;
-      musicAudio.current.currentTime = clockTimeRef.current;
-      if (musicAudio.current.paused) {
-        void musicAudio.current.play().catch(() => undefined);
+    if (useWebAudio && audioTimeline) {
+      audioTimeline.setBuffering(false);
+      if (!audioTimeline.playing()) {
+        audioTimeline.seek(clockTimeRef.current);
+        void audioTimeline.play();
       }
-    }
+      // Ensure fallback HTMLAudioElements stay paused while WebAudioFilmTimeline is driving audio.
+      voices.current[current]?.pause();
+      musicAudio.current?.pause();
+    } else {
+      const vo = voices.current[current];
+      if (vo) {
+        vo.muted = !voiceOn || muted;
+        vo.volume = master;
+        if (vo.readyState >= 1) {
+          vo.currentTime = Number.isFinite(vo.duration)
+            ? Math.min(Math.max(0, vo.duration - 0.05), startLocal)
+            : startLocal;
+        }
+        void vo.play().catch(() => undefined);
+      }
 
-    playSceneSfxRef.current(current, startLocal);
+      if (musicAudio.current && musicSrc) {
+        musicAudio.current.muted = !musicOn || muted;
+        musicAudio.current.volume = 0.22 * master;
+        musicAudio.current.currentTime = clockTimeRef.current;
+        if (musicAudio.current.paused) {
+          void musicAudio.current.play().catch(() => undefined);
+        }
+      }
+
+      playSceneSfxRef.current(current, startLocal);
+    }
 
     let wallAnchorMs = performance.now() - startLocal * 1000;
     if (telemetryRef.current.playStartMs === null) {
@@ -778,30 +807,44 @@ export function PlateLiveStage({
       const fp = filmPlayerRef.current;
       const activePlayer = fp?.scenes[current];
       if (activePlayer && (activePlayer.isBufferingNow || activePlayer.isPreparing)) {
-        // Hold the clock and pause all audio immediately when entering buffering.
+        // Hold the clock and suspend Web Audio timeline immediately when entering buffering.
+        audioTimeline?.setBuffering(true);
         voices.current[current]?.pause();
         musicAudio.current?.pause();
         Object.values(sfxAudios.current).forEach((el) => el?.pause());
         return;
       }
 
-      const curVo = voices.current[current];
+      const sceneDur = durations[current] ?? resolvedVariants[current]?.seconds ?? 4;
       let localSec: number;
-      if (curVo && !curVo.paused && !curVo.ended && curVo.currentTime > 0) {
-        localSec = curVo.currentTime;
+      let nextGlobalTime: number;
+
+      if (useWebAudio && audioTimeline && audioTimeline.audioContext?.state === "running") {
+        // Master clock is derived from AudioContext.currentTime (film time = contextTime - offset)
+        const tickRes = audioTimeline.tick();
+        localSec = Math.max(0, tickRes.filmTime - (starts[current] ?? 0));
+        const clampedLocal = Math.min(sceneDur, localSec);
+        nextGlobalTime = (starts[current] ?? 0) + clampedLocal;
         wallAnchorMs = now - localSec * 1000;
       } else {
-        localSec = Math.max(0, (now - wallAnchorMs) / 1000);
-        if (curVo && !curVo.paused && !curVo.ended && Math.abs(curVo.currentTime - localSec) > 1 / 30) {
-          try {
-            curVo.currentTime = localSec;
-          } catch {}
+        const curVo = voices.current[current];
+        if (!useWebAudio && curVo && !curVo.paused && !curVo.ended && curVo.currentTime > 0) {
+          localSec = curVo.currentTime;
+          wallAnchorMs = now - localSec * 1000;
+        } else {
+          localSec = Math.max(0, (now - wallAnchorMs) / 1000);
+          if (!useWebAudio && curVo && !curVo.paused && !curVo.ended && Math.abs(curVo.currentTime - localSec) > 1 / 30) {
+            try {
+              curVo.currentTime = localSec;
+            } catch {}
+          }
+        }
+        const clampedLocal = Math.min(sceneDur, localSec);
+        nextGlobalTime = (starts[current] ?? 0) + clampedLocal;
+        if (!useWebAudio) {
+          tickSceneSfxRef.current?.(current, clampedLocal, { playing: true, buffering: false });
         }
       }
-
-      const sceneDur = durations[current] ?? resolvedVariants[current]?.seconds ?? 4;
-      const clampedLocal = Math.min(sceneDur, localSec);
-      const nextGlobalTime = (starts[current] ?? 0) + clampedLocal;
 
       clockTimeRef.current = nextGlobalTime;
       onSetTimeRef.current(nextGlobalTime);
@@ -819,6 +862,7 @@ export function PlateLiveStage({
         }
         fp.syncToClock();
         if (fp.scenes[current]?.isBufferingNow || fp.scenes[current]?.isPreparing) {
+          audioTimeline?.setBuffering(true);
           voices.current[current]?.pause();
           musicAudio.current?.pause();
           Object.values(sfxAudios.current).forEach((el) => el?.pause());
@@ -826,11 +870,12 @@ export function PlateLiveStage({
         }
       }
 
-      tickSceneSfxRef.current?.(current, clampedLocal, { playing: true, buffering: false });
-
-      const voStillRunning = Boolean(
-        curVo && !curVo.paused && !curVo.ended && Number.isFinite(curVo.duration) && curVo.duration - curVo.currentTime > 0.08
-      );
+      const curVo = voices.current[current];
+      const voStillRunning = useWebAudio
+        ? false
+        : Boolean(
+            curVo && !curVo.paused && !curVo.ended && Number.isFinite(curVo.duration) && curVo.duration - curVo.currentTime > 0.08
+          );
 
       if (localSec >= sceneDur && !voStillRunning) {
         onAdvanceSceneRef.current(current);
@@ -866,6 +911,7 @@ export function PlateLiveStage({
     musicAudio,
     sfxAudios,
     clearSfxTimers,
+    audioTimeline,
     liveOptions?.freezeClockAt
   ]);
 

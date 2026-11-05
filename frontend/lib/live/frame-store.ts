@@ -16,6 +16,9 @@ export const FRAME_STORE_SCENES_OBJECT_STORE = "scenes";
 /** 500 MB per-site cap for stored preview frames. */
 export const FRAME_STORE_MAX_BYTES = 500 * 1024 * 1024;
 
+/** Maximum concurrent frames in the encoder queue; when full, the drawing side waits rather than queueing more bitmaps. */
+export const MAX_ENCODER_QUEUE = 8;
+
 export const PREVIEW_QUALITY_LOW = 0.2;
 export const PREVIEW_QUALITY_STANDARD = 0.4;
 export const PREVIEW_QUALITY_HIGH = 0.6;
@@ -375,7 +378,6 @@ export class IndexedDbFrameStoreBackend implements FrameStoreBackend {
 
 export interface FrameEncoder {
   encode(bitmap: ImageBitmapLike, quality: number): Promise<Blob>;
-  reencode?(blob: Blob, quality: number): Promise<Blob>;
   decode(blob: Blob): Promise<ImageBitmapLike>;
   destroy?(): void;
 }
@@ -387,12 +389,9 @@ self.onmessage = async (e) => {
   const m = e.data || {};
   const id = m.id;
   try {
-    let src = m.bitmap || null;
-    if (!src && m.blob) {
-      src = await createImageBitmap(m.blob);
-    }
+    const src = m.bitmap || null;
     if (!src) {
-      throw new Error("Encoder Worker received neither bitmap nor blob.");
+      throw new Error("Encoder Worker received no bitmap.");
     }
     const w = src.width || 640;
     const h = src.height || 360;
@@ -413,15 +412,36 @@ self.onmessage = async (e) => {
 `;
 
 /**
- * Dedicated browser WebP encoder Worker.
+ * Dedicated browser WebP encoder Worker with a bounded queue (`MAX_ENCODER_QUEUE`).
  * Copies the incoming `ImageBitmap` via `createImageBitmap(bitmap)` and transfers the copy to the Worker so the shown
- * frame is never delayed or closed.
+ * frame is never delayed or closed. When `pending.size >= maxQueue`, waits before creating or transferring another copy.
  */
 export class BrowserWebpEncoder implements FrameEncoder {
   private worker: Worker | null = null;
   private seq = 0;
   private pending = new Map<number, { resolve: (blob: Blob) => void; reject: (err: Error) => void }>();
+  private slotWaiters: { resolve: () => void; reject: (err: Error) => void }[] = [];
+  private inFlightSlots = 0;
+  private readonly maxQueue: number;
   private destroyed = false;
+  peakPending = 0;
+
+  constructor(maxQueue = MAX_ENCODER_QUEUE) {
+    this.maxQueue = Math.max(1, Math.floor(maxQueue));
+  }
+
+  get inFlight(): number {
+    return this.inFlightSlots;
+  }
+
+  private releaseSlot(): void {
+    if (this.slotWaiters.length > 0 && !this.destroyed) {
+      const next = this.slotWaiters.shift()!;
+      next.resolve();
+      return;
+    }
+    this.inFlightSlots = Math.max(0, this.inFlightSlots - 1);
+  }
 
   private ensureWorker(): Worker {
     if (this.destroyed) throw new Error("BrowserWebpEncoder has been destroyed.");
@@ -435,22 +455,63 @@ export class BrowserWebpEncoder implements FrameEncoder {
       const waiter = this.pending.get(data.id);
       if (!waiter) return;
       this.pending.delete(data.id);
+      this.releaseSlot();
       if (data.ok && data.blob) {
         waiter.resolve(data.blob);
       } else {
         waiter.reject(new Error(data.error ?? "WebP encoding failed"));
       }
     };
+    w.onerror = () => {
+      const count = this.pending.size;
+      for (const waiter of this.pending.values()) {
+        waiter.reject(new Error("WebP encoder Worker error"));
+      }
+      this.pending.clear();
+      for (let i = 0; i < count; i++) {
+        this.releaseSlot();
+      }
+    };
     this.worker = w;
     return w;
+  }
+
+  private async waitForSlot(): Promise<void> {
+    if (this.destroyed) throw new Error("BrowserWebpEncoder has been destroyed.");
+    if (this.inFlightSlots < this.maxQueue) {
+      this.inFlightSlots++;
+      if (this.inFlightSlots > this.peakPending) {
+        this.peakPending = this.inFlightSlots;
+      }
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.slotWaiters.push({ resolve, reject });
+    });
+    if (this.destroyed) throw new Error("BrowserWebpEncoder has been destroyed.");
   }
 
   async encode(bitmap: ImageBitmapLike, quality: number): Promise<Blob> {
     if (typeof createImageBitmap !== "function") {
       throw new Error("createImageBitmap is not supported.");
     }
-    const w = this.ensureWorker();
-    const copy = await createImageBitmap(bitmap as unknown as ImageBitmap);
+    await this.waitForSlot();
+    let w: Worker;
+    let copy: ImageBitmap;
+    try {
+      w = this.ensureWorker();
+      copy = await createImageBitmap(bitmap as unknown as ImageBitmap);
+    } catch (err) {
+      this.releaseSlot();
+      throw err;
+    }
+    if (this.destroyed) {
+      this.releaseSlot();
+      try {
+        copy.close();
+      } catch {}
+      throw new Error("BrowserWebpEncoder has been destroyed.");
+    }
     const id = ++this.seq;
     return new Promise<Blob>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -458,6 +519,7 @@ export class BrowserWebpEncoder implements FrameEncoder {
         w.postMessage({ id, bitmap: copy, quality }, [copy]);
       } catch (err) {
         this.pending.delete(id);
+        this.releaseSlot();
         try {
           copy.close();
         } catch {}
@@ -466,28 +528,25 @@ export class BrowserWebpEncoder implements FrameEncoder {
     });
   }
 
-  async reencode(blob: Blob, quality: number): Promise<Blob> {
-    const w = this.ensureWorker();
-    const id = ++this.seq;
-    return new Promise<Blob>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      try {
-        w.postMessage({ id, blob, quality });
-      } catch (err) {
-        this.pending.delete(id);
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
-    });
-  }
-
   async decode(blob: Blob): Promise<ImageBitmapLike> {
+    if (this.destroyed) throw new Error("BrowserWebpEncoder has been destroyed.");
     const bm = await createImageBitmap(blob);
+    if (this.destroyed) {
+      try {
+        bm.close();
+      } catch {}
+      throw new Error("BrowserWebpEncoder has been destroyed.");
+    }
     return bm as unknown as ImageBitmapLike;
   }
 
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    for (const waiter of this.slotWaiters) {
+      waiter.reject(new Error("Encoder destroyed"));
+    }
+    this.slotWaiters.length = 0;
     for (const waiter of this.pending.values()) {
       waiter.reject(new Error("Encoder destroyed"));
     }
@@ -512,6 +571,7 @@ export type FrameStoreOptions = {
   backend?: FrameStoreBackend;
   encoder?: FrameEncoder;
   maxBytes?: number;
+  maxEncoderQueue?: number;
   openFilmKey?: string;
   defaultQuality?: number;
   now?: () => number;
@@ -551,6 +611,7 @@ export class FrameStore {
   readonly backend: FrameStoreBackend;
   readonly encoder: FrameEncoder;
   readonly maxBytes: number;
+  readonly maxEncoderQueue: number;
   private openFilmKey: string;
   private targetQuality: PreviewQuality;
   private readonly now: () => number;
@@ -561,24 +622,26 @@ export class FrameStore {
   private initPromise: Promise<void> | null = null;
   private initialized = false;
   private isDisabled = false;
+  private isDestroyed = false;
   private disableMsg: string | null = null;
   private qualityJobText: string | null = null;
   private pendingSaves = new Set<Promise<unknown>>();
+  private inFlightEncodesCount = 0;
+  private peakInFlightEncodesCount = 0;
+  private encodeSlotWaiters: (() => void)[] = [];
+  private digestEpochs = new Map<string, number>();
 
   constructor(options: FrameStoreOptions = {}) {
+    this.maxEncoderQueue = Math.max(1, Math.floor(options.maxEncoderQueue ?? MAX_ENCODER_QUEUE));
     this.backend =
       options.backend ??
       (typeof indexedDB !== "undefined" ? new IndexedDbFrameStoreBackend() : new InMemoryFrameStoreBackend());
     this.encoder =
       options.encoder ??
       (typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined"
-        ? new BrowserWebpEncoder()
+        ? new BrowserWebpEncoder(this.maxEncoderQueue)
         : {
             async encode(_bm, q) {
-              const size = Math.round(q * 60_000);
-              return new Blob([new Uint8Array(size)], { type: "image/webp" });
-            },
-            async reencode(_b, q) {
               const size = Math.round(q * 60_000);
               return new Blob([new Uint8Array(size)], { type: "image/webp" });
             },
@@ -620,6 +683,51 @@ export class FrameStore {
 
   get quality(): PreviewQuality {
     return this.targetQuality;
+  }
+
+  /** Number of frame encodes currently in flight (never exceeds `maxEncoderQueue`). */
+  get inFlightEncodes(): number {
+    return this.inFlightEncodesCount;
+  }
+
+  /** Peak concurrent frame encodes observed by this store instance. */
+  get peakEncoderQueue(): number {
+    return this.peakInFlightEncodesCount;
+  }
+
+  private async acquireEncodeSlot(): Promise<void> {
+    if (this.isDestroyed) throw new Error("FrameStore destroyed");
+    if (this.inFlightEncodesCount < this.maxEncoderQueue) {
+      this.inFlightEncodesCount++;
+      if (this.inFlightEncodesCount > this.peakInFlightEncodesCount) {
+        this.peakInFlightEncodesCount = this.inFlightEncodesCount;
+      }
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      this.encodeSlotWaiters.push(resolve);
+    });
+  }
+
+  private releaseEncodeSlot(): void {
+    if (this.encodeSlotWaiters.length > 0 && !this.isDestroyed) {
+      // Hand the slot directly to the next waiting caller (inFlightEncodesCount stays unchanged).
+      const next = this.encodeSlotWaiters.shift()!;
+      next();
+      return;
+    }
+    this.inFlightEncodesCount = Math.max(0, this.inFlightEncodesCount - 1);
+  }
+
+  private epochForDigest(bundleDigest: string): number {
+    return this.digestEpochs.get(bundleDigest) ?? 0;
+  }
+
+  /**
+   * Cancels any in-flight or queued frame saves for `bundleDigest` (e.g. when a scene revision changes).
+   */
+  cancelSceneWork(bundleDigest: string): void {
+    this.digestEpochs.set(bundleDigest, this.epochForDigest(bundleDigest) + 1);
   }
 
   setQuality(q: number): PreviewQuality {
@@ -862,9 +970,10 @@ export class FrameStore {
   }
 
   /**
-   * Deletes a scene's stored frames and scene record for `(bundleDigest, sizeLabel)`.
+   * Deletes a scene's stored frames and scene record for `(bundleDigest, sizeLabel)` and cancels any in-flight saves for it.
    */
   async deleteSceneFrames(bundleDigest: string, sizeLabel: string): Promise<void> {
+    this.cancelSceneWork(bundleDigest);
     await this.init();
     const sKey = storeSceneKey(bundleDigest, sizeLabel);
     const rec = this.scenesCache.get(sKey) ?? (await this.backend.getScene(sKey));
@@ -899,6 +1008,7 @@ export class FrameStore {
 
   /**
    * Saves a drawn `frameBitmap` under `key` (`${bundleDigest}|${w}x${h}|${frame}`) at `quality`.
+   * Bounded by `maxEncoderQueue` (8 frames): when the encoder queue is full, the drawing side waits rather than queueing more bitmaps.
    * Never delays the shown bitmap: `BrowserWebpEncoder` clones `frameBitmap` via `createImageBitmap` and transfers the copy.
    * If the returned blob type is not `image/webp`, disables storing for this browser session.
    */
@@ -922,15 +1032,32 @@ export class FrameStore {
     quality: number,
     meta?: { frames?: number; filmKey?: string; variantKey?: string }
   ): Promise<boolean> {
-    if (this.isDisabled) return false;
+    if (this.isDisabled || this.isDestroyed) return false;
     await this.init();
+    if (this.isDisabled || this.isDestroyed) return false;
     const parsed = parseStoreFrameKey(key);
     if (!parsed) throw new Error(`Invalid frame store key: ${key}`);
+    const startEpoch = this.epochForDigest(parsed.bundleDigest);
+
+    try {
+      await this.acquireEncodeSlot();
+    } catch {
+      return false;
+    }
 
     let blob: Blob;
     try {
+      if (this.isDisabled || this.isDestroyed || this.epochForDigest(parsed.bundleDigest) !== startEpoch) {
+        return false;
+      }
       blob = await this.encoder.encode(frameBitmap, quality);
     } catch {
+      return false;
+    } finally {
+      this.releaseEncodeSlot();
+    }
+
+    if (this.isDestroyed || this.epochForDigest(parsed.bundleDigest) !== startEpoch) {
       return false;
     }
 
@@ -941,7 +1068,7 @@ export class FrameStore {
       return false;
     }
 
-    return this.commitFrameBlob(parsed.bundleDigest, parsed.size, parsed.frame, blob, quality, meta);
+    return this.commitFrameBlob(parsed.bundleDigest, parsed.size, parsed.frame, blob, quality, startEpoch, meta);
   }
 
   private async commitFrameBlob(
@@ -950,12 +1077,15 @@ export class FrameStore {
     frame: number,
     blob: Blob,
     quality: number,
+    expectedEpoch: number,
     meta?: { frames?: number; filmKey?: string; variantKey?: string }
   ): Promise<boolean> {
+    if (this.isDestroyed || this.epochForDigest(bundleDigest) !== expectedEpoch) return false;
     const now = this.now();
     const fKey = storeFrameKey(bundleDigest, sizeLabel, frame);
     const sKey = storeSceneKey(bundleDigest, sizeLabel);
     const existing = this.scenesCache.get(sKey) ?? (await this.backend.getScene(sKey));
+    if (this.isDestroyed || this.epochForDigest(bundleDigest) !== expectedEpoch) return false;
     const totalFrames = Math.max(meta?.frames ?? existing?.frames ?? frame + 1, frame + 1);
     const filmKey = meta?.filmKey ?? existing?.filmKey ?? this.openFilmKey;
     const variantKey = meta?.variantKey ?? existing?.variantKey;
@@ -994,10 +1124,12 @@ export class FrameStore {
    * Loads a stored frame by `key` (`${bundleDigest}|${w}x${h}|${frame}`) and decodes it via `createImageBitmap(blob)`.
    */
   async load(key: string): Promise<ImageBitmapLike | null> {
-    if (this.isDisabled) return null;
+    if (this.isDisabled || this.isDestroyed) return null;
     await this.init();
+    if (this.isDisabled || this.isDestroyed) return null;
     const parsed = parseStoreFrameKey(key);
     if (!parsed) return null;
+    const startEpoch = this.epochForDigest(parsed.bundleDigest);
 
     let frameRec: StoredFrameRecord | undefined;
     try {
@@ -1005,7 +1137,9 @@ export class FrameStore {
     } catch {
       return null;
     }
-    if (!frameRec || !frameRec.blob) return null;
+    if (!frameRec || !frameRec.blob || this.isDestroyed || this.epochForDigest(parsed.bundleDigest) !== startEpoch) {
+      return null;
+    }
 
     const sKey = storeSceneKey(parsed.bundleDigest, parsed.size);
     const sceneRec = this.scenesCache.get(sKey);
@@ -1015,50 +1149,17 @@ export class FrameStore {
     }
 
     try {
-      return await this.encoder.decode(frameRec.blob);
+      const bm = await this.encoder.decode(frameRec.blob);
+      if (this.isDestroyed || this.epochForDigest(parsed.bundleDigest) !== startEpoch) {
+        try {
+          bm.close();
+        } catch {}
+        return null;
+      }
+      return bm;
     } catch {
       return null;
     }
-  }
-
-  /**
-   * Re-encodes an already stored frame at `targetQuality` without running scene drawing code (`WorkerHost`).
-   */
-  async reencodeFrame(key: string, targetQuality: number): Promise<boolean> {
-    if (this.isDisabled) return false;
-    await this.init();
-    const parsed = parseStoreFrameKey(key);
-    if (!parsed) return false;
-
-    const frameRec = await this.backend.getFrame(key);
-    if (!frameRec || !frameRec.blob) return false;
-
-    let newBlob: Blob;
-    try {
-      if (this.encoder.reencode) {
-        newBlob = await this.encoder.reencode(frameRec.blob, targetQuality);
-      } else {
-        const bm = await this.encoder.decode(frameRec.blob);
-        try {
-          newBlob = await this.encoder.encode(bm, targetQuality);
-        } finally {
-          try {
-            bm.close();
-          } catch {}
-        }
-      }
-    } catch {
-      return false;
-    }
-
-    if (newBlob.type !== "image/webp") {
-      this.isDisabled = true;
-      this.disableMsg = "WebP frame storage unsupported in this browser (replays redraw)";
-      this.emitStatus();
-      return false;
-    }
-
-    return this.commitFrameBlob(parsed.bundleDigest, parsed.size, parsed.frame, newBlob, targetQuality);
   }
 
   /**
@@ -1116,6 +1217,12 @@ export class FrameStore {
   }
 
   destroy(): void {
+    if (this.isDestroyed) return;
+    this.isDestroyed = true;
+    for (const resolve of this.encodeSlotWaiters) {
+      resolve();
+    }
+    this.encodeSlotWaiters.length = 0;
     this.encoder.destroy?.();
     this.statusListeners.clear();
   }
@@ -1234,14 +1341,15 @@ export type QualityJobOptions = {
   /** True when playback is buffering or a frame is due within the next tick so the job must yield the CPU. */
   shouldYield?: () => boolean;
   /** Called immediately when a frame is saved at the new quality so in-memory caches switch at once. */
-  onFrameUpdated?: (sceneIndex: number, frame: number, bitmap?: ImageBitmapLike) => void;
+  onFrameUpdated?: (sceneIndex: number, frame: number, key: string) => void;
   onProgress?: (progress: QualityJobProgress) => void;
 };
 
 /**
  * Background quality-change job (plan change E):
- * - Raising quality: redraws frames with the scene code and saves at the new quality.
- * - Lowering quality: loads the stored copy, re-encodes at the lower quality, saves (0 `WorkerHost.frame` calls).
+ * - Both raising and lowering quality redraw frames with the scene code (an idle `WorkerHost` for that scene,
+ *   through the exclusive draw queue so only one scene draws at a time) and save at the new quality.
+ *   Never decodes-and-re-encodes a stored lossy copy (detail would be lost twice).
  * - Processes frames just ahead of the playhead first, then outward, then the rest of the film; `recenter()` re-centres on scrub/click.
  * - Yields whenever `shouldYield()` is true (playback buffering or frame due).
  * - Persists per-frame quality in `FrameStore` so a reload resumes from where it left off.
@@ -1254,12 +1362,13 @@ export class QualityJob {
   private focusFrame: number;
   private readonly redrawFrame: (sceneIndex: number, frame: number) => Promise<ImageBitmapLike>;
   private readonly shouldYield: () => boolean;
-  private readonly onFrameUpdated?: (sceneIndex: number, frame: number, bitmap?: ImageBitmapLike) => void;
+  private readonly onFrameUpdated?: (sceneIndex: number, frame: number, key: string) => void;
   private readonly onProgress?: (progress: QualityJobProgress) => void;
 
   private direction: "raising" | "lowering" = "raising";
   private isRunning = false;
   private isCancelled = false;
+  private cancelledDigests = new Set<string>();
   private runPromise: Promise<void> | null = null;
   readonly processedOrder: QualityJobSlot[] = [];
 
@@ -1293,7 +1402,19 @@ export class QualityJob {
     this.focusFrame = frame;
   }
 
+  /** Cancels work for a superseded `bundleDigest` and updates the scene list. */
+  cancelScene(oldBundleDigest: string): void {
+    this.cancelledDigests.add(oldBundleDigest);
+    this.store.cancelSceneWork(oldBundleDigest);
+  }
+
   setScenes(scenes: readonly QualityJobSceneSpec[]): void {
+    const nextDigests = new Set(scenes.map((s) => s.bundleDigest));
+    for (const prev of this.scenes) {
+      if (!nextDigests.has(prev.bundleDigest)) {
+        this.cancelledDigests.add(prev.bundleDigest);
+      }
+    }
     this.scenes = scenes.map((s) => ({ ...s }));
   }
 
@@ -1305,12 +1426,9 @@ export class QualityJob {
     let total = 0;
     let done = 0;
     for (const sc of this.scenes) {
+      if (this.cancelledDigests.has(sc.bundleDigest)) continue;
       for (let f = 0; f < sc.frames; f++) {
         const q = this.store.getFrameQuality(sc.bundleDigest, sc.sizeLabel, f);
-        if (this.direction === "lowering" && q === undefined) {
-          // Unsaved frames don't need re-encoding; they will be saved at targetQuality when drawn.
-          continue;
-        }
         total++;
         if (typeof q === "number" && Math.abs(q - this.targetQuality) <= 1e-6) {
           done++;
@@ -1344,11 +1462,9 @@ export class QualityJob {
   private pickNextSlot(): QualityJobSlot | null {
     const order = buildQualityJobOrder(this.scenes, this.focusSceneIndex, this.focusFrame);
     for (const slot of order) {
+      if (this.cancelledDigests.has(slot.bundleDigest)) continue;
       const q = this.store.getFrameQuality(slot.bundleDigest, slot.sizeLabel, slot.frame);
       if (typeof q === "number" && Math.abs(q - this.targetQuality) <= 1e-6) {
-        continue;
-      }
-      if (this.direction === "lowering" && q === undefined) {
         continue;
       }
       return slot;
@@ -1388,43 +1504,34 @@ export class QualityJob {
       const slot = this.pickNextSlot();
       if (!slot) break;
 
-      const currentQ = this.store.getFrameQuality(slot.bundleDigest, slot.sizeLabel, slot.frame);
       const key = storeFrameKey(slot.bundleDigest, slot.sizeLabel, slot.frame);
-      const sc = this.scenes.find((s) => s.sceneIndex === slot.sceneIndex);
+      const sc = this.scenes.find((s) => s.sceneIndex === slot.sceneIndex && s.bundleDigest === slot.bundleDigest);
 
-      if (currentQ === undefined || this.targetQuality > currentQ + 1e-6) {
-        // Raise (or missing): redraw with scene code and save at targetQuality
-        try {
-          const bm = await this.redrawFrame(slot.sceneIndex, slot.frame);
-          if (this.isCancelled) {
-            try {
-              bm.close();
-            } catch {}
-            break;
-          }
-          await this.store.save(bm, key, this.targetQuality, {
-            frames: sc?.frames
-          });
-          this.processedOrder.push(slot);
-          if (this.onFrameUpdated) {
-            this.onFrameUpdated(slot.sceneIndex, slot.frame, bm);
-          } else {
-            try {
-              bm.close();
-            } catch {}
-          }
-        } catch {
-          // If scene cannot redraw, stop trying this slot
+      // Both raising and lowering quality redraw from the scene code and save at targetQuality.
+      let bm: ImageBitmapLike | null = null;
+      try {
+        bm = await this.redrawFrame(slot.sceneIndex, slot.frame);
+        if (this.isCancelled || this.cancelledDigests.has(slot.bundleDigest)) {
           break;
         }
-      } else {
-        // Lower: load stored copy, re-encode at lower quality, save (no WorkerHost draw)
-        const ok = await this.store.reencodeFrame(key, this.targetQuality);
-        if (!ok) break;
+        const ok = await this.store.save(bm, key, this.targetQuality, {
+          frames: sc?.frames
+        });
+        if (!ok || this.isCancelled || this.cancelledDigests.has(slot.bundleDigest)) {
+          if (!ok && !this.cancelledDigests.has(slot.bundleDigest)) break;
+          continue;
+        }
         this.processedOrder.push(slot);
-        if (this.onFrameUpdated) {
-          const decoded = await this.store.load(key);
-          this.onFrameUpdated(slot.sceneIndex, slot.frame, decoded ?? undefined);
+        this.onFrameUpdated?.(slot.sceneIndex, slot.frame, key);
+      } catch {
+        if (!this.cancelledDigests.has(slot.bundleDigest)) {
+          break;
+        }
+      } finally {
+        if (bm) {
+          try {
+            bm.close();
+          } catch {}
         }
       }
 

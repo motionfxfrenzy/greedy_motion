@@ -1,24 +1,316 @@
 {
   "phase1_firstPlay": {
-    "mountMs": 1652,
-    "workerFrameCalls": 590,
-    "freshBlits": 5236,
-    "storeBlits": 88,
-    "bufferingPauses": 1,
+    "mountMs": 1356,
+    "workerFrameCalls": 585,
+    "freshBlits": 4704,
+    "storeBlits": 1105,
+    "bufferingPauses": 22,
     "audioSyncEvents": [
       {
         "scene": 0,
-        "atTime": 1.9044999999999996,
+        "atTime": 1.804,
+        "frame": 54,
+        "heldFrame": 53,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.8,
+        "audioContextLocalSec": 1.804,
+        "resumeDiffMs": 4.1
+      },
+      {
+        "scene": 3,
+        "atTime": 17.37,
+        "frame": 131,
+        "heldFrame": 130,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 4.367,
+        "audioContextLocalSec": 4.37,
+        "resumeDiffMs": 3.03
+      },
+      {
+        "scene": 3,
+        "atTime": 13.333,
+        "frame": 10,
+        "heldFrame": 148,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.333,
+        "audioContextLocalSec": 1.333,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.367,
+        "frame": 41,
+        "heldFrame": 40,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.367,
+        "audioContextLocalSec": 1.367,
+        "resumeDiffMs": 0
+      },
+      {
+        "scene": 3,
+        "atTime": 14.4,
+        "frame": 42,
+        "heldFrame": 41,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.4,
+        "audioContextLocalSec": 1.4,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.433,
+        "frame": 43,
+        "heldFrame": 42,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.433,
+        "audioContextLocalSec": 1.433,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.467,
+        "frame": 44,
+        "heldFrame": 43,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.467,
+        "audioContextLocalSec": 1.467,
+        "resumeDiffMs": 0
+      },
+      {
+        "scene": 3,
+        "atTime": 14.5,
+        "frame": 45,
+        "heldFrame": 44,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.5,
+        "audioContextLocalSec": 1.5,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.533,
+        "frame": 46,
+        "heldFrame": 45,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.533,
+        "audioContextLocalSec": 1.533,
+        "resumeDiffMs": 0
+      },
+      {
+        "scene": 3,
+        "atTime": 14.567,
+        "frame": 47,
+        "heldFrame": 46,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.567,
+        "audioContextLocalSec": 1.567,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.6,
+        "frame": 48,
+        "heldFrame": 47,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.6,
+        "audioContextLocalSec": 1.6,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.633,
+        "frame": 49,
+        "heldFrame": 48,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.633,
+        "audioContextLocalSec": 1.633,
+        "resumeDiffMs": 0
+      },
+      {
+        "scene": 3,
+        "atTime": 14.667,
+        "frame": 50,
+        "heldFrame": 49,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.667,
+        "audioContextLocalSec": 1.667,
+        "resumeDiffMs": 0
+      },
+      {
+        "scene": 3,
+        "atTime": 14.7,
+        "frame": 51,
+        "heldFrame": 50,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.7,
+        "audioContextLocalSec": 1.7,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.733,
+        "frame": 52,
+        "heldFrame": 51,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.733,
+        "audioContextLocalSec": 1.733,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.767,
+        "frame": 53,
+        "heldFrame": 52,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.767,
+        "audioContextLocalSec": 1.767,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.8,
+        "frame": 54,
+        "heldFrame": 53,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.8,
+        "audioContextLocalSec": 1.8,
+        "resumeDiffMs": 0
+      },
+      {
+        "scene": 3,
+        "atTime": 14.833,
+        "frame": 55,
+        "heldFrame": 54,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.833,
+        "audioContextLocalSec": 1.833,
+        "resumeDiffMs": 0
+      },
+      {
+        "scene": 3,
+        "atTime": 14.867,
+        "frame": 56,
+        "heldFrame": 55,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.867,
+        "audioContextLocalSec": 1.867,
+        "resumeDiffMs": 0
+      },
+      {
+        "scene": 3,
+        "atTime": 14.9,
         "frame": 57,
         "heldFrame": 56,
         "audioPausedImmediately": true,
         "lagFrames": 0,
         "audioResumedImmediately": true,
-        "pictureLocalSec": 1.904,
-        "audioCurrentTimeSec": 1.904,
+        "shownFrameLocalSec": 1.9,
+        "audioContextLocalSec": 1.9,
         "resumeDiffMs": 0
+      },
+      {
+        "scene": 3,
+        "atTime": 14.933,
+        "frame": 58,
+        "heldFrame": 57,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.933,
+        "audioContextLocalSec": 1.933,
+        "resumeDiffMs": 0.1
+      },
+      {
+        "scene": 3,
+        "atTime": 14.967,
+        "frame": 59,
+        "heldFrame": 58,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "shownFrameLocalSec": 1.967,
+        "audioContextLocalSec": 1.967,
+        "resumeDiffMs": 0.1
       }
     ],
+    "audioHonest": {
+      "stateAfterPlay": "running",
+      "suspendedDuringPause": 0,
+      "runningAfterResume": 20,
+      "pausesChecked": 20,
+      "ctxFrozenMaxMs": 0,
+      "ctxAdvanceMinMs": 53,
+      "ctxVsTimelineMaxMs": 0,
+      "suspendedAtEntry": 20,
+      "bufferingEntered": 20,
+      "frozenChecks": 1
+    },
+    "twentyBufferingPauses": {
+      "count": 20,
+      "maxLagFrames": 0,
+      "maxResumeDiffMs": 0,
+      "driftAcross20PausesMs": 0,
+      "diffsMs": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
     "decisions": [
       {
         "scene": 0,
@@ -28,8 +320,9 @@
         "variant": "predraw",
         "L": 90,
         "startFrames": 90,
-        "W": 20.2,
-        "drawFps": 4.5
+        "W": 18.3,
+        "drawFps": 6.6,
+        "plannedFps": 5.3
       },
       {
         "scene": 1,
@@ -37,10 +330,11 @@
         "state": "ready",
         "reason": "ok",
         "variant": "predraw",
-        "L": 147,
-        "startFrames": 147,
-        "W": 39.7,
-        "drawFps": 3.7
+        "L": 150,
+        "startFrames": 150,
+        "W": 37.1,
+        "drawFps": 3.6,
+        "plannedFps": 2.9
       },
       {
         "scene": 2,
@@ -48,10 +342,11 @@
         "state": "ready",
         "reason": "ok",
         "variant": "predraw",
-        "L": 140,
-        "startFrames": 140,
-        "W": 27.3,
-        "drawFps": 5.1
+        "L": 137,
+        "startFrames": 137,
+        "W": 26.9,
+        "drawFps": 7.2,
+        "plannedFps": 5.8
       },
       {
         "scene": 3,
@@ -59,25 +354,26 @@
         "state": "playing",
         "reason": "ok",
         "variant": "predraw",
-        "L": 37,
-        "startFrames": 37,
-        "W": 1.4,
-        "drawFps": 25.8
+        "L": 53,
+        "startFrames": 53,
+        "W": 2.3,
+        "drawFps": 28.2,
+        "plannedFps": 22.6
       }
     ],
     "per": [
       {
         "scene": 0,
-        "waitMs": 4401,
+        "waitMs": 5100,
         "ticks": 180,
         "bufferingPauses": 1,
         "wrong": 0,
-        "maxNextAhead": 25,
+        "maxNextAhead": 24,
         "openAfterLeave": 0
       },
       {
         "scene": 1,
-        "waitMs": 32832,
+        "waitMs": 37066,
         "ticks": 299,
         "bufferingPauses": 0,
         "wrong": 0,
@@ -86,28 +382,31 @@
       },
       {
         "scene": 2,
-        "waitMs": 21666,
+        "waitMs": 26915,
         "ticks": 299,
         "bufferingPauses": 0,
         "wrong": 0,
-        "maxNextAhead": 90,
+        "maxNextAhead": 65,
         "openAfterLeave": 0
       },
       {
         "scene": 3,
-        "waitMs": 0,
-        "ticks": 298,
-        "bufferingPauses": 0,
+        "waitMs": 1167,
+        "ticks": 297,
+        "bufferingPauses": 21,
         "wrong": 0,
         "maxNextAhead": 0,
         "openAfterLeave": null
       }
     ],
     "peak": {
-      "cacheBytes": 135475200,
-      "hostBytes": 135475200,
-      "budget": 167772160
+      "cacheBytes": 99532800,
+      "hostBytes": 3686400,
+      "budget": 167772160,
+      "peakEncoderQueue": 2
     },
+    "bitmapsOpened": 1327,
+    "bitmapsClosed": 1327,
     "openAfterDestroy": 0,
     "store04": {
       "totalBytes": 18900478,
@@ -123,7 +422,7 @@
     }
   },
   "phase2_replayAfterReload": {
-    "mountMs": 271,
+    "mountMs": 321,
     "framesPlayed": 540,
     "workerFrameCalls": 0,
     "activeWorkersDuringReplay": 0,
@@ -132,11 +431,11 @@
   },
   "phase3_qualityJobs": {
     "raise04to06": {
-      "raiseMs": 105148,
+      "raiseMs": 102511,
       "pausesCausedByJob": 0,
       "workerCallsOnRaise": 540,
       "firstUpgraded": [
-        "S1:35",
+        "S1:38",
         "S1:40",
         "S1:41",
         "S1:42",
@@ -154,16 +453,25 @@
       "avgKBPerFrame": 48
     },
     "lower06to02": {
-      "lowerMs": 15179,
-      "workerCallsOnLower": 0,
+      "lowerMs": 98675,
+      "pausesCausedByLowerJob": 0,
+      "workerCallsOnLower": 540,
+      "firstLowered": [
+        "S1:41",
+        "S1:50",
+        "S1:51",
+        "S1:52",
+        "S1:53",
+        "S1:54"
+      ],
       "qualitiesAfter02": [
         0.2,
         0.2,
         0.2,
         0.2
       ],
-      "totalBytes": 11347072,
-      "avgBytesPerFrame": 21013,
+      "totalBytes": 11336728,
+      "avgBytesPerFrame": 20994,
       "avgKBPerFrame": 20.5
     }
   },
@@ -186,8 +494,8 @@
   },
   "bytesPerFrameSummary": {
     "q02": {
-      "bytes": 21013,
-      "kb": 20.52,
+      "bytes": 20994,
+      "kb": 20.5,
       "targetKB": 20
     },
     "q04": {

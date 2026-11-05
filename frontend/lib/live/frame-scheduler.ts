@@ -157,6 +157,10 @@ export class FrameScheduler<T extends Disposable = Disposable> {
     const t0 = this.now();
     try {
       const result = await this.opts.draw(slot.scene, slot.frame);
+      if (this.paused || this.halted || !this.scenes.some((s) => s.id === slot.scene)) {
+        result.value.close?.();
+        return false;
+      }
       this.opts.cache.put(slot.scene, slot.frame, result.value, result.bytes);
       this.avgBytes = this.avgBytes === 0 ? result.bytes : this.avgBytes * 0.8 + result.bytes * 0.2;
       const ms = this.now() - t0;
@@ -200,6 +204,10 @@ export class FrameScheduler<T extends Disposable = Disposable> {
       const t0 = this.now();
       try {
         const result = await this.opts.draw(slot.scene, slot.frame);
+        if (this.paused || this.halted || !this.scenes.some((s) => s.id === slot.scene)) {
+          result.value.close?.();
+          break;
+        }
         this.opts.cache.put(slot.scene, slot.frame, result.value, result.bytes);
         this.avgBytes = this.avgBytes === 0 ? result.bytes : this.avgBytes * 0.8 + result.bytes * 0.2;
         const ms = this.now() - t0;

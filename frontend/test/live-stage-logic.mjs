@@ -324,6 +324,23 @@ test("decideSceneMode: a drawing scene shows 'Drawing scene 2… 42 %', stays pl
   assert.equal(playing.isPreparing, undefined);
   assert.equal(playing.stageWait, null);
 
+  // background quality job status text is surfaced on the status line without blocking playback
+  const raising = decideSceneMode({
+    ...base,
+    playerDecision: { mode: "live", reason: "ok", state: "playing" },
+    qualityJobText: "Raising preview quality… 120 / 450 frames"
+  });
+  assert.equal(raising.statusText, "Raising preview quality… 120 / 450 frames");
+  assert.equal(raising.stageWait, null);
+
+  const lowering = decideSceneMode({
+    ...base,
+    playerDecision: { mode: "live", reason: "ok", state: "playing" },
+    qualityJobText: "Lowering preview quality… 60 / 450 frames"
+  });
+  assert.equal(lowering.statusText, "Lowering preview quality… 60 / 450 frames");
+  assert.equal(lowering.stageWait, null);
+
   // a scene whose worker became unhealthy falls back to the clip
   const fallen = decideSceneMode({ ...base, variant: { ...variant, hasClip: true }, playerDecision: { mode: "clip", reason: "worker-unhealthy" } });
   assert.equal(fallen.mode, "clip");

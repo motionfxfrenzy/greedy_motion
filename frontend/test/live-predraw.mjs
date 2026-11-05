@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  DECODED_WINDOW_FRAMES,
+  DRAW_TIME_SAFETY_MARGIN,
   PREVIEW_FRAME_STEP,
   START_BUFFER_FRAMES,
   RESUME_BUFFER_FRAMES,
@@ -92,19 +94,33 @@ test("decidePredraw: fast scene is live with cushion lead L=15 and startFrames=m
   assert.equal(resumeBufferFrames(12), 12);
 });
 
-test("decidePredraw: slow scene computes lead L and startFrames = max(30, L), never falling back for slowness or budget", () => {
-  // crayon scene 2 numbers at 30 fps: 190 ms/draw -> p = 5.263 fps, N = 150 frames
+test("decidePredraw: slow scene computes lead L with 1.25x safety margin on measured draw time and startFrames = max(30, L), never falling back for slowness or budget", () => {
+  assert.equal(DRAW_TIME_SAFETY_MARGIN, 1.25);
+  assert.equal(DECODED_WINDOW_FRAMES, 90);
+  // crayon scene 2 numbers at 30 fps: 190 ms/draw -> plannedDrawMs = 190 * 1.25 = 237.5 ms -> p_safe = 4.2105 fps, N = 150 frames
   const d = decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 190 });
-  const p = 1000 / 190;
-  const L = Math.min(150, Math.ceil(150 * (1 - p / 30)) + 15);
+  const rawP = 1000 / 190;
+  const safeP = 1000 / (190 * 1.25);
+  const L = Math.min(150, Math.ceil(150 * (1 - safeP / 30)) + 15);
   assert.equal(d.mode, "predraw");
+  assert.equal(d.safetyMargin, 1.25);
+  assert.ok(Math.abs(d.produceFps - rawP) < 1e-9);
+  assert.ok(Math.abs(d.plannedProduceFps - safeP) < 1e-9);
+  assert.equal(d.plannedDrawMs, 237.5);
   assert.equal(d.neededFrames, L);
-  assert.equal(L, 139);
-  assert.equal(d.startFrames, 139);
-  assert.ok(Math.abs(d.waitSeconds - L / p) < 1e-9);
+  assert.equal(L, 144);
+  assert.equal(d.startFrames, 144);
+  assert.ok(Math.abs(d.waitSeconds - L / safeP) < 1e-9);
   assert.equal(predrawProgress(0, L), 0);
   assert.ok(Math.abs(predrawProgress(Math.floor(L * 0.42), L) - Math.floor(L * 0.42) / L) < 1e-12);
   assert.equal(predrawProgress(L + 5, L), 1);
+
+  // Explicit comparison: 50 ms/frame (raw 20 fps) without 1.25x margin would need ceil(150*(1 - 20/30)) + 15 = 65 frames;
+  // WITH 1.25x safety margin on draw time (62.5 ms/frame -> 16 fps), it needs ceil(150*(1 - 16/30)) + 15 = 85 frames!
+  const d50NoMargin = decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 50, safetyMargin: 1.0 });
+  const d50WithMargin = decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 50 });
+  assert.equal(d50NoMargin.startFrames, 65);
+  assert.equal(d50WithMargin.startFrames, 85, "1.25x safety margin increases start threshold from 65 to 85 frames");
 
   // Even a very slow scene (400 ms/frame) or a smaller RAM budget never falls back to clip
   const verySlow = decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 400 });
@@ -166,7 +182,7 @@ function crayonLike(clock, bitmaps, ms = () => 190, extra = {}) {
   });
 }
 
-test("PlatePlayer at 30 fps: waits for max(30, L) frames, plays with zero frames behind, closes every shown frame, flat memory", async () => {
+test("PlatePlayer at 30 fps: waits for max(30, L) frames (1.25x safety margin), plays with zero frames behind, closes every shown frame, flat memory", async () => {
   const clock = { t: 0 };
   const bitmaps = [];
   const player = crayonLike(clock, bitmaps);
@@ -175,8 +191,8 @@ test("PlatePlayer at 30 fps: waits for max(30, L) frames, plays with zero frames
   await player.mount(fakeElement());
   const plan = player.predrawPlan;
   assert.equal(player.playbackVariant, "predraw");
-  assert.equal(plan.neededFrames, 139);
-  assert.equal(plan.startFrames, 139);
+  assert.equal(plan.neededFrames, 144);
+  assert.equal(plan.startFrames, 144);
   assert.equal(player.state, "drawing");
   assert.equal(player.isPreparing, true, "active mount starts drawing initial buffer at once");
 
@@ -189,7 +205,7 @@ test("PlatePlayer at 30 fps: waits for max(30, L) frames, plays with zero frames
   assert.equal(player.state, "ready");
   assert.equal(player.decision().progress, undefined);
   assert.equal(player.decision().reason, "ok");
-  assert.equal(player.cachedPreviewFrames().length, 139);
+  assert.equal(player.cachedPreviewFrames().length, 144);
 
   // play through all 150 frames at 30 fps
   let peak = 0;
@@ -207,12 +223,85 @@ test("PlatePlayer at 30 fps: waits for max(30, L) frames, plays with zero frames
   }
   assert.equal(stalls, 0, "no stall after playback starts");
   assert.equal(wrong, 0, "every frame the playhead passed is closed");
-  assert.ok(peak <= 139 * BPF);
+  assert.ok(peak <= 144 * BPF);
   assert.ok(peak <= player.cache.budget);
   const drawn = new Set(bitmaps.map((b) => b.frameIndex));
   assert.equal(drawn.size, 150, "all 150 frames at 30 fps were drawn once each");
   player.destroy();
   assert.ok(bitmaps.every((b) => b.closed), "destroy closes the last frame too");
+});
+
+test("PlatePlayer start rule with 1.25x safety margin, re-measurement while drawing, decoded window vs prepared on disk, and exact-vs-stored blits", async () => {
+  const clock = { t: 0 };
+  const bitmaps = [];
+  const store = new FrameStore({ backend: new InMemoryFrameStoreBackend() });
+  const drawnToCanvas = [];
+  const el = {
+    ownerDocument: {
+      createElement() {
+        return {
+          style: {},
+          width: 0,
+          height: 0,
+          getContext: () => ({
+            clearRect() {},
+            drawImage(bm) {
+              drawnToCanvas.push(bm);
+            }
+          }),
+          remove() {}
+        };
+      }
+    },
+    appendChild: (c) => c
+  };
+
+  // Slow fake scene: 50 ms/frame initially -> 1.25x safety margin gives 62.5 ms/frame (16 fps) -> start threshold = 85 frames (not 65).
+  let currentDrawMs = 50;
+  const player = new PlatePlayer({
+    bundleDigest: "slow-50ms-scene",
+    html: "<script>window.FILM={};</script>",
+    frames: 150,
+    fps: 30,
+    frameStore: store,
+    transportFactory: virtualTransport(clock, () => currentDrawMs, bitmaps),
+    now: () => clock.t,
+    autoPump: false
+  });
+
+  await player.mount(el);
+  assert.equal(player.predrawPlan.startFrames, 85, "start threshold uses 1.25x measured draw time (85 frames, not 65)");
+  assert.equal(player.state, "drawing");
+  // Frame 0 was blitted at the moment it was drawn -> must be the exact freshly drawn bitmap (not fromStore)
+  assert.equal(drawnToCanvas.length, 1);
+  assert.equal(Boolean(drawnToCanvas[0].fromStore), false, "frame shown at the moment it is drawn is exact");
+
+  // Pump 62 more frames (total 65 frames ready: 3 initial samples + 62): without 1.25x margin 65 would start, but with 1.25x it stays in `drawing`!
+  await player.pumpScheduler(62);
+  assert.equal(player.readyAhead(0), 65);
+  assert.equal(player.state, "drawing", "still drawing at 65 frames because 1.25x safety margin requires 85 frames");
+
+  // Pump remaining 20 frames to reach 85 frames ready ahead -> transitions to `ready`!
+  await player.pumpScheduler(20);
+  assert.equal(player.readyAhead(0), 85);
+  assert.equal(player.state, "ready", "transitions to ready once 85 frames (with 1.25x safety margin) are ready ahead");
+
+  // Pump the rest of the 150-frame scene: verify `decoded window` stays capped at DECODED_WINDOW_FRAMES (90) while all 150 are `prepared on disk`!
+  await player.pumpScheduler(100);
+  await store.flush();
+  assert.equal(player.preparedOnDiskAhead(0), 150, "all 150 frames are prepared on disk in FrameStore");
+  assert.ok(
+    player.decodedWindowAhead(0) <= DECODED_WINDOW_FRAMES,
+    `decoded memory window (${player.decodedWindowAhead(0)}) is capped at DECODED_WINDOW_FRAMES (${DECODED_WINDOW_FRAMES})`
+  );
+
+  // Show frame 1 (which was drawn ahead of playback): must be shown from the stored copy (`fromStore === true`)!
+  player.showFrame(1);
+  assert.equal(Boolean(drawnToCanvas.at(-1)?.fromStore), true, "frame drawn ahead of playback is shown from stored copy");
+
+  player.destroy();
+  store.destroy();
+  assert.ok(bitmaps.every((b) => b.closed), "all raw bitmaps closed");
 });
 
 test("PlatePlayer: very slow scenes and small RAM budgets never fall back to clip (frames wait in FrameStore)", async () => {
@@ -333,7 +422,7 @@ async function until(cond, ms = 15000) {
   }
 }
 
-test("four slow scenes mounted together: sampling is one at a time, each gets its alone plan L=139 at 30 fps", async () => {
+test("four slow scenes mounted together: sampling is one at a time, each gets its alone plan L=144 at 30 fps", async () => {
   const clock = { t: 0 };
   const counts = {};
   const players = [0, 1, 2, 3].map(
@@ -351,7 +440,7 @@ test("four slow scenes mounted together: sampling is one at a time, each gets it
   for (const p of players) {
     assert.equal(p.decision().mode, "live", `${p.decision().reason}`);
     assert.equal(p.playbackVariant, "predraw");
-    assert.equal(p.predrawPlan.neededFrames, 139, "each scene was timed alone at 30 fps: 190 ms, not 190 ms x scenes");
+    assert.equal(p.predrawPlan.neededFrames, 144, "each scene was timed alone at 30 fps with 1.25x safety margin: L=144");
   }
   players.forEach((p) => p.destroy());
 });
@@ -382,7 +471,7 @@ test("film decides lazily and plays all four scenes at 30 fps with zero clip fal
   film.showFrame(0);
   await until(() => s1.measuredYet);
   assert.equal(s1.decision().mode, "live", s1.decision().reason);
-  assert.equal(s1.predrawPlan.neededFrames, 139);
+  assert.equal(s1.predrawPlan.neededFrames, 144);
 
   let guard = 0;
   while (timeSec < 19.9 && guard++ < 20000) {

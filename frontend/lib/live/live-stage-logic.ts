@@ -249,6 +249,8 @@ export type SceneModeInput = {
   clipRequestStatus?: ClipRequestState | null;
   isBuffering?: boolean;
   hasPendingComment?: boolean;
+  qualityJobText?: string | null;
+  storeDisabledReason?: string | null;
 };
 
 export type SceneModeResolution = {
@@ -541,6 +543,14 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
     };
   }
 
+  const statusText = buffering
+    ? "Buffering…"
+    : input.qualityJobText
+      ? input.qualityJobText
+      : input.storeDisabledReason
+        ? input.storeDisabledReason
+        : undefined;
+
   return {
     mode: "live",
     reason: input.playerDecision?.reason ?? "ok",
@@ -556,7 +566,7 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
     stageWait: buffering ? { failed: false, title: "Buffering…" } : null,
     playerState: buffering ? "buffering" : (input.playerDecision?.state ?? "ready"),
     isBuffering: buffering,
-    ...(buffering ? { statusText: "Buffering…" } : {})
+    ...(statusText ? { statusText } : {})
   };
 }
 
