@@ -10,7 +10,7 @@ import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOu
 import { QUEUES, claim, finish, noteRetry, progress } from "./jobs.mjs";
 import { consume, createControl, runLeased } from "./control.mjs";
 import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
-import { PLATE_EXPORT_QUEUE, PLATE_RENDER_QUEUE, handlePlateExport, handlePlateRender, plateCapability, renderPlateFilmJob } from "./plates.mjs";
+import { PLATE_EXPORT_QUEUE, PLATE_REBUNDLE_QUEUE, PLATE_RENDER_QUEUE, handlePlateExport, handlePlateRebundle, handlePlateRender, plateCapability, renderPlateFilmJob } from "./plates.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 // Railway private networking needs "::"; local Docker uses 0.0.0.0.
@@ -321,7 +321,7 @@ async function handle(job) {
  */
 const stop = new AbortController();
 let activeExports = 0;
-const leased = { [QUEUES.video]: 0, [PLATE_RENDER_QUEUE]: 0, [PLATE_EXPORT_QUEUE]: 0 };
+const leased = { [QUEUES.video]: 0, [PLATE_RENDER_QUEUE]: 0, [PLATE_EXPORT_QUEUE]: 0, [PLATE_REBUNDLE_QUEUE]: 0 };
 let drawsPlates = false;
 
 async function startConsuming() {
@@ -336,6 +336,10 @@ async function startConsuming() {
     [PLATE_EXPORT_QUEUE]: async (job) => {
       activePlates += 1; activeExports += 1; lastBusy = Date.now();
       try { await handlePlateExport(job, { control }); } finally { activePlates -= 1; activeExports -= 1; lastBusy = Date.now(); }
+    },
+    [PLATE_REBUNDLE_QUEUE]: async (job) => {
+      activePlates += 1; lastBusy = Date.now();
+      try { await handlePlateRebundle(job, { control }); } finally { activePlates -= 1; lastBusy = Date.now(); }
     }
   };
   ready = true;
@@ -348,7 +352,8 @@ async function startConsuming() {
     slots: () => shuttingDown ? {} : {
       [QUEUES.video]: Math.max(0, concurrency - leased[QUEUES.video]),
       [PLATE_RENDER_QUEUE]: drawsPlates ? Math.max(0, plateConcurrency - leased[PLATE_RENDER_QUEUE]) : 0,
-      [PLATE_EXPORT_QUEUE]: drawsPlates ? Math.max(0, 1 - leased[PLATE_EXPORT_QUEUE]) : 0
+      [PLATE_EXPORT_QUEUE]: drawsPlates ? Math.max(0, 1 - leased[PLATE_EXPORT_QUEUE]) : 0,
+      [PLATE_REBUNDLE_QUEUE]: drawsPlates ? Math.max(0, 1 - leased[PLATE_REBUNDLE_QUEUE]) : 0
     },
     onJob: (lease) => {
       const handler = handlers[lease.queue];
