@@ -120,6 +120,166 @@ test("mutation guard: any vertex edited in place between frames is seen at the n
   }
 });
 
+test("mutation guard: Object.is semantics for NaN (no spurious rebuilds) and -0 vs +0 (harmless rebuild, exact result)", () => {
+  const Pnan = outline("nan").map((p) => [...p]);
+  for (let ep = 0; ep < 4; ep++) {
+    ringNewFrame();
+    for (const [x, y] of queries(Pnan, 500)) {
+      assert.equal(insideRing(Pnan, x, y), oldInside(Pnan, x, y));
+    }
+  }
+  const Pzero = outline("concave").map((p) => [...p]);
+  Pzero[3][0] = +0; Pzero[3][1] = +0;
+  ringNewFrame();
+  for (const [x, y] of queries(Pzero, 500)) assert.equal(insideRing(Pzero, x, y), oldInside(Pzero, x, y));
+  Pzero[3][0] = -0; Pzero[3][1] = -0;
+  assert.equal(Object.is(Pzero[3][0], +0), false);
+  ringNewFrame();
+  for (const [x, y] of queries(Pzero, 500)) assert.equal(insideRing(Pzero, x, y), oldInside(Pzero, x, y));
+});
+
+test("documented behaviour: edit between frames is exact; edit within one frame (interior vertex) does not crash and updates at next frame", () => {
+  // Build a deterministic 24-vertex circle around (100, 100) of radius 50 (bounding box [50..150, 50..150])
+  const P = [];
+  const N = 24;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    P.push([100 + Math.cos(a) * 50, 100 + Math.sin(a) * 50]);
+  }
+  const probe = [100, 220];
+  ringNewFrame();
+  assert.equal(insideRing(P, probe[0], probe[1]), false);
+  assert.equal(oldInside(P, probe[0], probe[1]), false);
+
+  // Within the SAME frame (no ringNewFrame call), mutate interior vertex 6 (bottom of circle, not 0, not N>>1 = 12, not N-1 = 23)
+  // in place from y=150 to y=300 so probe (100, 220) lies inside the true geometry:
+  // documented limitation — within-frame in-place mutation of an interior vertex is unsupported (caught by verifyScene's
+  // double-draw determinism check), does not crash, and retains the current frame's cached box/buckets until the next frame epoch.
+  P[6][1] = 300;
+  assert.equal(oldInside(P, probe[0], probe[1]), true);
+  const withinFrameAnswer = insideRing(P, probe[0], probe[1]);
+  assert.equal(typeof withinFrameAnswer, "boolean");
+  assert.equal(withinFrameAnswer, false);
+
+  // At the start of the next frame (ringNewFrame), the full-content Object.is check detects the change and rebuilds:
+  ringNewFrame();
+  assert.equal(insideRing(P, probe[0], probe[1]), true);
+  assert.equal(insideRing(P, probe[0], probe[1]), oldInside(P, probe[0], probe[1]));
+});
+
+test("bundled scene path: bundleScene -> mountFilm -> FILM.seek -> renderFrame -> ringNewFrame resets epoch and detects vertex edits between frames", async () => {
+  const vm = await import("node:vm");
+  const { bundleScene } = await import("../lib/engine.mjs");
+  const sceneCode = [
+    'import { type Ctx, type Env, type P } from "./core";',
+    'import type { Film } from "./film";',
+    'import { inside } from "./gallery";',
+    "const N = 32;",
+    "const RING: P[] = Array.from({ length: N }, (_, i) => {",
+    "  const a = (i / N) * Math.PI * 2;",
+    "  return [540 + Math.cos(a) * 120, 540 + Math.sin(a) * 120] as P;",
+    "});",
+    "const draw = (ctx: Ctx, frame: number, env: Env) => {",
+    "  ctx.setTransform(env.scale, 0, 0, env.scale, 0, 0);",
+    "  // Edit an interior vertex (index 8, bottom of circle) and the middle vertex (N >> 1 = 16, left of circle) in place between frames",
+    "  if (frame === 0) { RING[8][1] = 820; RING[16][0] = 260; }",
+    "  else if (frame === 1) { RING[8][1] = 580; RING[16][0] = 500; }",
+    "  else { RING[8][1] = 820; RING[16][0] = 260; }",
+    "  const hitA = inside(RING, 540, 720);",
+    "  const hitB = inside(RING, 340, 540);",
+    "  ctx.fillStyle = hitA ? '#11aa22' : '#cc2211';",
+    "  ctx.fillRect(0, 0, 10, 10);",
+    "  ctx.fillStyle = hitB ? '#11aa22' : '#cc2211';",
+    "  ctx.fillRect(10, 0, 10, 10);",
+    "};",
+    "export const film: Film = {",
+    '  meta: { title: "mut", W: 1080, H: 1080, fps: 30, bpm: 120, durationFrames: 3 },',
+    "  assets: { images: {} },",
+    '  shots: [{ id: "s", start: 0, end: 3, draw }]',
+    "};"
+  ].join("\n");
+
+  const { html } = await bundleScene({ look: "illus-balloon", code: sceneCode, frames: 3, aspect: "1:1" });
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.equal(scripts.length, 2);
+
+  const fills = [];
+  const makeCtx = () => ({
+    fillStyle: "#000",
+    strokeStyle: "#000",
+    globalAlpha: 1,
+    globalCompositeOperation: "source-over",
+    lineWidth: 1,
+    lineCap: "butt",
+    lineJoin: "miter",
+    miterLimit: 10,
+    lineDashOffset: 0,
+    font: "10px sans-serif",
+    textAlign: "start",
+    textBaseline: "alphabetic",
+    direction: "inherit",
+    shadowBlur: 0,
+    shadowColor: "rgba(0,0,0,0)",
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: "low",
+    reset() { this.fillStyle = "#000"; },
+    setTransform() {},
+    clearRect() {},
+    fillRect(x, y, w, h) { fills.push({ x, y, w, h, fillStyle: this.fillStyle }); },
+    getImageData(x, y, w, h) { return { data: new Uint8ClampedArray(w * h * 4) }; },
+    createImageData(w, h) { return { data: new Uint8ClampedArray(w * h * 4) }; },
+    putImageData() {},
+    save() {},
+    restore() {},
+    beginPath() {},
+    moveTo() {},
+    lineTo() {},
+    closePath() {},
+    fill() {},
+    stroke() {},
+    clip() {},
+    rect() {},
+    arc() {},
+    setLineDash() {},
+    getTransform() { return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }; }
+  });
+  const mainCtx = makeCtx();
+  const canvasEl = { width: 1080, height: 1080, getContext: () => mainCtx, addEventListener() {} };
+  const sandbox = {
+    window: null,
+    globalThis: null,
+    document: {
+      getElementById: (id) => (id === "film" ? canvasEl : null),
+      createElement: () => ({ width: 0, height: 0, getContext: () => makeCtx() })
+    },
+    location: { search: "?adapter=1" },
+    URLSearchParams,
+    performance: { now: () => 0 },
+    addEventListener() {},
+    Image: class { decode() { return Promise.resolve(); } },
+    Math, Number, String, Boolean, Array, Object, Set, Map, WeakMap, Float32Array, Float64Array, Int32Array, Uint8Array, Uint16Array, Uint8ClampedArray, RegExp, Error, TypeError, JSON, Promise
+  };
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  for (const s of scripts) vm.runInContext(s, sandbox);
+  await sandbox.window.FILM.ready;
+
+  fills.length = 0;
+  sandbox.window.FILM.seek(0);
+  assert.deepEqual(fills.map((f) => f.fillStyle), ["#11aa22", "#11aa22"]);
+
+  fills.length = 0;
+  sandbox.window.FILM.seek(1);
+  assert.deepEqual(fills.map((f) => f.fillStyle), ["#cc2211", "#cc2211"]);
+
+  fills.length = 0;
+  sandbox.window.FILM.seek(2);
+  assert.deepEqual(fills.map((f) => f.fillStyle), ["#11aa22", "#11aa22"]);
+});
+
 test("gallery inside() == old inside() with no aspect adaptation", () => {
   for (let o = 0; o < 40; o++) { const P = outline(KINDS[o % KINDS.length]); for (const [x, y] of queries(P, 500)) assert.equal(gallery.inside(P, x, y), oldInside(P, x, y)); }
 });

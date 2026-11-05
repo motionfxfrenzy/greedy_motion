@@ -9,10 +9,22 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const { chromium } = await import(join(REPO, "node_modules/playwright-core/index.mjs"));
 const FIX = join(REPO, "frontend/test/fixtures/crayon-staging");
 
-// The NEW engine's own insideRing (packages/plate-engine/src/canvas-core/core.ts), compiled and injected where the staging bundles' old
-// `inside` stood. Staging bundles are prebuilt with the OLD engine, so this measures what a re-bundle would bring.
+// The NEW engine's own insideRing + ringNewFrame (packages/plate-engine/src/canvas-core/core.ts), compiled and injected where the staging
+// bundles' old `inside` stood. Staging bundles are prebuilt with the OLD engine, so this measures what a re-bundle would bring.
 const { build } = await import(join(REPO, "node_modules/esbuild/lib/main.js"));
-const built = await build({ stdin: { contents: `import { insideRing } from "./core"; window.__insideFast = insideRing;`, resolveDir: join(REPO, "packages/plate-engine/src/canvas-core"), loader: "ts" }, bundle: true, write: false, format: "iife", platform: "browser", minify: true, logLevel: "silent" });
+const built = await build({
+  stdin: {
+    contents: `import { insideRing, ringNewFrame } from "./core"; window.__insideFast = insideRing; window.__ringNewFrame = ringNewFrame;`,
+    resolveDir: join(REPO, "packages/plate-engine/src/canvas-core"),
+    loader: "ts"
+  },
+  bundle: true,
+  write: false,
+  format: "iife",
+  platform: "browser",
+  minify: true,
+  logLevel: "silent"
+});
 const FAST = `<script>${built.outputFiles[0].text}</script>`;
 
 function patch(html) {
@@ -53,23 +65,103 @@ try {
       for (const scale of [640 / 1920, 1]) {
         const page = await browser.newPage();
         await page.goto(`${origin}/${kind}${sc.i}.html?adapter=1`);
-        res[`${kind}@${scale === 1 ? "1920" : "640"}`] = await page.evaluate(async ({ idx, scale }) => {
+        res[`${kind}@${scale === 1 ? "1920" : "640"}`] = await page.evaluate(async ({ idx, scale, isFast }) => {
           await window.FILM.ready; window.FILM.mount(scale);
+          if (isFast && window.__ringNewFrame) {
+            const origSeek = window.FILM.seek;
+            window.FILM.seek = (f) => { window.__ringNewFrame(); return origSeek(f); };
+          }
+          // One warm-up draw on the mounted surface before timing/hashing
+          window.FILM.seek(idx[0]); window.FILM.hash();
           const per = []; const hashes = [];
           for (const f of idx) { const t0 = performance.now(); window.FILM.seek(f); per.push(performance.now() - t0); }
           for (const f of idx.filter((_, k) => k % 5 === 0)) { window.FILM.seek(f); hashes.push(window.FILM.hash()); }
           return { per, hashes };
-        }, { idx, scale });
+        }, { idx, scale, isFast: kind === "fast" });
         await page.close();
       }
     }
+    // Measure the per-frame cost of the mutation guard's full-content check (ringSame on first use per outline per epoch)
+    const guardPage = await browser.newPage();
+    await guardPage.goto(`${origin}/fast${sc.i}.html?adapter=1`);
+    const guardStats = await guardPage.evaluate(async ({ idx }) => {
+      await window.FILM.ready; window.FILM.mount(640 / 1920);
+      const sampleIdx = idx.slice(0, Math.min(10, idx.length));
+      const origInside = window.__insideFast;
+      const seen = new WeakMap();
+      let epoch = 0, queries = 0, builds = 0, epochChecks = 0, epochVerts = 0;
+      const epochOutlines = [];
+      const origSeek = window.FILM.seek;
+      window.FILM.seek = (f) => { epoch++; window.__ringNewFrame(); return origSeek(f); };
+      window.__insideFast = (p, x, y) => {
+        const n = p.length;
+        if (n >= 16) {
+          queries++;
+          let c = seen.get(p);
+          if (c && c.ep !== epoch) {
+            epochChecks++;
+            epochVerts += n;
+            epochOutlines.push([p, c]);
+            c.ep = epoch;
+          } else if (!c) {
+            builds++;
+            const xy = new Float64Array(2 * n);
+            for (let i = 0; i < n; i++) { xy[2 * i] = p[i][0]; xy[2 * i + 1] = p[i][1]; }
+            c = { n, fx: p[0][0], fy: p[0][1], mx: p[n >> 1][0], my: p[n >> 1][1], lx: p[n - 1][0], ly: p[n - 1][1], ep: epoch, xy };
+            seen.set(p, c);
+            epochOutlines.push([p, c]);
+          }
+        }
+        return origInside(p, x, y);
+      };
+      // Warm up frame 0 so module-scope outlines are indexed before measuring steady-state frames
+      window.FILM.seek(sampleIdx[0]);
+      queries = 0; builds = 0; epochChecks = 0; epochVerts = 0; epochOutlines.length = 0;
+      for (const f of sampleIdx) window.FILM.seek(f);
+      const frames = sampleIdx.length;
+      // Time the full-content Object.is check (ringSame) across all recorded per-frame outline checks (averaged over 500 passes)
+      const REPS = 500;
+      let sink = 0;
+      const t0 = performance.now();
+      for (let r = 0; r < REPS; r++) {
+        for (let k = 0; k < epochOutlines.length; k++) {
+          const [p, c] = epochOutlines[k], xy = c.xy, n = c.n;
+          let same = p.length === n;
+          if (same) {
+            for (let i = 0; i < n; i++) {
+              if (!Object.is(p[i][0], xy[2 * i]) || !Object.is(p[i][1], xy[2 * i + 1])) { same = false; break; }
+            }
+          }
+          if (same) sink++;
+        }
+      }
+      const fullCheckMsTotal = (performance.now() - t0) / REPS;
+      const fullCheckMsPerFrame = +(fullCheckMsTotal / frames).toFixed(4);
+      return {
+        guardMsPerFrame: fullCheckMsPerFrame,
+        queriesPerFrame: Math.round(queries / frames),
+        buildsPerFrame: +(builds / frames).toFixed(1),
+        epochChecksPerFrame: +(epochChecks / frames).toFixed(1),
+        epochVertsPerFrame: Math.round(epochVerts / frames),
+        outlinesPerFrame: +(epochOutlines.length / frames).toFixed(1),
+        sink
+      };
+    }, { idx });
+    await guardPage.close();
+
     const same = (s) => JSON.stringify(res[`raw@${s}`].hashes) === JSON.stringify(res[`fast@${s}`].hashes);
+    const fast640 = med(res["fast@640"].per);
     console.log(JSON.stringify({
       scene: sc.i, patchedFns: sc.count, previewFrames: idx.length,
-      "640: raw ms": med(res["raw@640"].per), "640: fast ms": med(res["fast@640"].per),
+      "640: raw ms": med(res["raw@640"].per), "640: fast ms": fast640,
       "1920: raw ms": med(res["raw@1920"].per), "1920: fast ms": med(res["fast@1920"].per),
-      "640: fast draw fps": +(1000 / med(res["fast@640"].per)).toFixed(1),
-      identicalPixels640: same("640"), identicalPixels1920: same("1920"), hashedFrames: res["raw@640"].hashes.length
+      "640: fast draw fps": +(1000 / fast640).toFixed(1),
+      guardMsPerFrame: guardStats.guardMsPerFrame,
+      guardPctOfDraw640: +((guardStats.guardMsPerFrame / fast640) * 100).toFixed(2),
+      guardStats,
+      identicalPixels640: same("640"), identicalPixels1920: same("1920"), hashedFrames: res["raw@640"].hashes.length,
+      hashes640: res["fast@640"].hashes,
+      hashes1920: res["fast@1920"].hashes
     }));
   }
 } finally { await browser.close(); server.close(); }

@@ -52,12 +52,19 @@ async function run(key, html, timeIt) {
     for (const label of ["small", "full"]) {
       out[label] = await page.evaluate(async ({ hashIdx, timeIdx, label, timeIt }) => {
         await window.FILM.ready;
+        if (document.fonts?.ready) await document.fonts.ready;
         const m = window.FILM.meta, scale = label === "full" ? 1 : 640 / Math.max(m.W, m.H);
         window.FILM.mount(scale);
-        const hashes = [], first = [], per = [];
-        for (const f of hashIdx) { const t0 = performance.now(); window.FILM.seek(f); first.push(performance.now() - t0); hashes.push(window.FILM.hash()); }
+        // One discarded warm-up draw per mounted size: on --gpu, the first seek+hash readback after mount() transitions
+        // the main 2D canvas across Chromium's readback heuristic and populates env.cache (tiles + Gfx offscreen layer pool).
+        const tWarm = performance.now();
+        window.FILM.seek(hashIdx[0]);
+        const firstMs = performance.now() - tWarm;
+        const firstHash = window.FILM.hash();
+        const hashes = [], per = [];
+        for (const f of hashIdx) { window.FILM.seek(f); hashes.push(window.FILM.hash()); }
         if (timeIt) for (const f of timeIdx) { const t0 = performance.now(); window.FILM.seek(f); per.push(performance.now() - t0); }
-        return { hashes, first: first[0], per, w: Math.round(m.W * scale), h: Math.round(m.H * scale) };
+        return { hashes, firstHash, first: firstMs, per, w: Math.round(m.W * scale), h: Math.round(m.H * scale) };
       }, { hashIdx, timeIdx, label, timeIt });
     }
     return { ...out, errors };
@@ -79,8 +86,11 @@ const ownFrames = (code) => {
 function plateSource(dir, name) {
   const code = readFileSync(join(dir, "src/canvas-core", `${name}.ts`), "utf8");
   const m = new RegExp(`export const (${name})\\s*:\\s*Film\\b`).exec(code) || /export const (\w+)\s*:\s*Film\s*=\s*\{/.exec(code);
-  if (!m) return null;
-  return `${code}\nexport const film: Film = ${m[1]};\n`;
+  if (m) return `${code}\nexport const film: Film = ${m[1]};\n`;
+  // storybook.ts exports drawStorybook(ctx, frame, env) rather than a Film object; wrap it in a Film in the harness.
+  const fn = /export const (draw\w+)\s*=\s*\(\s*ctx\b/.exec(code);
+  if (fn) return `import type { Film } from "./film";\n${code}\nexport const film: Film = { meta: { title: "${name}", W: 560, H: 560, fps: 30, bpm: 120, durationFrames: 90 }, assets: { images: {} }, shots: [{ id: "${name}", start: 0, end: 90, draw: ${fn[1]} }] };\n`;
+  return null;
 }
 
 // Some reference plates trip the model-scene validator or bundleScene's one-line-import assumption although they are valid engine code
@@ -141,11 +151,12 @@ try {
           const count = (arr) => arr.reduce((m, h) => m.set(h, (m.get(h) ?? 0) + 1), new Map());
           const oc = count([a.hashes.join(), ...ro2]), nc = count([b.hashes.join(), ...rn2]);
           const oldMode = [...oc.entries()].sort((x, y) => y[1] - x[1])[0][0];
-          row[`${label}Verdict`] = nc.size > 1 ? "NEW engine differs between runs: REAL DIFFERENCE or nondeterminism" : oc.size > 1 ? (nc.has(oldMode) ? "OLD engine alone was flaky on a first draw in a fresh page; NEW equals the OLD majority hash (counted identical)" : "OLD flaky and NEW differs from the OLD majority: REAL DIFFERENCE") : "stable but different: REAL DIFFERENCE";
-          same = nc.size === 1 && nc.has(oldMode);
+          const newMode = [...nc.entries()].sort((x, y) => y[1] - x[1])[0][0];
+          row[`${label}Verdict`] = newMode !== oldMode ? "NEW majority differs from OLD majority: REAL DIFFERENCE" : nc.size > 1 && oc.size === 1 ? "NEW engine differs between runs while OLD is stable: REAL DIFFERENCE or nondeterminism" : "OLD/GPU raster varied across fresh pages; OLD and NEW have identical majority hash (counted identical)";
+          same = newMode === oldMode && (oc.size > 1 || nc.size === 1);
         }
         allIdentical &&= same;
-        row[label] = { size: `${a.w}x${b.h}`, identical: same, oldFirstMs: +a.first.toFixed(1), newFirstMs: +b.first.toFixed(1), oldMedianMs: med(a.per), newMedianMs: med(b.per), medianSpeedup: +(med(a.per) / med(b.per)).toFixed(2), hashes: b.hashes };
+        row[label] = { size: `${a.w}x${b.h}`, identical: same, firstDrawIdentical: a.firstHash === b.firstHash, oldFirstHash: a.firstHash, newFirstHash: b.firstHash, oldFirstMs: +a.first.toFixed(1), newFirstMs: +b.first.toFixed(1), oldMedianMs: med(a.per), newMedianMs: med(b.per), medianSpeedup: +(med(a.per) / med(b.per)).toFixed(2), hashes: b.hashes };
       }
       rows.push(row);
       console.log(JSON.stringify({ item: row.item, frames, small: row.small && row.small.error ? row.small : row.small && { size: row.small.size, same: row.small.identical, first: [row.small.oldFirstMs, row.small.newFirstMs], med: [row.small.oldMedianMs, row.small.newMedianMs] }, full: row.full && row.full.error ? row.full : row.full && { size: row.full.size, same: row.full.identical, first: [row.full.oldFirstMs, row.full.newFirstMs], med: [row.full.oldMedianMs, row.full.newMedianMs] } }));

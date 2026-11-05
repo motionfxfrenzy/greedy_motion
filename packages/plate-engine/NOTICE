@@ -39,5 +39,6 @@ skills/anidoodle/engine/assets/refs/vangogh-almond-blossom.jpg
 
 Modifications (Apache-2.0 section 4(b))
 
-The point-in-polygon test in src/canvas-core/core.ts (insideRing) and the call sites that use it were changed in this copy to an
-indexed, output-identical version (2026-11-05, version 0.6.5). Details: PROVENANCE.md.
+The point-in-polygon test in src/canvas-core/core.ts (insideRing, with per-frame epoch guard ringNewFrame called from
+src/canvas-core/film.ts renderFrame) and the call sites that use it were changed in this copy to an indexed, output-identical
+version (2026-11-05, version 0.6.5). Details: PROVENANCE.md.

@@ -69,18 +69,21 @@ type RingIndex = { n: number; fx: number; fy: number; mx: number; my: number; lx
 const ringCache = new WeakMap<object, RingIndex>();
 const RING_MIN = 16, RING_HUGE = 1e100;
 // Mutation guard: every frame starts a new epoch (renderFrame calls ringNewFrame). The first use of an outline in an epoch compares ALL its
-// vertices with the copy taken when the index was built and rebuilds on any difference; so an in-place edit between frames is always seen.
-// An edit of a vertex between two uses INSIDE one frame is not detected (unsupported; the determinism check catches it).
+// vertices with the copy taken when the index was built (using Object.is: NaN equals NaN so an outline containing NaN does not rebuild every
+// frame, and -0 vs 0 counts as a change, a harmless extra rebuild and never a stale index) and rebuilds on any difference; so an in-place
+// edit between frames is always seen. Every query also keeps the cheap length and first/middle/last vertex check. In-place edits of an
+// outline within one frame are unsupported and are caught by the determinism check (the identical-frame double-draw check).
 let ringEpoch = 0;
 export const ringNewFrame = () => { ringEpoch++; };
-const ringSame = (p: readonly (readonly number[])[], c: RingIndex) => { if (!c.fast) return false; const xy = c.xy; for (let i = 0; i < c.n; i++) { if (p[i][0] !== xy[2 * i] || p[i][1] !== xy[2 * i + 1]) return false; } return true; };
+const ringSame = (p: readonly (readonly number[])[], c: RingIndex) => { const xy = c.xy; for (let i = 0; i < c.n; i++) { if (!Object.is(p[i][0], xy[2 * i]) || !Object.is(p[i][1], xy[2 * i + 1])) return false; } return true; };
 const ringLoop = (pts: readonly (readonly number[])[], x: number, y: number) => { let k = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) k = !k; } return k; };
 const ringBuild = (p: readonly (readonly number[])[]): RingIndex => {
-  const n = p.length, m = n >> 1, f = p[0], md = p[m], l = p[n - 1];
-  const idx: RingIndex = { n, fx: f[0], fy: f[1], mx: md[0], my: md[1], lx: l[0], ly: l[1], fast: false, x0: 0, x1: 0, y0: 0, y1: 0, h: 1, B: 1, off: new Int32Array(0), ids: new Int32Array(0), ep: ringEpoch, xy: new Float64Array(0) };
+  const n = p.length, m = n >> 1, f = p[0], md = p[m], l = p[n - 1], xy = new Float64Array(2 * n);
+  for (let i = 0; i < n; i++) { const q = p[i]; xy[2 * i] = q[0]; xy[2 * i + 1] = q[1]; }
+  const idx: RingIndex = { n, fx: f[0], fy: f[1], mx: md[0], my: md[1], lx: l[0], ly: l[1], fast: false, x0: 0, x1: 0, y0: 0, y1: 0, h: 1, B: 1, off: new Int32Array(0), ids: new Int32Array(0), ep: ringEpoch, xy };
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (let i = 0; i < n; i++) {
-    const q = p[i], qx = q[0], qy = q[1];
+    const qx = xy[2 * i], qy = xy[2 * i + 1];
     if (!(Math.abs(qx) < RING_HUGE) || !(Math.abs(qy) < RING_HUGE)) return idx;   // NaN, +-Infinity or huge: original loop
     if (qx < x0) x0 = qx; if (qx > x1) x1 = qx; if (qy < y0) y0 = qy; if (qy > y1) y1 = qy;
   }
@@ -97,8 +100,6 @@ const ringBuild = (p: readonly (readonly number[])[]): RingIndex => {
     }
     if (!fill) { for (let k = 0; k < B; k++) count[k + 1] += count[k]; idx.off = count; idx.ids = new Int32Array(count[B]); }
   }
-  idx.xy = new Float64Array(2 * n);
-  for (let i = 0; i < n; i++) { idx.xy[2 * i] = p[i][0]; idx.xy[2 * i + 1] = p[i][1]; }
   idx.x0 = x0; idx.x1 = x1; idx.y0 = y0; idx.y1 = y1; idx.h = h; idx.B = B; idx.fast = true;
   return idx;
 };
@@ -107,7 +108,7 @@ export const insideRing = (p: readonly (readonly number[])[], x: number, y: numb
   if (n < RING_MIN) return ringLoop(p, x, y);
   let c = ringCache.get(p);
   if (c && c.ep !== ringEpoch) { if (c.n === n && ringSame(p, c)) c.ep = ringEpoch; else c = undefined; }
-  if (!c || c.n !== n || p[0][0] !== c.fx || p[0][1] !== c.fy || p[n >> 1][0] !== c.mx || p[n >> 1][1] !== c.my || p[n - 1][0] !== c.lx || p[n - 1][1] !== c.ly) {
+  if (!c || c.n !== n || !Object.is(p[0][0], c.fx) || !Object.is(p[0][1], c.fy) || !Object.is(p[n >> 1][0], c.mx) || !Object.is(p[n >> 1][1], c.my) || !Object.is(p[n - 1][0], c.lx) || !Object.is(p[n - 1][1], c.ly)) {
     c = ringBuild(p);
     ringCache.set(p, c);
   }
