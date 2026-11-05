@@ -344,6 +344,17 @@ test(
 
         // Honest-audio pass (independent of the timeline's own flags): the REAL AudioContext must be suspended the moment buffering starts,
         // its clock frozen while still buffering, running again after resume, and the timeline's film time must advance with the context clock.
+        // Tear-free pair: the context clock only advances in steps, so reading it and the timeline back to back can straddle a step
+        // (a measurement artefact, not drift). Read the context clock on both sides of the timeline read and accept the pair only when both
+        // context readings are equal; retry otherwise (up to 50 times; a pair that never settles is counted and fails the test).
+        const readPair = () => {
+          for (let k = 0; k < 50; k++) {
+            const before = audioCtx.currentTime, tl = audioTimeline.currentTime(), after = audioCtx.currentTime;
+            if (before === after) return { c: before, tl };
+          }
+          audioHonest.tornPairs = (audioHonest.tornPairs || 0) + 1;
+          return { c: audioCtx.currentTime, tl: audioTimeline.currentTime() };
+        };
         audioHonest.suspendedAtEntry = 0; audioHonest.bufferingEntered = 0; audioHonest.frozenChecks = 0;
         for (let p = 0; p < 20; p++) {
           const frameIdx = 40 + p;
@@ -363,10 +374,18 @@ test(
           }
           await s3.pumpScheduler(35);
           film.syncToClock();
+          // Liveness is only meaningful once buffering has ended: wait (up to 3 s) until the timeline reports it is no longer buffering,
+          // and record how long that took. If it is still buffering after 3 s, playback is stuck after the resume: that is a failure, not a skip.
+          const waitStart = performance.now();
+          for (let w = 0; w < 300 && audioTimeline.buffering; w++) { await new Promise((r) => setTimeout(r, 10)); film.syncToClock(); }
+          const waitedMs = Math.round(performance.now() - waitStart);
+          audioHonest.bufferingWaitMsMax = Math.max(audioHonest.bufferingWaitMsMax || 0, waitedMs);
+          audioHonest.bufferingWaitsMs = (audioHonest.bufferingWaitsMs || []).concat(waitedMs);
+          if (audioTimeline.buffering) audioHonest.stuckBuffering = (audioHonest.stuckBuffering || 0) + 1;
           await new Promise((r) => setTimeout(r, 30));
-          const c1 = audioCtx.currentTime, tl1 = audioTimeline.currentTime();
+          const p1 = readPair(), c1 = p1.c, tl1 = p1.tl;
           await new Promise((r) => setTimeout(r, 120));
-          const c2 = audioCtx.currentTime, tl2 = audioTimeline.currentTime();
+          const p2 = readPair(), c2 = p2.c, tl2 = p2.tl;
           if (audioCtx.state === "running") audioHonest.runningAfterResume++;
           audioHonest.ctxAdvanceMinMs = Math.min(audioHonest.ctxAdvanceMinMs, Math.round((c2 - c1) * 1000));
           audioHonest.ctxVsTimelineMaxMs = Math.max(audioHonest.ctxVsTimelineMaxMs, Math.round(Math.abs((tl2 - tl1) - (c2 - c1)) * 1000));
@@ -459,6 +478,8 @@ test(
       assert.equal(ah.stateAfterPlay, "running", "the real AudioContext is running after play (else sync numbers are the wall-clock fallback)");
       assert.equal(ah.pausesChecked, 20, "independent audio check ran on 20 pauses");
       assert.equal(ah.bufferingEntered, 20, "every one of the 20 induced pauses entered buffering");
+      assert.equal(ah.stuckBuffering ?? 0, 0, `playback never stays buffering after a resume (waits ms: ${JSON.stringify(ah.bufferingWaitsMs)})`);
+      assert.equal(ah.tornPairs ?? 0, 0, "every context/timeline pair was read tear-free");
       assert.equal(ah.suspendedAtEntry, 20, "the real AudioContext was suspended the moment every buffering pause began");
       assert.ok(ah.ctxFrozenMaxMs <= 15, `the context clock stayed frozen while still buffering (${ah.frozenChecks} checks, max advance ${ah.ctxFrozenMaxMs} ms)`);
       assert.equal(ah.runningAfterResume, 20, "the real AudioContext was running after every resume");
