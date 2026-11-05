@@ -127,11 +127,31 @@ export type RebundleScanReport = {
   currentEngineDigest: string;
   countsByState: Record<string, number>;
   staleCountsByState: Record<string, number>;
+  countsByEngineDigest: Record<string, number>;
+  staleCountsByEngineDigest: Record<string, number>;
   upToDateCount: number;
   legacySkippedProjects: number;
   legacyprojectIds: string[];
+  frozenManifestVariantCount: number;
+  exportInFlightVariantCount: number;
+  frozenOrInFlightVariantCount: number;
+  frozenOrInFlightVariantIds: string[];
+  totalBytesToStage: number;
+  sampleCandidateIds: string[];
+  after: string | null;
+  nextCursor: string | null;
   candidates: StaleCandidateInfo[];
 };
+
+function manifestBundleBytes(manifest: Record<string, unknown> | null | undefined): number {
+  if (!manifest || typeof manifest !== "object") return 0;
+  for (const key of ["bundleBytes", "bytes", "size", "htmlBytes", "byteLength"]) {
+    const val = manifest[key];
+    const num = typeof val === "number" ? val : typeof val === "string" ? Number(val) : NaN;
+    if (Number.isFinite(num) && num >= 0) return Math.floor(num);
+  }
+  return 0;
+}
 
 /**
  * Read-only scan of all plate variants and legacy pre-018 projects.
@@ -141,6 +161,8 @@ export type RebundleScanReport = {
 export async function scanRebundleCandidates(options: {
   projectId?: string;
   limit?: number;
+  after?: string;
+  sample?: number;
   currentEngineDigest?: string;
 } = {}): Promise<RebundleScanReport> {
   const targetEngineDigest = options.currentEngineDigest ?? engineDigest();
@@ -155,6 +177,74 @@ export async function scanRebundleCandidates(options: {
   const countsByState: Record<string, number> = {};
   for (const r of stateCountsRes.rows) {
     countsByState[r.state] = Number(r.n);
+  }
+
+  const digestCountsRes = await pool.query<{ engine_digest: string; n: string }>(
+    `select coalesce(bundle_manifest->>'engineDigest', 'none') as engine_digest, count(*)::text as n
+       from app.plate_variants
+      where state in ('checked', 'drawn', 'bundled')
+        and source_key is not null
+        ${options.projectId ? "and project_id = $1" : ""}
+      group by coalesce(bundle_manifest->>'engineDigest', 'none')`,
+    options.projectId ? [options.projectId] : []
+  );
+  const countsByEngineDigest: Record<string, number> = {};
+  for (const r of digestCountsRes.rows) {
+    countsByEngineDigest[r.engine_digest] = Number(r.n);
+  }
+
+  // Informational counts: variants whose (project_id, aspect) has a frozen export manifest or an export / final render in flight.
+  const frozenExportRes = await pool.query<{
+    id: string;
+    has_frozen_manifest: boolean;
+    has_export_in_flight: boolean;
+  }>(
+    `select v.id,
+            (
+              exists (
+                select 1 from app.plate_exports e
+                 where e.project_id = v.project_id
+                   and e.aspect = v.aspect
+                   and e.manifest_key is not null
+              )
+              or exists (
+                select 1 from app.render_jobs j
+                 where j.project_id = v.project_id
+                   and j.render_input->>'kind' = 'plate-film'
+                   and j.render_input->>'manifestKey' is not null
+                   and coalesce(j.render_input->>'aspect', v.aspect) = v.aspect
+              )
+            ) as has_frozen_manifest,
+            (
+              exists (
+                select 1 from app.plate_exports e
+                 where e.project_id = v.project_id
+                   and e.aspect = v.aspect
+                   and e.state in ('queued', 'assembling')
+              )
+              or exists (
+                select 1 from app.render_jobs j
+                 where j.project_id = v.project_id
+                   and j.state in ('queued', 'planning', 'rendering')
+                   and coalesce(j.render_input->>'aspect', v.aspect) = v.aspect
+              )
+            ) as has_export_in_flight
+       from app.plate_variants v
+      where v.state in ('checked', 'drawn', 'bundled')
+        and v.source_key is not null
+        ${options.projectId ? "and v.project_id = $1" : ""}
+      order by v.created_at asc, v.project_id asc, v.scene_index asc, v.aspect asc, v.id asc`,
+    options.projectId ? [options.projectId] : []
+  );
+  let frozenManifestVariantCount = 0;
+  let exportInFlightVariantCount = 0;
+  const frozenOrInFlightVariantIds: string[] = [];
+  for (const r of frozenExportRes.rows) {
+    if (r.has_frozen_manifest) frozenManifestVariantCount += 1;
+    if (r.has_export_in_flight) exportInFlightVariantCount += 1;
+    if (r.has_frozen_manifest || r.has_export_in_flight) {
+      frozenOrInFlightVariantIds.push(r.id);
+    }
   }
 
   // Legacy projects: rows in app.plate_state (with legacy_scenes or scenes) or plate-look projects in app.projects
@@ -195,6 +285,23 @@ export async function scanRebundleCandidates(options: {
     params.push(options.projectId);
     whereProject = `and project_id = $${params.length}`;
   }
+  let whereAfter = "";
+  if (options.after) {
+    const cursorRes = await pool.query<{
+      id: string;
+      created_at: Date;
+      project_id: string;
+      scene_index: number;
+      aspect: Aspect;
+    }>("select id, created_at, project_id, scene_index, aspect from app.plate_variants where id = $1", [options.after]);
+    const cursorRow = cursorRes.rows[0];
+    if (!cursorRow) {
+      throw new Error(`Cursor variant not found: ${options.after}`);
+    }
+    params.push(cursorRow.created_at, cursorRow.project_id, cursorRow.scene_index, cursorRow.aspect, cursorRow.id);
+    const base = params.length - 4;
+    whereAfter = `and (created_at, project_id, scene_index, aspect, id) > ($${base}, $${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+  }
   let limitClause = "";
   if (typeof options.limit === "number" && Number.isInteger(options.limit) && options.limit > 0) {
     params.push(options.limit);
@@ -208,16 +315,23 @@ export async function scanRebundleCandidates(options: {
         and source_key is not null
         and (bundle_manifest->>'engineDigest') is distinct from $1
         ${whereProject}
-      order by created_at asc, project_id asc, scene_index asc, aspect asc
+        ${whereAfter}
+      order by created_at asc, project_id asc, scene_index asc, aspect asc, id asc
       ${limitClause}`,
     params
   );
 
   const staleCountsByState: Record<string, number> = {};
+  const staleCountsByEngineDigest: Record<string, number> = {};
+  let totalBytesToStage = 0;
+
   const candidates: StaleCandidateInfo[] = candRes.rows.map((row) => {
     staleCountsByState[row.state] = (staleCountsByState[row.state] ?? 0) + 1;
     const foundEngineDigest =
       typeof row.bundle_manifest?.engineDigest === "string" ? row.bundle_manifest.engineDigest : null;
+    const digestKey = foundEngineDigest ?? "none";
+    staleCountsByEngineDigest[digestKey] = (staleCountsByEngineDigest[digestKey] ?? 0) + 1;
+    totalBytesToStage += manifestBundleBytes(row.bundle_manifest);
     return {
       variantId: row.id,
       projectId: row.project_id,
@@ -235,14 +349,29 @@ export async function scanRebundleCandidates(options: {
     };
   });
 
+  const sampleSize =
+    typeof options.sample === "number" && Number.isInteger(options.sample) && options.sample >= 0 ? options.sample : 5;
+  const sampleCandidateIds = candidates.slice(0, sampleSize).map((c) => c.variantId);
+  const nextCursor = candidates.length > 0 ? candidates[candidates.length - 1]!.variantId : null;
+
   return {
     currentEngineVersion: currentVer,
     currentEngineDigest: targetEngineDigest,
     countsByState,
     staleCountsByState,
+    countsByEngineDigest,
+    staleCountsByEngineDigest,
     upToDateCount,
     legacySkippedProjects: legacyprojectIds.length,
     legacyprojectIds,
+    frozenManifestVariantCount,
+    exportInFlightVariantCount,
+    frozenOrInFlightVariantCount: frozenOrInFlightVariantIds.length,
+    frozenOrInFlightVariantIds,
+    totalBytesToStage,
+    sampleCandidateIds,
+    after: options.after ?? null,
+    nextCursor,
     candidates
   };
 }
@@ -535,8 +664,28 @@ export type RebundleBatchSummary = {
   fenced: number;
   failed: number;
   skipped: number;
+  inFlight: number;
+  maxInFlight: number | null;
+  stoppedByMaxInFlight: boolean;
+  after: string | null;
+  nextCursor: string | null;
   outcomes: RebundleVariantOutcome[];
 };
+
+/**
+ * Counts how many `plate-rebundle` worker jobs are currently queued (`created` or `retry`) or `active` in `pgboss.job`.
+ */
+export async function countInFlightRebundleJobs(): Promise<number> {
+  try {
+    const { rows } = await pool.query<{ n: string }>(
+      "select count(*)::text as n from pgboss.job where name = $1 and state in ('created', 'retry', 'active')",
+      [QUEUES.plateRebundle]
+    );
+    return Number(rows[0]?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * Scans and optionally re-bundles stale plate variants (`dryRun: true` by default).
@@ -544,18 +693,26 @@ export type RebundleBatchSummary = {
 export async function rebundleStaleVariants(options: {
   dryRun?: boolean;
   limit?: number;
+  after?: string;
+  sample?: number;
+  maxInFlight?: number;
   projectId?: string;
   storage?: RebundleStorage;
   mode?: "in-process" | "worker";
   verifier?: RebundleVerifier;
 } = {}): Promise<RebundleBatchSummary> {
   const dryRun = options.dryRun ?? true;
+  const effectiveMaxInFlight =
+    options.maxInFlight !== undefined ? options.maxInFlight : options.mode === "worker" ? 5 : undefined;
   const scan = await scanRebundleCandidates({
     projectId: options.projectId,
-    limit: options.limit
+    limit: options.limit,
+    after: options.after,
+    sample: options.sample
   });
 
   if (dryRun) {
+    const inFlight = await countInFlightRebundleJobs();
     return {
       dryRun: true,
       scan,
@@ -564,6 +721,11 @@ export async function rebundleStaleVariants(options: {
       fenced: 0,
       failed: 0,
       skipped: 0,
+      inFlight,
+      maxInFlight: effectiveMaxInFlight ?? null,
+      stoppedByMaxInFlight: false,
+      after: options.after ?? null,
+      nextCursor: scan.nextCursor,
       outcomes: []
     };
   }
@@ -574,20 +736,32 @@ export async function rebundleStaleVariants(options: {
   let fenced = 0;
   let failed = 0;
   let skipped = 0;
+  let stoppedByMaxInFlight = false;
+  let lastProcessedId: string | null = null;
 
   for (const cand of scan.candidates) {
+    if (effectiveMaxInFlight !== undefined) {
+      const currentInFlight = await countInFlightRebundleJobs();
+      if (currentInFlight >= effectiveMaxInFlight) {
+        stoppedByMaxInFlight = true;
+        break;
+      }
+    }
     const out = await rebundleVariant(cand.variantId, {
       storage: options.storage,
       mode: options.mode,
       verifier: options.verifier
     });
     outcomes.push(out);
+    lastProcessedId = cand.variantId;
     if (out.status === "committed") committed += 1;
     else if (out.status === "queued_worker") queuedWorker += 1;
     else if (out.status === "fenced") fenced += 1;
     else if (out.status === "failed") failed += 1;
     else skipped += 1;
   }
+
+  const inFlight = await countInFlightRebundleJobs();
 
   return {
     dryRun: false,
@@ -597,8 +771,234 @@ export async function rebundleStaleVariants(options: {
     fenced,
     failed,
     skipped,
+    inFlight,
+    maxInFlight: effectiveMaxInFlight ?? null,
+    stoppedByMaxInFlight,
+    after: options.after ?? null,
+    nextCursor: lastProcessedId,
     outcomes
   };
+}
+
+export type RebundleVariantStatus = {
+  variantId: string;
+  projectId: string;
+  sceneIndex: number;
+  aspect: Aspect;
+  state: VariantState;
+  gen: number;
+  rev: number;
+  activeBundleKey: string | null;
+  activeBundleDigest: string | null;
+  activeEngineDigest: string | null;
+  activeBundleIsNew: boolean;
+  updatedAt: string;
+  jobState: string | null;
+  job: {
+    id: string;
+    state: string;
+    stagedBundleKey: string | null;
+    stagedBundleDigest: string | null;
+    createdOn: string | null;
+    completedOn: string | null;
+  } | null;
+  revision: {
+    rev: number;
+    author: string | null;
+    bundleKey: string | null;
+    bundleDigest: string | null;
+    engineDigest: string | null;
+    createdAt: string;
+  } | null;
+};
+
+export type RebundleStatusReport = {
+  minutes: number;
+  currentEngineVersion: string;
+  currentEngineDigest: string;
+  inFlightJobs: number;
+  jobCountsByState: Record<string, number>;
+  committedCount: number;
+  variants: RebundleVariantStatus[];
+};
+
+/**
+ * Strictly read-only status inspection for variants touched in the last N minutes:
+ * reports the job state from `pgboss.job`, the `engine-rebundle` revision row from `app.plate_revisions`,
+ * and whether the active `bundle_key` on `app.plate_variants` is the newly re-bundled one.
+ */
+export async function getRebundleStatus(options: {
+  minutes?: number;
+  projectId?: string;
+} = {}): Promise<RebundleStatusReport> {
+  const minutes =
+    typeof options.minutes === "number" && Number.isInteger(options.minutes) && options.minutes > 0
+      ? options.minutes
+      : 60;
+  const targetEngineDigest = engineDigest();
+  const currentVer = engineVersion();
+
+  const client = await pool.connect();
+  try {
+    await client.query("begin read only");
+
+    let jobCountsByState: Record<string, number> = {};
+    let inFlightJobs = 0;
+    try {
+      const jobStatsRes = await client.query<{ state: string; n: string }>(
+        "select state::text as state, count(*)::text as n from pgboss.job where name = $1 group by state",
+        [QUEUES.plateRebundle]
+      );
+      for (const r of jobStatsRes.rows) {
+        const count = Number(r.n);
+        jobCountsByState[r.state] = count;
+        if (r.state === "created" || r.state === "retry" || r.state === "active") {
+          inFlightJobs += count;
+        }
+      }
+    } catch {
+      jobCountsByState = {};
+      inFlightJobs = 0;
+    }
+
+    const params: unknown[] = [minutes, QUEUES.plateRebundle];
+    let whereProject = "";
+    if (options.projectId) {
+      params.push(options.projectId);
+      whereProject = `and v.project_id = $${params.length}`;
+    }
+
+    const touchedRes = await client.query<VariantRow>(
+      `select v.*
+         from app.plate_variants v
+        where (
+          v.updated_at >= now() - make_interval(mins => $1::int)
+          or exists (
+            select 1 from app.plate_revisions r
+             where r.variant_id = v.id
+               and r.author = 'engine-rebundle'
+               and r.created_at >= now() - make_interval(mins => $1::int)
+          )
+          or exists (
+            select 1 from pgboss.job j
+             where j.name = $2
+               and j.data->>'variantId' = v.id::text
+               and coalesce(j.completed_on, j.started_on, j.created_on) >= now() - make_interval(mins => $1::int)
+          )
+        )
+        ${whereProject}
+        order by v.updated_at desc, v.created_at asc, v.id asc`,
+      params
+    );
+
+    const variants: RebundleVariantStatus[] = [];
+    let committedCount = 0;
+
+    for (const v of touchedRes.rows) {
+      const revRes = await client.query<RevisionRow & { created_at: Date }>(
+        `select *
+           from app.plate_revisions
+          where variant_id = $1
+            and author = 'engine-rebundle'
+          order by rev desc
+          limit 1`,
+        [v.id]
+      );
+      const revRow = revRes.rows[0] ?? null;
+
+      let jobInfo: RebundleVariantStatus["job"] = null;
+      try {
+        const jobRes = await client.query<{
+          id: string;
+          state: string;
+          data: Record<string, unknown> | null;
+          created_on: Date | null;
+          completed_on: Date | null;
+        }>(
+          `select id::text as id, state::text as state, data, created_on, completed_on
+             from pgboss.job
+            where name = $1
+              and data->>'variantId' = $2
+            order by created_on desc
+            limit 1`,
+          [QUEUES.plateRebundle, v.id]
+        );
+        const j = jobRes.rows[0];
+        if (j) {
+          jobInfo = {
+            id: j.id,
+            state: j.state,
+            stagedBundleKey: typeof j.data?.bundleKey === "string" ? j.data.bundleKey : null,
+            stagedBundleDigest: typeof j.data?.bundleDigest === "string" ? j.data.bundleDigest : null,
+            createdOn: j.created_on ? new Date(j.created_on).toISOString() : null,
+            completedOn: j.completed_on ? new Date(j.completed_on).toISOString() : null
+          };
+        }
+      } catch {
+        jobInfo = null;
+      }
+
+      const activeEngineDigest =
+        typeof v.bundle_manifest?.engineDigest === "string" ? v.bundle_manifest.engineDigest : null;
+      const revEngineDigest =
+        revRow && typeof revRow.bundle_manifest?.engineDigest === "string"
+          ? revRow.bundle_manifest.engineDigest
+          : null;
+
+      const activeBundleIsNew = Boolean(
+        revRow &&
+          v.bundle_key &&
+          v.bundle_key === revRow.bundle_key &&
+          v.rev === revRow.rev &&
+          activeEngineDigest === targetEngineDigest
+      );
+      if (activeBundleIsNew) committedCount += 1;
+
+      variants.push({
+        variantId: v.id,
+        projectId: v.project_id,
+        sceneIndex: v.scene_index,
+        aspect: v.aspect,
+        state: v.state,
+        gen: v.gen,
+        rev: v.rev,
+        activeBundleKey: v.bundle_key,
+        activeBundleDigest: v.bundle_digest,
+        activeEngineDigest,
+        activeBundleIsNew,
+        updatedAt: new Date(v.updated_at).toISOString(),
+        jobState: jobInfo?.state ?? null,
+        job: jobInfo,
+        revision: revRow
+          ? {
+              rev: revRow.rev,
+              author: revRow.author,
+              bundleKey: revRow.bundle_key,
+              bundleDigest: revRow.bundle_digest,
+              engineDigest: revEngineDigest,
+              createdAt: new Date((revRow as { created_at: Date }).created_at).toISOString()
+            }
+          : null
+      });
+    }
+
+    await client.query("commit");
+
+    return {
+      minutes,
+      currentEngineVersion: currentVer,
+      currentEngineDigest: targetEngineDigest,
+      inFlightJobs,
+      jobCountsByState,
+      committedCount,
+      variants
+    };
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -661,4 +1061,46 @@ export async function rollbackRebundleTarget(
     if (out.rolledBack) rolledBack += 1;
   }
   return { rolledBack, outcomes };
+}
+
+/**
+ * Rolls back the `count` most recent active `engine-rebundle` commits (`--rollback-last <n>`).
+ */
+export async function rollbackLastRebundleCommits(
+  count: number,
+  options: { projectId?: string; storage?: Pick<RebundleStorage, "getObject"> } = {}
+): Promise<{ requested: number; rolledBack: number; outcomes: RollbackRebundleOutcome[] }> {
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error("rollbackLastRebundleCommits requires a positive integer count.");
+  }
+  const storage = options.storage ?? defaultStorage;
+  const resolver = (prev: RevisionRow) => resolveManifestFromStorage(prev, storage);
+
+  const params: unknown[] = [count];
+  let whereProject = "";
+  if (options.projectId) {
+    params.push(options.projectId);
+    whereProject = `and v.project_id = $${params.length}`;
+  }
+
+  const { rows } = await pool.query<{ id: string }>(
+    `select v.id
+       from app.plate_variants v
+       join app.plate_revisions r
+         on r.variant_id = v.id and r.rev = v.rev
+      where r.author = 'engine-rebundle'
+        ${whereProject}
+      order by r.created_at desc, v.updated_at desc, r.rev desc, v.id desc
+      limit $1`,
+    params
+  );
+
+  const outcomes: RollbackRebundleOutcome[] = [];
+  let rolledBack = 0;
+  for (const row of rows) {
+    const out = await rollbackRebundleRevision(row.id, resolver);
+    outcomes.push(out);
+    if (out.rolledBack) rolledBack += 1;
+  }
+  return { requested: count, rolledBack, outcomes };
 }
