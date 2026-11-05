@@ -330,3 +330,12 @@ Flags supported:
 ## 10. Anything Not Done
 
 Nothing was skipped or left undone. All acceptance criteria (`(a)` through `(f)`) are complete.
+
+---
+
+## 11. Manager rerun (2026-11-05, under `.lock-timing`)
+
+- **Software identity** (no lock needed): 67/67 items identical, 0 skipped, no first-draw differences; every row's frame hashes at both sizes equal Argon's run.
+- **GPU identity** (`--gpu`): 66/67 identical, 0 skipped; 66/67 rows' hashes equal Argon's run. The one row flagged `fixture:balloon-0@9:16` (small, 360x640) is the old engine's own cold-GPU two-valued first draw, not an engine difference: frame 0 alone takes either `c3ad9c5f` or `bc276fb9` per fresh page, frames 1..4 are always identical, and across three fresh pages the OLD engine gave `c3ad, bc27, c3ad` and the NEW engine `bc27, c3ad, bc27`. Both engines produce exactly the same two values, so the tool's three-page majority vote called it "different" by chance. It is the same cold-GPU first-draw variance explained in section 3 (the full-size row for the same fixture was identical). Not rerun to a third time; treat the three-page vote as a known weakness of the tool for items whose cold draw is two-valued.
+- **Crayon fixtures, GPU, median ms per frame at 640x360 (raw old -> new):** scene0 147.1 -> 32.5 (4.5x), scene1 266.8 -> 54.4 (4.9x), scene2 184.9 -> 46.8 (4.0x), scene3 34.5 -> 18.0 (1.9x); pixels identical at 640 and 1920 for all four; at 1920x1080 new = 35.5 / 57.6 / 52.2 / 23.2 ms. Guard full-content check: 0.012 to 0.030 ms per frame, 0.04 to 0.07 % of the 640x360 draw time (threshold 5 %). These agree with section 7 within the 15 % tolerance.
+- Real speed-up to quote in the handoff: about 4 to 5x on the three heavy crayon fixtures and 1.9x on the light one; style plates such as lighthouse only 1.5 to 1.8x.
