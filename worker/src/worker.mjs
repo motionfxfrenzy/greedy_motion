@@ -42,7 +42,13 @@ let activePlates = 0;
 let lastBusy = Date.now();
 
 /** Errors that would fail the same way on every attempt: fail now instead of retrying. */
-class PermanentError extends Error {}
+class PermanentError extends Error {
+  constructor(message, code = "render_invalid") {
+    super(message);
+    this.code = code;
+    this.permanent = true;
+  }
+}
 
 /** Turns HyperFrames progress lines ("62%  Streaming frame 202/300") into throttled, fenced job updates. */
 function progressReporter(jobId, attempt, onLost) {
@@ -192,7 +198,7 @@ async function renderPlateFilm(id, input, attempt, signal) {
     try {
       result = await renderPlateFilmJob(id, input, attempt, { control, signal, report, output });
     } catch (error) {
-      if (error?.permanent) throw new PermanentError(error.message);
+      if (error?.permanent) throw new PermanentError(error.message, error.code || "render_invalid");
       throw error;
     }
     await uploadOutput(output, key);
@@ -293,11 +299,13 @@ async function handle(job) {
       throw error;
     }
     if (error instanceof PermanentError) {
-      await finish(control, jobId, attempt, { error: { code: "render_invalid", message } });
-      log("error", "render_failed_permanently", { jobId, attempt, message });
+      const code = error.code || "render_invalid";
+      await finish(control, jobId, attempt, { error: { code, message } });
+      log("error", "render_failed_permanently", { jobId, attempt, code, message });
       return;
     }
-    await noteRetry(control, jobId, attempt, { code: "render_failed", message: "The renderer hit an error and is trying again.", detail: message.slice(-800) });
+    const retryCode = typeof error?.code === "string" && error.code ? error.code : "render_failed";
+    await noteRetry(control, jobId, attempt, { code: retryCode, message: "The renderer hit an error and is trying again.", detail: message.slice(-800) });
     log("error", "render_attempt_failed", { jobId, attempt, message: message.slice(-400) });
     throw error;
   } finally {

@@ -1,11 +1,23 @@
 // Render jobs in Postgres (app.render_jobs). The backend writes the planning half of a job's life;
 // the render worker writes the rendering half, fenced by `attempt` (see worker/src/jobs.mjs).
+import { AsyncLocalStorage } from "node:async_hooks";
 import { motionBlur, type RenderJob, type RenderRequest, type RenderStage } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { pool } from "../db/database.ts";
 import { boss, inTransaction, QUEUES } from "../jobs/queues.ts";
 import { kickWorkers } from "../jobs/worker-launcher.ts";
+import { refundSpend } from "../tokens/store.ts";
 import type { Plan } from "./planner.ts";
+
+const activeIdempotencyKeys = new Map<string, string>();
+export const setProjectIdempotencyKey = (projectId: string, key: string): void => {
+  activeIdempotencyKeys.set(projectId.toLowerCase(), key);
+};
+export const clearProjectIdempotencyKey = (projectId: string): void => {
+  activeIdempotencyKeys.delete(projectId.toLowerCase());
+};
+export const getProjectIdempotencyKey = (projectId?: string | null): string | undefined =>
+  projectId ? activeIdempotencyKeys.get(projectId.toLowerCase()) : undefined;
 
 /** A motion-blur render captures several times the frames, so its queue expiry (and the worker's claim) is stretched by the same factor. */
 const blurExpiry = (renderInput: Record<string, unknown>) => (renderInput.motionBlur === true ? { expireInSeconds: config.renderTimeoutSeconds * motionBlur.slowdown } : {});
@@ -30,6 +42,7 @@ type Row = {
   updated_at: Date;
   render_queued_at: Date | null;
   prep: FilmPrep | null;
+  idempotency_key?: string | null;
 };
 
 /** A storyboard film's backend preparation, done by the planning consumer before the job reaches the render queue. */
@@ -56,23 +69,50 @@ function toView(row: Row, queuePosition?: number): RenderJob {
 }
 
 export const renderJobRepository = {
+  async findByIdempotencyKey(projectId: string, idempotencyKey: string): Promise<RenderJob | null> {
+    const clean = idempotencyKey.trim();
+    if (!clean) return null;
+    const { rows } = await pool.query<{ id: string }>(
+      "select id from app.render_jobs where project_id = $1 and idempotency_key = $2 limit 1",
+      [projectId, clean]
+    );
+    if (!rows[0]) return null;
+    return this.find(rows[0].id);
+  },
+
   /** Inserts the job and its planning message in one transaction: no job without a message, and vice versa. */
-  async createAndEnqueue(job: RenderJob, input: { request: RenderRequest; projectId?: string; ownerId?: string; plannedRevision?: Plan; prep?: FilmPrep }) {
+  async createAndEnqueue(job: RenderJob, input: { request: RenderRequest; projectId?: string; ownerId?: string; plannedRevision?: Plan; prep?: FilmPrep; idempotencyKey?: string }) {
+    const idemKey = (input.idempotencyKey ?? getProjectIdempotencyKey(input.projectId) ?? "").trim() || null;
     const client = await pool.connect();
+    let conflicted = false;
     try {
       await client.query("begin");
-      await client.query(
-        `insert into app.render_jobs (id, project_id, owner_id, state, stage, progress, request, planned_revision, revision, prep, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [job.id, input.projectId ?? null, input.ownerId ?? null, job.state, "queued", job.progress, input.request, input.plannedRevision ?? null, job.revision, input.prep ?? null, job.createdAt]
+      const inserted = await client.query<{ id: string }>(
+        `insert into app.render_jobs (id, project_id, owner_id, state, stage, progress, request, planned_revision, revision, prep, idempotency_key, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         on conflict (project_id, idempotency_key) where idempotency_key is not null and project_id is not null do nothing
+         returning id`,
+        [job.id, input.projectId ?? null, input.ownerId ?? null, job.state, "queued", job.progress, input.request, input.plannedRevision ?? null, job.revision, input.prep ?? null, idemKey, job.createdAt]
       );
-      await boss.send(QUEUES.plan, { jobId: job.id }, { db: inTransaction(client) });
-      await client.query("commit");
+      if (inserted.rowCount === 1) {
+        await boss.send(QUEUES.plan, { jobId: job.id }, { db: inTransaction(client) });
+        await client.query("commit");
+      } else {
+        conflicted = true;
+        await client.query("rollback");
+      }
     } catch (error) {
-      await client.query("rollback");
+      await client.query("rollback").catch(() => undefined);
       throw error;
     } finally {
       client.release();
+    }
+    if (conflicted && input.projectId && idemKey) {
+      if (input.prep?.spendEvent && input.prep?.ownerId) {
+        await refundSpend(input.prep.ownerId, input.prep.spendEvent).catch(() => undefined);
+      }
+      const existing = await this.findByIdempotencyKey(input.projectId, idemKey);
+      if (existing) return existing;
     }
     return { ...job, stage: "queued" as const };
   },

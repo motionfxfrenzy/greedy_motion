@@ -68,6 +68,7 @@ async function cleanStackState() {
   await waitForApiReady();
   await pool.query(`
     TRUNCATE TABLE
+      app.plate_clips,
       app.plate_check_reports,
       app.plate_revisions,
       app.plate_garbage,
@@ -77,7 +78,7 @@ async function cleanStackState() {
       app.render_jobs
     CASCADE
   `);
-  await pool.query("DELETE FROM app.token_ledger WHERE kind = 'spend'");
+  await pool.query("DELETE FROM app.token_ledger WHERE kind IN ('spend', 'refund')");
   await pool.query(
     `INSERT INTO app.token_ledger (user_id, amount, kind, reason, ref, actor, pool)
      VALUES ($1, 1000000, 'grant', 'chaos test allowance', 'chaos-pack-grant', 'system', 'pack')
@@ -165,16 +166,18 @@ async function main() {
       check(scen, renderRes.status === 202 && Boolean(renderRes.json?.id), "POST /render returns 202", `jobId=${renderRes.json?.id}`);
       const renderJobId = renderRes.json.id;
 
-      // Wait until the scene is actively drawing frames (stage='rendering') and render_jobs is claimed (attempt=1)
+      // Wait until render_jobs is claimed and actively drawing frames (stage='frames')
       const activeWait = await waitFor(
-        "scene drawing frames and render job claimed at attempt 1",
+        "render job claimed and drawing frames",
         async () => {
           const [v] = await variants(id);
-          const jr = (await pool.query("SELECT state, attempt FROM app.render_jobs WHERE id = $1", [renderJobId])).rows[0];
-          return v?.state === "rendering" && v?.stage === "rendering" && v?.render_attempt === 1 && jr?.attempt === 1 ? { v, jr } : false;
+          const jr = (await pool.query("SELECT state, stage, attempt FROM app.render_jobs WHERE id = $1", [renderJobId])).rows[0];
+          return v?.bundle_digest && jr?.state === "rendering" && jr?.stage === "frames" && jr?.attempt >= 1 ? { v, jr } : false;
         },
         { timeout: 120_000, every: 300 }
       );
+      const initialAttempt = activeWait.value.jr.attempt;
+      const expectedAttemptAfterKill = initialAttempt + 1;
       const timeToMidRenderMs = activeWait.ms;
 
       log("Killing plate-worker mid-render...");
@@ -182,9 +185,9 @@ async function main() {
       await sleep(2000);
       composeLive("up", "-d", "plate-worker");
 
-      // Wait for pg-boss lease expiry + retry and completion of both the scene and the billed render job
+      // Wait for pg-boss lease expiry + retry and completion of the billed render job
       const doneWait = await waitFor(
-        "restarted worker completes billed render job as attempt 2",
+        "restarted worker completes billed render job on next attempt",
         async () => {
           const r = await api(`/v1/render-jobs/${renderJobId}`);
           if (r.json?.state === "failed") {
@@ -197,6 +200,9 @@ async function main() {
       const totalRecoveryMs = now() - t0;
 
       const [finalVar] = await variants(id);
+      const cachedClipRow = (
+        await pool.query("SELECT * FROM app.plate_clips WHERE bundle_digest = $1 AND size = '1920x1080'", [finalVar.bundle_digest])
+      ).rows[0];
       const finalJobRow = (await pool.query("SELECT * FROM app.render_jobs WHERE id = $1", [renderJobId])).rows[0];
       const spendRows = (
         await pool.query(
@@ -216,14 +222,16 @@ async function main() {
 
       check(
         scen,
-        finalVar.state === "drawn" && finalVar.render_attempt === 2 && finalVar.clip_key?.endsWith("/clip-a2.mp4"),
-        "scene completed by restarted worker as render_attempt 2 with clip-a2.mp4",
-        `state=${finalVar.state}, render_attempt=${finalVar.render_attempt}, clip_key=${finalVar.clip_key}`
+        Boolean(cachedClipRow?.clip_key) && cachedClipRow.frames === finalVar.frames,
+        "scene clip drawn and recorded in app.plate_clips by restarted worker",
+        `bundle_digest=${finalVar.bundle_digest?.slice(0, 12)}, clip_key=${cachedClipRow?.clip_key}`
       );
       check(
         scen,
-        finalJobRow.state === "ready" && finalJobRow.attempt === 2 && finalJobRow.output?.key === `renders/${renderJobId}/a2.mp4`,
-        "billed render job completed as attempt 2 with renders/<id>/a2.mp4",
+        finalJobRow.state === "ready" &&
+          finalJobRow.attempt === expectedAttemptAfterKill &&
+          finalJobRow.output?.key === `renders/${renderJobId}/a${expectedAttemptAfterKill}.mp4`,
+        "billed render job completed on next attempt with renders/<id>/a<attempt>.mp4",
         `state=${finalJobRow.state}, attempt=${finalJobRow.attempt}, key=${finalJobRow.output?.key}`
       );
       check(
@@ -634,9 +642,13 @@ async function main() {
         containers.join(", ")
       );
 
-      // Seed 2 projects with 5 beats each (10 scenes total)
+      // Seed 2 projects with 5 beats each (10 scenes total) in clip mode so all 10 scenes queue plate-render jobs across the 6 workers
       const pA = await seedProject({ look: "illus-fox", aspect: "16:9", beats: 5, audio: false, name: "chaos-6w-A" });
       const pB = await seedProject({ look: "illus-balloon", aspect: "16:9", beats: 5, audio: false, name: "chaos-6w-B" });
+      await pool.query(
+        "INSERT INTO app.plate_state (project_id, live_mode, live_mode_set_at) VALUES ($1, 'clip', now()), ($2, 'clip', now()) ON CONFLICT (project_id) DO UPDATE SET live_mode = 'clip'",
+        [pA.id, pB.id]
+      );
 
       const tRun0 = now();
       await Promise.all([
@@ -644,7 +656,6 @@ async function main() {
         api(`/v1/projects/${pB.id}/plates/draw`, { method: "POST" })
       ]);
 
-      // Request draws for both projects so all 10 scenes are queued for worker rendering
       await waitFor(
         "10 variants created across 2 projects",
         async () => {
@@ -654,11 +665,6 @@ async function main() {
         },
         { timeout: 30_000, every: 300 }
       );
-
-      await Promise.all([
-        api(`/v1/projects/${pA.id}/plates/export`, { method: "POST", body: { aspect: "16:9" } }),
-        api(`/v1/projects/${pB.id}/plates/export`, { method: "POST", body: { aspect: "16:9" } })
-      ]);
 
       const ipList = workerIps.map((w) => w.ip);
       let maxWorkerDbConns = 0;

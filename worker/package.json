@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node src/worker.mjs",
     "self-test": "node src/self-test.mjs",
-    "test:motion-blur": "node test/motion-blur.mjs"
+    "test:motion-blur": "node test/motion-blur.mjs",
+    "test:plates-phase5": "node test/plates-phase5.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1147.0",

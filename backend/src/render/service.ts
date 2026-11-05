@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
 import type { Job } from "pg-boss";
 import { config } from "../config.ts";
-import { buildExport } from "../plates/exports.ts";
+import { buildExport, waitForAuthoring } from "../plates/exports.ts";
 import { primaryAspect } from "../plates/model.ts";
 import { isPlateLook, startPlates } from "../plates/service.ts";
-import { requestDraws } from "../plates/store.ts";
 import { AnthropicPromptPlanner } from "./anthropic-planner.ts";
 import { DeterministicPromptPlanner, VIDEO_SECONDS, applyBrand, planFromValues, requireTemplate, type Plan, type PromptPlanner } from "./planner.ts";
 import { renderJobRepository, type FilmPrep, type StoredRenderJob } from "./repository.ts";
@@ -63,9 +62,15 @@ export class RenderService {
    * directs the motion, builds the composition (prepareBeatPlanRender) and hands it to the render queue, and
    * every step reaches the page as a job event. Nothing is planned or generated beyond what the storyboard holds.
    */
-  async createBeatPlanRender(project: VideoProject, jobId: string, prep: Omit<FilmPrep, "kind">, durationSeconds: number) {
+  async createBeatPlanRender(project: VideoProject, jobId: string, prep: Omit<FilmPrep, "kind">, durationSeconds: number, options?: { idempotencyKey?: string }) {
     const job: RenderJob = { id: jobId, state: "queued", progress: 0, createdAt: new Date().toISOString(), revision: beatPlanRevision(project, durationSeconds) };
-    return renderJobRepository.createAndEnqueue(job, { request: project.request, projectId: project.id, prep: { kind: "beat-plan", ...prep } });
+    return renderJobRepository.createAndEnqueue(job, {
+      request: project.request,
+      projectId: project.id,
+      ownerId: prep.ownerId,
+      prep: { kind: "beat-plan", ...prep },
+      ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {})
+    });
   }
 
   /** The storyboard half of the planning consumer: motion, composition and upload, then the render queue. */
@@ -76,20 +81,40 @@ export class RenderService {
       return;
     }
     if (isPlateLook(project.brief?.look)) {
-      // Code-drawn plate scenes: nothing is drawn or assembled in this process. Make sure every scene of the ratio exists (the
-      // queues draw what is missing), write the export manifest, and hand the job to the render worker, which waits for the
-      // scenes, assembles voice, music, effects and subtitles, and uploads the film. Billing, progress, retries and completion
-      // are the ordinary render job's.
+      // Code-drawn plate scenes: wait for any in-flight authoring to finish, freeze the schema 2 export manifest under a
+      // content-addressed key in object storage, and hand the job to the render worker, which verifies every scene bundle,
+      // draws any missing clips itself (or reuses cached clips from app.plate_clips), and assembles the film.
       await renderJobRepository.updatePlanning(id, { stage: "directing", progress: 25 });
       try {
         const aspect = primaryAspect(project);
         await startPlates(project.id);
-        await requestDraws(project.id, [aspect]);
-        const built = await buildExport(project, aspect, prep.watermark, { pending: true });
-        const renderInput = { kind: "plate-film", renderContractVersion: 1, id, projectId: project.id, aspect, manifestKey: built.manifestKey, durationSeconds: built.durationSeconds };
+        await waitForAuthoring(project.id, aspect, {
+          expectedScenes: (project.brief?.scriptBeats ?? []).length,
+          onProgress: ({ done, total }) =>
+            renderJobRepository.updatePlanning(id, {
+              stage: "directing",
+              progress: 25 + Math.round((done / Math.max(1, total)) * 15)
+            })
+        });
+        const built = await buildExport(project, aspect, prep.watermark);
+        const renderInput = {
+          kind: "plate-film",
+          renderContractVersion: 1,
+          manifestSchema: 2,
+          id,
+          projectId: project.id,
+          aspect,
+          manifestKey: built.manifestKey,
+          manifestDigest: built.manifestDigest,
+          durationSeconds: built.durationSeconds
+        };
         await renderJobRepository.queueRender(id, { ...beatPlanRevision(project, built.durationSeconds), id: row.revision.id }, renderInput);
       } catch (error) {
-        await this.failForGood(id, { code: "render_failed", message: messageOf(error, "Could not start the final video.") }, false);
+        await this.failForGood(
+          id,
+          { code: codeOf(error, "render_failed"), message: messageOf(error, "Could not start the final video.") },
+          false
+        );
       }
       return;
     }
@@ -255,13 +280,16 @@ export class RenderService {
     }
   }
 
-  /** Dead-letter consumer: retries are exhausted, so the job fails and the project shows why. */
+  /** Dead-letter consumer and terminal failure handler: retries are exhausted or pre-draw failed, so the job fails and tokens are refunded. */
   private async failForGood(jobId: string, failure: { code: string; message: string }, keepRecorded: boolean) {
     const row = await renderJobRepository.failIfUnfinished(jobId, failure, keepRecorded);
     if (row) console.error(JSON.stringify({ level: "error", event: "render_job_failed", jobId, code: row.error?.code, message: row.error?.message }));
-    // A storyboard film paid at Render and never reached the renderer: its tokens go back.
-    if (row?.prep?.spendEvent && row.render_queued_at === null) {
-      await refundSpend(row.prep.ownerId, row.prep.spendEvent).catch((error) => console.error(JSON.stringify({ level: "error", event: "render_refund_failed", jobId, message: error instanceof Error ? error.message : String(error) })));
+    const target = row ?? (await renderJobRepository.row(jobId));
+    const effectiveCode = target?.error?.code ?? failure.code;
+    if (target?.prep?.spendEvent && target?.prep?.ownerId && effectiveCode !== "cancelled") {
+      await refundSpend(target.prep.ownerId, target.prep.spendEvent).catch((error) =>
+        console.error(JSON.stringify({ level: "error", event: "render_refund_failed", jobId, message: error instanceof Error ? error.message : String(error) }))
+      );
     }
     await this.syncProject(jobId);
   }
@@ -269,7 +297,13 @@ export class RenderService {
   /** Mirrors a finished job onto its project, unless the project has since moved to a newer render. */
   private async syncProject(jobId: string) {
     const row = await renderJobRepository.row(jobId);
-    if (!row?.project_id || (row.state !== "ready" && row.state !== "failed")) return;
+    if (!row || (row.state !== "ready" && row.state !== "failed")) return;
+    if (row.state === "failed" && row.prep?.spendEvent && row.prep?.ownerId && row.error?.code !== "cancelled") {
+      await refundSpend(row.prep.ownerId, row.prep.spendEvent).catch((error) =>
+        console.error(JSON.stringify({ level: "error", event: "render_refund_failed", jobId, message: error instanceof Error ? error.message : String(error) }))
+      );
+    }
+    if (!row.project_id) return;
     const project = await getProject(row.project_id);
     if (!project || project.renderJobId !== jobId) return;
     await updateProject(project.id, { state: row.state === "ready" ? "Ready for review" : "Render needs attention", renderJobId: jobId });

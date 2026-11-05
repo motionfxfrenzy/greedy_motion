@@ -1,10 +1,11 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { callerId } from "../auth.ts";
 import { getProject } from "../projects/store.ts";
 import { planReadiness, type Readiness } from "../plan/readiness.ts";
 import { visualStatus } from "../plan/visual-state.ts";
 import { MILLITOKENS_PER_SECOND, START_FEE_MILLITOKENS, renderCostMillitokens, tokensFromMilli } from "../tokens/plan.ts";
 import { tokenSummary } from "../tokens/store.ts";
+import { clearProjectIdempotencyKey, renderJobRepository, setProjectIdempotencyKey } from "./repository.ts";
 
 /**
  * What the final render of a film costs, worked out once on the server from the saved storyboard and shown by the page as it is:
@@ -34,6 +35,43 @@ export function quoteFrom(readiness: Pick<Readiness, "ok" | "durationSeconds">, 
   };
 }
 
+const RENDER_ROUTE = /^\/v1\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/render$/i;
+const idempotencyLocks = new Map<string, Promise<void>>();
+const requestUnlocks = new WeakMap<FastifyRequest, () => void>();
+
+function extractIdempotencyKey(request: FastifyRequest): string | null {
+  const headerVal = request.headers["idempotency-key"] ?? request.headers["x-idempotency-key"];
+  const rawHeader = Array.isArray(headerVal) ? headerVal[0] : headerVal;
+  if (typeof rawHeader === "string" && rawHeader.trim()) {
+    return rawHeader.trim().slice(0, 128);
+  }
+  const body = request.body;
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const bodyKey = (body as Record<string, unknown>).idempotencyKey;
+    if (typeof bodyKey === "string" && bodyKey.trim()) {
+      return bodyKey.trim().slice(0, 128);
+    }
+  }
+  return null;
+}
+
+async function acquireIdempotencyLock(lockKey: string): Promise<() => void> {
+  while (idempotencyLocks.has(lockKey)) {
+    await idempotencyLocks.get(lockKey);
+  }
+  let release!: () => void;
+  const p = new Promise<void>((resolve) => {
+    release = () => {
+      if (idempotencyLocks.get(lockKey) === p) {
+        idempotencyLocks.delete(lockKey);
+      }
+      resolve();
+    };
+  });
+  idempotencyLocks.set(lockKey, p);
+  return release;
+}
+
 export function registerRenderQuote(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>("/v1/projects/:id/render/quote", async (request, reply) => {
     const project = await getProject(request.params.id);
@@ -41,5 +79,55 @@ export function registerRenderQuote(app: FastifyInstance) {
     const visuals = visualStatus(project);
     const balance = (await tokenSummary(callerId(request))).remaining;
     return quoteFrom(planReadiness(project), { required: visuals.required, owedTokens: visuals.priceTokens }, balance);
+  });
+
+  app.addHook("preHandler", async (request, reply) => {
+    if (request.method !== "POST") return;
+    let path: string;
+    try {
+      path = decodeURIComponent(request.url.split("?")[0]!);
+    } catch {
+      return;
+    }
+    const match = RENDER_ROUTE.exec(path);
+    if (!match) return;
+    const key = extractIdempotencyKey(request);
+    if (!key) return;
+    const projectId = match[1]!.toLowerCase();
+    const release = await acquireIdempotencyLock(projectId);
+    try {
+      const existing = await renderJobRepository.findByIdempotencyKey(projectId, key);
+      if (existing) {
+        release();
+        return reply.code(202).send(existing);
+      }
+      setProjectIdempotencyKey(projectId, key);
+      requestUnlocks.set(request, () => {
+        clearProjectIdempotencyKey(projectId);
+        release();
+      });
+    } catch (error) {
+      clearProjectIdempotencyKey(projectId);
+      release();
+      throw error;
+    }
+  });
+
+  const finishIdempotency = async (request: FastifyRequest) => {
+    const unlock = requestUnlocks.get(request);
+    if (unlock) {
+      requestUnlocks.delete(request);
+      unlock();
+    }
+  };
+  app.addHook("onSend", async (request, _reply, payload) => {
+    await finishIdempotency(request);
+    return payload;
+  });
+  app.addHook("onResponse", async (request) => {
+    await finishIdempotency(request);
+  });
+  app.addHook("onError", async (request) => {
+    await finishIdempotency(request);
   });
 }

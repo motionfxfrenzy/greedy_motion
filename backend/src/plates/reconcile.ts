@@ -26,7 +26,7 @@ export async function reconcilePlates(): Promise<number> {
 
     if (forceOff) {
       const flipped = await client.query<{ project_id: string }>(
-        "update app.plate_state set live_mode = 'clip', draw_aspects = '{}'::text[], updated_at = now() where live_mode = 'live' or cardinality(draw_aspects) > 0 returning project_id"
+        "update app.plate_state set live_mode = 'clip', updated_at = now() where live_mode = 'live' returning project_id"
       );
       if (flipped.rowCount && flipped.rowCount > 0) {
         log("info", "plate_live_force_off", { projects: flipped.rows.map((r) => r.project_id) });
@@ -77,7 +77,6 @@ export async function reconcilePlates(): Promise<number> {
               and v.clip_key is null
               and (
                 coalesce(s.live_mode, 'clip') <> 'live'
-                or v.aspect = any(coalesce(s.draw_aspects, '{}'::text[]))
                 or v.stage = 'queued for rendering'
               )
             )
@@ -136,7 +135,6 @@ export async function reconcilePlates(): Promise<number> {
                    and v.clip_key is null
                    and (
                      coalesce(s.live_mode, 'clip') <> 'live'
-                     or v.aspect = any(coalesce(s.draw_aspects, '{}'::text[]))
                      or v.stage = 'queued for rendering'
                    )
                  )
@@ -181,6 +179,11 @@ export async function sweepGarbage(
           select 1 from app.plate_revisions r
            where (r.source_key is not null and (r.source_key = g.prefix or starts_with(r.source_key, rtrim(g.prefix, '/') || '/')))
               or (r.bundle_key is not null and (r.bundle_key = g.prefix or starts_with(r.bundle_key, rtrim(g.prefix, '/') || '/')))
+        )
+        and not exists (
+          select 1 from app.plate_clips c
+           where (c.clip_key = g.prefix or starts_with(c.clip_key, rtrim(g.prefix, '/') || '/'))
+              or (c.still_key is not null and (c.still_key = g.prefix or starts_with(c.still_key, rtrim(g.prefix, '/') || '/')))
         )
       order by g.next_sweep_at
       limit $1`,

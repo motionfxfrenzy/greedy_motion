@@ -2,6 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { pool } from "../db/database.ts";
+import { fontSetDigest } from "../plates/digest.ts";
+import { refundSpend } from "../tokens/store.ts";
 import { boss, inTransaction, QUEUES } from "./queues.ts";
 
 const loopDelay = monitorEventLoopDelay({ resolution: 10 });
@@ -75,6 +77,12 @@ async function dispatch() {
 }
 
 function wait(workerId: string, slots: Record<string, number>, seconds: number, signal: AbortSignal): Promise<Leased[]> {
+  for (const prev of [...waiters]) {
+    if (prev.workerId === workerId) {
+      waiters.delete(prev);
+      prev.resolve([]);
+    }
+  }
   return new Promise((resolve) => {
     const waiter: Waiter = { workerId, slots: { ...slots }, got: [], resolve: (jobs) => { clearTimeout(timer); resolve(jobs); } };
     const timer = setTimeout(() => { waiters.delete(waiter); resolve([]); }, seconds * 1000);
@@ -129,22 +137,33 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
     return { ok: true };
   },
   async "render.finish"({ jobId, attempt, outcome }) {
-    return tx(async (client) => {
+    const out = await tx(async (client) => {
       const result = outcome.output
-        ? await client.query(
+        ? await client.query<{ prep: { ownerId?: string; spendEvent?: string | null } | null }>(
           `update app.render_jobs set state = 'ready', stage = 'done', progress = 100, output = $3, error = null,
                   frames_done = frames_total, finished_at = now(), updated_at = now()
-            where id = $1 and attempt = $2 and state = 'rendering'`, [jobId, attempt, outcome.output])
-        : await client.query(
+            where id = $1 and attempt = $2 and state = 'rendering'
+            returning prep`, [jobId, attempt, outcome.output])
+        : await client.query<{ prep: { ownerId?: string; spendEvent?: string | null } | null }>(
           `update app.render_jobs set state = 'failed', stage = 'failed', progress = 100, error = $3,
                   finished_at = now(), updated_at = now()
-            where id = $1 and attempt = $2 and state = 'rendering'`, [jobId, attempt, outcome.error]);
+            where id = $1 and attempt = $2 and state = 'rendering'
+            returning prep`, [jobId, attempt, outcome.error]);
       if (result.rowCount === 1) await boss.send(QUEUES.finished, { jobId }, { db: inTransaction(client) });
-      if (result.rowCount === 1) return { committed: true };
+      if (result.rowCount === 1) return { committed: true, prep: result.rows[0]?.prep ?? null };
       // A retried request whose first answer was lost: this attempt already committed. Say so, so the worker keeps its output.
-      const done = await client.query("select 1 from app.render_jobs where id = $1 and attempt = $2 and state in ('ready', 'failed')", [jobId, attempt]);
-      return { committed: done.rowCount === 1, duplicate: done.rowCount === 1 };
+      const done = await client.query<{ prep: { ownerId?: string; spendEvent?: string | null } | null }>(
+        "select prep from app.render_jobs where id = $1 and attempt = $2 and state in ('ready', 'failed')",
+        [jobId, attempt]
+      );
+      return { committed: done.rowCount === 1, duplicate: done.rowCount === 1, prep: done.rows[0]?.prep ?? null };
     });
+    if (out.committed && !outcome.output && outcome.error?.code !== "cancelled" && out.prep?.ownerId && out.prep?.spendEvent) {
+      await refundSpend(out.prep.ownerId, out.prep.spendEvent).catch((error) =>
+        console.error(JSON.stringify({ level: "error", event: "render_refund_failed", jobId, message: error instanceof Error ? error.message : String(error) }))
+      );
+    }
+    return { committed: out.committed, ...(out.duplicate !== undefined ? { duplicate: out.duplicate } : {}) };
   },
 
   // ---- plate-render
@@ -177,12 +196,41 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
     const r = await pool.query(plateFence("stage = $4, frames_done = $5"), [id, gen, renderAttempt, stage, framesDone]);
     return { ok: r.rowCount === 1 };
   },
-  async "plate.drawn"({ id, gen, renderAttempt, clipKey, stillKey, clipMeta, timings }) {
-    const r = await pool.query(plateFence("state = 'drawn', stage = null, frames_done = frames, clip_key = $4, still_key = $5, clip_meta = $6::jsonb, error = null, drawn_at = now(), timings = timings || $7::jsonb"),
-      [id, gen, renderAttempt, clipKey, stillKey, JSON.stringify(clipMeta), JSON.stringify(timings)]);
-    if (r.rowCount === 1) return { ok: true };
-    const done = await pool.query("select 1 from app.plate_variants where id = $1 and gen = $2 and render_attempt = $3 and state = 'drawn' and clip_key = $4", [id, gen, renderAttempt, clipKey]);
-    return { ok: done.rowCount === 1, duplicate: done.rowCount === 1 };
+  async "plate.drawn"({ id, gen, renderAttempt, clipKey, stillKey, clipMeta, timings, engineDigest, fontSetDigest: fDigest }) {
+    return tx(async (client) => {
+      const r = await client.query(
+        `${plateFence("state = 'drawn', stage = null, frames_done = frames, clip_key = $4, still_key = $5, clip_meta = $6::jsonb, error = null, drawn_at = now(), timings = timings || $7::jsonb")} returning *`,
+        [id, gen, renderAttempt, clipKey, stillKey, JSON.stringify(clipMeta ?? {}), JSON.stringify(timings ?? {})]
+      );
+      if (r.rowCount === 1) {
+        const updated = r.rows[0]!;
+        const bDigest = updated.bundle_digest;
+        if (typeof bDigest === "string" && bDigest) {
+          const eDigest =
+            typeof engineDigest === "string" && engineDigest
+              ? engineDigest
+              : typeof updated.bundle_manifest?.engineDigest === "string" && updated.bundle_manifest.engineDigest
+                ? updated.bundle_manifest.engineDigest
+                : "engine:unknown";
+          const fsDigest = typeof fDigest === "string" && fDigest ? fDigest : fontSetDigest();
+          const w = Number(updated.width) || 1920;
+          const h = Number(updated.height) || 1080;
+          const size = `${w}x${h}`;
+          await client.query(
+            `insert into app.plate_clips (bundle_digest, engine_digest, font_set_digest, size, width, height, fps, frames, clip_key, still_key, clip_meta, updated_at)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, now())
+             on conflict (bundle_digest, engine_digest, font_set_digest, size) do nothing`,
+            [bDigest, eDigest, fsDigest, size, w, h, Number(updated.fps) || FPS, Number(updated.frames) || 90, clipKey, stillKey ?? null, JSON.stringify(clipMeta ?? {})]
+          );
+        }
+        return { ok: true };
+      }
+      const done = await client.query(
+        "select 1 from app.plate_variants where id = $1 and gen = $2 and render_attempt = $3 and state = 'drawn' and clip_key = $4",
+        [id, gen, renderAttempt, clipKey]
+      );
+      return { ok: done.rowCount === 1, duplicate: done.rowCount === 1 };
+    });
   },
   async "plate.failed"({ id, gen, renderAttempt, error }) {
     const r = await pool.query(plateFence("state = 'failed', stage = null, error = $4::jsonb"), [id, gen, renderAttempt, JSON.stringify(error)]);
@@ -195,18 +243,174 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
   /** A deterministic defect of the scene code goes back to authoring (bounded by PLATE_MAX_AUTHOR_CALLS). */
   async "plate.sendBackForRepair"({ id, gen, renderAttempt, authored, sourceKey, detail }) {
     return tx(async (client) => {
-      const exhausted = Number(authored) >= MAX_AUTHOR_CALLS;
+      if (renderAttempt !== undefined && renderAttempt !== null) {
+        const exhausted = Number(authored) >= MAX_AUTHOR_CALLS;
+        const result = exhausted
+          ? await client.query(
+            `update app.plate_variants set state = 'failed', stage = null, error = $4::jsonb, updated_at = now()
+              where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'`,
+            [id, gen, renderAttempt, JSON.stringify({ code: "scene_invalid", message: `This scene could not be drawn after ${authored} attempts. Press Draw to try again.`, detail: String(detail).slice(0, 800) })])
+          : await client.query(
+            `update app.plate_variants set state = 'queued', stage = 'repairing', repair = $4::jsonb, repairs = repairs + 1, author_owner = null, author_until = null, enqueued_at = now(), updated_at = now()
+              where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'`,
+            [id, gen, renderAttempt, JSON.stringify({ error: String(detail).slice(-2500), previousKey: sourceKey })]);
+        if (result.rowCount === 1 && !exhausted) await boss.send(QUEUES.plateAuthor, { variantId: id, gen }, { db: inTransaction(client) });
+        return { applied: result.rowCount === 1, exhausted };
+      }
+
+      // Manifest verification failure path (renderPlateFilmJob / handlePlateExport): variant is in 'bundled', 'checked', or 'drawn'.
+      const found = await client.query<{
+        id: string;
+        gen: number;
+        rev: number;
+        state: string;
+        stage: string | null;
+        authored: number;
+        source_key: string | null;
+      }>("select id, gen, rev, state, stage, authored, source_key from app.plate_variants where id = $1 and gen = $2 for update", [id, gen]);
+      const row = found.rows[0];
+      if (!row) return { applied: false, exhausted: false };
+      if (row.state === "queued" && row.stage === "repairing") {
+        return { applied: false, duplicate: true, exhausted: false };
+      }
+      if (!["bundled", "checked", "drawn", "rendering"].includes(row.state)) {
+        return { applied: false, exhausted: row.state === "failed" };
+      }
+      const used = Number(authored ?? row.authored ?? 0);
+      const prevKey = sourceKey ?? row.source_key ?? null;
+      const exhausted = used >= MAX_AUTHOR_CALLS;
       const result = exhausted
         ? await client.query(
-          `update app.plate_variants set state = 'failed', stage = null, error = $4::jsonb, updated_at = now()
-            where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'`,
-          [id, gen, renderAttempt, JSON.stringify({ code: "scene_invalid", message: `This scene could not be drawn after ${authored} attempts. Press Draw to try again.`, detail: String(detail).slice(0, 800) })])
+            `update app.plate_variants
+                set state = 'failed', stage = null, error = $3::jsonb, updated_at = now()
+              where id = $1 and gen = $2`,
+            [
+              id,
+              gen,
+              JSON.stringify({
+                code: "scene_invalid",
+                message: `This scene could not be drawn after ${used} attempts. Press Draw to try again.`,
+                detail: String(detail).slice(0, 800)
+              })
+            ]
+          )
         : await client.query(
-          `update app.plate_variants set state = 'queued', stage = 'repairing', repair = $4::jsonb, repairs = repairs + 1, author_owner = null, author_until = null, enqueued_at = now(), updated_at = now()
-            where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'`,
-          [id, gen, renderAttempt, JSON.stringify({ error: String(detail).slice(-2500), previousKey: sourceKey })]);
-      if (result.rowCount === 1 && !exhausted) await boss.send(QUEUES.plateAuthor, { variantId: id, gen }, { db: inTransaction(client) });
-      return { applied: result.rowCount === 1, exhausted };
+            `update app.plate_variants
+                set state = 'queued', stage = 'repairing', rev = rev + 1,
+                    repair = $3::jsonb, repairs = repairs + 1, render_attempt = 0,
+                    checked_at = null, check_report = null, host = null,
+                    clip_key = null, still_key = null, clip_meta = null,
+                    author_owner = null, author_until = null, enqueued_at = now(), updated_at = now()
+              where id = $1 and gen = $2
+              returning rev`,
+            [id, gen, JSON.stringify({ error: String(detail).slice(-2500), previousKey: prevKey })]
+          );
+      if (result.rowCount === 1 && !exhausted) {
+        await boss.send(QUEUES.plateAuthor, { variantId: id, gen }, { db: inTransaction(client) });
+      }
+      return { applied: result.rowCount === 1, exhausted, ...(result.rows[0]?.rev !== undefined ? { rev: result.rows[0].rev } : {}) };
+    });
+  },
+
+  // ---- clip cache by digest (app.plate_clips)
+  async "clip.lookup"(args) {
+    if (Array.isArray(args.keys)) {
+      if (!args.keys.length) return { clips: [] };
+      const out: Row[] = [];
+      for (const k of args.keys) {
+        const size = typeof k?.size === "string" && k.size ? k.size : `${Number(k?.width) || 1920}x${Number(k?.height) || 1080}`;
+        const { rows } = await pool.query(
+          `select * from app.plate_clips
+            where bundle_digest = $1 and engine_digest = $2 and font_set_digest = $3 and size = $4`,
+          [String(k?.bundleDigest ?? ""), String(k?.engineDigest ?? ""), String(k?.fontSetDigest ?? ""), size]
+        );
+        if (rows[0]) out.push(rows[0]);
+      }
+      return { clips: out };
+    }
+    const size = typeof args.size === "string" && args.size ? args.size : `${Number(args.width) || 1920}x${Number(args.height) || 1080}`;
+    const { rows } = await pool.query(
+      `select * from app.plate_clips
+        where bundle_digest = $1 and engine_digest = $2 and font_set_digest = $3 and size = $4`,
+      [String(args.bundleDigest ?? ""), String(args.engineDigest ?? ""), String(args.fontSetDigest ?? ""), size]
+    );
+    return { clip: rows[0] ?? null, clips: rows };
+  },
+  async "clip.record"(args) {
+    const {
+      jobId,
+      exportId,
+      variantId,
+      gen,
+      attempt,
+      renderAttempt,
+      bundleDigest: bDigest,
+      engineDigest: eDigest,
+      fontSetDigest: fsDigest,
+      width,
+      height,
+      fps = FPS,
+      frames,
+      clipKey,
+      stillKey = null,
+      clipMeta = {}
+    } = args;
+    const w = Number(width) || 1920;
+    const h = Number(height) || 1080;
+    const size = typeof args.size === "string" && args.size ? args.size : `${w}x${h}`;
+    return tx(async (client) => {
+      let fenceOk = false;
+      if (typeof jobId === "string" && Number.isInteger(Number(attempt))) {
+        const f = await client.query(
+          "select 1 from app.render_jobs where id = $1 and attempt = $2 and state = 'rendering'",
+          [jobId, Number(attempt)]
+        );
+        fenceOk = f.rowCount === 1;
+      } else if (typeof exportId === "string" && Number.isInteger(Number(attempt))) {
+        const f = await client.query(
+          "select 1 from app.plate_exports where id = $1 and attempt = $2 and state = 'assembling'",
+          [exportId, Number(attempt)]
+        );
+        fenceOk = f.rowCount === 1;
+      } else if (typeof variantId === "string" && Number.isInteger(Number(gen)) && Number.isInteger(Number(renderAttempt))) {
+        const f = await client.query(
+          "select 1 from app.plate_variants where id = $1 and gen = $2 and render_attempt = $3 and state in ('rendering', 'drawn')",
+          [variantId, Number(gen), Number(renderAttempt)]
+        );
+        fenceOk = f.rowCount === 1;
+      }
+      if (!fenceOk) {
+        return { ok: false, fenced: true };
+      }
+
+      const inserted = await client.query(
+        `insert into app.plate_clips (bundle_digest, engine_digest, font_set_digest, size, width, height, fps, frames, clip_key, still_key, clip_meta, updated_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, now())
+         on conflict (bundle_digest, engine_digest, font_set_digest, size) do nothing
+         returning *`,
+        [
+          String(bDigest),
+          String(eDigest),
+          String(fsDigest),
+          size,
+          w,
+          h,
+          Number(fps) || FPS,
+          Number(frames) || 90,
+          String(clipKey),
+          stillKey ? String(stillKey) : null,
+          JSON.stringify(clipMeta ?? {})
+        ]
+      );
+      if (inserted.rowCount === 1) {
+        return { ok: true, duplicate: false, clip: inserted.rows[0] };
+      }
+      const existing = await client.query(
+        `select * from app.plate_clips
+          where bundle_digest = $1 and engine_digest = $2 and font_set_digest = $3 and size = $4`,
+        [String(bDigest), String(eDigest), String(fsDigest), size]
+      );
+      return { ok: true, duplicate: true, clip: existing.rows[0] ?? null };
     });
   },
 
@@ -255,7 +459,6 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
                and v.clip_key is null
                and (
                  coalesce(s.live_mode, 'clip') <> 'live'
-                 or v.aspect = any(coalesce(s.draw_aspects, '{}'::text[]))
                  or v.stage = 'queued for rendering'
                )
              )

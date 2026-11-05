@@ -8,7 +8,7 @@ import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
 import { isAspect, primaryAspect, type Aspect } from "./model.ts";
 import { addPlateComment, drawAspectPlates, fixPlates, plateStatus, removePlateComment, setPlateSubtitles, startPlates } from "./service.ts";
-import { getRevision, getVariant, listVariants, requestVariantClip, submitCheckReport, type CheckReportInput } from "./store.ts";
+import { getCachedClip, getRevision, getVariant, listVariants, requestVariantClip, submitCheckReport, type CheckReportInput } from "./store.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const notFound = { error: { code: "not_found", message: "Not found." } };
@@ -173,9 +173,14 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     if (!uuid.test(id) || !/^\d{1,2}$/.test(index)) return reply.code(404).send(notFound);
     const project = await getProject(id);
     const aspect = isAspect(request.query.aspect) ? request.query.aspect : project ? primaryAspect(project) : "16:9";
-    const row = (await listVariants(id)).find((v) => v.scene_index === Number(index) && v.aspect === aspect && v.clip_key);
-    if (!row?.clip_key) return reply.code(404).send(notFound);
-    return reply.header("Cache-Control", "no-store").redirect(await signKey("outputs", row.clip_key, { seconds: 900, contentType: "video/mp4" }), 302);
+    const row = (await listVariants(id)).find((v) => v.scene_index === Number(index) && v.aspect === aspect);
+    let clipKey = row?.clip_key ?? null;
+    if (!clipKey && row?.bundle_digest) {
+      const cached = await getCachedClip(row.bundle_digest, row.width, row.height);
+      clipKey = cached?.clip_key ?? null;
+    }
+    if (!clipKey) return reply.code(404).send(notFound);
+    return reply.header("Cache-Control", "no-store").redirect(await signKey("outputs", clipKey, { seconds: 900, contentType: "video/mp4" }), 302);
   });
 
   /** A scene's verified mid-scene still. */
@@ -184,9 +189,14 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     if (!uuid.test(id) || !/^\d{1,2}$/.test(index)) return reply.code(404).send(notFound);
     const project = await getProject(id);
     const aspect = isAspect(request.query.aspect) ? request.query.aspect : project ? primaryAspect(project) : "16:9";
-    const row = (await listVariants(id)).find((v) => v.scene_index === Number(index) && v.aspect === aspect && v.still_key);
-    if (!row?.still_key) return reply.code(404).send(notFound);
-    return reply.header("Cache-Control", "no-store").redirect(await signKey("outputs", row.still_key, { seconds: 900, contentType: "image/png" }), 302);
+    const row = (await listVariants(id)).find((v) => v.scene_index === Number(index) && v.aspect === aspect);
+    let stillKey = row?.still_key ?? null;
+    if (!stillKey && row?.bundle_digest) {
+      const cached = await getCachedClip(row.bundle_digest, row.width, row.height);
+      stillKey = cached?.still_key ?? null;
+    }
+    if (!stillKey) return reply.code(404).send(notFound);
+    return reply.header("Cache-Control", "no-store").redirect(await signKey("outputs", stillKey, { seconds: 900, contentType: "image/png" }), 302);
   });
 
   /**

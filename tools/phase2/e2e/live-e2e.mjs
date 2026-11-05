@@ -2,6 +2,7 @@
 //   node tools/phase2/e2e/live-e2e.mjs
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -90,6 +91,7 @@ async function ensureDatabaseAndCleanState() {
   await waitForApiReady("initial plate-api ready");
   await pool.query(`
     TRUNCATE TABLE
+      app.plate_clips,
       app.plate_check_reports,
       app.plate_revisions,
       app.plate_garbage,
@@ -99,7 +101,7 @@ async function ensureDatabaseAndCleanState() {
       app.render_jobs
     CASCADE
   `);
-  await pool.query("DELETE FROM app.token_ledger WHERE kind = 'spend'");
+  await pool.query("DELETE FROM app.token_ledger WHERE kind IN ('spend', 'refund')");
   await pool.query(
     `INSERT INTO app.token_ledger (user_id, amount, kind, reason, ref, actor, pool)
      VALUES ('00000000-0000-4000-8000-000000000000', 1000000, 'grant', 'e2e test allowance', 'e2e-pack-grant', 'system', 'pack')
@@ -1227,9 +1229,9 @@ async function main() {
     }
 
     // =========================================================================
-    // Scenario H: Final render & companion export draw-on-demand behaviour on a live project.
+    // Scenario H: Final render & companion export freeze schema 2 manifest with ZERO plate-render jobs.
     // =========================================================================
-    log("== Scenario H: Final render expectation (Phase 2c draw-on-demand)");
+    log("== Scenario H: Final render & companion export (Phase 5 frozen manifest, zero plate-render jobs)");
     {
       const scen = "H";
       const liveExportProj = await seedProject({ look: "illus-fox", aspect: "16:9", beats: 2, audio: true });
@@ -1256,17 +1258,17 @@ async function main() {
         "Scenario H project has all variants 'checked' and never drawn (clip_key=null)"
       );
 
-      // 1. Companion export (`POST /v1/projects/:id/plates/export`) returns 202 {state:'drawing'} AND triggers requestDraws
+      // 1. Companion export (`POST /v1/projects/:id/plates/export`) freezes schema 2 manifest and enqueues plate-export with 0 plate-render jobs
       const companionExportRes = await api(`/v1/projects/${liveExportProj.id}/plates/export`, {
         method: "POST",
         body: { aspect: "16:9" }
       });
-      const companionDownloadRes = await api(`/v1/projects/${liveExportProj.id}/plates/export/16-9`);
 
       assertCheck(
         scen,
-        companionExportRes.status === 202 && companionExportRes.json?.state === "drawing",
-        "companion export POST /plates/export returns 202 {state:'drawing', progress:0} while triggering draw-on-demand",
+        companionExportRes.status === 202 &&
+          ["queued", "assembling"].includes(companionExportRes.json?.state),
+        "companion export POST /plates/export freezes manifest and returns 202 {state:'queued'|'assembling'}",
         JSON.stringify(companionExportRes.json)
       );
 
@@ -1283,17 +1285,14 @@ async function main() {
 
       assertCheck(
         scen,
-        Array.isArray(stateAfterExport?.draw_aspects) &&
-          stateAfterExport.draw_aspects.includes("16:9") &&
-          jobsAfterExport === 2 &&
-          rowsAfterExport.every(
-            (r) => r.state === "rendering" || (r.state === "bundled" && r.stage === "queued for rendering")
-          ),
-        "companion export request persists '16:9' in draw_aspects and enqueues 1 plate-render job per scene",
+        (stateAfterExport?.draw_aspects ?? []).length === 0 &&
+          jobsAfterExport === 0 &&
+          rowsAfterExport.every((r) => r.state === "checked"),
+        "companion export does NOT touch draw_aspects, leaves variants 'checked', and enqueues ZERO plate-render jobs",
         `draw_aspects=${JSON.stringify(stateAfterExport?.draw_aspects)}, jobs=${jobsAfterExport}`
       );
 
-      // 2. Billed final render (`POST /v1/projects/:id/render`) also calls requestDraws idempotently (no extra plate-render jobs)
+      // 2. Billed final render (`POST /v1/projects/:id/render`) also freezes schema 2 manifest with ZERO plate-render jobs
       const finalRenderRes = await api(`/v1/projects/${liveExportProj.id}/render`, {
         method: "POST",
         body: {}
@@ -1314,15 +1313,19 @@ async function main() {
           [checkedIds]
         )
       ).rows[0].n;
+      const hManifest = JSON.parse(await s3GetText("plates-uploads", preparedWait.value.render_input.manifestKey));
       assertCheck(
         scen,
-        Boolean(preparedWait.value?.render_input?.manifestKey) && jobsAfterRender === 2,
-        "prepareFilm queues plate-film render without duplicating plate-render jobs",
-        `jobsAfterRender=${jobsAfterRender}`
+        hManifest.schema === 2 &&
+          /^plates\/[a-f0-9-]{36}\/manifests\/[a-f0-9]{64}\/manifest\.json$/i.test(preparedWait.value.render_input.manifestKey) &&
+          jobsAfterRender === 0,
+        "prepareFilm writes content-addressed schema 2 manifest and enqueues ZERO plate-render jobs",
+        `manifestKey=${preparedWait.value.render_input.manifestKey}, jobsAfterRender=${jobsAfterRender}`
       );
 
       // Clean up Scenario H's in-flight jobs so Scenarios J and K measure clean end-to-end renders
-      await pool.query("delete from pgboss.job where name in ('plate-render', 'render-plan', 'render-video')");
+      await pool.query("delete from pgboss.job where name in ('plate-render', 'plate-export', 'render-plan', 'render-video')");
+      await pool.query("delete from app.plate_exports where project_id = $1", [liveExportProj.id]);
       await pool.query("delete from app.plate_variants where project_id = $1", [liveExportProj.id]);
       await pool.query("delete from app.plate_state where project_id = $1", [liveExportProj.id]);
       await pool.query("update app.render_jobs set state = 'failed' where id = $1", [finalRenderRes.json.id]);
@@ -1330,7 +1333,6 @@ async function main() {
 
       metrics.scenarioH = {
         companionExportPost: { status: companionExportRes.status, body: companionExportRes.json },
-        companionExportGet: { status: companionDownloadRes.status, body: companionDownloadRes.json },
         drawAspectsAfterExport: stateAfterExport?.draw_aspects ?? [],
         plateRenderJobsAfterExport: jobsAfterExport,
         plateRenderJobsAfterRender: jobsAfterRender,
@@ -1429,12 +1431,12 @@ async function main() {
     }
 
     // =========================================================================
-    // Scenario J: Final render of a live project that was fully checked in the browser.
+    // Scenario J: Final render of a live project that was fully checked in the browser (0 plate-render jobs).
     // =========================================================================
     log("== Scenario J: Final render of a live project that was fully checked in the browser");
     {
       const scen = "J";
-      // Reuse Scenario A's setup (illus-fox, 16:9, 3 beats, with recorded audio for final film assembly)
+      await pool.query("TRUNCATE TABLE app.plate_clips");
       const { id } = await seedProject({ look: "illus-fox", aspect: "16:9", beats: 3, audio: true });
       const drawRes = await api(`/v1/projects/${id}/plates/draw`, { method: "POST" });
       assertCheck(scen, drawRes.status === 202, "POST /plates/draw returns 202");
@@ -1498,9 +1500,8 @@ async function main() {
       );
       const jobId1 = renderRes1.json.id;
 
-      // Wait for prepareFilm to enqueue plate-render jobs
       await waitFor(
-        "Scenario J prepareFilm enqueued plate-render",
+        "Scenario J prepareFilm froze manifest",
         async () => {
           const r = (await pool.query("select render_input from app.render_jobs where id = $1", [jobId1])).rows[0];
           return r?.render_input?.manifestKey ? r : false;
@@ -1519,52 +1520,43 @@ async function main() {
       const jobsAfterFirstRender = await countJobsForJ();
       assertCheck(
         scen,
-        jobsAfterFirstRender === 3,
-        "pgboss.job has exactly 1 plate-render per scene (3 total)",
+        jobsAfterFirstRender === 0,
+        "pgboss.job has ZERO plate-render jobs (worker draws directly from manifest)",
         `count=${jobsAfterFirstRender}`
       );
 
-      // Wait for the final render to complete to 'ready'
+      // Sample worker CPU & memory while actively drawing inside renderPlateFilmJob
+      const workerSamples = [];
       const readyWait = await waitFor(
         "Scenario J final render ready",
         async () => {
+          try {
+            const st = execFileSync(
+              "docker",
+              ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}", "videosaas-local-plate-worker-1"],
+              { cwd: REPO_ROOT, encoding: "utf8" }
+            ).trim();
+            if (st) workerSamples.push(st);
+          } catch {}
           const r = await api(`/v1/render-jobs/${jobId1}`);
           if (r.json?.state === "failed") {
             throw new Error(`Scenario J render failed: ${JSON.stringify(r.json?.error)}`);
           }
           return r.json?.state === "ready" ? r.json : false;
         },
-        { timeout: 360_000, every: 1000 }
+        { timeout: 360_000, every: 1500 }
       );
       const renderMs = now() - tRenderStart;
       metrics.scenarioJRenderMs = renderMs;
+      metrics.workerStatsDuringDraw = workerSamples;
       assertCheck(scen, readyWait.value.state === "ready", "final render completed to state:'ready'", `in ${renderMs}ms`);
 
-      //Repeating the render request does not enqueue more plate-render jobs
-      const renderRes2 = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      const jobsAfterDone = await countJobsForJ();
       assertCheck(
         scen,
-        renderRes2.status === 202 && Boolean(renderRes2.json?.id),
-        "repeated POST /render returns 202",
-        `status=${renderRes2.status}, body=${JSON.stringify(renderRes2.json)}`
-      );
-      const jobId2 = renderRes2.json.id;
-      await waitFor(
-        "Scenario J second render job prepared",
-        async () => {
-          const r = (await pool.query("select render_input from app.render_jobs where id = $1", [jobId2])).rows[0];
-          return r?.render_input?.manifestKey ? r : false;
-        },
-        { timeout: 30_000, every: 200 }
-      );
-      // Clean up second render-video job if still queued so worker stays free, and check plate-render job count
-      await pool.query("delete from pgboss.job where name = 'render-video' and data->>'jobId' = $1", [jobId2]);
-      const jobsAfterSecondRender = await countJobsForJ();
-      assertCheck(
-        scen,
-        jobsAfterSecondRender === 3,
-        "repeating the render request does not enqueue more plate-render jobs",
-        `count=${jobsAfterSecondRender}`
+        jobsAfterDone === 0,
+        "pgboss.job still has ZERO plate-render jobs after render completes",
+        `count=${jobsAfterDone}`
       );
 
       // Download the finished MP4 from jobId1 and run ffprobe checks (size 1920x1080, audio stream, frame count matching manifest)
@@ -1595,18 +1587,18 @@ async function main() {
         pass: true,
         renderMs,
         scenesDrawn: 3,
-        plateRenderCount: jobsAfterSecondRender,
+        plateRenderCount: jobsAfterDone,
         totalFrames: manifestJson.totalFrames
       };
     }
 
     // =========================================================================
-    // Scenario K: Final render with no browser at all + companion export for another ratio.
+    // Scenario K: Final render while authoring is still in progress (no browser) + companion export for 9:16.
     // =========================================================================
-    log("== Scenario K: Final render with no browser at all");
+    log("== Scenario K: Final render with no browser at all (authoring in progress)");
     {
       const scen = "K";
-      // Seed a project with 2 ratios (16:9 primary + 9:16 secondary) and 2 beats
+      await pool.query("TRUNCATE TABLE app.plate_clips");
       const { id } = await seedProject({
         look: "illus-balloon",
         aspect: "16:9",
@@ -1615,7 +1607,6 @@ async function main() {
         audio: true
       });
 
-      // Start plates and request final render IMMEDIATELY, before scenes are bundled and without any browser check report
       const tRenderStart = now();
       const drawRes = await api(`/v1/projects/${id}/plates/draw`, { method: "POST" });
       assertCheck(scen, drawRes.status === 202, "POST /plates/draw returns 202");
@@ -1680,8 +1671,8 @@ async function main() {
       ).rows[0].n;
       assertCheck(
         scen,
-        jobs169 === 2 && rows169.every((r) => r.state === "drawn" && Boolean(r.clip_key)),
-        "plate-render count for primary ratio equals number of scenes (2)",
+        jobs169 === 0,
+        "plate-render count for primary ratio is ZERO (worker drew directly from frozen manifest)",
         `jobs169=${jobs169}`
       );
 
@@ -1702,7 +1693,16 @@ async function main() {
         `size=${vStream?.width}x${vStream?.height}, packets=${vStream?.nb_read_packets}/${manifestJson.totalFrames}`
       );
 
-      // Also request a companion export for another ratio (9:16) of this live project and assert it becomes ready and downloads
+      // Wait for 9:16 variants to finish authoring ('bundled'), then request companion export for 9:16
+      await waitFor(
+        "Scenario K 9:16 variants bundled",
+        async () => {
+          const v = (await variants(id)).filter((r) => r.aspect === "9:16");
+          return v.length === 2 && v.every((r) => Boolean(r.bundle_key));
+        },
+        { timeout: 60_000, every: 300 }
+      );
+
       const tExportStart = now();
       const exportInitRes = await api(`/v1/projects/${id}/plates/export`, {
         method: "POST",
@@ -1710,8 +1710,8 @@ async function main() {
       });
       assertCheck(
         scen,
-        exportInitRes.status === 202 && exportInitRes.json?.state === "drawing",
-        "first companion export request for 9:16 returns 202 {state:'drawing'} and triggers draw-on-demand",
+        exportInitRes.status === 202 && ["queued", "assembling", "drawing"].includes(exportInitRes.json?.state),
+        "first companion export request for 9:16 returns 202",
         JSON.stringify(exportInitRes.json)
       );
 
@@ -1759,7 +1759,12 @@ async function main() {
           [rows916.map((r) => r.id)]
         )
       ).rows[0].n;
-      assertCheck(scen, jobs916 === 2, "plate-render count for 9:16 companion export equals number of scenes (2)", `jobs916=${jobs916}`);
+      assertCheck(
+        scen,
+        jobs916 === 0,
+        "plate-render count for 9:16 companion export is ZERO",
+        `jobs916=${jobs916}`
+      );
 
       scenarioResults.K = {
         pass: true,
@@ -1773,12 +1778,831 @@ async function main() {
       };
     }
 
+    // =========================================================================
+    // Scenario L: Final render of a never-previewed project finishes with zero plate-render jobs and clips in digest table.
+    // =========================================================================
+    let scenarioLProjectId = null;
+    let scenarioLFirstRenderMs = 0;
+    log("== Scenario L: Final render of a never-previewed project (0 plate-render jobs, clips in app.plate_clips)");
+    {
+      const scen = "L";
+      await pool.query("TRUNCATE TABLE app.plate_clips");
+      const { id } = await seedProject({ look: "illus-blueprint", aspect: "16:9", beats: 2, audio: true });
+      scenarioLProjectId = id;
+
+      // Never call /plates/draw or open a browser: go straight to POST /v1/projects/:id/render
+      const t0 = now();
+      const renderRes = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      assertCheck(scen, renderRes.status === 202 && Boolean(renderRes.json?.id), "POST /render on never-previewed project returns 202");
+      const jobId = renderRes.json.id;
+
+      const readyWait = await waitFor(
+        "Scenario L final render ready",
+        async () => {
+          const r = await api(`/v1/render-jobs/${jobId}`);
+          if (r.json?.state === "failed") {
+            throw new Error(`Scenario L render failed: ${JSON.stringify(r.json?.error)}`);
+          }
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 360_000, every: 1000 }
+      );
+      scenarioLFirstRenderMs = now() - t0;
+      metrics.scenarioLRenderMs = scenarioLFirstRenderMs;
+
+      const vars = await variants(id);
+      const plateRenderCount = (
+        await pool.query(
+          "select count(*)::int as n from pgboss.job where name = 'plate-render' and (data->>'variantId') = any($1::text[])",
+          [vars.map((v) => v.id)]
+        )
+      ).rows[0].n;
+      assertCheck(scen, plateRenderCount === 0, "final render finished with ZERO plate-render jobs", `plateRenderCount=${plateRenderCount}`);
+
+      const jobRow = (await pool.query("select render_input from app.render_jobs where id = $1", [jobId])).rows[0];
+      const manifest = JSON.parse(await s3GetText("plates-uploads", jobRow.render_input.manifestKey));
+      const clipRows = (
+        await pool.query(
+          "select * from app.plate_clips where bundle_digest = any($1::text[]) and size = '1920x1080'",
+          [manifest.scenes.map((s) => s.bundleDigest)]
+        )
+      ).rows;
+
+      assertCheck(
+        scen,
+        clipRows.length === manifest.scenes.length &&
+          clipRows.every((c) => Boolean(c.clip_key) && /swiftshader/i.test(String(c.clip_meta?.renderer ?? ""))),
+        "all scene clips appear in app.plate_clips with SwiftShader renderer recorded",
+        `clipRows=${clipRows.length}, renderer=${clipRows[0]?.clip_meta?.renderer}`
+      );
+
+      for (const c of clipRows) {
+        assertCheck(
+          scen,
+          await s3KeyExists("plates-outputs", c.clip_key),
+          `content-addressed clip object exists in storage (${c.clip_key.split("/").pop()})`
+        );
+      }
+
+      scenarioResults.L = { pass: true, renderMs: scenarioLFirstRenderMs, plateRenderCount, clipRows: clipRows.length };
+    }
+
+    // =========================================================================
+    // Scenario M: The same film rendered twice draws once (second render reuses every clip, measured time drops).
+    // =========================================================================
+    log("== Scenario M: Same film rendered twice draws once (second render reuses every clip)");
+    {
+      const scen = "M";
+      const clipsBefore = (await pool.query("select bundle_digest, clip_key, updated_at from app.plate_clips order by bundle_digest")).rows;
+
+      const t0 = now();
+      const renderRes2 = await api(`/v1/projects/${scenarioLProjectId}/render`, { method: "POST", body: {} });
+      assertCheck(scen, renderRes2.status === 202 && Boolean(renderRes2.json?.id), "second POST /render returns 202");
+      const jobId2 = renderRes2.json.id;
+
+      const readyWait2 = await waitFor(
+        "Scenario M second render ready",
+        async () => {
+          const r = await api(`/v1/render-jobs/${jobId2}`);
+          if (r.json?.state === "failed") {
+            throw new Error(`Scenario M render failed: ${JSON.stringify(r.json?.error)}`);
+          }
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 120_000, every: 300 }
+      );
+      const secondRenderMs = now() - t0;
+      metrics.scenarioMFirstRenderMs = scenarioLFirstRenderMs;
+      metrics.scenarioMSecondRenderMs = secondRenderMs;
+
+      const clipsAfter = (await pool.query("select bundle_digest, clip_key, updated_at from app.plate_clips order by bundle_digest")).rows;
+      assertCheck(
+        scen,
+        clipsAfter.length === clipsBefore.length &&
+          clipsAfter.every((c, idx) => c.clip_key === clipsBefore[idx].clip_key && c.updated_at.getTime() === clipsBefore[idx].updated_at.getTime()),
+        "second render reused every cached clip in app.plate_clips without redrawing",
+        `clips=${clipsAfter.length}`
+      );
+      assertCheck(
+        scen,
+        secondRenderMs < scenarioLFirstRenderMs * 0.5,
+        "second render measured time dropped significantly by reusing cached clips",
+        `firstRenderMs=${scenarioLFirstRenderMs}ms -> secondRenderMs=${secondRenderMs}ms`
+      );
+
+      scenarioResults.M = { pass: true, firstRenderMs: scenarioLFirstRenderMs, secondRenderMs };
+    }
+
+    // =========================================================================
+    // Scenario N: Scene edited and re-authored during a render does not change the finished film; new revision renders in a second film.
+    // =========================================================================
+    log("== Scenario N: Scene edited and re-authored during a render does not change the finished film");
+    {
+      const scen = "N";
+      await pool.query("TRUNCATE TABLE app.plate_clips");
+      const { id } = await seedProject({ look: "illus-fox", aspect: "16:9", beats: 2, audio: true });
+      // Turn off subtitles so the rendered MP4 frames in the top banner are pure scene pixels
+      await api(`/v1/projects/${id}/plates/subtitles`, { method: "PUT", body: { mode: "none" } });
+      await api(`/v1/projects/${id}/plates/draw`, { method: "POST" });
+
+      const bundled0 = await waitFor(
+        "Scenario N initial variants bundled",
+        async () => {
+          const v = await variants(id);
+          return v.length === 2 && v.every((r) => r.state === "bundled") ? v : false;
+        },
+        { timeout: 60_000, every: 300 }
+      );
+      for (const v of bundled0.value) {
+        await api(`/v1/projects/${id}/plates/${v.id}/check`, {
+          method: "POST",
+          body: { gen: v.gen, bundleDigest: v.bundle_digest, host: "worker", results: { ok: true } }
+        });
+      }
+      const v0Rev0 = (await variants(id)).find((r) => r.scene_index === 0);
+
+      // Start Render 1
+      const tRender1 = now();
+      const render1Res = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      assertCheck(scen, render1Res.status === 202, "Render 1 started (202)");
+      const job1Id = render1Res.json.id;
+
+      // Wait until Render 1 has frozen its manifest and worker has claimed it
+      await waitFor(
+        "Render 1 claimed by worker",
+        async () => {
+          const r = (await pool.query("select state, attempt, render_input from app.render_jobs where id = $1", [job1Id])).rows[0];
+          return r?.state === "rendering" && r?.attempt >= 1 && r?.render_input?.manifestKey ? r : false;
+        },
+        { timeout: 30_000, every: 200 }
+      );
+
+      // Edit Scene 0 via comment + fix WHILE Render 1 is running
+      await api(`/v1/projects/${id}/plates/comments`, {
+        method: "POST",
+        body: { at: 0.5, body: "paint a bright emerald sky banner across the top" }
+      });
+      const fixRes = await api(`/v1/projects/${id}/plates/fix`, { method: "POST" });
+      assertCheck(scen, fixRes.status === 202, "POST /plates/fix accepted during in-flight Render 1");
+
+      // Wait for Scene 0 to re-bundle at gen=2, rev=1
+      const v0Rebundled = await waitFor(
+        "Scene 0 rebundled at gen=2, rev=1 during Render 1",
+        async () => {
+          const v = (await variants(id)).find((r) => r.scene_index === 0);
+          return v && v.gen === 2 && v.rev === 1 && v.state === "bundled" ? v : false;
+        },
+        { timeout: 60_000, every: 250 }
+      );
+
+      // Patch g2/bundle.html so rev=1 draws a vivid solid green top band (y: 0..300) on every frame,
+      // making rev=1 unmistakably distinct from rev=0 at every frame!
+      const g2OrigHtml = await s3GetText("plates-uploads", v0Rebundled.value.bundle_key);
+      const patchedG2Html = g2OrigHtml.replace(
+        "</body></html>",
+        "<script>(function(){const o=window.FILM.seek;window.FILM.seek=function(f){const r=o(f);const c=document.getElementById('film');if(c){const g=c.getContext('2d');g.save();g.setTransform(1,0,0,1,0,0);g.fillStyle='#00ff66';g.fillRect(0,0,c.width,Math.round(c.height*0.35));g.restore();}return r;};})();</script></body></html>"
+      );
+      const newBundleSha = createHash("sha256").update(patchedG2Html).update("\0").digest("hex").slice(0, 24);
+      const newManifest = { ...v0Rebundled.value.bundle_manifest, bundleSha: newBundleSha };
+      const emptyParamsDigest = createHash("sha256").update("{}").digest("hex");
+      const fontDigest = createHash("sha256").update("fonts:none").digest("hex");
+      const newBundleDigest = createHash("sha256")
+        .update([newBundleSha, emptyParamsDigest, fontDigest, newManifest.engineDigest].join("|"))
+        .digest("hex");
+
+      await s3PutText("plates-uploads", v0Rebundled.value.bundle_key, patchedG2Html, "text/html");
+      await pool.query(
+        "update app.plate_variants set bundle_manifest = $2::jsonb, bundle_digest = $3 where id = $1 and gen = 2",
+        [v0Rebundled.value.id, JSON.stringify(newManifest), newBundleDigest]
+      );
+      await pool.query(
+        "update app.plate_revisions set bundle_digest = $3 where variant_id = $1 and rev = $2",
+        [v0Rebundled.value.id, 1, newBundleDigest]
+      );
+
+      // Check rev=1 in the browser so it is 'checked' and previewable
+      const { page } = await harness.newReadyPage();
+      try {
+        const rev1Check = await page.evaluate(
+          async ({ projectId, variantId }) => {
+            const b = await window.Live.fetchBundle(projectId, variantId);
+            const host = new window.Live.WorkerHost({ html: b.html, params: b.params });
+            const checkOut = await window.Live.runCheck(host, b.manifest);
+            host.destroy();
+            const rep = await window.Live.reportCheck(projectId, variantId, {
+              gen: 2,
+              bundleDigest: b.bundleDigest,
+              results: checkOut
+            });
+            return { checkOut, rep, bundleDigest: b.bundleDigest };
+          },
+          { projectId: id, variantId: v0Rebundled.value.id }
+        );
+        assertCheck(
+          scen,
+          rev1Check.checkOut.ok && rev1Check.rep.httpStatus === 200 && rev1Check.rep.state === "checked",
+          "edited Scene 0 (rev=1, gen=2) passes browser check and is previewable while/after Render 1 runs"
+        );
+      } finally {
+        await page.close();
+      }
+
+      // Wait for Render 1 to finish
+      await waitFor(
+        "Render 1 ready",
+        async () => {
+          const r = await api(`/v1/render-jobs/${job1Id}`);
+          if (r.json?.state === "failed") throw new Error(`Render 1 failed: ${JSON.stringify(r.json?.error)}`);
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 360_000, every: 1000 }
+      );
+      const render1Ms = now() - tRender1;
+
+      // Download Render 1 MP4 and the frozen rev=0 clip from app.plate_clips
+      const r1Redir = await redirectOf(`/v1/renders/${job1Id}`);
+      const r1Mp4 = await download(r1Redir.location, join(tempDir, "scen-n-render1.mp4"));
+      const rev0ClipRow = (
+        await pool.query("select clip_key from app.plate_clips where bundle_digest = $1 and size = '1920x1080'", [
+          v0Rev0.bundle_digest
+        ])
+      ).rows[0];
+      const rev0ClipFile = join(tempDir, "scen-n-rev0-clip.mp4");
+      const rev0ClipBytes = Buffer.from(
+        await (await s3.send(new GetObjectCommand({ Bucket: "plates-outputs", Key: rev0ClipRow.clip_key }))).Body.transformToByteArray()
+      );
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(rev0ClipFile, rev0ClipBytes);
+
+      // Extract top-band RGB bytes at 3 timestamps inside Scene 0 (0.3s, 1.2s, 2.1s) from both Render 1 MP4 and rev=0 clip
+      const sampleTopBand = (videoPath, timeSec) =>
+        execFileSync(
+          "ffmpeg",
+          [
+            "-v",
+            "error",
+            "-ss",
+            String(timeSec),
+            "-i",
+            videoPath,
+            "-frames:v",
+            "1",
+            "-vf",
+            "crop=1920:240:0:0",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-"
+          ],
+          { maxBuffer: 10 * 1024 * 1024 }
+        );
+
+      const sampleTimes = [0.3, 1.2, 2.1];
+      for (const t of sampleTimes) {
+        const bandR1 = sampleTopBand(r1Mp4, t);
+        const bandRev0 = sampleTopBand(rev0ClipFile, t);
+        let sumAbsDiff = 0;
+        let diffBytes = 0;
+        for (let i = 0; i < bandR1.length; i++) {
+          const d = Math.abs(bandR1[i] - bandRev0[i]);
+          sumAbsDiff += d;
+          if (d > 16) diffBytes++;
+        }
+        const meanAbsDiff = Math.round((sumAbsDiff / bandR1.length) * 100) / 100;
+        assertCheck(
+          scen,
+          meanAbsDiff < 2.0 && diffBytes < bandR1.length * 0.002,
+          `Render 1 MP4 frame at t=${t}s matches frozen rev=0 clip (unaffected by mid-render edit)`,
+          `meanAbsDiff=${meanAbsDiff}, diffBytes=${diffBytes}/${bandR1.length}`
+        );
+      }
+
+      // Now click Render a second time (Render 2): freezes a NEW manifest with rev=1 and renders the new film
+      const tRender2 = now();
+      const render2Res = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      assertCheck(scen, render2Res.status === 202, "Render 2 started after edit (202)");
+      const job2Id = render2Res.json.id;
+
+      await waitFor(
+        "Render 2 ready",
+        async () => {
+          const r = await api(`/v1/render-jobs/${job2Id}`);
+          if (r.json?.state === "failed") throw new Error(`Render 2 failed: ${JSON.stringify(r.json?.error)}`);
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 360_000, every: 1000 }
+      );
+      const render2Ms = now() - tRender2;
+
+      const r2Redir = await redirectOf(`/v1/renders/${job2Id}`);
+      const r2Mp4 = await download(r2Redir.location, join(tempDir, "scen-n-render2.mp4"));
+
+      for (const t of sampleTimes) {
+        const bandR1 = sampleTopBand(r1Mp4, t);
+        const bandR2 = sampleTopBand(r2Mp4, t);
+        let diffBytes = 0;
+        for (let i = 0; i < bandR1.length; i++) {
+          if (Math.abs(bandR1[i] - bandR2[i]) > 30) diffBytes++;
+        }
+        assertCheck(
+          scen,
+          diffBytes > bandR2.length * 0.3,
+          `Render 2 MP4 frame at t=${t}s reflects the new rev=1 scene revision`,
+          `changedBytes=${diffBytes}/${bandR2.length}`
+        );
+      }
+
+      scenarioResults.N = { pass: true, render1Ms, render2Ms };
+    }
+
+    // =========================================================================
+    // Scenario O: Storyboard text changed during a render, the render still completes.
+    // =========================================================================
+    log("== Scenario O: Storyboard text changed during a render, the render still completes");
+    {
+      const scen = "O";
+      await pool.query("TRUNCATE TABLE app.plate_clips");
+      const { id } = await seedProject({ look: "illus-balloon", aspect: "16:9", beats: 2, audio: true });
+      await api(`/v1/projects/${id}/plates/draw`, { method: "POST" });
+      await waitFor(
+        "Scenario O variants bundled",
+        async () => {
+          const v = await variants(id);
+          return v.length === 2 && v.every((r) => Boolean(r.bundle_key));
+        },
+        { timeout: 60_000, every: 300 }
+      );
+
+      const t0 = now();
+      const renderRes = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      assertCheck(scen, renderRes.status === 202, "POST /render returns 202");
+      const jobId = renderRes.json.id;
+
+      await waitFor(
+        "Scenario O render job actively rendering in worker",
+        async () => {
+          const r = (await pool.query("select state, attempt, render_input from app.render_jobs where id = $1", [jobId])).rows[0];
+          return r?.state === "rendering" && r?.attempt >= 1 && r?.render_input?.manifestKey ? r : false;
+        },
+        { timeout: 30_000, every: 200 }
+      );
+
+      // Change storyboard text and call POST /plates/draw mid-render (superseding variant signatures and bumping gen)
+      const projRow = (await pool.query("select data from app.projects where id = $1", [id])).rows[0].data;
+      projRow.brief.text = `${projRow.brief.text} Suddenly a storm rolls over the horizon.`;
+      projRow.brief.scriptBeats[0].visual = "A stormy sky with lightning over the harbour.";
+      await pool.query("update app.projects set data = $2 where id = $1", [id, projRow]);
+      const redrawRes = await api(`/v1/projects/${id}/plates/draw`, { method: "POST" });
+      assertCheck(scen, redrawRes.status === 202, "storyboard text changed and POST /plates/draw called mid-render");
+
+      const varsAfterStoryboardEdit = await variants(id);
+      assertCheck(
+        scen,
+        varsAfterStoryboardEdit.every((v) => v.gen === 2),
+        "storyboard edit incremented variant gen to 2 mid-render"
+      );
+
+      const readyWait = await waitFor(
+        "Scenario O render completes despite mid-render storyboard change",
+        async () => {
+          const r = await api(`/v1/render-jobs/${jobId}`);
+          if (r.json?.state === "failed") {
+            throw new Error(`Scenario O render failed: ${JSON.stringify(r.json?.error)}`);
+          }
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 360_000, every: 1000 }
+      );
+      const renderMs = now() - t0;
+      assertCheck(
+        scen,
+        readyWait.value.state === "ready",
+        "in-flight render completed to 'ready' without 'scenes were changed' failure",
+        `in ${renderMs}ms`
+      );
+
+      scenarioResults.O = { pass: true, renderMs };
+    }
+
+    // =========================================================================
+    // Scenario P: nondeterministic stub scene: render fails before drawing, user is refunded, scene returns as repair revision, job error names scene.
+    // =========================================================================
+    log("== Scenario P: nondeterministic stub scene fails before drawing, refunds user, and returns repair revision");
+    {
+      const scen = "P";
+      await pool.query("TRUNCATE TABLE app.plate_clips");
+      await resetStub({ mode: "nondeterministic", times: 1 });
+
+      const { id } = await seedProject({ look: "illus-blueprint", aspect: "16:9", beats: 2, audio: true });
+      const t0 = now();
+      const renderRes = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      assertCheck(scen, renderRes.status === 202, "POST /render returns 202");
+      const jobId = renderRes.json.id;
+
+      const failedWait = await waitFor(
+        "Scenario P render job fails on nondeterministic scene",
+        async () => {
+          const r = await api(`/v1/render-jobs/${jobId}`);
+          if (r.json?.state === "ready") {
+            throw new Error("Scenario P render unexpectedly succeeded on nondeterministic scene");
+          }
+          return r.json?.state === "failed" ? r.json : false;
+        },
+        { timeout: 120_000, every: 500 }
+      );
+      const failMs = now() - t0;
+
+      const jobRow = (await pool.query("select error, attempt from app.render_jobs where id = $1", [jobId])).rows[0];
+      const namedSceneMatch = /Scene (\d+)/i.exec(jobRow.error?.message ?? "");
+      const failedSceneIndex = namedSceneMatch ? Number(namedSceneMatch[1]) - 1 : -1;
+      assertCheck(
+        scen,
+        jobRow.error?.code === "scene_needs_fix" && (failedSceneIndex === 0 || failedSceneIndex === 1),
+        "job error has code 'scene_needs_fix' and names the failed scene",
+        JSON.stringify(jobRow.error)
+      );
+      assertCheck(
+        scen,
+        jobRow.attempt === 1,
+        "scene_needs_fix failed on attempt 1 without retrying",
+        `attempt=${jobRow.attempt}`
+      );
+
+      // Verify zero clips were drawn or recorded in app.plate_clips (even if Scene 1 passed verification before Scene 2 failed!)
+      const clipsInTable = (await pool.query("select count(*)::int as n from app.plate_clips")).rows[0].n;
+      const outputObjects = await s3ListKeys("plates-outputs", `plates/${id}/`);
+      assertCheck(
+        scen,
+        clipsInTable === 0 && outputObjects.length === 0,
+        "render stopped before drawing any frame (0 clips in app.plate_clips and 0 objects in outputs bucket)",
+        `clipsInTable=${clipsInTable}, outputObjects=${outputObjects.length}`
+      );
+
+      // Verify user was refunded in app.token_ledger
+      const spendSum = (
+        await pool.query(
+          "select coalesce(sum(-amount), 0)::int as s from app.token_ledger where kind = 'spend' and ref like $1",
+          [`render:${jobId}|%`]
+        )
+      ).rows[0].s;
+      const refundSum = (
+        await pool.query(
+          "select coalesce(sum(amount), 0)::int as r from app.token_ledger where kind = 'refund' and ref like $1",
+          [`refund:render:${jobId}|%`]
+        )
+      ).rows[0].r;
+      assertCheck(
+        scen,
+        spendSum > 0 && refundSum === spendSum,
+        "user tokens were refunded in full on verification failure",
+        `spent=${spendSum}, refunded=${refundSum}`
+      );
+
+      // Verify the failed scene returned as a repair revision (rev=1, repairs=1) and was re-authored to a valid bundle
+      const repairedWait = await waitFor(
+        `Scene ${failedSceneIndex + 1} repaired by plate-author to rev=1`,
+        async () => {
+          const v = (await variants(id)).find((r) => r.scene_index === failedSceneIndex);
+          return v && v.rev === 1 && v.repairs === 1 && v.state === "bundled" && v.bundle_key ? v : false;
+        },
+        { timeout: 60_000, every: 300 }
+      );
+      const revRows = (
+        await pool.query("select rev, bundle_digest from app.plate_revisions where variant_id = $1 order by rev asc", [
+          repairedWait.value.id
+        ])
+      ).rows;
+      assertCheck(
+        scen,
+        repairedWait.value.rev === 1 && repairedWait.value.repairs === 1 && revRows.length === 2,
+        "failed scene returned to preview as a repair revision (rev=1, repairs=1) in app.plate_revisions",
+        `scene=${failedSceneIndex + 1}, revs=${revRows.map((r) => r.rev).join(",")}`
+      );
+
+      await resetStub();
+      scenarioResults.P = { pass: true, failMs };
+    }
+
+    // =========================================================================
+    // Scenario Q: Kill the worker mid-draw (docker kill), the retry completes as attempt 2 reusing scenes already drawn.
+    // =========================================================================
+    log("== Scenario Q: Kill the worker mid-draw, retry completes as attempt 2 reusing scenes already drawn");
+    {
+      const scen = "Q";
+      await pool.query("TRUNCATE TABLE app.plate_clips");
+      // Temporarily run plate-worker with PLATE_CONCURRENCY=1 so it draws Scene 0 then Scene 1 sequentially,
+      // making it deterministic to kill right after Scene 0 is cached in app.plate_clips!
+      const { id } = await seedProject({ look: "illus-fox", aspect: "16:9", beats: 3, audio: true });
+      await api(`/v1/projects/${id}/plates/draw`, { method: "POST" });
+      const bWait = await waitFor(
+        "Scenario Q variants bundled",
+        async () => {
+          const v = await variants(id);
+          return v.length === 3 && v.every((r) => r.state === "bundled") ? v : false;
+        },
+        { timeout: 60_000, every: 300 }
+      );
+
+      // Give each scene a distinct comment note in HTML so their bundleDigests are distinct
+      for (const v of bWait.value) {
+        const html = await s3GetText("plates-uploads", v.bundle_key);
+        const tagged = html.replace("</head>", `<!-- scene-${v.scene_index} --></head>`);
+        const bSha = createHash("sha256").update(tagged).update("\0").digest("hex").slice(0, 24);
+        const m = { ...v.bundle_manifest, bundleSha: bSha };
+        const pDig = createHash("sha256").update("{}").digest("hex");
+        const fDig = createHash("sha256").update("fonts:none").digest("hex");
+        const bDig = createHash("sha256").update([bSha, pDig, fDig, m.engineDigest].join("|")).digest("hex");
+        await s3PutText("plates-uploads", v.bundle_key, tagged, "text/html");
+        await pool.query("update app.plate_variants set bundle_manifest = $2::jsonb, bundle_digest = $3 where id = $1", [
+          v.id,
+          JSON.stringify(m),
+          bDig
+        ]);
+        await pool.query("update app.plate_revisions set bundle_digest = $2 where variant_id = $1 and rev = 0", [v.id, bDig]);
+      }
+
+      const qVars = await variants(id);
+      const qDigests = qVars.map((v) => v.bundle_digest);
+
+      const t0 = now();
+      const renderRes = await api(`/v1/projects/${id}/render`, { method: "POST", body: {} });
+      assertCheck(scen, renderRes.status === 202, "POST /render returns 202");
+      const jobId = renderRes.json.id;
+
+      // Wait until at least 1 scene clip is recorded in app.plate_clips by attempt 1 while the render job is still in 'rendering'
+      const firstClipWait = await waitFor(
+        "attempt 1 records at least 1 scene clip in app.plate_clips before kill",
+        async () => {
+          const rows = (
+            await pool.query("select * from app.plate_clips where bundle_digest = any($1::text[])", [qDigests])
+          ).rows;
+          return rows.length >= 1 && rows.length < 3 ? rows : false;
+        },
+        { timeout: 180_000, every: 300 }
+      );
+      const cachedBeforeKill = firstClipWait.value;
+
+      log(`Killing plate-worker mid-draw after ${cachedBeforeKill.length}/3 clips cached...`);
+      composeLive("kill", "plate-worker");
+      await sleep(1500);
+      composeLive("up", "-d", "plate-worker");
+
+      const readyWait = await waitFor(
+        "Scenario Q retry completes as attempt 2",
+        async () => {
+          const r = await api(`/v1/render-jobs/${jobId}`);
+          if (r.json?.state === "failed") {
+            throw new Error(`Scenario Q render failed after worker kill: ${JSON.stringify(r.json?.error)}`);
+          }
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 360_000, every: 1000 }
+      );
+      const totalRecoveryMs = now() - t0;
+
+      const jobAfter = (await pool.query("select state, attempt, output from app.render_jobs where id = $1", [jobId])).rows[0];
+      assertCheck(
+        scen,
+        jobAfter.state === "ready" && jobAfter.attempt === 2 && jobAfter.output?.key === `renders/${jobId}/a2.mp4`,
+        "render completed on retry as attempt 2",
+        `attempt=${jobAfter.attempt}, key=${jobAfter.output?.key}`
+      );
+
+      const clipsAfter = (
+        await pool.query("select * from app.plate_clips where bundle_digest = any($1::text[])", [qDigests])
+      ).rows;
+      const byDigestAfter = new Map(clipsAfter.map((r) => [r.bundle_digest, r]));
+      const reusedAllPrior = cachedBeforeKill.every((prior) => {
+        const after = byDigestAfter.get(prior.bundle_digest);
+        return after && after.clip_key === prior.clip_key && after.updated_at.getTime() === prior.updated_at.getTime();
+      });
+
+      assertCheck(
+        scen,
+        clipsAfter.length === 3 && reusedAllPrior,
+        "attempt 2 reused scenes already drawn by attempt 1 without redrawing them",
+        `reused=${cachedBeforeKill.length}/3`
+      );
+
+      scenarioResults.Q = { pass: true, totalRecoveryMs, reusedScenes: cachedBeforeKill.length };
+    }
+
+    // =========================================================================
+    // Scenario R: Two different projects rendering at once with 4 workers (scale plate-worker=4), each exactly once.
+    // =========================================================================
+    log("== Scenario R: Two different projects rendering at once with 4 workers");
+    {
+      const scen = "R";
+      await pool.query("TRUNCATE TABLE app.plate_clips");
+      composeLive("up", "-d", "--scale", "plate-worker=4", "plate-worker");
+      await sleep(3000);
+
+      try {
+        const p1 = await seedProject({ look: "illus-fox", aspect: "16:9", beats: 2, audio: true, name: "R-proj-1" });
+        const p2 = await seedProject({ look: "illus-balloon", aspect: "16:9", beats: 2, audio: true, name: "R-proj-2" });
+
+        const t0 = now();
+        const [r1, r2] = await Promise.all([
+          api(`/v1/projects/${p1.id}/render`, { method: "POST", body: {} }),
+          api(`/v1/projects/${p2.id}/render`, { method: "POST", body: {} })
+        ]);
+        assertCheck(
+          scen,
+          r1.status === 202 && r2.status === 202 && r1.json?.id !== r2.json?.id,
+          "both projects accepted for concurrent render (202)",
+          `job1=${r1.json?.id}, job2=${r2.json?.id}`
+        );
+
+        await waitFor(
+          "both concurrent renders ready across 4 workers",
+          async () => {
+            const [s1, s2] = await Promise.all([
+              api(`/v1/render-jobs/${r1.json.id}`),
+              api(`/v1/render-jobs/${r2.json.id}`)
+            ]);
+            if (s1.json?.state === "failed" || s2.json?.state === "failed") {
+              throw new Error(`Scenario R failed: ${JSON.stringify({ e1: s1.json?.error, e2: s2.json?.error })}`);
+            }
+            return s1.json?.state === "ready" && s2.json?.state === "ready";
+          },
+          { timeout: 360_000, every: 1000 }
+        );
+        const concurrentMs = now() - t0;
+
+        const [j1, j2] = (
+          await pool.query("select id, state, attempt from app.render_jobs where id = any($1::uuid[])", [
+            [r1.json.id, r2.json.id]
+          ])
+        ).rows;
+        assertCheck(
+          scen,
+          j1.attempt === 1 && j2.attempt === 1,
+          "each project rendered exactly once (attempt=1 on both jobs)",
+          `attempts=${j1.attempt},${j2.attempt} in ${concurrentMs}ms`
+        );
+
+        const plateRenderJobs = (
+          await pool.query("select count(*)::int as n from pgboss.job where name = 'plate-render'")
+        ).rows[0].n;
+        assertCheck(scen, plateRenderJobs === 0, "zero plate-render jobs used across both concurrent renders");
+
+        scenarioResults.R = { pass: true, concurrentMs };
+      } finally {
+        composeLive("up", "-d", "--scale", "plate-worker=1", "plate-worker");
+      }
+    }
+
+    // =========================================================================
+    // Scenario S: Repeated click with the same idempotency key: one job, one charge.
+    // =========================================================================
+    log("== Scenario S: Repeated click with the same Idempotency-Key (one job, one charge)");
+    {
+      const scen = "S";
+      const { id } = await seedProject({ look: "illus-fox", aspect: "16:9", beats: 2, audio: true });
+      const idemKey = `e2e-click-${randomUUID()}`;
+
+      const postWithIdem = (key) =>
+        fetch(`${API_ORIGIN}/v1/projects/${id}/render`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "Idempotency-Key": key },
+          body: "{}"
+        }).then(async (r) => ({ status: r.status, json: await r.json() }));
+
+      const [click1, click2] = await Promise.all([postWithIdem(idemKey), postWithIdem(idemKey)]);
+      const click3 = await postWithIdem(idemKey);
+
+      assertCheck(
+        scen,
+        click1.status === 202 &&
+          click2.status === 202 &&
+          click3.status === 202 &&
+          click1.json.id === click2.json.id &&
+          click1.json.id === click3.json.id,
+        "3 clicks with the same Idempotency-Key return the exact same job id",
+        `jobId=${click1.json.id}`
+      );
+
+      const jobCount = (
+        await pool.query("select count(*)::int as n from app.render_jobs where project_id = $1 and idempotency_key = $2", [
+          id,
+          idemKey
+        ])
+      ).rows[0].n;
+      const spendEvents = (
+        await pool.query(
+          "select count(distinct split_part(ref, '|', 1))::int as n from app.token_ledger where kind = 'spend' and project_id = $1",
+          [id]
+        )
+      ).rows[0].n;
+
+      assertCheck(
+        scen,
+        jobCount === 1 && spendEvents === 1,
+        "exactly 1 render job and 1 token charge recorded for repeated Idempotency-Key clicks",
+        `jobCount=${jobCount}, spendEvents=${spendEvents}`
+      );
+
+      // Clean up the queued job so it doesn't tie up the worker for Scenario T
+      await pool.query("delete from pgboss.job where name in ('render-plan', 'render-video')");
+      await pool.query("update app.render_jobs set state = 'failed' where id = $1", [click1.json.id]);
+
+      scenarioResults.S = { pass: true, jobId: click1.json.id, spendEvents };
+    }
+
+    // =========================================================================
+    // Scenario T: Companion export of another ratio goes through the manifest and cache.
+    // =========================================================================
+    log("== Scenario T: Companion export of another ratio goes through the manifest and cache");
+    {
+      const scen = "T";
+      await pool.query("TRUNCATE TABLE app.plate_clips");
+      const { id } = await seedProject({
+        look: "illus-fox",
+        aspect: "16:9",
+        aspects: ["16:9", "9:16"],
+        beats: 2,
+        audio: true
+      });
+      await api(`/v1/projects/${id}/plates/draw`, { method: "POST" });
+
+      await waitFor(
+        "Scenario T 9:16 variants bundled",
+        async () => {
+          const v = (await variants(id)).filter((r) => r.aspect === "9:16");
+          return v.length === 2 && v.every((r) => r.state === "bundled" && Boolean(r.bundle_key));
+        },
+        { timeout: 60_000, every: 300 }
+      );
+
+      // 1. First 9:16 companion export draws 9:16 clips and caches them in app.plate_clips
+      const tExp1 = now();
+      const exp1Init = await api(`/v1/projects/${id}/plates/export`, {
+        method: "POST",
+        body: { aspect: "9:16" }
+      });
+      assertCheck(scen, exp1Init.status === 202, "POST /plates/export for 9:16 returns 202");
+
+      await waitFor(
+        "Scenario T first 9:16 companion export ready",
+        async () => {
+          const r = await api(`/v1/projects/${id}/plates/export`, { method: "POST", body: { aspect: "9:16" } });
+          if (r.json?.state === "failed") throw new Error(`Scenario T export 1 failed: ${JSON.stringify(r.json)}`);
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 360_000, every: 1000 }
+      );
+      const exp1Ms = now() - tExp1;
+
+      const clips916 = (await pool.query("select * from app.plate_clips where size = '1080x1920'")).rows;
+      const plateRenderCountT = (
+        await pool.query("select count(*)::int as n from pgboss.job where name = 'plate-render'")
+      ).rows[0].n;
+      const exportSpendCount = (
+        await pool.query("select count(*)::int as n from app.token_ledger where kind = 'spend' and project_id = $1", [id])
+      ).rows[0].n;
+
+      assertCheck(
+        scen,
+        clips916.length >= 1 && plateRenderCountT === 0 && exportSpendCount === 0,
+        "9:16 companion export populated app.plate_clips (1080x1920) with 0 plate-render jobs and 0 token cost",
+        `clips916=${clips916.length}, plateRenderCount=${plateRenderCountT}, spend=${exportSpendCount}`
+      );
+
+      // 2. Change subtitle style so a new 9:16 export signature is created, and verify the second 9:16 export reuses the cached clips!
+      await api(`/v1/projects/${id}/plates/subtitles`, {
+        method: "PUT",
+        body: { style: "cinema", size: 120 }
+      });
+      const tExp2 = now();
+      await api(`/v1/projects/${id}/plates/export`, { method: "POST", body: { aspect: "9:16" } });
+      await waitFor(
+        "Scenario T second 9:16 companion export (cached clips) ready",
+        async () => {
+          const r = await api(`/v1/projects/${id}/plates/export`, { method: "POST", body: { aspect: "9:16" } });
+          if (r.json?.state === "failed") throw new Error(`Scenario T export 2 failed: ${JSON.stringify(r.json)}`);
+          return r.json?.state === "ready" ? r.json : false;
+        },
+        { timeout: 120_000, every: 300 }
+      );
+      const exp2Ms = now() - tExp2;
+
+      assertCheck(
+        scen,
+        exp2Ms < exp1Ms * 0.5,
+        "second 9:16 companion export reused cached clips from app.plate_clips (measured time dropped)",
+        `exp1Ms=${exp1Ms}ms -> exp2Ms=${exp2Ms}ms`
+      );
+
+      scenarioResults.T = { pass: true, exp1Ms, exp2Ms };
+    }
+
     const totalAssertions = assertions.length;
     const passedAssertions = assertions.filter((a) => a.ok).length;
     const failedAssertions = totalAssertions - passedAssertions;
 
     console.log(
-      `\nSUMMARY: ${passedAssertions}/${totalAssertions} assertions passed (${failedAssertions} failed) across scenarios A-K.`
+      `\nSUMMARY: ${passedAssertions}/${totalAssertions} assertions passed (${failedAssertions} failed) across scenarios A-T.`
     );
     console.log("E2E_METRICS_JSON:" + JSON.stringify({ scenarioResults, metrics }));
 

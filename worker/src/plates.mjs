@@ -1,12 +1,13 @@
 // Plate scenes, worker half. Consumes:
-//   plate-render { variantId, gen }  verify one authored scene bundle in Chromium, draw its frames, publish the clip
-//   plate-export { exportId }        assemble a companion export of one aspect ratio
-// and runs the same assembler for the billed final render (render-video input kind "plate-film", called from worker.mjs).
+//   plate-render { variantId, gen }  verify one authored scene bundle in Chromium, draw its frames, publish the clip (preview fallback & clip mode)
+//   plate-export { exportId }        verify, draw/cache missing clips, and assemble a companion export from the frozen manifest
+// and runs the same manifest-driven verifier, drawer, cache and assembler for the billed final render (render-video input kind "plate-film").
 //
-// The worker shares nothing with the backend but Postgres rows and object-storage keys. Every write is fenced:
+// The worker shares nothing with the backend but job-control operations and object-storage keys. Every write is fenced:
 //   gen              the row was reset (inputs changed): a worker holding an older gen is dropped, never published
 //   render_attempt   raised by each claim; publication is conditional on it, so a stale worker cannot publish over a newer one
-// Output keys are per attempt (clip-a<n>.mp4): upload first, then publish the key with the fenced update.
+//   attempt          render_jobs / plate_exports attempt number fencing clip.record, progress, and finish/ready
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join, dirname } from "node:path";
@@ -23,12 +24,214 @@ const PROJECT_CAP = Number.parseInt(process.env.PLATE_PROJECT_CAP ?? "2", 10);
 const STALE_SECONDS = Number.parseInt(process.env.PLATE_STALE_SECONDS ?? "90", 10);
 const MAX_AUTHOR_CALLS = Number.parseInt(process.env.PLATE_MAX_AUTHOR_CALLS ?? "3", 10);
 const RENDER_WORKERS = Math.max(1, Number.parseInt(process.env.PLATE_FRAME_WORKERS ?? "2", 10));
+const PLATE_DRAW_CONCURRENCY = Math.max(1, Number.parseInt(process.env.PLATE_CONCURRENCY ?? "2", 10));
 const SFX_DIR = join(import.meta.dirname, "..", "templates", "beat-plan", "sfx");
 
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 const messageOf = (error) => (error instanceof Error ? error.message : String(error));
+const sha256Hex = (input) => createHash("sha256").update(input).digest("hex");
+
 /** An input that can never work: do not retry. worker.mjs turns it into its PermanentError. */
-class InputError extends Error { constructor(message) { super(message); this.permanent = true; } }
+export class InputError extends Error {
+  constructor(message, code = "render_invalid") {
+    super(message);
+    this.code = code;
+    this.permanent = true;
+  }
+}
+
+/** A scene bundle that failed digest or browser verification before drawing: non-retriable, names the scene, triggers refund. */
+export class SceneNeedsFixError extends InputError {
+  constructor(sceneIndex, detail) {
+    const clean = String(detail || "verification failed").slice(0, 600);
+    const prefix = `Scene ${Number(sceneIndex) + 1}`;
+    const msg = clean.toLowerCase().includes(prefix.toLowerCase()) ? clean : `${prefix} needs a fix before rendering: ${clean}`;
+    super(msg, "scene_needs_fix");
+    this.sceneIndex = Number(sceneIndex);
+  }
+}
+
+/** Non-software WebGL renderer detected on the worker: refuse to draw and retry on another worker. */
+export class GpuPathDetectedError extends Error {
+  constructor(renderer) {
+    super(`Refusing to draw on non-software GL renderer: ${renderer || "unknown"}`);
+    this.code = "gpu_path_detected";
+    this.renderer = renderer || "unknown";
+    this.permanent = false;
+  }
+}
+
+// ================================================================ digest & GL helpers
+/** Deterministic, key-sorted JSON serialisation (identical to backend/src/plates/digest.ts). */
+export function canonicalJson(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value ?? null);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item === undefined ? null : item)).join(",")}]`;
+  }
+  const keys = Object.keys(value).filter((k) => value[k] !== undefined).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(",")}}`;
+}
+
+export function paramsDigest(params) {
+  return sha256Hex(canonicalJson(params ?? {}));
+}
+
+export function fontSetDigest(fontSet = "fonts:none") {
+  return sha256Hex(fontSet);
+}
+
+/**
+ * SHA-256 hex of `[bundleSha, paramsDigest(params), fontSetDigest, engineDigest].join("|")`.
+ * Note that `bundleScene` in `packages/plate-engine/lib/engine.mjs` computes `bundleSha` as `sha256(html + "\0").slice(0, 24)`.
+ */
+export function bundleDigest(input = {}) {
+  const m = input.manifest ?? null;
+  const manifestFullHash = typeof m?.bundleHash === "string" && m.bundleHash ? m.bundleHash : null;
+  const manifestBundleSha = typeof m?.bundleSha === "string" && m.bundleSha ? m.bundleSha : null;
+  const manifestEngineDigest = typeof m?.engineDigest === "string" && m.engineDigest ? m.engineDigest : null;
+
+  const resolvedBundleSha = input.bundleHash || manifestFullHash || input.bundleSha || manifestBundleSha || "";
+  const resolvedEngineDigest = input.engineDigest ?? manifestEngineDigest ?? "engine:unknown";
+  const resolvedFontSetDigest = input.fontSetDigest ?? fontSetDigest(input.fontSet);
+
+  return sha256Hex([resolvedBundleSha, paramsDigest(input.params), resolvedFontSetDigest, resolvedEngineDigest].join("|"));
+}
+
+/** Computes the 24-char `bundleSha` of a bundle HTML string using the plate engine's `sha256(html + "\0").slice(0, 24)` definition. */
+export function engineBundleSha(html) {
+  return createHash("sha256").update(html).update("\0").digest("hex").slice(0, 24);
+}
+
+/**
+ * Verifies that the downloaded bundle HTML matches the frozen manifest's `bundleDigest`, `bundleSha`, and `paramsDigest`.
+ */
+export function verifyBundleDigest(html, scene, manifest) {
+  if (typeof html !== "string" || !html.length) {
+    return { ok: false, reason: "Scene bundle HTML is empty." };
+  }
+  const params = scene?.params && typeof scene.params === "object" ? scene.params : {};
+  const computedParamsDigest = paramsDigest(params);
+  if (scene?.paramsDigest && computedParamsDigest !== scene.paramsDigest) {
+    return { ok: false, reason: `Scene paramsDigest mismatch (expected ${scene.paramsDigest}, got ${computedParamsDigest}).` };
+  }
+
+  const nulFull = createHash("sha256").update(html).update("\0").digest("hex");
+  const nulShort = nulFull.slice(0, 24);
+  const plainFull = sha256Hex(html);
+  const plainShort = plainFull.slice(0, 24);
+
+  if (typeof scene?.bundleSha === "string" && scene.bundleSha.trim()) {
+    const prefix = scene.bundleSha.trim().toLowerCase();
+    if (!nulFull.startsWith(prefix) && !plainFull.startsWith(prefix)) {
+      return { ok: false, reason: `Scene bundle HTML SHA-256 does not match manifest bundleSha "${prefix}".` };
+    }
+  }
+
+  const eDigest = manifest?.engineDigest ?? "engine:unknown";
+  const fsDigest = manifest?.fontSetDigest ?? fontSetDigest();
+  const candidates = [nulShort, plainShort, nulFull, plainFull];
+  for (const cand of candidates) {
+    const d = bundleDigest({
+      bundleSha: cand,
+      params,
+      engineDigest: eDigest,
+      fontSetDigest: fsDigest
+    });
+    if (d === scene?.bundleDigest) {
+      return { ok: true, bundleSha: cand, bundleDigest: d };
+    }
+  }
+
+  return {
+    ok: false,
+    reason: `Scene bundleDigest mismatch (expected ${scene?.bundleDigest}, computed ${bundleDigest({ bundleSha: nulShort, params, engineDigest: eDigest, fontSetDigest: fsDigest })}).`
+  };
+}
+
+const SOFTWARE_GL_RE = /\b(swiftshader|llvmpipe|softpipe|lavapipe|software\s+rasterizer|mesa\s+offscreen|basic\s+render\s+driver)\b/i;
+const HARDWARE_GL_RE = /\b(nvidia|geforce|quadro|tesla|radeon|amd\s+radeon|apple\s+m\d|apple\s+gpu|intel\(r\)\s+(?:uhd|iris|hd|arc)|adreno|mali)\b/i;
+
+/**
+ * Pure decision function for the Software-GL self-check: returns true only when `renderer` identifies a software
+ * rasteriser (SwiftShader, llvmpipe, softpipe, lavapipe, etc.) and not a hardware GPU.
+ */
+export function isSoftwareRenderer(renderer) {
+  if (typeof renderer !== "string") return false;
+  const trimmed = renderer.trim();
+  if (!trimmed) return false;
+  if (!SOFTWARE_GL_RE.test(trimmed)) return false;
+  if (HARDWARE_GL_RE.test(trimmed) && !/\b(swiftshader|llvmpipe|softpipe|lavapipe)\b/i.test(trimmed)) return false;
+  return true;
+}
+
+/** Validates the renderer string and throws `GpuPathDetectedError` (`code: "gpu_path_detected"`, retriable) if not software GL. */
+export function checkSoftwareRenderer(renderer) {
+  if (!isSoftwareRenderer(renderer)) {
+    throw new GpuPathDetectedError(typeof renderer === "string" ? renderer.trim() : "");
+  }
+  return { ok: true, renderer: renderer.trim() };
+}
+
+let cachedRendererString = null;
+
+/** Probes Chromium's active WebGL renderer string in the worker environment. */
+export async function probeRendererString({
+  executablePath = process.env.PLATE_BROWSER_PATH || process.env.HYPERFRAMES_BROWSER_PATH || undefined,
+  force = false
+} = {}) {
+  if (process.env.PLATE_FAKE_GL_RENDERER) {
+    return process.env.PLATE_FAKE_GL_RENDERER;
+  }
+  if (!force && cachedRendererString) return cachedRendererString;
+  const { chromium } = await import("playwright-core");
+  const browser = await chromium.launch({
+    executablePath,
+    args: [
+      "--disable-background-timer-throttling",
+      "--disable-extensions",
+      "--disable-dev-shm-usage",
+      "--no-sandbox",
+      "--use-gl=angle",
+      "--use-angle=swiftshader",
+      "--disable-gpu",
+      ...(process.env.PLATE_CHROME_ARGS ? process.env.PLATE_CHROME_ARGS.split(" ") : [])
+    ]
+  });
+  try {
+    const page = await browser.newPage();
+    const renderer = await page.evaluate(() => {
+      const c = document.createElement("canvas");
+      const gl = c.getContext("webgl") || c.getContext("experimental-webgl") || c.getContext("webgl2");
+      if (!gl) return "Software Canvas2D (SwiftShader)";
+      const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+      const unmasked = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null;
+      return String(unmasked || gl.getParameter(gl.RENDERER) || "");
+    });
+    cachedRendererString = renderer;
+    return renderer;
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
+
+export function clipCacheKey(projectId, bDigest, eDigest, fsDigest, width, height) {
+  return `plates/${projectId}/clips/${String(bDigest).slice(0, 32)}-${String(eDigest).slice(0, 12)}-${String(fsDigest).slice(0, 12)}-${width}x${height}.mp4`;
+}
+
+export function stillCacheKey(projectId, bDigest, eDigest, fsDigest, width, height) {
+  return `plates/${projectId}/clips/${String(bDigest).slice(0, 32)}-${String(eDigest).slice(0, 12)}-${String(fsDigest).slice(0, 12)}-${width}x${height}.png`;
+}
+
+export function bakeSceneParams(html, params) {
+  if (!params || typeof params !== "object" || Object.keys(params).length === 0) return html;
+  const script = `window.__PARAMS__=${canonicalJson(params)};`;
+  if (html.includes("window.__BAKE_SRC__={};")) {
+    return html.replace("window.__BAKE_SRC__={};", `window.__BAKE_SRC__={};${script}`);
+  }
+  return html.replace("<script>", `<script>${script}`);
+}
 
 let enginePromise;
 /** The capture adapter ships in the image next to the worker (plate-engine/), or from the repository when run from a checkout. */
@@ -44,7 +247,7 @@ export async function plateCapability() {
   try { await engine(); await rules(); return { version: 1, kinds: ["anidoodle"], assembler: 1, fps: FPS }; } catch { return null; }
 }
 
-// ================================================================ render one scene
+// ================================================================ render one scene (preview fallback & clip mode)
 const DIM = { "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080] };
 
 /** Claims the scene for this attempt (cap per project, stale takeover). On the backend, in one transaction. Never retried: see control.mjs. */
@@ -64,7 +267,7 @@ async function sendBackForRepair(control, row, detail) {
   return control.op("plate.sendBackForRepair", { ...ref(row), authored: row.authored, sourceKey: row.source_key, detail });
 }
 
-export async function handlePlateRender(job, { control }) {
+export async function handlePlateRender(job, { control, probeRenderer = probeRendererString } = {}) {
   const { variantId, gen } = job.data ?? {};
   if (typeof variantId !== "string" || !UUID.test(variantId) || !Number.isInteger(gen)) return;
   const row = await claimVariant(control, variantId, gen);
@@ -99,6 +302,9 @@ export async function handlePlateRender(job, { control }) {
     if (row.width !== w || row.height !== h || row.fps !== FPS) throw new InputError("The scene's size does not match its ratio.");
     const prefix = row.bundle_key.slice(0, row.bundle_key.lastIndexOf("/") + 1);
     const { verifyScene, renderScene, probeVideo, classifyFailure } = await engine();
+
+    const renderer = await probeRenderer({ signal });
+    checkSoftwareRenderer(renderer);
 
     // 1. verify in Chromium: first, true middle and last frame, each drawn twice and again on a second page
     const t0 = Date.now();
@@ -139,8 +345,13 @@ export async function handlePlateRender(job, { control }) {
     uploaded.push(clipKey);
     const uploadMs = Date.now() - t2;
 
-    // 3. publish: only the attempt that still owns the row can put its key there
-    const published = await fenceDrawn(control, row, { clipKey, stillKey, clipMeta: { ...facts, worker: hostname(), attempt: row.render_attempt }, timings: { verifyMs, renderMs, uploadMs, workerTotalMs: Date.now() - started } });
+    // 3. publish: only the attempt that still owns the row can put its key there (also writes to app.plate_clips)
+    const published = await fenceDrawn(control, row, {
+      clipKey,
+      stillKey,
+      clipMeta: { ...facts, renderer, worker: hostname(), attempt: row.render_attempt },
+      timings: { verifyMs, renderMs, uploadMs, workerTotalMs: Date.now() - started }
+    });
     if (!published) {
       await deleteOutputs(uploaded).catch(() => undefined);
       log("info", "plate_render_superseded", { variantId, gen: row.gen, attempt: row.render_attempt });
@@ -252,7 +463,8 @@ export async function renderWatermarkPng(w, h) {
  * One timeline, integer frames. Stream copy only when the clips are exactly the timeline and nothing touches pixels.
  * Returns facts about what it wrote.
  */
-export async function assemble(manifest, { clipFiles, scratch, output, signal, onProgress, audioFiles }) {
+export async function assemble(manifest, { clipFiles, scratch, output, signal, onProgress, audioFiles, storageImpl }) {
+  const downloadInput = storageImpl?.downloadPlateInput ?? downloadPlateInput;
   const { canStreamCopy } = await rules();
   const { probeVideo } = await engine();
   const { width: W, height: H } = manifest;
@@ -300,16 +512,32 @@ export async function assemble(manifest, { clipFiles, scratch, output, signal, o
 
   const audio = [];
   const staged = new Map();
-  const stage = async (key) => {
+  const stage = async (key, expectedDigest) => {
     if (!key) return null;
-    if (audioFiles?.[key]) return audioFiles[key]; // tests: audio already local
-    if (!staged.has(key)) { const file = join(scratch, `audio-${staged.size}${key.slice(key.lastIndexOf("."))}`); await downloadPlateInput(key, file); staged.set(key, file); }
+    if (audioFiles?.[key]) {
+      const localPath = audioFiles[key];
+      if (expectedDigest) {
+        const bytes = await readFile(localPath);
+        if (sha256Hex(bytes) !== expectedDigest) throw new InputError("The staged audio file digest does not match the manifest.");
+      }
+      return localPath;
+    }
+    if (!staged.has(key)) {
+      if (!plateKeyOk(key, manifest.projectId)) throw new InputError("An audio location in the manifest is invalid.");
+      const file = join(scratch, `audio-${staged.size}${key.slice(key.lastIndexOf("."))}`);
+      await downloadInput(key, file);
+      if (expectedDigest) {
+        const bytes = await readFile(file);
+        if (sha256Hex(bytes) !== expectedDigest) throw new InputError("The downloaded audio file digest does not match the manifest.");
+      }
+      staged.set(key, file);
+    }
     return staged.get(key);
   };
   const tail = () => "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo";
   if (manifest.voiceOn) {
     for (const [i, scene] of manifest.scenes.entries()) {
-      const file = await stage(scene.voice?.key);
+      const file = await stage(scene.voice?.key, scene.voice?.digest);
       if (!file) continue;
       inputs.push("-i", file);
       const ms = Math.round((scene.startFrame / FPS) * 1000);
@@ -317,7 +545,7 @@ export async function assemble(manifest, { clipFiles, scratch, output, signal, o
       audio.push(`[avo${i}]`); next += 1;
     }
   }
-  const music = await stage(manifest.music?.key);
+  const music = await stage(manifest.music?.key, manifest.music?.digest);
   if (music) {
     inputs.push("-stream_loop", "-1", "-i", music);
     filters.push(`[${next}:a]${tail()},volume=0.22,atrim=0:${total.toFixed(3)},afade=t=out:st=${Math.max(0, total - 1.5).toFixed(3)}:d=1.5,asetpts=PTS-STARTPTS[amusic]`);
@@ -348,21 +576,56 @@ export async function assemble(manifest, { clipFiles, scratch, output, signal, o
   return { streamCopy: copy, frames: facts.frames, width: facts.width, height: facts.height, audioTracks: audio.length };
 }
 
-async function loadManifest(manifestKey, projectId, scratch) {
+export async function loadManifest(manifestKey, projectId, scratch, { storageImpl } = {}) {
+  const downloadInput = storageImpl?.downloadPlateInput ?? downloadPlateInput;
   if (!plateKeyOk(manifestKey, projectId)) throw new InputError("The export manifest location is invalid.");
   const file = join(scratch, "manifest.json");
-  await downloadPlateInput(manifestKey, file);
-  const manifest = JSON.parse(await readFile(file, "utf8"));
-  if (manifest?.schema !== 1 || manifest.projectId !== projectId || !Array.isArray(manifest.scenes) || !manifest.scenes.length || !DIM[manifest.aspect]) throw new InputError("The export manifest is invalid.");
+  await downloadInput(manifestKey, file);
+  const raw = await readFile(file, "utf8");
+  const manifest = JSON.parse(raw);
+  if ((manifest?.schema !== 1 && manifest?.schema !== 2) || manifest.projectId !== projectId || !Array.isArray(manifest.scenes) || !manifest.scenes.length || !DIM[manifest.aspect]) {
+    throw new InputError("The export manifest is invalid.");
+  }
   const [w, h] = DIM[manifest.aspect];
   if (manifest.width !== w || manifest.height !== h || manifest.fps !== FPS) throw new InputError("The export manifest has the wrong size.");
   let at = 0;
-  for (const scene of manifest.scenes) { if (scene.startFrame !== at || !Number.isInteger(scene.frames) || scene.frames < 1) throw new InputError("The export timeline is not contiguous."); at += scene.frames; }
+  for (const scene of manifest.scenes) {
+    if (scene.startFrame !== at || !Number.isInteger(scene.frames) || scene.frames < 1) throw new InputError("The export timeline is not contiguous.");
+    at += scene.frames;
+  }
   if (at !== manifest.totalFrames) throw new InputError("The export timeline does not add up.");
+  if (manifest.schema === 2) {
+    if (typeof manifest.engineDigest !== "string" || !manifest.engineDigest || typeof manifest.fontSetDigest !== "string" || !manifest.fontSetDigest) {
+      throw new InputError("The schema 2 export manifest is missing engineDigest or fontSetDigest.");
+    }
+    for (const scene of manifest.scenes) {
+      if (
+        typeof scene.variantId !== "string" ||
+        !Number.isInteger(scene.gen) ||
+        !Number.isInteger(scene.rev) ||
+        typeof scene.bundleDigest !== "string" ||
+        !scene.bundleDigest ||
+        typeof scene.bundleKey !== "string" ||
+        !scene.bundleKey ||
+        typeof scene.paramsDigest !== "string" ||
+        !scene.paramsDigest
+      ) {
+        throw new InputError(`The schema 2 export manifest has an incomplete scene entry at index ${scene.index}.`);
+      }
+    }
+    const contentAddrMatch = /^plates\/[a-f0-9-]{36}\/manifests\/([a-f0-9]{64})\/manifest\.json$/i.exec(manifestKey);
+    if (contentAddrMatch) {
+      const expectedDigest = contentAddrMatch[1].toLowerCase();
+      const actualDigest = sha256Hex(canonicalJson(manifest));
+      if (actualDigest !== expectedDigest) {
+        throw new InputError("The export manifest content hash does not match its content-addressed key.");
+      }
+    }
+  }
   return manifest;
 }
 
-/** Waits for every scene of the manifest to be drawn (they may still be in the authoring/render queues). */
+/** Legacy schema 1 helper: waits for every scene of a schema 1 manifest to be drawn by `plate-render`. */
 async function resolveClips(control, manifest, { signal, report }) {
   const ids = manifest.scenes.map((s) => s.variantId);
   let lastDone = -1, stalledSince = Date.now();
@@ -385,83 +648,423 @@ async function resolveClips(control, manifest, { signal, report }) {
   }
 }
 
-async function downloadClips(manifest, keys, scratch) {
+async function downloadClips(manifest, keys, scratch, { storageImpl } = {}) {
+  const downloadOutput = storageImpl?.downloadPlateOutput ?? downloadPlateOutput;
   const files = [];
   for (const [i, key] of keys.entries()) {
     if (!plateKeyOk(key, manifest.projectId)) throw new InputError("A scene clip location is invalid.");
     const file = join(scratch, `clip-${i}.mp4`);
-    await downloadPlateOutput(key, file);
+    await downloadOutput(key, file);
     files.push(file);
   }
   return files;
 }
 
 /**
- * The billed final render (render-video, kind "plate-film"): wait for the scenes, assemble, return the file for the ordinary
- * upload/commit path. `report({ stage, progress, framesDone, framesTotal })` is the job's fenced progress write.
+ * Schema 2 worker pipeline:
+ *  1. Downloads and verifies EVERY scene bundle first (storage existence, SHA-256 bundleDigest check, in-browser verifyScene).
+ *     If any scene fails verification, stops immediately BEFORE drawing any frame, sends the scene to `plate.sendBackForRepair`
+ *     (for code failures), and throws `SceneNeedsFixError` (`code: "scene_needs_fix"`, non-retriable).
+ *  2. Looks up each scene's clip in `app.plate_clips` by `(bundleDigest, engineDigest, fontSetDigest, size)`.
+ *  3. Runs the Software-GL self-check (`checkSoftwareRenderer`), then draws cache misses with bounded concurrency (`PLATE_CONCURRENCY`),
+ *     uploads each to a content-addressed key, and records it via `clip.record` (fenced by job attempt).
  */
-export async function renderPlateFilmJob(id, input, attempt, { control, signal, report, output }) {
+export async function prepareManifestClips(
+  control,
+  manifest,
+  {
+    fence,
+    scratch,
+    signal,
+    report,
+    engineImpl,
+    storageImpl,
+    probeRenderer = probeRendererString,
+    concurrency = PLATE_DRAW_CONCURRENCY
+  }
+) {
+  const downloadInput = storageImpl?.downloadPlateInput ?? downloadPlateInput;
+  const downloadOutput = storageImpl?.downloadPlateOutput ?? downloadPlateOutput;
+  const uploadOutput = storageImpl?.uploadPlateOutput ?? uploadPlateOutput;
+  const deleteOut = storageImpl?.deleteOutputs ?? deleteOutputs;
+  const { verifyScene, renderScene, probeVideo, classifyFailure } = engineImpl ?? (await engine());
+
+  await mkdir(scratch, { recursive: true });
+  const size = `${manifest.width}x${manifest.height}`;
+  const pages = [];
+  const verifiedByIndex = new Map();
+
+  // ---- 1. Download and verify EVERY bundle before drawing ANY frame
+  for (const [idx, scene] of manifest.scenes.entries()) {
+    if (signal?.aborted) throw signal.reason ?? new Error("Aborted.");
+    const sceneIndex = scene.index ?? idx;
+    if (!plateKeyOk(scene.bundleKey, manifest.projectId)) {
+      throw new SceneNeedsFixError(sceneIndex, "The scene bundle location is invalid.");
+    }
+    const pagePath = join(scratch, `scene-${sceneIndex}.html`);
+    try {
+      await downloadInput(scene.bundleKey, pagePath);
+    } catch (error) {
+      throw new SceneNeedsFixError(sceneIndex, `Scene bundle could not be downloaded: ${messageOf(error)}`);
+    }
+    const rawHtml = await readFile(pagePath, "utf8");
+    const digestCheck = verifyBundleDigest(rawHtml, scene, manifest);
+    if (!digestCheck.ok) {
+      throw new SceneNeedsFixError(sceneIndex, digestCheck.reason);
+    }
+    const bakedHtml = bakeSceneParams(rawHtml, scene.params);
+    if (bakedHtml !== rawHtml) {
+      await writeFile(pagePath, bakedHtml, "utf8");
+    }
+    const sceneFrames = Number(scene.bundleFrames ?? scene.frames);
+    let verified;
+    try {
+      verified = await verifyScene(pagePath, { frames: sceneFrames, signal });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (classifyFailure(error) === "code") {
+        await control.op("plate.sendBackForRepair", {
+          id: scene.variantId,
+          gen: scene.gen,
+          detail: messageOf(error)
+        }).catch((err) => log("warn", "plate_repair_op_failed", { variantId: scene.variantId, message: messageOf(err) }));
+        throw new SceneNeedsFixError(sceneIndex, messageOf(error));
+      }
+      throw error;
+    }
+    if (verified?.blocked?.length) {
+      log("warn", "plate_network_blocked", { variantId: scene.variantId, blocked: verified.blocked.slice(0, 5) });
+    }
+    pages.push({ scene, sceneIndex, pagePath, sceneFrames });
+    verifiedByIndex.set(sceneIndex, verified);
+  }
+
+  // ---- 2. Look up clip cache by (bundleDigest, engineDigest, fontSetDigest, size)
+  const lookupRes = await control.op("clip.lookup", {
+    keys: pages.map(({ scene }) => ({
+      bundleDigest: scene.bundleDigest,
+      engineDigest: manifest.engineDigest,
+      fontSetDigest: manifest.fontSetDigest,
+      size,
+      width: manifest.width,
+      height: manifest.height
+    }))
+  });
+  const cachedByDigest = new Map();
+  for (const row of lookupRes?.clips ?? []) {
+    if (row?.bundle_digest && row?.clip_key) {
+      cachedByDigest.set(row.bundle_digest, row);
+    }
+  }
+
+  const clipFiles = new Array(pages.length);
+  const misses = [];
+  let cacheHits = 0;
+  const framesByScene = pages.map(() => 0);
+
+  for (let i = 0; i < pages.length; i++) {
+    const item = pages[i];
+    const cached = cachedByDigest.get(item.scene.bundleDigest);
+    if (cached && cached.clip_key) {
+      const localClip = join(scratch, `clip-${item.sceneIndex}.mp4`);
+      const downloaded = await downloadOutput(cached.clip_key, localClip).then(() => true, () => false);
+      if (downloaded) {
+        clipFiles[i] = localClip;
+        framesByScene[i] = item.scene.frames;
+        cacheHits += 1;
+        continue;
+      }
+    }
+    misses.push({ slot: i, ...item });
+  }
+
+  const reportFrames = async () => {
+    const done = framesByScene.reduce((a, b) => a + b, 0);
+    await report?.({ stage: "frames", done, total: manifest.totalFrames });
+  };
+  await reportFrames();
+
+  // ---- 3. Software-GL self-check & draw misses with bounded concurrency
+  let renderer = "cached";
+  if (misses.length > 0) {
+    renderer = await probeRenderer({ signal });
+    checkSoftwareRenderer(renderer);
+    log("info", "plate_gl_renderer", { projectId: manifest.projectId, renderer, misses: misses.length, cacheHits });
+
+    let nextMiss = 0;
+    const laneCount = Math.min(Math.max(1, concurrency), misses.length);
+    const lanes = Array.from({ length: laneCount }, async () => {
+      for (;;) {
+        const idx = nextMiss++;
+        if (idx >= misses.length) break;
+        if (signal?.aborted) throw signal.reason ?? new Error("Aborted.");
+        const { slot, scene, sceneIndex, pagePath, sceneFrames } = misses[idx];
+        const localClip = join(scratch, `clip-${sceneIndex}.mp4`);
+        const verified = verifiedByIndex.get(sceneIndex);
+        let lastReportAt = 0;
+
+        try {
+          await renderScene(pagePath, localClip, {
+            frames: sceneFrames,
+            fps: FPS,
+            workers: RENDER_WORKERS,
+            signal,
+            onProgress: (n) => {
+              framesByScene[slot] = Math.min(scene.frames, n);
+              const nowMs = Date.now();
+              if (nowMs - lastReportAt >= 1000) {
+                lastReportAt = nowMs;
+                void reportFrames().catch(() => undefined);
+              }
+            }
+          });
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          if (classifyFailure(error) === "code") {
+            await control.op("plate.sendBackForRepair", {
+              id: scene.variantId,
+              gen: scene.gen,
+              detail: messageOf(error)
+            }).catch(() => undefined);
+            throw new SceneNeedsFixError(sceneIndex, messageOf(error));
+          }
+          throw error;
+        }
+
+        const facts = await probeVideo(localClip);
+        if (
+          facts.frames !== sceneFrames ||
+          facts.width !== manifest.width ||
+          facts.height !== manifest.height ||
+          Math.abs(facts.fps - FPS) > 1e-6
+        ) {
+          const detail = `The drawn clip is ${facts.width}x${facts.height} with ${facts.frames} frames, expected ${manifest.width}x${manifest.height} with ${sceneFrames}.`;
+          await control.op("plate.sendBackForRepair", {
+            id: scene.variantId,
+            gen: scene.gen,
+            detail
+          }).catch(() => undefined);
+          throw new SceneNeedsFixError(sceneIndex, detail);
+        }
+
+        const clipKey = clipCacheKey(
+          manifest.projectId,
+          scene.bundleDigest,
+          manifest.engineDigest,
+          manifest.fontSetDigest,
+          manifest.width,
+          manifest.height
+        );
+        const stillKey = stillCacheKey(
+          manifest.projectId,
+          scene.bundleDigest,
+          manifest.engineDigest,
+          manifest.fontSetDigest,
+          manifest.width,
+          manifest.height
+        );
+        const uploadedKeys = [];
+        if (verified?.midPng) {
+          const stillPath = join(scratch, `still-${sceneIndex}.png`);
+          await writeFile(stillPath, verified.midPng);
+          await uploadOutput(stillPath, stillKey, "image/png");
+          uploadedKeys.push(stillKey);
+        }
+        await uploadOutput(localClip, clipKey, "video/mp4");
+        uploadedKeys.push(clipKey);
+
+        const rec = await control.op("clip.record", {
+          ...fence,
+          variantId: scene.variantId,
+          gen: scene.gen,
+          bundleDigest: scene.bundleDigest,
+          engineDigest: manifest.engineDigest,
+          fontSetDigest: manifest.fontSetDigest,
+          size,
+          width: manifest.width,
+          height: manifest.height,
+          fps: FPS,
+          frames: sceneFrames,
+          clipKey,
+          stillKey: verified?.midPng ? stillKey : null,
+          clipMeta: { ...facts, renderer, worker: hostname() }
+        });
+
+        if (!rec?.ok) {
+          await deleteOut(uploadedKeys).catch(() => undefined);
+          throw new Error("This attempt no longer owns the job.");
+        }
+
+        framesByScene[slot] = scene.frames;
+        clipFiles[slot] = localClip;
+        await reportFrames();
+      }
+    });
+    await Promise.all(lanes);
+  }
+
+  return {
+    clipFiles,
+    cacheHits,
+    cacheMisses: misses.length,
+    renderer
+  };
+}
+
+/**
+ * The billed final render (render-video, kind "plate-film"): verifies every scene bundle in the frozen manifest, reuses
+ * cached clips from `app.plate_clips` or draws misses on CPU (software GL), assembles voice/music/effects/subtitles,
+ * and writes the finished MP4 to `output`. Keeps schema 1 readable for any in-flight legacy job.
+ */
+export async function renderPlateFilmJob(
+  id,
+  input,
+  attempt,
+  { control, signal, report, output, engineImpl, storageImpl, probeRenderer, concurrency }
+) {
   if (!UUID.test(input.projectId ?? "")) throw new InputError("A valid project id is required.");
   const scratch = join("/tmp", `plate-film-${id}-a${attempt}`);
   await rm(scratch, { recursive: true, force: true });
   await mkdir(scratch, { recursive: true });
   try {
-    const manifest = await loadManifest(input.manifestKey, input.projectId, scratch);
-    const keys = await resolveClips(control, manifest, { signal, report: ({ done, total }) => report({ stage: "frames", progress: 52 + Math.round((done / total) * 30), framesDone: done, framesTotal: total }) });
+    const manifest = await loadManifest(input.manifestKey, input.projectId, scratch, { storageImpl });
+    let clips;
+    let cacheStats = { cacheHits: 0, cacheMisses: 0, renderer: "legacy" };
+    if (manifest.schema === 1) {
+      const keys = await resolveClips(control, manifest, {
+        signal,
+        report: ({ done, total }) =>
+          report({ stage: "frames", progress: 52 + Math.round((done / total) * 30), framesDone: done, framesTotal: total })
+      });
+      clips = await downloadClips(manifest, keys, scratch, { storageImpl });
+    } else {
+      const prepared = await prepareManifestClips(control, manifest, {
+        fence: { jobId: id, attempt },
+        scratch,
+        signal,
+        engineImpl,
+        storageImpl,
+        probeRenderer,
+        concurrency,
+        report: ({ done, total }) =>
+          report({
+            stage: "frames",
+            progress: 52 + Math.round((done / Math.max(1, total)) * 30),
+            framesDone: done,
+            framesTotal: total
+          })
+      });
+      clips = prepared.clipFiles;
+      cacheStats = { cacheHits: prepared.cacheHits, cacheMisses: prepared.cacheMisses, renderer: prepared.renderer };
+    }
     await report({ stage: "encoding", progress: 84, framesDone: manifest.totalFrames, framesTotal: manifest.totalFrames });
-    const clips = await downloadClips(manifest, keys, scratch);
     const started = Date.now();
-    const facts = await assemble(manifest, { clipFiles: clips, scratch, output, signal, onProgress: (p) => void report({ stage: "encoding", progress: 84 + Math.round(p * 12), framesDone: manifest.totalFrames, framesTotal: manifest.totalFrames }).catch(() => undefined) });
-    log("info", "plate_film_assembled", { jobId: id, ...facts, scenes: manifest.scenes.length, assembleSeconds: Math.round((Date.now() - started) / 100) / 10 });
-    return { durationSeconds: Math.round((manifest.totalFrames / FPS) * 10) / 10, facts };
+    const facts = await assemble(manifest, {
+      clipFiles: clips,
+      scratch,
+      output,
+      signal,
+      storageImpl,
+      onProgress: (p) =>
+        void report({
+          stage: "encoding",
+          progress: 84 + Math.round(p * 12),
+          framesDone: manifest.totalFrames,
+          framesTotal: manifest.totalFrames
+        }).catch(() => undefined)
+    });
+    log("info", "plate_film_assembled", {
+      jobId: id,
+      ...facts,
+      ...cacheStats,
+      scenes: manifest.scenes.length,
+      assembleSeconds: Math.round((Date.now() - started) / 100) / 10
+    });
+    return { durationSeconds: Math.round((manifest.totalFrames / FPS) * 10) / 10, facts, ...cacheStats };
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
 }
 
 // ================================================================ companion export
-export async function handlePlateExport(job, { control }) {
+export async function handlePlateExport(job, { control, engineImpl, storageImpl, probeRenderer, concurrency } = {}) {
   const { exportId } = job.data ?? {};
   if (typeof exportId !== "string" || !UUID.test(exportId)) return;
   const { row } = await control.op("export.claim", { exportId }, { retry: false });
   if (!row) return;
+  const uploadOutput = storageImpl?.uploadPlateOutput ?? uploadPlateOutput;
+  const deleteOut = storageImpl?.deleteOutputs ?? deleteOutputs;
   const lost = new AbortController();
   const signal = AbortSignal.any([job.signal, lost.signal]);
   const scratch = join("/tmp", `plate-export-${row.id}-a${row.attempt}`);
   const key = `plates/${row.project_id}/exports/${dirname(row.manifest_key).split("/").pop()}/a${row.attempt}.mp4`;
   let uploaded = false, last = 0;
-  const report = async (stage, progress) => {
-    if (Date.now() - last < 1000) return;
+  const report = async (stage, progress, force = false) => {
+    if (!force && Date.now() - last < 1000) return;
     last = Date.now();
-    if (!(await control.op("export.progress", { id: row.id, attempt: row.attempt, stage, progress })).ok) lost.abort(new Error("superseded"));
+    if (!(await control.op("export.progress", { id: row.id, attempt: row.attempt, stage, progress })).ok) {
+      lost.abort(new Error("superseded"));
+    }
   };
   try {
     await rm(scratch, { recursive: true, force: true });
     await mkdir(scratch, { recursive: true });
-    const manifest = await loadManifest(row.manifest_key, row.project_id, scratch);
-    const keys = manifest.scenes.map((s) => s.clipKey);
-    if (keys.some((k) => !k)) throw new InputError("The export manifest lists scenes that are not drawn.");
-    await report("preparing", 10);
-    const clips = await downloadClips(manifest, keys, scratch);
+    const manifest = await loadManifest(row.manifest_key, row.project_id, scratch, { storageImpl });
+    await report("preparing", 10, true);
+    let clips;
+    if (manifest.schema === 1) {
+      const keys = manifest.scenes.map((s) => s.clipKey);
+      if (keys.some((k) => !k)) throw new InputError("The export manifest lists scenes that are not drawn.");
+      clips = await downloadClips(manifest, keys, scratch, { storageImpl });
+    } else {
+      const prepared = await prepareManifestClips(control, manifest, {
+        fence: { exportId: row.id, attempt: row.attempt },
+        scratch,
+        signal,
+        engineImpl,
+        storageImpl,
+        probeRenderer,
+        concurrency,
+        report: ({ done, total }) =>
+          report("frames", 15 + Math.round((done / Math.max(1, total)) * 45))
+      });
+      clips = prepared.clipFiles;
+    }
     const output = join(scratch, "out.mp4");
     const started = Date.now();
-    const facts = await assemble(manifest, { clipFiles: clips, scratch, output, signal, onProgress: (p) => void report("encoding", 15 + Math.round(p * 75)).catch(() => undefined) });
-    await uploadPlateOutput(output, key, "video/mp4");
+    const facts = await assemble(manifest, {
+      clipFiles: clips,
+      scratch,
+      output,
+      signal,
+      storageImpl,
+      onProgress: (p) => void report("encoding", 60 + Math.round(p * 30)).catch(() => undefined)
+    });
+    await uploadOutput(output, key, "video/mp4");
     uploaded = true;
     const done = await control.op("export.ready", { id: row.id, attempt: row.attempt, outputKey: key });
-    if (!done.ok) { await deleteOutputs([key]).catch(() => undefined); return; }
+    if (!done.ok) { await deleteOut([key]).catch(() => undefined); return; }
     log("info", "plate_export_ready", { exportId, projectId: row.project_id, aspect: row.aspect, ...facts, seconds: Math.round((Date.now() - started) / 100) / 10 });
   } catch (error) {
-    if (uploaded) await deleteOutputs([key]).catch(() => undefined);
+    if (uploaded) await deleteOut([key]).catch(() => undefined);
     if (lost.signal.aborted) return;
     if (job.signal.aborted) throw error;
     const final = error?.permanent || (job.retryCount ?? 0) >= 2;
-    log("warn", "plate_export_failed", { exportId, final, message: messageOf(error).slice(-300) });
-    if (final) { await control.op("export.failed", { id: row.id, attempt: row.attempt, error: { code: "export_failed", message: error?.permanent ? error.message : "The export did not finish. Try again." } }); return; }
+    log("warn", "plate_export_failed", { exportId, final, code: error?.code, message: messageOf(error).slice(-300) });
+    if (final) {
+      await control.op("export.failed", {
+        id: row.id,
+        attempt: row.attempt,
+        error: {
+          code: error?.code ?? "export_failed",
+          message: error?.permanent ? error.message : "The export did not finish. Try again."
+        }
+      });
+      return;
+    }
     await control.op("export.requeue", { id: row.id, attempt: row.attempt });
     throw error;
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
 }
-

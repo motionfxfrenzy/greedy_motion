@@ -78,9 +78,14 @@ the pg-boss `complete`/`fail` for the claimed attempt. Then it answers. Rules:
 
 Workers never send SQL. Each persistence step in `worker/src/jobs.mjs` and `worker/src/plates.mjs` becomes a named operation
 with a fixed, parameterised statement on the API (`backend/src/jobs/control.ts`): `render.claim`, `render.progress`,
-`render.note_retry`, `render.finish`, `plate.claim`, `plate.progress`, `plate.finish_drawn`, `plate.send_back_for_repair`,
-`plate.fail`, `plate.requeue_cap`, `plate.state`, `export.claim`, `export.progress`, `export.finish`, `export.fail`,
-`export.scene_states`, `demand.count`. Names are an allow-list; unknown names are 404.
+`render.noteRetry`, `render.finish`, `plate.claim`, `plate.progress`, `plate.drawn`, `plate.sendBackForRepair`,
+`plate.failed`, `plate.retry`, `plate.sendLater`, `plate.state`, `clip.lookup`, `clip.record`, `export.claim`,
+`export.progress`, `export.ready`, `export.failed`, `export.requeue`, `scenes.states`, `demand.idle`. Names are an allow-list; unknown names are 404.
+
+* **`clip.lookup`:** looks up cached scene clips in `app.plate_clips` by `(bundleDigest, engineDigest, fontSetDigest, size)` (supports single lookup or batch `{ keys: [...] }`).
+* **`clip.record`:** records a worker-drawn scene clip into `app.plate_clips` keyed by `(bundleDigest, engineDigest, fontSetDigest, size)`. Fenced by the owning job attempt (`jobId` + `attempt` on `app.render_jobs` in state `'rendering'`, `exportId` + `attempt` on `app.plate_exports` in state `'assembling'`, or `variantId` + `gen` + `renderAttempt` on `app.plate_variants`); idempotent on conflict (`do nothing` + returns existing row with `duplicate: true`).
+* **`plate.drawn`:** in addition to publishing a preview/fallback clip on `app.plate_variants`, writes the same content-addressed entry into `app.plate_clips` in the same transaction so final renders and companion exports reuse preview-drawn clips without redrawing.
+* **`plate.sendBackForRepair`:** supports both `plate-render` attempts (fenced by `renderAttempt` in state `'rendering'`) and manifest-verification failures in `render-video` / `plate-export` (fenced by `(id, gen)`, advancing `rev` and queueing `plate-author` so the scene returns to preview as a repair revision).
 
 ## What happens when either side restarts
 
