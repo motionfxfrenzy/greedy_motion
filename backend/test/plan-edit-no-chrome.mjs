@@ -890,9 +890,12 @@ try {
     }
   }
 
-  // 7. B3a: No preview_usage row for an unknown or unowned project UUID; owned project is charged as before
+  // 7. B3a: No preview_usage row for an unknown or unowned project UUID; owned project is charged when model runs
   {
     const meteredApp = Fastify();
+    meteredApp.addHook("onRequest", async (request) => {
+      request.user = { id: TEST_OWNER };
+    });
     registerOwnership(meteredApp);
     registerPreviewMeter(meteredApp);
     await registerPlanRoutes(meteredApp);
@@ -902,14 +905,21 @@ try {
     process.env.PREVIEW_LIMITS = "on";
     const unknownProjectId = randomUUID();
     const otherOwnedProject = await seedProject(OTHER_OWNER);
-    const callerOwnedProject = await seedProject(LOCAL_USER_ID);
+    const callerOwnedProject = await seedProject(TEST_OWNER);
 
     try {
-      await pool.query("delete from app.preview_usage where project_id = any($1)", [
+      await pool.query("delete from app.preview_usage where user_id = $1 or project_id = any($2)", [
+        TEST_OWNER,
         [unknownProjectId, otherOwnedProject.id, callerOwnedProject.id]
       ]);
 
-      // 7a. Unknown random UUID -> 404 and 0 preview_usage rows
+      // 7a. Unknown random UUID -> 404 and 0 preview_usage rows (both COUNTED route and propose)
+      const unknownCountedRes = await meteredApp.inject({
+        method: "POST",
+        url: `/v1/projects/${unknownProjectId}/plan/beats/b1/rewrite`,
+        payload: { instruction: "Make it punchier" }
+      });
+      assert.equal(unknownCountedRes.statusCode, 404);
       const unknownRes = await meteredApp.inject({
         method: "POST",
         url: `/v1/projects/${unknownProjectId}/plan/edit/propose`,
@@ -924,7 +934,13 @@ try {
       ]);
       assert.equal(unknownUsage.rows[0].n, 0, "Unknown project UUID must create no preview_usage row");
 
-      // 7b. Unowned project UUID (belongs to OTHER_OWNER) -> 404 and 0 preview_usage rows
+      // 7b. Unowned project UUID (belongs to OTHER_OWNER) -> 404 and 0 preview_usage rows (both COUNTED route and propose)
+      const unownedCountedRes = await meteredApp.inject({
+        method: "POST",
+        url: `/v1/projects/${otherOwnedProject.id}/plan/beats/b1/rewrite`,
+        payload: { instruction: "Make it punchier" }
+      });
+      assert.equal(unownedCountedRes.statusCode, 404);
       const unownedRes = await meteredApp.inject({
         method: "POST",
         url: `/v1/projects/${otherOwnedProject.id}/plan/edit/propose`,
@@ -939,8 +955,8 @@ try {
       ]);
       assert.equal(unownedUsage.rows[0].n, 0, "Unowned project UUID must create no preview_usage row");
 
-      // 7c. Real project owned by caller (LOCAL_USER_ID) -> 200 and charged exactly as before (1 row, calls = 1)
-      const ownedRes = await meteredApp.inject({
+      // 7c. Real project owned by caller: rule-only propose is free; model-backed propose charges once
+      const ruleOwnedRes = await meteredApp.inject({
         method: "POST",
         url: `/v1/projects/${callerOwnedProject.id}/plan/edit/propose`,
         payload: {
@@ -948,17 +964,54 @@ try {
           measured: { canvas: { width: 1920, height: 1080 }, snapshots: { c1: b2Snapshots } }
         }
       });
+      assert.equal(ruleOwnedRes.statusCode, 200);
+      const ruleUsage = await pool.query("select calls from app.preview_usage where project_id = $1 and user_id = $2", [
+        callerOwnedProject.id,
+        TEST_OWNER
+      ]);
+      assert.equal(ruleUsage.rows.length, 0, "Rule-only propose must not create a preview_usage row");
+
+      setDefaultModelTranslatorOptions({
+        request: async () =>
+          Response.json({
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  scope: "element",
+                  scene: "b2",
+                  atSeconds: 7.23,
+                  el: "b2:w:2",
+                  set: { color: "#3b82f6" }
+                })
+              }
+            ],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 100, output_tokens: 30, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+          }),
+        log: () => {}
+      });
+      const ownedRes = await meteredApp.inject({
+        method: "POST",
+        url: `/v1/projects/${callerOwnedProject.id}/plan/edit/propose`,
+        payload: {
+          comments: [{ id: "c1", at: 7.23, scene: "b2", body: "make the headline pop" }],
+          measured: { canvas: { width: 1920, height: 1080 }, snapshots: { c1: b2Snapshots } }
+        }
+      });
       assert.equal(ownedRes.statusCode, 200);
       const ownedUsage = await pool.query("select calls from app.preview_usage where project_id = $1 and user_id = $2", [
         callerOwnedProject.id,
-        LOCAL_USER_ID
+        TEST_OWNER
       ]);
-      assert.equal(ownedUsage.rows.length, 1, "Real owned project must be charged in preview_usage");
+      assert.equal(ownedUsage.rows.length, 1, "Real owned project must be charged in preview_usage when model runs");
       assert.equal(ownedUsage.rows[0].calls, 1);
     } finally {
+      setDefaultModelTranslatorOptions(null);
       if (prevLimits === undefined) delete process.env.PREVIEW_LIMITS;
       else process.env.PREVIEW_LIMITS = prevLimits;
-      await pool.query("delete from app.preview_usage where project_id = any($1)", [
+      await pool.query("delete from app.preview_usage where user_id = $1 or project_id = any($2)", [
+        TEST_OWNER,
         [unknownProjectId, otherOwnedProject.id, callerOwnedProject.id]
       ]);
       await meteredApp.close();

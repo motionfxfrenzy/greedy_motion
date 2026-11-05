@@ -494,5 +494,74 @@ Rerun independently by the manager, holding `.lock-timing` (taken atomically) fo
 - Typechecks (backend, frontend): clean. `node worker/templates/beat-plan/build.mjs --check`: exit 0. Frontend suite: exit 0.
 - Full backend loop, first attempt: loop 3 failed `plan-element-edits` (loop 1 and 2 clean). Cause: the zero-diff check counted a lone pixel off by one level (`t=6.6`, bbox `[860,413,860,413]`, `maxDelta 1`) between two renders of the same page; it failed 1 of 6 solo runs. Manager fix (a few lines, `backend/test/plan-element-edits.mjs`): a pixel counts as different only when it differs by more than 2 levels, the same convention as `tools/phase3/compare.mjs`. After it: 8 of 8 solo runs pass, and three consecutive full loops show only the 5 known failures (billing, brand-files, render-prep, styles, visuals).
 - `capture-final` vs `hf-final-after`: 36/36 identical.
-- `capture-hf` vs `hf-after`: 42 to 43 of 48 identical, repeatable over two captures. The 5 to 6 differing states are all comments-panel states (`d-comments-1280-*` 2 px, `g3-applying-comments-1280-*` 2 px, `g3-applying-comments-400-*` 32 to 33 px, max delta 18, about 0.01 %), at rounded-corner edges. This exceeds the brief's "at most 3 images, 0 to 2 px" and is not noise (it repeats exactly): it comes from the intended B6 change to the comment rows (persistent status container, disabled remove while applying, new labels). Not refreshed into the baselines; the next phase should recapture `tools/phase3/hf-after` deliberately.
+- `capture-hf` vs `hf-after`: 42 to 43 of 48 identical, repeatable over two captures. The 5 to 6 differing states are comments-panel states (`d-comments-1280-*` 2 px, `g3-applying-comments-1280-*` 2 px, `g3-applying-comments-400-*` 32 to 33 px, max delta 18, about 0.01 %), at rounded-corner antialiasing of elements all over the page. The manager opened `g3-applying-comments-400-light` (baseline and recapture side by side): visually identical, no clipped text, no shifted controls. The cause is NOT identified (that state has no comment rows, so it is not shown to be the comment-row markup change; it may also be machine or render state, and `c760509` was not captured for comparison). This exceeds the brief's "at most 3 images, 0 to 2 px". Baselines not refreshed; before recapturing `tools/phase3/hf-after` at integration, find the cause by capturing `c760509` against `7ba5f0c`.
+- The `> 2 levels` threshold in `plan-element-edits.mjs` is a tolerance on top of the root-cause fixes (A1 to A10), not a replacement for them.
 - Tech debt noted by the manager: the propose route returns `error.message` to the client for model transport errors unless it mentions "key" or "api" (`routes.ts`, about line 1080); prefer a fixed message.
+
+---
+
+<a id="4a-v2-meter"></a>
+## 4a v2 meter
+
+Date: 2026-11-05  
+Branch: `codex/live-scenes`  
+Status: Complete (`backend/test/plan-edit-meter.mjs` all 7 cases pass 3 runs in a row; `backend` full loop 39/44 pass with only the 5 known failures; `tsc --noEmit` clean; `grep plan/edit/propose backend/src/plan/preview-meter.ts` returns 0 matches; frontend unchanged as existing refused-reason slot already displays `cand.refused`).
+
+### 1. Owner's Decision (2026-11-05)
+
+> "go with Only when the model runs: rule-based edits and failed requests are free, and a model-based edit counts once per batch of comments. A film with only rule-based edits doesn't use a monthly film slot."
+
+### 2. Files Changed and Created
+
+- `backend/src/plan/preview-meter.ts` — Removed `plan/edit/propose` from `COUNTED` (line 17) and updated the header comment (lines 13–15) to state that comment propose is counted in its route only when the model runs, once per batch (rule-based edits and failed requests are free, and a film with only rule-based edits takes no slot).
+- `backend/src/plan/element-edits.ts` — Split `proposeHyperFramesCommentEdits` into two passes: Pass 1 validates all comments and snapshots and runs the rule-based translator (`translateCommentRulesOnly`) for every comment in the batch; Pass 2 runs only when at least one comment needs the model translator (`pendingModelItems.length > 0`), calling `options.admitBatch()` once for the batch and, on refusal, returning rule-only candidates normally while returning `{ id, refused: refusal.error.message, error: refusal.error }` (the exact `PreviewRefusal` 402 body shape) for each comment that needed the model without calling the model translator.
+- `backend/src/plan/routes.ts` — In `POST /v1/projects/:id/plan/edit/propose`, passed `admitBatch: async () => (meteringOn() ? admitPreview(userId, project.id, await tierFor(userId)) : null)` into `proposeHyperFramesCommentEdits` after ownership, project, and plan validation.
+- `backend/test/plan-edit-meter.mjs` — Added real-Postgres test suite (`PREVIEW_LIMITS=on`, `PLANNER=deterministic`, `randomUUID` owners and projects, scoped cleanup, stubbed model translator, 0 real model calls) covering all 7 required metering cases.
+- `backend/test/plan-edit-no-chrome.mjs` — Updated §7c so the B3a test verifies both that a rule-only propose on an owned project creates 0 `preview_usage` rows and a model-backed propose charges once (`calls = 1`), using a `randomUUID` test owner instead of `LOCAL_USER_ID`.
+- `docs/PRICING.md` — Updated the single "What counts" bullet under "Preview allowance" (lines 295–296) to state that comment propose counts when the model runs (once per batch; rule-based edits and failed requests are free, and a film with only rule-based edits takes no slot).
+- `docs/phase4/element-edits-report.md` — Appended this section.
+- **Frontend (`frontend/lib/api.ts`, `frontend/components/browser-animation-step.tsx`):** Unchanged. In `frontend/components/browser-animation-step.tsx` (lines 620–647), `for (const cand of proposeRes.candidates)` checks `if (cand.refused)` and writes `cand.refused` into `item.refusedReason`, which `CommentsPanel.tsx` renders in the comment's existing refused-reason slot (`<small className="aw-comment-refused" role="status">`) while still allowing any rule-only candidates in the same batch (`activeCandidates`) to be measured and committed. Because each refused model candidate carries `{ id, refused: refusal.error.message, error: refusal.error }`, the existing frontend refused-reason display already shows the cap message with no frontend changes needed.
+
+### 3. Cited Lines for the No-Refund Rule (Step 4)
+
+All other counted routes charge in `registerPreviewMeter`'s `preHandler` hook before the route handler runs and never refund `app.preview_usage` if the downstream model call fails:
+- `backend/src/plan/preview-meter.ts` lines 25–57 (`admitPreview`): commits the `INSERT INTO app.preview_usage` (lines 48–49) or `UPDATE app.preview_usage SET calls = calls + 1` (lines 35–36) inside its own transaction and exposes no refund function.
+- `backend/src/plan/preview-meter.ts` lines 76–88 (`registerPreviewMeter` `preHandler` hook): calls `admitPreview(userId, projectId, await tierFor(userId))` at line 86 before the route handler executes.
+- `backend/src/plan/routes.ts`:
+  - `POST /v1/projects/:id/script/stream` (lines 289–330): catches `writeScript` errors at lines 322–326 and emits `{ error }` SSE event without refunding `preview_usage`.
+  - `POST /v1/projects/:id/script/frames` (lines 338–388): catches `sketchFrame` errors at lines 377–381 without refunding `preview_usage`.
+  - `POST /v1/projects/:id/plan` (lines 759–801): catches `director.plan` errors at lines 789–794 and sets `planning.status = "failed"` without refunding `preview_usage`.
+  - `POST /v1/projects/:id/plan/beats/:beatId/rewrite` (lines 859–874): catches `rewriteBeat` errors at line 869 and returns `502 rewrite_failed` without refunding `preview_usage`.
+  - `POST /v1/projects/:id/plan/audio` (lines 924–949): catches `producePlanAudio` errors at lines 944–948 and returns `503`/`502` without refunding `preview_usage`.
+- Matching this behaviour, `proposeHyperFramesCommentEdits` (`backend/src/plan/element-edits.ts` lines 671–699) calls `options.admitBatch()` once before running `translateCommentModelOnly`; if a subsequent model call throws a transport/timeout error (`502`/`503` in `backend/src/plan/routes.ts` lines 1078–1094), the admitted `app.preview_usage` charge remains committed.
+
+### 4. Seven Test Cases (`backend/test/plan-edit-meter.mjs`)
+
+Executed 3 consecutive times with:
+```bash
+cd backend && DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_unit PLANNER=deterministic node --experimental-strip-types test/plan-edit-meter.mjs
+```
+
+| Case # | Scenario | Expected | Verified Result (×3 consecutive runs) |
+| ---: | --- | --- | --- |
+| **1** | Rule-only propose (`Make "share." pink` + `Nudge "moving." right 20px`) | No `preview_usage` row, `0` calls counted, `0` film slots used, `0` model calls | **PASS** (`usageRow === null`, `previewsUsed === 0`, `modelCalls === 0`) |
+| **2** | Model propose with 2 comments needing the model (`make the headline pop` + `tone down the subtitle so it whispers`) | `1` call counted for the batch (`calls = 1`), film slot taken once (`previewsUsed === 1`), model stub called twice | **PASS** (`calls === 1`, `previewsUsed === 1`, `modelCalls === 2`) |
+| **3** | Mixed batch (1 rule comment + 1 model comment) | `1` charge (`calls = 1`, `previewsUsed === 1`), rule comment resolved by `deterministic`, model comment resolved by `model` (`modelCalls === 1`) | **PASS** (`calls === 1`, `previewsUsed === 1`, `modelCalls === 1`) |
+| **4** | Failed validation (`400 invalid_snapshots`, `404 not_found` on unknown/unowned project, `409 no_plan` on propose & `409 stale_plan_version` on commit) | `0` charges (`0` `preview_usage` rows), `0` model calls | **PASS** (`0` `preview_usage` rows, `modelCalls === 0`) |
+| **5** | At the cap: **5a** `PREVIEW_CALL_CAP` (`150`) reached for project; **5b** monthly film allowance (`Starter`, `15` films) reached with a new film | Rule-only candidate returned normally (`patch` present, `refused === undefined`); model candidate gets `{ id, refused: refusal.error.message, error: refusal.error }` matching the 402 `PreviewRefusal` body (`preview_call_cap` / `preview_limit`); model stub called `0` times; no new film slot taken | **PASS** (`modelCalls5a === 0`, `modelCalls5b === 0`, exact `PreviewRefusal` body verified) |
+| **6** | Metering off (`PREVIEW_LIMITS=off`) | Model runs (`modelCalls === 1`), never charged (`usageRow === null`) | **PASS** (`usageRow === null`, `modelCalls === 1`) |
+| **7** | Model failure (`502 propose_failed`) after an admitted charge | Route returns `502 propose_failed`; admitted charge stays in `app.preview_usage` (`calls === 1`) | **PASS** (`statusCode === 502`, `calls === 1`) |
+
+### 5. Full Backend Loop & Verification Results
+
+- `grep plan/edit/propose backend/src/plan/preview-meter.ts`: **0 matches**.
+- `cd backend && npm run typecheck`: **PASS** (`0` errors).
+- Individual meter & edit tests (`test/plan-edit-meter.mjs` ×3, `test/plan-edit-no-chrome.mjs`, `test/plan-element-edits.mjs`, `test/preview-meter.mjs`, `test/revision-meter.mjs`, `test/pricing-lock.mjs`): **all PASS**.
+- Full backend loop (holding `/Users/osamaehsaan/Code/Market_apps/.lock-timing` atomically and deleting it on completion):
+  - **39 / 44 test files PASS**
+  - Only the 5 known failures: `test/billing.mjs`, `test/brand-files.mjs`, `test/render-prep.mjs`, `test/styles.mjs`, `test/visuals.mjs`.
+
+
+### Manager verification (4a v2 meter, 2026-11-05)
+
+Rerun independently under `.lock-timing`: backend typecheck clean; `plan-edit-meter.mjs` 3 of 3 runs pass; full backend loop shows only the 5 known failures; `COUNTED` has no `plan/edit/propose`. Manager read of the diff: the charge is taken in the propose route through `admitBatch`, once, only when a comment needs the model; the refusal body is the existing `PreviewRefusal`. Note for the handoff: `plan/edit/propose` echoes `error.message` of model transport errors to the client; map to a generic message and log the detail server-side.

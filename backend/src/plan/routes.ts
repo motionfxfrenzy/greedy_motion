@@ -40,6 +40,8 @@ import {
 import { beatTimes } from "./timing.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
 import { ensurePromptAllowed } from "../moderation/creem.ts";
+import { admitPreview, meteringOn } from "./preview-meter.ts";
+import { tierFor } from "../billing/service.ts";
 
 const notFound = { error: { code: "not_found", message: "Project not found." } };
 
@@ -1061,11 +1063,19 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       return;
     }
 
+    const userId = callerId(request);
     try {
-      const proposed = await proposeHyperFramesCommentEdits(project, {
-        comments: body.comments,
-        measured: body.measured
-      });
+      const proposed = await proposeHyperFramesCommentEdits(
+        project,
+        {
+          comments: body.comments,
+          measured: body.measured
+        },
+        {
+          admitBatch: async () =>
+            meteringOn() ? admitPreview(userId, project.id, await tierFor(userId)) : null
+        }
+      );
       return proposed;
     } catch (error) {
       if (error instanceof InvalidSnapshotsError) {

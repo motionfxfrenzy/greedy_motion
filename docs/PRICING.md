@@ -292,8 +292,8 @@ after the payment fee, $36.0 on Pro against $45.07, $80.0 on Studio against $91.
 everything, and the lock test checks it. (The first draft of these allowances, 60, 200 and 600, would have cost $47, $158 and $474
 at full use and was dropped for that reason; Studio's 100 was 150 when the top plan was Business.) Free: three previews cost at most $2.37, plus $0.37 if the one free film is rendered.
 
-- **What counts:** a call to the model-backed routes of a project: script stream, frames, plan, plan audio, film animate, film fix
-  and beat rewrite. Opening a project or a preview, comments, the intent reader and the final render are not counted.
+- **What counts:** a call to the model-backed routes of a project: script stream, frames, plan, plan audio, film animate, film fix,
+  beat rewrite, and comment propose when the model runs (once per batch; rule-based edits and failed requests are free, and a film with only rule-based edits takes no slot). Opening a project or a preview, rule-only comments, the intent reader and the final render are not counted.
 - **Refusal:** the next new film gets 402 `preview_limit` with a plain message and the plan that allows more; films already counted
   keep working. A per-film safety cap of 150 calls a period answers 402 `preview_call_cap`.
 - **Concurrency:** counting runs under a per-person lock, so two requests cannot both take the last place.

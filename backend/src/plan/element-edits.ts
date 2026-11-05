@@ -39,6 +39,7 @@ import {
 import { anthropicMessage, responseText } from "../anthropic.ts";
 import { config } from "../config.ts";
 import { brandNameFor, projectLook, projectTiming } from "./preview.ts";
+import type { PreviewRefusal } from "./preview-meter.ts";
 
 /** 1x1 transparent PNG data URI used when building standalone composition HTML for offline browser tests. */
 const PLACEHOLDER_SHOT_URI =
@@ -306,19 +307,48 @@ export function setDefaultModelTranslatorOptions(options: ModelTranslatorOptions
 
 export const modelCommentTranslator: CommentPatchTranslator = createModelCommentTranslator();
 
-/**
- * Translates a comment using `deterministicCommentTranslator` first, then falls back to `modelTranslator`
- * when the deterministic rules find no patch.
- */
-export async function translateCommentWithRulesThenModel(
-  input: {
-    comment: string;
-    atSeconds: number;
-    scene: string;
-    beat: Beat;
-    activeElements: ActiveElementInfo[];
-    canvas: { width: number; height: number };
-  },
+type CommentTranslationInput = {
+  comment: string;
+  atSeconds: number;
+  scene: string;
+  beat: Beat;
+  activeElements: ActiveElementInfo[];
+  canvas: { width: number; height: number };
+};
+
+async function translateCommentRulesOnly(
+  input: CommentTranslationInput
+): Promise<{
+  patch: EditPatch;
+  source: "deterministic";
+  fallbackRewrite: false;
+} | null> {
+  const detRaw = await deterministicCommentTranslator.translate(input);
+  if (hasEditPatchOperations(detRaw)) {
+    const rawFactor = detRaw.set?.factor ?? detRaw.set?.scale;
+    if (typeof rawFactor === "number" && Number.isFinite(rawFactor)) {
+      const hintCheck = validateBeatLayoutHint({
+        emphasize: detRaw.set?.emphasize ?? detRaw.el ?? "kw",
+        factor: rawFactor
+      });
+      if ("error" in hintCheck) {
+        throw new EditRefusedError(hintCheck.error);
+      }
+    }
+    const validatedDet = validateEditPatch(detRaw);
+    if ("patch" in validatedDet) {
+      return {
+        patch: { ...validatedDet.patch, scene: input.scene, atSeconds: input.atSeconds },
+        source: "deterministic",
+        fallbackRewrite: false
+      };
+    }
+  }
+  return null;
+}
+
+async function translateCommentModelOnly(
+  input: CommentTranslationInput,
   options?: {
     translator?: CommentPatchTranslator;
     modelTranslator?: CommentPatchTranslator;
@@ -326,7 +356,7 @@ export async function translateCommentWithRulesThenModel(
   }
 ): Promise<{
   patch: EditPatch;
-  source: "deterministic" | "model" | "fallback-scene";
+  source: "model" | "fallback-scene";
   fallbackRewrite: boolean;
 }> {
   if (options?.translator) {
@@ -364,30 +394,6 @@ export async function translateCommentWithRulesThenModel(
     };
   }
 
-  // Step 1: Run deterministicCommentTranslator first
-  const detRaw = await deterministicCommentTranslator.translate(input);
-  if (hasEditPatchOperations(detRaw)) {
-    const rawFactor = detRaw.set?.factor ?? detRaw.set?.scale;
-    if (typeof rawFactor === "number" && Number.isFinite(rawFactor)) {
-      const hintCheck = validateBeatLayoutHint({
-        emphasize: detRaw.set?.emphasize ?? detRaw.el ?? "kw",
-        factor: rawFactor
-      });
-      if ("error" in hintCheck) {
-        throw new EditRefusedError(hintCheck.error);
-      }
-    }
-    const validatedDet = validateEditPatch(detRaw);
-    if ("patch" in validatedDet) {
-      return {
-        patch: { ...validatedDet.patch, scene: input.scene, atSeconds: input.atSeconds },
-        source: "deterministic",
-        fallbackRewrite: false
-      };
-    }
-  }
-
-  // Step 2: Deterministic rules found no patch -> call model translator if configured or stubbed
   const effectiveModelOptions = options?.modelOptions ?? defaultModelTranslatorOptions ?? undefined;
   const hasModelStubOrKey =
     Boolean(options?.modelTranslator) ||
@@ -450,6 +456,29 @@ export async function translateCommentWithRulesThenModel(
   };
 }
 
+/**
+ * Translates a comment using `deterministicCommentTranslator` first, then falls back to `modelTranslator`
+ * when the deterministic rules find no patch.
+ */
+export async function translateCommentWithRulesThenModel(
+  input: CommentTranslationInput,
+  options?: {
+    translator?: CommentPatchTranslator;
+    modelTranslator?: CommentPatchTranslator;
+    modelOptions?: ModelTranslatorOptions;
+  }
+): Promise<{
+  patch: EditPatch;
+  source: "deterministic" | "model" | "fallback-scene";
+  fallbackRewrite: boolean;
+}> {
+  if (!options?.translator) {
+    const det = await translateCommentRulesOnly(input);
+    if (det) return det;
+  }
+  return translateCommentModelOnly(input, options);
+}
+
 export type ProposeCommentItem = {
   id: string;
   at: number;
@@ -462,6 +491,7 @@ export type ProposeCandidateItem = {
   id: string;
   patch?: EditPatch;
   refused?: string;
+  error?: PreviewRefusal["error"];
   fallbackRewrite?: boolean;
   source?: "explicit" | "deterministic" | "model" | "fallback-scene";
 };
@@ -474,8 +504,9 @@ export type ProposeEditResult = {
 /**
  * Step 1 of the two-step edit protocol (`POST /v1/projects/:id/plan/edit/propose`):
  * Validates browser-measured snapshots across the active window of each commented beat,
- * translates each comment (rules first, then model), and returns candidate `EditPatch`es
- * (or `{ refused: reason }`) plus `planVersion`. Nothing is saved.
+ * runs the rule-based translator for every comment first, admits at most one preview charge
+ * for the batch if any comment needs the model translator, then runs the model for those comments.
+ * Nothing is saved.
  */
 export async function proposeHyperFramesCommentEdits(
   project: VideoProject,
@@ -487,6 +518,7 @@ export async function proposeHyperFramesCommentEdits(
     translator?: CommentPatchTranslator;
     modelTranslator?: CommentPatchTranslator;
     modelOptions?: ModelTranslatorOptions;
+    admitBatch?: () => Promise<PreviewRefusal | null>;
   }
 ): Promise<ProposeEditResult> {
   if (!project.beatPlan) throw new Error("Generate the plan first.");
@@ -510,8 +542,14 @@ export async function proposeHyperFramesCommentEdits(
   const snapshotsMap = measuredObj.snapshots as Record<string, unknown>;
   const validBeatIds = new Set(project.beatPlan.beats.map((b) => b.id));
 
-  const candidates: ProposeCandidateItem[] = [];
+  const candidates: ProposeCandidateItem[] = new Array(input.comments.length);
+  const pendingModelItems: {
+    index: number;
+    id: string;
+    translateInput: CommentTranslationInput;
+  }[] = [];
 
+  // Pass 1: Validate every comment and its snapshots, and run the rule-based translator for every comment.
   for (let i = 0; i < input.comments.length; i++) {
     const rawComment = input.comments[i];
     if (!rawComment || typeof rawComment !== "object" || Array.isArray(rawComment)) {
@@ -569,60 +607,97 @@ export async function proposeHyperFramesCommentEdits(
           factor: rawFactor
         });
         if ("error" in hintCheck) {
-          candidates.push({ id, refused: hintCheck.error, source: "explicit" });
+          candidates[i] = { id, refused: hintCheck.error, source: "explicit" };
           continue;
         }
       }
       const validated = validateEditPatch(c.patch);
       if ("error" in validated) {
-        candidates.push({ id, refused: validated.error, source: "explicit" });
+        candidates[i] = { id, refused: validated.error, source: "explicit" };
         continue;
       }
       if (validated.patch.el && !isValidPlanElementId(validated.patch.el, validBeatIds)) {
-        candidates.push({
+        candidates[i] = {
           id,
           refused: `Element "${validated.patch.el}" does not exist in this plan.`,
           source: "explicit"
-        });
+        };
         continue;
       }
-      candidates.push({
+      candidates[i] = {
         id,
         patch: { ...validated.patch, scene: beat.id, atSeconds },
         source: "explicit"
-      });
+      };
       continue;
     }
 
     const bodyText = typeof c.body === "string" ? c.body.trim() : "";
     if (!bodyText) {
-      candidates.push({ id, refused: "Provide a comment or a patch." });
+      candidates[i] = { id, refused: "Provide a comment or a patch." };
       continue;
     }
 
-    try {
-      const translated = await translateCommentWithRulesThenModel(
-        {
-          comment: bodyText,
-          atSeconds,
-          scene: beat.id,
-          beat,
-          activeElements,
-          canvas: checkedCanvas.canvas
-        },
-        options
-      );
-      candidates.push({
-        id,
-        patch: translated.patch,
-        ...(translated.fallbackRewrite ? { fallbackRewrite: true } : {}),
-        source: translated.source
-      });
-    } catch (err) {
-      if (err instanceof EditRefusedError) {
-        candidates.push({ id, refused: err.message });
-      } else {
+    const translateInput: CommentTranslationInput = {
+      comment: bodyText,
+      atSeconds,
+      scene: beat.id,
+      beat,
+      activeElements,
+      canvas: checkedCanvas.canvas
+    };
+
+    if (!options?.translator) {
+      try {
+        const det = await translateCommentRulesOnly(translateInput);
+        if (det) {
+          candidates[i] = {
+            id,
+            patch: det.patch,
+            source: det.source
+          };
+          continue;
+        }
+      } catch (err) {
+        if (err instanceof EditRefusedError) {
+          candidates[i] = { id, refused: err.message };
+          continue;
+        }
         throw err;
+      }
+    }
+
+    pendingModelItems.push({ index: i, id, translateInput });
+  }
+
+  // Pass 2: If at least one comment needs the model translator, admit once for the batch, then run the model.
+  if (pendingModelItems.length > 0) {
+    const refusal = options?.admitBatch ? await options.admitBatch() : null;
+    if (refusal) {
+      for (const item of pendingModelItems) {
+        candidates[item.index] = {
+          id: item.id,
+          refused: refusal.error.message,
+          ...refusal
+        };
+      }
+    } else {
+      for (const item of pendingModelItems) {
+        try {
+          const translated = await translateCommentModelOnly(item.translateInput, options);
+          candidates[item.index] = {
+            id: item.id,
+            patch: translated.patch,
+            ...(translated.fallbackRewrite ? { fallbackRewrite: true } : {}),
+            source: translated.source
+          };
+        } catch (err) {
+          if (err instanceof EditRefusedError) {
+            candidates[item.index] = { id: item.id, refused: err.message };
+          } else {
+            throw err;
+          }
+        }
       }
     }
   }
