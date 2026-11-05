@@ -119,6 +119,30 @@ function resolveApiUrl(path: string, baseUrl?: string): string {
   return `${base}${normalizedPath}`;
 }
 
+/**
+ * Wraps `fetch` so calls to the app's own backend proxy (`/api/backend/...`, relative or on this page's origin) carry the
+ * signed-in user's bearer token, as `apiFetch` in `lib/api.ts` does for every other backend call. Any other URL (the
+ * presigned object-storage link of a bundle) is fetched untouched: an Authorization header there would break the presigned
+ * signature and trigger a CORS preflight the storage bucket does not allow.
+ */
+export function withBackendAuth(getToken: () => Promise<string | null | undefined>, baseFetch?: typeof fetch): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const doFetch = baseFetch ?? globalThis.fetch;
+    const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    let path = raw;
+    if (/^https?:\/\//i.test(raw)) {
+      const origin = typeof location !== "undefined" ? location.origin : undefined;
+      path = origin && raw.startsWith(origin + "/") ? raw.slice(origin.length) : "";
+    }
+    if (!path.startsWith("/api/backend/")) return doFetch(input, init);
+    const token = await getToken();
+    if (!token) return doFetch(input, init);
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    return doFetch(input, { ...init, headers });
+  }) as typeof fetch;
+}
+
 type BundleRouteResponse = {
   url: string;
   expiresAt: string;

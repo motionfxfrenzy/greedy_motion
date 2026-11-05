@@ -22,11 +22,20 @@ import {
   type FilmSceneSpec,
   type LivePlateScene,
   type PlayerDecision,
-  type SceneModeResolution
+  type SceneModeResolution,
+  withBackendAuth
 } from "../lib/live";
+import { createClient } from "../utils/supabase/client";
 import { AnimationPrep } from "./animation-workspace";
 
 const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+// Live-scene calls go through the app's backend proxy like every other API call, so they carry the user's token (apiFetch in
+// lib/api.ts does the same). Without it every bundle, check and clip request is refused with 401 wherever auth is on.
+const LIVE_API = {
+  baseUrl: "/api/backend",
+  fetch: withBackendAuth(async () => (await createClient().auth.getSession()).data.session?.access_token)
+};
 
 export type PlateLiveTelemetry = {
   framesRendered: number;
@@ -333,7 +342,7 @@ export function PlateLiveStage({
     const triggerClipRequest = async (variantId: string, bundleDigest: string | null | undefined, hasClip: boolean) => {
       if (!clipTrackerRef.current.shouldRequest(variantId, bundleDigest, hasClip)) return;
       if (!clipTrackerRef.current.begin(variantId, bundleDigest)) return;
-      const res = await requestClip(projectId, variantId, { baseUrl: "/api/backend" });
+      const res = await requestClip(projectId, variantId, LIVE_API);
       if (!mountedRef.current) return;
       if (res.status === "rendering") {
         clipTrackerRef.current.complete(variantId, bundleDigest, "rendering");
@@ -423,7 +432,7 @@ export function PlateLiveStage({
               env: envArg !== undefined ? environmentStatus(envArg) : environmentStatus()
             }
           },
-          { baseUrl: "/api/backend" }
+          LIVE_API
         );
 
         if (!mountedRef.current) return;
@@ -445,7 +454,7 @@ export function PlateLiveStage({
 
       void (async () => {
         try {
-          const b = await fetchBundle(projectId, v.variantId!, { baseUrl: "/api/backend" });
+          const b = await fetchBundle(projectId, v.variantId!, LIVE_API);
           if (!mountedRef.current) return;
           const resolvedKeys = bundleCacheKeys(v.variantId!, v.rev, b.bundleDigest);
           bundlesRef.current.set(resolvedKeys.exact, b);
@@ -458,6 +467,9 @@ export function PlateLiveStage({
           fetchingBundlesRef.current.delete(keys.exact);
           failedBundleKeysRef.current.add(keys.exact);
           bump();
+          // A bundle this page cannot load (route refused, storage unreachable, digest mismatch) never plays live, so ask for
+          // the scene's clip instead of leaving it waiting on a check that will not run.
+          if (mountedRef.current) await triggerClipRequest(v.variantId!, v.bundleDigest, v.hasClip);
         }
       })();
     });
