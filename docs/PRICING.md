@@ -51,7 +51,7 @@ Pro) and 2x (Pro to Studio). Annual billing is a Lemon Squeezy variant set up at
 
 Everything a video can cost, in the order a person meets it. **The price of the final render is worked out once, on the server
 (`GET /v1/projects/:id/render/quote`, `backend/src/render/quote.ts`), with the function the render charges with, and the page shows
-that figure**: what is on the button is what is taken. Before 2026-10-28 the page worked it out itself from a duration it had kept,
+that figure**: what is on the button is what is taken. For plate looks (`illus-*`), the length used by `planReadiness`, the quote, the composition route and the render charge is the rendered scene timeline from `plateFilmSeconds` (`backend/src/plates/inputs.ts`, `buildTimeline(...).totalFrames / FPS`, voiceover takes included); other looks keep the planner clock (`planTiming`). Before 2026-10-28 the page worked it out itself from a duration it had kept,
 and after a script edit changed the voiceover the button could say 25.8 tokens while the render took 26.1.
 
 | Step | What it costs the person | Our cost | When it is taken |
