@@ -1,11 +1,11 @@
 # Task for the coding agent: charge and quote a plate film by its real rendered length
 
-Owner decision, 2026-11-05 ("Charge real film length", option A). Work ONLY in the worktree `/Users/osamaehsaan/Code/Market_apps/VideoSaaS-billing` (branch `codex/billing-real-length`, cut from `codex/integrate`). Never touch other worktrees. Read the whole file first; do the steps in order; if a rule blocks you, stop that part and say so.
+Owner decision, 2026-11-05 ("Charge real film length", option A). Work ONLY in the worktree `/Users/osamaehsaan/Code/Market_apps/VideoSaaS-billing` (branch `codex/billing-real-length`, cut from `codex/integrate` at 8f435ad). Never touch other worktrees. Read the whole file first; do the steps in order; if a rule blocks you, stop that part and say so.
 
 ## Goal
 For plate looks (`brief.look` starting `illus-`) the render quote, the render charge and the length the storyboard shows must all equal the length of the film the export will actually produce: the sum of the scenes' frames from `buildTimeline` (voice takes included) divided by `FPS`. HyperFrames and every other look keep the planner clock (`planTiming`), unchanged.
 
-Why (evidence from the staging baseline, report `tools/staging/out/staging-baseline-1/report.json` on branch `codex/staging-smoke`): quote 12 s (planner clock scaled toward `target_duration_s`), film 18.00 s (6 scenes with a 3 s floor from `secondsFor`), so the render was undercharged (9.6 tokens instead of 11.4). `docs/PRICING.md` says the button price is what is taken, 6 tokens + 0.3 per finished second, each started second counted whole.
+Why (evidence from the staging baseline, report `tools/staging/out/staging-baseline-1/report.json` on branch `codex/staging-smoke`; now also under `tools/staging/` on this branch): quote 12 s (planner clock scaled toward `target_duration_s`), film 18.00 s (6 scenes with a 3 s floor from `secondsFor`), so the render was undercharged (9.6 tokens instead of 11.4). `docs/PRICING.md` says the button price is what is taken, 6 tokens + 0.3 per finished second, each started second counted whole.
 
 ## Read first
 - `backend/src/plates/model.ts` (`FPS` l.10, `secondsFor` l.280, `framesForSeconds` l.284, `takeFor` l.288, `buildTimeline` l.300), `backend/src/plates/inputs.ts` (`sceneFrames` l.16)
@@ -43,7 +43,7 @@ Everything else, in particular `backend/src/plates/model.ts`, `backend/src/plate
    c. a non-plate (HyperFrames/ordinary) storyboard: `planReadiness(...).durationSeconds` is byte-for-byte what it is on `codex/integrate` (assert a literal expected number computed from `planTiming` in the test, and that it is NOT changed by the plate rule);
    d. `plateFilmSeconds` returns `null` for a project with no script beats and does not throw for a project without `planAudio`;
    e. the composition route's `durationSeconds` equals the quote's source for a plate project (call the route handler the way other tests do, or assert through the same helper if the route cannot be called without a server; say which).
-   Database-backed assertions (Idempotency-Key still yields one job and one spend at the NEW price; failure refunds exactly that amount once) go in the same file following `plate-render-billing.mjs`, using a fresh database: create `plates_billing_test` (name must contain `test` to pass the guard the existing tests use) with `docker exec videosaas-local-postgres-1 createdb -U videosaas plates_billing_test`; never use `plates_unit`, `plates_rebundle` or `videosaas`. Do NOT start/stop/build any container or compose service; only that `createdb` and `dropdb` on your own database against the existing Postgres container are allowed (drop it at the end).
+   Database-backed assertions (Idempotency-Key still yields one job and one spend at the NEW price; failure refunds exactly that amount once) go in the same file following `plate-render-billing.mjs`, using a fresh database: create `plates_unit_billing_test` (name contains both `plates_unit` and `test` so it passes every existing guard) with `docker exec videosaas-local-postgres-1 createdb -U videosaas plates_unit_billing_test`; never use `plates_unit`, `plates_rebundle` or `videosaas`. Do NOT start/stop/build any container or compose service; only that `createdb` and `dropdb` on your own database against the existing Postgres container are allowed (drop it at the end).
 3. Implement `plateFilmSeconds`, the `readiness.ts` change and the composition route change. Re-run the new test until green.
 4. Update `docs/PRICING.md` minimally.
 5. Run all commands under "Tests" and record results. Write the report with: the exact diff summary (files, lines), before/after numbers for the 6-beat no-audio example (12 -> 18 s, 9.6 -> 11.4 tokens), the voice example, the non-plate unchanged proof, anything surprising (e.g. places that show film length from `projectTiming` that I did not list: grep `projectTiming(` and `durationSeconds` in `backend/src` and `frontend/` and list each use with a verdict), and open questions.
@@ -55,10 +55,10 @@ node --check src/plates/inputs.ts   # skip if node cannot check .ts; use the typ
 npm run typecheck                    # or the repo's backend typecheck script; find it in package.json, do not edit it
 node test/render-quote.mjs
 node test/plate-model.mjs
-DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_billing_test PLANNER=deterministic node --experimental-strip-types test/plate-film-length.mjs
-DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_billing_test PLANNER=deterministic node --experimental-strip-types test/plate-render-billing.mjs
-DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_billing_test PLANNER=deterministic node --experimental-strip-types test/plate-export-manifest.mjs
-DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_billing_test PLANNER=deterministic node --experimental-strip-types test/render-prep.mjs
+DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_unit_billing_test PLANNER=deterministic node --experimental-strip-types test/plate-film-length.mjs
+DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_unit_billing_test PLANNER=deterministic node --experimental-strip-types test/plate-render-billing.mjs
+DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_unit_billing_test PLANNER=deterministic node --experimental-strip-types test/plate-export-manifest.mjs
+DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_unit_billing_test PLANNER=deterministic node --experimental-strip-types test/render-prep.mjs
 ```
 If an existing test asserts the OLD plate duration, update only its expected number and say so loudly in the report (it is the intended change); any other existing failure: run it on a clean checkout of the base commit first, and report whether it already failed before your change.
 Also run the frontend typecheck only if you touched nothing in `frontend/` is false: you must not touch it, so skip it.
@@ -69,7 +69,7 @@ Also run the frontend typecheck only if you touched nothing in `frontend/` is fa
 3. Non-plate quotes unchanged (literal assertion), `render-quote.mjs`, `plate-model.mjs`, `plate-render-billing.mjs`, `plate-export-manifest.mjs`, `render-prep.mjs` pass (or fail identically on the base commit).
 4. `git diff --stat` touches only the allowed files; `secondsFor`, `buildTimeline`, `planTiming`, token constants and all frontend files are untouched (the manager will diff-check).
 5. Idempotency (one job, one spend at the new price) and refund-once behaviour proven by the DB test.
-6. `plates_billing_test` dropped at the end; no container touched.
+6. `plates_unit_billing_test` dropped at the end; no container touched.
 
 ## Forbidden actions
 No `git commit`, `git push`, `git reset`, `git stash`, `git checkout`, branch changes. No deploys. No secrets: do not read `.env*`, `infra/aws/.env*`, `*accessKeys*`, token files (including `.staging-test-token`). No staging, production, Railway, Vercel, AWS, Cloudflare, Supabase or any real model API; network only to `localhost`. No other worktrees. No Docker start/stop/build/compose commands and no use of the plates-e2e stack or ports 4100/4000/58787/59000; do not run Chrome or timing-sensitive tests (if you think you need either, stop and say so: that needs the locks `/Users/osamaehsaan/Code/Market_apps/.lock-plates-e2e` and `.lock-timing`, which you must not take). Do not touch the databases `plates_unit`, `plates_rebundle`, `plates_e2e`, `videosaas`.
