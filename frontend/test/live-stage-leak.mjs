@@ -105,6 +105,8 @@ window.Live = Live;
         fp169.showFrame(0);
         currentTime = 4.0;
         fp169.syncToClock(); // cross scene boundary 0 -> 1 (recycles scene 0 Worker)
+        // The film decides lazily (scene on screen + next); decide every scene so the count of live scenes is exact.
+        await Promise.all(fp169.scenes.map((sc) => sc.measure()));
         const mounted169 = snapCounts(fp169);
 
         // 2. Switch aspect to 9:16 (destroy old FilmPlayer, mount 9:16 FilmPlayer)
@@ -122,6 +124,7 @@ window.Live = Live;
           autoPump: false
         });
         await fp916.mount(stage);
+        await Promise.all(fp916.scenes.map((sc) => sc.measure()));
         const mounted916 = snapCounts(fp916);
 
         // 3. Switch aspect to 1:1 and test hot-reloading a revised scene via updateScene()
@@ -145,6 +148,7 @@ window.Live = Live;
           html: html11A,
           frames: 90
         });
+        await Promise.all(fp11.scenes.map((sc) => sc.measure()));
         const mounted11AfterUpdate = snapCounts(fp11);
 
         // 4. Unmount workspace (destroy FilmPlayer)

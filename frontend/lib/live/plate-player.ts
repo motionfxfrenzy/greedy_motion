@@ -18,7 +18,7 @@ import {
 } from "./predraw.ts";
 import { environmentStatus, resolveCacheBudgetBytes, supportsWorkerHost, type EnvironmentProbeInput } from "./support.ts";
 import type { PlayerDecision, PlayerEvent, PlayerMeta, ScenePlayer, SceneSpan } from "./types.ts";
-import { WorkerHost, type ImageBitmapLike, type WorkerHostOptions, type WorkerTransportFactory } from "./worker-host.ts";
+import { WorkerHost, type HostFrameResult, type ImageBitmapLike, type WorkerHostOptions, type WorkerTransportFactory } from "./worker-host.ts";
 
 /**
  * Live plate scene player and multi-scene film sequencer (docs/LIVE_SCENES_PLAN.md §5, §6, §10, §20; pre-draw: phase 3f).
@@ -182,6 +182,33 @@ function median(values: number[]): number {
   return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 }
 
+/**
+ * Page-wide draw accounting (phase 3f follow-up). Several Workers drawing at once share the CPU, so a draw timed while another
+ * one is in flight is *contended* and says little about how fast the scene is alone. `work.count` is the number of draws in
+ * flight on this page; sampling for the live/pre-draw/clip decision is serialised through `measureChain`.
+ */
+const work = { count: 0 };
+let measureChain: Promise<void> = Promise.resolve();
+
+/** Draws in flight on this page right now (all scenes). */
+export function activeDrawWork(): number {
+  return work.count;
+}
+
+function runExclusiveMeasure<T>(fn: () => Promise<T>): Promise<T> {
+  const run = measureChain.then(fn, fn);
+  measureChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+/** Draw samples kept per player for the measured cost. */
+const MAX_COST_SAMPLES = 9;
+/** Longest wait, ms, for the page to go quiet before re-measuring a contended scene alone. */
+const REMEASURE_IDLE_WAIT_MS = 8000;
+
 export class PlatePlayer implements ScenePlayer {
   readonly meta: PlayerMeta;
   readonly bundleDigest: string;
@@ -226,7 +253,12 @@ export class PlatePlayer implements ScenePlayer {
 
   private variant: "live" | "predraw" = "live";
   private plan: PredrawDecision | null = null;
-  private sampleMs = 0;
+  private aloneSamples: number[] = [];
+  private contendedSamples: number[] = [];
+  private isMeasured = false;
+  private measurePromise: Promise<void> | null = null;
+  private activateOnMeasure = false;
+  private measuringAnnounced = false;
   private active = false;
   private prefetchFrames = 0;
   private runNeeded = 0;
@@ -341,7 +373,7 @@ export class PlatePlayer implements ScenePlayer {
         if (!this.host || this.currentDecision.mode === "clip") {
           throw new Error("Player is in clip mode.");
         }
-        const res = await this.host.frame(sourceFrameForPreview(previewIdx, this.meta.frames, this.frameStep));
+        const res = await this.timedFrame(sourceFrameForPreview(previewIdx, this.meta.frames, this.frameStep));
         return { value: res.bitmap, bytes: res.bytes };
       },
       onError: (_scene, _frame, err) => {
@@ -441,15 +473,44 @@ export class PlatePlayer implements ScenePlayer {
     return this.currentDecision.mode === "clip";
   }
 
-  private measuredMs(): number {
-    return this.scheduler.drawn >= 3 && this.scheduler.cost > 0 ? this.scheduler.cost : this.sampleMs;
+  /** Draws one frame in the Worker, counting it in the page-wide work and timing it as alone or contended. */
+  private async timedFrame(sourceFrame: number): Promise<HostFrameResult> {
+    if (!this.host) throw new Error("No Worker host.");
+    const othersAtStart = work.count;
+    work.count++;
+    const t0 = this.nowMs();
+    let res: HostFrameResult;
+    let contended = othersAtStart > 0;
+    try {
+      res = await this.host.frame(sourceFrame);
+      if (work.count > 1) contended = true;
+    } finally {
+      work.count--;
+    }
+    // The Worker's own timing when it reports one (it is what the scene costs), else the wall time.
+    const ms = res.drawMs > 0 ? res.drawMs : this.nowMs() - t0;
+    const list = contended ? this.contendedSamples : this.aloneSamples;
+    list.push(ms);
+    if (list.length > MAX_COST_SAMPLES) list.shift();
+    return res;
+  }
+
+  /**
+   * The scene's draw cost: the median of recent draws made alone; only when there are none, the median of contended ones
+   * (a contended number overstates the cost, so it is never allowed to latch a fallback).
+   */
+  private measured(): { ms: number; contended: boolean } {
+    if (this.aloneSamples.length) return { ms: median(this.aloneSamples.slice(-5)), contended: false };
+    if (this.contendedSamples.length) return { ms: median(this.contendedSamples.slice(-5)), contended: true };
+    return { ms: 0, contended: false };
   }
 
   private decide(idx: number, extra: { elapsedSeconds?: number; readyAhead?: number; tolerance?: number } = {}): PredrawDecision {
-    return decidePredraw({
+    const m = this.measured();
+    const input = {
       previewFrames: this.previewFrames - idx,
       rate: this.previewFps,
-      avgDrawMs: this.measuredMs(),
+      avgDrawMs: m.ms,
       bytesPerFrame: this.previewSize.bytesPerFrame,
       budgetBytes: this.cache.budget,
       maxSeconds: this.maxPredrawSeconds,
@@ -457,7 +518,63 @@ export class PlatePlayer implements ScenePlayer {
       supported: this.envSupported,
       envStatus: this.envState,
       ...extra
-    });
+    };
+    const d = decidePredraw(input);
+    if (d.mode === "clip" && m.contended && d.reason.startsWith("predraw-")) {
+      // Too slow / too big *as measured while another scene was drawing*: not a reason to give the scene up for the whole page.
+      // Keep pre-drawing; the draws that follow are timed alone and the next assessment uses those.
+      return {
+        ...decidePredraw({ ...input, maxSeconds: Number.POSITIVE_INFINITY, budgetBytes: Number.MAX_SAFE_INTEGER }),
+        provisional: true
+      };
+    }
+    return d;
+  }
+
+  /** Waits (bounded) until no draw is in flight anywhere on the page. */
+  private async waitIdle(maxMs: number): Promise<boolean> {
+    const end = Date.now() + maxMs;
+    while (work.count > 0) {
+      if (this.isDestroyed || Date.now() > end) return false;
+      await new Promise<void>((r) => setTimeout(r, 25));
+    }
+    return true;
+  }
+
+  /** Draws `count` preview frames from `start` into the cache, timing each one. False when the Worker failed. */
+  private async sampleFrames(count: number, start: number): Promise<boolean> {
+    const host = this.host;
+    if (!host) return false;
+    let drawn = 0;
+    for (let k = start; k < Math.min(this.previewFrames, start + count); k++) {
+      if (this.isDestroyed || this.isClip()) return false;
+      try {
+        const res = await this.timedFrame(sourceFrameForPreview(k, this.meta.frames, this.frameStep));
+        this.cache.put(this.cacheKey, k, res.bitmap, res.bytes);
+        drawn++;
+      } catch {
+        if (host.unhealthy) {
+          this.switchToClip("worker-unhealthy");
+          return false;
+        }
+        break;
+      }
+    }
+    return drawn > 0 || start > 0;
+  }
+
+  /** Whether the live / pre-draw / clip decision for this scene has been made. */
+  get measuredYet(): boolean {
+    return this.isMeasured;
+  }
+
+  /**
+   * Decides how the scene plays: starts its Worker and draws the first preview frames, one scene at a time page-wide. Idempotent.
+   * A measurement taken while another scene was drawing never latches a fallback: it is repeated alone first.
+   */
+  measure(): Promise<void> {
+    if (!this.measurePromise) this.measurePromise = this.doMeasure();
+    return this.measurePromise;
   }
 
   /** Consecutive cached preview frames from `idx`. */
@@ -465,7 +582,7 @@ export class PlatePlayer implements ScenePlayer {
     return contiguousFrom(this.cache.frameIndices(this.cacheKey), idx);
   }
 
-  async mount(el: HTMLElement, options?: { active?: boolean }): Promise<void> {
+  async mount(el: HTMLElement, options?: { active?: boolean; deferMeasure?: boolean }): Promise<void> {
     if (this.isDestroyed) throw new Error("Player has been destroyed.");
     this.container = el;
     const isActive = options?.active ?? true;
@@ -492,43 +609,54 @@ export class PlatePlayer implements ScenePlayer {
       return;
     }
 
-    try {
-      await this.host.init({ scale: this.previewSize.scale, params: this.params });
-    } catch (err) {
-      this.switchToClip(
-        this.host.unhealthy ? "worker-unhealthy" : `init-failed:${err instanceof Error ? err.message : String(err)}`
-      );
-      return;
-    }
+    if (options?.deferMeasure) return; // the film decides lazily: active scene and next only
+    this.activateOnMeasure = isActive;
+    await this.measure();
+  }
 
-    // Draw the first preview frames to measure the draw cost before deciding how the scene plays.
-    const samplesToDraw = Math.min(this.gateSampleFrames, this.previewFrames);
-    const samples: number[] = [];
+  private async doMeasure(): Promise<void> {
+    const host = this.host;
+    if (!host || !this.envSupported || this.isDestroyed || this.isClip()) return;
 
-    for (let k = 0; k < samplesToDraw; k++) {
-      if (this.isDestroyed || this.currentDecision.mode === "clip") return;
+    const ok = await runExclusiveMeasure(async () => {
+      if (this.isDestroyed || this.isClip()) return false;
       try {
-        const res = await this.host.frame(sourceFrameForPreview(k, this.meta.frames, this.frameStep));
-        this.cache.put(this.cacheKey, k, res.bitmap, res.bytes);
-        samples.push(res.drawMs);
-      } catch {
-        if (this.host.unhealthy) {
-          this.switchToClip("worker-unhealthy");
-          return;
-        }
-        break;
+        await host.init({ scale: this.previewSize.scale, params: this.params });
+      } catch (err) {
+        this.switchToClip(host.unhealthy ? "worker-unhealthy" : `init-failed:${err instanceof Error ? err.message : String(err)}`);
+        return false;
       }
-    }
+      // Draw the first preview frames to measure the draw cost before deciding how the scene plays.
+      return this.sampleFrames(Math.min(this.gateSampleFrames, this.previewFrames), 0);
+    });
+    if (!ok || this.isDestroyed || this.isClip()) return;
 
-    if (this.host.unhealthy || samples.length === 0) {
+    if (host.unhealthy || (this.aloneSamples.length === 0 && this.contendedSamples.length === 0)) {
       this.switchToClip("worker-unhealthy");
       return;
     }
 
-    // The median, not the mean: the first frame of a scene also pays for warming up its Worker.
-    this.sampleMs = median(samples);
-    const plan = this.decide(0);
+    let plan = this.decide(0);
+    if (plan.provisional) {
+      // Measured while another scene was drawing and it looked too slow: wait for a quiet moment and measure once alone.
+      await this.waitIdle(REMEASURE_IDLE_WAIT_MS);
+      if (this.isDestroyed || this.isClip()) return;
+      await runExclusiveMeasure(async () => {
+        await this.waitIdle(1000);
+        return this.sampleFrames(Math.min(3, Math.max(0, this.previewFrames - 3)), 3);
+      });
+      if (this.isDestroyed || this.isClip()) return;
+      plan = this.decide(0);
+    }
+    if (plan.mode === "clip" && plan.reason.startsWith("predraw-too-slow")) {
+      // A fallback is final for the page, so confirm it once with fresh draws (a noisy first sample must not decide it).
+      await this.waitIdle(1000);
+      await runExclusiveMeasure(() => this.sampleFrames(Math.min(3, Math.max(0, this.previewFrames - 6)), 6));
+      if (this.isDestroyed || this.isClip()) return;
+      plan = this.decide(0);
+    }
     this.plan = plan;
+    this.isMeasured = true;
 
     if (plan.mode === "clip") {
       this.switchToClip(plan.reason);
@@ -540,11 +668,11 @@ export class PlatePlayer implements ScenePlayer {
     this.publish({ reason: this.variant === "predraw" ? "predraw" : plan.reason });
 
     // Blit frame 0 immediately if available.
-    if (this.cache.has(this.cacheKey, 0)) {
+    if (this.cache.has(this.cacheKey, 0) && this.lastShownFrame === null) {
       this.blitFrame(0);
     }
 
-    if (!isActive) {
+    if (!this.activateOnMeasure && !this.active) {
       if (!this.readyEmitted) {
         this.readyEmitted = true;
         this.emit("ready", { neededFrames: plan.neededFrames, waitSeconds: plan.waitSeconds });
@@ -554,8 +682,8 @@ export class PlatePlayer implements ScenePlayer {
 
     this.active = true;
     if (this.variant === "predraw") {
-      this.lastTarget = 0;
-      this.beginPrepare(0);
+      this.lastTarget = this.currentFrame;
+      this.beginPrepare(this.currentFrame);
       if (this.autoPump && !this.isDestroyed && this.currentDecision.mode === "live") {
         void this.pumpScheduler();
       }
@@ -810,6 +938,17 @@ export class PlatePlayer implements ScenePlayer {
   showFrame(frame: number): void {
     if (this.isDestroyed || this.currentDecision.mode === "clip") return;
     const idx = previewIndexForFrame(frame, this.meta.frames, this.frameStep);
+    if (!this.isMeasured && this.host && this.envSupported) {
+      // Not decided yet (the film decides lazily): decide now, and hold the clock with a "preparing" state meanwhile.
+      this.currentFrame = idx;
+      this.active = true;
+      void this.measure();
+      if (!this.measuringAnnounced) {
+        this.measuringAnnounced = true;
+        this.publish({ reason: "predraw", progress: 0 });
+      }
+      return;
+    }
     const wasActive = this.active;
     this.active = true;
     if (!wasActive && this.scheduler.isPaused) this.scheduler.resume();
@@ -1131,19 +1270,24 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     async mount(el: HTMLElement): Promise<void> {
       if (destroyed) throw new Error("FilmPlayer has been destroyed.");
       mountedEl = el;
+      // Canvases and Workers only: no scene is sampled yet. Only the scene on screen and the next one are ever decided, one at a
+      // time, so a scene further away does no work and a measurement never competes with three others.
       for (let i = 0; i < players.length; i++) {
         const p = players[i]!;
         if (destroyed) return;
-        await p.mount(el, { active: false });
+        await p.mount(el, { active: false, deferMeasure: true });
         if (destroyed) {
           p.destroy();
           return;
         }
       }
       updateCanvasVisibility();
+      const f = frameAt(clock.now(), fps, totalFrames);
+      const first = sceneForGlobalFrame(f).sceneIndex;
+      await players[first]?.measure().catch(() => {});
+      if (destroyed) return;
       const activePlayer = players[activeIdx];
       if (activePlayer && !destroyed) {
-        const f = frameAt(clock.now(), fps, totalFrames);
         this.showFrame(f);
       }
       emit("ready");
@@ -1160,11 +1304,13 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       players[sceneIndex] = nextPlayer;
       sharedCache.setOrder(players.map((p) => p.cacheKey));
       if (mountedEl && !destroyed) {
-        await nextPlayer.mount(mountedEl, { active: false });
+        await nextPlayer.mount(mountedEl, { active: false, deferMeasure: true });
         if (destroyed) {
           nextPlayer.destroy();
           return;
         }
+        if (sceneIndex === activeIdx) await nextPlayer.measure().catch(() => {});
+        if (destroyed) return;
         updateCanvasVisibility();
         if (sceneIndex === activeIdx) {
           const f = frameAt(clock.now(), fps, totalFrames);
@@ -1193,10 +1339,15 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
 
       // Pipeline: while this scene plays (or plays as its clip), pre-draw the next one with the bytes this one does not need.
       // One scene at a time, so only one extra Worker ever draws.
-      if (next && next.decision().mode === "live" && !current.isPreparing) {
-        const bpf = preview.bytesPerFrame;
-        const spare = budgetBytes - current.reservedBytes() - 2 * bpf;
-        next.prefetch(Math.floor(spare / bpf));
+      // The next scene is decided here too (it was not at mount), once the current one is decided and not busy preparing.
+      if (next && !current.isPreparing && (current.measuredYet || current.decision().mode === "clip")) {
+        if (!next.measuredYet) {
+          void next.measure().catch(() => {});
+        } else if (next.decision().mode === "live") {
+          const bpf = preview.bytesPerFrame;
+          const spare = budgetBytes - current.reservedBytes() - 2 * bpf;
+          next.prefetch(Math.floor(spare / bpf));
+        }
       }
     },
     syncToClock(): void {

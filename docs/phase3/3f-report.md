@@ -81,3 +81,36 @@ Changed existing tests (`live-plate-player.mjs`):
 - Changed by the manager: the "next scene started pre-drawing" assertion in `live-predraw-chrome.mjs` failed inside the full parallel suite (a dozen headless Chromes, no spare CPU for the head start; correctness assertions all held). It is now a diagnostic, hard only with `PREDRAW_STRICT=1`; strict mode passes when the file runs alone.
 - Finding for a follow-up: draw time is independent of resolution (150 ms at 854x480, 149 ms at 480x270 for scene 0), so the cost is fixed per-frame work in the scene/engine code (likely texture and stroke regeneration each frame), not pixels. Caching static layers in the plate engine is the next lever.
 - Risk: scene 1 predicts 17.6 s against the 20 s limit on an M1 Pro; slower machines will send scenes like it to the clip.
+
+## 3f follow-up: contended measurement no longer sends scenes to the MP4
+
+Cause (from the staging run): sample draws made while other Workers were drawing were timed under a shared CPU, predicted 3-4x too long a wait, and the terminal fallback latch made that final for the page.
+
+Changes (`frontend/lib/live/plate-player.ts`, `predraw.ts`):
+1. **One measurement at a time.** Sampling runs through a page-wide queue (`runExclusiveMeasure`). Every draw is counted in a page-wide in-flight counter (`activeDrawWork()`); a draw made while another is in flight is tagged *contended* and kept apart from draws made alone. The cost used for decisions is the median of recent *alone* draws; only when there are none does it fall back to the contended median.
+2. **Lazy decisions.** `FilmPlayer.mount` only creates canvases and idle Workers (`mount(el, { deferMeasure: true })`, no init, no drawing) and decides the scene on screen. The next scene is decided (and then pre-drawn) from `showFrame` once the current one is decided and not preparing. Scenes further away do no work and have no decision until they become next. Seeking to an undecided scene calls `measure()` and shows the preparing state (progress 0) until it is decided. `updateScene` follows the same rule.
+3. **No terminal fallback from a contended number.** If the only data are contended and the decision would be `predraw-too-slow` or `predraw-over-budget`, the scene is kept as a provisional pre-draw (`PredrawDecision.provisional`), the page is waited on for a quiet moment (up to 8 s) and the scene is re-measured once alone; if the page never goes quiet it still pre-draws and the in-flight re-assessment (which uses alone draws) decides. Unsupported / unhealthy / alone-measured decisions are unchanged. I also added one confirmation round of three fresh draws before an alone-measured `predraw-too-slow` is latched, since a fallback is final for the page and a single noisy sample (a 791 ms outlier showed up on this busy machine) should not decide it.
+4. Sample timing uses the Worker's own `drawMs` when it reports one, else wall time.
+
+Tests:
+- New in `test/live-predraw.mjs`: (a) four slow-but-acceptable scenes (190 ms alone; draw cost scales with draws in flight) mounted at the same moment: sampling is serialised, every scene gets the alone plan L=57, none falls back (this is the staging scenario); (b) a four-scene film: only the active scene is decided at mount, scenes two and three do zero drawing until they become next, the next scene ends with its alone numbers although it was first timed on a shared CPU, and a full play-through produces no clip decision.
+- `test/live-stage-leak.mjs`: the exact "2 Workers for 2 live scenes" count now first decides every scene (`measure()`), because the film no longer spawns work for undecided scenes.
+- `test/live-predraw-chrome.mjs`: harness holds the clock while a scene is undecided or preparing (as the stage does); logs the alone/contended samples and final decisions per scene; "scene must stay live" is hard with `PREDRAW_STRICT=1`, a diagnostic otherwise (under the full parallel suite the machine is genuinely too slow for scene 0-1 and they fall back legitimately); correctness assertions (zero wrong frames, zero stalls, bytes within budget, frames closed, nothing open after destroy) stay hard.
+- Typecheck clean. Full suite: 191 tests (189 + the 2 new); all pass except the two warm-server / load-sensitive headless tests in the parallel run (FinalView interaction, which times out cold as before and passes alone; the crayon Chrome test whose only failing assertion in that run was the new final-decision check, now diagnostic outside strict mode). Run alone: crayon test passes with `PREDRAW_STRICT=1`, `live-stage-leak` passes 3/3, FinalView interaction passes.
+
+Crayon play-through again (strict, alone, machine load average about 8 from other agents): all four scenes pre-draw or play live, none falls back.
+
+| scene | decision | L | predicted W | measured wait | stalls / wrong |
+|---|---|---|---|---|---|
+| 0 | pre-draw | 36 | 6.3 s | 5.4 s | 0 / 0 |
+| 1 | pre-draw | 66 | 19.1 s | 15.7 s | 0 / 0 |
+| 2 | pre-draw | 58 | 11.5 s | 7.0 s | 0 / 0 |
+| 3 | live | 8 | 0.3 s | none | 0 / 0 |
+
+Peak tracked bytes 69,120,000 of 167,772,160; every played frame closed on leaving each scene; 0 open after destroy; next-scene head start 7 / 22 / 8 frames. Mount time dropped to about 1.0-1.2 s (only the first scene is sampled) from about 4.5 s.
+
+Known limits: scene 1 predicts 19 s against the 20 s limit, so a genuinely slower machine (or a busy one, as seen under the full suite) still sends it to its clip, now only after an alone measurement and a confirmation round; the "never latch under contention" rule covers contention inside this page, not other applications competing for the CPU.
+
+### Manager verification of the follow-up (2026-11-05)
+- Typecheck clean; live unit suites 50/50 (`live-predraw`, `live-stage-leak`, `live-plate-player`, `live-stage-logic`, `live-scheduler`, `live-cache`).
+- Strict crayon Chrome run (`PREDRAW_STRICT=1`, alone) with the machine at load average ~12 (another agent running tests and Docker): first run failed, second passed. Passing run: mount 1.0 s; scene 0 pre-draw L=38 W=7.2 s (waited 5.7 s), scene 1 L=67 W=19.9 s (17.1 s), scene 2 L=62 W=14.4 s (8.1 s), scene 3 live; 0 stalls, 0 wrong frames, peak 69 MB of 168 MB, all frames closed. The failing run is consistent with scene 1 sitting at the 20 s limit on a loaded machine (a legitimate fallback, not a correctness failure).

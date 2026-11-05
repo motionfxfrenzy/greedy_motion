@@ -103,7 +103,7 @@ test("crayon scenes at the preview defaults: pre-draw, play without wrong frames
           film.syncToClock();
           continue;
         }
-        if (p.isPreparing) {
+        if (p.isPreparing || !p.measuredYet) {
           if (prepStart[idx] === undefined) prepStart[idx] = now;
           film.syncToClock();
         } else {
@@ -133,17 +133,25 @@ test("crayon scenes at the preview defaults: pre-draw, play without wrong frames
           prevActive = act;
         }
       }
+      const samples = film.scenes.map((q) => ({ alone: q.aloneSamples.map(Math.round), contended: q.contendedSamples.map(Math.round), reason: q.decision().reason }));
+      const finalDecisions = film.scenes.map((q, i) => ({ scene: i, mode: q.decision().mode, reason: q.decision().reason, variant: q.playbackVariant, L: q.predrawPlan?.neededFrames ?? null, W: q.predrawPlan ? Math.round(q.predrawPlan.waitSeconds * 10) / 10 : null }));
       const peak = { cacheBytes: peakCacheBytes, hostBytes: peakHostBytes, budget };
       const openBeforeDestroy = bitmaps.filter((b) => !b.__closed).length;
       film.destroy();
       const openAfterDestroy = bitmaps.filter((b) => !b.__closed).length;
-      return { mountMs: Math.round(mountMs), decisions, per, peak, openBeforeDestroy, openAfterDestroy, drawn: bitmaps.length, totalSeconds: total };
+      return { mountMs: Math.round(mountMs), samples, finalDecisions, decisions, per, peak, openBeforeDestroy, openAfterDestroy, drawn: bitmaps.length, totalSeconds: total };
     }, scenes.map((s) => ({ digest: s.meta.bundleDigest, frames: s.meta.manifest.frames })));
 
     writeFileSync(join(HERE, "../../tools/phase3/3f-chrome-run.json"), JSON.stringify(report, null, 1));
     t.diagnostic(JSON.stringify(report));
     console.log("PREDRAW CHROME REPORT", JSON.stringify(report, null, 1));
 
+    // With the machine busy (the full parallel suite) a scene can truly be too slow *alone*, which is a legitimate fallback, so
+    // this is a diagnostic there; hard when the file runs alone with PREDRAW_STRICT=1.
+    for (const d of report.finalDecisions) {
+      if (process.env.PREDRAW_STRICT === "1") assert.equal(d.mode, "live", `scene ${d.scene} fell back: ${d.reason}`);
+      else if (d.mode !== "live") t.diagnostic(`scene ${d.scene} fell back (machine busy?): ${d.reason}`);
+    }
     for (const d of report.decisions) {
       assert.ok(["live", "clip"].includes(d.mode));
       if (d.mode === "clip") assert.match(d.reason, /^predraw-(too-slow|over-budget)|worker-unhealthy/, `scene ${d.scene} clip reason`);

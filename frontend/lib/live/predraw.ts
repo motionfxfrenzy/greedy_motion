@@ -114,6 +114,8 @@ export type PredrawDecision = {
   bytesNeeded: number;
   /** Frames the byte budget can hold. */
   budgetFrames: number;
+  /** The numbers came from draws made while another scene was drawing, so no fallback was decided on them. */
+  provisional?: boolean;
 };
 
 /**

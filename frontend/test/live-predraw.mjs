@@ -14,7 +14,7 @@ import {
   readPredrawMaxSeconds,
   sourceFrameForPreview
 } from "../lib/live/predraw.ts";
-import { PlatePlayer, createFilmPlayer, previewSizeForAspect } from "../lib/live/plate-player.ts";
+import { PlatePlayer, activeDrawWork, createFilmPlayer, previewSizeForAspect } from "../lib/live/plate-player.ts";
 
 const MB = 1024 * 1024;
 const BPF = 640 * 360 * 4;
@@ -329,4 +329,107 @@ test("film pipeline: while scene 0 plays, scene 1 pre-draws within the spare byt
   assert.ok(film.cache.bytes <= budget);
   film.destroy();
   assert.ok(bitmaps.every((b) => b.closed));
+});
+
+/** Transport whose cost is `ms` times the draws in flight on the page (CPU shared), counting draws per scene tag in the html. */
+function sharedCpuTransport(clock, base, counts) {
+  return async (workerSource) => {
+    const tag = /\/\*scene-(\d)\*\//.exec(workerSource)?.[1] ?? "?";
+    const port = {
+      onmessage: null,
+      postMessage(msg) {
+        if (msg.t === "init") port.onmessage?.({ data: { t: "init", id: msg.id, w: 640, h: 360, meta: { fps: 30, durationFrames: 150 } } });
+        else if (msg.t === "hb") port.onmessage?.({ data: { t: "hb", id: msg.id } });
+        else if (msg.t === "frame") {
+          counts[tag] = (counts[tag] ?? 0) + 1;
+          const d = base * Math.max(1, activeDrawWork());
+          clock.t += d;
+          const bm = { width: 640, height: 360, frameIndex: msg.n, close() {} };
+          port.onmessage?.({ data: { t: "frame", id: msg.id, n: msg.n, bitmap: bm, drawMs: d } });
+        }
+      }
+    };
+    return { port, terminate() {} };
+  };
+}
+
+async function until(cond, ms = 15000) {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error("condition not reached");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+test("four slow-but-acceptable scenes mounted together: sampling is one at a time, none falls back (the staging failure)", async () => {
+  const clock = { t: 0 };
+  const counts = {};
+  const players = [0, 1, 2, 3].map(
+    (i) =>
+      new PlatePlayer({
+        id: `s${i}`,
+        bundleDigest: `quad-${i}`,
+        html: `<script>/*scene-${i}*/window.FILM={};</script>`,
+        frames: 150,
+        transportFactory: sharedCpuTransport(clock, 190, counts),
+        now: () => clock.t
+      })
+  );
+  // mounted at the same moment, as the stage does when several bundles arrive together
+  await Promise.all(players.map((p) => p.mount(fakeElement(), { active: false })));
+  for (const p of players) {
+    assert.equal(p.decision().mode, "live", `${p.decision().reason}`);
+    assert.equal(p.playbackVariant, "predraw");
+    assert.equal(p.predrawPlan.neededFrames, 57, "each scene was timed alone: 190 ms, not 190 ms x scenes");
+    assert.ok(p.predrawPlan.waitSeconds < 20);
+    assert.equal(p.predrawPlan.provisional, undefined);
+  }
+  players.forEach((p) => p.destroy());
+});
+
+test("film decides lazily (active + next only) and a contended measurement never falls back", async () => {
+  const clock = { t: 0 };
+  const counts = {};
+  let timeSec = 0;
+  const film = createFilmPlayer({
+    scenes: [0, 1, 2, 3].map((i) => ({ id: `s${i}`, bundleDigest: `lazy-${i}`, html: `<script>/*scene-${i}*/window.FILM={};</script>`, frames: 150 })),
+    fps: 30,
+    timeSource: { currentTime: () => timeSec, playing: () => true },
+    transportFactory: sharedCpuTransport(clock, 190, counts),
+    now: () => clock.t
+  });
+  const modes = [];
+  film.on("mode", (e) => modes.push(e));
+  const [s0, s1, s2, s3] = film.scenes;
+  await film.mount(fakeElement());
+  assert.equal(s0.measuredYet, true, "the scene on screen is decided before the film shows");
+  assert.equal(s2.measuredYet, false);
+  assert.equal(s3.measuredYet, false);
+  assert.equal(counts["2"] ?? 0, 0, "a scene two away does no drawing");
+  assert.equal(counts["3"] ?? 0, 0);
+
+  // scene 0 pre-draws; once it plays, scene 1 is decided and pre-drawn while scene 0 is still drawing (shared CPU)
+  await until(() => !s0.isPreparing && !s0.isPumping);
+  film.showFrame(0);
+  await until(() => s1.measuredYet);
+  assert.equal(s1.decision().mode, "live", s1.decision().reason);
+  assert.equal(counts["2"] ?? 0, 0, "still nothing for scene 2");
+  assert.equal(s1.predrawPlan.neededFrames, 57, "scene 1 ends up with its alone numbers, not the shared-CPU ones");
+
+  // play through all four scenes; the clock holds while the active scene prepares
+  let guard = 0;
+  while (timeSec < 19.9 && guard++ < 20000) {
+    film.syncToClock();
+    const a = film.scenes[film.activeSceneIndex];
+    if (a.decision().mode === "clip") break;
+    if (!a.isPreparing && a.measuredYet) timeSec += 1 / 30;
+    await new Promise((r) => setImmediate(r));
+    if (guard % 50 === 0) await new Promise((r) => setTimeout(r, 1));
+  }
+  assert.ok(timeSec >= 19.9, `played to the end (t=${timeSec.toFixed(2)})`);
+  for (const [i, p] of film.scenes.entries()) {
+    assert.equal(p.decision().mode, "live", `scene ${i} must not fall back: ${p.decision().reason}`);
+  }
+  assert.equal(modes.filter((m) => m.mode === "clip").length, 0);
+  film.destroy();
 });
