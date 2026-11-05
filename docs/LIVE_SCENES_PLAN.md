@@ -475,7 +475,7 @@ One UI, one set of behaviours the user sees; each engine does whatever it needs 
 | Voice, music, captions | engine settings through the plan | plan patch, then composition reload |
 | Final render | CPU worker draws the frozen scene code | the existing HyperFrames render |
 
-**Optional extras** (shown only when an engine supports them, never disabled): caption style, size, colour, opacity, position, SFX and transitions switches. Plates have them today; HyperFrames gains them in phase 3d if wanted. They are not part of the contract: a film without them is fully usable.
+**Optional extras** (shown only when an engine supports them, never disabled): caption style, size, colour, opacity, position, SFX and transitions switches. Plates have them today; HyperFrames gains them in phase 3d if wanted. Conversely, final-render **motion blur** (`motionBlur` capability, default `true`, `false` in `plateOptionsConfig`) is shown in the workspace options bar for HyperFrames (up to 20 s; disabled with the length explanation above 20 s) and hidden for plate films, whose renderer ignores `motionBlur` and skips the server/storyboard 20 s length check (decided by the product owner, 2026-11-06). They are not part of the contract: a film without them is fully usable.
 
 ## 23. Element and scene edits (deferred until all phases are done)
 

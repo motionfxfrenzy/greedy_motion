@@ -25,6 +25,8 @@ import {
   groupCommentsByScene,
   hfAvailableAudioTracks,
   hfOptionsConfig,
+  isPlateLookId,
+  plateOptionsConfig,
   sceneSpansFromBeatTimes,
   sortWorkspaceComments,
   toggleAudioTrackMode,
@@ -32,6 +34,7 @@ import {
   type WorkspaceAspect,
   type WorkspaceAspectOption,
   type WorkspaceComment,
+  type WorkspaceMotionBlurControlState,
   type WorkspaceSceneTab,
   type WorkspaceSubtitleMode,
   type WorkspaceSubtitleStyle
@@ -237,6 +240,9 @@ export function BrowserAnimationStep({
   animError,
   animVersion,
   busy,
+  motionBlur,
+  setMotionBlur,
+  durationSeconds,
   onRetryAnimate,
   onBackToStoryboard,
   onStartFinalRender,
@@ -253,6 +259,9 @@ export function BrowserAnimationStep({
   animError: string | null;
   animVersion: number;
   busy: boolean;
+  motionBlur?: boolean;
+  setMotionBlur?: (on: boolean) => void;
+  durationSeconds?: number;
   onRetryAnimate: () => void;
   onBackToStoryboard: () => void;
   onStartFinalRender: () => void;
@@ -300,6 +309,11 @@ export function BrowserAnimationStep({
   const [balance, setBalance] = useState<number | null>(null);
   const [buyingTokens, setBuyingTokens] = useState(false);
   const [localVersion, setLocalVersion] = useState(0);
+  const [localMotionBlur, setLocalMotionBlur] = useState(false);
+
+  const effectiveMotionBlur = motionBlur ?? localMotionBlur;
+  const effectiveSetMotionBlur = setMotionBlur ?? setLocalMotionBlur;
+  const effectiveDuration = durationSeconds ?? duration;
 
   const defaultAspect = (
     aspect === "9:16" || aspect === "1:1" || aspect === "16:9"
@@ -869,9 +883,27 @@ export function BrowserAnimationStep({
     [project, compAudio]
   );
 
+  const isPlate = isPlateLookId(project.brief?.look);
+
+  const motionBlurControls: WorkspaceMotionBlurControlState | undefined = useMemo(
+    () =>
+      isPlate
+        ? undefined
+        : {
+            enabled: effectiveMotionBlur,
+            disabled: busy,
+            durationSeconds: effectiveDuration,
+            onToggle: effectiveSetMotionBlur
+          },
+    [isPlate, effectiveMotionBlur, busy, effectiveDuration, effectiveSetMotionBlur]
+  );
+
   const optionsConfig = useMemo(
-    () => hfOptionsConfig(availableAudio),
-    [availableAudio]
+    () =>
+      isPlate
+        ? { ...hfOptionsConfig(availableAudio), ...plateOptionsConfig(project.brief?.look) }
+        : { ...hfOptionsConfig(availableAudio), motionBlurControls },
+    [availableAudio, isPlate, project.brief?.look, motionBlurControls]
   );
 
   const audioToggles = useMemo(
@@ -1027,6 +1059,7 @@ export function BrowserAnimationStep({
         }}
         errors={errors}
         optionsConfig={optionsConfig}
+        motionBlurControls={motionBlurControls}
         audioControls={{
           voice: audioToggles.voice,
           music: audioToggles.music,

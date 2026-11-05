@@ -60,7 +60,7 @@ and after a script edit changed the voiceover the button could say 25.8 tokens w
 | Changes after the first version | 3 included per film, then **2 tokens** each | $0.09 to $0.14 | when asked; given back on failure or no change |
 | Generated scenes (clay, paper, footage, 3D) | **3 x provider cost**: 26.1 tokens a scene, paid plans only | $0.87 a scene | when generation is queued; resumed runs pay only what is not yet paid |
 | **Final render** | **6 tokens + 0.3 per finished second**, each started second counts | about $0.02 render plus the film's making | at Render, before anything is built; returned if the film cannot start |
-| Watermark, resolution, motion blur, Pro editor | no token cost (watermark is Free only; the Pro editor is a plan feature; blur is several times the render time, about $0.02 to $0.1 of worker time, not charged) | | |
+| Watermark, resolution, motion blur, Pro editor | no token cost (watermark is Free only; the Pro editor is a plan feature; blur is several times the render time, about $0.02 to $0.1 of worker time, not charged; available for HyperFrames films up to 20 s and hidden/ignored for plate films without blocking submission — owner decision, 2026-11-06) | | |
 
 Worked example, the measured Binary Search film: the voiceover runs 66.5 s, so the render is charged for 67 s: 6 + 67 x 0.3 = **26.1
 tokens**, $2.61 at list, $2.24 at the Starter rate. A 30 s film is 15 tokens, a 90 s film 33. The same film in a generated style adds

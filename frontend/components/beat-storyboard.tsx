@@ -7,6 +7,7 @@ import { BEAT_LIMITS, beatPlanProblems, renderCostMillitokens, scenesFor, textEf
 import { useMediaToken } from "../lib/use-media-token";
 import { rewriteFrame, editPlan, ensureMediaToken, generatePlanAudio, getComposition, getMyTokens, PlanProblems, projectScreenshotUrl, startCheckout, type Composition, type PlanAudioStatus, type PlanPatch } from "../lib/api";
 import { MaterialGeneration } from "./material-generation";
+import { plateOptionsConfig, resolveVisibleOptions } from "./animation-workspace/logic";
 
 /** What Submit will charge (the server prices the same length) against the balance, with a way to top up before, not after, a refusal. */
 export function RenderCost({ seconds }: { seconds: number }) {
@@ -332,6 +333,8 @@ export function BeatStoryboardStep({ approvedFrames, project, look, warnings, bu
   const activeBeat = plan.beats.find((beat) => beat.id === active) ?? plan.beats[0];
   const openSuggestions = plan.suggestions.map((item, index) => ({ item, index })).filter(({ item }) => item.accepted === null);
   const blockingCount = new Set([...localProblems, ...(readiness?.blocking ?? []).map((item) => item.message)]).size;
+  const plateLook = Boolean(project.brief?.look?.startsWith("illus-"));
+  const visibleOptions = resolveVisibleOptions(plateLook ? plateOptionsConfig() : undefined);
 
   return <div className="beat-storyboard">
     <MaterialGeneration project={project} onReady={loadComposition} />
@@ -391,7 +394,7 @@ export function BeatStoryboardStep({ approvedFrames, project, look, warnings, bu
           </div></section>}
         <div className="bs-submit">
           {blockingCount > 0 && <div className="bs-blocking" role="alert"><p>{blockingCount === 1 ? "1 rule is broken." : `${blockingCount} rules are broken.`} Fix {blockingCount === 1 ? "it" : "them"} to submit:</p><ul>{[...new Set([...localProblems, ...(readiness?.blocking ?? []).map((item) => item.message.replace(NOTE_BEAT, ""))])].map((message) => <li key={message}>{message}</li>)}</ul></div>}
-          {(() => { const tooLong = motionBlurProblem(lengthSeconds); return (
+          {visibleOptions.motionBlur && (() => { const tooLong = motionBlurProblem(lengthSeconds); return (
             <label className="bs-blur"><input type="checkbox" checked={motionBlur && !tooLong} disabled={busy || Boolean(tooLong)} onChange={(event) => setMotionBlur(event.target.checked)} /><span><b>{motionBlurCopy.label}</b><small>{tooLong ?? motionBlurCopy.help}</small></span></label>
           ); })()}
           <RenderCost seconds={lengthSeconds} />

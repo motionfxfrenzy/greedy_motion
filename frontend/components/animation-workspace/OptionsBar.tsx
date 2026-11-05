@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { motionBlurCopy, motionBlurProblem } from "@videosaas/contracts";
 import {
   WORKSPACE_PREVIEW_QUALITIES,
   WORKSPACE_SUBTITLE_MODES,
@@ -9,6 +10,7 @@ import {
 import { StatusLine } from "./StatusLine";
 import type {
   WorkspaceAudioControlState,
+  WorkspaceMotionBlurControlState,
   WorkspaceOptionsConfig,
   WorkspacePreviewQualityControlState,
   WorkspaceStatusBadge,
@@ -23,11 +25,13 @@ export interface OptionsBarProps {
   audio?: WorkspaceAudioControlState;
   subtitles?: WorkspaceSubtitleControlState;
   previewQuality?: WorkspacePreviewQualityControlState;
+  motionBlur?: WorkspaceMotionBlurControlState;
   statusBadge?: WorkspaceStatusBadge | null;
 }
 
-export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, statusBadge }: OptionsBarProps) {
+export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, motionBlur, statusBadge }: OptionsBarProps) {
   const visible = resolveVisibleOptions(optionsConfig);
+  const blurControl = motionBlur ?? optionsConfig?.motionBlurControls;
   const [barMode, setBarMode] = useState<"audio" | "subtitles" | null>(
     visible.showSubtitleTab ? "subtitles" : visible.showAudioTab ? "audio" : null
   );
@@ -542,6 +546,32 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, st
           </div>
         </>
       )}
+
+      {visible.motionBlur && blurControl && (() => {
+        const tooLong = motionBlurProblem(blurControl.durationSeconds);
+        const checked = blurControl.enabled && !tooLong;
+        const isDisabled = Boolean(blurControl.disabled || tooLong);
+        return (
+          <>
+            <i className="aw-bar-sep" />
+            <label
+              className={`aw-blur${checked ? " on" : ""}${isDisabled ? " disabled" : ""}`}
+              title={tooLong ?? motionBlurCopy.help}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={isDisabled}
+                onChange={(event) => blurControl.onToggle(event.target.checked)}
+              />
+              <span>
+                <b>{motionBlurCopy.label}</b>
+                <small>{tooLong ?? motionBlurCopy.help}</small>
+              </span>
+            </label>
+          </>
+        );
+      })()}
 
       {statusBadge && (
         <>

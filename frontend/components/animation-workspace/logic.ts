@@ -1,3 +1,4 @@
+import { motionBlurProblem } from "@videosaas/contracts";
 import type {
   FinalViewRatio,
   FinalViewRatioStatus,
@@ -184,7 +185,8 @@ export function resolveVisibleOptions(config?: WorkspaceOptionsConfig): Resolved
     subtitleColors: showSubtitleTab && (config?.subtitleColors ?? true),
     subtitleOpacity: showSubtitleTab && (config?.subtitleOpacity ?? true),
     subtitlePosition: showSubtitleTab && (config?.subtitlePosition ?? true),
-    previewQuality: config?.previewQuality ?? true
+    previewQuality: config?.previewQuality ?? true,
+    motionBlur: config?.motionBlur ?? true
   };
 }
 
@@ -347,6 +349,39 @@ export function hfOptionsConfig(availableAudio: { voice: boolean; music: boolean
     subtitlePosition: false,
     previewQuality: false
   };
+}
+
+/** Whether a project look identifier is a code-drawn plate style (`illus-*`). */
+export function isPlateLookId(look?: string | null): boolean {
+  return Boolean(look?.startsWith("illus-"));
+}
+
+/**
+ * Builds the `WorkspaceOptionsConfig` for plate films (or for a given look id):
+ * plate renders ignore motion blur, so `motionBlur` is hidden (`false`).
+ */
+export function plateOptionsConfig(look?: string | null): WorkspaceOptionsConfig {
+  if (look !== undefined && !isPlateLookId(look)) {
+    return {};
+  }
+  return {
+    motionBlur: false
+  };
+}
+
+/**
+ * Resolves whether the motion-blur control is shown and whether the film length exceeds the limit.
+ * Plate films hide the control and never run the length check.
+ */
+export function motionBlurControl(
+  look: string | null | undefined,
+  lengthSeconds: number
+): { shown: boolean; problem: string | null } {
+  const visible = resolveVisibleOptions(isPlateLookId(look) ? plateOptionsConfig() : undefined);
+  if (!visible.motionBlur) {
+    return { shown: false, problem: null };
+  }
+  return { shown: true, problem: motionBlurProblem(lengthSeconds) };
 }
 
 /** Maps a film's audio mode (`"voiceover" | "music" | "both" | "none"`) to `{ voice, music }` toggle states. */
