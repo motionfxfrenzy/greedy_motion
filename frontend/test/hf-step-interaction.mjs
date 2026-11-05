@@ -6,6 +6,14 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "../../node_modules/playwright-core/index.mjs";
+import {
+  checkSceneHintLayout,
+  classifyEditPatch,
+  deterministicCommentTranslator,
+  hasEditPatchOperations,
+  mergeWindowElements,
+  validateFrameElementsSnapshots
+} from "../../packages/contracts/src/edit-patch.ts";
 import { FIXTURE_HF_PROJECT } from "./fixtures/hf/data.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -16,6 +24,12 @@ const WORKER_FONTS_DIR = join(REPO_ROOT, "worker/fonts");
 const CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const COMPOSITION_HTML = readFileSync(join(HF_FIXTURES_DIR, "composition.html"), "utf8");
+const TEMPLATE_HTML = readFileSync(join(REPO_ROOT, "worker/templates/beat-plan/index.html"), "utf8");
+const engineScriptMatch = /<script id="bp-engine">[\s\S]*?<\/script>/.exec(TEMPLATE_HTML);
+const LIVE_COMPOSITION_HTML = engineScriptMatch
+  ? COMPOSITION_HTML.replace(/<script id="bp-engine">[\s\S]*?<\/script>/, () => engineScriptMatch[0])
+  : COMPOSITION_HTML;
+
 const COMPOSITION_JSON = JSON.parse(readFileSync(join(HF_FIXTURES_DIR, "composition.json"), "utf8"));
 const SILENT_WAV = readFileSync(join(HF_FIXTURES_DIR, "silent.wav"));
 const RUNTIME_JS = readFileSync(join(REPO_ROOT, "node_modules/hyperframes/dist/hyperframe-runtime.js"), "utf8");
@@ -47,7 +61,7 @@ async function waitForServer(url, timeoutMs = 60_000) {
   throw new Error(`Timed out waiting for Next dev server at ${url}`);
 }
 
-test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek, comments add/remove/apply, subtitle & audio patches with player reload, and token modal", async () => {
+test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit protocol, element edit saved & labelled, refused edit reason without label, server error alert without label, undo, subtitle & audio patches, and token modal", async () => {
   const port = await findFreePort();
   const origin = `http://127.0.0.1:${port}`;
   const nextProc = spawn(
@@ -76,6 +90,11 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
 
     const planPatches = [];
     const previewFetches = [];
+    const proposeCalls = [];
+    const commitCalls = [];
+    let currentPlanVersion = "plan-v1";
+    let forceNextProposeServerError = false;
+    const validBeatIds = new Set(["b1", "b2", "b3", "b4", "b5"]);
 
     await context.route("**/*", async (route) => {
       const req = route.request();
@@ -114,6 +133,183 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
         return;
       }
 
+      if (/\/projects\/[^/]+\/plan\/edit\/propose$/.test(url.pathname) && req.method() === "POST") {
+        const body = JSON.parse(req.postData() ?? "{}");
+        proposeCalls.push(body);
+
+        if (forceNextProposeServerError) {
+          forceNextProposeServerError = false;
+          await route.fulfill({
+            status: 500,
+            contentType: "application/json",
+            body: JSON.stringify({ error: { code: "server_error", message: "Server failed while proposing edit." } })
+          });
+          return;
+        }
+
+        const comments = Array.isArray(body.comments) ? body.comments : [];
+        const snapshotsMap = body.measured?.snapshots ?? {};
+        const candidates = [];
+
+        for (const c of comments) {
+          const snaps = snapshotsMap[c.id];
+          const checked = validateFrameElementsSnapshots(snaps, validBeatIds);
+          if ("error" in checked) {
+            await route.fulfill({
+              status: 400,
+              contentType: "application/json",
+              body: JSON.stringify({ error: { code: "invalid_snapshots", message: checked.error } })
+            });
+            return;
+          }
+          const activeElements = mergeWindowElements(checked.snapshots);
+          const beatId = typeof c.scene === "string" ? c.scene : `b${Number(c.scene ?? 0) + 1}`;
+          const detPatch = await deterministicCommentTranslator.translate({
+            comment: c.body ?? "",
+            atSeconds: c.at ?? 0,
+            scene: beatId,
+            activeElements,
+            canvas: body.measured?.canvas
+          });
+          const hasOps = hasEditPatchOperations(detPatch);
+          if (!hasOps) {
+            candidates.push({
+              id: c.id,
+              patch: { scope: "scene", scene: beatId, atSeconds: c.at ?? 0, set: {} },
+              fallbackRewrite: true
+            });
+          } else {
+            candidates.push({
+              id: c.id,
+              patch: { ...detPatch, scene: beatId, atSeconds: c.at ?? 0 }
+            });
+          }
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ planVersion: currentPlanVersion, candidates })
+        });
+        return;
+      }
+
+      if (/\/projects\/[^/]+\/plan\/edit\/commit$/.test(url.pathname) && req.method() === "POST") {
+        const body = JSON.parse(req.postData() ?? "{}");
+        commitCalls.push(body);
+
+        if (body.planVersion !== currentPlanVersion) {
+          await route.fulfill({
+            status: 409,
+            contentType: "application/json",
+            body: JSON.stringify({
+              error: { code: "stale_plan_version", message: "The storyboard changed since this edit was proposed." },
+              planVersion: currentPlanVersion
+            })
+          });
+          return;
+        }
+
+        const canvas = body.canvas ?? { width: 1920, height: 1080 };
+        const items = Array.isArray(body.items) ? body.items : [];
+        const results = [];
+
+        for (const item of items) {
+          const decision = classifyEditPatch({
+            patch: item.patch,
+            canvas,
+            beforeWindow: item.before,
+            afterWindow: item.after
+          });
+
+          if (decision.reason === "overlap-detected") {
+            const msg = `That move would overlap with another element on screen (${decision.measurements.collidingElements.join(", ")}).`;
+            await route.fulfill({
+              status: 422,
+              contentType: "application/json",
+              body: JSON.stringify({
+                error: { code: "edit_refused", message: msg, commentId: item.id },
+                problems: [msg],
+                commentId: item.id,
+                details: decision
+              })
+            });
+            return;
+          }
+
+          if (decision.reason === "left-safe-area") {
+            const v = decision.measurements.safeAreaViolations[0];
+            const msg = `That position leaves the ${v?.kind ?? "safe"} area of the frame. Keep elements inside the safe margins so nothing is clipped.`;
+            await route.fulfill({
+              status: 422,
+              contentType: "application/json",
+              body: JSON.stringify({
+                error: { code: "edit_refused", message: msg, commentId: item.id },
+                problems: [msg],
+                commentId: item.id,
+                details: decision
+              })
+            });
+            return;
+          }
+
+          if (!item.fallbackRewrite && decision.scope === "scene") {
+            const beatId = String(item.patch.scene || "b1");
+            const layoutCheck = checkSceneHintLayout(item.after, canvas, beatId, item.before);
+            if (!layoutCheck.ok) {
+              const msg = "Cannot satisfy that layout change inside the safe area.";
+              await route.fulfill({
+                status: 422,
+                contentType: "application/json",
+                body: JSON.stringify({
+                  error: { code: "edit_refused", message: msg, commentId: item.id },
+                  problems: [msg],
+                  commentId: item.id
+                })
+              });
+              return;
+            }
+          }
+
+          const finalScope = item.fallbackRewrite ? "scene" : decision.scope;
+          const finalLabel = item.fallbackRewrite ? "re-laid out the scene" : decision.uiLabel;
+          results.push({
+            id: item.id,
+            scope: finalScope,
+            uiLabel: finalLabel,
+            ...(item.patch.el ? { el: item.patch.el } : {}),
+            ...(item.fallbackRewrite ? { fallbackRewrite: true } : {}),
+            patch: { ...item.patch, scope: finalScope },
+            decision: { ...decision, scope: finalScope, uiLabel: finalLabel },
+            elementsBefore: mergeWindowElements(item.before),
+            elementsAfter: mergeWindowElements(item.after)
+          });
+        }
+
+        currentPlanVersion = `plan-v${commitCalls.length + 1}`;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            project: FIXTURE_HF_PROJECT,
+            plan: FIXTURE_HF_PROJECT.beatPlan,
+            planVersion: currentPlanVersion,
+            results
+          })
+        });
+        return;
+      }
+
+      if (/\/projects\/[^/]+\/plan\/overrides\/[^/]+$/.test(url.pathname) && req.method() === "DELETE") {
+        planPatches.push({ undoOverride: decodeURIComponent(url.pathname.split("/").pop() ?? "") });
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(FIXTURE_HF_PROJECT)
+        });
+        return;
+      }
+
       if (/\/projects\/[^/]+\/plan$/.test(url.pathname) && req.method() === "PATCH") {
         const body = JSON.parse(req.postData() ?? "{}");
         planPatches.push(body);
@@ -138,7 +334,7 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
         await route.fulfill({
           status: 200,
           contentType: "text/html; charset=utf-8",
-          body: COMPOSITION_HTML
+          body: LIVE_COMPOSITION_HTML
         });
         return;
       }
@@ -179,7 +375,10 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
     const page = await context.newPage();
     await page.goto(`${origin}/dev/hf-step-fixture?state=c-ready&theme=dark`, { waitUntil: "networkidle" });
     await page.waitForSelector("hyperframes-player");
-    await page.waitForFunction(() => Boolean(document.querySelector("hyperframes-player")?.ready));
+    await page.waitForFunction(() => {
+      const player = document.querySelector("hyperframes-player");
+      return Boolean(player?.ready && player?.iframeElement?.contentWindow?.__bp?.elementsAt);
+    });
 
     assert.equal(previewFetches.length, 1, "initial preview HTML fetched once");
     assert.match(previewFetches[0], /v=0/, "initial preview fetch uses v=0");
@@ -195,7 +394,7 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
     // 2. Seek by clicking a scene tab (Scene 3: 8s..12s, center is 10s -> 0:10)
     const scene3Tab = page.locator(".aw-segments li").nth(2);
     await scene3Tab.click();
-    assert.ok(await scene3Tab. evaluate((el) => el.classList.contains("on")), "Scene 3 tab is active after click");
+    assert.ok(await scene3Tab.evaluate((el) => el.classList.contains("on")), "Scene 3 tab is active after click");
     const sceneLabel = await page.locator(".aw-scene").textContent();
     assert.equal(sceneLabel?.trim(), "Scene 3 · Voice and music");
     const clockText = await page.locator(".aw-clock b").textContent();
@@ -212,7 +411,7 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
     assert.equal(await page.locator(".aw-comments li:not(.empty)").count(), 0);
     assert.equal(await page.locator(".aw-pin").count(), 0);
 
-    // 4. Add comments on Scene 3 and Scene 1, then click Apply comments -> callback fires with right payload
+    // 4. Add scene-level comments on Scene 3 and Scene 1 -> propose + commit -> callback fires and labels appear
     await textarea.fill("Highlight the ducked music waveform");
     await addBtn.click();
     const scene1Tab = page.locator(".aw-segments li").nth(0);
@@ -224,7 +423,7 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
     assert.equal((await applyBtn.textContent())?.trim(), "Redraw scenes 1, 3");
     const fetchesBeforeApply = previewFetches.length;
     await applyBtn.click();
-
+    await page.waitForFunction(() => Array.isArray(window.__hfAppliedComments) && window.__hfAppliedComments.length > 0);
     const appliedPayloads = await page.evaluate(() => window.__hfAppliedComments);
     assert.deepEqual(appliedPayloads, [
       [
@@ -232,43 +431,99 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
         { line: 2, text: "Highlight the ducked music waveform" }
       ]
     ]);
-    await page.waitForFunction((prevCount) => prevCount < performance.getEntriesByType("resource").length, fetchesBeforeApply).catch(() => {});
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(200);
+    assert.equal(proposeCalls.length, 1, "propose was called with browser-measured snapshots");
+    assert.equal(commitCalls.length, 1, "commit was called after propose");
     assert.ok(previewFetches.length > fetchesBeforeApply, "applying comments reloads the composition");
 
-    // 5. Change subtitle mode -> sends PATCH /plan { captions: "none" } and reloads player
+    const commentLabels = await page.locator(".aw-comments li:not(.empty) small").allTextContents();
+    assert.deepEqual(
+      commentLabels.map((t) => t.trim()),
+      ["Scene 1 · re-laid out the scene", "Scene 3 · re-laid out the scene"]
+    );
+
+    // 5. Element edit saved and labelled via real propose -> local srcdoc apply + measure -> commit
+    await textarea.fill('Make "minutes" pink');
+    await addBtn.click();
+    await applyBtn.click();
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll(".aw-comments li:not(.empty) small")).some((el) =>
+        (el.textContent || "").includes("changed colour")
+      )
+    );
+    assert.equal(proposeCalls.length, 2);
+    assert.equal(commitCalls.length, 2);
+    assert.equal(commitCalls[1].items[0].patch.el, "b1:w:2");
+    assert.equal(commitCalls[1].items[0].patch.set.color, "#ff3b6b");
+    assert.ok(commitCalls[1].items[0].before.length >= 2, "browser sampled before-window snapshots");
+    assert.ok(commitCalls[1].items[0].after.length >= 2, "browser sampled after-window snapshots after local srcdoc apply");
+
+    // 6. Undo element override -> calls DELETE /plan/overrides/b1:w:2 and reloads preview
+    const undoBtn = page.locator('.aw-comments li:has-text("changed colour") button.aw-x');
+    await undoBtn.click();
+    await page.waitForFunction((n) => n > 0, planPatches.length);
+    await page.waitForTimeout(100);
+    assert.deepEqual(planPatches[planPatches.length - 1], { undoOverride: "b1:w:2" });
+
+    // 7. Refused edit shows the plain refusal reason on that comment, NOT an applied label, and stays unapplied
+    await page.waitForFunction(() => {
+      const player = document.querySelector("hyperframes-player");
+      return Boolean(player?.ready && player?.iframeElement?.contentWindow?.__bp?.elementsAt);
+    });
+    await textarea.fill('Push "minutes" right 900px off screen');
+    await addBtn.click();
+    await applyBtn.click();
+    await page.waitForSelector(".aw-comment-refused");
+    const refusedText = await page.locator(".aw-comment-refused").textContent();
+    assert.match(refusedText ?? "", /title-safe|safe/i, "refused comment displays plain refusal reason");
+    const refusedItemText = await page.locator('.aw-comments li:has-text("Push \\"minutes\\" right 900px")').textContent();
+    assert.ok(!refusedItemText?.includes("nudged position"), "refused comment must not be labelled 'nudged position'");
+    assert.ok(!refusedItemText?.includes("re-laid out the scene"), "refused comment must not be labelled 're-laid out the scene'");
+    // Remove the refused comment before testing server error
+    await page.locator('.aw-comments li:has-text("Push \\"minutes\\" right 900px") button.aw-x').click();
+
+    // 8. Server error shows an error alert, NOT an applied label, and leaves the comment unapplied
+    forceNextProposeServerError = true;
+    await textarea.fill('Make "minutes" cyan');
+    await addBtn.click();
+    await applyBtn.click();
+    await page.waitForSelector("p.aw-error[role='alert']");
+    const errAlertText = await page.locator("p.aw-error[role='alert']").textContent();
+    assert.match(errAlertText ?? "", /Server failed while proposing edit/i);
+    const unappliedItemText = await page.locator('.aw-comments li:has-text("Make \\"minutes\\" cyan")').textContent();
+    assert.ok(!unappliedItemText?.includes("changed colour"), "failed request must never claim 'changed colour'");
+    await page.locator('.aw-comments li:has-text("Make \\"minutes\\" cyan") button.aw-x').click();
+
+    // 9. Change subtitle mode -> sends PATCH /plan { captions: "none" } and reloads player
     const fetchesBeforeSub = previewFetches.length;
     await page.locator('button.aw-pill-item:has-text("Subtitles")').click();
     await page.waitForSelector('[role="dialog"][aria-label="Subtitle mode"]');
-    // Verify unsupported subtitle controls (style, size, colors, opacity, position) are hidden
     assert.equal(await page.locator('[aria-label="Subtitle font size"]').count(), 0);
     assert.equal(await page.locator('[aria-label="Subtitle colors"]').count(), 0);
     assert.equal(await page.locator('[aria-label="Transparency"]').count(), 0);
 
     await page.locator('button.aw-option-row:has-text("Off")').click();
-    await page.waitForFunction((n) => n > 0, planPatches.length);
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(200);
     assert.deepEqual(planPatches[planPatches.length - 1], { captions: "none" });
     assert.ok(previewFetches.length > fetchesBeforeSub, "changing subtitle mode reloads the composition HTML");
 
-    // 6. Toggle Voice off -> sends PATCH /plan { audioMode: "music" } and reloads player
+    // 10. Toggle Voice off -> sends PATCH /plan { audioMode: "music" } and reloads player
     const fetchesBeforeAudio = previewFetches.length;
     await page.locator('button[role="tab"]:has-text("Audio")').click();
     const audioGroup = page.locator('[role="group"][aria-label="Audio tracks"]');
     await audioGroup.waitFor();
-    // Only Voice and Music chips are shown (no SFX or Transitions)
     const chipTexts = await audioGroup.locator("button.aw-track-chip").allTextContents();
     assert.deepEqual(chipTexts.map((t) => t.trim()), ["Voice", "Music"]);
 
     const voiceChip = audioGroup.locator('button.aw-track-chip:has-text("Voice")');
     assert.equal(await voiceChip.getAttribute("aria-pressed"), "true");
     await voiceChip.click();
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(200);
     assert.equal(await voiceChip.getAttribute("aria-pressed"), "false");
     assert.deepEqual(planPatches[planPatches.length - 1], { audioMode: "music" });
     assert.ok(previewFetches.length > fetchesBeforeAudio, "toggling Voice off reloads the composition HTML");
 
-    // 7. Render opens the token modal when balance (5) < cost (12)
+    // 11. Render opens the token modal when balance (5) < cost (12)
     await page.locator("button.aw-render-top").click();
     const modal = page.locator('[role="dialog"][aria-labelledby="sc-modal-title"]');
     await modal.waitFor();
@@ -278,6 +533,7 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
   } finally {
     if (browser) await browser.close().catch(() => {});
     if (nextProc && nextProc.pid) {
+      const exitPromise = new Promise((r) => nextProc.once("exit", r));
       try {
         process.kill(-nextProc.pid, "SIGTERM");
       } catch {
@@ -287,7 +543,13 @@ test("BrowserAnimationStep headless Chrome interaction: play, pause, scene seek,
           // ignore
         }
       }
+      await Promise.race([exitPromise, new Promise((r) => setTimeout(r, 1500))]);
+      try {
+        process.kill(-nextProc.pid, "SIGKILL");
+      } catch {
+        // already exited
+      }
     }
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 1000));
   }
 });

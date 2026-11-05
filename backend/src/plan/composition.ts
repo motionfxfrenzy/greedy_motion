@@ -1,4 +1,4 @@
-import { resolveSceneRoute, type SceneRoute, type Aspect, type Beat, type BeatPlan } from "@videosaas/contracts";
+import { resolveSceneRoute, type SceneRoute, type Aspect, type Beat, type BeatLayoutHint, type BeatPlan, type HyperFramesOverridesMap } from "@videosaas/contracts";
 import type { PlanTiming } from "./timing.ts";
 
 /**
@@ -43,6 +43,8 @@ type EngineBeat = {
   motion: { entry: Beat["motion"]["entry"]; exit: Beat["motion"]["exit"]; text_effect: string | null; /** The director's camera direction in words; the engine reads its verb, direction and size. */ camera: string | null };
   transition_out: Beat["transition_out"];
   fallback: Beat["fallback"] | null;
+  scene?: string | null;
+  hints?: BeatLayoutHint | null;
   start: number;
   end: number;
   vo: { start: number; end: number } | null;
@@ -85,6 +87,7 @@ export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Reco
         transition_out: beat.transition_out,
         fallback: beat.fallback ?? null,
         scene: beat.scene ?? null,
+        ...(beat.hints ? { hints: beat.hints } : {}),
         start: time?.start ?? 0,
         end: time?.end ?? 0,
         vo: time?.vo ?? null,
@@ -99,6 +102,18 @@ export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Reco
 /** The editable text values, keyed `<beatId>.keyword|on_screen|line` (the `/composition` variables). */
 export function textValues(beats: Pick<Beat, "id" | "keyword" | "on_screen" | "line">[]): Record<string, string> {
   return Object.fromEntries(beats.flatMap((beat) => [[`${beat.id}.keyword`, beat.keyword], [`${beat.id}.on_screen`, beat.on_screen ?? ""], [`${beat.id}.line`, beat.line ?? ""]]));
+}
+
+/** The `hf-variables` block payload: editable beat text plus any element-level `overrides` object. */
+export function hfBlockValues(
+  beats: Pick<Beat, "id" | "keyword" | "on_screen" | "line">[],
+  overrides?: HyperFramesOverridesMap
+): Record<string, unknown> {
+  const base: Record<string, unknown> = textValues(beats);
+  if (overrides && Object.keys(overrides).length > 0) {
+    base.overrides = overrides;
+  }
+  return base;
 }
 
 export type EngineInputs = {
@@ -146,8 +161,8 @@ export function stampCanvas(html: string, aspect: Aspect): string {
 
 const TEXT_BLOCK = /<script id="hf-variables" type="application\/json">[\s\S]*?<\/script>/;
 
-/** Fills the one replaceable block that carries the storyboard's editable text. */
-export function fillTextBlock(html: string, values: Record<string, string>): string {
+/** Fills the one replaceable block that carries the storyboard's editable text and element-level overrides. */
+export function fillTextBlock(html: string, values: Record<string, unknown>): string {
   if (!TEXT_BLOCK.test(html)) throw new Error("The beat-plan template has no hf-variables block.");
   return html.replace(TEXT_BLOCK, () => `<script id="hf-variables" type="application/json">${scriptJson(values)}</script>`);
 }

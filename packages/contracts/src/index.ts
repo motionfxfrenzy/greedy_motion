@@ -244,3 +244,4 @@ export function parseRenderRequest(value: unknown): RenderRequest | null {
 }
 
 export * from "./scene-rendering.ts";
+export * from "./edit-patch.ts";

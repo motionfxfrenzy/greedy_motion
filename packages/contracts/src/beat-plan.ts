@@ -184,6 +184,8 @@ export type Beat = {
   sfx?: string | null;
   /** A scene of the chosen style's scene list (scenes.ts); null leaves the engine's own layout. */
   scene?: string | null;
+  /** Optional scene-level layout emphasis hint (e.g. `{ emphasize: "b2:w:2", factor: 1.3 }`) honoured inside the engine's layout computation. */
+  hints?: import("./edit-patch.ts").BeatLayoutHint | null;
   transition_out: { type: (typeof transitionTypes)[number]; carrier?: string | null };
 };
 
@@ -207,6 +209,8 @@ export type BeatPlan = {
   };
   approvals: ("script" | "style-frame" | "character-sheet" | "storyboard" | "motion-preview" | "final")[];
   suggestions: BeatPlanSuggestion[];
+  /** Element-level overrides keyed by stable element id (`data-el`), carried through the `hf-variables` block. */
+  overrides?: import("./edit-patch.ts").HyperFramesOverridesMap;
   estimate: { generated_shots: number; api_usd: number; render_s?: number };
 };
 

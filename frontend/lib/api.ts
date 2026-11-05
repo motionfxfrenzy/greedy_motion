@@ -1,6 +1,6 @@
 import { createClient } from "../utils/supabase/client";
 import { normalizeSearch } from "@videosaas/contracts/gallery-use-cases";
-import type { BrandExtraction, BrandKit, BrandKitInput, GalleryPage, GalleryStyleCard, ScriptBeat, ScriptBrief, ScriptNotes, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
+import type { ActiveElementInfo, BeatLayoutHint, BeatPlan, ClassifierDecision, EditPatch, FrameElementsSnapshot, HyperFramesOverridesMap, BrandExtraction, BrandKit, BrandKitInput, GalleryPage, GalleryStyleCard, ScriptBeat, ScriptBrief, ScriptNotes, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
 
 // Public by design: the backend origin, e.g. https://api.<domain>. The frontend holds no secrets.
 const apiOrigin = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
@@ -332,7 +332,7 @@ export function projectScreenshotUrl(projectId: string, screenshotId: string) {
 
 export type PlanResult = { project: VideoProject; problems: string[]; model?: string };
 export type PlanPatch = {
-  beats?: { id: string; keyword?: string; on_screen?: string; line?: string; camera?: string; text_effect?: string | null; transition?: string; sfx?: string | null; scene?: string | null }[];
+  beats?: { id: string; keyword?: string; on_screen?: string; line?: string; camera?: string; text_effect?: string | null; transition?: string; sfx?: string | null; scene?: string | null; hints?: BeatLayoutHint | null }[];
   order?: string[];
   suggestions?: { index: number; accepted: boolean }[];
   /** Drawing style (contracts looks.ts); saved without replanning. */
@@ -343,6 +343,8 @@ export type PlanPatch = {
   captions?: "key-phrases" | "full" | "none";
   /** Film audio mode ("voiceover" | "music" | "both" | "none"). */
   audioMode?: "voiceover" | "music" | "both" | "none";
+  /** Element-level overrides keyed by stable element id (`data-el`); null clears an entry or all overrides. */
+  overrides?: Record<string, HyperFramesOverridesMap[string] | null> | null;
 };
 /** A rejected storyboard edit: `problems` lists every rule it broke, in user-facing words. */
 export class PlanProblems extends Error {
@@ -358,6 +360,7 @@ export type Composition = {
   canvas: string;
   durationSeconds: number;
   variables: Record<string, string>;
+  overrides?: HyperFramesOverridesMap;
   slots: { id: string; beat: string; budget: { chars?: number; words?: number } }[];
   /** Where each beat sits in the composition (beat-plan engine only), in seconds. */
   beatTimes?: Record<string, { start: number; end: number }>;
@@ -591,6 +594,126 @@ export async function getComposition(projectId: string, beatId?: string) {
   const query = beatId ? "?beat=" + encodeURIComponent(beatId) : "";
   const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/composition" + query, { cache: "no-store" });
   return parse<Composition>(response, "Could not load the composition.");
+}
+
+export type ProposePlanCommentCandidate = {
+  id: string;
+  patch?: EditPatch;
+  refused?: string;
+  fallbackRewrite?: boolean;
+};
+
+export type ProposePlanCommentEditsResponse = {
+  planVersion: string;
+  candidates: ProposePlanCommentCandidate[];
+};
+
+export type CommitPlanCommentItemResult = {
+  id: string;
+  scope: "element" | "scene";
+  uiLabel: string;
+  el?: string;
+  fallbackRewrite?: boolean;
+  patch: EditPatch;
+  decision: ClassifierDecision;
+  elementsBefore: ActiveElementInfo[];
+  elementsAfter: ActiveElementInfo[];
+};
+
+export type CommitPlanCommentEditsResponse = {
+  project: VideoProject;
+  plan: BeatPlan;
+  planVersion: string;
+  results: CommitPlanCommentItemResult[];
+  patch?: EditPatch;
+  decision?: ClassifierDecision;
+};
+
+export class PlanEditRefusedError extends Error {
+  readonly commentId: string | null;
+  readonly problems: string[];
+  constructor(message: string, commentId: string | null = null, problems: string[] = [message]) {
+    super(message);
+    this.name = "PlanEditRefusedError";
+    this.commentId = commentId;
+    this.problems = problems;
+  }
+}
+
+/**
+ * Step 1 of the two-step comment edit protocol (`POST /v1/projects/:id/plan/edit/propose`):
+ * Sends comments + active-window snapshots measured in the user's browser; returns per-comment
+ * candidate `EditPatch`es (or `{ refused: reason }`) and `planVersion`. Nothing is saved.
+ */
+export async function proposePlanCommentEdits(
+  projectId: string,
+  input: {
+    comments: { id: string; at: number; scene?: number | string; body: string; patch?: EditPatch }[];
+    measured: {
+      canvas: { width: number; height: number };
+      snapshots: Record<string, FrameElementsSnapshot[]>;
+    };
+  }
+): Promise<ProposePlanCommentEditsResponse> {
+  const response = await apiFetch(
+    `${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plan/edit/propose`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }
+  );
+  return parse<ProposePlanCommentEditsResponse>(response, "Could not propose comment edits.");
+}
+
+/**
+ * Step 2 of the two-step comment edit protocol (`POST /v1/projects/:id/plan/edit/commit`):
+ * Sends `planVersion` and per-comment `{ id, patch, before, after }` snapshots measured in the browser
+ * after locally applying the candidate patches. Re-runs the pure classifier on the server and saves.
+ */
+export async function commitPlanCommentEdits(
+  projectId: string,
+  input: {
+    planVersion: string;
+    canvas?: { width: number; height: number };
+    items: {
+      id: string;
+      patch: EditPatch;
+      before: FrameElementsSnapshot[];
+      after: FrameElementsSnapshot[];
+      fallbackRewrite?: boolean;
+    }[];
+  }
+): Promise<CommitPlanCommentEditsResponse> {
+  const response = await apiFetch(
+    `${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plan/edit/commit`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }
+  );
+  if (response.status === 422) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      problems?: string[];
+      commentId?: string;
+      error?: { message?: string; commentId?: string };
+    };
+    const msg = payload.problems?.[0] ?? payload.error?.message ?? "That edit cannot be applied.";
+    const cid = payload.commentId ?? payload.error?.commentId ?? null;
+    throw new PlanEditRefusedError(msg, cid, payload.problems?.length ? payload.problems : [msg]);
+  }
+  return parse<CommitPlanCommentEditsResponse>(response, "Could not save comment edits.");
+}
+
+/** Undoes an element-level override (`DELETE /v1/projects/:id/plan/overrides/:el`). */
+export async function undoPlanElementOverride(projectId: string, elId: string, options?: { clearHint?: boolean }): Promise<VideoProject> {
+  const query = options?.clearHint ? "?hint=1" : "";
+  const response = await apiFetch(
+    `${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plan/overrides/${encodeURIComponent(elId)}${query}`,
+    { method: "DELETE" }
+  );
+  return parse<VideoProject>(response, "Could not undo the element edit.");
 }
 
 // ---------- Product site read ----------

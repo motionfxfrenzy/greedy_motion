@@ -134,12 +134,23 @@ export function CommentsPanel({
               </button>
               <p>
                 {comment.body}
-                <small>Scene {comment.scene + 1}</small>
+                <small
+                  className={comment.refusedReason && !comment.appliedLabel ? "aw-comment-refused" : undefined}
+                  role={comment.refusedReason && !comment.appliedLabel ? "status" : undefined}
+                >
+                  Scene {comment.scene + 1}
+                  {comment.appliedLabel
+                    ? ` · ${comment.appliedLabel}`
+                    : comment.refusedReason
+                    ? ` · ${comment.refusedReason}`
+                    : ""}
+                </small>
               </p>
               <button
                 type="button"
                 className="aw-x"
-                aria-label="Remove comment"
+                aria-label={comment.appliedLabel ? "Undo comment edit" : "Remove comment"}
+                title={comment.appliedLabel ? "Undo this change" : "Remove comment"}
                 onClick={() => void onRemoveComment(comment.id)}
               >
                 ×
@@ -149,7 +160,7 @@ export function CommentsPanel({
         </ul>
         <ProgressButton
           className="primary-button aw-apply"
-          disabled={!comments.length || applying}
+          disabled={!applySummary.scenes.length || applying}
           busy={applying}
           progress={applyProgress}
           onClick={() => void onApply()}

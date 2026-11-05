@@ -33,6 +33,14 @@ export interface WorkspaceComment {
   scene: number;
   sceneAt?: number;
   body: string;
+  /** Applied change description (e.g. "changed colour" or "re-laid out the scene"). */
+  appliedLabel?: string;
+  /** Applied scope ("element" | "scene"). */
+  appliedScope?: "element" | "scene";
+  /** Target element id when an element-scoped edit was applied (used for undo). */
+  appliedEl?: string;
+  /** Plain refusal reason when an edit was refused by the server (comment stays unapplied). */
+  refusedReason?: string;
 }
 
 export interface WorkspaceOptionsConfig {

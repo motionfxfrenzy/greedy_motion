@@ -12,7 +12,7 @@ import { PLANS, PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, type PlanTier } from "../to
  * Counted: the stages that call a model for a film. Reading, comments, the intent reader and the final render are not counted
  * (the render takes tokens).
  */
-const COUNTED = /^\/v1\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(?:script\/stream|script\/frames|plan|plan\/audio|film\/animate|film\/fix|plan\/beats\/[^/]+\/rewrite)$/i;
+const COUNTED = /^\/v1\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(?:script\/stream|script\/frames|plan|plan\/audio|film\/animate|film\/fix|plan\/beats\/[^/]+\/rewrite|plan\/edit\/propose)$/i;
 
 export type PreviewRefusal = { error: { code: "preview_limit" | "preview_call_cap"; message: string; tier: PlanTier; used?: number; limit: number } };
 

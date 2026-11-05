@@ -3,7 +3,7 @@ import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { audioModes, captionModes, BEAT_LIMITS, findGalleryTemplate, formatForDuration, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voiceText, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { audioModes, captionModes, BEAT_LIMITS, findGalleryTemplate, formatForDuration, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voiceText, validateBeatLayoutHint, validateHyperFramesOverrides, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type EditPatch, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
 import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan } from "../projects/store.ts";
@@ -28,6 +28,14 @@ import { registerSiteRoutes } from "../site/routes.ts";
 import { planReadiness } from "./readiness.ts";
 import { textValues } from "./composition.ts";
 import { planPreviewHtml, projectTiming } from "./preview.ts";
+import {
+  commitHyperFramesCommentEdits,
+  computePlanVersion,
+  EditRefusedError,
+  InvalidSnapshotsError,
+  proposeHyperFramesCommentEdits,
+  StalePlanVersionError
+} from "./element-edits.ts";
 import { beatTimes } from "./timing.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
 import { ensurePromptAllowed } from "../moderation/creem.ts";
@@ -89,6 +97,7 @@ function buildPlanFromScriptBeats(brief: ScriptBrief, beats: ScriptBeat[], exist
       ...(prev?.fallback ? { fallback: prev.fallback } : {}),
       sfx: prev?.sfx ?? null,
       scene: prev?.scene ?? null,
+      ...(prev?.hints ? { hints: prev.hints } : {}),
       transition_out: { type: index === count - 1 ? "end" : (prev?.transition_out.type && prev.transition_out.type !== "end" ? prev.transition_out.type : "j-cut") }
     };
   });
@@ -127,18 +136,19 @@ function buildPlanFromScriptBeats(brief: ScriptBrief, beats: ScriptBeat[], exist
     },
     approvals: ["script", "storyboard", "motion-preview"],
     suggestions: existing?.suggestions ?? [],
+    ...(existing?.overrides && Object.keys(existing.overrides).length > 0 ? { overrides: existing.overrides } : {}),
     estimate: existing?.estimate ?? { generated_shots: 0, api_usd: 0.25 }
   };
 }
 
-type BeatEdit = { id?: unknown; keyword?: unknown; on_screen?: unknown; line?: unknown; camera?: unknown; text_effect?: unknown; transition?: unknown; sfx?: unknown; scene?: unknown };
+type BeatEdit = { id?: unknown; keyword?: unknown; on_screen?: unknown; line?: unknown; camera?: unknown; text_effect?: unknown; transition?: unknown; sfx?: unknown; scene?: unknown; hints?: unknown };
 /** "clean" is the default, so it is stored as no look at all (same as parseScriptBrief). */
 const withLook = (brief: ScriptBrief, look: LookId): ScriptBrief => {
   const { look: _old, ...rest } = brief;
   return look === "clean" ? rest : { ...rest, look };
 };
 
-type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown; captions?: unknown; audioMode?: unknown };
+type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown; captions?: unknown; audioMode?: unknown; overrides?: unknown };
 
 /** Applies storyboard edits. Returns the edited plan, or the problems that block it. */
 export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan: BeatPlan } | { problems: string[] } {
@@ -153,6 +163,23 @@ export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan:
   if (patch.audioMode !== undefined) {
     if (typeof patch.audioMode !== "string" || !(audioModes as readonly string[]).includes(patch.audioMode)) {
       return { problems: ["Choose voiceover, music, both or none."] };
+    }
+  }
+  if (patch.overrides !== undefined) {
+    if (patch.overrides === null) {
+      delete plan.overrides;
+    } else if (typeof patch.overrides === "object" && !Array.isArray(patch.overrides)) {
+      const merged: Record<string, unknown> = { ...(plan.overrides ?? {}) };
+      for (const [k, v] of Object.entries(patch.overrides as Record<string, unknown>)) {
+        if (v === null) delete merged[k];
+        else merged[k] = v;
+      }
+      const checked = validateHyperFramesOverrides(merged);
+      if ("error" in checked) return { problems: [checked.error] };
+      if (Object.keys(checked.overrides).length > 0) plan.overrides = checked.overrides;
+      else delete plan.overrides;
+    } else {
+      return { problems: ["Overrides must be an object keyed by element id."] };
     }
   }
   // Plain text only (markdown markers would be drawn and voiced literally).
@@ -171,6 +198,12 @@ export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan:
     if (edit.sfx === null) beat.sfx = null; else { const sfx = text(edit.sfx, 200); if (sfx !== undefined) beat.sfx = sfx || null; }
     if (edit.scene === null) beat.scene = null;
     else if (typeof edit.scene === "string" && scenesFor(project.brief.look, project.brief.styleFamily).some((scene) => scene.id === edit.scene)) beat.scene = edit.scene;
+    if (edit.hints !== undefined) {
+      const checkedHint = validateBeatLayoutHint(edit.hints);
+      if ("error" in checkedHint) return { problems: [checkedHint.error] };
+      if (checkedHint.hints) beat.hints = checkedHint.hints;
+      else delete beat.hints;
+    }
     if (keyword !== undefined) beat.keyword = keyword;
     if (onScreen !== undefined) beat.on_screen = onScreen || null;
     if (line !== undefined) beat.line = line || null;
@@ -949,6 +982,9 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       // The composition's real length (the last beat's end; within ±10% of target_duration_s).
       durationSeconds: timing.total,
       variables: textValues(beats),
+      ...(project.beatPlan.overrides && Object.keys(project.beatPlan.overrides).length > 0
+        ? { overrides: project.beatPlan.overrides }
+        : {}),
       // The plan clock (backend/src/plan/timing.ts): each beat's slot on the film, in seconds.
       beatTimes: Object.fromEntries(beats.map((beat) => [beat.id, times[beat.id]])),
       // The plan's sound: which lines have takes (the rest play silent on estimated timing) and the bed.
@@ -986,5 +1022,150 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       app.log.warn({ err: error, projectId: project.id }, "beat-plan preview failed");
       return reply.code(503).send({ error: { code: "preview_unavailable", message } });
     }
+  });
+
+  /**
+   * Step 1 of the two-step comment edit protocol:
+   * Browser sends `comments` and `measured: { canvas, snapshots: { [commentId]: FrameElementsSnapshot[] } }`.
+   * Server strictly validates snapshot shapes/bounds, translates comments (rules first, then model),
+   * and returns per-comment candidate `EditPatch`es (or `{ refused: reason }`) plus `planVersion`.
+   * Nothing is saved.
+   */
+  app.post<{
+    Params: { id: string };
+    Body: {
+      comments?: unknown;
+      measured?: unknown;
+    };
+  }>("/v1/projects/:id/plan/edit/propose", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (!project.beatPlan || !project.brief) {
+      return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
+    }
+    const body = request.body ?? {};
+    const commentTexts = Array.isArray(body.comments)
+      ? body.comments
+          .map((c) => (c && typeof c === "object" && typeof (c as { body?: unknown }).body === "string" ? (c as { body: string }).body : ""))
+          .filter(Boolean)
+      : [];
+    if (commentTexts.some((t) => t.length > 2000)) {
+      return reply.code(400).send({ error: { code: "comment_too_long", message: "A comment can be at most 2000 characters." } });
+    }
+    if (commentTexts.length > 0 && !(await ensurePromptAllowed(reply, commentTexts, `project_${project.id}:plan_edit_propose`))) {
+      return;
+    }
+
+    try {
+      const proposed = await proposeHyperFramesCommentEdits(project, {
+        comments: body.comments,
+        measured: body.measured
+      });
+      return proposed;
+    } catch (error) {
+      if (error instanceof InvalidSnapshotsError) {
+        return reply.code(400).send({
+          error: { code: error.code, message: error.message }
+        });
+      }
+      throw error;
+    }
+  });
+
+  /**
+   * Step 2 of the two-step comment edit protocol:
+   * Browser applies candidate patches locally via `hf-variables`, re-samples the active window,
+   * and sends `{ planVersion, items: [{ id, patch, before, after }] }`.
+   * Server verifies `planVersion` (409 if stale), runs the pure `classifyEditPatch` / `checkSceneHintLayout`
+   * classifiers on the snapshots, saves element `overrides` or beat `hints` / re-fitted text,
+   * and returns `{ project, plan, planVersion, results }`.
+   */
+  app.post<{
+    Params: { id: string };
+    Body: {
+      planVersion?: unknown;
+      canvas?: unknown;
+      items?: unknown;
+    };
+  }>("/v1/projects/:id/plan/edit/commit", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (!project.beatPlan || !project.brief) {
+      return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
+    }
+    const body = request.body ?? {};
+
+    let committed;
+    try {
+      committed = commitHyperFramesCommentEdits(project, {
+        planVersion: body.planVersion,
+        canvas: body.canvas,
+        items: body.items
+      });
+    } catch (error) {
+      if (error instanceof StalePlanVersionError) {
+        return reply.code(409).send({
+          error: { code: error.code, message: error.message },
+          planVersion: error.currentPlanVersion
+        });
+      }
+      if (error instanceof InvalidSnapshotsError) {
+        return reply.code(400).send({
+          error: { code: error.code, message: error.message }
+        });
+      }
+      if (error instanceof EditRefusedError) {
+        return reply.code(422).send({
+          error: { code: error.code, message: error.message, ...(error.commentId ? { commentId: error.commentId } : {}) },
+          problems: [error.message],
+          details: error.details ?? null,
+          ...(error.commentId ? { commentId: error.commentId } : {})
+        });
+      }
+      throw error;
+    }
+
+    const saved = await updateProjectPlan(project.id, (current) => ({
+      brief: current.brief,
+      beatPlan: committed.plan,
+      script: scriptFromPlan(committed.plan, current.script?.source ?? "generated")
+    }));
+    if (!saved) return reply.code(404).send(notFound);
+
+    return {
+      project: saved,
+      plan: saved.beatPlan,
+      planVersion: computePlanVersion(saved),
+      results: committed.results,
+      ...(committed.results.length === 1
+        ? { patch: committed.results[0]!.patch, decision: committed.results[0]!.decision }
+        : {})
+    };
+  });
+
+  /**
+   * Undo an element-level override (`DELETE /v1/projects/:id/plan/overrides/:el` or `?beat=b1` to clear a beat's hint/overrides).
+   */
+  app.delete<{ Params: { id: string; el: string }; Querystring: { hint?: string } }>("/v1/projects/:id/plan/overrides/:el", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (!project.beatPlan) return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
+    const elId = decodeURIComponent(request.params.el);
+    const plan = structuredClone(project.beatPlan);
+    if (plan.overrides && elId in plan.overrides) {
+      delete plan.overrides[elId];
+      if (Object.keys(plan.overrides).length === 0) delete plan.overrides;
+    }
+    if (request.query.hint === "1") {
+      const beatId = elId.split(":")[0];
+      const beat = plan.beats.find((b) => b.id === beatId || b.id === elId);
+      if (beat) delete beat.hints;
+    }
+    const saved = await updateProjectPlan(project.id, (current) => ({
+      brief: current.brief,
+      beatPlan: plan,
+      script: scriptFromPlan(plan, current.script?.source ?? "generated")
+    }));
+    return saved ?? reply.code(404).send(notFound);
   });
 }

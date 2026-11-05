@@ -7,7 +7,7 @@ import { deriveBrandTheme, themeIds, type VideoProject } from "@videosaas/contra
 import { getBrand, restoreBrandFiles } from "../brand/store.ts";
 import { config } from "../config.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
-import { ENGINE_TEMPLATE, engineVariables, fillTextBlock, scriptJson, stampCanvas, textValues } from "./composition.ts";
+import { ENGINE_TEMPLATE, engineVariables, fillTextBlock, hfBlockValues, scriptJson, stampCanvas } from "./composition.ts";
 import { audioMode } from "./audio.ts";
 import { filmFeel, filmFrames, withFrameFilm } from "./frame-film.ts";
 import { soundTracks, withSoundtrack } from "./sound.ts";
@@ -109,7 +109,7 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
   let html = stampCanvas(templateHtml, plan.canvas);
   const withRuntime = html.replace('<script src="vendor/gsap.min.js"></script>', () => bootstrap);
   if (withRuntime === html) throw new PreviewUnavailable("The beat-plan engine does not have a supported preview bootstrap.");
-  html = fillTextBlock(withRuntime, textValues(plan.beats));
+  html = fillTextBlock(withRuntime, hfBlockValues(plan.beats, plan.overrides));
   html = html.replace(/(<script id="hf-variables" type="application\/json">[\s\S]*?<\/script>)/, (block) => `${block}\n  ${merge}`);
   // The soundtrack: voiceover takes, the ducked bed and the SFX, as <audio> tracks the player plays in sync.
   const { tracks } = soundTracks({
