@@ -1,0 +1,324 @@
+<title>Draw Once, Play Smooth</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~68ch) with a wide stage for the frame viewer; graphite neutrals, one crayon-blue accent. */
+:root {
+  --paper: #f5f6f8;
+  --sheet: #ffffff;
+  --ink: #1b1e24;
+  --ink-soft: #545b68;
+  --rule: #d9dde4;
+  --accent: #2459c4;
+  --accent-soft: #e4ecfb;
+  --good: #1f7a4d;
+  --warn: #a35a00;
+  --f-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --s-1: 0.82rem; --s0: 1.02rem; --s1: 1.25rem; --s2: 1.6rem; --s3: 2.3rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #121418; --sheet: #1a1d23; --ink: #e7e9ee; --ink-soft: #a3aab7; --rule: #2d323b;
+    --accent: #7ea6f2; --accent-soft: #1d2a44; --good: #5cc592; --warn: #f0a64a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #121418; --sheet: #1a1d23; --ink: #e7e9ee; --ink-soft: #a3aab7; --rule: #2d323b;
+  --accent: #7ea6f2; --accent-soft: #1d2a44; --good: #5cc592; --warn: #f0a64a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: var(--s0); line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+}
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 56px; }
+.col { max-width: 68ch; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: var(--s3); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: var(--s2); font-weight: 700; }
+h3 { font-size: var(--s1); font-weight: 600; }
+p { margin: 0; }
+.stack { display: grid; gap: 14px; }
+.eyebrow { font-family: var(--f-mono); font-size: var(--s-1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.lede { color: var(--ink-soft); font-size: var(--s1); }
+code, .mono { font-family: var(--f-mono); font-size: 0.88em; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* viewer */
+.viewer { display: grid; gap: 14px; }
+.stage { position: relative; width: 100%; max-width: 960px; aspect-ratio: 16 / 9; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; cursor: crosshair; }
+.stage img { width: 100%; height: 100%; display: block; position: absolute; inset: 0; user-select: none; -webkit-user-drag: none; }
+.stage .right { clip-path: inset(0 0 0 var(--split, 50%)); }
+.divider { position: absolute; top: 0; bottom: 0; left: var(--split, 50%); width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; }
+.divider::after { content: ""; position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--sheet); }
+.tag.r { left: auto; right: 10px; }
+.slider { width: 100%; max-width: 960px; accent-color: var(--accent); }
+.slider-row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; max-width: 960px; font-family: var(--f-mono); font-size: var(--s-1); color: var(--ink-soft); }
+.marker { position: absolute; width: 18%; aspect-ratio: 16 / 9; border: 2px solid var(--accent); border-radius: 3px; pointer-events: none; transform: translate(-50%, -50%); }
+.tag { position: absolute; left: 10px; top: 10px; font-family: var(--f-mono); font-size: var(--s-1); background: var(--sheet); color: var(--ink); border: 1px solid var(--rule); padding: 3px 8px; border-radius: 4px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls .label { font-family: var(--f-mono); font-size: var(--s-1); color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 4px; }
+.controls .sep { width: 1px; height: 26px; background: var(--rule); margin: 0 6px; }
+button {
+  font-family: var(--f-mono); font-size: var(--s-1); padding: 7px 12px; border-radius: 5px; border: 1px solid var(--rule);
+  background: var(--sheet); color: var(--ink); cursor: pointer;
+}
+button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--sheet); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.hold { border-style: dashed; }
+.loupes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.loupe { display: grid; gap: 6px; }
+.loupe .win { width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--rule); border-radius: 4px; background-repeat: no-repeat; image-rendering: pixelated; background-color: var(--sheet); }
+.loupe .cap { font-family: var(--f-mono); font-size: var(--s-1); color: var(--ink-soft); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0; border-top: 1px solid var(--rule); }
+.fact { padding: 12px 0; border-bottom: 1px solid var(--rule); display: grid; gap: 2px; padding-right: 16px; }
+.fact b { font-family: var(--f-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+.fact span { color: var(--ink-soft); font-size: var(--s-1); }
+.note { color: var(--ink-soft); font-size: var(--s-1); }
+
+/* plan */
+.section { display: grid; gap: 18px; }
+ul, ol { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+.change { display: grid; gap: 10px; padding-block: 18px; border-top: 1px solid var(--rule); }
+.change header { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.pill { font-family: var(--f-mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; text-transform: uppercase; letter-spacing: 0.06em; }
+.pill.run { color: var(--accent); }
+.pill.next { color: var(--ink-soft); }
+.pill.q0 { color: var(--good); }
+.kv { display: grid; grid-template-columns: 9.5em 1fr; gap: 6px 16px; }
+.kv dt { font-family: var(--f-mono); font-size: var(--s-1); color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.05em; padding-top: 3px; }
+.kv dd { margin: 0; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: var(--s-1); }
+th, td { text-align: left; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--f-mono); font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.72rem; }
+td.n { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 560px) { .kv { grid-template-columns: 1fr; } .kv dt { padding-top: 0; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="stack col">
+    <span class="eyebrow">Live preview · plate films · 5 Nov 2026</span>
+    <h1>Draw once, play smooth</h1>
+    <p class="lede">The scene code draws every frame on the viewer's computer. This page shows how the stored copies of those frames look, and the full plan for fast drawing, smooth 30 fps playback with sound, and replays that never redraw.</p>
+  </header>
+
+  <section class="section">
+    <div class="stack col">
+      <span class="eyebrow">Part 1 · Judge with your eyes</span>
+      <h2>Lossless or lossy stored frames</h2>
+      <p>These are real frames drawn by the code of the staging crayon film, at the live-preview size of 640 × 360, shown at stage size. The left side is <b>lossless</b>, exactly what the code drew; the right side is the same frame saved as <b>lossy WebP</b> at the quality you pick, from 0.92 down to 0.3. Drag the slider (or the line on the picture) to move the split across the same frame. Click the picture to place the two zoom boxes.</p>
+    </div>
+    <div class="viewer">
+      <div class="controls" role="group" aria-label="Scene">
+        <span class="label">Scene</span>
+        <button id="sc-0" data-scene="0" aria-pressed="true">Balloon, more fire</button>
+        <button id="sc-1" data-scene="1" aria-pressed="false">Balloon, how does it climb</button>
+      </div>
+      <div class="controls" role="group" aria-label="Right side" id="qualities">
+        <span class="label">Right side</span>
+      </div>
+      <div class="controls" role="group" aria-label="Difference view">
+        <span class="label">View</span>
+        <button id="v-picture" aria-pressed="true">Picture</button>
+        <button id="v-diff" aria-pressed="false">Difference ×8</button>
+      </div>
+      <div class="stage" id="stage">
+        <img id="left" alt="Lossless code-drawn crayon frame">
+        <img id="right" class="right" alt="Lossy copy of the same frame">
+        <div class="divider" aria-hidden="true"></div>
+        <div class="marker" id="marker"></div>
+        <span class="tag">Lossless (exact)</span>
+        <span class="tag r" id="tag-r">Lossy 0.3</span>
+      </div>
+      <div class="slider-row">
+        <span>Lossless</span>
+        <input id="split" class="slider" type="range" min="0" max="100" step="0.5" value="50" aria-label="Split between lossless and lossy">
+        <span id="split-r">Lossy 0.3</span>
+      </div>
+      <div class="loupes">
+        <div class="loupe"><div class="win" id="z-a"></div><span class="cap">Zoom ×3 · lossless (exact)</span></div>
+        <div class="loupe"><div class="win" id="z-b"></div><span class="cap" id="z-b-cap">Zoom ×3 · lossy 0.3</span></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Stored as</th><th>Per frame</th><th>15 s film, 30 fps</th><th>60 s film</th><th>Pixels changed</th><th>PSNR</th></tr></thead>
+          <tbody id="sizes"></tbody>
+        </table>
+      </div>
+      <p class="note">PSNR compares the stored picture with what the code drew; higher is closer, and "identical" means every pixel matches. "Pixels changed" counts pixels that moved more than 2 levels out of 255. The difference view shows the selected quality's change multiplied by 8 so it is visible; black means unchanged.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="stack col">
+      <span class="eyebrow">Part 2 · The plan</span>
+      <h2>What we change, and in what order</h2>
+      <p>Your rules for this work: the scene code draws on the viewer's computer; the viewer may wait while it draws; playback must be a smooth 30 fps with voice, music and sound effects in step; once drawn, a scene replays without drawing again; quality never drops; the model's drawing is never restricted.</p>
+    </div>
+
+    <div class="stack col">
+      <h3>Where we are today</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Crayon scene</th><th>Code drawing time per frame</th><th>Frames per second it draws</th><th>On staging today</th></tr></thead>
+          <tbody>
+            <tr><td>1 · How does it climb?</td><td class="n">148 ms</td><td class="n">6.8</td><td>pre-draws (15 fps)</td></tr>
+            <tr><td>2 · More fire?</td><td class="n">268 ms</td><td class="n">3.7</td><td>near the 20 s limit</td></tr>
+            <tr><td>3 · Untie one</td><td class="n">186 ms</td><td class="n">5.4</td><td>pre-draws (15 fps)</td></tr>
+            <tr><td>4 · Set something down</td><td class="n">35 ms</td><td class="n">28.6</td><td>live</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Showing a frame that is already drawn takes <span class="mono">0.07 ms</span>, so playback itself is never the problem; drawing is. Today the preview plays at 15 fps, frees each frame after showing it (so a replay redraws), lets sound run on while the picture waits, and falls back to the server MP4 when a scene would take more than 20 s to prepare.</p>
+      <p><b>Why drawing is slow:</b> 83 to 90 % of each frame is spent in one engine function that builds the crayon scribble fill. For every few pixels of a shape it asks "is this point inside the outline?", and each answer walks every edge of an outline of hundreds of points, about 70 fills per frame. The hand-written scenes you run locally reuse their fills because their shapes stay still; the model's scenes move and re-draw shapes each frame, so the work is real and has to get cheaper.</p>
+    </div>
+
+    <div class="col">
+      <article class="change">
+        <header><h3>1 · Faster engine, identical pictures</h3><span class="pill run">Building now</span><span class="pill q0">No quality change</span></header>
+        <dl class="kv">
+          <dt>What</dt><dd>The engine's "inside the outline?" test first rejects points outside the shape's box, then checks only the outline edges at that point's height, from a small index built once per outline. Same comparisons, same arithmetic, same answer.</dd>
+          <dt>Measured</dt><dd>148 → 28.5 ms, 268 → 43.9, 186 → 39.9, 35 → 18.7 ms per frame; byte-identical frames at 640 × 360 and 1920 × 1080. The final render on AWS gets the same 5 to 6× speed-up.</dd>
+          <dt>Proof required</dt><dd>The engine's golden hashes unchanged; 200,000 random points against 300 shapes give the same answer as the old test; frame fingerprints of every style identical at both sizes; a test where scene code edits an outline in place.</dd>
+          <dt>Rollout</dt><dd>Each scene bundle carries its own engine copy, so existing scenes are re-bundled from their saved code with no model call; their cached preview clips are redrawn once.</dd>
+        </dl>
+      </article>
+      <article class="change">
+        <header><h3>2 · Play at 30 fps</h3><span class="pill next">Next</span><span class="pill q0">Quality goes up</span></header>
+        <dl class="kv">
+          <dt>What</dt><dd>Show every frame the code draws (today every other one). One constant changes from 2 to 1; checks are unchanged.</dd>
+          <dt>Why it is safe</dt><dd>After change 1 the four scenes draw at 23 to 53 fps, so most start almost at once.</dd>
+        </dl>
+      </article>
+      <article class="change">
+        <header><h3>3 · Buffer like a video, sound in step</h3><span class="pill next">Next</span><span class="pill q0">No quality change</span></header>
+        <dl class="kv">
+          <dt>What</dt><dd>Start after a short buffer (about 1 s, longer for slow scenes so they rarely pause), keep 2 to 3 s drawn ahead, and if playback reaches the last drawn frame, pause with a buffering indicator and resume when ready. Never show a wrong frame.</dd>
+          <dt>Sound</dt><dd>One clock drives picture, voiceover, music and sound effects. Buffering pauses all of them at the same instant and resumes them together; sound effects are scheduled from the clock, not from timers.</dd>
+          <dt>MP4</dt><dd>The 20 s limit goes. The server MP4 stays only for browsers that cannot run the live player, or a drawing worker that keeps crashing.</dd>
+        </dl>
+      </article>
+      <article class="change">
+        <header><h3>4 · Draw once, replay forever</h3><span class="pill next">Next</span><span class="pill q0">Lossless: no quality change</span></header>
+        <dl class="kv">
+          <dt>What</dt><dd>Each frame is saved the moment the code draws it, keyed by the scene's exact revision. When every frame is saved, the scene is complete: replay, loop and seek read the saved frames and never run the code again. A comment makes a new revision; only that scene redraws.</dd>
+          <dt>Where</dt><dd>On the viewer's disk in browser storage, so long films fit on small devices; only the 2 to 3 s playback buffer lives in memory (about 55 to 80 MB). Saving runs in a second worker; loading a frame takes about 6 ms.</dd>
+          <dt>Format</dt><dd>Lossy WebP at <b>0.4</b> by default (about 34 KB per frame, 15 MB for a 15 s film). The viewer can pick <b>Low 0.2</b> (20 KB, 9 MB), <b>Standard 0.4</b> or <b>High 0.6</b> (48 KB, 21 MB) in the step-3 options bar; saving a frame takes 19 to 24 ms in a second worker and loading one 2.4 to 3.6 ms, so every option replays smoothly at 30 fps. The first play always shows the exact drawn frames; only replays use the stored copy. Changing the setting starts a background job on the viewer's computer: playback, scrubbing and clicking keep using the existing copies with no wait, while the job redraws frames with the scene code (raising the quality) or re-saves the copies (lowering it), nearest the playhead first, then the rest of the film. Each frame switches to the new quality the moment it is ready; a scrub moves the job's focus to the new position; playback always gets the CPU first; the job resumes after a reload. The final render is unaffected: the AWS worker runs the code itself at 1920 × 1080, 30 fps.</dd>
+        </dl>
+      </article>
+      <article class="change">
+        <header><h3>5 · Draw ahead in the background</h3><span class="pill next">After 4</span><span class="pill q0">No quality change</span></header>
+        <dl class="kv">
+          <dt>What</dt><dd>While the viewer reads the storyboard or watches one scene, the next scenes keep drawing and saving, one at a time, so most of the film is ready before they press play.</dd>
+        </dl>
+      </article>
+    </div>
+
+    <div class="stack col">
+      <h3>How each step is checked before it ships</h3>
+      <ul>
+        <li>Pixel identity: engine golden hashes, the random-point test, per-style fingerprints at two sizes, and fingerprints of replayed frames against freshly drawn ones (lossless).</li>
+        <li>Playback: a headless Chrome run of the four staging crayon scenes at 30 fps: zero wrong frames, every buffering pause matched by an audio pause, picture and voice within one frame of each other after resume.</li>
+        <li>Storage: replay after reload draws nothing; a comment redraws only its scene; storage stays under the cap.</li>
+        <li>All frontend, backend and engine suites; then the crayon film on staging in Chrome, timed.</li>
+      </ul>
+    </div>
+
+    <div class="stack col">
+      <h3>Who does what, and alongside what</h3>
+      <ol>
+        <li>Change 1: a Sonnet agent, in its own worktree, running now. I review, re-run the proofs and commit.</li>
+        <li>Changes 2 and 3 together, then 4: the live player and the plates step-3 page, in a second worktree; they touch different files from change 1.</li>
+        <li>Re-bundle existing scenes with the new engine, then deploy to staging and time the crayon film.</li>
+        <li>Argon's HyperFrames edit fix (phase 4a) continues in parallel; it touches none of these files.</li>
+      </ol>
+    </div>
+
+    <div class="stack col">
+      <h3>Risks and open points</h3>
+      <ul>
+        <li>Storage: at the 0.4 default a 15 s film needs about 15 MB and a 60 s film about 60 MB (lossless would be 221 and 880 MB). Storage is capped per site, about 500 MB, oldest films cleared first; if a phone refuses the space, the scene simply redraws on replay.</li>
+        <li>Only desktop Chrome is measured. Safari and Firefox still use the MP4 until someone runs the device check on them.</li>
+        <li>Change 1 assumes scene code does not edit an outline in place after drawing with it; a guard rebuilds the index when the outline's length or end points change.</li>
+        <li>Decided: stored frames are lossy WebP 0.4 by default, with Low 0.2 and High 0.6 as viewer options.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+const DATA = __DATA__;
+const QS = DATA[0].variants.map((v) => v.q);
+let scene = 0, q = QS[QS.length - 1], diffOn = false, split = 50, cx = 0.5, cy = 0.42;
+const stage = document.getElementById("stage"), left = document.getElementById("left"), right = document.getElementById("right");
+const tagR = document.getElementById("tag-r"), splitR = document.getElementById("split-r"), slider = document.getElementById("split"), marker = document.getElementById("marker");
+const za = document.getElementById("z-a"), zb = document.getElementById("z-b"), zbCap = document.getElementById("z-b-cap");
+const group = document.getElementById("qualities");
+QS.forEach((v) => { const b = document.createElement("button"); b.id = "q-" + String(v).replace(".", "_"); b.dataset.q = String(v); b.textContent = "Lossy " + v; b.addEventListener("click", () => { q = v; render(); }); group.appendChild(b); });
+const variant = (d) => d.variants.find((v) => v.q === q);
+const diffCache = new Map();
+function loadImg(url) { return new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = url; }); }
+async function diffUrl(d) {
+  const key = d.scene + ":" + q; if (diffCache.has(key)) return diffCache.get(key);
+  const [a, b] = await Promise.all([loadImg(d.lossless.url), loadImg(variant(d).url)]);
+  const W = d.w, H = d.h, c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d", { willReadFrequently: true });
+  x.drawImage(a, 0, 0); const A = x.getImageData(0, 0, W, H).data; x.drawImage(b, 0, 0); const B = x.getImageData(0, 0, W, H).data;
+  const out = x.createImageData(W, H);
+  for (let i = 0; i < A.length; i += 4) { const m = Math.max(Math.abs(A[i] - B[i]), Math.abs(A[i + 1] - B[i + 1]), Math.abs(A[i + 2] - B[i + 2])); const v = Math.min(255, m * 8); out.data[i] = v; out.data[i + 1] = v; out.data[i + 2] = v; out.data[i + 3] = 255; }
+  x.putImageData(out, 0, 0); const url = c.toDataURL("image/png"); diffCache.set(key, url); return url;
+}
+function rows(d) {
+  const kb = (n) => Math.round(n / 1024), mb = (n, f) => Math.round(n * f / 1048576);
+  const r = [["Lossless (exact)", d.lossless.size, null], ...d.variants.map((v) => ["Lossy " + v.q, v.size, v])];
+  return r.map(([name, size, st]) => `<tr${st && st.q === q ? ' style="font-weight:600"' : ""}><td>${name}</td><td class="n">${kb(size)} KB</td><td class="n">${mb(size, 450)} MB</td><td class="n">${mb(size, 1800)} MB</td><td class="n">${st ? st.pct + " %" : "0 %"}</td><td class="n">${st ? st.psnr + " dB" : "identical"}</td></tr>`).join("");
+}
+async function render() {
+  const d = DATA[scene], v = variant(d), label = "Lossy " + q + (diffOn ? " · difference ×8" : "");
+  left.src = d.lossless.url;
+  const rightUrl = diffOn ? await diffUrl(d) : v.url;
+  right.src = rightUrl;
+  stage.style.setProperty("--split", split + "%");
+  slider.value = String(split);
+  tagR.textContent = label; splitR.textContent = label;
+  const zoom = 3, pos = `${(cx * 100).toFixed(2)}% ${(cy * 100).toFixed(2)}%`;
+  za.style.backgroundImage = `url(${d.lossless.url})`;
+  zb.style.backgroundImage = `url(${rightUrl})`;
+  zbCap.textContent = "Zoom ×3 · " + label.toLowerCase();
+  for (const z of [za, zb]) { z.style.backgroundSize = `${zoom * 100}% auto`; z.style.backgroundPosition = pos; }
+  marker.style.left = (cx * 100) + "%"; marker.style.top = (cy * 100) + "%"; marker.style.width = (100 / zoom) + "%";
+  document.querySelectorAll("[data-q]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.q) === q)));
+  document.getElementById("v-picture").setAttribute("aria-pressed", String(!diffOn));
+  document.getElementById("v-diff").setAttribute("aria-pressed", String(diffOn));
+  document.querySelectorAll("[data-scene]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.scene) === scene)));
+  document.getElementById("sizes").innerHTML = rows(d);
+}
+document.getElementById("v-picture").addEventListener("click", () => { diffOn = false; render(); });
+document.getElementById("v-diff").addEventListener("click", () => { diffOn = true; render(); });
+document.querySelectorAll("[data-scene]").forEach((b) => b.addEventListener("click", () => { scene = Number(b.dataset.scene); render(); }));
+slider.addEventListener("input", () => { split = Number(slider.value); stage.style.setProperty("--split", split + "%"); });
+// drag the line on the picture; a short click without moving places the zoom boxes
+let drag = null;
+stage.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, moved: false }; stage.setPointerCapture(e.pointerId); });
+stage.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 4) drag.moved = true;
+  if (drag.moved) { const r = stage.getBoundingClientRect(); split = Math.min(100, Math.max(0, (100 * (e.clientX - r.left)) / r.width)); stage.style.setProperty("--split", split + "%"); slider.value = String(split); }
+});
+stage.addEventListener("pointerup", (e) => {
+  if (drag && !drag.moved) {
+    const r = stage.getBoundingClientRect();
+    cx = Math.min(0.84, Math.max(0.16, (e.clientX - r.left) / r.width));
+    cy = Math.min(0.84, Math.max(0.16, (e.clientY - r.top) / r.height));
+    render();
+  }
+  drag = null;
+});
+render();
+</script>
