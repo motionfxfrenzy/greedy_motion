@@ -266,7 +266,7 @@ app.post("/v1/projects/:id/render", async (request, reply) => {
   if (!blur.ok) return reply.code(400).send({ error: { code: "invalid_request", message: blur.message } });
   if (blur.on && !project.beatPlan) return reply.code(400).send({ error: { code: "motion_blur_unavailable", message: "Motion blur is available for storyboard films only." } });
   if (project.beatPlan) {
-    if (blur.on) {
+    if (blur.on && !platesInputs.isPlateLook(project.brief?.look)) {
       const seconds = planReadiness(project).durationSeconds;
       const tooLong = seconds === null ? null : motionBlurProblem(seconds);
       if (tooLong) return reply.code(400).send({ error: { code: "motion_blur_too_long", message: tooLong } });
@@ -497,25 +497,33 @@ try {
   // (g) Additional requirement 1: consumers & limits on both sides
   // =========================================================================
   // 1. Motion blur limit (maxSeconds = 20):
-  //    - 6 scenes = 18 s <= 20 s -> accepted (202)
-  //    - 7 scenes = 21 s > 20 s (even when target_duration_s is 15 s) -> refused (400 motion_blur_too_long)
+  //    - Plate films skip the motion-blur length check (both 18 s and 21 s plate films -> 202)
+  //    - HyperFrames/non-plate films > 20 s -> refused (400 motion_blur_too_long)
   const blurOkRes = await app.inject({
     method: "POST",
     url: `/v1/projects/${projA.id}/render`,
     payload: { motionBlur: true }
   });
-  assert.equal(blurOkRes.statusCode, 202, "18 s plate film is <= 20 s motion-blur limit and accepted");
+  assert.equal(blurOkRes.statusCode, 202, "18 s plate film is accepted");
 
   const proj7 = await seedProject({ look: "illus-blueprint", scriptBeatCount: 7, targetDuration: 15, voiced: false });
   assert.equal(projectTiming(proj7.data).total, 14.933, "planner timing for 7-beat film is 14.933 s (<= 20 s)");
   assert.ok(projectTiming(proj7.data).total <= 20);
   assert.equal(planReadiness(proj7.data).durationSeconds, 21, "plateFilmSeconds for 7-beat film is 21 s (> 20 s)");
-  const blurRefusedRes = await app.inject({
+  const blurPlate21Res = await app.inject({
     method: "POST",
     url: `/v1/projects/${proj7.id}/render`,
     payload: { motionBlur: true }
   });
-  assert.equal(blurRefusedRes.statusCode, 400, "21 s plate film is > 20 s motion-blur limit and refused");
+  assert.equal(blurPlate21Res.statusCode, 202, "21 s plate film skips motion-blur length check and is accepted (202)");
+
+  const proj7Hf = await seedProject({ look: "clean", scriptBeatCount: 7, targetDuration: 21, voiced: false });
+  const blurRefusedRes = await app.inject({
+    method: "POST",
+    url: `/v1/projects/${proj7Hf.id}/render`,
+    payload: { motionBlur: true }
+  });
+  assert.equal(blurRefusedRes.statusCode, 400, "21 s non-plate film is > 20 s motion-blur limit and refused");
   assert.equal(blurRefusedRes.json().error.code, "motion_blur_too_long");
 
   // 2. Free-tier 33-token (90 s) balance limit:

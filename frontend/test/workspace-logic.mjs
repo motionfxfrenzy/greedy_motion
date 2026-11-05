@@ -7,6 +7,7 @@ import {
   buildSubtitleCues,
   formatClock,
   mapSceneTabState,
+  plateOptionsConfig,
   resolveVisibleOptions,
   sceneSpansFromDurations,
   sortWorkspaceComments
@@ -144,6 +145,11 @@ test("resolveVisibleOptions hides unsupported engine options instead of disablin
   assert.equal(full.subtitleOpacity, true);
   assert.equal(full.subtitlePosition, true);
   assert.equal(full.previewQuality, true);
+  assert.equal(full.motionBlur, true);
+
+  // Plate config hides motionBlur while keeping default capabilities
+  const plate = resolveVisibleOptions(plateOptionsConfig());
+  assert.equal(plate.motionBlur, false);
 
   // HyperFrames-style subset: only voice/music and subtitle mode (no style/size/colors/opacity/position)
   const hf = resolveVisibleOptions({

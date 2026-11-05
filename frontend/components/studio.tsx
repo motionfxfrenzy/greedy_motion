@@ -990,6 +990,8 @@ export function Studio() {
         animError={animError ?? error}
         animVersion={animVersion}
         busy={busy}
+        motionBlur={motionBlur}
+        setMotionBlur={setMotionBlur}
         onRetryAnimate={() => void startBrowserAnimation()}
         onBackToStoryboard={() => setStep(STORYBOARD)}
         onStartFinalRender={() => void submit()}

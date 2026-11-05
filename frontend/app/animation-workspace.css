@@ -52,6 +52,22 @@
 
 .aw-mini-status{font-size:11.5px;font-weight:600;color:var(--muted);padding:0 6px;white-space:nowrap}
 
+.aw-blur{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--ink);font-size:11.5px;font-weight:600;cursor:pointer;max-width:100%;min-width:0;box-sizing:border-box;transition:background-color .15s,border-color .15s}
+
+.aw-blur:hover:not(.disabled){border-color:var(--blue)}
+
+.aw-blur.on{background:rgba(37,99,235,.16);border-color:var(--blue)}
+
+.aw-blur.disabled{opacity:.65;cursor:not-allowed}
+
+.aw-blur input{margin:0;accent-color:var(--blue);cursor:inherit;flex:none}
+
+.aw-blur span{display:inline-flex;align-items:baseline;gap:5px;min-width:0;overflow:hidden}
+
+.aw-blur b{font-weight:600;white-space:nowrap;flex:none}
+
+.aw-blur small{font-size:10.5px;font-weight:500;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
+
 .aw-status-wrap{display:contents}
 
 .aw-status-line{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:13px;font-weight:600;color:var(--ink)}

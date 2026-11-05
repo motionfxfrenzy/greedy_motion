@@ -61,6 +61,10 @@ export interface WorkspaceOptionsConfig {
   subtitlePosition?: boolean;
   /** Whether the engine supports stored frame preview quality (Low / Standard / High). */
   previewQuality?: boolean;
+  /** Whether the engine supports the final-render motion-blur toggle. */
+  motionBlur?: boolean;
+  /** Optional control state forwarded when rendered through AnimationWorkspace. */
+  motionBlurControls?: WorkspaceMotionBlurControlState;
 }
 
 export interface ResolvedWorkspaceOptions {
@@ -74,6 +78,7 @@ export interface ResolvedWorkspaceOptions {
   subtitleOpacity: boolean;
   subtitlePosition: boolean;
   previewQuality: boolean;
+  motionBlur: boolean;
 }
 
 export interface WorkspaceAudioControlState {
@@ -114,6 +119,13 @@ export interface WorkspacePreviewQualityControlState {
   onSelectQuality: (quality: WorkspacePreviewQuality) => void;
 }
 
+export interface WorkspaceMotionBlurControlState {
+  enabled: boolean;
+  disabled?: boolean;
+  durationSeconds: number;
+  onToggle: (enabled: boolean) => void;
+}
+
 export interface WorkspaceStatusBadge {
   text: ReactNode;
   showRetry?: boolean;
@@ -142,6 +154,8 @@ export interface AnimationWorkspaceProps {
   subtitleControls?: WorkspaceSubtitleControlState;
   /** Preview quality control for plate films (Low 0.2 / Standard 0.4 / High 0.6). */
   previewQualityControls?: WorkspacePreviewQualityControlState;
+  /** Final-render motion-blur control for engines that support it (HyperFrames). */
+  motionBlurControls?: WorkspaceMotionBlurControlState;
   /** Optional status chip and retry button at the end of the options bar. */
   statusBadge?: WorkspaceStatusBadge | null;
   /** Renders the engine-specific stage surface inside `.aw-canvas`. */

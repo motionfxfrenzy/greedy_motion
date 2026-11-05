@@ -25,6 +25,7 @@ import { databaseReady, migrate, pool } from "./db/database.ts";
 import { boss, startQueues } from "./jobs/queues.ts";
 import { startWorkerSweep } from "./jobs/worker-launcher.ts";
 import { registerPlateRoutes } from "./plates/routes.ts";
+import { isPlateLook } from "./plates/inputs.ts";
 import { registerJobControlRoutes } from "./jobs/control.ts";
 import { startPlates as startPlatePipeline } from "./plates/reconcile.ts";
 import { startSweep } from "./jobs/sweep.ts";
@@ -271,7 +272,7 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>
     // An approved storyboard renders exactly as previewed: no planner, no generation, nothing that can
     // fail after Submit. Readiness is checked again here; the storyboard already disables Submit.
     if (project.beatPlan) {
-      if (blur.on) {
+      if (blur.on && !isPlateLook(project.brief?.look)) {
         const seconds = planReadiness(project).durationSeconds;
         const tooLong = seconds === null ? null : motionBlurProblem(seconds);
         if (tooLong) return reply.code(400).send({ error: { code: "motion_blur_too_long", message: tooLong } });

@@ -99,6 +99,7 @@ test("hfAvailableAudioTracks and hfOptionsConfig expose only existing voice/musi
   assert.equal(visBoth.subtitleOpacity, false);
   assert.equal(visBoth.subtitlePosition, false);
   assert.equal(visBoth.previewQuality, false);
+  assert.equal(visBoth.motionBlur, true);
 
   // Only music generated (voice never generated)
   const availMusicOnly = hfAvailableAudioTracks({
