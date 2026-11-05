@@ -107,7 +107,7 @@ All stopped on the owner's request at about 13:55 +08 on 2026-11-05. Nothing is 
 - OpenCode session `ses_e55c92b3cffeF5Ns4O1qZy0zc2` ("phase3g playback store", started 13:47) was interrupted while still reading; `git status` in the worktree was clean afterwards (only the committed brief and plan exist).
 - **Resume:** do NOT relaunch on the current brief. First revise `docs/LIVE_PLAYBACK_PLAN.md` and `tools/phase3/TASK-3g-playback-store.md` with section 6 items 3 to 6 and the wording fixes (owner's decision on item 3 first: may frames drawn ahead be shown from the stored 0.4 copy on first play, or must first play stay exact?). Also add to the brief: lowering quality redraws from code (not re-encode), "replays while stored", the 1.25x start-buffer margin, bounded encoder queue / bitmap close / cancellation / priority order, Web Audio timeline and the extra audio tests. Commit, then launch from a terminal tab:
   `cd /Users/osamaehsaan/Code/Market_apps/VideoSaaS-predraw && opencode run -m google/gemini-4-argon --title "phase3g playback store v2" "Read tools/phase3/TASK-3g-playback-store.md in full and do exactly what it says, in order. Start with docs/LIVE_PLAYBACK_PLAN.md. Work only in this worktree; do not touch ../VideoSaaS-live-scenes or ../VideoSaaS-engine. Follow every rule in the brief. End your final message with exactly: DONE docs/phase3/3g-report.md"`
-- **Watcher** (Monitor tool, `timeout_ms` 1800000, re-arm on each expiry):
+- **Watcher** (Monitor tool; OBSOLETE form below: with parallel tracks `session.active` is never empty. Use the id-specific form in section 11):
   `cd /Users/osamaehsaan/Code/Market_apps/VideoSaaS-predraw; sleep 60; while true; do if opencode api session.active 2>/dev/null | grep -q '"type":"running"'; then :; else sleep 20; if ! opencode api session.active 2>/dev/null | grep -q '"type":"running"'; then if [ -f docs/phase3/3g-report.md ]; then echo "ARGON DONE phase-3g"; else echo "ARGON STOPPED phase-3g: no report"; fi; exit 0; fi; fi; if [ -z "$(find frontend tools docs -type f -mmin -45 -not -path '*/node_modules/*' -not -path '*/.next/*' 2>/dev/null | head -1)" ]; then echo "ARGON STALLED? phase-3g"; sleep 2400; fi; sleep 300; done`
 
 ### 10.2 Engine fix (Sonnet subagent) in `../VideoSaaS-engine`: stopped, PARTIAL work on disk (uncommitted)
@@ -146,3 +146,8 @@ All stopped on the owner's request at about 13:55 +08 on 2026-11-05. Nothing is 
 | 3g playback | `../VideoSaaS-predraw` (`codex/live-predraw`) | this session | brief v2 awaiting advisor OK, then relaunch Argon |
 
 Locks: `/Users/osamaehsaan/Code/Market_apps/.lock-plates-e2e` (Docker stack) and `.lock-timing` (timing-sensitive tests); file holds the track name and time; delete when done.
+
+### Watching Argon with parallel tracks
+Record your own OpenCode session id right after launch (`opencode session list | grep "<your --title>"`); never interrupt an id you did not launch. Prefix titles with the track (`3g ...`, `engine ...`, `4a ...`, `smoke ...`). Watcher: done when your id is gone from `opencode api session.active` and the report exists; stopped when your id is gone and there is no report; stalled after 45 minutes without file changes in your worktree: replace the first test in the old loop by `grep -q "$ID"` on the active list.
+
+3g v2 run: session `ses_e553b590effeG2e50l1dOJ6GaS` ("phase3g playback store v2", started 16:13 on 2026-11-05), brief commit `a102b4b`, base WIP `26b5d5a`.
