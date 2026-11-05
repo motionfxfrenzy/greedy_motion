@@ -34,6 +34,7 @@ export type RevisionRow = {
   bundle_digest: string;
   source_key: string | null;
   bundle_key: string | null;
+  bundle_manifest: Record<string, unknown> | null;
   params: Record<string, unknown>;
   params_digest: string;
   author: string | null;
@@ -41,6 +42,9 @@ export type RevisionRow = {
 };
 
 export const prefixOf = (v: Pick<VariantRow, "project_id" | "aspect" | "scene_index" | "gen">) => `plates/${v.project_id}/${aspectSlug(v.aspect)}/${v.scene_index}/g${v.gen}/`;
+export const sourceKeyFor = (v: Pick<VariantRow, "project_id" | "aspect" | "scene_index" | "gen">, sourceSha: string) => `${prefixOf(v)}sources/${sourceSha}/source.ts`;
+export const bundleKeyFor = (v: Pick<VariantRow, "project_id" | "aspect" | "scene_index" | "gen">, bundleSha: string) => `${prefixOf(v)}bundles/${bundleSha}/bundle.html`;
+export const manifestKeyFor = (v: Pick<VariantRow, "project_id" | "aspect" | "scene_index" | "gen">, bundleSha: string) => `${prefixOf(v)}bundles/${bundleSha}/manifest.json`;
 
 export type Desired = { index: number; aspect: Aspect; signature: string; frames: number; width: number; height: number; keyword: string };
 
@@ -325,17 +329,18 @@ export async function commitBundle(
         await client.query("delete from app.plate_check_reports where variant_id = $1 and gen = $2", [updated.id, updated.gen]);
       }
       await client.query(
-        `insert into app.plate_revisions (variant_id, rev, bundle_digest, source_key, bundle_key, params, params_digest, author)
-         values ($1, $2, $3, $4, $5, $6::jsonb, $7, null)
+        `insert into app.plate_revisions (variant_id, rev, bundle_digest, source_key, bundle_key, bundle_manifest, params, params_digest, author)
+         values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, null)
          on conflict (variant_id, rev) do update
            set bundle_digest = excluded.bundle_digest,
                source_key = excluded.source_key,
                bundle_key = excluded.bundle_key,
+               bundle_manifest = excluded.bundle_manifest,
                params = excluded.params,
                params_digest = excluded.params_digest,
                author = excluded.author,
                created_at = now()`,
-        [updated.id, updated.rev, digest, artifacts.sourceKey, artifacts.bundleKey, JSON.stringify(revParams), pDigest]
+        [updated.id, updated.rev, digest, artifacts.sourceKey, artifacts.bundleKey, JSON.stringify(artifacts.manifest), JSON.stringify(revParams), pDigest]
       );
       if (shouldRender) {
         await queue(client, updated, QUEUES.plateRender, `${updated.id}:${updated.gen}`);
@@ -387,7 +392,7 @@ async function sendBackForRepairWithClient(
       )
     : await client.query(
         `update app.plate_variants
-            set state = 'queued', stage = 'repairing', repair = $3::jsonb, repairs = repairs + 1,
+            set state = 'queued', stage = 'repairing', rev = rev + 1, repair = $3::jsonb, repairs = repairs + 1,
                 check_report = coalesce($4::jsonb, check_report), host = coalesce($5, host),
                 author_owner = null, author_until = null, enqueued_at = now(), updated_at = now()
           where id = $1 and gen = $2 and state in ('bundled', 'rendering')`,
@@ -755,3 +760,170 @@ export async function editComments(projectId: string, change: (comments: PlateCo
 }
 
 export const newOwner = () => randomUUID();
+export type CommitRebundleInput = {
+  variantId: string;
+  gen: number;
+  rev: number;
+  expectedBundleDigest: string | null;
+  bundleKey: string;
+  bundleDigest: string;
+  bundleManifest: Record<string, unknown>;
+  sourceKey: string;
+  params: Record<string, unknown>;
+  author?: string;
+  host?: string;
+};
+
+export type CommitRebundleOutcome =
+  | { committed: true; rev: number; state: VariantState }
+  | { committed: false; reason: "not_found" | "fenced" };
+
+/**
+ * Atomically switches a variant to a verified re-bundled revision in one short fenced transaction (`FOR UPDATE`).
+ * Fenced by `(gen, rev, bundle_digest, state IN ('checked', 'drawn', 'bundled'))`.
+ * Preserves `checked` and `drawn` states (retaining `clip_key` / `still_key`) so live previews switch seamlessly.
+ */
+export async function commitRebundleRevision(input: CommitRebundleInput): Promise<CommitRebundleOutcome> {
+  const pDigest = paramsDigest(input.params);
+  const author = input.author ?? "engine-rebundle";
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const locked = await client.query<VariantRow>("select * from app.plate_variants where id = $1 for update", [input.variantId]);
+    const row = locked.rows[0];
+    if (!row) {
+      await client.query("rollback");
+      return { committed: false, reason: "not_found" };
+    }
+    const allowedStates = new Set<VariantState>(["checked", "drawn", "bundled"]);
+    if (
+      row.gen !== input.gen ||
+      row.rev !== input.rev ||
+      row.bundle_digest !== input.expectedBundleDigest ||
+      !allowedStates.has(row.state)
+    ) {
+      await client.query("rollback");
+      return { committed: false, reason: "fenced" };
+    }
+
+    const newRev = row.rev + 1;
+    await client.query(
+      `insert into app.plate_revisions (variant_id, rev, bundle_digest, source_key, bundle_key, bundle_manifest, params, params_digest, author)
+       values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)
+       on conflict (variant_id, rev) do update
+         set bundle_digest = excluded.bundle_digest,
+             source_key = excluded.source_key,
+             bundle_key = excluded.bundle_key,
+             bundle_manifest = excluded.bundle_manifest,
+             params = excluded.params,
+             params_digest = excluded.params_digest,
+             author = excluded.author,
+             created_at = now()`,
+      [row.id, newRev, input.bundleDigest, input.sourceKey, input.bundleKey, JSON.stringify(input.bundleManifest), JSON.stringify(input.params), pDigest, author]
+    );
+
+    const isChecked = row.state === "checked";
+    const hostVal = input.host ?? row.host ?? "worker";
+    await client.query(
+      `update app.plate_variants
+          set rev = $2,
+              bundle_key = $3,
+              bundle_manifest = $4::jsonb,
+              bundle_digest = $5,
+              checked_at = case when $6 then now() else checked_at end,
+              host = case when $6 then $7 else host end,
+              updated_at = now()
+        where id = $1`,
+      [row.id, newRev, input.bundleKey, JSON.stringify(input.bundleManifest), input.bundleDigest, isChecked, hostVal]
+    );
+
+    await client.query("commit");
+    return { committed: true, rev: newRev, state: row.state };
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export type RollbackRebundleOutcome =
+  | { rolledBack: true; variantId: string; fromRev: number; toRev: number; bundleKey: string; bundleDigest: string }
+  | { rolledBack: false; variantId: string; reason: "not_found" | "not_engine_rebundle" | "no_previous_revision" };
+
+/**
+ * Rolls back one variant whose active revision was created by `engine-rebundle` to `rev - 1` in a single fenced transaction.
+ */
+export async function rollbackRebundleRevision(
+  variantId: string,
+  fallbackManifestResolver?: (prevRev: RevisionRow) => Promise<Record<string, unknown> | null>
+): Promise<RollbackRebundleOutcome> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const locked = await client.query<VariantRow>("select * from app.plate_variants where id = $1 for update", [variantId]);
+    const row = locked.rows[0];
+    if (!row) {
+      await client.query("rollback");
+      return { rolledBack: false, variantId, reason: "not_found" };
+    }
+    const curRes = await client.query<RevisionRow>(
+      "select * from app.plate_revisions where variant_id = $1 and rev = $2",
+      [row.id, row.rev]
+    );
+    const cur = curRes.rows[0];
+    if (!cur || cur.author !== "engine-rebundle") {
+      await client.query("rollback");
+      return { rolledBack: false, variantId, reason: "not_engine_rebundle" };
+    }
+    const prevRes = await client.query<RevisionRow>(
+      "select * from app.plate_revisions where variant_id = $1 and rev = $2",
+      [row.id, row.rev - 1]
+    );
+    const prev = prevRes.rows[0];
+    if (!prev || !prev.bundle_key) {
+      await client.query("rollback");
+      return { rolledBack: false, variantId, reason: "no_previous_revision" };
+    }
+    let prevManifest = prev.bundle_manifest;
+    if (!prevManifest && fallbackManifestResolver) {
+      prevManifest = await fallbackManifestResolver(prev);
+    }
+    const updated = await client.query<VariantRow>(
+      `update app.plate_variants v
+          set rev = prev.rev,
+              bundle_key = prev.bundle_key,
+              bundle_digest = prev.bundle_digest,
+              bundle_manifest = coalesce($3::jsonb, prev.bundle_manifest, v.bundle_manifest),
+              source_key = coalesce(prev.source_key, v.source_key),
+              updated_at = now()
+         from app.plate_revisions cur
+         join app.plate_revisions prev
+           on prev.variant_id = cur.variant_id and prev.rev = cur.rev - 1
+        where v.id = $1
+          and cur.variant_id = v.id
+          and cur.rev = $2
+          and cur.author = 'engine-rebundle'
+        returning v.*`,
+      [row.id, row.rev, prevManifest ? JSON.stringify(prevManifest) : null]
+    );
+    if (updated.rowCount !== 1) {
+      await client.query("rollback");
+      return { rolledBack: false, variantId, reason: "not_engine_rebundle" };
+    }
+    await client.query("commit");
+    return {
+      rolledBack: true,
+      variantId: row.id,
+      fromRev: row.rev,
+      toRev: prev.rev,
+      bundleKey: prev.bundle_key,
+      bundleDigest: prev.bundle_digest
+    };
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}

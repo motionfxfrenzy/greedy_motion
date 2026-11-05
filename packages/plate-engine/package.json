@@ -1,7 +1,7 @@
 {
   "name": "@videosaas/plate-engine",
   "private": true,
-  "version": "0.6.4",
+  "version": "0.6.5",
   "type": "module",
   "description": "Vendored subset of the anidoodle engine (Apache-2.0): canvas runtime, style plates and kits, scene bundler, and the browser capture adapter used by the render worker.",
   "license": "Apache-2.0",

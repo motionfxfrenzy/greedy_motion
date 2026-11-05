@@ -1,4 +1,4 @@
-import { rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
+import { insideRing, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
 import type { Film } from "./film";
 import { bokashi, carved, clamp, fillAll, gouged, grain, path, rubMask, rubPath, washi } from "./woodcutKit";
 
@@ -117,14 +117,14 @@ const rain = (seed: number, n: number, dir: P, lo: number, hi: number, w0: numbe
   for (let i = 0; out.length < n && i < n * 6; i++) {
     const x = IN.x0 - 120 + r() * (IN.x1 - IN.x0 + 120), y = IN.y0 - 60 + r() * (IN.y1 - IN.y0), sheetOfRain = 0.5 + 0.5 * Math.sin(x * 0.012 - y * 0.004 + seed);
     if (r() > 0.25 + 0.75 * sheetOfRain) continue;                                  // drifts of rain with thinner gaps between
-    const onBird = HERONS.some((h) => { const b = h.outline; let c = false; for (let a = 0, j = b.length - 1; a < b.length; j = a++) if (b[a][1] > y !== b[j][1] > y && x < ((b[j][0] - b[a][0]) * (y - b[a][1])) / (b[j][1] - b[a][1]) + b[a][0]) c = !c; return c; });
+    const onBird = HERONS.some((h) => { return insideRing(h.outline, x, y); });
     if (onBird && r() < 0.8) continue;                                              // the carver spared the birds' heads and backs
     const L = lo + r() * (hi - lo); out.push([[[x, y], [x + d[0] * L, y + d[1] * L]], w0 + r() * (w1 - w0)]);
   }
   return out;
 };
 const RAIN_K = rain(821, 230, [0.2, 1], 40, 240, 1.0, 1.5), RAIN_G = rain(822, 150, [0.25, 1], 70, 300, 1.8, 2.6);
-const RIPPLES: P[][] = (() => { const r = rng(831), out: P[][] = []; for (let i = 0; i < 400 && out.length < 120; i++) { const t = Math.pow(r(), 1.5), y = SHORE + 14 + t * (IN.y1 - SHORE - 20), x = IN.x0 + 10 + r() * (IN.x1 - IN.x0 - 20), L = 8 + t * 34; if (BRIDGE.some((b) => { let c = false; for (let a = 0, j = b.length - 1; a < b.length; j = a++) if (b[a][1] > y !== b[j][1] > y && x < ((b[j][0] - b[a][0]) * (y - b[a][1])) / (b[j][1] - b[a][1]) + b[a][0]) c = !c; return c; })) continue; out.push([[x - L / 2, y], [x, y - 1.5 - t * 2], [x + L / 2, y]]); } return out; })();
+const RIPPLES: P[][] = (() => { const r = rng(831), out: P[][] = []; for (let i = 0; i < 400 && out.length < 120; i++) { const t = Math.pow(r(), 1.5), y = SHORE + 14 + t * (IN.y1 - SHORE - 20), x = IN.x0 + 10 + r() * (IN.x1 - IN.x0 - 20), L = 8 + t * 34; if (BRIDGE.some((b) => insideRing(b, x, y))) continue; out.push([[x - L / 2, y], [x, y - 1.5 - t * 2], [x + L / 2, y]]); } return out; })();
 
 // ---------------------------------------------------------------- the blocks
 // Each block is the wood left standing for one colour. Drawn in 1080-space onto a full-size layer.

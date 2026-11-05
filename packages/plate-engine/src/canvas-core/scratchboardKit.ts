@@ -14,7 +14,7 @@
 // either side of the chin; thick neck fur, a pale throat, the heavy shoulder mass below.
 // Reference: from knowledge of lynx portrait photographs (Lynx lynx, Lynx canadensis) and
 // scratchboard wildlife portraiture (fur as tapered white flicks cut in the direction of growth).
-import { sample, type P } from "./core";
+import { insideRing, sample, type P } from "./core";
 
 export type LynxField = { W: number; H: number; G: number; gw: number; gh: number; tone: Float32Array; ang: Float32Array; len: Float32Array; part: Uint8Array };
 // part: 0 board, 1 head, 2 ear, 3 body, 4 eye (never scraped by fur), 5 nose leather (hatched, not furred)
@@ -57,7 +57,7 @@ const distIn = (m: Uint8Array, gw: number, gh: number, test: (v: number) => bool
 };
 export const segDist = (x: number, y: number, pl: P[]) => { let best = 1e9; for (let i = 1; i < pl.length; i++) { const a = pl[i - 1], b = pl[i], dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1, t = clamp(((x - a[0]) * dx + (y - a[1]) * dy) / l2), d = Math.hypot(a[0] + dx * t - x, a[1] + dy * t - y); if (d < best) best = d; } return best; };
 const gauss = (x: number, y: number, c: P, sx: number, sy: number, rot = 0) => { const dx = x - c[0], dy = y - c[1], cs = Math.cos(rot), sn = Math.sin(rot), u = (dx * cs + dy * sn) / sx, v = (-dx * sn + dy * cs) / sy; return Math.exp(-(u * u + v * v)); };
-export const insidePoly = (pts: P[], x: number, y: number) => { let k = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) k = !k; } return k; };
+export const insidePoly = (pts: P[], x: number, y: number) => insideRing(pts, x, y);
 
 // ---------------------------------------------------------------- fur flow: hand-placed anchors, inverse-distance weighted
 // [x, y, angle in degrees (0 = right, 90 = down), weight]

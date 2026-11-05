@@ -4,10 +4,10 @@ import { anthropicMessage, responseText } from "../anthropic.ts";
 import { config } from "../config.ts";
 import { boss, QUEUES } from "../jobs/queues.ts";
 import { getProject } from "../projects/store.ts";
-import { getObject, putObject } from "../storage.ts";
+import { getObject, putObject, type Bucket } from "../storage.ts";
 import { primaryAspect } from "./model.ts";
 import { buildAuthorMessages, moduleFrom } from "./prompt.ts";
-import { claimAuthor, commitBundle, failVariant, getVariant, newOwner, noteAuthorCall, primarySource, prefixOf, releaseAuthor, renewAuthor, saveDraft } from "./store.ts";
+import { bundleKeyFor, claimAuthor, commitBundle, failVariant, getVariant, manifestKeyFor, newOwner, noteAuthorCall, primarySource, releaseAuthor, renewAuthor, saveDraft, sourceKeyFor } from "./store.ts";
 
 /**
  * Authoring consumer (`plate-author`): turns one variant into an immutable source + self-contained bundle in object storage and
@@ -27,6 +27,40 @@ async function retrying<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
   }
 }
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+
+export type ContentAddressedStorage = {
+  getObject: (bucket: Bucket, key: string) => Promise<Buffer | null>;
+  putObject: (bucket: Bucket, key: string, body: Buffer | string, contentType?: string) => Promise<void>;
+};
+
+const defaultContentStorage: ContentAddressedStorage = { getObject, putObject };
+
+/**
+ * Writes an object under a content-addressed key without ever overwriting an existing object with different bytes.
+ * If the key already exists with identical bytes, reuses it without calling `putObject`.
+ * If the key already exists with different bytes, throws a permanent `content_address_collision` error.
+ */
+export async function putContentAddressedObject(
+  bucket: Bucket,
+  key: string,
+  body: Buffer | string,
+  contentType: string,
+  storage: ContentAddressedStorage = defaultContentStorage
+): Promise<{ reused: boolean; size: number }> {
+  const bytes = typeof body === "string" ? Buffer.from(body, "utf8") : body;
+  const existing = await storage.getObject(bucket, key);
+  if (existing !== null) {
+    if (Buffer.compare(existing, bytes) === 0) {
+      return { reused: true, size: bytes.length };
+    }
+    throw Object.assign(
+      new Error(`Refusing to overwrite existing content-addressed key "${key}" with different bytes.`),
+      { code: "content_address_collision" }
+    );
+  }
+  await storage.putObject(bucket, key, bytes, contentType);
+  return { reused: false, size: bytes.length };
+}
 
 export type AuthorMessage = { variantId: string; gen: number };
 
@@ -110,14 +144,16 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
         previous = code;
         continue;
       }
-      const prefix = prefixOf(row);
+      const sourceKey = sourceKeyFor(row, bundle.manifest.sourceSha);
+      const bundleKey = bundleKeyFor(row, bundle.manifest.bundleSha);
+      const manifestKey = manifestKeyFor(row, bundle.manifest.bundleSha);
       const t1 = Date.now();
       let committed: boolean;
       try {
-        await retrying(() => putObject("uploads", `${prefix}source.ts`, code, "text/plain"));
-        await retrying(() => putObject("uploads", `${prefix}bundle.html`, bundle.html, "text/html"));
-        await retrying(() => putObject("uploads", `${prefix}manifest.json`, JSON.stringify(bundle.manifest), "application/json"));
-        committed = await commitBundle(row, owner, { sourceKey: `${prefix}source.ts`, bundleKey: `${prefix}bundle.html`, manifest: bundle.manifest, timings: { bundleMs: Date.now() - t1, authorTotalMs: Date.now() - started } });
+        await retrying(() => putContentAddressedObject("uploads", sourceKey, code, "text/plain"));
+        await retrying(() => putContentAddressedObject("uploads", bundleKey, bundle.html, "text/html"));
+        await retrying(() => putContentAddressedObject("uploads", manifestKey, JSON.stringify(bundle.manifest), "application/json"));
+        committed = await commitBundle(row, owner, { sourceKey, bundleKey, manifest: bundle.manifest, timings: { bundleMs: Date.now() - t1, authorTotalMs: Date.now() - started } });
       } catch (error) {
         // Storage or the database failed after the model answered: keep the module, so the retry costs no model call.
         await saveDraft(row.id, row.gen, owner, code).catch(() => undefined);

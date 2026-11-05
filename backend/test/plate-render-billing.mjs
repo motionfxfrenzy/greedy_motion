@@ -20,7 +20,7 @@ import Fastify from "fastify";
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
 process.env.PLATE_PIPELINE = "worker";
-if (!/plates_unit|test/.test(process.env.DATABASE_URL ?? "")) {
+if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) {
   throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
 }
 

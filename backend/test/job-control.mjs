@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_unit|test/.test(process.env.DATABASE_URL ?? "")) throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
+if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
 const { config } = await import("../src/config.ts");
 const { migrate, pool } = await import("../src/db/database.ts");
 const { boss, startQueues, QUEUES } = await import("../src/jobs/queues.ts");

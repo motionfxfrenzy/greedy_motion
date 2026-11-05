@@ -12,7 +12,18 @@ Vendored from **anidoodle** engine 0.6.4 (Alex Greenshpun, Apache-2.0; see `LICE
 * The optional sound pack and the Van Gogh reference mentioned in `NOTICE` are **not** vendored.
 
 Local changes to vendored files must be listed here and bump `version` in `package.json`.
-Currently: none (files are byte-identical to upstream 0.6.4).
+Currently (version 0.6.5): one local change to the vendored Apache-2.0 sources, a speed fix with identical output (2026-11-05):
+
+* `src/canvas-core/core.ts` and `src/canvas-core/film.ts`: new `insideRing(pts, x, y)` and `ringNewFrame()`, an exact indexed
+  even-odd point-in-polygon test (bounding box plus edges bucketed by height, built once per outline array in a `WeakMap`, with a
+  per-frame epoch bump in `renderFrame` that re-checks all vertices via `Object.is` on first use in each frame plus a cheap
+  per-query length and first/middle/last vertex check; small or non-finite outlines use the original loop). It evaluates the
+  identical comparison and arithmetic as the loop it replaces, on only the edges that can toggle.
+* The copies of that loop now call it: `gallery.ts` `inside` (still through `adaptPts`), `riso.ts` `inside`, `colouredPencilKit.ts` `inPoly`,
+  `scrapbookKit.ts` `inPoly`, `scratchboardKit.ts` `insidePoly`, `brokenColour.ts` `inPoly`, `folkTale.ts` `inPath`, `scrapbookEngraving.ts`
+  `occHit`, and the two inline copies in `woodcut.ts`. Nothing else in the files changed.
+* Proof of identical output: `test/inside-identity.mjs` (property test against the old loop) and `tools/phase3/engine-identity.mjs`
+  (per-style frame hashes, old engine at 23e1963 against this one). See `docs/phase3/engine-inside-report.md`.
 
 `manifest.json` is generated (`npm run manifest -w @videosaas/plate-engine`): it lists the supported styles and the
 content digests that enter every cache signature. `manifest:check` fails when a source file changed without it.

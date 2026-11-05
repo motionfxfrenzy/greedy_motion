@@ -10,7 +10,7 @@
 //
 // Pure: marks are a function of constants and rng(seed). Caches are keyed by everything their
 // pixels depend on (design size, logical size, device scale, pass index).
-import { Gfx, PENCIL, fractal, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
+import { Gfx, PENCIL, fractal, insideRing, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
 
 export type Mark = { c: P[]; w: number; col: string; a: number; len: number; poly: Float32Array };
 export type Pass = { id: string; tooth: 0 | 1 | 2; marks: Mark[] };
@@ -20,7 +20,7 @@ const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 export const smoothstep = (a: number, b: number, v: number) => { const t = clamp((v - a) / (b - a)); return t * t * (3 - 2 * t); };
 
 // ---------------------------------------------------------------- regions
-export const inPoly = (pts: P[], x: number, y: number) => { let k = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) k = !k; } return k; };
+export const inPoly = (pts: P[], x: number, y: number) => insideRing(pts, x, y);
 const boxOf = (pts: P[]) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } return { x0, y0, x1, y1 }; };
 export const poly = (pts: P[]): Region => { const box = boxOf(pts); return { box, has: (x, y) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && inPoly(pts, x, y) }; };
 export const union = (...rs: Region[]): Region => ({ box: { x0: Math.min(...rs.map((r) => r.box.x0)), y0: Math.min(...rs.map((r) => r.box.y0)), x1: Math.max(...rs.map((r) => r.box.x1)), y1: Math.max(...rs.map((r) => r.box.y1)) }, has: (x, y) => rs.some((r) => r.has(x, y)) });

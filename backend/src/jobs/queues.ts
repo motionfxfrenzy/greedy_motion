@@ -25,7 +25,8 @@ export const QUEUES = {
   plateAuthorDead: "plate-author-dead",
   plateRender: "plate-render",
   plateRenderDead: "plate-render-dead",
-  plateExport: "plate-export"
+  plateExport: "plate-export",
+  plateRebundle: "plate-rebundle"
 } as const;
 
 export type RenderMessage = { jobId: string };
@@ -54,7 +55,8 @@ const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   // bundle (no model call). Deterministic scene-code failures never retry here; they go back to authoring as a bounded repair.
   { name: QUEUES.plateRenderDead, notify: true, retryLimit: 0 },
   { name: QUEUES.plateRender, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 1200, heartbeatSeconds: 30, deadLetter: QUEUES.plateRenderDead },
-  { name: QUEUES.plateExport, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 1800, heartbeatSeconds: 30 }
+  { name: QUEUES.plateExport, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 1800, heartbeatSeconds: 30 },
+  { name: QUEUES.plateRebundle, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 600, heartbeatSeconds: 30 }
 ];
 
 /**

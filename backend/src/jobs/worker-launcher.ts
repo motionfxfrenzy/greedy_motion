@@ -12,7 +12,7 @@
 import { ECSClient, ListTasksCommand, RunTaskCommand, type RunTaskCommandInput } from "@aws-sdk/client-ecs";
 import { config } from "../config.ts";
 import { pool } from "../db/database.ts";
-import { QUEUES, boss } from "./queues.ts";
+import { QUEUES, boss, quietBoss } from "./queues.ts";
 import { createDemand } from "./demand.ts";
 import { startSweep } from "./sweep.ts";
 
@@ -76,8 +76,9 @@ async function ensure() {
 
 // Plate scenes and exports (plates/): PLATE_CONCURRENCY plate renders per task (worker.mjs), counted as their own kind of work.
 const PLATE_SLOTS = Math.max(1, Number.parseInt(process.env.PLATE_CONCURRENCY ?? "1", 10) || 1);
+const PGBOSS_SCHEMA = (quietBoss as { schema?: string }).schema ?? "pgboss";
 
-/** Plate variants waiting for or in the worker, plus exports not finished: what needs worker capacity right now. */
+/** Plate variants waiting for or in the worker, exports not finished, plus runnable re-bundle jobs: what needs worker capacity right now. */
 async function plateDemand(): Promise<number> {
   if (!config.plates.enabled) return 0;
   // Work just queued but not yet authored still needs ONE worker soon: its cold start then overlaps the model call. The ping is a
@@ -85,7 +86,8 @@ async function plateDemand(): Promise<number> {
   const pinged = Date.now() - platePingAt < 120_000 ? 1 : 0;
   try {
     const { rows } = await pool.query<{ n: string }>(
-      "select (select count(*) from app.plate_variants where state in ('bundled', 'rendering')) + (select count(*) from app.plate_exports where state in ('queued', 'assembling')) as n"
+      `select (select count(*) from app.plate_variants where state in ('bundled', 'rendering')) + (select count(*) from app.plate_exports where state in ('queued', 'assembling')) + (select count(*) from ${PGBOSS_SCHEMA}.job where name = $1 and ((state in ('created', 'retry') and start_after <= now()) or state = 'active')) as n`,
+      [QUEUES.plateRebundle]
     );
     return Math.max(Number(rows[0]?.n ?? 0), pinged);
   } catch { return pinged; }

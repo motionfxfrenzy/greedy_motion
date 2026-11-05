@@ -57,6 +57,76 @@ export const adaptPts = <T extends readonly [number, number][]>(pts: T): T => {
   adaptCache.set(expanded, expanded);
   return expanded;
 };
+// ---------------------------------------------------------------- point in polygon (even-odd), indexed
+// Exactly the ray-casting loop every style used to carry (`a[1] > y !== b[1] > y && x < ... ` toggling a flag over every edge), but
+// answered from an index built once per outline array: bounding box plus the edges bucketed by height. A query rejects outside the box
+// and otherwise runs the IDENTICAL comparison and arithmetic on only the edges whose height range contains y (the others can never
+// toggle, and the flag is an XOR so edge order does not matter): same booleans, far fewer edges. Horizontal edges never toggle and are
+// left out. The index lives in a WeakMap keyed by the array object (like adaptCache above: the engine assumes an outline array is not
+// edited after it is first used). Guard: see ringNewFrame below (a full-content check once per outline per frame, plus a cheap length/end-vertex check on every query).
+// Outlines that are small, or hold a non-finite or huge coordinate, take the original loop, so odd inputs (NaN, Infinity) keep their old answer.
+type RingIndex = { n: number; fx: number; fy: number; mx: number; my: number; lx: number; ly: number; fast: boolean; x0: number; x1: number; y0: number; y1: number; h: number; B: number; off: Int32Array; ids: Int32Array; ep: number; xy: Float64Array };
+const ringCache = new WeakMap<object, RingIndex>();
+const RING_MIN = 16, RING_HUGE = 1e100;
+// Mutation guard: every frame starts a new epoch (renderFrame calls ringNewFrame). The first use of an outline in an epoch compares ALL its
+// vertices with the copy taken when the index was built (using Object.is: NaN equals NaN so an outline containing NaN does not rebuild every
+// frame, and -0 vs 0 counts as a change, a harmless extra rebuild and never a stale index) and rebuilds on any difference; so an in-place
+// edit between frames is always seen. Every query also keeps the cheap length and first/middle/last vertex check. In-place edits of an
+// outline within one frame are unsupported and are caught by the determinism check (the identical-frame double-draw check).
+let ringEpoch = 0;
+export const ringNewFrame = () => { ringEpoch++; };
+const ringSame = (p: readonly (readonly number[])[], c: RingIndex) => { const xy = c.xy; for (let i = 0; i < c.n; i++) { if (!Object.is(p[i][0], xy[2 * i]) || !Object.is(p[i][1], xy[2 * i + 1])) return false; } return true; };
+const ringLoop = (pts: readonly (readonly number[])[], x: number, y: number) => { let k = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) k = !k; } return k; };
+const ringBuild = (p: readonly (readonly number[])[]): RingIndex => {
+  const n = p.length, m = n >> 1, f = p[0], md = p[m], l = p[n - 1], xy = new Float64Array(2 * n);
+  for (let i = 0; i < n; i++) { const q = p[i]; xy[2 * i] = q[0]; xy[2 * i + 1] = q[1]; }
+  const idx: RingIndex = { n, fx: f[0], fy: f[1], mx: md[0], my: md[1], lx: l[0], ly: l[1], fast: false, x0: 0, x1: 0, y0: 0, y1: 0, h: 1, B: 1, off: new Int32Array(0), ids: new Int32Array(0), ep: ringEpoch, xy };
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const qx = xy[2 * i], qy = xy[2 * i + 1];
+    if (!(Math.abs(qx) < RING_HUGE) || !(Math.abs(qy) < RING_HUGE)) return idx;   // NaN, +-Infinity or huge: original loop
+    if (qx < x0) x0 = qx; if (qx > x1) x1 = qx; if (qy < y0) y0 = qy; if (qy > y1) y1 = qy;
+  }
+  const B = Math.max(1, Math.min(512, m)), h = (y1 - y0) / B || 1;
+  const bucket = (v: number) => { let k = Math.floor((v - y0) / h); if (k < 0) k = 0; else if (k > B - 1) k = B - 1; return k; };   // monotone in v
+  const count = new Int32Array(B + 1);
+  for (let pass = 0; pass < 2; pass++) {
+    const fill = pass === 1, pos = fill ? count.slice() : null;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const ay = p[i][1], by = p[j][1];
+      if (ay === by) continue;
+      const s = bucket(ay < by ? ay : by), e = bucket(ay < by ? by : ay);
+      for (let k = s; k <= e; k++) { if (!fill) count[k + 1]++; else { idx.ids[pos![k]++] = i; } }
+    }
+    if (!fill) { for (let k = 0; k < B; k++) count[k + 1] += count[k]; idx.off = count; idx.ids = new Int32Array(count[B]); }
+  }
+  idx.x0 = x0; idx.x1 = x1; idx.y0 = y0; idx.y1 = y1; idx.h = h; idx.B = B; idx.fast = true;
+  return idx;
+};
+export const insideRing = (p: readonly (readonly number[])[], x: number, y: number): boolean => {
+  const n = p.length;
+  if (n < RING_MIN) return ringLoop(p, x, y);
+  let c = ringCache.get(p);
+  if (c && c.ep !== ringEpoch) { if (c.n === n && ringSame(p, c)) c.ep = ringEpoch; else c = undefined; }
+  if (!c || c.n !== n || !Object.is(p[0][0], c.fx) || !Object.is(p[0][1], c.fy) || !Object.is(p[n >> 1][0], c.mx) || !Object.is(p[n >> 1][1], c.my) || !Object.is(p[n - 1][0], c.lx) || !Object.is(p[n - 1][1], c.ly)) {
+    c = ringBuild(p);
+    ringCache.set(p, c);
+  }
+  if (!c.fast) return ringLoop(p, x, y);
+  // y: exact (no edge spans a height outside [y0, y1]). x: a closed ring crosses any height an even number of times, so left of the
+  // box every spanning edge toggles an even count; right of it none does. The margin (far above float rounding of the crossing x) keeps
+  // points a hair outside the box on the exact path.
+  const mg = 1e-9 * (Math.abs(c.x0) + Math.abs(c.x1) + (c.x1 - c.x0)) + 1e-300;
+  if (!(y >= c.y0 && y <= c.y1 && x >= c.x0 - mg && x <= c.x1 + mg)) return false;
+  let kk = Math.floor((y - c.y0) / c.h);
+  if (kk < 0) kk = 0; else if (kk > c.B - 1) kk = c.B - 1;
+  let r = false;
+  for (let q = c.off[kk], end = c.off[kk + 1]; q < end; q++) {
+    const i = c.ids[q], j = i === 0 ? n - 1 : i - 1, a = p[i], b = p[j];
+    if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) r = !r;
+  }
+  return r;
+};
 export const probeRect = (ctx: Ctx, env: Env, x: number, y: number, w: number, h: number, label: string, kind: ProbeRec["kind"] = "box") => {
   const p = (globalThis as { __ANIDOODLE_PROBE__?: (r: ProbeRec) => void }).__ANIDOODLE_PROBE__;
   if (!p || !env.root || ctx.globalAlpha < 0.1) return;
