@@ -546,9 +546,11 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, st
       {statusBadge && (
         <>
           <i className="aw-bar-sep" />
-          <StatusLine showRetry={statusBadge.showRetry} onRetry={statusBadge.onRetry}>
-            {statusBadge.text}
-          </StatusLine>
+          <span className="aw-status-wrap">
+            <StatusLine showRetry={statusBadge.showRetry} onRetry={statusBadge.onRetry}>
+              {statusBadge.text}
+            </StatusLine>
+          </span>
         </>
       )}
     </div>
