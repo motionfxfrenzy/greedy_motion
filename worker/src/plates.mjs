@@ -17,6 +17,7 @@ import { deleteOutputs, downloadPlateInput, downloadPlateOutput, plateKeyOk, upl
 
 export const PLATE_RENDER_QUEUE = "plate-render";
 export const PLATE_EXPORT_QUEUE = "plate-export";
+export const PLATE_REBUNDLE_QUEUE = "plate-rebundle";
 const AUTHOR_QUEUE = "plate-author";
 const UUID = /^[a-f0-9-]{36}$/i;
 const FPS = 30;
@@ -1064,6 +1065,88 @@ export async function handlePlateExport(job, { control, engineImpl, storageImpl,
     }
     await control.op("export.requeue", { id: row.id, attempt: row.attempt });
     throw error;
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
+// ================================================================ re-bundle verification (phase 2: worker verifies in Chromium -> backend commits pointer swap)
+export async function handlePlateRebundle(job, { control, engineImpl, storageImpl } = {}) {
+  const data = job.data ?? {};
+  const {
+    variantId,
+    projectId,
+    gen,
+    rev,
+    frames,
+    expectedBundleDigest = null,
+    bundleKey,
+    bundleDigest: bDigest,
+    bundleSha,
+    bundleManifest,
+    sourceKey,
+    params = {}
+  } = data;
+  if (typeof variantId !== "string" || !UUID.test(variantId) || typeof projectId !== "string" || !UUID.test(projectId) || !Number.isInteger(gen) || !Number.isInteger(rev)) {
+    return { status: "invalid_payload" };
+  }
+  const downloadInput = storageImpl?.downloadPlateInput ?? downloadPlateInput;
+  const { verifyScene } = engineImpl ?? (await engine());
+  const scratch = join("/tmp", `plate-rebundle-${variantId}-g${gen}-r${rev}`);
+  await rm(scratch, { recursive: true, force: true });
+  await mkdir(scratch, { recursive: true });
+  try {
+    if (!plateKeyOk(bundleKey, projectId)) {
+      log("warn", "plate_rebundle_verify_failed", { variantId, projectId, gen, rev, reason: "invalid_bundle_key" });
+      return { status: "failed", reason: "invalid_bundle_key" };
+    }
+    const pagePath = join(scratch, "scene.html");
+    await downloadInput(bundleKey, pagePath);
+    const rawHtml = await readFile(pagePath, "utf8");
+    const eDigest = typeof bundleManifest?.engineDigest === "string" ? bundleManifest.engineDigest : "engine:unknown";
+    const digestCheck = verifyBundleDigest(
+      rawHtml,
+      { bundleSha, bundleDigest: bDigest, params, paramsDigest: paramsDigest(params) },
+      { engineDigest: eDigest, fontSetDigest: fontSetDigest() }
+    );
+    if (!digestCheck.ok) {
+      log("warn", "plate_rebundle_verify_failed", { variantId, projectId, gen, rev, reason: digestCheck.reason });
+      return { status: "failed", reason: digestCheck.reason };
+    }
+    const bakedHtml = bakeSceneParams(rawHtml, params);
+    if (bakedHtml !== rawHtml) {
+      await writeFile(pagePath, bakedHtml, "utf8");
+    }
+    let verified;
+    try {
+      verified = await verifyScene(pagePath, { frames: Number(frames) || 90, signal: job.signal });
+    } catch (error) {
+      if (job.signal?.aborted) throw error;
+      log("warn", "plate_rebundle_verify_failed", { variantId, projectId, gen, rev, reason: messageOf(error).slice(0, 300) });
+      return { status: "failed", reason: messageOf(error) };
+    }
+    if (verified?.blocked?.length) {
+      log("warn", "plate_network_blocked", { variantId, blocked: verified.blocked.slice(0, 5) });
+    }
+    const committed = await control.op("rebundle.commit", {
+      variantId,
+      gen,
+      rev,
+      expectedBundleDigest,
+      bundleKey,
+      bundleDigest: bDigest,
+      bundleManifest,
+      sourceKey,
+      params,
+      author: "engine-rebundle",
+      host: "worker"
+    });
+    if (!committed?.committed) {
+      log("info", "plate_rebundle_fenced", { variantId, projectId, gen, rev, reason: committed?.reason ?? "fenced" });
+      return { status: "fenced", reason: committed?.reason ?? "fenced" };
+    }
+    log("info", "plate_rebundle_committed", { variantId, projectId, gen, rev: committed.rev, bundleKey, bundleDigest: bDigest });
+    return { status: "committed", rev: committed.rev, bundleKey, bundleDigest: bDigest };
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }

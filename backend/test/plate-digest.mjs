@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 process.env.APP_ENV ??= "local";
-process.env.DATABASE_URL ??= "postgres://videosaas:videosaas@localhost:55432/plates_unit";
+process.env.DATABASE_URL ??= "postgres://videosaas:videosaas@localhost:55432/plates_rebundle";
 process.env.PLANNER ??= "deterministic";
 
 const { bundleDigest, canonicalJson, fontSetDigest, paramsDigest, setFontSetDescriptor } = await import("../src/plates/digest.ts");

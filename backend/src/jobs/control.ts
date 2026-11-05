@@ -3,6 +3,7 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { pool } from "../db/database.ts";
 import { fontSetDigest } from "../plates/digest.ts";
+import { commitRebundleRevision } from "../plates/store.ts";
 import { refundSpend } from "../tokens/store.ts";
 import { boss, inTransaction, QUEUES } from "./queues.ts";
 
@@ -23,7 +24,7 @@ loopDelay.enable();
 const POLL_MAX_SECONDS = 25;
 const FETCH_BACKSTOP_MS = 3000;
 const LEASE_SECONDS = 30;
-const QUEUE_NAMES: readonly string[] = [QUEUES.video, QUEUES.plateRender, QUEUES.plateExport];
+const QUEUE_NAMES: readonly string[] = [QUEUES.video, QUEUES.plateRender, QUEUES.plateExport, QUEUES.plateRebundle];
 
 const FPS = 30;
 const PROJECT_CAP = Number.parseInt(process.env.PLATE_PROJECT_CAP ?? "2", 10);
@@ -251,11 +252,12 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
               where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'`,
             [id, gen, renderAttempt, JSON.stringify({ code: "scene_invalid", message: `This scene could not be drawn after ${authored} attempts. Press Draw to try again.`, detail: String(detail).slice(0, 800) })])
           : await client.query(
-            `update app.plate_variants set state = 'queued', stage = 'repairing', repair = $4::jsonb, repairs = repairs + 1, author_owner = null, author_until = null, enqueued_at = now(), updated_at = now()
-              where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'`,
+            `update app.plate_variants set state = 'queued', stage = 'repairing', rev = rev + 1, repair = $4::jsonb, repairs = repairs + 1, author_owner = null, author_until = null, enqueued_at = now(), updated_at = now()
+              where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'
+              returning rev`,
             [id, gen, renderAttempt, JSON.stringify({ error: String(detail).slice(-2500), previousKey: sourceKey })]);
         if (result.rowCount === 1 && !exhausted) await boss.send(QUEUES.plateAuthor, { variantId: id, gen }, { db: inTransaction(client) });
-        return { applied: result.rowCount === 1, exhausted };
+        return { applied: result.rowCount === 1, exhausted, ...(result.rows[0]?.rev !== undefined ? { rev: result.rows[0].rev } : {}) };
       }
 
       // Manifest verification failure path (renderPlateFilmJob / handlePlateExport): variant is in 'bundled', 'checked', or 'drawn'.
@@ -442,6 +444,23 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
   async "scenes.states"({ ids }) {
     const { rows } = await pool.query("select id, project_id, signature, state, clip_key, error from app.plate_variants where id = any($1)", [ids]);
     return { rows };
+  },
+
+  // ---- plate-rebundle (phase 2: worker verification + atomic cutover)
+  async "rebundle.commit"(args) {
+    return commitRebundleRevision({
+      variantId: String(args.variantId ?? ""),
+      gen: Number(args.gen),
+      rev: Number(args.rev),
+      expectedBundleDigest: args.expectedBundleDigest === null || args.expectedBundleDigest === undefined ? null : String(args.expectedBundleDigest),
+      bundleKey: String(args.bundleKey ?? ""),
+      bundleDigest: String(args.bundleDigest ?? ""),
+      bundleManifest: args.bundleManifest && typeof args.bundleManifest === "object" ? (args.bundleManifest as Record<string, unknown>) : {},
+      sourceKey: String(args.sourceKey ?? ""),
+      params: args.params && typeof args.params === "object" ? (args.params as Record<string, unknown>) : {},
+      author: typeof args.author === "string" && args.author ? args.author : "engine-rebundle",
+      host: typeof args.host === "string" && args.host ? args.host : "worker"
+    });
   },
 
   // ---- idle check for scale-to-zero

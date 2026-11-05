@@ -10,7 +10,7 @@ import { resolve } from "node:path";
 
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_unit|test/.test(process.env.DATABASE_URL ?? "")) {
+if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) {
   throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
 }
 

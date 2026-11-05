@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_unit|test/.test(process.env.DATABASE_URL ?? "")) throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
+if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
 const { migrate, pool } = await import("../src/db/database.ts");
 const { boss, startQueues } = await import("../src/jobs/queues.ts");
 const store = await import("../src/plates/store.ts");
