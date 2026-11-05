@@ -270,6 +270,10 @@ export type SceneModeResolution = {
   tabClassName: string;
   /** In-stage `.aw-wait` overlay config when this scene is the currently selected scene. */
   stageWait: { failed: boolean; title: string; detail?: string } | null;
+  /** The scene is drawing frames ahead before it can play (phase 3f); it stays playable so the film can move into it and wait. */
+  isPreparing?: boolean;
+  /** Fraction (0..1) of the frames needed ahead that are drawn, while `isPreparing`. */
+  preparingProgress?: number;
 };
 
 const CLIP_LABELS: Record<LivePlateVariantState, string> = {
@@ -505,6 +509,28 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
 
   const hasComment = Boolean(input.hasPendingComment);
   const buffering = Boolean(input.isBuffering);
+
+  // 3f. Pre-draw: the player is drawing frames ahead before this scene can play (progress 0..1), then it plays.
+  const progress = input.playerDecision?.mode === "live" ? input.playerDecision.progress : undefined;
+  if (typeof progress === "number") {
+    const pct = Math.max(0, Math.min(100, Math.floor(progress * 100)));
+    return {
+      mode: "live",
+      reason: input.playerDecision?.reason ?? "predraw",
+      eligibleForLive: true,
+      needsBundleFetch: false,
+      needsCheck: false,
+      needsClipRequest: false,
+      isReady: true,
+      isPlayable,
+      tabState: "updating",
+      tabLabel: "Preparing",
+      tabClassName: "updating",
+      stageWait: { failed: false, title: `Preparing this scene… ${pct}%` },
+      isPreparing: true,
+      preparingProgress: progress
+    };
+  }
 
   return {
     mode: "live",

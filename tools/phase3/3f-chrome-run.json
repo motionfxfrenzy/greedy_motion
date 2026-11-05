@@ -1,0 +1,112 @@
+{
+ "mountMs": 5110,
+ "decisions": [
+  {
+   "scene": 0,
+   "mode": "live",
+   "reason": "predraw",
+   "variant": "predraw",
+   "plan": {
+    "L": 38,
+    "W": 7.5,
+    "drawFps": 5.1,
+    "playFps": 15
+   }
+  },
+  {
+   "scene": 1,
+   "mode": "clip",
+   "reason": "predraw-too-slow: wait 24.3s > 20s",
+   "variant": "live",
+   "plan": {
+    "L": 69,
+    "W": 24.3,
+    "drawFps": 2.8,
+    "playFps": 15
+   }
+  },
+  {
+   "scene": 2,
+   "mode": "live",
+   "reason": "predraw",
+   "variant": "predraw",
+   "plan": {
+    "L": 63,
+    "W": 15.7,
+    "drawFps": 4,
+    "playFps": 15
+   }
+  },
+  {
+   "scene": 3,
+   "mode": "live",
+   "reason": "ok",
+   "variant": "live",
+   "plan": {
+    "L": 8,
+    "W": 0.3,
+    "drawFps": 23.5,
+    "playFps": 15
+   }
+  }
+ ],
+ "per": [
+  {
+   "scene": 0,
+   "waitMs": 6224,
+   "preparedAtT": null,
+   "ticks": 180,
+   "stalls": 0,
+   "wrong": 0,
+   "maxNextAhead": 0,
+   "openAfterLeave": 0,
+   "preparations": 1,
+   "fellBack": null
+  },
+  {
+   "scene": 1,
+   "waitMs": 0,
+   "preparedAtT": null,
+   "ticks": 0,
+   "stalls": 0,
+   "wrong": 0,
+   "maxNextAhead": 0,
+   "openAfterLeave": 0,
+   "preparations": 0,
+   "fellBack": "predraw-too-slow: wait 24.3s > 20s"
+  },
+  {
+   "scene": 2,
+   "waitMs": 11415.699999928474,
+   "preparedAtT": null,
+   "ticks": 299,
+   "stalls": 0,
+   "wrong": 0,
+   "maxNextAhead": 8,
+   "openAfterLeave": 0,
+   "preparations": 1,
+   "fellBack": null
+  },
+  {
+   "scene": 3,
+   "waitMs": 0,
+   "preparedAtT": null,
+   "ticks": 298,
+   "stalls": 0,
+   "wrong": 0,
+   "maxNextAhead": 0,
+   "openAfterLeave": null,
+   "preparations": 0,
+   "fellBack": null
+  }
+ ],
+ "peak": {
+  "cacheBytes": 69120000,
+  "hostBytes": 69120000,
+  "budget": 167772160
+ },
+ "openBeforeDestroy": 75,
+ "openAfterDestroy": 0,
+ "drawn": 198,
+ "totalSeconds": 18
+}

@@ -299,3 +299,32 @@ test("CheckOnceTracker and ClipRequestTracker enforce the check-once and request
   assert.equal(clipTracker.getState("v1", "dig-1"), "clip_cap");
   assert.equal(clipTracker.shouldRequest("v1", "dig-1", false), false);
 });
+
+test("decideSceneMode: a pre-drawing scene shows 'Preparing this scene… N%', stays playable so the film can move into it, and is not buffering", () => {
+  const variant = {
+    index: 1, keyword: "k", aspect: "16:9", state: "checked", sig: "s", rev: 1, gen: 1, frames: 150, seconds: 5,
+    variantId: "v1", bundleDigest: "dig", hasBundle: true, hasClip: false, clipVersion: null
+  };
+  const base = { flagEnabled: true, projectMode: "live", variant, environment: CHROME_MAC_UA, bundleLoaded: true, playerReady: true, checkOutcome: { ok: true } };
+  const preparing = decideSceneMode({ ...base, playerDecision: { mode: "live", reason: "predraw", progress: 0.42 } });
+  assert.equal(preparing.mode, "live");
+  assert.equal(preparing.isPreparing, true);
+  assert.equal(preparing.preparingProgress, 0.42);
+  assert.equal(preparing.isPlayable, true);
+  assert.equal(preparing.isReady, true);
+  assert.equal(preparing.tabLabel, "Preparing");
+  assert.equal(preparing.tabState, "updating");
+  assert.equal(preparing.stageWait.title, "Preparing this scene… 42%");
+  assert.equal(decideSceneMode({ ...base, playerDecision: { mode: "live", reason: "predraw", progress: 0 } }).stageWait.title, "Preparing this scene… 0%");
+
+  // once the frames are ready the progress is gone: it plays, no wait overlay
+  const playing = decideSceneMode({ ...base, playerDecision: { mode: "live", reason: "ok", variant: "predraw" } });
+  assert.equal(playing.isPreparing, undefined);
+  assert.equal(playing.stageWait, null);
+
+  // a scene that fell back looks exactly as the clip fallback does today
+  const fallen = decideSceneMode({ ...base, variant: { ...variant, hasClip: true }, playerDecision: { mode: "clip", reason: "predraw-too-slow: wait 25.1s > 20s" } });
+  assert.equal(fallen.mode, "clip");
+  assert.equal(fallen.tabLabel, "Drawn");
+  assert.equal(fallen.reason, "predraw-too-slow: wait 25.1s > 20s");
+});

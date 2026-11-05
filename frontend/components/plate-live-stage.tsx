@@ -574,12 +574,16 @@ export function PlateLiveStage({
 
       fp.on("mode", (detail) => {
         if (filmPlayerRef.current !== fp) return;
-        const d = detail as { sceneIndex?: number; mode?: "live" | "clip"; reason?: string } | undefined;
+        const d = detail as { sceneIndex?: number; mode?: "live" | "clip"; reason?: string; progress?: number } | undefined;
         if (d && typeof d.sceneIndex === "number" && (d.mode === "live" || d.mode === "clip")) {
           if (d.mode === "clip" && (d.reason === "pending-live" || d.reason === "no-bundle")) {
             return;
           }
-          const dec: PlayerDecision = { mode: d.mode, reason: d.reason ?? "ok" };
+          const dec: PlayerDecision = {
+            mode: d.mode,
+            reason: d.reason ?? "ok",
+            ...(typeof d.progress === "number" ? { progress: d.progress } : {})
+          };
           playerDecisionsRef.current.set(d.sceneIndex, dec);
           if (d.mode === "clip") {
             const v = resolvedVariants[d.sceneIndex];
@@ -674,7 +678,9 @@ export function PlateLiveStage({
 
   // Master audio clock RAF loop when playing a live scene.
   const activeRes = resolutions[current];
-  const activeSceneIsLive = activeRes?.mode === "live" && activeRes.isPlayable;
+  // The scene is on stage (canvas visible) as soon as it is playable; the clock only runs once its frames ahead are drawn.
+  const activeSceneShowsLive = activeRes?.mode === "live" && activeRes.isPlayable;
+  const activeSceneIsLive = activeSceneShowsLive && !activeRes?.isPreparing;
 
   useEffect(() => {
     if (!playing || !activeSceneIsLive) {
@@ -853,7 +859,7 @@ export function PlateLiveStage({
       <div
         ref={hostContainerRef}
         className="aw-live-canvas-host"
-        data-live-active={activeSceneIsLive ? "true" : "false"}
+        data-live-active={activeSceneShowsLive ? "true" : "false"}
         data-live-decisions={decisionsSummary}
         style={{
           position: "absolute",
@@ -861,8 +867,8 @@ export function PlateLiveStage({
           width: "100%",
           height: "100%",
           pointerEvents: "none",
-          zIndex: activeSceneIsLive ? 2 : 0,
-          opacity: activeSceneIsLive ? 1 : 0
+          zIndex: activeSceneShowsLive ? 2 : 0,
+          opacity: activeSceneShowsLive ? 1 : 0
         }}
       />
 

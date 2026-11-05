@@ -1,0 +1,22 @@
+{
+ "bundleDigest": "60e3ae35f7d81cca3336aed545ae938f06d3b22842ee8046e4eadafc82b5544c",
+ "manifest": {
+  "fps": 30,
+  "kind": "anidoodle",
+  "width": 1920,
+  "aspect": "16:9",
+  "frames": 150,
+  "height": 1080,
+  "schema": 1,
+  "bundleSha": "44d16c1a1ed333bebad27b06",
+  "sourceSha": "a03154cdf5b825a34f17e3cd",
+  "styleDigest": "1c8233bf862b9466",
+  "engineDigest": "20e3461ec832d97954196af5",
+  "engineVersion": "0.6.4"
+ },
+ "params": {
+  "__repair": 1
+ },
+ "scene": 2,
+ "source": "staging project 130a0660 (crayon story, real model), 2026-11-05"
+}

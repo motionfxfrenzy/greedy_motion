@@ -1,12 +1,31 @@
-import { PlaybackClock, bufferedAhead, chooseFrame, frameAt, sceneAt, type TimeSource } from "./clock.ts";
+import { PlaybackClock, chooseFrame, frameAt, sceneAt, type TimeSource } from "./clock.ts";
 import { FrameCache, computeRollingWindow, frameCacheKey, sceneCacheKey, type RollingWindowSplit } from "./frame-cache.ts";
 import { FrameScheduler } from "./frame-scheduler.ts";
+import {
+  PREDRAW_JUMP_FRAMES,
+  PREDRAW_STALL_REPREPARE_MS,
+  PREDRAW_REASSESS_TOLERANCE,
+  PREVIEW_FRAME_STEP,
+  contiguousFrom,
+  decidePredraw,
+  indicesToEvict,
+  predrawProgress,
+  previewFrameCount,
+  previewIndexForFrame,
+  previewRate,
+  sourceFrameForPreview,
+  type PredrawDecision
+} from "./predraw.ts";
 import { environmentStatus, resolveCacheBudgetBytes, supportsWorkerHost, type EnvironmentProbeInput } from "./support.ts";
 import type { PlayerDecision, PlayerEvent, PlayerMeta, ScenePlayer, SceneSpan } from "./types.ts";
 import { WorkerHost, type ImageBitmapLike, type WorkerHostOptions, type WorkerTransportFactory } from "./worker-host.ts";
 
 /**
- * Live plate scene player and multi-scene film sequencer (docs/LIVE_SCENES_PLAN.md §5, §6, §10, §20).
+ * Live plate scene player and multi-scene film sequencer (docs/LIVE_SCENES_PLAN.md §5, §6, §10, §20; pre-draw: phase 3f).
+ *
+ * Preview frame indices: the scheduler, the cache and every buffering check work in *preview* indices (0, 1, 2, ...), where
+ * preview index `i` is the engine's source frame `i * PREVIEW_FRAME_STEP`. Only `WorkerHost.frame()` and the public
+ * `showFrame` / `ready` / `buffered` take or return the engine's 30 fps source indices.
  */
 
 export type AspectRatio = "16:9" | "9:16" | "1:1";
@@ -20,9 +39,9 @@ export type PreviewSizeSpec = {
 };
 
 /**
- * Preview resolution for each aspect ratio:
- * 854x480 for 16:9, 480x854 for 9:16, 640x640 for 1:1.
+ * Preview resolution for each aspect ratio: 640x360 for 16:9, 360x640 for 9:16, 480x480 for 1:1.
  * The Worker is mounted at the matching scale so OffscreenCanvas dimensions equal the preview size.
+ * (The final render on AWS is unchanged: 1920x1080.)
  */
 export function previewSizeForAspect(
   aspect: AspectRatio | string = "16:9",
@@ -31,25 +50,25 @@ export function previewSizeForAspect(
 ): PreviewSizeSpec {
   if (aspect === "9:16") {
     const baseW = fullWidth && fullWidth > 0 ? fullWidth : 1080;
-    const width = 480;
-    const height = 854;
-    // Note: 1080 * (854 / 1920) = 480.375 -> Math.round = 480; 1920 * (854 / 1920) = 854.
-    const scale = baseW === 1080 ? 854 / 1920 : width / baseW;
-    return { width, height, label: "480x854", scale, bytesPerFrame: width * height * 4 };
+    const width = 360;
+    const height = 640;
+    // 1080 * (640 / 1920) = 360; 1920 * (640 / 1920) = 640.
+    const scale = baseW === 1080 ? 640 / 1920 : width / baseW;
+    return { width, height, label: "360x640", scale, bytesPerFrame: width * height * 4 };
   }
   if (aspect === "1:1") {
     const baseW = fullWidth && fullWidth > 0 ? fullWidth : 1080;
-    const width = 640;
-    const height = 640;
+    const width = 480;
+    const height = 480;
     const scale = width / baseW;
-    return { width, height, label: "640x640", scale, bytesPerFrame: width * height * 4 };
+    return { width, height, label: "480x480", scale, bytesPerFrame: width * height * 4 };
   }
   const baseW = fullWidth && fullWidth > 0 ? fullWidth : 1920;
-  const width = 854;
-  const height = 480;
+  const width = 640;
+  const height = 360;
   const scale = width / baseW;
   void fullHeight;
-  return { width, height, label: "854x480", scale, bytesPerFrame: width * height * 4 };
+  return { width, height, label: "640x360", scale, bytesPerFrame: width * height * 4 };
 }
 
 export type GateEvaluation = {
@@ -62,10 +81,9 @@ export type GateEvaluation = {
 };
 
 /**
- * Evaluates the buffering gate and live-vs-clip decision (docs/LIVE_SCENES_PLAN.md §6, §20):
- * `lead = clipSeconds * max(0, 1 - produceFps / consumeFps) + 0.5 s`
- * If `lead` exceeds the ahead capacity from the byte budget, or the host is unhealthy, or
- * `supportsWorkerHost()` is false, returns `mode: "clip"`.
+ * The phase 3c buffering gate (docs/LIVE_SCENES_PLAN.md §6, §20), kept for reference and its tests:
+ * `lead = clipSeconds * max(0, 1 - produceFps / consumeFps) + 0.5 s`; a lead beyond the ahead capacity meant "clip".
+ * The player no longer uses it: `decidePredraw` (predraw.ts) replaces "lead > window => clip" with a pre-draw mode.
  */
 export function evaluatePlaybackGate(input: {
   frames: number;
@@ -149,7 +167,20 @@ export type PlatePlayerOptions = {
   forceClipReason?: string;
   gateSampleFrames?: number;
   autoPump?: boolean;
+  /** Source frames per preview frame (default `PREVIEW_FRAME_STEP`; tests of the plain 30 fps path pass 1). */
+  frameStep?: number;
+  /** Longest pre-draw wait in seconds (default `MAX_PREDRAW_SECONDS`). */
+  maxPredrawSeconds?: number;
+  /** Millisecond clock for the pre-draw wait (default `performance.now`). */
+  now?: () => number;
 };
+
+function median(values: number[]): number {
+  if (!values.length) return 0;
+  const s = [...values].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
+}
 
 export class PlatePlayer implements ScenePlayer {
   readonly meta: PlayerMeta;
@@ -158,6 +189,11 @@ export class PlatePlayer implements ScenePlayer {
   readonly cacheKey: string;
   readonly cache: FrameCache<ImageBitmapLike>;
   readonly windowSplit: RollingWindowSplit;
+  /** Source frames per preview frame, and the number of preview frames of this scene. */
+  readonly frameStep: number;
+  readonly previewFrames: number;
+  /** Preview frames per second at playback. */
+  readonly previewFps: number;
 
   private readonly sceneId: string;
   private readonly html: string;
@@ -170,18 +206,33 @@ export class PlatePlayer implements ScenePlayer {
   private readonly autoPump: boolean;
   private readonly envSupported: boolean;
   private readonly envState: "verified" | "unverified" | "unsupported";
+  private readonly maxPredrawSeconds: number | undefined;
+  private readonly nowMs: () => number;
 
   private container: HTMLElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
+  /** Preview index of the frame the clock asks for. */
   private currentFrame = 0;
+  /** Preview index on the canvas. */
   private lastShownFrame: number | null = null;
+  private lastTarget: number | null = null;
   private isBuffering = false;
   private readyEmitted = false;
   private currentDecision: PlayerDecision = { mode: "live", reason: "ok" };
   private pumping = false;
   private repumpRequested = false;
   private isDestroyed = false;
+
+  private variant: "live" | "predraw" = "live";
+  private plan: PredrawDecision | null = null;
+  private sampleMs = 0;
+  private active = false;
+  private prefetchFrames = 0;
+  private runNeeded = 0;
+  private preparing: { needed: number; t0: number; pct: number } | null = null;
+  private prepareBegun = false;
+  private stallSince: number | null = null;
 
   private listeners: Record<PlayerEvent, Set<(detail?: unknown) => void>> = {
     ready: new Set(),
@@ -197,9 +248,14 @@ export class PlatePlayer implements ScenePlayer {
     this.params = options.params ? { ...options.params } : {};
     this.previewSize = previewSizeForAspect(options.aspect ?? "16:9", options.fullWidth, options.fullHeight);
     this.cacheKey = sceneCacheKey(this.bundleDigest, this.previewSize.label);
+    this.maxPredrawSeconds = options.maxPredrawSeconds;
+    this.nowMs = options.now ?? (() => (typeof performance !== "undefined" ? performance.now() : Date.now()));
 
     const fps = options.fps ?? 30;
     const frames = options.frames ?? 90;
+    this.frameStep = Math.max(1, Math.floor(options.frameStep ?? PREVIEW_FRAME_STEP));
+    this.previewFrames = previewFrameCount(frames, this.frameStep);
+    this.previewFps = previewRate(fps, this.frameStep);
     this.meta = {
       width: this.previewSize.width,
       height: this.previewSize.height,
@@ -275,16 +331,17 @@ export class PlatePlayer implements ScenePlayer {
 
     this.scheduler = new FrameScheduler<ImageBitmapLike>({
       cache: this.cache,
-      scenes: [{ id: this.cacheKey, frames }],
-      fps,
+      scenes: [{ id: this.cacheKey, frames: this.previewFrames }],
+      fps: this.previewFps,
+      now: this.nowMs,
       lookahead: Math.max(1, this.windowSplit.aheadFrames),
       head: this.windowSplit.headFrames,
       behind: this.windowSplit.behindFrames,
-      draw: async (_sceneKey, frame) => {
+      draw: async (_sceneKey, previewIdx) => {
         if (!this.host || this.currentDecision.mode === "clip") {
           throw new Error("Player is in clip mode.");
         }
-        const res = await this.host.frame(frame);
+        const res = await this.host.frame(sourceFrameForPreview(previewIdx, this.meta.frames, this.frameStep));
         return { value: res.bitmap, bytes: res.bytes };
       },
       onError: (_scene, _frame, err) => {
@@ -302,7 +359,7 @@ export class PlatePlayer implements ScenePlayer {
     return { ...this.currentDecision };
   }
 
-  /** Cache key for a specific frame index: `bundleDigest | frame | previewSize`. */
+  /** Cache key for a specific source frame index: `bundleDigest | frame | previewSize`. */
   keyForFrame(frame: number): string {
     return frameCacheKey(this.bundleDigest, frame, this.previewSize.label);
   }
@@ -313,6 +370,41 @@ export class PlatePlayer implements ScenePlayer {
 
   get workerHost(): WorkerHost | null {
     return this.host;
+  }
+
+  /** The pre-draw plan from the first measurement (`L`, `W`, draw and play rates), or null before the scene is mounted. */
+  get predrawPlan(): PredrawDecision | null {
+    return this.plan ? { ...this.plan } : null;
+  }
+
+  /** Whether a draw-ahead pump is running right now. */
+  get isPumping(): boolean {
+    return this.pumping;
+  }
+
+  /** Whether the scene is pre-drawing before it can play. */
+  get isPreparing(): boolean {
+    return this.preparing !== null;
+  }
+
+  /** `live` when the scene draws at least as fast as it plays, `predraw` when frames are drawn ahead first. */
+  get playbackVariant(): "live" | "predraw" {
+    return this.variant;
+  }
+
+  /** Preview indices that are cached right now (sorted). */
+  cachedPreviewFrames(): number[] {
+    return this.cache.frameIndices(this.cacheKey).sort((a, b) => a - b);
+  }
+
+  /** Bytes this scene may hold at most (what film-level budgeting reserves for it). */
+  reservedBytes(): number {
+    if (this.currentDecision.mode === "clip" || !this.host) return 0;
+    const bpf = this.previewSize.bytesPerFrame;
+    if (this.variant === "predraw") {
+      return Math.min(this.previewFrames, Math.max(this.runNeeded, this.preparing?.needed ?? 0, this.plan?.neededFrames ?? 0)) * bpf;
+    }
+    return Math.min(this.previewFrames, this.windowSplit.windowFrames) * bpf;
   }
 
   private emit(event: PlayerEvent, detail?: unknown) {
@@ -326,9 +418,51 @@ export class PlatePlayer implements ScenePlayer {
   private switchToClip(reason: string) {
     if (this.currentDecision.mode === "clip") return;
     this.currentDecision = { mode: "clip", reason };
+    this.preparing = null;
     this.scheduler.pause();
+    // Frames of a scene that plays as its clip are never shown: free them at once.
+    this.cache.drop(this.cacheKey);
     const payload = { mode: "clip" as const, reason };
     this.emit("mode", payload);
+  }
+
+  private publish(extra: Partial<PlayerDecision> = {}) {
+    this.currentDecision = {
+      mode: "live",
+      reason: "ok",
+      variant: this.variant,
+      ...(this.plan ? { neededFrames: this.plan.neededFrames, waitSeconds: this.plan.waitSeconds } : {}),
+      ...extra
+    };
+    this.emit("mode", { ...this.currentDecision });
+  }
+
+  private isClip(): boolean {
+    return this.currentDecision.mode === "clip";
+  }
+
+  private measuredMs(): number {
+    return this.scheduler.drawn >= 3 && this.scheduler.cost > 0 ? this.scheduler.cost : this.sampleMs;
+  }
+
+  private decide(idx: number, extra: { elapsedSeconds?: number; readyAhead?: number; tolerance?: number } = {}): PredrawDecision {
+    return decidePredraw({
+      previewFrames: this.previewFrames - idx,
+      rate: this.previewFps,
+      avgDrawMs: this.measuredMs(),
+      bytesPerFrame: this.previewSize.bytesPerFrame,
+      budgetBytes: this.cache.budget,
+      maxSeconds: this.maxPredrawSeconds,
+      unhealthy: this.host?.unhealthy ?? false,
+      supported: this.envSupported,
+      envStatus: this.envState,
+      ...extra
+    });
+  }
+
+  /** Consecutive cached preview frames from `idx`. */
+  private readyAhead(idx: number): number {
+    return contiguousFrom(this.cache.frameIndices(this.cacheKey), idx);
   }
 
   async mount(el: HTMLElement, options?: { active?: boolean }): Promise<void> {
@@ -367,18 +501,16 @@ export class PlatePlayer implements ScenePlayer {
       return;
     }
 
-    // Draw initial sample frames to measure draw cost and evaluate the buffering gate before starting playback.
-    const samplesToDraw = Math.min(this.gateSampleFrames, this.meta.frames);
-    let drawSumMs = 0;
-    let drawnCount = 0;
+    // Draw the first preview frames to measure the draw cost before deciding how the scene plays.
+    const samplesToDraw = Math.min(this.gateSampleFrames, this.previewFrames);
+    const samples: number[] = [];
 
-    for (let f = 0; f < samplesToDraw; f++) {
+    for (let k = 0; k < samplesToDraw; k++) {
       if (this.isDestroyed || this.currentDecision.mode === "clip") return;
       try {
-        const res = await this.host.frame(f);
-        this.cache.put(this.cacheKey, f, res.bitmap, res.bytes);
-        drawSumMs += res.drawMs;
-        drawnCount++;
+        const res = await this.host.frame(sourceFrameForPreview(k, this.meta.frames, this.frameStep));
+        this.cache.put(this.cacheKey, k, res.bitmap, res.bytes);
+        samples.push(res.drawMs);
       } catch {
         if (this.host.unhealthy) {
           this.switchToClip("worker-unhealthy");
@@ -388,31 +520,24 @@ export class PlatePlayer implements ScenePlayer {
       }
     }
 
-    if (this.host.unhealthy || drawnCount === 0) {
+    if (this.host.unhealthy || samples.length === 0) {
       this.switchToClip("worker-unhealthy");
       return;
     }
 
-    const avgDrawMs = drawSumMs / drawnCount;
-    const aheadBufferedSec = bufferedAhead(this.cache.buffered(this.cacheKey), this.currentFrame, this.meta.fps);
-    const gate = evaluatePlaybackGate({
-      frames: this.meta.frames,
-      fps: this.meta.fps,
-      avgDrawMs,
-      aheadFrames: this.windowSplit.aheadFrames,
-      bufferedAheadSeconds: aheadBufferedSec,
-      unhealthy: this.host.unhealthy,
-      supported: this.envSupported,
-      envStatus: this.envState
-    });
+    // The median, not the mean: the first frame of a scene also pays for warming up its Worker.
+    this.sampleMs = median(samples);
+    const plan = this.decide(0);
+    this.plan = plan;
 
-    if (gate.mode === "clip") {
-      this.switchToClip(gate.reason);
+    if (plan.mode === "clip") {
+      this.switchToClip(plan.reason);
       return;
     }
 
-    this.currentDecision = { mode: "live", reason: gate.reason };
-    this.emit("mode", { mode: "live", reason: gate.reason });
+    this.variant = plan.mode === "predraw" ? "predraw" : "live";
+    this.runNeeded = plan.neededFrames;
+    this.publish({ reason: this.variant === "predraw" ? "predraw" : plan.reason });
 
     // Blit frame 0 immediately if available.
     if (this.cache.has(this.cacheKey, 0)) {
@@ -422,60 +547,190 @@ export class PlatePlayer implements ScenePlayer {
     if (!isActive) {
       if (!this.readyEmitted) {
         this.readyEmitted = true;
-        this.emit("ready", { leadSeconds: gate.leadSeconds, bufferedAheadSeconds: aheadBufferedSec });
+        this.emit("ready", { neededFrames: plan.neededFrames, waitSeconds: plan.waitSeconds });
       }
       return;
     }
 
-    // Buffer up to `lead` (or start background pump) so `ready` fires when bufferedAhead >= lead.
-    await this.fillUntilGate(gate.leadSeconds);
+    this.active = true;
+    if (this.variant === "predraw") {
+      this.lastTarget = 0;
+      this.beginPrepare(0);
+      if (this.autoPump && !this.isDestroyed && this.currentDecision.mode === "live") {
+        void this.pumpScheduler();
+      }
+      return;
+    }
+
+    // Buffer the small lead (or start the background pump) so `ready` fires when enough is ahead.
+    await this.fillUntilGate(plan.neededFrames);
 
     if (this.autoPump && !this.isDestroyed && this.currentDecision.mode === "live") {
       void this.pumpScheduler();
     }
   }
 
-  private async fillUntilGate(leadSeconds: number): Promise<void> {
-    const targetSec = Math.min(leadSeconds, this.meta.frames / this.meta.fps);
-    while (!this.isDestroyed && this.currentDecision.mode === "live") {
-      const aheadSec = bufferedAhead(this.cache.buffered(this.cacheKey), this.currentFrame, this.meta.fps);
-      if (aheadSec + 1e-6 >= targetSec) {
+  private async fillUntilGate(neededFrames: number): Promise<void> {
+    const target = Math.min(neededFrames, this.previewFrames);
+    while (!this.isDestroyed && this.currentDecision.mode === "live" && this.variant === "live") {
+      const ahead = this.readyAhead(this.currentFrame);
+      if (ahead >= target) {
         if (!this.readyEmitted) {
           this.readyEmitted = true;
-          this.emit("ready", { leadSeconds, bufferedAheadSeconds: aheadSec });
+          this.emit("ready", { neededFrames: target, bufferedAheadSeconds: ahead / this.previewFps });
         }
         return;
       }
+      this.configureWindow();
       const drew = await this.scheduler.runNext();
       if (!drew) {
         if (this.host?.unhealthy) {
           this.switchToClip("worker-unhealthy");
         } else if (!this.readyEmitted) {
           this.readyEmitted = true;
-          this.emit("ready", { leadSeconds, bufferedAheadSeconds: aheadSec });
+          this.emit("ready", { neededFrames: target, bufferedAheadSeconds: ahead / this.previewFps });
         }
         return;
       }
-      if (this.scheduler.cost > 0) {
-        const recheck = evaluatePlaybackGate({
-          frames: this.meta.frames,
-          fps: this.meta.fps,
-          avgDrawMs: this.scheduler.cost,
-          aheadFrames: this.windowSplit.aheadFrames,
-          bufferedAheadSeconds: bufferedAhead(this.cache.buffered(this.cacheKey), this.currentFrame, this.meta.fps),
-          unhealthy: this.host?.unhealthy ?? false,
-          supported: this.envSupported,
-          envStatus: this.envState
-        });
-        if (recheck.mode === "clip") {
-          this.switchToClip(recheck.reason);
-          return;
-        }
+      if (this.scheduler.cost > 0) this.reassessLive();
+    }
+  }
+
+  /** A scene that was fast at the first measurement and turned out slow becomes a pre-draw scene (or falls back). */
+  private reassessLive() {
+    if (this.variant !== "live" || this.currentDecision.mode !== "live") return;
+    const d = this.decide(this.currentFrame);
+    if (d.mode === "clip") {
+      this.switchToClip(d.reason);
+    } else if (d.mode === "predraw") {
+      this.variant = "predraw";
+      this.plan = d;
+      this.runNeeded = d.neededFrames;
+      this.lastTarget = null;
+      this.beginPrepare(this.currentFrame);
+    }
+  }
+
+  /** Window the scheduler may fill, per variant (see `configureWindow`). */
+  private aheadCap(): number {
+    const remaining = Math.max(1, this.previewFrames - this.currentFrame);
+    if (!this.active) {
+      const want = this.variant === "predraw" ? Math.max(1, this.runNeeded) : Math.max(1, this.plan?.neededFrames ?? 1);
+      return Math.max(0, Math.min(this.previewFrames, want, this.prefetchFrames));
+    }
+    const other = this.cache.bytes - this.cache.sceneBytes(this.cacheKey);
+    const room = Math.max(1, Math.floor((this.cache.budget - other) / this.previewSize.bytesPerFrame));
+    return Math.max(1, Math.min(remaining, Math.max(1, this.runNeeded), room));
+  }
+
+  private configureWindow() {
+    if (!this.active) {
+      this.scheduler.setWindow({ lookahead: Math.max(1, this.aheadCap()), behind: 0, head: 0, strictAhead: true });
+    } else if (this.variant === "predraw") {
+      this.scheduler.setWindow({ lookahead: this.aheadCap(), behind: 0, head: 0, strictAhead: true });
+    } else {
+      this.scheduler.setWindow({
+        lookahead: Math.max(1, this.windowSplit.aheadFrames),
+        behind: this.windowSplit.behindFrames,
+        head: this.windowSplit.headFrames,
+        strictAhead: false
+      });
+    }
+  }
+
+  /** Closes every cached frame the playhead has passed, and (on a jump) the ones beyond the ahead window. */
+  private evictBehind(idx: number, alsoBeyond = false) {
+    for (const i of indicesToEvict(this.cache.frameIndices(this.cacheKey), idx)) {
+      this.cache.release(this.cacheKey, i);
+    }
+    if (alsoBeyond) {
+      const last = idx + Math.max(1, this.aheadCap()) - 1;
+      for (const i of this.cache.frameIndices(this.cacheKey)) {
+        if (i > last) this.cache.release(this.cacheKey, i);
       }
     }
   }
 
-  /** Pumps the draw-ahead scheduler inside the Worker until the rolling window is full. */
+  /**
+   * Starts (or re-starts, after a seek) the pre-draw wait from preview frame `idx`: works out the frames needed ahead and either
+   * is ready at once or reports progress until they are drawn. May fall back to the clip.
+   */
+  private beginPrepare(idx: number) {
+    if (this.variant !== "predraw" || this.currentDecision.mode !== "live") return;
+    this.prepareBegun = true;
+    this.stallSince = null;
+    const d = this.decide(idx);
+    if (d.mode === "clip") {
+      this.switchToClip(d.reason);
+      return;
+    }
+    this.plan = d;
+    this.currentFrame = idx;
+    this.runNeeded = Math.max(1, d.neededFrames);
+    this.evictBehind(idx, true);
+    const needed = Math.min(this.runNeeded, Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame)));
+    this.runNeeded = needed;
+    const ready = this.readyAhead(idx);
+    if (ready >= needed) {
+      this.finishPrepare();
+    } else {
+      this.preparing = { needed, t0: this.nowMs(), pct: -1 };
+      this.publishProgress(ready, needed);
+    }
+  }
+
+  private publishProgress(ready: number, needed: number) {
+    const prep = this.preparing;
+    if (!prep) return;
+    const progress = predrawProgress(ready, needed);
+    const pct = Math.floor(progress * 100);
+    if (pct === prep.pct) return;
+    prep.pct = pct;
+    this.publish({ reason: "predraw", progress });
+  }
+
+  private finishPrepare() {
+    const was = this.preparing !== null;
+    this.preparing = null;
+    if (was || this.currentDecision.progress !== undefined) {
+      this.publish({ reason: "ok" });
+    }
+    if (this.isBuffering) {
+      this.isBuffering = false;
+      this.emit("buffering", { buffering: false, frame: this.currentFrame * this.frameStep });
+    }
+    if (this.active && this.cache.has(this.cacheKey, this.currentFrame)) this.blitIfNeeded();
+    if (this.active && !this.readyEmitted) {
+      this.readyEmitted = true;
+      this.emit("ready", { neededFrames: this.runNeeded });
+    }
+  }
+
+  /** Called after every draw while pre-drawing: progress, start when enough is ready, fall back when it got too slow. */
+  private updatePrepare() {
+    const prep = this.preparing;
+    if (!prep || this.currentDecision.mode !== "live") return;
+    const ready = this.readyAhead(this.currentFrame);
+    if (ready >= prep.needed) {
+      this.finishPrepare();
+      return;
+    }
+    if (this.active && this.scheduler.drawn >= 3) {
+      const elapsed = (this.nowMs() - prep.t0) / 1000;
+      const d = this.decide(this.currentFrame, { elapsedSeconds: elapsed, readyAhead: ready, tolerance: PREDRAW_REASSESS_TOLERANCE });
+      if (d.mode === "clip") {
+        this.switchToClip(d.reason);
+        return;
+      }
+      if (d.neededFrames > prep.needed) {
+        prep.needed = Math.min(d.neededFrames, Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame)));
+        this.runNeeded = prep.needed;
+      }
+    }
+    this.publishProgress(ready, prep.needed);
+  }
+
+  /** Pumps the draw-ahead scheduler inside the Worker until the rolling window (or the pre-draw window) is full. */
   async pumpScheduler(maxFrames = this.windowSplit.windowFrames): Promise<number> {
     if (this.isDestroyed || this.currentDecision.mode !== "live") return 0;
     if (this.pumping) {
@@ -490,17 +745,18 @@ export class PlatePlayer implements ScenePlayer {
           this.repumpRequested = false;
           count = 0;
         }
+        this.configureWindow();
+        if (!this.active && this.aheadCap() <= 0) break;
         const drew = await this.scheduler.runNext();
         if (!drew) break;
         count++;
-        if (this.autoPump && this.cache.has(this.cacheKey, this.currentFrame)) {
-          if (this.lastShownFrame !== this.currentFrame) {
-            this.blitFrame(this.currentFrame);
-          }
-          if (this.isBuffering) {
-            this.isBuffering = false;
-            this.emit("buffering", { buffering: false, frame: this.currentFrame });
-          }
+        if (this.currentDecision.mode !== "live") break;
+        if (this.active) {
+          if (this.preparing) this.updatePrepare();
+          if (this.currentDecision.mode !== "live") break;
+          if (this.autoPump && !this.preparing) this.blitIfNeeded();
+        } else if (this.preparing) {
+          this.updatePrepare();
         }
         if (this.host?.unhealthy) {
           this.switchToClip("worker-unhealthy");
@@ -510,7 +766,24 @@ export class PlatePlayer implements ScenePlayer {
     } finally {
       this.pumping = false;
     }
+    // A request that arrived while the loop was ending (a seek during the last await) must not be lost.
+    if (this.repumpRequested && !this.isDestroyed && this.currentDecision.mode === "live") {
+      this.repumpRequested = false;
+      void this.pumpScheduler();
+    }
     return count;
+  }
+
+  /** Blits the wanted frame when it has just become available (a held frame was waiting for it). */
+  private blitIfNeeded() {
+    if (!this.cache.has(this.cacheKey, this.currentFrame)) return;
+    if (this.lastShownFrame !== this.currentFrame) {
+      this.blitFrame(this.currentFrame);
+    }
+    if (this.isBuffering) {
+      this.isBuffering = false;
+      this.emit("buffering", { buffering: false, frame: this.currentFrame * this.frameStep });
+    }
   }
 
   private blitFrame(frame: number): boolean {
@@ -523,39 +796,65 @@ export class PlatePlayer implements ScenePlayer {
         this.ctx.drawImage(bm as unknown as CanvasImageSource, 0, 0, this.canvas.width, this.canvas.height);
       } catch {}
     }
+    // Pre-draw mode keeps nothing behind the frame on screen: close every frame the playhead has passed.
+    if (this.variant === "predraw" && this.active) this.evictBehind(frame);
     return true;
   }
 
   /**
    * Draws (or blits from the cache) a frame now. Never blocks and never throws:
    * if `frame` is not cached yet, holds the last shown frame and emits `buffering`.
-   * Seek re-prioritises the scheduler immediately.
+   * Seek re-prioritises the scheduler immediately. `frame` is the engine's 30 fps source index; each preview frame is held for
+   * `frameStep` of them.
    */
   showFrame(frame: number): void {
     if (this.isDestroyed || this.currentDecision.mode === "clip") return;
-    const clamped = Math.max(0, Math.min(this.meta.frames - 1, Math.floor(frame)));
-    this.currentFrame = clamped;
+    const idx = previewIndexForFrame(frame, this.meta.frames, this.frameStep);
+    const wasActive = this.active;
+    this.active = true;
+    if (!wasActive && this.scheduler.isPaused) this.scheduler.resume();
+
+    if (this.variant === "predraw") {
+      const last = this.lastTarget;
+      const jump = last === null || idx < last || idx > last + PREDRAW_JUMP_FRAMES;
+      this.lastTarget = idx;
+      this.currentFrame = idx;
+      if (jump) this.beginPrepare(idx);
+      if (this.isClip()) return;
+    }
+    this.currentFrame = idx;
 
     // Re-prioritise the scheduler and cache focus around the requested frame.
-    this.scheduler.focus(this.cacheKey, clamped);
+    this.scheduler.focus(this.cacheKey, idx);
 
     const choice = chooseFrame({
-      target: clamped,
+      target: idx,
       lastShown: this.lastShownFrame,
       isReady: (f) => this.cache.has(this.cacheKey, f)
     });
 
     if (!choice.stalled) {
+      this.stallSince = null;
       this.blitFrame(choice.frame);
       if (this.isBuffering) {
         this.isBuffering = false;
-        this.emit("buffering", { buffering: false, frame: clamped });
+        this.emit("buffering", { buffering: false, frame });
       }
-    } else {
-      // Hold lastShownFrame on canvas; do not block audio clock.
-      if (!this.isBuffering) {
+    } else if (!this.preparing) {
+      // Hold lastShownFrame on canvas; do not block audio clock. (While pre-drawing the "Preparing" state says it already.)
+      const now = this.nowMs();
+      if (this.stallSince === null) this.stallSince = now;
+      if (this.variant === "predraw" && now - this.stallSince > PREDRAW_STALL_REPREPARE_MS) {
+        // Drawing fell behind for good: rebuild the lead from here (or fall back if that would take too long).
+        this.beginPrepare(idx);
+        if (this.isClip()) return;
+      } else if (!this.isBuffering) {
         this.isBuffering = true;
-        this.emit("buffering", { buffering: true, frame: clamped, heldFrame: this.lastShownFrame });
+        this.emit("buffering", {
+          buffering: true,
+          frame,
+          heldFrame: this.lastShownFrame === null ? null : this.lastShownFrame * this.frameStep
+        });
       }
     }
 
@@ -566,12 +865,16 @@ export class PlatePlayer implements ScenePlayer {
 
   ready(frame: number): boolean {
     if (this.currentDecision.mode === "clip") return false;
-    const clamped = Math.max(0, Math.min(this.meta.frames - 1, Math.floor(frame)));
-    return this.cache.has(this.cacheKey, clamped);
+    return this.cache.has(this.cacheKey, previewIndexForFrame(frame, this.meta.frames, this.frameStep));
   }
 
+  /** Cached ranges in the engine's source frame indices (each preview frame covers `frameStep` of them). */
   buffered(): { from: number; to: number }[] {
-    return this.cache.buffered(this.cacheKey);
+    const last = this.meta.frames - 1;
+    return this.cache.buffered(this.cacheKey).map((r) => ({
+      from: r.from * this.frameStep,
+      to: Math.min(last, (r.to + 1) * this.frameStep - 1)
+    }));
   }
 
   on(event: PlayerEvent, callback: (detail?: unknown) => void): () => void {
@@ -579,6 +882,45 @@ export class PlatePlayer implements ScenePlayer {
     return () => {
       this.listeners[event].delete(callback);
     };
+  }
+
+  /**
+   * Pipeline: pre-draws up to `frames` preview frames of this (not yet playing) scene while the previous one plays, within the
+   * bytes the film can spare. Does nothing for the scene that is playing, a clip scene or an unmounted one.
+   */
+  prefetch(frames: number): void {
+    if (this.isDestroyed || this.active || !this.host || this.currentDecision.mode !== "live") return;
+    if (!this.plan) return; // not measured yet
+    const cap = Math.max(0, Math.floor(frames));
+    this.prefetchFrames = cap;
+    if (cap <= 0) return;
+    if (this.scheduler.isPaused) this.scheduler.resume();
+    if (this.variant === "predraw" && !this.prepareBegun) {
+      this.currentFrame = 0;
+      this.beginPrepare(0);
+      if (this.currentDecision.mode !== "live") return;
+    }
+    void this.pumpScheduler();
+  }
+
+  /** The film moved to another scene: stop drawing for this one and free what pre-draw mode holds. */
+  deactivate(): void {
+    if (this.isDestroyed || !this.active) return;
+    this.active = false;
+    this.lastTarget = null;
+    this.prepareBegun = false;
+    this.prefetchFrames = 0;
+    this.isBuffering = false;
+    if (this.preparing) {
+      this.preparing = null;
+      if (this.currentDecision.mode === "live") this.publish({ reason: "ok" });
+    }
+    this.scheduler.pause();
+    if (this.variant === "predraw") {
+      // Nothing of a pre-drawn scene is worth keeping once it has played; scrubbing back simply redraws.
+      this.cache.drop(this.cacheKey);
+      this.lastShownFrame = null;
+    }
   }
 
   /** Recycles the underlying Worker at a scene boundary to release retained Worker memory. */
@@ -646,6 +988,9 @@ export type FilmPlayerOptions = {
   transportFactory?: WorkerTransportFactory;
   environment?: string | EnvironmentProbeInput;
   autoPump?: boolean;
+  frameStep?: number;
+  maxPredrawSeconds?: number;
+  now?: () => number;
 };
 
 export interface FilmPlayer extends ScenePlayer {
@@ -730,7 +1075,10 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       transportFactory: options.transportFactory,
       environment: s.environment ?? options.environment,
       forceClipReason: s.forceClipReason,
-      autoPump: options.autoPump ?? true
+      autoPump: options.autoPump ?? true,
+      ...(options.frameStep !== undefined ? { frameStep: options.frameStep } : {}),
+      ...(options.maxPredrawSeconds !== undefined ? { maxPredrawSeconds: options.maxPredrawSeconds } : {}),
+      ...(options.now ? { now: options.now } : {})
     });
     p.on("buffering", (d) => emit("buffering", { sceneIndex: idx, ...(typeof d === "object" && d ? d : {}) }));
     p.on("error", (d) => emit("error", { sceneIndex: idx, error: d }));
@@ -830,8 +1178,9 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       if (sceneIndex !== activeIdx) {
         const previous = players[activeIdx];
         activeIdx = sceneIndex;
-        // Recycle the previous scene's Worker at every scene boundary (Plan §10).
+        // Stop the previous scene's drawing, free what pre-draw mode holds, and recycle its Worker at every scene boundary (Plan §10).
         if (previous) {
+          previous.deactivate();
           void previous.recycle().catch(() => {});
         }
       }
@@ -841,6 +1190,14 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       const next = players[sceneIndex + 1];
       sharedCache.setPinned(next ? [current.cacheKey, next.cacheKey] : [current.cacheKey]);
       current.showFrame(localFrame);
+
+      // Pipeline: while this scene plays (or plays as its clip), pre-draw the next one with the bytes this one does not need.
+      // One scene at a time, so only one extra Worker ever draws.
+      if (next && next.decision().mode === "live" && !current.isPreparing) {
+        const bpf = preview.bytesPerFrame;
+        const spare = budgetBytes - current.reservedBytes() - 2 * bpf;
+        next.prefetch(Math.floor(spare / bpf));
+      }
     },
     syncToClock(): void {
       const f = frameAt(clock.now(), fps, totalFrames);

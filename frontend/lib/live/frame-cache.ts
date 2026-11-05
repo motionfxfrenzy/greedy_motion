@@ -96,12 +96,29 @@ export class FrameCache<T extends Disposable = Disposable> {
     let group = this.scenes.get(scene);
     if (!group) { group = { frames: new Map(), bytes: 0 }; this.scenes.set(scene, group); }
     const old = group.frames.get(frame);
-    if (old) { this.release(old, group); }
+    if (old) { this.release_(old, group); }
     group.frames.set(frame, { value, bytes });
     group.bytes += bytes;
     this.total += bytes;
     this.evict(scene, frame);
   }
+
+  /** Closes and removes one cached frame at once (pre-draw mode frees a frame the moment the playhead has passed it). */
+  release(scene: string, frame: number): boolean {
+    const group = this.scenes.get(scene);
+    const entry = group?.frames.get(frame);
+    if (!group || !entry) return false;
+    group.frames.delete(frame);
+    this.release_(entry, group);
+    if (group.frames.size === 0) this.scenes.delete(scene);
+    return true;
+  }
+
+  /** Bytes held for one scene. */
+  sceneBytes(scene: string): number { return this.scenes.get(scene)?.bytes ?? 0; }
+
+  /** Cached frame indices of one scene (unsorted). */
+  frameIndices(scene: string): number[] { return [...(this.scenes.get(scene)?.frames.keys() ?? [])]; }
 
   /** Drops a whole scene (its code changed, so its signature is gone). */
   drop(scene: string) {
@@ -133,7 +150,7 @@ export class FrameCache<T extends Disposable = Disposable> {
     this.evict(null, -1);
   }
 
-  private release(entry: Entry<T>, group: Scene<T>) {
+  private release_(entry: Entry<T>, group: Scene<T>) {
     entry.value.close?.();
     group.bytes -= entry.bytes;
     this.total -= entry.bytes;
@@ -154,7 +171,7 @@ export class FrameCache<T extends Disposable = Disposable> {
       const group = this.scenes.get(victim.scene)!;
       const entry = group.frames.get(victim.frame)!;
       group.frames.delete(victim.frame);
-      this.release(entry, group);
+      this.release_(entry, group);
       this.evictions++;
       if (group.frames.size === 0) { this.scenes.delete(victim.scene); }
     }

@@ -8,3 +8,4 @@ export * from "./api.ts";
 export * from "./plate-player.ts";
 export * from "./flag.ts";
 export * from "./live-stage-logic.ts";
+export * from "./predraw.ts";

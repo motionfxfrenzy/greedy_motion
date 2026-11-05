@@ -15,6 +15,11 @@ export type SchedulerOptions<T extends Disposable> = {
   head?: number;
   /** When set, uses the Plan §6 rolling window order: playhead -> ahead share -> head of next scene -> behind share. */
   behind?: number;
+  /**
+   * Pre-draw mode: only the playhead and the `lookahead` frames after it are ever drawn (nothing behind, no next-scene head, no
+   * far end of the scene), so the number of frames held is exactly `lookahead`.
+   */
+  strictAhead?: boolean;
   /** After this many failures in a row the scheduler stops (a broken scene must not spin). */
   maxConsecutiveFailures?: number;
   now?: () => number;
@@ -58,7 +63,8 @@ export class FrameScheduler<T extends Disposable = Disposable> {
   private now() { return (this.opts.now ?? (() => performance.now()))(); }
 
   /** Updates the rolling-window shares (ahead, head of next scene, behind) when frame byte size or budget changes. */
-  setWindow(win: { lookahead?: number; head?: number; behind?: number }) {
+  setWindow(win: { lookahead?: number; head?: number; behind?: number; strictAhead?: boolean }) {
+    if (win.strictAhead !== undefined) this.opts.strictAhead = win.strictAhead;
     if (win.lookahead !== undefined) this.opts.lookahead = win.lookahead;
     if (win.head !== undefined) this.opts.head = win.head;
     if (win.behind !== undefined) this.opts.behind = win.behind;
@@ -114,6 +120,7 @@ export class FrameScheduler<T extends Disposable = Disposable> {
       yield { scene: scene.id, frame, phase: 2 };
       frame++; remaining--;
     }
+    if (this.opts.strictAhead) return;
     if (this.behind !== undefined) {
       // Rolling window order (Plan §6): playhead -> ahead share -> head of next scene -> behind share.
       const nextScene = this.scenes[i + 1];

@@ -92,9 +92,9 @@ test("rolling window split (Plan §6) and resident bytes <= budget for every bud
   });
 
   // Preview sizes for 16:9, 9:16, 1:1
-  assert.equal(previewSizeForAspect("16:9").label, "854x480");
-  assert.equal(previewSizeForAspect("9:16").label, "480x854");
-  assert.equal(previewSizeForAspect("1:1").label, "640x640");
+  assert.equal(previewSizeForAspect("16:9").label, "640x360");
+  assert.equal(previewSizeForAspect("9:16").label, "360x640");
+  assert.equal(previewSizeForAspect("1:1").label, "480x480");
 
   // Resident bytes <= budget across all budgets (160, 80, 60 MB) and aspect ratios when filling rolling window
   for (const mb of [160, 80, 60]) {
@@ -181,19 +181,21 @@ test("gate and clip decision table: fast scene live, heavy scene clip, unhealthy
   assert.equal(unverifiedGate.mode, "clip");
   assert.equal(unverifiedGate.reason, "unverified-environment");
 
-  // Also test full PlatePlayer mounting for heavy scene and unsupported environment
+  // Also test full PlatePlayer mounting for heavy scene and unsupported environment.
+  // 250 ms per frame at 15 fps preview: L = ceil(105 * (1 - 4/15)) + 8 = 85 frames, W = 85 / 4 = 21 s > 20 s -> clip (phase 3f).
   const modeEvents = [];
   const heavyPlayer = new PlatePlayer({
     bundleDigest: "heavy-digest",
     html: "<script>window.FILM={};</script>",
     frames: 210,
     fps: 30,
-    transportFactory: makeFakeTransport(65),
+    transportFactory: makeFakeTransport(250),
     autoPump: false
   });
   heavyPlayer.on("mode", (e) => modeEvents.push(e));
   await heavyPlayer.mount(fakeElement());
   assert.equal(heavyPlayer.decision().mode, "clip");
+  assert.match(heavyPlayer.decision().reason, /predraw-too-slow: wait 2\d\.\ds > 20s/);
   assert.equal(modeEvents[0]?.mode, "clip");
   heavyPlayer.destroy();
 
@@ -240,7 +242,7 @@ test("PlatePlayer: showFrame never blocks, holds last good frame and emits buffe
   player.showFrame(0);
   assert.equal(el.drawn.at(-1)?.frameIndex, 0);
 
-  // Seek to uncached frame 75: never blocks, holds frame 0, emits buffering: true, and re-prioritises scheduler to 75
+  // Seek to uncached frame 75 (preview draws source frames 0, 2, 4, ...: source 75 is shown from preview frame 74): never blocks, holds frame 0, emits buffering: true, and re-prioritises scheduler to 75
   assert.equal(player.ready(75), false);
   player.showFrame(75);
   assert.equal(bufferingEvents.at(-1)?.buffering, true);
@@ -252,7 +254,7 @@ test("PlatePlayer: showFrame never blocks, holds last good frame and emits buffe
 
   // Showing frame 75 now blits frame 75 and clears buffering
   player.showFrame(75);
-  assert.equal(el.drawn.at(-1)?.frameIndex, 75);
+  assert.equal(el.drawn.at(-1)?.frameIndex, 74, "source frame 75 is held on preview frame 74");
   assert.equal(bufferingEvents.at(-1)?.buffering, false);
 
   player.destroy();
@@ -264,10 +266,10 @@ test("cache keyed by bundleDigest | frame | previewSize: a params-only digest ch
   const digestA = "digest-params-sky-blue";
   const digestB = "digest-params-sky-green"; // same HTML, different params -> different bundleDigest
 
-  const keyA = sceneCacheKey(digestA, "854x480");
-  const keyB = sceneCacheKey(digestB, "854x480");
+  const keyA = sceneCacheKey(digestA, "640x360");
+  const keyB = sceneCacheKey(digestB, "640x360");
   assert.notEqual(keyA, keyB);
-  assert.notEqual(frameCacheKey(digestA, 0, "854x480"), frameCacheKey(digestB, 0, "854x480"));
+  assert.notEqual(frameCacheKey(digestA, 0, "640x360"), frameCacheKey(digestB, 0, "640x360"));
 
   const bmA = { tag: "blue", closed: false, close() { this.closed = true; } };
   cache.put(keyA, 0, bmA, 1000);
