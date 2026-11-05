@@ -54,12 +54,8 @@
           "value": "1"
         },
         {
-          "name": "PG_POOL_MAX",
-          "value": "2"
-        },
-        {
-          "name": "BOSS_POOL_MAX",
-          "value": "2"
+          "name": "WORKER_CONTROL_URL",
+          "value": "@CONTROL_URL@"
         },
         {
           "name": "HYPERFRAMES_NO_TELEMETRY",
@@ -88,8 +84,8 @@
       ],
       "secrets": [
         {
-          "name": "DATABASE_URL",
-          "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/database-url"
+          "name": "WORKER_CONTROL_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:@REGION@:@ACCOUNT@:secret:@PROJECT@/@ENV@/worker/control-token"
         },
         {
           "name": "R2_ACCESS_KEY_ID",

@@ -33,7 +33,9 @@ secret() { # name value
 }
 case "${1:-up}" in
   secrets)
-    secret "$PROJECT/$ENV/worker/database-url" "$(from_env SUPABASE_@_DATABASE_URL)"
+    # Job control (docs/JOB_CONTROL.md): the worker holds no database credentials; it reaches Postgres only through the backend.
+    [ -n "$(from_env WORKER_CONTROL_TOKEN_@)" ] || { echo "set WORKER_CONTROL_TOKEN_$UPPER (the same value as WORKER_CONTROL_TOKEN on the backend)" >&2; exit 2; }
+    secret "$PROJECT/$ENV/worker/control-token" "$(from_env WORKER_CONTROL_TOKEN_@)"
     secret "$PROJECT/$ENV/worker/r2-access-key-id" "$(from_env R2_@_ACCESS_KEY_ID)"
     secret "$PROJECT/$ENV/worker/r2-secret-access-key" "$(from_env R2_@_SECRET_ACCESS_KEY)"
     ;;
@@ -41,12 +43,13 @@ case "${1:-up}" in
   stop) aws ecs update-service --region "$REGION" --cluster "$N" --service worker --desired-count 0 --query 'service.[serviceName,desiredCount]' --output text ;;
   up|ondemand)
     MODE="$1"
+    [ -n "$(from_env WORKER_CONTROL_URL_@)" ] || { echo "set WORKER_CONTROL_URL_$UPPER to the backend's public https URL (the worker reaches Postgres only through it)" >&2; exit 2; }
     TAG="$(git rev-parse --short HEAD)-$(date +%H%M%S)"; IMAGE="$REG/$N-worker:$TAG"
     aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REG" >/dev/null
     trap 'docker logout "$REG" >/dev/null 2>&1 || true' EXIT
     docker build --platform linux/arm64 -f ../../worker/Dockerfile -t "$IMAGE" ../.. 2>&1 | tail -3
     docker push "$IMAGE" 2>&1 | tail -1
-    sed -e "s#@ACCOUNT@#$ACCOUNT#g" -e "s#@REGION@#$REGION#g" -e "s#@PROJECT@#$PROJECT#g" -e "s#@ENV@#$ENV#g" -e "s#@IMAGE_TAG@#$TAG#g" -e "s#@R2_ENDPOINT@#$R2_ENDPOINT#g" policies/worker-taskdef.json > "$OUT/taskdef.json"
+    sed -e "s#@ACCOUNT@#$ACCOUNT#g" -e "s#@REGION@#$REGION#g" -e "s#@PROJECT@#$PROJECT#g" -e "s#@ENV@#$ENV#g" -e "s#@IMAGE_TAG@#$TAG#g" -e "s#@R2_ENDPOINT@#$R2_ENDPOINT#g" -e "s#@CONTROL_URL@#$(from_env WORKER_CONTROL_URL_@)#g" policies/worker-taskdef.json > "$OUT/taskdef.json"
     TD="$(aws ecs register-task-definition --region "$REGION" --cli-input-json "file://$OUT/taskdef.json" --query taskDefinition.taskDefinitionArn --output text)"; echo "$TD"
     if [ "$MODE" = ondemand ]; then
       # Nothing stays running: the backend's RunTask uses the family's latest revision, registered above.
