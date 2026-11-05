@@ -7,12 +7,11 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
-}
+assertThrowawayDb();
 
 const { config } = await import("../src/config.ts");
 const { migrate, pool } = await import("../src/db/database.ts");
@@ -89,7 +88,7 @@ try {
   await pool.query("update app.plate_state set draw_aspects = array['16:9'] where project_id = $1", [projLive]);
 
   const liveVars = await store.listVariants(projLive);
-  await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render')");
+  await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render') and data->>'variantId' = any($1)", [liveVars.map((v) => v.id)]);
   const b0 = await bundleVariant(liveVars[0], projLive, 0);
   const b1 = await bundleVariant(liveVars[1], projLive, 1);
 
@@ -149,10 +148,11 @@ try {
 } finally {
   config.plates.live = false;
   config.plates.liveForceOff = false;
+  const vIds = (await pool.query("select id::text as id from app.plate_variants where project_id = any($1)", [projects])).rows.map((r) => r.id);
+  await pool.query("delete from pgboss.job where name like 'plate-%' and data->>'variantId' = any($1)", [vIds]);
   await pool.query("delete from app.plate_variants where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_garbage where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_state where project_id = any($1)", [projects]);
-  await pool.query("delete from pgboss.job where name like 'plate-%'");
   await boss.stop({ graceful: false }).catch(() => undefined);
   await pool.end();
 }

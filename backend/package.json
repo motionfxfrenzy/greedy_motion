@@ -39,6 +39,8 @@
     "test:render-prep": "node --env-file-if-exists=.env test/render-prep.mjs",
     "test:plan-captions-audio-patch": "node --env-file-if-exists=.env test/plan-captions-audio-patch.mjs",
     "test:entitlements": "node --env-file-if-exists=.env test/entitlements.mjs",
+    "test:throwaway-db": "node test/throwaway-db.mjs",
+    "test:upstream-errors": "node --env-file-if-exists=.env test/upstream-errors.mjs",
     "entitlements": "node --env-file-if-exists=.env scripts/entitlements.ts",
     "plan": "node --env-file-if-exists=.env scripts/plan.ts",
     "tokens": "node --env-file-if-exists=.env scripts/tokens.ts",

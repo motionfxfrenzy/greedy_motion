@@ -13,6 +13,7 @@ import Module from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 
 // Block `playwright-core` and `playwright` resolution before importing any backend modules
 if (typeof Module.registerHooks === "function") {
@@ -29,9 +30,7 @@ if (typeof Module.registerHooks === "function") {
 process.env.APP_ENV = "local";
 process.env.PLANNER = "deterministic";
 process.env.CREEM_API_KEY = "";
-if (!/plates_unit|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
-}
+assertThrowawayDb();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(HERE, "..");
@@ -856,7 +855,9 @@ try {
       });
       assert.equal(res502.statusCode, 502, "Model 502 transport error must return 502");
       assert.equal(res502.json().error.code, "propose_failed");
-      assert.match(res502.json().error.message, /Comment patch translation failed|Upstream model gateway failed/i);
+      assert.equal(res502.json().error.message, "Could not translate the comment. Try again.");
+      assert.ok(!res502.body.includes("Upstream model gateway failed"), "Provider error detail must not be echoed to client");
+      assert.match(res502.json().error.requestId, /^[A-Za-z0-9-]{8,64}$/);
 
       setDefaultModelTranslatorOptions({
         timeoutMs: 10,
@@ -885,6 +886,8 @@ try {
       });
       assert.equal(resTimeout.statusCode, 503, "Model timeout error must return 503");
       assert.equal(resTimeout.json().error.code, "propose_failed");
+      assert.equal(resTimeout.json().error.message, "Could not translate the comment. Try again.");
+      assert.match(resTimeout.json().error.requestId, /^[A-Za-z0-9-]{8,64}$/);
     } finally {
       setDefaultModelTranslatorOptions(null);
     }

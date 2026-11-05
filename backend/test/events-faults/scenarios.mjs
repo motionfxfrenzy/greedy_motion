@@ -7,11 +7,12 @@
 //   node test/events-faults/replica.mjs 4002
 //   node test/events-faults/scenarios.mjs        (from backend/; about 40 s; cleans up its own rows)
 process.loadEnvFile((await import("node:url")).fileURLToPath(new URL("../../.env", import.meta.url)));
+const { randomUUID } = await import("node:crypto");
 const { default: pg } = await import("pg");
 const db = new pg.Client({ connectionString: process.env.DATABASE_URL });
 await db.connect();
 const LOCAL = "00000000-0000-4000-8000-000000000000";
-const J1 = "00000000-0000-4000-8000-0000000e0e11", J2 = "00000000-0000-4000-8000-0000000e0e12";
+const J1 = randomUUID(), J2 = randomUUID();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const proxy = (mode) => fetch(`http://127.0.0.1:55434/${mode}`).then((r) => r.json());
 const results = [];

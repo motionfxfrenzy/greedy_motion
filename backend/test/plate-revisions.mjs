@@ -4,11 +4,10 @@
 // Run: DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_unit node --experimental-strip-types test/plate-revisions.mjs
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
-}
+assertThrowawayDb();
 
 const { config } = await import("../src/config.ts");
 const { migrate, pool } = await import("../src/db/database.ts");
@@ -127,10 +126,11 @@ try {
   console.log("plate revisions: ok");
 } finally {
   config.plates.live = false;
+  const vIds = (await pool.query("select id::text as id from app.plate_variants where project_id = $1", [project])).rows.map((r) => r.id);
+  await pool.query("delete from pgboss.job where name like 'plate-%' and data->>'variantId' = any($1)", [vIds]);
   await pool.query("delete from app.plate_variants where project_id = $1", [project]);
   await pool.query("delete from app.plate_garbage where project_id = $1", [project]);
   await pool.query("delete from app.plate_state where project_id = $1", [project]);
-  await pool.query("delete from pgboss.job where name like 'plate-%'");
   await boss.stop({ graceful: false }).catch(() => undefined);
   await pool.end();
 }

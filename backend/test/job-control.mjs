@@ -4,9 +4,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
+assertThrowawayDb();
 const { config } = await import("../src/config.ts");
 const { migrate, pool } = await import("../src/db/database.ts");
 const { boss, startQueues, QUEUES } = await import("../src/jobs/queues.ts");
@@ -16,8 +17,6 @@ const { reconcilePlates } = await import("../src/plates/reconcile.ts");
 const { createControl, runLeased } = await import("../../worker/src/control.mjs");
 await migrate();
 await startQueues();
-// Hermetic: jobs left by an earlier run must not be handed to this one.
-await pool.query("delete from pgboss.job where name in ('render-video', 'render-finished', 'plate-render', 'plate-export')");
 
 const TOKEN = "t".repeat(32);
 const app = Fastify();
@@ -26,8 +25,10 @@ await app.listen({ port: 0, host: "127.0.0.1" });
 const url = `http://127.0.0.1:${app.server.address().port}`;
 const control = createControl({ url, token: TOKEN });
 
+const createdJobs = [];
 const newRenderJob = async () => {
   const id = randomUUID();
+  createdJobs.push(id);
   await pool.query(
     `insert into app.render_jobs (id, project_id, state, stage, progress, request, revision, render_input, render_queued_at)
      values ($1, $2, 'rendering', 'queued', 0, '{}', '{}', '{"template":"x"}', now())`, [id, randomUUID()]);
@@ -116,7 +117,6 @@ try {
   try {
     config.plates.live = true;
     config.plates.liveForceOff = false;
-    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render', 'plate-export')");
 
     const desired = [0, 1, 2].map((index) => ({
       index, aspect: "16:9", signature: `v3:seam-${index}`, frames: 90, width: 1920, height: 1080, keyword: `k${index}`
@@ -133,7 +133,7 @@ try {
         timings: {}
       });
     }
-    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render')");
+    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render') and data->>'variantId' = any($1)", [vars.map((v) => v.id)]);
 
     // Seam (b) idle check: live project with unchecked bundled variants outside draw_aspects reports plate = 0
     const idleBefore = await control.op("demand.idle");
@@ -173,6 +173,7 @@ try {
       results: { ok: true }
     });
     assert.deepEqual(rlPassReport.body, { state: "checked" }, "repaired bundle accepts subsequent passing check report");
+    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render') and data->>'variantId' = $1", [repLiveVar.id]);
     await pool.query("delete from app.plate_variants where project_id = $1", [repairLiveProj]);
     await pool.query("delete from app.plate_state where project_id = $1", [repairLiveProj]);
 
@@ -216,7 +217,7 @@ try {
     assert.equal(statesOut.rows.find((r) => r.id === b0.id).state, "drawn");
 
     await pool.query("update app.plate_state set draw_aspects = '{}'::text[] where project_id = $1", [seamProject]);
-    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render')");
+    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render') and data->>'variantId' = any($1)", [vars.map((v) => v.id)]);
     const repairOut = await control.op("plate.sendBackForRepair", {
       id: vars[1].id, gen: vars[1].gen, renderAttempt: 1, authored: 1,
       sourceKey: `plates/${seamProject}/16x9/1/g1/source.ts`, detail: "determinism mismatch"
@@ -233,7 +234,7 @@ try {
     assert.equal((await store.getVariant(vars[1].id)).stage, "queued for rendering", "worker-repaired variant re-enters rendering queue");
 
     // Seam (c): reconciler re-enqueues lost plate-render message (including stage='queued for rendering') and control.poll receives it
-    await pool.query("delete from pgboss.job where name = 'plate-render'");
+    await pool.query("delete from pgboss.job where name = 'plate-render' and data->>'variantId' = any($1)", [vars.map((v) => v.id)]);
     await pool.query(
       "update app.plate_variants set enqueued_at = now() - interval '10 minutes', updated_at = now() - interval '10 minutes' where id = $1",
       [vars[1].id]
@@ -292,7 +293,7 @@ try {
     const rbBundled = await store.getVariant(rbVar.id);
     await store.submitCheckReport(rbBundled.id, { gen: rbBundled.gen, bundleDigest: rbBundled.bundle_digest, host: "worker", results: { ok: true } });
     assert.equal((await store.getVariant(rbVar.id)).state, "checked");
-    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render')");
+    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render') and data->>'variantId' = $1", [rbVar.id]);
 
     config.plates.liveForceOff = true;
     await reconcilePlates();
@@ -311,10 +312,11 @@ try {
   } finally {
     config.plates.live = false;
     config.plates.liveForceOff = false;
+    const vIds = (await pool.query("select id::text as id from app.plate_variants where project_id = any($1)", [[seamProject, rollbackProject]])).rows.map((r) => r.id);
+    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render', 'plate-export') and data->>'variantId' = any($1)", [vIds]);
     await pool.query("delete from app.plate_variants where project_id = any($1)", [[seamProject, rollbackProject]]);
     await pool.query("delete from app.plate_garbage where project_id = any($1)", [[seamProject, rollbackProject]]);
     await pool.query("delete from app.plate_state where project_id = any($1)", [[seamProject, rollbackProject]]);
-    await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render', 'plate-export')");
   }
 
   // --- the point of it all: serving every call above took no more database clients than the API's own pool allows
@@ -322,6 +324,8 @@ try {
   console.log("job-control: ok");
 } finally {
   await app.close();
+  await pool.query("delete from pgboss.job where name in ('render-video', 'render-finished') and data->>'jobId' = any($1)", [createdJobs]);
+  await pool.query("delete from app.render_jobs where id = any($1)", [createdJobs]);
   await boss.stop({ graceful: false, timeout: 2000 }).catch(() => undefined);
   await pool.end();
 }

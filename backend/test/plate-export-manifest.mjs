@@ -7,12 +7,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
-}
+assertThrowawayDb();
 
 // Start a hermetic in-process S3 server bound to 127.0.0.1 so storage.ts putObject/getObject/objectSize work offline
 const s3Store = new Map();
@@ -85,6 +84,7 @@ const authWaitProjectId = randomUUID();
 const authFailProjectId = randomUUID();
 const clipFenceProjectId = randomUUID();
 const projects = [projectId, authWaitProjectId, authFailProjectId, clipFenceProjectId];
+const clipDigests = [];
 
 function makeProject(id, beatsCount = 2) {
   const beats = Array.from({ length: beatsCount }, (_, i) => ({
@@ -185,7 +185,7 @@ try {
       timings: { bundleMs: 10 }
     });
   }
-  await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render', 'plate-export')");
+  await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render', 'plate-export') and data->>'variantId' = any($1)", [vars.map((v) => v.id)]);
 
   // --- 1. Freeze schema 2 manifest on live variants (even with clip_key = null!)
   const built1 = await buildExport(project, "16:9", true);
@@ -288,11 +288,11 @@ try {
   assert.equal(sha256Hex(firstManifestStillIntact), expectedManifestHash, "first manifest is immutable after subsequent revision");
 
   // requestExport does NOT enqueue any plate-render jobs
-  await pool.query("delete from pgboss.job where name in ('plate-render', 'plate-export')");
+  await pool.query("delete from pgboss.job where name in ('plate-render', 'plate-export') and data->>'variantId' = any($1)", [updatedVars.map((v) => v.id)]);
   const expRow = await requestExport(project, "16:9", true);
   assert.equal(expRow.manifest_key, built2.manifestKey);
   const plateRenderJobsCount = Number(
-    (await pool.query("select count(*) as n from pgboss.job where name = 'plate-render'")).rows[0].n
+    (await pool.query("select count(*) as n from pgboss.job where name = 'plate-render' and data->>'variantId' = any($1)", [updatedVars.map((v) => v.id)])).rows[0].n
   );
   assert.equal(plateRenderJobsCount, 0, "requestExport enqueues 0 plate-render jobs");
 
@@ -378,6 +378,7 @@ try {
   );
 
   const testDigest = sha256Hex("clip-cache-test-digest-1");
+  clipDigests.push(testDigest);
   const testEngine = "eng-v5-test";
   const testFont = fontSetDigest();
 
@@ -460,6 +461,7 @@ try {
 
   // --- 4. plate.drawn writes preview fallback clips to app.plate_clips as well
   const v1 = updatedVars[1];
+  clipDigests.push(v1.bundle_digest);
   const claimV1 = await operations["plate.claim"]({ variantId: v1.id, gen: v1.gen });
   assert.equal(claimV1.row.state, "rendering");
   const drawnV1 = await operations["plate.drawn"]({
@@ -512,13 +514,18 @@ try {
 } finally {
   config.plates.live = false;
   await rm(planAudioDir(projectId), { recursive: true, force: true }).catch(() => undefined);
-  await pool.query("delete from app.plate_clips");
+  const jIds = (await pool.query("select id::text as id from app.render_jobs where project_id = any($1)", [projects])).rows.map((r) => r.id);
+  const eIds = (await pool.query("select id::text as id from app.plate_exports where project_id = any($1)", [projects])).rows.map((r) => r.id);
+  const vRows = (await pool.query("select id::text as id, bundle_digest from app.plate_variants where project_id = any($1)", [projects])).rows;
+  const vIds = vRows.map((r) => r.id);
+  for (const r of vRows) if (r.bundle_digest) clipDigests.push(r.bundle_digest);
+  await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render', 'plate-export', 'render-plan', 'render-video', 'render-finished') and (data->>'variantId' = any($1) or data->>'exportId' = any($2) or data->>'jobId' = any($3))", [vIds, eIds, jIds]);
+  await pool.query("delete from app.plate_clips where bundle_digest = any($1)", [clipDigests]);
   await pool.query("delete from app.render_jobs where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_exports where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_variants where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_garbage where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_state where project_id = any($1)", [projects]);
-  await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render', 'plate-export', 'render-plan', 'render-video', 'render-finished')");
   await boss.stop({ graceful: false }).catch(() => undefined);
   await pool.end();
   await new Promise((resolve) => s3Server.close(resolve));

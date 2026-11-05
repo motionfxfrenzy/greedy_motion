@@ -3,7 +3,9 @@
 // Run: node --env-file=.env test/preview-meter.mjs   (needs DATABASE_URL)
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 process.env.APP_ENV ??= "local";
+assertThrowawayDb();
 const { migrate, pool } = await import("../src/db/database.ts");
 const { admitPreview, previewsUsed, previewPeriod } = await import("../src/plan/preview-meter.ts");
 const { PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP } = await import("@videosaas/contracts");

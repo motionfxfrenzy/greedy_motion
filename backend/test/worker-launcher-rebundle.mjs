@@ -12,12 +12,11 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { bundleScene } from "@videosaas/plate-engine";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at plates_rebundle (or plates_rebundle_wake).");
-}
+assertThrowawayDb();
 
 Object.assign(process.env, {
   ALLOW_CLOUD_IN_LOCAL: "1",
@@ -92,6 +91,9 @@ const savedExports = (
 
 const projectId = randomUUID();
 const variantId = randomUUID();
+const trackedVariants = [variantId];
+const newVariant = () => { const id = randomUUID(); trackedVariants.push(id); return id; };
+const clearOwnRebundleJobs = () => pool.query(`delete from ${PGBOSS_SCHEMA}.job where name = $1 and data->>'variantId' = any($2)`, [QUEUES.plateRebundle, trackedVariants]);
 const origDateNow = Date.now;
 
 try {
@@ -105,7 +107,7 @@ try {
       savedExports.map((r) => r.id)
     ]);
   }
-  await pool.query(`delete from ${PGBOSS_SCHEMA}.job where name = $1`, [QUEUES.plateRebundle]);
+  await clearOwnRebundleJobs();
 
   const failures = [];
   const check = async (name, fn) => {
@@ -127,8 +129,8 @@ try {
   // 1. Wake from zero: 1 staged `plate-rebundle` job in state `created` -> 1 RunTaskCommand
   let wakeJobId;
   await check("1. Wake from zero", async () => {
-    await pool.query(`delete from ${PGBOSS_SCHEMA}.job where name = $1`, [QUEUES.plateRebundle]);
-    wakeJobId = await boss.send(QUEUES.plateRebundle, { variantId: randomUUID(), gen: 1, rev: 0 });
+    await clearOwnRebundleJobs();
+    wakeJobId = await boss.send(QUEUES.plateRebundle, { variantId: newVariant(), gen: 1, rev: 0 });
     assert.ok(wakeJobId, "pg-boss created plate-rebundle job");
     const row = (await pool.query(`select state from ${PGBOSS_SCHEMA}.job where id = $1`, [wakeJobId])).rows[0];
     assert.equal(row?.state, "created");
@@ -173,15 +175,15 @@ try {
 
   // 4. Delayed job: created and retry with start_after 10m in the future -> 0 demand; moved to past -> 1 demand
   await check("4. Delayed job (created and retry)", async () => {
-    await pool.query(`delete from ${PGBOSS_SCHEMA}.job where name = $1`, [QUEUES.plateRebundle]);
+    await clearOwnRebundleJobs();
     const delayedCreatedId = await boss.send(
       QUEUES.plateRebundle,
-      { variantId: randomUUID(), gen: 1, rev: 0 },
+      { variantId: newVariant(), gen: 1, rev: 0 },
       { startAfter: 600 }
     );
     const delayedRetryId = await boss.send(
       QUEUES.plateRebundle,
-      { variantId: randomUUID(), gen: 1, rev: 0 },
+      { variantId: newVariant(), gen: 1, rev: 0 },
       { startAfter: 600 }
     );
     await pool.query(`update ${PGBOSS_SCHEMA}.job set state = 'retry' where id = $1`, [delayedRetryId]);
@@ -215,8 +217,8 @@ try {
 
   // 5. Lost kick: enqueue without calling kickPlateWorkers(); periodic sweep check still starts a worker
   await check("5. Lost kick", async () => {
-    await pool.query(`delete from ${PGBOSS_SCHEMA}.job where name = $1`, [QUEUES.plateRebundle]);
-    await boss.send(QUEUES.plateRebundle, { variantId: randomUUID(), gen: 1, rev: 0 });
+    await clearOwnRebundleJobs();
+    await boss.send(QUEUES.plateRebundle, { variantId: newVariant(), gen: 1, rev: 0 });
 
     calls.length = 0;
     running = 0;
@@ -228,9 +230,9 @@ try {
 
   // 6. Cap: many staged jobs never start more than maxTasks tasks
   await check("6. Cap at maxTasks", async () => {
-    await pool.query(`delete from ${PGBOSS_SCHEMA}.job where name = $1`, [QUEUES.plateRebundle]);
+    await clearOwnRebundleJobs();
     for (let i = 0; i < 10; i++) {
-      await boss.send(QUEUES.plateRebundle, { variantId: randomUUID(), gen: 1, rev: i });
+      await boss.send(QUEUES.plateRebundle, { variantId: newVariant(), gen: 1, rev: i });
     }
     calls.length = 0;
     running = 0;
@@ -254,7 +256,7 @@ try {
 
   // 8. Kick after the send: rebundleVariant in worker mode calls kickPlateWorkers() after boss.send
   await check("8. Kick after the send (rebundleVariant mode=worker)", async () => {
-    await pool.query(`delete from ${PGBOSS_SCHEMA}.job where name = $1`, [QUEUES.plateRebundle]);
+    await clearOwnRebundleJobs();
 
     const sceneCode = [
       'import { Ctx, Env } from "./core";',
@@ -335,7 +337,7 @@ try {
     assert.equal(runs()[0].input.count, 1);
 
     // Once the job completes and the 120s kick ping window expires, demand drops back to 0
-    await pool.query(`update ${PGBOSS_SCHEMA}.job set state = 'completed' where name = $1`, [QUEUES.plateRebundle]);
+    await pool.query(`update ${PGBOSS_SCHEMA}.job set state = 'completed' where name = $1 and data->>'variantId' = any($2)`, [QUEUES.plateRebundle, trackedVariants]);
     const baseNow = origDateNow();
     Date.now = () => baseNow + 121_000;
     try {
@@ -355,7 +357,7 @@ try {
   console.log("worker launcher rebundle: ok");
 } finally {
   Date.now = origDateNow;
-  await pool.query(`delete from ${PGBOSS_SCHEMA}.job where name = $1`, [QUEUES.plateRebundle]).catch(() => undefined);
+  await clearOwnRebundleJobs().catch(() => undefined);
   await pool.query("delete from app.plate_variants where id = $1", [variantId]).catch(() => undefined);
   await pool.query("delete from app.projects where id = $1", [projectId]).catch(() => undefined);
   for (const row of savedVariants) {

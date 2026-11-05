@@ -5,11 +5,10 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
-}
+assertThrowawayDb();
 
 // --- 0. Startup config validation for PLATE_LIVE_PREVIEW and PLATE_LIVE_FORCE_OFF
 {
@@ -305,10 +304,11 @@ try {
   console.log("plate live: ok");
 } finally {
   config.plates.live = false;
+  const vIds = (await pool.query("select id::text as id from app.plate_variants where project_id = any($1)", [projects])).rows.map((r) => r.id);
+  await pool.query("delete from pgboss.job where name like 'plate-%' and data->>'variantId' = any($1)", [vIds]);
   await pool.query("delete from app.plate_variants where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_garbage where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_state where project_id = any($1)", [projects]);
-  await pool.query("delete from pgboss.job where name like 'plate-%'");
   await boss.stop({ graceful: false }).catch(() => undefined);
   await pool.end();
 }

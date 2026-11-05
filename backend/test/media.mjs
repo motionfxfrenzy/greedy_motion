@@ -76,7 +76,7 @@ try {
   }
   await check("preview pages sign private asset URLs only", async () => {
     const { signPreviewUrls, mediaToken, verifyMediaToken } = await import("../src/media-links.ts");
-    const user = "00000000-0000-4000-8000-00000000000a";
+    const user = randomUUID();
     const { token } = mediaToken(user);
     assert.equal(verifyMediaToken(token), user);
     assert.equal(verifyMediaToken(token, Date.now() + 14 * 3600_000), null, "expired");

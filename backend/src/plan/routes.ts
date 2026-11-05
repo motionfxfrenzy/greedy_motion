@@ -1,4 +1,4 @@
-import { enqueueVisuals, visualStatus } from "./visuals.ts";
+import { enqueueVisuals, visualStatus, VisualWorkerBusy } from "./visuals.ts";
 import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { audioModes, captionModes, BEAT_LIMITS, findGalleryTemplate, formatForDuration, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voiceText, validateBeatLayoutHint, validateHyperFramesOverrides, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type EditPatch, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
+import { registerRequestId, requestIdOf, upstreamError, upstreamSseError } from "../http-errors.ts";
 import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan } from "../projects/store.ts";
 import { config } from "../config.ts";
 import { TTS_MODEL } from "../audio/gemini-tts.ts";
@@ -247,21 +248,50 @@ function sendMedia(request: FastifyRequest, reply: FastifyReply, bytes: Buffer, 
 
 const audioType = (file: string) => (file.endsWith(".wav") ? "audio/wav" : "audio/mpeg");
 
+const isVisualEnqueueDomainError = (error: unknown): error is Error =>
+  error instanceof VisualWorkerBusy ||
+  error instanceof ProjectInvalid ||
+  (error instanceof Error &&
+    (error.message === "Material generation needs GEMINI_API_KEY on the backend." ||
+      error.message === "This style does not need generated scenes." ||
+      /^Choose a project reservation ceiling up to \$/.test(error.message) ||
+      /^A provider (submission was interrupted|operation failed permanently)/.test(error.message) ||
+      /^This project needs a cumulative reservation of \$/.test(error.message)));
+
+const VISUAL_STATUS_DOMAIN_MESSAGES = new Set([
+  "Generation worker interrupted. Retry to resume saved operations.",
+  "The storyboard changed during generation. Generate scenes for the updated storyboard.",
+  "Generation budget reached."
+]);
+
 export async function registerPlanRoutes(app: FastifyInstance) {
+  registerRequestId(app);
   await registerSiteRoutes(app);
   app.get<{ Params: { id: string } }>("/v1/projects/:id/visuals", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
     const status = visualStatus(project);
     try { await verifyVisualAssets(project); }
-    catch (error) { return { ...status, status: "failed", error: error instanceof Error ? error.message : "Material asset unavailable." }; }
+    catch (error) {
+      const requestId = requestIdOf(request);
+      request.log.error({ err: error, requestId }, "Material asset unavailable.");
+      return { ...status, status: "failed", error: "Material asset unavailable.", requestId };
+    }
+    if (status.status === "failed" && status.error && !VISUAL_STATUS_DOMAIN_MESSAGES.has(status.error)) {
+      const requestId = requestIdOf(request);
+      request.log.error({ err: new Error(status.error), requestId }, "Material generation failed.");
+      return { ...status, error: "Material generation failed.", requestId };
+    }
     return status;
   });
   app.post<{ Params: { id: string }; Body: { budgetUsd?: number } }>("/v1/projects/:id/visuals", async (request, reply) => {
     try {
       const project = await enqueueVisuals(request.params.id, Number(request.body?.budgetUsd));
       return project ? reply.code(202).send(visualStatus(project)) : reply.code(404).send(notFound);
-    } catch (error) { return reply.code(409).send({ error: { code: "visual_generation", message: error instanceof Error ? error.message : "Generation unavailable." } }); }
+    } catch (error) {
+      if (isVisualEnqueueDomainError(error)) return reply.code(409).send({ error: { code: "visual_generation", message: error.message } });
+      return reply.code(409).send(upstreamError(request, error, "visual_generation", "Generation unavailable."));
+    }
   });
   app.get<{ Params: { id: string; file: string } }>("/v1/preview/plans/:id/visuals/:file", async (request, reply) => {
     const { id, file } = request.params;
@@ -323,8 +353,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       app.log.info({ event: "script_streamed", projectId: project.id, firstMs, ms: Date.now() - started, beats: beats.length, flags: flags.length, change: Boolean(instruction), only: only.length || undefined }, "script streamed");
     } catch (error) {
       if (!controller.signal.aborted) {
-        app.log.warn({ event: "script_failed", projectId: project.id, ms: Date.now() - started, err: error }, "script writer failed");
-        send({ error: error instanceof Error ? error.message : "Could not write the script." });
+        send(upstreamSseError(request, error, "Could not write the script."));
       }
     } finally {
       reply.raw.end();
@@ -379,7 +408,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         } catch (error) {
           if (controller.signal.aborted) return;
           failed += 1;
-          send({ index, error: error instanceof Error ? error.message : "Could not draw this frame." });
+          send(upstreamSseError(request, error, "Could not draw this frame.", { index }));
         }
       }
     };
@@ -493,12 +522,13 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           if (controller.signal.aborted) return;
           failed += 1;
           completedSteps += 1;
-          send({
-            type: "take-error",
-            index,
-            error: error instanceof Error ? error.message : "Could not record voiceover for this scene.",
-            progress: progressPct()
-          });
+          send(
+            upstreamSseError(request, error, "Could not record voiceover for this scene.", {
+              type: "take-error",
+              index,
+              progress: progressPct()
+            })
+          );
         }
       }
     };
@@ -530,11 +560,12 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           } catch (error) {
             if (controller.signal.aborted) return;
             completedSteps += 1;
-            send({
-              type: "music-error",
-              error: error instanceof Error ? error.message : "Could not generate background music.",
-              progress: progressPct()
-            });
+            send(
+              upstreamSseError(request, error, "Could not generate background music.", {
+                type: "music-error",
+                progress: progressPct()
+              })
+            );
           }
         })()
       : Promise.resolve();
@@ -749,10 +780,11 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       const finalProject = (await getProject(project.id)) ?? project;
       send({ type: "done", progress: 100, project: finalProject });
     } catch (error) {
-      send({
-        type: "error",
-        error: error instanceof Error ? error.message : "Could not prepare the browser animation."
-      });
+      send(
+        upstreamSseError(request, error, "Could not prepare the browser animation.", {
+          type: "error"
+        })
+      );
     } finally {
       reply.raw.end();
     }
@@ -790,8 +822,8 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         app.log.info({ event: "plan_done", projectId: project.id, ms: Date.now() - startedAt, model: result.model, ...(result.repairedFrom ? { repairedFrom: result.repairedFrom } : {}), ...(result.problems.length ? { problems: result.problems } : {}) }, "plan applied");
       } catch (error) {
         if (controller.signal.aborted) return; // cancelled: the cancel route already recorded it
-        app.log.warn({ event: "plan_failed", projectId: project.id, ms: Date.now() - startedAt, err: error }, "script director failed");
-        const message = error instanceof ProjectInvalid ? error.message : error instanceof Error ? error.message : "The script director failed.";
+        request.log.error({ event: "plan_failed", projectId: project.id, ms: Date.now() - startedAt, err: error, requestId: requestIdOf(request) }, "script director failed");
+        const message = error instanceof ProjectInvalid ? error.message : "The script director failed.";
         await setProjectPlanning(project.id, { status: "failed", startedAt: started.planning?.startedAt ?? new Date().toISOString(), error: message }).catch(() => undefined);
       } finally {
         if (jobs.get(project.id) === controller) jobs.delete(project.id);
@@ -820,8 +852,8 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       const updated = await updateProject(project.id, { script: draft.script });
       return reply.code(201).send(updated);
     } catch (error) {
-      app.log.warn({ err: error }, "script draft failed");
-      return reply.code(502).send({ error: { code: "script_failed", message: error instanceof Error && !/\bkey\b|\bapi\b/i.test(error.message) ? error.message : "The script could not be written. Try again." } });
+      if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
+      return reply.code(502).send(upstreamError(request, error, "script_failed", "The script could not be written. Try again."));
     }
   });
 
@@ -841,8 +873,8 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       const draft = await reviseScript(project.script, instruction, brief, context, AbortSignal.timeout(100_000));
       return reply.send(await updateProject(project.id, { script: draft.script }));
     } catch (error) {
-      app.log.warn({ err: error }, "script revision failed");
-      return reply.code(502).send({ error: { code: "script_failed", message: "The change could not be made. Try again." } });
+      if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
+      return reply.code(502).send(upstreamError(request, error, "script_failed", "The change could not be made. Try again."));
     }
   });
 
@@ -868,7 +900,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (!(await ensurePromptAllowed(reply, [instruction], `project_${project.id}:beat_rewrite_${beat.id}`))) return;
     let rewrite;
     try { rewrite = await rewriteBeat(project.beatPlan, beat, instruction, project.brief); }
-    catch (error) { return reply.code(502).send({ error: { code: "rewrite_failed", message: error instanceof Error ? error.message : "Could not rewrite the frame." } }); }
+    catch (error) { return reply.code(502).send(upstreamError(request, error, "rewrite_failed", "Could not rewrite the frame.")); }
     const result = applyPlanEdits(project, { beats: [{ id: beat.id, ...rewrite }] });
     if ("problems" in result) return reply.code(422).send({ error: { code: "plan_problems", message: result.problems[0] }, problems: result.problems });
     const updated = await updateProjectPlan(project.id, (current) => ({ brief: current.brief, beatPlan: result.plan, script: scriptFromPlan(result.plan, current.script?.source ?? "generated") }));
@@ -945,8 +977,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       };
     } catch (error) {
       if (error instanceof AudioUnavailable) return reply.code(503).send({ error: { code: "audio_unavailable", message: error.message } });
-      app.log.warn({ err: error, projectId: project.id }, "plan audio failed");
-      return reply.code(502).send({ error: { code: "audio_failed", message: error instanceof Error ? error.message : "The voiceover failed." } });
+      return reply.code(502).send(upstreamError(request, error, "audio_failed", "The voiceover failed."));
     }
   });
 
@@ -1088,13 +1119,9 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         error instanceof Error &&
         (error.name === "TimeoutError" || error.name === "AbortError" || /timed?\s*out|aborted/i.test(error.message));
       const status = isTimeout ? 503 : 502;
-      const message =
-        error instanceof Error && !/\bkey\b|\bapi\b/i.test(error.message)
-          ? error.message
-          : "Could not translate the comment. Try again.";
-      return reply.code(status).send({
-        error: { code: "propose_failed", message }
-      });
+      return reply.code(status).send(
+        upstreamError(request, error, "propose_failed", "Could not translate the comment. Try again.")
+      );
     }
   });
 
