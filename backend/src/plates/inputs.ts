@@ -1,7 +1,7 @@
 import { engineDigest, isSupportedStyle, plateNameOf, styleDigest } from "@videosaas/plate-engine";
 import type { ScriptBeat, VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
-import { FPS, framesForSeconds, primaryAspect, secondsFor, sizeForAspect, takeFor, variantSignature, type Aspect } from "./model.ts";
+import { FPS, buildTimeline, framesForSeconds, primaryAspect, secondsFor, sizeForAspect, takeFor, variantSignature, type Aspect } from "./model.ts";
 import { promptDigest } from "./prompt.ts";
 import type { Desired } from "./store.ts";
 
@@ -18,6 +18,15 @@ export function sceneFrames(project: VideoProject): { seconds: number; frames: n
     const seconds = secondsFor(beat, takeFor(project, i)?.seconds);
     return { seconds, frames: framesForSeconds(seconds) };
   });
+}
+
+/** The plate film's rendered length in seconds (whole-frame timeline over the script beats and voiceover takes), or null when there are no script beats. */
+export function plateFilmSeconds(project: VideoProject): number | null {
+  const scriptBeats = project.brief?.scriptBeats ?? [];
+  if (!scriptBeats.length) return null;
+  const frames = sceneFrames(project).map((s) => s.frames);
+  const voice = scriptBeats.map((_, i) => takeFor(project, i)?.seconds);
+  return buildTimeline(frames, voice).totalFrames / FPS;
 }
 
 /** What every (scene, ratio) variant must be right now, with its full dependency signature. */

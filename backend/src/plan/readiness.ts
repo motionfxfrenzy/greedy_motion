@@ -10,6 +10,7 @@ import { buildPlanRenderProject } from "./render-project.ts";
 import { filmFrames } from "./frame-film.ts";
 import { ensureFilmMotion, filmScenes } from "./frame-motion.ts";
 import { setCoverFrame } from "../projects/store.ts";
+import { plateFilmSeconds } from "../plates/inputs.ts";
 import { TIMING_RULES } from "./timing.ts";
 
 /**
@@ -73,7 +74,8 @@ export function planReadiness(project: VideoProject): Readiness {
   if (offTarget) {
     warnings.push({ beat: null, message: `The film runs ${timing.total.toFixed(0)}s; you chose ${target}s as a target.` });
   }
-  return { ok: blocking.length === 0, blocking, warnings, durationSeconds: timing.total };
+  const durationSeconds = (isPlate ? plateFilmSeconds(project) : null) ?? timing.total;
+  return { ok: blocking.length === 0, blocking, warnings, durationSeconds };
 }
 
 export class NotReady extends Error {

@@ -982,12 +982,13 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (request.query.beat && beats.length === 0) return reply.code(404).send({ error: { code: "not_found", message: "Beat not found." } });
     const timing = projectTiming(project)!;
     const times = beatTimes(timing);
+    const readiness = planReadiness(project);
     return {
       engine: "beat-plan",
       baseUrl: `/v1/preview/plans/${project.id}`,
       canvas: project.beatPlan.canvas,
-      // The composition's real length (the last beat's end; within ±10% of target_duration_s).
-      durationSeconds: timing.total,
+      // The composition's real length (plate films use their rendered scene timeline; others use the plan clock).
+      durationSeconds: readiness.durationSeconds ?? timing.total,
       variables: textValues(beats),
       ...(project.beatPlan.overrides && Object.keys(project.beatPlan.overrides).length > 0
         ? { overrides: project.beatPlan.overrides }
@@ -998,7 +999,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       audio: audioStatus(project),
       visuals: visualStatus(project),
       // What Submit needs: blocking items (each with the beat to fix) and non-blocking notes (readiness.ts).
-      readiness: planReadiness(project),
+      readiness,
       slots: beats.flatMap((beat) => [
         { id: `${beat.id}.keyword`, beat: beat.id, budget: { chars: BEAT_LIMITS.keywordChars, words: BEAT_LIMITS.keywordWords } },
         { id: `${beat.id}.on_screen`, beat: beat.id, budget: { chars: BEAT_LIMITS.onScreenChars } },
