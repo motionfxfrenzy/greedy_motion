@@ -489,3 +489,12 @@ Decision (product owner, 2026-11-05): a comment that changes something **no othe
 * **Pass the render idempotency key explicitly** (route in `server.ts` to `createBeatPlanRender` to `createAndEnqueue`), replacing the per-project in-process map and lock in `registerRenderQuote`; remove the unused `AsyncLocalStorage` import. Small, covered by `plate-render-billing.mjs` and scenario S.
 * The software-GL self-check and the digest-keyed clip cache are in place; companion exports and final renders share the cache with the preview fallback clips.
 * Open from earlier sections: R2 CORS and the device runs (Safari, Firefox, Android) before the flags are enabled for users; font embedding for named-font text; the job-control rollout and connection budgets (docs/JOB_CONTROL.md) before raising `ECS_WORKER_MAX_TASKS`.
+
+## 26. Live playback: draw once, play smooth (decided 2026-11-05)
+Supersedes the 15 fps preview and the 20 s pre-draw limit of phase 3f (`docs/phase3/3f-report.md`). The owner decided how plate films play at step 3; the full plan, measurements, owners and acceptance criteria are in **`docs/LIVE_PLAYBACK_PLAN.md`**. In short:
+* **A. Engine:** exact indexed point-in-polygon in `packages/plate-engine/src/canvas-core/gallery.ts` (the crayon fill was 83 to 90 % of each frame); 5 to 6x faster drawing with byte-identical frames; existing scenes re-bundled from their source without a model call.
+* **B. 30 fps playback:** every drawn frame shown (`PREVIEW_FRAME_STEP` 1).
+* **C. Video-style buffering:** a short start buffer, about 2 to 3 s ready ahead, a Buffering pause instead of a wrong frame; one clock drives picture, voiceover, music and sound effects; no time-limit fallback; the MP4 only for unsupported browsers or a crashing worker.
+* **D. Draw once:** every drawn frame is saved in the browser (IndexedDB) as lossy WebP the moment it is drawn; complete scenes replay, loop and seek without running their code; a comment revision redraws only its scene.
+* **E. Quality setting:** Low 0.2 / Standard 0.4 (default) / High 0.6 for stored copies; a change runs as a background job (redraw to raise, re-save to lower), nearest the playhead first, never blocking playback. The first play always shows the exact drawn frames; the final render is unaffected.
+* **F. Background drawing:** undrawn scenes draw ahead one at a time while the user reads or watches.
