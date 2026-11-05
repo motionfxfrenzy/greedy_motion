@@ -1,6 +1,6 @@
-# DEFERRED brief: element-level and scene-level comment edits (start only after phases 3b, 3c and the live-scenes phases are finished and reviewed)
+# Brief (RELEASED 2026-11-05, phase 4a): element-level and scene-level comment edits for HyperFrames films
 
-Status: written 2026-11-05 from the product owner's decision after `docs/phase3/element-edit-spike.md`. Do not start until the manager says so. When it starts, the manager first re-checks that the facts below still hold (the engine, the `hf-variables` block, the plates params plan may have changed).
+Status: released by the manager on 2026-11-05 after phases 3a to 3e, the job-control integration and phase 5 were finished, reviewed and committed. Scope of this release: **the HyperFrames side only (4a)**. The plates side (params schema authored by the model, params-first edits, revision pruning) is phase 4b and needs a real model, so it is NOT part of this task; keep the shared patch module independent of it, as written below.
 
 You work for a manager (Claude) who reviews everything you produce. Read this whole file first. Do what it says, nothing more. If a rule blocks you, stop that part and say so in the report; never work around a rule.
 
@@ -38,3 +38,18 @@ A timed comment can change one element or a whole scene, and the system must tel
 
 ## Deliverable
 `docs/phase4/element-edits-report.md` with files changed, commands run, the test table with measurements, the render-parity evidence, decisions, deviations, risks. Then print `DONE` and the report path on a line by itself.
+
+
+## Released scope, paths and baselines (added at release)
+
+**Read first, in addition to the facts above:** `docs/phase3/hyperframes-capabilities.md`, `docs/phase3/3b-report.md` (the HyperFrames step 3 now sits on the shared workspace and already has a comment flow: timed comments call `onApplySceneComments`, which rewrites storyboard lines per scene), `docs/phase5/5-report.md` (the final render path and manifest), and the spike scripts `tools/spike-hf-elements/`.
+
+**You may edit or create files only in:** `worker/templates/beat-plan/` (the engine: `engine.js`, then rebuild `index.html` with `node worker/templates/beat-plan/build.mjs`; commit the rebuilt file as part of the change), `packages/contracts/src/` (the shared patch format and classifier types, new files; additive exports only), `backend/src/plan/` (patch fields and routes for element edits; apply through the `hf-variables` block in `composition.ts` and `preview.ts`), `backend/test/`, `frontend/lib/` (a small client for the edit API), `frontend/components/browser-animation-step.tsx` and `frontend/components/animation-workspace/` (only what the comment list needs to say which kind of change was made; any change to the shared workspace must keep the plates screenshots at 0 differing pixels: re-run `tools/phase3/compare.mjs` against `tools/phase3/baseline`), `frontend/test/`, `tools/phase4/`, `docs/phase4/`. Do NOT touch `worker/src/` (the render job runs the same composition HTML; if the final render needs a change, report it), `backend/src/plates/`, `frontend/lib/live/`, `plate-preview.tsx`, other worktrees, or the main folder `/Users/osamaehsaan/Code/Market_apps/VideoSaaS`.
+
+**Baselines before you start (record them first):** `frontend` 169 tests pass; backend typecheck clean and 36 test files pass with the five known failures (`billing`, `brand-files`, `render-prep`, `styles`, `visuals`); the plates screenshot comparison is 68/68; the HyperFrames step-3 and final-page fixtures and captures exist under `tools/phase3/` (`capture-hf.mjs`, `capture-final.mjs`) and must stay identical for films with no edits.
+
+**How to render and compare:** the HyperFrames render path is exercised by chaos scenario 6 (`tools/phase2/job-control/chaos.mjs`) on the local stack (`docker compose -f compose.yaml -f tools/phase2/e2e/compose.live.yaml --profile plates-e2e up -d --build plate-api plate-worker`); you may add an element-edit scenario there. Tear down only what you started: `docker compose -f compose.yaml -f tools/phase2/e2e/compose.live.yaml --profile plates-e2e down plate-worker plate-api llm-stub objectstore`; never touch `videosaas-local-postgres-1` or `videosaas-local-worker-1`.
+
+**Model use:** no real model API. Where the design needs a model to turn a comment into a patch, implement it behind an interface with a deterministic rule-based implementation for the tests and a documented prompt for the real one; do not call any external API.
+
+**Process rules still apply:** one writer; no commit, no push, no deploy, no cloud calls, no secrets; do not weaken or delete tests; do not add dependencies.
