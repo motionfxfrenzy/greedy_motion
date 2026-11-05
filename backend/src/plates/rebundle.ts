@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { bundleScene, engineDigest, engineVersion, isSupportedStyle } from "@videosaas/plate-engine";
 import { pool } from "../db/database.ts";
 import { boss, QUEUES } from "../jobs/queues.ts";
+import { kickPlateWorkers } from "../jobs/worker-launcher.ts";
 import { getProject } from "../projects/store.ts";
 import { getObject, objectSize, putObject, type Bucket } from "../storage.ts";
 import { putContentAddressedObject, type ContentAddressedStorage } from "./author.ts";
@@ -420,6 +421,7 @@ export async function rebundleVariant(
       },
       { singletonKey: `rebundle:${snapshot.id}:${snapshot.gen}:${snapshot.rev}` }
     );
+    void kickPlateWorkers();
     return {
       status: "queued_worker",
       variantId: snapshot.id,
