@@ -9,7 +9,7 @@
 // Configuration is environment only (see README block in docs/staging/plates-smoke-report.md). The bearer token is never
 // printed, never written to a file and never put in a URL; every output line goes through redact().
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +18,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const env = process.env;
 const argv = process.argv.slice(2);
 if (argv.includes("--help") || argv.includes("-h")) {
-  console.log("Plates film smoke test. Configure with SMOKE_API (required), SMOKE_TOKEN, SMOKE_LOOK, SMOKE_BEATS, SMOKE_ASPECT, SMOKE_OUT, SMOKE_STEPS, SMOKE_MAX_TOKENS, SMOKE_KEEP, SMOKE_PROJECT. Flag: --continue.");
+  console.log(
+    "Plates film smoke test. Configure with SMOKE_API (required), SMOKE_TOKEN, SMOKE_LOOK, SMOKE_BEATS, SMOKE_ASPECT, SMOKE_DURATION, SMOKE_AUDIO, SMOKE_OUT, SMOKE_STEPS, SMOKE_MAX_TOKENS, SMOKE_KEEP, SMOKE_PROJECT, SMOKE_POLL_MS, SMOKE_PLAN_TIMEOUT_MS, SMOKE_STREAM_TIMEOUT_MS, SMOKE_ANIMATE_TIMEOUT_MS, SMOKE_CLIP_TIMEOUT_MS, SMOKE_RENDER_TIMEOUT_MS, SMOKE_REQUEST_TIMEOUT_MS, SMOKE_FFPROBE. Flag: --continue."
+  );
   process.exit(0);
 }
 const CONTINUE = argv.includes("--continue");
@@ -46,7 +48,10 @@ const AUDIO = env.SMOKE_AUDIO ?? "voiceover";
 if (!["voiceover", "music", "both", "none"].includes(AUDIO)) { console.error("SMOKE_AUDIO must be voiceover, music, both or none"); process.exit(2); }
 const MAX_TOKENS = int("SMOKE_MAX_TOKENS", 20);
 const KEEP = ["1", "true", "yes", "on"].includes((env.SMOKE_KEEP ?? "").toLowerCase());
-const POLL_MS = int("SMOKE_POLL_MS", 3000);
+const CUSTOM_POLL_MS = env.SMOKE_POLL_MS ? int("SMOKE_POLL_MS", 3000) : null;
+const POLL_MS = CUSTOM_POLL_MS ?? 3000;
+// plate-preview.tsx line 244: flagEnabled (live mode) polls every 1500 ms, clip mode every 3000 ms.
+const platePollMs = (mode) => CUSTOM_POLL_MS ?? ((mode ?? report?.mode) === "live" ? 1500 : 3000);
 const T = {
   plan: int("SMOKE_PLAN_TIMEOUT_MS", 5 * 60_000),
   stream: int("SMOKE_STREAM_TIMEOUT_MS", 5 * 60_000),
@@ -82,7 +87,9 @@ const now = () => Date.now();
 
 class Fail extends Error {}
 class Abort extends Error {}
+class Skip extends Error {}
 const fail = (message) => { throw new Fail(message); };
+const skip = (message) => { throw new Skip(message); };
 
 // ---------- HTTP ----------
 const sameOrigin = (url) => { try { return new URL(url, API).origin === API_ORIGIN; } catch { return false; } };
@@ -167,7 +174,6 @@ const report = {
   idempotency: null, notChecked: [], warnings, result: null, failedStep: null, reportPath: null
 };
 const READY = (scene, mode) => scene.state === "drawn" || scene.state === "checked" || (mode === "live" && scene.state === "bundled");
-const OPEN = new Set(["queued", "authoring", "bundled", "rendering"]);
 
 async function tokens() {
   const { data } = await json("GET", "/v1/me/tokens");
@@ -189,9 +195,40 @@ async function mediaToken() {
 }
 const withMedia = async (path) => `${path}${path.includes("?") ? "&" : "?"}t=${encodeURIComponent(await mediaToken())}`;
 
-function need(...names) {
+async function loadReuseProject() {
+  if (!env.SMOKE_PROJECT || ctx.projectId) return;
+  const { data } = await json("GET", `/v1/projects/${env.SMOKE_PROJECT}`);
+  ctx.project = data;
+  ctx.projectId = data.id;
+  ctx.brief = data.brief
+    ? {
+        ...data.brief,
+        ...(env.SMOKE_AUDIO ? { audio: { ...(data.brief.audio ?? {}), mode: AUDIO, voice: data.brief.audio?.voice ?? "Kore" } } : {}),
+        ...(env.SMOKE_LOOK ? { look: LOOK } : {}),
+        ...(env.SMOKE_ASPECT ? { aspect: ASPECT } : {})
+      }
+    : null;
+  ctx.beats = data.brief?.scriptBeats ?? null;
+  report.projectId = data.id;
+  info(`reusing project ${data.id}`);
+}
+
+let failedStep = null, aborted = null;
+
+async function need(...names) {
+  if (env.SMOKE_PROJECT && !ctx.projectId) await loadReuseProject();
+  if (!ctx.projectId && !runStepNames.has("create") && !env.SMOKE_PROJECT) {
+    fail("SMOKE_PROJECT is required when SMOKE_STEPS omits create");
+  }
+  if (names.includes("scenes") && (!ctx.scenes || !ctx.scenes.length) && ctx.projectId && !runStepNames.has("animate") && !failedStep && !aborted) {
+    const st = await getPlates();
+    if (st.scenes?.length) { ctx.scenes = st.scenes; report.mode ??= st.mode ?? null; }
+  }
   const missing = names.filter((n) => ctx[n] === null || ctx[n] === undefined || (Array.isArray(ctx[n]) && !ctx[n].length));
-  if (missing.length) fail(`skipped: needs ${missing.join(", ")} from an earlier step`);
+  if (missing.length) {
+    if (failedStep || aborted) skip(`needs ${missing.join(", ")} from an earlier step`);
+    fail(`SMOKE_STEPS requires ${missing.join(", ")} (include earlier steps or set SMOKE_PROJECT)`);
+  }
 }
 
 // ---------- steps ----------
@@ -203,22 +240,18 @@ steps.health = async () => {
   const t = await tokens(); // the auth check: a 401 here is the failure to look for
   report.balances.start = t.remaining;
   info(`balance ${t.remaining} tokens`);
-  if (env.SMOKE_PROJECT) {
-    const { data } = await json("GET", `/v1/projects/${env.SMOKE_PROJECT}`);
-    ctx.project = data; ctx.projectId = data.id; ctx.brief = data.brief ?? null; ctx.beats = data.brief?.scriptBeats ?? null;
-    report.projectId = data.id;
-    info(`reusing project ${data.id}`);
-  }
+  if (env.SMOKE_PROJECT) await loadReuseProject();
 };
 
 steps.create = async () => {
-  // studio.tsx requestFromBrief + ensureProject: POST /v1/projects { name, request }, then PUT /v1/projects/:id { request }.
-  const prompt = TOPIC.replace(/\s+/g, " ").slice(0, 600);
+  // studio.tsx requestFromBrief + ensureProject + writeScript: POST /v1/projects { name, request }, then PUT /v1/projects/:id { request }.
+  const prompt = TOPIC.trim().replace(/\s+/g, " ").slice(0, 600);
+  const name = (TOPIC.trim().split(/[.!?\n]/)[0]?.slice(0, 80) || "Untitled video").trim();
   const request_ = {
     prompt, format: ASPECT === "9:16" ? "portrait" : "landscape", style: "clean", theme: "neutral", template: "product-launch",
-    audio: { music: AUDIO === "music" || AUDIO === "both", voiceover: AUDIO === "voiceover" || AUDIO === "both", voice: "Kore" }
+    audio: { music: false, voiceover: false, voice: "Kore" }
   };
-  const { status, data } = await json("POST", "/v1/projects", { body: { name: `smoke ${LOOK} ${STAMP}`.slice(0, 80), request: request_ } });
+  const { status, data } = await json("POST", "/v1/projects", { body: { name, request: request_ } });
   if (status !== 201) fail(`POST /v1/projects -> ${status}, expected 201`);
   if (!/^[0-9a-f-]{36}$/i.test(data?.id ?? "")) fail("POST /v1/projects -> no project id");
   ctx.project = data; ctx.projectId = data.id; report.projectId = data.id;
@@ -232,7 +265,7 @@ steps.create = async () => {
 };
 
 steps.script = async () => {
-  need("projectId", "brief");
+  await need("projectId", "brief");
   // studio.tsx writeScript -> api.streamScript: POST /v1/projects/:id/script/stream { brief }; events { t } ... { done, beats, notes, flags, ms } | { error }.
   let result = null, pieces = 0;
   await sse(`/v1/projects/${ctx.projectId}/script/stream`, { brief: ctx.brief }, (event) => {
@@ -251,7 +284,7 @@ steps.script = async () => {
 };
 
 steps.plan = async () => {
-  need("projectId", "brief", "beats");
+  await need("projectId", "brief", "beats");
   // studio.tsx buildStoryboard: POST /v1/projects/:id/plan { ...brief, scriptBeats, scriptNotes, screenshotIds } -> 202 { project }; the page polls the project.
   const body = { ...ctx.brief, scriptBeats: ctx.beats, ...(ctx.notes ? { scriptNotes: ctx.notes } : {}), screenshotIds: [] };
   const started = await json("POST", `/v1/projects/${ctx.projectId}/plan`, { body });
@@ -305,7 +338,7 @@ steps.plan = async () => {
 const sceneRow = (s) => ({ index: s.index, state: s.state, rev: s.rev ?? null, variantId: s.variantId ?? null, bundleDigest: s.bundleDigest ?? null, sig: s.sig ?? null, seconds: s.seconds ?? null, live: s.live ?? null });
 
 steps.animate = async () => {
-  need("projectId", "brief", "beats");
+  await need("projectId", "brief", "beats");
   // studio.tsx startBrowserAnimation -> api.streamScriptAnimate: POST script/animate { brief, beats }; stage/frame/voice/music/motion/done | error.
   const counts = { frame: 0, voice: 0, motion: 0 };
   let done = false;
@@ -318,7 +351,7 @@ steps.animate = async () => {
   if (!done) fail("the animation preparation closed before it finished");
   info(`prepared in ${now() - a0} ms (frames ${counts.frame}, voice ${counts.voice}, motion ${counts.motion})`);
 
-  // plate-preview.tsx mount: ensureMediaToken, getPlates; if available and not running and a scene is not done -> drawPlates; keep polling.
+  // plate-preview.tsx mount: ensureMediaToken, getPlates; if available and not running and a scene is not done -> drawPlates; keep polling (1.5 s in live, 3 s in clip).
   await mediaToken();
   let status = await getPlates();
   if (!status.available) fail(`plates are not available for this project (look ${status.look ?? "none"}): the pipeline is off or the look is unsupported`);
@@ -337,7 +370,7 @@ steps.animate = async () => {
     }
     return isDone(st) ? st : null;
   };
-  const finished = settle(status) ?? (await until("every scene to be ready", async () => settle(await getPlates()), { timeoutMs: T.animate, everyMs: POLL_MS })).value;
+  const finished = settle(status) ?? (await until("every scene to be ready", async () => settle(await getPlates()), { timeoutMs: T.animate, everyMs: platePollMs(status.mode) })).value;
   report.mode = finished.mode ?? report.mode;
   ctx.scenes = finished.scenes;
   report.scenes = finished.scenes.map((s) => ({ ...sceneRow(s), msToReady: firstReady[s.index] ?? null }));
@@ -349,13 +382,13 @@ steps.animate = async () => {
 };
 
 const fetchBinary = async (url) => {
-  // Presigned object-store links go out without Authorization (request() only adds it for the API origin).
-  const res = await request("GET", url, { timeoutMs: 120_000, redirect: "follow" });
+  // Presigned object-store links never carry Authorization.
+  const res = await request("GET", url, { auth: false, timeoutMs: 120_000, redirect: "follow" });
   return res;
 };
 
 steps["preview-assets"] = async () => {
-  need("projectId", "scenes");
+  await need("projectId", "scenes");
   // Live bundle: GET plates/:variantId/bundle -> { url, expiresAt, bundleDigest, manifest, params } (plates/routes.ts), then the bundle at `url`.
   for (const scene of ctx.scenes) {
     const t0 = now();
@@ -389,7 +422,7 @@ steps["preview-assets"] = async () => {
       const row = st.scenes.find((s) => s.index === target.index);
       if (row?.state === "failed") fail(`scene ${target.index + 1} failed while drawing the clip: ${row.error ?? "no reason given"}`);
       return row?.state === "drawn" ? row : null;
-    }, { timeoutMs: T.clip });
+    }, { timeoutMs: T.clip, everyMs: platePollMs() });
     target = value;
     info(`clip drawn in ${now() - c0} ms`);
   }
@@ -398,13 +431,16 @@ steps["preview-assets"] = async () => {
   const redirect = await request("GET", clipPath, { auth: false, redirect: "manual" });
   let bytes;
   if (redirect.status >= 300 && redirect.status < 400) {
+    if (redirect.status !== 302) warn(`clip route answered ${redirect.status}, expected 302`);
     const location = redirect.headers.get("location");
     if (!location) fail("clip route redirected without a Location");
     const res = await fetchBinary(location);
     if (res.status !== 200 && res.status !== 206) fail(`clip download -> ${res.status}`);
     bytes = Buffer.from(await res.arrayBuffer());
-  } else if (redirect.status === 200) bytes = Buffer.from(await redirect.arrayBuffer());
-  else fail(`clip route -> ${redirect.status}`);
+  } else if (redirect.status === 200) {
+    warn("clip route answered 200, expected 302");
+    bytes = Buffer.from(await redirect.arrayBuffer());
+  } else fail(`clip route -> ${redirect.status}`);
   if (bytes.length < 1000) fail(`clip is only ${bytes.length} bytes`);
   if (bytes.subarray(4, 8).toString("latin1") !== "ftyp") fail("clip is not an MP4 (no ftyp box)");
   report.clip = { index: target.index, bytes: bytes.length, ms: now() - t0, redirected: redirect.status >= 300 };
@@ -413,16 +449,18 @@ steps["preview-assets"] = async () => {
 };
 
 steps.comment = async () => {
-  need("projectId", "scenes");
-  // fixPlates refuses while a target scene is being drawn; the comment at 1.0 s lands on the first scene, so wait for that one to be playable.
+  await need("projectId", "scenes");
+  // fixPlates refuses while a target scene is being drawn; the comment at 1.0 s lands on the first scene, so wait for that one to be ready (reusing the live-mode rule from animate).
   const before = (await until("the first scene to be quiet", async () => {
     const st = await getPlates();
     const bad = st.scenes.find((s) => s.state === "failed");
     if (bad) fail(`scene ${bad.index + 1} failed: ${bad.error ?? "no reason given"}`);
     const first = st.scenes[0];
-    return first && (first.state === "drawn" || first.state === "checked") ? st : null;
-  }, { timeoutMs: T.clip })).value;
+    return first && READY(first, st.mode) ? st : null;
+  }, { timeoutMs: T.clip, everyMs: platePollMs() })).value;
   const snap = Object.fromEntries(before.scenes.map((s) => [s.index, sceneRow(s)]));
+  const { data: bundleBefore } = await json("GET", `/v1/projects/${ctx.projectId}/plates/${before.scenes[0].variantId}/bundle`);
+  const pathBefore = bundleBefore?.url ? new URL(bundleBefore.url, API).pathname : null;
   // plate-preview.tsx: addPlateComment (POST plates/comments { at, body } -> 201 { id, at, scene, sceneAt, body }), then fixPlates (POST plates/fix -> 202 status).
   const { status, data: comment } = await json("POST", `/v1/projects/${ctx.projectId}/plates/comments`, { body: { at: 1.0, body: "Make the sky slightly warmer." } });
   if (status !== 201) fail(`add comment -> ${status}, expected 201`);
@@ -437,11 +475,16 @@ steps.comment = async () => {
     const row = st.scenes.find((s) => s.index === sceneIndex);
     if (row?.state === "failed") fail(`scene ${sceneIndex + 1} failed to take the comment: ${row.error ?? "no reason given"}`);
     return row && (row.rev ?? 0) > (snap[sceneIndex].rev ?? 0) && READY(row, st.mode) ? st : null;
-  }, { timeoutMs: T.clip });
+  }, { timeoutMs: T.clip, everyMs: platePollMs(fix.data?.mode) });
   const changed = after.scenes.find((s) => s.index === sceneIndex);
   const was = snap[sceneIndex];
+  const { data: bundleAfter } = await json("GET", `/v1/projects/${ctx.projectId}/plates/${changed.variantId}/bundle`);
+  const pathAfter = bundleAfter?.url ? new URL(bundleAfter.url, API).pathname : null;
+  const digestChanged = Boolean((was.bundleDigest || changed.bundleDigest) && changed.bundleDigest !== was.bundleDigest);
+  const artifactChanged = Boolean(pathBefore && pathAfter && pathAfter !== pathBefore);
   if (was.bundleDigest || changed.bundleDigest) {
-    if (changed.bundleDigest === was.bundleDigest) fail(`scene ${sceneIndex + 1}: revision ${was.rev} -> ${changed.rev} but bundleDigest did not change`);
+    if (!digestChanged && !artifactChanged) fail(`scene ${sceneIndex + 1}: revision ${was.rev} -> ${changed.rev} but bundleDigest did not change`);
+    if (!digestChanged && artifactChanged) warn(`scene ${sceneIndex + 1}: revision ${was.rev} -> ${changed.rev} wrote a new bundle (${pathAfter}) with the same bundleDigest (stub returned identical code)`);
   } else warn("no bundleDigest exposed; only the revision number proves the redraw");
   for (const s of after.scenes) {
     if (s.index === sceneIndex) continue;
@@ -450,13 +493,14 @@ steps.comment = async () => {
   }
   if (after.comments?.some((c) => c.id === comment.id)) warn("the comment is still listed after the redraw");
   ctx.scenes = after.scenes;
-  report.comment = { scene: sceneIndex, revFrom: was.rev, revTo: changed.rev, digestChanged: was.bundleDigest !== changed.bundleDigest, ms: now() - f0 };
+  report.comment = { scene: sceneIndex, revFrom: was.rev, revTo: changed.rev, digestChanged, artifactChanged, ms: now() - f0 };
   report.scenes = after.scenes.map(sceneRow);
   info(`scene ${sceneIndex + 1} redrawn: rev ${was.rev} -> ${changed.rev} in ${now() - f0} ms; other scenes unchanged`);
 };
 
 steps.quote = async () => {
-  need("projectId");
+  if (runStepNames.has("animate")) await need("projectId", "scenes");
+  else await need("projectId");
   const { data: q } = await json("GET", `/v1/projects/${ctx.projectId}/render/quote`);
   report.quote = q;
   if (typeof q.tokens !== "number" || !(q.tokens > 0) || typeof q.seconds !== "number") fail("the quote has no price");
@@ -470,9 +514,10 @@ steps.quote = async () => {
 const near = (a, b) => Math.abs(a - b) < 0.0015;
 
 steps.render = async () => {
-  need("projectId", "quote");
+  await need("projectId", "quote");
   const spendFor = (t) => t.recent.filter((e) => e.kind === "spend" && e.projectId === ctx.projectId);
   const start = await tokens();
+  report.balances.beforeRender = start.remaining;
   const spendsBefore = spendFor(start).length;
   const key = randomUUID();
   const send = () => json("POST", `/v1/projects/${ctx.projectId}/render`, { headers: { "Idempotency-Key": key }, accept: [200, 202] });
@@ -485,30 +530,47 @@ steps.render = async () => {
   const afterPost = await tokens();
   const spent = start.remaining - afterPost.remaining;
   const entries = spendFor(afterPost).length - spendsBefore;
-  report.idempotency = { requests: 4, jobIds: 1, spent, quoted: ctx.quote.tokens, spendEntries: entries };
+  report.idempotency = { requests: 4, jobIds: 1, spent, quoted: ctx.quote.tokens, spendEntries: entries, checkedWhileRunning: false };
   if (!near(spent, ctx.quote.tokens)) fail(`balance dropped by ${spent} for 4 requests with one key; the quote was ${ctx.quote.tokens} (spent ${spent / ctx.quote.tokens} times)`);
   if (entries > 1) fail(`${entries} spend entries were written for one Idempotency-Key`);
   report.balances.afterRender = afterPost.remaining;
   report.jobId = ids[0];
   info(`job ${ids[0]}; four requests, one key: one job, spent ${spent} (quote ${ctx.quote.tokens})`);
 
-  // watchRenderJob's plain-poll fallback: GET /v1/render-jobs/:id until ready or failed.
+  // watchRenderJob's plain-poll fallback: GET /v1/render-jobs/:id until ready or failed. Also send a repeat request with the
+  // same Idempotency-Key once the job is already running (gap b) and assert the same job id and single spend.
   const stages = [];
+  let checkedRunning = false;
   const r0 = now();
   const { value: job } = await until("the render to finish", async () => {
     const { data } = await json("GET", `/v1/render-jobs/${ids[0]}`);
     const tag = `${data.state}${data.stage ? "/" + data.stage : ""}`;
     if (stages[stages.length - 1] !== tag) { stages.push(tag); info(`render ${tag} ${data.progress ?? ""}%${data.attempt > 1 ? " attempt " + data.attempt : ""}`); }
+    if (!checkedRunning && (data.state === "planning" || data.state === "rendering" || data.state === "ready" || data.state === "failed")) {
+      checkedRunning = true;
+      const whileRunning = await send();
+      const runningId = whileRunning.data?.id;
+      const allIds = new Set([...ids, runningId]);
+      const midTokens = await tokens();
+      const midEntries = spendFor(midTokens).length - spendsBefore;
+      const midSpent = start.remaining - midTokens.remaining;
+      report.idempotency = { requests: 5, jobIds: allIds.size, spent: midSpent, quoted: ctx.quote.tokens, spendEntries: midEntries, checkedWhileRunning: true, runningState: data.state };
+      if (runningId !== ids[0]) fail(`repeat render with same Idempotency-Key while job was ${data.state} produced a different job (${runningId} vs ${ids[0]})`);
+      if (midEntries > 1 || (data.state !== "failed" && !near(midSpent, ctx.quote.tokens))) {
+        fail(`repeat render with same Idempotency-Key while job was ${data.state} spent ${midSpent} (expected ${ctx.quote.tokens}, entries ${midEntries})`);
+      }
+    }
     return data.state === "ready" || data.state === "failed" ? data : null;
   }, { timeoutMs: T.render });
-  ctx.job = job;
   report.job = { state: job.state, stages, attempt: job.attempt ?? 1, ms: now() - r0, look: job.revision?.look ?? null };
   const end = await tokens();
   report.balances.end = end.remaining;
   if (job.state === "failed") {
     report.refunded = near(end.remaining, start.remaining);
+    report.refund = { mode: "worker-failure", jobId: job.id, balanceBefore: start.remaining, balanceAfterPost: afterPost.remaining, balanceAfter: end.remaining, balanceChange: end.remaining - start.remaining, restored: report.refunded };
     fail(`render failed: ${job.error?.code ?? "no code"}: ${job.error?.message ?? "no message"} (${report.refunded ? "tokens refunded" : "tokens NOT refunded"})`);
   }
+  ctx.job = job;
   if (!job.output?.url || job.output.format !== "mp4") fail("the finished job has no mp4 output");
   if (!(job.output.durationSeconds > 0)) fail("the finished job reports no duration");
   if (job.revision?.look && job.revision.look !== LOOK) fail(`job look ${job.revision.look} is not ${LOOK}`);
@@ -517,57 +579,91 @@ steps.render = async () => {
 };
 
 steps.download = async () => {
-  need("job");
+  await need("projectId", "job");
   if (!ctx.job.output?.url) fail("no output url on the job");
-  // The output route answers a redirect to the MP4 when ready (render/ GET /v1/renders/:id); a local filesystem backend answers the bytes directly.
+  // The output route answers a 302 redirect to the MP4 when ready (render/ GET /v1/renders/:id). Any other 3xx or a direct 200 is recorded as a warning.
   const path = await withMedia(ctx.job.output.url);
   const first = await request("GET", path, { auth: false, redirect: "manual", timeoutMs: 180_000 });
   let res = first, redirected = false;
   if (first.status >= 300 && first.status < 400) {
+    if (first.status !== 302) warn(`output route answered ${first.status}, expected 302`);
     const location = first.headers.get("location");
     if (!location) fail("output route redirected without a Location");
     redirected = true;
     res = await fetchBinary(location);
+  } else if (first.status === 200) {
+    warn("output route answered 200, expected 302");
+  } else {
+    fail(`output download -> ${first.status}${first.status === 503 ? " (video_unavailable)" : ""}`);
   }
   if (res.status !== 200 && res.status !== 206) fail(`output download -> ${res.status}${first.status === 503 ? " (video_unavailable)" : ""}`);
   const bytes = Buffer.from(await res.arrayBuffer());
+  if (bytes.length < 100 * 1024) fail(`film.mp4 is only ${bytes.length} bytes`);
+  if (bytes.subarray(4, 8).toString("latin1") !== "ftyp") fail("film.mp4 does not start with an MP4 ftyp box");
   mkdirSync(OUT, { recursive: true });
   const file = join(OUT, "film.mp4");
   writeFileSync(file, bytes);
-  if (bytes.length < 100 * 1024) fail(`film.mp4 is only ${bytes.length} bytes`);
-  if (bytes.subarray(4, 8).toString("latin1") !== "ftyp") fail("film.mp4 does not start with an MP4 ftyp box");
-  const facts = { file, bytes: bytes.length, redirected, contentType: res.headers.get("content-type") ?? null, ffprobe: "skipped" };
+  const facts = { file, bytes: bytes.length, redirected, redirectStatus: first.status, contentType: res.headers.get("content-type") ?? null, ffprobe: "skipped" };
   const probe = FFPROBE_OFF ? { status: 127 } : spawnSync("ffprobe", ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height,nb_read_frames,duration", "-show_entries", "format=duration", "-of", "json", file], { encoding: "utf8" });
   if (probe.error || probe.status === 127 || FFPROBE_OFF) { warn("ffprobe not available: width, height, duration and frame count not checked"); }
-  else if (probe.status !== 0) fail(`ffprobe could not read film.mp4: ${(probe.stderr ?? "").trim().slice(0, 160)}`);
+  else if (probe.status !== 0) { rmSync(file, { force: true }); fail(`ffprobe could not read film.mp4: ${(probe.stderr ?? "").trim().slice(0, 160)}`); }
   else {
     const parsed = JSON.parse(probe.stdout);
     const v = parsed.streams?.[0] ?? {};
     const duration = Number(parsed.format?.duration ?? v.duration);
     Object.assign(facts, { ffprobe: "ok", codec: v.codec_name, width: v.width, height: v.height, durationSeconds: duration, frames: Number(v.nb_read_frames) });
     const [aw, ah] = ASPECT.split(":").map(Number);
-    if (!v.width || Math.abs(v.width / v.height - aw / ah) > 0.02) fail(`film is ${v.width}x${v.height}, not ${ASPECT}`);
-    if (!(duration > 0) || !(facts.frames > 0)) fail("film has no frames or no duration");
+    if (!v.width || Math.abs(v.width / v.height - aw / ah) > 0.02) { rmSync(file, { force: true }); fail(`film is ${v.width}x${v.height}, not ${ASPECT}`); }
+    if (!(duration > 0) || !(facts.frames > 0)) { rmSync(file, { force: true }); fail("film has no frames or no duration"); }
     if (Math.abs(duration - ctx.job.output.durationSeconds) > 2) warn(`film lasts ${duration.toFixed(2)} s, the job says ${ctx.job.output.durationSeconds} s`);
   }
   report.mp4 = facts;
   info(`film.mp4 ${bytes.length} bytes${facts.width ? `, ${facts.width}x${facts.height}, ${facts.durationSeconds.toFixed(2)} s, ${facts.frames} frames, ${facts.codec}` : ""}`);
 };
 
-/** SMOKE_STEPS=refund only. There is no public cancel route; the safe check is that a refused render charges nothing. */
+/** SMOKE_STEPS=refund only. Checks the quote against SMOKE_MAX_TOKENS, records balance before/after, and asserts a refused or failed render restores the balance exactly. */
 steps.refund = async () => {
+  if (env.SMOKE_PROJECT && !ctx.projectId) await loadReuseProject();
+  if (ctx.projectId) {
+    const { data: q } = await json("GET", `/v1/projects/${ctx.projectId}/render/quote`);
+    if (typeof q?.tokens === "number" && q.tokens > MAX_TOKENS) throw new Abort(`quote ${q.tokens} tokens is above SMOKE_MAX_TOKENS=${MAX_TOKENS}`);
+  }
+  const { data: p } = await json("POST", "/v1/projects", { body: { name: `smoke refund ${STAMP}`.slice(0, 80), request: { prompt: "Refund check: an empty project that cannot render.", format: "landscape", style: "clean", theme: "neutral", template: "product-launch", audio: { music: false, voiceover: false, voice: "Kore" } } } });
+  const archiveTemp = () => request("PUT", `/v1/projects/${p.id}`, { body: { archived: true } }).then((r) => r.text()).catch(() => undefined);
+  const { data: pq } = await json("GET", `/v1/projects/${p.id}/render/quote`);
+  if (typeof pq?.tokens === "number" && pq.tokens > MAX_TOKENS) {
+    await archiveTemp();
+    throw new Abort(`quote ${pq.tokens} tokens is above SMOKE_MAX_TOKENS=${MAX_TOKENS}`);
+  }
   const start = await tokens();
-  const { data: p } = await json("POST", "/v1/projects", { body: { name: `smoke refund ${STAMP}`.slice(0, 80), request: { prompt: "Refund check: an empty project that cannot render.", format: "landscape", style: "clean", theme: "neutral", template: "product-launch" } } });
   const res = await request("POST", `/v1/projects/${p.id}/render`, { headers: { "Idempotency-Key": randomUUID() } });
+  const text = await res.text().catch(() => "");
+  if (res.status === 202) {
+    let queued = null;
+    try { queued = JSON.parse(text); } catch { /* ignore */ }
+    if (!queued?.id) { await archiveTemp(); fail("refund render answered 202 without a job id"); }
+    const { value: job } = await until("the refund check render to finish", async () => {
+      const { data } = await json("GET", `/v1/render-jobs/${queued.id}`);
+      return data.state === "ready" || data.state === "failed" ? data : null;
+    }, { timeoutMs: T.render });
+    await archiveTemp();
+    const end = await tokens();
+    const restored = near(start.remaining, end.remaining);
+    report.refund = { mode: "worker-failure", jobId: job.id, balanceBefore: start.remaining, balanceAfter: end.remaining, balanceChange: end.remaining - start.remaining, restored };
+    if (job.state !== "failed") fail(`render of an empty project finished as ${job.state}, expected a refusal or failure`);
+    if (!restored) fail(`failed render did not restore the balance: before ${start.remaining}, after ${end.remaining}`);
+    info(`failed render refunded tokens: balance ${start.remaining} -> ${end.remaining}`);
+    return;
+  }
   const refused = res.status >= 400;
-  await res.text().catch(() => "");
   const end = await tokens();
-  await request("PUT", `/v1/projects/${p.id}`, { body: { archived: true } }).then((r) => r.text()).catch(() => undefined);
+  await archiveTemp();
+  const restored = near(start.remaining, end.remaining);
+  report.refund = { mode: "refused-render", refusedStatus: res.status, balanceBefore: start.remaining, balanceAfter: end.remaining, balanceChange: end.remaining - start.remaining, restored };
   if (!refused) fail(`render of an empty project answered ${res.status}, expected a refusal`);
-  if (!near(start.remaining, end.remaining)) fail(`a refused render changed the balance by ${end.remaining - start.remaining}`);
-  report.refund = { refusedStatus: res.status, balanceChange: end.remaining - start.remaining };
+  if (!restored) fail(`a refused render changed the balance by ${end.remaining - start.remaining} (before ${start.remaining}, after ${end.remaining})`);
   report.notChecked.push("refund after a user cancel or a worker failure: no public cancel route exists (user cancel is not refunded; failures are); check app.token_ledger in the DB");
-  info(`refused render (${res.status}) charged nothing`);
+  info(`refused render (${res.status}) charged nothing: balance ${start.remaining} -> ${end.remaining}`);
 };
 
 // ---------- runner ----------
@@ -581,9 +677,8 @@ const finalReport = () => {
   return file;
 };
 
-let failedStep = null, aborted = null;
-for (const name of ALL_STEPS) {
-  if (name === "report") continue;
+const stepOrder = [...ALL_STEPS.filter((s) => s !== "report"), ...(runStepNames.has("refund") ? ["refund"] : [])];
+for (const name of stepOrder) {
   if (!runStepNames.has(name)) { report.steps.push({ name, status: "skipped", ms: 0 }); continue; }
   if (failedStep && !CONTINUE) { report.steps.push({ name, status: "skipped", ms: 0 }); continue; }
   if (aborted) { report.steps.push({ name, status: "skipped", ms: 0 }); continue; }
@@ -596,22 +691,18 @@ for (const name of ALL_STEPS) {
   } catch (error) {
     const ms = now() - t0;
     if (error instanceof Abort) { aborted = { step: name, reason: error.message }; report.steps.push({ name, status: "abort", ms, reason: error.message }); out(`step ${name} ABORT ${error.message}`); continue; }
+    if (error instanceof Skip) { report.steps.push({ name, status: "skipped", ms, reason: redact(error.message) }); out(`step ${name} skipped ${error.message}`); continue; }
     const reason = error instanceof Fail ? error.message : `unexpected ${error?.name ?? "error"}: ${error?.message ?? error}`;
     report.steps.push({ name, status: "fail", ms, reason: redact(reason) });
     out(`step ${name} FAIL ${reason}`);
     failedStep ??= name;
   }
 }
-if (runStepNames.has("refund")) {
-  const t0 = now();
-  try { await steps.refund(); report.steps.push({ name: "refund", status: "ok", ms: now() - t0 }); out(`step refund ok ${now() - t0}`); }
-  catch (error) { const reason = error instanceof Fail ? error.message : String(error?.message ?? error); report.steps.push({ name: "refund", status: "fail", ms: now() - t0, reason: redact(reason) }); out(`step refund FAIL ${reason}`); failedStep ??= "refund"; }
-}
 
 // Archive (never delete) the project unless SMOKE_KEEP is set.
 if (ctx.projectId && !KEEP && !env.SMOKE_PROJECT) {
-  try { const r = await request("PUT", `/v1/projects/${ctx.projectId}`, { body: { archived: true } }); await r.text(); info(r.ok ? "project archived" : `could not archive the project (${r.status})`); }
-  catch { info("could not archive the project"); }
+  try { const r = await request("PUT", `/v1/projects/${ctx.projectId}`, { body: { archived: true } }); await r.text(); if (r.ok) info("project archived"); else warn(`could not archive the project (${r.status})`); }
+  catch { warn("could not archive the project"); }
 }
 
 report.result = failedStep ? "fail" : aborted ? "abort" : "pass";
@@ -625,3 +716,4 @@ catch (error) { out(`step report FAIL ${error?.message}`); failedStep ??= "repor
 if (failedStep) { out(`SMOKE FAIL ${failedStep} ${reportFile}`); process.exit(1); }
 if (aborted) { out(`SMOKE ABORT ${aborted.step} ${reportFile}`); process.exit(3); }
 out(`SMOKE PASS ${reportFile}`);
+process.exit(0);

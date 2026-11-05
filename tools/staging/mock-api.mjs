@@ -64,7 +64,7 @@ export function startMock(options = {}) {
   });
 
   const newScene = (i) => ({ index: i, state: "queued", rev: 0, polls: 0, digest: null, variantId: uuid(), error: null, keyword: `Scene ${i + 1} idea`, clip: false });
-  const digestOf = (scene) => (fails.has("fix-same") ? `d${scene.index}` : `d${scene.index}-r${scene.rev}-${scene.salt ?? 0}`);
+  const digestOf = (scene) => (fails.has("fix-same") || fails.has("fix-stub-same") ? `d${scene.index}` : `d${scene.index}-r${scene.rev}-${scene.salt ?? 0}`);
   // plates/service.ts shown(): in clip mode `bundled` is shown as `rendering`.
   const shown = (s) => (s.state === "bundled" && state.mode === "clip" ? "rendering" : s.state);
   const advance = (p) => {
@@ -98,8 +98,10 @@ export function startMock(options = {}) {
     const order = [["queued", "directing", 5], ["planning", "directing", 30], ["rendering", "waiting", 45], ["rendering", "frames", 70], ["rendering", "encoding", 95]];
     if (job.state === "ready" || job.state === "failed") return;
     if (job.step < order.length) { const [st, stage, pr] = order[job.step]; job.state = st; job.stage = stage; job.progress = pr; job.step += 1; return; }
-    if (fails.has("render")) { job.state = "failed"; job.stage = "failed"; state.balance += job.cost; ledger(job.cost, "refund", job.projectId); }
-    else { job.state = "ready"; job.stage = "done"; job.progress = 100; }
+    if (fails.has("render")) {
+      job.state = "failed"; job.stage = "failed";
+      if (!fails.has("no-refund")) { state.balance += job.cost; ledger(job.cost, "refund", job.projectId); }
+    } else { job.state = "ready"; job.stage = "done"; job.progress = 100; }
   };
 
   // Object-store links point at a different origin ("localhost" vs the API's 127.0.0.1), as R2 presigned links do, so a script that
@@ -109,7 +111,8 @@ export function startMock(options = {}) {
     const url = new URL(req.url, "http://localhost");
     const path = url.pathname;
     const method = req.method;
-    state.requests.push({ method, path, auth: req.headers.authorization ? "yes" : "no", idem: req.headers["idempotency-key"] ?? null });
+    const reqRecord = { method, path, auth: req.headers.authorization ? "yes" : "no", idem: req.headers["idempotency-key"] ?? null, body: null };
+    state.requests.push(reqRecord);
     if (path === "/__control" && method === "POST") { const b = await readBody(req); for (const f of [].concat(b.fail ?? [])) fails.add(f); if (b.clear) fails.clear(); if (b.mode) state.mode = b.mode; return send(res, 200, { fails: [...fails] }); }
     if (path === "/__state") return send(res, 200, { balance: state.balance, spendCount: state.spendCount, jobs: state.jobs.size, requests: state.requests.length });
     // server.ts:64
@@ -119,11 +122,13 @@ export function startMock(options = {}) {
       if (req.headers.authorization) return err(res, 400, "bad_signature", "An object-store link was sent an Authorization header.");
       if (path.startsWith("/obj/bundle/")) {
         if (fails.has("bundle-not-html")) { res.writeHead(200, { "Content-Type": "application/json" }); return res.end("{\"not\":\"html\"}"); }
-        res.writeHead(200, { "Content-Type": "text/html" }); return res.end(BUNDLE_HTML);
+        const ctype = fails.has("bundle-ctype") ? "application/octet-stream" : "text/html";
+        res.writeHead(200, { "Content-Type": ctype }); return res.end(BUNDLE_HTML);
       }
       if (path.startsWith("/obj/clip/")) { res.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": clip.length }); return res.end(clip); }
       if (path === "/obj/film.mp4") {
         if (fails.has("not-mp4")) { res.writeHead(200, { "Content-Type": "video/mp4" }); return res.end(Buffer.alloc(200_000, 0x41)); }
+        if (fails.has("small-mp4")) { const small = syntheticMp4(4_000); res.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": small.length }); return res.end(small); }
         res.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": film.length }); return res.end(film);
       }
       return notFound(res);
@@ -146,6 +151,7 @@ export function startMock(options = {}) {
     // POST /v1/projects (server.ts:192, projects/store.ts createProject: 201 + a new project)
     if (path === "/v1/projects" && method === "POST") {
       const b = await readBody(req);
+      reqRecord.body = b;
       if (typeof b.request?.prompt !== "string" || b.request.prompt.length < 12) return err(res, 400, "invalid_project", "Choose a template, format, and motion style before creating the project.");
       const now = new Date().toISOString();
       const project = { id: uuid(), ownerId: "00000000-0000-4000-8000-000000000000", name: b.name || "Untitled video", state: "Ready to create", createdAt: now, updatedAt: now, request: b.request, screenshots: [], comments: [] };
@@ -159,7 +165,7 @@ export function startMock(options = {}) {
       const sub = m[2] ?? "";
       const full = () => ({ ...entry.project, ...(entry.brief ? { brief: entry.brief } : {}), ...(entry.beatPlan ? { beatPlan: entry.beatPlan } : {}), ...(entry.planning ? { planning: entry.planning } : {}) });
 
-      if (sub === "" && method === "PUT") { const b = await readBody(req); if (b.request) entry.project.request = b.request; if (typeof b.archived === "boolean") entry.project.archived = b.archived; return send(res, 200, full()); }
+      if (sub === "" && method === "PUT") { const b = await readBody(req); reqRecord.body = b; if (b.request) entry.project.request = b.request; if (typeof b.archived === "boolean") entry.project.archived = b.archived; return send(res, 200, full()); }
       // GET /v1/projects/:id (server.ts:202): the project; planning is cleared when the plan is applied (projects/store.ts updateProjectPlan)
       if (sub === "" && method === "GET") {
         if (entry.planning?.status === "running") { entry.planPolls += 1; if (entry.planPolls >= 2) { if (fails.has("plan")) entry.planning = { ...entry.planning, status: "failed", error: "The script director failed." }; else { delete entry.planning; entry.beatPlan = plan({ brief: entry.brief }); } } }
@@ -231,7 +237,8 @@ export function startMock(options = {}) {
       if (sub === "/plates/fix" && method === "POST") {
         if (!entry.plates.comments.length) return err(res, 409, "plates", "Add a comment first.");
         const targets = [...new Set(entry.plates.comments.map((c) => c.scene))];
-        if (targets.some((i) => ["queued", "authoring", "bundled", "rendering"].includes(entry.plates.scenes[i].state))) return err(res, 409, "plates", "Wait for the scenes that are being drawn.");
+        const busyStates = state.mode === "live" ? ["queued", "authoring", "rendering"] : ["queued", "authoring", "bundled", "rendering"];
+        if (targets.some((i) => busyStates.includes(entry.plates.scenes[i].state))) return err(res, 409, "plates", "Wait for the scenes that are being drawn.");
         const bump = (i) => { const s = entry.plates.scenes[i]; s.rev += 1; s.state = "queued"; s.clip = false; if (!fails.has("fix-same")) s.salt = (s.salt ?? 0) + 1; };
         targets.forEach(bump);
         if (fails.has("fix-spill") && entry.plates.scenes[2]) bump(2);
@@ -244,7 +251,8 @@ export function startMock(options = {}) {
         const s = entry.plates.scenes.find((x) => x.variantId === b2[1]);
         if (!s || fails.has("no-bundle") || !["bundled", "checked", "rendering", "drawn"].includes(s.state)) return notFound(res);
         res.setHeader("Cache-Control", "no-store");
-        return send(res, 200, { url: `${objectOrigin()}/obj/bundle/${s.variantId}`, expiresAt: new Date(Date.now() + 900_000).toISOString(), bundleDigest: s.digest, manifest: {}, params: {} });
+        const bundlePath = fails.has("fix-same") ? `/obj/bundle/${s.variantId}` : `/obj/bundle/${s.variantId}/g${s.rev + 1}/bundle.html`;
+        return send(res, 200, { url: `${objectOrigin()}${bundlePath}`, expiresAt: new Date(Date.now() + 900_000).toISOString(), bundleDigest: s.digest, manifest: {}, params: {} });
       }
       // plates/routes.ts clip-request: 202 { state: "rendering" } for a bundled/checked scene
       b2 = /^\/plates\/([0-9a-f-]{36})\/clip-request$/.exec(sub);
@@ -262,25 +270,33 @@ export function startMock(options = {}) {
         if (!s || !s.clip) return notFound(res);
         res.writeHead(302, { Location: `${objectOrigin()}/obj/clip/${s.variantId}?sig=1`, "Cache-Control": "no-store" }); return res.end();
       }
-      // render/quote.ts: the quote
+      // render/quote.ts: quoteFrom(planReadiness(project), ...)
       if (sub === "/render/quote" && method === "GET") {
+        if (!entry.beatPlan) {
+          const tokens = fails.has("quote-high") ? QUOTE_TOKENS() : null;
+          return send(res, 200, { seconds: null, tokens, parts: { start: 2, perSecond: 0.5, seconds: null }, ready: false, material: { required: false, owedTokens: 0 }, balance: state.balance, enough: false });
+        }
         const seconds = entry.plates.scenes.length * SECONDS_PER_SCENE;
         return send(res, 200, { seconds, tokens: QUOTE_TOKENS(), parts: { start: 2, perSecond: 0.5, seconds }, ready: true, material: { required: false, owedTokens: 0 }, balance: state.balance, enough: state.balance >= QUOTE_TOKENS() });
       }
       // server.ts:261 render + render/quote.ts idempotency hook: the same (project, key) returns 202 with the existing job before any spend
       if (sub === "/render" && method === "POST") {
-        // server.ts: a project without a storyboard takes the legacy path and is refused before any spend
-        if (!entry.beatPlan) return err(res, 400, "script_unconfirmed", "Check and confirm the script before rendering.");
+        // server.ts: a project without a storyboard takes the legacy path and is refused before any spend (unless testing worker-failure refund on an empty project)
+        if (!entry.beatPlan && !fails.has("render")) return err(res, 400, "script_unconfirmed", "Check and confirm the script before rendering.");
         const key = req.headers["idempotency-key"];
-        const known = key && !fails.has("double-spend") ? state.idem.get(`${m[1]}:${key}`) : null;
-        if (known) return send(res, 202, jobView(state.jobs.get(known)));
+        const existingId = key ? state.idem.get(`${m[1]}:${key}`) : null;
+        const existingJob = existingId ? state.jobs.get(existingId) : null;
+        const ignoreIdem = fails.has("double-spend") || (fails.has("double-spend-running") && existingJob && existingJob.step > 0);
+        if (existingJob && !ignoreIdem) return send(res, 202, jobView(existingJob));
         await new Promise((r) => setTimeout(r, 15)); // a race window: concurrent requests with one key must still make one job
-        const again = key && !fails.has("double-spend") ? state.idem.get(`${m[1]}:${key}`) : null;
-        if (again) return send(res, 202, jobView(state.jobs.get(again)));
+        const againId = key ? state.idem.get(`${m[1]}:${key}`) : null;
+        const againJob = againId ? state.jobs.get(againId) : null;
+        const ignoreAgain = fails.has("double-spend") || (fails.has("double-spend-running") && againJob && againJob.step > 0);
+        if (againJob && !ignoreAgain) return send(res, 202, jobView(againJob));
         const cost = QUOTE_TOKENS();
         if (state.balance < cost) return err(res, 402, "insufficient_tokens", "Not enough tokens.");
         state.balance -= cost; state.spendCount += 1; ledger(-cost, "spend", m[1]);
-        const job = { id: uuid(), projectId: m[1], state: "queued", stage: "queued", progress: 0, step: 0, createdAt: new Date().toISOString(), cost, look: entry.brief.look };
+        const job = { id: uuid(), projectId: m[1], state: "queued", stage: "queued", progress: 0, step: 0, createdAt: new Date().toISOString(), cost, look: entry.brief?.look ?? "illus-blueprint" };
         state.jobs.set(job.id, job);
         if (key) state.idem.set(`${m[1]}:${key}`, job.id);
         return send(res, 202, jobView(job));
@@ -290,11 +306,12 @@ export function startMock(options = {}) {
     // server.ts:429 render job view, advanced one step per read
     let r = /^\/v1\/render-jobs\/([0-9a-f-]{36})$/.exec(path);
     if (r && method === "GET") { const job = state.jobs.get(r[1]); if (!job) return notFound(res); advanceJob(job); return send(res, 200, jobView(job), { "Cache-Control": "no-store" }); }
-    // server.ts:475 output: a 302 to the MP4 when ready (R2 presigned link)
+    // server.ts:475 output: a 302 to the MP4 when ready (R2 presigned link), or 200 directly whenstorageDriver !== "r2"
     r = /^\/v1\/renders\/([0-9a-f-]{36})$/.exec(path);
     if (r && method === "GET") {
       const job = state.jobs.get(r[1]);
       if (!job || job.state !== "ready") return err(res, 503, "video_unavailable", "The worker did not leave an output file.");
+      if (fails.has("download-200")) { res.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": film.length, "Cache-Control": "no-store" }); return res.end(film); }
       res.writeHead(302, { Location: `${objectOrigin()}/obj/film.mp4?sig=1`, "Cache-Control": "no-store" }); return res.end();
     }
     return notFound(res);

@@ -1,128 +1,103 @@
-# Plates smoke script: report
+# Plates Smoke v2 Report: Real Local Stack & Review Hardening
 
-Worktree `VideoSaaS-smoke`, branch `codex/staging-smoke`. Nothing committed. No Docker, no database, no network except the mock on `127.0.0.1`/`localhost`.
+Worktree: `/Users/osamaehsaan/Code/Market_apps/VideoSaaS-smoke` (branch `codex/staging-smoke`).
 
-## 1. What was built
+## 1. What Changed (Files & Line Counts)
 
-| File | Lines | Purpose |
+| File | Lines | Changes in v2 |
 | --- | --- | --- |
-| `tools/staging/plates-smoke.mjs` | 627 | The smoke script (Node 20+, built-in `fetch`, no dependencies). |
-| `tools/staging/mock-api.mjs` | 314 | In-process mock of every route the script calls, with failure switches. Also runnable alone (`MOCK_PORT`, `MOCK_FAIL`, `MOCK_MODE`, `MOCK_TOKEN`). |
-| `tools/staging/plates-smoke.test.mjs` | 216 | `node:test` suite: starts the mock on a random free port and runs the script as a child process. |
-| `tools/staging/fixtures/film.mp4`, `clip.mp4` | 452 kB, 85 kB | Real H.264 files made with ffmpeg (1920x1080, 72 frames; 640x360). The mock falls back to a synthetic non-decodable MP4 if they are missing (then run with `SMOKE_FFPROBE=off`). |
+| `tools/staging/plates-smoke.mjs` | 719 | Closed all review gaps (`a`–`h` and `2.f.1`–`2.f.8`), added live-stack comment artifact verification when `llm-stub` returns identical code across revisions, added `platePollMs` (1500 ms live / 3000 ms clip), removed unused `OPEN`, added `Skip` handling for `--continue` and missing `SMOKE_PROJECT`, hardened `render` idempotency while job is running, hardened `download` (asserts 302, writes `film.mp4` only after `>100 kB` and `ftyp` checks pass, deletes on `ffprobe` failure), and added `SMOKE_MAX_TOKENS` + stop-at-first-failure + worker-failure/refused-render balance restoration checks to `refund`. |
+| `tools/staging/mock-api.mjs` | 331 | Matched real backend shapes (`plates/service.ts` `fixPlates` live-mode `busyStates`, `plates/routes.ts` generation bundle URL path `/g<rev+1>/bundle.html`, `render/quote.ts` unready quote shape) and added failure switches (`double-spend-running`, `small-mp4`, `bundle-ctype`, `download-200`, `no-refund`, `fix-stub-same`) plus request-body recording for `POST /v1/projects` and `PUT /v1/projects/:id`. |
+| `tools/staging/plates-smoke.test.mjs` | 414 | Expanded mock test suite from 25 to 33 tests (100% green), covering every review gap (`a` through `h` and `2.f.1`–`2.f.8`). |
+| `tools/staging/README.md` | 51 | New concise runbook documenting exit codes (`0`, `1`, `2`, `3`), final lines (`SMOKE PASS`, `SMOKE FAIL`, `SMOKE ABORT`), token & `?t=` media-token hygiene, `report.warnings` conditions, and exact commands for mock, local `plates-e2e`, and staging. |
+| `tools/staging/.gitignore` | 1 | Ignores `out/` (`tools/staging/out/`) so run artifacts and logs never pollute `git status`. |
+| `docs/staging/plates-smoke-v2-report.md` | — | This v2 report (also written to `docs/staging/plates-smoke-report.md`). |
 
-Configuration (environment only): `SMOKE_API` (required; a trailing `/v1` or `/` is stripped, so `/v1` is never doubled), `SMOKE_TOKEN`, `SMOKE_LOOK` (default `illus-blueprint`), `SMOKE_BEATS` (3), `SMOKE_ASPECT` (16:9), `SMOKE_OUT` (default `tools/staging/out/<timestamp>`), `SMOKE_STEPS`, `SMOKE_MAX_TOKENS` (20), `SMOKE_KEEP`. Extras I added: `SMOKE_AUDIO` (`voiceover` default, `music|both|none`), `SMOKE_DURATION`, `SMOKE_PROJECT` (reuse an existing project for a subset of steps), `SMOKE_POLL_MS` (3000), `SMOKE_*_TIMEOUT_MS` (PLAN 5 min, STREAM 5 min, ANIMATE 15 min, CLIP 10 min, RENDER 20 min), `SMOKE_FFPROBE=off`, flag `--continue`.
+## 2. Review Gaps Closed (`a` to `h` and `2.f`)
 
-Output: one line per step `step <name> ok <ms>` / `step <name> FAIL <reason>`; the last line is `SMOKE PASS <report.json>` or `SMOKE FAIL <step> <report.json>` (exit 0 / 1). Third outcome I added: a quote above `SMOKE_MAX_TOKENS` prints `step quote ABORT ...` and ends `SMOKE ABORT quote <report.json>` (exit 3, nothing spent). `out/` is not git-ignored (I may only write under `tools/staging/`); do not `git add` it.
+- **Gap a (Final lines & exit codes):** Confirmed and tested `SMOKE PASS <path>` -> `0`, `SMOKE FAIL <step> <path>` -> `1`, `SMOKE ABORT <step> <path>` -> `3` (and CLI config errors -> `2`). Documented in `tools/staging/README.md`.
+- **Gap b (`Idempotency-Key` double render, including while running):** `steps.render` sends 4 requests upfront (sequential + concurrent) with the same `Idempotency-Key`, then sends a 5th request with the same key once polling observes the job in `planning`/`rendering` (`checkedWhileRunning: true`), asserting a single job ID and a single token spend (`spent === quote.tokens`, `spendEntries === 1`).
+- **Gap c & 2.f.3 (Download 302, cross-origin auth hygiene, `ftyp` & size before write, missing `ffprobe`):** `steps.download` asserts a `302` redirect (recording any other `3xx` or direct `200` in `report.warnings`), strips `Authorization` when following presigned object-store URLs (`fetchBinary` uses `auth: false` and `request()` restricts `Authorization` to `sameOrigin`), verifies `bytes.length >= 100 * 1024` and `ftyp` at bytes `4..8` **before** writing `film.mp4` (and deletes `film.mp4` if `ffprobe` validation fails), and records a warning while continuing when `ffprobe` is unavailable (`SMOKE_FFPROBE=off` or exit `127`).
+- **Gap d (Token hygiene):** Verified in mock tests and grepped across all saved local-stack logs and `report.json` files (`tools/staging/out/run1*`, `run2*`, `run0*`). Neither `SMOKE_TOKEN` (`sentinel-token-DO-NOT-LEAK-7f3a9c1e5b`) nor the `?t=` media token appears in stdout, stderr, `report.json`, or any non-media URL.
+- **Gap e (`SMOKE_STEPS` subset & `--continue`):** Running a subset without `create` and without `SMOKE_PROJECT` fails clearly (`SMOKE_PROJECT is required when SMOKE_STEPS omits create`). When `--continue` is passed after an earlier step fails, later steps whose prerequisites (`need(...)`) are missing throw `Skip` and are recorded as `"status": "skipped"` in `report.steps`, never `"ok"`.
+- **Gap f (`2.f.1`–`2.f.8`):**
+  1. `steps.comment` reuses `READY(first, st.mode)` so in live mode (`PLATE_LIVE_PREVIEW=on`), where scenes stop at `bundled`, it proceeds immediately instead of timing out after 10 minutes.
+  2. `steps.refund` runs inside the main step loop (respecting stop-at-first-failure) and checks `GET /render/quote` against `SMOKE_MAX_TOKENS` before triggering a render.
+  3. `steps.download` warns on non-`302` (`200` or other `3xx`) and only leaves `film.mp4` on disk when all checks pass.
+  4. `steps["preview-assets"]` records non-HTML bundle `Content-Type` in `report.warnings`.
+  5. `?t=<mediaToken>` is used for clip and output routes (matching `frontend/lib/api.ts` `withMediaToken`), redacted in all logs/reports, and documented in `tools/staging/README.md`.
+  6. Unused `OPEN` set removed; `--help` now lists `SMOKE_DURATION`, `SMOKE_AUDIO`, `SMOKE_POLL_MS`, and all `SMOKE_*_TIMEOUT_MS` variables.
+  7. `steps.script` beat-count mismatch is recorded in `report.warnings` and documented in `tools/staging/README.md`.
+  8. Checked against `frontend/components/studio.tsx` (`requestFromBrief` lines 79–90, `ensureProject` lines 698–712, `writeScript` lines 717–722) and `frontend/components/plate-preview.tsx` (poll interval line 244): fixed `steps.create` project `name` to use the first sentence of the prompt (`(TOPIC.trim().split(/[.!?\n]/)[0]?.slice(0, 80) || "Untitled video").trim()`) and initial `request.audio` to `{ music: false, voiceover: false, voice: "Kore" }` (matching `defaultBrief` at project creation before `writeScript`), and updated plate polling (`platePollMs`) to poll every `1500 ms` in live mode and `3000 ms` in clip mode.
+- **Gap g (Warnings in `report.json`):** Every warning condition emitted via `warn(...)` is pushed into `report.warnings`.
+- **Gap h (`refund` balance restoration):** `steps.refund` records `balanceBefore`, `balanceAfter`, `balanceChange`, and `restored`, asserting `near(start.remaining, end.remaining)` both when the backend refuses an unready project (`400`) and when a queued render fails on the worker (`202` -> `failed`).
 
-The bearer token is sent only to the API's own origin (never to the presigned object-store link), never printed (every output line goes through `redact()`, which also masks `?t=` and `Bearer ...`), never written to the report, never put in a URL. The media token (`GET /v1/media-token`, a different short-lived token the browser puts in `?t=`) is used for the clip and the final MP4 exactly as the UI does, and is masked in output.
+## 3. Real Local Stack Runs (`plates-e2e` with `compose.live.yaml`)
 
-## 2. Real-frontend call sequence that was copied
+Stack mode used for final passes: **live mode** (`compose.yaml` + `tools/phase2/e2e/compose.live.yaml`, `PLATE_LIVE_PREVIEW=on`), started and torn down with the targeted commands while holding both `/Users/osamaehsaan/Code/Market_apps/.lock-plates-e2e` and `/Users/osamaehsaan/Code/Market_apps/.lock-timing`.
 
-Plates project = brief `look` starting `illus-` (`ScriptBrief.look`, `packages/contracts/src/beat-plan.ts` `parseScriptBrief`; `isPlateLook` in `backend/src/plates/inputs.ts` also needs `PLATE_PIPELINE=worker` and a style in `packages/plate-engine/styles.json`). The UI decides "plate" with `getPlates().available` (`studio.tsx` `plateKnown`/`isPlateStyle`).
+### Per-Run Results & Step Timings
 
-| # | Smoke step | Function (`frontend/lib/api.ts`) | Method + path | Called by |
-| --- | --- | --- | --- | --- |
-| 1 | health | `getMyTokens` | `GET /healthz`, `GET /v1/me/tokens` | `beat-storyboard.tsx`, account menu |
-| 2 | create | `createProject`, `updateProject` | `POST /v1/projects` (201), `PUT /v1/projects/:id` | `studio.tsx` `ensureProject`, `writeScript` |
-| 3 | script | `streamScript` | `POST /v1/projects/:id/script/stream` (SSE `{t}`... `{done,beats,notes,flags,ms}` or `{error}`) | `studio.tsx` `writeScript` |
-| 4a | plan | `planProject` + poll `getProject` | `POST /v1/projects/:id/plan` (202 `{project}`), `GET /v1/projects/:id` until `planning` clears and `beatPlan` exists (or `planning.status "failed"`) | `studio.tsx` `buildStoryboard`, `watching` effect |
-| 4b | plan | `streamScriptVoice` | `POST /v1/projects/:id/script/voice` (SSE `start`, `take`, `take-error`, `music`, `music-error`, `done`) | `studio.tsx` `recordVoice` / `confirmScript` |
-| 4c | plan | `getComposition` | `GET /v1/projects/:id/composition` (`beatTimes`, `durationSeconds`, `readiness`) | `beat-storyboard.tsx` |
-| 5a | animate | `streamScriptAnimate` | `POST /v1/projects/:id/script/animate` (SSE `stage`, `frame`, `voice`, `music`, `motion`, `done` or `error`) | `studio.tsx` `startBrowserAnimation` (the Render click on the script page) |
-| 5b | animate | `ensureMediaToken`, `getPlates`, `drawPlates` | `GET /v1/media-token`, `GET /v1/projects/:id/plates`, `POST .../plates/draw` (202) only if not running and a scene is not done, then poll `GET .../plates` (3 s; 1.5 s in live) | `plate-preview.tsx` mount effect |
-| 6 | preview-assets | (live client, `frontend/lib/live/api`) | `GET .../plates/:variantId/bundle`, then GET of the returned `url`; `POST .../plates/:variantId/clip-request` (if no clip yet); `GET .../plates/:index/clip?aspect=&t=<media token>` (302) then the link | `PlatePlayer` / `plateClipUrl` |
-| 7 | comment | `addPlateComment`, `fixPlates`, `getPlates` | `POST .../plates/comments` (201), `POST .../plates/fix` (202), poll | `plate-preview.tsx` |
-| 8 | quote | `getRenderQuote` | `GET /v1/projects/:id/render/quote` | `studio.tsx` effect (plateTokens) |
-| 9 | render | `renderProject` (+ the header the UI does not send yet) | `POST /v1/projects/:id/render` with `Idempotency-Key`, then `GET /v1/render-jobs/:id` (`getRenderJob`, the poll fallback of `watchRenderJob`) | `studio.tsx` `submit` |
-| 10 | download | `outputUrl`, `plateExportUrl` style | `GET /v1/renders/:id?t=` (302 to the MP4, `server.ts`) | `PlateFinal` / `FinalView` |
-
-Skipped from the UI sequence on purpose: `script/frames` (`streamFrames`, background reference sketches; `script/animate` draws any missing ones), `savePlateSubtitles`, `requestPlateExport` (free companion export; not part of the paid render), `approveProject`.
-
-## 3. Mock shapes and sources
-
-Each route carries a source comment in `mock-api.mjs`.
-
-| Route | Shape faked | Source |
+| Step / Metric | Run 1 (`out/run1`) | Run 2 + Refund (`out/run2`) |
 | --- | --- | --- |
-| `GET /healthz` | `{status:"ok",service:"backend"}` | `backend/src/server.ts` line 64 |
-| `GET /v1/me/tokens` | `{remaining, plan, free{granted,used,remaining}, packs{remaining}, recent[{id,amount,kind,reason,pool,projectId,createdAt}]}` | `tokens/store.ts` `tokenSummary`, `frontend/lib/api.ts` `getMyTokens` |
-| `GET /v1/media-token` | `{token, expiresAt}` | `media-links.ts` `mediaToken` |
-| `POST /v1/projects` | 201 project `{id,ownerId,name,state:"Ready to create",createdAt,updatedAt,request,screenshots:[],comments:[]}` | `projects/store.ts` `createProject` |
-| `GET /v1/projects/:id` | project plus `brief`, `beatPlan`, `planning` (cleared when the plan lands) | `server.ts` line 202, `store.ts` `updateProjectPlan` |
-| `POST script/stream` | SSE `data: {"t":..}` blocks, last `{done:true,beats[{keyword,visual,onScreen,line}],notes,flags,ms}` or `{error}` | `plan/routes.ts` line 255 |
-| `POST plan` | 202 `{project}` with `planning:{status:"running",startedAt}` | `plan/routes.ts` line 725 |
-| `POST script/voice` | SSE `start`, `take{index,file,seconds,progress}`, `music`, `done{progress,failed,project}`; 503 `audio_unavailable` without a Gemini key | `plan/routes.ts` line 363 |
-| `GET composition` | `{engine,canvas,durationSeconds,beatTimes,audio,readiness,...}`; 409 `no_plan` | `plan/routes.ts` line 937 |
-| `POST script/animate` | SSE `stage`, `frame`, `motion`, `done{progress,project}`, `{type:"error"}` | `plan/routes.ts` line 521 |
-| `GET plates` | `{available,look,mode,scenes[{index,keyword,state,seconds,frames,sig,rev,variantId,bundleDigest,live,error,variants}],comments,subtitles,running,drawnAspects,drawingAspects}`; states queued, authoring, bundled, rendering, drawn, failed; in clip mode `bundled` is shown as `rendering` | `plates/service.ts` `plateStatus`, `shown`, `viewOf` |
-| `POST plates/draw` | 202 status; 409 without a script | `plates/routes.ts`, `service.ts` `startPlates` |
-| `POST plates/comments` | 201 `{id(12 hex),at,scene,sceneAt,body}` | `service.ts` `addPlateComment` |
-| `POST plates/fix` | 202 status; 409 "Wait for the scenes that are being drawn." while a target scene is open; `rev` rises, state back to queued | `service.ts` `fixPlates`, `store.ts` `reviseScene` |
-| `GET plates/:variantId/bundle` | `{url,expiresAt,bundleDigest,manifest,params}`; 404 unless state is bundled/checked/rendering/drawn; link on a different origin | `plates/routes.ts` bundle route |
-| `POST plates/:variantId/clip-request` | 202 `{state:"rendering"}`; 409 `invalid_state` | `plates/routes.ts`, `store.ts` `requestVariantClip` |
-| `GET plates/:index/clip` | 302 to an object-store link; 404 until a clip exists; accepts `?t=` | `plates/routes.ts`, `auth.ts` `mediaGets` |
-| `GET render/quote` | `{seconds,tokens,parts,ready,material,balance,enough}` | `render/quote.ts` `quoteFrom` |
-| `POST render` | 202 `RenderJob`; same `(project, Idempotency-Key)` returns 202 with the existing job before any spend; 400 `script_unconfirmed` without a storyboard | `server.ts` line 261, `render/quote.ts` hook |
-| `GET render-jobs/:id` | `RenderJob` advancing queued, planning/directing, rendering/waiting, frames, encoding, ready (or failed with refund) | `server.ts` line 429, `contracts` `RenderJob` |
-| `GET renders/:id` | 302 to the MP4 when ready; 503 `video_unavailable` otherwise | `server.ts` line 475 |
-| `/obj/*` | stand-in for presigned R2 links: no auth allowed (400 if an `Authorization` header arrives) | n/a |
+| Seeded `SMOKE_PROJECT` | `1a541572-0079-443c-bf97-76f10d301c8e` | `bb89fc56-b345-40d3-84f0-64a193f9eb2f` |
+| Render `jobId` | `ed385be2-14a3-4f75-941b-ce6aa2625f53` | `6083fc5f-4c3b-4eba-b9fc-ab8b961a6a7f` |
+| `health` | `ok` (56 ms) | `ok` (129 ms) |
+| `animate` | `ok` (1,962 ms; 3 scenes `bundled` in 1,519 ms) | `ok` (6,210 ms; 3 scenes `bundled` in 5,065 ms) |
+| `preview-assets` | `ok` (65,788 ms; 3 HTML bundles ~42 kB each, scene 1 clip drawn & downloaded: 1,040,495 bytes) | `ok` (64,178 ms; 3 HTML bundles ~42 kB each, scene 1 clip drawn & downloaded: 1,040,495 bytes) |
+| `comment` | `ok` (1,693 ms; scene 1 `rev` `0 -> 1`, new bundle `/g2/bundle.html`, scenes 2–3 unchanged) | `ok` (1,765 ms; scene 1 `rev` `0 -> 1`, new bundle `/g2/bundle.html`, scenes 2–3 unchanged) |
+| `quote` | `ok` (65 ms; 14.1 tokens for 27 s) | `ok` (17 ms; 14.1 tokens for 27 s) |
+| `render` | `ok` (91,804 ms; 5 requests w/ 1 `Idempotency-Key` incl. while `planning` -> 1 job, spent 14.1 once) | `ok` (39,360 ms; 5 requests w/ 1 `Idempotency-Key` incl. while `planning` -> 1 job, spent 14.1 once) |
+| `download` | `ok` (1,541 ms; 302 redirect -> `film.mp4` 1,760,386 bytes, `ftyp` verified, `ffprobe`: H.264 1920x1080, 14.00 s, 420 frames) | `ok` (891 ms; 302 redirect -> `film.mp4` 1,760,386 bytes, `ftyp` verified, `ffprobe`: H.264 1920x1080, 14.00 s, 420 frames) |
+| `refund` | `skipped` (not requested) | `ok` (37 ms; refused 400 on empty project, balance `2954.7 -> 2954.7`, `restored: true`) |
+| `report` | `ok` (1 ms) | `ok` (2 ms) |
+| Balances (`start` -> `end`) | `2982.9` -> `2968.8` (delta `-14.1`) | `2968.8` -> `2954.7` (delta `-14.1`, refund `2954.7 -> 2954.7`) |
+| Final Output | `SMOKE PASS .../tools/staging/out/run1/report.json` | `SMOKE PASS .../tools/staging/out/run2/report.json` |
 
-Failure switches (`startMock({fail})` or `POST /__control`): `auth`, `script`, `plan`, `voice`, `animate`, `scene-failed`, `no-bundle`, `bundle-not-html`, `fix-same`, `fix-spill`, `render`, `double-spend`, `not-mp4`, `quote-high`; option `mode: "live"`. The task asked for `?fail=` query switches; I used constructor options and a `/__control` endpoint instead because the smoke script's requests are fixed.
+### Every Failure Encountered & Classification
 
-## 4. Test results
+1. **Initial `comment` step failure on local stack (`scene 1: revision 0 -> 1 but bundleDigest did not change`):**
+   - **Classification:** **Script/stub interaction bug (fixed in script & mock).**
+   - **Evidence:** On the local `plates-e2e` stack, `scripts/plates-e2e/llm-stub.mjs` returns the static `blueprint-0.ts` fixture for every authoring call, including comment revisions (`revise: true`). Because `bundleDigest` is content-addressed (`sha256` of bundle manifest/code), identical stub code produces the same `bundleDigest` even though the worker authored a new revision (`rev: 0 -> 1`) and uploaded a new generation bundle (`.../16x9/0/g1/bundle.html` -> `.../16x9/0/g2/bundle.html`).
+   - **Fix:** `steps.comment` now compares both `bundleDigest` and the bundle artifact path from `GET /v1/projects/:id/plates/:variantId/bundle`. If neither changes, the step fails (`fix-same`); if a new generation bundle artifact is written with the same `bundleDigest` (stub returning identical code), it records `artifactChanged: true` and logs a warning in `report.warnings`.
+2. **Concurrent run balance collision (`tools/staging/out/run0-concurrent`):**
+   - **Classification:** **Test-runner overlap (not an app bug).**
+   - **Evidence:** When an earlier background lock-wait process woke up while `run1` was in flight, two smoke instances ran concurrently against the same `LOCAL_USER_ID` (`00000000-0000-4000-8000-000000000000`), so the overlapping run saw `start.remaining - end.remaining = 28.2` (`2 * 14.1`) instead of `14.1`. Running sequentially (`run1` followed by `run2`) passed with exact `14.1` single-spend deltas on both runs.
+3. **Real app bugs found:** **None.** Every tested route on `plate-api` and `plate-worker` (`healthz`, `/v1/me/tokens`, `/v1/media-token`, `/v1/projects/:id`, `script/animate`, `plates`, `plates/draw`, `plates/:variantId/bundle`, `plates/:variantId/clip-request`, `plates/:index/clip`, `plates/comments`, `plates/fix`, `render/quote`, idempotent `POST /render`, `/v1/render-jobs/:id`, `/v1/renders/:id`) succeeded and produced valid H.264 MP4 clips and final films.
+   - *Note on live mode without a browser:* In `PLATE_LIVE_PREVIEW=on` without a browser calling `POST /plates/:variantId/check`, scenes remain in `state: "bundled"`. After `POST /plates/fix`, `backend/src/plates/service.ts` (`answered()` at line 69) only clears a comment once `isPlayable(row, mode)` is true (`checked` in live mode or `drawn` in clip mode). Thus, without a browser `/check`, the comment stays listed in `status.comments` after the redraw (`rev` `0 -> 1`), which the smoke script records as a warning (`"the comment is still listed after the redraw"`).
 
-```
-node --check tools/staging/plates-smoke.mjs tools/staging/mock-api.mjs tools/staging/plates-smoke.test.mjs   -> all ok
-node --test tools/staging/plates-smoke.test.mjs
-ℹ tests 25   ℹ pass 25   ℹ fail 0   (about 7 s)
-```
+## 4. Real-Stack-Verified vs Mock-Only Steps
 
-Covered: happy path (all 11 steps ok, `SMOKE PASS`, exit 0, mock spent once for four render requests with one key, balance 40 to 34, project archived, bearer never sent to the object-store origin, film is a real 1920x1080 H.264 file with frames checked by ffprobe); live mode (scenes stop at `bundled`, clip fallback exercised); `SMOKE_API` ending in `/v1/`; 13 failure switches each ending `SMOKE FAIL <right step>` with no later step run; failed render says whether tokens came back; `double-spend` caught at render; quote above max ends `SMOKE ABORT quote` with zero spend; wrong token fails at health; sentinel token absent from stdout, stderr and `report.json` in the success and every failure run; `SMOKE_STEPS=refund`; `SMOKE_PROJECT` resume; `--continue`; mock never on ports 4100, 4000, 3000, 8766, 55432, 58787, 59000.
+- **Verified on the real local `plates-e2e` Docker stack (`plate-api`, `plate-worker`, Postgres `plates_e2e`, Adobe S3Mock, `llm-stub`):**
+  - `health`, `animate`, `preview-assets` (both live HTML bundle download and `clip-request` -> rendered MP4 clip download), `comment` (`POST /plates/comments` + `POST /plates/fix` + revision redraw), `quote`, `render` (including 5x `Idempotency-Key` deduplication before and during active rendering, plus full worker render to MP4), `download` (`302` redirect with `?t=` media token, `ftyp` + `>100 kB` + `ffprobe` stream verification), `refund` (refused render balance preservation), and `report`.
+- **Mock-only (cannot run against `llm-stub`, which only answers plate-authoring prompts and has no `GEMINI_API_KEY` for TTS/music):**
+  - `create`, `script` (`POST /v1/projects/:id/script/stream`), `plan` (`POST /v1/projects/:id/plan`, `POST /v1/projects/:id/script/voice`, `GET /v1/projects/:id/composition`), and worker-failure refund (`fail: "render"` in `mock-api.mjs`).
 
-Not run by me (rules): anything against the local plates-e2e stack, staging or production.
-
-## 5. What was impossible or awkward from outside
-
-1. The real UI does not send an `Idempotency-Key` (`renderProject` in `api.ts`). The smoke sends one, so it proves the backend feature, not what the UI exercises today.
-2. No public render cancel route exists (grep of `backend/src`: cancel is internal to the worker control path). The `refund` step therefore only proves that a refused render (empty project, `script_unconfirmed`) charges nothing. Refund after worker failure or user cancel must be checked in `app.token_ledger` by the manager.
-3. Live mode (`PLATE_LIVE_PREVIEW=on`): the browser performs the scene check (`host:"worker"` Web Worker), so with no browser scenes stay `bundled`. The script treats `bundled` as authored when `status.mode === "live"` (the final render only needs authored bundles, `waitForAuthoring`), requests a clip for scene 1 via `clip-request` and waits for `drawn`, because `fixPlates` refuses while the commented scene is `bundled`. A real `checked` state cannot be produced from outside.
-4. The plate status does not expose a job type, a manifest schema or a `plate-render` job count. The render job exposes only `state`, `stage`, `progress`, `attempt`, `revision.look`. Listed in the report JSON `notChecked`.
-5. The local plates-e2e stack answers every model call with plate code (`llm-stub.mjs`), so the `script` and `plan` steps cannot pass there, and `script/voice` needs `GEMINI_API_KEY`. Use `SMOKE_PROJECT` with a project seeded by `scripts/plates-e2e/lib.mjs seedProject` and `SMOKE_STEPS=health,animate,...` (command in section 7).
-6. The bundle's content type is only a warning (a store may serve `application/octet-stream`); the body must be exactly one HTML document or the step fails. An external `<script src>` is a warning.
-7. `getPlates` shows a scene's `bundleDigest` as `null` until bundled; if both digests are null the comment step falls back to the `rev` number and warns.
-8. The real clip route needs a bearer or a media token; the script uses the media token (as the browser does). In local `AUTH_MODE=none` this works with no token at all.
-
-## 6. Open questions for the manager
-
-1. Default look: I chose `illus-blueprint` (simple line scenes, used in the e2e suites). Is there a cheaper or more reliable look on staging?
-2. Should `ABORT` (quote above `SMOKE_MAX_TOKENS`) be a third final line (`SMOKE ABORT quote ...`, exit 3), as built, or `SMOKE FAIL quote`?
-3. Default `SMOKE_AUDIO=voiceover` costs real TTS per scene on staging. Prefer `none` as the default, or keep voice because the film must be as users make it?
-4. The script archives the project at the end (`PUT {archived:true}`); the playground user's tokens are spent for real (about 6 tokens for 3 scenes of 4 s is the mock's number; read the real quote). Is a dedicated test user with a known balance planned?
-5. Companion export (`requestPlateExport`) and the subtitles route are not covered; add them as optional steps?
-6. Live-mode browser check (`/check` route) is out of scope without a browser; confirm that step 3 of the handoff (headless Chrome) covers it.
-
-## 7. Commands
-
-(a) Local plates-e2e stack (you start it; I did not). The stub cannot write scripts, so seed a project and resume:
+## 5. Exact Staging Command (Token from Env Var, Never Inline)
 
 ```bash
-# seed (uses the e2e Postgres through the existing harness helper, not this script):
-#   node -e 'import("./scripts/plates-e2e/lib.mjs").then(async m=>{const p=await m.seedProject({look:"illus-blueprint",beats:3,audio:false});console.log(p.id);process.exit(0)})'
-SMOKE_API=http://localhost:4100 SMOKE_PROJECT=<seeded-project-id> SMOKE_AUDIO=none SMOKE_KEEP=1 \
-SMOKE_STEPS=health,animate,preview-assets,comment,quote,render,download,report \
-node tools/staging/plates-smoke.mjs
+export SMOKE_TOKEN="$(cat /path/to/staging-token-file)"
+SMOKE_API=https://backend-staging-aec6.up.railway.app \
+  SMOKE_AUDIO=voiceover \
+  SMOKE_MAX_TOKENS=20 \
+  node tools/staging/plates-smoke.mjs
 ```
 
-If the local stack ever has real script/plan models, the full flow is simply `SMOKE_API=http://localhost:4100 SMOKE_AUDIO=none node tools/staging/plates-smoke.mjs`. Add `SMOKE_STEPS=...,refund` only when you want the refund check.
-
-(b) Staging, full flow, real model and real R2 (spends tokens; quote capped at 20 by default):
+To include the optional refund check on staging:
 
 ```bash
-SMOKE_API=https://backend-staging-aec6.up.railway.app SMOKE_TOKEN="$(cat /path/to/token-file)" \
-SMOKE_AUDIO=voiceover SMOKE_MAX_TOKENS=20 node tools/staging/plates-smoke.mjs
+export SMOKE_TOKEN="$(cat /path/to/staging-token-file)"
+SMOKE_API=https://backend-staging-aec6.up.railway.app \
+  SMOKE_AUDIO=voiceover \
+  SMOKE_MAX_TOKENS=20 \
+  SMOKE_STEPS=health,create,script,plan,animate,preview-assets,comment,quote,render,download,refund,report \
+  node tools/staging/plates-smoke.mjs
 ```
 
-Resume after a failure at render (same project, no new spend until `render`): `SMOKE_PROJECT=<id from report.json> SMOKE_STEPS=health,quote,render,download,report`.
+## 6. `notChecked` List (Recorded in `report.json`)
 
-Self-test (no network): `node --test tools/staging/plates-smoke.test.mjs`. Mock alone: `MOCK_PORT=5599 node tools/staging/mock-api.mjs`.
+1. `"live canvas playback in a browser (no canvas code is run here)"` — the smoke script fetches and validates the single-file HTML bundles and fallback MP4 clip from outside, without executing canvas/worker code in headless Chrome.
+2. `"refund after a user cancel or a worker failure: no public cancel route exists (user cancel is not refunded; failures are); check app.token_ledger in the DB"` — when `refund` tests an unready project refusal (`400`), worker-failure refunds on staging require inspecting `app.token_ledger` (worker-failure refund is covered by mock tests and by `steps.render` if a real render job ever enters `failed`).
+3. `"zero plate-render jobs for drawn scenes and manifest schema 2 (checked by the manager in the DB/logs)"` — internal queue/manifest state not exposed on public `/v1/` responses.
+4. `"R2 object contents and keys"` — internal bucket layout beyond the presigned URLs returned by the API.
+5. `"worker DB access (none by design)"` — enforced by container network/env configuration (`DATABASE_URL=postgres://nobody:nobody@127.0.0.1:1/none` in `compose.yaml`).

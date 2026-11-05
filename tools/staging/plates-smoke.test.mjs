@@ -179,18 +179,24 @@ test("refund is not run by default", async () => {
   } finally { await mock.close(); }
 });
 
-test("--continue keeps going after a failure", async () => {
+test("--continue keeps going after a failure and marks dependent later steps skipped, not ok", async () => {
   const mock = await mockOn({ fail: "scene-failed" });
   try {
+    const outDir = mkdtempSync(join(tmpdir(), "plates-smoke-"));
     const out = await new Promise((resolve) => {
-      const env = { PATH: process.env.PATH, SMOKE_API: mock.url, SMOKE_TOKEN: SENTINEL, SMOKE_OUT: mkdtempSync(join(tmpdir(), "plates-smoke-")), SMOKE_POLL_MS: "15", ...(hasFfprobe ? {} : { SMOKE_FFPROBE: "off" }) };
+      const env = { PATH: process.env.PATH, SMOKE_API: mock.url, SMOKE_TOKEN: SENTINEL, SMOKE_OUT: outDir, SMOKE_POLL_MS: "15", ...(hasFfprobe ? {} : { SMOKE_FFPROBE: "off" }) };
       const child = spawn(process.execPath, [SMOKE, "--continue"], { env });
       let stdout = ""; child.stdout.on("data", (d) => { stdout += d; }); child.on("close", (code) => resolve({ code, stdout }));
     });
     assert.equal(out.code, 1);
     assert.match(out.stdout, /^step animate FAIL /m);
-    assert.match(out.stdout, /^step preview-assets FAIL skipped: needs scenes/m);
+    assert.match(out.stdout, /^step preview-assets skipped needs scenes/m);
     assert.match(out.stdout, /^SMOKE FAIL animate /m);
+    const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf8"));
+    for (const later of ["preview-assets", "comment", "quote", "render", "download"]) {
+      const entry = report.steps.find((s) => s.name === later);
+      assert.equal(entry?.status, "skipped", `${later} must be marked skipped, not ${entry?.status}`);
+    }
   } finally { await mock.close(); }
 });
 
@@ -214,3 +220,195 @@ test("the reserved ports are never used by the mock", async () => {
   const mock = await mockOn();
   try { assert.ok(!RESERVED.has(mock.port)); assert.ok(existsSync(join(HERE, "fixtures", "film.mp4"))); } finally { await mock.close(); }
 });
+
+// ---------- v2 review gaps (a to h) ----------
+
+test("gap a: final lines and exit codes (SMOKE PASS -> 0, SMOKE FAIL -> 1, SMOKE ABORT -> 3)", async () => {
+  const passMock = await mockOn();
+  const failMock = await mockOn({ fail: "auth" });
+  const abortMock = await mockOn({ fail: "quote-high" });
+  try {
+    const p = await smoke(passMock);
+    assert.equal(p.code, 0);
+    assert.match(lastLine(p), /^SMOKE PASS .+report\.json$/);
+    const f = await smoke(failMock);
+    assert.equal(f.code, 1);
+    assert.match(lastLine(f), /^SMOKE FAIL health .+report\.json$/);
+    const a = await smoke(abortMock);
+    assert.equal(a.code, 3);
+    assert.match(lastLine(a), /^SMOKE ABORT quote .+report\.json$/);
+  } finally {
+    await passMock.close();
+    await failMock.close();
+    await abortMock.close();
+  }
+});
+
+test("gap b: Idempotency-Key repeat render sent after the first job is already running returns same job and spends once", async () => {
+  const okMock = await mockOn();
+  const badMock = await mockOn({ fail: "double-spend-running" });
+  try {
+    const okRun = await smoke(okMock);
+    assert.equal(okRun.code, 0, okRun.stdout + okRun.stderr);
+    const okReport = JSON.parse(readFileSync(join(okRun.out, "report.json"), "utf8"));
+    assert.equal(okReport.idempotency.requests, 5);
+    assert.equal(okReport.idempotency.jobIds, 1);
+    assert.equal(okReport.idempotency.checkedWhileRunning, true);
+    assert.equal(okReport.idempotency.spent, okReport.idempotency.quoted);
+    assert.equal(okMock.state.spendCount, 1);
+
+    const badRun = await smoke(badMock);
+    assert.equal(badRun.code, 1);
+    assert.match(badRun.stdout, /^step render FAIL repeat render with same Idempotency-Key while job was/m);
+    assert.match(lastLine(badRun), /^SMOKE FAIL render /);
+  } finally {
+    await okMock.close();
+    await badMock.close();
+  }
+});
+
+test("gap c & 2.f.3: download asserts 302, strips bearer on cross-origin redirect, checks ftyp and >100kB before writing, and handles missing ffprobe", async () => {
+  const noProbeMock = await mockOn();
+  const smallMock = await mockOn({ fail: "small-mp4" });
+  const badMp4Mock = await mockOn({ fail: "not-mp4" });
+  try {
+    const r = await smoke(noProbeMock, { SMOKE_FFPROBE: "off" });
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /warn ffprobe not available/);
+    const report = JSON.parse(readFileSync(join(r.out, "report.json"), "utf8"));
+    assert.equal(report.mp4.redirected, true);
+    assert.equal(report.mp4.redirectStatus, 302);
+    assert.equal(report.mp4.ffprobe, "skipped");
+    assert.ok(report.warnings.some((w) => w.includes("ffprobe not available")));
+    assert.ok(noProbeMock.state.requests.filter((q) => q.path.startsWith("/obj/")).every((q) => q.auth === "no"));
+
+    const small = await smoke(smallMock);
+    assert.equal(small.code, 1);
+    assert.match(small.stdout, /^step download FAIL film\.mp4 is only \d+ bytes/m);
+    assert.equal(existsSync(join(small.out, "film.mp4")), false, "film.mp4 must not be written when size check fails");
+
+    const badMp4 = await smoke(badMp4Mock);
+    assert.equal(badMp4.code, 1);
+    assert.equal(existsSync(join(badMp4.out, "film.mp4")), false, "film.mp4 must not be written when ftyp check fails");
+  } finally {
+    await noProbeMock.close();
+    await smallMock.close();
+    await badMp4Mock.close();
+  }
+});
+
+test("gap d: sentinel token and media token never appear in stdout, stderr, report.json, or any request URL", async () => {
+  const mock = await mockOn();
+  try {
+    const r = await smoke(mock);
+    assert.equal(r.code, 0);
+    assertNoLeak(r);
+    assert.ok(!r.stdout.includes(mock.state.mediaToken), "media token must be redacted in stdout");
+    const reportText = readFileSync(join(r.out, "report.json"), "utf8");
+    assert.ok(!reportText.includes(mock.state.mediaToken), "media token must not appear in report.json");
+  } finally {
+    await mock.close();
+  }
+});
+
+test("gap e: SMOKE_STEPS subset without create fails clearly if SMOKE_PROJECT is missing; --continue continues after non-blocking failure", async () => {
+  const mock = await mockOn();
+  const nonBlockingMock = await mockOn({ fail: "no-bundle" });
+  try {
+    const missingProj = await smoke(mock, { SMOKE_STEPS: "health,animate,preview-assets,comment,quote,render,download,report" });
+    assert.equal(missingProj.code, 1);
+    assert.match(missingProj.stdout, /^step animate FAIL SMOKE_PROJECT is required when SMOKE_STEPS omits create$/m);
+    assert.match(lastLine(missingProj), /^SMOKE FAIL animate /);
+
+    const outDir = mkdtempSync(join(tmpdir(), "plates-smoke-"));
+    const cont = await new Promise((resolve) => {
+      const env = { PATH: process.env.PATH, SMOKE_API: nonBlockingMock.url, SMOKE_TOKEN: SENTINEL, SMOKE_OUT: outDir, SMOKE_POLL_MS: "15", ...(hasFfprobe ? {} : { SMOKE_FFPROBE: "off" }) };
+      const child = spawn(process.execPath, [SMOKE, "--continue"], { env });
+      let stdout = ""; child.stdout.on("data", (d) => { stdout += d; }); child.on("close", (code) => resolve({ code, stdout }));
+    });
+    assert.equal(cont.code, 1);
+    assert.match(cont.stdout, /^step preview-assets FAIL /m);
+    assert.match(cont.stdout, /^step render ok \d+$/m);
+    assert.match(cont.stdout, /^step download ok \d+$/m);
+  } finally {
+    await mock.close();
+    await nonBlockingMock.close();
+  }
+});
+
+test("gap f (1, 6, 8): comment works in live mode when scene 1 is bundled; --help lists SMOKE_DURATION, SMOKE_AUDIO and timeouts; create/PUT bodies match studio.tsx", async () => {
+  const help = spawnSync(process.execPath, [SMOKE, "--help"], { encoding: "utf8" });
+  assert.equal(help.status, 0);
+  for (const v of ["SMOKE_DURATION", "SMOKE_AUDIO", "SMOKE_POLL_MS", "SMOKE_PLAN_TIMEOUT_MS", "SMOKE_ANIMATE_TIMEOUT_MS", "SMOKE_RENDER_TIMEOUT_MS"]) {
+    assert.ok(help.stdout.includes(v), `--help missing ${v}`);
+  }
+
+  const mock = await mockOn({ mode: "live" });
+  try {
+    // Run animate -> comment directly in live mode (skipping preview-assets so scene 1 stays `bundled`, not `drawn`).
+    const r = await smoke(mock, { SMOKE_STEPS: "health,create,script,plan,animate,comment,report" });
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^step comment ok \d+$/m);
+
+    const createReq = mock.state.requests.find((q) => q.method === "POST" && q.path === "/v1/projects");
+    const putReq = mock.state.requests.find((q) => q.method === "PUT" && /^\/v1\/projects\/[0-9a-f-]{36}$/.test(q.path) && q.body?.request);
+    assert.equal(createReq?.body?.name, "A lighthouse keeper lights the lamp every evening so ships can find the harbour");
+    assert.deepEqual(createReq?.body?.request?.audio, { music: false, voiceover: false, voice: "Kore" });
+    assert.deepEqual(putReq?.body?.request, createReq?.body?.request);
+  } finally {
+    await mock.close();
+  }
+});
+
+test("gap g & 2.f (3, 4, 7): steps marked ok with warning conditions list every warning in report.json warnings", async () => {
+  const mock = await mockOn({ fail: ["bundle-ctype", "download-200", "fix-stub-same"] });
+  try {
+    const r = await smoke(mock, { SMOKE_BEATS: "4" });
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    const report = JSON.parse(readFileSync(join(r.out, "report.json"), "utf8"));
+    assert.equal(report.result, "pass");
+    assert.ok(report.warnings.some((w) => w.includes("script has 3 beats, SMOKE_BEATS asked for 4")), "script beat mismatch warning");
+    assert.ok(report.warnings.some((w) => w.includes('bundle content-type is "application/octet-stream"')), "bundle content-type warning");
+    assert.ok(report.warnings.some((w) => w.includes("with the same bundleDigest")), "comment same-digest new-artifact warning");
+    assert.ok(report.warnings.some((w) => w.includes("output route answered 200, expected 302")), "download non-302 warning");
+  } finally {
+    await mock.close();
+  }
+});
+
+test("gap h & 2.f.2: refund step guards SMOKE_MAX_TOKENS, respects stop-at-first-failure, and asserts balance restoration on failed render", async () => {
+  const refundMock = await mockOn({ fail: "render" });
+  const noRefundMock = await mockOn({ fail: ["render", "no-refund"] });
+  const highQuoteMock = await mockOn({ fail: "quote-high" });
+  const failBeforeMock = await mockOn({ fail: "auth" });
+  try {
+    const okRefund = await smoke(refundMock, { SMOKE_STEPS: "health,refund,report" });
+    assert.equal(okRefund.code, 0, okRefund.stdout + okRefund.stderr);
+    const report = JSON.parse(readFileSync(join(okRefund.out, "report.json"), "utf8"));
+    assert.equal(report.refund.mode, "worker-failure");
+    assert.equal(report.refund.balanceBefore, 40);
+    assert.equal(report.refund.balanceAfter, 40);
+    assert.equal(report.refund.restored, true);
+
+    const badRefund = await smoke(noRefundMock, { SMOKE_STEPS: "health,refund,report" });
+    assert.equal(badRefund.code, 1);
+    assert.match(badRefund.stdout, /^step refund FAIL failed render did not restore the balance/m);
+
+    const abortRefund = await smoke(highQuoteMock, { SMOKE_STEPS: "health,refund,report" });
+    assert.equal(abortRefund.code, 3);
+    assert.match(lastLine(abortRefund), /^SMOKE ABORT refund /);
+    assert.equal(highQuoteMock.state.spendCount, 0);
+
+    const stopBeforeRefund = await smoke(failBeforeMock, { SMOKE_STEPS: "health,refund,report" });
+    assert.equal(stopBeforeRefund.code, 1);
+    assert.ok(!/^step refund (ok|FAIL)/m.test(stopBeforeRefund.stdout), "refund must not run after health failed");
+    const stopReport = JSON.parse(readFileSync(join(stopBeforeMockOut(stopBeforeRefund), "report.json"), "utf8"));
+    assert.equal(stopReport.steps.find((s) => s.name === "refund")?.status, "skipped");
+  } finally {
+    await refundMock.close();
+    await noRefundMock.close();
+    await highQuoteMock.close();
+    await failBeforeMock.close();
+  }
+});
+const stopBeforeMockOut = (r) => r.out;
