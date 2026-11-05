@@ -4,13 +4,15 @@ import { tierFor } from "../billing/service.ts";
 import { config } from "../config.ts";
 import { pool } from "../db/database.ts";
 import { PLANS, PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, type PlanTier } from "../tokens/plan.ts";
+import { projectOwnerById } from "../projects/store.ts";
 
 /**
  * The preview allowance (docs/PRICING.md). A film's storyboard, voice, motion and fixes cost about $0.79 in model calls before
  * anything is rendered, so each plan may work on a number of films per period: Free once for the account ("lifetime"), paid plans
  * per calendar month (UTC). All the work on one project counts once; `calls` caps how much one project may use in a period.
- * Counted: the stages that call a model for a film. Reading, comments, the intent reader and the final render are not counted
- * (the render takes tokens).
+ * Counted: the stages that call a model for a film; comment propose is counted in its route only when the model runs, once per batch
+ * (rule-based edits and failed requests are free, and a film with only rule-based edits takes no slot). Reading, rule-only comments,
+ * the intent reader and the final render are not counted (the render takes tokens).
  */
 const COUNTED = /^\/v1\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(?:script\/stream|script\/frames|plan|plan\/audio|film\/animate|film\/fix|plan\/beats\/[^/]+\/rewrite)$/i;
 
@@ -78,8 +80,11 @@ export function registerPreviewMeter(app: FastifyInstance) {
     try { path = decodeURIComponent(request.url.split("?")[0]); } catch { return; }
     const match = COUNTED.exec(path);
     if (!match) return;
+    const projectId = match[1]!.toLowerCase();
     const userId = callerId(request);
-    const refusal = await admitPreview(userId, match[1]!.toLowerCase(), await tierFor(userId));
+    const owner = await projectOwnerById(projectId);
+    if (owner === undefined || owner !== userId) return;
+    const refusal = await admitPreview(userId, projectId, await tierFor(userId));
     if (refusal) return reply.code(402).send(refusal);
   });
 }

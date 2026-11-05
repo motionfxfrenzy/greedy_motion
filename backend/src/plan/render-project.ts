@@ -100,7 +100,7 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   };
   let html = stampCanvas(template, plan.canvas);
   html = declareVariables(html, values, { asDefaults: check });
-  html = fillTextBlock(html, {});
+  html = fillTextBlock(html, plan.overrides && Object.keys(plan.overrides).length > 0 ? { overrides: plan.overrides } : {});
   html = withSoundtrack(html, tracks);
   // A film written in the script canvas animates its approved frames instead of the engine's own scenes.
   const frames = filmFrames(project, timing);

@@ -8,10 +8,11 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import { chromium } from "../../node_modules/playwright-core/index.mjs";
 
-process.env.APP_ENV ??= "local";
-process.env.PLANNER ??= "deterministic";
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is required (a local Postgres; this test writes to it).");
+process.env.APP_ENV = "local";
+process.env.PLANNER = "deterministic";
+process.env.CREEM_API_KEY = "";
+if (!/plates_unit|test/.test(process.env.DATABASE_URL ?? "")) {
+  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,9 @@ const app = Fastify();
 await registerPlanRoutes(app);
 await app.ready();
 
+const TEST_OWNER = randomUUID();
 const createdProjects = [];
+await pool.query("delete from app.projects where owner_id = $1", [TEST_OWNER]);
 
 function makeSeedData() {
   const beats = [
@@ -170,17 +173,20 @@ function makeSeedData() {
 }
 
 async function seedProject() {
-  const created = await createProject({
-    name: `plan-patch-test-${randomUUID().slice(0, 8)}`,
-    request: {
-      prompt: "Test project for captions and audioMode plan patches",
-      format: "landscape",
-      style: "clean",
-      theme: "neutral",
-      template: "product-launch",
-      audio: { music: true, voiceover: true, voice: "Kore" }
-    }
-  });
+  const created = await createProject(
+    {
+      name: `plan-patch-test-${randomUUID().slice(0, 8)}`,
+      request: {
+        prompt: "Test project for captions and audioMode plan patches",
+        format: "landscape",
+        style: "clean",
+        theme: "neutral",
+        template: "product-launch",
+        audio: { music: true, voiceover: true, voice: "Kore" }
+      }
+    },
+    TEST_OWNER
+  );
   createdProjects.push(created.id);
   const seed = makeSeedData();
   await pool.query(
@@ -351,8 +357,6 @@ try {
 } finally {
   if (browser) await browser.close().catch(() => {});
   await app.close();
-  if (createdProjects.length > 0) {
-    await pool.query("delete from app.projects where id = any($1)", [createdProjects]);
-  }
+  await pool.query("delete from app.projects where owner_id = $1 or id = any($2)", [TEST_OWNER, createdProjects]);
   await pool.end();
 }

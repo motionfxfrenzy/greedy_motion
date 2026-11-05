@@ -122,34 +122,54 @@ export function CommentsPanel({
           {comments.length === 0 && (
             <li className="empty">Comments you add are pinned to this moment of the film.</li>
           )}
-          {comments.map((comment) => (
-            <li key={comment.id}>
-              <button
-                type="button"
-                className="aw-time"
-                onClick={() => onSeekToComment(comment.at)}
-                title="Go to this moment"
-              >
-                {formatClock(comment.at)}
-              </button>
-              <p>
-                {comment.body}
-                <small>Scene {comment.scene + 1}</small>
-              </p>
-              <button
-                type="button"
-                className="aw-x"
-                aria-label="Remove comment"
-                onClick={() => void onRemoveComment(comment.id)}
-              >
-                ×
-              </button>
-            </li>
-          ))}
+          {comments.map((comment) => {
+            const canUndo = Boolean(comment.appliedLabel && comment.appliedEl);
+            const timeLabel = formatClock(comment.at);
+            return (
+              <li key={comment.id}>
+                <button
+                  type="button"
+                  className="aw-time"
+                  onClick={() => onSeekToComment(comment.at)}
+                  title="Go to this moment"
+                >
+                  {timeLabel}
+                </button>
+                <p>
+                  {comment.body}
+                  <small
+                    role="status"
+                    className={comment.refusedReason && !comment.appliedLabel ? "aw-comment-refused" : undefined}
+                  >
+                    Scene {comment.scene + 1}
+                    {comment.appliedLabel
+                      ? ` · ${comment.appliedLabel}`
+                      : comment.refusedReason
+                      ? ` · ${comment.refusedReason}`
+                      : ""}
+                  </small>
+                </p>
+                <button
+                  type="button"
+                  className="aw-x"
+                  disabled={applying}
+                  aria-label={
+                    canUndo
+                      ? `Undo comment edit (${timeLabel}: ${comment.body})`
+                      : `Remove comment (${timeLabel}: ${comment.body})`
+                  }
+                  title={canUndo ? "Undo this change" : "Remove comment"}
+                  onClick={() => void onRemoveComment(comment.id)}
+                >
+                  ×
+                </button>
+              </li>
+            );
+          })}
         </ul>
         <ProgressButton
           className="primary-button aw-apply"
-          disabled={!comments.length || applying}
+          disabled={!applySummary.scenes.length || applying}
           busy={applying}
           progress={applyProgress}
           onClick={() => void onApply()}

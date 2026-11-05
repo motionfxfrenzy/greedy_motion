@@ -28,6 +28,81 @@
   function J(s, d) { if (s && typeof s === "object") return s; try { return JSON.parse(s); } catch (e) { return d; } }
   var PLAN = J(V.plan, null) || { beats: [] };
   var BEATS = Array.isArray(PLAN.beats) ? PLAN.beats : [];
+  var OVERRIDES = J(V.overrides, null);
+  if (!OVERRIDES || typeof OVERRIDES !== "object" || Array.isArray(OVERRIDES)) OVERRIDES = {};
+  var NAMED_COLORS = {
+    pink: "#ff3b6b", hotpink: "#ff3b6b", magenta: "#f43f5e", red: "#ef4444", crimson: "#dc2626",
+    orange: "#f97316", amber: "#f59e0b", yellow: "#eab308", gold: "#eab308", lime: "#84cc16",
+    green: "#22c55e", emerald: "#10b981", teal: "#14b8a6", cyan: "#06b6d4", sky: "#0ea5e9",
+    blue: "#3b82f6", indigo: "#6366f1", violet: "#8b5cf6", purple: "#a855f7", white: "#ffffff",
+    black: "#111827", grey: "#94a3b8", gray: "#94a3b8", silver: "#cbd5e1"
+  };
+  function validElId(id) {
+    if (typeof id !== "string" || id.length < 5 || id.length > 64) return false;
+    var m = /^([a-zA-Z0-9_-]+):([a-zA-Z][a-zA-Z0-9_-]{0,31}):(\d{1,4})$/.exec(id);
+    if (!m) return false;
+    var idx = +m[3];
+    return idx >= 0 && idx <= 512;
+  }
+  function validColor(raw) {
+    if (typeof raw !== "string") return null;
+    var s = raw.trim().toLowerCase();
+    if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(s)) return s;
+    if (Object.prototype.hasOwnProperty.call(NAMED_COLORS, s)) return NAMED_COLORS[s];
+    return null;
+  }
+  function applyOverridesSheet() {
+    var rules = [];
+    for (var id in OVERRIDES) {
+      if (!Object.prototype.hasOwnProperty.call(OVERRIDES, id) || !validElId(id)) continue;
+      var ov = OVERRIDES[id];
+      if (!ov || typeof ov !== "object" || Array.isArray(ov)) continue;
+      var decl = [];
+      var col = validColor(ov.color);
+      if (col) decl.push("color:" + col + " !important");
+      if (typeof ov.opacity === "number" && isFinite(ov.opacity) && ov.opacity >= 0.05 && ov.opacity <= 1) {
+        decl.push("opacity:" + (Math.round(ov.opacity * 100) / 100) + " !important");
+      }
+      var dx = typeof ov.dx === "number" && isFinite(ov.dx) && Math.abs(ov.dx) <= 4000 ? Math.round(ov.dx) : 0;
+      var dy = typeof ov.dy === "number" && isFinite(ov.dy) && Math.abs(ov.dy) <= 4000 ? Math.round(ov.dy) : 0;
+      if (dx || dy) decl.push("translate:" + px(dx) + " " + px(dy) + " !important");
+      if (decl.length) rules.push('[data-el="' + id + '"]{' + decl.join(";") + "}");
+    }
+    var st = document.getElementById("bp-overrides");
+    if (!rules.length) { if (st && st.parentNode) st.parentNode.removeChild(st); return; }
+    if (!st) { st = document.createElement("style"); st.id = "bp-overrides"; root.appendChild(st); }
+    st.textContent = rules.join("\n");
+  }
+  applyOverridesSheet();
+  var CUR_BEAT = "g", CUR_HINTS = null, EL_COUNTS = {};
+  function nextElId(cls, tag) {
+    var tok = String(cls || "").trim().split(/\s+/).filter(Boolean)[0] || String(tag || "el").toLowerCase();
+    var k = CUR_BEAT + ":" + tok;
+    var idx = EL_COUNTS[k] || 0;
+    EL_COUNTS[k] = idx + 1;
+    return k + ":" + idx;
+  }
+  function hintFactorFor(elId, group) {
+    if (!CUR_HINTS || typeof CUR_HINTS.factor !== "number") return 1;
+    var f = clamp(CUR_HINTS.factor, 0.5, 2.2), emp = String(CUR_HINTS.emphasize || "");
+    if (!emp || emp === group || emp === elId) return f;
+    if (group === "kw" && emp.indexOf(CUR_BEAT + ":w:") === 0) return f;
+    return 1;
+  }
+  function applyOverrideToEl(e, id, hasTxt) {
+    if (!Object.prototype.hasOwnProperty.call(OVERRIDES, id) || !validElId(id)) return;
+    var ov = OVERRIDES[id];
+    if (!ov || typeof ov !== "object" || Array.isArray(ov)) return;
+    if (typeof ov.text === "string" && hasTxt) {
+      var cleanTxt = ov.text.trim();
+      if (cleanTxt && cleanTxt.length <= 280) e.textContent = cleanTxt;
+    }
+    var col = validColor(ov.color);
+    if (col) e.style.setProperty("color", col, "important");
+    if (typeof ov.opacity === "number" && isFinite(ov.opacity) && ov.opacity >= 0.05 && ov.opacity <= 1) {
+      e.style.setProperty("opacity", String(Math.round(ov.opacity * 100) / 100), "important");
+    }
+  }
   function has(k) { return Object.prototype.hasOwnProperty.call(V, k) && typeof V[k] === "string"; }
   function same(a, b) { var n = function (x) { return String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }; return n(a) === n(b); }
   // plain text: markdown emphasis markers (**now.**, `x`) are never drawn; the last word takes the accent anyway
@@ -122,8 +197,11 @@
   function mk(tag, cls, parent, css, txt) {
     var e = document.createElement(tag);
     if (cls) e.className = cls;
+    var id = nextElId(cls, tag);
+    e.setAttribute("data-el", id);
     if (css) for (var k in css) e.style[k] = typeof css[k] === "number" ? px(css[k]) : css[k];
     if (txt != null) e.textContent = txt;
+    applyOverrideToEl(e, id, txt != null);
     parent.appendChild(e);
     return e;
   }
@@ -159,6 +237,14 @@
   // key-phrase size: a phrase made of short sentences ("Screens in. Film out.") breaks at its full stops
   // when that keeps the type within ~70% of the free-wrap size
   function kwFit(str, maxW, lines, cap, floor) {
+    var hf = hintFactorFor(null, "kw");
+    var emp = CUR_HINTS && typeof CUR_HINTS.emphasize === "string" ? CUR_HINTS.emphasize : "";
+    var isSingleWordEmp = emp.indexOf(CUR_BEAT + ":w:") === 0;
+    if (hf !== 1 && !isSingleWordEmp) {
+      cap = clamp(Math.round(cap * hf), 44, Math.round(0.24 * Math.min(W, H)));
+      floor = clamp(Math.round(floor * Math.min(1, hf)), 36, cap);
+      if (hf > 1.05) lines = Math.min(3, lines + 1);
+    }
     var whole = fit(str, maxW, lines, cap, floor);
     var ph = String(str).split(/(?<=[.!?])\s+/).filter(Boolean);
     if (ph.length < 2 || ph.length > lines) return { fs: whole, phrases: null };
@@ -170,11 +256,26 @@
     var fs = kf.fs;
     var el = mk("div", "kw", parent, { fontSize: fs, textAlign: align || "left" });
     var groups = kf.phrases || [String(str)], spans = [], all = String(str).split(/\s+/).filter(Boolean).length;
+    var emp = CUR_HINTS && typeof CUR_HINTS.emphasize === "string" ? CUR_HINTS.emphasize : "";
+    var empFactor = CUR_HINTS && typeof CUR_HINTS.factor === "number" ? clamp(CUR_HINTS.factor, 0.5, 2.2) : 1;
     groups.forEach(function (g) {
       var host = kf.phrases ? mk("span", "ph", el) : el;
       var words = g.split(/\s+/).filter(Boolean);
       words.forEach(function (w, j) {
-        spans.push(mk("span", "w" + (spans.length === all - 1 ? " acc" : ""), host, null, w));
+        var sp = mk("span", "w" + (spans.length === all - 1 ? " acc" : ""), host, null, w);
+        if (empFactor !== 1 && sp.getAttribute("data-el") === emp) {
+          if (empFactor > 1 && all > 1) {
+            // Re-fit the surrounding words slightly smaller so the emphasized word can grow while keeping total stack height inside title-safe
+            var baseScale = clamp(1 / (1 + (empFactor - 1) * 0.35), 0.76, 0.94);
+            var wCap = Math.max(48, Math.round(fs * baseScale));
+            el.style.fontSize = px(wCap);
+            fs = wCap;
+            sp.style.fontSize = Math.round(clamp(empFactor / baseScale, 1.15, 1.45) * 100) + "%";
+          } else {
+            sp.style.fontSize = Math.round(clamp(empFactor, 0.55, 1.35) * 100) + "%";
+          }
+        }
+        spans.push(sp);
         if (j < words.length - 1) host.appendChild(document.createTextNode(" "));
       });
     });
@@ -929,7 +1030,8 @@
     var landed = textEntry(kw, tk, effectFor(b, i));
     var sub = null;
     if (onScreen && !same(onScreen, kwText)) {
-      var sfs = fit(onScreen, L.col[2] * 0.92, 3, L.sub, 30, KB);
+      var subF = hintFactorFor(CUR_BEAT + ":sub:0", "sub");
+      var sfs = fit(onScreen, L.col[2] * 0.92, subF > 1.05 ? 4 : 3, Math.round(L.sub * subF), Math.round(30 * Math.min(1, subF)), KB);
       sub = mk("div", "sub", col, { fontSize: sfs, marginTop: px(fs * 0.32), maxWidth: px(L.col[2] * 0.92) }, onScreen);
       rise(sub, Math.min(landed + 0.12, s + 0.45 * dur), 28);
     }
@@ -1014,7 +1116,8 @@
     var landed = waterfall(kw, i === 0 ? s + 0.1 : s);
     var typesSub = ui.action === "type" && onScreen && onScreen.length <= 32;
     if (onScreen && !same(onScreen, kwText) && !typesSub) {
-      var sub = mk("div", "sub", col, { fontSize: fit(onScreen, L.col[2], 3, L.sub, 30, KB), marginTop: px(fs * 0.3) }, onScreen);
+      var uSubF = hintFactorFor(CUR_BEAT + ":sub:0", "sub");
+      var sub = mk("div", "sub", col, { fontSize: fit(onScreen, L.col[2], uSubF > 1.05 ? 4 : 3, Math.round(L.sub * uSubF), Math.round(30 * Math.min(1, uSubF)), KB), marginTop: px(fs * 0.3) }, onScreen);
       rise(sub, Math.min(landed + 0.1, s + 0.8), 24);
     }
     // the card (aspect from the screenshot, clamped)
@@ -1213,7 +1316,8 @@
     }
     var nfs = 0;
     if (name && !(logo && V.logoWordmark)) {
-      nfs = fit(name, logo ? L.logoW : 0.84 * W, 1, logo ? L.name * 0.7 : L.name, 64);
+      var nameF = hintFactorFor(CUR_BEAT + ":name:0", "name");
+      nfs = fit(name, logo ? L.logoW : 0.84 * W, 1, Math.round((logo ? L.name * 0.7 : L.name) * nameF), Math.round(64 * Math.min(1, nameF)));
       mk("div", "name", lock, { fontSize: nfs }, name);
     }
     if (MODE !== "wide" && logo && !V.logoWordmark) lock.style.flexDirection = "column";
@@ -1221,7 +1325,8 @@
     var kw = null;
     if (phrase) kw = keyword(col, phrase, kwFit(phrase, L.kwW, 2, L.kw, 64), "center", L.kwW);
     if (kw) kw.el.style.marginTop = px(0.045 * H);
-    var pf = L.pill, pw = Math.min(0.84 * W, pillText.length * pf * KB + pf * 2.4);
+    var pillF = hintFactorFor(CUR_BEAT + ":pill:0", "pill");
+    var pf = clamp(Math.round(L.pill * pillF), 28, Math.round(L.pill * 1.45)), pw = Math.min(0.84 * W, pillText.length * pf * KB + pf * 2.4);
     var pill = mk("div", "pill", col, { fontSize: pf, padding: px(pf * 0.55) + " " + px(pf * 1.2), marginTop: px(0.05 * H), maxWidth: px(0.84 * W) }, pillText);
     // arrivals: lockup, key phrase, pill; then the camera keeps pushing to the last frame
     var tl0 = i === 0 ? s + 0.08 : s;
@@ -1290,6 +1395,8 @@
   if (!BEATS.length) LOG.warnings.push("the plan has no beats");
   var TOTAL = 0, WIPED = [];
   BEATS.forEach(function (b, i) {
+    CUR_BEAT = b.id || ("b" + (i + 1));
+    CUR_HINTS = b.hints && typeof b.hints === "object" ? b.hints : null;
     var s = +b.start || 0, e = +b.end || s + 2, last = i === BEATS.length - 1;
     TOTAL = Math.max(TOTAL, e);
     b.has_visual = Boolean(V["visual." + b.id]);
@@ -1330,10 +1437,66 @@
     else Object.assign(info, kinetic(i, b, sh, s, e, kwText, onScreen, successAt));
     if (kind !== "kinetic") lastFlood = false;
     if (successAt !== null) info.successAt = successAt;
-    if (!last && b.transition_out && b.transition_out.type === "brand-field-wipe") { wipe(sh.vout, e); info.wipe = true; WIPED.push(i, i + 1); }
-    if (PLAN.captions === "full" && line) captions(b, line, s, e);
+    if (!last && b.transition_out && b.transition_out.type === "brand-field-wipe") { CUR_BEAT = b.id + "_wipe"; wipe(sh.vout, e); info.wipe = true; WIPED.push(i, i + 1); }
+    if (PLAN.captions === "full" && line) { CUR_BEAT = b.id; captions(b, line, s, e); }
     LOG.beats.push(info);
   });
+  CUR_BEAT = "g"; CUR_HINTS = null;
+  function roleOfEl(el) {
+    var c = el.classList;
+    if (c.contains("w")) return c.contains("acc") ? "accent-word" : "word";
+    if (c.contains("sub") || c.contains("ty-cap")) return "subtitle";
+    if (c.contains("name")) return "name";
+    if (c.contains("pill")) return "pill";
+    if (c.contains("stat")) return "stat";
+    if (c.contains("type-txt")) return "type-text";
+    if (c.contains("ty-t") || c.contains("ty-row") || c.contains("ty-marq")) return "text";
+    if (c.contains("ty-slate")) return "slate";
+    if (c.contains("card")) return "card";
+    if (c.contains("cursor")) return "cursor";
+    if (c.contains("check")) return "badge";
+    if (c.contains("field") || c.contains("halo") || c.contains("wipe") || c.contains("sk-paper") || c.contains("ty-bg")) return "decor";
+    if (el.parentElement && el.parentElement.classList.contains("cap")) return "caption";
+    return null;
+  }
+  function listElementsAt(t) {
+    if (typeof t === "number" && isFinite(t)) tl.seek(clamp(t, 0, TOTAL), false);
+    var rr = root.getBoundingClientRect(), sx = rr.width / W || 1, sy = rr.height / H || 1;
+    var effOp = function (el) {
+      var o = 1, cur = el;
+      while (cur && cur !== document.body) {
+        var cs = getComputedStyle(cur);
+        if (cs.visibility === "hidden" || cs.display === "none") return 0;
+        o *= parseFloat(cs.opacity);
+        if (o < 0.02) return 0;
+        cur = cur.parentElement;
+      }
+      return o;
+    };
+    var out = [];
+    Array.prototype.forEach.call(root.querySelectorAll("[data-el]"), function (el) {
+      var role = roleOfEl(el);
+      if (!role) return;
+      var op = effOp(el);
+      if (op < 0.05) return;
+      var r = el.getBoundingClientRect();
+      var w = (r.width || 0) / sx, h = (r.height || 0) / sy;
+      if (w < 2 || h < 2) return;
+      var x = (r.left - rr.left) / sx, y = (r.top - rr.top) / sy;
+      var id = el.getAttribute("data-el") || "";
+      var txt = (role === "card" || role === "cursor" || role === "badge" || role === "decor") ? "" : String(el.textContent || "").trim().slice(0, 120);
+      out.push({
+        id: id,
+        role: role,
+        text: txt,
+        box: [Math.round(x), Math.round(y), Math.round(w), Math.round(h)],
+        beat: id.split(":")[0] || "",
+        opacity: Math.round(op * 100) / 100
+      });
+    });
+    return out;
+  }
+  LOG.elementsAt = listElementsAt;
   // text either side of a brand-field wipe is covered by the wipe on purpose (it is the carrier)
   WIPED.forEach(function (k) {
     var el = stage.children[k];

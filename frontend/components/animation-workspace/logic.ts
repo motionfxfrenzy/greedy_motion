@@ -110,7 +110,7 @@ export function sortWorkspaceComments<T extends Pick<WorkspaceComment, "at">>(co
 
 /** Computes the unique 1-based scene numbers targeted by comments and the apply button copy. */
 export function affectedScenesSummary(
-  comments: readonly Pick<WorkspaceComment, "scene">[],
+  comments: readonly Pick<WorkspaceComment, "scene" | "appliedLabel">[],
   options?: {
     busy?: boolean;
     busyLabel?: string;
@@ -118,7 +118,8 @@ export function affectedScenesSummary(
     actionVerb?: string;
   }
 ): { scenes: number[]; numbersText: string; label: string } {
-  const uniqueScenes = [...new Set(comments.map((c) => c.scene + 1))];
+  const pending = comments.filter((c) => !c.appliedLabel);
+  const uniqueScenes = [...new Set(pending.map((c) => c.scene + 1))];
   const numbersText = uniqueScenes.join(", ");
   const busy = Boolean(options?.busy);
   const busyLabel = options?.busyLabel ?? "Drawing…";
@@ -128,7 +129,7 @@ export function affectedScenesSummary(
   if (busy) {
     return { scenes: uniqueScenes, numbersText, label: busyLabel };
   }
-  if (!comments.length) {
+  if (!pending.length) {
     return { scenes: uniqueScenes, numbersText, label: emptyLabel };
   }
   const plural = uniqueScenes.length > 1 ? "s" : "";
