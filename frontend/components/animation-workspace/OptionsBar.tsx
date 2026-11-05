@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import {
+  WORKSPACE_PREVIEW_QUALITIES,
   WORKSPACE_SUBTITLE_MODES,
   WORKSPACE_SUBTITLE_STYLES,
   resolveVisibleOptions
@@ -9,6 +10,7 @@ import { StatusLine } from "./StatusLine";
 import type {
   WorkspaceAudioControlState,
   WorkspaceOptionsConfig,
+  WorkspacePreviewQualityControlState,
   WorkspaceStatusBadge,
   WorkspaceSubtitleControlState
 } from "./types";
@@ -20,15 +22,16 @@ export interface OptionsBarProps {
   optionsConfig?: WorkspaceOptionsConfig;
   audio?: WorkspaceAudioControlState;
   subtitles?: WorkspaceSubtitleControlState;
+  previewQuality?: WorkspacePreviewQualityControlState;
   statusBadge?: WorkspaceStatusBadge | null;
 }
 
-export function OptionsBar({ optionsConfig, audio, subtitles, statusBadge }: OptionsBarProps) {
+export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, statusBadge }: OptionsBarProps) {
   const visible = resolveVisibleOptions(optionsConfig);
   const [barMode, setBarMode] = useState<"audio" | "subtitles" | null>(
     visible.showSubtitleTab ? "subtitles" : visible.showAudioTab ? "audio" : null
   );
-  const [openMenu, setOpenMenu] = useState<"captions" | "style" | "colors" | "opacity" | "position" | null>(null);
+  const [openMenu, setOpenMenu] = useState<"captions" | "style" | "colors" | "opacity" | "position" | "quality" | null>(null);
   const headBarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,6 +64,8 @@ export function OptionsBar({ optionsConfig, audio, subtitles, statusBadge }: Opt
   const effectiveBgColor = subtitles?.effectiveBgColor ?? "#0c0f16";
   const curModeLabel = WORKSPACE_SUBTITLE_MODES.find((m) => m.id === subMode)?.label ?? "Subtitles";
   const curStyleLabel = WORKSPACE_SUBTITLE_STYLES.find((s) => s.id === subStyle)?.label ?? "Pill";
+  const curQuality = previewQuality?.quality ?? 0.4;
+  const curQualityLabel = WORKSPACE_PREVIEW_QUALITIES.find((q) => q.id === curQuality)?.label ?? "Standard";
 
   const availableSubtitleModes = WORKSPACE_SUBTITLE_MODES.filter((m) => visible.subtitleModes.includes(m.id));
 
@@ -491,6 +496,50 @@ export function OptionsBar({ optionsConfig, audio, subtitles, statusBadge }: Opt
               )}
             </>
           )}
+        </>
+      )}
+
+      {visible.previewQuality && previewQuality && (
+        <>
+          <i className="aw-bar-sep" />
+          <div className="aw-menu-wrap">
+            <button
+              type="button"
+              className={`aw-pill-item${openMenu === "quality" ? " active" : ""}`}
+              aria-expanded={openMenu === "quality"}
+              aria-label="Preview quality"
+              title={`Preview quality: ${curQualityLabel}`}
+              onClick={() => setOpenMenu(openMenu === "quality" ? null : "quality")}
+            >
+              <span>{curQualityLabel}</span>
+              <span className="aw-caret">▾</span>
+            </button>
+            {openMenu === "quality" && (
+              <div className="aw-dialog aw-dialog-list" role="dialog" aria-label="Preview quality">
+                <div className="aw-dialog-head">
+                  <b>Preview quality</b>
+                  <span>Stored frame quality in this browser</span>
+                </div>
+                {WORKSPACE_PREVIEW_QUALITIES.map((q) => (
+                  <button
+                    key={q.id}
+                    type="button"
+                    className={`aw-option-row${curQuality === q.id ? " on" : ""}`}
+                    onClick={() => {
+                      previewQuality.onSelectQuality(q.id);
+                      setOpenMenu(null);
+                    }}
+                  >
+                    <div>
+                      <b>{q.label}</b>
+                      <small>{q.description}</small>
+                    </div>
+                    {curQuality === q.id && <span className="aw-check">✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </>
       )}
 

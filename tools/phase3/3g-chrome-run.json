@@ -1,0 +1,204 @@
+{
+  "phase1_firstPlay": {
+    "mountMs": 1652,
+    "workerFrameCalls": 590,
+    "freshBlits": 5236,
+    "storeBlits": 88,
+    "bufferingPauses": 1,
+    "audioSyncEvents": [
+      {
+        "scene": 0,
+        "atTime": 1.9044999999999996,
+        "frame": 57,
+        "heldFrame": 56,
+        "audioPausedImmediately": true,
+        "lagFrames": 0,
+        "audioResumedImmediately": true,
+        "pictureLocalSec": 1.904,
+        "audioCurrentTimeSec": 1.904,
+        "resumeDiffMs": 0
+      }
+    ],
+    "decisions": [
+      {
+        "scene": 0,
+        "mode": "live",
+        "state": "ready",
+        "reason": "ok",
+        "variant": "predraw",
+        "L": 90,
+        "startFrames": 90,
+        "W": 20.2,
+        "drawFps": 4.5
+      },
+      {
+        "scene": 1,
+        "mode": "live",
+        "state": "ready",
+        "reason": "ok",
+        "variant": "predraw",
+        "L": 147,
+        "startFrames": 147,
+        "W": 39.7,
+        "drawFps": 3.7
+      },
+      {
+        "scene": 2,
+        "mode": "live",
+        "state": "ready",
+        "reason": "ok",
+        "variant": "predraw",
+        "L": 140,
+        "startFrames": 140,
+        "W": 27.3,
+        "drawFps": 5.1
+      },
+      {
+        "scene": 3,
+        "mode": "live",
+        "state": "playing",
+        "reason": "ok",
+        "variant": "predraw",
+        "L": 37,
+        "startFrames": 37,
+        "W": 1.4,
+        "drawFps": 25.8
+      }
+    ],
+    "per": [
+      {
+        "scene": 0,
+        "waitMs": 4401,
+        "ticks": 180,
+        "bufferingPauses": 1,
+        "wrong": 0,
+        "maxNextAhead": 25,
+        "openAfterLeave": 0
+      },
+      {
+        "scene": 1,
+        "waitMs": 32832,
+        "ticks": 299,
+        "bufferingPauses": 0,
+        "wrong": 0,
+        "maxNextAhead": 20,
+        "openAfterLeave": 0
+      },
+      {
+        "scene": 2,
+        "waitMs": 21666,
+        "ticks": 299,
+        "bufferingPauses": 0,
+        "wrong": 0,
+        "maxNextAhead": 90,
+        "openAfterLeave": 0
+      },
+      {
+        "scene": 3,
+        "waitMs": 0,
+        "ticks": 298,
+        "bufferingPauses": 0,
+        "wrong": 0,
+        "maxNextAhead": 0,
+        "openAfterLeave": null
+      }
+    ],
+    "peak": {
+      "cacheBytes": 135475200,
+      "hostBytes": 135475200,
+      "budget": 167772160
+    },
+    "openAfterDestroy": 0,
+    "store04": {
+      "totalBytes": 18900478,
+      "totalFrames": 540,
+      "avgBytesPerFrame": 35001,
+      "avgKBPerFrame": 34.2,
+      "scenesComplete": [
+        true,
+        true,
+        true,
+        true
+      ]
+    }
+  },
+  "phase2_replayAfterReload": {
+    "mountMs": 271,
+    "framesPlayed": 540,
+    "workerFrameCalls": 0,
+    "activeWorkersDuringReplay": 0,
+    "wrongFrames": 0,
+    "bufferingPauses": 0
+  },
+  "phase3_qualityJobs": {
+    "raise04to06": {
+      "raiseMs": 105148,
+      "pausesCausedByJob": 0,
+      "workerCallsOnRaise": 540,
+      "firstUpgraded": [
+        "S1:35",
+        "S1:40",
+        "S1:41",
+        "S1:42",
+        "S1:43",
+        "S1:44"
+      ],
+      "qualitiesAfter06": [
+        0.6,
+        0.6,
+        0.6,
+        0.6
+      ],
+      "totalBytes": 26532070,
+      "avgBytesPerFrame": 49133,
+      "avgKBPerFrame": 48
+    },
+    "lower06to02": {
+      "lowerMs": 15179,
+      "workerCallsOnLower": 0,
+      "qualitiesAfter02": [
+        0.2,
+        0.2,
+        0.2,
+        0.2
+      ],
+      "totalBytes": 11347072,
+      "avgBytesPerFrame": 21013,
+      "avgKBPerFrame": 20.5
+    }
+  },
+  "phase4_digestRevision": {
+    "workerCallsForRevision": 150,
+    "callsByScene": [
+      0,
+      0,
+      0,
+      150
+    ],
+    "expectedScene3Frames": 150,
+    "oldDigestDeleted": true,
+    "newDigestComplete": true,
+    "otherScenesComplete": [
+      true,
+      true,
+      true
+    ]
+  },
+  "bytesPerFrameSummary": {
+    "q02": {
+      "bytes": 21013,
+      "kb": 20.52,
+      "targetKB": 20
+    },
+    "q04": {
+      "bytes": 35001,
+      "kb": 34.18,
+      "targetKB": 34
+    },
+    "q06": {
+      "bytes": 49133,
+      "kb": 47.98,
+      "targetKB": 48
+    }
+  }
+}

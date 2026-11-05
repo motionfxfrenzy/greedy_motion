@@ -5,14 +5,26 @@ export type PlayerMeta = { width: number; height: number; fps: number; frames: n
 
 export type PlayerEvent = "ready" | "buffering" | "error" | "mode";
 
+/**
+ * Per-scene and film-level playback states (phase 3g, plan change C):
+ * - `drawing`: initial buffer (`max(30, L)` frames) is not ready yet;
+ * - `ready`: buffer is ready and the player is paused;
+ * - `playing`: buffer is ready and playback is advancing at 30 fps;
+ * - `buffering`: the frame due was not ready; holds the last frame and pauses the clock until `min(30, framesLeft)` are ready;
+ * - `clip`: fallback MP4 clip (`unverified-environment`, `unsupported-environment`, `worker-unhealthy`, or bundle-load failure).
+ */
+export type PlaybackState = "drawing" | "ready" | "playing" | "buffering" | "clip";
+
 export type PlayerDecision = {
   mode: "live" | "clip";
   reason: string;
-  /** `predraw` when the scene is drawn slower than it plays (frames are drawn ahead before playback starts). */
+  /** Explicit 3g player state (`drawing`, `ready`, `playing`, `buffering`, `clip`). */
+  state?: PlaybackState;
+  /** `predraw` when the scene draws slower than 30 fps (frames are buffered ahead first). */
   variant?: "live" | "predraw";
-  /** Set (0..1) only while the scene is being pre-drawn before playback; absent once it can play. */
+  /** Set (0..1) while the scene is drawing its initial buffer before playback; absent once ready. */
   progress?: number;
-  /** Frames that must be ready ahead before playback starts, and the predicted wait in seconds (pre-draw only). */
+  /** Frames that must be ready ahead before playback starts, and the predicted wait in seconds. */
   neededFrames?: number;
   waitSeconds?: number;
 };

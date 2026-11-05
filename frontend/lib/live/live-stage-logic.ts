@@ -3,7 +3,7 @@ import { parseGenFromBundleUrl } from "./api.ts";
 import { isPlateLiveEnabled } from "./flag.ts";
 import type { AspectRatio } from "./plate-player.ts";
 import { environmentStatus, supportsWorkerHost, type EnvironmentProbeInput } from "./support.ts";
-import type { PlayerDecision } from "./types.ts";
+import type { PlaybackState, PlayerDecision } from "./types.ts";
 
 /**
  * Pure per-scene mode, check-once, clip-request, and workspace status mapping logic
@@ -270,7 +270,13 @@ export type SceneModeResolution = {
   tabClassName: string;
   /** In-stage `.aw-wait` overlay config when this scene is the currently selected scene. */
   stageWait: { failed: boolean; title: string; detail?: string } | null;
-  /** The scene is drawing frames ahead before it can play (phase 3f); it stays playable so the film can move into it and wait. */
+  /** Explicit 3g player state (`drawing`, `ready`, `playing`, `buffering`, `clip`). */
+  playerState?: PlaybackState;
+  /** Whether the scene is currently buffering mid-playback. */
+  isBuffering?: boolean;
+  /** Status text for `StatusLine` when this scene is drawing or buffering (e.g. `"Drawing scene 2… 40 %"`, `"Buffering…"`). */
+  statusText?: string;
+  /** The scene is drawing frames ahead before it can play (phase 3f/3g); it stays playable so the film can move into it and wait. */
   isPreparing?: boolean;
   /** Fraction (0..1) of the frames needed ahead that are drawn, while `isPreparing`. */
   preparingProgress?: number;
@@ -508,12 +514,13 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
   }
 
   const hasComment = Boolean(input.hasPendingComment);
-  const buffering = Boolean(input.isBuffering);
+  const buffering = Boolean(input.isBuffering || input.playerDecision?.state === "buffering");
 
-  // 3f. Pre-draw: the player is drawing frames ahead before this scene can play (progress 0..1), then it plays.
+  // 3f/3g. Initial drawing buffer: the player is drawing frames ahead before this scene can play (progress 0..1), then it plays.
   const progress = input.playerDecision?.mode === "live" ? input.playerDecision.progress : undefined;
   if (typeof progress === "number") {
     const pct = Math.max(0, Math.min(100, Math.floor(progress * 100)));
+    const drawText = `Drawing scene ${v.index + 1}… ${pct} %`;
     return {
       mode: "live",
       reason: input.playerDecision?.reason ?? "predraw",
@@ -526,7 +533,9 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
       tabState: "updating",
       tabLabel: "Preparing",
       tabClassName: "updating",
-      stageWait: { failed: false, title: `Preparing this scene… ${pct}%` },
+      stageWait: { failed: false, title: drawText },
+      playerState: "drawing",
+      statusText: drawText,
       isPreparing: true,
       preparingProgress: progress
     };
@@ -544,7 +553,10 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
     tabState: "checked",
     tabLabel: hasComment ? "Needs update" : "Ready",
     tabClassName: hasComment ? "needs-update" : "ready",
-    stageWait: buffering ? { failed: false, title: "Buffering…" } : null
+    stageWait: buffering ? { failed: false, title: "Buffering…" } : null,
+    playerState: buffering ? "buffering" : (input.playerDecision?.state ?? "ready"),
+    isBuffering: buffering,
+    ...(buffering ? { statusText: "Buffering…" } : {})
   };
 }
 

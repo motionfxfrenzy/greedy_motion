@@ -182,7 +182,8 @@ test("gate and clip decision table: fast scene live, heavy scene clip, unhealthy
   assert.equal(unverifiedGate.reason, "unverified-environment");
 
   // Also test full PlatePlayer mounting for heavy scene and unsupported environment.
-  // 250 ms per frame at 15 fps preview: L = ceil(105 * (1 - 4/15)) + 8 = 85 frames, W = 85 / 4 = 21 s > 20 s -> clip (phase 3f).
+  // In phase 3g, a heavy scene (250 ms/frame) stays live (pre-drawing its buffer) and never falls back to clip for slowness;
+  // only unverified / unsupported environments or unhealthy Workers fall back to clip.
   const modeEvents = [];
   const heavyPlayer = new PlatePlayer({
     bundleDigest: "heavy-digest",
@@ -194,9 +195,9 @@ test("gate and clip decision table: fast scene live, heavy scene clip, unhealthy
   });
   heavyPlayer.on("mode", (e) => modeEvents.push(e));
   await heavyPlayer.mount(fakeElement());
-  assert.equal(heavyPlayer.decision().mode, "clip");
-  assert.match(heavyPlayer.decision().reason, /predraw-too-slow: wait 2\d\.\ds > 20s/);
-  assert.equal(modeEvents[0]?.mode, "clip");
+  assert.equal(heavyPlayer.decision().mode, "live");
+  assert.equal(heavyPlayer.playbackVariant, "predraw");
+  assert.equal(heavyPlayer.state, "drawing");
   heavyPlayer.destroy();
 
   const safariUa = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Version/17.4 Safari/605.1.15";
@@ -252,9 +253,9 @@ test("PlatePlayer: showFrame never blocks, holds last good frame and emits buffe
   await player.pumpScheduler(1);
   assert.equal(player.ready(75), true, "seek re-prioritised scheduler to draw frame 75 immediately");
 
-  // Showing frame 75 now blits frame 75 and clears buffering
+  // Showing frame 75 now blits frame 75 (PREVIEW_FRAME_STEP = 1 -> exact source frame 75) and clears buffering
   player.showFrame(75);
-  assert.equal(el.drawn.at(-1)?.frameIndex, 74, "source frame 75 is held on preview frame 74");
+  assert.equal(el.drawn.at(-1)?.frameIndex, 75, "source frame 75 is drawn at 30 fps (step 1)");
   assert.equal(bufferingEvents.at(-1)?.buffering, false);
 
   player.destroy();

@@ -143,6 +143,7 @@ test("resolveVisibleOptions hides unsupported engine options instead of disablin
   assert.equal(full.subtitleColors, true);
   assert.equal(full.subtitleOpacity, true);
   assert.equal(full.subtitlePosition, true);
+  assert.equal(full.previewQuality, true);
 
   // HyperFrames-style subset: only voice/music and subtitle mode (no style/size/colors/opacity/position)
   const hf = resolveVisibleOptions({

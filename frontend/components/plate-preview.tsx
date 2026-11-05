@@ -2,7 +2,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scriptFrameKey, voiceText, type VideoProject } from "@videosaas/contracts";
 import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, getPlates, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
-import { isPlateLiveEnabled, type LivePlateScene, type LivePlateStatus, type SceneModeResolution } from "../lib/live";
+import {
+  SfxCueTracker,
+  isPlateLiveEnabled,
+  readStoredPreviewQuality,
+  writeStoredPreviewQuality,
+  type FrameStoreStatus,
+  type LivePlateScene,
+  type LivePlateStatus,
+  type PreviewQuality,
+  type QualityJobProgress,
+  type SceneModeResolution
+} from "../lib/live";
 import { useMediaToken } from "../lib/use-media-token";
 import { AnimationPrep, AnimationWorkspace, FinalView, activeSubtitleCueAt, buildPlateFinalRatios, buildSubtitleCues, sortWorkspaceComments, type WorkspaceAspectOption } from "./animation-workspace";
 import { PlateLiveStage, type PlateLiveOptions } from "./plate-live-stage";
@@ -129,6 +140,9 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const [master, setMaster] = useState(1);
   const [muted, setMuted] = useState(false);
   const [transitionsOn, setTransitionsOn] = useState<boolean>(false);
+  const [previewQuality, setPreviewQuality] = useState<PreviewQuality>(() => readStoredPreviewQuality());
+  const [qualityJobProgress, setQualityJobProgress] = useState<QualityJobProgress | null>(null);
+  const [storeStatus, setStoreStatus] = useState<FrameStoreStatus | null>(null);
   const subLoaded = useRef(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const subDrag = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
@@ -136,7 +150,8 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const voices = useRef<(HTMLAudioElement | null)[]>([]);
   const sfxAudios = useRef<Record<string, HTMLAudioElement | null>>({});
   const sfxSlot = useRef<Record<string, number>>({});
-  const sfxTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const sfxTracker = useRef<SfxCueTracker<PlateSfxName>>(new SfxCueTracker());
+  const sfxSceneIndex = useRef<number>(-1);
   const musicAudio = useRef<HTMLAudioElement>(null);
   const started = useRef(false);
   const wantPlay = useRef(false);
@@ -253,6 +268,71 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     return () => { live = false; clearTimeout(timer); };
   }, [project.id, project.brief?.scriptBeats?.length, prep, busy, flagEnabled]);
 
+  const clearSfxTimers = useCallback(() => {
+    // No setTimeout timers are used; reset tracker cursor on stop/clear.
+  }, []);
+
+  const buildCuesForScene = useCallback(
+    (index: number, overrides?: { sfx?: boolean; transitions?: boolean }): PlateSfxCue[] => {
+      const useSfx = overrides?.sfx ?? sfxOn;
+      const useTransitions = overrides?.transitions ?? transitionsOn;
+      if (!useSfx && !useTransitions) return [];
+      const planBeat = project.beatPlan?.beats?.[index];
+      const scriptBeat = project.brief?.scriptBeats?.[index];
+      const sceneDur = durations[index] ?? scenes[index]?.seconds ?? 4;
+      return [
+        ...(useSfx
+          ? sceneSfxCues(
+              {
+                role: planBeat?.role,
+                sfx: planBeat?.sfx,
+                keyword: scriptBeat?.keyword ?? planBeat?.keyword,
+                visual: scriptBeat?.visual,
+                line: scriptBeat?.line ?? planBeat?.line,
+                transition_out: planBeat?.transition_out
+              },
+              voiceTakes[index]?.words,
+              sceneDur,
+              index
+            )
+          : []),
+        ...(useTransitions ? sceneTransitionCues(sceneDur, index, scenes.length) : [])
+      ];
+    },
+    [sfxOn, transitionsOn, project.beatPlan?.beats, project.brief?.scriptBeats, durations, scenes, voiceTakes]
+  );
+
+  const playSceneSfx = useCallback(
+    (index: number, realOffset: number, overrides?: { sfx?: boolean; transitions?: boolean }) => {
+      sfxSceneIndex.current = index;
+      const cues = buildCuesForScene(index, overrides);
+      sfxTracker.current.setCues(cues, realOffset);
+    },
+    [buildCuesForScene]
+  );
+
+  const tickSceneSfx = useCallback(
+    (index: number, localOffset: number, state: { playing: boolean; buffering: boolean }) => {
+      if (!sfxOn && !transitionsOn) return;
+      if (sfxSceneIndex.current !== index) {
+        sfxSceneIndex.current = index;
+        sfxTracker.current.setCues(buildCuesForScene(index), localOffset);
+      }
+      const crossed = sfxTracker.current.tick(localOffset, state);
+      if (muted || !wantPlay.current) return;
+      for (const cue of crossed) {
+        const slot = (sfxSlot.current[cue.name] ?? 0) % 2;
+        sfxSlot.current[cue.name] = slot + 1;
+        const el = sfxAudios.current[`${cue.name}:${slot}`] ?? sfxAudios.current[`${cue.name}:0`];
+        if (!el) continue;
+        el.volume = Math.min(1, Math.max(0, cue.volume * master));
+        el.currentTime = cue.mediaStart ?? 0;
+        void el.play().catch(() => undefined);
+      }
+    },
+    [sfxOn, transitionsOn, buildCuesForScene, muted, master]
+  );
+
   useEffect(() => {
     if (!playing) return;
     if (isLiveMode && liveResolutions[current]?.mode === "live") return;
@@ -265,11 +345,12 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       const voElapsed = vo && (!vo.paused || vo.ended) ? vo.currentTime : 0;
       const local = Math.min(durations[current] ?? 0, Math.max(vidElapsed, voElapsed));
       setTime((starts[current] ?? 0) + local);
+      tickSceneSfx(current, local, { playing: true, buffering: false });
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, current, starts, durations, rateFor, isLiveMode, liveResolutions]);
+  }, [playing, current, starts, durations, rateFor, isLiveMode, liveResolutions, tickSceneSfx]);
 
   useEffect(() => {
     videos.current.forEach((el, idx) => { if (idx !== current && el && !el.paused) el.pause(); });
@@ -296,50 +377,6 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     }
     if (wantPlay.current) void el.play().catch(() => setPlaying(false));
   }, [current, rateFor, isLiveMode, liveResolutions]);
-
-  const clearSfxTimers = () => {
-    sfxTimers.current.forEach((id) => clearTimeout(id));
-    sfxTimers.current = [];
-  };
-
-  const playSceneSfx = (index: number, realOffset: number, overrides?: { sfx?: boolean; transitions?: boolean }) => {
-    clearSfxTimers();
-    const useSfx = overrides?.sfx ?? sfxOn;
-    const useTransitions = overrides?.transitions ?? transitionsOn;
-    if (!useSfx && !useTransitions) return;
-    const planBeat = project.beatPlan?.beats?.[index];
-    const scriptBeat = project.brief?.scriptBeats?.[index];
-    const sceneDur = durations[index] ?? scenes[index]?.seconds ?? 4;
-    const cues = [
-      ...(useSfx
-        ? sceneSfxCues({
-            role: planBeat?.role,
-            sfx: planBeat?.sfx,
-            keyword: scriptBeat?.keyword ?? planBeat?.keyword,
-            visual: scriptBeat?.visual,
-            line: scriptBeat?.line ?? planBeat?.line,
-            transition_out: planBeat?.transition_out
-          }, voiceTakes[index]?.words, sceneDur, index)
-        : []),
-      ...(useTransitions ? sceneTransitionCues(sceneDur, index, scenes.length) : [])
-    ];
-
-    cues.forEach((cue) => {
-      if (realOffset > cue.offset + 0.25) return;
-      const delayMs = Math.max(0, (cue.offset - realOffset) * 1000);
-      const tid = setTimeout(() => {
-        if (!wantPlay.current) return;
-        const slot = (sfxSlot.current[cue.name] ?? 0) % 2;
-        sfxSlot.current[cue.name] = slot + 1;
-        const el = sfxAudios.current[`${cue.name}:${slot}`] ?? sfxAudios.current[`${cue.name}:0`];
-        if (!el) return;
-        el.volume = Math.min(1, Math.max(0, cue.volume * master));
-        el.currentTime = cue.mediaStart ?? 0;
-        void el.play().catch(() => undefined);
-      }, delayMs);
-      sfxTimers.current.push(tid);
-    });
-  };
 
   const seek = useCallback((at: number) => {
     if (!scenes.length) return;
@@ -651,17 +688,39 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     };
   });
 
+  const choosePreviewQuality = (nextQuality: PreviewQuality) => {
+    const q = writeStoredPreviewQuality(nextQuality);
+    setPreviewQuality(q);
+  };
+
   const errors: string[] = [];
   if (error) errors.push(error);
   if (status && !status.available) errors.push("Code-drawn scenes aren't available for this project right now.");
 
-  const statusBadge = busy || failed > 0 || (scenes.length > 0 && readyCount < scenes.length)
+  const currentLiveStatusText = isLiveMode ? liveResolutions[current]?.statusText : undefined;
+
+  const statusBadge = qualityJobProgress?.running && qualityJobProgress.text
     ? {
-        text: isLiveMode ? <>{readyCount}/{scenes.length || "…"} ready{busy ? "…" : ""}</> : <>{drawn}/{scenes.length || "…"} drawn{busy ? "…" : ""}</>,
-        showRetry: !busy,
-        onRetry: () => { void drawPlates(project.id).then(setStatus).catch((e) => setError(e instanceof Error ? e.message : "Could not start drawing.")); }
+        text: qualityJobProgress.text,
+        showRetry: false
       }
-    : null;
+    : currentLiveStatusText
+      ? {
+          text: currentLiveStatusText,
+          showRetry: false
+        }
+      : storeStatus?.disabled && storeStatus.disabledReason
+        ? {
+            text: storeStatus.disabledReason,
+            showRetry: false
+          }
+        : busy || failed > 0 || (scenes.length > 0 && readyCount < scenes.length)
+          ? {
+              text: isLiveMode ? <>{readyCount}/{scenes.length || "…"} ready{busy ? "…" : ""}</> : <>{drawn}/{scenes.length || "…"} drawn{busy ? "…" : ""}</>,
+              showRetry: !busy,
+              onRetry: () => { void drawPlates(project.id).then(setStatus).catch((e) => setError(e instanceof Error ? e.message : "Could not start drawing.")); }
+            }
+          : null;
 
   const isCurrentScenePlayable = isLiveMode ? Boolean(liveResolutions[current]?.isPlayable) : (shown?.state === "drawn" && isViewAspectDrawn);
 
@@ -672,6 +731,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     errors={errors}
     audioControls={{ voice: voiceOn, music: musicOn, sfx: sfxOn, transitions: transitionsOn, onToggleVoice: toggleVoice, onToggleMusic: toggleMusic, onToggleSfx: toggleSfx, onToggleTransitions: toggleTransitions }}
     subtitleControls={{ mode: subMode, style: subStyle, size: subSize, opacity: subOpacity, textColor: subColor, bgColor: subBgColor, effectiveTextColor, effectiveBgColor, position: curScenePos, currentSceneIndex: current, onSelectMode: chooseSubMode, onSelectStyle: chooseSubStyle, onStepSize: changeSubSize, onChangeTextColor: changeSubColor, onChangeBgColor: changeSubBgColor, onChangeOpacity: setSubOpacityDirect, onChangeScenePosition: setSceneSubtitlePos, onApplyPositionToAll: applyPosToAllScenes, onResetCustomization: resetSubCustomization }}
+    previewQualityControls={{ quality: previewQuality, onSelectQuality: choosePreviewQuality }}
     statusBadge={statusBadge}
     canvasRef={canvasRef}
     onStageClick={toggle}
@@ -710,9 +770,13 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
           onSetPlaying={setPlaying}
           onSetTime={setTime}
           playSceneSfx={playSceneSfx}
+          tickSceneSfx={tickSceneSfx}
           clearSfxTimers={clearSfxTimers}
           onStatusRefresh={refreshStatus}
           onResolutionsChange={setLiveResolutions}
+          previewQuality={previewQuality}
+          onQualityJobProgress={setQualityJobProgress}
+          onStoreStatusChange={setStoreStatus}
           liveOptions={liveOptions}
         />
       ) : (

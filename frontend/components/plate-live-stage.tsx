@@ -20,8 +20,11 @@ import {
   type FetchedBundle,
   type FilmPlayer,
   type FilmSceneSpec,
+  type FrameStoreStatus,
   type LivePlateScene,
   type PlayerDecision,
+  type PreviewQuality,
+  type QualityJobProgress,
   type SceneModeResolution,
   withBackendAuth
 } from "../lib/live";
@@ -100,9 +103,13 @@ export interface PlateLiveStageProps {
   onSetPlaying: (playing: boolean) => void;
   onSetTime: (time: number) => void;
   playSceneSfx: (index: number, realOffset: number) => void;
+  tickSceneSfx?: (index: number, localOffset: number, state: { playing: boolean; buffering: boolean }) => void;
   clearSfxTimers: () => void;
   onStatusRefresh: () => void;
   onResolutionsChange?: (resolutions: SceneModeResolution[]) => void;
+  previewQuality?: PreviewQuality;
+  onQualityJobProgress?: (progress: QualityJobProgress) => void;
+  onStoreStatusChange?: (status: FrameStoreStatus) => void;
   liveOptions?: PlateLiveOptions;
 }
 
@@ -152,9 +159,13 @@ export function PlateLiveStage({
   onSetPlaying,
   onSetTime,
   playSceneSfx,
+  tickSceneSfx,
   clearSfxTimers,
   onStatusRefresh,
   onResolutionsChange,
+  previewQuality,
+  onQualityJobProgress,
+  onStoreStatusChange,
   liveOptions
 }: PlateLiveStageProps) {
   const hostContainerRef = useRef<HTMLDivElement | null>(null);
@@ -187,12 +198,14 @@ export function PlateLiveStage({
   const clockTimeRef = useRef<number>(time);
   const playingRef = useRef<boolean>(playing);
   const playSceneSfxRef = useRef(playSceneSfx);
+  const tickSceneSfxRef = useRef(tickSceneSfx);
   const onSetTimeRef = useRef(onSetTime);
   const onAdvanceSceneRef = useRef(onAdvanceScene);
   const lastCheckedFrameRef = useRef<number>(-1);
   clockTimeRef.current = time;
   playingRef.current = playing;
   playSceneSfxRef.current = playSceneSfx;
+  tickSceneSfxRef.current = tickSceneSfx;
   onSetTimeRef.current = onSetTime;
   onAdvanceSceneRef.current = onAdvanceScene;
 
@@ -545,6 +558,7 @@ export function PlateLiveStage({
         frames: v.frames,
         durationSeconds: durSec,
         environment: envArg,
+        variantKey: `${projectId}:${v.variantId ?? `scene-${idx}`}:${viewAspect}`,
         ...(forceClipReason ? { forceClipReason } : {})
       };
 
@@ -558,9 +572,13 @@ export function PlateLiveStage({
       container.innerHTML = "";
       const fp = createFilmPlayer({
         scenes: nextSpecsAndKeys.map((x) => x.spec),
+        filmKey: projectId,
         aspect: viewAspect,
         fps: 30,
         budgetBytes: resolveCacheBudgetBytes(),
+        previewQuality,
+        onQualityProgress: onQualityJobProgress,
+        onStoreStatus: onStoreStatusChange,
         timeSource: {
           currentTime: () => clockTimeRef.current,
           playing: () => playingRef.current
@@ -601,6 +619,12 @@ export function PlateLiveStage({
         if (d && typeof d.sceneIndex === "number") {
           if (d.buffering) {
             bufferingScenesRef.current.add(d.sceneIndex);
+            if (d.sceneIndex === current) {
+              voices.current[current]?.pause();
+              musicAudio.current?.pause();
+              clearSfxTimers();
+              Object.values(sfxAudios.current).forEach((el) => el?.pause());
+            }
           } else {
             bufferingScenesRef.current.delete(d.sceneIndex);
           }
@@ -667,6 +691,21 @@ export function PlateLiveStage({
     }
   }, [resolvedVariants, durations, viewAspect, revisionTick, liveOptions?.environment, liveOptions?.forceBuffering]);
 
+  // Trigger background QualityJob whenever the user changes `previewQuality`.
+  const prevQualityRef = useRef<PreviewQuality | undefined>(previewQuality);
+  useEffect(() => {
+    if (previewQuality === undefined) return;
+    if (prevQualityRef.current !== undefined && prevQualityRef.current !== previewQuality) {
+      prevQualityRef.current = previewQuality;
+      const fp = filmPlayerRef.current;
+      if (fp) {
+        void fp.setPreviewQuality(previewQuality);
+      }
+    } else {
+      prevQualityRef.current = previewQuality;
+    }
+  }, [previewQuality]);
+
   // Synchronize FilmPlayer before paint whenever `time` or `current` changes so scene-boundary switches never flash.
   useIsomorphicLayoutEffect(() => {
     clockTimeRef.current = time;
@@ -676,14 +715,21 @@ export function PlateLiveStage({
     }
   }, [time, current, liveOptions?.forceBuffering]);
 
-  // Master audio clock RAF loop when playing a live scene.
+  // Single clock RAF loop when playing a live scene (pauses clock and all audio during initial drawing or mid-scene buffering).
   const activeRes = resolutions[current];
-  // The scene is on stage (canvas visible) as soon as it is playable; the clock only runs once its frames ahead are drawn.
   const activeSceneShowsLive = activeRes?.mode === "live" && activeRes.isPlayable;
-  const activeSceneIsLive = activeSceneShowsLive && !activeRes?.isPreparing;
+  const activeScenePausedForBuffer = Boolean(activeRes?.isPreparing || activeRes?.isBuffering);
+  const activeSceneIsLive = activeSceneShowsLive && !activeScenePausedForBuffer;
 
   useEffect(() => {
     if (!playing || !activeSceneIsLive) {
+      if (playing && activeSceneShowsLive && activeScenePausedForBuffer) {
+        // Hold clock and pause voice, music and sound effects at the same instant while buffering or drawing.
+        voices.current[current]?.pause();
+        musicAudio.current?.pause();
+        clearSfxTimers();
+        Object.values(sfxAudios.current).forEach((el) => el?.pause());
+      }
       if (telemetryRef.current.playStartMs !== null) {
         telemetryRef.current.accumulatedPlayMs += performance.now() - telemetryRef.current.playStartMs;
         telemetryRef.current.playStartMs = null;
@@ -714,8 +760,8 @@ export function PlateLiveStage({
     if (musicAudio.current && musicSrc) {
       musicAudio.current.muted = !musicOn || muted;
       musicAudio.current.volume = 0.22 * master;
+      musicAudio.current.currentTime = clockTimeRef.current;
       if (musicAudio.current.paused) {
-        musicAudio.current.currentTime = clockTimeRef.current;
         void musicAudio.current.play().catch(() => undefined);
       }
     }
@@ -729,6 +775,16 @@ export function PlateLiveStage({
     let raf = 0;
 
     const tick = (now: number) => {
+      const fp = filmPlayerRef.current;
+      const activePlayer = fp?.scenes[current];
+      if (activePlayer && (activePlayer.isBufferingNow || activePlayer.isPreparing)) {
+        // Hold the clock and pause all audio immediately when entering buffering.
+        voices.current[current]?.pause();
+        musicAudio.current?.pause();
+        Object.values(sfxAudios.current).forEach((el) => el?.pause());
+        return;
+      }
+
       const curVo = voices.current[current];
       let localSec: number;
       if (curVo && !curVo.paused && !curVo.ended && curVo.currentTime > 0) {
@@ -736,6 +792,11 @@ export function PlateLiveStage({
         wallAnchorMs = now - localSec * 1000;
       } else {
         localSec = Math.max(0, (now - wallAnchorMs) / 1000);
+        if (curVo && !curVo.paused && !curVo.ended && Math.abs(curVo.currentTime - localSec) > 1 / 30) {
+          try {
+            curVo.currentTime = localSec;
+          } catch {}
+        }
       }
 
       const sceneDur = durations[current] ?? resolvedVariants[current]?.seconds ?? 4;
@@ -745,7 +806,6 @@ export function PlateLiveStage({
       clockTimeRef.current = nextGlobalTime;
       onSetTimeRef.current(nextGlobalTime);
 
-      const fp = filmPlayerRef.current;
       if (fp) {
         const targetFrame = fp.clock.frame();
         if (targetFrame !== lastCheckedFrameRef.current) {
@@ -758,7 +818,15 @@ export function PlateLiveStage({
           telemetryRef.current.distinctFramesSet.add(targetFrame);
         }
         fp.syncToClock();
+        if (fp.scenes[current]?.isBufferingNow || fp.scenes[current]?.isPreparing) {
+          voices.current[current]?.pause();
+          musicAudio.current?.pause();
+          Object.values(sfxAudios.current).forEach((el) => el?.pause());
+          return;
+        }
       }
+
+      tickSceneSfxRef.current?.(current, clampedLocal, { playing: true, buffering: false });
 
       const voStillRunning = Boolean(
         curVo && !curVo.paused && !curVo.ended && Number.isFinite(curVo.duration) && curVo.duration - curVo.currentTime > 0.08
@@ -783,6 +851,8 @@ export function PlateLiveStage({
   }, [
     playing,
     activeSceneIsLive,
+    activeSceneShowsLive,
+    activeScenePausedForBuffer,
     current,
     starts,
     durations,
@@ -794,6 +864,8 @@ export function PlateLiveStage({
     musicSrc,
     voices,
     musicAudio,
+    sfxAudios,
+    clearSfxTimers,
     liveOptions?.freezeClockAt
   ]);
 

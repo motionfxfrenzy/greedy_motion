@@ -1,11 +1,32 @@
-import { PlaybackClock, chooseFrame, frameAt, sceneAt, type TimeSource } from "./clock.ts";
+import {
+  FilmClock,
+  PlaybackClock,
+  chooseFrame,
+  frameAt,
+  sceneAt,
+  type FilmAudioBinding,
+  type SfxCue,
+  type TimeSource
+} from "./clock.ts";
 import { FrameCache, computeRollingWindow, frameCacheKey, sceneCacheKey, type RollingWindowSplit } from "./frame-cache.ts";
 import { FrameScheduler } from "./frame-scheduler.ts";
 import {
+  DEFAULT_PREVIEW_QUALITY,
+  FrameStore,
+  QualityJob,
+  normalizePreviewQuality,
+  storeFrameKey,
+  type FrameStoreStatus,
+  type PreviewQuality,
+  type QualityJobProgress,
+  type QualityJobSceneSpec
+} from "./frame-store.ts";
+import {
+  PLAYBACK_WINDOW_FRAMES,
   PREDRAW_JUMP_FRAMES,
-  PREDRAW_STALL_REPREPARE_MS,
-  PREDRAW_REASSESS_TOLERANCE,
   PREVIEW_FRAME_STEP,
+  RESUME_BUFFER_FRAMES,
+  START_BUFFER_FRAMES,
   contiguousFrom,
   decidePredraw,
   indicesToEvict,
@@ -13,19 +34,27 @@ import {
   previewFrameCount,
   previewIndexForFrame,
   previewRate,
+  resumeBufferFrames,
   sourceFrameForPreview,
+  startBufferFrames,
   type PredrawDecision
 } from "./predraw.ts";
 import { environmentStatus, resolveCacheBudgetBytes, supportsWorkerHost, type EnvironmentProbeInput } from "./support.ts";
-import type { PlayerDecision, PlayerEvent, PlayerMeta, ScenePlayer, SceneSpan } from "./types.ts";
+import type { PlaybackState, PlayerDecision, PlayerEvent, PlayerMeta, ScenePlayer, SceneSpan } from "./types.ts";
 import { WorkerHost, type HostFrameResult, type ImageBitmapLike, type WorkerHostOptions, type WorkerTransportFactory } from "./worker-host.ts";
 
 /**
- * Live plate scene player and multi-scene film sequencer (docs/LIVE_SCENES_PLAN.md §5, §6, §10, §20; pre-draw: phase 3f).
+ * Live plate scene player and multi-scene film sequencer (docs/LIVE_SCENES_PLAN.md §5, §6, §10, §20, §26;
+ * docs/LIVE_PLAYBACK_PLAN.md changes B, C, D, E, F).
  *
- * Preview frame indices: the scheduler, the cache and every buffering check work in *preview* indices (0, 1, 2, ...), where
- * preview index `i` is the engine's source frame `i * PREVIEW_FRAME_STEP`. Only `WorkerHost.frame()` and the public
- * `showFrame` / `ready` / `buffered` take or return the engine's 30 fps source indices.
+ * Phase 3g:
+ * - 30 fps (`PREVIEW_FRAME_STEP = 1`).
+ * - Video-style buffering: states `drawing`, `ready`, `playing`, `buffering`, `clip`.
+ *   Starts when `max(30, L)` frames are ready ahead; keeps ~90 frames (3 s) decoded in RAM within `resolveCacheBudgetBytes`;
+ *   closes each frame's bitmap once shown; enters `buffering` if a due frame is missing and resumes at `min(30, framesLeft)`.
+ * - Draw once: saves every drawn frame as lossy WebP in `FrameStore` (`gm-live-frames`); complete scenes replay without
+ *   creating a drawing Worker at all; partly saved scenes draw only missing frames.
+ * - Background quality job (`QualityJob`) and background draw-ahead for undrawn scenes.
  */
 
 export type AspectRatio = "16:9" | "9:16" | "1:1";
@@ -52,7 +81,6 @@ export function previewSizeForAspect(
     const baseW = fullWidth && fullWidth > 0 ? fullWidth : 1080;
     const width = 360;
     const height = 640;
-    // 1080 * (640 / 1920) = 360; 1920 * (640 / 1920) = 640.
     const scale = baseW === 1080 ? 640 / 1920 : width / baseW;
     return { width, height, label: "360x640", scale, bytesPerFrame: width * height * 4 };
   }
@@ -81,9 +109,7 @@ export type GateEvaluation = {
 };
 
 /**
- * The phase 3c buffering gate (docs/LIVE_SCENES_PLAN.md §6, §20), kept for reference and its tests:
- * `lead = clipSeconds * max(0, 1 - produceFps / consumeFps) + 0.5 s`; a lead beyond the ahead capacity meant "clip".
- * The player no longer uses it: `decidePredraw` (predraw.ts) replaces "lead > window => clip" with a pre-draw mode.
+ * The phase 3c buffering gate (docs/LIVE_SCENES_PLAN.md §6, §20), kept for reference and its unit tests.
  */
 export function evaluatePlaybackGate(input: {
   frames: number;
@@ -160,6 +186,9 @@ export type PlatePlayerOptions = {
   hasNextScene?: boolean;
   budgetBytes?: number;
   cache?: FrameCache<ImageBitmapLike>;
+  frameStore?: FrameStore | null;
+  filmKey?: string;
+  variantKey?: string;
   host?: WorkerHost;
   hostOptions?: Partial<WorkerHostOptions>;
   transportFactory?: WorkerTransportFactory;
@@ -167,11 +196,9 @@ export type PlatePlayerOptions = {
   forceClipReason?: string;
   gateSampleFrames?: number;
   autoPump?: boolean;
-  /** Source frames per preview frame (default `PREVIEW_FRAME_STEP`; tests of the plain 30 fps path pass 1). */
+  /** Source frames per preview frame (default `PREVIEW_FRAME_STEP` = 1). */
   frameStep?: number;
-  /** Longest pre-draw wait in seconds (default `MAX_PREDRAW_SECONDS`). */
-  maxPredrawSeconds?: number;
-  /** Millisecond clock for the pre-draw wait (default `performance.now`). */
+  /** Millisecond clock (default `performance.now`). */
   now?: () => number;
 };
 
@@ -183,9 +210,9 @@ function median(values: number[]): number {
 }
 
 /**
- * Page-wide draw accounting (phase 3f follow-up). Several Workers drawing at once share the CPU, so a draw timed while another
- * one is in flight is *contended* and says little about how fast the scene is alone. `work.count` is the number of draws in
- * flight on this page; sampling for the live/pre-draw/clip decision is serialised through `measureChain`.
+ * Page-wide draw accounting (phase 3f follow-up + 3g). Several Workers drawing at once share the CPU, so a draw timed while
+ * another one is in flight is *contended*. `work.count` is the number of draws in flight on this page; sampling and background
+ * drawing for non-active scenes are serialised through `measureChain`.
  */
 const work = { count: 0 };
 let measureChain: Promise<void> = Promise.resolve();
@@ -195,7 +222,7 @@ export function activeDrawWork(): number {
   return work.count;
 }
 
-function runExclusiveMeasure<T>(fn: () => Promise<T>): Promise<T> {
+export function runExclusiveMeasure<T>(fn: () => Promise<T>): Promise<T> {
   const run = measureChain.then(fn, fn);
   measureChain = run.then(
     () => undefined,
@@ -206,8 +233,6 @@ function runExclusiveMeasure<T>(fn: () => Promise<T>): Promise<T> {
 
 /** Draw samples kept per player for the measured cost. */
 const MAX_COST_SAMPLES = 9;
-/** Longest wait, ms, for the page to go quiet before re-measuring a contended scene alone. */
-const REMEASURE_IDLE_WAIT_MS = 8000;
 
 export class PlatePlayer implements ScenePlayer {
   readonly meta: PlayerMeta;
@@ -216,24 +241,26 @@ export class PlatePlayer implements ScenePlayer {
   readonly cacheKey: string;
   readonly cache: FrameCache<ImageBitmapLike>;
   readonly windowSplit: RollingWindowSplit;
-  /** Source frames per preview frame, and the number of preview frames of this scene. */
   readonly frameStep: number;
   readonly previewFrames: number;
-  /** Preview frames per second at playback. */
   readonly previewFps: number;
+  readonly store: FrameStore | null;
+  readonly filmKey: string;
+  readonly variantKey: string;
 
   private readonly sceneId: string;
   private readonly html: string;
   private readonly params: Record<string, unknown>;
-  private readonly host: WorkerHost | null;
+  private host: WorkerHost | null;
   private readonly ownsHost: boolean;
   private readonly ownsCache: boolean;
+  private readonly hostOptions?: Partial<WorkerHostOptions>;
+  private readonly transportFactory?: WorkerTransportFactory;
   private readonly scheduler: FrameScheduler<ImageBitmapLike>;
   private readonly gateSampleFrames: number;
   private readonly autoPump: boolean;
   private readonly envSupported: boolean;
   private readonly envState: "verified" | "unverified" | "unsupported";
-  private readonly maxPredrawSeconds: number | undefined;
   private readonly nowMs: () => number;
 
   private container: HTMLElement | null = null;
@@ -241,12 +268,13 @@ export class PlatePlayer implements ScenePlayer {
   private ctx: CanvasRenderingContext2D | null = null;
   /** Preview index of the frame the clock asks for. */
   private currentFrame = 0;
-  /** Preview index on the canvas. */
+  /** Preview index currently drawn on the canvas. */
   private lastShownFrame: number | null = null;
   private lastTarget: number | null = null;
   private isBuffering = false;
+  private bufferingCount = 0;
   private readyEmitted = false;
-  private currentDecision: PlayerDecision = { mode: "live", reason: "ok" };
+  private currentDecision: PlayerDecision = { mode: "live", reason: "ok", state: "drawing" };
   private pumping = false;
   private repumpRequested = false;
   private isDestroyed = false;
@@ -260,11 +288,13 @@ export class PlatePlayer implements ScenePlayer {
   private activateOnMeasure = false;
   private measuringAnnounced = false;
   private active = false;
+  private wantPlaying = false;
   private prefetchFrames = 0;
   private runNeeded = 0;
   private preparing: { needed: number; t0: number; pct: number } | null = null;
   private prepareBegun = false;
-  private stallSince: number | null = null;
+  private storedComplete = false;
+  private hostInitialized = false;
 
   private listeners: Record<PlayerEvent, Set<(detail?: unknown) => void>> = {
     ready: new Set(),
@@ -280,8 +310,12 @@ export class PlatePlayer implements ScenePlayer {
     this.params = options.params ? { ...options.params } : {};
     this.previewSize = previewSizeForAspect(options.aspect ?? "16:9", options.fullWidth, options.fullHeight);
     this.cacheKey = sceneCacheKey(this.bundleDigest, this.previewSize.label);
-    this.maxPredrawSeconds = options.maxPredrawSeconds;
+    this.store = options.frameStore ?? null;
+    this.filmKey = options.filmKey ?? "default-film";
+    this.variantKey = options.variantKey ?? `${this.filmKey}:${this.sceneId}`;
     this.nowMs = options.now ?? (() => (typeof performance !== "undefined" ? performance.now() : Date.now()));
+    this.hostOptions = options.hostOptions;
+    this.transportFactory = options.transportFactory;
 
     const fps = options.fps ?? 30;
     const frames = options.frames ?? 90;
@@ -312,7 +346,6 @@ export class PlatePlayer implements ScenePlayer {
       this.envState = environmentStatus(options.environment);
       this.envSupported = supportsWorkerHost(options.environment);
     } else if (options.host || options.transportFactory || options.hostOptions?.transportFactory) {
-      // Custom host or injected transport in tests: supported unless explicitly overridden.
       this.envState = "verified";
       this.envSupported = true;
     } else {
@@ -325,6 +358,7 @@ export class PlatePlayer implements ScenePlayer {
       this.host = null;
       this.currentDecision = {
         mode: "clip",
+        state: "clip",
         reason: options.forceClipReason
       };
     } else if (!this.envSupported) {
@@ -332,6 +366,7 @@ export class PlatePlayer implements ScenePlayer {
       this.host = null;
       this.currentDecision = {
         mode: "clip",
+        state: "clip",
         reason: this.envState === "unverified" ? "unverified-environment" : "unsupported-environment"
       };
     } else if (!this.html.trim()) {
@@ -339,6 +374,7 @@ export class PlatePlayer implements ScenePlayer {
       this.host = null;
       this.currentDecision = {
         mode: "clip",
+        state: "clip",
         reason: "no-bundle"
       };
     } else if (options.host) {
@@ -346,6 +382,7 @@ export class PlatePlayer implements ScenePlayer {
       this.host = options.host;
     } else {
       this.ownsHost = true;
+      // Note: WorkerHost constructor does not spawn an iframe or Worker until `init()` or `frame()` is called.
       this.host = new WorkerHost({
         html: this.html,
         params: this.params,
@@ -366,14 +403,24 @@ export class PlatePlayer implements ScenePlayer {
       scenes: [{ id: this.cacheKey, frames: this.previewFrames }],
       fps: this.previewFps,
       now: this.nowMs,
-      lookahead: Math.max(1, this.windowSplit.aheadFrames),
-      head: this.windowSplit.headFrames,
-      behind: this.windowSplit.behindFrames,
+      lookahead: Math.min(PLAYBACK_WINDOW_FRAMES, Math.max(1, this.windowSplit.aheadFrames)),
+      head: 0,
+      behind: 0,
+      strictAhead: true,
       draw: async (_sceneKey, previewIdx) => {
-        if (!this.host || this.currentDecision.mode === "clip") {
+        if (this.currentDecision.mode === "clip") {
           throw new Error("Player is in clip mode.");
         }
+        // 1. If the frame is already saved in FrameStore, load and decode the stored copy without calling WorkerHost!
+        if (this.store && !this.store.disabled && this.store.hasFrame(this.bundleDigest, this.previewSize.label, previewIdx)) {
+          const loaded = await this.store.load(storeFrameKey(this.bundleDigest, this.previewSize.label, previewIdx));
+          if (loaded) {
+            return { value: loaded, bytes: this.previewSize.bytesPerFrame };
+          }
+        }
+        // 2. Otherwise draw with the scene code in WorkerHost and save to FrameStore in the background.
         const res = await this.timedFrame(sourceFrameForPreview(previewIdx, this.meta.frames, this.frameStep));
+        this.saveFrameToStore(previewIdx, res.bitmap);
         return { value: res.bitmap, bytes: res.bytes };
       },
       onError: (_scene, _frame, err) => {
@@ -387,8 +434,36 @@ export class PlatePlayer implements ScenePlayer {
     this.scheduler.focus(this.cacheKey, 0);
   }
 
+  /** Explicit 3g player state: `drawing`, `ready`, `playing`, `buffering`, or `clip`. */
+  get state(): PlaybackState {
+    if (this.currentDecision.mode === "clip") return "clip";
+    if (!this.isMeasured || this.preparing !== null) return "drawing";
+    if (this.isBuffering) return "buffering";
+    if (this.active && this.wantPlaying) return "playing";
+    return "ready";
+  }
+
+  setWantPlaying(playing: boolean): void {
+    this.wantPlaying = playing;
+  }
+
+  get bufferingPauses(): number {
+    return this.bufferingCount;
+  }
+
+  get isBufferingNow(): boolean {
+    return this.isBuffering;
+  }
+
+  get currentPreviewFrame(): number {
+    return this.currentFrame;
+  }
+
   decision(): PlayerDecision {
-    return { ...this.currentDecision };
+    return {
+      ...this.currentDecision,
+      state: this.state
+    };
   }
 
   /** Cache key for a specific source frame index: `bundleDigest | frame | previewSize`. */
@@ -414,7 +489,7 @@ export class PlatePlayer implements ScenePlayer {
     return this.pumping;
   }
 
-  /** Whether the scene is pre-drawing before it can play. */
+  /** Whether the scene is drawing its initial buffer before playback can start. */
   get isPreparing(): boolean {
     return this.preparing !== null;
   }
@@ -424,19 +499,43 @@ export class PlatePlayer implements ScenePlayer {
     return this.variant;
   }
 
-  /** Preview indices that are cached right now (sorted). */
+  /** Preview indices that are cached in RAM right now (sorted). */
   cachedPreviewFrames(): number[] {
     return this.cache.frameIndices(this.cacheKey).sort((a, b) => a - b);
   }
 
-  /** Bytes this scene may hold at most (what film-level budgeting reserves for it). */
+  /** Bytes this scene may hold in RAM at most (what film-level budgeting reserves for it). */
   reservedBytes(): number {
-    if (this.currentDecision.mode === "clip" || !this.host) return 0;
+    if (this.currentDecision.mode === "clip") return 0;
     const bpf = this.previewSize.bytesPerFrame;
-    if (this.variant === "predraw") {
-      return Math.min(this.previewFrames, Math.max(this.runNeeded, this.preparing?.needed ?? 0, this.plan?.neededFrames ?? 0)) * bpf;
+    if (this.storedComplete) {
+      return Math.min(this.previewFrames, PLAYBACK_WINDOW_FRAMES) * bpf;
     }
-    return Math.min(this.previewFrames, this.windowSplit.windowFrames) * bpf;
+    if (this.variant === "predraw") {
+      return Math.min(
+        this.previewFrames,
+        Math.floor(this.cache.budget / bpf),
+        Math.max(PLAYBACK_WINDOW_FRAMES, this.runNeeded, this.preparing?.needed ?? 0, this.plan?.startFrames ?? 0)
+      ) * bpf;
+    }
+    return Math.min(this.previewFrames, PLAYBACK_WINDOW_FRAMES, this.windowSplit.windowFrames) * bpf;
+  }
+
+  private saveFrameToStore(previewIdx: number, bitmap: ImageBitmapLike): void {
+    if (!this.store || this.store.disabled) return;
+    const key = storeFrameKey(this.bundleDigest, this.previewSize.label, previewIdx);
+    void this.store
+      .save(bitmap, key, this.store.quality, {
+        frames: this.previewFrames,
+        filmKey: this.filmKey,
+        variantKey: this.variantKey
+      })
+      .then((ok) => {
+        if (ok && this.store?.isSceneComplete(this.bundleDigest, this.previewSize.label, this.previewFrames)) {
+          this.storedComplete = true;
+        }
+      })
+      .catch(() => {});
   }
 
   private emit(event: PlayerEvent, detail?: unknown) {
@@ -449,21 +548,22 @@ export class PlatePlayer implements ScenePlayer {
 
   private switchToClip(reason: string) {
     if (this.currentDecision.mode === "clip") return;
-    this.currentDecision = { mode: "clip", reason };
+    this.currentDecision = { mode: "clip", state: "clip", reason };
     this.preparing = null;
+    this.isBuffering = false;
     this.scheduler.pause();
-    // Frames of a scene that plays as its clip are never shown: free them at once.
     this.cache.drop(this.cacheKey);
-    const payload = { mode: "clip" as const, reason };
+    const payload = { mode: "clip" as const, state: "clip" as const, reason };
     this.emit("mode", payload);
   }
 
   private publish(extra: Partial<PlayerDecision> = {}) {
     this.currentDecision = {
       mode: "live",
+      state: this.state,
       reason: "ok",
       variant: this.variant,
-      ...(this.plan ? { neededFrames: this.plan.neededFrames, waitSeconds: this.plan.waitSeconds } : {}),
+      ...(this.plan ? { neededFrames: this.plan.startFrames, waitSeconds: this.plan.waitSeconds } : {}),
       ...extra
     };
     this.emit("mode", { ...this.currentDecision });
@@ -473,21 +573,31 @@ export class PlatePlayer implements ScenePlayer {
     return this.currentDecision.mode === "clip";
   }
 
+  private async ensureHostInitialized(): Promise<WorkerHost> {
+    if (!this.host) {
+      throw new Error("No Worker host.");
+    }
+    if (!this.hostInitialized) {
+      await this.host.init({ scale: this.previewSize.scale, params: this.params });
+      this.hostInitialized = true;
+    }
+    return this.host;
+  }
+
   /** Draws one frame in the Worker, counting it in the page-wide work and timing it as alone or contended. */
   private async timedFrame(sourceFrame: number): Promise<HostFrameResult> {
-    if (!this.host) throw new Error("No Worker host.");
+    const host = await this.ensureHostInitialized();
     const othersAtStart = work.count;
     work.count++;
     const t0 = this.nowMs();
     let res: HostFrameResult;
     let contended = othersAtStart > 0;
     try {
-      res = await this.host.frame(sourceFrame);
+      res = await host.frame(sourceFrame);
       if (work.count > 1) contended = true;
     } finally {
       work.count--;
     }
-    // The Worker's own timing when it reports one (it is what the scene costs), else the wall time.
     const ms = res.drawMs > 0 ? res.drawMs : this.nowMs() - t0;
     const list = contended ? this.contendedSamples : this.aloneSamples;
     list.push(ms);
@@ -496,8 +606,39 @@ export class PlatePlayer implements ScenePlayer {
   }
 
   /**
-   * The scene's draw cost: the median of recent draws made alone; only when there are none, the median of contended ones
-   * (a contended number overstates the cost, so it is never allowed to latch a fallback).
+   * Used by `QualityJob` when raising quality (e.g. 0.4 -> 0.6) to redraw a frame with the scene code
+   * through the exclusive draw queue so only one scene draws at a time.
+   */
+  async redrawFrameForQuality(previewIdx: number): Promise<ImageBitmapLike> {
+    const sourceFrame = sourceFrameForPreview(previewIdx, this.meta.frames, this.frameStep);
+    return runExclusiveMeasure(async () => {
+      const res = await this.timedFrame(sourceFrame);
+      return res.bitmap;
+    });
+  }
+
+  /** Replaces a cached frame in RAM (and re-blits if currently on screen) when `QualityJob` saves an updated frame. */
+  replaceCachedFrame(previewIdx: number, bitmap?: ImageBitmapLike): void {
+    if (!bitmap || this.isDestroyed) {
+      try {
+        bitmap?.close();
+      } catch {}
+      return;
+    }
+    if (this.cache.has(this.cacheKey, previewIdx) || this.lastShownFrame === previewIdx) {
+      this.cache.put(this.cacheKey, previewIdx, bitmap, this.previewSize.bytesPerFrame);
+      if (this.lastShownFrame === previewIdx) {
+        this.blitFrame(previewIdx);
+      }
+    } else {
+      try {
+        bitmap.close();
+      } catch {}
+    }
+  }
+
+  /**
+   * The scene's draw cost: the median of recent draws made alone; only when there are none, the median of contended ones.
    */
   private measured(): { ms: number; contended: boolean } {
     if (this.aloneSamples.length) return { ms: median(this.aloneSamples.slice(-5)), contended: false };
@@ -505,52 +646,39 @@ export class PlatePlayer implements ScenePlayer {
     return { ms: 0, contended: false };
   }
 
-  private decide(idx: number, extra: { elapsedSeconds?: number; readyAhead?: number; tolerance?: number } = {}): PredrawDecision {
+  private decide(idx: number, extra: { elapsedSeconds?: number; readyAhead?: number } = {}): PredrawDecision {
     const m = this.measured();
-    const input = {
+    return decidePredraw({
       previewFrames: this.previewFrames - idx,
       rate: this.previewFps,
       avgDrawMs: m.ms,
       bytesPerFrame: this.previewSize.bytesPerFrame,
       budgetBytes: this.cache.budget,
-      maxSeconds: this.maxPredrawSeconds,
       unhealthy: this.host?.unhealthy ?? false,
       supported: this.envSupported,
       envStatus: this.envState,
       ...extra
-    };
-    const d = decidePredraw(input);
-    if (d.mode === "clip" && m.contended && d.reason.startsWith("predraw-")) {
-      // Too slow / too big *as measured while another scene was drawing*: not a reason to give the scene up for the whole page.
-      // Keep pre-drawing; the draws that follow are timed alone and the next assessment uses those.
-      return {
-        ...decidePredraw({ ...input, maxSeconds: Number.POSITIVE_INFINITY, budgetBytes: Number.MAX_SAFE_INTEGER }),
-        provisional: true
-      };
-    }
-    return d;
+    });
   }
 
-  /** Waits (bounded) until no draw is in flight anywhere on the page. */
-  private async waitIdle(maxMs: number): Promise<boolean> {
-    const end = Date.now() + maxMs;
-    while (work.count > 0) {
-      if (this.isDestroyed || Date.now() > end) return false;
-      await new Promise<void>((r) => setTimeout(r, 25));
-    }
-    return true;
-  }
-
-  /** Draws `count` preview frames from `start` into the cache, timing each one. False when the Worker failed. */
+  /** Draws `count` missing preview frames from `start` into the cache, timing each one. False when the Worker failed. */
   private async sampleFrames(count: number, start: number): Promise<boolean> {
     const host = this.host;
     if (!host) return false;
     let drawn = 0;
-    for (let k = start; k < Math.min(this.previewFrames, start + count); k++) {
+    for (let k = start; k < this.previewFrames && drawn < count; k++) {
       if (this.isDestroyed || this.isClip()) return false;
+      if (this.store && !this.store.disabled && this.store.hasFrame(this.bundleDigest, this.previewSize.label, k)) {
+        const loaded = await this.store.load(storeFrameKey(this.bundleDigest, this.previewSize.label, k));
+        if (loaded) {
+          this.cache.put(this.cacheKey, k, loaded, this.previewSize.bytesPerFrame);
+        }
+        continue;
+      }
       try {
         const res = await this.timedFrame(sourceFrameForPreview(k, this.meta.frames, this.frameStep));
         this.cache.put(this.cacheKey, k, res.bitmap, res.bytes);
+        this.saveFrameToStore(k, res.bitmap);
         drawn++;
       } catch {
         if (host.unhealthy) {
@@ -569,16 +697,38 @@ export class PlatePlayer implements ScenePlayer {
   }
 
   /**
-   * Decides how the scene plays: starts its Worker and draws the first preview frames, one scene at a time page-wide. Idempotent.
-   * A measurement taken while another scene was drawing never latches a fallback: it is repeated alone first.
+   * Decides how the scene plays:
+   * - If the scene is already `complete` in `FrameStore`, plays directly from stored frames without creating/initializing
+   *   its drawing `WorkerHost` at all!
+   * - Otherwise initializes its Worker and draws the first missing preview frames, one scene at a time page-wide.
    */
   measure(): Promise<void> {
     if (!this.measurePromise) this.measurePromise = this.doMeasure();
     return this.measurePromise;
   }
 
-  /** Consecutive cached preview frames from `idx`. */
-  private readyAhead(idx: number): number {
+  /**
+   * Consecutive ready preview frames from `idx` (in RAM `FrameCache` or persisted `FrameStore`).
+   */
+  readyAhead(idx: number): number {
+    const ramSet = new Set(this.cache.frameIndices(this.cacheKey));
+    if (!this.store || this.store.disabled) {
+      return contiguousFrom(ramSet, idx);
+    }
+    let n = 0;
+    while (idx + n < this.previewFrames) {
+      const f = idx + n;
+      if (ramSet.has(f) || this.store.hasFrame(this.bundleDigest, this.previewSize.label, f)) {
+        n++;
+      } else {
+        break;
+      }
+    }
+    return n;
+  }
+
+  /** Consecutive decoded frames in RAM `FrameCache` from `idx`. */
+  private ramReadyAhead(idx: number): number {
     return contiguousFrom(this.cache.frameIndices(this.cacheKey), idx);
   }
 
@@ -604,12 +754,12 @@ export class PlatePlayer implements ScenePlayer {
     }
 
     if (!this.envSupported || !this.host) {
-      const payload = { mode: "clip" as const, reason: this.currentDecision.reason };
+      const payload = { mode: "clip" as const, state: "clip" as const, reason: this.currentDecision.reason };
       this.emit("mode", payload);
       return;
     }
 
-    if (options?.deferMeasure) return; // the film decides lazily: active scene and next only
+    if (options?.deferMeasure) return;
     this.activateOnMeasure = isActive;
     await this.measure();
   }
@@ -618,16 +768,76 @@ export class PlatePlayer implements ScenePlayer {
     const host = this.host;
     if (!host || !this.envSupported || this.isDestroyed || this.isClip()) return;
 
+    if (this.store && !this.store.disabled) {
+      await this.store.registerScene({
+        bundleDigest: this.bundleDigest,
+        sizeLabel: this.previewSize.label,
+        frames: this.previewFrames,
+        filmKey: this.filmKey,
+        variantKey: this.variantKey
+      });
+      if (this.isDestroyed || this.isClip()) return;
+
+      // Check if every frame of this scene is already saved in FrameStore (complete scene):
+      // If so, play it from FrameStore WITHOUT creating/initializing the drawing Worker at all!
+      if (this.store.isSceneComplete(this.bundleDigest, this.previewSize.label, this.previewFrames)) {
+        this.storedComplete = true;
+        const startNeeded = Math.min(this.previewFrames, START_BUFFER_FRAMES);
+        this.plan = {
+          mode: "live",
+          reason: "ok",
+          neededFrames: startNeeded,
+          startFrames: startNeeded,
+          waitSeconds: 0,
+          produceFps: this.previewFps,
+          consumeFps: this.previewFps,
+          bytesNeeded: startNeeded * this.previewSize.bytesPerFrame,
+          budgetFrames: Math.floor(this.cache.budget / this.previewSize.bytesPerFrame)
+        };
+        this.variant = "live";
+        this.runNeeded = startNeeded;
+        this.isMeasured = true;
+
+        // Prefetch the initial playback window from FrameStore into FrameCache.
+        const initialPrefetch = Math.min(this.previewFrames, PLAYBACK_WINDOW_FRAMES, Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame)));
+        await this.prefetchFromStore(this.currentFrame, initialPrefetch);
+        if (this.isDestroyed || this.isClip()) return;
+
+        if (this.cache.has(this.cacheKey, this.currentFrame) && this.lastShownFrame === null) {
+          this.blitFrame(this.currentFrame);
+        }
+        this.active = this.activateOnMeasure || this.active;
+        this.publish({ reason: "ok", state: this.state });
+        if (!this.readyEmitted) {
+          this.readyEmitted = true;
+          this.emit("ready", { neededFrames: startNeeded, bufferedAheadSeconds: startNeeded / this.previewFps });
+        }
+        if (this.autoPump && !this.isDestroyed && this.currentDecision.mode === "live") {
+          void this.pumpScheduler();
+        }
+        return;
+      }
+    }
+
     const ok = await runExclusiveMeasure(async () => {
       if (this.isDestroyed || this.isClip()) return false;
       try {
-        await host.init({ scale: this.previewSize.scale, params: this.params });
+        await this.ensureHostInitialized();
       } catch (err) {
         this.switchToClip(host.unhealthy ? "worker-unhealthy" : `init-failed:${err instanceof Error ? err.message : String(err)}`);
         return false;
       }
-      // Draw the first preview frames to measure the draw cost before deciding how the scene plays.
-      return this.sampleFrames(Math.min(this.gateSampleFrames, this.previewFrames), 0);
+      // Sample from `this.currentFrame` (or the first missing frame if partly stored) so the playhead frame is drawn first!
+      let sampleStart = this.currentFrame;
+      if (this.store && !this.store.disabled) {
+        const firstMissing = this.store.firstMissingFrame(this.bundleDigest, this.previewSize.label, this.previewFrames);
+        if (firstMissing !== null && firstMissing > sampleStart) {
+          await this.prefetchFromStore(sampleStart, Math.min(firstMissing - sampleStart, PLAYBACK_WINDOW_FRAMES));
+          sampleStart = firstMissing;
+        }
+      }
+      const count = Math.min(this.gateSampleFrames, Math.max(1, this.previewFrames - sampleStart));
+      return this.sampleFrames(count, sampleStart);
     });
     if (!ok || this.isDestroyed || this.isClip()) return;
 
@@ -636,25 +846,7 @@ export class PlatePlayer implements ScenePlayer {
       return;
     }
 
-    let plan = this.decide(0);
-    if (plan.provisional) {
-      // Measured while another scene was drawing and it looked too slow: wait for a quiet moment and measure once alone.
-      await this.waitIdle(REMEASURE_IDLE_WAIT_MS);
-      if (this.isDestroyed || this.isClip()) return;
-      await runExclusiveMeasure(async () => {
-        await this.waitIdle(1000);
-        return this.sampleFrames(Math.min(3, Math.max(0, this.previewFrames - 3)), 3);
-      });
-      if (this.isDestroyed || this.isClip()) return;
-      plan = this.decide(0);
-    }
-    if (plan.mode === "clip" && plan.reason.startsWith("predraw-too-slow")) {
-      // A fallback is final for the page, so confirm it once with fresh draws (a noisy first sample must not decide it).
-      await this.waitIdle(1000);
-      await runExclusiveMeasure(() => this.sampleFrames(Math.min(3, Math.max(0, this.previewFrames - 6)), 6));
-      if (this.isDestroyed || this.isClip()) return;
-      plan = this.decide(0);
-    }
+    const plan = this.decide(0);
     this.plan = plan;
     this.isMeasured = true;
 
@@ -664,7 +856,7 @@ export class PlatePlayer implements ScenePlayer {
     }
 
     this.variant = plan.mode === "predraw" ? "predraw" : "live";
-    this.runNeeded = plan.neededFrames;
+    this.runNeeded = plan.startFrames;
     this.publish({ reason: this.variant === "predraw" ? "predraw" : plan.reason });
 
     // Blit frame 0 immediately if available.
@@ -675,7 +867,7 @@ export class PlatePlayer implements ScenePlayer {
     if (!this.activateOnMeasure && !this.active) {
       if (!this.readyEmitted) {
         this.readyEmitted = true;
-        this.emit("ready", { neededFrames: plan.neededFrames, waitSeconds: plan.waitSeconds });
+        this.emit("ready", { neededFrames: plan.startFrames, waitSeconds: plan.waitSeconds });
       }
       return;
     }
@@ -690,12 +882,37 @@ export class PlatePlayer implements ScenePlayer {
       return;
     }
 
-    // Buffer the small lead (or start the background pump) so `ready` fires when enough is ahead.
-    await this.fillUntilGate(plan.neededFrames);
+    // Buffer the initial lead (`max(30, L)`) so `ready` fires when enough is ahead.
+    await this.fillUntilGate(plan.startFrames);
 
     if (this.autoPump && !this.isDestroyed && this.currentDecision.mode === "live") {
       void this.pumpScheduler();
     }
+  }
+
+  private async prefetchFromStore(fromFrame: number, count: number): Promise<number> {
+    if (!this.store || this.store.disabled) return 0;
+    let loadedCount = 0;
+    const end = Math.min(this.previewFrames, fromFrame + count);
+    for (let f = fromFrame; f < end; f++) {
+      if (this.isDestroyed || this.isClip()) break;
+      if (this.cache.has(this.cacheKey, f)) {
+        loadedCount++;
+        continue;
+      }
+      if (!this.store.hasFrame(this.bundleDigest, this.previewSize.label, f)) break;
+      const bm = await this.store.load(storeFrameKey(this.bundleDigest, this.previewSize.label, f));
+      if (!bm) break;
+      if (this.isDestroyed || this.isClip()) {
+        try {
+          bm.close();
+        } catch {}
+        break;
+      }
+      this.cache.put(this.cacheKey, f, bm, this.previewSize.bytesPerFrame);
+      loadedCount++;
+    }
+    return loadedCount;
   }
 
   private async fillUntilGate(neededFrames: number): Promise<void> {
@@ -724,46 +941,42 @@ export class PlatePlayer implements ScenePlayer {
     }
   }
 
-  /** A scene that was fast at the first measurement and turned out slow becomes a pre-draw scene (or falls back). */
+  /** A scene that was fast at the first measurement and turned out slow switches to pre-draw buffering. */
   private reassessLive() {
-    if (this.variant !== "live" || this.currentDecision.mode !== "live") return;
+    if (this.variant !== "live" || this.currentDecision.mode !== "live" || this.storedComplete) return;
     const d = this.decide(this.currentFrame);
     if (d.mode === "clip") {
       this.switchToClip(d.reason);
     } else if (d.mode === "predraw") {
       this.variant = "predraw";
       this.plan = d;
-      this.runNeeded = d.neededFrames;
+      this.runNeeded = d.startFrames;
       this.lastTarget = null;
       this.beginPrepare(this.currentFrame);
     }
   }
 
-  /** Window the scheduler may fill, per variant (see `configureWindow`). */
+  /** Decoded RAM window the scheduler may fill ahead of `currentFrame`. */
   private aheadCap(): number {
     const remaining = Math.max(1, this.previewFrames - this.currentFrame);
-    if (!this.active) {
-      const want = this.variant === "predraw" ? Math.max(1, this.runNeeded) : Math.max(1, this.plan?.neededFrames ?? 1);
-      return Math.max(0, Math.min(this.previewFrames, want, this.prefetchFrames));
-    }
     const other = this.cache.bytes - this.cache.sceneBytes(this.cacheKey);
     const room = Math.max(1, Math.floor((this.cache.budget - other) / this.previewSize.bytesPerFrame));
-    return Math.max(1, Math.min(remaining, Math.max(1, this.runNeeded), room));
+    if (!this.active) {
+      const want = Math.max(PLAYBACK_WINDOW_FRAMES, this.runNeeded, this.plan?.startFrames ?? PLAYBACK_WINDOW_FRAMES);
+      return Math.max(0, Math.min(this.previewFrames, want, this.prefetchFrames, room));
+    }
+    if (this.storedComplete) {
+      return Math.max(1, Math.min(remaining, PLAYBACK_WINDOW_FRAMES, room));
+    }
+    // During first play, keep up to `max(90, runNeeded)` in RAM when within `resolveCacheBudgetBytes` so the first play
+    // shows the exact freshly drawn bitmaps without re-decoding from WebP.
+    const want = this.variant === "predraw" ? Math.max(PLAYBACK_WINDOW_FRAMES, this.runNeeded) : PLAYBACK_WINDOW_FRAMES;
+    return Math.max(1, Math.min(remaining, want, room));
   }
 
   private configureWindow() {
-    if (!this.active) {
-      this.scheduler.setWindow({ lookahead: Math.max(1, this.aheadCap()), behind: 0, head: 0, strictAhead: true });
-    } else if (this.variant === "predraw") {
-      this.scheduler.setWindow({ lookahead: this.aheadCap(), behind: 0, head: 0, strictAhead: true });
-    } else {
-      this.scheduler.setWindow({
-        lookahead: Math.max(1, this.windowSplit.aheadFrames),
-        behind: this.windowSplit.behindFrames,
-        head: this.windowSplit.headFrames,
-        strictAhead: false
-      });
-    }
+    const cap = Math.max(1, this.aheadCap());
+    this.scheduler.setWindow({ lookahead: cap, behind: 0, head: 0, strictAhead: true });
   }
 
   /** Closes every cached frame the playhead has passed, and (on a jump) the ones beyond the ahead window. */
@@ -780,13 +993,12 @@ export class PlatePlayer implements ScenePlayer {
   }
 
   /**
-   * Starts (or re-starts, after a seek) the pre-draw wait from preview frame `idx`: works out the frames needed ahead and either
-   * is ready at once or reports progress until they are drawn. May fall back to the clip.
+   * Starts (or re-starts) the initial `drawing` buffer wait from preview frame `idx`:
+   * requires `startBufferFrames(remaining, L) = min(remaining, max(30, L))` frames ready ahead (in RAM or FrameStore).
    */
   private beginPrepare(idx: number) {
-    if (this.variant !== "predraw" || this.currentDecision.mode !== "live") return;
+    if (this.currentDecision.mode !== "live" || this.storedComplete) return;
     this.prepareBegun = true;
-    this.stallSince = null;
     const d = this.decide(idx);
     if (d.mode === "clip") {
       this.switchToClip(d.reason);
@@ -794,16 +1006,25 @@ export class PlatePlayer implements ScenePlayer {
     }
     this.plan = d;
     this.currentFrame = idx;
-    this.runNeeded = Math.max(1, d.neededFrames);
-    this.evictBehind(idx, true);
-    const needed = Math.min(this.runNeeded, Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame)));
-    this.runNeeded = needed;
+    const remaining = Math.max(1, this.previewFrames - idx);
+    const needed = startBufferFrames(remaining, d.neededFrames);
+    // When no FrameStore is attached, needed frames must fit in the RAM cache budget.
+    const maxPossible = this.store && !this.store.disabled
+      ? remaining
+      : Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame));
+    const clampedNeeded = Math.min(needed, maxPossible);
+    this.runNeeded = clampedNeeded;
+    if (this.autoPump) {
+      this.evictBehind(idx, true);
+    }
+
     const ready = this.readyAhead(idx);
-    if (ready >= needed) {
+    const ramNeeded = Math.min(clampedNeeded, Math.max(1, this.aheadCap()));
+    if (ready >= clampedNeeded && this.ramReadyAhead(idx) >= ramNeeded) {
       this.finishPrepare();
     } else {
-      this.preparing = { needed, t0: this.nowMs(), pct: -1 };
-      this.publishProgress(ready, needed);
+      this.preparing = { needed: clampedNeeded, t0: this.nowMs(), pct: -1 };
+      this.publishProgress(ready, clampedNeeded);
     }
   }
 
@@ -814,52 +1035,64 @@ export class PlatePlayer implements ScenePlayer {
     const pct = Math.floor(progress * 100);
     if (pct === prep.pct) return;
     prep.pct = pct;
-    this.publish({ reason: "predraw", progress });
+    this.publish({ reason: "predraw", state: "drawing", progress });
   }
 
   private finishPrepare() {
     const was = this.preparing !== null;
     this.preparing = null;
     if (was || this.currentDecision.progress !== undefined) {
-      this.publish({ reason: "ok" });
+      this.publish({ reason: "ok", state: this.state, progress: undefined });
     }
     if (this.isBuffering) {
       this.isBuffering = false;
       this.emit("buffering", { buffering: false, frame: this.currentFrame * this.frameStep });
     }
-    if (this.active && this.cache.has(this.cacheKey, this.currentFrame)) this.blitIfNeeded();
+    if (this.active && this.cache.has(this.cacheKey, this.currentFrame)) {
+      this.blitFrame(this.currentFrame);
+    }
     if (this.active && !this.readyEmitted) {
       this.readyEmitted = true;
       this.emit("ready", { neededFrames: this.runNeeded });
     }
   }
 
-  /** Called after every draw while pre-drawing: progress, start when enough is ready, fall back when it got too slow. */
+  /** Called after every draw while in `drawing` (`preparing`): updates progress and transitions to `ready`/`playing` when met. */
   private updatePrepare() {
     const prep = this.preparing;
     if (!prep || this.currentDecision.mode !== "live") return;
     const ready = this.readyAhead(this.currentFrame);
-    if (ready >= prep.needed) {
+    const ramNeeded = Math.min(prep.needed, Math.max(1, this.aheadCap()));
+    if (ready >= prep.needed && this.ramReadyAhead(this.currentFrame) >= ramNeeded) {
       this.finishPrepare();
       return;
     }
-    if (this.active && this.scheduler.drawn >= 3) {
+    if (this.active && this.scheduler.drawn >= 3 && !this.storedComplete) {
       const elapsed = (this.nowMs() - prep.t0) / 1000;
-      const d = this.decide(this.currentFrame, { elapsedSeconds: elapsed, readyAhead: ready, tolerance: PREDRAW_REASSESS_TOLERANCE });
+      const d = this.decide(this.currentFrame, { elapsedSeconds: elapsed, readyAhead: ready });
       if (d.mode === "clip") {
         this.switchToClip(d.reason);
         return;
       }
-      if (d.neededFrames > prep.needed) {
-        prep.needed = Math.min(d.neededFrames, Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame)));
-        this.runNeeded = prep.needed;
+      const remaining = Math.max(1, this.previewFrames - this.currentFrame);
+      const nextNeeded = startBufferFrames(remaining, d.neededFrames);
+      const maxPossible = this.store && !this.store.disabled
+        ? remaining
+        : Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame));
+      const clamped = Math.min(nextNeeded, maxPossible);
+      if (clamped > prep.needed) {
+        prep.needed = clamped;
+        this.runNeeded = clamped;
       }
     }
     this.publishProgress(ready, prep.needed);
   }
 
-  /** Pumps the draw-ahead scheduler inside the Worker until the rolling window (or the pre-draw window) is full. */
-  async pumpScheduler(maxFrames = this.windowSplit.windowFrames): Promise<number> {
+  /**
+   * Pumps the draw-ahead scheduler inside the Worker (or prefetches from `FrameStore`) until the playback window
+   * and any required store frames are ready.
+   */
+  async pumpScheduler(maxFrames = Math.max(PLAYBACK_WINDOW_FRAMES, this.windowSplit.windowFrames, this.previewFrames)): Promise<number> {
     if (this.isDestroyed || this.currentDecision.mode !== "live") return 0;
     if (this.pumping) {
       this.repumpRequested = true;
@@ -876,7 +1109,12 @@ export class PlatePlayer implements ScenePlayer {
         this.configureWindow();
         if (!this.active && this.aheadCap() <= 0) break;
         const drew = await this.scheduler.runNext();
-        if (!drew) break;
+        if (!drew) {
+          // If RAM window is full, check if we still need to draw frames into FrameStore (for `preparing` beyond RAM budget,
+          // or background draw-ahead to complete the scene in FrameStore).
+          const drewStoreOnly = await this.drawNextStoreOnlyFrame();
+          if (!drewStoreOnly) break;
+        }
         count++;
         if (this.currentDecision.mode !== "live") break;
         if (this.active) {
@@ -894,7 +1132,6 @@ export class PlatePlayer implements ScenePlayer {
     } finally {
       this.pumping = false;
     }
-    // A request that arrived while the loop was ending (a seek during the last await) must not be lost.
     if (this.repumpRequested && !this.isDestroyed && this.currentDecision.mode === "live") {
       this.repumpRequested = false;
       void this.pumpScheduler();
@@ -902,15 +1139,141 @@ export class PlatePlayer implements ScenePlayer {
     return count;
   }
 
-  /** Blits the wanted frame when it has just become available (a held frame was waiting for it). */
+  /**
+   * When the RAM `FrameCache` window is full (e.g. `budgetBytes < L * bpf` or while paused), draws the next missing frame
+   * of this scene, saves it to `FrameStore`, and closes the raw bitmap so RAM stays within `budgetBytes`.
+   */
+  private async drawNextStoreOnlyFrame(): Promise<boolean> {
+    if (!this.store || this.store.disabled || this.storedComplete || this.isClip() || this.isDestroyed) {
+      return false;
+    }
+    // Find the first missing frame >= currentFrame (or >= 0 if all ahead are saved)
+    let target: number | null = null;
+    for (let f = this.currentFrame; f < this.previewFrames; f++) {
+      if (!this.cache.has(this.cacheKey, f) && !this.store.hasFrame(this.bundleDigest, this.previewSize.label, f)) {
+        target = f;
+        break;
+      }
+    }
+    if (target === null && this.autoPump) {
+      target = this.store.firstMissingFrame(this.bundleDigest, this.previewSize.label, this.previewFrames);
+    }
+    if (target === null) {
+      if (this.store.isSceneComplete(this.bundleDigest, this.previewSize.label, this.previewFrames)) {
+        this.storedComplete = true;
+      }
+      return false;
+    }
+
+    try {
+      const res = await this.timedFrame(sourceFrameForPreview(target, this.meta.frames, this.frameStep));
+      const key = storeFrameKey(this.bundleDigest, this.previewSize.label, target);
+      await this.store.save(res.bitmap, key, this.store.quality, {
+        frames: this.previewFrames,
+        filmKey: this.filmKey,
+        variantKey: this.variantKey
+      });
+      if (this.store.isSceneComplete(this.bundleDigest, this.previewSize.label, this.previewFrames)) {
+        this.storedComplete = true;
+      }
+      // If `target` is now within the RAM window, keep it in cache; otherwise close it so RAM stays within budget.
+      if (target >= this.currentFrame && target < this.currentFrame + this.aheadCap()) {
+        this.cache.put(this.cacheKey, target, res.bitmap, res.bytes);
+      } else {
+        try {
+          res.bitmap.close();
+        } catch {}
+      }
+      return true;
+    } catch {
+      if (this.host?.unhealthy) {
+        this.switchToClip("worker-unhealthy");
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Background draw-ahead for an inactive or paused scene (plan change F):
+   * draws and saves all missing frames into `FrameStore` one frame at a time, yielding immediately when `shouldStop()` is true.
+   */
+  async drawAllToStore(shouldStop: () => boolean): Promise<boolean> {
+    if (!this.store || this.store.disabled || this.isDestroyed || this.isClip()) return false;
+    if (!this.isMeasured) {
+      await this.measure();
+    }
+    await this.store.flush();
+    if (this.isDestroyed || this.isClip()) return false;
+    if (this.store.isSceneComplete(this.bundleDigest, this.previewSize.label, this.previewFrames)) {
+      this.storedComplete = true;
+      return true;
+    }
+
+    while (!this.isDestroyed && !this.isClip() && !shouldStop()) {
+      const nextMissing = this.store.firstMissingFrame(this.bundleDigest, this.previewSize.label, this.previewFrames);
+      if (nextMissing === null) {
+        this.storedComplete = true;
+        return true;
+      }
+      const ok = await runExclusiveMeasure(async () => {
+        if (this.isDestroyed || this.isClip() || shouldStop()) return false;
+        try {
+          const res = await this.timedFrame(sourceFrameForPreview(nextMissing, this.meta.frames, this.frameStep));
+          const key = storeFrameKey(this.bundleDigest, this.previewSize.label, nextMissing);
+          await this.store!.save(res.bitmap, key, this.store!.quality, {
+            frames: this.previewFrames,
+            filmKey: this.filmKey,
+            variantKey: this.variantKey
+          });
+          if (this.active && nextMissing >= this.currentFrame && nextMissing < this.currentFrame + this.aheadCap()) {
+            this.cache.put(this.cacheKey, nextMissing, res.bitmap, res.bytes);
+          } else {
+            try {
+              res.bitmap.close();
+            } catch {}
+          }
+          return true;
+        } catch {
+          if (this.host?.unhealthy) {
+            this.switchToClip("worker-unhealthy");
+          }
+          return false;
+        }
+      });
+      if (!ok) return false;
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    return this.store.isSceneComplete(this.bundleDigest, this.previewSize.label, this.previewFrames);
+  }
+
+  /** Resume threshold for catch-up buffering: `min(30, frames left in scene)` (capped by RAM capacity when no store exists). */
+  private resumeThreshold(idx: number): number {
+    const remaining = Math.max(1, this.previewFrames - idx);
+    const want = resumeBufferFrames(remaining);
+    if (this.store && !this.store.disabled) {
+      return want;
+    }
+    const maxRam = Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame));
+    return Math.min(want, maxRam);
+  }
+
+  /** Blits the wanted frame and exits `buffering` once `min(30, frames left in scene)` frames are ready ahead. */
   private blitIfNeeded() {
     if (!this.cache.has(this.cacheKey, this.currentFrame)) return;
+    if (this.isBuffering) {
+      const needed = this.resumeThreshold(this.currentFrame);
+      const ramNeeded = Math.min(needed, Math.max(1, this.aheadCap()));
+      if (this.readyAhead(this.currentFrame) < needed || this.ramReadyAhead(this.currentFrame) < ramNeeded) {
+        return;
+      }
+      this.isBuffering = false;
+      this.blitFrame(this.currentFrame);
+      this.emit("buffering", { buffering: false, frame: this.currentFrame * this.frameStep });
+      this.publish({ state: this.state });
+      return;
+    }
     if (this.lastShownFrame !== this.currentFrame) {
       this.blitFrame(this.currentFrame);
-    }
-    if (this.isBuffering) {
-      this.isBuffering = false;
-      this.emit("buffering", { buffering: false, frame: this.currentFrame * this.frameStep });
     }
   }
 
@@ -924,28 +1287,29 @@ export class PlatePlayer implements ScenePlayer {
         this.ctx.drawImage(bm as unknown as CanvasImageSource, 0, 0, this.canvas.width, this.canvas.height);
       } catch {}
     }
-    // Pre-draw mode keeps nothing behind the frame on screen: close every frame the playhead has passed.
-    if (this.variant === "predraw" && this.active) this.evictBehind(frame);
+    // Close each frame's bitmap in RAM once the playhead has passed it (the stored WebP copy remains in FrameStore).
+    if (this.active) {
+      this.evictBehind(frame);
+    }
     return true;
   }
 
   /**
    * Draws (or blits from the cache) a frame now. Never blocks and never throws:
-   * if `frame` is not cached yet, holds the last shown frame and emits `buffering`.
-   * Seek re-prioritises the scheduler immediately. `frame` is the engine's 30 fps source index; each preview frame is held for
-   * `frameStep` of them.
+   * - If `frame` is not ready yet, enters `buffering`: holds the last shown frame, pauses the clock, and resumes when
+   *   `min(30, frames left in scene)` frames are ready again.
+   * - Never shows a frame other than the one due.
    */
   showFrame(frame: number): void {
     if (this.isDestroyed || this.currentDecision.mode === "clip") return;
     const idx = previewIndexForFrame(frame, this.meta.frames, this.frameStep);
     if (!this.isMeasured && this.host && this.envSupported) {
-      // Not decided yet (the film decides lazily): decide now, and hold the clock with a "preparing" state meanwhile.
       this.currentFrame = idx;
       this.active = true;
       void this.measure();
       if (!this.measuringAnnounced) {
         this.measuringAnnounced = true;
-        this.publish({ reason: "predraw", progress: 0 });
+        this.publish({ reason: "predraw", state: "drawing", progress: 0 });
       }
       return;
     }
@@ -953,15 +1317,24 @@ export class PlatePlayer implements ScenePlayer {
     this.active = true;
     if (!wasActive && this.scheduler.isPaused) this.scheduler.resume();
 
-    if (this.variant === "predraw") {
-      const last = this.lastTarget;
-      const jump = last === null || idx < last || idx > last + PREDRAW_JUMP_FRAMES;
-      this.lastTarget = idx;
-      this.currentFrame = idx;
-      if (jump) this.beginPrepare(idx);
-      if (this.isClip()) return;
-    }
+    const last = this.lastTarget;
+    const jump = last === null || idx < last || idx > last + PREDRAW_JUMP_FRAMES;
+    this.lastTarget = idx;
     this.currentFrame = idx;
+
+    if (jump) {
+      if (this.autoPump) {
+        this.evictBehind(idx, true);
+      }
+      if (
+        !this.storedComplete &&
+        (this.variant === "predraw" || (last === null && this.autoPump)) &&
+        this.readyAhead(idx) < Math.max(1, this.runNeeded)
+      ) {
+        this.beginPrepare(idx);
+        if (this.isClip()) return;
+      }
+    }
 
     // Re-prioritise the scheduler and cache focus around the requested frame.
     this.scheduler.focus(this.cacheKey, idx);
@@ -973,27 +1346,31 @@ export class PlatePlayer implements ScenePlayer {
     });
 
     if (!choice.stalled) {
-      this.stallSince = null;
-      this.blitFrame(choice.frame);
       if (this.isBuffering) {
-        this.isBuffering = false;
-        this.emit("buffering", { buffering: false, frame });
+        // While catching up from buffering, resume when `min(30, frames left in scene)` frames are ready ahead
+        // (or immediately when manually seeking with autoPump disabled and the target frame is ready).
+        const needed = this.autoPump ? this.resumeThreshold(idx) : 1;
+        const ramNeeded = this.autoPump ? Math.min(needed, Math.max(1, this.aheadCap())) : 1;
+        if (this.readyAhead(idx) >= needed && this.ramReadyAhead(idx) >= ramNeeded) {
+          this.isBuffering = false;
+          this.blitFrame(choice.frame);
+          this.emit("buffering", { buffering: false, frame });
+          this.publish({ state: this.state });
+        }
+      } else {
+        this.blitFrame(choice.frame);
       }
     } else if (!this.preparing) {
-      // Hold lastShownFrame on canvas; do not block audio clock. (While pre-drawing the "Preparing" state says it already.)
-      const now = this.nowMs();
-      if (this.stallSince === null) this.stallSince = now;
-      if (this.variant === "predraw" && now - this.stallSince > PREDRAW_STALL_REPREPARE_MS) {
-        // Drawing fell behind for good: rebuild the lead from here (or fall back if that would take too long).
-        this.beginPrepare(idx);
-        if (this.isClip()) return;
-      } else if (!this.isBuffering) {
+      // Frame due is not ready: enter `buffering`, hold `lastShownFrame` on canvas, pause the clock.
+      if (!this.isBuffering) {
         this.isBuffering = true;
+        this.bufferingCount++;
         this.emit("buffering", {
           buffering: true,
           frame,
           heldFrame: this.lastShownFrame === null ? null : this.lastShownFrame * this.frameStep
         });
+        this.publish({ state: "buffering" });
       }
     }
 
@@ -1007,7 +1384,7 @@ export class PlatePlayer implements ScenePlayer {
     return this.cache.has(this.cacheKey, previewIndexForFrame(frame, this.meta.frames, this.frameStep));
   }
 
-  /** Cached ranges in the engine's source frame indices (each preview frame covers `frameStep` of them). */
+  /** Cached ranges in the engine's source frame indices. */
   buffered(): { from: number; to: number }[] {
     const last = this.meta.frames - 1;
     return this.cache.buffered(this.cacheKey).map((r) => ({
@@ -1024,17 +1401,17 @@ export class PlatePlayer implements ScenePlayer {
   }
 
   /**
-   * Pipeline: pre-draws up to `frames` preview frames of this (not yet playing) scene while the previous one plays, within the
-   * bytes the film can spare. Does nothing for the scene that is playing, a clip scene or an unmounted one.
+   * Pipeline: pre-draws (or prefetches from `FrameStore`) up to `frames` preview frames of this next scene while the
+   * current one plays, within the bytes the film can spare.
    */
   prefetch(frames: number): void {
-    if (this.isDestroyed || this.active || !this.host || this.currentDecision.mode !== "live") return;
-    if (!this.plan) return; // not measured yet
+    if (this.isDestroyed || this.active || this.currentDecision.mode !== "live") return;
+    if (!this.plan) return;
     const cap = Math.max(0, Math.floor(frames));
     this.prefetchFrames = cap;
     if (cap <= 0) return;
     if (this.scheduler.isPaused) this.scheduler.resume();
-    if (this.variant === "predraw" && !this.prepareBegun) {
+    if (this.variant === "predraw" && !this.prepareBegun && !this.storedComplete) {
       this.currentFrame = 0;
       this.beginPrepare(0);
       if (this.currentDecision.mode !== "live") return;
@@ -1042,7 +1419,7 @@ export class PlatePlayer implements ScenePlayer {
     void this.pumpScheduler();
   }
 
-  /** The film moved to another scene: stop drawing for this one and free what pre-draw mode holds. */
+  /** The film moved to another scene: stop drawing for this one and free its decoded RAM frames (stored WebP copies remain). */
   deactivate(): void {
     if (this.isDestroyed || !this.active) return;
     this.active = false;
@@ -1052,19 +1429,16 @@ export class PlatePlayer implements ScenePlayer {
     this.isBuffering = false;
     if (this.preparing) {
       this.preparing = null;
-      if (this.currentDecision.mode === "live") this.publish({ reason: "ok" });
+      if (this.currentDecision.mode === "live") this.publish({ reason: "ok", state: "ready", progress: undefined });
     }
     this.scheduler.pause();
-    if (this.variant === "predraw") {
-      // Nothing of a pre-drawn scene is worth keeping once it has played; scrubbing back simply redraws.
-      this.cache.drop(this.cacheKey);
-      this.lastShownFrame = null;
-    }
+    this.cache.drop(this.cacheKey);
+    this.lastShownFrame = null;
   }
 
-  /** Recycles the underlying Worker at a scene boundary to release retained Worker memory. */
+  /** Recycles the underlying Worker at a scene boundary (only if a Worker was actually initialized). */
   async recycle(): Promise<void> {
-    if (this.host && !this.isDestroyed && this.currentDecision.mode === "live") {
+    if (this.host && this.hostInitialized && !this.isDestroyed && this.currentDecision.mode === "live") {
       await this.host.recycle("scene-boundary");
     }
   }
@@ -1115,36 +1489,50 @@ export type FilmSceneSpec = {
   durationSeconds?: number;
   environment?: string | EnvironmentProbeInput;
   forceClipReason?: string;
+  variantKey?: string;
 };
 
 export type FilmPlayerOptions = {
   scenes: FilmSceneSpec[];
+  filmKey?: string;
   aspect?: AspectRatio | string;
   fps?: number;
   budgetBytes?: number;
+  frameStore?: FrameStore | null;
+  previewQuality?: PreviewQuality;
   timeSource?: TimeSource;
   clock?: PlaybackClock;
+  audio?: FilmAudioBinding;
   transportFactory?: WorkerTransportFactory;
   environment?: string | EnvironmentProbeInput;
   autoPump?: boolean;
   frameStep?: number;
-  maxPredrawSeconds?: number;
   now?: () => number;
+  onQualityProgress?: (progress: QualityJobProgress) => void;
+  onStoreStatus?: (status: FrameStoreStatus) => void;
 };
 
 export interface FilmPlayer extends ScenePlayer {
   readonly clock: PlaybackClock;
+  readonly filmClock: FilmClock | null;
   readonly cache: FrameCache<ImageBitmapLike>;
+  readonly frameStore: FrameStore | null;
   readonly scenes: readonly PlatePlayer[];
   readonly activeSceneIndex: number;
+  readonly state: PlaybackState;
+  readonly bufferingPauses: number;
+  readonly qualityJob: QualityJob | null;
   decision(sceneIndex?: number): PlayerDecision;
   syncToClock(): void;
   updateScene(sceneIndex: number, spec: FilmSceneSpec): Promise<void>;
+  setPreviewQuality(quality: number): Promise<void>;
+  flushStore(): Promise<void>;
 }
 
 /**
- * Sequences several plate scene players on one timeline using `PlaybackClock`, sharing a single
- * byte-budgeted `FrameCache` and recycling the previous scene's Worker at every scene boundary.
+ * Sequences several plate scene players on one timeline using `PlaybackClock` / `FilmClock`, sharing a single
+ * byte-budgeted `FrameCache`, persisting drawn frames in `FrameStore` (`gm-live-frames`), running `QualityJob`
+ * when quality changes, and drawing undrawn scenes ahead in the background one at a time.
  */
 export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
   const fps = options.fps ?? 30;
@@ -1152,7 +1540,30 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
   const preview = previewSizeForAspect(aspect);
   const budgetBytes = options.budgetBytes ?? resolveCacheBudgetBytes();
   const sharedCache = new FrameCache<ImageBitmapLike>(budgetBytes);
+  const filmKey = options.filmKey ?? "default-film";
   const sceneSpecs = options.scenes.map((s) => ({ ...s }));
+  const autoPump = options.autoPump ?? true;
+
+  const store: FrameStore | null =
+    options.frameStore !== undefined
+      ? options.frameStore
+      : typeof indexedDB !== "undefined"
+        ? new FrameStore({
+            openFilmKey: filmKey,
+            defaultQuality: options.previewQuality ?? DEFAULT_PREVIEW_QUALITY,
+            onStatusChange: options.onStoreStatus
+          })
+        : null;
+  const ownsStore = options.frameStore === undefined && store !== null;
+  if (store) {
+    store.setOpenFilmKey(filmKey);
+    if (options.previewQuality !== undefined) {
+      store.setQuality(options.previewQuality);
+    }
+    if (options.onStoreStatus) {
+      store.onStatusChange(options.onStoreStatus);
+    }
+  }
 
   const spans: SceneSpan[] = [];
   const startFrames: number[] = [];
@@ -1178,12 +1589,25 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
 
   rebuildSpans();
 
+  let filmClockInstance: FilmClock | null = null;
+  if (options.audio && !options.clock && !options.timeSource) {
+    filmClockInstance = new FilmClock({
+      fps,
+      frames: totalFrames,
+      spans,
+      audio: options.audio
+    });
+  }
   const defaultSource: TimeSource = options.timeSource ?? { currentTime: () => 0, playing: () => false };
-  const clock = options.clock ?? new PlaybackClock(defaultSource, fps, totalFrames);
+  const clock: PlaybackClock = options.clock ?? filmClockInstance ?? new PlaybackClock(defaultSource, fps, totalFrames);
+  const audioBinding = options.audio ?? null;
 
   let activeIdx = 0;
   let destroyed = false;
   let mountedEl: HTMLElement | null = null;
+  let currentQualityJob: QualityJob | null = null;
+  let bgLoopRunning = false;
+
   const listeners: Record<PlayerEvent, Set<(detail?: unknown) => void>> = {
     ready: new Set(),
     buffering: new Set(),
@@ -1199,6 +1623,57 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     }
   };
 
+  const syncAudioOnBufferState = (sceneIndex: number, isBufferingOrPreparing: boolean) => {
+    if (sceneIndex !== activeIdx) return;
+    if (filmClockInstance) {
+      filmClockInstance.setBuffering(isBufferingOrPreparing);
+      return;
+    }
+    if (!audioBinding) return;
+    if (isBufferingOrPreparing || !clock.playing()) {
+      audioBinding.voices?.forEach((v) => {
+        if (v && !v.paused) {
+          try {
+            v.pause();
+          } catch {}
+        }
+      });
+      if (audioBinding.music && !audioBinding.music.paused) {
+        try {
+          audioBinding.music.pause();
+        } catch {}
+      }
+      if (audioBinding.sfxAudios) {
+        for (const el of Object.values(audioBinding.sfxAudios)) {
+          if (el && !el.paused) {
+            try {
+              el.pause();
+            } catch {}
+          }
+        }
+      }
+    } else if (clock.playing()) {
+      const globalSec = clock.now();
+      const localSec = Math.max(0, globalSec - (spans[activeIdx]?.start ?? 0));
+      const vo = audioBinding.voices?.[activeIdx];
+      if (vo) {
+        try {
+          vo.currentTime =
+            typeof vo.duration === "number" && Number.isFinite(vo.duration)
+              ? Math.min(Math.max(0, vo.duration - 0.05), localSec)
+              : localSec;
+          if (vo.paused) void vo.play()?.catch?.(() => undefined);
+        } catch {}
+      }
+      if (audioBinding.music) {
+        try {
+          audioBinding.music.currentTime = globalSec;
+          if (audioBinding.music.paused) void audioBinding.music.play()?.catch?.(() => undefined);
+        } catch {}
+      }
+    }
+  };
+
   const makeScenePlayer = (s: FilmSceneSpec, idx: number): PlatePlayer => {
     const p = new PlatePlayer({
       id: s.id,
@@ -1210,19 +1685,26 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       frames: s.frames,
       hasNextScene: idx < sceneSpecs.length - 1,
       cache: sharedCache,
+      frameStore: store,
+      filmKey,
+      variantKey: s.variantKey ?? `${filmKey}:scene-${idx}`,
       budgetBytes,
       transportFactory: options.transportFactory,
       environment: s.environment ?? options.environment,
       forceClipReason: s.forceClipReason,
-      autoPump: options.autoPump ?? true,
+      autoPump,
       ...(options.frameStep !== undefined ? { frameStep: options.frameStep } : {}),
-      ...(options.maxPredrawSeconds !== undefined ? { maxPredrawSeconds: options.maxPredrawSeconds } : {}),
       ...(options.now ? { now: options.now } : {})
     });
-    p.on("buffering", (d) => emit("buffering", { sceneIndex: idx, ...(typeof d === "object" && d ? d : {}) }));
+    p.on("buffering", (d) => {
+      const detail = typeof d === "object" && d ? (d as { buffering?: boolean }) : {};
+      syncAudioOnBufferState(idx, Boolean(detail.buffering) || p.isPreparing);
+      emit("buffering", { sceneIndex: idx, ...detail });
+    });
     p.on("error", (d) => emit("error", { sceneIndex: idx, error: d }));
     p.on("mode", (d) => {
       updateCanvasVisibility();
+      syncAudioOnBufferState(idx, p.isBufferingNow || p.isPreparing);
       emit("mode", { sceneIndex: idx, ...(typeof d === "object" && d ? d : {}) });
     });
     return p;
@@ -1246,6 +1728,127 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     return { sceneIndex: idx, localFrame };
   };
 
+  const buildQualitySpecs = (): QualityJobSceneSpec[] =>
+    players
+      .map((p, idx) => ({
+        sceneIndex: idx,
+        bundleDigest: p.bundleDigest,
+        sizeLabel: p.previewSize.label,
+        frames: p.previewFrames,
+        isLive: p.decision().mode === "live"
+      }))
+      .filter((s) => s.isLive);
+
+  const shouldYieldBackgroundWork = (): boolean => {
+    if (destroyed) return true;
+    const cur = players[activeIdx];
+    if (!cur || cur.decision().mode === "clip") return false;
+    if (cur.isPreparing || cur.isBufferingNow || !cur.measuredYet) return true;
+    if (clock.playing()) {
+      const nextDue = Math.min(cur.previewFrames - 1, cur.currentPreviewFrame + 1);
+      if (!cur.ready(nextDue * cur.frameStep)) return true;
+    }
+    return false;
+  };
+
+  /**
+   * Background drawing ahead (plan change F):
+   * While the film is paused or the user is on step 3 without playing, draws and saves undrawn frames of the current scene,
+   * then the following scenes in order, one scene at a time, stopping as soon as playback needs the CPU.
+   */
+  const startBackgroundDrawLoop = () => {
+    if (!autoPump || !store || store.disabled || bgLoopRunning || destroyed || clock.playing()) return;
+    bgLoopRunning = true;
+    void (async () => {
+      try {
+        while (!destroyed && store && !store.disabled && !clock.playing()) {
+          const cur = players[activeIdx];
+          if (cur && cur.decision().mode === "live" && (cur.isPreparing || cur.isBufferingNow || !cur.measuredYet)) {
+            await new Promise((r) => setTimeout(r, 25));
+            continue;
+          }
+
+          let targetIdx: number | null = null;
+          for (let offset = 0; offset < players.length; offset++) {
+            const idx = (activeIdx + offset) % players.length;
+            const p = players[idx]!;
+            if (p.decision().mode === "clip") continue;
+            if (!store.isSceneComplete(p.bundleDigest, p.previewSize.label, p.previewFrames)) {
+              targetIdx = idx;
+              break;
+            }
+          }
+
+          if (targetIdx === null) {
+            maybeResumeQualityJob();
+            break;
+          }
+
+          const targetPlayer = players[targetIdx]!;
+          await targetPlayer.drawAllToStore(() => {
+            if (destroyed || clock.playing()) return true;
+            const activeP = players[activeIdx];
+            if (!activeP) return false;
+            if (targetIdx !== activeIdx && (activeP.isPreparing || activeP.isBufferingNow || !activeP.measuredYet)) {
+              return true;
+            }
+            return false;
+          });
+
+          if (targetIdx !== activeIdx && store.isSceneComplete(targetPlayer.bundleDigest, targetPlayer.previewSize.label, targetPlayer.previewFrames)) {
+            await targetPlayer.recycle().catch(() => {});
+          }
+          await new Promise((r) => setTimeout(r, 10));
+        }
+      } finally {
+        bgLoopRunning = false;
+      }
+    })();
+  };
+
+  const startOrReplaceQualityJob = (targetQuality: number): Promise<void> => {
+    if (!store || store.disabled || destroyed) return Promise.resolve();
+    const q = store.setQuality(targetQuality);
+    if (currentQualityJob) {
+      currentQualityJob.cancel();
+      currentQualityJob = null;
+    }
+    const curPlayer = players[activeIdx];
+    const job = new QualityJob({
+      store,
+      scenes: buildQualitySpecs(),
+      targetQuality: q,
+      initialSceneIndex: activeIdx,
+      initialFrame: curPlayer?.currentPreviewFrame ?? 0,
+      redrawFrame: async (sceneIndex, frame) => {
+        const p = players[sceneIndex];
+        if (!p) throw new Error(`No scene player at index ${sceneIndex}`);
+        return p.redrawFrameForQuality(frame);
+      },
+      shouldYield: shouldYieldBackgroundWork,
+      onFrameUpdated: (sceneIndex, frame, bitmap) => {
+        players[sceneIndex]?.replaceCachedFrame(frame, bitmap);
+      },
+      onProgress: options.onQualityProgress
+    });
+    currentQualityJob = job;
+    return job.start();
+  };
+
+  const maybeResumeQualityJob = () => {
+    if (!store || store.disabled || destroyed || currentQualityJob?.running) return;
+    const targetQ = store.quality;
+    const needsResume = players.some((p) => {
+      if (p.decision().mode === "clip") return false;
+      const rec = store.getSceneRecord(p.bundleDigest, p.previewSize.label);
+      if (!rec || rec.saved === 0) return false;
+      return rec.quality === "mixed" || Math.abs(rec.quality - targetQ) > 1e-6;
+    });
+    if (needsResume) {
+      void startOrReplaceQualityJob(targetQ);
+    }
+  };
+
   const meta: PlayerMeta = {
     width: preview.width,
     height: preview.height,
@@ -1259,19 +1862,35 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
   return {
     meta,
     clock,
+    filmClock: filmClockInstance,
     cache: sharedCache,
+    frameStore: store,
     scenes: players,
     get activeSceneIndex() {
       return activeIdx;
     },
+    get state(): PlaybackState {
+      const activePlayer = players[activeIdx];
+      if (!activePlayer) return "clip";
+      const st = activePlayer.state;
+      if (st === "ready" && clock.playing()) return "playing";
+      return st;
+    },
+    get bufferingPauses(): number {
+      return players.reduce((sum, p) => sum + p.bufferingPauses, 0);
+    },
+    get qualityJob(): QualityJob | null {
+      return currentQualityJob;
+    },
     decision(sceneIndex = activeIdx): PlayerDecision {
-      return players[sceneIndex]?.decision() ?? { mode: "clip", reason: "no-scene" };
+      return players[sceneIndex]?.decision() ?? { mode: "clip", state: "clip", reason: "no-scene" };
     },
     async mount(el: HTMLElement): Promise<void> {
       if (destroyed) throw new Error("FilmPlayer has been destroyed.");
       mountedEl = el;
-      // Canvases and Workers only: no scene is sampled yet. Only the scene on screen and the next one are ever decided, one at a
-      // time, so a scene further away does no work and a measurement never competes with three others.
+      if (store) {
+        await store.init();
+      }
       for (let i = 0; i < players.length; i++) {
         const p = players[i]!;
         if (destroyed) return;
@@ -1290,19 +1909,31 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       if (activePlayer && !destroyed) {
         this.showFrame(f);
       }
+      maybeResumeQualityJob();
+      startBackgroundDrawLoop();
       emit("ready");
     },
     async updateScene(sceneIndex: number, spec: FilmSceneSpec): Promise<void> {
       if (destroyed || sceneIndex < 0 || sceneIndex >= players.length) return;
       const oldPlayer = players[sceneIndex];
+      const oldDigest = oldPlayer?.bundleDigest;
       if (oldPlayer) {
         oldPlayer.destroy();
       }
       sceneSpecs[sceneIndex] = { ...spec };
       rebuildSpans();
+      if (filmClockInstance) {
+        filmClockInstance.setSpans(spans);
+      }
+      if (store && oldDigest && oldDigest !== spec.bundleDigest) {
+        await store.deleteSceneFrames(oldDigest, preview.label);
+      }
       const nextPlayer = makeScenePlayer(spec, sceneIndex);
       players[sceneIndex] = nextPlayer;
       sharedCache.setOrder(players.map((p) => p.cacheKey));
+      if (currentQualityJob) {
+        currentQualityJob.setScenes(buildQualitySpecs());
+      }
       if (mountedEl && !destroyed) {
         await nextPlayer.mount(mountedEl, { active: false, deferMeasure: true });
         if (destroyed) {
@@ -1316,6 +1947,7 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
           const f = frameAt(clock.now(), fps, totalFrames);
           this.showFrame(f);
         }
+        startBackgroundDrawLoop();
       }
     },
     showFrame(globalFrame: number): void {
@@ -1324,7 +1956,6 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       if (sceneIndex !== activeIdx) {
         const previous = players[activeIdx];
         activeIdx = sceneIndex;
-        // Stop the previous scene's drawing, free what pre-draw mode holds, and recycle its Worker at every scene boundary (Plan §10).
         if (previous) {
           previous.deactivate();
           void previous.recycle().catch(() => {});
@@ -1333,13 +1964,28 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       updateCanvasVisibility();
       const current = players[sceneIndex];
       if (!current) return;
+      current.setWantPlaying(clock.playing());
       const next = players[sceneIndex + 1];
       sharedCache.setPinned(next ? [current.cacheKey, next.cacheKey] : [current.cacheKey]);
       current.showFrame(localFrame);
 
+      if (currentQualityJob) {
+        currentQualityJob.recenter(sceneIndex, current.currentPreviewFrame);
+      }
+
+      syncAudioOnBufferState(sceneIndex, current.isBufferingNow || current.isPreparing || !current.measuredYet);
+      if (clock.playing() && !current.isBufferingNow && !current.isPreparing && current.measuredYet && audioBinding) {
+        const globalSec = clock.now();
+        const localSec = Math.max(0, globalSec - (spans[sceneIndex]?.start ?? 0));
+        const vo = audioBinding.voices?.[sceneIndex];
+        if (vo && !vo.paused && Math.abs(vo.currentTime - localSec) > 1 / fps) {
+          try {
+            vo.currentTime = localSec;
+          } catch {}
+        }
+      }
+
       // Pipeline: while this scene plays (or plays as its clip), pre-draw the next one with the bytes this one does not need.
-      // One scene at a time, so only one extra Worker ever draws.
-      // The next scene is decided here too (it was not at mount), once the current one is decided and not busy preparing.
       if (next && !current.isPreparing && (current.measuredYet || current.decision().mode === "clip")) {
         if (!next.measuredYet) {
           void next.measure().catch(() => {});
@@ -1349,10 +1995,19 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
           next.prefetch(Math.floor(spare / bpf));
         }
       }
+      startBackgroundDrawLoop();
     },
     syncToClock(): void {
       const f = frameAt(clock.now(), fps, totalFrames);
       this.showFrame(f);
+    },
+    async setPreviewQuality(quality: number): Promise<void> {
+      await startOrReplaceQualityJob(quality);
+    },
+    async flushStore(): Promise<void> {
+      if (store) {
+        await store.flush();
+      }
     },
     ready(globalFrame: number): boolean {
       const { sceneIndex, localFrame } = sceneForGlobalFrame(globalFrame);
@@ -1384,10 +2039,17 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      if (currentQualityJob) {
+        currentQualityJob.cancel();
+        currentQualityJob = null;
+      }
       for (const p of players) {
         p.destroy();
       }
       sharedCache.clear();
+      if (ownsStore && store) {
+        store.destroy();
+      }
       for (const set of Object.values(listeners)) {
         set.clear();
       }

@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   PREVIEW_FRAME_STEP,
-  MAX_PREDRAW_SECONDS,
+  START_BUFFER_FRAMES,
+  RESUME_BUFFER_FRAMES,
   FallbackLatch,
   contiguousFrom,
   decidePredraw,
@@ -11,14 +12,16 @@ import {
   previewFrameCount,
   previewIndexForFrame,
   previewRate,
-  readPredrawMaxSeconds,
-  sourceFrameForPreview
+  resumeBufferFrames,
+  sourceFrameForPreview,
+  startBufferFrames
 } from "../lib/live/predraw.ts";
+import { FrameStore, InMemoryFrameStoreBackend } from "../lib/live/frame-store.ts";
 import { PlatePlayer, activeDrawWork, createFilmPlayer, previewSizeForAspect } from "../lib/live/plate-player.ts";
 
 const MB = 1024 * 1024;
 const BPF = 640 * 360 * 4;
-const base = { rate: 15, bytesPerFrame: BPF, budgetBytes: 160 * MB };
+const base = { rate: 30, bytesPerFrame: BPF, budgetBytes: 160 * MB };
 
 function fakeElement() {
   const doc = {
@@ -50,26 +53,22 @@ function virtualTransport(clock, ms, bitmaps) {
   };
 }
 
-test("PREVIEW_FRAME_STEP mapping: frame indices, durations and the last frame of odd-length scenes", () => {
-  assert.equal(PREVIEW_FRAME_STEP, 2);
-  assert.equal(previewRate(30), 15);
-  assert.equal(previewFrameCount(90), 45);
-  assert.equal(previewFrameCount(91), 46, "an odd-length scene still draws its last (even) source frame 90");
-  assert.equal(sourceFrameForPreview(45, 91), 90);
-  assert.equal(sourceFrameForPreview(44, 90), 88);
-  assert.equal(previewIndexForFrame(89, 90), 44, "source frame 89 holds preview frame 44 (source 88)");
-  assert.equal(previewIndexForFrame(90, 91), 45);
-  assert.equal(previewIndexForFrame(5000, 90), 44, "clamped");
+test("PREVIEW_FRAME_STEP = 1 (30 fps): frame indices, durations, and explicit step parameter", () => {
+  assert.equal(PREVIEW_FRAME_STEP, 1);
+  assert.equal(previewRate(30), 30);
+  assert.equal(previewFrameCount(90), 90);
+  assert.equal(previewFrameCount(91), 91);
+  assert.equal(sourceFrameForPreview(89, 90), 89);
+  assert.equal(previewIndexForFrame(89, 90), 89);
+  assert.equal(previewIndexForFrame(5000, 90), 89, "clamped");
   assert.equal(previewIndexForFrame(-3, 90), 0);
-  // each preview frame is shown for two 30 fps ticks
-  assert.deepEqual([0, 1, 2, 3, 4].map((f) => previewIndexForFrame(f, 90)), [0, 0, 1, 1, 2]);
-  // every drawn source index is below the frame count
+  assert.deepEqual([0, 1, 2, 3, 4].map((f) => previewIndexForFrame(f, 90)), [0, 1, 2, 3, 4]);
   for (const frames of [1, 2, 3, 89, 90, 91, 150]) {
     for (let i = 0; i < previewFrameCount(frames); i++) assert.ok(sourceFrameForPreview(i, frames) <= frames - 1);
   }
-  // the step 1 path equals the plain 30 fps path
-  assert.equal(previewFrameCount(90, 1), 90);
-  assert.equal(previewIndexForFrame(37, 90, 1), 37);
+  // explicit step = 2 still works when passed
+  assert.equal(previewRate(30, 2), 15);
+  assert.equal(previewFrameCount(90, 2), 45);
 });
 
 test("preview sizes: 640x360, 360x640 and 480x480", () => {
@@ -82,73 +81,61 @@ test("preview sizes: 640x360, 360x640 and 480x480", () => {
   assert.ok(Math.abs(previewSizeForAspect("9:16").scale - 360 / 1080) < 1e-6);
 });
 
-test("decidePredraw: fast scene is live with the small cushion lead", () => {
-  const d = decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 35 }); // 28.6 fps > 15
+test("decidePredraw: fast scene is live with cushion lead L=15 and startFrames=max(30, L)=30", () => {
+  const d = decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 20 }); // 50 fps >= 30 fps
   assert.equal(d.mode, "live");
-  assert.equal(d.neededFrames, 8, "0.5 s cushion at 15 fps = 8 frames");
+  assert.equal(d.neededFrames, 15, "0.5 s cushion at 30 fps = 15 frames");
+  assert.equal(d.startFrames, 30, "start rule is max(30, L)");
   assert.equal(d.reason, "ok");
+  assert.equal(startBufferFrames(150, 15), START_BUFFER_FRAMES);
+  assert.equal(resumeBufferFrames(150), RESUME_BUFFER_FRAMES);
+  assert.equal(resumeBufferFrames(12), 12);
 });
 
-test("decidePredraw: slow scene that fits pre-draws with the right L, W and progress", () => {
-  // crayon scene 2 numbers: 190 ms/draw -> p = 5.263 fps, N = 75 preview frames
-  const d = decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 190 });
+test("decidePredraw: slow scene computes lead L and startFrames = max(30, L), never falling back for slowness or budget", () => {
+  // crayon scene 2 numbers at 30 fps: 190 ms/draw -> p = 5.263 fps, N = 150 frames
+  const d = decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 190 });
   const p = 1000 / 190;
-  const L = Math.ceil(75 * (1 - p / 15)) + 8;
+  const L = Math.min(150, Math.ceil(150 * (1 - p / 30)) + 15);
   assert.equal(d.mode, "predraw");
   assert.equal(d.neededFrames, L);
-  assert.equal(L, 57);
+  assert.equal(L, 139);
+  assert.equal(d.startFrames, 139);
   assert.ok(Math.abs(d.waitSeconds - L / p) < 1e-9);
-  assert.ok(d.waitSeconds < MAX_PREDRAW_SECONDS);
-  assert.ok(d.bytesNeeded <= base.budgetBytes);
   assert.equal(predrawProgress(0, L), 0);
   assert.ok(Math.abs(predrawProgress(Math.floor(L * 0.42), L) - Math.floor(L * 0.42) / L) < 1e-12);
   assert.equal(predrawProgress(L + 5, L), 1);
+
+  // Even a very slow scene (400 ms/frame) or a smaller RAM budget never falls back to clip
+  const verySlow = decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 400 });
+  assert.equal(verySlow.mode, "predraw");
+  const smallBudget = decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 190, budgetBytes: 40 * BPF });
+  assert.equal(smallBudget.mode, "predraw");
 });
 
-test("decidePredraw: too slow falls back with predraw-too-slow; the limit is one constant, overridable", () => {
-  const d = decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 270 }); // crayon scene 1: p = 3.7 fps
-  assert.equal(MAX_PREDRAW_SECONDS, 20);
-  assert.equal(d.mode, "predraw", "scene 1 at 270 ms waits about 18 s: still under 20 s");
-  const slow = decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 400 });
-  assert.equal(slow.mode, "clip");
-  assert.match(slow.reason, /^predraw-too-slow: wait 2\d\.\ds > 20s$/);
-  const longer = decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 400, maxSeconds: 60 });
-  assert.equal(longer.mode, "predraw");
-  assert.equal(readPredrawMaxSeconds("45"), 45);
-  assert.equal(readPredrawMaxSeconds("nonsense"), 20);
-  assert.equal(readPredrawMaxSeconds(-1), 20);
-});
+test("decidePredraw and FallbackLatch: only unsupported, unverified, and worker-unhealthy produce clip", () => {
+  assert.equal(
+    decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 20, supported: false, envStatus: "unverified" }).reason,
+    "unverified-environment"
+  );
+  assert.equal(
+    decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 20, supported: false, envStatus: "unsupported" }).reason,
+    "unsupported-environment"
+  );
+  assert.equal(
+    decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 20, unhealthy: true }).reason,
+    "worker-unhealthy"
+  );
 
-test("decidePredraw: over the byte budget falls back with predraw-over-budget", () => {
-  const d = decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 190, budgetBytes: 40 * BPF });
-  assert.equal(d.mode, "clip");
-  assert.match(d.reason, /^predraw-over-budget/);
-  // the same scene fits a 60 MB phone budget (65 frames) and not a 50 MB one (54 frames)
-  assert.equal(decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 190, budgetBytes: 60 * MB }).mode, "predraw");
-  assert.match(decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 190, budgetBytes: 50 * MB }).reason, /over-budget/);
-});
-
-test("decidePredraw: unsupported, unhealthy and re-assessment (25 % tolerance)", () => {
-  assert.equal(decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 20, supported: false, envStatus: "unverified" }).reason, "unverified-environment");
-  assert.equal(decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 20, unhealthy: true }).reason, "worker-unhealthy");
-  // 18 s waited so far at p = 5.26: 18 + (57 - 10) / 5.26 = 26.9 s > 25 s => clip
-  const re = decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 190, elapsedSeconds: 18, readyAhead: 10, tolerance: 1.25 });
-  assert.equal(re.mode, "clip");
-  // 12 s waited with 40 ready: 12 + 17 / 5.26 = 15.2 s: fine
-  assert.equal(decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 190, elapsedSeconds: 12, readyAhead: 40, tolerance: 1.25 }).mode, "predraw");
-  // between 20 s and 25 s the tolerance keeps it going
-  assert.equal(decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 190, elapsedSeconds: 14, readyAhead: 30, tolerance: 1.25 }).mode, "predraw");
-});
-
-test("no flip-flop: a scene that fell back stays a clip with its first reason", () => {
   const latch = new FallbackLatch();
   const key = "variant:g1:digest";
-  const slow = latch.apply(key, decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 400 }));
-  assert.equal(slow.mode, "clip");
-  const fast = latch.apply(key, decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 20 }));
-  assert.equal(fast.mode, "clip");
-  assert.equal(fast.reason, slow.reason);
-  assert.equal(latch.apply("other", decidePredraw({ ...base, previewFrames: 75, avgDrawMs: 20 })).mode, "live");
+  const unhealthy = latch.apply(key, decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 20, unhealthy: true }));
+  assert.equal(unhealthy.mode, "clip");
+  assert.equal(unhealthy.reason, "worker-unhealthy");
+  const later = latch.apply(key, decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 20 }));
+  assert.equal(later.mode, "clip");
+  assert.equal(later.reason, "worker-unhealthy");
+  assert.equal(latch.apply("other", decidePredraw({ ...base, previewFrames: 150, avgDrawMs: 20 })).mode, "live");
 });
 
 test("eviction helpers: only the on-screen frame stays behind the playhead", () => {
@@ -158,7 +145,6 @@ test("eviction helpers: only the on-screen frame stays behind the playhead", () 
   assert.equal(contiguousFrom(new Set([5]), 6), 0);
 });
 
-/** Waits until a player's background pump has gone idle (the fake transport answers at once, so this is a few ticks). */
 async function settle(...players) {
   for (let i = 0; i < 5000; i++) {
     await new Promise((r) => setImmediate(r));
@@ -167,7 +153,7 @@ async function settle(...players) {
   throw new Error("pump did not settle");
 }
 
-function crayonLike(clock, bitmaps, ms = () => 190) {
+function crayonLike(clock, bitmaps, ms = () => 190, extra = {}) {
   return new PlatePlayer({
     bundleDigest: "crayon-like",
     html: "<script>window.FILM={};</script>",
@@ -175,11 +161,12 @@ function crayonLike(clock, bitmaps, ms = () => 190) {
     fps: 30,
     transportFactory: virtualTransport(clock, ms, bitmaps),
     now: () => clock.t,
-    autoPump: true
+    autoPump: true,
+    ...extra
   });
 }
 
-test("PlatePlayer pre-draw: waits for L frames, plays with zero frames behind, closes every shown frame, flat memory", async () => {
+test("PlatePlayer at 30 fps: waits for max(30, L) frames, plays with zero frames behind, closes every shown frame, flat memory", async () => {
   const clock = { t: 0 };
   const bitmaps = [];
   const player = crayonLike(clock, bitmaps);
@@ -188,9 +175,10 @@ test("PlatePlayer pre-draw: waits for L frames, plays with zero frames behind, c
   await player.mount(fakeElement());
   const plan = player.predrawPlan;
   assert.equal(player.playbackVariant, "predraw");
-  assert.equal(plan.neededFrames, 57);
-  assert.ok(Math.abs(plan.waitSeconds - 57 / (1000 / 190)) < 1e-9);
-  assert.equal(player.isPreparing, true, "active mount starts preparing at once");
+  assert.equal(plan.neededFrames, 139);
+  assert.equal(plan.startFrames, 139);
+  assert.equal(player.state, "drawing");
+  assert.equal(player.isPreparing, true, "active mount starts drawing initial buffer at once");
 
   player.showFrame(0);
   await settle(player);
@@ -198,79 +186,62 @@ test("PlatePlayer pre-draw: waits for L frames, plays with zero frames behind, c
   assert.ok(progress.length > 5, "progress is reported while drawing");
   assert.deepEqual(progress, [...progress].sort((a, b) => a - b), "progress never goes backwards");
   assert.equal(player.isPreparing, false, "enough frames ahead: it can play");
+  assert.equal(player.state, "ready");
   assert.equal(player.decision().progress, undefined);
   assert.equal(player.decision().reason, "ok");
-  assert.equal(player.cachedPreviewFrames().length, 57);
+  assert.equal(player.cachedPreviewFrames().length, 139);
 
-  // play through: one preview frame per two 30 fps ticks
+  // play through all 150 frames at 30 fps
   let peak = 0;
   let stalls = 0;
   let wrong = 0;
   for (let src = 0; src < 150; src++) {
-    const idx = Math.floor(src / 2);
     player.showFrame(src);
     if (!player.ready(src)) stalls++;
     await settle(player);
     const cached = player.cachedPreviewFrames();
-    assert.ok(cached.every((i) => i >= idx), `no frame behind the playhead at source ${src}`);
-    assert.ok(cached.length <= 57, "memory stays flat");
+    assert.ok(cached.every((i) => i >= src), `no frame behind the playhead at source ${src}`);
     peak = Math.max(peak, player.cache.bytes);
-    const shown = bitmaps.filter((b) => !b.closed && b.frameIndex < idx * 2);
-    wrong += shown.length;
+    const shownBehind = bitmaps.filter((b) => !b.closed && b.frameIndex < src);
+    wrong += shownBehind.length;
   }
   assert.equal(stalls, 0, "no stall after playback starts");
   assert.equal(wrong, 0, "every frame the playhead passed is closed");
-  assert.ok(peak <= 57 * BPF);
+  assert.ok(peak <= 139 * BPF);
   assert.ok(peak <= player.cache.budget);
-  // frames 0,2,...,148 were drawn once each
   const drawn = new Set(bitmaps.map((b) => b.frameIndex));
-  assert.equal(drawn.size, 75);
+  assert.equal(drawn.size, 150, "all 150 frames at 30 fps were drawn once each");
   player.destroy();
   assert.ok(bitmaps.every((b) => b.closed), "destroy closes the last frame too");
 });
 
-test("PlatePlayer: too slow and over budget fall back to the clip with the new reasons, and stay a clip", async () => {
+test("PlatePlayer: very slow scenes and small RAM budgets never fall back to clip (frames wait in FrameStore)", async () => {
   const clock = { t: 0 };
-  const slow = crayonLike(clock, [], () => 400);
+  const store = new FrameStore({ backend: new InMemoryFrameStoreBackend() });
+  const slow = crayonLike(clock, [], () => 400, { frameStore: store });
   await slow.mount(fakeElement());
-  assert.equal(slow.decision().mode, "clip");
-  assert.match(slow.decision().reason, /^predraw-too-slow: wait 2\d\.\ds > 20s$/);
-  slow.showFrame(10);
-  assert.equal(slow.decision().mode, "clip", "no flip back to live");
+  assert.equal(slow.decision().mode, "live", "400 ms/frame scene stays live (never predraw-too-slow)");
   slow.destroy();
 
   const small = new PlatePlayer({
-    bundleDigest: "small",
+    bundleDigest: "small-budget-scene",
     html: "<script>window.FILM={};</script>",
     frames: 150,
     budgetBytes: 40 * BPF,
+    frameStore: store,
     transportFactory: virtualTransport(clock, () => 190),
     now: () => clock.t
   });
   await small.mount(fakeElement());
-  assert.equal(small.decision().mode, "clip");
-  assert.match(small.decision().reason, /^predraw-over-budget/);
+  assert.equal(small.decision().mode, "live", "small RAM budget uses FrameStore instead of predraw-over-budget");
+  await settle(small);
+  assert.ok(small.cache.bytes <= 40 * BPF, "RAM cache stays within the 40-frame budget");
+  assert.equal(small.isPreparing, false, "scene finishes preparing with frames in RAM + FrameStore");
   small.destroy();
+  store.destroy();
 });
 
-test("PlatePlayer: drawing that gets slower during the wait falls back (re-assessment), once", async () => {
-  const clock = { t: 0 };
-  let cost = 190;
-  const player = crayonLike(clock, [], () => cost);
-  const modes = [];
-  player.on("mode", (e) => modes.push(e));
-  await player.mount(fakeElement());
-  assert.equal(player.decision().mode, "live");
-  cost = 900; // the machine got busy
-  player.showFrame(0);
-  await settle(player);
-  const clips = modes.filter((m) => m.mode === "clip");
-  assert.equal(clips.length, 1);
-  assert.match(clips[0].reason, /^predraw-too-slow/);
-  player.destroy();
-});
-
-test("PlatePlayer: a seek during play rebuilds the lead and frees what is behind", async () => {
+test("PlatePlayer: a seek during play frees frames behind and rebuilds the lead if target is undrawn", async () => {
   const clock = { t: 0 };
   const bitmaps = [];
   const player = crayonLike(clock, bitmaps);
@@ -278,25 +249,27 @@ test("PlatePlayer: a seek during play rebuilds the lead and frees what is behind
   player.showFrame(0);
   await settle(player);
   assert.equal(player.isPreparing, false);
-  player.showFrame(100); // scrub forward to preview frame 50
-  assert.equal(player.isPreparing, true, "a jump to an undrawn frame prepares again");
-  assert.ok(player.cachedPreviewFrames().every((i) => i >= 50), "nothing behind the new playhead");
+  // Seek forward to frame 145 (beyond the initial 139 buffered frames)
+  player.showFrame(145);
+  assert.equal(player.isPreparing, true, "a jump to an undrawn frame prepares the remaining frames");
+  assert.ok(player.cachedPreviewFrames().every((i) => i >= 145), "nothing behind the new playhead");
   await settle(player);
   assert.equal(player.isPreparing, false);
-  player.showFrame(100);
-  assert.equal(player.ready(100), true);
-  player.showFrame(20); // scrub back: simply redraws
+  player.showFrame(145);
+  assert.equal(player.ready(145), true);
+  // Seek back to frame 20 (which was evicted from RAM when seeking to 145): redraws when no FrameStore is attached
+  player.showFrame(20);
   assert.equal(player.isPreparing, true);
   await settle(player);
   assert.equal(player.ready(20), true);
   player.destroy();
 });
 
-test("film pipeline: while scene 0 plays, scene 1 pre-draws within the spare bytes; leaving scene 0 frees it", async () => {
+test("film pipeline: while scene 0 plays, scene 1 pre-draws within the spare bytes; leaving scene 0 frees its RAM frames", async () => {
   const clock = { t: 0 };
   const bitmaps = [];
   let timeSec = 0;
-  const budget = 130 * BPF; // 57 frames for scene 0, the rest spare for scene 1
+  const budget = 180 * BPF; // 139 frames for scene 0, the rest spare for scene 1
   const film = createFilmPlayer({
     scenes: [
       { id: "s0", bundleDigest: "d0", html: "<script>window.FILM={};</script>", frames: 150 },
@@ -304,6 +277,7 @@ test("film pipeline: while scene 0 plays, scene 1 pre-draws within the spare byt
     ],
     fps: 30,
     budgetBytes: budget,
+    frameStore: null,
     timeSource: { currentTime: () => timeSec, playing: () => true },
     transportFactory: virtualTransport(clock, () => 190, bitmaps),
     now: () => clock.t
@@ -314,25 +288,23 @@ test("film pipeline: while scene 0 plays, scene 1 pre-draws within the spare byt
   film.showFrame(0);
   await settle(s0);
   assert.equal(s0.isPreparing, false);
-  film.showFrame(0); // the film now sees scene 0 playing and starts scene 1
+  film.showFrame(0); // scene 0 is playing -> starts scene 1
   await settle(s0, s1);
   const ahead = s1.cachedPreviewFrames().length;
   assert.ok(ahead > 0, "the next scene started pre-drawing while the current one plays");
   assert.ok(film.cache.bytes <= budget, `peak ${film.cache.bytes} <= budget ${budget}`);
-  assert.ok(ahead <= Math.floor((budget - s0.reservedBytes()) / BPF), "only the spare bytes are used");
 
-  // cross into scene 1: scene 0 gives back everything
+  // cross into scene 1: scene 0 frees its RAM frames
   timeSec = 5.1;
   film.syncToClock();
   assert.equal(film.activeSceneIndex, 1);
-  assert.equal(s0.cachedPreviewFrames().length, 0, "the scene that played holds nothing");
+  assert.equal(s0.cachedPreviewFrames().length, 0, "the scene that played holds nothing in RAM");
   assert.ok(film.cache.bytes <= budget);
   film.destroy();
   assert.ok(bitmaps.every((b) => b.closed));
 });
 
-/** Transport whose cost is `ms` times the draws in flight on the page (CPU shared), counting draws per scene tag in the html. */
-function sharedCpuTransport(clock, base, counts) {
+function sharedCpuTransport(clock, baseMs, counts) {
   return async (workerSource) => {
     const tag = /\/\*scene-(\d)\*\//.exec(workerSource)?.[1] ?? "?";
     const port = {
@@ -342,7 +314,7 @@ function sharedCpuTransport(clock, base, counts) {
         else if (msg.t === "hb") port.onmessage?.({ data: { t: "hb", id: msg.id } });
         else if (msg.t === "frame") {
           counts[tag] = (counts[tag] ?? 0) + 1;
-          const d = base * Math.max(1, activeDrawWork());
+          const d = baseMs * Math.max(1, activeDrawWork());
           clock.t += d;
           const bm = { width: 640, height: 360, frameIndex: msg.n, close() {} };
           port.onmessage?.({ data: { t: "frame", id: msg.id, n: msg.n, bitmap: bm, drawMs: d } });
@@ -361,7 +333,7 @@ async function until(cond, ms = 15000) {
   }
 }
 
-test("four slow-but-acceptable scenes mounted together: sampling is one at a time, none falls back (the staging failure)", async () => {
+test("four slow scenes mounted together: sampling is one at a time, each gets its alone plan L=139 at 30 fps", async () => {
   const clock = { t: 0 };
   const counts = {};
   const players = [0, 1, 2, 3].map(
@@ -375,25 +347,23 @@ test("four slow-but-acceptable scenes mounted together: sampling is one at a tim
         now: () => clock.t
       })
   );
-  // mounted at the same moment, as the stage does when several bundles arrive together
   await Promise.all(players.map((p) => p.mount(fakeElement(), { active: false })));
   for (const p of players) {
     assert.equal(p.decision().mode, "live", `${p.decision().reason}`);
     assert.equal(p.playbackVariant, "predraw");
-    assert.equal(p.predrawPlan.neededFrames, 57, "each scene was timed alone: 190 ms, not 190 ms x scenes");
-    assert.ok(p.predrawPlan.waitSeconds < 20);
-    assert.equal(p.predrawPlan.provisional, undefined);
+    assert.equal(p.predrawPlan.neededFrames, 139, "each scene was timed alone at 30 fps: 190 ms, not 190 ms x scenes");
   }
   players.forEach((p) => p.destroy());
 });
 
-test("film decides lazily (active + next only) and a contended measurement never falls back", async () => {
+test("film decides lazily and plays all four scenes at 30 fps with zero clip fallbacks", async () => {
   const clock = { t: 0 };
   const counts = {};
   let timeSec = 0;
   const film = createFilmPlayer({
     scenes: [0, 1, 2, 3].map((i) => ({ id: `s${i}`, bundleDigest: `lazy-${i}`, html: `<script>/*scene-${i}*/window.FILM={};</script>`, frames: 150 })),
     fps: 30,
+    frameStore: null,
     timeSource: { currentTime: () => timeSec, playing: () => true },
     transportFactory: sharedCpuTransport(clock, 190, counts),
     now: () => clock.t
@@ -405,24 +375,21 @@ test("film decides lazily (active + next only) and a contended measurement never
   assert.equal(s0.measuredYet, true, "the scene on screen is decided before the film shows");
   assert.equal(s2.measuredYet, false);
   assert.equal(s3.measuredYet, false);
-  assert.equal(counts["2"] ?? 0, 0, "a scene two away does no drawing");
+  assert.equal(counts["2"] ?? 0, 0, "a scene two away does no drawing at mount");
   assert.equal(counts["3"] ?? 0, 0);
 
-  // scene 0 pre-draws; once it plays, scene 1 is decided and pre-drawn while scene 0 is still drawing (shared CPU)
   await until(() => !s0.isPreparing && !s0.isPumping);
   film.showFrame(0);
   await until(() => s1.measuredYet);
   assert.equal(s1.decision().mode, "live", s1.decision().reason);
-  assert.equal(counts["2"] ?? 0, 0, "still nothing for scene 2");
-  assert.equal(s1.predrawPlan.neededFrames, 57, "scene 1 ends up with its alone numbers, not the shared-CPU ones");
+  assert.equal(s1.predrawPlan.neededFrames, 139);
 
-  // play through all four scenes; the clock holds while the active scene prepares
   let guard = 0;
   while (timeSec < 19.9 && guard++ < 20000) {
     film.syncToClock();
     const a = film.scenes[film.activeSceneIndex];
     if (a.decision().mode === "clip") break;
-    if (!a.isPreparing && a.measuredYet) timeSec += 1 / 30;
+    if (!a.isPreparing && !a.isBufferingNow && a.measuredYet) timeSec += 1 / 30;
     await new Promise((r) => setImmediate(r));
     if (guard % 50 === 0) await new Promise((r) => setTimeout(r, 1));
   }

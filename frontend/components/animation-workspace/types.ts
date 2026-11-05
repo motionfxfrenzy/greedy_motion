@@ -4,6 +4,7 @@ export type WorkspaceAspect = "16:9" | "9:16" | "1:1";
 export type WorkspaceSubtitleMode = "none" | "key-phrases" | "full";
 export type WorkspaceSubtitleStyle = "pill" | "cinema" | "kinetic" | "paper" | "blueprint";
 export type WorkspaceAudioTrackId = "voice" | "music" | "sfx" | "transitions";
+export type WorkspacePreviewQuality = 0.2 | 0.4 | 0.6;
 
 export type WorkspaceSceneTabVisualState = "ready" | "updating" | "needs-update";
 
@@ -50,6 +51,8 @@ export interface WorkspaceOptionsConfig {
   subtitleOpacity?: boolean;
   /** Whether the engine supports per-scene subtitle positioning. */
   subtitlePosition?: boolean;
+  /** Whether the engine supports stored frame preview quality (Low / Standard / High). */
+  previewQuality?: boolean;
 }
 
 export interface ResolvedWorkspaceOptions {
@@ -62,6 +65,7 @@ export interface ResolvedWorkspaceOptions {
   subtitleColors: boolean;
   subtitleOpacity: boolean;
   subtitlePosition: boolean;
+  previewQuality: boolean;
 }
 
 export interface WorkspaceAudioControlState {
@@ -97,6 +101,11 @@ export interface WorkspaceSubtitleControlState {
   onResetCustomization: () => void;
 }
 
+export interface WorkspacePreviewQualityControlState {
+  quality: WorkspacePreviewQuality;
+  onSelectQuality: (quality: WorkspacePreviewQuality) => void;
+}
+
 export interface WorkspaceStatusBadge {
   text: ReactNode;
   showRetry?: boolean;
@@ -123,6 +132,8 @@ export interface AnimationWorkspaceProps {
   audioControls?: WorkspaceAudioControlState;
   /** Subtitle customization state and handlers. */
   subtitleControls?: WorkspaceSubtitleControlState;
+  /** Preview quality control for plate films (Low 0.2 / Standard 0.4 / High 0.6). */
+  previewQualityControls?: WorkspacePreviewQualityControlState;
   /** Optional status chip and retry button at the end of the options bar. */
   statusBadge?: WorkspaceStatusBadge | null;
   /** Renders the engine-specific stage surface inside `.aw-canvas`. */

@@ -22,6 +22,7 @@ export function AnimationWorkspace({
   optionsConfig,
   audioControls,
   subtitleControls,
+  previewQualityControls,
   statusBadge,
   renderStage,
   onStageClick,
@@ -80,6 +81,7 @@ export function AnimationWorkspace({
           optionsConfig={optionsConfig}
           audio={audioControls}
           subtitles={subtitleControls}
+          previewQuality={previewQualityControls}
           statusBadge={statusBadge}
         />
 

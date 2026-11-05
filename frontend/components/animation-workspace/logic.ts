@@ -5,11 +5,22 @@ import type {
   WorkspaceAudioTrackId,
   WorkspaceComment,
   WorkspaceOptionsConfig,
+  WorkspacePreviewQuality,
   WorkspaceSceneSpan,
   WorkspaceSceneTabVisualState,
   WorkspaceSubtitleMode,
   WorkspaceSubtitleStyle
 } from "./types.ts";
+
+export const WORKSPACE_PREVIEW_QUALITIES: readonly {
+  id: WorkspacePreviewQuality;
+  label: "Low" | "Standard" | "High";
+  description: string;
+}[] = [
+  { id: 0.2, label: "Low", description: "Smaller storage footprint (0.2)" },
+  { id: 0.4, label: "Standard", description: "Balanced quality and size (0.4)" },
+  { id: 0.6, label: "High", description: "Sharper stored preview frames (0.6)" }
+];
 
 export const WORKSPACE_SUBTITLE_MODES: readonly { id: WorkspaceSubtitleMode; label: string; description: string }[] = [
   { id: "none", label: "Off", description: "Hide on-screen subtitles" },
@@ -171,7 +182,8 @@ export function resolveVisibleOptions(config?: WorkspaceOptionsConfig): Resolved
     subtitleSize: showSubtitleTab && (config?.subtitleSize ?? true),
     subtitleColors: showSubtitleTab && (config?.subtitleColors ?? true),
     subtitleOpacity: showSubtitleTab && (config?.subtitleOpacity ?? true),
-    subtitlePosition: showSubtitleTab && (config?.subtitlePosition ?? true)
+    subtitlePosition: showSubtitleTab && (config?.subtitlePosition ?? true),
+    previewQuality: config?.previewQuality ?? true
   };
 }
 
@@ -331,7 +343,8 @@ export function hfOptionsConfig(availableAudio: { voice: boolean; music: boolean
     subtitleSize: false,
     subtitleColors: false,
     subtitleOpacity: false,
-    subtitlePosition: false
+    subtitlePosition: false,
+    previewQuality: false
   };
 }
 
