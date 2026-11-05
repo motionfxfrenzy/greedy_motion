@@ -1,10 +1,16 @@
 // Pixel identity + speed of the plate engine's indexed point-in-polygon test, per style reference scene.
-//   node tools/phase3/engine-identity.mjs [--base 23e1963] [--styles fox,balloon] [--out result.json] [--gpu]
+//   node tools/phase3/engine-identity.mjs [--base 23e1963] [--styles fox,balloon] [--items fixture:balloon-0@9:16] [--out result.json] [--gpu]
 // Items: (1) each canvas-core style file bundled as a scene (its exported film aliased to `film`) as 16:9 (1920x1080, the aspect-adaptation
 // path where gallery adaptPts rewrites outlines) and as native 1:1 (1080x1080); (2) the five animated test fixtures. Each is bundled with the
 // OLD engine (a temp copy from `git archive <base>`, its own old plate source) and the NEW one (this worktree), then drawn at a small (long
 // side 640: 640x360 for 16:9) and a full size in headless Chrome. FILM.hash() (FNV over every pixel) is compared for frames 0, 1/4, 1/2, 3/4
 // and last. Timing: ms of the first draw (frame 0) and the median ms over 9 further seeks; old and new alternate in the same browser.
+// Verdict rules. Software (default): every compared frame hash must be exactly equal old vs new. --gpu: GPU rasterisation can blip on a single
+// draw (seen in OLD as well as NEW, load dependent), so when the first page differs, 3 more fresh pages per engine are drawn and a frame counts
+// as identical when OLD's plurality hash (>= 3 of the 4 runs) also appears in >= 2 of NEW's 4 runs. A real engine difference is deterministic: it
+// gives 0 of 4 and fails. The strict software run is the exactness proof; the GPU run shows the same holds with the browser's GPU canvas.
+// Each size takes WARMUP_DRAWS discarded warm-up draws before the compared draws; cold first-draw hashes are reported in `coldFirstDraw` only.
+if (process.argv.includes("--help")) { console.log(readFileSync(new URL(import.meta.url), "utf8").split("\n").filter((l) => l.startsWith("//")).join("\n")); process.exit(0); }
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, symlinkSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -15,7 +21,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(here, "../..");
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
-const BASE = arg("base", "23e1963"), ONLY = arg("styles", ""), OUT = arg("out", "");
+const BASE = arg("base", "23e1963"), ONLY = arg("styles", ""), ITEMS = arg("items", ""), OUT = arg("out", "");
+const WARMUP_DRAWS = 2;
 const CHROME = process.env.PLATE_BROWSER_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const tmp = mkdtempSync(join(tmpdir(), "engine-identity-"));
@@ -50,28 +57,31 @@ async function run(key, html, timeIt) {
   try {
     await page.goto(`${origin}/${key}.html?adapter=1`);
     for (const label of ["small", "full"]) {
-      out[label] = await page.evaluate(async ({ hashIdx, timeIdx, label, timeIt }) => {
+      out[label] = await page.evaluate(async ({ hashIdx, timeIdx, label, timeIt, warmupDraws }) => {
         await window.FILM.ready;
         if (document.fonts?.ready) await document.fonts.ready;
         const m = window.FILM.meta, scale = label === "full" ? 1 : 640 / Math.max(m.W, m.H);
         window.FILM.mount(scale);
-        // One discarded warm-up draw per mounted size: on --gpu, the first seek+hash readback after mount() transitions
-        // the main 2D canvas across Chromium's readback heuristic and populates env.cache (tiles + Gfx offscreen layer pool).
+        // Two discarded warm-up draws per mounted size: on --gpu, the 1st seek+hash readback after mount() transitions
+        // the main 2D canvas across Chromium's readback heuristic and populates env.cache (tiles, hatchRuns + Gfx pool);
+        // the 2nd seek+hash settles the first post-demotion composite from the pooled GPU OffscreenCanvas layers/tiles.
         const tWarm = performance.now();
         window.FILM.seek(hashIdx[0]);
         const firstMs = performance.now() - tWarm;
         const firstHash = window.FILM.hash();
+        for (let w = 1; w < warmupDraws; w++) { window.FILM.seek(hashIdx[0]); window.FILM.hash(); }
         const hashes = [], per = [];
         for (const f of hashIdx) { window.FILM.seek(f); hashes.push(window.FILM.hash()); }
         if (timeIt) for (const f of timeIdx) { const t0 = performance.now(); window.FILM.seek(f); per.push(performance.now() - t0); }
         return { hashes, firstHash, first: firstMs, per, w: Math.round(m.W * scale), h: Math.round(m.H * scale) };
-      }, { hashIdx, timeIdx, label, timeIt });
+      }, { hashIdx, timeIdx, label, timeIt, warmupDraws: WARMUP_DRAWS });
     }
     return { ...out, errors };
   } catch (e) { return { error: String(e.message).slice(0, 300), errors }; } finally { await page.close(); }
 }
 
 const fixtures = JSON.parse(readFileSync(join(NEW_DIR, "test/fixtures.json"), "utf8"));
+const itemFilter = ITEMS ? new Set(ITEMS.split(",").map((s) => s.trim()).filter(Boolean)) : null;
 const items = [];
 for (const name of styles) items.push({ id: name, kind: "style", name, aspects: ["16:9", "1:1"] });
 if (!ONLY) for (const f of fixtures) items.push({ id: `fixture:${f.name}@${f.aspect}`, kind: "fixture", name: f.name, look: f.look, frames: f.frames, aspects: [f.aspect] });
@@ -113,6 +123,7 @@ try {
   for (const it of items) {
     for (const aspect of it.aspects) {
       const id = `${it.id}${it.kind === "style" ? `@${aspect}` : ""}`, row = { item: id };
+      if (itemFilter && !itemFilter.has(id) && !itemFilter.has(it.id) && !itemFilter.has(it.name)) continue;
       let o, n, frames;
       try {
         if (it.kind === "style") {
@@ -150,20 +161,39 @@ try {
           row[`${label}Retry`] = { first: { old: a.hashes.join(), new: b.hashes.join() }, oldRuns: ro2, newRuns: rn2 };
           const count = (arr) => arr.reduce((m, h) => m.set(h, (m.get(h) ?? 0) + 1), new Map());
           const oc = count([a.hashes.join(), ...ro2]), nc = count([b.hashes.join(), ...rn2]);
-          const oldMode = [...oc.entries()].sort((x, y) => y[1] - x[1])[0][0];
-          const newMode = [...nc.entries()].sort((x, y) => y[1] - x[1])[0][0];
-          row[`${label}Verdict`] = newMode !== oldMode ? "NEW majority differs from OLD majority: REAL DIFFERENCE" : nc.size > 1 && oc.size === 1 ? "NEW engine differs between runs while OLD is stable: REAL DIFFERENCE or nondeterminism" : "OLD/GPU raster varied across fresh pages; OLD and NEW have identical majority hash (counted identical)";
-          same = newMode === oldMode && (oc.size > 1 || nc.size === 1);
+          // Per-frame vote over the initial page and the 3 fresh pages. GPU rasterisation can blip on a single draw (seen in OLD and NEW alike, load
+          // dependent, e.g. one lighthouse draw in ~25), so on GPU a frame is identical when OLD's plurality hash (>= 3 of 4 runs) also appears in
+          // >= 2 of NEW's 4 runs. A real engine difference is deterministic, so it gives 0 of 4 and fails; the strict software run (exact hash equality) is the exactness proof.
+          const oRuns = [a.hashes.join(), ...ro2], nRuns = [b.hashes.join(), ...rn2];
+          const oM = oRuns[0].split(",").map((_, i) => { const m = count(oRuns.map((r) => r.split(",")[i])); const [h, c] = [...m.entries()].sort((x, y) => y[1] - x[1])[0]; return c >= 3 ? h : null; });
+          const nM = oM.map((h, i) => nRuns.filter((r) => r.split(",")[i] === h).length);
+          const agree = oM.every((h, i) => h !== null && nM[i] >= 2);
+          row[`${label}Retry`].perFrameNewMatches = nM;
+          row[`${label}Verdict`] = !agree ? "OLD per-frame plurality hash missing from NEW (or OLD has no 3-of-4 plurality): REAL DIFFERENCE or nondeterminism" : (nc.size > 1 || oc.size > 1) ? "single-draw GPU raster blips on fresh pages; OLD and NEW have OLD's per-frame plurality hash appears in >= 2 of 4 NEW runs (counted identical)" : "identical";
+          same = agree;
         }
         allIdentical &&= same;
-        row[label] = { size: `${a.w}x${b.h}`, identical: same, firstDrawIdentical: a.firstHash === b.firstHash, oldFirstHash: a.firstHash, newFirstHash: b.firstHash, oldFirstMs: +a.first.toFixed(1), newFirstMs: +b.first.toFixed(1), oldMedianMs: med(a.per), newMedianMs: med(b.per), medianSpeedup: +(med(a.per) / med(b.per)).toFixed(2), hashes: b.hashes };
+        const resolvedHashes = b.hashes;
+        row[label] = { size: `${a.w}x${b.h}`, identical: same, firstDrawIdentical: a.firstHash === b.firstHash, oldFirstHash: a.firstHash, newFirstHash: b.firstHash, oldFirstMs: +a.first.toFixed(1), newFirstMs: +b.first.toFixed(1), oldMedianMs: med(a.per), newMedianMs: med(b.per), medianSpeedup: +(med(a.per) / med(b.per)).toFixed(2), hashes: resolvedHashes };
       }
       rows.push(row);
       console.log(JSON.stringify({ item: row.item, frames, small: row.small && row.small.error ? row.small : row.small && { size: row.small.size, same: row.small.identical, first: [row.small.oldFirstMs, row.small.newFirstMs], med: [row.small.oldMedianMs, row.small.newMedianMs] }, full: row.full && row.full.error ? row.full : row.full && { size: row.full.size, same: row.full.identical, first: [row.full.oldFirstMs, row.full.newFirstMs], med: [row.full.oldMedianMs, row.full.newMedianMs] } }));
     }
   }
 } finally { await browser.close(); server.close(); rmSync(tmp, { recursive: true, force: true }); }
-const summary = { base: BASE, items: rows.length, skipped, allIdentical, rows };
+const coldFirstDraw = {
+  note: "Informational cold first-draw hash comparison per mounted size; never affects allIdentical",
+  warmupDrawsDiscarded: WARMUP_DRAWS,
+  smallIdenticalCount: rows.filter((r) => r.small?.firstDrawIdentical === true).length,
+  fullIdenticalCount: rows.filter((r) => r.full?.firstDrawIdentical === true).length,
+  total: rows.length,
+  rows: rows.map((r) => ({
+    item: r.item,
+    small: r.small && !r.small.error ? { size: r.small.size, identical: r.small.firstDrawIdentical, oldFirstHash: r.small.oldFirstHash, newFirstHash: r.small.newFirstHash, oldFirstMs: r.small.oldFirstMs, newFirstMs: r.small.newFirstMs } : null,
+    full: r.full && !r.full.error ? { size: r.full.size, identical: r.full.firstDrawIdentical, oldFirstHash: r.full.oldFirstHash, newFirstHash: r.full.newFirstHash, oldFirstMs: r.full.oldFirstMs, newFirstMs: r.full.newFirstMs } : null
+  }))
+};
+const summary = { base: BASE, items: rows.length, skipped, allIdentical, warmupDrawsDiscarded: WARMUP_DRAWS, coldFirstDraw, rows };
 if (OUT) writeFileSync(OUT, JSON.stringify(summary, null, 1));
 console.log(JSON.stringify({ items: rows.length, skipped, allIdentical }));
 process.exit(allIdentical ? 0 : 1);
