@@ -305,9 +305,12 @@ async function main() {
     await waitForServer(`${origin}/dev/hf-step-fixture`);
     console.log("Next dev server ready. Launching headless Chrome...");
 
+    // --disable-partial-raster: Chromium's partial raster (damage-rect re-raster) varies run to run on the multi-step d-comments and
+    // g3-applying-comments states (2-56 px, delta <= 18 at rounded corners, even at commits before Phase 4a); full-tile raster is repeatable.
     browser = await chromium.launch({
       executablePath: CHROME_PATH,
-      headless: true
+      headless: true,
+      args: ["--disable-partial-raster"]
     });
 
     let activeState = "c-ready";
