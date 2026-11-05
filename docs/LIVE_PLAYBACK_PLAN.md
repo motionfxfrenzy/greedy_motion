@@ -13,7 +13,7 @@ This plan covers how a plate film's **code-drawn frames** play in the user's bro
 3. **Playback must be smooth at 30 fps**, with voiceover, music and sound effects in step with the picture, like a video.
 4. **Draw once.** When a scene has been drawn, it replays, loops and seeks without running its code again.
 5. **Quality must not drop because of speed work.** The model's drawing is never restricted (no drawing-time budget in authoring).
-6. Stored copies of drawn frames are **lossy WebP at quality 0.4 by default**; the user can choose **Low 0.2 / Standard 0.4 / High 0.6**. The first play always shows the exact drawn frames. The final render is not affected.
+6. Stored copies of drawn frames are **lossy WebP at quality 0.4 by default**; the user can choose **Low 0.2 / Standard 0.4 / High 0.6**. **Decided by the owner on 2026-11-05 ("Yes, 0.4 is fine"):** a frame shown at the moment it is drawn is exact; a frame drawn ahead of playback is shown from the stored copy at the chosen quality (0.4 by default), and it replays while stored. There is no lossless temporary storage and no setting for this. The final render is not affected.
 7. Changing the quality setting runs **in the background** on the user's computer: playback and scrubbing never wait for it.
 8. The server MP4 clip is used **only** for browsers that cannot run the live player (unverified or unsupported) or a drawing worker that keeps crashing. Never for slowness.
 
@@ -41,7 +41,7 @@ Why the user's local scenes are fast: the hand-written `canvas-core/balloon.ts` 
 
 ### A. Faster engine, identical pictures (being built by a Sonnet agent)
 - **Where:** `packages/plate-engine/src/canvas-core/gallery.ts` `inside()` and every other copy of the even-odd point-in-polygon test in the engine. Branch `codex/engine-inside`, worktree `../VideoSaaS-engine`, brief `tools/phase3/TASK-engine-inside.md` there.
-- **What:** per outline array (module `WeakMap`, keyed like `adaptPts` already is): bounding box and edges bucketed by height, built once. A query outside the box returns `false` (the old loop's answer there); inside, only the edges of the point's height bucket are tested with the **identical comparison and arithmetic**. Guard: the index stores length and first, middle and last vertices; a mismatch rebuilds it.
+- **What:** per outline array (module `WeakMap`, keyed like `adaptPts` already is): bounding box and edges bucketed by height, built once. A query outside the box returns `false` (the old loop's answer there); inside, only the edges of the point's height bucket are tested with the **identical comparison and arithmetic**. Guard: length and end vertices on every query, and a full-content check of each outline once per frame (`ringNewFrame` in `renderFrame`); a mismatch rebuilds the index.
 - **Quality:** none changes. Proofs required: engine golden hashes unchanged; 200,000 random points over 300 random outlines give the old answer; frame fingerprints of every style identical at 640x360 and 1920x1080; an in-place outline edit test.
 - **Effect:** 5 to 6x faster drawing for crayon scenes (all four then draw at 23 to 53 fps), and the same speed-up for the AWS final render.
 - **Rollout (needs a backend brief after A lands):** every bundle embeds its engine, so existing scenes must be **re-bundled from their saved source with no model call** (new `engineDigest` and `bundleDigest`); their cached clips are redrawn once on next use. The engine agent reports the exact re-bundle path; the manager writes that brief.
@@ -51,18 +51,18 @@ Why the user's local scenes are fast: the hand-written `canvas-core/balloon.ts` 
 - The browser check (`runCheck`) is unchanged.
 
 ### C. Buffer like a video, with sound in step
-- **Start:** play when a small buffer is ready: the larger of about 1 s of frames and the lead the scene's draw rate needs (`decidePredraw`'s `L`), so slow scenes rarely pause.
+- **Start:** play when a small buffer is ready: the larger of about 1 s of frames and the lead the scene's draw rate needs (`decidePredraw`'s `L`, computed from the frames still to be prepared and the measured rate with frames waiting on disk), **planned with a 1.25x safety margin on the measured draw time and re-measured as drawing continues**, so slow scenes rarely pause. Two different stores are never mixed in wording or code: the **decoded memory window** (ImageBitmaps, byte-budgeted) and the **frames prepared on disk** (IndexedDB).
 - **Window:** keep about 2 to 3 s of frames ready ahead of the playhead (decoded `ImageBitmap`s within the byte budget of `resolveCacheBudgetBytes`); free each frame once shown (the stored copy remains, change D).
 - **Catch-up:** if playback reaches the last ready frame, show **Buffering...** and pause; resume when the buffer is back. Never show a wrong frame.
 - **No time limit:** remove the `predraw-too-slow` and `predraw-over-budget` fallbacks (over-budget no longer applies: frames ahead can wait on disk). Keep the MP4 only for `unverified-environment`, `unsupported-environment` and `worker-unhealthy` (and the bundle-load failure path from `780d868`).
-- **One clock for everything:** `frontend/lib/live/clock.ts` (`PlaybackClock`) drives the picture **and** voiceover, music and sound effects in `frontend/components/plate-preview.tsx`. Buffering pauses all of them at the same instant; resume seeks each audio element to the clock time and plays them together. Sound effects are scheduled from the clock (cue crossings checked on each tick), never from fire-and-forget `setTimeout`s. Scrubbing moves the clock; audio follows.
+- **One clock for everything:** `frontend/lib/live/clock.ts` (`PlaybackClock`) drives the picture **and** voiceover, music and sound effects in `frontend/components/plate-preview.tsx`. Audio runs on **one Web Audio timeline** (`AudioContext.currentTime` is the master time; voice, music and effects are `AudioBufferSourceNode`s scheduled against it), not several `<audio>` elements. Buffering suspends the timeline for all of them at the same instant and resumes them together. Sound effects are scheduled from the clock (cue crossings), never from fire-and-forget `setTimeout`s. Scrubbing moves the clock; audio is rescheduled from it. Required test cases: seek into the middle of an active sound effect, backward seek, loop, scene boundary, repeated buffering, hidden tab, device sleep/resume.
 
 ### D. Draw once, replay forever (stored frames)
 - **When:** each frame is saved **the moment the code draws it**, not at the end of the scene. A partly drawn scene resumes from its first missing frame.
-- **What is shown:** first play shows the freshly drawn bitmap (exact). The saver gets a copy (`createImageBitmap(bitmap)`, transferred) so the shown frame is never delayed.
+- **What is shown:** a frame shown at the moment it is drawn is the freshly drawn bitmap (exact); a frame drawn ahead is shown from the stored copy at the chosen quality (owner decision 2026-11-05). The saver gets a copy (`createImageBitmap(bitmap)`, transferred) so the shown frame is never delayed.
 - **Saver:** a dedicated encoder Worker: `OffscreenCanvas.convertToBlob({ type: "image/webp", quality })`. If the browser returns a type other than `image/webp`, storing is disabled for that browser (the scene redraws on replay) and the status says so.
 - **Where:** IndexedDB database `gm-live-frames` on the user's disk. Keys: `bundleDigest | width x height | quality | frame`. A scene record per `bundleDigest x size`: frames saved, quality per frame, `complete`, bytes, last used. Only the 2 to 3 s playback window lives in memory.
-- **Complete scene:** when every frame of a revision is saved, playback, loop and seek load stored frames (decode 2.4 to 3.6 ms) and never call the scene code; the scene's drawing Worker is not created at all.
+- **Complete scene ("replays while stored"; browsers can evict storage, then the scene draws again):** when every frame of a revision is saved, playback, loop and seek load stored frames (decode 2.4 to 3.6 ms) and never call the scene code; the scene's drawing Worker is not created at all.
 - **New revision:** a comment produces a new `bundleDigest`; that scene draws again and its superseded frames are deleted. Other scenes keep theirs.
 - **Cap:** about 500 MB per site (check `navigator.storage.estimate()`), least recently used films cleared first, never the open film. If the browser refuses space, the scene simply redraws on replay.
 
@@ -70,7 +70,8 @@ Why the user's local scenes are fast: the hand-written `canvas-core/balloon.ts` 
 - **Setting:** Low 0.2 / Standard 0.4 (default) / High 0.6 in the step-3 options bar for plate films (the shared workspace shows extras only where the engine supports them, plan section 22). Remembered per user in the browser.
 - **Changing it starts a background job on the user's computer:**
   - Playback, scrubbing and clicking keep using whatever stored frames exist, immediately.
-  - Raising quality: the job **redraws** frames with the scene code in a Worker and saves them at the new quality (detail lost to compression cannot be recovered from the stored copy). Lowering quality: the job **re-saves** the stored copies (decode, encode lower), no redraw.
+  - Raising **and lowering** quality: the job **redraws** frames with the scene code in a Worker and saves them at the new quality (re-encoding a lossy copy would lose detail twice, and detail lost to compression cannot be recovered).
+  - Background limits: the encoder queue is bounded; every ImageBitmap is closed on all paths (success, error, cancel); work is cancelled when a revision or the setting changes; priority is playback > drawing for playback > future scenes > quality upgrades.
   - Order: frames just ahead of the playhead first, then outward, then the rest of the film. A scrub or click moves the job's focus there.
   - Each frame switches to the new quality the moment it is ready.
   - Playback always gets the CPU first: the job yields while a frame is due, and slows down on a busy machine rather than making playback stutter.
@@ -101,6 +102,6 @@ Why the user's local scenes are fast: the hand-written `canvas-core/balloon.ts` 
 
 - Only desktop Chromium is verified for the live player; Safari, Firefox and phones get the MP4 until the device report is run on them (`tools/spike-phase0/harness.html`).
 - Some browsers may not encode WebP from `OffscreenCanvas`; storing is then disabled there (replays redraw).
-- Change A assumes scene code does not edit an outline array in place after drawing with it (the engine already assumes this in `adaptPts`); the guard catches length and end-point changes only.
+- Change A assumes scene code does not edit an outline array in place after drawing with it (the engine already assumes this in `adaptPts`); each outline's full contents are verified once per frame (at `renderFrame`), so an edit between frames is seen; an edit within one frame is unsupported and caught by the determinism check.
 - Storage quotas vary by browser; eviction must never remove the film being watched.
 - The plates step-3 page (`plate-preview.tsx`) owns audio today; moving audio onto the stage clock touches HyperFrames-shared components only through the shared workspace props; HyperFrames playback is out of scope.

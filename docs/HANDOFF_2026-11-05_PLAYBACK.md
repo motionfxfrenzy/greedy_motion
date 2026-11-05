@@ -128,3 +128,21 @@ All stopped on the owner's request at about 13:55 +08 on 2026-11-05. Nothing is 
 ### 10.5 Things only the owner can do
 - Decide section 6 item 3 (first play from the stored copy or exact).
 - Run harness-blocked commands when asked (plan grants, Secrets Manager writes, R2 CORS writes).
+
+---
+
+## 11. Update, 2026-11-05 evening (playback manager session)
+
+**Owner decisions recorded:** (1) Interrupt and relaunch 3g on a revised brief (done: Argon's v1 diff is the WIP commit `26b5d5a` on `codex/live-predraw`). (2) 2026-11-05, "Yes, 0.4 is fine": a frame shown at the moment it is drawn is exact; a frame drawn ahead of playback is shown from the stored copy at the chosen quality (0.4 default); it replays while stored; no lossless temporary storage, no flag. (3) Argon does the coding; Sonnet sessions manage, brief and verify; Haiku explores; Opus advises.
+
+**Done this session:** 4a committed as `c760509` on `codex/live-scenes` (review fixes: plan canvas on commit, dx/dy and text bounded, font floors restored for hint-free plans, flaky `plan-element-edits` timeout 10 s to 60 s; the preview-meter keeps counting `plan/edit/propose` toward the per-film call cap on purpose: it only uses an extra call on an already counted film). Engine: stronger per-frame guard written (uncommitted in `../VideoSaaS-engine`, now owned by engine-track). Plan and 3g brief revised to v2 (brief standard: Goal, Read first, Architecture rules, Locks, Acceptance criteria, Forbidden).
+
+### Parallel tracks
+| Track | Worktree | Manager session | State |
+| --- | --- | --- | --- |
+| engine | `../VideoSaaS-engine` (`codex/engine-inside`) | engine-track `local_05177cbd-7978-4b30-869c-4b3b5500c69e` | working: GPU first-draw explanation, storybook, timing, re-bundle proposal, report |
+| 4a | `../VideoSaaS-live-scenes` (`codex/live-scenes`) | 4a-track `local_684975af-392e-4302-be34-48fde9dd39b8` | working (4a already committed c760509) |
+| smoke | `../VideoSaaS-smoke` (`codex/staging-smoke`) | smoke-track `local_047b5434-ec92-4eb5-b529-4bbe7899412f` | working |
+| 3g playback | `../VideoSaaS-predraw` (`codex/live-predraw`) | this session | brief v2 awaiting advisor OK, then relaunch Argon |
+
+Locks: `/Users/osamaehsaan/Code/Market_apps/.lock-plates-e2e` (Docker stack) and `.lock-timing` (timing-sensitive tests); file holds the track name and time; delete when done.
