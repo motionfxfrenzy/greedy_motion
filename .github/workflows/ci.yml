@@ -54,6 +54,7 @@ jobs:
       - run: npm run test:visuals -w backend
       - run: npm run test:media -w backend
       - run: npm run test:worker-launcher -w backend
+      - run: npm run test:throwaway-db -w backend
       - run: npm test -w frontend
 
   engine:
