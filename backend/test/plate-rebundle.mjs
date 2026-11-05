@@ -637,12 +637,18 @@ try {
       "/Users/osamaehsaan/Code/Market_apps/VideoSaaS/experiments/anidoodle-try/pw-cache/chromium_headless_shell-1/chrome-headless-shell-mac-arm64/chrome-headless-shell";
     if (existsSync(browserPath)) {
       process.env.PLATE_BROWSER_PATH = browserPath;
-      while (existsSync(lockPath)) {
-        await new Promise((r) => setTimeout(r, 250));
+      // When the caller already holds .lock-timing (set TIMING_LOCK_HELD=1), do not wait for or take it again: waiting would deadlock on the caller's own lock.
+      const callerHoldsLock = process.env.TIMING_LOCK_HELD === "1";
+      if (!callerHoldsLock) {
+        const waitStart = Date.now();
+        while (existsSync(lockPath)) {
+          if (Date.now() - waitStart > 15 * 60_000) throw new Error("Timed out after 15 minutes waiting for .lock-timing (held by another track; set TIMING_LOCK_HELD=1 if you hold it yourself).");
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        const fd = openSync(lockPath, "wx");
+        writeFileSync(fd, `rebundle-argon ${new Date().toISOString()}\n`);
+        closeSync(fd);
       }
-      const fd = openSync(lockPath, "wx");
-      writeFileSync(fd, `rebundle-argon ${new Date().toISOString()}\n`);
-      closeSync(fd);
       try {
         // Reset workerProjectId's variant back to old engineDigest and run rebundleVariant with defaultChromiumVerifier (no custom verifier)
         await pool.query(
@@ -653,7 +659,7 @@ try {
         assert.equal(realVerifyOut.status, "committed", "real headless Chromium verifyScene succeeded in defaultChromiumVerifier");
         assert.equal(realVerifyOut.newRev, 2);
       } finally {
-        try { unlinkSync(lockPath); } catch {}
+        if (!callerHoldsLock) { try { unlinkSync(lockPath); } catch {} }
       }
     }
   }
