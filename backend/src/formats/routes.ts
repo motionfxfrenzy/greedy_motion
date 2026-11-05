@@ -6,6 +6,7 @@ import { motionBlurProblem, parseMotionBlur, themeIds, type RenderJob } from "@v
 import { callerId } from "../auth.ts";
 import { getBrand, restoreBrandFiles } from "../brand/store.ts";
 import { config } from "../config.ts";
+import { registerRequestId, upstreamError } from "../http-errors.ts";
 import { renderJobRepository } from "../render/repository.ts";
 import { uploadDirectory } from "../storage.ts";
 import { formatBundle, type FormatSkill } from "./bundle.ts";
@@ -54,6 +55,7 @@ async function resolveLook(body: { brandId?: unknown; theme?: unknown }): Promis
 }
 
 export async function registerFormatRoutes(app: FastifyInstance) {
+  registerRequestId(app);
   // Fail at startup, not on the first request, if the shipped bundle is damaged.
   const { bundle, skills } = await formatBundle();
   app.log.info({ bundle: bundle.slice(0, 12), formats: [...skills.values()].map((skill) => `${skill.name}@${skill.version}`) }, "skill bundle verified");
@@ -81,8 +83,7 @@ export async function registerFormatRoutes(app: FastifyInstance) {
         written = await fillSlots(skill, { story: brief, ...context }, supplied);
       }
     } catch (error) {
-      request.log.error({ err: error, skill: skill.name }, "format slot fill failed");
-      return reply.code(502).send(fail("fill_failed", error instanceof Error ? error.message : "The slots could not be written."));
+      return reply.code(502).send(upstreamError(request, error, "fill_failed", "The slots could not be written."));
     }
 
     // 2. everything, supplied or written, meets the same budgets

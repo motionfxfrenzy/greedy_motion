@@ -7,13 +7,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import { chromium } from "../../node_modules/playwright-core/index.mjs";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 
 process.env.APP_ENV = "local";
 process.env.PLANNER = "deterministic";
 process.env.CREEM_API_KEY = "";
-if (!/plates_unit|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
-}
+assertThrowawayDb();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");

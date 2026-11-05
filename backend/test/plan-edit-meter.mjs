@@ -4,15 +4,17 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import Fastify from "fastify";
+import { assertThrowawayDb, isThrowawayDbName } from "./support/throwaway-db.mjs";
 
 process.env.APP_ENV = "local";
 process.env.PLANNER = "deterministic";
 process.env.CREEM_API_KEY = "";
 process.env.PREVIEW_LIMITS = "on";
+assertThrowawayDb();
 
 const { migrate, pool } = await import("../src/db/database.ts");
 const { data: dbInfo } = await pool.query("select current_database() as db").then((r) => ({ data: r.rows[0]?.db ?? "" }));
-if (!/plates_unit|test/i.test(dbInfo)) {
+if (!isThrowawayDbName(dbInfo)) {
   throw new Error(`Refusing to run test against non-test database "${dbInfo}"`);
 }
 
@@ -655,6 +657,9 @@ try {
     });
     assert.equal(res.statusCode, 502);
     assert.equal(res.json().error.code, "propose_failed");
+    assert.equal(res.json().error.message, "Could not translate the comment. Try again.");
+    assert.ok(!res.body.includes("Upstream model gateway failed"));
+    assert.match(res.json().error.requestId, /^[A-Za-z0-9-]{8,64}$/);
     assert.ok(modelCalls >= 1, "Model was invoked after admission");
 
     const row = await usageRow(owner, proj.id);

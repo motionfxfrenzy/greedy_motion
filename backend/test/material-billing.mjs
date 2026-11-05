@@ -3,8 +3,10 @@
 // Run: node --env-file=.env test/material-billing.mjs   (needs DATABASE_URL, a disposable test database)
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 process.env.PLANNER = "deterministic";
 process.env.GEMINI_API_KEY = "offline-test-never-sent";
+assertThrowawayDb();
 const { migrate, pool, query } = await import("../src/db/database.ts");
 const { startQueues, boss, QUEUES } = await import("../src/jobs/queues.ts");
 const { getProject, updateProjectVisuals } = await import("../src/projects/store.ts");

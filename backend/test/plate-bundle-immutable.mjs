@@ -7,12 +7,11 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_rebundle|plates_unit|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at a throwaway database (plates_rebundle, plates_unit, or test).");
-}
+assertThrowawayDb();
 
 const sha256Hex = (input) => createHash("sha256").update(input).digest("hex");
 
@@ -345,12 +344,14 @@ try {
   console.log("plate bundle immutable: ok");
 } finally {
   config.plates.live = false;
+  const vIds = (await pool.query("select id::text as id from app.plate_variants where project_id = any($1)", [projects])).rows.map((r) => r.id);
+  const eIds = (await pool.query("select id::text as id from app.plate_exports where project_id = any($1)", [projects])).rows.map((r) => r.id);
+  await pool.query("delete from pgboss.job where name like 'plate-%' and (data->>'variantId' = any($1) or data->>'exportId' = any($2))", [vIds, eIds]);
   await pool.query("delete from app.plate_exports where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_variants where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_garbage where project_id = any($1)", [projects]);
   await pool.query("delete from app.plate_state where project_id = any($1)", [projects]);
   await pool.query("delete from app.projects where id = any($1)", [projects]);
-  await pool.query("delete from pgboss.job where name like 'plate-%'");
   await boss.stop({ graceful: false }).catch(() => undefined);
   await pool.end();
   await new Promise((resolve) => server.close(resolve));

@@ -1,6 +1,7 @@
 // "Your film is ready" email: the template, the once-per-job claim (real Postgres) and the retry after a failed send.
 //   DATABASE_URL=postgres://… node test/render-ready-email.mjs   (cleans up its own rows; provider calls are fakes)
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required (a local Postgres; this test writes to it).");
 process.env.PLANNER ??= "deterministic";
@@ -9,8 +10,8 @@ const { sendRenderReady } = await import("../src/mail/render-ready.ts");
 const { renderReadyEmail } = await import("../src/mail/templates.ts");
 await migrate();
 
-const A = "00000000-0000-4000-8000-0000000c0001", B = "00000000-0000-4000-8000-0000000c0002";
-const USER = "00000000-0000-4000-8000-0000000c00aa";
+const A = randomUUID(), B = randomUUID();
+const USER = randomUUID();
 const clean = () => pool.query("delete from app.render_ready_emails where job_id = any($1)", [[A, B]]);
 await clean();
 

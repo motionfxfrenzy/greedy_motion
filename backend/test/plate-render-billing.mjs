@@ -16,13 +16,12 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import Fastify from "fastify";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
 process.env.PLATE_PIPELINE = "worker";
-if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
-}
+assertThrowawayDb();
 
 // Hermetic local S3 server for manifest uploads
 const s3Store = new Map();
@@ -84,7 +83,7 @@ const { grantTokens, InsufficientTokens, refundSpend, spendTokens, tokenSummary 
 await migrate();
 await startQueues();
 
-const USER = "00000000-0000-4000-8000-0000000b5501";
+const USER = randomUUID();
 const createdProjects = [];
 
 function buildPlateProjectData(id, { ready = true } = {}) {
@@ -475,6 +474,10 @@ try {
 } finally {
   config.plates.live = false;
   await app.close();
+  const jIds = (await pool.query("select id::text as id from app.render_jobs where project_id = any($1)", [createdProjects])).rows.map((r) => r.id);
+  const eIds = (await pool.query("select id::text as id from app.plate_exports where project_id = any($1)", [createdProjects])).rows.map((r) => r.id);
+  const vIds = (await pool.query("select id::text as id from app.plate_variants where project_id = any($1)", [createdProjects])).rows.map((r) => r.id);
+  await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render', 'plate-export', 'render-plan', 'render-video', 'render-finished') and (data->>'variantId' = any($1) or data->>'exportId' = any($2) or data->>'jobId' = any($3))", [vIds, eIds, jIds]);
   await pool.query("delete from app.token_ledger where user_id = $1", [USER]);
   await pool.query("delete from app.render_jobs where project_id = any($1)", [createdProjects]);
   await pool.query("delete from app.plate_exports where project_id = any($1)", [createdProjects]);
@@ -482,7 +485,6 @@ try {
   await pool.query("delete from app.plate_garbage where project_id = any($1)", [createdProjects]);
   await pool.query("delete from app.plate_state where project_id = any($1)", [createdProjects]);
   await pool.query("delete from app.projects where id = any($1)", [createdProjects]);
-  await pool.query("delete from pgboss.job where name in ('plate-author', 'plate-render', 'plate-export', 'render-plan', 'render-video', 'render-finished')");
   await boss.stop({ graceful: false }).catch(() => undefined);
   await pool.end();
   await new Promise((resolve) => s3Server.close(resolve));

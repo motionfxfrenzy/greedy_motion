@@ -7,6 +7,7 @@ import { extractBrand } from "../brand/extract.ts";
 import { listBrands } from "../brand/store.ts";
 import { FetchRefused, safeFetch } from "../brand/safe-fetch.ts";
 import { config } from "../config.ts";
+import { registerRequestId, upstreamError } from "../http-errors.ts";
 import { removeMedia, saveMedia } from "../media.ts";
 import { addScreenshot, getProject, removeScreenshot, updateProjectSite } from "../projects/store.ts";
 import { readSite, SITE_RULES, SiteUnavailable } from "./capture.ts";
@@ -32,6 +33,7 @@ function serial<T>(id: string, work: () => Promise<T>): Promise<T> {
 }
 
 export async function registerSiteRoutes(app: FastifyInstance) {
+  registerRequestId(app);
   /**
    * Reads the product's website for the Script & Style step: the product's own words (facts the
    * director may use), labelled section screenshots added to the project, an HTML/CSS snapshot of
@@ -116,8 +118,7 @@ export async function registerSiteRoutes(app: FastifyInstance) {
     } catch (error) {
       if (error instanceof FetchRefused || error instanceof SiteUnavailable) return reply.code(400).send({ error: { code: "site_unreadable", message: error.message } });
       if (error instanceof Error && /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT/.test(error.message)) return reply.code(400).send({ error: { code: "unreachable", message: "That website could not be reached." } });
-      app.log.warn({ err: error, projectId: project.id }, "site read failed");
-      return reply.code(502).send({ error: { code: "site_failed", message: "Reading the site failed. Try again, or upload screenshots instead." } });
+      return reply.code(502).send(upstreamError(request, error, "site_failed", "Reading the site failed. Try again, or upload screenshots instead."));
     }
   });
 }

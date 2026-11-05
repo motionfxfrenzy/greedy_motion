@@ -2,7 +2,9 @@
 // nothing is given back. Run: node --env-file=.env test/revision-meter.mjs   (needs DATABASE_URL)
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 process.env.APP_ENV ??= "local";
+assertThrowawayDb();
 const { migrate, pool } = await import("../src/db/database.ts");
 const { takeRevision, undoRevision, revisionInfo } = await import("../src/plan/revision-meter.ts");
 const { grantTokens, spendTokens, tokenSummary, InsufficientTokens } = await import("../src/tokens/store.ts");

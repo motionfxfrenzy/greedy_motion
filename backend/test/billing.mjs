@@ -3,7 +3,7 @@
 // order, cancellation, and the watermark. The webhook handler is called directly with the bodies Lemon Squeezy sends.
 //   DATABASE_URL=postgres://… node test/billing.mjs   (cleans up its own rows)
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required (a local Postgres; this test writes to it).");
 process.env.LEMONSQUEEZY_WEBHOOK_SECRET = "s3cret";
@@ -25,10 +25,9 @@ const { registerBillingRoutes } = await import("../src/billing/routes.ts");
 const { isOpen } = await import("../src/auth.ts");
 await migrate();
 
-const U = "00000000-0000-4000-8000-0000000b0001", V = "00000000-0000-4000-8000-0000000b0002", W = "00000000-0000-4000-8000-0000000b0003";
+const U = randomUUID(), V = randomUUID(), W = randomUUID();
 const clean = async () => {
-  for (const t of ["token_ledger", "subscriptions", "entitlements", "entitlement_events"]) await pool.query(`delete from app.${t} where user_id = any($1)`, [[U, V, W]]);
-  await pool.query("delete from app.billing_events where name like 'test%' or payload::text like '%0000000b000%'");
+  for (const t of ["token_ledger", "subscriptions", "entitlements", "entitlement_events", "billing_events"]) await pool.query(`delete from app.${t} where user_id = any($1)`, [[U, V, W]]);
 };
 await clean();
 

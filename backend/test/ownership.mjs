@@ -9,7 +9,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import pg from "pg";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
 
 const { publicKey, privateKey } = await generateKeyPair("ES256");
@@ -25,7 +25,7 @@ const server = spawn("node", ["src/server.ts"], {
   env: { ...process.env, PORT: String(apiPort), HOST: "127.0.0.1", APP_ENV: "local", AUTH_MODE: "supabase", SUPABASE_URL: issuerBase, SUPABASE_JWKS_URL: `${issuerBase}/jwks`, EXPECTED_SUPABASE_PROJECT_REF: "", LEGACY_OWNER_ID: "", MEDIA_URL_SECRET: "ownership-test-media-url-secret-0123456789", STORAGE_DRIVER: "filesystem", AUDIO_DIR: join(data, "audio"), PROJECTS_DIR: join(data, "projects"), BRANDS_DIR: join(data, "brands"), LOG_LEVEL: "error" },
   stdio: ["ignore", "inherit", "inherit"]
 });
-const ALICE = "00000000-0000-4000-8000-00000000000a", BOB = "00000000-0000-4000-8000-00000000000b";
+const ALICE = randomUUID(), BOB = randomUUID();
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const cleanup = () => Promise.all([db.query("delete from app.projects where owner_id = any($1)", [[ALICE, BOB]]), db.query("delete from app.brand_kits where owner_id = any($1)", [[ALICE, BOB]])]);
 const stop = async () => { server.kill("SIGTERM"); jwks.close(); await cleanup().catch(() => undefined); await db.end(); await rm(data, { recursive: true, force: true }); };
@@ -56,12 +56,12 @@ test("alice creates a project it owns", async () => {
   const response = await call(alice, "POST", "/v1/projects", { name: "Alice project", request });
   assert.equal(response.status, 201, JSON.stringify(response.body));
   project = response.body;
-  assert.equal(project.ownerId, "00000000-0000-4000-8000-00000000000a");
+  assert.equal(project.ownerId, ALICE);
 });
 test("a client cannot choose the owner", async () => {
-  const response = await call(bob, "POST", "/v1/projects", { name: "Forged", ownerId: "00000000-0000-4000-8000-00000000000a", request });
+  const response = await call(bob, "POST", "/v1/projects", { name: "Forged", ownerId: ALICE, request });
   assert.equal(response.status, 201);
-  assert.equal(response.body.ownerId, "00000000-0000-4000-8000-00000000000b");
+  assert.equal(response.body.ownerId, BOB);
 });
 test("alice sees her project, bob sees only his own", async () => {
   const mine = (await call(alice, "GET", "/v1/projects")).body.projects.map((p) => p.name);

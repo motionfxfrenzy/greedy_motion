@@ -16,12 +16,13 @@ await migrate();
 await startQueues();
 await renderService.startConsumers();
 
-const U = "00000000-0000-4000-8000-0000000f0101";
+const U = randomUUID();
 const COST = 2500; // 10 s of film
 const projects = [];
 const jobs = [];
 const balance = async () => (await tokenSummary(U)).remaining;
 const clean = async () => {
+  await pool.query("delete from pgboss.job where name in ('render-plan', 'render-video', 'render-finished') and data->>'jobId' = any($1)", [jobs]);
   await pool.query("delete from app.token_ledger where user_id = $1", [U]);
   await pool.query("delete from app.render_jobs where id = any($1)", [jobs]);
   await pool.query("delete from app.projects where id = any($1)", [projects]);

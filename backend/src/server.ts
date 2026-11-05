@@ -47,12 +47,14 @@ import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
 import { presignOutput } from "./storage.ts";
 import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, removedVariants, updateBrand, validateBrandInput } from "./brand/store.ts";
+import { genReqId, registerRequestId, upstreamError } from "./http-errors.ts";
 import { addReviewComment, addScreenshot, applyReviewComments, createProject, deleteProject, getProject, listProjects, projectByRenderJob, ProjectInvalid, removeReviewComment, removeScreenshot, screenshotFile, setProjectPlanning, updateProject, updateProjectStudio } from "./projects/store.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
+const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, genReqId });
+registerRequestId(app);
 
-await app.register(cors, { origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "X-File-Type", "X-File-Name", "X-Screenshot-Purpose", "Authorization"] });
+await app.register(cors, { origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "X-File-Type", "X-File-Name", "X-Screenshot-Purpose", "Authorization", "X-Request-Id"], exposedHeaders: ["X-Request-Id"] });
 registerAuth(app);
 registerOwnership(app);
 registerPreviewMeter(app);
@@ -67,10 +69,9 @@ app.get("/readyz", async (_request, reply) => {
   return reply.code(ready ? 200 : 503).send({ ready, database: ready });
 });
 
-const projectError = (reply: { code: (n: number) => { send: (b: unknown) => unknown } }, error: unknown) => {
+const projectError = (request: import("fastify").FastifyRequest, reply: { code: (n: number) => { send: (b: unknown) => unknown } }, error: unknown) => {
   if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
-  app.log.warn({ err: error }, "project request failed");
-  return reply.code(422).send({ error: { code: "project_failed", message: error instanceof Error ? error.message : "Could not update this project." } });
+  return reply.code(422).send(upstreamError(request, error, "project_failed", "Could not update this project."));
 };
 
 /**
@@ -195,7 +196,7 @@ app.post("/v1/projects", async (request, reply) => {
     if (typeof requested === "string" && !(await ensurePromptAllowed(reply, [requested], `user_${callerId(request)}:project_create`))) return;
     return reply.code(201).send(await createProject(request.body as { name?: unknown; request?: unknown }, callerId(request)));
   } catch (error) {
-    return projectError(reply, error);
+    return projectError(request, reply, error);
   }
 });
 
@@ -222,7 +223,7 @@ app.put<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) =
     const project = await updateProject(request.params.id, request.body as Record<string, unknown>);
     return project ?? reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
   } catch (error) {
-    return projectError(reply, error);
+    return projectError(request, reply, error);
   }
 });
 
@@ -232,7 +233,7 @@ app.delete<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply
     if (!deleted) return reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
     return reply.code(204).send();
   } catch (error) {
-    return projectError(reply, error);
+    return projectError(request, reply, error);
   }
 });
 
@@ -242,7 +243,7 @@ app.patch<{ Params: { id: string } }>("/v1/projects/:id/studio", async (request,
     const project = await updateProjectStudio(request.params.id, request.body as { values?: unknown; assets?: unknown });
     return project ?? reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
   } catch (error) {
-    return projectError(reply, error);
+    return projectError(request, reply, error);
   }
 });
 
@@ -254,7 +255,7 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/script", async (request, 
     const updated = await updateProject(project.id, { script: { source: "generated", lines, confirmed: false } });
     return reply.code(201).send(updated);
   } catch (error) {
-    return projectError(reply, error);
+    return projectError(request, reply, error);
   }
 });
 
@@ -350,7 +351,7 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/comments", async (request
     const project = await addReviewComment(request.params.id, request.body);
     return project ? reply.code(201).send(project) : reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
   } catch (error) {
-    return projectError(reply, error);
+    return projectError(request, reply, error);
   }
 });
 
@@ -379,7 +380,7 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/comments/apply", async (r
       throw error;
     }
   } catch (error) {
-    return projectError(reply, error);
+    return projectError(request, reply, error);
   }
 });
 
@@ -401,7 +402,7 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/screenshots", async (requ
     if (project) { const added = project.screenshots[project.screenshots.length - 1]; if (added) void describeScreenshot(project.id, added.id).catch(() => undefined); }
     return project ? reply.code(201).send(project) : reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
   } catch (error) {
-    return projectError(reply, error);
+    return projectError(request, reply, error);
   }
 });
 
@@ -500,10 +501,9 @@ app.get<{ Params: { id: string } }>("/v1/renders/:id", async (request, reply) =>
 });
 
 // ---------- Brand kits ----------
-const brandError = (reply: { code: (n: number) => { send: (b: unknown) => unknown } }, error: unknown) => {
+const brandError = (request: import("fastify").FastifyRequest, reply: { code: (n: number) => { send: (b: unknown) => unknown } }, error: unknown) => {
   if (error instanceof FetchRefused || error instanceof AssetRejected || error instanceof BrandInvalid) return reply.code(400).send({ error: { code: "invalid_request", message: error.message } });
-  app.log.warn({ err: error }, "brand request failed");
-  return reply.code(422).send({ error: { code: "brand_failed", message: error instanceof Error ? error.message : "Could not process the brand." } });
+  return reply.code(422).send(upstreamError(request, error, "brand_failed", "Could not process the brand."));
 };
 
 app.post<{ Body: { url?: string } }>("/v1/brands/extract", async (request, reply) => {
@@ -513,7 +513,7 @@ app.post<{ Body: { url?: string } }>("/v1/brands/extract", async (request, reply
     return await extractBrand(url, callerId(request));
   } catch (error) {
     if (error instanceof Error && /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET/.test(error.message)) return reply.code(400).send({ error: { code: "unreachable", message: "That website could not be reached." } });
-    return brandError(reply, error);
+    return brandError(request, reply, error);
   }
 });
 
@@ -525,7 +525,7 @@ app.put<{ Params: { kind: string } }>("/v1/brands/assets/:kind", async (request,
     if (request.params.kind === "font") return reply.code(201).send(await stageFont(body, callerId(request)));
     return reply.code(404).send({ error: { code: "not_found", message: "Unknown asset kind." } });
   } catch (error) {
-    return brandError(reply, error);
+    return brandError(request, reply, error);
   }
 });
 
@@ -542,7 +542,7 @@ app.post("/v1/brands", async (request, reply) => {
   try {
     return reply.code(201).send(await createBrand(validateBrandInput(request.body), callerId(request)));
   } catch (error) {
-    return brandError(reply, error);
+    return brandError(request, reply, error);
   }
 });
 
@@ -551,7 +551,7 @@ app.put<{ Params: { id: string }; Body: Record<string, unknown> }>("/v1/brands/:
     const kit = await updateBrand(request.params.id, validateBrandInput(request.body), callerId(request), { removeLogo: request.body?.removeLogo === true, removeVariants: removedVariants(request.body) });
     return kit ?? reply.code(404).send({ error: { code: "not_found", message: "Brand kit not found." } });
   } catch (error) {
-    return brandError(reply, error);
+    return brandError(request, reply, error);
   }
 });
 

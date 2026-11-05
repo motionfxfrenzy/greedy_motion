@@ -2,6 +2,7 @@
 // repeated event is stored once, a refund puts tokens back, two renders cannot both spend the last tokens, users are
 // isolated.   DATABASE_URL=postgres://… node test/tokens.mjs   (cleans up its own rows)
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required (a local Postgres; this test writes to it).");
 const { migrate, pool } = await import("../src/db/database.ts");
@@ -9,8 +10,8 @@ const { expirePlanTokens, grantTokens, InsufficientTokens, refundSpend, spendTok
 const { renderCostMillitokens, materialCostMillitokens, PLANS, filmsFromTokens } = await import("@videosaas/contracts");
 await migrate();
 
-const A = "00000000-0000-4000-8000-0000000f0001", B = "00000000-0000-4000-8000-0000000f0002";
-const clean = () => pool.query("delete from app.token_ledger where user_id = any($1)", [[A, B]]);
+const A = randomUUID(), B = randomUUID(), C = randomUUID();
+const clean = () => pool.query("delete from app.token_ledger where user_id = any($1)", [[A, B, C]]);
 await clean();
 try {
   // The numbers the price list rests on.
@@ -50,7 +51,6 @@ try {
   assert.equal(34 - (await tokenSummary(B)).remaining, 20, "isolated from the other account");
 
   // Monthly plan tokens: a render spends them before free and pack tokens; the next month starts full and unused is gone.
-  const C = "00000000-0000-4000-8000-0000000f0003";
   await pool.query("delete from app.token_ledger where user_id = $1", [C]);
   await grantTokens(C, 100, "Pro plan tokens", "lemonsqueezy", "invoice:m1", "plan");
   await grantTokens(C, 10, "pack", "lemonsqueezy", "order:m1", "pack");

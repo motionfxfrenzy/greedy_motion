@@ -10,12 +10,11 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { bundleScene } from "@videosaas/plate-engine";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_rebundle|plates_unit|test/.test(process.env.DATABASE_URL ?? "")) {
-  throw new Error("Point DATABASE_URL at a throwaway database (plates_rebundle, plates_unit, or test).");
-}
+assertThrowawayDb();
 
 const s3Store = new Map();
 const server = createServer(async (req, res) => {
@@ -236,11 +235,12 @@ try {
   console.log("plate rebundle fence: ok");
 } finally {
   config.plates.live = false;
+  const vIds = (await pool.query("select id::text as id from app.plate_variants where project_id = $1", [projectId])).rows.map((r) => r.id);
+  await pool.query("delete from pgboss.job where name like 'plate-%' and data->>'variantId' = any($1)", [vIds]);
   await pool.query("delete from app.plate_variants where project_id = $1", [projectId]);
   await pool.query("delete from app.plate_garbage where project_id = $1", [projectId]);
   await pool.query("delete from app.plate_state where project_id = $1", [projectId]);
   await pool.query("delete from app.projects where id = $1", [projectId]);
-  await pool.query("delete from pgboss.job where name like 'plate-%'");
   await boss.stop({ graceful: false }).catch(() => undefined);
   await pool.end();
   await new Promise((resolve) => server.close(resolve));

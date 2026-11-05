@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { tierFor } from "../billing/service.ts";
 import { config } from "../config.ts";
+import { registerRequestId, upstreamError } from "../http-errors.ts";
 import { projectOwner, getProject } from "../projects/store.ts";
 import { PLANS } from "../tokens/plan.ts";
 import { presignKey, type Bucket } from "../storage.ts";
@@ -33,8 +34,22 @@ const defaultPresign: typeof presignKey = async (bucket: Bucket, key: string, op
   return presignKey(bucket, key, options);
 };
 
+const PLATE_DOMAIN_MESSAGES = new Set([
+  "This project's style is not a code-drawn plate style.",
+  "Write the script and storyboard first.",
+  "Aspect must be 16:9, 9:16, or 1:1.",
+  "Write what should change.",
+  "Pick a moment in the film.",
+  "Add a comment first.",
+  "Wait for the scenes that are being drawn."
+]);
+
+const isPlateDomainError = (error: unknown): error is Error =>
+  error instanceof Error && PLATE_DOMAIN_MESSAGES.has(error.message);
+
 /** Code-drawn plate scenes. Ownership is checked by the access hook as for every /v1/projects/:id route; every file is served from object storage. */
 export async function registerPlateRoutes(app: FastifyInstance, options?: { presign?: typeof presignKey }) {
+  registerRequestId(app);
   const signKey = options?.presign ?? defaultPresign;
 
   app.get<{ Params: { id: string } }>("/v1/projects/:id/plates", async (request, reply) => {
@@ -46,13 +61,19 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
   app.post<{ Params: { id: string } }>("/v1/projects/:id/plates/draw", async (request, reply) => {
     if (!uuid.test(request.params.id)) return reply.code(404).send(notFound);
     try { return reply.code(202).send(await startPlates(request.params.id)); }
-    catch (error) { return reply.code(409).send({ error: { code: "plates", message: error instanceof Error ? error.message : "Could not draw the scenes." } }); }
+    catch (error) {
+      if (isPlateDomainError(error)) return reply.code(409).send({ error: { code: "plates", message: error.message } });
+      return reply.code(409).send(upstreamError(request, error, "plates", "Could not draw the scenes."));
+    }
   });
 
   app.post<{ Params: { id: string }; Body: { at?: number; body?: string } }>("/v1/projects/:id/plates/comments", async (request, reply) => {
     if (!uuid.test(request.params.id)) return reply.code(404).send(notFound);
     try { return reply.code(201).send(await addPlateComment(request.params.id, { at: request.body?.at, body: request.body?.body })); }
-    catch (error) { return reply.code(400).send({ error: { code: "plates", message: error instanceof Error ? error.message : "Could not add the comment." } }); }
+    catch (error) {
+      if (isPlateDomainError(error)) return reply.code(400).send({ error: { code: "plates", message: error.message } });
+      return reply.code(400).send(upstreamError(request, error, "plates", "Could not add the comment."));
+    }
   });
   app.delete<{ Params: { id: string; commentId: string } }>("/v1/projects/:id/plates/comments/:commentId", async (request, reply) => {
     if (!uuid.test(request.params.id) || !/^[0-9a-f]{12}$/.test(request.params.commentId)) return reply.code(404).send(notFound);
@@ -66,14 +87,20 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
   app.post<{ Params: { id: string } }>("/v1/projects/:id/plates/fix", async (request, reply) => {
     if (!uuid.test(request.params.id)) return reply.code(404).send(notFound);
     try { return reply.code(202).send(await fixPlates(request.params.id)); }
-    catch (error) { return reply.code(409).send({ error: { code: "plates", message: error instanceof Error ? error.message : "Could not redraw the scenes." } }); }
+    catch (error) {
+      if (isPlateDomainError(error)) return reply.code(409).send({ error: { code: "plates", message: error.message } });
+      return reply.code(409).send(upstreamError(request, error, "plates", "Could not redraw the scenes."));
+    }
   });
   app.post<{ Params: { id: string }; Body: { aspect?: string } }>("/v1/projects/:id/plates/draw-aspect", async (request, reply) => {
     if (!uuid.test(request.params.id)) return reply.code(404).send(notFound);
     const aspect = request.body?.aspect;
     if (!isAspect(aspect)) return reply.code(400).send({ error: { code: "invalid_aspect", message: "Aspect must be 16:9, 9:16, or 1:1." } });
     try { return reply.code(202).send(await drawAspectPlates(request.params.id, aspect)); }
-    catch (error) { return reply.code(409).send({ error: { code: "plates", message: error instanceof Error ? error.message : "Could not draw this dimension." } }); }
+    catch (error) {
+      if (isPlateDomainError(error)) return reply.code(409).send({ error: { code: "plates", message: error.message } });
+      return reply.code(409).send(upstreamError(request, error, "plates", "Could not draw this dimension."));
+    }
   });
 
   /** Short-lived bundle URL, manifest, digest and current revision params for live browser execution. */
@@ -215,7 +242,8 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
       return reply.code(row.state === "ready" ? 200 : 202).send({ state: row.state, progress: row.progress, stage: row.stage, aspect, ...(row.state === "ready" ? { url: `/v1/projects/${id}/plates/export/${slugOf(aspect)}` } : {}), ...(row.state === "failed" ? { error: row.error?.message ?? "The export failed." } : {}) });
     } catch (error) {
       if (error instanceof NotDrawn) return reply.code(202).send({ state: error.state === "failed" ? "failed" : "drawing", progress: 0, aspect, error: error.state === "failed" ? error.message : undefined });
-      return reply.code(409).send({ error: { code: "plates", message: error instanceof Error ? error.message : "Could not start the export." } });
+      if (isPlateDomainError(error)) return reply.code(409).send({ error: { code: "plates", message: error.message } });
+      return reply.code(409).send(upstreamError(request, error, "plates", "Could not start the export."));
     }
   });
 

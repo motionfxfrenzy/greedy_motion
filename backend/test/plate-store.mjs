@@ -3,9 +3,10 @@
 // Run: DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_unit node backend/test/plate-store.mjs
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 process.env.APP_ENV ??= "local";
 process.env.PLANNER ??= "deterministic";
-if (!/plates_unit|plates_rebundle|test/.test(process.env.DATABASE_URL ?? "")) throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
+assertThrowawayDb();
 const { migrate, pool } = await import("../src/db/database.ts");
 const { boss, startQueues } = await import("../src/jobs/queues.ts");
 const store = await import("../src/plates/store.ts");
@@ -17,9 +18,10 @@ await migrate();
 await startQueues();
 
 const project = randomUUID();
+const seenVariants = new Set();
 const msgs = async (name, id) => Number((await pool.query("select count(*) n from pgboss.job where name = $1 and data->>'variantId' = $2", [name, id])).rows[0].n);
 const desired = (sigOf = (i) => `v3:s${i}`) => [0, 1, 2].flatMap((index) => ["16:9", "9:16"].map((aspect) => ({ index, aspect, signature: `${sigOf(index)}-${aspect}`, frames: 90, width: aspect === "16:9" ? 1920 : 1080, height: aspect === "16:9" ? 1080 : 1920, keyword: `k${index}` })));
-const rows = () => store.listVariants(project);
+const rows = async () => { const list = await store.listVariants(project); for (const r of list) seenVariants.add(r.id); return list; };
 const find = async (index, aspect) => (await rows()).find((r) => r.scene_index === index && r.aspect === aspect);
 try {
   // --- create once, never twice
@@ -107,9 +109,10 @@ try {
   assert.equal((await rows()).filter((r) => r.scene_index >= 2).length, 0);
   console.log("plate store: ok");
 } finally {
+  await pool.query("delete from pgboss.job where name like 'plate-%' and data->>'variantId' = any($1)", [[...seenVariants]]);
   await pool.query("delete from app.plate_variants where project_id = $1", [project]);
   await pool.query("delete from app.plate_garbage where project_id = $1", [project]);
-  await pool.query("delete from pgboss.job where name like 'plate-%'");
+  await pool.query("delete from app.plate_state where project_id = $1", [project]);
   await boss.stop({ graceful: false }).catch(() => undefined);
   await pool.end();
 }

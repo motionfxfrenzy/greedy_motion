@@ -3,6 +3,8 @@
 //   node --env-file-if-exists=.env test/queue-notify.mjs        (needs DATABASE_URL: a direct URL or the Supabase SESSION pooler, never the transaction pooler)
 import assert from "node:assert/strict";
 import pg from "pg";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
+assertThrowawayDb();
 
 const fetches = [], original = pg.Pool.prototype.query;
 pg.Pool.prototype.query = function (text, values, callback) {

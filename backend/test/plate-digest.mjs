@@ -2,9 +2,11 @@
 // Run: DATABASE_URL=postgres://videosaas:videosaas@localhost:55432/plates_unit node --experimental-strip-types test/plate-digest.mjs
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 process.env.APP_ENV ??= "local";
 process.env.DATABASE_URL ??= "postgres://videosaas:videosaas@localhost:55432/plates_rebundle";
 process.env.PLANNER ??= "deterministic";
+assertThrowawayDb();
 
 const { bundleDigest, canonicalJson, fontSetDigest, paramsDigest, setFontSetDescriptor } = await import("../src/plates/digest.ts");
 const { variantSignature } = await import("../src/plates/model.ts");

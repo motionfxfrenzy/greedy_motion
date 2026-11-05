@@ -5,7 +5,7 @@
 //
 //   DATABASE_URL=postgres://… node test/entitlements.mjs      (creates and removes its own rows; never queues a render)
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -27,7 +27,7 @@ const jwks = createServer((_req, res) => { res.setHeader("Content-Type", "applic
 const sign = (sub) => new SignJWT({ email: `${sub}@example.test` }).setProtectedHeader({ alg: "ES256", kid: "test-key" })
   .setIssuer(`${issuerBase}/auth/v1`).setAudience("authenticated").setSubject(sub).setIssuedAt().setExpirationTime("10m").sign(privateKey);
 
-const ALICE = "00000000-0000-4000-8000-0000000e0001", BOB = "00000000-0000-4000-8000-0000000e0002", CAROL = "00000000-0000-4000-8000-0000000e0003", DAVE = "00000000-0000-4000-8000-0000000e0004";
+const ALICE = randomUUID(), BOB = randomUUID(), CAROL = randomUUID(), DAVE = randomUUID();
 const USERS = [ALICE, BOB, CAROL, DAVE];
 const data = await mkdtemp(join(tmpdir(), "entitlements-"));
 const baseEnv = { ...process.env, APP_ENV: "local", AUTH_MODE: "supabase", SUPABASE_URL: issuerBase, SUPABASE_JWKS_URL: `${issuerBase}/jwks`, EXPECTED_SUPABASE_PROJECT_REF: "", LEGACY_OWNER_ID: "", MEDIA_URL_SECRET: "entitlements-test-media-url-secret-0123456789", STORAGE_DRIVER: "filesystem", AUDIO_DIR: join(data, "audio"), PROJECTS_DIR: join(data, "projects"), BRANDS_DIR: join(data, "brands"), RENDER_OUTPUT_DIR: join(data, "renders"), LOG_LEVEL: "fatal", ENTITLEMENT_CACHE_SECONDS: "1" };
@@ -37,6 +37,7 @@ const db = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const cleanup = async () => {
   await db.query("delete from app.entitlement_events where user_id = any($1)", [USERS]);
   await db.query("delete from app.entitlements where user_id = any($1)", [USERS]);
+  await db.query("delete from app.render_jobs where owner_id = any($1)", [USERS]);
   await db.query("delete from app.projects where owner_id = any($1)", [USERS]);
 };
 let renamed = false;
@@ -84,12 +85,12 @@ const treeHash = async (dir) => {
   await walk(dir);
   return hash.digest("hex");
 };
-const queueCount = async () => (await db.query("select count(*)::int as n from pgboss.job where name = 'render-video'").catch(() => ({ rows: [{ n: 0 }] }))).rows[0].n;
+const queueCount = async (projectId) => (await db.query("select count(*)::int as n from pgboss.job j join app.render_jobs r on r.id::text = j.data->>'jobId' where j.name = 'render-video' and r.project_id = $1 and r.owner_id = any($2)", [projectId, USERS]).catch(() => ({ rows: [{ n: 0 }] }))).rows[0].n;
 const state = async (projectId) => ({
   tree: await treeHash(join(data, "projects", projectId, "pro")),
   manifest: JSON.stringify((await db.query("select data->'pro' as pro from app.projects where id = $1", [projectId])).rows[0].pro),
-  jobs: (await db.query("select count(*)::int as n from app.render_jobs")).rows[0].n,
-  queue: await queueCount()
+  jobs: (await db.query("select count(*)::int as n from app.render_jobs where project_id = $1 and owner_id = any($2)", [projectId, USERS])).rows[0].n,
+  queue: await queueCount(projectId)
 });
 
 let aliceProject, bobProject;
