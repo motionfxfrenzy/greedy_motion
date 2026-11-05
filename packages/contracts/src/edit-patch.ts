@@ -289,6 +289,14 @@ export function describeEditAction(patch: Pick<EditPatch, "scope" | "set" | "tex
  */
 export function classifyEditPatch(input: ClassifierMeasurementInput): ClassifierDecision {
   const { patch, canvas, beforeWindow, afterWindow } = input;
+  if (
+    !Array.isArray(beforeWindow) ||
+    !Array.isArray(afterWindow) ||
+    beforeWindow.length === 0 ||
+    beforeWindow.length !== afterWindow.length
+  ) {
+    throw new Error("beforeWindow and afterWindow must be non-empty snapshot arrays of equal length.");
+  }
   const targetId = patch.el ?? null;
   const newText = patch.text ?? patch.set?.text;
   const hasScale =
@@ -360,6 +368,16 @@ export function classifyEditPatch(input: ClassifierMeasurementInput): Classifier
   }
 
   if (!targetBefore || !targetAfter) {
+    if (patch.scope === "scene") {
+      return {
+        scope: "scene",
+        escalated: false,
+        reason: "explicit-scene-patch",
+        summary: `Scene-scoped edit on "${targetId}" re-lays out the scene.`,
+        uiLabel: "re-laid out the scene",
+        measurements: emptyMeasurements
+      };
+    }
     return {
       scope: "scene",
       escalated: true,
@@ -489,6 +507,17 @@ export function classifyEditPatch(input: ClassifierMeasurementInput): Classifier
     };
   }
 
+  if (patch.scope === "scene") {
+    return {
+      scope: "scene",
+      escalated: false,
+      reason: "explicit-scene-patch",
+      summary: `Scene-scoped edit on "${targetId}" re-lays out the scene.`,
+      uiLabel: "re-laid out the scene",
+      measurements
+    };
+  }
+
   const finalPatch: EditPatch = { ...patch, scope: "element" };
   const reason = hasMove
     ? "position-nudge-clean"
@@ -523,6 +552,9 @@ export function checkSceneHintLayout(
   overlaps: { time: number; a: string; b: string; area: number }[];
   safeAreaViolations: { time: number; id: string; role: string; box: ElementBoxTuple; kind: "title-safe" | "action-safe" }[];
 } {
+  if (beforeSnapshots && beforeSnapshots.length !== snapshots.length) {
+    throw new Error("beforeSnapshots and snapshots must have equal length.");
+  }
   const overlaps: { time: number; a: string; b: string; area: number }[] = [];
   const safeAreaViolations: { time: number; id: string; role: string; box: ElementBoxTuple; kind: "title-safe" | "action-safe" }[] = [];
 
@@ -616,7 +648,7 @@ export function normalizeColorValue(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim().toLowerCase();
   if (HEX_COLOR_RE.test(trimmed)) return trimmed;
-  if (NAMED_COLORS[trimmed]) return NAMED_COLORS[trimmed]!;
+  if (Object.prototype.hasOwnProperty.call(NAMED_COLORS, trimmed)) return NAMED_COLORS[trimmed]!;
   return null;
 }
 
@@ -631,18 +663,19 @@ export function validateEditPatch(value: unknown): { patch: EditPatch } | { erro
     return { error: 'Patch scope must be "element" or "scene".' };
   }
   const scene = obj.scene;
-  if (
-    typeof scene !== "string" &&
-    (typeof scene !== "number" || !Number.isInteger(scene) || scene < 0)
-  ) {
-    return { error: "Patch scene must be a non-negative integer index or a beat id string." };
+  if (typeof scene === "string") {
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(scene)) {
+      return { error: "Patch scene id must be a valid beat identifier (1..64 alphanumeric, underscore, or hyphen characters)." };
+    }
+  } else if (typeof scene !== "number" || !Number.isInteger(scene) || scene < 0 || scene > 512) {
+    return { error: "Patch scene must be a non-negative integer index (0..512) or a beat id string." };
   }
-  if (typeof scene === "string" && !scene.trim()) {
-    return { error: "Patch scene id cannot be empty." };
-  }
-  const atSeconds = typeof obj.atSeconds === "number" && Number.isFinite(obj.atSeconds) && obj.atSeconds >= 0 ? obj.atSeconds : NaN;
+  const atSeconds =
+    typeof obj.atSeconds === "number" && Number.isFinite(obj.atSeconds) && obj.atSeconds >= 0 && obj.atSeconds <= 3600
+      ? obj.atSeconds
+      : NaN;
   if (Number.isNaN(atSeconds)) {
-    return { error: "Patch atSeconds must be a non-negative number." };
+    return { error: "Patch atSeconds must be a finite number between 0 and 3600." };
   }
   let el: string | undefined;
   if (obj.el !== undefined && obj.el !== null) {
@@ -730,7 +763,7 @@ export function validateHyperFramesOverrides(value: unknown): { overrides: Hyper
   }
   const out: HyperFramesOverridesMap = {};
   for (const [elId, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!/^[a-zA-Z0-9_:-]{1,64}$/.test(elId)) {
+    if (!isValidPlanElementId(elId)) {
       return { error: `Invalid element id "${elId}" in overrides.` };
     }
     if (raw === null || raw === undefined) continue;
@@ -763,10 +796,17 @@ export function validateHyperFramesOverrides(value: unknown): { overrides: Hyper
       entry.dy = Math.round(r.dy);
     }
     if (r.text !== undefined) {
-      if (typeof r.text !== "string" || !plainText(r.text)) {
+      if (typeof r.text !== "string") {
         return { error: `Invalid text on "${elId}".` };
       }
-      entry.text = plainText(r.text);
+      const cleaned = plainText(r.text);
+      if (!cleaned) {
+        return { error: `Invalid text on "${elId}".` };
+      }
+      if (cleaned.length > 280) {
+        return { error: `Override text on "${elId}" is too long (at most 280 characters).` };
+      }
+      entry.text = cleaned;
     }
     if (Object.keys(entry).length > 0) {
       out[elId] = entry;
@@ -884,6 +924,7 @@ export function validateFrameElementsSnapshots(
     }
 
     const elements: ActiveElementInfo[] = [];
+    const seenIds = new Set<string>();
     for (let eIdx = 0; eIdx < snapObj.elements.length; eIdx++) {
       const rawEl = snapObj.elements[eIdx];
       if (!rawEl || typeof rawEl !== "object" || Array.isArray(rawEl)) {
@@ -893,6 +934,10 @@ export function validateFrameElementsSnapshots(
       if (!isValidPlanElementId(elObj.id, beatIds)) {
         return { error: `Element id "${String(elObj.id)}" in snapshot ${sIdx} is not valid for this plan's data-el scheme.` };
       }
+      if (seenIds.has(elObj.id)) {
+        return { error: `Duplicate element id "${elObj.id}" in snapshot ${sIdx}.` };
+      }
+      seenIds.add(elObj.id);
       if (typeof elObj.role !== "string" || !/^[a-zA-Z0-9_-]{1,32}$/.test(elObj.role)) {
         return { error: `Element "${elObj.id}" has an invalid role "${String(elObj.role)}".` };
       }
@@ -1156,26 +1201,45 @@ export function applyCandidatePatchToPreviewHtml(
 
     const applyAsScene = Boolean(options?.forceScene || hasScale || isDifferentLenText || !patch.el);
 
-    if (!applyAsScene && patch.el) {
+    if (!applyAsScene && patch.el && isValidPlanElementId(patch.el)) {
       const prevOv = overrides[patch.el] ?? {};
+      const nextColor = patch.set.color !== undefined ? normalizeColorValue(patch.set.color) : undefined;
+      const nextOpacity =
+        typeof patch.set.opacity === "number" && Number.isFinite(patch.set.opacity)
+          ? Math.min(1, Math.max(0.05, Math.round(patch.set.opacity * 100) / 100))
+          : undefined;
+      const nextDx =
+        typeof patch.set.dx === "number" && Number.isFinite(patch.set.dx)
+          ? Math.max(-4000, Math.min(4000, Math.round((prevOv.dx ?? 0) + patch.set.dx)))
+          : undefined;
+      const nextDy =
+        typeof patch.set.dy === "number" && Number.isFinite(patch.set.dy)
+          ? Math.max(-4000, Math.min(4000, Math.round((prevOv.dy ?? 0) + patch.set.dy)))
+          : undefined;
+      const nextText = patch.text !== undefined ? plainText(patch.text).slice(0, 280) : undefined;
       overrides[patch.el] = {
         ...prevOv,
-        ...(patch.set.color !== undefined ? { color: patch.set.color } : {}),
-        ...(patch.set.opacity !== undefined ? { opacity: patch.set.opacity } : {}),
-        ...(patch.set.dx !== undefined ? { dx: (prevOv.dx ?? 0) + patch.set.dx } : {}),
-        ...(patch.set.dy !== undefined ? { dy: (prevOv.dy ?? 0) + patch.set.dy } : {}),
-        ...(patch.text !== undefined ? { text: patch.text } : {})
+        ...(nextColor ? { color: nextColor } : {}),
+        ...(nextOpacity !== undefined ? { opacity: nextOpacity } : {}),
+        ...(nextDx !== undefined ? { dx: nextDx } : {}),
+        ...(nextDy !== undefined ? { dy: nextDy } : {}),
+        ...(nextText ? { text: nextText } : {})
       };
       continue;
     }
 
     // Scene-level candidate application
-    if (patch.el && (patch.set.color !== undefined || patch.set.opacity !== undefined)) {
+    if (patch.el && isValidPlanElementId(patch.el) && (patch.set.color !== undefined || patch.set.opacity !== undefined)) {
       const prevOv = overrides[patch.el] ?? {};
+      const nextColor = patch.set.color !== undefined ? normalizeColorValue(patch.set.color) : undefined;
+      const nextOpacity =
+        typeof patch.set.opacity === "number" && Number.isFinite(patch.set.opacity)
+          ? Math.min(1, Math.max(0.05, Math.round(patch.set.opacity * 100) / 100))
+          : undefined;
       overrides[patch.el] = {
         ...prevOv,
-        ...(patch.set.color !== undefined ? { color: patch.set.color } : {}),
-        ...(patch.set.opacity !== undefined ? { opacity: patch.set.opacity } : {})
+        ...(nextColor ? { color: nextColor } : {}),
+        ...(nextOpacity !== undefined ? { opacity: nextOpacity } : {})
       };
     }
 
@@ -1189,7 +1253,7 @@ export function applyCandidatePatchToPreviewHtml(
       const targetBeat = enginePlanObj.beats.find((b) => b.id === beatId);
       if (targetBeat) {
         if (patch.text !== undefined) {
-          const newText = plainText(patch.text);
+          const newText = plainText(patch.text).slice(0, 280);
           if (targetEl?.role === "subtitle" || targetEl?.role === "pill") {
             targetBeat.on_screen = newText;
             edits[`${beatId}.on_screen`] = newText;
@@ -1215,11 +1279,14 @@ export function applyCandidatePatchToPreviewHtml(
         }
         const rawFactor = patch.set.factor ?? patch.set.scale;
         if (rawFactor !== undefined) {
-          targetBeat.hints = {
+          const checkedHint = validateBeatLayoutHint({
             emphasize: patch.set.emphasize ?? patch.el ?? "kw",
             factor: rawFactor
-          };
-          planChanged = true;
+          });
+          if ("hints" in checkedHint && checkedHint.hints) {
+            targetBeat.hints = checkedHint.hints;
+            planChanged = true;
+          }
         }
       }
     }

@@ -1,35 +1,54 @@
 // Backend integration test for HyperFrames element-level and scene-level comment edits (Two-Step Browser Measurement Protocol):
-// - 0 differing pixels across engine scene kinds when no override is present (vs pre-change template)
-// - 13+1 comment scenarios ported to the two-step protocol:
+// - 0 differing pixels across engine scene kinds when no override is present (vs pre-4a baseline fixture 88d4efa)
+// - 13+1 isolated comment scenarios on the two-step protocol:
 //   1. Test harness measures `before` snapshots in headless Chrome (as the user's browser does) across `resolveBeatWindowTimes`
 //   2. Server receives JSON at `POST /v1/projects/:id/plan/edit/propose` and returns candidate `EditPatch` + `planVersion`
-//   3. Test harness applies candidate locally via `applyCandidatePatchToPreviewHtml` (`hf-variables`) and measures `after` snapshots
+//   3. Test harness applies candidate in isolation via `applyCandidatePatchToPreviewHtml` (`hf-variables`) and measures `after` snapshots
 //   4. Server receives JSON at `POST /v1/projects/:id/plan/edit/commit`, runs pure `classifyEditPatch` / `checkSceneHintLayout`, and saves
-// - Also tests `DELETE /v1/projects/:id/plan/overrides/:el`
+// - Also tests `DELETE /v1/projects/:id/plan/overrides/:el` and engine-side `#bp-overrides` CSS injection hardening.
 // Run: DATABASE_URL=postgres://videosaas:videosaas@127.0.0.1:55432/plates_unit PLANNER=deterministic node --experimental-strip-types test/plan-element-edits.mjs
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import { chromium } from "../../node_modules/playwright-core/index.mjs";
 
-process.env.APP_ENV ??= "local";
-process.env.PLANNER ??= "deterministic";
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is required (a local Postgres; this test writes to it).");
+// A7: Unconditional environment gates so inherited variables cannot send the test to a model or moderation
+process.env.APP_ENV = "local";
+process.env.PLANNER = "deterministic";
+process.env.CREEM_API_KEY = "";
+if (!/plates_unit|test/.test(process.env.DATABASE_URL ?? "")) {
+  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");
 const CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const BASELINE_TEMPLATE_HTML = readFileSync(
+  join(HERE, "fixtures/plan-template-baseline-88d4efa.html"),
+  "utf8"
+);
+const CURRENT_TEMPLATE_HTML = readFileSync(
+  join(REPO_ROOT, "worker/templates/beat-plan/index.html"),
+  "utf8"
+);
 const RUNTIME_JS = readFileSync(join(REPO_ROOT, "node_modules/hyperframes/dist/hyperframe-runtime.js"), "utf8");
 const GSAP_JS = readFileSync(join(REPO_ROOT, "node_modules/gsap/dist/gsap.min.js"), "utf8");
 const FONTS_CSS = readFileSync(join(REPO_ROOT, "worker/fonts/fonts.css"), "utf8");
 const THEME_NEUTRAL_CSS = readFileSync(join(REPO_ROOT, "worker/themes/neutral.css"), "utf8");
+
+// Preload font files into memory once so headless Chrome requests never block on disk I/O or CDP route IPC
+const FONTS_DIR = join(REPO_ROOT, "worker/fonts");
+const FONT_BUFFERS = new Map();
+for (const entry of readdirSync(FONTS_DIR)) {
+  if (entry.endsWith(".woff2")) {
+    FONT_BUFFERS.set(entry, readFileSync(join(FONTS_DIR, entry)));
+  }
+}
 
 const { migrate, pool } = await import("../src/db/database.ts");
 const { createProject, getProject } = await import("../src/projects/store.ts");
@@ -52,13 +71,55 @@ const app = Fastify();
 await registerPlanRoutes(app);
 await app.ready();
 
+// A6: Per-run owner UUID and cleanup before and after
+const TEST_OWNER = randomUUID();
 const createdProjects = [];
+await pool.query("delete from app.projects where owner_id = $1", [TEST_OWNER]);
+
+// A4: Ephemeral local HTTP server (port 0 on 127.0.0.1) serving composition HTML, runtime, GSAP, and fonts from memory
+let currentServedHtml = "";
+const assetServer = createServer((req, res) => {
+  const pathname = (req.url ?? "/").split("?")[0];
+  if (pathname === "/composition.html" || pathname === "/doc.html") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(currentServedHtml);
+    return;
+  }
+  if (pathname === "/runtime.js") {
+    res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+    res.end(RUNTIME_JS);
+    return;
+  }
+  if (pathname === "/gsap.js") {
+    res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+    res.end(GSAP_JS);
+    return;
+  }
+  if (pathname.startsWith("/fonts/")) {
+    const fontName = pathname.slice("/fonts/".length);
+    const buf = FONT_BUFFERS.get(fontName);
+    if (buf) {
+      res.writeHead(200, { "Content-Type": "font/woff2", "Cache-Control": "public, max-age=3600" });
+      res.end(buf);
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+  res.writeHead(204);
+  res.end();
+});
+await new Promise((resolveListen) => assetServer.listen(0, "127.0.0.1", resolveListen));
+const assetPort = assetServer.address().port;
+const ASSET_ORIGIN = `http://127.0.0.1:${assetPort}`;
+
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
   "base64"
 );
 
-function makeFourBeatSeed(screenshotId) {
+function makeFourBeatSeed(screenshotId, initialOverrides = undefined) {
   const beats = [
     {
       id: "b1",
@@ -181,27 +242,31 @@ function makeFourBeatSeed(screenshotId) {
     },
     approvals: ["script", "storyboard", "motion-preview"],
     suggestions: [],
+    ...(initialOverrides ? { overrides: initialOverrides } : {}),
     estimate: { generated_shots: 0, api_usd: 0.05, render_s: 12 }
   };
 
   return { brief, beatPlan };
 }
 
-async function seedTestProject() {
-  const created = await createProject({
-    name: `element-edits-test-${randomUUID().slice(0, 8)}`,
-    request: {
-      prompt: "Test project for HyperFrames element-level and scene-level comment edits",
-      format: "landscape",
-      style: "clean",
-      theme: "neutral",
-      template: "product-launch",
-      audio: { music: false, voiceover: false, voice: "Kore" }
-    }
-  });
+async function seedTestProject(initialOverrides = undefined) {
+  const created = await createProject(
+    {
+      name: `element-edits-test-${randomUUID().slice(0, 8)}`,
+      request: {
+        prompt: "Test project for HyperFrames element-level and scene-level comment edits",
+        format: "landscape",
+        style: "clean",
+        theme: "neutral",
+        template: "product-launch",
+        audio: { music: false, voiceover: false, voice: "Kore" }
+      }
+    },
+    TEST_OWNER
+  );
   createdProjects.push(created.id);
   const shotId = randomUUID();
-  const seed = makeFourBeatSeed(shotId);
+  const seed = makeFourBeatSeed(shotId, initialOverrides);
   const screenshots = [
     {
       id: shotId,
@@ -216,69 +281,46 @@ async function seedTestProject() {
     created.id,
     JSON.stringify({ ...seed, screenshots })
   ]);
-  return await getProject(created.id);
+  const loaded = await getProject(created.id);
+  assert.ok(loaded?.beatPlan, "seeded project has beatPlan");
+  return loaded;
 }
 
-/**
- * Test-harness browser helper: loads `html` in headless Chrome (representing the user's browser)
- * and calls `window.__bp.elementsAt(t)` for each timestamp in `times`.
- */
-async function sampleHtmlInTestBrowser(browser, html, canvas, times) {
-  const context = await browser.newContext({
-    viewport: { width: canvas.width, height: canvas.height },
-    deviceScaleFactor: 1
-  });
-  try {
-    await context.route("**/*", async (route) => {
-      const url = new URL(route.request().url());
-      if (url.pathname === "/composition.html") {
-        await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html });
-        return;
-      }
-      if (url.pathname === "/runtime.js") {
-        await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", body: RUNTIME_JS });
-        return;
-      }
-      if (url.pathname === "/gsap.js") {
-        await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", body: GSAP_JS });
-        return;
-      }
-      if (url.pathname.startsWith("/fonts/")) {
-        const fontFile = url.pathname.slice("/fonts/".length);
-        try {
-          const buf = readFileSync(join(REPO_ROOT, "worker/fonts", fontFile));
-          await route.fulfill({ status: 200, contentType: "font/woff2", body: buf });
-          return;
-        } catch {
-          await route.fulfill({ status: 404, body: "" });
-          return;
-        }
-      }
-      await route.fulfill({ status: 204, body: "" });
-    });
+let navSeq = 0;
 
-    const page = await context.newPage();
-    await page.goto("http://127.0.0.1:18999/composition.html", { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => Boolean(window.__bp?.elementsAt), { timeout: 60_000 });
-    return await page.evaluate((sampleTimes) => {
-      return sampleTimes.map((t) => ({
-        time: Math.round(t * 1000) / 1000,
-        elements: window.__bp.elementsAt(t)
-      }));
-    }, times);
-  } finally {
-    await context.close();
-  }
+/**
+ * A1 & A5: Samples `window.__bp.elementsAt(t)` on a reusable Page after explicit readiness:
+ * `document.readyState === "complete"`, `window.__bp?.elementsAt`, `document.fonts.ready`,
+ * and two settled `requestAnimationFrame` ticks, with a 10 s timeout.
+ */
+async function sampleHtmlInTestBrowser(page, html, times) {
+  currentServedHtml = html;
+  navSeq += 1;
+  await page.goto(`${ASSET_ORIGIN}/composition.html?seq=${navSeq}`, { waitUntil: "load", timeout: 10_000 });
+  await page.waitForFunction(
+    () => document.readyState === "complete" && Boolean(window.__bp?.elementsAt),
+    { timeout: 10_000 }
+  );
+  return await page.evaluate(async (sampleTimes) => {
+    if (document.fonts) {
+      await Promise.all(Array.from(document.fonts).map((f) => f.load().catch(() => {})));
+      if (document.fonts.ready) await document.fonts.ready;
+    }
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return sampleTimes.map((t) => ({
+      time: Math.round(t * 1000) / 1000,
+      elements: window.__bp.elementsAt(t)
+    }));
+  }, times);
 }
 
+// Cache unedited base-project window snapshots by `scene|at` so identical seed projects don't re-measure unchanged HTML
+const uneditedWindowCache = new Map();
+
 /**
- * Runs the two-step edit protocol (`propose` -> local apply in browser -> `commit`):
- * 1. Samples `before` snapshots in the test harness's headless Chrome across `resolveBeatWindowTimes`
- * 2. Sends JSON to `POST /v1/projects/:id/plan/edit/propose`
- * 3. Applies candidate patches locally to the composition HTML (`hf-variables`) and re-samples `after` in headless Chrome
- * 4. Sends JSON to `POST /v1/projects/:id/plan/edit/commit`
+ * Runs the two-step edit protocol (`propose` -> isolated local apply in browser -> `commit`).
  */
-async function runTwoStepEditInBrowser(browser, projectId, inputComments) {
+async function runTwoStepEditInBrowser(page, projectId, inputComments, { canUseUneditedCache = false } = {}) {
   const project = await getProject(projectId);
   const { html: baseHtml, canvas } = await buildStandaloneCompositionHtml(project);
   const timingBeats = projectTiming(project)?.beats;
@@ -298,7 +340,16 @@ async function runTwoStepEditInBrowser(browser, projectId, inputComments) {
   for (const c of commentsPayload) {
     const { sampleTimes } = resolveBeatWindowTimes(project, c.scene, c.at, timingBeats);
     sampleTimesById.set(c.id, sampleTimes);
-    const snaps = await sampleHtmlInTestBrowser(browser, baseHtml, canvas, sampleTimes);
+    const cacheKey = `${String(c.scene ?? "")}|${sampleTimes.join(",")}`;
+    let snaps;
+    if (canUseUneditedCache && uneditedWindowCache.has(cacheKey)) {
+      snaps = structuredClone(uneditedWindowCache.get(cacheKey));
+    } else {
+      snaps = await sampleHtmlInTestBrowser(page, baseHtml, sampleTimes);
+      if (canUseUneditedCache) {
+        uneditedWindowCache.set(cacheKey, structuredClone(snaps));
+      }
+    }
     beforeSnapshotsById[c.id] = snaps;
     mergedBeforeById.set(c.id, mergeWindowElements(snaps));
   }
@@ -318,7 +369,6 @@ async function runTwoStepEditInBrowser(browser, projectId, inputComments) {
   assert.equal(proposeRes.statusCode, 200, `propose failed: ${proposeRes.body}`);
   const proposeBody = proposeRes.json();
 
-  // If any candidate was refused at propose time (e.g. out-of-range hint factor 3.5), also verify commit refuses it with 422
   if (proposeBody.candidates.every((cand) => Boolean(cand.refused))) {
     const firstCand = proposeBody.candidates[0];
     return {
@@ -331,17 +381,16 @@ async function runTwoStepEditInBrowser(browser, projectId, inputComments) {
     };
   }
 
-  // Step 2: Apply candidate patches locally to `hf-variables` in the browser and re-sample `after`
-  let workingHtml = baseHtml;
+  // Step 2: Apply each candidate patch in isolation against `baseHtml` (`hf-variables`) and re-sample `after`
   const commitItems = [];
   for (const cand of proposeBody.candidates) {
     if (cand.refused || !cand.patch) continue;
     const beforeSnaps = beforeSnapshotsById[cand.id];
-    workingHtml = applyCandidatePatchToPreviewHtml(workingHtml, [cand.patch], {
+    const candidateHtml = applyCandidatePatchToPreviewHtml(baseHtml, [cand.patch], {
       activeElements: mergedBeforeById.get(cand.id)
     });
     const sampleTimes = sampleTimesById.get(cand.id);
-    const afterSnaps = await sampleHtmlInTestBrowser(browser, workingHtml, canvas, sampleTimes);
+    const afterSnaps = await sampleHtmlInTestBrowser(page, candidateHtml, sampleTimes);
     commitItems.push({
       id: cand.id,
       patch: cand.patch,
@@ -357,20 +406,17 @@ async function runTwoStepEditInBrowser(browser, projectId, inputComments) {
     url: `/v1/projects/${projectId}/plan/edit/commit`,
     payload: {
       planVersion: proposeBody.planVersion,
-      canvas,
       items: commitItems
     }
   });
   return commitRes;
 }
 
-async function compareTemplateZeroDiff(browser) {
-  const oldHtmlRaw = execFileSync("git", ["show", "HEAD:worker/templates/beat-plan/index.html"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8"
-  });
-  const newHtmlRaw = readFileSync(join(REPO_ROOT, "worker/templates/beat-plan/index.html"), "utf8");
-
+/**
+ * A2 & A3: Compares the checked-in pre-4a baseline fixture (`88d4efa`) against the current rebuilt
+ * `worker/templates/beat-plan/index.html` using explicit readiness signals (no fixed sleeps).
+ */
+async function compareTemplateZeroDiff(browserInstance, diffHelperPage) {
   const planObj = {
     canvas: "16:9",
     motion_profile: "smooth",
@@ -433,7 +479,7 @@ async function compareTemplateZeroDiff(browser) {
     plan: JSON.stringify(planObj),
     brandName: "Relay",
     "shot.s1": "data:image/png;base64," + TINY_PNG.toString("base64")
-  })};</script>\n<script src="http://127.0.0.1:18998/runtime.js"></script>\n<script src="http://127.0.0.1:18998/gsap.js"></script>`;
+  })};</script>\n<script src="/runtime.js"></script>\n<script src="/gsap.js"></script>`;
 
   const prepareDoc = (raw) =>
     raw
@@ -443,101 +489,100 @@ async function compareTemplateZeroDiff(browser) {
         () => `<style id="fonts">${FONTS_CSS}</style><style id="theme">${THEME_NEUTRAL_CSS}</style></head>`
       );
 
-  const oldDoc = prepareDoc(oldHtmlRaw);
-  const newDoc = prepareDoc(newHtmlRaw);
+  const oldDoc = prepareDoc(BASELINE_TEMPLATE_HTML);
+  const newDoc = prepareDoc(CURRENT_TEMPLATE_HTML);
 
   const sampleTimes = [1.2, 3.8, 6.6];
-  const captureDocInNewContext = async (docText) => {
-    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
+  const captureDocInCleanContext = async (docText) => {
+    const context = await browserInstance.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
     try {
-      await context.route("**/*", async (route) => {
-        const u = new URL(route.request().url());
-        if (u.pathname === "/doc.html") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: docText });
-        if (u.pathname === "/runtime.js") return route.fulfill({ status: 200, contentType: "application/javascript", body: RUNTIME_JS });
-        if (u.pathname === "/gsap.js") return route.fulfill({ status: 200, contentType: "application/javascript", body: GSAP_JS });
-        if (u.pathname.startsWith("/fonts/")) {
-          const f = u.pathname.slice("/fonts/".length);
-          try {
-            return route.fulfill({ status: 200, contentType: "font/woff2", body: readFileSync(join(REPO_ROOT, "worker/fonts", f)) });
-          } catch {
-            return route.fulfill({ status: 404, body: "" });
-          }
+      const p = await context.newPage();
+      currentServedHtml = docText;
+      navSeq += 1;
+      await p.goto(`${ASSET_ORIGIN}/doc.html?seq=${navSeq}`, { waitUntil: "load", timeout: 10_000 });
+      await p.waitForFunction(
+        () =>
+          document.readyState === "complete" &&
+          Boolean(window.__timelines?.main) &&
+          Array.isArray(window.__bp?.beats) &&
+          window.__bp.beats.length === 3,
+        { timeout: 10_000 }
+      );
+      await p.evaluate(async () => {
+        if (document.fonts) {
+          await Promise.all(Array.from(document.fonts).map((f) => f.load().catch(() => {})));
+          if (document.fonts.ready) await document.fonts.ready;
         }
-        return route.fulfill({ status: 204, body: "" });
-      });
-      var page = await context.newPage();
-      await page.goto("http://127.0.0.1:18998/doc.html", { waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(800);
-      await page.waitForFunction(() => Boolean(window.__timelines?.main));
-      await page.evaluate(async () => {
-        if (document.fonts?.ready) await document.fonts.ready;
+        await Promise.all(
+          Array.from(document.images).map((img) =>
+            typeof img.decode === "function" ? img.decode().catch(() => {}) : Promise.resolve()
+          )
+        );
         window.__timelines.main.seek(6.6, false);
         window.__timelines.main.seek(0, false);
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       });
-      await page.waitForTimeout(100);
       const shots = {};
       for (const t of sampleTimes) {
-        await page.evaluate((sec) => {
+        await p.evaluate(async (sec) => {
           window.__timelines.main.seek(sec, false);
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         }, t);
-        await page.waitForTimeout(50);
-        shots[t] = (await page.screenshot()).toString("base64");
+        shots[t] = (await p.screenshot()).toString("base64");
       }
       return shots;
     } finally {
       await context.close();
     }
   };
-  const oldShots = await captureDocInNewContext(oldDoc);
-  const newShots = await captureDocInNewContext(newDoc);
 
-  const diffPage = await browser.newPage();
+  const oldShots = await captureDocInCleanContext(oldDoc);
+  const newShots = await captureDocInCleanContext(newDoc);
+
   const frameDiffs = {};
-  try {
-    for (const t of sampleTimes) {
-      const diff = await diffPage.evaluate(
-        async ([a, b]) => {
-          const load = async (b64) => {
-            const img = new Image();
-            img.src = "data:image/png;base64," + b64;
-            await img.decode();
-            const cv = new OffscreenCanvas(img.width, img.height);
-            const ctx = cv.getContext("2d");
-            ctx.drawImage(img, 0, 0);
-            return ctx.getImageData(0, 0, img.width, img.height).data;
-          };
-          const [p, q] = [await load(a), await load(b)];
-          let differing = 0;
-          let maxDelta = 0;
-          let minx = 1e9, maxx = -1, miny = 1e9, maxy = -1;
-          for (let i = 0; i < p.length; i += 4) {
-            const d = Math.max(
-              Math.abs(p[i] - q[i]),
-              Math.abs(p[i + 1] - q[i + 1]),
-              Math.abs(p[i + 2] - q[i + 2])
-            );
-            if (d > 0) {
-              differing++;
-              if (d > maxDelta) maxDelta = d;
-              const px = (i / 4) % 1920, py = Math.floor(i / 4 / 1920);
-              minx = Math.min(minx, px); maxx = Math.max(maxx, px);
-              miny = Math.min(miny, py); maxy = Math.max(maxy, py);
-            }
+  for (const t of sampleTimes) {
+    const diff = await diffHelperPage.evaluate(
+      async ([a, b]) => {
+        const load = async (b64) => {
+          const img = new Image();
+          img.src = "data:image/png;base64," + b64;
+          await img.decode();
+          const cv = new OffscreenCanvas(img.width, img.height);
+          const ctx = cv.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+          return ctx.getImageData(0, 0, img.width, img.height).data;
+        };
+        const [p, q] = [await load(a), await load(b)];
+        let differing = 0;
+        let maxDelta = 0;
+        let minx = 1e9, maxx = -1, miny = 1e9, maxy = -1;
+        for (let i = 0; i < p.length; i += 4) {
+          const d = Math.max(
+            Math.abs(p[i] - q[i]),
+            Math.abs(p[i + 1] - q[i + 1]),
+            Math.abs(p[i + 2] - q[i + 2])
+          );
+          // Raster noise: a lone pixel off by one level shows up between two renders of the SAME html (same convention as
+          // tools/phase3/compare.mjs: only differences over 2 levels count).
+          if (d > 2) {
+            differing++;
+            if (d > maxDelta) maxDelta = d;
+            const px = (i / 4) % 1920, py = Math.floor(i / 4 / 1920);
+            minx = Math.min(minx, px); maxx = Math.max(maxx, px);
+            miny = Math.min(miny, py); maxy = Math.max(maxy, py);
           }
-          return { differing, maxDelta, bbox: [minx, miny, maxx, maxy] };
-        },
-        [oldShots[t], newShots[t]]
-      );
-      console.log(`diff at t=${t}:`, JSON.stringify(diff));
-      frameDiffs[t] = diff;
-      assert.equal(
-        diff.differing,
-        0,
-        `Expected 0 differing pixels at t=${t}s when no override is present, got ${diff.differing}`
-      );
-    }
-  } finally {
-    await diffPage.close();
+        }
+        return { differing, maxDelta, bbox: [minx, miny, maxx, maxy] };
+      },
+      [oldShots[t], newShots[t]]
+    );
+    console.log(`diff at t=${t}:`, JSON.stringify(diff));
+    frameDiffs[t] = diff;
+    assert.equal(
+      diff.differing,
+      0,
+      `Expected 0 differing pixels at t=${t}s when no override is present, got ${diff.differing}`
+    );
   }
   return frameDiffs;
 }
@@ -573,18 +618,30 @@ function verifyNoForegroundOverlapsAndSafeArea(elements, beatId, canvas = { widt
 }
 
 let browser = null;
+let sharedContext = null;
 try {
   browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+  sharedContext = await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
+  const page = await sharedContext.newPage();
 
-  // 1. Verify 0 differing pixels across kinetic, ui, and title scenes when no override is present
-  const zeroDiffEvidence = await compareTemplateZeroDiff(browser);
+  // Warm all @font-face rules in sharedContext before any composition script runs `camTextBox()` at parse time
+  currentServedHtml = `<!doctype html><html><head><style>${FONTS_CSS}</style><style>${THEME_NEUTRAL_CSS}</style></head><body>Warm</body></html>`;
+  await page.goto(`${ASSET_ORIGIN}/doc.html?warm=0`, { waitUntil: "load", timeout: 10_000 });
+  await page.evaluate(async () => {
+    if (document.fonts) {
+      await Promise.all(Array.from(document.fonts).map((f) => f.load().catch(() => {})));
+      if (document.fonts.ready) await document.fonts.ready;
+    }
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  });
+
+  // 1. Verify 0 differing pixels across kinetic, ui, and title scenes when no override is present (vs 88d4efa fixture)
+  const zeroDiffEvidence = await compareTemplateZeroDiff(browser, page);
   console.log("0-diff baseline parity across scene kinds:", JSON.stringify(zeroDiffEvidence));
 
-  // 2. Seed project with 4 beats: b1 (kinetic), b2 (kinetic), b3 (ui), b4 (title)
-  const initial = await seedTestProject();
-
-  // Verify GET /v1/projects/:id/composition
-  const compRes = await app.inject({ method: "GET", url: `/v1/projects/${initial.id}/composition` });
+  // 2. Seed a probe project to check composition timing and verify GET /plan/elements is 404
+  const probeProject = await seedTestProject();
+  const compRes = await app.inject({ method: "GET", url: `/v1/projects/${probeProject.id}/composition` });
   assert.equal(compRes.statusCode, 200);
   const compJson = compRes.json();
   const b1Slot = compJson.beatTimes.b1;
@@ -596,19 +653,48 @@ try {
   const tB2 = Number(((b2Slot.start + b2Slot.end) / 2).toFixed(2));
   const tB3 = Number(((b3Slot.start + b3Slot.end) / 2).toFixed(2));
   const tB4 = Number(((b4Slot.start + b4Slot.end) / 2).toFixed(2));
-  const tSeam12 = Number(b1Slot.end.toFixed(2)); // transition seam between b1 and b2
+  const tSeam12 = Number(b1Slot.end.toFixed(2));
 
-  // Verify GET /plan/elements is removed from the server (404)
-  const removedElRoute = await app.inject({ method: "GET", url: `/v1/projects/${initial.id}/plan/elements?t=${tB2}` });
+  const removedElRoute = await app.inject({ method: "GET", url: `/v1/projects/${probeProject.id}/plan/elements?t=${tB2}` });
   assert.equal(removedElRoute.statusCode, 404, "GET /plan/elements was removed from the server");
+
+  // B5 engine check: verify in headless Chrome that CSS injection strings, prototype keys, invalid data-el ids, and out-of-range offsets are ignored by engine.js
+  {
+    const { html: baseProbeHtml } = await buildStandaloneCompositionHtml(probeProject);
+    const maliciousOverrides = {
+      "b2:w:2": { color: "red}*{display:none", opacity: 99, dx: 99999, dy: -99999, text: "x".repeat(500) },
+      'bad"id]{display:none}': { color: "#ff3b6b" },
+      constructor: { color: "toString" }
+    };
+    const injectedHtml = baseProbeHtml.replace(
+      /<script id="hf-variables" type="application\/json">[\s\S]*?<\/script>/,
+      () => `<script id="hf-variables" type="application/json">${JSON.stringify({ overrides: maliciousOverrides })}</script>`
+    );
+    await sampleHtmlInTestBrowser(page, injectedHtml, [tB2]);
+    const sheetCheck = await page.evaluate(() => {
+      const st = document.getElementById("bp-overrides");
+      const w2 = document.querySelector('[data-el="b2:w:2"]');
+      return {
+        sheetText: st ? st.textContent : null,
+        w2Text: w2 ? w2.textContent : null,
+        w2Display: w2 ? getComputedStyle(w2).display : null
+      };
+    });
+    assert.equal(sheetCheck.sheetText, null, "Malicious overrides must produce no #bp-overrides rules");
+    assert.equal(sheetCheck.w2Text, "share.", "Overlong override text (>280 chars) must be ignored by engine.js");
+    assert.notEqual(sheetCheck.w2Display, "none", "CSS injection string must never hide elements");
+  }
 
   const tableRows = [];
 
+  // A8: Each scenario seeds its own isolated project so scenarios never mutate shared state or depend on prior scenarios.
+
   // Scenario 1: Colour change on one word ("Make 'share.' pink") -> element scope
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p1 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p1.id, [
       { id: "s1", comment: 'Make "share." pink', atSeconds: tB2, scene: "b2" }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json();
     assert.equal(body.decision.scope, "element");
@@ -638,7 +724,9 @@ try {
 
   // Scenario 2: Equal-length-class text replacement ('Change "share." to "ship."') -> element scope
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p2 = await seedTestProject({ "b2:w:2": { color: "#ff3b6b" } });
+    assert.equal(p2.beatPlan.overrides?.["b2:w:2"]?.color, "#ff3b6b");
+    const res = await runTwoStepEditInBrowser(page, p2.id, [
       { id: "s2", comment: 'Change "share." to "ship."', atSeconds: tB2, scene: "b2" }
     ]);
     assert.equal(res.statusCode, 200, res.body);
@@ -670,7 +758,9 @@ try {
 
   // Scenario 3: Position nudge ('Nudge "ship." right 28px') -> element scope
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p3 = await seedTestProject({ "b2:w:2": { color: "#ff3b6b", text: "ship." } });
+    assert.equal(p3.beatPlan.overrides?.["b2:w:2"]?.text, "ship.");
+    const res = await runTwoStepEditInBrowser(page, p3.id, [
       { id: "s3", comment: 'Nudge "ship." right 28px', atSeconds: tB2, scene: "b2" }
     ]);
     assert.equal(res.statusCode, 200, res.body);
@@ -701,16 +791,18 @@ try {
 
   // Scenario 4: Undo element override (DELETE /v1/projects/:id/plan/overrides/b2:w:2) -> restores original element
   {
+    const p4 = await seedTestProject({ "b2:w:2": { color: "#ff3b6b", text: "ship.", dx: 28 } });
+    assert.equal(p4.beatPlan.overrides?.["b2:w:2"]?.text, "ship.");
     const delRes = await app.inject({
       method: "DELETE",
-      url: `/v1/projects/${initial.id}/plan/overrides/${encodeURIComponent("b2:w:2")}`
+      url: `/v1/projects/${p4.id}/plan/overrides/${encodeURIComponent("b2:w:2")}`
     });
     assert.equal(delRes.statusCode, 200);
     const afterUndo = delRes.json();
     assert.equal(afterUndo.beatPlan.overrides?.["b2:w:2"], undefined);
 
-    const { html, canvas } = await buildStandaloneCompositionHtml(afterUndo);
-    const snaps = await sampleHtmlInTestBrowser(browser, html, canvas, [tB2]);
+    const { html } = await buildStandaloneCompositionHtml(afterUndo);
+    const snaps = await sampleHtmlInTestBrowser(page, html, [tB2]);
     const elAfterUndo = snaps[0].elements;
     const restoredWord = elAfterUndo.find((e) => e.id === "b2:w:2");
     assert.equal(restoredWord.text, "share.");
@@ -735,10 +827,11 @@ try {
 
   // Scenario 5: Two comments on the same element in one batch ('Make "share." cyan' + 'Nudge "share." right 24px')
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p5 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p5.id, [
       { id: "c1", at: tB2, scene: "b2", body: 'Make "share." cyan' },
       { id: "c2", at: tB2, scene: "b2", body: 'Nudge "share." right 24px' }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json();
     assert.equal(body.results.length, 2);
@@ -767,14 +860,14 @@ try {
       boxBefore: body.results[0].decision.measurements.targetBoxBefore,
       boxAfter: body.results[1].decision.measurements.targetBoxAfter
     });
-    await app.inject({ method: "DELETE", url: `/v1/projects/${initial.id}/plan/overrides/${encodeURIComponent("b2:w:2")}` });
   }
 
   // Scenario 6: Make element bigger ('Make "share." bigger') -> escalates to scene scope (`beat.hints`)
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p6 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p6.id, [
       { id: "s6", comment: 'Make "share." bigger', atSeconds: tB2, scene: "b2" }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json();
     assert.equal(body.decision.scope, "scene");
@@ -807,9 +900,10 @@ try {
 
   // Scenario 7: Make element smaller ('Make "moving." smaller' on b1) -> escalates to scene scope (`beat.hints`)
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p7 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p7.id, [
       { id: "s7", comment: 'Make "moving." smaller', atSeconds: tB1, scene: "b1" }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json();
     assert.equal(body.decision.scope, "scene");
@@ -841,14 +935,15 @@ try {
 
   // Scenario 8: Longer text replacement -> escalates to scene scope and re-fits font size
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p8 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p8.id, [
       {
         id: "s8",
         comment: 'Change subtitle to "Every single beat of your product launch plan, rendered live"',
         atSeconds: tB1,
         scene: "b1"
       }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json();
     assert.equal(body.decision.scope, "scene");
@@ -880,10 +975,10 @@ try {
 
   // Scenario 9: Move onto another element ('Move "share." onto "Ready"') -> escalates to scene scope for overlap, refused with 422
   {
-    await app.inject({ method: "PATCH", url: `/v1/projects/${initial.id}/plan`, payload: { beats: [{ id: "b2", hints: null }] } });
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p9 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p9.id, [
       { id: "s9", comment: 'Move "share." onto "Ready"', atSeconds: tB2, scene: "b2" }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 422, "colliding move must be refused with 422");
     const body = res.json();
     assert.equal(body.error.code, "edit_refused");
@@ -911,9 +1006,10 @@ try {
 
   // Scenario 10: Off-screen / outside safe area push ('Push "share." right 900px off screen') -> escalates to scene scope, refused with 422
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p10 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p10.id, [
       { id: "s10", comment: 'Push "share." right 900px off screen', atSeconds: tB2, scene: "b2" }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 422, "off-screen push must be refused with 422");
     const body = res.json();
     assert.equal(body.error.code, "edit_refused");
@@ -941,9 +1037,10 @@ try {
 
   // Scenario 11: Comment on UI scene kind (b3 is `kind: "ui"`, 'Make "ships." orange') -> element scope
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p11 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p11.id, [
       { id: "s11", comment: 'Make "ships." orange', atSeconds: tB3, scene: "b3" }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json();
     assert.equal(body.decision.scope, "element");
@@ -974,9 +1071,10 @@ try {
 
   // Scenario 12: Comment pinned right at a transition seam (`t = b1.end`, 'Make "Ready" green') -> anchors to incoming scene b2
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p12 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p12.id, [
       { id: "s12", comment: 'Make "Ready" green', atSeconds: tSeam12 }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json();
     assert.equal(body.decision.scope, "element");
@@ -1003,11 +1101,12 @@ try {
     });
   }
 
-  // Scenario 13: Title scene CTA pill emphasis ('Make the pill bigger' on title scene b4) -> scene scope (`beat.hints` on `b4:pill:0`)
+  // Scenario 13: Title scene CTA pill bigger ('Make the pill bigger' on title scene b4) -> scene scope (`beat.hints` on `b4:pill:0`)
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p13 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p13.id, [
       { id: "s13", comment: "Make the pill bigger", atSeconds: tB4, scene: "b4" }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json();
     assert.equal(body.decision.scope, "scene");
@@ -1039,7 +1138,8 @@ try {
 
   // Scenario 14 (Impossible hint factor refusal): factor=3.5 is refused in propose and commit (422) and never applied
   {
-    const res = await runTwoStepEditInBrowser(browser, initial.id, [
+    const p14 = await seedTestProject();
+    const res = await runTwoStepEditInBrowser(page, p14.id, [
       {
         id: "s14",
         at: tB2,
@@ -1052,7 +1152,7 @@ try {
           set: { factor: 3.5 }
         }
       }
-    ]);
+    ], { canUseUneditedCache: true });
     assert.equal(res.statusCode, 422);
     const body = res.json();
     assert.equal(body.error.code, "edit_refused");
@@ -1061,10 +1161,13 @@ try {
   console.log("ELEMENT_EDIT_TABLE_JSON:" + JSON.stringify(tableRows));
   console.log("plan-element-edits: ok");
 } finally {
+  if (sharedContext) await sharedContext.close().catch(() => {});
   if (browser) await browser.close().catch(() => {});
+  assetServer.close();
   await app.close();
-  if (createdProjects.length > 0) {
-    await pool.query("delete from app.projects where id = any($1)", [createdProjects]);
-  }
+  await pool.query("delete from app.projects where owner_id = $1 or id = any($2)", [
+    TEST_OWNER,
+    createdProjects
+  ]);
   await pool.end();
 }

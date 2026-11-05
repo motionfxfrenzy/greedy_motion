@@ -30,19 +30,43 @@
   var BEATS = Array.isArray(PLAN.beats) ? PLAN.beats : [];
   var OVERRIDES = J(V.overrides, null);
   if (!OVERRIDES || typeof OVERRIDES !== "object" || Array.isArray(OVERRIDES)) OVERRIDES = {};
+  var NAMED_COLORS = {
+    pink: "#ff3b6b", hotpink: "#ff3b6b", magenta: "#f43f5e", red: "#ef4444", crimson: "#dc2626",
+    orange: "#f97316", amber: "#f59e0b", yellow: "#eab308", gold: "#eab308", lime: "#84cc16",
+    green: "#22c55e", emerald: "#10b981", teal: "#14b8a6", cyan: "#06b6d4", sky: "#0ea5e9",
+    blue: "#3b82f6", indigo: "#6366f1", violet: "#8b5cf6", purple: "#a855f7", white: "#ffffff",
+    black: "#111827", grey: "#94a3b8", gray: "#94a3b8", silver: "#cbd5e1"
+  };
+  function validElId(id) {
+    if (typeof id !== "string" || id.length < 5 || id.length > 64) return false;
+    var m = /^([a-zA-Z0-9_-]+):([a-zA-Z][a-zA-Z0-9_-]{0,31}):(\d{1,4})$/.exec(id);
+    if (!m) return false;
+    var idx = +m[3];
+    return idx >= 0 && idx <= 512;
+  }
+  function validColor(raw) {
+    if (typeof raw !== "string") return null;
+    var s = raw.trim().toLowerCase();
+    if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(s)) return s;
+    if (Object.prototype.hasOwnProperty.call(NAMED_COLORS, s)) return NAMED_COLORS[s];
+    return null;
+  }
   function applyOverridesSheet() {
     var rules = [];
     for (var id in OVERRIDES) {
-      if (!Object.prototype.hasOwnProperty.call(OVERRIDES, id)) continue;
+      if (!Object.prototype.hasOwnProperty.call(OVERRIDES, id) || !validElId(id)) continue;
       var ov = OVERRIDES[id];
-      if (!ov || typeof ov !== "object") continue;
+      if (!ov || typeof ov !== "object" || Array.isArray(ov)) continue;
       var decl = [];
-      if (typeof ov.color === "string" && ov.color) decl.push("color:" + ov.color + " !important");
-      if (typeof ov.opacity === "number" && isFinite(ov.opacity)) decl.push("opacity:" + clamp(ov.opacity, 0.05, 1) + " !important");
-      var dx = typeof ov.dx === "number" && isFinite(ov.dx) ? Math.round(ov.dx) : 0;
-      var dy = typeof ov.dy === "number" && isFinite(ov.dy) ? Math.round(ov.dy) : 0;
+      var col = validColor(ov.color);
+      if (col) decl.push("color:" + col + " !important");
+      if (typeof ov.opacity === "number" && isFinite(ov.opacity) && ov.opacity >= 0.05 && ov.opacity <= 1) {
+        decl.push("opacity:" + (Math.round(ov.opacity * 100) / 100) + " !important");
+      }
+      var dx = typeof ov.dx === "number" && isFinite(ov.dx) && Math.abs(ov.dx) <= 4000 ? Math.round(ov.dx) : 0;
+      var dy = typeof ov.dy === "number" && isFinite(ov.dy) && Math.abs(ov.dy) <= 4000 ? Math.round(ov.dy) : 0;
       if (dx || dy) decl.push("translate:" + px(dx) + " " + px(dy) + " !important");
-      if (decl.length) rules.push('[data-el="' + id.replace(/"/g, "") + '"]{' + decl.join(";") + "}");
+      if (decl.length) rules.push('[data-el="' + id + '"]{' + decl.join(";") + "}");
     }
     var st = document.getElementById("bp-overrides");
     if (!rules.length) { if (st && st.parentNode) st.parentNode.removeChild(st); return; }
@@ -66,11 +90,18 @@
     return 1;
   }
   function applyOverrideToEl(e, id, hasTxt) {
+    if (!Object.prototype.hasOwnProperty.call(OVERRIDES, id) || !validElId(id)) return;
     var ov = OVERRIDES[id];
-    if (!ov || typeof ov !== "object") return;
-    if (typeof ov.text === "string" && ov.text && hasTxt) e.textContent = ov.text;
-    if (typeof ov.color === "string" && ov.color) e.style.setProperty("color", ov.color, "important");
-    if (typeof ov.opacity === "number" && isFinite(ov.opacity)) e.style.setProperty("opacity", String(clamp(ov.opacity, 0.05, 1)), "important");
+    if (!ov || typeof ov !== "object" || Array.isArray(ov)) return;
+    if (typeof ov.text === "string" && hasTxt) {
+      var cleanTxt = ov.text.trim();
+      if (cleanTxt && cleanTxt.length <= 280) e.textContent = cleanTxt;
+    }
+    var col = validColor(ov.color);
+    if (col) e.style.setProperty("color", col, "important");
+    if (typeof ov.opacity === "number" && isFinite(ov.opacity) && ov.opacity >= 0.05 && ov.opacity <= 1) {
+      e.style.setProperty("opacity", String(Math.round(ov.opacity * 100) / 100), "important");
+    }
   }
   function has(k) { return Object.prototype.hasOwnProperty.call(V, k) && typeof V[k] === "string"; }
   function same(a, b) { var n = function (x) { return String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }; return n(a) === n(b); }

@@ -663,6 +663,9 @@ export async function proposePlanCommentEdits(
       body: JSON.stringify(input)
     }
   );
+  if (response.status === 409) {
+    throw new Error("The plan changed; apply again");
+  }
   return parse<ProposePlanCommentEditsResponse>(response, "Could not propose comment edits.");
 }
 
@@ -675,7 +678,6 @@ export async function commitPlanCommentEdits(
   projectId: string,
   input: {
     planVersion: string;
-    canvas?: { width: number; height: number };
     items: {
       id: string;
       patch: EditPatch;
@@ -693,6 +695,9 @@ export async function commitPlanCommentEdits(
       body: JSON.stringify(input)
     }
   );
+  if (response.status === 409) {
+    throw new Error("The plan changed; apply again");
+  }
   if (response.status === 422) {
     const payload = (await response.json().catch(() => ({}))) as {
       problems?: string[];
@@ -707,12 +712,18 @@ export async function commitPlanCommentEdits(
 }
 
 /** Undoes an element-level override (`DELETE /v1/projects/:id/plan/overrides/:el`). */
-export async function undoPlanElementOverride(projectId: string, elId: string, options?: { clearHint?: boolean }): Promise<VideoProject> {
-  const query = options?.clearHint ? "?hint=1" : "";
+export async function undoPlanElementOverride(projectId: string, elId: string, options?: { clearHint?: boolean; planVersion?: string }): Promise<VideoProject> {
+  const params = new URLSearchParams();
+  if (options?.clearHint) params.set("hint", "1");
+  if (options?.planVersion) params.set("planVersion", options.planVersion);
+  const query = params.size ? `?${params.toString()}` : "";
   const response = await apiFetch(
     `${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plan/overrides/${encodeURIComponent(elId)}${query}`,
     { method: "DELETE" }
   );
+  if (response.status === 409) {
+    throw new Error("The plan changed; apply again");
+  }
   return parse<VideoProject>(response, "Could not undo the element edit.");
 }
 

@@ -6,6 +6,7 @@
 // 5. Rules-first + model-translator chain (`COMMENT_TO_PATCH_SYSTEM_PROMPT`, `anthropicMessage` timeout & usage logging, `validateEditPatch` guard) across 10 recorded comment cases with zero real model API calls.
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import Module from "node:module";
@@ -25,14 +26,22 @@ if (typeof Module.registerHooks === "function") {
   });
 }
 
-process.env.APP_ENV ??= "local";
-process.env.PLANNER ??= "deterministic";
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is required (a local Postgres; this test writes to it).");
+process.env.APP_ENV = "local";
+process.env.PLANNER = "deterministic";
+process.env.CREEM_API_KEY = "";
+if (!/plates_unit|test/.test(process.env.DATABASE_URL ?? "")) {
+  throw new Error("Point DATABASE_URL at a throwaway database (name containing plates_unit or test).");
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(HERE, "..");
+const REPO_ROOT = resolve(BACKEND_DIR, "..");
+
+// B4: Ensure worker/templates/beat-plan/index.html is in sync with engine.js (build.mjs --check exits 0)
+execFileSync(process.execPath, [join(REPO_ROOT, "worker/templates/beat-plan/build.mjs"), "--check"], {
+  cwd: REPO_ROOT,
+  stdio: "pipe"
+});
 
 // Verify source files contain no playwright-core or getSharedBrowser references
 const elementEditsSrc = readFileSync(join(BACKEND_DIR, "src/plan/element-edits.ts"), "utf8");
@@ -43,10 +52,15 @@ assert.ok(!elementEditsSrc.includes("sampleCompositionElements"), "element-edits
 assert.ok(!routesSrc.includes("sampleCompositionElements"), "routes.ts must not reference sampleCompositionElements");
 
 const { migrate, pool } = await import("../src/db/database.ts");
-const { createProject, getProject } = await import("../src/projects/store.ts");
+const { LOCAL_USER_ID } = await import("../src/config.ts");
+const { registerOwnership } = await import("../src/access.ts");
+const { registerPreviewMeter } = await import("../src/plan/preview-meter.ts");
+const { createProject, getProject, updateProject } = await import("../src/projects/store.ts");
 const { registerPlanRoutes } = await import("../src/plan/routes.ts");
 const {
+  computePlanVersion,
   proposeHyperFramesCommentEdits,
+  setDefaultModelTranslatorOptions,
   translateCommentWithRulesThenModel
 } = await import("../src/plan/element-edits.ts");
 const { resolveBeatWindowTimes } = await import("@videosaas/contracts");
@@ -57,7 +71,10 @@ const app = Fastify();
 await registerPlanRoutes(app);
 await app.ready();
 
+const TEST_OWNER = randomUUID();
+const OTHER_OWNER = randomUUID();
 const createdProjects = [];
+await pool.query("delete from app.projects where owner_id = any($1)", [[TEST_OWNER, OTHER_OWNER]]);
 
 function makeSeed(screenshotId) {
   const beats = [
@@ -164,18 +181,21 @@ function makeSeed(screenshotId) {
   return { brief, beatPlan };
 }
 
-async function seedProject() {
-  const created = await createProject({
-    name: `no-chrome-edit-test-${randomUUID().slice(0, 8)}`,
-    request: {
-      prompt: "No-Chrome two-step edit protocol test",
-      format: "landscape",
-      style: "clean",
-      theme: "neutral",
-      template: "product-launch",
-      audio: { music: false, voiceover: false, voice: "Kore" }
-    }
-  });
+async function seedProject(owner = TEST_OWNER) {
+  const created = await createProject(
+    {
+      name: `no-chrome-edit-test-${randomUUID().slice(0, 8)}`,
+      request: {
+        prompt: "No-Chrome two-step edit protocol test",
+        format: "landscape",
+        style: "clean",
+        theme: "neutral",
+        template: "product-launch",
+        audio: { music: false, voiceover: false, voice: "Kore" }
+      }
+    },
+    owner
+  );
   createdProjects.push(created.id);
   const shotId = randomUUID();
   const seed = makeSeed(shotId);
@@ -634,11 +654,389 @@ try {
   }
 
   console.log("RECORDED_MODEL_CASES_JSON:" + JSON.stringify(recordedSummary));
+
+  // 5. B1: Lost-update race on commit and override delete (compare-and-set under row lock)
+  {
+    const raceProj = await seedProject();
+    const v0 = computePlanVersion(raceProj);
+
+    // 5a. Two concurrent commits on the same planVersion: exactly one succeeds (200), the other gets 409 stale_plan_version
+    const [cRes1, cRes2] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/v1/projects/${raceProj.id}/plan/edit/commit`,
+        payload: {
+          planVersion: v0,
+          items: [
+            {
+              id: "race-1",
+              patch: { scope: "element", scene: "b2", atSeconds: 7.23, el: "b2:w:2", set: { color: "#ff3b6b" } },
+              before: b2Snapshots,
+              after: b2Snapshots
+            }
+          ]
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/v1/projects/${raceProj.id}/plan/edit/commit`,
+        payload: {
+          planVersion: v0,
+          items: [
+            {
+              id: "race-2",
+              patch: { scope: "element", scene: "b2", atSeconds: 7.23, el: "b2:w:0", set: { color: "#22c55e" } },
+              before: b2Snapshots,
+              after: b2Snapshots
+            }
+          ]
+        }
+      })
+    ]);
+    const codes = [cRes1.statusCode, cRes2.statusCode].sort((a, b) => a - b);
+    assert.deepEqual(codes, [200, 409], `Expected one 200 and one 409, got ${codes.join(", ")}`);
+    const loser = cRes1.statusCode === 409 ? cRes1.json() : cRes2.json();
+    assert.equal(loser.error.code, "stale_plan_version");
+
+    // 5b. A commit racing a PATCH /plan never loses either write silently:
+    // Case A: Commit starts on current version and runs concurrently with PATCH /plan (captions="full")
+    const raceProj2 = await seedProject();
+    const vStart = computePlanVersion(raceProj2);
+    const [commitVsPatchCommit, commitVsPatchPatch] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/v1/projects/${raceProj2.id}/plan/edit/commit`,
+        payload: {
+          planVersion: vStart,
+          items: [
+            {
+              id: "race-commit",
+              patch: { scope: "element", scene: "b2", atSeconds: 7.23, el: "b2:w:2", set: { color: "#06b6d4" } },
+              before: b2Snapshots,
+              after: b2Snapshots
+            }
+          ]
+        }
+      }),
+      app.inject({
+        method: "PATCH",
+        url: `/v1/projects/${raceProj2.id}/plan`,
+        payload: { captions: "full" }
+      })
+    ]);
+    assert.equal(commitVsPatchPatch.statusCode, 200, "PATCH /plan must succeed");
+    const afterRace2 = await getProject(raceProj2.id);
+    assert.equal(afterRace2.beatPlan.audio.captions, "full", "PATCH /plan captions update must never be lost");
+    if (commitVsPatchCommit.statusCode === 200) {
+      // Commit ran first, then PATCH /plan ran on top of Commit's state -> BOTH writes are preserved!
+      assert.equal(
+        afterRace2.beatPlan.overrides?.["b2:w:2"]?.color,
+        "#06b6d4",
+        "When commit succeeds alongside PATCH /plan, commit's override must also be preserved"
+      );
+    } else {
+      // PATCH /plan ran first, so commit was cleanly rejected with 409 stale_plan_version
+      assert.equal(commitVsPatchCommit.statusCode, 409);
+      assert.equal(commitVsPatchCommit.json().error.code, "stale_plan_version");
+    }
+
+    // Also test the reverse order explicitly: PATCH /plan queued right before commit on the same version -> commit gets 409, PATCH is kept
+    const raceProj3 = await seedProject();
+    const vStart3 = computePlanVersion(raceProj3);
+    const [patchFirst, commitSecond] = await Promise.all([
+      app.inject({
+        method: "PATCH",
+        url: `/v1/projects/${raceProj3.id}/plan`,
+        payload: { captions: "none" }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/v1/projects/${raceProj3.id}/plan/edit/commit`,
+        payload: {
+          planVersion: vStart3,
+          items: [
+            {
+              id: "race-commit-2",
+              patch: { scope: "element", scene: "b2", atSeconds: 7.23, el: "b2:w:2", set: { color: "#f97316" } },
+              before: b2Snapshots,
+              after: b2Snapshots
+            }
+          ]
+        }
+      })
+    ]);
+    assert.equal(patchFirst.statusCode, 200);
+    const afterRace3 = await getProject(raceProj3.id);
+    assert.equal(afterRace3.beatPlan.audio.captions, "none");
+    if (commitSecond.statusCode === 200) {
+      assert.equal(afterRace3.beatPlan.overrides?.["b2:w:2"]?.color, "#f97316");
+    } else {
+      assert.equal(commitSecond.statusCode, 409);
+    }
+
+    // 5c. DELETE /plan/overrides/:el compare-and-set: stale planVersion rejected with 409
+    const staleDelRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/projects/${raceProj.id}/plan/overrides/${encodeURIComponent("b2:w:2")}?planVersion=stale-v0`
+    });
+    assert.equal(staleDelRes.statusCode, 409);
+    assert.equal(staleDelRes.json().error.code, "stale_plan_version");
+  }
+
+  // 6. B2: Error mapping (ProjectInvalid -> 400 on commit & delete; model transport errors -> 502/503 on propose; malformed :el -> 400)
+  {
+    const errProj = await seedProject();
+    const errVersion = computePlanVersion(errProj);
+
+    // Put project in "Rendering draft" state
+    await updateProject(errProj.id, { state: "Rendering draft" });
+
+    const commitWhileRendering = await app.inject({
+      method: "POST",
+      url: `/v1/projects/${errProj.id}/plan/edit/commit`,
+      payload: {
+        planVersion: errVersion,
+        items: [
+          {
+            id: "c-render",
+            patch: { scope: "element", scene: "b2", atSeconds: 7.23, el: "b2:w:2", set: { color: "#ff3b6b" } },
+            before: b2Snapshots,
+            after: b2Snapshots
+          }
+        ]
+      }
+    });
+    assert.equal(commitWhileRendering.statusCode, 400, "ProjectInvalid on commit must return 400, not 500");
+    assert.equal(commitWhileRendering.json().error.code, "invalid_project");
+
+    const deleteWhileRendering = await app.inject({
+      method: "DELETE",
+      url: `/v1/projects/${errProj.id}/plan/overrides/${encodeURIComponent("b2:w:2")}`
+    });
+    assert.equal(deleteWhileRendering.statusCode, 400, "ProjectInvalid on override delete must return 400, not 500");
+    assert.equal(deleteWhileRendering.json().error.code, "invalid_project");
+
+    // Restore state to "Draft storyboard"
+    await updateProject(errProj.id, { state: "Draft storyboard" });
+
+    // Malformed URI encoding or invalid element id on DELETE /plan/overrides/:el -> 400
+    const badUriDelete = await app.inject({
+      method: "DELETE",
+      url: `/v1/projects/${errProj.id}/plan/overrides/%25E0%25A4%25A`
+    });
+    assert.equal(badUriDelete.statusCode, 400, "Malformed URI in :el must return 400, not 500");
+
+    const badCharsDelete = await app.inject({
+      method: "DELETE",
+      url: `/v1/projects/${errProj.id}/plan/overrides/${encodeURIComponent("red}*{display:none")}`
+    });
+    assert.equal(badCharsDelete.statusCode, 400, "Invalid element id characters in :el must return 400");
+
+    // Model transport errors in POST /plan/edit/propose -> 502 / 503 with user-readable message
+    try {
+      setDefaultModelTranslatorOptions({
+        sleep: async () => {},
+        request: async () =>
+          new Response(JSON.stringify({ error: { message: "Upstream model gateway failed" } }), {
+            status: 502,
+            headers: { "content-type": "application/json" }
+          }),
+        log: () => {}
+      });
+      const res502 = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${errProj.id}/plan/edit/propose`,
+        payload: {
+          comments: [{ id: "c-vague", at: 7.23, scene: "b2", body: "make the headline pop" }],
+          measured: {
+            canvas: { width: 1920, height: 1080 },
+            snapshots: { "c-vague": b2Snapshots }
+          }
+        }
+      });
+      assert.equal(res502.statusCode, 502, "Model 502 transport error must return 502");
+      assert.equal(res502.json().error.code, "propose_failed");
+      assert.match(res502.json().error.message, /Comment patch translation failed|Upstream model gateway failed/i);
+
+      setDefaultModelTranslatorOptions({
+        timeoutMs: 10,
+        sleep: async () => {},
+        request: async (_url, init) => {
+          return await new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              const err = new Error("The operation was aborted due to timeout");
+              err.name = "TimeoutError";
+              reject(err);
+            });
+          });
+        },
+        log: () => {}
+      });
+      const resTimeout = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${errProj.id}/plan/edit/propose`,
+        payload: {
+          comments: [{ id: "c-timeout", at: 7.23, scene: "b2", body: "make the headline pop" }],
+          measured: {
+            canvas: { width: 1920, height: 1080 },
+            snapshots: { "c-timeout": b2Snapshots }
+          }
+        }
+      });
+      assert.equal(resTimeout.statusCode, 503, "Model timeout error must return 503");
+      assert.equal(resTimeout.json().error.code, "propose_failed");
+    } finally {
+      setDefaultModelTranslatorOptions(null);
+    }
+  }
+
+  // 7. B3a: No preview_usage row for an unknown or unowned project UUID; owned project is charged as before
+  {
+    const meteredApp = Fastify();
+    registerOwnership(meteredApp);
+    registerPreviewMeter(meteredApp);
+    await registerPlanRoutes(meteredApp);
+    await meteredApp.ready();
+
+    const prevLimits = process.env.PREVIEW_LIMITS;
+    process.env.PREVIEW_LIMITS = "on";
+    const unknownProjectId = randomUUID();
+    const otherOwnedProject = await seedProject(OTHER_OWNER);
+    const callerOwnedProject = await seedProject(LOCAL_USER_ID);
+
+    try {
+      await pool.query("delete from app.preview_usage where project_id = any($1)", [
+        [unknownProjectId, otherOwnedProject.id, callerOwnedProject.id]
+      ]);
+
+      // 7a. Unknown random UUID -> 404 and 0 preview_usage rows
+      const unknownRes = await meteredApp.inject({
+        method: "POST",
+        url: `/v1/projects/${unknownProjectId}/plan/edit/propose`,
+        payload: {
+          comments: [{ id: "c1", at: 7.23, scene: "b2", body: 'Make "share." pink' }],
+          measured: { canvas: { width: 1920, height: 1080 }, snapshots: { c1: b2Snapshots } }
+        }
+      });
+      assert.equal(unknownRes.statusCode, 404);
+      const unknownUsage = await pool.query("select count(*)::int as n from app.preview_usage where project_id = $1", [
+        unknownProjectId
+      ]);
+      assert.equal(unknownUsage.rows[0].n, 0, "Unknown project UUID must create no preview_usage row");
+
+      // 7b. Unowned project UUID (belongs to OTHER_OWNER) -> 404 and 0 preview_usage rows
+      const unownedRes = await meteredApp.inject({
+        method: "POST",
+        url: `/v1/projects/${otherOwnedProject.id}/plan/edit/propose`,
+        payload: {
+          comments: [{ id: "c1", at: 7.23, scene: "b2", body: 'Make "share." pink' }],
+          measured: { canvas: { width: 1920, height: 1080 }, snapshots: { c1: b2Snapshots } }
+        }
+      });
+      assert.equal(unownedRes.statusCode, 404);
+      const unownedUsage = await pool.query("select count(*)::int as n from app.preview_usage where project_id = $1", [
+        otherOwnedProject.id
+      ]);
+      assert.equal(unownedUsage.rows[0].n, 0, "Unowned project UUID must create no preview_usage row");
+
+      // 7c. Real project owned by caller (LOCAL_USER_ID) -> 200 and charged exactly as before (1 row, calls = 1)
+      const ownedRes = await meteredApp.inject({
+        method: "POST",
+        url: `/v1/projects/${callerOwnedProject.id}/plan/edit/propose`,
+        payload: {
+          comments: [{ id: "c1", at: 7.23, scene: "b2", body: 'Make "share." pink' }],
+          measured: { canvas: { width: 1920, height: 1080 }, snapshots: { c1: b2Snapshots } }
+        }
+      });
+      assert.equal(ownedRes.statusCode, 200);
+      const ownedUsage = await pool.query("select calls from app.preview_usage where project_id = $1 and user_id = $2", [
+        callerOwnedProject.id,
+        LOCAL_USER_ID
+      ]);
+      assert.equal(ownedUsage.rows.length, 1, "Real owned project must be charged in preview_usage");
+      assert.equal(ownedUsage.rows[0].calls, 1);
+    } finally {
+      if (prevLimits === undefined) delete process.env.PREVIEW_LIMITS;
+      else process.env.PREVIEW_LIMITS = prevLimits;
+      await pool.query("delete from app.preview_usage where project_id = any($1)", [
+        [unknownProjectId, otherOwnedProject.id, callerOwnedProject.id]
+      ]);
+      await meteredApp.close();
+    }
+  }
+
+  // 8. B5 server route checks: duplicate snapshot ids, unequal before/after lengths, explicit scope='scene' with el not downgraded
+  {
+    const b5Proj = await seedProject();
+    const b5Version = computePlanVersion(b5Proj);
+
+    // Duplicate element ids in a snapshot -> 400
+    const dupRes = await app.inject({
+      method: "POST",
+      url: `/v1/projects/${b5Proj.id}/plan/edit/propose`,
+      payload: {
+        comments: [{ id: "c1", at: 7.23, scene: "b2", body: 'Make "share." pink' }],
+        measured: {
+          canvas: { width: 1920, height: 1080 },
+          snapshots: {
+            c1: [
+              {
+                time: 7.23,
+                elements: [b2Snapshots[0].elements[0], b2Snapshots[0].elements[0]]
+              }
+            ]
+          }
+        }
+      }
+    });
+    assert.equal(dupRes.statusCode, 400);
+    assert.match(dupRes.json().error.message, /Duplicate element id/i);
+
+    // Unequal before/after snapshot lengths on commit -> 400
+    const unequalRes = await app.inject({
+      method: "POST",
+      url: `/v1/projects/${b5Proj.id}/plan/edit/commit`,
+      payload: {
+        planVersion: b5Version,
+        items: [
+          {
+            id: "c-unequal",
+            patch: { scope: "element", scene: "b2", atSeconds: 7.23, el: "b2:w:2", set: { color: "#ff3b6b" } },
+            before: [b2Snapshots[0], { ...b2Snapshots[0], time: 7.5 }],
+            after: [b2Snapshots[0]]
+          }
+        ]
+      }
+    });
+    assert.equal(unequalRes.statusCode, 400);
+    assert.match(unequalRes.json().error.message, /unequal/i);
+
+    // Explicit scope="scene" with el on commit is NOT downgraded to "element"
+    const explicitSceneRes = await app.inject({
+      method: "POST",
+      url: `/v1/projects/${b5Proj.id}/plan/edit/commit`,
+      payload: {
+        planVersion: b5Version,
+        items: [
+          {
+            id: "c-scene-el",
+            patch: { scope: "scene", scene: "b2", atSeconds: 7.23, el: "b2:w:2", set: { color: "#ff3b6b" } },
+            before: b2Snapshots,
+            after: b2Snapshots
+          }
+        ]
+      }
+    });
+    assert.equal(explicitSceneRes.statusCode, 200, explicitSceneRes.body);
+    assert.equal(explicitSceneRes.json().results[0].scope, "scene", "Explicit scope='scene' with el must stay 'scene'");
+  }
+
   console.log("plan-edit-no-chrome: ok");
 } finally {
   await app.close();
-  if (createdProjects.length > 0) {
-    await pool.query("delete from app.projects where id = any($1)", [createdProjects]);
-  }
+  await pool.query("delete from app.projects where owner_id = any($1) or id = any($2)", [
+    [TEST_OWNER, OTHER_OWNER],
+    createdProjects
+  ]);
   await pool.end();
 }

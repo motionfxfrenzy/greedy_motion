@@ -34,7 +34,8 @@ import {
   EditRefusedError,
   InvalidSnapshotsError,
   proposeHyperFramesCommentEdits,
-  StalePlanVersionError
+  StalePlanVersionError,
+  type CommitEditResult
 } from "./element-edits.ts";
 import { beatTimes } from "./timing.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
@@ -874,15 +875,17 @@ export async function registerPlanRoutes(app: FastifyInstance) {
 
   /** Storyboard edits: text, order, and accept/reject of suggestions. 422 with problems when an edit breaks the standards. */
   app.patch<{ Params: { id: string } }>("/v1/projects/:id/plan", async (request, reply) => {
-    const project = await getProject(request.params.id);
-    if (!project) return reply.code(404).send(notFound);
     const patch = (request.body ?? {}) as PlanPatch;
     // The drawing style is visual only (colours and fonts stay the brand's), so it changes without replanning.
     if (patch.look !== undefined && !isLook(patch.look)) return reply.code(400).send({ error: { code: "invalid_look", message: "Unknown look." } });
-    const result = applyPlanEdits(project, patch);
-    if ("problems" in result) return reply.code(422).send({ error: { code: "plan_problems", message: result.problems[0] }, problems: result.problems });
+    let planProblems: string[] | null = null;
     try {
-      const updated = await updateProjectPlan(project.id, (current) => {
+      const updated = await updateProjectPlan(request.params.id, (current) => {
+        const result = applyPlanEdits(current, patch);
+        if ("problems" in result) {
+          planProblems = result.problems;
+          throw new Error("PLAN_PROBLEMS");
+        }
         // A style change keeps the plan's words; the scenes belong to the style, so any the new style does not have are cleared.
         let brief = current.brief && isLook(patch.look) ? withLook(current.brief, patch.look) : current.brief;
         if (brief && patch.styleFamily !== undefined) {
@@ -899,12 +902,14 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         const valid = new Set(scenesFor(brief?.look, brief?.styleFamily).map((scene) => scene.id));
         const plan = { ...result.plan, beats: result.plan.beats.map((beat) => (beat.scene && !valid.has(beat.scene) ? { ...beat, scene: null } : beat)) };
         return {
-        brief,
-        beatPlan: plan,
-        script: scriptFromPlan(plan, current.script?.source ?? "generated")
-      };});
+          brief,
+          beatPlan: plan,
+          script: scriptFromPlan(plan, current.script?.source ?? "generated")
+        };
+      });
       return updated ?? reply.code(404).send(notFound);
     } catch (error) {
+      if (planProblems) return reply.code(422).send({ error: { code: "plan_problems", message: planProblems[0] }, problems: planProblems });
       if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
       throw error;
     }
@@ -1068,7 +1073,17 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           error: { code: error.code, message: error.message }
         });
       }
-      throw error;
+      const isTimeout =
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError" || /timed?\s*out|aborted/i.test(error.message));
+      const status = isTimeout ? 503 : 502;
+      const message =
+        error instanceof Error && !/\bkey\b|\bapi\b/i.test(error.message)
+          ? error.message
+          : "Could not translate the comment. Try again.";
+      return reply.code(status).send({
+        error: { code: "propose_failed", message }
+      });
     }
   });
 
@@ -1076,33 +1091,62 @@ export async function registerPlanRoutes(app: FastifyInstance) {
    * Step 2 of the two-step comment edit protocol:
    * Browser applies candidate patches locally via `hf-variables`, re-samples the active window,
    * and sends `{ planVersion, items: [{ id, patch, before, after }] }`.
-   * Server verifies `planVersion` (409 if stale), runs the pure `classifyEditPatch` / `checkSceneHintLayout`
-   * classifiers on the snapshots, saves element `overrides` or beat `hints` / re-fitted text,
-   * and returns `{ project, plan, planVersion, results }`.
+   * Server verifies `planVersion` (409 if stale) inside the store's serialised compare-and-set,
+   * runs the pure `classifyEditPatch` / `checkSceneHintLayout` classifiers on the snapshots,
+   * saves element `overrides` or beat `hints` / re-fitted text, and returns `{ project, plan, planVersion, results }`.
    */
   app.post<{
     Params: { id: string };
     Body: {
       planVersion?: unknown;
-      canvas?: unknown;
       items?: unknown;
     };
   }>("/v1/projects/:id/plan/edit/commit", async (request, reply) => {
-    const project = await getProject(request.params.id);
-    if (!project) return reply.code(404).send(notFound);
-    if (!project.beatPlan || !project.brief) {
-      return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
-    }
     const body = request.body ?? {};
-
-    let committed;
+    let committed: CommitEditResult | undefined;
+    let noPlan = false;
     try {
-      committed = commitHyperFramesCommentEdits(project, {
-        planVersion: body.planVersion,
-        canvas: body.canvas,
-        items: body.items
-      });
+      const saved = await updateProjectPlan(
+        request.params.id,
+        (current) => {
+          if (!current.beatPlan || !current.brief) {
+            noPlan = true;
+            throw new Error("NO_PLAN");
+          }
+          committed = commitHyperFramesCommentEdits(current, {
+            planVersion: body.planVersion,
+            items: body.items
+          });
+          return {
+            brief: current.brief,
+            beatPlan: committed.plan,
+            script: scriptFromPlan(committed.plan, current.script?.source ?? "generated")
+          };
+        },
+        {
+          expectedVersion: typeof body.planVersion === "string" ? body.planVersion : "",
+          versionOf: computePlanVersion,
+          onVersionMismatch: (currentVersion) => new StalePlanVersionError(currentVersion)
+        }
+      );
+      if (!saved || !committed) return reply.code(404).send(notFound);
+
+      return {
+        project: saved,
+        plan: saved.beatPlan,
+        planVersion: computePlanVersion(saved),
+        results: committed.results,
+        ...(committed.results.length === 1
+          ? { patch: committed.results[0]!.patch, decision: committed.results[0]!.decision }
+          : {})
+      };
     } catch (error) {
+      if (noPlan) {
+        return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
+      }
+      if (error instanceof ProjectInvalid) {
+        return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
+      }
       if (error instanceof StalePlanVersionError) {
         return reply.code(409).send({
           error: { code: error.code, message: error.message },
@@ -1124,48 +1168,76 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       }
       throw error;
     }
-
-    const saved = await updateProjectPlan(project.id, (current) => ({
-      brief: current.brief,
-      beatPlan: committed.plan,
-      script: scriptFromPlan(committed.plan, current.script?.source ?? "generated")
-    }));
-    if (!saved) return reply.code(404).send(notFound);
-
-    return {
-      project: saved,
-      plan: saved.beatPlan,
-      planVersion: computePlanVersion(saved),
-      results: committed.results,
-      ...(committed.results.length === 1
-        ? { patch: committed.results[0]!.patch, decision: committed.results[0]!.decision }
-        : {})
-    };
   });
 
   /**
-   * Undo an element-level override (`DELETE /v1/projects/:id/plan/overrides/:el` or `?beat=b1` to clear a beat's hint/overrides).
+   * Undo an element-level override (`DELETE /v1/projects/:id/plan/overrides/:el` or `?hint=1` to clear a beat's hint/overrides).
    */
-  app.delete<{ Params: { id: string; el: string }; Querystring: { hint?: string } }>("/v1/projects/:id/plan/overrides/:el", async (request, reply) => {
-    const project = await getProject(request.params.id);
-    if (!project) return reply.code(404).send(notFound);
-    if (!project.beatPlan) return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
-    const elId = decodeURIComponent(request.params.el);
-    const plan = structuredClone(project.beatPlan);
-    if (plan.overrides && elId in plan.overrides) {
-      delete plan.overrides[elId];
-      if (Object.keys(plan.overrides).length === 0) delete plan.overrides;
+  app.delete<{
+    Params: { id: string; el: string };
+    Querystring: { hint?: string; planVersion?: string };
+  }>("/v1/projects/:id/plan/overrides/:el", async (request, reply) => {
+    let elId: string;
+    try {
+      elId = decodeURIComponent(request.params.el);
+    } catch {
+      return reply.code(400).send({ error: { code: "invalid_element_id", message: "Invalid element id." } });
     }
-    if (request.query.hint === "1") {
-      const beatId = elId.split(":")[0];
-      const beat = plan.beats.find((b) => b.id === beatId || b.id === elId);
-      if (beat) delete beat.hints;
+    if (!elId || !/^[a-zA-Z0-9_:-]{1,64}$/.test(elId)) {
+      return reply.code(400).send({ error: { code: "invalid_element_id", message: "Invalid element id." } });
     }
-    const saved = await updateProjectPlan(project.id, (current) => ({
-      brief: current.brief,
-      beatPlan: plan,
-      script: scriptFromPlan(plan, current.script?.source ?? "generated")
-    }));
-    return saved ?? reply.code(404).send(notFound);
+    const expectedVersion =
+      typeof request.query.planVersion === "string" && request.query.planVersion.trim()
+        ? request.query.planVersion.trim()
+        : undefined;
+    let noPlan = false;
+    try {
+      const saved = await updateProjectPlan(
+        request.params.id,
+        (current) => {
+          if (!current.beatPlan) {
+            noPlan = true;
+            throw new Error("NO_PLAN");
+          }
+          const plan = structuredClone(current.beatPlan);
+          if (plan.overrides && Object.prototype.hasOwnProperty.call(plan.overrides, elId)) {
+            delete plan.overrides[elId];
+            if (Object.keys(plan.overrides).length === 0) delete plan.overrides;
+          }
+          if (request.query.hint === "1") {
+            const beatId = elId.split(":")[0];
+            const beat = plan.beats.find((b) => b.id === beatId || b.id === elId);
+            if (beat) delete beat.hints;
+          }
+          return {
+            brief: current.brief,
+            beatPlan: plan,
+            script: scriptFromPlan(plan, current.script?.source ?? "generated")
+          };
+        },
+        expectedVersion !== undefined
+          ? {
+              expectedVersion,
+              versionOf: computePlanVersion,
+              onVersionMismatch: (currentVersion) => new StalePlanVersionError(currentVersion)
+            }
+          : undefined
+      );
+      return saved ?? reply.code(404).send(notFound);
+    } catch (error) {
+      if (noPlan) {
+        return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
+      }
+      if (error instanceof ProjectInvalid) {
+        return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
+      }
+      if (error instanceof StalePlanVersionError) {
+        return reply.code(409).send({
+          error: { code: error.code, message: error.message },
+          planVersion: error.currentPlanVersion
+        });
+      }
+      throw error;
+    }
   });
 }

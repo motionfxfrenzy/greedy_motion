@@ -160,23 +160,60 @@ function initialAudioMode(project: VideoProject): AudioMode {
 async function reloadPlayerSrcdocAndWait(
   player: HyperframesPlayer,
   html: string,
+  loadToken: string,
+  signal: AbortSignal,
   timeoutMs = 8_000
 ): Promise<{ elementsAt: (t: number) => ActiveElementInfo[] }> {
+  if (signal.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
   const prevWin = player.iframeElement?.contentWindow as unknown as { __bp?: unknown } | null;
   if (prevWin && prevWin.__bp) {
     delete prevWin.__bp;
   }
-  player.setAttribute("srcdoc", html);
+  const tokenTag = `<meta name="hf-load-token" content="${loadToken}">`;
+  const stampedHtml = html.includes("</head>")
+    ? html.replace("</head>", () => `${tokenTag}</head>`)
+    : `${tokenTag}${html}`;
+  player.setAttribute("srcdoc", stampedHtml);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 25));
+    if (signal.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    await new Promise<void>((resolveWait, rejectWait) => {
+      const onAbort = () => {
+        window.clearTimeout(timer);
+        rejectWait(new DOMException("Aborted", "AbortError"));
+      };
+      const timer = window.setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolveWait();
+      }, 25);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
     const win = player.iframeElement?.contentWindow as unknown as {
       __bp?: { elementsAt?: (t: number) => ActiveElementInfo[] };
       document?: Document;
+      requestAnimationFrame?: (cb: FrameRequestCallback) => number;
     } | null;
-    if (win && typeof win.__bp?.elementsAt === "function" && win.document?.readyState === "complete") {
-      if (win.document.fonts?.ready) {
-        await win.document.fonts.ready.catch(() => undefined);
+    const doc = win?.document;
+    const docToken = doc?.querySelector('meta[name="hf-load-token"]')?.getAttribute("content");
+    if (
+      win &&
+      doc &&
+      doc.readyState === "complete" &&
+      docToken === loadToken &&
+      typeof win.__bp?.elementsAt === "function"
+    ) {
+      if (doc.fonts?.ready) {
+        await doc.fonts.ready.catch(() => undefined);
+      }
+      if (typeof win.requestAnimationFrame === "function") {
+        await new Promise<void>((r) => win.requestAnimationFrame!(() => r()));
+      }
+      if (signal.aborted) {
+        throw new DOMException("Aborted", "AbortError");
       }
       return { elementsAt: win.__bp.elementsAt };
     }
@@ -224,6 +261,24 @@ export function BrowserAnimationStep({
   const playerRef = useRef<HyperframesPlayer | null>(null);
   const autoTriggered = useRef(false);
   const currentTimeRef = useRef(0);
+  const applyingRef = useRef(false);
+  const reloadAbortRef = useRef<AbortController | null>(null);
+  const reloadSeqRef = useRef(0);
+  const undoingIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    return () => {
+      reloadAbortRef.current?.abort();
+    };
+  }, []);
+
+  const nextReloadJob = () => {
+    reloadAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    reloadAbortRef.current = ctrl;
+    reloadSeqRef.current += 1;
+    return { token: `hf-load-${reloadSeqRef.current}`, signal: ctrl.signal };
+  };
 
   const [playerLoaded, setPlayerLoaded] = useState(false);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
@@ -348,7 +403,7 @@ export function BrowserAnimationStep({
     const onReady = (ev: Event) => {
       const d = (ev as CustomEvent<{ duration: number }>).detail?.duration;
       if (typeof d === "number" && d > 0) setDuration(d);
-      if (currentTimeRef.current > 0) {
+      if (currentTimeRef.current >= 0) {
         player.currentTime = currentTimeRef.current;
       }
     };
@@ -461,11 +516,13 @@ export function BrowserAnimationStep({
 
   const applyComments = async () => {
     const pendingComments = sortedComments.filter((c) => !c.appliedLabel);
-    if (!pendingComments.length || animating || applyingComments) return;
+    if (!pendingComments.length || animating || applyingComments || applyingRef.current) return;
+    applyingRef.current = true;
     setApplyingComments(true);
     setActionError(null);
     const player = playerRef.current;
     const baseHtml = previewHtml ?? "";
+    let committedAny = false;
 
     try {
       const iframeWin = player?.iframeElement?.contentWindow as unknown as {
@@ -559,7 +616,9 @@ export function BrowserAnimationStep({
 
       const refusedById = new Map<string, string>();
       const activeCandidates: { id: string; patch: EditPatch; fallbackRewrite?: boolean }[] = [];
+      const seenCandidateIds = new Set<string>();
       for (const cand of proposeRes.candidates) {
+        seenCandidateIds.add(cand.id);
         if (cand.refused) {
           refusedById.set(cand.id, cand.refused);
         } else if (cand.patch) {
@@ -568,6 +627,13 @@ export function BrowserAnimationStep({
             patch: cand.patch,
             ...(cand.fallbackRewrite ? { fallbackRewrite: true } : {})
           });
+        } else {
+          refusedById.set(cand.id, "Could not propose an edit for this comment; nothing was saved.");
+        }
+      }
+      for (const c of pendingComments) {
+        if (!seenCandidateIds.has(c.id)) {
+          refusedById.set(c.id, "No edit candidate was returned for this comment; nothing was saved.");
         }
       }
 
@@ -584,8 +650,7 @@ export function BrowserAnimationStep({
         return;
       }
 
-      // 3. Apply each candidate locally via hf-variables, reload srcdoc, and re-sample the window
-      let workingHtml = baseHtml;
+      // 3. Apply each candidate in isolation against baseHtml via hf-variables, reload srcdoc, and re-sample the window
       const commitItems: {
         id: string;
         patch: EditPatch;
@@ -608,22 +673,26 @@ export function BrowserAnimationStep({
           continue;
         }
 
-        workingHtml = applyCandidatePatchToPreviewHtml(workingHtml, [cand.patch], {
+        if (!player || !baseHtml) {
+          throw new Error("Preview player is not ready to measure the edit.");
+        }
+        const candidateHtml = applyCandidatePatchToPreviewHtml(baseHtml, [cand.patch], {
           activeElements: mergedBeforeByCommentId.get(cand.id) ?? []
         });
-        let afterSnaps = beforeSnaps;
-        if (player && workingHtml) {
-          const reloaded = await reloadPlayerSrcdocAndWait(player, workingHtml);
-          const sampleTimes = sampleTimesByCommentId.get(cand.id) ?? [cand.patch.atSeconds];
-          afterSnaps = sampleTimes.map((t) => ({
-            time: Math.round(t * 1000) / 1000,
-            elements: reloaded.elementsAt(t)
-          }));
-          try {
-            reloaded.elementsAt(savedTime);
-          } catch {
-            // ignore
-          }
+        if (!candidateHtml) {
+          throw new Error("Could not prepare preview composition for measurement.");
+        }
+        const { token, signal } = nextReloadJob();
+        const reloaded = await reloadPlayerSrcdocAndWait(player, candidateHtml, token, signal);
+        const sampleTimes = sampleTimesByCommentId.get(cand.id) ?? [cand.patch.atSeconds];
+        const afterSnaps: FrameElementsSnapshot[] = sampleTimes.map((t) => ({
+          time: Math.round(t * 1000) / 1000,
+          elements: reloaded.elementsAt(t)
+        }));
+        try {
+          reloaded.elementsAt(savedTime);
+        } catch {
+          // ignore
         }
         commitItems.push({
           id: cand.id,
@@ -638,24 +707,35 @@ export function BrowserAnimationStep({
       try {
         commitRes = await commitPlanCommentEdits(project.id, {
           planVersion: proposeRes.planVersion,
-          canvas: canvasSize,
           items: commitItems
         });
+        committedAny = true;
       } catch (commitErr) {
         // Revert local preview srcdoc on refusal or commit error
-        if (player && baseHtml && workingHtml !== baseHtml) {
+        if (player && baseHtml) {
           player.setAttribute("srcdoc", baseHtml);
+          player.currentTime = savedTime;
         }
         if (commitErr instanceof PlanEditRefusedError) {
-          const targetIds = commitErr.commentId
-            ? new Set([commitErr.commentId])
-            : new Set(commitItems.map((i) => i.id));
+          const batchIds = new Set(commitItems.map((i) => i.id));
+          const hasSpecificId = Boolean(commitErr.commentId && batchIds.has(commitErr.commentId));
           setTimedComments((curr) =>
-            curr.map((item) =>
-              targetIds.has(item.id)
-                ? { ...item, refusedReason: commitErr.message, appliedLabel: undefined }
-                : item
-            )
+            curr.map((item) => {
+              if (!batchIds.has(item.id)) return item;
+              if (!hasSpecificId || item.id === commitErr.commentId) {
+                const reason =
+                  hasSpecificId && batchIds.size > 1
+                    ? `${commitErr.message} (Batch commit is all-or-nothing; no comments were saved.)`
+                    : commitErr.message;
+                return { ...item, refusedReason: reason, appliedLabel: undefined };
+              }
+              return {
+                ...item,
+                refusedReason:
+                  "Not saved — batch commit is all-or-nothing on the server because another comment in this batch was refused.",
+                appliedLabel: undefined
+              };
+            })
           );
           return;
         }
@@ -663,6 +743,7 @@ export function BrowserAnimationStep({
       }
 
       const resultById = new Map(commitRes.results.map((r) => [r.id, r]));
+      const committedBatchIds = new Set(commitItems.map((i) => i.id));
       const sceneScopedIndices = new Set<number>();
       const sceneScopedComments: WorkspaceComment[] = [];
 
@@ -675,57 +756,112 @@ export function BrowserAnimationStep({
         }
       }
 
+      // Mark element-scoped results immediately (they are already saved on the server by commit),
+      // and give a visible reason to any comment that was sent in commitItems but missing from results.
+      setTimedComments((curr) =>
+        curr.map((item) => {
+          const savedResult = resultById.get(item.id);
+          if (!savedResult) {
+            if (committedBatchIds.has(item.id)) {
+              return {
+                ...item,
+                refusedReason: "Server did not return a commit result for this comment.",
+                appliedLabel: undefined
+              };
+            }
+            return item;
+          }
+          if (savedResult.scope === "element") {
+            return {
+              ...item,
+              appliedLabel: savedResult.uiLabel,
+              appliedScope: "element",
+              ...(savedResult.el ? { appliedEl: savedResult.el } : {}),
+              refusedReason: undefined
+            };
+          }
+          return item;
+        })
+      );
+
       if (sceneScopedIndices.size > 0) {
         setUpdatingScenes([...sceneScopedIndices]);
       }
 
-      setTimedComments((curr) =>
-        curr.map((item) => {
-          const savedResult = resultById.get(item.id);
-          if (!savedResult) return item;
-          return {
-            ...item,
-            appliedLabel: savedResult.uiLabel,
-            appliedScope: savedResult.scope,
-            ...(savedResult.el ? { appliedEl: savedResult.el } : {}),
-            refusedReason: undefined
-          };
-        })
-      );
-
       if (sceneScopedComments.length > 0) {
         const payload = groupCommentsByScene(sceneScopedComments, segments);
-        await onApplySceneComments(payload);
+        try {
+          await onApplySceneComments(payload);
+          const sceneIds = new Set(sceneScopedComments.map((c) => c.id));
+          setTimedComments((curr) =>
+            curr.map((item) => {
+              if (!sceneIds.has(item.id)) return item;
+              const savedResult = resultById.get(item.id);
+              if (!savedResult) return item;
+              return {
+                ...item,
+                appliedLabel: savedResult.uiLabel,
+                appliedScope: "scene",
+                ...(savedResult.el ? { appliedEl: savedResult.el } : {}),
+                refusedReason: undefined
+              };
+            })
+          );
+        } catch (sceneErr) {
+          setActionError(sceneErr instanceof Error ? sceneErr.message : "Could not apply scene comments.");
+          setLocalVersion((v) => v + 1);
+          onRetryAnimate();
+          return;
+        }
       }
 
       setLocalVersion((v) => v + 1);
       onRetryAnimate();
     } catch (err) {
-      if (player && baseHtml) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+      if (!committedAny && player && baseHtml) {
         player.setAttribute("srcdoc", baseHtml);
+      } else if (committedAny) {
+        setLocalVersion((v) => v + 1);
+        onRetryAnimate();
       }
       setActionError(err instanceof Error ? err.message : "Could not apply comments.");
     } finally {
+      applyingRef.current = false;
       setApplyingComments(false);
       setUpdatingScenes([]);
     }
   };
 
-  const removeOrUndoComment = (id: string) => {
+  const removeOrUndoComment = async (id: string) => {
+    if (applyingRef.current || applyingComments || undoingIdsRef.current.has(id)) return;
     const target = timedComments.find((item) => item.id === id);
-    setTimedComments((curr) => curr.filter((item) => item.id !== id));
-    if (target?.appliedLabel && target.appliedEl) {
+    if (!target) return;
+    if (target.appliedLabel && target.appliedEl) {
+      undoingIdsRef.current.add(id);
       setActionError(null);
-      void undoPlanElementOverride(project.id, target.appliedEl, {
-        clearHint: target.appliedScope === "scene"
-      })
-        .then(() => {
-          setLocalVersion((v) => v + 1);
-        })
-        .catch((err) => {
-          setActionError(err instanceof Error ? err.message : "Could not undo the element edit.");
+      const savedPlayhead = currentTimeRef.current;
+      try {
+        await undoPlanElementOverride(project.id, target.appliedEl, {
+          clearHint: target.appliedScope === "scene"
         });
+        setTimedComments((curr) => curr.filter((item) => item.id !== id));
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "Could not undo the element edit.");
+      } finally {
+        undoingIdsRef.current.delete(id);
+        currentTimeRef.current = savedPlayhead;
+        setCurrentTime(savedPlayhead);
+        if (playerRef.current) {
+          playerRef.current.currentTime = savedPlayhead;
+        }
+        setLocalVersion((v) => v + 1);
+      }
+      return;
     }
+    setTimedComments((curr) => curr.filter((item) => item.id !== id));
   };
 
   const availableAudio = useMemo(

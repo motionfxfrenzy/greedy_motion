@@ -89,8 +89,8 @@ export async function buildStandaloneCompositionHtml(
 
   const bootstrap = [
     `<script>window.__hfVariables = ${scriptJson(variables)};</script>`,
-    `<script src="http://127.0.0.1:18999/runtime.js"></script>`,
-    `<script src="http://127.0.0.1:18999/gsap.js"></script>`
+    `<script src="/runtime.js"></script>`,
+    `<script src="/gsap.js"></script>`
   ].join("\n  ");
   const merge = `<script>(function () { try { var block = document.getElementById("hf-variables"); var edits = JSON.parse(block && block.textContent || "{}"); if (edits && typeof edits === "object" && !Array.isArray(edits)) window.__hfVariables = Object.assign({}, window.__hfVariables || {}, edits); } catch (error) {} })();</script>`;
 
@@ -207,28 +207,23 @@ export function createModelCommentTranslator(options: ModelTranslatorOptions = {
         "Return ONLY the JSON object matching the schema."
       ].join("\n");
 
-      let payload;
-      try {
-        payload = await anthropicMessage(
-          {
-            model: options.model ?? config.anthropicModel,
-            max_tokens: 450,
-            system: COMMENT_TO_PATCH_SYSTEM_PROMPT,
-            messages: [{ role: "user", content: userPrompt }]
-          },
-          {
-            ...(options.request ? { request: options.request } : {}),
-            ...(options.log ? { log: options.log } : {}),
-            ...(options.sleep ? { sleep: options.sleep } : {}),
-            ...(options.signal ? { signal: options.signal } : {}),
-            timeoutMs: options.timeoutMs ?? 30_000,
-            errorPrefix: "Comment patch translation failed",
-            includeErrorDetail: true
-          }
-        );
-      } catch {
-        return fallbackScenePatch;
-      }
+      const payload = await anthropicMessage(
+        {
+          model: options.model ?? config.anthropicModel,
+          max_tokens: 450,
+          system: COMMENT_TO_PATCH_SYSTEM_PROMPT,
+          messages: [{ role: "user", content: userPrompt }]
+        },
+        {
+          ...(options.request ? { request: options.request } : {}),
+          ...(options.log ? { log: options.log } : {}),
+          ...(options.sleep ? { sleep: options.sleep } : {}),
+          ...(options.signal ? { signal: options.signal } : {}),
+          timeoutMs: options.timeoutMs ?? 30_000,
+          errorPrefix: "Comment patch translation failed",
+          includeErrorDetail: true
+        }
+      );
 
       const text = responseText(payload).trim();
       const firstBrace = text.indexOf("{");
@@ -302,6 +297,11 @@ export function createModelCommentTranslator(options: ModelTranslatorOptions = {
       };
     }
   };
+}
+
+let defaultModelTranslatorOptions: ModelTranslatorOptions | null = null;
+export function setDefaultModelTranslatorOptions(options: ModelTranslatorOptions | null): void {
+  defaultModelTranslatorOptions = options;
 }
 
 export const modelCommentTranslator: CommentPatchTranslator = createModelCommentTranslator();
@@ -388,9 +388,10 @@ export async function translateCommentWithRulesThenModel(
   }
 
   // Step 2: Deterministic rules found no patch -> call model translator if configured or stubbed
+  const effectiveModelOptions = options?.modelOptions ?? defaultModelTranslatorOptions ?? undefined;
   const hasModelStubOrKey =
     Boolean(options?.modelTranslator) ||
-    Boolean(options?.modelOptions?.request) ||
+    Boolean(effectiveModelOptions?.request) ||
     (config.planner !== "deterministic" && Boolean(config.anthropicApiKey));
 
   if (!hasModelStubOrKey) {
@@ -403,9 +404,19 @@ export async function translateCommentWithRulesThenModel(
 
   const modelTrans =
     options?.modelTranslator ??
-    (options?.modelOptions ? createModelCommentTranslator(options.modelOptions) : modelCommentTranslator);
+    (effectiveModelOptions ? createModelCommentTranslator(effectiveModelOptions) : modelCommentTranslator);
 
   const modelPatch = await modelTrans.translate(input);
+  const rawModelFactor = modelPatch?.set?.factor ?? modelPatch?.set?.scale;
+  if (typeof rawModelFactor === "number" && Number.isFinite(rawModelFactor)) {
+    const hintCheck = validateBeatLayoutHint({
+      emphasize: modelPatch.set?.emphasize ?? modelPatch.el ?? "kw",
+      factor: rawModelFactor
+    });
+    if ("error" in hintCheck) {
+      throw new EditRefusedError(hintCheck.error);
+    }
+  }
   const validatedModel = validateEditPatch(modelPatch);
   if ("error" in validatedModel) {
     return {
@@ -511,12 +522,24 @@ export async function proposeHyperFramesCommentEdits(
     if (!id || id.length > 128) {
       throw new InvalidSnapshotsError(`Comment at index ${i} must have a valid id string.`);
     }
-    const atSeconds = typeof c.at === "number" && Number.isFinite(c.at) && c.at >= 0 ? c.at : NaN;
+    const atSeconds =
+      typeof c.at === "number" && Number.isFinite(c.at) && c.at >= 0 && c.at <= 3600 ? c.at : NaN;
     if (Number.isNaN(atSeconds)) {
-      throw new InvalidSnapshotsError(`Comment "${id}" must have a finite non-negative "at" timestamp.`);
+      throw new InvalidSnapshotsError(`Comment "${id}" must have a finite "at" timestamp between 0 and 3600.`);
     }
-    const sceneRef =
-      typeof c.scene === "string" || typeof c.scene === "number" ? (c.scene as string | number) : undefined;
+    let sceneRef: string | number | undefined;
+    if (c.scene !== undefined && c.scene !== null) {
+      if (typeof c.scene === "string") {
+        if (!/^[a-zA-Z0-9_-]{1,64}$/.test(c.scene)) {
+          throw new InvalidSnapshotsError(`Comment "${id}" has an invalid scene id.`);
+        }
+        sceneRef = c.scene;
+      } else if (typeof c.scene === "number" && Number.isInteger(c.scene) && c.scene >= 0 && c.scene <= 512) {
+        sceneRef = c.scene;
+      } else {
+        throw new InvalidSnapshotsError(`Comment "${id}" has an invalid scene reference.`);
+      }
+    }
 
     const rawSnaps = snapshotsMap[id];
     const checkedSnaps = validateFrameElementsSnapshots(rawSnaps, validBeatIds);
@@ -637,7 +660,6 @@ export function commitHyperFramesCommentEdits(
   project: VideoProject,
   input: {
     planVersion: unknown;
-    canvas?: unknown;
     items: unknown;
   }
 ): CommitEditResult {
@@ -715,6 +737,11 @@ export function commitHyperFramesCommentEdits(
 
     const beforeSnaps: FrameElementsSnapshot[] = checkedBefore.snapshots;
     const afterSnaps: FrameElementsSnapshot[] = checkedAfter.snapshots;
+    if (beforeSnaps.length !== afterSnaps.length) {
+      throw new InvalidSnapshotsError(
+        `Item "${id}" has unequal before (${beforeSnaps.length}) and after (${afterSnaps.length}) snapshot counts.`
+      );
+    }
     const elementsBefore = mergeWindowElements(beforeSnaps);
     const elementsAfter = mergeWindowElements(afterSnaps);
 

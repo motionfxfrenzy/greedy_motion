@@ -94,6 +94,10 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
     const commitCalls = [];
     let currentPlanVersion = "plan-v1";
     let forceNextProposeServerError = false;
+    let forceNextPropose409 = false;
+    let forceNextCommit409 = false;
+    let forceNextDeleteError = false;
+    let dropFirstCandidateNextPropose = false;
     const validBeatIds = new Set(["b1", "b2", "b3", "b4", "b5"]);
 
     await context.route("**/*", async (route) => {
@@ -136,6 +140,16 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
       if (/\/projects\/[^/]+\/plan\/edit\/propose$/.test(url.pathname) && req.method() === "POST") {
         const body = JSON.parse(req.postData() ?? "{}");
         proposeCalls.push(body);
+
+        if (forceNextPropose409) {
+          forceNextPropose409 = false;
+          await route.fulfill({
+            status: 409,
+            contentType: "application/json",
+            body: JSON.stringify({ error: { code: "stale_plan_version", message: "The storyboard changed." } })
+          });
+          return;
+        }
 
         if (forceNextProposeServerError) {
           forceNextProposeServerError = false;
@@ -186,10 +200,12 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
           }
         }
 
+        const returnedCandidates = dropFirstCandidateNextPropose ? candidates.slice(1) : candidates;
+        dropFirstCandidateNextPropose = false;
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ planVersion: currentPlanVersion, candidates })
+          body: JSON.stringify({ planVersion: currentPlanVersion, candidates: returnedCandidates })
         });
         return;
       }
@@ -198,7 +214,8 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
         const body = JSON.parse(req.postData() ?? "{}");
         commitCalls.push(body);
 
-        if (body.planVersion !== currentPlanVersion) {
+        if (forceNextCommit409 || body.planVersion !== currentPlanVersion) {
+          forceNextCommit409 = false;
           await route.fulfill({
             status: 409,
             contentType: "application/json",
@@ -301,6 +318,15 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
       }
 
       if (/\/projects\/[^/]+\/plan\/overrides\/[^/]+$/.test(url.pathname) && req.method() === "DELETE") {
+        if (forceNextDeleteError) {
+          forceNextDeleteError = false;
+          await route.fulfill({
+            status: 500,
+            contentType: "application/json",
+            body: JSON.stringify({ error: { code: "server_error", message: "Database busy while undoing override." } })
+          });
+          return;
+        }
         planPatches.push({ undoOverride: decodeURIComponent(url.pathname.split("/").pop() ?? "") });
         await route.fulfill({
           status: 200,
@@ -400,14 +426,18 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
     const clockText = await page.locator(".aw-clock b").textContent();
     assert.equal(clockText?.trim(), "0:10");
 
-    // 3. Add a timed comment and remove it
+    // 3. Add a timed comment, verify persistent role="status" container and accessible button name, and remove it
     const textarea = page.locator(".aw-compose textarea");
     const addBtn = page.locator(".aw-compose button.primary-button");
     await textarea.fill("Temporary note on scene 3");
     await addBtn.click();
     assert.equal(await page.locator(".aw-comments li:not(.empty)").count(), 1);
+    assert.equal(await page.locator('.aw-comments li:not(.empty) small[role="status"]').count(), 1);
     assert.equal(await page.locator(".aw-pin").count(), 1);
-    await page.locator('button.aw-x[aria-label="Remove comment"]').click();
+    const removeBtn = page.locator("button.aw-x").first();
+    const removeAriaLabel = await removeBtn.getAttribute("aria-label");
+    assert.match(removeAriaLabel ?? "", /^Remove comment \(0:10: Temporary note on scene 3\)$/);
+    await removeBtn.click();
     assert.equal(await page.locator(".aw-comments li:not(.empty)").count(), 0);
     assert.equal(await page.locator(".aw-pin").count(), 0);
 
@@ -441,8 +471,17 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
       commentLabels.map((t) => t.trim()),
       ["Scene 1 · re-laid out the scene", "Scene 3 · re-laid out the scene"]
     );
+    // Scene/fallback comments without appliedEl must say "Remove comment", NOT claim to undo
+    const sceneRemoveAria = await page.locator('.aw-comments li:has-text("Make the launch title bolder") button.aw-x').getAttribute("aria-label");
+    assert.match(sceneRemoveAria ?? "", /^Remove comment/);
+    const sceneRemoveTitle = await page.locator('.aw-comments li:has-text("Make the launch title bolder") button.aw-x').getAttribute("title");
+    assert.equal(sceneRemoveTitle, "Remove comment");
 
     // 5. Element edit saved and labelled via real propose -> local srcdoc apply + measure -> commit
+    await page.waitForFunction(() => {
+      const player = document.querySelector("hyperframes-player");
+      return Boolean(player?.ready && player?.iframeElement?.contentWindow?.__bp?.elementsAt);
+    });
     await textarea.fill('Make "minutes" pink');
     await addBtn.click();
     await applyBtn.click();
@@ -457,39 +496,144 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
     assert.equal(commitCalls[1].items[0].patch.set.color, "#ff3b6b");
     assert.ok(commitCalls[1].items[0].before.length >= 2, "browser sampled before-window snapshots");
     assert.ok(commitCalls[1].items[0].after.length >= 2, "browser sampled after-window snapshots after local srcdoc apply");
+    const undoAria = await page.locator('.aw-comments li:has-text("changed colour") button.aw-x').getAttribute("aria-label");
+    assert.match(undoAria ?? "", /^Undo comment edit \(0:02: Make "minutes" pink\)$/);
 
-    // 6. Undo element override -> calls DELETE /plan/overrides/b1:w:2 and reloads preview
+    // 6a. Undo failure keeps the comment, shows the error, and reloads preview
+    forceNextDeleteError = true;
     const undoBtn = page.locator('.aw-comments li:has-text("changed colour") button.aw-x');
+    const fetchesBeforeFailedUndo = previewFetches.length;
     await undoBtn.click();
-    await page.waitForFunction((n) => n > 0, planPatches.length);
-    await page.waitForTimeout(100);
-    assert.deepEqual(planPatches[planPatches.length - 1], { undoOverride: "b1:w:2" });
+    await page.waitForSelector("p.aw-error[role='alert']");
+    assert.match((await page.locator("p.aw-error[role='alert']").textContent()) ?? "", /Database busy while undoing override/i);
+    assert.equal(await page.locator('.aw-comments li:has-text("changed colour")').count(), 1, "failed undo must keep the comment");
+    assert.ok(previewFetches.length > fetchesBeforeFailedUndo, "failed undo still reloads preview");
 
-    // 7. Refused edit shows the plain refusal reason on that comment, NOT an applied label, and stays unapplied
+    // 6b. Undo element override succeeds -> calls DELETE /plan/overrides/b1:w:2, removes comment only after success, and reloads preview
     await page.waitForFunction(() => {
       const player = document.querySelector("hyperframes-player");
       return Boolean(player?.ready && player?.iframeElement?.contentWindow?.__bp?.elementsAt);
     });
+    await undoBtn.click();
+    await page.waitForFunction((n) => n > 0, planPatches.length);
+    await page.waitForTimeout(100);
+    assert.deepEqual(planPatches[planPatches.length - 1], { undoOverride: "b1:w:2" });
+    assert.equal(await page.locator('.aw-comments li:has-text("changed colour")').count(), 0, "successful undo removes the comment");
+
+    // 7. 409 on propose or commit shows "The plan changed; apply again" and leaves comments pending
+    await page.waitForFunction(() => {
+      const player = document.querySelector("hyperframes-player");
+      return Boolean(player?.ready && player?.iframeElement?.contentWindow?.__bp?.elementsAt);
+    });
+    forceNextCommit409 = true;
+    await textarea.fill('Make "minutes" orange');
+    await addBtn.click();
+    await applyBtn.click();
+    await page.waitForFunction(() => {
+      const el = document.querySelector("p.aw-error[role='alert']");
+      return Boolean(el && (el.textContent || "").includes("The plan changed; apply again"));
+    });
+    const staleCommentText = await page.locator('.aw-comments li:has-text("Make \\"minutes\\" orange")').textContent();
+    assert.ok(!staleCommentText?.includes("changed colour"), "409 commit must leave comment pending without appliedLabel");
+
+    // Also verify 409 on propose
+    forceNextPropose409 = true;
+    await applyBtn.click();
+    await page.waitForFunction(() => {
+      const el = document.querySelector("p.aw-error[role='alert']");
+      return Boolean(el && (el.textContent || "").includes("The plan changed; apply again"));
+    });
+    await page.locator('.aw-comments li:has-text("Make \\"minutes\\" orange") button.aw-x').click();
+
+    // 8. Partial 422 in a multi-comment batch: refused comment gets reason + all-or-nothing note, and other comment in batch says it was not saved
+    await page.waitForFunction(() => {
+      const player = document.querySelector("hyperframes-player");
+      return Boolean(player?.ready && player?.iframeElement?.contentWindow?.__bp?.elementsAt);
+    });
+    await textarea.fill('Make "minutes" orange');
+    await addBtn.click();
     await textarea.fill('Push "minutes" right 900px off screen');
     await addBtn.click();
     await applyBtn.click();
-    await page.waitForSelector(".aw-comment-refused");
-    const refusedText = await page.locator(".aw-comment-refused").textContent();
-    assert.match(refusedText ?? "", /title-safe|safe/i, "refused comment displays plain refusal reason");
-    const refusedItemText = await page.locator('.aw-comments li:has-text("Push \\"minutes\\" right 900px")').textContent();
-    assert.ok(!refusedItemText?.includes("nudged position"), "refused comment must not be labelled 'nudged position'");
-    assert.ok(!refusedItemText?.includes("re-laid out the scene"), "refused comment must not be labelled 're-laid out the scene'");
-    // Remove the refused comment before testing server error
+    await page.waitForFunction(() => document.querySelectorAll(".aw-comment-refused").length >= 2);
+    const refusedBatchItem = await page.locator('.aw-comments li:has-text("Push \\"minutes\\" right 900px") small[role="status"]').textContent();
+    const siblingBatchItem = await page.locator('.aw-comments li:has-text("Make \\"minutes\\" orange") small[role="status"]').textContent();
+    assert.match(refusedBatchItem ?? "", /title-safe|safe/i, "offending comment shows safe-area refusal");
+    assert.match(refusedBatchItem ?? "", /all-or-nothing/i, "offending comment states batch commit is all-or-nothing");
+    assert.match(siblingBatchItem ?? "", /Not saved.*all-or-nothing/i, "other comment in batch states it was not saved because commit is all-or-nothing");
     await page.locator('.aw-comments li:has-text("Push \\"minutes\\" right 900px") button.aw-x').click();
+    await page.locator('.aw-comments li:has-text("Make \\"minutes\\" orange") button.aw-x').click();
 
-    // 8. Server error shows an error alert, NOT an applied label, and leaves the comment unapplied
+    // 8b. Comment missing from propose candidates gets a visible reason
+    dropFirstCandidateNextPropose = true;
+    await textarea.fill('Make "minutes" yellow');
+    await addBtn.click();
+    await applyBtn.click();
+    await page.waitForSelector('.aw-comments li:has-text("Make \\"minutes\\" yellow") .aw-comment-refused');
+    const missingCandReason = await page.locator('.aw-comments li:has-text("Make \\"minutes\\" yellow") .aw-comment-refused').textContent();
+    assert.match(missingCandReason ?? "", /No edit candidate was returned/i);
+    await page.locator('.aw-comments li:has-text("Make \\"minutes\\" yellow") button.aw-x').click();
+
+    // 9. Fallback failure after a committed element item: keeps element item's saved label, shows error for failed part, and reloads preview
+    await page.waitForFunction(() => {
+      const player = document.querySelector("hyperframes-player");
+      return Boolean(player?.ready && player?.iframeElement?.contentWindow?.__bp?.elementsAt);
+    });
+    await textarea.fill('Make "minutes" green');
+    await addBtn.click();
+    await textarea.fill("Add a customer testimonial quote");
+    await addBtn.click();
+    await page.evaluate(() => {
+      let thrown = false;
+      Object.defineProperty(window, "__hfAppliedComments", {
+        configurable: true,
+        get() {
+          return [];
+        },
+        set(val) {
+          if (!thrown) {
+            thrown = true;
+            throw new Error("Scene storyboard rewrite failed.");
+          }
+          Object.defineProperty(window, "__hfAppliedComments", {
+            configurable: true,
+            writable: true,
+            value: val
+          });
+        }
+      });
+    });
+    const fetchesBeforeFallbackFail = previewFetches.length;
+    await applyBtn.click();
+    await page.waitForFunction(() => {
+      const errEl = document.querySelector("p.aw-error[role='alert']");
+      return Boolean(errEl && (errEl.textContent || "").includes("Scene storyboard rewrite failed."));
+    });
+    const greenLabel = await page.locator('.aw-comments li:has-text("Make \\"minutes\\" green") small').textContent();
+    assert.match(greenLabel ?? "", /changed colour/, "committed element item keeps its saved label when scene fallback throws");
+    const failedFallbackLabel = await page.locator('.aw-comments li:has-text("Add a customer testimonial quote") small').textContent();
+    assert.ok(!failedFallbackLabel?.includes("re-laid out the scene"), "failed scene fallback comment must not be marked applied");
+    assert.ok(previewFetches.length > fetchesBeforeFallbackFail, "preview reloads to match saved plan after partial fallback failure");
+    await page.locator('.aw-comments li:has-text("Add a customer testimonial quote") button.aw-x').click();
+    await page.waitForFunction(() => {
+      const player = document.querySelector("hyperframes-player");
+      return Boolean(player?.ready && player?.iframeElement?.contentWindow?.__bp?.elementsAt);
+    });
+    await page.locator('.aw-comments li:has-text("Make \\"minutes\\" green") button.aw-x').click();
+    await page.waitForFunction(() => {
+      const player = document.querySelector("hyperframes-player");
+      return Boolean(player?.ready && player?.iframeElement?.contentWindow?.__bp?.elementsAt);
+    });
+
+    // 10. Server error shows an error alert, NOT an applied label, and leaves the comment unapplied
     forceNextProposeServerError = true;
     await textarea.fill('Make "minutes" cyan');
     await addBtn.click();
     await applyBtn.click();
-    await page.waitForSelector("p.aw-error[role='alert']");
-    const errAlertText = await page.locator("p.aw-error[role='alert']").textContent();
-    assert.match(errAlertText ?? "", /Server failed while proposing edit/i);
+    await page.waitForFunction(() => {
+      const errEl = document.querySelector("p.aw-error[role='alert']");
+      return Boolean(errEl && (errEl.textContent || "").includes("Server failed while proposing edit"));
+    });
     const unappliedItemText = await page.locator('.aw-comments li:has-text("Make \\"minutes\\" cyan")').textContent();
     assert.ok(!unappliedItemText?.includes("changed colour"), "failed request must never claim 'changed colour'");
     await page.locator('.aw-comments li:has-text("Make \\"minutes\\" cyan") button.aw-x').click();

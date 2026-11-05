@@ -408,12 +408,30 @@ export async function setProjectPlanning(id: string, planning: VideoProject["pla
   });
 }
 
-export async function updateProjectPlan(id: string, mutate: (current: VideoProject) => Pick<VideoProject, "brief" | "beatPlan"> & Partial<Pick<VideoProject, "script" | "state" | "request">>) {
+export type UpdateProjectPlanOptions = {
+  expectedVersion?: string;
+  versionOf?: (project: VideoProject) => string;
+  onVersionMismatch?: (currentVersion: string) => Error;
+};
+
+export async function updateProjectPlan(
+  id: string,
+  mutate: (current: VideoProject) => (Pick<VideoProject, "brief" | "beatPlan"> & Partial<Pick<VideoProject, "script" | "state" | "request">>) | Promise<Pick<VideoProject, "brief" | "beatPlan"> & Partial<Pick<VideoProject, "script" | "state" | "request">>>,
+  options?: UpdateProjectPlanOptions
+) {
   return serializeProject(id, async () => {
     const current = await getProject(id);
     if (!current) return null;
     if (current.state === "Rendering draft") throw new ProjectInvalid("Wait for the current render to finish before changing the plan.");
-    const changes = mutate(current);
+    if (options?.expectedVersion !== undefined && options.versionOf && current.beatPlan) {
+      const currentVersion = options.versionOf(current);
+      if (currentVersion !== options.expectedVersion) {
+        throw options.onVersionMismatch
+          ? options.onVersionMismatch(currentVersion)
+          : new ProjectInvalid("The storyboard changed since this edit was prepared. Please apply again.");
+      }
+    }
+    const changes = await mutate(current);
     // A plan being applied also ends the director's job record (planning).
     const { approvedAt: _approvedAt, planning: _planning, ...withoutApproval } = current;
     return save({ ...withoutApproval, ...changes, updatedAt: new Date().toISOString() });

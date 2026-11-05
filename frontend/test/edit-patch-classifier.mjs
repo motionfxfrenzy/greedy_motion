@@ -10,6 +10,7 @@ import {
   isBoxInsideSafeArea,
   isSameTextLengthClass,
   isValidPlanElementId,
+  normalizeColorValue,
   resolveBeatWindowTimes,
   safeAreaBounds,
   validateBeatLayoutHint,
@@ -309,4 +310,149 @@ test("validateFrameElementsSnapshots, isValidPlanElementId, resolveBeatWindowTim
     { scope: "scene", scene: "b2", atSeconds: 3.2, el: "b2:w:2", set: { scale: 1.3 } }
   ]);
   assert.ok(withHint.includes('\\"factor\\":1.3'));
+});
+
+test("B5 hardening: prototype keys, colour injection strings, duplicate snapshot ids, bounds, scope downgrade guard, and unequal snapshot refusal", () => {
+  // 1. Prototype keys rejected by normalizeColorValue and validateEditPatch
+  for (const protoKey of ["constructor", "toString", "__proto__", "valueOf", "hasOwnProperty"]) {
+    assert.equal(normalizeColorValue(protoKey), null, `prototype key "${protoKey}" must not be accepted as a colour`);
+    const patchCheck = validateEditPatch({
+      scope: "element",
+      scene: "b1",
+      atSeconds: 1.0,
+      el: "b1:w:0",
+      set: { color: protoKey }
+    });
+    assert.ok("error" in patchCheck, `validateEditPatch must reject prototype colour "${protoKey}"`);
+  }
+
+  // 2. Colour injection string rejected by normalizeColorValue, validateEditPatch, validateHyperFramesOverrides, and applyCandidatePatchToPreviewHtml
+  const injectionColor = "red}*{display:none";
+  assert.equal(normalizeColorValue(injectionColor), null);
+  assert.ok(
+    "error" in
+      validateEditPatch({
+        scope: "element",
+        scene: "b1",
+        atSeconds: 1.0,
+        el: "b1:w:0",
+        set: { color: injectionColor }
+      })
+  );
+  assert.ok(
+    "error" in
+      validateHyperFramesOverrides({
+        "b1:w:0": { color: injectionColor }
+      })
+  );
+
+  // 3. Upper bound on atSeconds (> 3600 rejected) and scene id format check
+  assert.ok(
+    "error" in
+      validateEditPatch({
+        scope: "element",
+        scene: "b1",
+        atSeconds: 3601,
+        el: "b1:w:0",
+        set: { color: "#ff3b6b" }
+      }),
+    "atSeconds > 3600 must be rejected"
+  );
+  assert.ok(
+    "error" in
+      validateEditPatch({
+        scope: "element",
+        scene: "bad scene id!",
+        atSeconds: 1.0,
+        el: "b1:w:0",
+        set: { color: "#ff3b6b" }
+      }),
+    "invalid scene id format must be rejected"
+  );
+  assert.ok(
+    "error" in
+      validateEditPatch({
+        scope: "element",
+        scene: 999,
+        atSeconds: 1.0,
+        el: "b1:w:0",
+        set: { color: "#ff3b6b" }
+      }),
+    "out-of-range numeric scene index must be rejected"
+  );
+
+  // 4. Length cap on override text (> 280 chars rejected) and strict data-el id check in validateHyperFramesOverrides
+  assert.ok(
+    "error" in
+      validateHyperFramesOverrides({
+        "b1:w:0": { text: "x".repeat(281) }
+      }),
+    "override text > 280 chars must be rejected"
+  );
+  assert.ok(
+    "error" in
+      validateHyperFramesOverrides({
+        "not-a-data-el": { color: "#ff3b6b" }
+      }),
+    "invalid data-el id in overrides must be rejected"
+  );
+
+  // 5. Duplicate element ids in a snapshot rejected
+  const beatIds = new Set(["b1", "b2"]);
+  const dupCheck = validateFrameElementsSnapshots(
+    [
+      {
+        time: 3.2,
+        elements: [
+          { id: "b2:w:0", role: "word", text: "Ready", box: [240, 440, 290, 120] },
+          { id: "b2:w:0", role: "word", text: "Ready", box: [240, 440, 290, 120] }
+        ]
+      }
+    ],
+    beatIds
+  );
+  assert.ok("error" in dupCheck, "duplicate element ids in a snapshot must be rejected");
+  assert.match(dupCheck.error, /Duplicate element id/i);
+
+  // 6. validateBeatLayoutHint applied to set.scale before becoming hints.factor, and accumulated dx/dy capped at ±4000
+  const sampleHtml = `<html><head><script>window.__hfVariables = {"plan":"{\\"beats\\":[{\\"id\\":\\"b2\\",\\"keyword\\":\\"Ready to share.\\"}]}"};</script><script id="hf-variables" type="application/json">{"b2.keyword":"Ready to share."}</script></head></html>`;
+  const withOutOfBoundsScale = applyCandidatePatchToPreviewHtml(sampleHtml, [
+    { scope: "scene", scene: "b2", atSeconds: 3.2, el: "b2:w:2", set: { scale: 4.5 } }
+  ]);
+  assert.ok(!withOutOfBoundsScale.includes("4.5"), "out-of-bounds scale 4.5 must not become hints.factor");
+
+  const withAccumulatedDx = applyCandidatePatchToPreviewHtml(sampleHtml, [
+    { scope: "element", scene: "b2", atSeconds: 3.2, el: "b2:w:2", set: { dx: 2500, dy: -2600 } },
+    { scope: "element", scene: "b2", atSeconds: 3.2, el: "b2:w:2", set: { dx: 2500, dy: -2600 } }
+  ]);
+  assert.ok(withAccumulatedDx.includes('"dx":4000'), "accumulated dx must be capped at +4000");
+  assert.ok(withAccumulatedDx.includes('"dy":-4000'), "accumulated dy must be capped at -4000");
+
+  // 7. Classifier: explicit scope="scene" with an el must NOT be downgraded to "element"
+  const before = [makeBaseSnapshot(3.0), makeBaseSnapshot(3.4)];
+  const explicitSceneWithEl = classifyEditPatch({
+    patch: { scope: "scene", scene: "b2", atSeconds: 3.2, el: "b2:w:2", set: { color: "#ff3b6b" } },
+    canvas: CANVAS,
+    beforeWindow: before,
+    afterWindow: before
+  });
+  assert.equal(explicitSceneWithEl.scope, "scene", "explicit scope='scene' with el must remain 'scene'");
+  assert.equal(explicitSceneWithEl.escalated, false);
+  assert.equal(explicitSceneWithEl.reason, "explicit-scene-patch");
+
+  // 8. Classifier: unequal before/after snapshot lengths must be refused (thrown), never silently truncated
+  assert.throws(
+    () =>
+      classifyEditPatch({
+        patch: { scope: "element", scene: "b2", atSeconds: 3.2, el: "b2:w:2", set: { color: "#ff3b6b" } },
+        canvas: CANVAS,
+        beforeWindow: [makeBaseSnapshot(3.0), makeBaseSnapshot(3.4)],
+        afterWindow: [makeBaseSnapshot(3.0)]
+      }),
+    /equal length/i
+  );
+  assert.throws(
+    () => checkSceneHintLayout([makeBaseSnapshot(3.0), makeBaseSnapshot(3.4)], CANVAS, "b2", [makeBaseSnapshot(3.0)]),
+    /equal length/i
+  );
 });
