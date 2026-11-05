@@ -78,7 +78,8 @@ async function auditBarLayout(page, viewportWidth, label) {
     const frameRect = frame.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
 
-    const buttons = Array.from(bar.querySelectorAll("button"));
+    // Buttons plus the motion-blur checkbox label (a control since plate-motion-blur added it to the HyperFrames bar).
+    const buttons = Array.from(bar.querySelectorAll("button, label.aw-blur"));
     const controls = buttons.map((btn, idx) => {
       const r = btn.getBoundingClientRect();
       const cx = r.left + r.width / 2;
@@ -198,14 +199,14 @@ async function auditBarLayout(page, viewportWidth, label) {
   }
 
   // Verify sequential keyboard Tab focusability across every enabled button in the bar
-  const enabledCount = await page.locator('.aw-floating-bar[role="toolbar"] button:not(:disabled)').count();
+  const enabledCount = await page.locator('.aw-floating-bar[role="toolbar"] button:not(:disabled), .aw-floating-bar[role="toolbar"] label.aw-blur input:not(:disabled)').count();
   assert.equal(enabledCount, audit.controls.length, `${label}: all bar controls are enabled`);
 
-  const firstBtn = page.locator('.aw-floating-bar[role="toolbar"] button:not(:disabled)').first();
+  const firstBtn = page.locator('.aw-floating-bar[role="toolbar"] button:not(:disabled), .aw-floating-bar[role="toolbar"] label.aw-blur input:not(:disabled)').first();
   await firstBtn.focus();
   for (let i = 0; i < audit.controls.length; i++) {
     const focusedIndex = await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('.aw-floating-bar[role="toolbar"] button:not(:disabled)'));
+      const btns = Array.from(document.querySelectorAll('.aw-floating-bar[role="toolbar"] button:not(:disabled), .aw-floating-bar[role="toolbar"] label.aw-blur input:not(:disabled)'));
       return btns.indexOf(document.activeElement);
     });
     assert.equal(
@@ -550,13 +551,13 @@ test(
       await page.evaluate(() => document.fonts.ready);
 
       const hfSubAudit = await auditBarLayout(page, width, `HyperFrames Subtitle tab (${width}px)`);
-      assert.equal(hfSubAudit.controls.length, 3, `HyperFrames Subtitle tab (${width}px) renders 3 controls`);
+      assert.equal(hfSubAudit.controls.length, 4, `HyperFrames Subtitle tab (${width}px) renders 4 controls (3 + the motion-blur checkbox)`);
       await auditPopovers(page, width, hfSubtitlePopovers, `HyperFrames Subtitle popovers (${width}px)`);
 
       await page.locator('.aw-floating-bar button[role="tab"]:has-text("Audio")').click();
       await page.waitForSelector('[role="group"][aria-label="Audio tracks"]');
       const hfAudioAudit = await auditBarLayout(page, width, `HyperFrames Audio tab (${width}px)`);
-      assert.equal(hfAudioAudit.controls.length, 4, `HyperFrames Audio tab (${width}px) renders 4 controls`);
+      assert.equal(hfAudioAudit.controls.length, 5, `HyperFrames Audio tab (${width}px) renders 5 controls (4 + the motion-blur checkbox)`);
 
       // 5. HyperFrames g2-preview-error: statusBadge with Retry button
       activePlateState = "g2-preview-error";
@@ -564,7 +565,7 @@ test(
       await page.waitForSelector('.aw-floating-bar button:has-text("Retry")');
       await page.evaluate(() => document.fonts.ready);
       const hfErrAudit = await auditBarLayout(page, width, `HyperFrames g2-preview-error (${width}px)`);
-      assert.equal(hfErrAudit.controls.length, 4, `HyperFrames g2-preview-error (${width}px) renders 4 controls including Retry`);
+      assert.equal(hfErrAudit.controls.length, 5, `HyperFrames g2-preview-error (${width}px) renders 5 controls including Retry (and the motion-blur checkbox)`);
       assert.ok(hfErrAudit.statusBox, `HyperFrames g2-preview-error (${width}px) shows status chip`);
     }
   } finally {
