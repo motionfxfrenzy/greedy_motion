@@ -10,9 +10,11 @@
 //   render        the render job fails and the spend is refunded (render/service.ts failForGood)
 //   double-spend  the Idempotency-Key is ignored: every request makes a job and spends (the bug the smoke must catch)
 //   not-mp4       the output is not an MP4                  quote-high  quote above SMOKE_MAX_TOKENS
+//   quote-mismatch  the quote seconds differ from the film length (the billing bug found on staging 2026-11-05)
 //   fix-same      a comment revision does not change the digest   fix-spill  a comment also changes scene 3
 //   Options: mode "clip" (scenes reach `drawn`) or "live" (scenes stop at `bundled`, as with PLATE_LIVE_PREVIEW and no browser).
 import { createServer } from "node:http";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -39,6 +41,8 @@ export function startMock(options = {}) {
   const film = fixture("film.mp4", 200_000);
   const clip = fixture("clip.mp4", 5_000);
   const SECONDS_PER_SCENE = 4;
+  // The quote must be the finished film's length rounded up (render/quote.ts quoteFrom: ceil), so it follows the fixture film.
+  const FILM_SECONDS = (() => { const f = join(HERE, "fixtures", "film.mp4"); try { const r = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", f], { encoding: "utf8" }); const d = Number(String(r.stdout).trim()); return r.status === 0 && d > 0 ? Math.ceil(d - 0.05) : 12; } catch { return 12; } })();
   const QUOTE_TOKENS = () => (fails.has("quote-high") ? 500 : 6);
 
   const readBody = (req) => new Promise((resolve) => { let b = ""; req.on("data", (d) => { b += d; }); req.on("end", () => { try { resolve(b ? JSON.parse(b) : {}); } catch { resolve({}); } }); });
@@ -276,7 +280,7 @@ export function startMock(options = {}) {
           const tokens = fails.has("quote-high") ? QUOTE_TOKENS() : null;
           return send(res, 200, { seconds: null, tokens, parts: { start: 2, perSecond: 0.5, seconds: null }, ready: false, material: { required: false, owedTokens: 0 }, balance: state.balance, enough: false });
         }
-        const seconds = entry.plates.scenes.length * SECONDS_PER_SCENE;
+        const seconds = FILM_SECONDS + (fails.has("quote-mismatch") ? 5 : 0);
         return send(res, 200, { seconds, tokens: QUOTE_TOKENS(), parts: { start: 2, perSecond: 0.5, seconds }, ready: true, material: { required: false, owedTokens: 0 }, balance: state.balance, enough: state.balance >= QUOTE_TOKENS() });
       }
       // server.ts:261 render + render/quote.ts idempotency hook: the same (project, key) returns 202 with the existing job before any spend

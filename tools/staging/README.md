@@ -49,3 +49,6 @@ SMOKE_API=https://backend-staging-aec6.up.railway.app \
   SMOKE_AUDIO=voiceover SMOKE_MAX_TOKENS=20 \
   node tools/staging/plates-smoke.mjs
 ```
+
+## Billing check (added 2026-11-05)
+The `download` step fails (`SMOKE FAIL download`) when the quoted seconds are not the finished film's length rounded up (`quote.seconds == ceil(ffprobe duration)`, 0.05 s allowed for container padding). Skipped when ffprobe is missing. It caught the staging undercharge (quote 12 s, film 18 s); it will fail on any build where plate films are still quoted from the planner clock.

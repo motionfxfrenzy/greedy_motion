@@ -412,3 +412,16 @@ test("gap h & 2.f.2: refund step guards SMOKE_MAX_TOKENS, respects stop-at-first
   }
 });
 const stopBeforeMockOut = (r) => r.out;
+
+test("billing check: quote seconds must equal the film length rounded up (fails as SMOKE FAIL download when they differ)", { skip: !hasFfprobe }, async () => {
+  const good = await mockOn();
+  const bad = await mockOn({ fail: "quote-mismatch" });
+  try {
+    const ok = await smoke(good);
+    assert.equal(ok.code, 0, ok.stdout + ok.stderr);
+    const r = await smoke(bad);
+    assert.equal(r.code, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /^step download FAIL quote said \d+ s but film\.mp4 lasts [\d.]+ s .*undercharged|overcharged/m);
+    assert.match(lastLine(r), /^SMOKE FAIL download /);
+  } finally { await good.close(); await bad.close(); }
+});

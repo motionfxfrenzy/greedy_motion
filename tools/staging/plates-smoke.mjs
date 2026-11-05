@@ -615,6 +615,8 @@ steps.download = async () => {
     const [aw, ah] = ASPECT.split(":").map(Number);
     if (!v.width || Math.abs(v.width / v.height - aw / ah) > 0.02) { rmSync(file, { force: true }); fail(`film is ${v.width}x${v.height}, not ${ASPECT}`); }
     if (!(duration > 0) || !(facts.frames > 0)) { rmSync(file, { force: true }); fail("film has no frames or no duration"); }
+    // Billing rule (docs/PRICING.md): the quote charges each started second of the finished film, so the quoted seconds must be the film's length rounded up (0.05 s allowed for container padding).
+    if (ctx.quote?.seconds != null && ctx.quote.seconds !== Math.ceil(duration - 0.05)) fail(`quote said ${ctx.quote.seconds} s but film.mp4 lasts ${duration.toFixed(2)} s (expected ${Math.ceil(duration - 0.05)} s): the render was ${ctx.quote.seconds < duration ? "undercharged" : "overcharged"}`);
     if (Math.abs(duration - ctx.job.output.durationSeconds) > 2) warn(`film lasts ${duration.toFixed(2)} s, the job says ${ctx.job.output.durationSeconds} s`);
   }
   report.mp4 = facts;
