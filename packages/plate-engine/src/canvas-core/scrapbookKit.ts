@@ -9,7 +9,7 @@
 //   burin      the copperplate line: a centreline whose width swells with tone and tapers to a
 //              point at each end, breaking into the paper where the tone falls below a threshold.
 // Everything pure: rng(seed) only, no filters, no assets. Candidates for promotion to core.
-import { Gfx, fractal, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
+import { Gfx, fractal, insideRing, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
 import { bounds, mix, resample } from "./gallery";
 
 export const clamp01 = (v: number) => (v <= 0 ? 0 : v >= 1 ? 1 : v);
@@ -163,7 +163,7 @@ export const engrave = (c: Ctx, cuts: Cut[], p: number, color: string, min = 0.1
 };
 // a polyline resampled to ~`step` spacing: burin widths need evenly spaced samples
 export const dense = (pts: P[], step = 2): P[] => { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return resample(pts, Math.max(2, Math.round(L / step) + 1)); };
-export const inPoly = (pts: P[], x: number, y: number) => { let k = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) k = !k; } return k; };
+export const inPoly = (pts: P[], x: number, y: number) => insideRing(pts, x, y);
 export type Occluder = { pts: P[]; b: { x0: number; y0: number; x1: number; y1: number } };
 export const occluder = (pts: P[]): Occluder => ({ pts, b: bounds(pts) });
 export const hidden = (occ: Occluder[], x: number, y: number) => occ.some((o) => x >= o.b.x0 && x <= o.b.x1 && y >= o.b.y0 && y <= o.b.y1 && inPoly(o.pts, x, y));

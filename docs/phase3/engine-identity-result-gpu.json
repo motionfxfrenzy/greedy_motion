@@ -1,0 +1,2474 @@
+{
+ "base": "23e1963",
+ "items": 65,
+ "skipped": [
+  {
+   "item": "storybook@16:9",
+   "reason": "no `: Film` export to alias as `film`"
+  },
+  {
+   "item": "storybook@1:1",
+   "reason": "no `: Film` export to alias as `film`"
+  }
+ ],
+ "allIdentical": false,
+ "rows": [
+  {
+   "item": "balloon@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 778.4,
+    "newFirstMs": 210.4,
+    "oldMedianMs": 23.6,
+    "newMedianMs": 22.8,
+    "medianSpeedup": 1.04,
+    "hashes": [
+     "1bccee7d",
+     "1bccee7d",
+     "1bccee7d",
+     "1bccee7d",
+     "1bccee7d"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 747.5,
+    "newFirstMs": 235.4,
+    "oldMedianMs": 24.9,
+    "newMedianMs": 23.7,
+    "medianSpeedup": 1.05,
+    "hashes": [
+     "f23b1856",
+     "f23b1856",
+     "f23b1856",
+     "f23b1856",
+     "f23b1856"
+    ]
+   }
+  },
+  {
+   "item": "balloon@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 424.8,
+    "newFirstMs": 132.6,
+    "oldMedianMs": 18.2,
+    "newMedianMs": 17.5,
+    "medianSpeedup": 1.04,
+    "hashes": [
+     "3d1e4c6c",
+     "3d1e4c6c",
+     "3d1e4c6c",
+     "3d1e4c6c",
+     "3d1e4c6c"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 452.9,
+    "newFirstMs": 163.3,
+    "oldMedianMs": 17.4,
+    "newMedianMs": 17.5,
+    "medianSpeedup": 0.99,
+    "hashes": [
+     "ed47b171",
+     "ed47b171",
+     "ed47b171",
+     "ed47b171",
+     "ed47b171"
+    ]
+   }
+  },
+  {
+   "item": "blueprint@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 45.5,
+    "newFirstMs": 44.8,
+    "oldMedianMs": 7.5,
+    "newMedianMs": 7.9,
+    "medianSpeedup": 0.95,
+    "hashes": [
+     "28800f90",
+     "1c0a91ab",
+     "4e99290b",
+     "125c62b2",
+     "a0f66108"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 307.6,
+    "newFirstMs": 304.5,
+    "oldMedianMs": 12.1,
+    "newMedianMs": 12.6,
+    "medianSpeedup": 0.96,
+    "hashes": [
+     "2f048a18",
+     "1672619",
+     "93dd44f7",
+     "ffb8bae6",
+     "31a70427"
+    ]
+   }
+  },
+  {
+   "item": "blueprint@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 115.8,
+    "newFirstMs": 115.9,
+    "oldMedianMs": 7.4,
+    "newMedianMs": 8.6,
+    "medianSpeedup": 0.86,
+    "hashes": [
+     "badc9066",
+     "545f7f1",
+     "fd797fc1",
+     "d80b148e",
+     "6ab1e15b"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 299.6,
+    "newFirstMs": 295.3,
+    "oldMedianMs": 10.4,
+    "newMedianMs": 10.3,
+    "medianSpeedup": 1.01,
+    "hashes": [
+     "566a6ce1",
+     "192e2617",
+     "c587f89",
+     "21211e86",
+     "ef44043"
+    ]
+   }
+  },
+  {
+   "item": "brokenColour@16:9",
+   "plateSourceUnchanged": false,
+   "normalisedSource": true,
+   "frames": 450,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 95.8,
+    "newFirstMs": 82.9,
+    "oldMedianMs": 11.6,
+    "newMedianMs": 11.8,
+    "medianSpeedup": 0.98,
+    "hashes": [
+     "8232a808",
+     "a071c1be",
+     "4794a8ac",
+     "e08815db",
+     "2de768d5"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 131.9,
+    "newFirstMs": 122.5,
+    "oldMedianMs": 24.1,
+    "newMedianMs": 24.1,
+    "medianSpeedup": 1,
+    "hashes": [
+     "e800c393",
+     "f443f36",
+     "1877dfc8",
+     "2914f65",
+     "f7a54158"
+    ]
+   }
+  },
+  {
+   "item": "brokenColour@1:1",
+   "plateSourceUnchanged": false,
+   "normalisedSource": true,
+   "frames": 450,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 134.6,
+    "newFirstMs": 122.6,
+    "oldMedianMs": 22.9,
+    "newMedianMs": 24.4,
+    "medianSpeedup": 0.94,
+    "hashes": [
+     "3c6ea6de",
+     "ebafba49",
+     "ffdda57d",
+     "e505fc82",
+     "de9f2ba1"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 143.6,
+    "newFirstMs": 148.1,
+    "oldMedianMs": 31,
+    "newMedianMs": 31.3,
+    "medianSpeedup": 0.99,
+    "hashes": [
+     "eee2d309",
+     "beeac930",
+     "9533851",
+     "15d567d5",
+     "2a0d444b"
+    ]
+   }
+  },
+  {
+   "item": "charcoalErasure@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 91.1,
+    "newFirstMs": 73.6,
+    "oldMedianMs": 29.2,
+    "newMedianMs": 28.1,
+    "medianSpeedup": 1.04,
+    "hashes": [
+     "59090236",
+     "746d6b96",
+     "19fbb8ad",
+     "3a8cd449",
+     "469c7e2f"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 175.7,
+    "newFirstMs": 178.8,
+    "oldMedianMs": 29.7,
+    "newMedianMs": 31.5,
+    "medianSpeedup": 0.94,
+    "hashes": [
+     "5b23c887",
+     "10cbffa3",
+     "4c7a342c",
+     "b2a8899d",
+     "fa566dd9"
+    ]
+   }
+  },
+  {
+   "item": "charcoalErasure@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 69.9,
+    "newFirstMs": 69.2,
+    "oldMedianMs": 18.5,
+    "newMedianMs": 17.9,
+    "medianSpeedup": 1.03,
+    "hashes": [
+     "a32fe71d",
+     "66af6fcb",
+     "cf113e1b",
+     "37bf658a",
+     "6394de3e"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 175.1,
+    "newFirstMs": 179.2,
+    "oldMedianMs": 23.1,
+    "newMedianMs": 22.3,
+    "medianSpeedup": 1.04,
+    "hashes": [
+     "c4565434",
+     "bc906562",
+     "816940b3",
+     "bd144dce",
+     "dd618fcb"
+    ]
+   }
+  },
+  {
+   "item": "colouredPencil@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 661.7,
+    "newFirstMs": 635.8,
+    "oldMedianMs": 10.2,
+    "newMedianMs": 10.3,
+    "medianSpeedup": 0.99,
+    "hashes": [
+     "eda663bf",
+     "94159af2",
+     "7409ee9d",
+     "ad71ff96",
+     "ffc5a00f"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 639.6,
+    "newFirstMs": 637.3,
+    "oldMedianMs": 45.1,
+    "newMedianMs": 35.9,
+    "medianSpeedup": 1.26,
+    "hashes": [
+     "5cc1781d",
+     "a2b82e1f",
+     "83d1113",
+     "380a0a2a",
+     "8a9e6605"
+    ]
+   }
+  },
+  {
+   "item": "colouredPencil@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 627.4,
+    "newFirstMs": 627.4,
+    "oldMedianMs": 11.8,
+    "newMedianMs": 12.4,
+    "medianSpeedup": 0.95,
+    "hashes": [
+     "113dd375",
+     "400e6fc8",
+     "7b174c24",
+     "fa27719e",
+     "a1420723"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 625.1,
+    "newFirstMs": 634.3,
+    "oldMedianMs": 22.7,
+    "newMedianMs": 25.5,
+    "medianSpeedup": 0.89,
+    "hashes": [
+     "f539b8e0",
+     "b5e61e19",
+     "60c503cb",
+     "46343c14",
+     "f90d8691"
+    ]
+   }
+  },
+  {
+   "item": "embroidery@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 73.8,
+    "newFirstMs": 56.4,
+    "oldMedianMs": 6.4,
+    "newMedianMs": 6.2,
+    "medianSpeedup": 1.03,
+    "hashes": [
+     "c8ade5e2",
+     "4ee61c0d",
+     "652c558f",
+     "fa9209e1",
+     "56f877a"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 122.2,
+    "newFirstMs": 120.9,
+    "oldMedianMs": 8.4,
+    "newMedianMs": 8.2,
+    "medianSpeedup": 1.02,
+    "hashes": [
+     "b16bf121",
+     "57d199e9",
+     "1192945e",
+     "8dddcacb",
+     "bdc2ca01"
+    ]
+   }
+  },
+  {
+   "item": "embroidery@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 56,
+    "newFirstMs": 56,
+    "oldMedianMs": 6.3,
+    "newMedianMs": 6.6,
+    "medianSpeedup": 0.95,
+    "hashes": [
+     "c8ade5e2",
+     "b849bfe2",
+     "60969b02",
+     "1250ecc5",
+     "db30bba9"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 116.1,
+    "newFirstMs": 117.5,
+    "oldMedianMs": 8.7,
+    "newMedianMs": 9.4,
+    "medianSpeedup": 0.93,
+    "hashes": [
+     "b16bf121",
+     "8121996f",
+     "692a49e8",
+     "c6768ea2",
+     "1c8cb236"
+    ]
+   }
+  },
+  {
+   "item": "flatVector@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 525,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 5.5,
+    "newFirstMs": 4.9,
+    "oldMedianMs": 0.5,
+    "newMedianMs": 0.6,
+    "medianSpeedup": 0.83,
+    "hashes": [
+     "ce019dc5",
+     "907aab3f",
+     "efbb1f99",
+     "947eba11",
+     "bc938c87"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 4.8,
+    "newFirstMs": 5.1,
+    "oldMedianMs": 0.9,
+    "newMedianMs": 0.9,
+    "medianSpeedup": 1,
+    "hashes": [
+     "f5bebac5",
+     "60fcfbcd",
+     "397a7ab2",
+     "549dfd3f",
+     "4af9de13"
+    ]
+   }
+  },
+  {
+   "item": "flatVector@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 525,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 6,
+    "newFirstMs": 6.8,
+    "oldMedianMs": 0.6,
+    "newMedianMs": 0.7,
+    "medianSpeedup": 0.86,
+    "hashes": [
+     "ce019dc5",
+     "507150bb",
+     "2ec360be",
+     "76b7caaa",
+     "35bb011e"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 5.2,
+    "newFirstMs": 4.1,
+    "oldMedianMs": 1.1,
+    "newMedianMs": 1,
+    "medianSpeedup": 1.1,
+    "hashes": [
+     "f5bebac5",
+     "95970e3b",
+     "bb8f6bbb",
+     "6496dcc4",
+     "9745cfc1"
+    ]
+   }
+  },
+  {
+   "item": "folkTale@16:9",
+   "plateSourceUnchanged": false,
+   "normalisedSource": true,
+   "frames": 540,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 38.1,
+    "newFirstMs": 38.3,
+    "oldMedianMs": 13.7,
+    "newMedianMs": 17.5,
+    "medianSpeedup": 0.78,
+    "hashes": [
+     "ba426c5e",
+     "322015ec",
+     "932bf568",
+     "d97ddc60",
+     "c7e7f3e1"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 224.8,
+    "newFirstMs": 222.6,
+    "oldMedianMs": 54.4,
+    "newMedianMs": 54.2,
+    "medianSpeedup": 1,
+    "hashes": [
+     "d1a4b4d2",
+     "182ec8c4",
+     "d351d745",
+     "fc89bed4",
+     "da344956"
+    ]
+   }
+  },
+  {
+   "item": "folkTale@1:1",
+   "plateSourceUnchanged": false,
+   "normalisedSource": true,
+   "frames": 540,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 36.4,
+    "newFirstMs": 37,
+    "oldMedianMs": 13.8,
+    "newMedianMs": 13.2,
+    "medianSpeedup": 1.05,
+    "hashes": [
+     "ba426c5e",
+     "1f126740",
+     "8ea27549",
+     "aa82c9bc",
+     "de9c5e98"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 229.3,
+    "newFirstMs": 223.2,
+    "oldMedianMs": 43.7,
+    "newMedianMs": 43.7,
+    "medianSpeedup": 1,
+    "hashes": [
+     "d1a4b4d2",
+     "7b207c0a",
+     "b1443169",
+     "fdc7cde5",
+     "932e8f4"
+    ]
+   }
+  },
+  {
+   "item": "fox@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 99.2,
+    "newFirstMs": 99.5,
+    "oldMedianMs": 46.5,
+    "newMedianMs": 47.9,
+    "medianSpeedup": 0.97,
+    "hashes": [
+     "4a883a6d",
+     "4a883a6d",
+     "4a883a6d",
+     "4a883a6d",
+     "4a883a6d"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 140.7,
+    "newFirstMs": 151.9,
+    "oldMedianMs": 52.7,
+    "newMedianMs": 52.5,
+    "medianSpeedup": 1,
+    "hashes": [
+     "d4620afb",
+     "d4620afb",
+     "d4620afb",
+     "d4620afb",
+     "d4620afb"
+    ]
+   }
+  },
+  {
+   "item": "fox@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 77.5,
+    "newFirstMs": 88.3,
+    "oldMedianMs": 24,
+    "newMedianMs": 24.1,
+    "medianSpeedup": 1,
+    "hashes": [
+     "8837ae2e",
+     "8837ae2e",
+     "8837ae2e",
+     "8837ae2e",
+     "8837ae2e"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 111.8,
+    "newFirstMs": 113.3,
+    "oldMedianMs": 26.1,
+    "newMedianMs": 25.9,
+    "medianSpeedup": 1.01,
+    "hashes": [
+     "c0705b44",
+     "c0705b44",
+     "c0705b44",
+     "c0705b44",
+     "c0705b44"
+    ]
+   }
+  },
+  {
+   "item": "halftone@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 420,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 46.6,
+    "newFirstMs": 44.2,
+    "oldMedianMs": 2.4,
+    "newMedianMs": 2.3,
+    "medianSpeedup": 1.04,
+    "hashes": [
+     "c6186023",
+     "6113d44a",
+     "da8322c3",
+     "48aa2178",
+     "328275a1"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 552.8,
+    "newFirstMs": 353.2,
+    "oldMedianMs": 6.3,
+    "newMedianMs": 8,
+    "medianSpeedup": 0.79,
+    "hashes": [
+     "7d66444b",
+     "1d6b8325",
+     "f85cd9dc",
+     "5edb2be4",
+     "ddc16920"
+    ]
+   }
+  },
+  {
+   "item": "halftone@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 420,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 93.7,
+    "newFirstMs": 72.7,
+    "oldMedianMs": 3.3,
+    "newMedianMs": 2.9,
+    "medianSpeedup": 1.14,
+    "hashes": [
+     "37c8155e",
+     "17e78681",
+     "de4abef3",
+     "11f3e6a6",
+     "90e161d3"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 193.2,
+    "newFirstMs": 192.1,
+    "oldMedianMs": 6.6,
+    "newMedianMs": 4.4,
+    "medianSpeedup": 1.5,
+    "hashes": [
+     "b15ae318",
+     "1487b2e9",
+     "a87cde79",
+     "44051cf5",
+     "f15f5629"
+    ]
+   }
+  },
+  {
+   "item": "isometric@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 480,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 4.1,
+    "newFirstMs": 4.9,
+    "oldMedianMs": 2,
+    "newMedianMs": 1.9,
+    "medianSpeedup": 1.05,
+    "hashes": [
+     "1b8a25c5",
+     "a6ce8cec",
+     "bac6b5f0",
+     "af980d69",
+     "5b87ddb5"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 6.4,
+    "newFirstMs": 6.7,
+    "oldMedianMs": 5.2,
+    "newMedianMs": 4.9,
+    "medianSpeedup": 1.06,
+    "hashes": [
+     "f6f665c5",
+     "6ef32008",
+     "a11ae5f7",
+     "f95ee780",
+     "273eb161"
+    ]
+   }
+  },
+  {
+   "item": "isometric@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 480,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 3.9,
+    "newFirstMs": 3.9,
+    "oldMedianMs": 2.8,
+    "newMedianMs": 2.6,
+    "medianSpeedup": 1.08,
+    "hashes": [
+     "2e511dc5",
+     "2c2b5621",
+     "9573b0ae",
+     "3902df82",
+     "a1cd2573"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 4.3,
+    "newFirstMs": 3.1,
+    "oldMedianMs": 4.5,
+    "newMedianMs": 4.7,
+    "medianSpeedup": 0.96,
+    "hashes": [
+     "c2362e45",
+     "ea7c58c1",
+     "1f93bf22",
+     "1564a0d",
+     "b231472e"
+    ]
+   }
+  },
+  {
+   "item": "koi@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 34.7,
+    "newFirstMs": 33.9,
+    "oldMedianMs": 6.9,
+    "newMedianMs": 7.1,
+    "medianSpeedup": 0.97,
+    "hashes": [
+     "f4393792",
+     "f4393792",
+     "f4393792",
+     "f4393792",
+     "f4393792"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 102.9,
+    "newFirstMs": 96,
+    "oldMedianMs": 11,
+    "newMedianMs": 11.2,
+    "medianSpeedup": 0.98,
+    "hashes": [
+     "8b6a64f4",
+     "8b6a64f4",
+     "8b6a64f4",
+     "8b6a64f4",
+     "8b6a64f4"
+    ]
+   }
+  },
+  {
+   "item": "koi@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 53.5,
+    "newFirstMs": 54.6,
+    "oldMedianMs": 6.3,
+    "newMedianMs": 6.8,
+    "medianSpeedup": 0.93,
+    "hashes": [
+     "c564749a",
+     "c564749a",
+     "c564749a",
+     "c564749a",
+     "c564749a"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 94.2,
+    "newFirstMs": 97.5,
+    "oldMedianMs": 7.2,
+    "newMedianMs": 8.1,
+    "medianSpeedup": 0.89,
+    "hashes": [
+     "dacf4d83",
+     "dacf4d83",
+     "dacf4d83",
+     "dacf4d83",
+     "dacf4d83"
+    ]
+   }
+  },
+  {
+   "item": "lighthouse@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "smallRetry": {
+    "first": {
+     "old": "405fd0e3,405fd0e3,405fd0e3,405fd0e3,405fd0e3",
+     "new": "1204143c,405fd0e3,405fd0e3,405fd0e3,405fd0e3"
+    },
+    "oldRuns": [
+     "405fd0e3,405fd0e3,405fd0e3,405fd0e3,405fd0e3",
+     "405fd0e3,405fd0e3,405fd0e3,405fd0e3,405fd0e3",
+     "405fd0e3,405fd0e3,405fd0e3,405fd0e3,405fd0e3"
+    ],
+    "newRuns": [
+     "405fd0e3,405fd0e3,405fd0e3,405fd0e3,405fd0e3",
+     "1204143c,405fd0e3,405fd0e3,405fd0e3,405fd0e3",
+     "405fd0e3,405fd0e3,405fd0e3,405fd0e3,405fd0e3"
+    ]
+   },
+   "smallVerdict": "NEW engine differs between runs: REAL DIFFERENCE or nondeterminism",
+   "small": {
+    "size": "640x360",
+    "identical": false,
+    "oldFirstMs": 306.1,
+    "newFirstMs": 201,
+    "oldMedianMs": 209.4,
+    "newMedianMs": 115.8,
+    "medianSpeedup": 1.81,
+    "hashes": [
+     "1204143c",
+     "405fd0e3",
+     "405fd0e3",
+     "405fd0e3",
+     "405fd0e3"
+    ]
+   },
+   "fullRetry": {
+    "first": {
+     "old": "e4dd5f94,e4dd5f94,962f1af,e4dd5f94,e4dd5f94",
+     "new": "e4dd5f94,e4dd5f94,e4dd5f94,e4dd5f94,e4dd5f94"
+    },
+    "oldRuns": [
+     "e4dd5f94,e4dd5f94,962f1af,e4dd5f94,e4dd5f94",
+     "e4dd5f94,e4dd5f94,e4dd5f94,e4dd5f94,e4dd5f94",
+     "e4dd5f94,962f1af,e4dd5f94,e4dd5f94,e4dd5f94"
+    ],
+    "newRuns": [
+     "e4dd5f94,e4dd5f94,e4dd5f94,e4dd5f94,e4dd5f94",
+     "3697e3b2,e4dd5f94,e4dd5f94,e4dd5f94,e4dd5f94",
+     "e4dd5f94,e4dd5f94,962f1af,e4dd5f94,e4dd5f94"
+    ]
+   },
+   "fullVerdict": "NEW engine differs between runs: REAL DIFFERENCE or nondeterminism",
+   "full": {
+    "size": "1920x1080",
+    "identical": false,
+    "oldFirstMs": 468.3,
+    "newFirstMs": 364,
+    "oldMedianMs": 216.9,
+    "newMedianMs": 121,
+    "medianSpeedup": 1.79,
+    "hashes": [
+     "e4dd5f94",
+     "e4dd5f94",
+     "e4dd5f94",
+     "e4dd5f94",
+     "e4dd5f94"
+    ]
+   }
+  },
+  {
+   "item": "lighthouse@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 387,
+    "newFirstMs": 251.5,
+    "oldMedianMs": 220.9,
+    "newMedianMs": 113.8,
+    "medianSpeedup": 1.94,
+    "hashes": [
+     "4237c42b",
+     "4237c42b",
+     "4237c42b",
+     "4237c42b",
+     "4237c42b"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 518.1,
+    "newFirstMs": 374.9,
+    "oldMedianMs": 217.3,
+    "newMedianMs": 113.8,
+    "medianSpeedup": 1.91,
+    "hashes": [
+     "a9c03be8",
+     "a9c03be8",
+     "a9c03be8",
+     "a9c03be8",
+     "a9c03be8"
+    ]
+   }
+  },
+  {
+   "item": "lowPoly@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 450,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 46.3,
+    "newFirstMs": 51.1,
+    "oldMedianMs": 7.4,
+    "newMedianMs": 7.7,
+    "medianSpeedup": 0.96,
+    "hashes": [
+     "854a8197",
+     "e693b770",
+     "a4760c8b",
+     "ff0796a7",
+     "1bbc4c7a"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 27.7,
+    "newFirstMs": 25.9,
+    "oldMedianMs": 8.8,
+    "newMedianMs": 8.7,
+    "medianSpeedup": 1.01,
+    "hashes": [
+     "b3fb8785",
+     "ac59704c",
+     "daa1c9b5",
+     "8c8bdf12",
+     "942d614b"
+    ]
+   }
+  },
+  {
+   "item": "lowPoly@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 450,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 46.4,
+    "newFirstMs": 49.4,
+    "oldMedianMs": 7.3,
+    "newMedianMs": 7.4,
+    "medianSpeedup": 0.99,
+    "hashes": [
+     "854a8197",
+     "e693b770",
+     "a4760c8b",
+     "ff0796a7",
+     "1bbc4c7a"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 25.4,
+    "newFirstMs": 28.5,
+    "oldMedianMs": 8.6,
+    "newMedianMs": 8.6,
+    "medianSpeedup": 1,
+    "hashes": [
+     "b3fb8785",
+     "ac59704c",
+     "daa1c9b5",
+     "8c8bdf12",
+     "942d614b"
+    ]
+   }
+  },
+  {
+   "item": "mellan@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 149.6,
+    "newFirstMs": 114,
+    "oldMedianMs": 56.7,
+    "newMedianMs": 57.4,
+    "medianSpeedup": 0.99,
+    "hashes": [
+     "e7e5f6e7",
+     "cb0bd679",
+     "cb0bd679",
+     "cb0bd679",
+     "cb0bd679"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 102.6,
+    "newFirstMs": 96.8,
+    "oldMedianMs": 58.9,
+    "newMedianMs": 56.8,
+    "medianSpeedup": 1.04,
+    "hashes": [
+     "25bfdc53",
+     "72c3b4d5",
+     "72c3b4d5",
+     "72c3b4d5",
+     "72c3b4d5"
+    ]
+   }
+  },
+  {
+   "item": "mellan@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 110.1,
+    "newFirstMs": 112.5,
+    "oldMedianMs": 58.9,
+    "newMedianMs": 59.6,
+    "medianSpeedup": 0.99,
+    "hashes": [
+     "86c47e0a",
+     "480c8d14",
+     "480c8d14",
+     "480c8d14",
+     "480c8d14"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 92.9,
+    "newFirstMs": 92.6,
+    "oldMedianMs": 56.5,
+    "newMedianMs": 58.5,
+    "medianSpeedup": 0.97,
+    "hashes": [
+     "566a2bca",
+     "cade52d5",
+     "cade52d5",
+     "cade52d5",
+     "cade52d5"
+    ]
+   }
+  },
+  {
+   "item": "midCentury@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 69.4,
+    "newFirstMs": 67.5,
+    "oldMedianMs": 3.4,
+    "newMedianMs": 3.5,
+    "medianSpeedup": 0.97,
+    "hashes": [
+     "123c7ba6",
+     "6659f2b",
+     "f93df6e4",
+     "b2fc70f8",
+     "b20d13c1"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 118.9,
+    "newFirstMs": 116.7,
+    "oldMedianMs": 7.7,
+    "newMedianMs": 6.9,
+    "medianSpeedup": 1.12,
+    "hashes": [
+     "2bac3f30",
+     "8336d783",
+     "f69c6852",
+     "3bba7b5c",
+     "12b5b59"
+    ]
+   }
+  },
+  {
+   "item": "midCentury@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 66.3,
+    "newFirstMs": 67.8,
+    "oldMedianMs": 5.1,
+    "newMedianMs": 4,
+    "medianSpeedup": 1.27,
+    "hashes": [
+     "123c7ba6",
+     "62b83c04",
+     "e38783a8",
+     "910d8579",
+     "59412a86"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 114.7,
+    "newFirstMs": 117.8,
+    "oldMedianMs": 8,
+    "newMedianMs": 7.3,
+    "medianSpeedup": 1.1,
+    "hashes": [
+     "2bac3f30",
+     "7221eeb8",
+     "35e360a9",
+     "60b092a2",
+     "773d6dfe"
+    ]
+   }
+  },
+  {
+   "item": "moonPhases@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 99.9,
+    "newFirstMs": 84.8,
+    "oldMedianMs": 42.5,
+    "newMedianMs": 30.4,
+    "medianSpeedup": 1.4,
+    "hashes": [
+     "be1229a1",
+     "195f4f2c",
+     "195f4f2c",
+     "195f4f2c",
+     "195f4f2c"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 199.4,
+    "newFirstMs": 182.9,
+    "oldMedianMs": 56.2,
+    "newMedianMs": 44.6,
+    "medianSpeedup": 1.26,
+    "hashes": [
+     "c1351dc9",
+     "65dad65",
+     "65dad65",
+     "65dad65",
+     "65dad65"
+    ]
+   }
+  },
+  {
+   "item": "moonPhases@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "smallRetry": {
+    "first": {
+     "old": "bc530dce,4a663266,4a663266,4a663266,4a663266",
+     "new": "78449fd1,4a663266,4a663266,4a663266,4a663266"
+    },
+    "oldRuns": [
+     "78449fd1,4a663266,4a663266,4a663266,4a663266",
+     "bc530dce,4a663266,4a663266,4a663266,4a663266",
+     "bc530dce,4a663266,4a663266,4a663266,4a663266"
+    ],
+    "newRuns": [
+     "bc530dce,4a663266,4a663266,4a663266,4a663266",
+     "bc530dce,4a663266,4a663266,4a663266,4a663266",
+     "bc530dce,4a663266,4a663266,4a663266,4a663266"
+    ]
+   },
+   "smallVerdict": "NEW engine differs between runs: REAL DIFFERENCE or nondeterminism",
+   "small": {
+    "size": "640x640",
+    "identical": false,
+    "oldFirstMs": 128.8,
+    "newFirstMs": 123.8,
+    "oldMedianMs": 41.9,
+    "newMedianMs": 30.5,
+    "medianSpeedup": 1.37,
+    "hashes": [
+     "78449fd1",
+     "4a663266",
+     "4a663266",
+     "4a663266",
+     "4a663266"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 193.5,
+    "newFirstMs": 181.4,
+    "oldMedianMs": 51.1,
+    "newMedianMs": 38.6,
+    "medianSpeedup": 1.32,
+    "hashes": [
+     "f39c561e",
+     "ddb94e5c",
+     "ddb94e5c",
+     "ddb94e5c",
+     "ddb94e5c"
+    ]
+   }
+  },
+  {
+   "item": "paintedOil@16:9",
+   "plateSourceUnchanged": true,
+   "normalisedSource": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 12.9,
+    "newFirstMs": 13.8,
+    "oldMedianMs": 296.3,
+    "newMedianMs": 316.5,
+    "medianSpeedup": 0.94,
+    "hashes": [
+     "28511dc5",
+     "6df079dc",
+     "ee7f57bd",
+     "a6faa60b",
+     "74362385"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 12.2,
+    "newFirstMs": 12.4,
+    "oldMedianMs": 320.5,
+    "newMedianMs": 379.4,
+    "medianSpeedup": 0.84,
+    "hashes": [
+     "2f14e4f4",
+     "ec1898d3",
+     "414578fe",
+     "11d1d51a",
+     "6692ef5c"
+    ]
+   }
+  },
+  {
+   "item": "paintedOil@1:1",
+   "plateSourceUnchanged": true,
+   "normalisedSource": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 13.5,
+    "newFirstMs": 13,
+    "oldMedianMs": 249.9,
+    "newMedianMs": 273.6,
+    "medianSpeedup": 0.91,
+    "hashes": [
+     "28511dc5",
+     "fd23d6cc",
+     "afc1383c",
+     "d5da74d6",
+     "c7dce12c"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 11.3,
+    "newFirstMs": 13.7,
+    "oldMedianMs": 288.5,
+    "newMedianMs": 321.8,
+    "medianSpeedup": 0.9,
+    "hashes": [
+     "2f14e4f4",
+     "f96a4c9c",
+     "2312e2f1",
+     "aac411f9",
+     "536fdde4"
+    ]
+   }
+  },
+  {
+   "item": "paperCraft@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 390,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 31.7,
+    "newFirstMs": 34.9,
+    "oldMedianMs": 16.4,
+    "newMedianMs": 16.5,
+    "medianSpeedup": 0.99,
+    "hashes": [
+     "1918c4a6",
+     "6349898d",
+     "174633f",
+     "6769a965",
+     "7ddfdd14"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 117.4,
+    "newFirstMs": 116.6,
+    "oldMedianMs": 86.4,
+    "newMedianMs": 88.6,
+    "medianSpeedup": 0.98,
+    "hashes": [
+     "764a5ea4",
+     "1bb70210",
+     "c0403b89",
+     "2e43bf88",
+     "6fb1ff0d"
+    ]
+   }
+  },
+  {
+   "item": "paperCraft@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 390,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 49.8,
+    "newFirstMs": 52.1,
+    "oldMedianMs": 29.6,
+    "newMedianMs": 29.2,
+    "medianSpeedup": 1.01,
+    "hashes": [
+     "d1616d85",
+     "fcb06400",
+     "dd109118",
+     "1b84ae36",
+     "36b2d80a"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 107.8,
+    "newFirstMs": 110.4,
+    "oldMedianMs": 68.3,
+    "newMedianMs": 66.6,
+    "medianSpeedup": 1.03,
+    "hashes": [
+     "31d27da6",
+     "bf6191d9",
+     "5bcd762b",
+     "d051c2f6",
+     "6c9ac22c"
+    ]
+   }
+  },
+  {
+   "item": "pixelArt@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 450,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 15.2,
+    "newFirstMs": 13.9,
+    "oldMedianMs": 0.5,
+    "newMedianMs": 0.6,
+    "medianSpeedup": 0.83,
+    "hashes": [
+     "f75f7dc5",
+     "7c1d2e5e",
+     "585af17",
+     "f27a7887",
+     "eef87bdb"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 13.9,
+    "newFirstMs": 14.4,
+    "oldMedianMs": 1,
+    "newMedianMs": 1.2,
+    "medianSpeedup": 0.83,
+    "hashes": [
+     "89767dc5",
+     "d326455e",
+     "f1090857",
+     "e1ff70e3",
+     "69868477"
+    ]
+   }
+  },
+  {
+   "item": "pixelArt@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 450,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 14.3,
+    "newFirstMs": 15,
+    "oldMedianMs": 0.6,
+    "newMedianMs": 0.8,
+    "medianSpeedup": 0.75,
+    "hashes": [
+     "935a9dc5",
+     "828929ae",
+     "c5ae5a07",
+     "1089f52b",
+     "edb200df"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 10.7,
+    "newFirstMs": 12.4,
+    "oldMedianMs": 1,
+    "newMedianMs": 0.9,
+    "medianSpeedup": 1.11,
+    "hashes": [
+     "3dcb2bc5",
+     "d0da1b9e",
+     "ed5e6797",
+     "8d4474e3",
+     "3821d1b7"
+    ]
+   }
+  },
+  {
+   "item": "pocketWatch@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 225.8,
+    "newFirstMs": 137.9,
+    "oldMedianMs": 164.7,
+    "newMedianMs": 79.9,
+    "medianSpeedup": 2.06,
+    "hashes": [
+     "f975c54c",
+     "f3d7db84",
+     "f3d7db84",
+     "f3d7db84",
+     "f3d7db84"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 270.4,
+    "newFirstMs": 178.5,
+    "oldMedianMs": 163.3,
+    "newMedianMs": 83.4,
+    "medianSpeedup": 1.96,
+    "hashes": [
+     "9196426c",
+     "9196426c",
+     "9196426c",
+     "9196426c",
+     "9196426c"
+    ]
+   }
+  },
+  {
+   "item": "pocketWatch@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 231.6,
+    "newFirstMs": 148.9,
+    "oldMedianMs": 160.7,
+    "newMedianMs": 75,
+    "medianSpeedup": 2.14,
+    "hashes": [
+     "c14cf8b5",
+     "c14cf8b5",
+     "c14cf8b5",
+     "c14cf8b5",
+     "c14cf8b5"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 255.9,
+    "newFirstMs": 169.4,
+    "oldMedianMs": 167.8,
+    "newMedianMs": 75.1,
+    "medianSpeedup": 2.23,
+    "hashes": [
+     "ef28abea",
+     "ef28abea",
+     "ef28abea",
+     "ef28abea",
+     "ef28abea"
+    ]
+   }
+  },
+  {
+   "item": "ranunculus@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 85.6,
+    "newFirstMs": 79.4,
+    "oldMedianMs": 65.1,
+    "newMedianMs": 64.7,
+    "medianSpeedup": 1.01,
+    "hashes": [
+     "4cd967bd",
+     "4cd967bd",
+     "4cd967bd",
+     "4cd967bd",
+     "4cd967bd"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 287.8,
+    "newFirstMs": 282.3,
+    "oldMedianMs": 121.5,
+    "newMedianMs": 96.8,
+    "medianSpeedup": 1.26,
+    "hashes": [
+     "c438aa86",
+     "c438aa86",
+     "c438aa86",
+     "c438aa86",
+     "c438aa86"
+    ]
+   }
+  },
+  {
+   "item": "ranunculus@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 155.3,
+    "newFirstMs": 215.2,
+    "oldMedianMs": 98.2,
+    "newMedianMs": 65.4,
+    "medianSpeedup": 1.5,
+    "hashes": [
+     "493c00f0",
+     "493c00f0",
+     "493c00f0",
+     "493c00f0",
+     "493c00f0"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 317.9,
+    "newFirstMs": 259.7,
+    "oldMedianMs": 90.7,
+    "newMedianMs": 111.1,
+    "medianSpeedup": 0.82,
+    "hashes": [
+     "bf3b7add",
+     "bf3b7add",
+     "bf3b7add",
+     "bf3b7add",
+     "bf3b7add"
+    ]
+   }
+  },
+  {
+   "item": "rubberHose@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 435,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 11,
+    "newFirstMs": 12.7,
+    "oldMedianMs": 7.5,
+    "newMedianMs": 7.1,
+    "medianSpeedup": 1.06,
+    "hashes": [
+     "2e1f399b",
+     "f497b5f2",
+     "6538ca2",
+     "f1da1c1a",
+     "198bd884"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 6.6,
+    "newFirstMs": 6.5,
+    "oldMedianMs": 8.4,
+    "newMedianMs": 7.9,
+    "medianSpeedup": 1.06,
+    "hashes": [
+     "76d590eb",
+     "806717aa",
+     "3b6765a5",
+     "b0318689",
+     "16373c49"
+    ]
+   }
+  },
+  {
+   "item": "rubberHose@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 435,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 10.7,
+    "newFirstMs": 9.8,
+    "oldMedianMs": 7.2,
+    "newMedianMs": 6.6,
+    "medianSpeedup": 1.09,
+    "hashes": [
+     "5ddfaab9",
+     "acf50a7f",
+     "e00aed3b",
+     "4938f641",
+     "198bd884"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 5.9,
+    "newFirstMs": 5.5,
+    "oldMedianMs": 8.7,
+    "newMedianMs": 8.7,
+    "medianSpeedup": 1,
+    "hashes": [
+     "6ee4d05d",
+     "818292c4",
+     "99c2d879",
+     "1555c19b",
+     "16373c49"
+    ]
+   }
+  },
+  {
+   "item": "scrapbook@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 510,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 32.3,
+    "newFirstMs": 31.6,
+    "oldMedianMs": 6.5,
+    "newMedianMs": 6.1,
+    "medianSpeedup": 1.07,
+    "hashes": [
+     "154b40",
+     "158b4688",
+     "5ad5de4b",
+     "7a987dff",
+     "a6577593"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 148.4,
+    "newFirstMs": 152.1,
+    "oldMedianMs": 36.3,
+    "newMedianMs": 37.6,
+    "medianSpeedup": 0.97,
+    "hashes": [
+     "91e163c2",
+     "a7ed82ac",
+     "591bc24f",
+     "6228d6ec",
+     "37caf651"
+    ]
+   }
+  },
+  {
+   "item": "scrapbook@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 510,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 113.7,
+    "newFirstMs": 62.4,
+    "oldMedianMs": 10.7,
+    "newMedianMs": 11.2,
+    "medianSpeedup": 0.96,
+    "hashes": [
+     "93d5c9be",
+     "70974bac",
+     "3b3ee25c",
+     "1fbb9a3b",
+     "59f23b14"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 127.8,
+    "newFirstMs": 129.3,
+    "oldMedianMs": 21,
+    "newMedianMs": 20.1,
+    "medianSpeedup": 1.04,
+    "hashes": [
+     "f67f5551",
+     "951831ad",
+     "c8c76cc",
+     "d01bc89e",
+     "12875c30"
+    ]
+   }
+  },
+  {
+   "item": "scratchboard@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 480,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 803.2,
+    "newFirstMs": 799.5,
+    "oldMedianMs": 4.2,
+    "newMedianMs": 4.8,
+    "medianSpeedup": 0.88,
+    "hashes": [
+     "ac1c3dc5",
+     "695b058d",
+     "c9a41bb9",
+     "a9d44157",
+     "724d6e7b"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 726.8,
+    "newFirstMs": 710.1,
+    "oldMedianMs": 7.6,
+    "newMedianMs": 8.2,
+    "medianSpeedup": 0.93,
+    "hashes": [
+     "a4193dc5",
+     "cd1ddb06",
+     "3b341032",
+     "21c5a1d8",
+     "2fa3bb06"
+    ]
+   }
+  },
+  {
+   "item": "scratchboard@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 480,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 759.9,
+    "newFirstMs": 749.8,
+    "oldMedianMs": 3.2,
+    "newMedianMs": 2.9,
+    "medianSpeedup": 1.1,
+    "hashes": [
+     "1bc69dc5",
+     "bcdaae29",
+     "473541da",
+     "80b25d82",
+     "23098a57"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 629.9,
+    "newFirstMs": 627.8,
+    "oldMedianMs": 5.8,
+    "newMedianMs": 5.3,
+    "medianSpeedup": 1.09,
+    "hashes": [
+     "d09eb7c5",
+     "1041dec7",
+     "f9a5ecb2",
+     "b9de842b",
+     "ff23d6d7"
+    ]
+   }
+  },
+  {
+   "item": "stipple@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 450,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 930.4,
+    "newFirstMs": 934.2,
+    "oldMedianMs": 2.2,
+    "newMedianMs": 2,
+    "medianSpeedup": 1.1,
+    "hashes": [
+     "aba878b1",
+     "6c3ceb5a",
+     "7ffe52d8",
+     "80938bb1",
+     "2637bcb9"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 1020.3,
+    "newFirstMs": 1026.1,
+    "oldMedianMs": 6.6,
+    "newMedianMs": 6.6,
+    "medianSpeedup": 1,
+    "hashes": [
+     "ccfb7ada",
+     "750cfb3b",
+     "b2436936",
+     "9feca5a5",
+     "35b962dd"
+    ]
+   }
+  },
+  {
+   "item": "stipple@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 450,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 488.7,
+    "newFirstMs": 500.3,
+    "oldMedianMs": 3.4,
+    "newMedianMs": 3.9,
+    "medianSpeedup": 0.87,
+    "hashes": [
+     "5d8d5a74",
+     "76fdb435",
+     "a2ce21d4",
+     "e5d3282",
+     "e3aa4081"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 562.5,
+    "newFirstMs": 581,
+    "oldMedianMs": 6.1,
+    "newMedianMs": 5.8,
+    "medianSpeedup": 1.05,
+    "hashes": [
+     "f0293803",
+     "cff7b62f",
+     "3d260749",
+     "af74a1a5",
+     "fa24834e"
+    ]
+   }
+  },
+  {
+   "item": "sumiE@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 510,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 90.9,
+    "newFirstMs": 85.8,
+    "oldMedianMs": 13.1,
+    "newMedianMs": 15.4,
+    "medianSpeedup": 0.85,
+    "hashes": [
+     "784e9bba",
+     "784e9bba",
+     "ee5a8edf",
+     "2c44718a",
+     "ea8ae2f4"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 204.8,
+    "newFirstMs": 207.8,
+    "oldMedianMs": 17.2,
+    "newMedianMs": 16.9,
+    "medianSpeedup": 1.02,
+    "hashes": [
+     "6bf58e5f",
+     "6bf58e5f",
+     "e492ae51",
+     "b1d0819b",
+     "f6cad2a"
+    ]
+   }
+  },
+  {
+   "item": "sumiE@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 510,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 86.6,
+    "newFirstMs": 89.4,
+    "oldMedianMs": 19.8,
+    "newMedianMs": 19.8,
+    "medianSpeedup": 1,
+    "hashes": [
+     "c5a9b6c5",
+     "87ea85e4",
+     "3b07d678",
+     "68070c60",
+     "f5362945"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 203.9,
+    "newFirstMs": 204.2,
+    "oldMedianMs": 39.3,
+    "newMedianMs": 36.9,
+    "medianSpeedup": 1.07,
+    "hashes": [
+     "b2082043",
+     "27784f4d",
+     "c21b9a54",
+     "98359f47",
+     "299eed74"
+    ]
+   }
+  },
+  {
+   "item": "toyBrick@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 8.7,
+    "newFirstMs": 8.8,
+    "oldMedianMs": 11.8,
+    "newMedianMs": 11.6,
+    "medianSpeedup": 1.02,
+    "hashes": [
+     "94275dc5",
+     "78cdc7b",
+     "8e465def",
+     "27366d4f",
+     "74cd6cd"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 1.8,
+    "newFirstMs": 1.8,
+    "oldMedianMs": 30.7,
+    "newMedianMs": 31.2,
+    "medianSpeedup": 0.98,
+    "hashes": [
+     "ec7d5dc5",
+     "82ee5754",
+     "8377b367",
+     "bc62f8f5",
+     "17e25a7b"
+    ]
+   }
+  },
+  {
+   "item": "toyBrick@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 540,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 8.8,
+    "newFirstMs": 8.3,
+    "oldMedianMs": 14.3,
+    "newMedianMs": 13.7,
+    "medianSpeedup": 1.04,
+    "hashes": [
+     "3f689dc5",
+     "a90b89f6",
+     "33b614c1",
+     "5bcb522",
+     "83437920"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 1.3,
+    "newFirstMs": 1.3,
+    "oldMedianMs": 22,
+    "newMedianMs": 21.6,
+    "medianSpeedup": 1.02,
+    "hashes": [
+     "c51b09c5",
+     "b0dc0050",
+     "ceb3b9c9",
+     "6978d9e",
+     "ad340f35"
+    ]
+   }
+  },
+  {
+   "item": "woodcut@16:9",
+   "plateSourceUnchanged": false,
+   "frames": 420,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 90.7,
+    "newFirstMs": 88.5,
+    "oldMedianMs": 3.5,
+    "newMedianMs": 3.3,
+    "medianSpeedup": 1.06,
+    "hashes": [
+     "fd8ce358",
+     "58eee3c",
+     "75b27d90",
+     "df8b6f6c",
+     "47bf3bb4"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 361,
+    "newFirstMs": 344.1,
+    "oldMedianMs": 11.3,
+    "newMedianMs": 11.7,
+    "medianSpeedup": 0.97,
+    "hashes": [
+     "d9bc4e4a",
+     "8ff3a9fb",
+     "381a9a53",
+     "bd245d9d",
+     "9a68f729"
+    ]
+   }
+  },
+  {
+   "item": "woodcut@1:1",
+   "plateSourceUnchanged": false,
+   "frames": 420,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 130.9,
+    "newFirstMs": 129.4,
+    "oldMedianMs": 7.4,
+    "newMedianMs": 7.5,
+    "medianSpeedup": 0.99,
+    "hashes": [
+     "44e8b745",
+     "bca47e57",
+     "d667bf77",
+     "577fe395",
+     "1dafd3ae"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 258,
+    "newFirstMs": 255.2,
+    "oldMedianMs": 11.7,
+    "newMedianMs": 12.1,
+    "medianSpeedup": 0.97,
+    "hashes": [
+     "6b7335c8",
+     "f0c1df1e",
+     "47812ff0",
+     "124f08dd",
+     "75046377"
+    ]
+   }
+  },
+  {
+   "item": "wren@16:9",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 60.5,
+    "newFirstMs": 58.5,
+    "oldMedianMs": 10.2,
+    "newMedianMs": 10.5,
+    "medianSpeedup": 0.97,
+    "hashes": [
+     "30edd7c9",
+     "30edd7c9",
+     "30edd7c9",
+     "30edd7c9",
+     "30edd7c9"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 225.6,
+    "newFirstMs": 227.9,
+    "oldMedianMs": 13.1,
+    "newMedianMs": 12.8,
+    "medianSpeedup": 1.02,
+    "hashes": [
+     "47d4d1ca",
+     "47d4d1ca",
+     "47d4d1ca",
+     "47d4d1ca",
+     "47d4d1ca"
+    ]
+   }
+  },
+  {
+   "item": "wren@1:1",
+   "plateSourceUnchanged": true,
+   "frames": 1,
+   "small": {
+    "size": "640x640",
+    "identical": true,
+    "oldFirstMs": 108.6,
+    "newFirstMs": 109,
+    "oldMedianMs": 10.4,
+    "newMedianMs": 10.5,
+    "medianSpeedup": 0.99,
+    "hashes": [
+     "8fc6101d",
+     "8fc6101d",
+     "8fc6101d",
+     "8fc6101d",
+     "8fc6101d"
+    ]
+   },
+   "full": {
+    "size": "1080x1080",
+    "identical": true,
+    "oldFirstMs": 224.9,
+    "newFirstMs": 223.3,
+    "oldMedianMs": 11.5,
+    "newMedianMs": 11.2,
+    "medianSpeedup": 1.03,
+    "hashes": [
+     "2d10f396",
+     "2d10f396",
+     "2d10f396",
+     "2d10f396",
+     "2d10f396"
+    ]
+   }
+  },
+  {
+   "item": "fixture:fox-0@9:16",
+   "frames": 90,
+   "small": {
+    "size": "360x640",
+    "identical": true,
+    "oldFirstMs": 57.2,
+    "newFirstMs": 58.2,
+    "oldMedianMs": 22.7,
+    "newMedianMs": 22.6,
+    "medianSpeedup": 1,
+    "hashes": [
+     "7a4def1b",
+     "adbe20a1",
+     "77cbf241",
+     "6c1990fe",
+     "5a79dbff"
+    ]
+   },
+   "full": {
+    "size": "1080x1920",
+    "identical": true,
+    "oldFirstMs": 111.9,
+    "newFirstMs": 116.4,
+    "oldMedianMs": 27.4,
+    "newMedianMs": 28.4,
+    "medianSpeedup": 0.96,
+    "hashes": [
+     "f88e8475",
+     "f5f07832",
+     "df8a466f",
+     "84539da9",
+     "71f27530"
+    ]
+   }
+  },
+  {
+   "item": "fixture:fox-0@16:9",
+   "frames": 90,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 85.4,
+    "newFirstMs": 84.3,
+    "oldMedianMs": 39.8,
+    "newMedianMs": 38.8,
+    "medianSpeedup": 1.03,
+    "hashes": [
+     "e656bcfe",
+     "c9b5d339",
+     "c330a954",
+     "5c722035",
+     "aa052380"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 133.6,
+    "newFirstMs": 163.5,
+    "oldMedianMs": 42.7,
+    "newMedianMs": 46.7,
+    "medianSpeedup": 0.91,
+    "hashes": [
+     "dc25bb4c",
+     "60ad97e4",
+     "f9f272e5",
+     "62197ed8",
+     "3c05c492"
+    ]
+   }
+  },
+  {
+   "item": "fixture:blueprint-0@16:9",
+   "frames": 90,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 61.4,
+    "newFirstMs": 54.6,
+    "oldMedianMs": 11.1,
+    "newMedianMs": 11.1,
+    "medianSpeedup": 1,
+    "hashes": [
+     "970f996b",
+     "ebf128c4",
+     "bbedc7f6",
+     "f9e00f51",
+     "10d3b083"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 341.2,
+    "newFirstMs": 333.5,
+    "oldMedianMs": 31.5,
+    "newMedianMs": 30,
+    "medianSpeedup": 1.05,
+    "hashes": [
+     "e849b69e",
+     "890e85f4",
+     "d716ba3d",
+     "81c32e03",
+     "764ceb45"
+    ]
+   }
+  },
+  {
+   "item": "fixture:balloon-0@16:9",
+   "frames": 105,
+   "small": {
+    "size": "640x360",
+    "identical": true,
+    "oldFirstMs": 71.5,
+    "newFirstMs": 77.4,
+    "oldMedianMs": 17.4,
+    "newMedianMs": 16.1,
+    "medianSpeedup": 1.08,
+    "hashes": [
+     "f9b22be6",
+     "656783b8",
+     "86140e68",
+     "7026c3ae",
+     "ad9fec20"
+    ]
+   },
+   "full": {
+    "size": "1920x1080",
+    "identical": true,
+    "oldFirstMs": 137.8,
+    "newFirstMs": 134.4,
+    "oldMedianMs": 22.4,
+    "newMedianMs": 20.4,
+    "medianSpeedup": 1.1,
+    "hashes": [
+     "42398b34",
+     "18317c17",
+     "1e4237e6",
+     "6fceb97b",
+     "444587dd"
+    ]
+   }
+  },
+  {
+   "item": "fixture:balloon-0@9:16",
+   "frames": 105,
+   "small": {
+    "size": "360x640",
+    "identical": true,
+    "oldFirstMs": 109.1,
+    "newFirstMs": 114,
+    "oldMedianMs": 27.8,
+    "newMedianMs": 26.6,
+    "medianSpeedup": 1.05,
+    "hashes": [
+     "bc276fb9",
+     "a53855b3",
+     "34995a1d",
+     "d3e969b5",
+     "317c6dda"
+    ]
+   },
+   "full": {
+    "size": "1080x1920",
+    "identical": true,
+    "oldFirstMs": 171.3,
+    "newFirstMs": 175.7,
+    "oldMedianMs": 41.3,
+    "newMedianMs": 34.9,
+    "medianSpeedup": 1.18,
+    "hashes": [
+     "e8257f3f",
+     "ceab5b0f",
+     "bac1f57c",
+     "45b146a1",
+     "56461de2"
+    ]
+   }
+  }
+ ]
+}

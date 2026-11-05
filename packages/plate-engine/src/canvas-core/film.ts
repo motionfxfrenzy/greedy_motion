@@ -1,6 +1,6 @@
 // FILM RUNTIME. A film is data: meta, an asset manifest, and shots that tile [0, duration).
 // renderFrame(film, ctx, frame, env) is the whole contract between the art and any backend.
-import type { Ctx, Env } from "./core";
+import { ringNewFrame, type Ctx, type Env } from "./core";
 import type { Piece } from "./music/plan";
 
 /** Hosts preload these scores' verified banks before calling the complete audio mix. */
@@ -72,6 +72,7 @@ const freshState = (ctx: Ctx) => {
 export const renderFrame = (film: Film, ctx: Ctx, frame: number, env: Env): string | null => {
   const s = shotAt(film, Math.max(0, Math.min(film.meta.durationFrames - 1, Math.round(frame))));
   if (!s) return null;
+  ringNewFrame();
   freshState(ctx); ctx.clearRect(0, 0, env.W * env.scale, env.H * env.scale);
   s.draw(ctx, frame - s.start, env);
   return s.id;

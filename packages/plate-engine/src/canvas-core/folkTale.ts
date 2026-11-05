@@ -1,4 +1,4 @@
-import { rng, type Ctx, type Gfx, type Medium, type P } from "./core";
+import { insideRing, rng, type Ctx, type Gfx, type Medium, type P } from "./core";
 import type { Film } from "./film";
 import { clamp, mix } from "./gallery";
 import { fit, runProcess, timeline, type Proc } from "./sumiEKit";
@@ -435,7 +435,7 @@ const sunLines = (S: SunPlant): Line[] => {
 // ---------------------------------------------------------------- ground, grass, flowers
 const meadowTop = (x: number) => 606 + Math.sin(x * 0.004) * 6;
 const PATH: P[] = ribbonOf(smooth([[1060, 1100], [990, 980], [962, 880], [986, 800], [986, 756]], 10), (t) => 150 * (1 - t) ** 1.3 + 17);
-const inPath = (x: number, y: number) => { for (let i = 0, j = PATH.length - 1, k = false; ; j = i++) { if (i >= PATH.length) return k; const a = PATH[i], b = PATH[j]; if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) k = !k; } };
+const inPath = (x: number, y: number) => insideRing(PATH, x, y);
 const paintMeadow = (g: Gfx, p: number) => {
   const c = g.cur, bb: Box = [0, 590, W, H];
   reveal(c, bb, 1.2, p, 1501, () => {

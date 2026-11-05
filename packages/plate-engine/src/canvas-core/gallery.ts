@@ -1,7 +1,7 @@
 // GALLERY KIT. The shared drawing helpers the style-gallery subjects are built from. Everything
 // here is geometry or raw canvas on the CURRENT group surface (g.cur), so it composes with the
 // core's groups, textures and papers. No randomness except rng(seed); no filters; no assets.
-import { Gfx, type Ctx, type P, rng, sample, fractal, adaptPts } from "./core";
+import { Gfx, type Ctx, type P, rng, sample, fractal, adaptPts, insideRing } from "./core";
 
 export const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -109,4 +109,4 @@ export const hatchRuns = (b: { x0: number; y0: number; x1: number; y1: number },
   }
   return runs;
 };
-export const inside = (pts0: P[], x: number, y: number) => { const pts = adaptPts(pts0); let k = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) k = !k; } return k; };
+export const inside = (pts0: P[], x: number, y: number) => insideRing(adaptPts(pts0), x, y);

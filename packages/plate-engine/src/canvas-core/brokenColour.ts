@@ -36,7 +36,7 @@
 //   a clinker dinghy and the rowing stroke (oarsman faces aft, blades square at the drive); how
 //   reflections work on rippled water (each ripple faces a different slice of sky, so a reflection
 //   stretches DOWN and breaks into bars; a vertical mast reflects as a wobbling zig-zag).
-import { fractal, rng, type P } from "./core";
+import { fractal, insideRing, rng, type P } from "./core";
 import type { Film } from "./film";
 import { brush, checkOps, fromHsl, linen, mixC, schedule, smoothstep, staged, toHsl, type Mark, type Op, type RGB } from "./brokenColourKit";
 
@@ -47,7 +47,7 @@ const W = META.W, H = META.H;
 // ---------------------------------------------------------------- the motif, in unit coordinates
 const HZ = 0.5;                                    // horizon
 const SUN: P = [0.62, 0.392], SUN_R = 0.031;
-const inPoly = (poly: P[], x: number, y: number) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+const inPoly = (poly: P[], x: number, y: number) => insideRing(poly, x, y);
 const interp = (knots: P[], u: number) => { if (u <= knots[0][0]) return knots[0][1]; for (let i = 1; i < knots.length; i++) if (u <= knots[i][0]) { const [a, va] = knots[i - 1], [b, vb] = knots[i]; return va + ((vb - va) * (u - a)) / (b - a || 1); } return knots[knots.length - 1][1]; };
 // the far town: roof line, a campanile at 0.13, a chimney at 0.42, stepping down to the harbour mouth
 const TOWN: P[] = [[0, 0.437], [0.03, 0.437], [0.031, 0.429], [0.068, 0.429], [0.07, 0.442], [0.1, 0.442], [0.124, 0.44], [0.125, 0.398], [0.1315, 0.384], [0.138, 0.398], [0.139, 0.441], [0.168, 0.445], [0.17, 0.434], [0.218, 0.431], [0.221, 0.447], [0.268, 0.452], [0.3, 0.455], [0.335, 0.451], [0.4, 0.458], [0.417, 0.457], [0.418, 0.409], [0.427, 0.409], [0.428, 0.461], [0.46, 0.47], [0.5, 0.481], [0.525, 0.493], [0.54, 0.5]];

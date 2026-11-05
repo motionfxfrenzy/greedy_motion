@@ -16,7 +16,7 @@
 // The flower is a dog rose (Rosa canina): five broad heart-notched petals, imbricate, cupped, on a
 // tilted face, a ring of many stamens round a flat disc of styles, a prickled stem and a pinnate
 // leaf with serrate leaflets. Light: one lamp, upper left, for both.
-import { rng, fractal, type P } from "./core";
+import { rng, fractal, insideRing, type P } from "./core";
 import { profile, resample, smooth } from "./gallery";
 import { cutLine, dense, occluder, type Cut, type Occluder, clamp01 } from "./scrapbookKit";
 
@@ -204,7 +204,7 @@ export const bee = (ox: number, oy: number, deg: number, sc: number): Engraving 
     bounds: sil.flat(),
   };
 };
-const occHit = (o: Occluder, x: number | P, y?: number) => { const px = typeof x === "number" ? x : x[0], py = typeof x === "number" ? y! : x[1]; if (px < o.b.x0 || px > o.b.x1 || py < o.b.y0 || py > o.b.y1) return false; let k = false; const pts = o.pts; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if (a[1] > py !== b[1] > py && px < ((b[0] - a[0]) * (py - a[1])) / (b[1] - a[1]) + a[0]) k = !k; } return k; };
+const occHit = (o: Occluder, x: number | P, y?: number) => { const px = typeof x === "number" ? x : x[0], py = typeof x === "number" ? y! : x[1]; if (px < o.b.x0 || px > o.b.x1 || py < o.b.y0 || py > o.b.y1) return false; return insideRing(o.pts, px, py); };
 
 // ---------------------------------------------------------------- the dog rose
 export const rose = (cx: number, cy: number, R: number): Engraving => {

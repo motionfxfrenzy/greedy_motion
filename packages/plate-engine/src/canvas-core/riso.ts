@@ -1,7 +1,7 @@
 // RISOGRAPH TOOLKIT for representational subjects. Volume comes from a halftone screen whose
 // dots change size with a TONE FUNCTION, so realism is a matter of writing the right tone
 // function for the form: a lit dome, a cylinder, distance to a fold.
-import { Gfx, Medium, P, displace, halftone, poly, rng, sample } from "./core";
+import { Gfx, Medium, P, displace, halftone, insideRing, poly, rng, sample } from "./core";
 
 export const INK = { pink: "#ff48b0", blue: "#0078bf", yellow: "#ffd400", teal: "#00838a", red: "#f15060" }, PAPER = "#f5efe2";
 export const LITHO: Medium = { nib: 1.5, taper: 0.95, pressure: 1.15, retrace: false, wobble: 0.9, rough: 0.9 }; // litho crayon: swells and thins
@@ -15,7 +15,7 @@ export const screen = (g: Gfx, b: { x0: number; y0: number; x1: number; y1: numb
   halftone(b, pitch, ang, tone).forEach(([x, y, r]) => { c.moveTo(x + r, y); c.arc(x, y, r, 0, Math.PI * 2); }); c.fill(); c.restore();
 };
 export const bounds = (pts: P[]) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; pts.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }); return { x0, y0, x1, y1 }; };
-export const inside = (pts: P[], x: number, y: number) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+export const inside = (pts: P[], x: number, y: number) => insideRing(pts, x, y);
 // how far across the form is this point, 0..1, along one axis? (a cylinder lit from one side)
 export const across = (pts: P[], axis: "x" | "y") => { const memo = new Map<number, [number, number]>(), a = axis === "x" ? 0 : 1, o = 1 - a; return (x: number, y: number) => { const q = [x, y], key = Math.round(q[o]); let span = memo.get(key); if (!span) { let lo = 1e9, hi = -1e9; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const p = pts[i], r = pts[j]; if (p[o] > key !== r[o] > key) { const v = p[a] + ((key - p[o]) * (r[a] - p[a])) / (r[o] - p[o]); lo = Math.min(lo, v); hi = Math.max(hi, v); } } span = [lo, hi]; memo.set(key, span); } return span[1] <= span[0] ? 0 : Math.max(0, Math.min(1, (q[a] - span[0]) / (span[1] - span[0]))); }; };
 // nearest distance to a set of polylines, through a grid so 30k dots stay cheap
