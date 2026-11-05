@@ -4,6 +4,8 @@ Written by the manager session that took over from `docs/HANDOFF_2026-11-05_LIVE
 
 ---
 
+> **Read section 10 first.** At the end of this session the owner asked to stop every background task: Argon's phase 3g and the Sonnet engine agent were stopped mid-work. Section 10 says exactly what each left on disk and how to resume. Wherever this file says "running", read "stopped, resume per section 10".
+
 ## 0. Where things stand, in one paragraph
 
 Staging runs `23e1963`: live preview on, with the auth fix (live calls carry the user's token), phase 3f pre-draw at 640x360 / 15 fps and a 20 s limit, and one-scene-at-a-time measurement. The owner then decided the final playback design (`docs/LIVE_PLAYBACK_PLAN.md`, changes A to F): an exact engine speed-up, 30 fps, video-style buffering with one clock for picture and sound, draw-once frame storage as lossy WebP 0.4 with a Low/Standard/High setting changed by a background job, and background drawing. **Change A** (engine) is being built by a Sonnet subagent in `../VideoSaaS-engine`; **changes B to F** (phase 3g) by Gemini Argon in `../VideoSaaS-predraw`. **Phase 4a** (HyperFrames element edits, Argon, with the browser-measurement fix) is finished but **uncommitted** in `../VideoSaaS-live-scenes`, awaiting the manager's review. A **second-opinion review** (section 6) found real gaps; the plan and briefs must be revised before shipping (section 7 lists the order).
@@ -96,3 +98,33 @@ Full index with paths: section 8 of the review pack the owner holds; summary:
 - Reports: `docs/phase3/3f-report.md` (predraw); `docs/phase4/element-edits-report.md` (live-scenes); `docs/staging/plates-smoke-report.md` (smoke). Pending: `docs/phase3/3g-report.md`, `../VideoSaaS-engine/docs/phase3/engine-inside-report.md`.
 - Commits: 780d868 (auth fix), 9f52346 (3f), 23e1963 (3f follow-up), 1b8ee56 (plan + 3g brief), plus this handoff.
 - Measurement scripts (old session scratchpad, may be cleaned by the system): `/private/tmp/claude-501/-Users-osamaehsaan-Code-Market-apps-VideoSaaS/27148fa8-5b3f-43cb-8253-cd887b35dfeb/scratchpad/` `draw-diag.mjs`, `memo-diag.mjs`, `inside-diag.mjs`, `store-diag.mjs`, `webp-fidelity.mjs`, `export-frames.mjs`, `quality-cost.mjs`, `page-template.html`, `draw-once.html`, `frames.json`. Copied into the repo at `tools/phase3/measure/` by this handoff commit.
+
+## 10. Background tasks: stopped at the end of this session, and how to resume each
+
+All stopped on the owner's request at about 13:55 +08 on 2026-11-05. Nothing is running now (`opencode api session.active` returned `{"data":{}}`; the Sonnet subagent and the watcher were stopped).
+
+### 10.1 Phase 3g (Gemini Argon) in `../VideoSaaS-predraw`: stopped, NO changes on disk
+- OpenCode session `ses_e55c92b3cffeF5Ns4O1qZy0zc2` ("phase3g playback store", started 13:47) was interrupted while still reading; `git status` in the worktree was clean afterwards (only the committed brief and plan exist).
+- **Resume:** do NOT relaunch on the current brief. First revise `docs/LIVE_PLAYBACK_PLAN.md` and `tools/phase3/TASK-3g-playback-store.md` with section 6 items 3 to 6 and the wording fixes (owner's decision on item 3 first: may frames drawn ahead be shown from the stored 0.4 copy on first play, or must first play stay exact?). Also add to the brief: lowering quality redraws from code (not re-encode), "replays while stored", the 1.25x start-buffer margin, bounded encoder queue / bitmap close / cancellation / priority order, Web Audio timeline and the extra audio tests. Commit, then launch from a terminal tab:
+  `cd /Users/osamaehsaan/Code/Market_apps/VideoSaaS-predraw && opencode run -m google/gemini-4-argon --title "phase3g playback store v2" "Read tools/phase3/TASK-3g-playback-store.md in full and do exactly what it says, in order. Start with docs/LIVE_PLAYBACK_PLAN.md. Work only in this worktree; do not touch ../VideoSaaS-live-scenes or ../VideoSaaS-engine. Follow every rule in the brief. End your final message with exactly: DONE docs/phase3/3g-report.md"`
+- **Watcher** (Monitor tool, `timeout_ms` 1800000, re-arm on each expiry):
+  `cd /Users/osamaehsaan/Code/Market_apps/VideoSaaS-predraw; sleep 60; while true; do if opencode api session.active 2>/dev/null | grep -q '"type":"running"'; then :; else sleep 20; if ! opencode api session.active 2>/dev/null | grep -q '"type":"running"'; then if [ -f docs/phase3/3g-report.md ]; then echo "ARGON DONE phase-3g"; else echo "ARGON STOPPED phase-3g: no report"; fi; exit 0; fi; fi; if [ -z "$(find frontend tools docs -type f -mmin -45 -not -path '*/node_modules/*' -not -path '*/.next/*' 2>/dev/null | head -1)" ]; then echo "ARGON STALLED? phase-3g"; sleep 2400; fi; sleep 300; done`
+
+### 10.2 Engine fix (Sonnet subagent) in `../VideoSaaS-engine`: stopped, PARTIAL work on disk (uncommitted)
+- Last message before it was stopped: "All 65 items identical under software rendering. Now the crayon fixtures."
+- On disk (branch `codex/engine-inside`, base 23e1963, nothing committed):
+  - Code: `packages/plate-engine/src/canvas-core/gallery.ts`, `core.ts` (the indexed `inside`, `RingIndex`, `ringCache`, guard on length + first/middle/last vertex, `RING_MIN = 16`, non-finite/huge inputs take the original loop), and the other engine copies of the even-odd test it routed to the shared one: `brokenColour.ts`, `colouredPencilKit.ts`, `folkTale.ts`, `riso.ts`, `scrapbookEngraving.ts`, `scrapbookKit.ts`, `scratchboardKit.ts`, `woodcut.ts`; plus `NOTICE`, `PROVENANCE.md`, `manifest.json`, `package.json` (version). 14 files, +97 / -22.
+  - Tests and tools: `packages/plate-engine/test/inside-identity.mjs`, `tools/phase3/engine-identity.mjs`, `tools/phase3/crayon-fixtures.mjs`.
+  - Evidence: `docs/phase3/engine-identity-result.json` (13:50, **software rendering: 65 items, allIdentical true**, storybook@16:9 and @1:1 skipped: "no `: Film` export to alias as `film`"); `docs/phase3/engine-identity-result-gpu.json` (13:39, **GPU rendering: allIdentical false**: `lighthouse@16:9` at 640 and 1920, `moonPhases@1:1` at 640; in each the first draw's hash differs from the following draws of the same frame).
+  - NOT done: the crayon-fixture speed measurement with the new engine, the re-bundle proposal, the report `docs/phase3/engine-inside-report.md`, the stronger mutation guard (section 6.2).
+- **Resume:** start a new agent (Sonnet subagent or Argon) in that worktree with a follow-up brief: (1) read `tools/phase3/TASK-engine-inside.md` and the existing uncommitted changes; (2) explain the GPU differences: run the OLD engine twice on GPU for lighthouse and moonPhases and show whether its first draw also varies, then compare old vs new after one warm-up draw; (3) cover storybook (alias its export or bundle it another way); (4) replace the guard with "rebuild each outline's index once per frame (clear at `seek`) after a full-content check", with a test editing a middle vertex between frames; (5) the crayon-fixture timing; (6) the re-bundle proposal with the section 6.7 safeguards; (7) write the report. Then the manager reruns `node packages/plate-engine/test/engine.test.mjs`, `node packages/plate-engine/test/inside-identity.mjs`, `node tools/phase3/engine-identity.mjs` (both rendering modes) before committing.
+
+### 10.3 Phase 4a review (manager task, not an agent): paused
+- Argon's 4a and 4a-fix work is complete and uncommitted in `../VideoSaaS-live-scenes` (all OpenCode sessions there are finished). Resume with section 5: review the diffs, fix or explain the flaky `plan-element-edits` (fails in the full parallel backend run, passes alone), decide the preview-meter counting, rerun plates screenshots and `node tools/phase4/render-parity.mjs` on the local stack, then commit.
+
+### 10.4 Smoke script (Sonnet, finished earlier): waiting for review
+- `../VideoSaaS-smoke` (branch `codex/staging-smoke`), uncommitted: `tools/staging/plates-smoke.mjs`, `mock-api.mjs`, `plates-smoke.test.mjs`, `fixtures/`, `docs/staging/plates-smoke-report.md`. Manager reran its 25 mock tests (25/25). Next: review, commit, run against the local plates-e2e stack (`SMOKE_PROJECT` recipe in its report), then staging as the test user.
+
+### 10.5 Things only the owner can do
+- Decide section 6 item 3 (first play from the stored copy or exact).
+- Run harness-blocked commands when asked (plan grants, Secrets Manager writes, R2 CORS writes).
