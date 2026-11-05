@@ -58,7 +58,7 @@ Expected: only the 5 known failures (`billing`, `brand-files`, `render-prep`, `s
 ## Forbidden actions
 - No `git commit`, `push`, `reset`, `stash`, `checkout`, `rebase`, `merge`.
 - No deploys, no Railway/Supabase/AWS/Cloudflare calls, no secrets, no real model API calls, no other worktrees, no `opencode run --auto`, no launching other agents, no touching `videosaas-local-postgres-1` or `videosaas-local-worker-1`.
-- Locks: the full backend loop is timing-sensitive; before it create `/Users/osamaehsaan/Code/Market_apps/.lock-timing` containing `4a` and the time (wait if it exists), delete it when finished. This task needs no Docker stack. Do not interrupt any OpenCode session that is not yours.
+- Locks: the full backend loop is timing-sensitive; before it take `/Users/osamaehsaan/Code/Market_apps/.lock-timing` ATOMICALLY: `( set -C; echo "4a $(date -u +%FT%TZ)" > /Users/osamaehsaan/Code/Market_apps/.lock-timing )`; if that fails the lock is held, so sleep 60 and retry in the foreground (never leave a background waiter process, never check-then-write); delete the file when finished. This task needs no Docker stack. Do not interrupt any OpenCode session that is not yours.
 
 ## Report
 Append a section "4a v2 meter" to `docs/phase4/element-edits-report.md`: the owner's decision (quote above, dated 2026-11-05), files changed, the seven test results, the cited lines for the no-refund rule, loop results. End your final message with exactly one line:
