@@ -13,7 +13,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HYPERFRAMES_NO_TELEMETRY=1 \
     HYPERFRAMES_NO_UPDATE_CHECK=1
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends chromium ffmpeg fonts-liberation fonts-dejavu-core ca-certificates tini \
+  && apt-get install -y --no-install-recommends chromium ffmpeg fonts-liberation fonts-dejavu-core fonts-noto-core ca-certificates tini \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --uid 10001 --shell /usr/sbin/nologin renderer
 WORKDIR /app

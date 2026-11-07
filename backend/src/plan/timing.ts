@@ -89,7 +89,7 @@ const wordList = (text: string | null | undefined) => (text ?? "").trim().split(
 const frame = (seconds: number) => Math.round(seconds * TIMING_RULES.fps) / TIMING_RULES.fps;
 const round = (seconds: number) => Math.round(seconds * 1000) / 1000;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const bare = (word: string) => word.toLowerCase().replace(/[^a-z0-9]/g, "");
+const bare = (word: string) => word.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, "");
 
 /** What the engine actually draws for a beat: generated beats render their 2D fallback until clips exist. */
 export function engineKind(beat: Pick<Beat, "kind" | "ui" | "fallback">): EngineKind {
@@ -157,14 +157,22 @@ function flex(rows: Row[], amount: number): number {
  * - kinetic and silent beats run 1.6–4 s (a long voiced line wins over the 4 s cap), UI beats 2.6–5.5 s,
  *   the hook is ≤ 3 s, the title is ≥ 2 s and keeps a landed tail of ≥ 1.2 s after its line;
  * - the film is then scaled toward `target_duration_s` (silent beats and the title flex first, then
- *   holds after voiced lines), never below a minimum; it lands within ±10% or a warning says why not.
+ *   holds after voiced lines), never below a minimum; it lands within ±10% or a warning says why not;
+ * - when the narration is not English and every voiced line has a measured take, the film follows the audio instead: a short voiced line is not held to the
+ *   minimum, and nothing is stretched to reach the chosen length (a short Hindi line is not followed by silence).
  */
-export function planTiming(plan: BeatPlan, brief?: Pick<ScriptBrief, "pace"> | null, options: TimingOptions = {}): PlanTiming {
+export function planTiming(plan: BeatPlan, brief?: (Pick<ScriptBrief, "pace"> & { audio?: { language?: string } }) | null, options: TimingOptions = {}): PlanTiming {
   const R = TIMING_RULES;
   const pace = brief?.pace ?? inferPace(plan);
   const wpm = paceWpm[pace];
   const warnings: string[] = [];
   const beats = plan.beats;
+  // When every voiced line has a measured take, the film follows the audio: nothing is stretched to reach the chosen length and a short
+  // line is not held to the default minimum, so cuts and waits are the voice's own (a short Hindi line is not followed by silence).
+  const voicedBeats = beats.filter((beat) => beat.line?.trim());
+  // Only for narration in another language than English: English films keep their chosen length and minimums.
+  const otherLanguage = Boolean(brief?.audio?.language && brief.audio.language !== "en");
+  const followAudio = otherLanguage && voicedBeats.length > 0 && voicedBeats.every((beat) => (options.lineSeconds?.[beat.id] ?? 0) > 0);
   const rows: Row[] = beats.map((beat, i) => {
     const kind = engineKind(beat);
     const line = beat.line?.trim() || null;
@@ -181,6 +189,7 @@ export function planTiming(plan: BeatPlan, brief?: Pick<ScriptBrief, "pace"> | n
     let max: number = kind === "ui" ? R.uiMax : kind === "title" ? R.titleMax : R.kineticMax;
     // A UI beat must fit the cursor's travel, the action and its result.
     if (kind === "ui") min = Math.max(min, 1.0 + actionSeconds(beat) + (beat.success ? R.successComma + 0.6 : 0.4));
+    else if (followAudio && line && !last) min = Math.min(min, 1.0);
     const voiceNeed = line ? pre + lineDur + (last ? R.landedTail : -R.jcut) : 0;
     const hardMin = Math.max(min, voiceNeed);
     if (beat.role === "hook") {
@@ -198,13 +207,14 @@ export function planTiming(plan: BeatPlan, brief?: Pick<ScriptBrief, "pace"> | n
   const silentFirst = rows.filter((row) => !row.line || row === lastRow);
   const voiced = rows.filter((row) => row.line && row !== lastRow);
   let diff = target - sum();
+  if (followAudio && diff > 0) diff = 0;
   if (Math.abs(diff) > 0.01) {
     diff -= flex(silentFirst, diff);
     if (Math.abs(diff) > 0.01) diff -= flex(voiced, diff);
   }
   // Still short of the -10% bound: stretch every beat proportionally past its soft max (never the hook).
   const floor = target * (1 - R.tolerance);
-  if (sum() < floor) {
+  if (sum() < floor && !followAudio) {
     const stretchable = rows.filter((row) => row.beat.role !== "hook");
     const short = floor - sum();
     const base = stretchable.reduce((total, row) => total + row.duration, 0);

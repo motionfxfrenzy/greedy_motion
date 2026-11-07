@@ -35,14 +35,14 @@ const PACE_DELIVERY: Record<Pace, string> = {
   fast: "fast and punchy, about 160 words per minute, no lingering pauses"
 };
 
-export type VoiceSettings = { voice: string; direction: string; pace: Pace };
+export type VoiceSettings = { voice: string; direction: string; pace: Pace; /** Spoken language id (voiceLanguages); "en" when the film is in English. */ language: string };
 
 /** The narrator for a project: the brief's voice, else the plan's, else the request's, else the default. */
 export function voiceSettings(project: Pick<VideoProject, "brief" | "beatPlan" | "request">): VoiceSettings {
   const candidates = [project.brief?.audio.voice, project.beatPlan?.audio.voice?.voice, project.request.audio?.voice];
   const voice = candidates.find((id): id is string => typeof id === "string" && voiceIds.includes(id)) ?? defaultVoice;
   const direction = project.beatPlan?.audio.voice?.direction?.trim() || "clear, confident product narration";
-  return { voice, direction: direction.slice(0, 200), pace: project.brief?.pace ?? "balanced" };
+  return { voice, direction: direction.slice(0, 200), pace: project.brief?.pace ?? "balanced", language: project.brief?.audio.language ?? "en" };
 }
 
 export const takeKey = (settings: VoiceSettings, text: string) =>
@@ -146,14 +146,15 @@ async function voiceTakes(apiKey: string, dir: string, settings: VoiceSettings, 
 
 // ---------- word alignment ----------
 
-const bare = (word: string) => word.toLowerCase().replace(/[^a-z0-9]/g, "");
+const bare = (word: string) => word.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, "");
 const tokens = (text: string) => text.split(/\s+/).filter(Boolean);
 const round = (value: number) => Math.round(value * 1000) / 1000;
 
 /** Fallback word times: the measured length shared by syllables, with a beat at each comma. */
 export function estimateWords(text: string, seconds: number): PlanVoiceWord[] {
   const words = tokens(text);
-  const weight = (word: string) => Math.max(1, (bare(word).match(/[aeiouy]+/g) ?? []).length) + (/[,;:—–]$/.test(word) ? 0.8 : 0);
+  // Latin words weigh by vowel groups; other scripts (Devanagari, Arabic...) by length, about one syllable per three letters.
+  const weight = (word: string) => (/[a-z]/i.test(word) ? Math.max(1, (bare(word).match(/[aeiouy]+/g) ?? []).length) : Math.max(1, Math.ceil([...bare(word)].length / 3))) + (/[,;:—–]$/.test(word) ? 0.8 : 0);
   const total = words.reduce((sum, word) => sum + weight(word), 0) || 1;
   let at = 0;
   return words.map((word) => {
@@ -230,12 +231,13 @@ export const alignModel = process.env.VOICE_ALIGN_MODEL || "gemini-2.5-flash";
  * and reports each word with its start and end in seconds. Its times are approximate, so they are checked (finite, in order,
  * inside the audio) before use, and `alignWords` anchors the line's own words on them; anything off falls back to the estimate.
  */
-async function heardByGemini(wav: Buffer, total: number): Promise<Heard[] | null> {
+async function heardByGemini(wav: Buffer, total: number, reference: string[] = []): Promise<Heard[] | null> {
   if (!config.geminiApiKey) return null;
   const prompt = [
     "Transcribe this narration word by word with the time each word starts and ends, in seconds from the start of the audio (decimals, e.g. 1.24).",
     "There are short silences between sentences. Reply with a JSON array only, no prose: [{\"text\": string, \"start\": number, \"end\": number}].",
-    "Write the words exactly as spoken. Never invent words that are not in the audio."
+    "Write the words exactly as spoken. Never invent words that are not in the audio.",
+    ...(reference.length ? ["The narration reads these lines. Write each word in the same language and the same letters as the matching word here (Roman letters stay Roman, Devanagari stays Devanagari), never translated:", ...reference.map((line) => `- ${line}`)] : [])
   ].join("\n");
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${alignModel}:generateContent`, {
     method: "POST",
@@ -261,14 +263,15 @@ async function heardByGemini(wav: Buffer, total: number): Promise<Heard[] | null
 }
 
 /** Word times for each take: one pass over all of them, by Whisper where it is installed, else by Gemini; null when neither works. */
-async function transcribeTakes(takes: Take[]): Promise<Heard[][] | null> {
+async function transcribeTakes(takes: Take[], language: string): Promise<Heard[][] | null> {
   if (!takes.length) return null;
   const work = await mkdtemp(join(tmpdir(), "plan-vo-"));
   try {
     const { pcm, offsets } = joinWithGaps(takes.map((take) => take.pcm), VOICE_RULES.alignGap);
     const wav = writeWav(pcm);
     let heard: Heard[] | null = null;
-    if (await exists(hyperframesBin)) {
+    // The bundled Whisper model is English-only: other languages are always listened to by Gemini.
+    if (language === "en" && await exists(hyperframesBin)) {
       try {
         await writeFile(join(work, "all.wav"), wav);
         const timeout = Math.max(30_000, pcmSeconds(pcm) * 4000);
@@ -279,7 +282,7 @@ async function transcribeTakes(takes: Take[]): Promise<Heard[][] | null> {
         if (Array.isArray(parsed)) heard = parsed;
       } catch { heard = null; }
     }
-    if (!heard) heard = await heardByGemini(wav, pcmSeconds(pcm)).catch(() => null);
+    if (!heard) heard = await heardByGemini(wav, pcmSeconds(pcm), language === "en" ? [] : takes.map((take) => take.text)).catch(() => null);
     if (!heard) return null;
     const half = VOICE_RULES.alignGap / 2;
     return takes.map((take, i) => heard!
@@ -304,7 +307,7 @@ export async function produceVoice(apiKey: string, dir: string, settings: VoiceS
   const clean = jobs.map((job) => ({ beat: job.beat, text: voiceText(job.text) })).filter((job) => job.text);
   const takes = await voiceTakes(apiKey, dir, settings, clean);
   const fresh = takes.filter((take) => !reuse.has(`${take.file}\u0000${take.text}`));
-  const heard = await transcribeTakes(fresh);
+  const heard = await transcribeTakes(fresh, settings.language);
   const lines = takes.map((take) => {
     const old = reuse.get(`${take.file}\u0000${take.text}`);
     if (old) return { ...old, beat: take.beat };

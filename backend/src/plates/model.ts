@@ -276,11 +276,19 @@ export function mergeSubtitles(current: PlateSubtitles, input: Record<string, un
 
 // ---------------------------------------------------------------- timing
 const wordsOf = (text: string | null) => (text ?? "").trim().split(/\s+/).filter(Boolean).length;
-/** A scene runs at least as long as its voiceover clip (plus a short breath), or its word-count estimate when unvoiced. */
-export const secondsFor = (beat: ScriptBeat, voiceSeconds?: number) => {
+/**
+ * A scene runs at least as long as its voiceover clip (plus a short breath), or its word-count estimate when unvoiced.
+ * With `followAudio` (narration in another language than English) a voiced scene follows its own clip with no word-count
+ * floor, never under 1.5 s so the picture can land: a 0.8 s line of Hindi is not followed by seconds of silence.
+ */
+export const secondsFor = (beat: ScriptBeat, voiceSeconds?: number, followAudio = false) => {
   const estimated = Math.round(Math.min(8, Math.max(3, wordsOf(beat.line) / 2.6 + 0.8)) * 2) / 2;
-  return voiceSeconds && voiceSeconds > 0 ? Math.max(estimated, Math.ceil((voiceSeconds + 0.3) * 2) / 2) : estimated;
+  if (!(voiceSeconds && voiceSeconds > 0)) return estimated;
+  const voiced = Math.ceil((voiceSeconds + 0.3) * 2) / 2;
+  return followAudio ? Math.max(1.5, voiced) : Math.max(estimated, voiced);
 };
+/** Narration in another language than English: plate scenes follow the voice (see `secondsFor`). */
+export const followsAudio = (project: Pick<VideoProject, "brief">) => Boolean(project.brief?.audio?.language && project.brief.audio.language !== "en");
 export const framesForSeconds = (seconds: number) => Math.max(1, Math.round(seconds * FPS));
 
 export type Take = { beat?: string; text: string; seconds?: number; file?: string; words?: { text: string; start: number; end: number }[] };

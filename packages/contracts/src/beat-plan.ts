@@ -2,6 +2,7 @@ import { resolveSceneRoute, type SceneRendering } from "./scene-rendering.ts";
 // Product flow v2 (docs/PRODUCT_FLOW_V2.md): the Script & Style brief and the beat plan.
 // The beat plan mirrors .claude/skills/gm-script-director/references/beat-plan.schema.json;
 // change both together. Budgets come from gm-skill-authoring/references/script-for-motion.md.
+import { voiceLanguageIds } from "./audio.ts";
 import { isLook, type LookId } from "./looks.ts";
 import { getStyleFamily } from "./style-families.ts";
 import { parseScriptBeats, parseScriptNotes, type ScriptBeat, type ScriptNotes } from "./script-stream.ts";
@@ -42,7 +43,7 @@ export type ScriptBrief = {
   aspects?: Aspect[];
   motionProfile: MotionProfile;
   pace: Pace;
-  audio: { mode: AudioMode; voice?: string; musicMood?: string };
+  audio: { mode: AudioMode; voice?: string; musicMood?: string; /** Language of the VOICE lines (voiceLanguages); English when absent. */ language?: string };
   captions: CaptionMode;
   /** Optional structure skill, e.g. "gm-feature-explainer". Null lets the director choose. */
   template?: string | null;
@@ -259,7 +260,8 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     audio: {
       mode: value.audio.mode,
       ...(clean(value.audio.voice, 40) ? { voice: clean(value.audio.voice, 40) } : {}),
-      ...(clean(value.audio.musicMood, 120) ? { musicMood: clean(value.audio.musicMood, 120) } : {})
+      ...(clean(value.audio.musicMood, 120) ? { musicMood: clean(value.audio.musicMood, 120) } : {}),
+      ...(typeof value.audio.language === "string" && value.audio.language !== "en" && voiceLanguageIds.includes(value.audio.language) ? { language: value.audio.language } : {})
     },
     captions,
     template: typeof value.template === "string" ? value.template : null,

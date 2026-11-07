@@ -8,6 +8,7 @@ import {
   hookWordLimit,
   plainText,
   voiceIds,
+  voiceLanguages,
   beatCountRange,
   beatPlanProblems,
   formatForDuration,
@@ -327,6 +328,19 @@ const SYSTEM = [
   "- music_prompt: instrumental mood and energy matching the motion profile and pace, with a tempo in BPM (use the tempo the VIDEO TYPE playbook gives) and, where that playbook calls for one, a drop that the success moment lands on; no artist or brand names. Null when there is no music. voice_direction: delivery notes for the narrator, or null without a voiceover."
 ].join("\n");
 
+/** The VOICE lines' language. Everything else (key phrases, visual directions, on-screen words) stays English. */
+function languageRule(brief: ScriptBrief): string[] {
+  const language = voiceLanguages.find((item) => item.id === brief.audio.language);
+  if (!language || language.id === "en") return [];
+  return [
+    `VOICE LANGUAGE: ${language.writer}. Write every VOICE line (the "line" of each beat) in natural, spoken ${language.writer}, the way a person says it, not a word-for-word translation. BEAT key phrases, VISUAL directions and SCREEN / on-screen words stay in English.`,
+    brief.scriptMode === "own"
+      ? `The person's script is already in ${language.writer}, in either its own script or Roman letters. Keep their words and the letters they used exactly as written: never translate, correct, transliterate or reword them. Split them across the beats and write the English key phrases and visual directions around them.`
+      : `Use the letters of ${language.writer}'s own script (for Hindi, Devanagari) for the VOICE lines.`,
+    "The word budget and the hook limit count spoken words in that language."
+  ];
+}
+
 export function userMessage(brief: ScriptBrief, context: DirectorContext) {
   const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
@@ -340,6 +354,7 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
     ...(sceneDirection(brief.look, brief.styleFamily) ? [sceneDirection(brief.look, brief.styleFamily)] : []),
     ...styleExampleBlock(brief.styleExample),
     `Audio: ${brief.audio.mode}${brief.audio.musicMood ? `; music mood: ${brief.audio.musicMood}` : ""}. Captions: ${brief.captions}.`,
+    ...(voiced ? languageRule(brief) : []),
     brief.template ? `Structure template: ${brief.template}.` : "Structure: choose the shape for the format.",
     ...contextBlocks(brief, context),
     ...(context.approvedScript ? [approvedScriptBlock(context)] : []),

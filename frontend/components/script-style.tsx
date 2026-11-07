@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BrandExtraction, BrandKit, SiteCapture } from "@videosaas/contracts";
-import { aspects, beatCountRange, DEFAULT_LOOK, DURATION_MAX, DURATION_MIN, durationPresets, OWN_SCRIPT_MAX, parseScriptBrief, PROBLEM_TEXT_MAX, voices, wordBudget, type Aspect, type AudioMode, type CaptionMode, type MotionProfile, type Pace, type ScriptBrief } from "@videosaas/contracts";
+import { aspects, beatCountRange, DEFAULT_LOOK, DURATION_MAX, DURATION_MIN, durationPresets, OWN_SCRIPT_MAX, parseScriptBrief, PROBLEM_TEXT_MAX, voiceLanguages, voices, wordBudget, type Aspect, type AudioMode, type CaptionMode, type MotionProfile, type Pace, type ScriptBrief } from "@videosaas/contracts";
 import { BrandKitField } from "./brand-kit";
 import { ThemePicker } from "./theme-picker";
 import { StylePicker } from "./style-picker";
@@ -157,6 +157,7 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
         <section className="ss-card">
           <header><b>Sound and captions</b><span>{voiced ? "Narration drives the timing" : "Beats drive the timing"}</span></header>
           <div className="ss-field"><b>Audio</b><Segmented label="Audio" value={brief.audio.mode} options={audioOptions} onChange={(mode) => update({ audio: { ...brief.audio, mode } })} /></div>
+          {voiced && <label className="ss-field ss-select"><b>Voice language</b><select value={brief.audio.language ?? "en"} onChange={(event) => update({ audio: { ...brief.audio, language: event.target.value === "en" ? undefined : event.target.value } })}>{voiceLanguages.map((language) => <option key={language.id} value={language.id}>{language.label}</option>)}</select></label>}
           {(voiced || music) && <div className="ss-inline-fields">
             {voiced && <label><span>Voice</span><select value={brief.audio.voice ?? "Kore"} onChange={(event) => update({ audio: { ...brief.audio, voice: event.target.value } })}>{voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.label} · {voice.character}</option>)}</select></label>}
             {music && <label><span>Music mood <em>optional</em></span><input value={brief.audio.musicMood ?? ""} maxLength={60} onChange={(event) => update({ audio: { ...brief.audio, musicMood: event.target.value || undefined } })} placeholder="Warm, confident, light percussion" /></label>}

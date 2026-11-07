@@ -1,7 +1,7 @@
 import { engineDigest, isSupportedStyle, plateNameOf, styleDigest } from "@videosaas/plate-engine";
 import type { ScriptBeat, VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
-import { FPS, buildTimeline, framesForSeconds, primaryAspect, secondsFor, sizeForAspect, takeFor, variantSignature, type Aspect } from "./model.ts";
+import { FPS, buildTimeline, followsAudio, framesForSeconds, primaryAspect, secondsFor, sizeForAspect, takeFor, variantSignature, type Aspect } from "./model.ts";
 import { promptDigest } from "./prompt.ts";
 import type { Desired } from "./store.ts";
 
@@ -14,8 +14,9 @@ export const castKeywords = (beats: ScriptBeat[]) => beats.map((b) => b.keyword)
 
 /** The scenes' lengths in whole frames (voiceover-driven when a take exists), the same for every ratio. */
 export function sceneFrames(project: VideoProject): { seconds: number; frames: number }[] {
+  const follow = followsAudio(project);
   return (project.brief?.scriptBeats ?? []).map((beat, i) => {
-    const seconds = secondsFor(beat, takeFor(project, i)?.seconds);
+    const seconds = secondsFor(beat, takeFor(project, i)?.seconds, follow);
     return { seconds, frames: framesForSeconds(seconds) };
   });
 }
