@@ -17,7 +17,7 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,80}\.[0-9a-f]{8}\.(?:mp4|webp|jpg|html)$/;
 // A clip's source (html) is served as plain text, never as a page: it is reference code for the author, not content to render.
 const types: Record<string, string> = { mp4: "video/mp4", webp: "image/webp", jpg: "image/jpeg", html: "text/plain; charset=utf-8" };
 const client = config.r2
-  ? new S3Client({ region: "auto", endpoint: config.r2.endpoint, credentials: { accessKeyId: config.r2.accessKeyId, secretAccessKey: config.r2.secretAccessKey } })
+  ? new S3Client({ region: "auto", endpoint: config.r2.endpoint, forcePathStyle: process.env.R2_FORCE_PATH_STYLE === "1", credentials: { accessKeyId: config.r2.accessKeyId, secretAccessKey: config.r2.secretAccessKey } })
   : null;
 
 export async function registerGalleryRoutes(app: FastifyInstance) {
