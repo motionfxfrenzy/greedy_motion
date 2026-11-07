@@ -71,35 +71,78 @@ const depthSQ = (s: number, q: number, h: number, body: boolean, r: number): num
   return NAUT.WIDTH * h * across * along;
 };
 
-export const shellTone = (W: number, H: number): Tone => {
+export const shellTone = (W: number, H: number, step = 1): Tone => {
+  if (step <= 1) {
+    const raster = new Float32Array(W * H), hit: Hit = { kind: 0, id: 0, s: 0, q: 0, h: 0, r: 0, th: 0, v: 0, body: false, phi: 0 }, h2: Hit = { ...hit };
+    const A = NAUT.A * W, D = NAUT.DELTA;
+    const G = 3, gw = Math.ceil(W / G), gh = Math.ceil(H / G), solid = new Uint8Array(gw * gh);
+    for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) { locate(W, i * G + 1, j * G + 1, hit); solid[j * gw + i] = hit.kind ? 1 : 0; }
+    const HT = 0.2 * A * 1.58, TMAX = HT * COT;
+    const inS = (x: number, y: number) => { const i = Math.round((x - 1) / G), j = Math.round((y - 1) / G); return i >= 0 && j >= 0 && i < gw && j < gh && solid[j * gw + i] === 1; };
+    const shadow = new Float32Array(gw * gh);
+    for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+      if (solid[j * gw + i]) continue; const x = i * G + 1, y = j * G + 1; let near = -1;
+      for (let t = 1.5; t < TMAX + 40; t += 1.5) if (inS(x + UL[0] * t, y + UL[1] * t)) { near = t; break; }
+      if (near < 0) continue;
+      const f = near / TMAX, body = clamp((1.12 - f) / 0.5), contact = Math.exp(-near / 9);
+      shadow[j * gw + i] = clamp(body * (0.5 - 0.14 * f) + 0.32 * contact);
+    }
+    const shAt = (x: number, y: number) => { const fx = (x - 1) / G, fy = (y - 1) / G, i = Math.floor(fx), j = Math.floor(fy), a = fx - i, b = fy - j, g = (ii: number, jj: number) => (ii < 0 || jj < 0 || ii >= gw || jj >= gh ? 0 : shadow[jj * gw + ii]); return (g(i, j) * (1 - a) + g(i + 1, j) * a) * (1 - b) + (g(i, j + 1) * (1 - a) + g(i + 1, j + 1) * a) * b; };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const k = y * W + x; locate(W, x + 0.5, y + 0.5, hit); let t = 0;
+      switch (hit.kind) {
+        case 0: t = shAt(x, y); break;
+        case 5: t = 0.42; break;
+        case 1: t = 0.035 + (fractal(71, x, y, 0.02, 0.05, 2) - 0.5) * 0.05; break;
+        case 3: t = 0.66; break;
+        case 4: {
+          const nx = Math.cos(hit.th), ny = Math.sin(hit.th), face = clamp(-(nx * UL[0] + ny * UL[1]) * 0.5 + 0.5), stripe = hit.phi < -1.4 ? clamp(Math.sin(hit.phi * 7.5 + 2.2 * fractal(9, x, y, 0.03, 0.03, 2)) * 3 - 1.6) : 0;
+          t = clamp(0.1 + 0.55 * face * face + 0.3 * stripe + 0.25 * hit.q); break; }
+        default: {
+          const { s, q, h, body, r } = hit, e = 0.02, d0 = depthSQ(s, q, h, body, r);
+          const ds_ = (depthSQ(s + e, q, h, body, r) - depthSQ(s - e, q, h, body, r)) / (2 * e * h), dq_ = (depthSQ(s, q + e, h, body, r) - depthSQ(s, q - e, h, body, r)) / (2 * e * D * r);
+          const c = Math.cos(hit.th), sn = Math.sin(hit.th), tx = -sn * NAUT.SENSE, ty = c * NAUT.SENSE;
+          let nx = ds_ * c + dq_ * tx, ny = ds_ * sn + dq_ * ty, nz = 1; const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
+          const lam = clamp(nx * L[0] + ny * L[1] + nz * L[2]);
+          locate(W, x + 0.5 + L[0] / L[2] * d0, y + 0.5 + L[1] / L[2] * d0, h2);
+          const lit = h2.kind === 2 && h2.id === hit.id ? 1 : 0;
+          const spec = Math.pow(clamp(nx * Hh[0] + ny * Hh[1] + nz * Hh[2]), 60) * lit;
+          const deep = clamp(d0 / (NAUT.WIDTH * h));
+          t = lit ? 0.1 + 0.62 * Math.pow(1 - clamp(lam / L[2]), 1.15) + 0.08 * deep - 0.5 * spec * (body ? 1 : 0) : 0.66 + 0.24 * deep - 0.1 * (1 - lam);
+          const small = clamp((60 - h) / 35); t = t * (1 - small) + small * (0.62 - 0.3 * clamp((q - 0.45) / 0.5));
+          t = clamp(t);
+        }
+      }
+      raster[k] = t;
+    }
+    return { raster };
+  }
+
+  // Draft sub-sampled shellTone: evaluates on a step×step grid (e.g. 2×2 -> 4× fewer pixels) and fills each block
   const raster = new Float32Array(W * H), hit: Hit = { kind: 0, id: 0, s: 0, q: 0, h: 0, r: 0, th: 0, v: 0, body: false, phi: 0 }, h2: Hit = { ...hit };
   const A = NAUT.A * W, D = NAUT.DELTA;
-  // THE CAST SHADOW. The half shell lies on its flank with the cut face as its flat top, so every
-  // point of the section is the same height above the table: half the shell's width (~0.5 of its
-  // diameter, so a quarter). The shadow is the silhouette swept away from the lamp by up to
-  // HT * cot(elevation); its far edge is soft because the flank rolls under toward the table.
-  const G = 3, gw = Math.ceil(W / G), gh = Math.ceil(H / G), solid = new Uint8Array(gw * gh);
+  const G = 3 * step, gw = Math.ceil(W / G), gh = Math.ceil(H / G), solid = new Uint8Array(gw * gh);
   for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) { locate(W, i * G + 1, j * G + 1, hit); solid[j * gw + i] = hit.kind ? 1 : 0; }
   const HT = 0.2 * A * 1.58, TMAX = HT * COT;
   const inS = (x: number, y: number) => { const i = Math.round((x - 1) / G), j = Math.round((y - 1) / G); return i >= 0 && j >= 0 && i < gw && j < gh && solid[j * gw + i] === 1; };
   const shadow = new Float32Array(gw * gh);
   for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
     if (solid[j * gw + i]) continue; const x = i * G + 1, y = j * G + 1; let near = -1;
-    for (let t = 1.5; t < TMAX + 40; t += 1.5) if (inS(x + UL[0] * t, y + UL[1] * t)) { near = t; break; }
+    for (let t = 1.5; t < TMAX + 40; t += 3) if (inS(x + UL[0] * t, y + UL[1] * t)) { near = t; break; }
     if (near < 0) continue;
     const f = near / TMAX, body = clamp((1.12 - f) / 0.5), contact = Math.exp(-near / 9);
     shadow[j * gw + i] = clamp(body * (0.5 - 0.14 * f) + 0.32 * contact);
   }
   const shAt = (x: number, y: number) => { const fx = (x - 1) / G, fy = (y - 1) / G, i = Math.floor(fx), j = Math.floor(fy), a = fx - i, b = fy - j, g = (ii: number, jj: number) => (ii < 0 || jj < 0 || ii >= gw || jj >= gh ? 0 : shadow[jj * gw + ii]); return (g(i, j) * (1 - a) + g(i + 1, j) * a) * (1 - b) + (g(i, j + 1) * (1 - a) + g(i + 1, j + 1) * a) * b; };
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const k = y * W + x; locate(W, x + 0.5, y + 0.5, hit); let t = 0;
+  for (let y = 0; y < H; y += step) for (let x = 0; x < W; x += step) {
+    locate(W, x + 0.5, y + 0.5, hit); let t = 0;
     switch (hit.kind) {
       case 0: t = shAt(x, y); break;
       case 5: t = 0.42; break;
-      case 1: t = 0.035 + (fractal(71, x, y, 0.02, 0.05, 2) - 0.5) * 0.05; break;            // sawn, polished nacre: the lightest thing on the sheet
+      case 1: t = 0.035 + (fractal(71, x, y, 0.02, 0.05, 1) - 0.5) * 0.05; break;
       case 3: t = 0.66; break;
-      case 4: {                                                                             // the rounded outside of the shell, turning away
-        const nx = Math.cos(hit.th), ny = Math.sin(hit.th), face = clamp(-(nx * UL[0] + ny * UL[1]) * 0.5 + 0.5), stripe = hit.phi < -1.4 ? clamp(Math.sin(hit.phi * 7.5 + 2.2 * fractal(9, x, y, 0.03, 0.03, 2)) * 3 - 1.6) : 0;
+      case 4: {
+        const nx = Math.cos(hit.th), ny = Math.sin(hit.th), face = clamp(-(nx * UL[0] + ny * UL[1]) * 0.5 + 0.5), stripe = hit.phi < -1.4 ? clamp(Math.sin(hit.phi * 7.5 + 2.2 * fractal(9, x, y, 0.03, 0.03, 1)) * 3 - 1.6) : 0;
         t = clamp(0.1 + 0.55 * face * face + 0.3 * stripe + 0.25 * hit.q); break; }
       default: {
         const { s, q, h, body, r } = hit, e = 0.02, d0 = depthSQ(s, q, h, body, r);
@@ -107,19 +150,18 @@ export const shellTone = (W: number, H: number): Tone => {
         const c = Math.cos(hit.th), sn = Math.sin(hit.th), tx = -sn * NAUT.SENSE, ty = c * NAUT.SENSE;
         let nx = ds_ * c + dq_ * tx, ny = ds_ * sn + dq_ * ty, nz = 1; const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
         const lam = clamp(nx * L[0] + ny * L[1] + nz * L[2]);
-        // is this floor point in the shadow of the rim nearer the lamp? follow the ray up to the cut plane
         locate(W, x + 0.5 + L[0] / L[2] * d0, y + 0.5 + L[1] / L[2] * d0, h2);
         const lit = h2.kind === 2 && h2.id === hit.id ? 1 : 0;
         const spec = Math.pow(clamp(nx * Hh[0] + ny * Hh[1] + nz * Hh[2]), 60) * lit;
         const deep = clamp(d0 / (NAUT.WIDTH * h));
         t = lit ? 0.1 + 0.62 * Math.pow(1 - clamp(lam / L[2]), 1.15) + 0.08 * deep - 0.5 * spec * (body ? 1 : 0) : 0.66 + 0.24 * deep - 0.1 * (1 - lam);
-        // the innermost camerae are too small for the pen to model: a stippler gives each one a
-        // plain dark cup, lighter on the far side, and lets the pale septa carry the spiral
         const small = clamp((60 - h) / 35); t = t * (1 - small) + small * (0.62 - 0.3 * clamp((q - 0.45) / 0.5));
         t = clamp(t);
       }
     }
-    raster[k] = t;
+    for (let dy = 0; dy < step && y + dy < H; dy++) for (let dx = 0; dx < step && x + dx < W; dx++) {
+      raster[(y + dy) * W + (x + dx)] = t;
+    }
   }
   return { raster };
 };

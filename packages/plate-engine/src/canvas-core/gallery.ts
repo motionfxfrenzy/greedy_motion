@@ -1,7 +1,21 @@
 // GALLERY KIT. The shared drawing helpers the style-gallery subjects are built from. Everything
 // here is geometry or raw canvas on the CURRENT group surface (g.cur), so it composes with the
 // core's groups, textures and papers. No randomness except rng(seed); no filters; no assets.
-import { Gfx, type Ctx, type P, rng, sample, fractal, adaptPts, insideRing } from "./core";
+import {
+  Gfx,
+  type Ctx,
+  type P,
+  rng,
+  sample,
+  fractal,
+  adaptPts,
+  getAdapt,
+  insideRing,
+  getRenderQuality,
+  isCalibratingPen,
+  recordHatchStats,
+  recordOtherPathStats
+} from "./core";
 
 export const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -14,7 +28,6 @@ export const mix = (a: string, b: string, t: number): string => { const x = hex(
 
 // ---------------------------------------------------------------- polylines
 export const polyLen = (s: P[]) => s.reduce((a, p, i) => (i ? a + Math.hypot(p[0] - s[i - 1][0], p[1] - s[i - 1][1]) : 0), 0);
-// n points evenly spaced by arc length: the only honest way to hang a width profile on a curve
 export const resample = (s0: P[], n: number): P[] => {
   const s = adaptPts(s0);
   const cum = [0]; for (let i = 1; i < s.length; i++) cum.push(cum[i - 1] + Math.hypot(s[i][0] - s[i - 1][0], s[i][1] - s[i - 1][1]));
@@ -28,7 +41,6 @@ const normals = (s: P[], closed = false): P[] => s.map((_, i) => {
 });
 export const area = (s: P[]) => s.reduce((a, p, i) => { const q = s[(i + 1) % s.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0) / 2;
 
-// piecewise-linear profile through [t, value] knots, smoothed with a cosine ease between knots
 export const profile = (knots: [number, number][]) => (t: number) => {
   if (t <= knots[0][0]) return knots[0][1];
   for (let i = 1; i < knots.length; i++) if (t <= knots[i][0]) { const [t0, v0] = knots[i - 1], [t1, v1] = knots[i], f = (t - t0) / (t1 - t0); return lerp(v0, v1, (1 - Math.cos(f * Math.PI)) / 2); }
@@ -36,10 +48,6 @@ export const profile = (knots: [number, number][]) => (t: number) => {
 };
 
 // ---------------------------------------------------------------- a body hung on a spine
-// A creature seen from above is a spine plus a half-width at every point along it. `at(t, s)` is
-// the body's own coordinate frame: t runs nose (0) to tail (1), s runs -1 (left edge) to +1 (right
-// edge). Anything placed in (t, s) bends with the body, which is what makes markings and fins sit
-// ON the animal instead of floating over it.
 export type Body = { spine: P[]; nrm: P[]; hw: (t: number) => number; outline: P[]; at: (t: number, s: number) => P; tan: (t: number) => P };
 export const body = (ctrl: P[], hw: (t: number) => number, n = 120): Body => {
   const spine = resample(smooth(ctrl, false, 16), n), nrm = normals(spine);
@@ -56,14 +64,10 @@ export const body = (ctrl: P[], hw: (t: number) => number, n = 120): Body => {
 export const trace = (c: Ctx, pts: P[], closed = true) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); if (closed) c.closePath(); };
 const boxOf = (pts0: P[]) => { const pts = adaptPts(pts0); let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } return { x0, y0, x1, y1 }; };
 export const bounds = boxOf;
-export const fillShape = (g: Gfx, pts0: P[], color: string, alpha = 1) => { const pts = adaptPts(pts0), b = boxOf(pts); g.touch(b.x0 - 2, b.y0 - 2, b.x1 + 2, b.y1 + 2); const c = g.cur; c.globalAlpha = alpha; c.fillStyle = color; trace(c, pts); c.fill(); c.globalAlpha = 1; };
-// draw `fn` only inside `pts`. Marks the clip box so the group composites the right region.
-export const clipped = (g: Gfx, pts0: P[], fn: () => void) => { const pts = adaptPts(pts0), b = boxOf(pts); g.touch(b.x0 - 2, b.y0 - 2, b.x1 + 2, b.y1 + 2); const c = g.cur; c.save(); trace(c, pts); c.clip(); fn(); c.restore(); };
+export const fillShape = (g: Gfx, pts0: P[], color: string, alpha = 1) => { if (isCalibratingPen()) return; const pts = adaptPts(pts0), b = boxOf(pts); g.touch(b.x0 - 2, b.y0 - 2, b.x1 + 2, b.y1 + 2); const c = g.cur; c.globalAlpha = alpha; c.fillStyle = color; trace(c, pts); c.fill(); c.globalAlpha = 1; recordOtherPathStats(1, pts.length); };
+export const clipped = (g: Gfx, pts0: P[], fn: () => void) => { if (isCalibratingPen()) { fn(); return; } const pts = adaptPts(pts0), b = boxOf(pts); g.touch(b.x0 - 2, b.y0 - 2, b.x1 + 2, b.y1 + 2); const c = g.cur; c.save(); trace(c, pts); c.clip(); fn(); c.restore(); recordOtherPathStats(1, pts.length); };
 
 // ---------------------------------------------------------------- the inker's line
-// A brush-marker contour: tapered ends, and HEAVIER on the side turned away from the light (the
-// comic inker's rule). `light` is a unit vector pointing TO the light. For a closed contour the
-// outward normal is found from the winding; for an open stroke `side` picks which normal is "out".
 export type InkOpts = { w: number; light?: P; shadow?: number; taper?: [number, number]; seed?: number; rough?: number; closed?: boolean; side?: 1 | -1; min?: number; swell?: number };
 export const inkRibbon = (center: P[], o: InkOpts): P[] => {
   const { w, light = [-0.6, -0.8], shadow = 0.8, taper = [0.12, 0.18], seed = 1, rough = 0.25, closed = false, side = 1, min = 0.18, swell = 0.12 } = o;
@@ -71,7 +75,7 @@ export const inkRibbon = (center: P[], o: InkOpts): P[] => {
   const ph = (seed % 13) * 0.7, L: P[] = [], R: P[] = [];
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1), q = nr[i], ox = q[0] * out, oy = q[1] * out;
-    const away = clamp(-(ox * light[0] + oy * light[1]));                         // 1 where the edge faces away from the light
+    const away = clamp(-(ox * light[0] + oy * light[1]));
     const ends = closed ? 1 : Math.min(1, t / taper[0], (1 - t) / taper[1]);
     const tp = min + (1 - min) * Math.pow(clamp(ends), 0.8);
     const wv = w * tp * (1 + shadow * away * 1.1 - shadow * 0.35) * (1 + swell * Math.sin(t * 9 + ph)) / 2;
@@ -80,17 +84,17 @@ export const inkRibbon = (center: P[], o: InkOpts): P[] => {
   }
   return closed ? [...L, L[0], ...[...R, R[0]].reverse()] : [...L, ...R.reverse()];
 };
-// fill a ribbon; a closed ribbon is two loops, filled even-odd so the middle stays open
 export const ink = (g: Gfx, center: P[], color: string, o: InkOpts, alpha = 1) => {
+  if (isCalibratingPen()) return;
   const pts = inkRibbon(center, o), b = boxOf(pts); g.touch(b.x0 - 3, b.y0 - 3, b.x1 + 3, b.y1 + 3);
   const c = g.cur; c.globalAlpha = alpha; c.fillStyle = color;
   if (o.closed) { const n = center.length + 1; c.beginPath(); pts.slice(0, n).forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); pts.slice(n).forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.fill("evenodd"); }
   else { trace(c, pts); c.fill(); }
   c.globalAlpha = 1;
+  recordOtherPathStats(1, pts.length);
 };
 
 // ---------------------------------------------------------------- organic blobs
-// a closed wobbly blob: markings, pads, patches. `k` is how far the edge wanders (0..1 of r).
 export const blob = (cx: number, cy: number, rx: number, ry: number, seed: number, k = 0.18, n = 14, rot = 0): P[] => {
   const r = rng(seed), ph = r() * 6.28, out: P[] = [];
   for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2, f = 1 + (fractal(seed, Math.cos(a) * 3 + 10, Math.sin(a) * 3 + 10, 0.6, 0.6, 2) - 0.5) * 2 * k + Math.sin(a * 3 + ph) * k * 0.3; const x = Math.cos(a) * rx * f, y = Math.sin(a) * ry * f; out.push([cx + x * Math.cos(rot) - y * Math.sin(rot), cy + x * Math.sin(rot) + y * Math.cos(rot)]); }
@@ -98,15 +102,59 @@ export const blob = (cx: number, cy: number, rx: number, ry: number, seed: numbe
 };
 
 // ---------------------------------------------------------------- hatching
-// parallel strokes across a region at `angle`, spaced `gap`, kept only where `keep(x, y)` says so.
-// Each stroke is broken into runs so tone can come from WHERE lines are, not from their opacity.
 export const hatchRuns = (b: { x0: number; y0: number; x1: number; y1: number }, angle: number, gap: number, keep: (x: number, y: number) => boolean, step = 3, seed = 1): P[][] => {
-  const c = Math.cos(angle), s = Math.sin(angle), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, R = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + gap, r = rng(seed), runs: P[][] = [];
-  for (let v = -R; v <= R; v += gap) {
-    const off = (r() - 0.5) * gap * 0.35; let cur: P[] = [];
-    for (let u = -R; u <= R; u += step) { const x = cx + u * c - (v + off) * s, y = cy + u * s + (v + off) * c; if (keep(x, y)) cur.push([x, y]); else if (cur.length) { if (cur.length > 1) runs.push(cur); cur = []; } }
+  if (isCalibratingPen()) return [];
+  const q = getRenderQuality();
+  if (q.mode === "full" || (q.hatchGapFactor <= 1 && q.hatchStepFactor <= 1)) {
+    const c = Math.cos(angle), s = Math.sin(angle), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, R = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + gap, r = rng(seed), runs: P[][] = [];
+    let ptsTested = 0;
+    for (let v = -R; v <= R; v += gap) {
+      const off = (r() - 0.5) * gap * 0.35; let cur: P[] = [];
+      for (let u = -R; u <= R; u += step) {
+        ptsTested++;
+        const x = cx + u * c - (v + off) * s, y = cy + u * s + (v + off) * c;
+        if (keep(x, y)) cur.push([x, y]);
+        else if (cur.length) { if (cur.length > 1) runs.push(cur); cur = []; }
+      }
+      if (cur.length > 1) runs.push(cur);
+    }
+    recordHatchStats(1, ptsTested, runs.length);
+    return runs;
+  }
+
+  const adaptS = Math.min(1, Math.max(0.25, getAdapt()?.s ?? 1));
+  const gFactor = (q.hatchGapFactor > 1 ? q.hatchGapFactor : 1) / Math.sqrt(adaptS);
+  const sFactor = (q.hatchStepFactor > 1 ? q.hatchStepFactor : 1) / adaptS;
+  const g = gFactor === 1 ? gap : gap * gFactor;
+  const st = sFactor === 1 ? step : step * sFactor;
+  const subCount = q.hatchSubdivide && sFactor > 1 ? Math.max(1, Math.round(sFactor)) : 1;
+  const c = Math.cos(angle), s = Math.sin(angle), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, R = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) / 2 + g, r = rng(seed), runs: P[][] = [];
+  let ptsTested = 0;
+
+  for (let v = -R; v <= R; v += g) {
+    const off = (r() - 0.5) * g * 0.35;
+    let cur: P[] = [];
+    for (let u = -R; u <= R; u += st) {
+      ptsTested++;
+      const x = cx + u * c - (v + off) * s, y = cy + u * s + (v + off) * c;
+      if (keep(x, y)) {
+        if (subCount > 1 && cur.length > 0) {
+          const prev = cur[cur.length - 1];
+          const px = prev[0], py = prev[1];
+          for (let m = 1; m < subCount; m++) {
+            const f = m / subCount;
+            cur.push([px + (x - px) * f, py + (y - py) * f]);
+          }
+        }
+        cur.push([x, y]);
+      } else if (cur.length) {
+        if (cur.length > 1) runs.push(cur);
+        cur = [];
+      }
+    }
     if (cur.length > 1) runs.push(cur);
   }
+  recordHatchStats(1, ptsTested, runs.length);
   return runs;
 };
 export const inside = (pts0: P[], x: number, y: number) => insideRing(adaptPts(pts0), x, y);

@@ -1,31 +1,48 @@
 // THE ONE GENERATED PAGE. Playwright, the HTML player and (Phase 5) Hyperframes all drive this
 // same page through window.FILM. Everything host-specific (DOM, clocks, asset decoding, Web
 // Audio) lives HERE; the art core never sees it.
-import type { Ctx, Env, Layer, ProbeRec } from "../canvas-core/core";
+import {
+  DEFAULT_DRAFT_TARGET_VERTICES_PER_FRAME,
+  DRAFT_PROFILE_VERSION,
+  beginFrameGeometryStats,
+  getFrameGeometryStats,
+  getRenderQuality,
+  normalizeRenderQuality,
+  renderQualityKey,
+  withPenCalibrationPass,
+  withRenderQuality,
+  type Ctx,
+  type Env,
+  type FrameGeometryStats,
+  type Layer,
+  type PenRetraceMode,
+  type ProbeRec,
+  type RenderQualityMode,
+  type RenderQualitySpec,
+  type ScenePenCalibration
+} from "../canvas-core/core";
 import { Film, renderFrame, validate } from "../canvas-core/film";
 import { embeddedAudio, type AudioPayload } from './audio';
 
 declare global { interface Window { FILM: unknown; __ASSETS__?: Record<string, string>; __BAKE_SRC__?: Record<string, string>; __ANIDOODLE_SRC__?: WeakMap<object, string>; __SHAPE__?: string; __AUDIO__?: AudioPayload } }
 
-// THE BAKE STORE (Env.bake). A finished plate frame, keyed by the hash of the source that draws it
-// (build-page.mjs hashes each film module's whole import closure, plus the engine's own renderer),
-// the frame and the pixel size. The adapter loads matching PNGs from disk before frame 0 and saves
-// the fresh ones after; the page never touches a file. Only fully opaque frames are kept, because
-// only those survive a PNG round trip bit for bit.
+const MAX_ENV_CACHES = 4;
+
+// THE BAKE STORE (Env.bake).
 const bakeStore = (surface: (w: number, h: number) => Layer) => {
   const loaded = new Map<string, ImageBitmap>(), fresh = new Map<string, Layer>(), stats = { hits: 0, misses: 0, kept: 0, skipped: 0 };
-  let on = false; // off until an adapter loads the store: a shipped player keeps no copies
+  let on = false;
   const keyOf = (film: object, frame: number, w: number, h: number) => { const mod = window.__ANIDOODLE_SRC__?.get(film), hash = mod ? window.__BAKE_SRC__?.[mod] : undefined; return hash ? `${hash}.${frame}.${w}x${h}` : null; };
   const bake: NonNullable<Env["bake"]> = {
-    get: (film, frame, w, h) => { if (!on) return undefined; const k = keyOf(film, frame, w, h), img = k ? loaded.get(k) : undefined; if (img) stats.hits++; else stats.misses++; return img; },
+    get: (film, frame, w, h) => { if (!on || getRenderQuality().mode !== "full") return undefined; const k = keyOf(film, frame, w, h), img = k ? loaded.get(k) : undefined; if (img) stats.hits++; else stats.misses++; return img; },
     put: (film, frame, layer) => {
-      if (!on) return;
+      if (!on || getRenderQuality().mode !== "full") return;
       const { width: w, height: h } = layer.canvas, k = keyOf(film, frame, w, h); if (!k || loaded.has(k) || fresh.has(k)) return;
       const d = layer.ctx.getImageData(0, 0, w, h).data; for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) { stats.skipped++; return; }
-      const c = surface(w, h); c.ctx.drawImage(layer.canvas, 0, 0); fresh.set(k, c); stats.kept++; // same surface kind as the art: never mix raster paths
+      const c = surface(w, h); c.ctx.drawImage(layer.canvas, 0, 0); fresh.set(k, c); stats.kept++;
     },
   };
-  const load = async (entries: Record<string, string>) => { on = true; await Promise.all(Object.entries(entries).map(async ([k, b64]) => { try { const bin = atob(b64), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); const img = await createImageBitmap(new Blob([u8], { type: "image/png" }), { premultiplyAlpha: "none", colorSpaceConversion: "none" }); if (`${img.width}x${img.height}` === k.split(".").pop()) loaded.set(k, img); } catch { /* unreadable: draw it cold */ } })); return loaded.size; }; // decoded in memory: no URL, no request
+  const load = async (entries: Record<string, string>) => { on = true; await Promise.all(Object.entries(entries).map(async ([k, b64]) => { try { const bin = atob(b64), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); const img = await createImageBitmap(new Blob([u8], { type: "image/png" }), { premultiplyAlpha: "none", colorSpaceConversion: "none" }); if (`${img.width}x${img.height}` === k.split(".").pop()) loaded.set(k, img); } catch { /* unreadable: draw it cold */ } })); return loaded.size; };
   const png64 = async (c: Layer["canvas"]) => { const blob = "convertToBlob" in c ? await (c as OffscreenCanvas).convertToBlob({ type: "image/png" }) : await new Promise<Blob>((ok) => (c as HTMLCanvasElement).toBlob((b) => ok(b!), "image/png")); const u8 = new Uint8Array(await blob.arrayBuffer()); let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); };
   const take = async () => { const out: Record<string, string> = {}; for (const [k, c] of fresh) out[k] = await png64(c.canvas); fresh.clear(); return out; };
   const hashes = () => [...new Set(Object.values(window.__BAKE_SRC__ ?? {}))];
@@ -33,45 +50,298 @@ const bakeStore = (surface: (w: number, h: number) => Layer) => {
 };
 
 export const mountFilm = (film: Film) => {
-  // <film>-<shape> (build-page.mjs sets __SHAPE__): the same film, re-composed for that frame
   if (window.__SHAPE__) { if (!film.reshape) throw new Error(`${film.meta.title} has one shape; ${window.__SHAPE__} is for launch template films (film.reshape)`); film = film.reshape(window.__SHAPE__); }
   const filmSound = window.__AUDIO__ ? embeddedAudio(window.__AUDIO__) : film.audio;
   const canvas = document.getElementById("film") as HTMLCanvasElement, images = new Map<string, CanvasImageSource>();
-  let env: Env, ctx: Ctx, current = 0;
-  // Safari before 16.4 has no 2D OffscreenCanvas: fall back to a detached <canvas>. The core cannot tell the difference.
-  const opts = film.meta.raster === "cpu" ? { willReadFrequently: true } : undefined;   // see Film.meta.raster
+  let env: Env, ctx: Ctx, current = 0, currentScale = 1;
+  let envCaches = new Map<string, Map<string, unknown>>();
+  let penCalibrations = new Map<string, ScenePenCalibration>();
+  let basePenScan: {
+    peakPenCalls: number;
+    peakFullVertices: number;
+    peakBaseDraftVertices: number;
+    peakArcLen: number;
+    scanMs: number;
+  } | null = null;
+  let lastStats: FrameGeometryStats | null = null;
+  const opts = film.meta.raster === "cpu" ? { willReadFrequently: true } : undefined;
   const surface = (w: number, h: number): Layer => { const c = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : Object.assign(document.createElement("canvas"), { width: w, height: h }); return { canvas: c, ctx: c.getContext("2d", opts) as unknown as Ctx } as Layer; };
   const bakes = bakeStore(surface);
-  const mount = (scale = 1) => { canvas.width = Math.round(film.meta.W * scale); canvas.height = Math.round(film.meta.H * scale); ctx = canvas.getContext("2d", opts) as CanvasRenderingContext2D; env = { W: film.meta.W, H: film.meta.H, scale, cache: new Map(), canvas: surface, image: (n) => images.get(n), bake: bakes.bake, root: true }; return film.meta; };
-  // contract rule 4: every asset is loaded AND decoded before frame 0, or the film refuses to start
+
+  const noopGrad = { addColorStop() {} };
+  const noopImgData = { data: new Uint8ClampedArray(4), width: 1, height: 1 };
+  const noopFn = () => noopGrad;
+  const makeNoopCtx = (): Ctx =>
+    new Proxy(
+      {
+        fillStyle: "#000",
+        strokeStyle: "#000",
+        globalAlpha: 1,
+        globalCompositeOperation: "source-over",
+        lineWidth: 1,
+        lineCap: "butt",
+        lineJoin: "miter",
+        miterLimit: 10,
+        lineDashOffset: 0,
+        font: "10px sans-serif",
+        textAlign: "start",
+        textBaseline: "alphabetic",
+        direction: "inherit",
+        shadowBlur: 0,
+        shadowColor: "rgba(0,0,0,0)",
+        shadowOffsetX: 0,
+        shadowOffsetY: 0,
+        imageSmoothingEnabled: true,
+        imageSmoothingQuality: "low",
+        getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+        measureText: (t: string) => ({
+          width: String(t ?? "").length * 8,
+          actualBoundingBoxAscent: 10,
+          actualBoundingBoxDescent: 3
+        }),
+        createImageData: () => noopImgData,
+        getImageData: () => noopImgData,
+        isPointInPath: () => false,
+        isPointInStroke: () => false,
+        getLineDash: () => []
+      },
+      {
+        get(target, prop) {
+          return prop in target ? (target as Record<string | symbol, unknown>)[prop] : noopFn;
+        },
+        set(target, prop, value) {
+          (target as Record<string | symbol, unknown>)[prop] = value;
+          return true;
+        }
+      }
+    ) as unknown as Ctx;
+
+  const calibrateScenePenBudget = (q: Readonly<RenderQualitySpec>, qKey: string): ScenePenCalibration => {
+    const t0 = performance.now();
+    const dur = Math.max(1, film.meta.durationFrames);
+    const repFrames = [...new Set([0, Math.floor((dur - 1) / 2), dur - 1])];
+
+    if (!basePenScan) {
+      const tScan0 = performance.now();
+      const noopCtx = makeNoopCtx();
+      const noopSurface = (w: number, h: number): Layer => ({
+        canvas: { width: w, height: h } as unknown as Layer["canvas"],
+        ctx: noopCtx
+      });
+      const calEnv: Env = {
+        W: film.meta.W,
+        H: film.meta.H,
+        scale: currentScale,
+        cache: new Map(),
+        quality: q,
+        canvas: noopSurface,
+        image: (n) => images.get(n),
+        root: false
+      };
+      let peakPenCalls = 0;
+      let peakFullVertices = 0;
+      let peakBaseDraftVertices = 0;
+      let peakArcLen = 0;
+
+      withPenCalibrationPass(() => {
+        for (let idx = 0; idx < repFrames.length; idx++) {
+          const rf = repFrames[idx];
+          const st = beginFrameGeometryStats(rf, q);
+          renderFrame(film, noopCtx, rf, calEnv);
+          if (st.penRibbonVertices > peakFullVertices) {
+            peakFullVertices = st.penRibbonVertices;
+          }
+          if (st.baseDraftPenVertices > peakBaseDraftVertices) {
+            peakBaseDraftVertices = st.baseDraftPenVertices;
+          }
+          if (st.penCalls > peakPenCalls) {
+            peakPenCalls = st.penCalls;
+          }
+          // If the first two representative frames made zero Gfx.pen calls, the scene does not use Gfx.pen
+          if (idx === 1 && peakPenCalls === 0) {
+            break;
+          }
+        }
+      });
+
+      basePenScan = {
+        peakPenCalls,
+        peakFullVertices,
+        peakBaseDraftVertices,
+        peakArcLen,
+        scanMs: performance.now() - tScan0
+      };
+    }
+
+    const { peakPenCalls, peakFullVertices, peakBaseDraftVertices, peakArcLen } = basePenScan;
+
+    const targetB = q.draftTargetVerticesPerFrame;
+    let effRetraceMode: PenRetraceMode = q.penRetraceMode;
+    let minClosed = q.minStrokeCenterPts > 0 ? q.minStrokeCenterPts : 8;
+    let minOpen = q.minStrokeCenterPts > 0 ? Math.min(q.minStrokeCenterPts, 4) : 4;
+    let floorDegraded = false;
+    let budgetExceededByFloor = false;
+
+    if (targetB > 0 && peakPenCalls > 0) {
+      const multFor = (rm: PenRetraceMode) => (rm === "skip" ? 2 : rm === "simplified" ? 3 : 4);
+      let mult = multFor(effRetraceMode);
+      if (peakBaseDraftVertices > targetB && peakPenCalls * minClosed * mult > targetB * 0.85) {
+        floorDegraded = true;
+        if (effRetraceMode !== "skip") {
+          effRetraceMode = "skip";
+          mult = 2;
+        }
+        if (peakPenCalls * minClosed * mult > targetB * 0.85) {
+          minClosed = Math.max(3, Math.floor(targetB / Math.max(1, peakPenCalls * mult)));
+          minOpen = Math.max(2, Math.min(4, minClosed));
+        }
+        if (peakPenCalls * 4 > targetB) {
+          budgetExceededByFloor = true;
+        }
+      }
+    }
+
+    const effectiveScaleRatio =
+      targetB > 0 && peakFullVertices > 0 ? Math.min(1, targetB / peakFullVertices) : 1;
+    const baseDraftScaleRatio =
+      targetB > 0 && peakBaseDraftVertices > 0 ? Math.min(1, targetB / peakBaseDraftVertices) : 1;
+
+    return {
+      qualityKey: qKey,
+      representativeFrames: repFrames,
+      peakPenCalls,
+      peakFullVertices,
+      peakBaseDraftVertices,
+      peakArcLen,
+      draftTargetVerticesPerFrame: targetB,
+      targetFramePenVertices: targetB,
+      effectiveScaleRatio,
+      baseDraftScaleRatio,
+      effectiveMinCenterPtsClosed: minClosed,
+      effectiveMinCenterPtsOpen: minOpen,
+      effectiveRetraceMode: effRetraceMode,
+      floorDegraded,
+      budgetExceededByFloor,
+      calibrationMs: performance.now() - t0,
+      adaptiveScale: 1,
+      adaptiveCooldownFrames: 0,
+      adaptiveSwitches: 0
+    };
+  };
+
+  const pruneEnvCaches = (keepKey: string) => {
+    const fullKey = `${currentScale}:full:1`;
+    while (envCaches.size > MAX_ENV_CACHES) {
+      let victim: string | null = null;
+      for (const k of envCaches.keys()) {
+        if (k !== keepKey && k !== fullKey) {
+          victim = k;
+          break;
+        }
+      }
+      if (!victim) break;
+      envCaches.get(victim)?.clear();
+      envCaches.delete(victim);
+      penCalibrations.delete(victim);
+    }
+  };
+
+  const envForQuality = (spec?: Partial<RenderQualitySpec> | RenderQualityMode | number | null): Env => {
+    const q = normalizeRenderQuality(spec);
+    const qKey = `${currentScale}:${renderQualityKey(q)}`;
+    let cache = envCaches.get(qKey);
+    if (!cache) {
+      cache = new Map();
+      envCaches.set(qKey, cache);
+      pruneEnvCaches(qKey);
+    }
+    let penCalibration = penCalibrations.get(qKey);
+    if (!penCalibration && q.mode === "draft" && (q.draftTargetVerticesPerFrame > 0 || q.budgetPolicy !== "off" || q.minStrokeCenterPts > 0)) {
+      penCalibration = calibrateScenePenBudget(q, qKey);
+      penCalibrations.set(qKey, penCalibration);
+    }
+    return {
+      W: film.meta.W,
+      H: film.meta.H,
+      scale: currentScale,
+      cache,
+      quality: q,
+      penCalibration,
+      canvas: surface,
+      image: (n) => images.get(n),
+      bake: q.mode === "full" ? bakes.bake : undefined,
+      root: true
+    };
+  };
+
+  const mount = (scale = 1) => {
+    currentScale = scale;
+    canvas.width = Math.round(film.meta.W * scale);
+    canvas.height = Math.round(film.meta.H * scale);
+    ctx = canvas.getContext("2d", opts) as CanvasRenderingContext2D;
+    envCaches = new Map();
+    penCalibrations = new Map();
+    basePenScan = null;
+    env = envForQuality("full");
+    return film.meta;
+  };
+
   const ready = (async () => {
     const problems = validate(film); if (problems.length) throw new Error("timeline: " + problems.join("; "));
     await Promise.all(Object.entries(film.assets.images).map(async ([name, url]) => { const img = new Image(); img.src = window.__ASSETS__?.[name] ?? url; await img.decode(); images.set(name, img); }));
     mount(1); return film.meta;
   })();
-  const seek = (frame: number) => { const t0 = performance.now(); const shot = renderFrame(film, ctx, frame, env); ctx.getImageData(0, 0, 1, 1); current = frame; return { shot, ms: performance.now() - t0 }; }; // getImageData forces the deferred raster so the timing is real
+
+  const seek = (frame: number, quality?: Partial<RenderQualitySpec> | RenderQualityMode | number | null) =>
+    withRenderQuality(quality, (q) => {
+      const t0 = performance.now();
+      const qEnv = q.mode === "full" && !q.skipReadbackFlush ? env : envForQuality(q);
+      const st = beginFrameGeometryStats(frame, q);
+      const shot = renderFrame(film, ctx, frame, qEnv);
+      const tAfterJs = performance.now();
+      if (!q.skipReadbackFlush) {
+        ctx.getImageData(0, 0, 1, 1);
+      }
+      const tEnd = performance.now();
+      st.jsRenderFrameMs = Math.round((tAfterJs - t0) * 1000) / 1000;
+      st.getImageDataFlushMs = Math.round((tEnd - tAfterJs) * 1000) / 1000;
+      st.totalSeekMs = Math.round((tEnd - t0) * 1000) / 1000;
+      const cal = qEnv.penCalibration;
+      if (cal && q.budgetPolicy === "adaptive-hysteresis") {
+        if (cal.adaptiveCooldownFrames > 0) {
+          cal.adaptiveCooldownFrames--;
+        } else if (st.totalSeekMs > 28 && cal.adaptiveScale > 0.35) {
+          cal.adaptiveScale = Math.max(0.35, Math.round(cal.adaptiveScale * 0.65 * 1000) / 1000);
+          cal.adaptiveCooldownFrames = 30;
+          cal.adaptiveSwitches++;
+        } else if (st.totalSeekMs < 14 && cal.adaptiveScale < 1) {
+          cal.adaptiveScale = Math.min(1, Math.round(cal.adaptiveScale * 1.25 * 1000) / 1000);
+          cal.adaptiveCooldownFrames = 30;
+          cal.adaptiveSwitches++;
+        }
+        st.adaptiveSwitches = cal.adaptiveSwitches;
+      }
+      lastStats = { ...st };
+      current = frame;
+      return {
+        shot,
+        ms: tEnd - t0,
+        quality: q.mode,
+        qualityKey: renderQualityKey(q),
+        profileVersion: q.profileVersion,
+        draftTargetVerticesPerFrame: q.draftTargetVerticesPerFrame,
+        hatchFactor: q.hatchFactor,
+        stats: lastStats
+      };
+    });
+
   const hash = () => { const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data; let h = 0x811c9dc5; for (let i = 0; i < d.length; i++) { h ^= d[i]; h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16); };
   const b64 = (u8: Uint8Array) => { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); };
-  // MOTION BLUR. One output frame as the average of subframes spread over a one-frame shutter
-  // centred on it, confined to its own shot so nothing bleeds across a cut. The average is taken
-  // in LINEAR light: blur is light integration, and averaging in sRGB darkens every moving edge.
-  // It is also ALPHA-WEIGHTED (premultiplied): a transparent subframe carries no colour, so a
-  // sticker's moving edge fades out instead of picking up a dark fringe from the zero RGB that
-  // canvas keeps under alpha 0. Opaque pixels take exactly the unweighted path.
-  // STEPPED ART (meta.step > 1, or onTwos) holds each drawing for `step` frames, so the shutter
-  // would straddle two drawings and smear a pose into its neighbour: such films are not blurred.
-  // hosts may keep time; the core never does.
+
   const toLin = new Float32Array(256);
   for (let i = 0; i < 256; i++) { const s = i / 255; toLin[i] = s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); }
   const fromLin = (l: number) => { const v = l <= 0.0031308 ? l * 12.92 : 1.055 * Math.pow(l, 1 / 2.4) - 0.055; return Math.max(0, Math.min(255, Math.round(v * 255))); };
-  // SHUTTER. `shutter` is the angle in degrees: 360 spreads the subframes over the whole frame
-  // interval, 180 (film's standard, and the default) over half of it, centred on the frame.
-  // ADAPTIVE (samples 0 = auto): how many subframes a frame needs comes from how fast its picture
-  // moves on screen. Two sharp renders at the shutter's two ends are block-matched on a 1/8 luma
-  // grid (8x8 blocks, +-16 cells = +-128 px, textured blocks only); the 98th percentile displacement,
-  // divided by `px` (default 3: subframes at most 3 px apart), is the count, 1 on a still frame (the
-  // sharp frame itself, untouched), at most `max` (default 32). Pure pixels in, a number out:
-  // deterministic like the frames it measures.
+
   type BlurSpec = { samples?: number; shutter?: number; max?: number; px?: number };
   const lumaGrid = (f: number, cell: number) => {
     renderFrame(film, ctx, f, env); const w = canvas.width, h = canvas.height, d = ctx.getImageData(0, 0, w, h).data, gw = Math.floor(w / cell), gh = Math.floor(h / cell), g = new Float32Array(gw * gh);
@@ -84,20 +354,17 @@ export const mountFilm = (film: Film) => {
     for (let by = R, row = 0; by + B + R <= gh; by += B, row++) for (let bx = R, col = 0; bx + B + R <= gw; bx += B, col++) {
       let mean = 0, v = 0; for (let y = 0; y < B; y++) for (let x = 0; x < B; x++) mean += A.g[(by + y) * gw + bx + x]; mean /= B * B;
       for (let y = 0; y < B; y++) for (let x = 0; x < B; x++) v += (A.g[(by + y) * gw + bx + x] - mean) ** 2;
-      if (v / (B * B) < 12) continue; // flat: no motion can be read off it
+      if (v / (B * B) < 12) continue;
       const sadAt = (dx: number, dy: number) => { let sad = 0; for (let y = 0; y < B; y++) for (let x = 0; x < B; x++) sad += Math.abs(A.g[(by + y) * gw + bx + x] - Z.g[(by + y + dy) * gw + bx + x + dx]); return sad; };
       const cost = new Float64Array((2 * R + 1) ** 2); let best = Infinity;
       for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const c = sadAt(dx, dy); cost[(dy + R) * (2 * R + 1) + dx + R] = c; if (c < best) best = c; }
-      // content that changes without moving (a stroke drawn, a letter typed) matches nowhere well: not motion
       if (best / (B * B) > 4) continue;
-      // a periodic texture (halftone, stripes) matches equally well far away: of the near-best offsets take the SMALLEST motion
       let mx = 0, my = 0, md = Infinity;
       for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const c = cost[(dy + R) * (2 * R + 1) + dx + R], d = Math.hypot(dx, dy); if (c <= best * 1.1 + B * B * 0.5 && d < md) { md = d; mx = dx; my = dy; } }
       const at = (dx: number, dy: number) => (Math.abs(dx) <= R && Math.abs(dy) <= R ? cost[(dy + R) * (2 * R + 1) + dx + R] : Infinity), c0 = at(mx, my);
       const sub = (m: number, c: number, p: number) => { const d = m - 2 * c + p; return Number.isFinite(d) && d > 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (m - p)) / d)) : 0; };
       vec.set(row * cols + col, [mx + (mx || my ? sub(at(mx - 1, my), c0, at(mx + 1, my)) : 0), my + (mx || my ? sub(at(mx, my - 1), c0, at(mx, my + 1)) : 0)]);
     }
-    // real motion is coherent: a block's vector counts only if two of its neighbours agree with it (within 1.5 cells)
     const disp: number[] = [];
     for (const [key, [x, y]] of vec) { const r = Math.floor(key / cols), c = key % cols; let agree = 0; for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) { if (!dr && !dc) continue; const nb = vec.get((r + dr) * cols + c + dc); if (nb && c + dc >= 0 && c + dc < cols && Math.hypot(nb[0] - x, nb[1] - y) <= 1.5) agree++; } if (agree >= 2) disp.push((Math.hypot(x, y) * cell) / env.scale); }
     if (!disp.length) return 0;
@@ -119,17 +386,14 @@ export const mountFilm = (film: Film) => {
     }
     const img = ctx.createImageData(w, h), out = img.data, inv = 1 / samples, full = 255 * samples;
     for (let p = 0; p < out.length; p += 4) {
-      const A = acc[p + 3]; if (A === 0) continue; // nothing was ever drawn here: stays transparent black
-      const c = A === full ? inv : 255 / A; // premultiplied average, un-premultiplied by the mean alpha
+      const A = acc[p + 3]; if (A === 0) continue;
+      const c = A === full ? inv : 255 / A;
       out[p] = fromLin(acc[p] * c); out[p + 1] = fromLin(acc[p + 1] * c); out[p + 2] = fromLin(acc[p + 2] * c); out[p + 3] = Math.round(A * inv);
     }
     ctx.putImageData(img, 0, 0); current = n;
     return { shot: shot.id, ms: performance.now() - t0, samples, speed };
   };
-  // THE FRAME PROBE (tools/framecheck.mjs). For each frame asked, every line of text (fillText on the
-  // frame or a full-frame sheet, writeOn, setType) and every content box the art core reports
-  // (probeRect: a card, a window) is collected in device pixels; a box the frame's edge cuts through
-  // is returned. Whatever lies wholly outside the frame, or wholly inside it, is fine.
+
   const probe = (frames: number[]) => {
     const out: (ProbeRec & { frame: number })[] = [], g = globalThis as { __ANIDOODLE_PROBE__?: (r: ProbeRec) => void };
     const protos = [CanvasRenderingContext2D.prototype, ...(typeof OffscreenCanvasRenderingContext2D !== "undefined" ? [OffscreenCanvasRenderingContext2D.prototype] : [])] as unknown as { fillText: (t: string, x: number, y: number, w?: number) => void }[];
@@ -153,31 +417,70 @@ export const mountFilm = (film: Film) => {
     return out;
   };
   const audio = (sr: number) => { if (!filmSound) return null; const [L, R] = filmSound(sr); if (L.length !== R.length) throw new Error("audio channels have different lengths"); const pcm = new Float32Array(L.length * 2); for (let i = 0; i < L.length; i++) { pcm[i * 2] = L[i]; pcm[i * 2 + 1] = R[i]; } return { sampleRate: sr, frames: L.length, float32: b64(new Uint8Array(pcm.buffer)) }; };
-  const warm = () => film.shots.forEach((s) => { seek(s.start); seek(s.start + ((s.end - s.start) >> 1)); }); // first + middle frame of every shot: builds tiles, pre-allocates the layer pool
-  // POSTER. Platforms show frame 0 as the thumbnail, so a delivery may open on a chosen frame (the
-  // wall of styles, the logo) and dissolve into the film's real opening over `fade` frames. The
-  // poster frame is drawn once into its own surface; frame n < fade is the real frame n with the
-  // poster laid over it at 1 - n/fade. Frame 0 IS the poster. Nothing else changes, not the score.
+  const warm = () => film.shots.forEach((s) => { seek(s.start); seek(s.start + ((s.end - s.start) >> 1)); });
+
   let posterOf: { key: string; img: CanvasImageSource } | null = null;
   const poster = (frame: number, posterFrame: number, fade: number, samples: number | BlurSpec = 1) => {
     const on = typeof samples === "number" ? samples > 1 : true;
     const n = Math.round(frame), u = fade > 0 ? 1 - n / fade : n === 0 ? 1 : 0, key = `${posterFrame}/${JSON.stringify(samples)}/${canvas.width}x${canvas.height}`;
     if (u > 0 && posterOf?.key !== key) {
       on ? blur(posterFrame, samples) : seek(posterFrame);
-      // the copy lives on the same kind of surface the art uses (surface(): same raster opts). A plain
-      // GPU <canvas> drawn onto a meta.raster "cpu" canvas flips Chrome's raster path for the rest
-      // of the session and every later frame comes out different: measured, not guessed.
       const c = surface(canvas.width, canvas.height); c.ctx.drawImage(canvas, 0, 0); posterOf = { key, img: c.canvas };
     }
     const r = on ? blur(n, samples) : seek(n);
     if (u > 0 && posterOf) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = Math.min(1, u); ctx.globalCompositeOperation = "source-over"; if (u >= 1) ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(posterOf.img, 0, 0); ctx.restore(); }
     current = n; return r;
   };
-  window.FILM = { probe, meta: { ...film.meta, hasAudio: typeof film.audio === "function", shots: film.shots.map(({ id, start, end }) => ({ id, start, end })) }, ready, mount, seek, hash, audio, warm, blur, poster, bakes: { load: bakes.load, take: bakes.take, hashes: bakes.hashes, stats: () => bakes.stats }, png: () => canvas.toDataURL("image/png").slice(22), frame: () => current };
 
-  // ---- the player: click or space to play, arrows to step, ?frame=N to open on a frame
+  const capabilities = Object.freeze({
+    draftSupported: true,
+    seekAcceptsQuality: true,
+    draftGeometry: true,
+    profileVersion: DRAFT_PROFILE_VERSION,
+    defaultDraftTargetVerticesPerFrame: DEFAULT_DRAFT_TARGET_VERTICES_PER_FRAME
+  });
+
+  const getLastFrameStats = () => lastStats ?? getFrameGeometryStats();
+  const getCalibration = (q?: Partial<RenderQualitySpec> | RenderQualityMode | number | null) =>
+    penCalibrations.get(`${currentScale}:${renderQualityKey(q ?? "draft")}`) ??
+    ([...penCalibrations.values()][0] ?? null);
+
+  window.FILM = {
+    probe,
+    meta: { ...film.meta, hasAudio: typeof film.audio === "function", shots: film.shots.map(({ id, start, end }) => ({ id, start, end })) },
+    capabilities,
+    ready,
+    mount,
+    seek,
+    hash,
+    audio,
+    warm,
+    blur,
+    poster,
+    quality: () => getRenderQuality(),
+    cacheSize: (q?: Partial<RenderQualitySpec> | RenderQualityMode | number | null) => envCaches.get(`${currentScale}:${renderQualityKey(q)}`)?.size ?? 0,
+    envCacheCount: () => envCaches.size,
+    clearDraftCaches: () => {
+      const fullKey = `${currentScale}:full:1`;
+      for (const [k, map] of [...envCaches.entries()]) {
+        if (k !== fullKey) {
+          map.clear();
+          envCaches.delete(k);
+          penCalibrations.delete(k);
+        }
+      }
+    },
+    lastFrameStats: getLastFrameStats,
+    getLastFrameStats,
+    calibration: getCalibration,
+    getCalibration,
+    bakes: { load: bakes.load, take: bakes.take, hashes: bakes.hashes, stats: () => bakes.stats },
+    png: () => canvas.toDataURL("image/png").slice(22),
+    frame: () => current
+  };
+
   ready.then(() => {
-    const q = new URLSearchParams(location.search); if (q.has("adapter")) return; // a backend is driving: stay still
+    const q = new URLSearchParams(location.search); if (q.has("adapter")) return;
     seek(Number(q.get("frame") ?? 0));
     let playing = false, ac: AudioContext | null = null, t0 = 0, f0 = 0, node: AudioBufferSourceNode | null = null;
     const stop = () => { playing = false; node?.stop(); node = null; };

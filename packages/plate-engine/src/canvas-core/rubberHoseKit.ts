@@ -3,7 +3,7 @@
 // inker's line is uniform (a brush-held pen at one pressure) with a slight wobble, and it stops
 // where a nearer shape sits: every part knocks its own interior out of the ink beneath it.
 // Also: the film look (toning, per-frame grain, flicker, dust, gate weave, the rounded gate).
-import { fractal, rng, type Ctx, type Env, type Layer, type P } from "./core";
+import { fractal, getRenderQuality, recordKitMaterialReduction, recordOtherPathStats, rng, type Ctx, type Env, type Layer, type P } from "./core";
 import { clamp } from "./gallery";
 import { cut } from "./koiDrawKit";
 
@@ -85,27 +85,52 @@ export const inkCel = (c: Ctx, parts: Part[], sch: Schedule, p: number) => {
 // ---------------------------------------------------------------- film
 // a grain tile: independent speckle per device pixel, mid-grey centred, built once per scale
 export const grainTile = (env: Env): Layer => {
-  const key = `rubberHose:grain:${env.scale}`; let L = env.cache.get(key) as Layer | undefined; if (L) return L;
+  const q = getRenderQuality();
+  const step = q.mode === "draft" ? Math.max(2, q.surfaceSampleFactor) : 1;
+  const key = step > 1 ? `rubberHose:grain:${env.scale}:s${step}` : `rubberHose:grain:${env.scale}`;
+  let L = env.cache.get(key) as Layer | undefined;
+  if (L) {
+    if (step > 1) recordKitMaterialReduction(1);
+    return L;
+  }
   const n = Math.round(256 * env.scale); L = env.canvas(n, n); const img = L.ctx.createImageData(n, n), d = img.data, r = rng(1931);
-  for (let i = 0; i < n * n; i++) { const v = (r() + r() + r()) / 3, g = Math.round(clamp(0.5 + (v - 0.5) * 2.2) * 255); d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = g; d[i * 4 + 3] = 255; }
+  if (step <= 1) {
+    for (let i = 0; i < n * n; i++) { const v = (r() + r() + r()) / 3, g = Math.round(clamp(0.5 + (v - 0.5) * 2.2) * 255); d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = g; d[i * 4 + 3] = 255; }
+  } else {
+    for (let y = 0; y < n; y += step) for (let x = 0; x < n; x += step) {
+      const v = (r() + r() + r()) / 3, g = Math.round(clamp(0.5 + (v - 0.5) * 2.2) * 255);
+      for (let dy = 0; dy < step && y + dy < n; dy++) for (let dx = 0; dx < step && x + dx < n; dx++) {
+        const idx = ((y + dy) * n + (x + dx)) * 4;
+        d[idx] = d[idx + 1] = d[idx + 2] = g; d[idx + 3] = 255;
+      }
+    }
+    recordKitMaterialReduction(1);
+  }
   L.ctx.putImageData(img, 0, 0); env.cache.set(key, L); return L;
 };
 // the print: toned, grained, flickering, dusty, vignetted by the lamp, cut to the rounded gate.
 // `seed` picks this frame's grain, dust and flicker; the still uses seed 0.
 export const filmPrint = (c: Ctx, env: Env, seed: number) => {
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
   const { W, H } = env, r = rng(7000 + seed * 13);
   c.save();
-  c.globalCompositeOperation = "multiply"; c.fillStyle = "#ecdfc6"; c.fillRect(0, 0, W, H);                 // a warm silver print
+  c.globalCompositeOperation = "multiply"; c.fillStyle = "#ecdfc6"; c.fillRect(0, 0, W, H);
   const g = grainTile(env), pat = c.createPattern(g.canvas as CanvasImageSource, "repeat")!;
   c.globalCompositeOperation = "overlay"; c.globalAlpha = 0.34; c.setTransform(1, 0, 0, 1, Math.floor(r() * 256 * env.scale), Math.floor(r() * 256 * env.scale)); c.fillStyle = pat; c.fillRect(-256 * env.scale, -256 * env.scale, (W + 512) * env.scale, (H + 512) * env.scale);
   c.setTransform(env.scale, 0, 0, env.scale, 0, 0); c.globalAlpha = 1;
-  c.globalCompositeOperation = "source-over"; c.fillStyle = `rgba(20,14,8,${(0.02 + r() * 0.05).toFixed(3)})`; c.fillRect(0, 0, W, H); // the lamp flickers
-  // dust on the print: black flecks (dirt on the positive) and white ones (dirt on the negative)
+  c.globalCompositeOperation = "source-over"; c.fillStyle = `rgba(20,14,8,${(0.02 + r() * 0.05).toFixed(3)})`; c.fillRect(0, 0, W, H);
   const nd = 5 + Math.floor(r() * 5);
-  for (let i = 0; i < nd; i++) { const x = r() * W, y = r() * H, s = 1 + r() * 2.6, dark = r() < 0.6; c.fillStyle = dark ? "rgba(18,12,8,0.7)" : "rgba(255,250,236,0.75)"; c.beginPath(); ell(x, y, s, s * (0.5 + r()), r() * 3, 8).forEach(([px, py], k) => (k ? c.lineTo(px, py) : c.moveTo(px, py))); c.fill(); }
-  if (r() < 0.55) { const x = r() * W, y = r() * H, a = r() * 6; c.strokeStyle = "rgba(20,14,8,0.55)"; c.lineWidth = 1; c.beginPath(); trace(c, qb([x, y], [x + Math.cos(a) * 30, y + Math.sin(a) * 30 + 12], [x + Math.cos(a + 1) * 44, y + Math.sin(a + 1) * 40]), false); c.stroke(); } // a hair
-  const sx = W * (0.62 + r() * 0.3); c.strokeStyle = "rgba(255,250,236,0.35)"; c.lineWidth = 1.2; c.beginPath(); c.moveTo(sx, 0); c.lineTo(sx + (r() - 0.5) * 6, H); c.stroke(); // the scratch the sprocket made
+  const drawDust = isDraft ? Math.max(2, Math.round(nd * q.materialDetailScale)) : nd;
+  for (let i = 0; i < nd; i++) {
+    const x = r() * W, y = r() * H, s = 1 + r() * 2.6, dark = r() < 0.6, aspect = 0.5 + r(), rot = r() * 3;
+    if (i >= drawDust) continue;
+    c.fillStyle = dark ? "rgba(18,12,8,0.7)" : "rgba(255,250,236,0.75)"; c.beginPath(); ell(x, y, s, s * aspect, rot, 8).forEach(([px, py], k) => (k ? c.lineTo(px, py) : c.moveTo(px, py))); c.fill();
+  }
+  if (r() < 0.55) { const x = r() * W, y = r() * H, a = r() * 6; if (!isDraft || q.materialDetailScale >= 0.45) { c.strokeStyle = "rgba(20,14,8,0.55)"; c.lineWidth = 1; c.beginPath(); trace(c, qb([x, y], [x + Math.cos(a) * 30, y + Math.sin(a) * 30 + 12], [x + Math.cos(a + 1) * 44, y + Math.sin(a + 1) * 40]), false); c.stroke(); } }
+  const sx = W * (0.62 + r() * 0.3); c.strokeStyle = "rgba(255,250,236,0.35)"; c.lineWidth = 1.2; c.beginPath(); c.moveTo(sx, 0); c.lineTo(sx + (r() - 0.5) * 6, H); c.stroke();
   const vg = c.createRadialGradient(W * 0.48, H * 0.44, W * 0.2, W / 2, H / 2, W * 0.78); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(22,14,6,0.55)"); c.fillStyle = vg; c.fillRect(0, 0, W, H);
-  c.fillStyle = "#0b0907"; c.beginPath(); c.rect(0, 0, W, H); const m = 16, R = 46; c.moveTo(m + R, m); c.arcTo(m, m, m, m + R, R); c.arcTo(m, H - m, m + R, H - m, R); c.arcTo(W - m, H - m, W - m, H - m - R, R); c.arcTo(W - m, m, W - m - R, m, R); c.closePath(); c.fill("evenodd"); // the projector's gate
+  c.fillStyle = "#0b0907"; c.beginPath(); c.rect(0, 0, W, H); const m = 16, R = 46; c.moveTo(m + R, m); c.arcTo(m, m, m, m + R, R); c.arcTo(m, H - m, m + R, H - m, R); c.arcTo(W - m, H - m, W - m, H - m - R, R); c.arcTo(W - m, m, W - m - R, m, R); c.closePath(); c.fill("evenodd");
   c.restore();
+  recordOtherPathStats(1, 16, false);
 };

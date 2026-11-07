@@ -1033,6 +1033,10 @@ export class FrameStore {
     meta?: { frames?: number; filmKey?: string; variantKey?: string }
   ): Promise<boolean> {
     if (this.isDisabled || this.isDestroyed) return false;
+    // Strict Draft/Full separation guard (§5.5): never persist a Draft bitmap into FrameStore (`gm-live-frames`).
+    if ((frameBitmap as { __renderQualityMode?: string })?.__renderQualityMode === "draft") {
+      return false;
+    }
     await this.init();
     if (this.isDisabled || this.isDestroyed) return false;
     const parsed = parseStoreFrameKey(key);
@@ -1156,6 +1160,11 @@ export class FrameStore {
         } catch {}
         return null;
       }
+      try {
+        (bm as unknown as Record<string, unknown>).__sceneFrame = parsed.frame;
+        (bm as unknown as Record<string, unknown>).__renderQualityMode = "full";
+        (bm as unknown as Record<string, unknown>).__fromStore = true;
+      } catch {}
       return bm;
     } catch {
       return null;

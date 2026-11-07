@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motionBlurCopy, motionBlurProblem } from "@videosaas/contracts";
 import {
+  WORKSPACE_PLAYBACK_RENDER_MODES,
   WORKSPACE_PREVIEW_QUALITIES,
   WORKSPACE_SUBTITLE_MODES,
   WORKSPACE_SUBTITLE_STYLES,
@@ -70,6 +71,13 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
   const curStyleLabel = WORKSPACE_SUBTITLE_STYLES.find((s) => s.id === subStyle)?.label ?? "Pill";
   const curQuality = previewQuality?.quality ?? 0.4;
   const curQualityLabel = WORKSPACE_PREVIEW_QUALITIES.find((q) => q.id === curQuality)?.label ?? "Standard";
+  const curRenderMode = previewQuality?.renderMode;
+  const curRenderModeLabel =
+    curRenderMode === "draft"
+      ? "Draft"
+      : curRenderMode === "full"
+        ? `Full · ${curQualityLabel}`
+        : curQualityLabel;
 
   const availableSubtitleModes = WORKSPACE_SUBTITLE_MODES.filter((m) => visible.subtitleModes.includes(m.id));
 
@@ -512,35 +520,69 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
               className={`aw-pill-item${openMenu === "quality" ? " active" : ""}`}
               aria-expanded={openMenu === "quality"}
               aria-label="Preview quality"
-              title={`Preview quality: ${curQualityLabel}`}
+              data-render-mode={curRenderMode ?? "full"}
+              title={`Preview quality: ${curRenderModeLabel}`}
               onClick={() => setOpenMenu(openMenu === "quality" ? null : "quality")}
             >
-              <span>{curQualityLabel}</span>
+              <span>{curRenderModeLabel}</span>
               <span className="aw-caret">▾</span>
             </button>
             {openMenu === "quality" && (
               <div className="aw-dialog aw-dialog-list" role="dialog" aria-label="Preview quality">
-                <div className="aw-dialog-head">
-                  <b>Preview quality</b>
-                  <span>Stored frame quality in this browser</span>
-                </div>
-                {WORKSPACE_PREVIEW_QUALITIES.map((q) => (
-                  <button
-                    key={q.id}
-                    type="button"
-                    className={`aw-option-row${curQuality === q.id ? " on" : ""}`}
-                    onClick={() => {
-                      previewQuality.onSelectQuality(q.id);
-                      setOpenMenu(null);
-                    }}
-                  >
-                    <div>
-                      <b>{q.label}</b>
-                      <small>{q.description}</small>
+                {previewQuality.onSelectRenderMode && (
+                  <>
+                    <div className="aw-dialog-head">
+                      <b>Playback quality</b>
+                      <span>Draft plays immediately; Full draws every detail</span>
                     </div>
-                    {curQuality === q.id && <span className="aw-check">✓</span>}
-                  </button>
-                ))}
+                    {WORKSPACE_PLAYBACK_RENDER_MODES.map((m) => {
+                      const isSelected = (curRenderMode ?? "draft") === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          data-playback-mode={m.id}
+                          className={`aw-option-row${isSelected ? " on" : ""}`}
+                          onClick={() => {
+                            previewQuality.onSelectRenderMode?.(m.id);
+                            setOpenMenu(null);
+                          }}
+                        >
+                          <div>
+                            <b>{m.label}{m.id === "draft" ? " (Default)" : ""}</b>
+                            <small>{m.description}</small>
+                          </div>
+                          {isSelected && <span className="aw-check">✓</span>}
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+                {(!previewQuality.onSelectRenderMode || curRenderMode === "full") && (
+                  <>
+                    <div className="aw-dialog-head">
+                      <b>{previewQuality.onSelectRenderMode ? "Stored frame quality (Full)" : "Preview quality"}</b>
+                      <span>Stored frame quality in this browser</span>
+                    </div>
+                    {WORKSPACE_PREVIEW_QUALITIES.map((q) => (
+                      <button
+                        key={q.id}
+                        type="button"
+                        className={`aw-option-row${curQuality === q.id ? " on" : ""}`}
+                        onClick={() => {
+                          previewQuality.onSelectQuality(q.id);
+                          setOpenMenu(null);
+                        }}
+                      >
+                        <div>
+                          <b>{q.label}</b>
+                          <small>{q.description}</small>
+                        </div>
+                        {curQuality === q.id && <span className="aw-check">✓</span>}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </div>

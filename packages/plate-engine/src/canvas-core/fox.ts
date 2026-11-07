@@ -1,4 +1,4 @@
-import { Gfx, PENCIL, fractal, rng, type Ctx, type Env, type P } from "./core";
+import { Gfx, PENCIL, fractal, getRenderQuality, recordKitMaterialReduction, rng, type Ctx, type Env, type P } from "./core";
 import type { Film } from "./film";
 import { blob, bounds, clipped, fillShape, inside, lerpP, mix, resample, smooth } from "./gallery";
 
@@ -29,12 +29,16 @@ const cut = (shape: P[], seed: number): P[] => { const s = resample([...shape, s
 
 // fibres and uneven dye, clipped to the piece
 const fibres = (g: Gfx, shape: P[], color: string, seed: number, density: number) => {
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
   const b = bounds(shape), r = rng(seed), area = (b.x1 - b.x0) * (b.y1 - b.y0), c = g.cur;
   clipped(g, shape, () => {
     for (let i = 0; i < 5; i++) fillShape(g, blob(b.x0 + r() * (b.x1 - b.x0), b.y0 + r() * (b.y1 - b.y0), 30 + r() * 90, 20 + r() * 60, seed + i, 0.4, 12, r() * 3), r() < 0.5 ? mix(color, "#ffffff", 0.18) : mix(color, "#000000", 0.12), 0.25);
     c.lineCap = "round";
-    const n = Math.round((area / 900) * density);
+    const fullN = Math.round((area / 900) * density);
+    const n = isDraft ? Math.max(1, Math.round(fullN * q.materialDetailScale)) : fullN;
     for (let i = 0; i < n; i++) { const x = b.x0 + r() * (b.x1 - b.x0), y = b.y0 + r() * (b.y1 - b.y0), a = r() * Math.PI, l = 3 + r() * 9; c.strokeStyle = r() < 0.55 ? mix(color, "#fff8e8", 0.45) : mix(color, "#1a0e06", 0.3); c.globalAlpha = 0.25 + r() * 0.3; c.lineWidth = 0.6 + r() * 0.7; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + (r() - 0.5) * 3, y + Math.sin(a) * l * 0.5 + (r() - 0.5) * 3, x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke(); }
+    if (isDraft && n < fullN) recordKitMaterialReduction(fullN - n, n, n * 3);
     c.globalAlpha = 1;
   });
 };

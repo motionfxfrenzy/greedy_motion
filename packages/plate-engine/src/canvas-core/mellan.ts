@@ -1,4 +1,4 @@
-import { fractal, rng, type Ctx, type Env, type P } from "./core";
+import { fractal, getFrameGeometryStats, getRenderQuality, isCalibratingPen, recordKitMaterialReduction, recordOtherPathStats, rng, type Ctx, type Env, type P } from "./core";
 import type { Film } from "./film";
 import { clamp } from "./gallery";
 
@@ -69,24 +69,23 @@ export type Ribbon = { L: P[]; R: P[]; ink: number[]; th: number[]; base: number
 // at ~60x on the first turns, where 1.4 px chords around a 3 px circle show as polygon corners.
 // It SUBDIVIDES between the still's own samples rather than re-walking, so every vertex past the
 // first turns is the still's exact vertex, and the finished film frame can be the still itself.
-const walk = (maxStep = Infinity): Ribbon => {
-  const a = PITCH / (Math.PI * 2), rMax = Math.hypot(W / 2, W / 2) + PITCH, thMax = rMax / a;
+const walk = (maxStep = Infinity, arcStep = 1.4, effPitch = PITCH): Ribbon => {
+  const a = effPitch / (Math.PI * 2), rMax = Math.hypot(W / 2, W / 2) + effPitch, thMax = rMax / a;
   const L: P[] = [], R: P[] = [], ink: number[] = [], ths: number[] = [], base: number[] = [];
   let laid = 0;
   let th = 0.6;
   while (th < thMax) {
-    const step = 1.4 / Math.max(a * th, 1.4), m = Math.max(1, Math.ceil(step / maxStep));   // ~1.4 px of line per step
+    const step = arcStep / Math.max(a * th, arcStep), m = Math.max(1, Math.ceil(step / maxStep));
     for (let j = 0; j < m; j++) {
       if (!j) base.push(L.length);
       const t = j ? th + (step * j) / m : th;
       const r = a * t, x = C[0] + Math.cos(t) * r, y = C[1] + Math.sin(t) * r;
-      // outward normal of the spiral ~ radial; its weight is the engraver's only variable
-      const dark = 1 - tone(x, y), grow = Math.min(1, r / 40);           // the first turns open gently from a point
-      const w = PITCH * (0.05 + 0.86 * dark) * grow / 2;
+      const dark = 1 - tone(x, y), grow = Math.min(1, r / 40);
+      const w = effPitch * (0.05 + 0.86 * dark) * grow / 2;
       const tx = -Math.sin(t) * r + Math.cos(t) * a, ty = Math.cos(t) * r + Math.sin(t) * a, tl = Math.hypot(tx, ty), nx = ty / tl, ny = -tx / tl;
       L.push([x + nx * w, y + ny * w]); R.push([x - nx * w, y - ny * w]);
       const onPlate = x > PLATE && x < W - PLATE && y > PLATE && y < W - PLATE;
-      laid += onPlate ? (2 * w * 1.4) / m : 0; ink.push(laid); ths.push(t);  // ink that lands OFF the plate is cut away by the clip: it must not cost the film any time
+      laid += onPlate ? (2 * w * arcStep) / m : 0; ink.push(laid); ths.push(t);
     }
     th += step;
   }
@@ -94,9 +93,39 @@ const walk = (maxStep = Infinity): Ribbon => {
 };
 export const SPIRAL_A = PITCH / (Math.PI * 2);                          // r = SPIRAL_A * theta
 export const ribbon = (cache?: Map<string, unknown>, maxStep = Infinity): Ribbon => {
-  const key = `mellan:ribbon:${PITCH}:${MOON_R}:${maxStep}`;               // everything the ribbon depends on is a constant of this module
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
+  const targetB = isDraft ? (q.draftTargetVerticesPerFrame || 75000) : 0;
+  const turnDensity =
+    isDraft && typeof q.mellanTurnDensity === "number" && q.mellanTurnDensity > 0 && q.mellanTurnDensity <= 1
+      ? q.mellanTurnDensity
+      : 1;
+  const effPitch = isDraft ? PITCH / turnDensity : PITCH;
+  const arcStep = !isDraft
+    ? 1.4
+    : turnDensity < 1
+      ? targetB > 0 && targetB < 75000
+        ? targetB < 4000
+          ? (1.4 / 0.365) * Math.pow(4000 / Math.max(500, targetB), 0.65)
+          : 1.4 / Math.max(0.32, q.materialDetailScale)
+        : 1.4 / Math.max(0.5, Math.sqrt(turnDensity))
+      : targetB > 0 && targetB < 4000
+        ? (1.4 / 0.365) * Math.pow(4000 / Math.max(500, targetB), 0.65)
+        : 1.4 / Math.max(0.32, q.materialDetailScale);
+  const key = isDraft
+    ? `mellan:ribbon:${effPitch.toFixed(3)}:${MOON_R}:${maxStep}:d${arcStep.toFixed(3)}`
+    : `mellan:ribbon:${PITCH}:${MOON_R}:${maxStep}`;
   let rb = cache?.get(key) as Ribbon | undefined;
-  if (!rb) { rb = walk(maxStep); cache?.set(key, rb); }
+  if (!rb) { rb = walk(maxStep, arcStep, effPitch); cache?.set(key, rb); }
+  const totalVerts = rb.L.length * 2;
+  if (isDraft) {
+    recordKitMaterialReduction(1, 1, totalVerts);
+    if (targetB > 0 && totalVerts > targetB) {
+      getFrameGeometryStats().budgetExceededByFloor = true;
+    }
+  } else {
+    recordOtherPathStats(1, totalVerts, false);
+  }
   return rb;
 };
 // the closed outline of the first k steps: out along one edge, back along the other
@@ -131,7 +160,7 @@ export const printPlate = (ctx: Ctx, env: Env, rib: P[] | null, zoom = 1) => {
   ctx.strokeStyle = "rgba(60,45,30,0.28)"; ctx.lineWidth = 2; ctx.strokeRect(40, 40, W - 80, W - 80);
   ctx.strokeStyle = "rgba(255,252,240,0.7)"; ctx.lineWidth = 1.2; ctx.strokeRect(38.5, 38.5, W - 80, W - 80);
 };
-export const drawMellan = (ctx: Ctx, frame: number, env: Env, progress = 1) => { void frame; printPlate(ctx, env, spiral(progress, env.cache)); };
+export const drawMellan = (ctx: Ctx, frame: number, env: Env, progress = 1) => { if (isCalibratingPen()) return; void frame; printPlate(ctx, env, spiral(progress, env.cache)); };
 
 export const mellan: Film = {
   meta: { title: "Mellan spiral · a lit moon", W: 1080, H: 1080, fps: 30, bpm: 120, durationFrames: 1 },

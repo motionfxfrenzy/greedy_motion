@@ -1,4 +1,4 @@
-import { displace, fractal, Gfx, rng, type Ctx, type Env, type Medium, type P } from "./core";
+import { displace, fractal, getRenderQuality, Gfx, recordKitMaterialReduction, recordOtherPathStats, rng, type Ctx, type Env, type Medium, type P } from "./core";
 import type { Film } from "./film";
 import { clamp, lerp, mix, smooth } from "./gallery";
 import { streakClip, streaks } from "./koiDrawKit";
@@ -186,21 +186,27 @@ const buildScene = (): Scene => {
 // (a polygon keeps its corners: a house is cut with a flat brush, not rounded into a pebble)
 const dens = (s: P[]): P[] => s.flatMap((a, i) => { const b = s[(i + 1) % s.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 4)); return Array.from({ length: n }, (_, k) => [a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n] as P); });
 const edge = (s: Sh, i: number): P[] => { const a = Math.sqrt(area(s.pts)), amp = clamp(a * 0.011, 0.3, 2.6); return displace(dens(s.pts), amp, 0.11, 2, 40 + i); };
-const trace = (c: Ctx, pts: P[]) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); };
+const trace = (c: Ctx, pts: P[]) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); recordOtherPathStats(1, pts.length, false); };
 // dry brush: bristles side by side, each broken where it skips the board's tooth, more and more
 // as the brush runs out toward the end of the stroke
 const dryBrush = (c: Ctx, d: Dry, q: number) => {
-  const [a, b] = [d.path[0], d.path[d.path.length - 1]], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l, nb = Math.max(5, Math.round(d.w / 2.2)), steps = Math.max(6, Math.round(l / 3)), r = rng(d.seed);
-  c.strokeStyle = d.col; c.lineWidth = 1.7; c.lineCap = "round"; c.globalAlpha = 0.85; c.beginPath();
+  const qual = getRenderQuality();
+  const isDraft = qual.mode === "draft";
+  const [a, b] = [d.path[0], d.path[d.path.length - 1]], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l;
+  const fullNb = Math.max(5, Math.round(d.w / 2.2));
+  const nb = isDraft ? Math.max(3, Math.round(fullNb * qual.materialDetailScale)) : fullNb;
+  const steps = Math.max(isDraft ? 4 : 6, Math.round(l / (isDraft ? 5 : 3))), r = rng(d.seed);
+  c.strokeStyle = d.col; c.lineWidth = isDraft ? 1.7 * (fullNb / nb) * 0.85 : 1.7; c.lineCap = "round"; c.globalAlpha = 0.85; c.beginPath();
   for (let k = 0; k < nb; k++) {
-    const v = (k / (nb - 1) - 0.5) * d.w + (r() - 0.5) * 1.2, start = r() * 0.08, dens = 0.2 + r() * 0.14; let on = false;
+    const v = (k / Math.max(1, nb - 1) - 0.5) * d.w + (r() - 0.5) * 1.2, start = r() * 0.08, dens = 0.2 + r() * 0.14; let on = false;
     for (let j = 0; j <= steps * q; j++) {
       const t = j / steps; if (t < start) continue;
-      const skip = fractal(d.seed + k, t * l * 0.35, k * 3.1, 1, 1, 2) < dens + t * 0.35, x = a[0] + dx * t + nx * v, y = a[1] + dy * t + ny * v;
+      const skip = fractal(d.seed + k, t * l * 0.35, k * 3.1, 1, 1, isDraft ? 1 : 2) < dens + t * 0.35, x = a[0] + dx * t + nx * v, y = a[1] + dy * t + ny * v;
       if (skip) { on = false; continue; } if (!on) { c.moveTo(x, y); on = true; } else c.lineTo(x, y);
     }
   }
   c.stroke(); c.globalAlpha = 1;
+  if (isDraft) recordKitMaterialReduction(1, nb, nb * steps);
 };
 
 export const drawMidCentury = (ctx: Ctx, f: number, env: Env) => {

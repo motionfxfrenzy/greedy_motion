@@ -5,6 +5,7 @@ export type WorkspaceSubtitleMode = "none" | "key-phrases" | "full";
 export type WorkspaceSubtitleStyle = "pill" | "cinema" | "kinetic" | "paper" | "blueprint";
 export type WorkspaceAudioTrackId = "voice" | "music" | "sfx" | "transitions";
 export type WorkspacePreviewQuality = 0.2 | 0.4 | 0.6;
+export type WorkspacePlaybackRenderMode = "draft" | "full";
 
 export type WorkspaceSceneTabVisualState = "ready" | "updating" | "needs-update";
 
@@ -117,6 +118,8 @@ export interface WorkspaceSubtitleControlState {
 export interface WorkspacePreviewQualityControlState {
   quality: WorkspacePreviewQuality;
   onSelectQuality: (quality: WorkspacePreviewQuality) => void;
+  renderMode?: WorkspacePlaybackRenderMode;
+  onSelectRenderMode?: (mode: WorkspacePlaybackRenderMode) => void;
 }
 
 export interface WorkspaceMotionBlurControlState {

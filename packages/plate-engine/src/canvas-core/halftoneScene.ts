@@ -19,7 +19,7 @@
 // CAST SHADOWS: the viaduct throws a band of shade on the valley floor BEHIND it (the sun is so
 // low that no light gets through the arches), the parapet shades the coaches' lower panels, the
 // cornice drops a line of shade across the face, the plume shades itself.
-import { fractal, rng, type Env, type P } from "./core";
+import { fractal, getRenderQuality, rng, type Env, type P } from "./core";
 import { clamp, ks, newTone, over, smoothstep, type Tone } from "./halftoneKit";
 
 type V3 = [number, number, number];
@@ -78,8 +78,13 @@ const ridgeNear = (x: number, W: number) => { const u = x / W; return W * (0.545
 
 // ---------------------------------------------------------------- building the original
 export const buildTone = (env: Env): Tone => {
-  const key = `halftone:tone:${env.W}x${env.H}`; const hit = env.cache.get(key) as Tone | undefined; if (hit) return hit;
-  const W = env.W, H = env.H, cam = camera(W, H), tw = Math.round(W / 2), th = Math.round(H / 2), T = newTone(tw, th, W, H);
+  const isDraft = getRenderQuality().mode === "draft";
+  const key = isDraft ? `halftone:tone:${env.W}x${env.H}:d` : `halftone:tone:${env.W}x${env.H}`;
+  const hit = env.cache.get(key) as Tone | undefined;
+  if (hit) return hit;
+  const W = env.W, H = env.H, cam = camera(W, H);
+  const div = isDraft ? 3.2 : 2;
+  const tw = Math.round(W / div), th = Math.round(H / div), T = newTone(tw, th, W, H);
   const sun = cam.proj([cam.C[0] + LIGHT[0] * 1e4, cam.C[1] + LIGHT[1] * 1e4, cam.C[2] + LIGHT[2] * 1e4]);
   const sx = W / tw, sy = H / th;
   // 1. sky, hills, valley floor: per pixel

@@ -198,12 +198,20 @@ async function __handleMessage(e) {
       const scale = typeof m.scale === "number" && m.scale > 0 ? m.scale : 1;
       self.FILM.mount(scale);
       __canvas.getContext("2d");
+      const rawCaps = self.FILM.capabilities && typeof self.FILM.capabilities === "object" ? self.FILM.capabilities : null;
+      const seekArity = typeof self.FILM.seek === "function" ? self.FILM.seek.length : 1;
+      const capabilities = rawCaps || {
+        draftSupported: seekArity >= 2,
+        seekAcceptsQuality: seekArity >= 2,
+        profileVersion: "legacy"
+      };
       __post({
         t: "init",
         id: m.id,
         w: __canvas.width,
         h: __canvas.height,
         meta: self.FILM.meta,
+        capabilities,
         paramsEcho: JSON.stringify(self.__PARAMS__ ?? {})
       });
       return;
@@ -211,11 +219,27 @@ async function __handleMessage(e) {
     if (m.t === "frame") {
       const t0 = performance.now();
       const repeat = typeof m.repeat === "number" && m.repeat > 1 ? Math.floor(m.repeat) : 1;
-      for (let i = 0; i < repeat; i++) self.FILM.seek(m.n);
+      const qSpec = m.qualitySpec !== undefined ? m.qualitySpec : "full";
+      for (let i = 0; i < repeat; i++) self.FILM.seek(m.n, qSpec);
       const drawMs = (performance.now() - t0) / repeat;
       const hash = m.includeHash ? __frameHash() : undefined;
+      const frameStats = typeof self.FILM.getLastFrameStats === "function" ? self.FILM.getLastFrameStats() : undefined;
+      const calibration = m.includeCalibration && typeof self.FILM.getCalibration === "function" ? self.FILM.getCalibration() : undefined;
       const bitmap = await createImageBitmap(__canvas);
-      __post({ t: "frame", id: m.id, n: m.n, bitmap, drawMs, ...(hash !== undefined ? { hash } : {}) }, [bitmap]);
+      __post(
+        {
+          t: "frame",
+          id: m.id,
+          n: m.n,
+          bitmap,
+          drawMs,
+          ...(m.epoch !== undefined ? { epoch: m.epoch } : {}),
+          ...(frameStats !== undefined ? { frameStats } : {}),
+          ...(calibration !== undefined ? { calibration } : {}),
+          ...(hash !== undefined ? { hash } : {})
+        },
+        [bitmap]
+      );
       return;
     }
     __post({ t: "fail", id: m.id, message: "Unknown command: " + String(m.t) });
@@ -356,10 +380,18 @@ export type HostFilmMeta = {
   shots?: { id: string; start: number; end: number }[];
 };
 
+export type HostCapabilities = {
+  draftSupported: boolean;
+  seekAcceptsQuality: boolean;
+  profileVersion?: string;
+  defaultDraftTargetVerticesPerFrame?: number;
+};
+
 export type HostInitResult = {
   w: number;
   h: number;
   meta: HostFilmMeta;
+  capabilities?: HostCapabilities;
   paramsEcho?: string;
 };
 
@@ -368,6 +400,10 @@ export type HostFrameResult = {
   bitmap: ImageBitmapLike;
   drawMs: number;
   bytes: number;
+  epoch?: number;
+  qualityMode?: "draft" | "full";
+  frameStats?: Record<string, unknown>;
+  calibration?: Record<string, unknown> | null;
   hash?: string;
 };
 
@@ -427,6 +463,8 @@ export class WorkerHost {
 
   private heldBitmaps = new Map<number, HeldBitmapRecord>();
   private heldBytes = 0;
+  private createdBitmapsCount = 0;
+  private closedBitmapsCount = 0;
 
   private watchdogTrips = 0;
   private recycleCount = 0;
@@ -458,6 +496,28 @@ export class WorkerHost {
 
   get budget(): number {
     return this.budgetBytes;
+  }
+
+  get capabilities(): HostCapabilities | undefined {
+    return this.initResult?.capabilities;
+  }
+
+  get supportsDraftQuality(): boolean {
+    if (!this.initResult?.capabilities) return true;
+    return Boolean(this.initResult.capabilities.draftSupported && this.initResult.capabilities.seekAcceptsQuality);
+  }
+
+  get hasActiveTransport(): boolean {
+    return this.transport !== null || this.spawning !== null;
+  }
+
+  getBitmapCounters(): { created: number; closed: number; held: number; heldBytes: number } {
+    return {
+      created: this.createdBitmapsCount,
+      closed: this.closedBitmapsCount,
+      held: this.heldBitmaps.size,
+      heldBytes: this.heldBytes
+    };
   }
 
   get unhealthy(): boolean {
@@ -548,7 +608,7 @@ export class WorkerHost {
         void this.recycle("lifetime").catch(() => {});
         return;
       }
-      if (this.heartbeatInFlight) return;
+      if (this.heartbeatInFlight || this.waiting.size > 0) return;
       this.heartbeatInFlight = true;
       void this.rawCall(t, { t: "hb" }, this.watchdogMs)
         .catch(() => {})
@@ -726,6 +786,11 @@ export class WorkerHost {
             w: Number(res.w ?? this.initResult?.w ?? 0),
             h: Number(res.h ?? this.initResult?.h ?? 0),
             meta: (res.meta as HostFilmMeta) ?? this.initResult?.meta ?? { fps: 30 },
+            ...(res.capabilities && typeof res.capabilities === "object"
+              ? { capabilities: res.capabilities as HostCapabilities }
+              : this.initResult?.capabilities
+                ? { capabilities: this.initResult.capabilities }
+                : {}),
             ...(typeof res.paramsEcho === "string" ? { paramsEcho: res.paramsEcho } : {})
           };
         }
@@ -753,10 +818,34 @@ export class WorkerHost {
       w: Number(res.w ?? 0),
       h: Number(res.h ?? 0),
       meta: (res.meta as HostFilmMeta) ?? { fps: 30 },
+      ...(res.capabilities && typeof res.capabilities === "object"
+        ? { capabilities: res.capabilities as HostCapabilities }
+        : { capabilities: { draftSupported: true, seekAcceptsQuality: true } }),
       ...(typeof res.paramsEcho === "string" ? { paramsEcho: res.paramsEcho } : {})
     };
     this.initResult = out;
     return out;
+  }
+
+  /**
+   * Terminates the underlying Worker and removes its sandboxed bootstrap iframe when the scene or film is idle
+   * (e.g. at film end or scene deactivation), without permanently destroying the `WorkerHost` instance.
+   * If a future `frame()` or `init()` call is made, `ensureTransport()` will transparently respawn and re-init.
+   */
+  terminateIdle(reason = "idle-cleanup"): void {
+    if (this.isDestroyed) return;
+    for (const rec of [...this.heldBitmaps.values()]) {
+      rec.bitmap.close();
+    }
+    this.heldBitmaps.clear();
+    this.heldBytes = 0;
+    const current = this.transport;
+    if (current) {
+      try {
+        current.port.postMessage({ t: "dispose", id: ++this.seq });
+      } catch {}
+    }
+    this.terminateCurrentTransport(reason);
   }
 
   /** Sends an explicit heartbeat and resolves when the Worker answers within the watchdog window. */
@@ -765,10 +854,17 @@ export class WorkerHost {
     await this.rawCall(t, { t: "hb" }, this.watchdogMs);
   }
 
-  private trackBitmap(n: number, rawBitmap: ImageBitmapLike, fallbackW: number, fallbackH: number): { bitmap: ImageBitmapLike; bytes: number } {
+  private trackBitmap(
+    n: number,
+    rawBitmap: ImageBitmapLike,
+    fallbackW: number,
+    fallbackH: number,
+    qualityMode: "draft" | "full" = "full"
+  ): { bitmap: ImageBitmapLike; bytes: number } {
     const w = typeof rawBitmap?.width === "number" && rawBitmap.width > 0 ? rawBitmap.width : fallbackW;
     const h = typeof rawBitmap?.height === "number" && rawBitmap.height > 0 ? rawBitmap.height : fallbackH;
     const bytes = Math.max(4, w * h * 4);
+    this.createdBitmapsCount++;
 
     const origClose = typeof rawBitmap?.close === "function" ? rawBitmap.close.bind(rawBitmap) : () => {};
     const record: HeldBitmapRecord = {
@@ -781,6 +877,7 @@ export class WorkerHost {
     const releaseRecord = () => {
       if (record.closed) return;
       record.closed = true;
+      this.closedBitmapsCount++;
       const current = this.heldBitmaps.get(n);
       if (current === record) {
         this.heldBitmaps.delete(n);
@@ -793,17 +890,22 @@ export class WorkerHost {
 
     try {
       rawBitmap.close = releaseRecord;
+      (rawBitmap as unknown as Record<string, unknown>).__renderQualityMode = qualityMode;
+      (rawBitmap as unknown as Record<string, unknown>).__sceneFrame = n;
     } catch {
       // If `rawBitmap.close` is non-writable, wrap in a proxy object.
-      record.bitmap = {
+      const proxy: ImageBitmapLike & { __renderQualityMode?: string; __sceneFrame?: number } = {
         get width() {
           return w;
         },
         get height() {
           return h;
         },
+        __renderQualityMode: qualityMode,
+        __sceneFrame: n,
         close: releaseRecord
       };
+      record.bitmap = proxy;
     }
 
     // Refuse to hold a single frame larger than the total host budget.
@@ -844,14 +946,52 @@ export class WorkerHost {
   }
 
   /** Draws frame `n` in the Worker (subject to the 2 s draw watchdog and 60 s Worker lifetime) and returns the tracked `ImageBitmap`. */
-  async frame(n: number, options?: { includeHash?: boolean; repeat?: number }): Promise<HostFrameResult> {
+  async frame(
+    n: number,
+    options?: {
+      includeHash?: boolean;
+      includeCalibration?: boolean;
+      repeat?: number;
+      qualitySpec?: Record<string, unknown> | string;
+      epoch?: number;
+    }
+  ): Promise<HostFrameResult> {
+    const hadTransport = this.transport !== null;
     const t = await this.ensureTransport();
+    if (!hadTransport && this.lastInitSpec && !this.isDestroyed && !this.isUnhealthy) {
+      const initRes = await this.rawCall(
+        t,
+        { t: "init", scale: this.lastInitSpec.scale, params: canonicalJson(this.lastInitSpec.params) },
+        this.watchdogMs
+      );
+      this.initResult = {
+        w: Number(initRes.w ?? this.initResult?.w ?? 0),
+        h: Number(initRes.h ?? this.initResult?.h ?? 0),
+        meta: (initRes.meta as HostFilmMeta) ?? this.initResult?.meta ?? { fps: 30 },
+        ...(initRes.capabilities && typeof initRes.capabilities === "object"
+          ? { capabilities: initRes.capabilities as HostCapabilities }
+          : this.initResult?.capabilities
+            ? { capabilities: this.initResult.capabilities }
+            : {}),
+        ...(typeof initRes.paramsEcho === "string" ? { paramsEcho: initRes.paramsEcho } : {})
+      };
+    }
+
+    const qSpec = options?.qualitySpec;
+    const resolvedQualityMode: "draft" | "full" =
+      qSpec === "draft" || (typeof qSpec === "object" && qSpec !== null && qSpec.mode === "draft")
+        ? "draft"
+        : "full";
+
     const res = await this.rawCall(
       t,
       {
         t: "frame",
         n,
+        ...(qSpec !== undefined ? { qualitySpec: qSpec } : {}),
+        ...(options?.epoch !== undefined ? { epoch: options.epoch } : {}),
         ...(options?.includeHash ? { includeHash: true } : {}),
+        ...(options?.includeCalibration ? { includeCalibration: true } : {}),
         ...(options?.repeat && options.repeat > 1 ? { repeat: options.repeat } : {})
       },
       this.watchdogMs
@@ -860,7 +1000,7 @@ export class WorkerHost {
     const rawBitmap = res.bitmap as ImageBitmapLike;
     const fallbackW = this.initResult?.w || 854;
     const fallbackH = this.initResult?.h || 480;
-    const { bitmap, bytes } = this.trackBitmap(n, rawBitmap, fallbackW, fallbackH);
+    const { bitmap, bytes } = this.trackBitmap(n, rawBitmap, fallbackW, fallbackH, resolvedQualityMode);
 
     // Check if the 60 s lifetime expired during this draw so the Worker recycles right after the frame completes.
     if (this.transport === t && this.clock.now() - this.spawnedAt >= this.lifetimeMs && this.waiting.size === 0) {
@@ -872,6 +1012,14 @@ export class WorkerHost {
       bitmap,
       drawMs: Number(res.drawMs ?? 0),
       bytes,
+      qualityMode: resolvedQualityMode,
+      ...(typeof res.epoch === "number" ? { epoch: res.epoch } : {}),
+      ...(res.frameStats && typeof res.frameStats === "object"
+        ? { frameStats: res.frameStats as Record<string, unknown> }
+        : {}),
+      ...(res.calibration !== undefined
+        ? { calibration: (res.calibration as Record<string, unknown> | null) ?? null }
+        : {}),
       ...(typeof res.hash === "string" ? { hash: res.hash } : {})
     };
   }

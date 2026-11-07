@@ -8,14 +8,16 @@
  */
 export interface Disposable { close?: () => void }
 
-/** Canonical scene-group cache key combining `bundleDigest` and `previewSize` (e.g. `"854x480"`). */
-export function sceneCacheKey(bundleDigest: string, previewSize?: string): string {
-  return previewSize ? `${bundleDigest}|${previewSize}` : bundleDigest;
+/** Canonical scene-group cache key combining `bundleDigest`, `previewSize` (e.g. `"640x360"`), and optional `qualityKey`. */
+export function sceneCacheKey(bundleDigest: string, previewSize?: string, qualityKey?: string): string {
+  const base = previewSize ? `${bundleDigest}|${previewSize}` : bundleDigest;
+  return qualityKey ? `${base}|${qualityKey}` : base;
 }
 
-/** Full frame cache key `bundleDigest | frame | previewSize` (docs/LIVE_SCENES_PLAN.md §6). */
-export function frameCacheKey(bundleDigest: string, frame: number, previewSize = "854x480"): string {
-  return `${bundleDigest}|${frame}|${previewSize}`;
+/** Full frame cache key `bundleDigest | frame | previewSize [| qualityKey]` (docs/LIVE_SCENES_PLAN.md §6). */
+export function frameCacheKey(bundleDigest: string, frame: number, previewSize = "854x480", qualityKey?: string): string {
+  const base = `${bundleDigest}|${frame}|${previewSize}`;
+  return qualityKey ? `${base}|${qualityKey}` : base;
 }
 
 export type RollingWindowSplit = {
@@ -53,6 +55,7 @@ type Scene<T> = { frames: Map<number, Entry<T>>; bytes: number };
 
 export class FrameCache<T extends Disposable = Disposable> {
   private scenes = new Map<string, Scene<T>>();
+  private sceneReservations = new Map<string, number>();
   private order: string[] = [];
   private pinned = new Set<string>();
   private focusScene: string | null = null;
@@ -61,6 +64,7 @@ export class FrameCache<T extends Disposable = Disposable> {
   hits = 0;
   misses = 0;
   evictions = 0;
+  closedCount = 0;
 
   private budgetBytes: number;
 
@@ -71,6 +75,20 @@ export class FrameCache<T extends Disposable = Disposable> {
 
   get bytes() { return this.total; }
   get budget() { return this.budgetBytes; }
+
+  /** Sets an optional per-scene byte cap so inactive/prefetch scenes cannot evict the active scene's runway. */
+  setSceneReservation(scene: string, maxBytes: number | null) {
+    if (maxBytes === null || !(maxBytes >= 0)) {
+      this.sceneReservations.delete(scene);
+      return;
+    }
+    this.sceneReservations.set(scene, maxBytes);
+    this.evictSceneReservation(scene, -1);
+  }
+
+  getSceneReservation(scene: string): number | undefined {
+    return this.sceneReservations.get(scene);
+  }
 
   /** Scene ids in timeline order; distance between scenes is the distance in this list. */
   setOrder(ids: string[]) { this.order = [...ids]; }
@@ -93,6 +111,12 @@ export class FrameCache<T extends Disposable = Disposable> {
 
   put(scene: string, frame: number, value: T, bytes: number) {
     if (!(bytes > 0)) throw new Error("An entry needs a positive size.");
+    const cap = this.sceneReservations.get(scene);
+    if (cap !== undefined && cap <= 0) {
+      value.close?.();
+      this.closedCount++;
+      return;
+    }
     let group = this.scenes.get(scene);
     if (!group) { group = { frames: new Map(), bytes: 0 }; this.scenes.set(scene, group); }
     const old = group.frames.get(frame);
@@ -100,6 +124,9 @@ export class FrameCache<T extends Disposable = Disposable> {
     group.frames.set(frame, { value, bytes });
     group.bytes += bytes;
     this.total += bytes;
+    if (cap !== undefined && group.bytes > cap) {
+      this.evictSceneReservation(scene, frame);
+    }
     this.evict(scene, frame);
   }
 
@@ -124,10 +151,23 @@ export class FrameCache<T extends Disposable = Disposable> {
   drop(scene: string) {
     const group = this.scenes.get(scene);
     if (!group) return;
-    for (const entry of group.frames.values()) { entry.value.close?.(); }
+    for (const entry of group.frames.values()) {
+      entry.value.close?.();
+      this.closedCount++;
+    }
     this.total -= group.bytes;
     this.scenes.delete(scene);
     this.pinned.delete(scene);
+    this.sceneReservations.delete(scene);
+  }
+
+  /** Drops all scene groups matching a prefix (e.g. `${bundleDigest}|${previewSize}` across quality keys). */
+  dropPrefix(prefix: string) {
+    for (const id of [...this.scenes.keys()]) {
+      if (id === prefix || id.startsWith(`${prefix}|`)) {
+        this.drop(id);
+      }
+    }
   }
 
   clear() { for (const id of [...this.scenes.keys()]) this.drop(id); }
@@ -152,8 +192,27 @@ export class FrameCache<T extends Disposable = Disposable> {
 
   private release_(entry: Entry<T>, group: Scene<T>) {
     entry.value.close?.();
+    this.closedCount++;
     group.bytes -= entry.bytes;
     this.total -= entry.bytes;
+  }
+
+  private evictSceneReservation(scene: string, keepFrame: number) {
+    const cap = this.sceneReservations.get(scene);
+    const group = this.scenes.get(scene);
+    if (cap === undefined || !group) return;
+    while (group.bytes > cap && group.frames.size > 0) {
+      const victim = this.farthestFrame([scene], (id) => id === scene && keepFrame >= 0, keepFrame);
+      if (!victim) break;
+      const entry = group.frames.get(victim.frame);
+      if (!entry) break;
+      group.frames.delete(victim.frame);
+      this.release_(entry, group);
+      this.evictions++;
+    }
+    if (group.frames.size === 0) {
+      this.scenes.delete(scene);
+    }
   }
 
   private sceneDistance(id: string) {

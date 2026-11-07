@@ -6,12 +6,30 @@ import type {
   WorkspaceAudioTrackId,
   WorkspaceComment,
   WorkspaceOptionsConfig,
+  WorkspacePlaybackRenderMode,
   WorkspacePreviewQuality,
   WorkspaceSceneSpan,
   WorkspaceSceneTabVisualState,
   WorkspaceSubtitleMode,
   WorkspaceSubtitleStyle
 } from "./types.ts";
+
+export const WORKSPACE_PLAYBACK_RENDER_MODES: readonly {
+  id: WorkspacePlaybackRenderMode;
+  label: "Draft" | "Full";
+  description: string;
+}[] = [
+  {
+    id: "draft",
+    label: "Draft",
+    description: "Fast live playback · full-detail still when paused"
+  },
+  {
+    id: "full",
+    label: "Full",
+    description: "Full stroke & texture detail on every frame (buffers if needed)"
+  }
+];
 
 export const WORKSPACE_PREVIEW_QUALITIES: readonly {
   id: WorkspacePreviewQuality;

@@ -12,7 +12,7 @@
 // Doctrine borrowed from spec 02 (knockouts): a colour block is PRINTED where it is cut, so a
 // shape that two blocks share is built once from the shared seeded geometry before either block
 // uses it; highlights are uncut wood (bare paper), never a pale ink.
-import { fractal, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
+import { fractal, getRenderQuality, isCalibratingPen, recordKitMaterialReduction, recordOtherPathStats, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
 
 export const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 export const smoothstep = (a: number, b: number, v: number) => { const t = clamp((v - a) / (b - a)); return t * t * (3 - 2 * t); };
@@ -56,48 +56,99 @@ export const gouged = (ctrl: P[], seed: number, closed = true, amp = 0.8): P[] =
   return s.map(([x, y]) => [x + (fractal(seed, x, y, 0.35, 0.35, 1) - 0.5) * amp, y + (fractal(seed + 9, x, y, 0.35, 0.35, 1) - 0.5) * amp] as P);
 };
 // fill a list of polygons on the current surface
-export const fillAll = (c: Ctx, polys: P[][], color: string) => { c.fillStyle = color; c.beginPath(); for (const p of polys) { if (p.length < 3) continue; p.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); } c.fill("nonzero"); };
+export const fillAll = (c: Ctx, polys: P[][], color: string) => {
+  c.fillStyle = color;
+  c.beginPath();
+  let verts = 0, count = 0;
+  for (const p of polys) {
+    if (p.length < 3) continue;
+    p.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+    c.closePath();
+    verts += p.length;
+    count++;
+  }
+  c.fill("nonzero");
+  if (count > 0) recordOtherPathStats(count, verts, false);
+};
 
 // ---------------------------------------------------------------- the wood and the paper
 // the plank's figure: growth rings as long wavy streaks, tileable, alpha = where pigment is thin.
 export const grainTile = (env: Env): Layer => {
-  const key = `woodcut:grain:${env.scale}`; let L = env.cache.get(key) as Layer | undefined; if (L) return L;
+  const q = getRenderQuality();
+  const step = q.mode === "draft" ? Math.max(2, q.surfaceSampleFactor) : 1;
+  const key = step > 1 ? `woodcut:grain:${env.scale}:s${step}` : `woodcut:grain:${env.scale}`;
+  let L = env.cache.get(key) as Layer | undefined;
+  if (L) {
+    if (step > 1) recordKitMaterialReduction(1);
+    return L;
+  }
   const n = 512, k = env.scale, dn = Math.round(n * k); L = env.canvas(dn, dn); const img = L.ctx.createImageData(dn, dn), d = img.data;
-  for (let y = 0; y < dn; y++) for (let x = 0; x < dn; x++) {
-    const lx = x / k, ly = y / k, warp = (fractal(501, lx, ly, 1 / 128, 1 / 64, 2, n) - 0.5) * 34, ring = Math.sin((ly + warp) * 0.5 + (fractal(502, lx, ly, 1 / 256, 1 / 16, 3, n) - 0.5) * 26);  /* growth rings: uneven spacing, some close, some wide */
-    const fleck = fractal(503, lx, ly, 0.9, 0.9, 1, n), v = clamp((ring - 0.55) * 2.2) * 0.75 + clamp((fleck - 0.64) * 5) * 0.8;
-    const p = (y * dn + x) * 4; d[p] = d[p + 1] = d[p + 2] = 0; d[p + 3] = 255 * clamp(v);
+  if (step <= 1) {
+    for (let y = 0; y < dn; y++) for (let x = 0; x < dn; x++) {
+      const lx = x / k, ly = y / k, warp = (fractal(501, lx, ly, 1 / 128, 1 / 64, 2, n) - 0.5) * 34, ring = Math.sin((ly + warp) * 0.5 + (fractal(502, lx, ly, 1 / 256, 1 / 16, 3, n) - 0.5) * 26);
+      const fleck = fractal(503, lx, ly, 0.9, 0.9, 1, n), v = clamp((ring - 0.55) * 2.2) * 0.75 + clamp((fleck - 0.64) * 5) * 0.8;
+      const p = (y * dn + x) * 4; d[p] = d[p + 1] = d[p + 2] = 0; d[p + 3] = 255 * clamp(v);
+    }
+  } else {
+    for (let y = 0; y < dn; y += step) for (let x = 0; x < dn; x += step) {
+      const lx = x / k, ly = y / k, warp = (fractal(501, lx, ly, 1 / 128, 1 / 64, 1, n) - 0.5) * 34, ring = Math.sin((ly + warp) * 0.5 + (fractal(502, lx, ly, 1 / 256, 1 / 16, 2, n) - 0.5) * 26);
+      const fleck = fractal(503, lx, ly, 0.9, 0.9, 1, n), a0 = 255 * clamp(clamp((ring - 0.55) * 2.2) * 0.75 + clamp((fleck - 0.64) * 5) * 0.8);
+      for (let dy = 0; dy < step && y + dy < dn; dy++) for (let dx = 0; dx < step && x + dx < dn; dx++) {
+        const p = ((y + dy) * dn + (x + dx)) * 4; d[p] = d[p + 1] = d[p + 2] = 0; d[p + 3] = a0;
+      }
+    }
+    recordKitMaterialReduction(1);
   }
   L.ctx.putImageData(img, 0, 0); env.cache.set(key, L); return L;
 };
 // knock a block's pigment thin along its grain (and where the baren skipped: goma-zuri speckle)
 export const grain = (c: Ctx, env: Env, strength: number, shift: P, rot = 0) => {
-  if (strength <= 0) return; const t = grainTile(env), k = env.scale;
+  if (strength <= 0 || isCalibratingPen()) return; const t = grainTile(env), k = env.scale;
   c.save(); c.setTransform(Math.cos(rot), Math.sin(rot), -Math.sin(rot), Math.cos(rot), shift[0] * k, shift[1] * k); c.globalCompositeOperation = "destination-out"; c.globalAlpha = strength;
   c.fillStyle = c.createPattern(t.canvas, "repeat")!; c.fillRect(-shift[0] * k - 200 * k, -shift[1] * k - 200 * k, (env.W + 400) * k, (env.H + 400) * k); c.restore();
 };
 export const WASHI = "#efe6d1";
 export const washi = (env: Env): Layer => {
-  const key = `woodcut:washi:${env.W}x${env.H}@${env.scale}`; let L = env.cache.get(key) as Layer | undefined; if (L) return L;
+  if (isCalibratingPen()) return env.canvas(1, 1);
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
+  const key = isDraft ? `woodcut:washi:${env.W}x${env.H}@${env.scale}:d${q.materialDetailScale}` : `woodcut:washi:${env.W}x${env.H}@${env.scale}`;
+  let L = env.cache.get(key) as Layer | undefined;
+  if (L) {
+    if (isDraft) recordKitMaterialReduction(1);
+    return L;
+  }
   const W = env.W, H = env.H, k = env.scale, DW = Math.round(W * k), DH = Math.round(H * k); L = env.canvas(DW, DH); const c = L.ctx;
   c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = WASHI; c.fillRect(0, 0, DW, DH);
   const img = c.getImageData(0, 0, DW, DH), d = img.data;
-  for (let y = 0; y < DH; y++) for (let x = 0; x < DW; x++) { const v = fractal(511, x / k, y / k, 0.004, 0.004, 3) - 0.5, p = (y * DW + x) * 4, o = v * 12; d[p] += o; d[p + 1] += o; d[p + 2] += o * 1.3; }
+  if (!isDraft) {
+    for (let y = 0; y < DH; y++) for (let x = 0; x < DW; x++) { const v = fractal(511, x / k, y / k, 0.004, 0.004, 3) - 0.5, p = (y * DW + x) * 4, o = v * 12; d[p] += o; d[p + 1] += o; d[p + 2] += o * 1.3; }
+  } else {
+    const step = Math.max(2, q.surfaceSampleFactor * 2);
+    for (let y = 0; y < DH; y += step) for (let x = 0; x < DW; x += step) {
+      const v = fractal(511, x / k, y / k, 0.004, 0.004, 2) - 0.5, o = v * 12;
+      for (let dy = 0; dy < step && y + dy < DH; dy++) for (let dx = 0; dx < step && x + dx < DW; dx++) {
+        const p = ((y + dy) * DW + (x + dx)) * 4; d[p] += o; d[p + 1] += o; d[p + 2] += o * 1.3;
+      }
+    }
+  }
   c.putImageData(img, 0, 0); c.setTransform(k, 0, 0, k, 0, 0);
   const r = rng(513);
-  for (let i = 0; i < (W * H) / 2600; i++) { // kozo: long, soft, curling bast fibres lying in the sheet
+  const totalFibres = (W * H) / 2600;
+  const keepModulo = isDraft ? Math.max(2, Math.round(1 / q.materialDetailScale)) : 1;
+  for (let i = 0; i < totalFibres; i++) {
     const x = r() * W, y = r() * H, len = 14 + Math.pow(r(), 2) * 70, a = r() * 6.283, b1 = (r() - 0.5) * 2, b2 = (r() - 0.5) * 2, pale = r() < 0.7;
-    c.strokeStyle = pale ? `rgba(255,252,242,${0.35 + r() * 0.35})` : `rgba(150,128,96,${0.1 + r() * 0.14})`; c.lineWidth = 0.4 + r() * 0.6;
+    const styleAlpha = pale ? 0.35 + r() * 0.35 : 0.1 + r() * 0.14;
+    const lw = 0.4 + r() * 0.6;
+    if (isDraft && i % keepModulo !== 0) continue;
+    c.strokeStyle = pale ? `rgba(255,252,242,${styleAlpha})` : `rgba(150,128,96,${styleAlpha})`; c.lineWidth = lw;
     c.beginPath(); c.moveTo(x, y); c.bezierCurveTo(x + Math.cos(a + b1) * len * 0.35, y + Math.sin(a + b1) * len * 0.35, x + Math.cos(a + b2) * len * 0.7, y + Math.sin(a + b2) * len * 0.7, x + Math.cos(a) * len, y + Math.sin(a) * len); c.stroke();
   }
+  if (isDraft) recordKitMaterialReduction(1);
   env.cache.set(key, L); return L;
 };
 
 // ---------------------------------------------------------------- the baren
-// The printer lays the damp sheet on the inked block (against the kento) and rubs its back with
-// the baren in overlapping zig-zag strokes, working down the block. Pigment transfers where the
-// baren has passed. `rubPath` returns that path over a block's box; `rubMask` draws the swept
-// area up to `u` (0..1) as a coverage mask, the pad's edge a little ragged.
 export const rubPath = (b: { x0: number; y0: number; x1: number; y1: number }, pad: number): P[] => {
   const band = pad * 0.72, rows = Math.max(1, Math.ceil((b.y1 - b.y0) / band)), out: P[] = [];
   for (let i = 0; i < rows; i++) { const y = b.y0 + band * (i + 0.5), l = b.x0 - pad * 0.2, rr = b.x1 + pad * 0.2; out.push(i % 2 ? [rr, y] : [l, y], i % 2 ? [l, y + band * 0.15] : [rr, y + band * 0.15]); }
@@ -111,16 +162,17 @@ export const rubMask = (c: Ctx, pts: P[], u: number, pad: number, seed: number) 
 };
 
 // ---------------------------------------------------------------- bokashi
-// Ichimonji bokashi: the printer wipes the inked block with a damp cloth so the pigment runs
-// from full at one edge to nothing a hand's width away. The fade is not a clean gradient: the
-// cloth leaves its edge wavering across the block.
 export const bokashi = (c: Ctx, x0: number, x1: number, yFull: number, yGone: number, color: string, seed: number, clip?: P[]) => {
+  if (isCalibratingPen()) return;
+  const q = getRenderQuality();
   c.save(); if (clip) { path(c, clip); c.clip(); }
-  const dir = Math.sign(yGone - yFull) || 1, span = Math.abs(yGone - yFull), steps = Math.ceil((x1 - x0) / 6);
+  const stripW = q.mode === "draft" ? Math.max(6, Math.round(6 / Math.max(0.4, q.materialDetailScale))) : 6;
+  const dir = Math.sign(yGone - yFull) || 1, span = Math.abs(yGone - yFull), steps = Math.ceil((x1 - x0) / stripW);
   for (let i = 0; i < steps; i++) {
-    const x = x0 + i * 6, wob = (fractal(seed, x, 0, 0.012, 0.012, 3) - 0.5) * span * 0.35, g = c.createLinearGradient(0, yFull, 0, yGone + wob * dir);
+    const x = x0 + i * stripW, wob = (fractal(seed, x, 0, 0.012, 0.012, q.mode === "draft" ? 2 : 3) - 0.5) * span * 0.35, g = c.createLinearGradient(0, yFull, 0, yGone + wob * dir);
     g.addColorStop(0, color); g.addColorStop(0.45, color + "b0"); g.addColorStop(1, color + "00"); c.fillStyle = g;
-    c.fillRect(x, Math.min(yFull, yGone + wob * dir) - (dir > 0 ? 400 : 0), 6.6, span + Math.abs(wob) + 400);
+    c.fillRect(x, Math.min(yFull, yGone + wob * dir) - (dir > 0 ? 400 : 0), stripW + 0.6, span + Math.abs(wob) + 400);
   }
+  if (q.mode === "draft") recordKitMaterialReduction(1, steps, steps * 4);
   c.restore();
 };

@@ -260,3 +260,31 @@ export function resolveCacheBudgetBytes(options?: {
 }): number {
   return resolveCacheBudgetMB(options) * 1024 * 1024;
 }
+
+/**
+ * Bounded shared RAM cache budget for Draft preview mode (§3.1 & §5.3 of TASK-draft-preview-integration.md):
+ * 32 MiB default across the film (~36 raw 640×360 RGBA frames), 24 MiB on low-memory devices.
+ */
+export function resolveDraftCacheBudgetMB(options?: {
+  userAgent?: string;
+  deviceMemory?: number | null;
+  draftCacheMB?: number;
+}): number {
+  if (typeof options?.draftCacheMB === "number" && options.draftCacheMB > 0) {
+    return options.draftCacheMB;
+  }
+  const nav = (globalThis as { navigator?: { userAgent?: string; deviceMemory?: number } }).navigator;
+  const mem = options?.deviceMemory !== undefined ? options.deviceMemory : (nav?.deviceMemory ?? null);
+  if (typeof mem === "number" && mem > 0 && mem <= 4) {
+    return 24;
+  }
+  return 32;
+}
+
+export function resolveDraftCacheBudgetBytes(options?: {
+  userAgent?: string;
+  deviceMemory?: number | null;
+  draftCacheMB?: number;
+}): number {
+  return resolveDraftCacheBudgetMB(options) * 1024 * 1024;
+}

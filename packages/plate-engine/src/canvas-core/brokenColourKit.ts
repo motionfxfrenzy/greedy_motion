@@ -7,7 +7,7 @@
 //   brush(...)   one loaded oil brush stroke: blunt where the flat brush lands, full through the body,
 //                dragged thin where it lifts, with an impasto ridge on one side and a groove on the other.
 //   weave(...)   a primed linen canvas: a seeded, periodic plain-weave tile multiplied over the frame.
-import { fractal, rng, type Ctx, type Env, type Layer, type P } from "./core";
+import { fractal, getRenderQuality, recordKitMaterialReduction, recordOtherPathStats, rng, type Ctx, type Env, type Layer, type P } from "./core";
 
 // ---------------------------------------------------------------- colour
 export type RGB = [number, number, number];
@@ -75,38 +75,74 @@ const fillRibbon = (c: Ctx, m: Mark, prog: number, prof: (t: number) => number, 
 const flat = (t: number) => (t < 0.1 ? 0.8 + 2 * t : t > 0.6 ? 1 - 0.62 * Math.pow((t - 0.6) / 0.4, 1.5) : 1);
 const liner = (t: number) => Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0, t * 0.92 + 0.04))), 0.6);
 export const brush = (c: Ctx, env: Env, m: Mark, prog = 1) => {
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
   c.setTransform(env.scale, 0, 0, env.scale, 0, 0); c.globalCompositeOperation = "source-over";
   const lighter = mixC(m.rgb, [255, 250, 238], 0.2), darker = mixC(m.rgb, [20, 18, 40], 0.14);
   if (m.kind === 0) {
     c.globalAlpha = m.alpha; c.fillStyle = css(m.rgb); fillRibbon(c, m, prog, flat, m.w, 0, 8, 0.2, m.seed);
+    recordOtherPathStats(1, 18, false);
     if (m.w >= 3.2) {
-      c.globalAlpha = m.alpha * 0.5; c.fillStyle = css(lighter); fillRibbon(c, m, prog, flat, m.w * 0.2, m.w * 0.24, 6, 0.4, m.seed + 1); // the ridge the bristles push up
-      c.globalAlpha = m.alpha * 0.32; c.fillStyle = css(darker); fillRibbon(c, m, prog, flat, m.w * 0.12, -m.w * 0.3, 6, 0.5, m.seed + 2); // the groove beside it
+      const subN = isDraft ? 4 : 6;
+      c.globalAlpha = m.alpha * 0.5; c.fillStyle = css(lighter); fillRibbon(c, m, prog, flat, m.w * 0.2, m.w * 0.24, subN, 0.4, m.seed + 1);
+      c.globalAlpha = m.alpha * 0.32; c.fillStyle = css(darker); fillRibbon(c, m, prog, flat, m.w * 0.12, -m.w * 0.3, subN, 0.5, m.seed + 2);
+      if (isDraft) recordKitMaterialReduction(1, 2, (subN + 1) * 4);
     }
-    if (m.w >= 11) { const r = rng(m.seed + 3); for (let k = 0; k < 3; k++) { c.globalAlpha = m.alpha * (0.4 + r() * 0.4); c.fillStyle = css(k === 1 ? lighter : m.rgb); fillRibbon(c, m, prog, (t) => (t < 0.55 ? 0 : 0.9), m.w * 0.09, (r() - 0.5) * m.w * 0.7, 6, 0.3, m.seed + 4 + k); } } // dry bristle tails
+    if (m.w >= 11) {
+      const r = rng(m.seed + 3);
+      const tailCount = isDraft ? Math.max(1, Math.round(3 * q.materialDetailScale)) : 3;
+      for (let k = 0; k < 3; k++) {
+        const al = m.alpha * (0.4 + r() * 0.4), off = (r() - 0.5) * m.w * 0.7, wv = m.w * 0.09;
+        if (k >= tailCount) continue;
+        c.globalAlpha = al; c.fillStyle = css(k === 1 ? lighter : m.rgb);
+        fillRibbon(c, m, prog, (t) => (t < 0.55 ? 0 : 0.9), wv, off, isDraft ? 4 : 6, 0.3, m.seed + 4 + k);
+      }
+    }
   } else if (m.kind === 1) {
-    c.globalAlpha = m.alpha; c.fillStyle = css(m.rgb); fillRibbon(c, m, prog, liner, m.w, 0, 14, 0.25, m.seed);
+    c.globalAlpha = m.alpha; c.fillStyle = css(m.rgb); fillRibbon(c, m, prog, liner, m.w, 0, isDraft ? 10 : 14, 0.25, m.seed);
+    recordOtherPathStats(1, isDraft ? 22 : 30, false);
   } else {
     const r = rng(m.seed);
-    for (let k = 0; k < 7; k++) { const off = ((k + 0.5) / 7 - 0.5) * m.w, len = 0.82 + r() * 0.18; c.globalAlpha = m.alpha * (0.45 + r() * 0.55); c.fillStyle = css(mixC(m.rgb, k % 2 ? [255, 244, 228] : m.rgb, 0.18)); fillRibbon(c, m, prog * len, (t) => (t / len > 0.85 ? Math.max(0.1, (1 - t / len) / 0.15) : 1), (m.w / 7) * (1.2 + r() * 0.5), off, 10, 0.6, m.seed + 10 + k); }
+    const subN = isDraft ? 6 : 10;
+    for (let k = 0; k < 7; k++) { const off = ((k + 0.5) / 7 - 0.5) * m.w, len = 0.82 + r() * 0.18; c.globalAlpha = m.alpha * (0.45 + r() * 0.55); c.fillStyle = css(mixC(m.rgb, k % 2 ? [255, 244, 228] : m.rgb, 0.18)); fillRibbon(c, m, prog * len, (t) => (t / len > 0.85 ? Math.max(0.1, (1 - t / len) / 0.15) : 1), (m.w / 7) * (1.2 + r() * 0.5), off, subN, 0.6, m.seed + 10 + k); }
+    if (isDraft) recordKitMaterialReduction(1, 7, 7 * (subN + 1) * 2);
   }
   c.globalAlpha = 1;
 };
 
 // ---------------------------------------------------------------- the primed linen
-// A plain weave: warp and weft alternate over/under, each thread a rounded ridge, thread thickness
-// wandering along its length. Near white, so multiplied at full opacity it only darkens the valleys.
 const TILE = 512, PITCH = TILE / 190;
 export const weave = (env: Env): Layer => {
-  const key = `tile:linen:${env.scale}`; let L = env.cache.get(key) as Layer | undefined; if (L) return L;
+  const q = getRenderQuality();
+  const step = q.mode === "draft" ? Math.max(2, q.surfaceSampleFactor) : 1;
+  const key = step > 1 ? `tile:linen:${env.scale}:s${step}` : `tile:linen:${env.scale}`;
+  let L = env.cache.get(key) as Layer | undefined;
+  if (L) {
+    if (step > 1) recordKitMaterialReduction(1);
+    return L;
+  }
   const n = Math.round(TILE * env.scale); L = env.canvas(n, n);
   const img = L.ctx.createImageData(n, n), d = img.data;
-  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    const lx = x / env.scale, ly = y / env.scale, cx = Math.floor(lx / PITCH), cy = Math.floor(ly / PITCH), fx = lx / PITCH - cx, fy = ly / PITCH - cy;
-    const warpOver = ((cx + cy) & 1) === 0, thick = 0.75 + 0.5 * fractal(61, warpOver ? lx : ly, warpOver ? ly : lx, 0.35, 0.012, 2, TILE);
-    const across = warpOver ? fx : fy, along = warpOver ? fy : fx, ridge = Math.pow(Math.sin(Math.PI * across), thick), dip = 0.55 + 0.45 * Math.sin(Math.PI * along);
-    const v = ridge * dip * (0.85 + 0.3 * fractal(67, lx, ly, 0.08, 0.08, 2, TILE)), i = (y * n + x) * 4, g = 255 * Math.min(1, 1 - 0.26 * (1 - v));
-    d[i] = g; d[i + 1] = g * 0.995; d[i + 2] = g * 0.985; d[i + 3] = 255;
+  if (step <= 1) {
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const lx = x / env.scale, ly = y / env.scale, cx = Math.floor(lx / PITCH), cy = Math.floor(ly / PITCH), fx = lx / PITCH - cx, fy = ly / PITCH - cy;
+      const warpOver = ((cx + cy) & 1) === 0, thick = 0.75 + 0.5 * fractal(61, warpOver ? lx : ly, warpOver ? ly : lx, 0.35, 0.012, 2, TILE);
+      const across = warpOver ? fx : fy, along = warpOver ? fy : fx, ridge = Math.pow(Math.sin(Math.PI * across), thick), dip = 0.55 + 0.45 * Math.sin(Math.PI * along);
+      const v = ridge * dip * (0.85 + 0.3 * fractal(67, lx, ly, 0.08, 0.08, 2, TILE)), i = (y * n + x) * 4, g = 255 * Math.min(1, 1 - 0.26 * (1 - v));
+      d[i] = g; d[i + 1] = g * 0.995; d[i + 2] = g * 0.985; d[i + 3] = 255;
+    }
+  } else {
+    for (let y = 0; y < n; y += step) for (let x = 0; x < n; x += step) {
+      const lx = x / env.scale, ly = y / env.scale, cx = Math.floor(lx / PITCH), cy = Math.floor(ly / PITCH), fx = lx / PITCH - cx, fy = ly / PITCH - cy;
+      const warpOver = ((cx + cy) & 1) === 0, thick = 0.75 + 0.5 * fractal(61, warpOver ? lx : ly, warpOver ? ly : lx, 0.35, 0.012, 1, TILE);
+      const across = warpOver ? fx : fy, along = warpOver ? fy : fx, ridge = Math.pow(Math.sin(Math.PI * across), thick), dip = 0.55 + 0.45 * Math.sin(Math.PI * along);
+      const v = ridge * dip * (0.85 + 0.3 * fractal(67, lx, ly, 0.08, 0.08, 1, TILE)), g = 255 * Math.min(1, 1 - 0.26 * (1 - v));
+      for (let dy = 0; dy < step && y + dy < n; dy++) for (let dx = 0; dx < step && x + dx < n; dx++) {
+        const i = ((y + dy) * n + (x + dx)) * 4;
+        d[i] = g; d[i + 1] = g * 0.995; d[i + 2] = g * 0.985; d[i + 3] = 255;
+      }
+    }
+    recordKitMaterialReduction(1);
   }
   L.ctx.putImageData(img, 0, 0); env.cache.set(key, L); return L;
 };

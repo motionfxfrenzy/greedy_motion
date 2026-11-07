@@ -5,7 +5,7 @@
 // (u, u/2) on screen: every horizontal edge is a 2:1 line. One unit of z moves 1.2247u up (the
 // true vertical of a 30-degree-elevation dimetric view), so a cube reads as a cube.
 // Visible faces of an axis box are its top (+z), its left face (+y) and its right face (+x).
-import type { Ctx } from "./core";
+import { recordOtherPathStats, type Ctx } from "./core";
 
 export type P3 = [number, number, number];
 export type P2 = [number, number];
@@ -16,7 +16,7 @@ export class Iso {
   constructor(public ctx: Ctx, public u: number, public ox: number, public oy: number) {}
   p(x: number, y: number, z: number): P2 { return [this.ox + (x - y) * this.u, this.oy + ((x + y) * this.u) / 2 - z * ZK * this.u]; }
   // ---- raw marks
-  poly(pts: P2[], fill: string, alpha = 1) { const c = this.ctx; c.globalAlpha = alpha; c.fillStyle = fill; c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.fill(); c.globalAlpha = 1; }
+  poly(pts: P2[], fill: string, alpha = 1) { const c = this.ctx; c.globalAlpha = alpha; c.fillStyle = fill; c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.fill(); c.globalAlpha = 1; recordOtherPathStats(1, pts.length, false); }
   line(a: P2, b: P2, color: string, w: number, alpha = 1) { const c = this.ctx; c.globalAlpha = alpha; c.strokeStyle = color; c.lineWidth = w; c.lineCap = "butt"; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); c.globalAlpha = 1; }
   // a plane given as world points, filled flat
   face(pts: P3[], fill: string, alpha = 1) { this.poly(pts.map((q) => this.p(...q)), fill, alpha); }

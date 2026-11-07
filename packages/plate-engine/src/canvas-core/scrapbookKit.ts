@@ -9,7 +9,7 @@
 //   burin      the copperplate line: a centreline whose width swells with tone and tapers to a
 //              point at each end, breaking into the paper where the tone falls below a threshold.
 // Everything pure: rng(seed) only, no filters, no assets. Candidates for promotion to core.
-import { Gfx, fractal, insideRing, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
+import { Gfx, fractal, getRenderQuality, insideRing, recordKitMaterialReduction, recordOtherPathStats, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
 import { bounds, mix, resample } from "./gallery";
 
 export const clamp01 = (v: number) => (v <= 0 ? 0 : v >= 1 ? 1 : v);
@@ -55,11 +55,17 @@ export const path = (c: Ctx, pts: P[], close = true) => { c.beginPath(); pts.for
 export const rect = (w: number, h: number, cx = 0, cy = 0): P[] => [[cx - w / 2, cy - h / 2], [cx + w / 2, cy - h / 2], [cx + w / 2, cy + h / 2], [cx - w / 2, cy + h / 2]];
 // uneven dye, a few fibres and the odd inclusion, clipped to the sheet (raw ctx, current transform)
 export const fibres = (c: Ctx, shape: P[], color: string, seed: number, density = 1, blotch = 0.22) => {
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
   const b = bounds(shape), r = rng(seed), area = (b.x1 - b.x0) * (b.y1 - b.y0);
+  recordOtherPathStats(1, shape.length, false);
   c.save(); path(c, shape); c.clip();
   for (let i = 0; i < 6; i++) { const x = b.x0 + r() * (b.x1 - b.x0), y = b.y0 + r() * (b.y1 - b.y0), rx = 30 + r() * 110, g = c.createRadialGradient(x, y, 0, x, y, rx); const col = r() < 0.5 ? mix(color, "#ffffff", 0.25) : mix(color, "#6b4a22", 0.14); g.addColorStop(0, col); g.addColorStop(1, col + "00"); c.globalAlpha = blotch; c.fillStyle = g; c.fillRect(x - rx, y - rx, rx * 2, rx * 2); }
-  c.lineCap = "round"; const n = Math.round((area / 1100) * density);
+  c.lineCap = "round";
+  const fullN = Math.round((area / 1100) * density);
+  const n = isDraft ? Math.max(1, Math.round(fullN * q.materialDetailScale)) : fullN;
   for (let i = 0; i < n; i++) { const x = b.x0 + r() * (b.x1 - b.x0), y = b.y0 + r() * (b.y1 - b.y0), a = r() * Math.PI, l = 2 + r() * 7; c.strokeStyle = r() < 0.6 ? mix(color, "#fffdf4", 0.5) : mix(color, "#3a2410", 0.28); c.globalAlpha = 0.18 + r() * 0.25; c.lineWidth = 0.4 + r() * 0.5; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + (r() - 0.5) * 2, y + Math.sin(a) * l * 0.5 + (r() - 0.5) * 2, x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke(); }
+  if (isDraft && n < fullN) recordKitMaterialReduction(fullN - n, n, n * 3);
   c.restore(); c.globalAlpha = 1;
 };
 // a soft shadow of `shapes` on whatever is under them: drawn on its own layer and softened

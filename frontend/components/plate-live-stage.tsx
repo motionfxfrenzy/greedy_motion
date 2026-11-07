@@ -5,14 +5,18 @@ import { outputUrl, plateClipUrl } from "../lib/api";
 import {
   CheckOnceTracker,
   ClipRequestTracker,
+  DEFAULT_PLAYBACK_RENDER_MODE,
   WorkerHost,
   createFilmPlayer,
   decideSceneMode,
   environmentStatus,
   fetchBundle,
+  getActiveBrowserTransportCount,
+  getDraftTargetVerticesPerFrame,
   reportCheck,
   requestClip,
   resolveCacheBudgetBytes,
+  resolveDraftCacheBudgetBytes,
   resolveSceneVariant,
   runCheck,
   supportsWorkerHost,
@@ -22,10 +26,12 @@ import {
   type FilmSceneSpec,
   type FrameStoreStatus,
   type LivePlateScene,
+  type PlaybackRenderMode,
   type PlayerDecision,
   type PreviewQuality,
   type QualityJobProgress,
   type SceneModeResolution,
+  type StillUpgradeState,
   type WebAudioFilmTimeline,
   withBackendAuth
 } from "../lib/live";
@@ -48,6 +54,20 @@ export type PlateLiveTelemetry = {
   achievedFps: number;
   elapsedPlaySeconds: number;
   checksRun: number;
+  renderMode?: PlaybackRenderMode;
+  stillUpgradeState?: StillUpgradeState;
+  draftTargetVerticesPerFrame?: number;
+  cacheBytes?: number;
+  activeWorkers?: number;
+  uniquePresentedFrames?: number;
+  totalBlits?: number;
+  repeatedBlits?: number;
+  perSceneUnique?: number[];
+  naturalEndCleanupTriggered?: boolean;
+  audioDriftSampleCount?: number;
+  p50AudioDriftMs?: number;
+  p95AudioDriftMs?: number;
+  maxAudioDriftMs?: number;
   decisions: {
     index: number;
     mode: "live" | "clip";
@@ -56,6 +76,8 @@ export type PlateLiveTelemetry = {
     rev: number;
     gen: number;
     bundleDigest: string | null;
+    renderMode?: PlaybackRenderMode;
+    stillUpgradeState?: StillUpgradeState;
   }[];
 };
 
@@ -64,6 +86,8 @@ export type PlateLiveOptions = {
   environment?: string;
   initialTime?: number;
   initialPlaying?: boolean;
+  initialRenderMode?: PlaybackRenderMode;
+  draftTargetVerticesPerFrame?: number;
   freezeClockAt?: number;
   forceBuffering?: boolean;
   onDecisionsChange?: (
@@ -73,6 +97,7 @@ export type PlateLiveOptions = {
 
 export interface PlateLiveStageProps {
   projectId: string;
+  look?: string | null;
   scenes: readonly LivePlateScene[];
   referenceFrames?: readonly (string | null | undefined)[];
   viewAspect: AspectRatio;
@@ -109,6 +134,7 @@ export interface PlateLiveStageProps {
   onStatusRefresh: () => void;
   onResolutionsChange?: (resolutions: SceneModeResolution[]) => void;
   previewQuality?: PreviewQuality;
+  renderMode?: PlaybackRenderMode;
   onQualityJobProgress?: (progress: QualityJobProgress) => void;
   onStoreStatusChange?: (status: FrameStoreStatus) => void;
   audioTimeline?: WebAudioFilmTimeline<any> | null;
@@ -132,6 +158,7 @@ function bundleCacheKeys(variantId: string, rev: number, bundleDigest?: string |
  */
 export function PlateLiveStage({
   projectId,
+  look,
   scenes,
   referenceFrames,
   viewAspect,
@@ -168,6 +195,7 @@ export function PlateLiveStage({
   onStatusRefresh,
   onResolutionsChange,
   previewQuality,
+  renderMode = DEFAULT_PLAYBACK_RENDER_MODE,
   onQualityJobProgress,
   onStoreStatusChange,
   audioTimeline,
@@ -222,12 +250,16 @@ export function PlateLiveStage({
     lateFrames: number;
     playStartMs: number | null;
     accumulatedPlayMs: number;
+    audioDriftSamplesMs: number[];
+    naturalEndCleanupTriggered: boolean;
   }>({
     framesRendered: 0,
     distinctFramesSet: new Set(),
     lateFrames: 0,
     playStartMs: null,
-    accumulatedPlayMs: 0
+    accumulatedPlayMs: 0,
+    audioDriftSamplesMs: [],
+    naturalEndCleanupTriggered: false
   });
 
   const resolvedVariants = useMemo(
@@ -275,7 +307,9 @@ export function PlateLiveStage({
         isBuffering,
         hasPendingComment: pendingCommentScenes.has(idx),
         qualityJobText,
-        storeDisabledReason
+        storeDisabledReason,
+        renderMode,
+        stillUpgradeState: playerDecision?.stillUpgradeState
       });
     });
   }, [
@@ -287,7 +321,8 @@ export function PlateLiveStage({
     current,
     pendingCommentScenes,
     qualityJobText,
-    storeDisabledReason
+    storeDisabledReason,
+    renderMode
   ]);
 
   useEffect(() => {
@@ -307,6 +342,21 @@ export function PlateLiveStage({
       const elapsedSec =
         (t.accumulatedPlayMs + (t.playStartMs !== null ? performance.now() - t.playStartMs : 0)) / 1000;
       const fps = elapsedSec > 0.1 ? Math.round((t.framesRendered / elapsedSec) * 10) / 10 : 0;
+      const fp = filmPlayerRef.current;
+      const pres = fp?.presentedSummary() ?? {
+        uniquePresentedFrames: 0,
+        totalBlits: 0,
+        repeatedBlits: 0,
+        perSceneUnique: []
+      };
+      const sortedDrifts = [...t.audioDriftSamplesMs].sort((a, b) => a - b);
+      const p50Drift =
+        sortedDrifts.length > 0 ? sortedDrifts[sortedDrifts.length >> 1]! : 0;
+      const p95Drift =
+        sortedDrifts.length > 0
+          ? sortedDrifts[Math.min(sortedDrifts.length - 1, Math.ceil(sortedDrifts.length * 0.95) - 1)]!
+          : 0;
+      const maxDrift = sortedDrifts.length > 0 ? sortedDrifts[sortedDrifts.length - 1]! : 0;
       const win = window as unknown as { __plateLiveTelemetry?: PlateLiveTelemetry };
       win.__plateLiveTelemetry = {
         framesRendered: t.framesRendered,
@@ -315,6 +365,20 @@ export function PlateLiveStage({
         achievedFps: fps,
         elapsedPlaySeconds: Math.round(elapsedSec * 100) / 100,
         checksRun: checksRunRef.current,
+        renderMode: fp?.renderMode ?? renderMode,
+        stillUpgradeState: fp?.stillUpgradeState ?? resolutions[current]?.stillUpgradeState ?? "idle",
+        draftTargetVerticesPerFrame: fp?.draftTargetVerticesPerFrame ?? getDraftTargetVerticesPerFrame(),
+        cacheBytes: fp?.cache.bytes ?? 0,
+        activeWorkers: getActiveBrowserTransportCount(),
+        uniquePresentedFrames: pres.uniquePresentedFrames,
+        totalBlits: pres.totalBlits,
+        repeatedBlits: pres.repeatedBlits,
+        perSceneUnique: pres.perSceneUnique,
+        naturalEndCleanupTriggered: t.naturalEndCleanupTriggered,
+        audioDriftSampleCount: sortedDrifts.length,
+        p50AudioDriftMs: p50Drift,
+        p95AudioDriftMs: p95Drift,
+        maxAudioDriftMs: maxDrift,
         decisions: resolutions.map((r, i) => ({
           index: i,
           mode: r.mode,
@@ -322,11 +386,13 @@ export function PlateLiveStage({
           state: r.tabState,
           rev: resolvedVariants[i]?.rev ?? 0,
           gen: resolvedVariants[i]?.gen ?? 1,
-          bundleDigest: resolvedVariants[i]?.bundleDigest ?? null
+          bundleDigest: resolvedVariants[i]?.bundleDigest ?? null,
+          renderMode: r.renderMode,
+          stillUpgradeState: r.stillUpgradeState
         }))
       };
     }
-  }, [resolutions, resolvedVariants, onResolutionsChange, liveOptions]);
+  }, [resolutions, resolvedVariants, onResolutionsChange, liveOptions, renderMode, current]);
 
   // Clean up FilmPlayer and any active check hosts on unmount, project change, or aspect change.
   useEffect(() => {
@@ -561,11 +627,13 @@ export function PlateLiveStage({
               : "pending-live"
             : undefined;
 
+      const sceneLook = v.look ?? look ?? null;
       const spec: FilmSceneSpec = {
         id: `scene-${idx}`,
         bundleDigest: effectiveDigest,
         html: canMountLive && loadedBundle ? loadedBundle.html : "",
         params: canMountLive && loadedBundle ? loadedBundle.params : {},
+        look: sceneLook,
         frames: v.frames,
         durationSeconds: durSec,
         environment: envArg,
@@ -573,7 +641,7 @@ export function PlateLiveStage({
         ...(forceClipReason ? { forceClipReason } : {})
       };
 
-      const key = `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:${canMountLive ? "live" : forceClipReason ?? "clip"}:${spec.frames}:${durSec}`;
+      const key = `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:${canMountLive ? "live" : forceClipReason ?? "clip"}:${spec.frames}:${durSec}:${sceneLook ?? ""}`;
       return { spec, key };
     };
 
@@ -581,13 +649,17 @@ export function PlateLiveStage({
 
     if (!filmPlayerRef.current) {
       container.innerHTML = "";
+      const explicitTargetVertices = liveOptions?.draftTargetVerticesPerFrame;
       const fp = createFilmPlayer({
         scenes: nextSpecsAndKeys.map((x) => x.spec),
         filmKey: projectId,
+        look: look ?? null,
         aspect: viewAspect,
         fps: 30,
-        budgetBytes: resolveCacheBudgetBytes(),
+        budgetBytes: renderMode === "draft" ? resolveDraftCacheBudgetBytes() : resolveCacheBudgetBytes(),
         previewQuality,
+        renderMode,
+        ...(explicitTargetVertices !== undefined ? { draftTargetVerticesPerFrame: explicitTargetVertices } : {}),
         onQualityProgress: onQualityJobProgress,
         onStoreStatus: onStoreStatusChange,
         timeSource: {
@@ -603,7 +675,17 @@ export function PlateLiveStage({
 
       fp.on("mode", (detail) => {
         if (filmPlayerRef.current !== fp) return;
-        const d = detail as { sceneIndex?: number; mode?: "live" | "clip"; reason?: string; progress?: number } | undefined;
+        const d = detail as {
+          sceneIndex?: number;
+          mode?: "live" | "clip";
+          reason?: string;
+          progress?: number;
+          state?: PlayerDecision["state"];
+          renderMode?: PlaybackRenderMode;
+          effectiveRenderMode?: PlaybackRenderMode;
+          stillUpgradeState?: StillUpgradeState;
+          draftTargetVerticesPerFrame?: number;
+        } | undefined;
         if (d && typeof d.sceneIndex === "number" && (d.mode === "live" || d.mode === "clip")) {
           if (d.mode === "clip" && (d.reason === "pending-live" || d.reason === "no-bundle")) {
             return;
@@ -611,7 +693,14 @@ export function PlateLiveStage({
           const dec: PlayerDecision = {
             mode: d.mode,
             reason: d.reason ?? "ok",
-            ...(typeof d.progress === "number" ? { progress: d.progress } : {})
+            ...(d.state ? { state: d.state } : {}),
+            ...(typeof d.progress === "number" ? { progress: d.progress } : {}),
+            ...(d.renderMode ? { renderMode: d.renderMode } : {}),
+            ...(d.effectiveRenderMode ? { effectiveRenderMode: d.effectiveRenderMode } : {}),
+            ...(d.stillUpgradeState ? { stillUpgradeState: d.stillUpgradeState } : {}),
+            ...(typeof d.draftTargetVerticesPerFrame === "number"
+              ? { draftTargetVerticesPerFrame: d.draftTargetVerticesPerFrame }
+              : {})
           };
           playerDecisionsRef.current.set(d.sceneIndex, dec);
           if (d.mode === "clip") {
@@ -704,7 +793,7 @@ export function PlateLiveStage({
         }
       });
     }
-  }, [resolvedVariants, durations, viewAspect, revisionTick, liveOptions?.environment, liveOptions?.forceBuffering]);
+  }, [resolvedVariants, durations, viewAspect, look, revisionTick, liveOptions?.environment, liveOptions?.forceBuffering]);
 
   // Trigger background QualityJob whenever the user changes `previewQuality`.
   const prevQualityRef = useRef<PreviewQuality | undefined>(previewQuality);
@@ -720,6 +809,40 @@ export function PlateLiveStage({
       prevQualityRef.current = previewQuality;
     }
   }, [previewQuality]);
+
+  // Synchronize FilmPlayer when the user switches `renderMode` ("draft" <-> "full") without starting QualityJob.
+  const prevRenderModeRef = useRef<PlaybackRenderMode>(renderMode);
+  useEffect(() => {
+    if (prevRenderModeRef.current !== renderMode) {
+      prevRenderModeRef.current = renderMode;
+      const fp = filmPlayerRef.current;
+      if (fp) {
+        fp.setRenderMode(renderMode);
+        bump();
+      }
+    }
+  }, [renderMode]);
+
+  // Synchronize FilmPlayer when `liveOptions.draftTargetVerticesPerFrame` changes.
+  useEffect(() => {
+    const target = liveOptions?.draftTargetVerticesPerFrame;
+    if (typeof target === "number" && filmPlayerRef.current) {
+      filmPlayerRef.current.setDraftTargetVertices(target);
+      bump();
+    }
+  }, [liveOptions?.draftTargetVerticesPerFrame]);
+
+  // Synchronize FilmPlayer when `playing` changes so intentional pause schedules the 250 ms full-quality still upgrade.
+  const prevPlayingRef = useRef<boolean>(playing);
+  useEffect(() => {
+    if (prevPlayingRef.current !== playing) {
+      prevPlayingRef.current = playing;
+      const fp = filmPlayerRef.current;
+      if (fp && !liveOptions?.forceBuffering) {
+        fp.syncToClock();
+      }
+    }
+  }, [playing, liveOptions?.forceBuffering]);
 
   // Synchronize FilmPlayer before paint whenever `time` or `current` changes so scene-boundary switches never flash.
   useIsomorphicLayoutEffect(() => {
@@ -868,6 +991,20 @@ export function PlateLiveStage({
           Object.values(sfxAudios.current).forEach((el) => el?.pause());
           return;
         }
+        const presentedSrcFrame = fp.scenes[current]?.lastPresentedSourceFrame ?? null;
+        if (
+          presentedSrcFrame !== null &&
+          useWebAudio &&
+          audioTimeline &&
+          audioTimeline.audioContext?.state === "running"
+        ) {
+          const presentedLocalSec = presentedSrcFrame / 30;
+          const clampedTargetSec = Math.min(( fp.scenes[current]!.meta.frames - 1 ) / 30, Math.max(0, localSec));
+          const driftMs = Math.round(Math.abs(clampedTargetSec - presentedLocalSec) * 1000 * 100) / 100;
+          if (telemetryRef.current.audioDriftSamplesMs.length < 2500) {
+            telemetryRef.current.audioDriftSamplesMs.push(driftMs);
+          }
+        }
       }
 
       const curVo = voices.current[current];
@@ -878,6 +1015,14 @@ export function PlateLiveStage({
           );
 
       if (localSec >= sceneDur && !voStillRunning) {
+        const hasPlayableAfter = resolvedVariants.some(
+          (_, i) => i > current && Boolean(resolutions[i]?.isPlayable)
+        );
+        if (!hasPlayableAfter) {
+          telemetryRef.current.naturalEndCleanupTriggered = true;
+          filmPlayerRef.current?.completeFilmCleanup();
+          bump();
+        }
         onAdvanceSceneRef.current(current);
         return;
       }
@@ -979,6 +1124,8 @@ export function PlateLiveStage({
         className="aw-live-canvas-host"
         data-live-active={activeSceneShowsLive ? "true" : "false"}
         data-live-decisions={decisionsSummary}
+        data-live-render-mode={shownResolution?.renderMode ?? renderMode}
+        data-live-still-state={shownResolution?.stillUpgradeState ?? "idle"}
         style={{
           position: "absolute",
           inset: 0,

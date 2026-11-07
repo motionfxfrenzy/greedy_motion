@@ -72,7 +72,7 @@ export async function openScene(pagePath, { executablePath = process.env.PLATE_B
   const pick = (w) => list[w % list.length].page;
   const draw = async (n, w) => {
     try {
-      const b64 = await pick(w).evaluate((f) => { window.FILM.seek(f); return window.FILM.png(); }, n);
+      const b64 = await pick(w).evaluate((f) => { window.FILM.seek(f, { mode: "full" }); return window.FILM.png(); }, n);
       return Buffer.from(b64, "base64");
     } catch (error) {
       if (signal?.aborted) throw fail("infra", "aborted");

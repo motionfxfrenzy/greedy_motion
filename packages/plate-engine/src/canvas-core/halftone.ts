@@ -1,4 +1,4 @@
-import type { Ctx, Env, Layer, P } from "./core";
+import { getFrameGeometryStats, getRenderQuality, isCalibratingPen, recordKitMaterialReduction, recordOtherPathStats, type Ctx, type Env, type Layer, type P } from "./core";
 import type { Film } from "./film";
 import { clamp, newsprint, plateLayer, screenDots, starve, toneAt } from "./halftoneKit";
 import { buildTone } from "./halftoneScene";
@@ -55,12 +55,34 @@ const KEYS = 12;                           // ink keys across the width of the f
 // the photograph occupies a rectangle on the sheet, bare paper round it
 const photo = (W: number, H: number) => ({ x0: Math.round(W * 0.045), y0: Math.round(H * 0.045), x1: Math.round(W * 0.955), y1: Math.round(H * 0.955) });
 
+const FULL_REF_HALFTONE_DOTS = 66909;
+const MIN_PROTECTED_HALFTONE_DOTS = 4800; // 4,800 dots × 5 = 24,000 vertices minimum floor across both separations to keep viaduct arches & train legible
+
 const plates = (env: Env) => {
-  const T = buildTone(env), b = photo(env.W, env.H), tag = `${env.W}x${env.H}@${env.scale}`;
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
+  const targetB = isDraft ? (q.draftTargetVerticesPerFrame || 75000) : 0;
+  const rawTargetDots = isDraft ? Math.floor(targetB / 5) : FULL_REF_HALFTONE_DOTS;
+  const minDots = targetB < 5000 ? 3200 : MIN_PROTECTED_HALFTONE_DOTS;
+  const clampedTargetDots = isDraft
+    ? Math.max(minDots, Math.min(13800, Math.round(rawTargetDots * 0.92)))
+    : FULL_REF_HALFTONE_DOTS;
+  const floorExceeded = isDraft && rawTargetDots < minDots;
+  const pitchScale = isDraft ? Math.max(1.42, Math.sqrt(FULL_REF_HALFTONE_DOTS / clampedTargetDots)) : 1;
+  const effPitch = PITCH * pitchScale;
+
+  const T = buildTone(env), b = photo(env.W, env.H);
+  const tag = isDraft ? `${env.W}x${env.H}@${env.scale}:d:${targetB}` : `${env.W}x${env.H}@${env.scale}`;
   const inside = (x: number, y: number) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1;
-  const kDots = env.cache.get(`halftone:kdots:${tag}`) as ReturnType<typeof screenDots> | undefined ?? (() => { const d = screenDots(b, PITCH, ANG_K, (x, y) => (inside(x, y) ? toneAt(T, T.k, x, y) : 0), GAIN_K); env.cache.set(`halftone:kdots:${tag}`, d); return d; })();
-  const sDots = env.cache.get(`halftone:sdots:${tag}`) as ReturnType<typeof screenDots> | undefined ?? (() => { const d = screenDots(b, PITCH, ANG_S, (x, y) => (inside(x, y) ? toneAt(T, T.s, x, y) : 0), GAIN_S, FAN); env.cache.set(`halftone:sdots:${tag}`, d); return d; })();
-  return { k: plateLayer(env, `halftone:kplate:${tag}`, kDots, BLACK, 0.9, 7), s: plateLayer(env, `halftone:splate:${tag}`, sDots, SPOT, 0.8, 11), b };
+  const kDots = env.cache.get(`halftone:kdots:${tag}`) as ReturnType<typeof screenDots> | undefined ?? (() => { const d = screenDots(b, effPitch, ANG_K, (x, y) => (inside(x, y) ? toneAt(T, T.k, x, y) : 0), GAIN_K); env.cache.set(`halftone:kdots:${tag}`, d); return d; })();
+  const sDots = env.cache.get(`halftone:sdots:${tag}`) as ReturnType<typeof screenDots> | undefined ?? (() => { const d = screenDots(b, effPitch, ANG_S, (x, y) => (inside(x, y) ? toneAt(T, T.s, x, y) : 0), GAIN_S, FAN); env.cache.set(`halftone:sdots:${tag}`, d); return d; })();
+  return {
+    k: plateLayer(env, `halftone:kplate:${tag}`, kDots, BLACK, 0.9, 7),
+    s: plateLayer(env, `halftone:splate:${tag}`, sDots, SPOT, 0.8, 11),
+    b,
+    totalDots: kDots.length + sDots.length,
+    floorExceeded
+  };
 };
 
 // ---------------------------------------------------------------- the make-ready schedule
@@ -84,22 +106,47 @@ const sheet = (i: number): Sheet => {
 // one sheet off the press, composited onto its own surface
 const STRIPS = 54;
 const printSheet = (env: Env, i: number): Layer => {
-  const key = `halftone:sheet:${i}:${env.W}x${env.H}@${env.scale}`; let L = env.cache.get(key) as Layer | undefined; if (L) return L;
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
+  const targetB = isDraft ? (q.draftTargetVerticesPerFrame || 75000) : 0;
+  const P = i >= 0 ? plates(env) : null;
+  if (P) {
+    const sides = isDraft ? 5 : 7;
+    const st = getFrameGeometryStats();
+    if (st.otherPolygonCount === 0) {
+      recordOtherPathStats(P.totalDots, P.totalDots * sides, false);
+      if (isDraft) {
+        recordKitMaterialReduction(Math.max(1, FULL_REF_HALFTONE_DOTS - P.totalDots));
+      }
+    }
+    if (P.floorExceeded) {
+      st.budgetExceededByFloor = true;
+    }
+  }
+  const key = isDraft
+    ? `halftone:sheet:${i}:${env.W}x${env.H}@${env.scale}:d:${targetB}`
+    : `halftone:sheet:${i}:${env.W}x${env.H}@${env.scale}`;
+  let L = env.cache.get(key) as Layer | undefined;
+  if (L) return L;
   // keep only the sheets on top of the pile: an evicted sheet is rebuilt identically if asked for
   for (const ck of [...env.cache.keys()]) if (ck.startsWith("halftone:sheet:")) { const n = Number(ck.split(":")[2]); if (n < i - 1 || n > i + 1) env.cache.delete(ck); }
   const W = env.W, H = env.H, k = env.scale, DW = Math.round(W * k), DH = Math.round(H * k);
   L = env.canvas(DW, DH); const c = L.ctx; c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(newsprint(env, `halftone:paper:${W}x${H}@${k}`).canvas, 0, 0);
-  if (i < 0) { env.cache.set(key, L); return L; }
-  const sh = sheet(i), P = plates(env), tk = `halftone:tmp:${DW}x${DH}`, tmp = (env.cache.get(tk) as Layer | undefined) ?? (() => { const t = env.canvas(DW, DH); env.cache.set(tk, t); return t; })();
+  if (i < 0 || !P) { env.cache.set(key, L); return L; }
+  const sh = sheet(i), tk = `halftone:tmp:${DW}x${DH}`, tmp = (env.cache.get(tk) as Layer | undefined) ?? (() => { const t = env.canvas(DW, DH); env.cache.set(tk, t); return t; })();
+  const numStrips = isDraft ? 18 : STRIPS;
   const ink = (plate: Layer, dens: (x: number) => number, off: P, seed: number) => {
-    const sw = W / STRIPS, d = Array.from({ length: STRIPS }, (_, z) => dens((z + 0.5) / STRIPS));
+    const sw = W / numStrips, d = Array.from({ length: numStrips }, (_, z) => dens((z + 0.5) / numStrips));
     if (d.every((v) => v <= 0)) return;
     const t = tmp.ctx; t.setTransform(1, 0, 0, 1, 0, 0); t.globalCompositeOperation = "copy"; t.drawImage(plate.canvas, Math.round(off[0] * k), Math.round(off[1] * k)); t.globalCompositeOperation = "source-over";
+    if (isDraft && d.every((v) => v >= 1)) {
+      c.save(); c.globalCompositeOperation = "multiply"; c.globalAlpha = 1; c.drawImage(tmp.canvas, 0, 0); c.restore();
+      return;
+    }
     const sft: P = [hash(seed, 1) * 256, hash(seed, 2) * 256];
     d.forEach((v, z) => { if (v < 1) starve(t, env, [z * sw, 0, (z + 1) * sw, H], 1 - v * 0.9, sft); });
-    // where a key is barely open the film of ink is thin: the zone prints light as well as broken
     c.save(); c.globalCompositeOperation = "multiply";
-    d.forEach((v, z) => { if (v <= 0) return; const x0 = Math.floor(z * sw * k), x1 = z === STRIPS - 1 ? DW : Math.floor((z + 1) * sw * k); c.globalAlpha = v >= 1 ? 1 : 0.3 + 0.7 * v; c.drawImage(tmp.canvas, x0, 0, x1 - x0, DH, x0, 0, x1 - x0, DH); });
+    d.forEach((v, z) => { if (v <= 0) return; const x0 = Math.floor(z * sw * k), x1 = z === numStrips - 1 ? DW : Math.floor((z + 1) * sw * k); c.globalAlpha = v >= 1 ? 1 : 0.3 + 0.7 * v; c.drawImage(tmp.canvas, x0, 0, x1 - x0, DH, x0, 0, x1 - x0, DH); });
     c.restore();
   };
   ink(P.s, sh.spot, sh.reg, sh.seed * 2 + 1);
@@ -108,6 +155,7 @@ const printSheet = (env: Env, i: number): Layer => {
 };
 
 const draw = (ctx: Ctx, f: number, env: Env) => {
+  if (isCalibratingPen()) return;
   const k = env.scale, DW = Math.round(env.W * k), DH = Math.round(env.H * k);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const n = f < CUE.firstSheet ? -1 : Math.min(SHEETS - 1, Math.floor((f - CUE.firstSheet) / BEAT)), t0 = CUE.firstSheet + n * BEAT, u = n < 0 ? 1 : clamp((f - t0) / SLIDE);

@@ -107,6 +107,7 @@
    "file": "canvas-core/isometric.ts",
    "kit": "canvas-core/isometricKit.ts",
    "files": [
+    "canvas-core/core.ts",
     "canvas-core/isometric.ts",
     "canvas-core/isometricKit.ts"
    ]
@@ -195,6 +196,7 @@
    "file": "canvas-core/pixelArt.ts",
    "kit": "canvas-core/pixelArtKit.ts",
    "files": [
+    "canvas-core/core.ts",
     "canvas-core/pixelArt.ts",
     "canvas-core/pixelArtKit.ts"
    ]
@@ -278,6 +280,7 @@
    "file": "canvas-core/toyBrick.ts",
    "kit": "canvas-core/toyBrickKit.ts",
    "files": [
+    "canvas-core/core.ts",
     "canvas-core/toyBrick.ts",
     "canvas-core/toyBrickKit.ts"
    ]

@@ -7,7 +7,7 @@
 // taperPoly (a centreline -> tapered, bitten ribbon, cut on the centreline by progress),
 // zigzag (a rubbing path over a region), spiral (a circular rubbing), and the Pass/Step/Mark
 // clock (`runPass`), which lays marks down one after another inside a pass.
-import { Gfx, TILES, rng, fractal, type P } from "./core";
+import { Gfx, TILES, getRenderQuality, recordKitMaterialReduction, recordOtherPathStats, rng, fractal, type P } from "./core";
 import { bounds, clamp, fillShape, hatchRuns, inside, lerp, lerpP, polyLen, resample, trace } from "./gallery";
 
 // ---------------------------------------------------------------- tiles
@@ -55,7 +55,14 @@ export const upTo = (s: P[], p: number): P[] => {
 // A centreline -> tapered ribbon whose edges the paper bites. Width runs w0 -> w1 along the
 // FINISHED stroke, so a stroke seen half made already has its final weight where it has been.
 export const taperPoly = (c0: P[], w0: number, w1: number, seed: number, o: { rough?: number; p?: number; ends?: number; step?: number } = {}): P[] => {
-  const { rough = 0.5, p = 1, ends = 0, step = 3 } = o, L0 = polyLen(c0), n = Math.max(3, Math.round(L0 / step)), s = resample(c0, n), r = rng(seed);
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
+  const baseStep = o.step ?? 3;
+  const step = isDraft
+    ? Math.max(baseStep, (q.materialDetailScale < 0.38 ? 5.2 : 4.5) / Math.max(0.32, q.materialDetailScale))
+    : baseStep;
+  const { rough = 0.5, p = 1, ends = 0 } = o, L0 = polyLen(c0), n = Math.max(3, Math.round(L0 / step)), s = resample(c0, n), r = rng(seed);
+  if (isDraft && step > baseStep) recordKitMaterialReduction(1);
   const cut = p >= 1 ? n - 1 : (n - 1) * p, L: P[] = [], R: P[] = [], ph = (seed % 13) * 0.7;
   for (let i = 0; i <= Math.ceil(cut) && i < n; i++) {
     const tt = Math.min(i, cut), i0 = Math.floor(tt), f = tt - i0, pt = i0 + 1 < n ? lerpP(s[i0], s[i0 + 1], f) : s[i0];
@@ -64,7 +71,9 @@ export const taperPoly = (c0: P[], w0: number, w1: number, seed: number, o: { ro
     const j1 = (r() - 0.5) * rough, j2 = (r() - 0.5) * rough;
     L.push([pt[0] - (dy / l) * (w + j1), pt[1] + (dx / l) * (w + j1)]); R.push([pt[0] + (dy / l) * (w + j2), pt[1] - (dx / l) * (w + j2)]);
   }
-  return [...L, ...R.reverse()];
+  const poly = [...L, ...R.reverse()];
+  recordOtherPathStats(1, poly.length, false);
+  return poly;
 };
 export const stick = (g: Gfx, c: P[], w0: number, w1: number, alpha: number, seed: number, p: number, o: { rough?: number; ends?: number; color?: string } = {}) => {
   if (p <= 0 || c.length < 2) return; fillShape(g, taperPoly(c, w0, w1, seed, { rough: o.rough ?? 0.6, p, ends: o.ends ?? 0 }), o.color ?? INK, alpha);

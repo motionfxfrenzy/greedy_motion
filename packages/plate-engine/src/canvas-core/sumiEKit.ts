@@ -9,7 +9,7 @@
 //    travel (edge hairs faster), and skips where the paper's tooth wins once it runs low, so a
 //    stroke shifts from wet-dark to dry-brush ("flying white", split hairs) along its length.
 //    Slow points (touch-down, node pauses, lift) bleed into the paper fibres.
-import { Gfx, rng, fractal, type Ctx, type Env, type Layer, type Medium, type P } from "./core";
+import { Gfx, getRenderQuality, recordKitMaterialReduction, recordOtherPathStats, rng, fractal, type Ctx, type Env, type Layer, type Medium, type P } from "./core";
 import { clamp, mix, profile, resample, smooth } from "./gallery";
 
 // ---------------------------------------------------------------- the process runner
@@ -79,10 +79,13 @@ export const brushPath = (b: Brush) => { const s = smooth(b.ctrl, false, 10); le
 // point the brush has passed keeps drinking ink into the fibres for a moment after it leaves.
 export const brush = (g: Gfx, b: Brush, travel = 1, soak = 1) => {
   if (travel <= 0) return;
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
   const { pts, len, n } = brushPath(b), pr = profile(b.press), hs = hairsOf(b), T = tone(b.ink), dry = (b.dry ?? 0.25) / 100, split = b.split ?? 0.5, c = g.cur;
   const last = Math.max(1, Math.min(n - 1, Math.round((n - 1) * travel)));
   const nr: P[] = pts.map((_, i) => { const a = pts[Math.max(0, i - 1)], q = pts[Math.min(n - 1, i + 1)], dx = q[0] - a[0], dy = q[1] - a[1], l = Math.hypot(dx, dy) || 1; return [-dy / l, dx / l]; });
   const wid = (i: number) => b.w * pr(i / (n - 1));
+  recordOtherPathStats(1, pts.length, false);
   // 1. the bleed: slow points and the wet body feather into the paper, soft, under the crisp hairs
   const bl = b.bleed ?? 0.6;
   if (bl > 0) g.group("plain", () => {
@@ -92,50 +95,55 @@ export const brush = (g: Gfx, b: Brush, travel = 1, soak = 1) => {
       const i = Math.round(t * (n - 1)); if (i > last) return;
       const grow = clamp(soak * (i === last ? 0.6 : 1)), r0 = wid(i) * (0.5 + 0.35 * s) * (0.55 + 0.45 * Math.sqrt(grow)) + 2.5 * s, [x, y] = pts[i], rr = rng(b.seed * 31 + j);
       k.globalAlpha = T.alpha * 0.34 * s * bl; k.beginPath();
-      for (let a = 0; a < 18; a++) { const th = (a / 18) * Math.PI * 2, f = 1 + (fractal(b.seed + j * 5, Math.cos(th) * 2 + 9, Math.sin(th) * 2 + 9, 0.9, 0.9, 2) - 0.5) * 0.7; const px = x + Math.cos(th) * r0 * f, py = y + Math.sin(th) * r0 * f; a ? k.lineTo(px, py) : k.moveTo(px, py); }
+      for (let a = 0; a < 18; a++) { const th = (a / 18) * Math.PI * 2, f = 1 + (fractal(b.seed + j * 5, Math.cos(th) * 2 + 9, Math.sin(th) * 2 + 9, 0.9, 0.9, isDraft ? 1 : 2) - 0.5) * 0.7; const px = x + Math.cos(th) * r0 * f, py = y + Math.sin(th) * r0 * f; a ? k.lineTo(px, py) : k.moveTo(px, py); }
       k.closePath(); k.fill(); g.touch(x - r0 * 1.4, y - r0 * 1.4, x + r0 * 1.4, y + r0 * 1.4);
-      // the feathers: ink wicking out along single fibres, the tell of absorbent paper
       k.strokeStyle = T.color; k.lineWidth = 0.55; k.lineCap = "round";
-      for (let q = 0; q < Math.round(10 + 14 * s); q++) { const th = rr() * Math.PI * 2, d0 = r0 * (0.75 + rr() * 0.3), d1 = d0 + (2 + rr() * 7 * s) * Math.sqrt(grow), bend = (rr() - 0.5) * 0.6; k.globalAlpha = T.alpha * (0.25 + rr() * 0.3) * bl; k.beginPath(); k.moveTo(x + Math.cos(th) * d0, y + Math.sin(th) * d0); const ex = x + Math.cos(th + bend * 0.2) * d1, ey = y + Math.sin(th + bend * 0.2) * d1; k.lineTo(ex, ey); k.stroke(); g.touch(ex - 2, ey - 2, ex + 2, ey + 2); }
+      const totalFeathers = Math.round(10 + 14 * s);
+      const drawFeathers = isDraft ? Math.max(3, Math.round(totalFeathers * q.materialDetailScale)) : totalFeathers;
+      for (let qf = 0; qf < totalFeathers; qf++) {
+        const th = rr() * Math.PI * 2, d0 = r0 * (0.75 + rr() * 0.3), d1 = d0 + (2 + rr() * 7 * s) * Math.sqrt(grow), bend = (rr() - 0.5) * 0.6, al = T.alpha * (0.25 + rr() * 0.3) * bl;
+        if (qf >= drawFeathers) continue;
+        k.globalAlpha = al; k.beginPath(); k.moveTo(x + Math.cos(th) * d0, y + Math.sin(th) * d0); const ex = x + Math.cos(th + bend * 0.2) * d1, ey = y + Math.sin(th + bend * 0.2) * d1; k.lineTo(ex, ey); k.stroke(); g.touch(ex - 2, ey - 2, ex + 2, ey + 2);
+      }
     });
-    // the wet body: a halo a hair wider than the stroke wherever the brush was still wet
     k.globalAlpha = T.alpha * 0.16 * bl; k.beginPath();
     const L: P[] = [], R: P[] = [];
     for (let i = 0; i <= last; i++) { const wet = clamp((b.load ?? 1) - dry * (i / (n - 1)) * len * 1.2), h = (wid(i) / 2) * (0.9 + 0.25 * wet) + 1.6 * wet; L.push([pts[i][0] + nr[i][0] * h, pts[i][1] + nr[i][1] * h]); R.push([pts[i][0] - nr[i][0] * h, pts[i][1] - nr[i][1] * h]); }
     [...L, ...R.reverse()].forEach(([x, y], i) => (i ? k.lineTo(x, y) : k.moveTo(x, y))); k.closePath(); k.fill(); L.forEach(([x, y]) => g.touch(x - 3, y - 3, x + 3, y + 3)); R.forEach(([x, y]) => g.touch(x - 3, y - 3, x + 3, y + 3));
     k.globalAlpha = 1;
   }, { blend: "multiply", blur: 1.4 + 1.6 * Math.min(1.5, bl) + 3 * (b.wet ?? 0) });
-  // 2. the hairs: each one lays its own line while it has ink, skipping where it runs dry. They
-  // are drawn as ONE opaque mark and laid down at the ink's tone, because ink does not stack
-  // with itself inside a single stroke; it stacks only where a second stroke crosses the first.
+  // 2. the hairs
+  const hairStride = isDraft && hs.length >= 12 ? 2 : 1;
   g.group("plain", () => {
     const k = g.cur; k.strokeStyle = T.color; k.lineCap = "round"; k.lineJoin = "round";
     const tipLen = Math.min(len * 0.2, b.w * 0.45);
     hs.forEach((h, hi) => {
+      if (hairStride > 1 && hi !== 0 && hi !== hs.length - 1 && hi % hairStride !== 0) return;
+      const wScale = hairStride > 1 && hi !== 0 && hi !== hs.length - 1 ? hairStride * 0.92 : 1;
       let run: { p: P; w: number; q: number }[] = [];
       const flush = () => {
-        for (let a = 0; a + 1 < run.length; a += 4) {
-          const seg = run.slice(a, Math.min(run.length, a + 5)); let w = 0, q = 0; seg.forEach((s) => { w += s.w; q += s.q; }); w /= seg.length; q /= seg.length;
-          k.lineWidth = w; k.beginPath(); seg.forEach((s, i) => (i ? k.lineTo(s.p[0], s.p[1]) : k.moveTo(s.p[0], s.p[1]))); k.stroke();
+        for (let a = 0; a + 1 < run.length; a += isDraft ? 7 : 4) {
+          const seg = run.slice(a, Math.min(run.length, a + (isDraft ? 8 : 5))); let w = 0, qv = 0; seg.forEach((s) => { w += s.w; qv += s.q; }); w /= seg.length; qv /= seg.length;
+          k.lineWidth = w * wScale; k.beginPath(); seg.forEach((s, i) => (i ? k.lineTo(s.p[0], s.p[1]) : k.moveTo(s.p[0], s.p[1]))); k.stroke();
         }
         run = [];
       };
       for (let i = 0; i <= last; i++) {
-        const s = (i / (n - 1)) * len, rem = h.load - dry * s * (1 + 0.7 * Math.abs(h.u)), q = clamp(rem * (b.streak ? 1.25 : 2.1));
-        // the brush is a cone: its tip touches first and leaves last, so outer hairs start later and lift sooner
+        const s = (i / (n - 1)) * len, rem = h.load - dry * s * (1 + 0.7 * Math.abs(h.u)), qv = clamp(rem * (b.streak ? 1.25 : 2.1));
         const tipIn = tipLen * Math.pow(Math.abs(h.u), 1.6) * (0.8 + 0.4 * h.load), tipOut = tipLen * 0.7 * Math.pow(Math.abs(h.u), 1.6);
         if (s < tipIn || s > len - tipOut) { flush(); continue; }
-        const nz = fractal(b.seed * 13 + hi, s * 0.045, hi * 0.83, 1, 1, 2), present = q * 1.3 > nz + 0.06;
+        const nz = fractal(b.seed * 13 + hi, s * 0.045, hi * 0.83, 1, 1, isDraft ? 1 : 2), present = qv * 1.3 > nz + 0.06;
         if (!present) { flush(); continue; }
-        const W = wid(i), spl = (fractal(b.seed * 17 + hi, s * 0.02, hi * 0.5, 1, 1, 2) - 0.5) * split * (1 - q) * b.w * 0.7;
-        const off = h.u * (W / 2) * (1 + 0.12 * (1 - q)) + spl, p: P = [pts[i][0] + nr[i][0] * off, pts[i][1] + nr[i][1] * off];
-        run.push({ p, w: Math.max(0.45, (W / hs.length) * 2.3 * (0.75 + 0.25 * q)), q });
+        const W = wid(i), spl = (fractal(b.seed * 17 + hi, s * 0.02, hi * 0.5, 1, 1, isDraft ? 1 : 2) - 0.5) * split * (1 - qv) * b.w * 0.7;
+        const off = h.u * (W / 2) * (1 + 0.12 * (1 - qv)) + spl, p: P = [pts[i][0] + nr[i][0] * off, pts[i][1] + nr[i][1] * off];
+        run.push({ p, w: Math.max(0.45, (W / hs.length) * 2.3 * (0.75 + 0.25 * qv)), q: qv });
         g.touch(p[0] - 3, p[1] - 3, p[0] + 3, p[1] + 3);
       }
       flush();
     });
     k.globalAlpha = 1;
   }, { blend: "multiply", alpha: T.alpha * (1 - 0.35 * (b.wet ?? 0)), blur: b.wet ? 0.6 + 2.6 * b.wet : undefined });
+  if (isDraft) recordKitMaterialReduction(1, Math.ceil(hs.length / hairStride), Math.ceil(hs.length / hairStride) * (last + 1));
 };
 // a stroke's op body: touch down (slow point bleeds), travel, lift, then keep soaking a moment
 export const strokeDraw = (b: Brush) => (g: Gfx, p: number) => { const travel = clamp((p - 0.12) / 0.7), soak = clamp(p / 0.12) * 0.55 + clamp((p - 0.82) / 0.18) * 0.45; brush(g, b, p >= 1 ? 1 : Math.max(0.02, travel), p >= 1 ? 1 : soak); };

@@ -9,37 +9,62 @@
 // run of stitches), and the stitch generators: stemStitch, splitStitch, runningStitch, satin
 // (across an axis), fishbone (a leaf, from the edge to the midrib), longShort (rows shading one
 // thread colour into another), knots (a packed French-knot fill).
-import type { Env, Layer, P } from "./core";
+import { getRenderQuality, isCalibratingPen, recordKitMaterialReduction, recordOtherPathStats, rng, type Env, type Layer, type P } from "./core";
 import { clamp, lerp, lerpP, mix, polyLen, resample } from "./gallery";
-import { rng } from "./core";
 
 export const LIGHT: P = [-0.6, -0.8];                // toward the window, upper left
 export type St = { k: "flat" | "knot"; a: P; b: P; w: number; c: string; t: number };   // knot: a = centre, w = radius
 
 // ---------------------------------------------------------------- linen
-// Plain weave: warp and weft alternate over/under at every crossing. Each thread is a rounded
-// cord (bright on its crown, dark at its flanks), rising where it passes over and dipping where it
-// goes under; thread thickness wanders (slubs) and every so often a thread is a shade darker.
-// Between the cords, the pin-holes of the weave. Computed per device pixel once, cached by scale.
 export const linenLayer = (env: Env, key: string, pitch: number, base: [number, number, number], inside: (x: number, y: number) => number): Layer => {
-  const k = `emb:linen:${key}:${env.scale}:${env.W}x${env.H}:${pitch}`, hit = env.cache.get(k) as Layer | undefined; if (hit) return hit;
+  if (isCalibratingPen()) return env.canvas(1, 1);
+  const q = getRenderQuality();
+  const step = q.mode === "draft" ? Math.max(2, q.surfaceSampleFactor) : 1;
+  const k = step > 1 ? `emb:linen:${key}:${env.scale}:${env.W}x${env.H}:${pitch}:s${step}` : `emb:linen:${key}:${env.scale}:${env.W}x${env.H}:${pitch}`;
+  const hit = env.cache.get(k) as Layer | undefined;
+  if (hit) {
+    if (step > 1) recordKitMaterialReduction(1);
+    return hit;
+  }
   const DW = Math.round(env.W * env.scale), DH = Math.round(env.H * env.scale), L = env.canvas(DW, DH), img = L.ctx.createImageData(DW, DH), d = img.data;
   const nT = Math.ceil(Math.max(env.W, env.H) / pitch) + 2, r = rng(4411), thick = Array.from({ length: nT * 2 }, () => 0.8 + r() * 0.22), tint = Array.from({ length: nT * 2 }, () => (r() < 0.08 ? 0.95 : 1) * (0.975 + r() * 0.05));
   const SEG = 9, slub = Array.from({ length: nT * 2 }, () => Array.from({ length: Math.ceil(Math.max(env.W, env.H) / SEG) + 2 }, () => (r() < 0.04 ? 0.28 : 0) + (r() - 0.5) * 0.12));
   const sl = (th: number, along: number) => { const s = along / SEG, i = Math.floor(s), f = s - i, row = slub[th]; return row[i] + (row[i + 1] - row[i]) * f; };
-  for (let j = 0; j < DH; j++) {
-    const y = j / env.scale, v = y / pitch, iv = Math.floor(v), fv = v - iv;
-    for (let i = 0; i < DW; i++) {
-      const x = i / env.scale, u = x / pitch, iu = Math.floor(u), fu = u - iu;
-      const warpHW = 0.5 * clamp(thick[iu] + sl(iu, y), 0.5, 1.15) * 0.94, weftHW = 0.5 * clamp(thick[nT + iv] + sl(nT + iv, x), 0.5, 1.15) * 0.9;
-      const dw = Math.abs(fu - 0.5), df = Math.abs(fv - 0.5), inWarp = dw < warpHW, inWeft = df < weftHW, warpTop = ((iu + iv) & 1) === 0;
-      let b: number, t: number;
-      if (inWarp && (warpTop || !inWeft)) { const cr = Math.cos((dw / warpHW) * Math.PI * 0.5), rise = warpTop ? 0.82 + 0.18 * Math.sin(Math.PI * fv) : 0.74; b = (0.62 + 0.42 * Math.pow(cr, 0.7)) * rise + 0.06 * ((fv * 7 + iu * 0.37) % 1); t = tint[iu]; }
-      else if (inWeft) { const cr = Math.cos((df / weftHW) * Math.PI * 0.5), rise = !warpTop ? 0.84 + 0.16 * Math.sin(Math.PI * fu) : 0.74; b = (0.6 + 0.42 * Math.pow(cr, 0.7)) * rise + 0.05 * ((fu * 6 + iv * 0.53) % 1); t = tint[nT + iv]; }
-      else { b = 0.5; t = 1; }                                                                      // a pin-hole: the dark behind the cloth
-      const m = inside(x, y) * b * t, o = (j * DW + i) * 4;
-      d[o] = clamp(base[0] * m, 0, 255); d[o + 1] = clamp(base[1] * m, 0, 255); d[o + 2] = clamp(base[2] * m, 0, 255); d[o + 3] = 255;
+  if (step <= 1) {
+    for (let j = 0; j < DH; j++) {
+      const y = j / env.scale, v = y / pitch, iv = Math.floor(v), fv = v - iv;
+      for (let i = 0; i < DW; i++) {
+        const x = i / env.scale, u = x / pitch, iu = Math.floor(u), fu = u - iu;
+        const warpHW = 0.5 * clamp(thick[iu] + sl(iu, y), 0.5, 1.15) * 0.94, weftHW = 0.5 * clamp(thick[nT + iv] + sl(nT + iv, x), 0.5, 1.15) * 0.9;
+        const dw = Math.abs(fu - 0.5), df = Math.abs(fv - 0.5), inWarp = dw < warpHW, inWeft = df < weftHW, warpTop = ((iu + iv) & 1) === 0;
+        let b: number, t: number;
+        if (inWarp && (warpTop || !inWeft)) { const cr = Math.cos((dw / warpHW) * Math.PI * 0.5), rise = warpTop ? 0.82 + 0.18 * Math.sin(Math.PI * fv) : 0.74; b = (0.62 + 0.42 * Math.pow(cr, 0.7)) * rise + 0.06 * ((fv * 7 + iu * 0.37) % 1); t = tint[iu]; }
+        else if (inWeft) { const cr = Math.cos((df / weftHW) * Math.PI * 0.5), rise = !warpTop ? 0.84 + 0.16 * Math.sin(Math.PI * fu) : 0.74; b = (0.6 + 0.42 * Math.pow(cr, 0.7)) * rise + 0.05 * ((fu * 6 + iv * 0.53) % 1); t = tint[nT + iv]; }
+        else { b = 0.5; t = 1; }
+        const m = inside(x, y) * b * t, o = (j * DW + i) * 4;
+        d[o] = clamp(base[0] * m, 0, 255); d[o + 1] = clamp(base[1] * m, 0, 255); d[o + 2] = clamp(base[2] * m, 0, 255); d[o + 3] = 255;
+      }
     }
+  } else {
+    for (let j = 0; j < DH; j += step) {
+      const y = j / env.scale, v = y / pitch, iv = Math.floor(v), fv = v - iv;
+      for (let i = 0; i < DW; i += step) {
+        const x = i / env.scale, u = x / pitch, iu = Math.floor(u), fu = u - iu;
+        const warpHW = 0.5 * clamp(thick[iu] + sl(iu, y), 0.5, 1.15) * 0.94, weftHW = 0.5 * clamp(thick[nT + iv] + sl(nT + iv, x), 0.5, 1.15) * 0.9;
+        const dw = Math.abs(fu - 0.5), df = Math.abs(fv - 0.5), inWarp = dw < warpHW, inWeft = df < weftHW, warpTop = ((iu + iv) & 1) === 0;
+        let b: number, t: number;
+        if (inWarp && (warpTop || !inWeft)) { const cr = Math.cos((dw / warpHW) * Math.PI * 0.5), rise = warpTop ? 0.82 + 0.18 * Math.sin(Math.PI * fv) : 0.74; b = (0.62 + 0.42 * Math.pow(cr, 0.7)) * rise + 0.06 * ((fv * 7 + iu * 0.37) % 1); t = tint[iu]; }
+        else if (inWeft) { const cr = Math.cos((df / weftHW) * Math.PI * 0.5), rise = !warpTop ? 0.84 + 0.16 * Math.sin(Math.PI * fu) : 0.74; b = (0.6 + 0.42 * Math.pow(cr, 0.7)) * rise + 0.05 * ((fu * 6 + iv * 0.53) % 1); t = tint[nT + iv]; }
+        else { b = 0.5; t = 1; }
+        const m = inside(x, y) * b * t;
+        const r0 = clamp(base[0] * m, 0, 255), g0 = clamp(base[1] * m, 0, 255), b0 = clamp(base[2] * m, 0, 255);
+        for (let dy = 0; dy < step && j + dy < DH; dy++) for (let dx = 0; dx < step && i + dx < DW; dx++) {
+          const o = ((j + dy) * DW + (i + dx)) * 4;
+          d[o] = r0; d[o + 1] = g0; d[o + 2] = b0; d[o + 3] = 255;
+        }
+      }
+    }
+    recordKitMaterialReduction(1);
   }
   L.ctx.putImageData(img, 0, 0); env.cache.set(k, L);
   return L;
@@ -47,10 +72,19 @@ export const linenLayer = (env: Env, key: string, pitch: number, base: [number, 
 
 // ---------------------------------------------------------------- drawing a run of stitches
 type Tone = { base: string; hi: string; lo: string };
-const tone = (c: string): Tone => ({ base: c, hi: mix(c, "#ffffff", 0.5), lo: mix(c, "#1a120c", 0.38) });   // a colour's lit and shade threads
+const toneCache = new Map<string, Tone>();
+const tone = (c: string): Tone => {
+  let t = toneCache.get(c);
+  if (!t) {
+    t = { base: c, hi: mix(c, "#ffffff", 0.5), lo: mix(c, "#1a120c", 0.38) };
+    if (toneCache.size < 512) toneCache.set(c, t);
+  }
+  return t;
+};
 export const headOf = (s: St, p: number): P => (s.k === "knot" ? s.a : p >= 1 ? s.b : lerpP(s.a, s.b, p));
 // the shadow each stitch casts on the cloth: down and right, away from the window
 export const drawShadows = (c: CanvasRenderingContext2D, sts: St[], lastP = 1) => {
+  if (isCalibratingPen()) return;
   c.save(); c.lineCap = "round"; c.strokeStyle = "#3b2c1c"; c.fillStyle = "#3b2c1c";
   sts.forEach((s, i) => {
     const p = i === sts.length - 1 ? lastP : 1; if (p <= 0) return;
@@ -60,29 +94,46 @@ export const drawShadows = (c: CanvasRenderingContext2D, sts: St[], lastP = 1) =
   c.restore();
 };
 export const drawThreads = (c: CanvasRenderingContext2D, sts: St[], lastP = 1) => {
+  if (isCalibratingPen()) return;
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
   c.save(); c.lineCap = "round"; c.lineJoin = "round";
+  let protectedSts = 0, reducedTwists = 0, detailSegs = 0;
   sts.forEach((s, i) => {
     const p = i === sts.length - 1 ? lastP : 1; if (p <= 0) return;
+    protectedSts++;
     const T = tone(s.c);
-    if (s.k === "knot") {                               // a French knot: the bead, its shaded side, the wraps, one glint
-      if (p < 0.5) { c.globalAlpha = 1; c.strokeStyle = T.base; c.lineWidth = s.w * 0.7; c.beginPath(); c.arc(s.a[0], s.a[1], s.w * 0.55, 0, Math.PI * 2 * (p * 2)); c.stroke(); return; }   // the wraps going round the needle
+    if (s.k === "knot") {
+      if (p < 0.5) { c.globalAlpha = 1; c.strokeStyle = T.base; c.lineWidth = s.w * 0.7; c.beginPath(); c.arc(s.a[0], s.a[1], s.w * 0.55, 0, Math.PI * 2 * (p * 2)); c.stroke(); return; }
       const [x, y] = s.a, r = s.w;
       c.globalAlpha = 1; c.fillStyle = T.lo; c.beginPath(); c.arc(x + r * 0.12, y + r * 0.16, r, 0, Math.PI * 2); c.fill();
       c.fillStyle = T.base; c.beginPath(); c.arc(x - r * 0.1, y - r * 0.12, r * 0.8, 0, Math.PI * 2); c.fill();
       c.strokeStyle = T.lo; c.globalAlpha = 0.55; c.lineWidth = Math.max(0.5, r * 0.22); const ph = (x * 0.37 + y * 0.61) % Math.PI;
-      c.beginPath(); c.arc(x, y, r * 0.5, ph, ph + 2.2); c.stroke(); c.beginPath(); c.arc(x, y, r * 0.78, ph + 3, ph + 4.8); c.stroke();
+      c.beginPath(); c.arc(x, y, r * 0.5, ph, ph + 2.2); c.stroke();
+      if (!isDraft || q.materialDetailScale >= 0.55) {
+        c.beginPath(); c.arc(x, y, r * 0.78, ph + 3, ph + 4.8); c.stroke();
+      } else {
+        reducedTwists++;
+      }
       c.fillStyle = T.hi; c.globalAlpha = 0.8; c.beginPath(); c.arc(x - r * 0.38, y - r * 0.42, r * 0.26, 0, Math.PI * 2); c.fill();
       return;
     }
     const a = s.a, b = headOf(s, p), dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L; let nx = -uy, ny = ux;
-    if (nx * LIGHT[0] + ny * LIGHT[1] < 0) { nx = -nx; ny = -ny; }          // n points to the lit side
-    const w = s.w, sheen = 0.35 + 0.65 * Math.abs(ux * LIGHT[1] - uy * LIGHT[0]);   // stitches lying across the light catch it most
+    if (nx * LIGHT[0] + ny * LIGHT[1] < 0) { nx = -nx; ny = -ny; }
+    const w = s.w, sheen = 0.35 + 0.65 * Math.abs(ux * LIGHT[1] - uy * LIGHT[0]);
     const inset = Math.min(L * 0.3, w * 0.25), a1: P = [a[0] + ux * inset, a[1] + uy * inset], b1: P = [b[0] - ux * inset, b[1] - uy * inset];
     c.globalAlpha = 1; c.strokeStyle = T.base; c.lineWidth = w; c.beginPath(); c.moveTo(a1[0], a1[1]); c.lineTo(b1[0], b1[1]); c.stroke();
-    c.strokeStyle = T.base; c.lineWidth = w * 0.55; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();          // pinched where it dives into the holes
+    c.strokeStyle = T.base; c.lineWidth = w * 0.55; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
     c.strokeStyle = T.lo; c.globalAlpha = 0.6; c.lineWidth = w * 0.32; c.beginPath(); c.moveTo(a1[0] - nx * w * 0.32, a1[1] - ny * w * 0.32); c.lineTo(b1[0] - nx * w * 0.32, b1[1] - ny * w * 0.32); c.stroke();
     // the twist: slanted grooves between the strands, and a glint on the crown of each twist
-    const step = Math.max(1.6, w * 1.05), n = Math.floor(L / step);
+    const step = isDraft
+      ? Math.max(3.4, (w * (q.materialDetailScale < 0.38 ? 2.6 : 2.1)) / Math.max(0.32, q.materialDetailScale))
+      : Math.max(1.6, w * 1.05);
+    const n = Math.floor(L / step);
+    if (isDraft) {
+      const fullN = Math.floor(L / Math.max(1.6, w * 1.05));
+      if (fullN > n) reducedTwists += fullN - n;
+    }
     if (n > 0) {
       c.globalAlpha = 0.42; c.strokeStyle = T.lo; c.lineWidth = Math.max(0.45, w * 0.16); c.beginPath();
       for (let k = 1; k <= n; k++) { const m = k * step - step * 0.3, cx = a[0] + ux * m, cy = a[1] + uy * m, sx = (nx - ux * 0.7) * w * 0.42, sy = (ny - uy * 0.7) * w * 0.42; c.moveTo(cx - sx, cy - sy); c.lineTo(cx + sx, cy + sy); }
@@ -90,9 +141,21 @@ export const drawThreads = (c: CanvasRenderingContext2D, sts: St[], lastP = 1) =
       c.globalAlpha = 0.28 + 0.5 * sheen; c.strokeStyle = T.hi; c.lineWidth = Math.max(0.45, w * 0.22); c.beginPath();
       for (let k = 0; k < n; k++) { const m = k * step + step * 0.25, cx = a[0] + ux * m + nx * w * 0.16, cy = a[1] + uy * m + ny * w * 0.16; c.moveTo(cx - ux * step * 0.22, cy - uy * step * 0.22); c.lineTo(cx + ux * step * 0.22, cy + uy * step * 0.22); }
       c.stroke();
-    } else { c.globalAlpha = 0.3 + 0.5 * sheen; c.strokeStyle = T.hi; c.lineWidth = w * 0.25; c.beginPath(); c.moveTo(a1[0] + nx * w * 0.16, a1[1] + ny * w * 0.16); c.lineTo(b1[0] + nx * w * 0.16, b1[1] + ny * w * 0.16); c.stroke(); }
+      detailSegs += n * 2;
+    } else {
+      c.globalAlpha = 0.3 + 0.5 * sheen; c.strokeStyle = T.hi; c.lineWidth = w * 0.25; c.beginPath(); c.moveTo(a1[0] + nx * w * 0.16, a1[1] + ny * w * 0.16); c.lineTo(b1[0] + nx * w * 0.16, b1[1] + ny * w * 0.16); c.stroke();
+      detailSegs += 1;
+    }
   });
   c.restore();
+  if (protectedSts > 0) {
+    recordOtherPathStats(protectedSts, protectedSts * 2, false);
+  }
+  if (isDraft && reducedTwists > 0) {
+    recordKitMaterialReduction(reducedTwists, detailSegs, detailSegs * 2);
+  } else if (!isDraft && detailSegs > 0) {
+    recordOtherPathStats(detailSegs, detailSegs * 2, true);
+  }
 };
 
 // ---------------------------------------------------------------- stitch generators

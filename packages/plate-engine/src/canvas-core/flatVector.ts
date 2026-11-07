@@ -1,4 +1,4 @@
-import { rng, type Ctx, type Env, type Layer, type P } from "./core";
+import { getRenderQuality, recordKitMaterialReduction, recordOtherPathStats, rng, type Ctx, type Env, type Layer, type P } from "./core";
 import type { Film } from "./film";
 import { clamp, smooth } from "./gallery";
 import { cut, streakClip, streaks, streakTip } from "./koiDrawKit";
@@ -145,14 +145,35 @@ const timeline = (cache: Map<string, unknown>): Timed[] => {
 
 // ---------------------------------------------------------------- grain
 const grainTile = (env: Env): Layer => {
-  const key = `flatVector:grain:${env.scale}`; let L = env.cache.get(key) as Layer | undefined; if (L) return L;
+  const q = getRenderQuality();
+  const step = q.mode === "draft" ? Math.max(2, q.surfaceSampleFactor) : 1;
+  const key = step > 1 ? `flatVector:grain:${env.scale}:s${step}` : `flatVector:grain:${env.scale}`;
+  let L = env.cache.get(key) as Layer | undefined;
+  if (L) {
+    if (step > 1) recordKitMaterialReduction(1);
+    return L;
+  }
   const n = Math.round(240 * env.scale); L = env.canvas(n, n); const img = L.ctx.createImageData(n, n), d = img.data, r = rng(4242);
-  for (let i = 0; i < n * n; i++) { const v = r(); if (v < 0.34) { d[i * 4] = 31; d[i * 4 + 1] = 58; d[i * 4 + 2] = 86; d[i * 4 + 3] = Math.round(90 + r() * 165); } }
+  if (step <= 1) {
+    for (let i = 0; i < n * n; i++) { const v = r(); if (v < 0.34) { d[i * 4] = 31; d[i * 4 + 1] = 58; d[i * 4 + 2] = 86; d[i * 4 + 3] = Math.round(90 + r() * 165); } }
+  } else {
+    for (let y = 0; y < n; y += step) for (let x = 0; x < n; x += step) {
+      const v = r();
+      if (v < 0.34) {
+        const a0 = Math.round(90 + r() * 165);
+        for (let dy = 0; dy < step && y + dy < n; dy++) for (let dx = 0; dx < step && x + dx < n; dx++) {
+          const i = ((y + dy) * n + (x + dx)) * 4;
+          d[i] = 31; d[i + 1] = 58; d[i + 2] = 86; d[i + 3] = a0;
+        }
+      }
+    }
+    recordKitMaterialReduction(1);
+  }
   L.ctx.putImageData(img, 0, 0); env.cache.set(key, L); return L;
 };
 const scratch = (env: Env): Layer => { const key = `flatVector:tmp:${env.scale}`; let L = env.cache.get(key) as Layer | undefined; if (!L) { L = env.canvas(Math.round(W * env.scale), Math.round(H * env.scale)); env.cache.set(key, L); } return L; };
 const bbox = (ps: P[][]) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; ps.forEach((p) => p.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); })); return { x0: Math.max(0, x0 - 2), y0: Math.max(0, y0 - 2), x1: Math.min(W, x1 + 2), y1: Math.min(H, y1 + 2) }; };
-const path = (c: Ctx, ps: P[][]) => { c.beginPath(); ps.forEach((p) => { p.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); }); };
+const path = (c: Ctx, ps: P[][]) => { c.beginPath(); let v = 0; ps.forEach((p) => { p.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); v += p.length; }); recordOtherPathStats(ps.length, v, false); };
 // the grain brush: speckle clipped to the shape, ramped from nothing on the lit side to full on the
 // shade side; while it is being applied, only where the brush's passes have been
 // Painted into a surface whose device origin sits at logical (ox, oy). A finished grain never

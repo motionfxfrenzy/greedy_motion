@@ -5,13 +5,17 @@ import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlat
 import {
   SfxCueTracker,
   WebAudioFilmTimeline,
+  isPlateDraftPreviewEnabled,
   isPlateLiveEnabled,
   isWebAudioSupported,
+  readStoredPlaybackRenderMode,
   readStoredPreviewQuality,
+  writeStoredPlaybackRenderMode,
   writeStoredPreviewQuality,
   type FrameStoreStatus,
   type LivePlateScene,
   type LivePlateStatus,
+  type PlaybackRenderMode,
   type PreviewQuality,
   type QualityJobProgress,
   type SceneModeResolution
@@ -143,6 +147,9 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const [muted, setMuted] = useState(false);
   const [transitionsOn, setTransitionsOn] = useState<boolean>(false);
   const [previewQuality, setPreviewQuality] = useState<PreviewQuality>(() => readStoredPreviewQuality());
+  const [renderMode, setRenderMode] = useState<PlaybackRenderMode>(() =>
+    liveOptions?.initialRenderMode ?? (isPlateDraftPreviewEnabled() ? readStoredPlaybackRenderMode() : "full")
+  );
   const [qualityJobProgress, setQualityJobProgress] = useState<QualityJobProgress | null>(null);
   const [storeStatus, setStoreStatus] = useState<FrameStoreStatus | null>(null);
   const subLoaded = useRef(false);
@@ -794,6 +801,11 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     setPreviewQuality(q);
   };
 
+  const chooseRenderMode = (nextMode: PlaybackRenderMode) => {
+    const m = writeStoredPlaybackRenderMode(nextMode);
+    setRenderMode(m);
+  };
+
   const errors: string[] = [];
   if (error) errors.push(error);
   if (status && !status.available) errors.push("Code-drawn scenes aren't available for this project right now.");
@@ -834,7 +846,11 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     errors={errors}
     audioControls={{ voice: voiceOn, music: musicOn, sfx: sfxOn, transitions: transitionsOn, onToggleVoice: toggleVoice, onToggleMusic: toggleMusic, onToggleSfx: toggleSfx, onToggleTransitions: toggleTransitions }}
     subtitleControls={{ mode: subMode, style: subStyle, size: subSize, opacity: subOpacity, textColor: subColor, bgColor: subBgColor, effectiveTextColor, effectiveBgColor, position: curScenePos, currentSceneIndex: current, onSelectMode: chooseSubMode, onSelectStyle: chooseSubStyle, onStepSize: changeSubSize, onChangeTextColor: changeSubColor, onChangeBgColor: changeSubBgColor, onChangeOpacity: setSubOpacityDirect, onChangeScenePosition: setSceneSubtitlePos, onApplyPositionToAll: applyPosToAllScenes, onResetCustomization: resetSubCustomization }}
-    previewQualityControls={{ quality: previewQuality, onSelectQuality: choosePreviewQuality }}
+    previewQualityControls={{
+      quality: previewQuality,
+      onSelectQuality: choosePreviewQuality,
+      ...(isLiveMode ? { renderMode, onSelectRenderMode: chooseRenderMode } : {})
+    }}
     statusBadge={statusBadge}
     canvasRef={canvasRef}
     onStageClick={toggle}
@@ -842,6 +858,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       {isLiveMode ? (
         <PlateLiveStage
           projectId={project.id}
+          look={liveStatus?.look ?? project.brief?.look ?? null}
           scenes={scenes as LivePlateScene[]}
           referenceFrames={referenceFrames}
           viewAspect={viewAspect}
@@ -878,6 +895,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
           onStatusRefresh={refreshStatus}
           onResolutionsChange={setLiveResolutions}
           previewQuality={previewQuality}
+          renderMode={renderMode}
           onQualityJobProgress={setQualityJobProgress}
           onStoreStatusChange={setStoreStatus}
           audioTimeline={audioTimelineRef.current}

@@ -14,7 +14,7 @@
   "scripts": {
     "manifest": "node scripts/build-manifest.mjs",
     "manifest:check": "node scripts/build-manifest.mjs --check",
-    "test": "node test/engine.test.mjs"
+    "test": "node test/engine.test.mjs && node test/draft-preview.test.mjs"
   },
   "dependencies": {
     "esbuild": "0.25.12"

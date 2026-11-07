@@ -1,4 +1,4 @@
-import { Gfx, rng, type Ctx, type Env, type Medium, type P } from "./core";
+import { Gfx, getRenderQuality, recordKitMaterialReduction, recordOtherPathStats, rng, type Ctx, type Env, type Medium, type P } from "./core";
 import type { Film } from "./film";
 import { bounds, mix, smooth } from "./gallery";
 import { clamp01, fibres, onGrid, path, scissor, staged, tear, type Step } from "./scrapbookKit";
@@ -37,11 +37,16 @@ const WHITE = "#fbf9f2";
 // ---------------------------------------------------------------- paint and print (all clipped to the piece)
 type R = () => number;
 const gouache = (c: Ctx, shape: P[], color: string, seed: number, o: { dir?: number; len?: number; w?: number; vary?: number; dens?: number } = {}) => {
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
   const { dir = 0, len = 44, w = 13, vary = 0.1, dens = 1 } = o, r = rng(seed), b = bounds(shape), area = (b.x1 - b.x0) * (b.y1 - b.y0);
   c.fillStyle = color; path(c, shape); c.fill();
+  recordOtherPathStats(1, shape.length, false);
   c.save(); path(c, shape); c.clip(); c.lineCap = "round";
-  const n = Math.max(6, Math.round((area / (len * w)) * 1.6 * dens));
+  const fullN = Math.max(6, Math.round((area / (len * w)) * 1.6 * dens));
+  const n = isDraft ? Math.max(3, Math.round(fullN * q.materialDetailScale)) : fullN;
   for (let i = 0; i < n; i++) { const x = b.x0 + r() * (b.x1 - b.x0), y = b.y0 + r() * (b.y1 - b.y0), a = dir + (r() - 0.5) * 0.35, l = len * (0.6 + r() * 0.7), k = r(); c.strokeStyle = k < 0.5 ? mix(color, "#ffffff", vary * (0.5 + r())) : mix(color, "#1d2430", vary * (0.4 + r())); c.globalAlpha = 0.28 + r() * 0.25; c.lineWidth = w * (0.6 + r() * 0.6); c.beginPath(); c.moveTo(x - Math.cos(a) * l / 2, y - Math.sin(a) * l / 2); c.quadraticCurveTo(x + (r() - 0.5) * 6, y + (r() - 0.5) * 6, x + Math.cos(a) * l / 2, y + Math.sin(a) * l / 2); c.stroke(); }
+  if (isDraft && n < fullN) recordKitMaterialReduction(fullN - n, n, n * 3);
   c.restore(); c.globalAlpha = 1;
 };
 // painted shade: darker strokes laid along one side of a shape (the side away from the sun)

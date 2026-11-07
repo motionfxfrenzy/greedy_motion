@@ -1,4 +1,4 @@
-import { fractal, rng, type Ctx, type Env, type Layer, type P } from "./core";
+import { fractal, getRenderQuality, recordKitMaterialReduction, recordOtherPathStats, rng, type Ctx, type Env, type Layer, type P } from "./core";
 import type { Film } from "./film";
 import { clamp01, onGrid } from "./scrapbookKit";
 
@@ -146,7 +146,7 @@ const sunFacets = (() => { const rings: { s: P[]; col: string }[] = []; [[150, "
 const stars: P[] = [[120, 60], [310, 96], [610, 44], [860, 80], [980, 150], [470, 130]];
 
 // ---------------------------------------------------------------- drawing
-const fillTri = (c: Ctx, s: P[], col: string) => { c.fillStyle = col; c.beginPath(); c.moveTo(s[0][0], s[0][1]); for (let i = 1; i < s.length; i++) c.lineTo(s[i][0], s[i][1]); c.closePath(); c.fill(); c.strokeStyle = col; c.lineWidth = 0.6; c.stroke(); };   // a hairline of the same colour closes the antialias seams between facets
+const fillTri = (c: Ctx, s: P[], col: string) => { c.fillStyle = col; c.beginPath(); c.moveTo(s[0][0], s[0][1]); for (let i = 1; i < s.length; i++) c.lineTo(s[i][0], s[i][1]); c.closePath(); c.fill(); c.strokeStyle = col; c.lineWidth = 0.6; c.stroke(); recordOtherPathStats(1, s.length, false); };   // a hairline of the same colour closes the antialias seams between facets
 const CUE = { wire: [5, 110], sky: [115, 140], faces: [140, 290], water: [295, 335], refl: [340, 395], ripple: [395, 420] } as const;
 onGrid("lowPoly", Object.values(CUE).flat() as number[], N);
 const prog = (f: number, [a, b]: readonly [number, number]) => (f >= b ? 1 : clamp01((f - a) / (b - a)));
@@ -184,7 +184,10 @@ export const drawLowPoly = (ctx: Ctx, f: number, env: Env) => {
     // ripple cuts: thin bands where the surface is stirred show the plain water colour again
     if (pRip > 0) { const r = rng(404); wc.globalAlpha = 0.9; for (let y = HORIZON + 8, k = 0; y < H; y += 9 + (y - HORIZON) * 0.1, k++) { const vis = clamp01(pRip * 1.3 - (y - HORIZON) / (H - HORIZON) * 0.3); if (vis <= 0) continue; const th = 0.8 + (y - HORIZON) * 0.012; for (let x = -20 + r() * 120; x < W; x += 120 + r() * 260) { const l = (20 + r() * 90) * vis; const t = clamp01((y - HORIZON) / 500); wc.fillStyle = rgb(mixV(hex("#d9a3a8"), hex("#2c3561"), t ** 0.8)); wc.fillRect(x, y, l, th); } } wc.globalAlpha = 1;
       // the sun's glitter path: short bright dashes in a column under it, widening toward us
-      const g = rng(405); wc.fillStyle = "#ffe7bf"; for (let y = HORIZON + 3; y < 760; y += 3 + (y - HORIZON) * 0.05) { const spread = 8 + (y - HORIZON) * 0.35, n = Math.max(1, Math.floor((1 - (y - HORIZON) / 300) * 4 * pRip)); for (let k = 0; k < n; k++) { const x = SUN_SCREEN[0] + (g() - 0.5) * 2 * spread, l = 4 + g() * 14 * (1 - (y - HORIZON) / 320); if (l > 1) wc.fillRect(x - l / 2, y, l, 1.2 + (y - HORIZON) * 0.006); } } }
+      const qual = getRenderQuality();
+      const isDraft = qual.mode === "draft";
+      const g = rng(405); wc.fillStyle = "#ffe7bf"; for (let y = HORIZON + 3; y < 760; y += 3 + (y - HORIZON) * (isDraft ? 0.08 : 0.05)) { const spread = 8 + (y - HORIZON) * 0.35, n = Math.max(1, Math.floor((1 - (y - HORIZON) / 300) * 4 * pRip)); for (let k = 0; k < n; k++) { const x = SUN_SCREEN[0] + (g() - 0.5) * 2 * spread, l = 4 + g() * 14 * (1 - (y - HORIZON) / 320); if (l > 1) wc.fillRect(x - l / 2, y, l, 1.2 + (y - HORIZON) * 0.006); } }
+      if (isDraft) recordKitMaterialReduction(1); }
     const M = waterMask(env, sc); wc.save(); wc.setTransform(1, 0, 0, 1, 0, 0); wc.globalCompositeOperation = "destination-in"; wc.drawImage(M.canvas as CanvasImageSource, 0, 0); wc.restore(); wc.globalCompositeOperation = "source-over";
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Wl.canvas as CanvasImageSource, 0, 0); ctx.restore();
   }

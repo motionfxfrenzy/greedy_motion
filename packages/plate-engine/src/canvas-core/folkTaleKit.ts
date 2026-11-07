@@ -13,7 +13,7 @@
 //   faded             paint an element on a scratch layer and dissolve it by a gradient mask: paint thinning to bare drawing
 //   leaf / lineLeaf   painted leaf (two-tone halves, midrib, side veins, mottle, rim) / the same leaf in pencil
 //   petal, sunflower, daisy, bell, dogRose, umbel, blade/grass, limb, pumpkin, gourdLeaf, tendril
-import { fractal, rng, sample, type Ctx, type Env, type Gfx, type Layer, type P } from "./core";
+import { fractal, getRenderQuality, recordKitMaterialReduction, recordOtherPathStats, rng, sample, type Ctx, type Env, type Gfx, type Layer, type P } from "./core";
 import { clamp, mix } from "./gallery";
 
 export const PAPER = "#f4edda", HAZE = "#f2e9c9", GRAPH = "#6f665a";
@@ -90,20 +90,30 @@ export type Gouache = { seed: number; a?: number; tex?: Tex; mottle?: Mottle; ri
 // Opaque body colour. The shape's edge wobbles as a brush-cut edge does, the paint is dragged
 // dry over itself inside the shape, and it settles slightly darker along its rim.
 export const gouache = (c: Ctx, poly: P[], col: string, o: Gouache) => {
+  const q = getRenderQuality();
+  const isDraft = q.mode === "draft";
   const { seed, a = 1, wob = 0 } = o, r = rng(seed * 7 + 5);
   const s = wob ? poly.map(([x, y]) => [x + (fractal(seed, x * 0.05, y * 0.05, 1, 1, 2) - 0.5) * wob, y + (fractal(seed + 3, x * 0.05, y * 0.05, 1, 1, 2) - 0.5) * wob] as P) : poly;
   c.globalAlpha = a; c.fillStyle = col; trace(c, s); c.fill();
+  recordOtherPathStats(1, s.length, false);
   if (!o.tex && !o.mottle && !o.rim) { c.globalAlpha = 1; return; }
   c.save(); trace(c, s); c.clip();
   const [x0, y0, x1, y1] = bbox(s), bw = x1 - x0, bh = y1 - y0;
-  if (o.tex) { const t = o.tex; c.lineCap = "round"; for (let i = 0; i < t.n; i++) { c.strokeStyle = t.cols[i % t.cols.length]; drag(c, x0 + r() * bw, y0 + r() * bh, t.ang + (r() - 0.5) * (t.jit ?? 0.3), t.len * (0.5 + r() * 0.7), t.w, (t.a ?? 0.35) * a, r); } }
+  if (o.tex) {
+    const t = o.tex; c.lineCap = "round";
+    const limit = isDraft ? Math.max(1, Math.round(t.n * q.materialDetailScale)) : t.n;
+    for (let i = 0; i < limit; i++) { c.strokeStyle = t.cols[i % t.cols.length]; drag(c, x0 + r() * bw, y0 + r() * bh, t.ang + (r() - 0.5) * (t.jit ?? 0.3), t.len * (0.5 + r() * 0.7), t.w, (t.a ?? 0.35) * a, r); }
+    if (isDraft && limit < t.n) recordKitMaterialReduction(t.n - limit, limit, limit * 3);
+  }
   if (o.mottle) {
     const m = o.mottle, fq = m.freq ?? 0.06;
-    for (let i = 0, tries = 0; i < m.n && tries < m.n * 4; tries++) {
-      const x = x0 + r() * bw, y = y0 + r() * bh; if (fractal(seed + 11, x * fq, y * fq, 1, 1, 2) < 0.47 + r() * 0.12) continue; i++;
+    const limit = isDraft ? Math.max(1, Math.round(m.n * q.materialDetailScale)) : m.n;
+    for (let i = 0, tries = 0; i < limit && tries < limit * 4; tries++) {
+      const x = x0 + r() * bw, y = y0 + r() * bh; if (fractal(seed + 11, x * fq, y * fq, 1, 1, isDraft ? 1 : 2) < 0.47 + r() * 0.12) continue; i++;
       const rr = m.r * (0.35 + r() * 0.8); c.globalAlpha = (m.a ?? 0.4) * (0.4 + 0.6 * r()) * a; c.fillStyle = m.cols[i % m.cols.length];
       c.beginPath(); c.ellipse(x, y, rr, rr * (0.55 + r() * 0.4), r() * 3, 0, Math.PI * 2); c.fill();
     }
+    if (isDraft && limit < m.n) recordKitMaterialReduction(m.n - limit, limit, limit * 8);
   }
   if (o.rim) { c.globalAlpha = (o.rimA ?? 0.4) * a; c.strokeStyle = o.rim; c.lineWidth = (o.rimW ?? 2) * 2; c.lineJoin = "round"; trace(c, s); c.stroke(); }
   c.restore(); c.globalAlpha = 1;

@@ -5,7 +5,7 @@
 // pass (blocking, cleanup, shading, highlights, fireflies...). `replay(n)` gives the grid after the
 // first n ops. `blit` paints a grid onto the canvas as whole cells: integer cell size, integer
 // offsets, fillRect only, so every device pixel is exactly one palette colour (no AA, no smoothing).
-import type { Ctx } from "./core";
+import { recordOtherPathStats, type Ctx } from "./core";
 
 export type Stroke = { pass: number; kind: "fill" | "pencil" | "cluster"; a: number; b: number }; // ops [a, b)
 
@@ -95,11 +95,14 @@ export const blit = (ctx: Ctx, buf: Uint8Array, G: number, H: number, palette: s
   const cell = Math.floor(Math.min(devW / G, devH / H)), ox = Math.floor((devW - cell * G) / 2), oy = Math.floor((devH - cell * H) / 2);
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = letterbox; ctx.fillRect(0, 0, devW, devH);
+  let runs = 0;
   for (let y = 0; y < H; y++) {
     let x = 0;
     while (x < G) {
       const c = buf[y * G + x]; let e = x + 1; while (e < G && buf[y * G + e] === c) e++;
       ctx.fillStyle = palette[c]; ctx.fillRect(ox + x * cell, oy + y * cell, (e - x) * cell, cell); x = e;
+      runs++;
     }
   }
+  if (runs > 0) recordOtherPathStats(runs, runs * 4, false);
 };

@@ -10,6 +10,7 @@ import { WorkerHost } from "../../../lib/live/worker-host";
 type StatusScene = {
   index: number;
   keyword: string;
+  look?: string | null;
   state: string;
   seconds: number;
   frames?: number;
@@ -100,6 +101,7 @@ function LivePreviewDevInner() {
             bundleDigest: b.bundleDigest,
             html: b.html,
             params: b.params,
+            look: s.look ?? status.look ?? null,
             frames: s.frames ?? b.manifest.frames ?? Math.max(1, Math.round((s.seconds || 3) * 30))
           });
         }
@@ -112,6 +114,7 @@ function LivePreviewDevInner() {
         stageRef.current.innerHTML = "";
         const fp = createFilmPlayer({
           scenes: specs,
+          look: status.look ?? null,
           budgetBytes: resolveCacheBudgetBytes(),
           timeSource: {
             currentTime: () => timeRef.current,

@@ -10,7 +10,7 @@
 //
 // Pure: marks are a function of constants and rng(seed). Caches are keyed by everything their
 // pixels depend on (design size, logical size, device scale, pass index).
-import { Gfx, PENCIL, fractal, insideRing, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
+import { Gfx, PENCIL, fractal, getRenderQuality, insideRing, recordKitMaterialReduction, recordOtherPathStats, rng, sample, type Ctx, type Env, type Layer, type P } from "./core";
 
 export type Mark = { c: P[]; w: number; col: string; a: number; len: number; poly: Float32Array };
 export type Pass = { id: string; tooth: 0 | 1 | 2; marks: Mark[] };
@@ -143,14 +143,34 @@ export const dot = (S: Sheet, x: number, y: number, rad: number, col: string, a:
 // across the ridges), plus a fine isotropic grain. Computed at design resolution, once.
 const LEVELS = [0.53, 0.575, 0.645];
 const toothField = (env: Env, D: number, ang: number): Float32Array => {
-  const key = `cp:toothField:${D}:${ang}`; let f = env.cache.get(key) as Float32Array | undefined;
-  if (f) return f;
+  const q = getRenderQuality();
+  const step = q.mode === "draft" ? Math.max(2, q.surfaceSampleFactor) : 1;
+  const key = step > 1 ? `cp:toothField:${D}:${ang}:s${step}` : `cp:toothField:${D}:${ang}`;
+  let f = env.cache.get(key) as Float32Array | undefined;
+  if (f) {
+    if (step > 1) recordKitMaterialReduction(1);
+    return f;
+  }
   f = new Float32Array(D * D); const c = Math.cos(ang), s = Math.sin(ang);
-  for (let y = 0; y < D; y++) for (let x = 0; x < D; x++) { const u = x * c + y * s, v = -x * s + y * c; f[y * D + x] = 0.62 * fractal(71, u, v, 0.12, 0.62, 2) + 0.38 * fractal(73, x, y, 0.8, 0.8, 1); }
+  if (step <= 1) {
+    for (let y = 0; y < D; y++) for (let x = 0; x < D; x++) { const u = x * c + y * s, v = -x * s + y * c; f[y * D + x] = 0.62 * fractal(71, u, v, 0.12, 0.62, 2) + 0.38 * fractal(73, x, y, 0.8, 0.8, 1); }
+  } else {
+    for (let y = 0; y < D; y += step) for (let x = 0; x < D; x += step) {
+      const u = x * c + y * s, v = -x * s + y * c;
+      const val = 0.62 * fractal(71, u, v, 0.12, 0.62, 1) + 0.38 * fractal(73, x, y, 0.8, 0.8, 1);
+      for (let dy = 0; dy < step && y + dy < D; dy++) for (let dx = 0; dx < step && x + dx < D; dx++) {
+        f[(y + dy) * D + (x + dx)] = val;
+      }
+    }
+    recordKitMaterialReduction(1);
+  }
   env.cache.set(key, f); return f;
 };
 const toothMask = (env: Env, D: number, ang: number, lvl: number): Layer => {
-  const DW = Math.round(env.W * env.scale), DH = Math.round(env.H * env.scale), key = `cp:tooth:${lvl}:${D}:${ang}:${DW}x${DH}`;
+  const q = getRenderQuality();
+  const step = q.mode === "draft" ? Math.max(2, q.surfaceSampleFactor) : 1;
+  const DW = Math.round(env.W * env.scale), DH = Math.round(env.H * env.scale);
+  const key = step > 1 ? `cp:tooth:${lvl}:${D}:${ang}:${DW}x${DH}:s${step}` : `cp:tooth:${lvl}:${D}:${ang}:${DW}x${DH}`;
   let L = env.cache.get(key) as Layer | undefined; if (L) return L;
   const f = toothField(env, D, ang), small = env.canvas(D, D), img = small.ctx.createImageData(D, D), d = img.data, T = LEVELS[lvl];
   for (let i = 0; i < D * D; i++) { d[i * 4 + 3] = 255 * clamp((T - f[i]) * 11 + 0.5); }
@@ -161,7 +181,7 @@ const toothMask = (env: Env, D: number, ang: number, lvl: number): Layer => {
 
 // ---------------------------------------------------------------- replaying the sheet
 export type Cue = { pass: string; start: number; end: number };
-const fillMark = (c: Ctx, m: Mark, poly = m.poly) => { c.globalAlpha = m.a; c.fillStyle = m.col; c.beginPath(); c.moveTo(poly[0], poly[1]); for (let i = 2; i < poly.length; i += 2) c.lineTo(poly[i], poly[i + 1]); c.closePath(); c.fill(); };
+const fillMark = (c: Ctx, m: Mark, poly = m.poly) => { c.globalAlpha = m.a; c.fillStyle = m.col; c.beginPath(); c.moveTo(poly[0], poly[1]); for (let i = 2; i < poly.length; i += 2) c.lineTo(poly[i], poly[i + 1]); c.closePath(); c.fill(); recordOtherPathStats(1, poly.length >> 1, false); };
 const cutMark = (m: Mark, p: number): Float32Array => { const n = (m.c.length - 1) * p, i = Math.floor(n), f = n - i, head = m.c.slice(0, i + 1); if (f > 1e-6 && i + 1 < m.c.length) head.push([m.c[i][0] + (m.c[i + 1][0] - m.c[i][0]) * f, m.c[i][1] + (m.c[i + 1][1] - m.c[i][1]) * f]); return outline(head.length > 1 ? head : m.c.slice(0, 2), m.w); };
 
 // per-pass cumulative cost: long strokes go fast per unit length, every lift of the pencil costs time

@@ -1,4 +1,5 @@
 export * from "./types.ts";
+export * from "./draft-profile.ts";
 export * from "./clock.ts";
 export * from "./film-audio.ts";
 export * from "./frame-cache.ts";

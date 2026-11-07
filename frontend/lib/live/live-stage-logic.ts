@@ -1,5 +1,6 @@
 import type { CheckOutcome } from "./api.ts";
 import { parseGenFromBundleUrl } from "./api.ts";
+import type { PlaybackRenderMode, StillUpgradeState } from "./draft-profile.ts";
 import { isPlateLiveEnabled } from "./flag.ts";
 import type { AspectRatio } from "./plate-player.ts";
 import { environmentStatus, supportsWorkerHost, type EnvironmentProbeInput } from "./support.ts";
@@ -34,6 +35,7 @@ export type LivePlateVariantView = {
 export type LivePlateScene = {
   index: number;
   keyword: string;
+  look?: string | null;
   state: LivePlateVariantState;
   seconds: number;
   frames?: number;
@@ -63,6 +65,7 @@ export type LivePlateStatus = {
 export type ResolvedSceneVariant = {
   index: number;
   keyword: string;
+  look?: string | null;
   aspect: AspectRatio;
   state: LivePlateVariantState;
   sig: string;
@@ -105,6 +108,7 @@ export function resolveSceneVariant(
   return {
     index: scene.index,
     keyword: scene.keyword,
+    ...(scene.look !== undefined ? { look: scene.look } : {}),
     aspect,
     state,
     sig: view?.sig ?? scene.sig,
@@ -251,6 +255,8 @@ export type SceneModeInput = {
   hasPendingComment?: boolean;
   qualityJobText?: string | null;
   storeDisabledReason?: string | null;
+  renderMode?: PlaybackRenderMode;
+  stillUpgradeState?: StillUpgradeState;
 };
 
 export type SceneModeResolution = {
@@ -282,6 +288,10 @@ export type SceneModeResolution = {
   isPreparing?: boolean;
   /** Fraction (0..1) of the frames needed ahead that are drawn, while `isPreparing`. */
   preparingProgress?: number;
+  /** Active playback render mode (`"draft"` or `"full"`). */
+  renderMode?: PlaybackRenderMode;
+  /** Pause full-quality still upgrade state (`"idle" | "pending-still" | "drawing-still" | "showing-still"`). */
+  stillUpgradeState?: StillUpgradeState;
 };
 
 const CLIP_LABELS: Record<LivePlateVariantState, string> = {
@@ -543,13 +553,18 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
     };
   }
 
+  const renderMode = input.renderMode ?? input.playerDecision?.renderMode;
+  const stillUpgradeState = input.stillUpgradeState ?? input.playerDecision?.stillUpgradeState;
+
   const statusText = buffering
     ? "Buffering…"
-    : input.qualityJobText
-      ? input.qualityJobText
-      : input.storeDisabledReason
-        ? input.storeDisabledReason
-        : undefined;
+    : stillUpgradeState === "drawing-still"
+      ? "Refining paused frame…"
+      : input.qualityJobText
+        ? input.qualityJobText
+        : input.storeDisabledReason && renderMode !== "draft"
+          ? input.storeDisabledReason
+          : undefined;
 
   return {
     mode: "live",
@@ -566,6 +581,8 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
     stageWait: buffering ? { failed: false, title: "Buffering…" } : null,
     playerState: buffering ? "buffering" : (input.playerDecision?.state ?? "ready"),
     isBuffering: buffering,
+    ...(renderMode ? { renderMode } : {}),
+    ...(stillUpgradeState ? { stillUpgradeState } : {}),
     ...(statusText ? { statusText } : {})
   };
 }
