@@ -70,18 +70,22 @@ export class FrameScheduler<T extends Disposable = Disposable> {
     if (win.behind !== undefined) this.opts.behind = win.behind;
   }
 
-  setScenes(scenes: SceneInfo[]) {
+  setScenes(scenes: SceneInfo[], updateCacheOrder = true) {
     this.scenes = scenes.map((s) => ({ ...s }));
-    this.opts.cache.setOrder(this.scenes.map((s) => s.id));
+    if (updateCacheOrder) {
+      this.opts.cache.setOrder(this.scenes.map((s) => s.id));
+    }
     if (!this.scenes.some((s) => s.id === this.focusScene)) this.focusScene = this.scenes[0]?.id ?? "";
     this.halted = false;
     this.consecutiveFailures = 0;
   }
 
-  focus(scene: string, frame: number) {
+  focus(scene: string, frame: number, updateCacheFocus = true) {
     this.focusScene = scene;
     this.focusFrame = Math.max(0, Math.floor(frame));
-    this.opts.cache.setFocus(scene, this.focusFrame);
+    if (updateCacheFocus) {
+      this.opts.cache.setFocus(scene, this.focusFrame);
+    }
   }
 
   pause() { this.paused = true; }

@@ -1,4 +1,5 @@
 "use client";
+import { useId, type RefObject } from "react";
 import { affectedScenesSummary, formatClock } from "./logic";
 import { ProgressButton } from "./ProgressButton";
 import type { WorkspaceComment } from "./types";
@@ -25,9 +26,11 @@ export interface CommentsPanelProps {
   applyPrefix?: string;
   note?: string;
   onRender?: () => void;
-  renderDisabled?: boolean;
   rendering?: boolean;
+  renderDisabled?: boolean;
+  renderTitle?: string;
   cost?: number;
+  renderButtonRef?: RefObject<HTMLButtonElement | null>;
 }
 
 /**
@@ -58,10 +61,13 @@ export function CommentsPanel({
   applyPrefix = "Redraw",
   note = "Only the scenes you comment on are redrawn.",
   onRender,
-  renderDisabled = false,
   rendering = false,
-  cost
+  renderDisabled = false,
+  renderTitle,
+  cost,
+  renderButtonRef
 }: CommentsPanelProps) {
+  const renderDescId = useId();
   const applySummary = affectedScenesSummary(comments, {
     busy: applying,
     busyLabel: applyBusyLabel,
@@ -72,15 +78,23 @@ export function CommentsPanel({
   return (
     <div className="aw-right-col">
       {onRender && (
-        <button
-          type="button"
-          className="primary-button aw-render-top"
-          disabled={renderDisabled}
-          onClick={onRender}
-        >
-          <span>{rendering ? "Rendering…" : "Render"}</span>
-          {cost != null && !rendering && <small>{cost} tokens</small>}
-        </button>
+        <>
+          <button
+            ref={renderButtonRef}
+            type="button"
+            className="primary-button aw-render-top"
+            disabled={Boolean(rendering || renderDisabled)}
+            title={renderTitle}
+            aria-describedby={renderDescId}
+            onClick={onRender}
+          >
+            <span>{rendering ? "Rendering…" : "Render"}</span>
+            {cost != null && !rendering && <small>{cost} tokens</small>}
+          </button>
+          <span id={renderDescId} className="sr-only">
+            If scenes are still being built or you haven&apos;t watched the preview through, you&apos;ll be asked to confirm before making the video.
+          </span>
+        </>
       )}
       <aside className="aw-side" aria-label="Comments">
         <header>

@@ -16,6 +16,7 @@ const openGets = [
   /^\/v1\/preview\/fonts\/[^/]+$/,
   /^\/v1\/preview\/templates\/[^/]+\/assets\/[^/]+$/,
   /^\/v1\/preview\/plan-sfx\/[^/]+$/,
+  /^\/v1\/voices\/[^/]+\/preview$/,
   /^\/v1\/gallery\/[^/]+$/,
   /^\/v1\/gallery\/templates\/[^/]+$/
 ];

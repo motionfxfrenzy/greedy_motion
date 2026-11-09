@@ -2,10 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { config } from "../config.ts";
 import { getProject } from "../projects/store.ts";
 import { desiredVariants, isPlateLook, wantedAspects } from "./inputs.ts";
+import { estimateFilmWithScenes, estimateScene, type SceneEtaRow } from "./eta.ts";
 import {
-  ASPECTS, defaultSubtitlesFor, isAspect, mergeSubtitles, primaryAspect, type Aspect, type LiveMode, type PlateComment, type PlateScene, type PlateState, type PlateStatus, type VariantState, type PlateSubtitles, type PlateVariantView
+  ASPECTS, FPS, defaultSubtitlesFor, isAspect, isComputedVariantSignature, mergeSubtitles, plateRevisionDigest, primaryAspect, type Aspect, type LiveMode, type PlateComment, type PlateScene, type PlateState, type PlateStatus, type SceneProgress, type VariantState, type PlateSubtitles, type PlateVariantView
 } from "./model.ts";
-import { decideLiveMode, editComments, listVariants, readProjectState, reconcileVariants, reviseScene, writeSubtitles, type VariantRow } from "./store.ts";
+import { decideLiveMode, editComments, listVariants, matchVariantsToDesired, readProjectState, recentAuthorMedians, reconcileVariants, reviseScene, writeSubtitles, type VariantRow } from "./store.ts";
 
 export { isPlateLook };
 const OPEN: VariantState[] = ["queued", "authoring", "bundled", "rendering"];
@@ -24,14 +25,68 @@ const shown = (v: VariantRow, mode: LiveMode): PlateState =>
 const isLivePlayable = (v: VariantRow, mode: LiveMode): boolean => mode === "live" && v.state === "checked";
 const isPlayable = (v: VariantRow, mode: LiveMode): boolean => v.state === "drawn" || isLivePlayable(v, mode);
 
-function viewOf(v: VariantRow, mode: LiveMode): PlateVariantView {
+const toIso = (d: Date | string | null | undefined): string | null =>
+  d instanceof Date ? d.toISOString() : typeof d === "string" && d ? d : null;
+const authorMsOf = (v: VariantRow): number | undefined => {
+  const raw = v.timings?.authorTotalMs;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+};
+/** timings.playback = { mode: "clip", reason: "slow", medianMs, gen, digest } is written by submitCheckReport; honoured only for the same bundle. */
+const playbackOf = (v: VariantRow): { playback: "clip"; drawMsPerFrame: number } | undefined => {
+  const p = (v.timings as Record<string, any> | undefined)?.playback;
+  return p && p.mode === "clip" && p.digest && p.digest === v.bundle_digest && p.gen === v.gen ? { playback: "clip", drawMsPerFrame: Math.round(Number(p.medianMs) * 10) / 10 } : undefined;
+};
+/** timings.retrying is set by the sweep (reconcile.ts) and cleared when a worker claims the row; shown only while the row is open. */
+const retryingOf = (v: VariantRow): { attempt: number; reason: string } | undefined => {
+  const r = (v.timings as Record<string, any> | undefined)?.retrying;
+  return r && typeof r.reason === "string" && Number.isFinite(r.attempt) && OPEN.includes(v.state) ? { attempt: Number(r.attempt), reason: r.reason } : undefined;
+};
+
+const etaRowOf = (v: VariantRow, mode: LiveMode): SceneEtaRow => {
+  const t = v.timings ?? {};
+  const retrying = retryingOf(v);
+  return {
+    state: v.state,
+    stage: v.stage,
+    mode,
+    playable: isPlayable(v, mode),
+    createdAt: v.created_at ?? null,
+    updatedAt: v.updated_at ?? null,
+    ...(typeof t.authorStartedAt === "number" ? { authorStartedAt: t.authorStartedAt } : {}),
+    ...(typeof t.authorTotalMs === "number" ? { authorTotalMs: t.authorTotalMs } : {}),
+    ...(typeof t.bundleMs === "number" ? { bundleMs: t.bundleMs } : {}),
+    ...(typeof t.writtenTokens === "number" ? { writtenTokens: t.writtenTokens } : {}),
+    ...(typeof t.writtenChars === "number" ? { writtenChars: t.writtenChars } : {}),
+    ...(typeof t.writtenLines === "number" ? { writtenLines: t.writtenLines } : {}),
+    frames: v.frames,
+    framesDone: v.frames_done,
+    ...(v.authored ? { attempt: v.authored } : v.state === "authoring" ? { attempt: 1 } : {}),
+    ...(retrying ? { retrying } : {})
+  };
+};
+
+function viewOf(v: VariantRow, mode: LiveMode, progress?: SceneProgress): PlateVariantView {
+  const createdAt = toIso((v as VariantRow & { created_at?: Date | string }).created_at);
+  const updatedAt = toIso(v.updated_at);
+  const authorMs = authorMsOf(v);
   return {
     state: shown(v, mode),
     sig: v.signature,
     v: clipVersion(v),
+    gen: v.gen,
+    rev: v.rev,
     variantId: v.id,
     bundleDigest: v.bundle_digest ?? null,
     live: isLivePlayable(v, mode),
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+    frames: typeof v.frames === "number" ? v.frames : null,
+    framesDone: typeof v.frames_done === "number" ? v.frames_done : null,
+    ...(authorMs !== undefined ? { authorMs } : {}),
+    drawnAt: toIso(v.drawn_at),
+    ...(progress ? { progress } : {}),
+    ...(retryingOf(v) ? { retrying: retryingOf(v) } : {}),
+    ...playbackOf(v),
     ...(v.stage && OPEN.includes(v.state) ? { stage: v.stage } : {}),
     ...(v.state === "failed" && v.error ? { error: v.error.message } : {})
   };
@@ -41,21 +96,296 @@ function viewOf(v: VariantRow, mode: LiveMode): PlateVariantView {
 export async function plateStatus(projectId: string): Promise<PlateStatus> {
   const project = await getProject(projectId);
   const look = project?.brief?.look ?? null;
-  const [variants, stored] = await Promise.all([listVariants(projectId), readProjectState(projectId)]);
+  const [variants, stored, recentMedians] = await Promise.all([listVariants(projectId), readProjectState(projectId), recentAuthorMedians()]);
+  const now = Date.now();
   const mode: LiveMode = stored.liveMode ?? (config.plates.live ? "live" : "clip");
   const primary = project ? primaryAspect(project) : "16:9";
   const subtitles: PlateSubtitles = { ...defaultSubtitlesFor(project), ...(stored.subtitles ?? {}) };
-  if (!subtitles.aspects?.length) subtitles.aspects = [primary];
+  const mergedAspects = project
+    ? wantedAspects(project, [...(project.brief?.aspects ?? []), ...(stored.subtitles?.aspects ?? [])])
+    : [primary];
+  subtitles.aspects = mergedAspects.length ? mergedAspects : [primary];
+
+  const beats = project?.brief?.scriptBeats ?? [];
+  const hasProjectBeats = Boolean(project && isPlateLook(look ?? undefined) && beats.length > 0);
+
+  if (hasProjectBeats && project) {
+    const desiredAll = await desiredVariants(project, [...ASPECTS], variants);
+    const desiredByKey = new Map(desiredAll.map((d) => [`${d.index}:${d.aspect}`, d]));
+    const revision = plateRevisionDigest({
+      look,
+      styleFamily: project.brief?.styleFamily ?? null,
+      styleExample: project.brief?.styleExample ?? null,
+      aspects: mergedAspects,
+      desired: desiredAll.filter((d) => mergedAspects.includes(d.aspect))
+    });
+
+    if (variants.length === 0) {
+      const { film } = estimateFilmWithScenes({
+        scenes: [],
+        now,
+        recentMedianAuthorMs: recentMedians.authorMs,
+        recentMedianTokens: recentMedians.tokens,
+        cap: config.plates.projectAuthorCap,
+        mode
+      });
+      return {
+        available: true,
+        look,
+        mode,
+        serverNow: new Date(now).toISOString(),
+        revision,
+        stale: false,
+        needsReconcile: true,
+        film,
+        scenes: [],
+        comments: stored.comments as PlateComment[],
+        subtitles,
+        running: false,
+        drawnAspects: [],
+        drawingAspects: []
+      };
+    }
+
+    const { matched, claimedRowIds } = matchVariantsToDesired(variants, desiredAll, { allowSyntheticSignature: true });
+    const sceneCount = beats.length;
+    const allDisplayAspects = [...new Set<Aspect>([...mergedAspects, ...variants.map((v) => v.aspect)])];
+
+    const primaryEtaRows: SceneEtaRow[] = Array.from({ length: sceneCount }, (_, index) => {
+      const dPrimary = desiredByKey.get(`${index}:${primary}`)!;
+      const mPrimary =
+        matched.get(`${index}:${primary}`) ??
+        allDisplayAspects.map((a) => matched.get(`${index}:${a}`)).find(Boolean);
+      if (mPrimary) {
+        return etaRowOf(mPrimary.row, mode);
+      }
+      return {
+        state: "queued",
+        stage: "stale",
+        mode,
+        playable: false,
+        createdAt: null,
+        updatedAt: null,
+        frames: dPrimary.frames,
+        framesDone: null
+      };
+    });
+
+    const { film, scenes: primaryProgress } = estimateFilmWithScenes({
+      scenes: primaryEtaRows,
+      now,
+      recentMedianAuthorMs: recentMedians.authorMs,
+      recentMedianTokens: recentMedians.tokens,
+      cap: config.plates.projectAuthorCap,
+      mode
+    });
+
+    const scenes: PlateScene[] = Array.from({ length: sceneCount }, (_, index) => {
+      const dPrimary = desiredByKey.get(`${index}:${primary}`)!;
+      const mPrimary =
+        matched.get(`${index}:${primary}`) ??
+        allDisplayAspects.map((a) => matched.get(`${index}:${a}`)).find(Boolean);
+      const sceneProgress = primaryProgress[index];
+
+      const variantViews: Partial<Record<Aspect, PlateVariantView>> = {};
+      for (const a of allDisplayAspects) {
+        const dAsp = desiredByKey.get(`${index}:${a}`)!;
+        const mAsp = matched.get(`${index}:${a}`);
+        if (mAsp) {
+          const row = mAsp.row;
+          const rowProgress =
+            mPrimary && row.id === mPrimary.row.id
+              ? sceneProgress
+              : estimateScene(etaRowOf(row, mode), {
+                  now,
+                  finishedScenes: primaryEtaRows,
+                  recentMedianAuthorMs: recentMedians.authorMs,
+                  recentMedianTokens: recentMedians.tokens,
+                  cap: config.plates.projectAuthorCap,
+                  mode
+                });
+          const needsRec = !mAsp.inPlace || (isComputedVariantSignature(row.signature) && row.signature !== dAsp.signature);
+          variantViews[a] = {
+            ...viewOf(row, mode, rowProgress),
+            sig: isComputedVariantSignature(row.signature) ? dAsp.signature : row.signature,
+            frames: dAsp.frames,
+            stale: false,
+            ...(needsRec ? { needsReconcile: true } : {})
+          };
+        } else if (mergedAspects.includes(a)) {
+          variantViews[a] = {
+            state: "queued",
+            sig: dAsp.signature,
+            v: null,
+            gen: 1,
+            rev: 0,
+            bundleDigest: null,
+            live: false,
+            frames: dAsp.frames,
+            framesDone: null,
+            stage: "stale",
+            stale: true,
+            needsReconcile: true,
+            ...(sceneProgress ? { progress: sceneProgress } : {})
+          };
+        }
+      }
+
+      if (mPrimary) {
+        const v = mPrimary.row;
+        const createdAt = toIso((v as VariantRow & { created_at?: Date | string }).created_at);
+        const updatedAt = toIso(v.updated_at);
+        const authorMs = authorMsOf(v);
+        const needsRec =
+          !mPrimary.inPlace ||
+          (isComputedVariantSignature(v.signature) && v.signature !== dPrimary.signature) ||
+          Object.values(variantViews).some((vv) => Boolean(vv?.needsReconcile));
+        const anyWantedAspectStale = mergedAspects.some((a) => Boolean(variantViews[a]?.stale));
+        return {
+          index,
+          keyword: dPrimary.keyword,
+          state: shown(v, mode),
+          seconds: dPrimary.frames / FPS,
+          frames: dPrimary.frames,
+          framesDone: typeof v.frames_done === "number" ? v.frames_done : null,
+          sig: isComputedVariantSignature(v.signature) ? dPrimary.signature : v.signature,
+          gen: v.gen,
+          rev: v.rev,
+          variantId: v.id,
+          bundleDigest: v.bundle_digest ?? null,
+          live: isLivePlayable(v, mode),
+          stale: false,
+          ...(needsRec || anyWantedAspectStale ? { needsReconcile: true } : {}),
+          ...(createdAt ? { createdAt } : {}),
+          ...(updatedAt ? { updatedAt } : {}),
+          ...(authorMs !== undefined ? { authorMs } : {}),
+          drawnAt: toIso(v.drawn_at),
+          ...(sceneProgress ? { progress: sceneProgress } : {}),
+          ...(retryingOf(v) ? { retrying: retryingOf(v) } : {}),
+          ...playbackOf(v),
+          ...(v.stage && OPEN.includes(v.state) ? { stage: v.stage } : {}),
+          ...(v.state === "failed" && v.error ? { error: v.error.message } : {}),
+          ...(v.authored ? { attempts: v.authored } : {}),
+          variants: variantViews
+        };
+      }
+
+      return {
+        index,
+        keyword: dPrimary.keyword,
+        state: "queued",
+        stage: "stale",
+        stale: true,
+        needsReconcile: true,
+        seconds: dPrimary.frames / FPS,
+        frames: dPrimary.frames,
+        framesDone: null,
+        sig: dPrimary.signature,
+        gen: 1,
+        rev: 0,
+        bundleDigest: null,
+        live: false,
+        ...(sceneProgress ? { progress: sceneProgress } : {}),
+        variants: variantViews
+      };
+    });
+
+    const drawnAspects: Aspect[] = [], drawingAspects: Aspect[] = [];
+    for (const aspect of ASPECTS) {
+      const matchedForAspect = Array.from({ length: sceneCount }, (_, i) => matched.get(`${i}:${aspect}`)?.row);
+      if (sceneCount > 0 && matchedForAspect.every((r) => Boolean(r && isPlayable(r, mode)))) {
+        drawnAspects.push(aspect);
+      }
+      if (matchedForAspect.some((r) => Boolean(r && OPEN.includes(r.state)))) {
+        drawingAspects.push(aspect);
+      }
+    }
+
+    const stale = scenes.some(
+      (s) => Boolean(s.stale) || mergedAspects.some((a) => Boolean(s.variants?.[a]?.stale))
+    );
+    const hasUnclaimedOrExtraRows = variants.some((v) => v.scene_index >= sceneCount || !claimedRowIds.has(v.id));
+    const needsReconcile = stale || hasUnclaimedOrExtraRows || scenes.some((s) => Boolean(s.needsReconcile));
+    const running = [...matched.values()].some(({ row }) => OPEN.includes(row.state));
+
+    // Comments answered by a redraw (the scene's matched variant is playable again at the revision that took them) are done.
+    const answered = (c: PlateComment & { fixing?: number }) => {
+      const mRow = matched.get(`${c.scene}:${primary}`)?.row;
+      return c.fixing !== undefined && (mRow?.rev ?? 0) >= c.fixing && Boolean(mRow && isPlayable(mRow, mode));
+    };
+    let comments = stored.comments as (PlateComment & { fixing?: number })[];
+    if (comments.some(answered)) {
+      comments = (await editComments(projectId, (all) =>
+        (all as (PlateComment & { fixing?: number })[]).filter((c) => !answered(c))
+      )) as typeof comments;
+    }
+
+    return {
+      available: true,
+      look,
+      mode,
+      serverNow: new Date(now).toISOString(),
+      revision,
+      stale,
+      needsReconcile,
+      film,
+      scenes,
+      comments,
+      subtitles,
+      running,
+      drawnAspects,
+      drawingAspects
+    };
+  }
 
   const byScene = new Map<number, Map<Aspect, VariantRow>>();
   for (const v of variants) { if (!byScene.has(v.scene_index)) byScene.set(v.scene_index, new Map()); byScene.get(v.scene_index)!.set(v.aspect, v); }
   const primaryRows = [...byScene.entries()].sort((a, b) => a[0] - b[0]).map(([, m]) => m.get(primary) ?? [...m.values()][0]!);
-  const scenes: PlateScene[] = primaryRows.map((v) => ({
-    index: v.scene_index, keyword: v.keyword, state: shown(v, mode), seconds: v.frames / v.fps, frames: v.frames, sig: v.signature, rev: v.rev,
-    variantId: v.id, bundleDigest: v.bundle_digest ?? null, live: isLivePlayable(v, mode),
-    ...(v.state === "failed" && v.error ? { error: v.error.message } : {}), ...(v.authored ? { attempts: v.authored } : {}),
-    variants: Object.fromEntries([...byScene.get(v.scene_index)!.entries()].map(([a, row]) => [a, viewOf(row, mode)]))
-  }));
+  const primaryEtaRows = primaryRows.map((v) => etaRowOf(v, mode));
+  const { film, scenes: primaryProgress } = estimateFilmWithScenes({
+    scenes: primaryEtaRows,
+    now,
+    recentMedianAuthorMs: recentMedians.authorMs,
+    recentMedianTokens: recentMedians.tokens,
+    cap: config.plates.projectAuthorCap,
+    mode
+  });
+  const scenes: PlateScene[] = primaryRows.map((v, idx) => {
+    const createdAt = toIso((v as VariantRow & { created_at?: Date | string }).created_at);
+    const updatedAt = toIso(v.updated_at);
+    const authorMs = authorMsOf(v);
+    const sceneProgress = primaryProgress[idx];
+    return {
+      index: v.scene_index, keyword: v.keyword, state: shown(v, mode), seconds: v.frames / v.fps, frames: v.frames,
+      framesDone: typeof v.frames_done === "number" ? v.frames_done : null,
+      sig: v.signature, gen: v.gen, rev: v.rev,
+      variantId: v.id, bundleDigest: v.bundle_digest ?? null, live: isLivePlayable(v, mode),
+      ...(createdAt ? { createdAt } : {}),
+      ...(updatedAt ? { updatedAt } : {}),
+      ...(authorMs !== undefined ? { authorMs } : {}),
+      drawnAt: toIso(v.drawn_at),
+      ...(sceneProgress ? { progress: sceneProgress } : {}),
+      ...(retryingOf(v) ? { retrying: retryingOf(v) } : {}),
+      ...playbackOf(v),
+      ...(v.state === "failed" && v.error ? { error: v.error.message } : {}), ...(v.authored ? { attempts: v.authored } : {}),
+      variants: Object.fromEntries(
+        [...byScene.get(v.scene_index)!.entries()].map(([a, row]) => {
+          const rowProgress =
+            row.id === v.id
+              ? sceneProgress
+              : estimateScene(etaRowOf(row, mode), {
+                  now,
+                  finishedScenes: primaryEtaRows,
+                  recentMedianAuthorMs: recentMedians.authorMs,
+                  recentMedianTokens: recentMedians.tokens,
+                  cap: config.plates.projectAuthorCap,
+                  mode
+                });
+          return [a, viewOf(row, mode, rowProgress)];
+        })
+      )
+    };
+  });
 
   const drawnAspects: Aspect[] = [], drawingAspects: Aspect[] = [];
   const count = byScene.size;
@@ -72,7 +402,7 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
   };
   let comments = stored.comments as (PlateComment & { fixing?: number })[];
   if (comments.some(answered)) comments = (await editComments(projectId, (all) => (all as (PlateComment & { fixing?: number })[]).filter((c) => !answered(c)))) as typeof comments;
-  return { available: isPlateLook(look ?? undefined), look, mode, scenes, comments, subtitles, running: variants.some((v) => OPEN.includes(v.state)), drawnAspects, drawingAspects };
+  return { available: isPlateLook(look ?? undefined), look, mode, serverNow: new Date(now).toISOString(), film, scenes, comments, subtitles, running: variants.some((v) => OPEN.includes(v.state)), drawnAspects, drawingAspects };
 }
 
 export async function setPlateSubtitles(projectId: string, input: Record<string, unknown>): Promise<PlateSubtitles> {
@@ -94,9 +424,9 @@ export async function startPlates(projectId: string, extraAspects: Aspect[] = []
   const beats = project.brief?.scriptBeats ?? [];
   if (!beats.length) throw new Error("Write the script and storyboard first.");
   await decideLiveMode(projectId, config.plates.live);
-  const stored = await readProjectState(projectId);
+  const [stored, existingVariants] = await Promise.all([readProjectState(projectId), listVariants(projectId)]);
   const aspects = [...new Set([...wantedAspects(project, [...(project.brief?.aspects ?? []), ...(stored.subtitles?.aspects ?? []), ...extraAspects])])];
-  const desired = await desiredVariants(project, aspects);
+  const desired = await desiredVariants(project, aspects, existingVariants);
   await reconcileVariants(projectId, desired, { scenes: beats.length });
   return plateStatus(projectId);
 }
@@ -139,7 +469,12 @@ export async function fixPlates(projectId: string): Promise<PlateStatus> {
   if (!comments.length) throw new Error("Add a comment first.");
   const variants = await listVariants(projectId);
   const targets = [...new Set(comments.map((c) => c.scene))].filter((i) => variants.some((v) => v.scene_index === i));
-  if (targets.some((i) => variants.filter((v) => v.scene_index === i).some((v) => OPEN.includes(v.state)))) throw new Error("Wait for the scenes that are being drawn.");
+  const blocked = targets.some((i) =>
+    variants
+      .filter((v) => v.scene_index === i)
+      .some((v) => OPEN.includes(v.state) && !v.source_key && !v.revise?.codeKey)
+  );
+  if (blocked) throw new Error("Wait for the scenes that are being drawn.");
   const noted = new Set<number>();
   for (const i of targets) {
     const notes = comments.filter((c) => c.scene === i).map((c) => `- at ${c.sceneAt.toFixed(1)} s: ${c.body}`).join("\n");

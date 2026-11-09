@@ -450,6 +450,8 @@ export class WorkerHost {
 
   private transport: WorkerTransport | null = null;
   private spawning: Promise<WorkerTransport> | null = null;
+  private initializing: Promise<HostInitResult> | null = null;
+  private initializedTransport: WorkerTransport | null = null;
   private pendingSpawnAbort: (() => void) | null = null;
   private seq = 0;
   private waiting = new Map<number, PendingCall>();
@@ -716,6 +718,8 @@ export class WorkerHost {
 
     const current = this.transport;
     this.transport = null;
+    this.initializedTransport = null;
+    this.initializing = null;
     for (const [id, pending] of this.waiting.entries()) {
       this.waiting.delete(id);
       this.clock.clearTimeout(pending.timer);
@@ -753,6 +757,9 @@ export class WorkerHost {
         const fresh = await this.ensureTransport();
         if (spec && !this.isDestroyed && !this.isUnhealthy) {
           await this.rawCall(fresh, { t: "init", scale: spec.scale, params: canonicalJson(spec.params) }, this.watchdogMs);
+          if (this.transport === fresh) {
+            this.initializedTransport = fresh;
+          }
         }
       } catch {
         // Recreation failure will be caught on the next operation or watchdog trip.
@@ -782,6 +789,9 @@ export class WorkerHost {
             { t: "init", scale: spec.scale, params: canonicalJson(spec.params) },
             this.watchdogMs
           );
+          if (this.transport === fresh) {
+            this.initializedTransport = fresh;
+          }
           this.initResult = {
             w: Number(res.w ?? this.initResult?.w ?? 0),
             h: Number(res.h ?? this.initResult?.h ?? 0),
@@ -808,37 +818,57 @@ export class WorkerHost {
       this.params = { ...options.params };
     }
     this.lastInitSpec = { scale, params: { ...this.params } };
-    const t = await this.ensureTransport();
-    const res = await this.rawCall(
-      t,
-      { t: "init", scale, params: canonicalJson(this.params) },
-      this.watchdogMs
-    );
-    const out: HostInitResult = {
-      w: Number(res.w ?? 0),
-      h: Number(res.h ?? 0),
-      meta: (res.meta as HostFilmMeta) ?? { fps: 30 },
-      ...(res.capabilities && typeof res.capabilities === "object"
-        ? { capabilities: res.capabilities as HostCapabilities }
-        : { capabilities: { draftSupported: true, seekAcceptsQuality: true } }),
-      ...(typeof res.paramsEcho === "string" ? { paramsEcho: res.paramsEcho } : {})
-    };
-    this.initResult = out;
-    return out;
+    if (this.initializing) {
+      return this.initializing;
+    }
+    const initPromise = (async () => {
+      const t = await this.ensureTransport();
+      const res = await this.rawCall(
+        t,
+        { t: "init", scale, params: canonicalJson(this.params) },
+        this.watchdogMs
+      );
+      const out: HostInitResult = {
+        w: Number(res.w ?? 0),
+        h: Number(res.h ?? 0),
+        meta: (res.meta as HostFilmMeta) ?? { fps: 30 },
+        ...(res.capabilities && typeof res.capabilities === "object"
+          ? { capabilities: res.capabilities as HostCapabilities }
+          : { capabilities: { draftSupported: true, seekAcceptsQuality: true } }),
+        ...(typeof res.paramsEcho === "string" ? { paramsEcho: res.paramsEcho } : {})
+      };
+      this.initResult = out;
+      if (this.transport === t) {
+        this.initializedTransport = t;
+      }
+      return out;
+    })();
+    this.initializing = initPromise;
+    try {
+      return await initPromise;
+    } finally {
+      if (this.initializing === initPromise) {
+        this.initializing = null;
+      }
+    }
   }
 
   /**
    * Terminates the underlying Worker and removes its sandboxed bootstrap iframe when the scene or film is idle
-   * (e.g. at film end or scene deactivation), without permanently destroying the `WorkerHost` instance.
+   * (e.g. at film end, scene deactivation, or when yielding a Worker slot for a background check), without permanently
+   * destroying the `WorkerHost` instance.
    * If a future `frame()` or `init()` call is made, `ensureTransport()` will transparently respawn and re-init.
+   * When `options.keepBitmaps` is true, bitmaps already transferred to `FrameCache` remain open.
    */
-  terminateIdle(reason = "idle-cleanup"): void {
+  terminateIdle(reason = "idle-cleanup", options?: { keepBitmaps?: boolean }): void {
     if (this.isDestroyed) return;
-    for (const rec of [...this.heldBitmaps.values()]) {
-      rec.bitmap.close();
+    if (!options?.keepBitmaps) {
+      for (const rec of [...this.heldBitmaps.values()]) {
+        rec.bitmap.close();
+      }
+      this.heldBitmaps.clear();
+      this.heldBytes = 0;
     }
-    this.heldBitmaps.clear();
-    this.heldBytes = 0;
     const current = this.transport;
     if (current) {
       try {
@@ -956,25 +986,12 @@ export class WorkerHost {
       epoch?: number;
     }
   ): Promise<HostFrameResult> {
-    const hadTransport = this.transport !== null;
     const t = await this.ensureTransport();
-    if (!hadTransport && this.lastInitSpec && !this.isDestroyed && !this.isUnhealthy) {
-      const initRes = await this.rawCall(
-        t,
-        { t: "init", scale: this.lastInitSpec.scale, params: canonicalJson(this.lastInitSpec.params) },
-        this.watchdogMs
-      );
-      this.initResult = {
-        w: Number(initRes.w ?? this.initResult?.w ?? 0),
-        h: Number(initRes.h ?? this.initResult?.h ?? 0),
-        meta: (initRes.meta as HostFilmMeta) ?? this.initResult?.meta ?? { fps: 30 },
-        ...(initRes.capabilities && typeof initRes.capabilities === "object"
-          ? { capabilities: initRes.capabilities as HostCapabilities }
-          : this.initResult?.capabilities
-            ? { capabilities: this.initResult.capabilities }
-            : {}),
-        ...(typeof initRes.paramsEcho === "string" ? { paramsEcho: initRes.paramsEcho } : {})
-      };
+    if (this.initializing) {
+      await this.initializing;
+    }
+    if (this.initializedTransport !== t && this.lastInitSpec && !this.isDestroyed && !this.isUnhealthy) {
+      await this.init({ scale: this.lastInitSpec.scale, params: this.lastInitSpec.params });
     }
 
     const qSpec = options?.qualitySpec;

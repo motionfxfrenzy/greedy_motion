@@ -2,6 +2,7 @@ import { plainText } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import type { SiteRead } from "./capture.ts";
 import { SITE_RULES, SiteUnavailable } from "./rules.ts";
+import { routeFor } from "../models/routes.ts";
 
 /**
  * Fallback reader: when this server cannot fetch or render the page itself (bot protection, a 4xx from the
@@ -9,7 +10,7 @@ import { SITE_RULES, SiteUnavailable } from "./rules.ts";
  * the product's words. Only the URL leaves this server. The answer is untrusted text, like any page content:
  * it is capped, flattened to plain text, and never carries screenshots or colours.
  */
-export const siteReadModel = process.env.SITE_READ_MODEL || "gemini-2.5-flash";
+export const siteReadModel = routeFor("siteRead").model; // MODEL_SITE_READ or the old SITE_READ_MODEL (Gemini only: it opens the page with url_context)
 
 const clean = (value: unknown, max: number) => (typeof value === "string" ? plainText(value).slice(0, max) : "");
 

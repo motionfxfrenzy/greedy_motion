@@ -3,7 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { FastifyInstance } from "fastify";
-import { featuredGalleryIds, findGalleryTemplate, galleryBrief, galleryStyles, queryGallery } from "@videosaas/contracts";
+import { featuredGalleryIds, findGalleryTemplate, galleryBrief, galleryStyles, isGalleryScope, queryGallery } from "@videosaas/contracts";
 import { config } from "./config.ts";
 
 /**
@@ -26,17 +26,22 @@ export async function registerGalleryRoutes(app: FastifyInstance) {
   const cache = config.appEnv === "local" ? "no-cache" : "public, max-age=60, stale-while-revalidate=300";
 
   /** One page of starting points. Filtering, search and paging all happen here. */
-  app.get<{ Querystring: { use_case?: string; q?: string; cursor?: string; limit?: string; featured?: string; look?: string } }>("/v1/gallery/templates", async (request, reply) => {
-    const { use_case, q, cursor, limit, featured, look } = request.query;
+  app.get<{ Querystring: { use_case?: string; q?: string; cursor?: string; limit?: string; featured?: string; look?: string; scope?: string } }>("/v1/gallery/templates", async (request, reply) => {
+    const { use_case, q, cursor, limit, featured, look, scope } = request.query;
     if (look !== undefined && !/^[a-z0-9-]{1,48}$/.test(look)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown style." } });
+    if (scope !== undefined && !isGalleryScope(scope)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown scope." } });
     if (cursor !== undefined && !/^\d{1,6}$/.test(cursor)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown cursor." } });
     if (limit !== undefined && !/^\d{1,3}$/.test(limit)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown limit." } });
-    const page = queryGallery({ plates: config.plates.enabled, useCase: use_case, q, look, cursor, limit: limit === undefined ? undefined : Number(limit), ...(featured === "1" ? { ids: featuredGalleryIds } : {}) });
+    const page = queryGallery({ plates: config.plates.enabled, useCase: use_case, q, look, scope, cursor, limit: limit === undefined ? undefined : Number(limit), ...(featured === "1" ? { ids: featuredGalleryIds } : {}) });
     return reply.header("Cache-Control", cache).send(page);
   });
 
   /** Every visual style with its example count and one real example clip: what the style picker lists. */
-  app.get("/v1/gallery/styles", async (_request, reply) => reply.header("Cache-Control", cache).send({ items: galleryStyles() }));
+  app.get<{ Querystring: { scope?: string } }>("/v1/gallery/styles", async (request, reply) => {
+    const { scope } = request.query;
+    if (scope !== undefined && !isGalleryScope(scope)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown scope." } });
+    return reply.header("Cache-Control", cache).send({ items: galleryStyles({ plates: config.plates.enabled, scope }) });
+  });
 
   /** The starting values a chosen template fills in: the example prompt, structure, look, length and sound. */
   app.get<{ Params: { id: string } }>("/v1/gallery/templates/:id", async (request, reply) => {

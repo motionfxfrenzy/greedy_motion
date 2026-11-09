@@ -1,19 +1,21 @@
 import { createHash } from "node:crypto";
 import { extname, join } from "node:path";
-import { engineDigest as computeEngineDigest } from "@videosaas/plate-engine";
+import { engineDigest as computeEngineDigest, isSupportedStyle } from "@videosaas/plate-engine";
 import type { VideoProject } from "@videosaas/contracts";
 import { pool } from "../db/database.ts";
 import { boss, QUEUES } from "../jobs/queues.ts";
 import { kickPlateWorkers } from "../jobs/worker-launcher.ts";
 import { readMedia } from "../media.ts";
 import { planAudioDir } from "../plan/audio.ts";
+import { getProject } from "../projects/store.ts";
 import { objectSize, putObject } from "../storage.ts";
 import { bundleDigest, canonicalJson, fontSetDigest, paramsDigest } from "./digest.ts";
+import { desiredVariants } from "./inputs.ts";
 import {
-  ASSEMBLER_VERSION, FPS, buildSubtitleCues, buildTimeline, defaultSubtitlesFor, exportSignature, sceneSfxCues, sceneTransitionCues, sizeForAspect, takeFor,
+  ASSEMBLER_VERSION, FPS, buildSubtitleCues, buildTimeline, defaultSubtitlesFor, exportSignature, isComputedVariantSignature, sceneSfxCues, sceneTransitionCues, sizeForAspect, takeFor,
   type Aspect, type PlateSfxCue, type PlateSubtitles
 } from "./model.ts";
-import { getRevision, listVariants, readProjectState, type VariantRow } from "./store.ts";
+import { getRevision, listVariants, matchVariantsToDesired, readProjectState, type VariantRow } from "./store.ts";
 
 /**
  * Legacy schema 1 export manifest (kept readable by the worker so any job already in flight drains cleanly).
@@ -133,7 +135,17 @@ export async function waitForAuthoring(
   let lastDone = -1;
 
   for (;;) {
-    const all = (await listVariants(projectId)).filter((v) => v.aspect === aspect).sort((a, b) => a.scene_index - b.scene_index);
+    const [allVariants, project] = await Promise.all([listVariants(projectId), getProject(projectId)]);
+    const allForAspect = allVariants.filter((v) => v.aspect === aspect).sort((a, b) => a.scene_index - b.scene_index);
+    let all: VariantRow[] = allForAspect;
+    if (project && project.brief?.look && isSupportedStyle(project.brief.look) && (project.brief.scriptBeats?.length ?? 0) > 0) {
+      const desired = await desiredVariants(project, [aspect], allVariants);
+      const { matched } = matchVariantsToDesired(allForAspect, desired, { allowSyntheticSignature: true });
+      if (desired.some((d) => !matched.has(`${d.index}:${aspect}`))) {
+        throw new NotDrawn("This ratio has not been drawn for the current storyboard yet.", "missing");
+      }
+      all = desired.map((d) => matched.get(`${d.index}:${aspect}`)!.row);
+    }
     const total = options.expectedScenes ?? all.length;
     if (!total || all.length < total) {
       throw new NotDrawn("This ratio has not been drawn yet.", "missing");
@@ -182,9 +194,19 @@ export async function buildExport(
 ): Promise<{ manifest: ExportManifest; manifestKey: string; manifestDigest: string; signature: string; durationSeconds: number }> {
   const storage = options.storage ?? defaultStorage;
   const beats = project.brief?.scriptBeats ?? [];
-  const variants = (await listVariants(project.id)).filter((v) => v.aspect === aspect);
-  const byIndex = new Map(variants.map((v) => [v.scene_index, v]));
-  const ordered = beats.map((_, i) => byIndex.get(i));
+  const allVariants = await listVariants(project.id);
+  const variants = allVariants.filter((v) => v.aspect === aspect);
+  let ordered: (VariantRow | undefined)[];
+  let desiredSigs: string[] | null = null;
+  if (project.brief?.look && isSupportedStyle(project.brief.look) && beats.length > 0) {
+    const desired = await desiredVariants(project, [aspect], allVariants);
+    const { matched } = matchVariantsToDesired(variants, desired, { allowSyntheticSignature: true });
+    ordered = beats.map((_, i) => matched.get(`${i}:${aspect}`)?.row);
+    desiredSigs = desired.map((d) => d.signature);
+  } else {
+    const byIndex = new Map(variants.map((v) => [v.scene_index, v]));
+    ordered = beats.map((_, i) => byIndex.get(i));
+  }
   if (!beats.length || ordered.some((v) => !v)) throw new NotDrawn("This ratio has not been drawn yet.", "missing");
   const failed = ordered.find((v) => v!.state === "failed");
   if (failed) {
@@ -202,8 +224,10 @@ export async function buildExport(
   const takes = beats.map((_, i) => takeFor(project, i));
   const timeline = buildTimeline(ordered.map((v) => v!.frames), takes.map((t) => t?.seconds));
   const startsSec = timeline.starts.map((f) => f / FPS), durSec = timeline.frames.map((f) => f / FPS);
+  const effectiveSigAt = (v: VariantRow, i: number) =>
+    desiredSigs && isComputedVariantSignature(v.signature) ? desiredSigs[i]! : v.signature;
   const cues = buildSubtitleCues(
-    ordered.map((v, i) => ({ index: i, keyword: v!.keyword, state: "drawn" as const, seconds: durSec[i]!, frames: timeline.frames[i]!, sig: v!.signature })),
+    ordered.map((v, i) => ({ index: i, keyword: beats[i]?.keyword || v!.keyword, state: "drawn" as const, seconds: durSec[i]!, frames: timeline.frames[i]!, sig: effectiveSigAt(v!, i) })),
     beats,
     durSec,
     startsSec,
@@ -251,7 +275,7 @@ export async function buildExport(
       variantId: row.id,
       gen: row.gen,
       rev: row.rev,
-      sig: row.signature,
+      sig: effectiveSigAt(row, i),
       bundleDigest: bDigest,
       bundleKey: bKey,
       bundleSha,
@@ -344,9 +368,13 @@ export async function requestExport(project: VideoProject, aspect: Aspect, water
     if (!row) {
       row = (await client.query<ExportRow>("select * from app.plate_exports where project_id = $1 and aspect = $2 and signature = $3 for update", [project.id, aspect, built.signature])).rows[0]!;
       if (row.state === "failed") row = (await client.query<ExportRow>("update app.plate_exports set state = 'queued', error = null, stage = null, progress = 0, manifest_key = $2, updated_at = now() where id = $1 returning *", [row.id, built.manifestKey])).rows[0]!;
-      else if (row.state === "ready" || row.state === "assembling" || (row.enqueued_at && Date.now() - row.enqueued_at.getTime() < 60_000)) { await client.query("commit"); return row; }
+      else if (row.state === "ready" || row.state === "assembling" || (row.enqueued_at && Date.now() - row.enqueued_at.getTime() < 60_000)) {
+        row = (await client.query<ExportRow>("update app.plate_exports set updated_at = now() where id = $1 returning *", [row.id])).rows[0]!;
+        await client.query("commit");
+        return row;
+      }
     }
-    await client.query("update app.plate_exports set enqueued_at = now() where id = $1", [row.id]);
+    await client.query("update app.plate_exports set enqueued_at = now(), updated_at = now() where id = $1", [row.id]);
     await boss.send(QUEUES.plateExport, { exportId: row.id }, { db: { executeSql: (text: string, values?: unknown[]) => client.query(text, values) } });
     await client.query("commit");
     void kickPlateWorkers();
@@ -359,8 +387,15 @@ export async function requestExport(project: VideoProject, aspect: Aspect, water
   }
 }
 
-export async function currentExport(projectId: string, aspect: Aspect): Promise<ExportRow | null> {
-  const { rows } = await pool.query<ExportRow>("select * from app.plate_exports where project_id = $1 and aspect = $2 order by created_at desc limit 1", [projectId, aspect]);
+export async function currentExport(projectId: string, aspect: Aspect, signature?: string | null): Promise<ExportRow | null> {
+  if (signature && typeof signature === "string" && signature.trim()) {
+    const { rows } = await pool.query<ExportRow>(
+      "select * from app.plate_exports where project_id = $1 and aspect = $2 and signature = $3 limit 1",
+      [projectId, aspect, signature.trim()]
+    );
+    if (rows[0]) return rows[0];
+  }
+  const { rows } = await pool.query<ExportRow>("select * from app.plate_exports where project_id = $1 and aspect = $2 order by updated_at desc, created_at desc limit 1", [projectId, aspect]);
   return rows[0] ?? null;
 }
 export async function getExport(id: string): Promise<ExportRow | null> {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildFinalRatioDownloadUrl,
   buildHfFinalRatios,
   buildPlateFinalRatios,
   finalRatioDownloadName,
@@ -46,6 +47,24 @@ test("finalRatioDownloadName formats <projectId>-<ratio>.mp4 with colons replace
   assert.equal(
     finalRatioDownloadName(pid, "1:1"),
     "00000000-0000-4000-8000-000000000302-1x1.mp4"
+  );
+});
+
+test("buildFinalRatioDownloadUrl appends download=1 and filename while preserving existing media tokens", () => {
+  assert.equal(buildFinalRatioDownloadUrl(null, "test.mp4"), null);
+  assert.equal(
+    buildFinalRatioDownloadUrl(
+      "http://localhost:4000/v1/renders/job-1?t=user.123.sig",
+      "proj-1-9x16.mp4"
+    ),
+    "http://localhost:4000/v1/renders/job-1?t=user.123.sig&download=1&filename=proj-1-9x16.mp4"
+  );
+  assert.equal(
+    buildFinalRatioDownloadUrl(
+      "/v1/projects/proj-1/plates/export/9-16",
+      "proj-1-9x16.mp4"
+    ),
+    "/v1/projects/proj-1/plates/export/9-16?download=1&filename=proj-1-9x16.mp4"
   );
 });
 

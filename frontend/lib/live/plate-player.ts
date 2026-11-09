@@ -1,4 +1,25 @@
 import {
+  DEFAULT_CHECK_MAX_RETRIES,
+  DEFAULT_CHECK_RETRY_BACKOFF_MS,
+  DEFAULT_CHECK_WATCHDOG_MS,
+  MAX_VISIBILITY_RECHECKS,
+  isDocumentHidden,
+  isInitTimeoutError,
+  isWatchdogTimeoutError,
+  reportCheck,
+  runCheck,
+  type BundleManifest,
+  type CheckOutcome,
+  type CheckReportPayload,
+  type LiveApiOptions,
+  type ReportCheckResult
+} from "./api.ts";
+import {
+  CheckOnceTracker,
+  orderPendingChecks,
+  type LivePlateVariantState
+} from "./live-stage-logic.ts";
+import {
   FilmClock,
   PlaybackClock,
   chooseFrame,
@@ -17,7 +38,9 @@ import {
   PAUSE_STILL_DEBOUNCE_MS,
   buildDraftQualitySpec,
   draftQualityProfileKey,
+  evaluateSustainedJitter,
   getDraftTargetVerticesPerFrame,
+  isSlowScene,
   normalizePlaybackRenderMode,
   onDraftStylePolicyChange,
   onDraftTargetVerticesChange,
@@ -25,6 +48,7 @@ import {
   resolveQualitySpecForMode,
   validateDraftTargetVerticesPerFrame,
   type DraftQualitySpec,
+  type JitterEpisodeInput,
   type PlaybackRenderMode,
   type StillUpgradeState
 } from "./draft-profile.ts";
@@ -71,7 +95,7 @@ import {
   type EnvironmentProbeInput
 } from "./support.ts";
 import type { PlaybackState, PlayerDecision, PlayerEvent, PlayerMeta, ScenePlayer, SceneSpan } from "./types.ts";
-import { WorkerHost, type HostFrameResult, type ImageBitmapLike, type WorkerHostOptions, type WorkerTransportFactory } from "./worker-host.ts";
+import { WorkerHost, getActiveBrowserTransportCount, type HostFrameResult, type ImageBitmapLike, type WorkerHostOptions, type WorkerTransportFactory } from "./worker-host.ts";
 
 /**
  * Live plate scene player and multi-scene film sequencer (docs/LIVE_SCENES_PLAN.md §5, §6, §10, §20, §26;
@@ -238,6 +262,22 @@ export type PlatePlayerOptions = {
   draftTargetVerticesPerFrame?: number;
   /** Debounce delay in ms before upgrading an intentionally paused draft frame to a full-quality still (default 250 ms). */
   pauseStillDebounceMs?: number;
+  /** Optional scene index within a film (for trace telemetry). */
+  sceneIndex?: number;
+  /** Optional trace context callback provided by `createFilmPlayer` or a standalone caller. */
+  traceContext?: () => { clockSec: number; workersAlive: number };
+  /** True when this scene's variant is `checked` with no `playback` marker and needs a one-time >= 8 alone-samples playback measurement report. */
+  needsPlaybackMeasure?: boolean;
+  /** Callback fired once when the player has collected >= 8 post-init alone draw-time samples or detected sustained playback jitter. */
+  onPlaybackSamples?: (info: {
+    medianMs: number;
+    p90Ms: number;
+    samples: number;
+    aloneSamples: number[];
+    reason?: "slow" | "jitter" | "playable-timeout";
+  }) => void;
+  /** Optional hook returning external concurrent draw count (`> 0` marks draws as contended). */
+  activeDrawWork?: () => number;
 };
 
 function median(values: number[]): number {
@@ -254,6 +294,7 @@ function median(values: number[]): number {
  */
 const work = { count: 0 };
 let measureChain: Promise<void> = Promise.resolve();
+let measuringExclusiveCount = 0;
 
 /** Draws in flight on this page right now (all scenes). */
 export function activeDrawWork(): number {
@@ -261,16 +302,187 @@ export function activeDrawWork(): number {
 }
 
 export function runExclusiveMeasure<T>(fn: () => Promise<T>): Promise<T> {
+  measuringExclusiveCount++;
   const run = measureChain.then(fn, fn);
   measureChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run.finally(() => {
+    measuringExclusiveCount = Math.max(0, measuringExclusiveCount - 1);
+  });
+}
+
+/**
+ * Single shared background check slot across the page so at most one `bundled` variant is checked at a time,
+ * and during playback it yields to idle gaps so `peakWorkersDuringPlay <= 2`.
+ */
+let sharedCheckSlotChain: Promise<void> = Promise.resolve();
+
+export function runInSharedCheckSlot<T>(fn: () => Promise<T>): Promise<T> {
+  const run = sharedCheckSlotChain.then(fn, fn);
+  sharedCheckSlotChain = run.then(
     () => undefined,
     () => undefined
   );
   return run;
 }
 
+export async function waitForCheckIdleGap(options: {
+  isCancelled?: () => boolean;
+  isPlaying?: () => boolean;
+  activeWorkers?: () => number;
+  releaseIdle?: () => void;
+  maxWorkersDuringPlay?: number;
+} = {}): Promise<boolean> {
+  const maxBeforeCheck = Math.max(1, (options.maxWorkersDuringPlay ?? 2) - 1);
+  for (let i = 0; i < 400; i++) {
+    if (options.isCancelled?.()) return false;
+    options.releaseIdle?.();
+    const workers = options.activeWorkers ? options.activeWorkers() : getActiveBrowserTransportCount();
+    const playing = options.isPlaying?.() ?? false;
+    if (work.count === 0 && (!playing || workers <= maxBeforeCheck) && workers <= maxBeforeCheck) {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 4));
+  }
+  return !options.isCancelled?.();
+}
+
 /** Draw samples kept per player for the measured cost. */
 const MAX_COST_SAMPLES = 9;
+
+export const LIVE_TRACE_RING_CAP = 200;
+
+export type LiveTraceCause = "boundary" | "mid-scene" | "seek" | "start";
+export type LiveTraceWorkerState = "initialising" | "drawing" | "idle";
+
+export type SlowSceneTraceEntry = {
+  kind: "slow-scene";
+  type: "slow-scene";
+  sceneIndex: number;
+  median: number;
+  p90: number;
+  n: number;
+  decision: "clip" | "live";
+  source?: "check" | "playback";
+};
+
+export type LiveTraceEntry = {
+  /** Film clock position in seconds at the start of the buffering episode. */
+  at: number;
+  sceneIndex: number;
+  localFrame: number;
+  durationMs: number;
+  cause: LiveTraceCause;
+  readyAhead: number;
+  neededFrames: number;
+  workerState: LiveTraceWorkerState;
+  drawMsPerFrame: number;
+  cacheBytes: number;
+  cacheBudget: number;
+  /** Formatted `"<cacheBytes>/<cacheBudget>"` summary. */
+  cacheBytesBudget: string;
+  workersAlive: number;
+};
+
+type TraceGlobalScope = {
+  window?: {
+    __gmLiveTrace?: unknown;
+    __gmLiveTraceLog?: (LiveTraceEntry | SlowSceneTraceEntry)[];
+    localStorage?: { getItem?: (key: string) => string | null };
+  };
+  __gmLiveTrace?: unknown;
+  __gmLiveTraceLog?: (LiveTraceEntry | SlowSceneTraceEntry)[];
+  localStorage?: { getItem?: (key: string) => string | null };
+};
+
+export function isLiveTraceEnabled(): boolean {
+  try {
+    const g = globalThis as unknown as TraceGlobalScope;
+    const win = g.window ?? g;
+    if (win.__gmLiveTrace === true || win.__gmLiveTrace === 1 || win.__gmLiveTrace === "1") {
+      return true;
+    }
+    if (g.__gmLiveTrace === true || g.__gmLiveTrace === 1 || g.__gmLiveTrace === "1") {
+      return true;
+    }
+    const ls = win.localStorage ?? g.localStorage;
+    if (ls && typeof ls.getItem === "function") {
+      const v = ls.getItem("gmLiveTrace");
+      if (v === "1" || v === "true") return true;
+    }
+  } catch {}
+  return false;
+}
+
+export function getLiveTraceLog(): (LiveTraceEntry | SlowSceneTraceEntry)[] {
+  try {
+    const g = globalThis as unknown as TraceGlobalScope;
+    const win = g.window ?? g;
+    if (Array.isArray(win.__gmLiveTraceLog)) {
+      return win.__gmLiveTraceLog;
+    }
+    if (Array.isArray(g.__gmLiveTraceLog)) {
+      return g.__gmLiveTraceLog;
+    }
+  } catch {}
+  return [];
+}
+
+export function clearLiveTraceLog(): void {
+  try {
+    const g = globalThis as unknown as TraceGlobalScope;
+    if (g.window && Array.isArray(g.window.__gmLiveTraceLog)) {
+      g.window.__gmLiveTraceLog.length = 0;
+    }
+    if (Array.isArray(g.__gmLiveTraceLog)) {
+      g.__gmLiveTraceLog.length = 0;
+    }
+  } catch {}
+}
+
+function appendLiveTraceEntry<T extends LiveTraceEntry | SlowSceneTraceEntry>(entry: T): T {
+  const copy: T = { ...entry };
+  try {
+    const g = globalThis as unknown as TraceGlobalScope;
+    const win = g.window ?? g;
+    let ring = win.__gmLiveTraceLog;
+    if (!Array.isArray(ring)) {
+      ring = [];
+      win.__gmLiveTraceLog = ring;
+    }
+    if (g.window && g.__gmLiveTraceLog !== ring) {
+      g.__gmLiveTraceLog = ring;
+    }
+    ring.push(copy);
+    while (ring.length > LIVE_TRACE_RING_CAP) {
+      ring.shift();
+    }
+  } catch {}
+  return copy;
+}
+
+export function recordSlowSceneTrace(entry: {
+  sceneIndex: number;
+  median: number;
+  p90: number;
+  n: number;
+  decision: "clip" | "live";
+  source?: "check" | "playback";
+}): SlowSceneTraceEntry | null {
+  if (!isLiveTraceEnabled()) return null;
+  return appendLiveTraceEntry({
+    kind: "slow-scene",
+    type: "slow-scene",
+    sceneIndex: entry.sceneIndex,
+    median: entry.median,
+    p90: entry.p90,
+    n: entry.n,
+    decision: entry.decision,
+    ...(entry.source ? { source: entry.source } : {})
+  });
+}
 
 export class PlatePlayer implements ScenePlayer {
   readonly meta: PlayerMeta;
@@ -287,6 +499,12 @@ export class PlatePlayer implements ScenePlayer {
   readonly variantKey: string;
 
   private readonly sceneId: string;
+  private readonly sceneIdx: number;
+  private readonly traceContext?: () => { clockSec: number; workersAlive: number };
+  private openTraceEpisode: { entry: LiveTraceEntry; t0: number } | null = null;
+  private openJitterEpisode: { cause: LiveTraceCause; t0: number; playing: boolean; documentHidden: boolean } | null = null;
+  private readonly jitterEpisodes: JitterEpisodeInput[] = [];
+  private jitterReported = false;
   private readonly html: string;
   private readonly params: Record<string, unknown>;
   private host: WorkerHost | null;
@@ -322,6 +540,7 @@ export class PlatePlayer implements ScenePlayer {
   private readonly unsubDraftStylePolicyChange: () => void;
   private readonly presentedFramesSet = new Set<number>();
   private presentedBlits = 0;
+  private presentedCanvasFrames = 0;
   private lastPresentedSrcFrame: number | null = null;
   private lastPresentedQualityMode: string | null = null;
 
@@ -345,19 +564,35 @@ export class PlatePlayer implements ScenePlayer {
   private plan: PredrawDecision | null = null;
   private aloneSamples: number[] = [];
   private contendedSamples: number[] = [];
+  private playbackAloneSamples: number[] = [];
+  private firstSampleAfterInit = true;
+  private playbackSamplesReported = false;
+  private needsPlaybackMeasure: boolean;
+  private readonly onPlaybackSamples?: (info: {
+    medianMs: number;
+    p90Ms: number;
+    samples: number;
+    aloneSamples: number[];
+    reason?: "slow" | "jitter" | "playable-timeout";
+  }) => void;
+  private readonly activeDrawWorkFn?: () => number;
   private isMeasured = false;
   private measurePromise: Promise<void> | null = null;
+  private reinitPromise: Promise<void> | null = null;
+  private measuringInFlight = false;
   private activateOnMeasure = false;
   private measuringAnnounced = false;
   private active = false;
   private wantPlaying = false;
   private prefetchFrames = 0;
+  private maxPrefetchedFrames = 0;
   private runNeeded = 0;
   private preparing: { needed: number; t0: number; pct: number } | null = null;
   private prepareBegun = false;
   private storedComplete = false;
   private hostInitialized = false;
   private cleanedAtFilmEnd = false;
+  private checkingInFlight = false;
 
   private listeners: Record<PlayerEvent, Set<(detail?: unknown) => void>> = {
     ready: new Set(),
@@ -368,6 +603,11 @@ export class PlatePlayer implements ScenePlayer {
 
   constructor(options: PlatePlayerOptions) {
     this.sceneId = options.id ?? "scene-0";
+    this.sceneIdx = typeof options.sceneIndex === "number" ? options.sceneIndex : 0;
+    this.traceContext = options.traceContext;
+    this.needsPlaybackMeasure = Boolean(options.needsPlaybackMeasure);
+    this.onPlaybackSamples = options.onPlaybackSamples;
+    this.activeDrawWorkFn = options.activeDrawWork;
     this.bundleDigest = options.bundleDigest;
     this.html = options.html;
     this.params = options.params ? { ...options.params } : {};
@@ -478,6 +718,11 @@ export class PlatePlayer implements ScenePlayer {
 
     if (this.host) {
       this.host.onUnhealthy((reason) => {
+        if (this.checkingInFlight) return;
+        if (this.isDocumentHidden() && isWatchdogTimeoutError(reason)) {
+          this.resetHostForRetry();
+          return;
+        }
         this.switchToClip(`worker-unhealthy:${reason}`);
       });
     }
@@ -548,7 +793,7 @@ export class PlatePlayer implements ScenePlayer {
         }
       }
     });
-    this.scheduler.focus(this.cacheKey, 0);
+    this.scheduler.focus(this.cacheKey, 0, this.ownsCache);
   }
 
   get cacheKey(): string {
@@ -602,10 +847,11 @@ export class PlatePlayer implements ScenePlayer {
     if (prevCacheKey !== this.currentCacheKey) {
       this.cache.drop(prevCacheKey);
     }
-    this.scheduler.setScenes([{ id: this.currentCacheKey, frames: this.previewFrames }]);
-    this.scheduler.focus(this.currentCacheKey, this.currentFrame);
+    this.scheduler.setScenes([{ id: this.currentCacheKey, frames: this.previewFrames }], this.ownsCache);
+    this.scheduler.focus(this.currentCacheKey, this.currentFrame, this.active || this.ownsCache);
     this.aloneSamples.length = 0;
     this.contendedSamples.length = 0;
+    this.playbackAloneSamples.length = 0;
     this.lastShownFrame = null;
     this.lastTarget = null;
     if (this.active && !this.isDestroyed && !this.isClip() && this.effectiveRenderMode === "draft") {
@@ -636,6 +882,11 @@ export class PlatePlayer implements ScenePlayer {
 
   get totalPresentedBlits(): number {
     return this.presentedBlits;
+  }
+
+  /** Read-only counter of frames blitted to the visible canvas. */
+  get presentedFrames(): number {
+    return this.presentedCanvasFrames;
   }
 
   get lastPresentedSourceFrame(): number | null {
@@ -701,10 +952,11 @@ export class PlatePlayer implements ScenePlayer {
     if (prevCacheKey !== this.currentCacheKey) {
       this.cache.drop(prevCacheKey);
     }
-    this.scheduler.setScenes([{ id: this.currentCacheKey, frames: this.previewFrames }]);
-    this.scheduler.focus(this.currentCacheKey, this.currentFrame);
+    this.scheduler.setScenes([{ id: this.currentCacheKey, frames: this.previewFrames }], this.ownsCache);
+    this.scheduler.focus(this.currentCacheKey, this.currentFrame, this.active || this.ownsCache);
     this.aloneSamples.length = 0;
     this.contendedSamples.length = 0;
+    this.playbackAloneSamples.length = 0;
     this.lastShownFrame = null;
     this.lastTarget = null;
     this.storedComplete =
@@ -873,7 +1125,10 @@ export class PlatePlayer implements ScenePlayer {
           }
           this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
           this.ctx.drawImage(res.bitmap as unknown as CanvasImageSource, 0, 0, this.canvas.width, this.canvas.height);
+          this.presentedCanvasFrames++;
         } catch {}
+      } else {
+        this.presentedCanvasFrames++;
       }
       this.stillState = "showing-still";
       this.publish();
@@ -925,8 +1180,90 @@ export class PlatePlayer implements ScenePlayer {
     return this.scheduler.cost;
   }
 
+  /** Recent mean draw cost in ms across the last few draws of this scene (`aloneSamples` / `contendedSamples` or scheduler cost). */
+  get recentDrawMsMean(): number {
+    const recent = (this.aloneSamples.length ? this.aloneSamples : this.contendedSamples).slice(-5);
+    if (recent.length > 0) {
+      return Math.round((recent.reduce((a, b) => a + b, 0) / recent.length) * 100) / 100;
+    }
+    return Math.round(this.scheduler.cost * 100) / 100;
+  }
+
+  /** Current state of this scene's Worker (`"initialising" | "drawing" | "idle"`). */
+  get workerState(): "initialising" | "drawing" | "idle" {
+    if (!this.host || !this.host.hasActiveTransport) {
+      return this.measuringInFlight ? "initialising" : "idle";
+    }
+    if (!this.hostInitialized || (this.measuringInFlight && !this.isMeasured)) {
+      return "initialising";
+    }
+    if (this.pumping || this.measuringInFlight || this.scrubDrawInFlight || this.stillState === "drawing-still") {
+      return "drawing";
+    }
+    return "idle";
+  }
+
   get workerHost(): WorkerHost | null {
     return this.host;
+  }
+
+  get isEnvSupported(): boolean {
+    return this.envSupported;
+  }
+
+  get envStatus(): "verified" | "unverified" | "unsupported" {
+    return this.envState;
+  }
+
+  setCheckingInFlight(checking: boolean): void {
+    this.checkingInFlight = checking;
+  }
+
+  forceClipFallback(reason: string): void {
+    this.switchToClip(reason);
+    if (this.ownsHost && this.host) {
+      try {
+        this.host.terminateIdle(reason);
+      } catch {}
+    }
+  }
+
+  /**
+   * Recreates a clean `WorkerHost` before retrying a transient check failure so a previous watchdog termination
+   * or crashed transport does not poison the retry attempt.
+   */
+  resetHostForRetry(): void {
+    if (this.isDestroyed || !this.ownsHost || !this.envSupported || !this.html.trim()) return;
+    if (this.host) {
+      try {
+        this.host.destroy();
+      } catch {}
+    }
+    this.hostInitialized = false;
+    this.firstSampleAfterInit = true;
+    this.isMeasured = false;
+    this.measurePromise = null;
+    this.reinitPromise = null;
+    this.measuringInFlight = false;
+    this.aloneSamples.length = 0;
+    this.contendedSamples.length = 0;
+    this.playbackAloneSamples.length = 0;
+    this.currentDecision = { mode: "live", reason: "ok", state: "drawing" };
+    this.host = new WorkerHost({
+      html: this.html,
+      params: this.params,
+      budgetBytes: this.cache.budget,
+      ...(this.transportFactory ? { transportFactory: this.transportFactory } : {}),
+      ...(this.hostOptions ?? {})
+    });
+    this.host.onUnhealthy((reason) => {
+      if (this.checkingInFlight) return;
+      if (this.isDocumentHidden() && isWatchdogTimeoutError(reason)) {
+        this.resetHostForRetry();
+        return;
+      }
+      this.switchToClip(`worker-unhealthy:${reason}`);
+    });
   }
 
   /** The pre-draw plan from the first measurement (`L`, `W`, draw and play rates), or null before the scene is mounted. */
@@ -934,9 +1271,9 @@ export class PlatePlayer implements ScenePlayer {
     return this.plan ? { ...this.plan } : null;
   }
 
-  /** Whether a draw-ahead pump is running right now. */
+  /** Whether a draw-ahead pump (or background measure/re-init) is running right now. */
   get isPumping(): boolean {
-    return this.pumping;
+    return this.pumping || this.measuringInFlight;
   }
 
   /** Whether the scene is drawing its initial buffer before playback can start. */
@@ -962,21 +1299,22 @@ export class PlatePlayer implements ScenePlayer {
   reservedBytes(): number {
     if (this.currentDecision.mode === "clip") return 0;
     const bpf = this.previewSize.bytesPerFrame;
+    const remaining = Math.max(1, this.previewFrames - this.currentFrame);
     if (this.effectiveRenderMode === "draft") {
-      const draftCap = this.draftRunwayFrames();
-      return Math.min(this.previewFrames, draftCap, Math.floor(this.cache.budget / bpf)) * bpf;
+      const draftCap = Math.max(this.draftRunwayFrames(), this.maxPrefetchedFrames);
+      return Math.min(remaining, draftCap, Math.floor(this.cache.budget / bpf)) * bpf;
     }
     if (this.storedComplete || (this.store && !this.store.disabled)) {
-      return Math.min(this.previewFrames, DECODED_WINDOW_FRAMES, Math.floor(this.cache.budget / bpf)) * bpf;
+      return Math.min(remaining, DECODED_WINDOW_FRAMES, Math.floor(this.cache.budget / bpf)) * bpf;
     }
     if (this.variant === "predraw") {
       return Math.min(
-        this.previewFrames,
+        remaining,
         Math.floor(this.cache.budget / bpf),
         Math.max(DECODED_WINDOW_FRAMES, this.runNeeded, this.preparing?.needed ?? 0, this.plan?.startFrames ?? 0)
       ) * bpf;
     }
-    return Math.min(this.previewFrames, DECODED_WINDOW_FRAMES, this.windowSplit.windowFrames) * bpf;
+    return Math.min(remaining, DECODED_WINDOW_FRAMES, this.windowSplit.windowFrames) * bpf;
   }
 
   private draftRunwayFrames(): number {
@@ -1054,8 +1392,18 @@ export class PlatePlayer implements ScenePlayer {
   }
 
   private switchToClip(reason: string) {
-    if (this.currentDecision.mode === "clip") return;
+    if (this.currentDecision.mode === "clip") {
+      if (this.currentDecision.reason !== reason) {
+        this.currentDecision = { mode: "clip", state: "clip", reason };
+        this.emit("mode", { mode: "clip" as const, state: "clip" as const, reason });
+      }
+      return;
+    }
+    this.finishTraceEpisode();
     this.cancelStillUpgrade(true);
+    if (this.lastShownFrame === null && this.cache.has(this.cacheKey, this.currentFrame)) {
+      this.blitFrame(this.currentFrame);
+    }
     this.currentDecision = { mode: "clip", state: "clip", reason };
     this.preparing = null;
     this.isBuffering = false;
@@ -1092,6 +1440,7 @@ export class PlatePlayer implements ScenePlayer {
     if (!this.hostInitialized) {
       await this.host.init({ scale: this.previewSize.scale, params: this.params });
       this.hostInitialized = true;
+      this.firstSampleAfterInit = true;
       // Legacy bundle compatibility (§5.1): if bundle lacks draft capability, fall back cleanly to Full for this scene.
       if (this.requestedRenderMode === "draft" && !this.host.supportsDraftQuality && !this.legacyBundleFallback) {
         this.legacyBundleFallback = true;
@@ -1100,8 +1449,8 @@ export class PlatePlayer implements ScenePlayer {
         this.currentCacheKey = this.computeCacheKey();
         if (prevKey !== this.currentCacheKey) {
           this.cache.drop(prevKey);
-          this.scheduler.setScenes([{ id: this.currentCacheKey, frames: this.previewFrames }]);
-          this.scheduler.focus(this.currentCacheKey, this.currentFrame);
+          this.scheduler.setScenes([{ id: this.currentCacheKey, frames: this.previewFrames }], this.ownsCache);
+          this.scheduler.focus(this.currentCacheKey, this.currentFrame, this.active || this.ownsCache);
         }
         try {
           console.warn(
@@ -1122,17 +1471,20 @@ export class PlatePlayer implements ScenePlayer {
     const host = await this.ensureHostInitialized();
     const effectiveSpec = this.legacyBundleFallback ? FULL_QUALITY_SPEC : qualitySpec;
     const othersAtStart = work.count;
+    const externalBefore = this.activeDrawWorkFn ? this.activeDrawWorkFn() : 0;
     work.count++;
     const t0 = this.nowMs();
     let res: HostFrameResult;
-    let contended = othersAtStart > 0;
+    let contended = othersAtStart > 0 || externalBefore > 0;
     try {
       res = await host.frame(sourceFrame, {
         qualitySpec: effectiveSpec,
         epoch,
         includeCalibration: this.lastCalibration === null && effectiveSpec.mode === "draft"
       });
-      if (work.count > 1) contended = true;
+      if (work.count > 1 || (this.activeDrawWorkFn ? this.activeDrawWorkFn() > 0 : false)) {
+        contended = true;
+      }
     } finally {
       work.count--;
     }
@@ -1143,10 +1495,37 @@ export class PlatePlayer implements ScenePlayer {
       this.lastCalibration = res.calibration;
     }
     const ms = res.drawMs > 0 ? res.drawMs : this.nowMs() - t0;
+    const isFirstAfterInit = this.firstSampleAfterInit;
+    this.firstSampleAfterInit = false;
     const list = contended ? this.contendedSamples : this.aloneSamples;
     list.push(ms);
     if (list.length > MAX_COST_SAMPLES) list.shift();
+    if (!isFirstAfterInit && !contended) {
+      this.playbackAloneSamples.push(ms);
+      this.maybeEmitPlaybackSamples();
+    }
     return res;
+  }
+
+  private maybeEmitPlaybackSamples(): void {
+    if (
+      this.playbackSamplesReported ||
+      !this.needsPlaybackMeasure ||
+      this.isDestroyed ||
+      this.isClip() ||
+      this.playbackAloneSamples.length < 8
+    ) {
+      return;
+    }
+    this.playbackSamplesReported = true;
+    const samplesSnapshot = [...this.playbackAloneSamples];
+    const evalRes = isSlowScene(samplesSnapshot);
+    this.onPlaybackSamples?.({
+      medianMs: evalRes.median,
+      p90Ms: evalRes.p90,
+      samples: evalRes.n,
+      aloneSamples: samplesSnapshot
+    });
   }
 
   /**
@@ -1234,7 +1613,19 @@ export class PlatePlayer implements ScenePlayer {
     if (!host) return false;
     let drawn = 0;
     const sampleEpoch = this.requestEpoch;
-    for (let k = start; k < this.previewFrames && drawn < count; k++) {
+    const wantPlaybackSamples = this.needsPlaybackMeasure && !this.playbackSamplesReported;
+    const maxExtraForContention = wantPlaybackSamples ? 12 : 0;
+    for (
+      let k = start;
+      k < this.previewFrames &&
+      (drawn < count ||
+        (wantPlaybackSamples &&
+          !this.playbackSamplesReported &&
+          !(this.activeDrawWorkFn && this.activeDrawWorkFn() > 0) &&
+          this.playbackAloneSamples.length < 8 &&
+          drawn < count + maxExtraForContention));
+      k++
+    ) {
       if (this.isDestroyed || this.isClip() || this.requestEpoch !== sampleEpoch) return false;
       if (this.shouldUseStore() && this.store!.hasFrame(this.bundleDigest, this.previewSize.label, k)) {
         const loaded = await this.store!.load(storeFrameKey(this.bundleDigest, this.previewSize.label, k));
@@ -1263,9 +1654,15 @@ export class PlatePlayer implements ScenePlayer {
         }
         const shownAtMoment = k === this.currentFrame && this.lastShownFrame === null;
         if (!this.shouldUseStore()) {
-          this.cache.put(this.cacheKey, k, res.bitmap, res.bytes);
-          if (shownAtMoment && (this.active || this.activateOnMeasure)) {
-            this.blitFrame(k);
+          if (!this.active && !this.activateOnMeasure && this.prefetchFrames > 0 && k >= this.prefetchFrames) {
+            try {
+              res.bitmap.close();
+            } catch {}
+          } else {
+            this.cache.put(this.cacheKey, k, res.bitmap, res.bytes);
+            if (shownAtMoment && (this.active || this.activateOnMeasure)) {
+              this.blitFrame(k);
+            }
           }
         } else if (shownAtMoment) {
           this.cache.put(this.cacheKey, k, res.bitmap, res.bytes);
@@ -1278,7 +1675,11 @@ export class PlatePlayer implements ScenePlayer {
           this.cache.put(this.cacheKey, k, resolved.bitmap, resolved.bytes);
         }
         drawn++;
-      } catch {
+      } catch (err) {
+        if (this.isDocumentHidden() && isWatchdogTimeoutError(err)) {
+          this.resetHostForRetry();
+          return false;
+        }
         if (host.unhealthy) {
           this.switchToClip("worker-unhealthy");
           return false;
@@ -1302,8 +1703,15 @@ export class PlatePlayer implements ScenePlayer {
    */
   measure(): Promise<void> {
     if (!this.measurePromise) {
-      this.measurePromise = this.doMeasure();
-      return this.measurePromise;
+      this.measuringInFlight = true;
+      const p = this.doMeasure().finally(() => {
+        this.measuringInFlight = false;
+        if (!this.isMeasured && this.measurePromise === p) {
+          this.measurePromise = null;
+        }
+      });
+      this.measurePromise = p;
+      return p;
     }
     if (
       this.isMeasured &&
@@ -1314,10 +1722,29 @@ export class PlatePlayer implements ScenePlayer {
       !this.isDestroyed &&
       !this.isClip()
     ) {
-      return this.measurePromise.then(async () => {
-        if (this.isDestroyed || this.isClip() || !this.host || this.host.hasActiveTransport) return;
-        await this.host.init({ scale: this.previewSize.scale, params: this.params });
-      });
+      if (this.reinitPromise) {
+        return this.reinitPromise;
+      }
+      this.measuringInFlight = true;
+      this.firstSampleAfterInit = true;
+      const rp = this.host
+        .init({ scale: this.previewSize.scale, params: this.params })
+        .then(() => {
+          if (this.autoPump && !this.isDestroyed && !this.isClip()) {
+            if ((!this.active && this.prefetchFrames > 0) || this.active) {
+              if (this.scheduler.isPaused) this.scheduler.resume();
+              void this.pumpScheduler();
+            }
+          }
+        })
+        .finally(() => {
+          this.measuringInFlight = false;
+          if (this.reinitPromise === rp) {
+            this.reinitPromise = null;
+          }
+        });
+      this.reinitPromise = rp;
+      return rp;
     }
     return this.measurePromise;
   }
@@ -1467,6 +1894,10 @@ export class PlatePlayer implements ScenePlayer {
       try {
         await this.ensureHostInitialized();
       } catch (err) {
+        if (this.isDocumentHidden() && isWatchdogTimeoutError(err)) {
+          this.resetHostForRetry();
+          return false;
+        }
         this.switchToClip(host.unhealthy ? "worker-unhealthy" : `init-failed:${err instanceof Error ? err.message : String(err)}`);
         return false;
       }
@@ -1478,7 +1909,11 @@ export class PlatePlayer implements ScenePlayer {
           sampleStart = firstMissing;
         }
       }
-      const count = Math.min(this.gateSampleFrames, Math.max(1, this.previewFrames - sampleStart));
+      const minMeasureSamples =
+        this.needsPlaybackMeasure && !this.playbackSamplesReported
+          ? Math.max(this.gateSampleFrames, 9)
+          : this.gateSampleFrames;
+      const count = Math.min(minMeasureSamples, Math.max(1, this.previewFrames - sampleStart));
       return this.sampleFrames(count, sampleStart);
     });
     if (!ok || this.isDestroyed || this.isClip()) return;
@@ -1510,6 +1945,21 @@ export class PlatePlayer implements ScenePlayer {
       if (!this.readyEmitted) {
         this.readyEmitted = true;
         this.emit("ready", { neededFrames: plan.startFrames, waitSeconds: plan.waitSeconds });
+      }
+      if (this.autoPump && this.prefetchFrames > 0 && !this.isDestroyed && this.currentDecision.mode === "live") {
+        if (this.scheduler.isPaused) this.scheduler.resume();
+        if (
+          this.effectiveRenderMode === "full" &&
+          this.variant === "predraw" &&
+          !this.prepareBegun &&
+          !this.storedComplete
+        ) {
+          this.currentFrame = 0;
+          this.beginPrepare(0);
+        }
+        if (this.currentDecision.mode === "live") {
+          void this.pumpScheduler();
+        }
       }
       return;
     }
@@ -1613,7 +2063,10 @@ export class PlatePlayer implements ScenePlayer {
       if (!this.active) {
         return Math.max(0, Math.min(this.previewFrames, DRAFT_NEXT_SCENE_HEAD_FRAMES, this.prefetchFrames, room));
       }
-      return Math.max(1, Math.min(remaining, this.draftRunwayFrames(), room));
+      return Math.max(
+        1,
+        Math.min(remaining, Math.max(this.draftRunwayFrames(), this.runNeeded, this.maxPrefetchedFrames), room)
+      );
     }
     if (!this.active) {
       const want =
@@ -1710,6 +2163,7 @@ export class PlatePlayer implements ScenePlayer {
     }
     if (this.isBuffering) {
       this.isBuffering = false;
+      this.finishTraceEpisode();
       this.emit("buffering", { buffering: false, frame: this.currentFrame * this.frameStep });
     }
     if (this.active && this.cache.has(this.cacheKey, this.currentFrame)) {
@@ -1786,6 +2240,16 @@ export class PlatePlayer implements ScenePlayer {
         }
         this.configureWindow();
         if (!this.active && this.decodedWindowCap() <= 0) break;
+        if (
+          measuringExclusiveCount > 0 &&
+          this.active &&
+          !this.preparing &&
+          !this.isBuffering &&
+          this.readyAhead(this.currentFrame) >= 3
+        ) {
+          await measureChain;
+          if (this.isDestroyed || this.currentDecision.mode !== "live") break;
+        }
         const drew = await this.scheduler.runNext();
         if (!drew) {
           const drewStoreOnly = await this.drawNextStoreOnlyFrame();
@@ -1979,7 +2443,7 @@ export class PlatePlayer implements ScenePlayer {
     const remaining = Math.max(1, this.previewFrames - idx);
     if (this.effectiveRenderMode === "draft") {
       const want = Math.min(DRAFT_NOMINAL_RUNWAY_FRAMES, remaining);
-      const maxRam = Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame));
+      const maxRam = Math.max(1, this.decodedWindowCap());
       return Math.min(want, maxRam);
     }
     const want = resumeBufferFrames(remaining);
@@ -1988,6 +2452,120 @@ export class PlatePlayer implements ScenePlayer {
     }
     const maxRam = Math.max(1, Math.floor(this.cache.budget / this.previewSize.bytesPerFrame));
     return Math.min(want, maxRam);
+  }
+
+  /**
+   * Read-only snapshot of the current buffer readiness and threshold for UI feedback:
+   * - `readyFrames`: `this.readyAhead(this.currentFrame)`
+   * - `neededFrames`: `this.preparing.needed` while preparing initial buffer, otherwise `this.resumeThreshold(this.currentFrame)`
+   * - `hasAnyFrame`: true once at least one frame has been drawn/cached or measured for this scene
+   */
+  bufferingSnapshot(): { readyFrames: number; neededFrames: number; hasAnyFrame: boolean } {
+    const idx = this.currentFrame;
+    const readyFrames = this.readyAhead(idx);
+    const neededFrames = this.preparing ? this.preparing.needed : this.resumeThreshold(idx);
+    const hasAnyFrame =
+      readyFrames > 0 ||
+      this.lastShownFrame !== null ||
+      this.presentedBlits > 0 ||
+      this.cache.frameIndices(this.cacheKey).length > 0 ||
+      (this.shouldUseStore() && this.store!.savedFrames(this.bundleDigest, this.previewSize.label).length > 0);
+    return { readyFrames, neededFrames, hasAnyFrame };
+  }
+
+  private isDocumentHidden(): boolean {
+    try {
+      const doc = (globalThis as { document?: { visibilityState?: string; hidden?: boolean } }).document;
+      if (!doc) return false;
+      return doc.visibilityState === "hidden" || doc.hidden === true;
+    } catch {
+      return false;
+    }
+  }
+
+  private beginTraceEpisode(cause: LiveTraceCause, localFrame: number): void {
+    if (!this.openJitterEpisode) {
+      this.openJitterEpisode = {
+        cause,
+        t0: this.nowMs(),
+        playing: this.wantPlaying,
+        documentHidden: this.isDocumentHidden()
+      };
+    }
+    if (!isLiveTraceEnabled()) {
+      this.openTraceEpisode = null;
+      return;
+    }
+    if (this.openTraceEpisode) return;
+    const snap = this.bufferingSnapshot();
+    const ctx = this.traceContext ? this.traceContext() : null;
+    const clockSec = ctx ? ctx.clockSec : (this.sceneIdx * this.meta.frames + localFrame) / Math.max(1, this.meta.fps);
+    const workersAlive = ctx
+      ? ctx.workersAlive
+      : Math.max(this.host?.hasActiveTransport ? 1 : 0, getActiveBrowserTransportCount());
+    const cacheBytes = this.cache.bytes;
+    const cacheBudget = this.cache.budget;
+    const entry = appendLiveTraceEntry({
+      at: Math.round(clockSec * 1000) / 1000,
+      sceneIndex: this.sceneIdx,
+      localFrame,
+      durationMs: 0,
+      cause,
+      readyAhead: snap.readyFrames,
+      neededFrames: snap.neededFrames,
+      workerState: this.workerState,
+      drawMsPerFrame: this.recentDrawMsMean,
+      cacheBytes,
+      cacheBudget,
+      cacheBytesBudget: `${cacheBytes}/${cacheBudget}`,
+      workersAlive
+    });
+    this.openTraceEpisode = { entry, t0: this.nowMs() };
+  }
+
+  private finishTraceEpisode(): void {
+    if (this.openJitterEpisode) {
+      const j = this.openJitterEpisode;
+      this.openJitterEpisode = null;
+      const durationMs = Math.max(0, Math.round((this.nowMs() - j.t0) * 100) / 100);
+      const hidden = j.documentHidden || this.isDocumentHidden();
+      this.jitterEpisodes.push({
+        cause: j.cause,
+        durationMs,
+        playing: j.playing && this.wantPlaying,
+        documentHidden: hidden
+      });
+      this.maybeEmitSustainedJitter();
+    }
+    if (!this.openTraceEpisode) return;
+    const { entry, t0 } = this.openTraceEpisode;
+    this.openTraceEpisode = null;
+    entry.durationMs = Math.max(0, Math.round((this.nowMs() - t0) * 100) / 100);
+    if (entry.drawMsPerFrame <= 0 && this.recentDrawMsMean > 0) {
+      entry.drawMsPerFrame = this.recentDrawMsMean;
+    }
+  }
+
+  private maybeEmitSustainedJitter(): void {
+    if (this.jitterReported || this.isDestroyed || this.isClip()) return;
+    const dec = evaluateSustainedJitter({
+      episodes: this.jitterEpisodes,
+      paused: !this.wantPlaying,
+      documentHidden: this.isDocumentHidden()
+    });
+    if (!dec.jerky) return;
+    this.jitterReported = true;
+    const rawSamples = this.playbackAloneSamples.length > 0 ? this.playbackAloneSamples : this.aloneSamples.length > 0 ? this.aloneSamples : this.contendedSamples;
+    const evalRes = isSlowScene(rawSamples);
+    const medianMs = Math.max(65, evalRes.median || this.recentDrawMsMean || 65);
+    const p90Ms = Math.max(95, evalRes.p90 || medianMs);
+    this.onPlaybackSamples?.({
+      medianMs,
+      p90Ms,
+      samples: Math.max(8, rawSamples.length),
+      aloneSamples: rawSamples.length >= 8 ? [...rawSamples] : Array.from({ length: 8 }, () => medianMs),
+      reason: "jitter"
+    });
   }
 
   /** Blits the wanted frame and exits `buffering` once the resume threshold is met. */
@@ -2001,6 +2579,7 @@ export class PlatePlayer implements ScenePlayer {
         return;
       }
       this.isBuffering = false;
+      this.finishTraceEpisode();
       this.blitFrame(this.currentFrame);
       this.emit("buffering", { buffering: false, frame: this.currentFrame * this.frameStep });
       this.publish({ state: this.state });
@@ -2042,7 +2621,10 @@ export class PlatePlayer implements ScenePlayer {
         }
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.drawImage(bm as unknown as CanvasImageSource, 0, 0, this.canvas.width, this.canvas.height);
+        this.presentedCanvasFrames++;
       } catch {}
+    } else {
+      this.presentedCanvasFrames++;
     }
     if (this.active) {
       this.evictBehind(frame);
@@ -2130,6 +2712,8 @@ export class PlatePlayer implements ScenePlayer {
     if (!this.isMeasured && this.host && this.envSupported) {
       this.currentFrame = idx;
       this.active = true;
+      this.activateOnMeasure = true;
+      this.cache.setSceneReservation(this.cacheKey, null);
       void this.measure();
       if (!this.measuringAnnounced) {
         this.measuringAnnounced = true;
@@ -2142,11 +2726,23 @@ export class PlatePlayer implements ScenePlayer {
     if (!wasActive) {
       this.cache.setSceneReservation(this.cacheKey, null);
       if (this.scheduler.isPaused) this.scheduler.resume();
+      if (
+        this.isMeasured &&
+        this.host &&
+        this.ownsHost &&
+        !this.host.hasActiveTransport &&
+        !this.storedComplete &&
+        !this.isDestroyed &&
+        !this.isClip()
+      ) {
+        void this.measure();
+      }
     }
 
     const last = this.lastTarget;
     const frameChanged = last !== idx;
     const jump = last === null || idx < last || idx > last + PREDRAW_JUMP_FRAMES;
+    const alsoBeyond = last !== null || idx > 0;
     this.lastTarget = idx;
     this.currentFrame = idx;
 
@@ -2157,7 +2753,7 @@ export class PlatePlayer implements ScenePlayer {
 
     if (jump) {
       if (this.autoPump) {
-        this.evictBehind(idx, true);
+        this.evictBehind(idx, alsoBeyond);
       }
       if (
         !this.storedComplete &&
@@ -2171,7 +2767,7 @@ export class PlatePlayer implements ScenePlayer {
     }
 
     // Re-prioritise the scheduler and cache focus around the requested frame.
-    this.scheduler.focus(this.cacheKey, idx);
+    this.scheduler.focus(this.cacheKey, idx, true);
 
     const choice = chooseFrame({
       target: idx,
@@ -2185,6 +2781,7 @@ export class PlatePlayer implements ScenePlayer {
         const ramNeeded = this.autoPump && this.wantPlaying ? Math.min(needed, Math.max(1, this.aheadCap())) : 1;
         if (this.readyAhead(idx) >= needed && this.ramReadyAhead(idx) >= ramNeeded) {
           this.isBuffering = false;
+          this.finishTraceEpisode();
           this.blitFrame(choice.frame);
           this.emit("buffering", { buffering: false, frame });
           this.publish({ state: this.state });
@@ -2200,8 +2797,19 @@ export class PlatePlayer implements ScenePlayer {
     } else if (!this.preparing) {
       // Frame due is not ready: enter `buffering`, hold `lastShownFrame` on canvas, pause the clock.
       if (!this.isBuffering) {
+        const traceCause: LiveTraceCause =
+          last !== null && (idx < last || idx > last + PREDRAW_JUMP_FRAMES)
+            ? "seek"
+            : (!wasActive || last === null) && idx <= 1
+              ? this.sceneIdx === 0 && idx === 0
+                ? "start"
+                : "boundary"
+              : last === null && idx > 1
+                ? "seek"
+                : "mid-scene";
         this.isBuffering = true;
         this.bufferingCount++;
+        this.beginTraceEpisode(traceCause, frame);
         this.emit("buffering", {
           buffering: true,
           frame,
@@ -2246,19 +2854,37 @@ export class PlatePlayer implements ScenePlayer {
    */
   prefetch(frames: number): void {
     if (this.isDestroyed || this.active || this.currentDecision.mode !== "live") return;
-    if (!this.plan) return;
     const cap = Math.max(0, Math.floor(frames));
     this.prefetchFrames = cap;
     if (cap <= 0) {
       return;
     }
+    this.currentFrame = 0;
+    this.scheduler.focus(this.cacheKey, 0, this.ownsCache);
     if (this.effectiveRenderMode === "draft") {
-      const maxPrefetch = Math.min(cap, DRAFT_NEXT_SCENE_HEAD_FRAMES);
+      const bpf = this.previewSize.bytesPerFrame;
+      const maxByBudget = Math.max(1, Math.floor(this.cache.budget / bpf) - DRAFT_BEHIND_FRAMES - 1);
+      const maxPrefetch = Math.min(cap, DRAFT_NEXT_SCENE_HEAD_FRAMES, maxByBudget);
       this.prefetchFrames = maxPrefetch;
-      this.cache.setSceneReservation(this.cacheKey, maxPrefetch * this.previewSize.bytesPerFrame);
+      this.maxPrefetchedFrames = Math.max(this.maxPrefetchedFrames, maxPrefetch);
+      this.cache.setSceneReservation(this.cacheKey, maxPrefetch * bpf);
     } else {
+      this.maxPrefetchedFrames = Math.max(this.maxPrefetchedFrames, cap);
       this.cache.setSceneReservation(this.cacheKey, null);
     }
+    if (!this.plan || !this.isMeasured) return;
+    if (
+      this.host &&
+      this.ownsHost &&
+      !this.host.hasActiveTransport &&
+      !this.storedComplete &&
+      !this.isDestroyed &&
+      !this.isClip()
+    ) {
+      void this.measure().catch(() => {});
+      return;
+    }
+    if (this.reinitPromise) return;
     if (this.scheduler.isPaused) this.scheduler.resume();
     if (this.effectiveRenderMode === "full" && this.variant === "predraw" && !this.prepareBegun && !this.storedComplete) {
       this.currentFrame = 0;
@@ -2271,12 +2897,15 @@ export class PlatePlayer implements ScenePlayer {
   /** The film moved to another scene: stop drawing for this one and free its decoded RAM frames (stored WebP copies remain). */
   deactivate(): void {
     if (this.isDestroyed || !this.active) return;
+    this.finishTraceEpisode();
     this.requestEpoch++;
     this.active = false;
     this.wantPlaying = false;
+    this.currentFrame = 0;
     this.lastTarget = null;
     this.prepareBegun = false;
     this.prefetchFrames = 0;
+    this.maxPrefetchedFrames = 0;
     this.isBuffering = false;
     this.pendingScrubFrame = null;
     this.cancelStillUpgrade(true);
@@ -2284,6 +2913,7 @@ export class PlatePlayer implements ScenePlayer {
       this.preparing = null;
       if (this.currentDecision.mode === "live") this.publish({ reason: "ok", state: "ready", progress: undefined });
     }
+    this.scheduler.focus(this.cacheKey, 0, this.ownsCache);
     this.scheduler.pause();
     this.cache.drop(this.cacheKey);
     this.lastShownFrame = null;
@@ -2295,19 +2925,23 @@ export class PlatePlayer implements ScenePlayer {
    */
   completeFilmCleanup(): void {
     if (this.isDestroyed) return;
+    this.finishTraceEpisode();
     this.requestEpoch++;
     this.cleanedAtFilmEnd = true;
     this.active = false;
     this.wantPlaying = false;
+    this.currentFrame = 0;
     this.lastTarget = null;
     this.lastShownFrame = null;
     this.prefetchFrames = 0;
+    this.maxPrefetchedFrames = 0;
     this.isBuffering = false;
     this.pendingScrubFrame = null;
     this.cancelStillUpgrade(true);
     if (this.preparing) {
       this.preparing = null;
     }
+    this.scheduler.focus(this.cacheKey, 0, this.ownsCache);
     this.scheduler.pause();
     this.cache.dropPrefix(`${this.bundleDigest}|${this.previewSize.label}`);
     if (this.ownsHost && this.host) {
@@ -2318,10 +2952,11 @@ export class PlatePlayer implements ScenePlayer {
     }
   }
 
-  /** Recycles (or terminates if now inactive in Draft mode) the underlying Worker at a scene boundary. */
+  /** Recycles (or terminates if now inactive) the underlying Worker at a scene boundary. */
   async recycle(): Promise<void> {
     if (this.host && this.hostInitialized && !this.isDestroyed && this.currentDecision.mode === "live") {
-      if (!this.active && this.ownsHost && this.effectiveRenderMode === "draft") {
+      this.firstSampleAfterInit = true;
+      if (!this.active && this.ownsHost) {
         this.host.terminateIdle("scene-boundary");
         return;
       }
@@ -2334,13 +2969,19 @@ export class PlatePlayer implements ScenePlayer {
     if (this.isDestroyed || this.active) return;
     if (this.prefetchFrames > 0 || (this.ownsHost && this.host?.hasActiveTransport)) {
       this.requestEpoch++;
+      this.firstSampleAfterInit = true;
+      this.currentFrame = 0;
       this.prefetchFrames = 0;
+      this.maxPrefetchedFrames = 0;
+      this.scheduler.focus(this.cacheKey, 0, this.ownsCache);
       this.scheduler.pause();
       if (this.effectiveRenderMode === "draft") {
         this.cache.drop(this.cacheKey);
       }
       if (this.ownsHost && this.host) {
-        this.host.terminateIdle("non-adjacent-scene");
+        this.host.terminateIdle("non-adjacent-scene", {
+          keepBitmaps: this.effectiveRenderMode !== "draft"
+        });
       }
     }
   }
@@ -2354,6 +2995,7 @@ export class PlatePlayer implements ScenePlayer {
 
   destroy(): void {
     if (this.isDestroyed) return;
+    this.finishTraceEpisode();
     this.isDestroyed = true;
     this.unsubDraftTargetChange();
     this.unsubDraftStylePolicyChange();
@@ -2387,6 +3029,24 @@ export function createPlatePlayer(options: PlatePlayerOptions): PlatePlayer {
   return new PlatePlayer(options);
 }
 
+export type ProactiveCheckReport = {
+  sceneIndex: number;
+  projectId: string;
+  variantId: string;
+  gen: number;
+  bundleDigest: string;
+  /** The check outcome (`{ ok: true }` or `{ ok: false, kind: "code" | "env", error }`). */
+  results: CheckOutcome;
+  /** Alias for `results`. */
+  outcome: CheckOutcome;
+  /** HTTP/stub response from `reportCheck` (`POST /v1/projects/:id/plates/:variantId/check`). */
+  response: ReportCheckResult;
+  /** Total check attempts run in this episode (1 on first-try success, up to 3 after 2 transient retries). */
+  attempts: number;
+};
+
+export type FilmCheckReportEvent = ProactiveCheckReport;
+
 export type FilmSceneSpec = {
   id: string;
   bundleDigest: string;
@@ -2398,11 +3058,22 @@ export type FilmSceneSpec = {
   durationSeconds?: number;
   environment?: string | EnvironmentProbeInput;
   forceClipReason?: string;
+  playback?: "clip";
+  drawMsPerFrame?: number;
+  hasClip?: boolean;
+  clipReady?: boolean;
   variantKey?: string;
+  state?: LivePlateVariantState;
+  needsCheck?: boolean;
+  variantId?: string;
+  gen?: number;
+  manifest?: BundleManifest;
+  onCheckReport?: (report: ProactiveCheckReport) => void | Promise<unknown>;
 };
 
 export type FilmPlayerOptions = {
   scenes: FilmSceneSpec[];
+  projectId?: string;
   filmKey?: string;
   look?: string | null;
   aspect?: AspectRatio | string;
@@ -2424,6 +3095,21 @@ export type FilmPlayerOptions = {
   now?: () => number;
   onQualityProgress?: (progress: QualityJobProgress) => void;
   onStoreStatus?: (status: FrameStoreStatus) => void;
+  api?: LiveApiOptions;
+  checkTracker?: CheckOnceTracker;
+  reportCheck?: (
+    projectId: string,
+    variantId: string,
+    payload: CheckReportPayload,
+    options?: LiveApiOptions
+  ) => Promise<ReportCheckResult>;
+  onCheckReport?: (report: ProactiveCheckReport) => void | Promise<unknown>;
+  checkRetryBackoffMs?: readonly number[];
+  checkWatchdogMs?: number;
+  frameWatchdogMs?: number;
+  initWatchdogMs?: number;
+  maxConsecutiveOverBudgetFrames?: number;
+  activeDrawWork?: () => number;
 };
 
 export interface FilmPlayer extends ScenePlayer {
@@ -2440,6 +3126,9 @@ export interface FilmPlayer extends ScenePlayer {
   readonly renderMode: PlaybackRenderMode;
   readonly draftTargetVerticesPerFrame: number;
   readonly stillUpgradeState: StillUpgradeState;
+  readonly checksRun: number;
+  readonly checkTracker: CheckOnceTracker;
+  readonly presentedFrames: number;
   presentedSummary(): {
     uniquePresentedFrames: number;
     totalBlits: number;
@@ -2449,11 +3138,14 @@ export interface FilmPlayer extends ScenePlayer {
   decision(sceneIndex?: number): PlayerDecision;
   syncToClock(): void;
   updateScene(sceneIndex: number, spec: FilmSceneSpec): Promise<void>;
+  enqueueSceneCheck(sceneIndex: number, spec?: FilmSceneSpec): void;
   setPreviewQuality(quality: number): Promise<void>;
   setRenderMode(mode: PlaybackRenderMode): void;
   setDraftTargetVertices(targetVertices: number | null): void;
   completeFilmCleanup(): void;
   flushStore(): Promise<void>;
+  pendingChecks(): Promise<void>;
+  waitForChecks(): Promise<void>;
 }
 
 /**
@@ -2562,6 +3254,7 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
   let activeIdx = 0;
   let destroyed = false;
   let mountedEl: HTMLElement | null = null;
+  let mountInFlightPromise: Promise<void> | null = null;
   let currentQualityJob: QualityJob | null = null;
   let bgLoopRunning = false;
 
@@ -2634,15 +3327,104 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     }
   };
 
+  const projectId = options.projectId ?? filmKey;
+  const checkTracker = options.checkTracker ?? new CheckOnceTracker();
+  const retryBackoffMs = options.checkRetryBackoffMs ?? DEFAULT_CHECK_RETRY_BACKOFF_MS;
+  const checkWatchdogMs = options.checkWatchdogMs ?? DEFAULT_CHECK_WATCHDOG_MS;
+  const sceneCheckEpochs: number[] = sceneSpecs.map(() => 0);
+  const playbackReportInFlightScenes = new Set<number>();
+  const inFlightPlaybackReports = new Set<Promise<void>>();
+
+  const isSceneClipReady = (sceneIndex: number): boolean => {
+    const spec = sceneSpecs[sceneIndex];
+    if (!spec) return true;
+    if (spec.clipReady === true || spec.hasClip === true) {
+      return true;
+    }
+    if (spec.clipReady === false || spec.hasClip === false) {
+      return false;
+    }
+    if (spec.state === "drawn") {
+      return true;
+    }
+    if (
+      spec.state === "rendering" ||
+      spec.state === "queued" ||
+      spec.state === "authoring" ||
+      spec.state === "bundled" ||
+      spec.forceClipReason === "pending-live" ||
+      spec.forceClipReason === "variant-rendering" ||
+      spec.forceClipReason === "slow-draw" ||
+      spec.playback === "clip"
+    ) {
+      return false;
+    }
+    return true;
+  };
+
+  const resolveSpecClipForceReason = (s: FilmSceneSpec): string | undefined => {
+    const hasBundleHtml = Boolean(s.html && s.html.trim());
+    if (s.forceClipReason && !(s.forceClipReason === "clip-only" && hasBundleHtml)) {
+      return s.forceClipReason;
+    }
+    const rawPlayback = s.playback as unknown;
+    const rawPlaybackObj =
+      typeof rawPlayback === "object" && rawPlayback !== null
+        ? (rawPlayback as { mode?: unknown; reason?: unknown })
+        : null;
+    if (rawPlayback === "clip" || rawPlaybackObj?.mode === "clip") {
+      return rawPlaybackObj && typeof rawPlaybackObj.reason === "string"
+        ? rawPlaybackObj.reason
+        : "slow-draw";
+    }
+    if (s.state === "rendering") return "variant-rendering";
+    if (!hasBundleHtml && (s.state === "drawn" || s.forceClipReason === "clip-only")) {
+      return "clip-only";
+    }
+    return undefined;
+  };
+
+  const specNeedsBrowserCheck = (s: FilmSceneSpec): boolean => {
+    if (resolveSpecClipForceReason(s)) return false;
+    if (!s.html || !s.html.trim()) return false;
+    if (s.needsCheck || s.state === "bundled") return true;
+    if ((s.state === "drawn" || s.hasClip) && s.state !== "checked") return true;
+    return false;
+  };
+
+  const getPlaybackMeasureTarget = (
+    s: FilmSceneSpec,
+    idx: number
+  ): { variantId: string; gen: number; bundleDigest: string } | null => {
+    if (s.state !== "checked") return null;
+    if (s.needsCheck) return null;
+    if (resolveSpecClipForceReason(s)) return null;
+    const variantId = s.variantId ?? s.id ?? `scene-${idx}`;
+    const gen = typeof s.gen === "number" && Number.isInteger(s.gen) && s.gen >= 1 ? s.gen : 1;
+    const bundleDigest = s.bundleDigest;
+    if (!bundleDigest || !variantId) return null;
+    if (!checkTracker.shouldReportPlayback(variantId, gen, bundleDigest, s.state, s.playback)) {
+      return null;
+    }
+    return { variantId, gen, bundleDigest };
+  };
+
   const makeScenePlayer = (s: FilmSceneSpec, idx: number): PlatePlayer => {
     const sceneExplicitTarget =
       s.draftTargetVerticesPerFrame !== undefined
         ? s.draftTargetVerticesPerFrame
         : explicitDraftTargetVertices;
+    const effectiveForceClipReason = resolveSpecClipForceReason(s);
+    const needsPlaybackMeasure = Boolean(getPlaybackMeasureTarget(s, idx));
     const p = new PlatePlayer({
       id: s.id,
+      sceneIndex: idx,
+      traceContext: () => ({
+        clockSec: clock.now(),
+        workersAlive: countActiveSceneWorkers()
+      }),
       bundleDigest: s.bundleDigest,
-      html: s.html,
+      html: effectiveForceClipReason ? "" : s.html,
       params: s.params,
       look: s.look ?? options.look ?? null,
       aspect,
@@ -2659,8 +3441,13 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       ...(options.pauseStillDebounceMs !== undefined ? { pauseStillDebounceMs: options.pauseStillDebounceMs } : {}),
       transportFactory: options.transportFactory,
       environment: s.environment ?? options.environment,
-      forceClipReason: s.forceClipReason,
+      forceClipReason: effectiveForceClipReason,
       autoPump,
+      needsPlaybackMeasure,
+      onPlaybackSamples: (info) => {
+        handlePlaybackSamples(idx, p, info);
+      },
+      ...(options.activeDrawWork ? { activeDrawWork: options.activeDrawWork } : {}),
       ...(options.frameStep !== undefined ? { frameStep: options.frameStep } : {}),
       ...(options.now ? { now: options.now } : {})
     });
@@ -2672,7 +3459,9 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     p.on("error", (d) => emit("error", { sceneIndex: idx, error: d }));
     p.on("mode", (d) => {
       updateCanvasVisibility();
-      syncAudioOnBufferState(idx, p.isBufferingNow || p.isPreparing);
+      const isClip = p.decision().mode === "clip";
+      const waiting = isClip ? !isSceneClipReady(idx) : p.isBufferingNow || p.isPreparing;
+      syncAudioOnBufferState(idx, waiting);
       emit("mode", { sceneIndex: idx, ...(typeof d === "object" && d ? d : {}) });
     });
     return p;
@@ -2682,7 +3471,10 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
 
   const updateCanvasVisibility = () => {
     players.forEach((p, idx) => {
-      p.setCanvasVisible(idx === activeIdx && p.decision().mode === "live");
+      const showCanvas =
+        idx === activeIdx &&
+        (p.decision().mode === "live" || (!isSceneClipReady(idx) && p.lastPresentedSourceFrame !== null));
+      p.setCanvasVisible(showCanvas);
     });
   };
 
@@ -2833,6 +3625,889 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     }
   };
 
+  // Note (Requirement 6): when no browser page is open, nothing in the browser can run the Worker check or post
+  // `/v1/projects/:id/plates/:variantId/check`; that case is handled by the backend reconciler's server-side
+  // `CHECK_GRACE` watchdog fallback to clip rendering.
+  type QueuedSceneCheck = {
+    sceneIndex: number;
+    epoch: number;
+    variantId: string;
+    gen: number;
+    bundleDigest: string;
+    manifest: BundleManifest;
+    environment?: string | EnvironmentProbeInput;
+    onCheckReport?: (report: ProactiveCheckReport) => void | Promise<unknown>;
+  };
+
+  const pendingChecksMap = new Map<number, QueuedSceneCheck>();
+  const deferredHiddenChecks = new Map<number, QueuedSceneCheck>();
+  const recheckCountByKey = new Map<string, number>();
+  const lastRecheckEpisodeByKey = new Map<string, number>();
+  let visibilityEpisodeId = 1;
+  let activeCheckEntry: QueuedSceneCheck | null = null;
+  let checkPreempted = false;
+  let checkLoopPromise: Promise<void> | null = null;
+  let checksRunCount = 0;
+
+  const scheduleVisibilityRecheck = (entry: QueuedSceneCheck, currentEpisode: number): boolean => {
+    if (destroyed || sceneCheckEpochs[entry.sceneIndex] !== entry.epoch) {
+      deferredHiddenChecks.delete(entry.sceneIndex);
+      return false;
+    }
+    const key = CheckOnceTracker.keyFor(entry.variantId, entry.gen, entry.bundleDigest);
+    if (lastRecheckEpisodeByKey.get(key) === currentEpisode) {
+      return false;
+    }
+    const used = recheckCountByKey.get(key) ?? 0;
+    if (used >= MAX_VISIBILITY_RECHECKS) {
+      deferredHiddenChecks.delete(entry.sceneIndex);
+      return false;
+    }
+    lastRecheckEpisodeByKey.set(key, currentEpisode);
+    recheckCountByKey.set(key, used + 1);
+    deferredHiddenChecks.delete(entry.sceneIndex);
+    players[entry.sceneIndex]?.resetHostForRetry();
+    pendingChecksMap.set(entry.sceneIndex, entry);
+    return true;
+  };
+
+  const onDocumentVisibilityChange = () => {
+    if (destroyed || isDocumentHidden()) return;
+    visibilityEpisodeId += 1;
+    let queuedAny = false;
+    for (const entry of [...deferredHiddenChecks.values()]) {
+      if (scheduleVisibilityRecheck(entry, visibilityEpisodeId)) {
+        queuedAny = true;
+      }
+    }
+    if (queuedAny) {
+      void runCheckLoop();
+    }
+  };
+
+  const docForVis = (
+    globalThis as {
+      document?: {
+        addEventListener?: (t: string, cb: () => void) => void;
+        removeEventListener?: (t: string, cb: () => void) => void;
+      };
+    }
+  ).document;
+  if (docForVis && typeof docForVis.addEventListener === "function") {
+    try {
+      docForVis.addEventListener("visibilitychange", onDocumentVisibilityChange);
+    } catch {}
+  }
+
+  const countActiveSceneWorkers = (): number => {
+    let n = 0;
+    for (const p of players) {
+      if (p.workerHost?.hasActiveTransport) n++;
+    }
+    return Math.max(n, getActiveBrowserTransportCount());
+  };
+
+  const isCurrentSceneWarm = (): boolean => {
+    const cur = players[activeIdx];
+    if (!cur || cur.decision().mode === "clip") return true;
+    if (!cur.measuredYet || cur.isPreparing || cur.isBufferingNow || cur.isPumping) return false;
+    if (activeDrawWork() > 0) return false;
+    if (!autoPump) return true;
+    const remaining = Math.max(0, cur.previewFrames - cur.currentPreviewFrame);
+    const minRunway =
+      currentRenderMode === "draft"
+        ? Math.min(DRAFT_NOMINAL_RUNWAY_FRAMES, remaining)
+        : Math.min(START_BUFFER_FRAMES, remaining);
+    return cur.readyAhead(cur.currentPreviewFrame) >= Math.max(1, Math.min(10, minRunway));
+  };
+
+  const isNextSceneWarm = (): boolean => {
+    const nextIdx = activeIdx + 1;
+    if (nextIdx >= players.length) return true;
+    if (pendingChecksMap.has(nextIdx)) return false;
+    const nxt = players[nextIdx];
+    if (!nxt) return true;
+    const dec = nxt.decision();
+    if (dec.mode === "clip") {
+      return dec.reason !== "pending-live";
+    }
+    if (!nxt.measuredYet || nxt.isPreparing || nxt.isBufferingNow || nxt.isPumping) {
+      return false;
+    }
+    if (activeDrawWork() > 0) return false;
+    if (!autoPump) return true;
+    const maxCap = nxt.decodedWindowCap();
+    const warmTarget =
+      currentRenderMode === "draft"
+        ? Math.min(DRAFT_NEXT_SCENE_HEAD_FRAMES, nxt.previewFrames, maxCap > 0 ? maxCap : DRAFT_NEXT_SCENE_HEAD_FRAMES)
+        : Math.min(START_BUFFER_FRAMES, nxt.previewFrames, maxCap > 0 ? maxCap : START_BUFFER_FRAMES);
+    return nxt.readyAhead(0) >= warmTarget;
+  };
+
+  const releaseWorkersForCheckSlot = (targetSceneIndex: number) => {
+    players.forEach((p, idx) => {
+      if (idx !== activeIdx && idx !== activeIdx + 1 && idx !== targetSceneIndex) {
+        p.releaseIdleWorker();
+        p.workerHost?.terminateIdle("non-adjacent-scene");
+      }
+    });
+    if (targetSceneIndex !== activeIdx && targetSceneIndex !== activeIdx + 1) {
+      const nextP = players[activeIdx + 1];
+      if (nextP && nextP.workerHost?.hasActiveTransport && countActiveSceneWorkers() >= 2) {
+        nextP.workerHost.terminateIdle("background-check-slot", { keepBitmaps: true });
+      }
+      if (!clock.playing() && countActiveSceneWorkers() >= 2) {
+        const curP = players[activeIdx];
+        if (curP && curP.workerHost?.hasActiveTransport && activeIdx !== targetSceneIndex) {
+          curP.workerHost.terminateIdle("background-check-slot", { keepBitmaps: true });
+        }
+      }
+    }
+  };
+
+  const preemptBackgroundCheckForScene = (neededSceneIndex: number) => {
+    if (!activeCheckEntry) return;
+    const checkIdx = activeCheckEntry.sceneIndex;
+    if (checkIdx === neededSceneIndex) return;
+    const neededPlayer = players[neededSceneIndex];
+    if (!neededPlayer || neededPlayer.workerHost?.hasActiveTransport) return;
+    if (countActiveSceneWorkers() >= 2) {
+      checkPreempted = true;
+      players[checkIdx]?.workerHost?.terminateIdle("preempted-by-playback");
+    }
+  };
+
+  const sendCheckReportWithRetryAndCount = async (
+    entry: QueuedSceneCheck,
+    outcome: CheckOutcome,
+    slowEvalInfo?: { slow: boolean; median: number; p90: number; n: number } | null
+  ): Promise<{ response: ReportCheckResult; attempts: number } | null> => {
+    if (destroyed || sceneCheckEpochs[entry.sceneIndex] !== entry.epoch) return null;
+    const payload: CheckReportPayload = {
+      gen: entry.gen,
+      bundleDigest: entry.bundleDigest,
+      results: outcome,
+      device: {
+        ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        env:
+          entry.environment !== undefined ? environmentStatus(entry.environment) : environmentStatus()
+      }
+    };
+
+    let response: ReportCheckResult = slowEvalInfo?.slow
+      ? { status: "ok", ok: true, dropped: false, httpStatus: 200, state: "bundled", playback: "clip" }
+      : { status: "ok", ok: true, dropped: false, httpStatus: 200, state: "checked" };
+    let attempts = 1;
+    const shouldCallHttp =
+      Boolean(options.reportCheck) ||
+      Boolean(options.api?.fetch) ||
+      Boolean(options.api?.baseUrl && /^https?:\/\//i.test(options.api.baseUrl)) ||
+      typeof window !== "undefined";
+
+    if (shouldCallHttp) {
+      const doSend = options.reportCheck ?? reportCheck;
+      attempts = 0;
+      for (let r = 0; r <= DEFAULT_CHECK_MAX_RETRIES; r++) {
+        if (destroyed || sceneCheckEpochs[entry.sceneIndex] !== entry.epoch) return null;
+        attempts++;
+        try {
+          response = await doSend(projectId, entry.variantId, payload, options.api);
+        } catch (err) {
+          response = {
+            status: "network_error",
+            ok: false,
+            dropped: false,
+            error: err instanceof Error ? err.message : String(err)
+          };
+        }
+        if (
+          response.status === "ok" ||
+          response.status === "dropped" ||
+          (response.status === "error" && response.httpStatus >= 400 && response.httpStatus < 500)
+        ) {
+          break;
+        }
+        if (r < DEFAULT_CHECK_MAX_RETRIES) {
+          const delayMs = retryBackoffMs[Math.min(r, retryBackoffMs.length - 1)] ?? 150;
+          if (delayMs > 0) await new Promise((res) => setTimeout(res, delayMs));
+        }
+      }
+    }
+
+    if (destroyed || sceneCheckEpochs[entry.sceneIndex] !== entry.epoch) return null;
+    return { response, attempts };
+  };
+
+  const sendCheckReportWithRetry = async (
+    entry: QueuedSceneCheck,
+    outcome: CheckOutcome,
+    slowEvalInfo?: { slow: boolean; median: number; p90: number; n: number } | null
+  ): Promise<ReportCheckResult | null> => {
+    const res = await sendCheckReportWithRetryAndCount(entry, outcome, slowEvalInfo);
+    return res ? res.response : null;
+  };
+
+  const notifyCheckReport = async (
+    entry: QueuedSceneCheck,
+    outcome: CheckOutcome,
+    response: ReportCheckResult,
+    attempts: number
+  ): Promise<void> => {
+    if (destroyed || sceneCheckEpochs[entry.sceneIndex] !== entry.epoch) return;
+    const reportEvent: ProactiveCheckReport = {
+      sceneIndex: entry.sceneIndex,
+      projectId,
+      variantId: entry.variantId,
+      gen: entry.gen,
+      bundleDigest: entry.bundleDigest,
+      results: outcome,
+      outcome,
+      response,
+      attempts
+    };
+
+    if (entry.onCheckReport) {
+      await Promise.resolve(entry.onCheckReport(reportEvent)).catch(() => undefined);
+    }
+    if (options.onCheckReport && options.onCheckReport !== entry.onCheckReport) {
+      await Promise.resolve(options.onCheckReport(reportEvent)).catch(() => undefined);
+    }
+  };
+
+  function handlePlaybackSamples(
+    sceneIndex: number,
+    player: PlatePlayer,
+    info: { medianMs: number; p90Ms: number; samples: number; aloneSamples: number[]; reason?: "slow" | "jitter" | "playable-timeout" }
+  ): void {
+    if (destroyed || players[sceneIndex] !== player) return;
+    if (info.samples < 8 && !info.reason) return;
+    const spec = sceneSpecs[sceneIndex];
+    if (!spec) return;
+    const target = getPlaybackMeasureTarget(spec, sceneIndex);
+    if (!target) return;
+    if (playbackReportInFlightScenes.has(sceneIndex)) return;
+    if (!checkTracker.begin(target.variantId, target.gen, target.bundleDigest)) return;
+
+    playbackReportInFlightScenes.add(sceneIndex);
+    const epoch = sceneCheckEpochs[sceneIndex] ?? 0;
+    const slowDecision = isSlowScene(info.aloneSamples);
+    const isExplicitFallback = info.reason === "jitter" || info.reason === "playable-timeout";
+    const drawMs = { medianMs: info.medianMs, p90Ms: info.p90Ms };
+    const outcome: CheckOutcome = {
+      ok: true,
+      source: "playback",
+      ...(info.reason ? { reason: info.reason } : {}),
+      samples: info.samples,
+      drawMs,
+      drawMsMedian: info.medianMs,
+      drawMsP90: info.p90Ms,
+      results: {
+        source: "playback",
+        ...(info.reason ? { reason: info.reason } : {}),
+        samples: info.samples,
+        drawMs,
+        drawMsMedian: info.medianMs,
+        drawMsP90: info.p90Ms
+      }
+    };
+    const entry: QueuedSceneCheck = {
+      sceneIndex,
+      epoch,
+      variantId: target.variantId,
+      gen: target.gen,
+      bundleDigest: target.bundleDigest,
+      manifest: spec.manifest ?? {},
+      environment: spec.environment ?? options.environment,
+      onCheckReport: spec.onCheckReport
+    };
+
+    const reportPromise = (async () => {
+      let completed = false;
+      try {
+        const sendRes = await sendCheckReportWithRetryAndCount(entry, outcome, {
+          slow: slowDecision.slow || isExplicitFallback,
+          median: info.medianMs,
+          p90: info.p90Ms,
+          n: info.samples
+        });
+        if (!sendRes) return;
+        const { response, attempts } = sendRes;
+        if (
+          destroyed ||
+          sceneCheckEpochs[sceneIndex] !== epoch ||
+          players[sceneIndex] !== player
+        ) {
+          return;
+        }
+        checkTracker.complete(target.variantId, target.gen, target.bundleDigest, outcome);
+        completed = true;
+        checksRunCount++;
+
+        const serverDemotedToClip =
+          response.status === "ok" && response.playback === "clip";
+
+        recordSlowSceneTrace({
+          sceneIndex,
+          median: info.medianMs,
+          p90: info.p90Ms,
+          n: info.samples,
+          decision: serverDemotedToClip ? "clip" : "live",
+          source: "playback"
+        });
+
+        if (serverDemotedToClip) {
+          const prevSpec = sceneSpecs[sceneIndex]!;
+          sceneSpecs[sceneIndex] = {
+            ...prevSpec,
+            state: (response.state as LivePlateVariantState) ?? "bundled",
+            playback: "clip",
+            needsCheck: false,
+            forceClipReason: "slow-draw",
+            hasClip: prevSpec.hasClip ?? false,
+            clipReady: prevSpec.clipReady ?? false
+          };
+          player.forceClipFallback("slow-draw");
+          player.releaseIdleWorker();
+          player.workerHost?.terminateIdle("slow-draw");
+          updateCanvasVisibility();
+          if (sceneIndex === activeIdx) {
+            syncAudioOnBufferState(sceneIndex, !isSceneClipReady(sceneIndex));
+          }
+        }
+
+        await notifyCheckReport(entry, outcome, response, attempts);
+      } finally {
+        playbackReportInFlightScenes.delete(sceneIndex);
+        if (!completed) {
+          checkTracker.failTransient(target.variantId, target.gen, target.bundleDigest);
+        }
+      }
+    })();
+
+    inFlightPlaybackReports.add(reportPromise);
+    void reportPromise.finally(() => {
+      inFlightPlaybackReports.delete(reportPromise);
+    });
+  }
+
+  const runCheckLoop = (): Promise<void> => {
+    if (checkLoopPromise) return checkLoopPromise;
+    const p = (async () => {
+      // Yield one macrotask turn so all scenes updated in the same status poll / updateScene batch
+      // are registered in `pendingChecksMap` before `orderPendingChecks` selects the closest scene ahead of the playhead.
+      await new Promise((r) => setTimeout(r, 0));
+      while (!destroyed && pendingChecksMap.size > 0) {
+        const ordered = orderPendingChecks(pendingChecksMap.values(), activeIdx, players.length);
+        const head = ordered[0];
+        if (!head) break;
+
+        if (
+          sceneCheckEpochs[head.sceneIndex] !== head.epoch ||
+          players[head.sceneIndex]?.bundleDigest !== head.bundleDigest
+        ) {
+          pendingChecksMap.delete(head.sceneIndex);
+          continue;
+        }
+
+        if (!checkTracker.shouldCheck(head.variantId, head.gen, head.bundleDigest, "bundled")) {
+          pendingChecksMap.delete(head.sceneIndex);
+          continue;
+        }
+
+        const targetPlayer = players[head.sceneIndex];
+        if (!targetPlayer) {
+          pendingChecksMap.delete(head.sceneIndex);
+          continue;
+        }
+
+        // Unsupported / unverified browser environment: report kind:"env" once immediately without spawning a Worker or retrying.
+        if (!targetPlayer.isEnvSupported) {
+          if (!checkTracker.begin(head.variantId, head.gen, head.bundleDigest)) {
+            pendingChecksMap.delete(head.sceneIndex);
+            continue;
+          }
+          pendingChecksMap.delete(head.sceneIndex);
+          const envOutcome: CheckOutcome = {
+            ok: false,
+            kind: "env",
+            error: `Browser environment (${targetPlayer.envStatus}) does not support live Worker checks.`
+          };
+          try {
+            console.warn(
+              JSON.stringify({
+                level: "warn",
+                event: "live_check_env_failure",
+                projectId,
+                variantId: head.variantId,
+                sceneIndex: head.sceneIndex,
+                gen: head.gen,
+                bundleDigest: head.bundleDigest,
+                attempts: 1,
+                error: envOutcome.error
+              })
+            );
+          } catch {}
+          checkTracker.complete(head.variantId, head.gen, head.bundleDigest, envOutcome);
+          checksRunCount++;
+          targetPlayer.forceClipFallback("check-env");
+          const envRes = await sendCheckReportWithRetry(head, envOutcome, null);
+          if (envRes) {
+            await notifyCheckReport(head, envOutcome, envRes, 1);
+          }
+          continue;
+        }
+
+        // While playing, defer background checks to idle gaps when current and next scenes are warm.
+        if (clock.playing() && head.sceneIndex !== activeIdx) {
+          if (!isCurrentSceneWarm()) {
+            const cur = players[activeIdx];
+            if (autoPump && cur && cur.decision().mode === "live") {
+              if (!cur.measuredYet && activeDrawWork() === 0) {
+                void cur.measure().catch(() => {});
+              } else if (cur.measuredYet && !cur.isPumping) {
+                void cur.pumpScheduler().catch(() => {});
+              }
+            }
+            await new Promise((r) => setTimeout(r, 5));
+            continue;
+          }
+          if (head.sceneIndex !== activeIdx + 1 && !isNextSceneWarm()) {
+            const nxt = players[activeIdx + 1];
+            if (autoPump && nxt && nxt.decision().mode === "live" && !pendingChecksMap.has(activeIdx + 1)) {
+              if (currentRenderMode === "draft") {
+                nxt.prefetch(DRAFT_NEXT_SCENE_HEAD_FRAMES);
+              } else {
+                const bpf = preview.bytesPerFrame;
+                const cur = players[activeIdx];
+                const spare = sharedCache.budget - (cur ? cur.reservedBytes() : 0) - 2 * bpf;
+                nxt.prefetch(Math.max(START_BUFFER_FRAMES, Math.floor(spare / bpf)));
+              }
+              if ((!nxt.measuredYet || !nxt.workerHost?.hasActiveTransport) && activeDrawWork() === 0) {
+                void nxt.measure().catch(() => {});
+              }
+            }
+            await new Promise((r) => setTimeout(r, 5));
+            continue;
+          }
+          if (activeDrawWork() > 0) {
+            await new Promise((r) => setTimeout(r, 5));
+            continue;
+          }
+        }
+
+        // Acquire the single page-wide check slot for this scene check.
+        await runInSharedCheckSlot(async () => {
+          if (destroyed) return;
+          // Re-evaluate ordering inside the slot in case playhead moved or another scene was queued.
+          const currentOrdered = orderPendingChecks(pendingChecksMap.values(), activeIdx, players.length);
+          const entry = currentOrdered[0];
+          if (!entry) return;
+          const playerForCheck = players[entry.sceneIndex];
+          if (
+            !playerForCheck ||
+            sceneCheckEpochs[entry.sceneIndex] !== entry.epoch ||
+            playerForCheck.bundleDigest !== entry.bundleDigest
+          ) {
+            pendingChecksMap.delete(entry.sceneIndex);
+            return;
+          }
+          if (clock.playing() && entry.sceneIndex !== activeIdx) {
+            if (!isCurrentSceneWarm() || (entry.sceneIndex !== activeIdx + 1 && !isNextSceneWarm()) || activeDrawWork() > 0) {
+              return;
+            }
+          }
+          if (!checkTracker.begin(entry.variantId, entry.gen, entry.bundleDigest)) {
+            pendingChecksMap.delete(entry.sceneIndex);
+            return;
+          }
+          pendingChecksMap.delete(entry.sceneIndex);
+
+          type SlowEvalSummary = { slow: boolean; median: number; p90: number; n: number };
+          let attempts = 0;
+          let hadTransientFailure = false;
+          let lastError: string | undefined;
+          let finalOutcome: CheckOutcome = { ok: false, kind: "env", error: "Check did not complete." };
+          let slowEvalInfo: SlowEvalSummary | null = null;
+          let abortedOrPreempted = false;
+
+          while (!destroyed && attempts <= DEFAULT_CHECK_MAX_RETRIES) {
+            if (
+              sceneCheckEpochs[entry.sceneIndex] !== entry.epoch ||
+              players[entry.sceneIndex] !== playerForCheck
+            ) {
+              abortedOrPreempted = true;
+              break;
+            }
+
+            if (clock.playing() && entry.sceneIndex !== activeIdx) {
+              if (!isCurrentSceneWarm() || (entry.sceneIndex !== activeIdx + 1 && !isNextSceneWarm()) || activeDrawWork() > 0) {
+                checkTracker.failTransient(entry.variantId, entry.gen, entry.bundleDigest);
+                if (sceneCheckEpochs[entry.sceneIndex] === entry.epoch) {
+                  pendingChecksMap.set(entry.sceneIndex, entry);
+                }
+                abortedOrPreempted = true;
+                break;
+              }
+            }
+
+            releaseWorkersForCheckSlot(entry.sceneIndex);
+
+            attempts++;
+            activeCheckEntry = entry;
+            checkPreempted = false;
+            let attemptSlowEval: SlowEvalSummary | null = null;
+            playerForCheck.setCheckingInFlight(true);
+            let outcome: CheckOutcome;
+            try {
+              if (attempts > 1) {
+                playerForCheck.resetHostForRetry();
+              }
+              outcome = await runCheck(playerForCheck.workerHost, entry.manifest, {
+                watchdogMs: checkWatchdogMs,
+                ...(options.frameWatchdogMs !== undefined ? { frameWatchdogMs: options.frameWatchdogMs } : {}),
+                ...(options.initWatchdogMs !== undefined ? { initWatchdogMs: options.initWatchdogMs } : {}),
+                ...(options.maxConsecutiveOverBudgetFrames !== undefined
+                  ? { maxConsecutiveOverBudgetFrames: options.maxConsecutiveOverBudgetFrames }
+                  : {}),
+                previewScale: playerForCheck.previewSize.scale,
+                qualitySpec: playerForCheck.qualitySpec,
+                params: sceneSpecs[entry.sceneIndex]?.params,
+                activeDrawWork,
+                getHost: () => playerForCheck.workerHost,
+                onResetHost: () => playerForCheck.resetHostForRetry(),
+                ...(options.now ? { now: options.now } : {}),
+                onSlowSceneEvaluated: (info) => {
+                  attemptSlowEval = {
+                    slow: info.slow,
+                    median: info.median,
+                    p90: info.p90,
+                    n: info.n
+                  };
+                }
+              });
+              const evaluatedSlow = (attemptSlowEval as SlowEvalSummary | null)?.slow ?? false;
+              if (
+                outcome.ok &&
+                !evaluatedSlow &&
+                !destroyed &&
+                !checkPreempted &&
+                sceneCheckEpochs[entry.sceneIndex] === entry.epoch &&
+                players[entry.sceneIndex] === playerForCheck
+              ) {
+                if (!playerForCheck.measuredYet) {
+                  await playerForCheck.measure();
+                }
+                if (
+                  playerForCheck.decision().mode === "clip" &&
+                  playerForCheck.decision().reason.startsWith("worker-unhealthy")
+                ) {
+                  if (isDocumentHidden()) {
+                    playerForCheck.resetHostForRetry();
+                    outcome = {
+                      ok: false,
+                      kind: "inconclusive",
+                      inconclusive: true,
+                      reason: "document-hidden",
+                      error: "Measure failed while document was hidden."
+                    };
+                  } else {
+                    outcome = { ok: false, kind: "env", error: playerForCheck.decision().reason };
+                  }
+                }
+              }
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              if (isDocumentHidden() && isWatchdogTimeoutError(err)) {
+                outcome = {
+                  ok: false,
+                  kind: "inconclusive",
+                  inconclusive: true,
+                  reason: "document-hidden",
+                  error: errMsg
+                };
+              } else {
+                outcome = {
+                  ok: false,
+                  kind: "env",
+                  error: errMsg
+                };
+              }
+            } finally {
+              playerForCheck.setCheckingInFlight(false);
+              activeCheckEntry = null;
+              if (entry.sceneIndex !== activeIdx && entry.sceneIndex !== activeIdx + 1) {
+                playerForCheck.releaseIdleWorker();
+                playerForCheck.workerHost?.terminateIdle("background-check-complete");
+              }
+            }
+
+            if (
+              destroyed ||
+              sceneCheckEpochs[entry.sceneIndex] !== entry.epoch ||
+              players[entry.sceneIndex] !== playerForCheck
+            ) {
+              checkTracker.failTransient(entry.variantId, entry.gen, entry.bundleDigest);
+              playerForCheck.workerHost?.terminateIdle("check-superseded");
+              abortedOrPreempted = true;
+              break;
+            }
+
+            if (checkPreempted) {
+              attempts = Math.max(0, attempts - 1);
+              playerForCheck.resetHostForRetry();
+              checkTracker.failTransient(entry.variantId, entry.gen, entry.bundleDigest);
+              pendingChecksMap.set(entry.sceneIndex, entry);
+              abortedOrPreempted = true;
+              break;
+            }
+
+            slowEvalInfo = attemptSlowEval as SlowEvalSummary | null;
+            finalOutcome = outcome;
+
+            if (!outcome.ok && outcome.kind === "inconclusive") {
+              playerForCheck.resetHostForRetry();
+              checkTracker.failTransient(entry.variantId, entry.gen, entry.bundleDigest);
+              if (isDocumentHidden()) {
+                deferredHiddenChecks.set(entry.sceneIndex, entry);
+              } else {
+                scheduleVisibilityRecheck(entry, visibilityEpisodeId);
+              }
+              abortedOrPreempted = true;
+              break;
+            }
+
+            if (outcome.ok || outcome.kind === "code") {
+              break;
+            }
+
+            // An init timeout was already retried once inside runCheck (and relative frame watchdog already
+            // counted N=3 consecutive over-budget frames or 10s visible time), so do not retry again here.
+            if (
+              outcome.kind === "env" &&
+              (isInitTimeoutError(outcome.error) || outcome.overBudgetExhausted)
+            ) {
+              if ((outcome.initRetries ?? 0) > 0) {
+                attempts += outcome.initRetries!;
+                hadTransientFailure = true;
+                lastError = outcome.error;
+              }
+              break;
+            }
+
+            hadTransientFailure = true;
+            lastError = outcome.error;
+            playerForCheck.workerHost?.terminateIdle("check-transient-failure");
+            if (attempts <= DEFAULT_CHECK_MAX_RETRIES) {
+              const delayMs = retryBackoffMs[Math.min(attempts - 1, retryBackoffMs.length - 1)] ?? 150;
+              if (delayMs > 0) {
+                await new Promise((r) => setTimeout(r, delayMs));
+              }
+            }
+          }
+
+          if (
+            abortedOrPreempted ||
+            destroyed ||
+            sceneCheckEpochs[entry.sceneIndex] !== entry.epoch ||
+            players[entry.sceneIndex] !== playerForCheck ||
+            (!finalOutcome.ok && finalOutcome.kind === "inconclusive")
+          ) {
+            return;
+          }
+
+          if (finalOutcome.ok && (finalOutcome.initRetries ?? 0) > 0) {
+            attempts += finalOutcome.initRetries!;
+            hadTransientFailure = true;
+          }
+
+          if (hadTransientFailure || (!finalOutcome.ok && finalOutcome.kind === "env")) {
+            try {
+              console.warn(
+                JSON.stringify({
+                  level: "warn",
+                  event: finalOutcome.ok ? "live_check_recovered_after_retry" : "live_check_env_failure",
+                  projectId,
+                  variantId: entry.variantId,
+                  sceneIndex: entry.sceneIndex,
+                  gen: entry.gen,
+                  bundleDigest: entry.bundleDigest,
+                  attempts,
+                  error: lastError ?? (finalOutcome.ok ? undefined : finalOutcome.error)
+                })
+              );
+            } catch {}
+          }
+
+          checkTracker.complete(entry.variantId, entry.gen, entry.bundleDigest, finalOutcome);
+          checksRunCount++;
+
+          if (!finalOutcome.ok && finalOutcome.kind === "env") {
+            const clipReason = "check-env";
+            sceneSpecs[entry.sceneIndex] = {
+              ...sceneSpecs[entry.sceneIndex]!,
+              needsCheck: false,
+              forceClipReason: clipReason
+            };
+            playerForCheck.forceClipFallback(clipReason);
+            playerForCheck.workerHost?.terminateIdle(clipReason);
+          }
+
+          const response = await sendCheckReportWithRetry(entry, finalOutcome, slowEvalInfo);
+          if (!response) return;
+
+          const serverDemotedToClip =
+            finalOutcome.ok && response.status === "ok" && response.playback === "clip";
+
+          if (slowEvalInfo) {
+            recordSlowSceneTrace({
+              sceneIndex: entry.sceneIndex,
+              median: slowEvalInfo.median,
+              p90: slowEvalInfo.p90,
+              n: slowEvalInfo.n,
+              decision: serverDemotedToClip ? "clip" : "live"
+            });
+          }
+
+          if (
+            destroyed ||
+            sceneCheckEpochs[entry.sceneIndex] !== entry.epoch ||
+            players[entry.sceneIndex] !== playerForCheck
+          ) {
+            return;
+          }
+
+          if (finalOutcome.ok) {
+            if (serverDemotedToClip) {
+              // Server returned `{ state: "bundled", playback: "clip" }`: demote to clip path immediately,
+              // release its Worker, do not retry the check, and do not report again for this digest.
+              sceneSpecs[entry.sceneIndex] = {
+                ...sceneSpecs[entry.sceneIndex]!,
+                state: (response.state as LivePlateVariantState) ?? "bundled",
+                playback: "clip",
+                needsCheck: false,
+                forceClipReason: "slow-draw"
+              };
+              playerForCheck.forceClipFallback("slow-draw");
+              playerForCheck.releaseIdleWorker();
+              playerForCheck.workerHost?.terminateIdle("slow-draw");
+            } else {
+              if (!playerForCheck.measuredYet) {
+                await playerForCheck.measure().catch(() => {});
+                if (entry.sceneIndex !== activeIdx && entry.sceneIndex !== activeIdx + 1) {
+                  playerForCheck.releaseIdleWorker();
+                  playerForCheck.workerHost?.terminateIdle("background-check-complete");
+                }
+              }
+              sceneSpecs[entry.sceneIndex] = {
+                ...sceneSpecs[entry.sceneIndex]!,
+                state: "checked",
+                needsCheck: false,
+                forceClipReason: undefined
+              };
+              updateCanvasVisibility();
+              if (entry.sceneIndex === activeIdx && mountedEl && !destroyed) {
+                const f = frameAt(clock.now(), fps, totalFrames);
+                playerForCheck.setWantPlaying(clock.playing());
+                const localFrame = sceneForGlobalFrame(f).localFrame;
+                playerForCheck.showFrame(localFrame);
+              } else if (clock.playing() && !destroyed) {
+                const cur = players[activeIdx];
+                const nxt = players[activeIdx + 1];
+                if (
+                  nxt &&
+                  cur &&
+                  !pendingChecksMap.has(activeIdx + 1) &&
+                  nxt.decision().mode === "live"
+                ) {
+                  const remainingInScene = Math.max(0, cur.previewFrames - cur.currentPreviewFrame);
+                  const warmupWindowFrames = Math.ceil(2.5 * cur.previewFps);
+                  if (currentRenderMode !== "draft" || remainingInScene <= warmupWindowFrames) {
+                    if (currentRenderMode === "draft") {
+                      nxt.prefetch(DRAFT_NEXT_SCENE_HEAD_FRAMES);
+                    } else {
+                      const bpf = preview.bytesPerFrame;
+                      const spare = sharedCache.budget - cur.reservedBytes() - 2 * bpf;
+                      nxt.prefetch(Math.max(START_BUFFER_FRAMES, Math.floor(spare / bpf)));
+                    }
+                    if (!nxt.measuredYet || !nxt.workerHost?.hasActiveTransport) {
+                      void nxt.measure().catch(() => {});
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          await notifyCheckReport(entry, finalOutcome, response, attempts);
+        });
+      }
+    })().finally(() => {
+      if (checkLoopPromise === p) {
+        checkLoopPromise = null;
+      }
+      if (!destroyed && pendingChecksMap.size > 0) {
+        void runCheckLoop();
+      }
+    });
+    checkLoopPromise = p;
+    return p;
+  };
+
+  const enqueueSceneCheck = (sceneIndex: number, specArg?: FilmSceneSpec) => {
+    const spec = specArg ?? sceneSpecs[sceneIndex];
+    if (!spec || destroyed || sceneIndex < 0 || sceneIndex >= players.length) return;
+    const wantsCheck = specNeedsBrowserCheck(spec);
+    if (!wantsCheck) return;
+    const variantId = spec.variantId ?? spec.id ?? `scene-${sceneIndex}`;
+    const gen = typeof spec.gen === "number" && Number.isInteger(spec.gen) && spec.gen >= 1 ? spec.gen : 1;
+    const bundleDigest = spec.bundleDigest;
+    if (!bundleDigest) return;
+    const checkState: LivePlateVariantState = spec.state === "drawn" ? "drawn" : "bundled";
+    if (!checkTracker.shouldCheck(variantId, gen, bundleDigest, checkState)) return;
+
+    const existing = pendingChecksMap.get(sceneIndex) ?? deferredHiddenChecks.get(sceneIndex);
+    if (
+      existing &&
+      existing.variantId === variantId &&
+      existing.gen === gen &&
+      existing.bundleDigest === bundleDigest &&
+      existing.epoch === sceneCheckEpochs[sceneIndex]
+    ) {
+      return;
+    }
+
+    if (
+      activeCheckEntry &&
+      activeCheckEntry.sceneIndex === sceneIndex &&
+      activeCheckEntry.variantId === variantId &&
+      activeCheckEntry.gen === gen &&
+      activeCheckEntry.bundleDigest === bundleDigest &&
+      activeCheckEntry.epoch === sceneCheckEpochs[sceneIndex]
+    ) {
+      return;
+    }
+
+    const epoch = (sceneCheckEpochs[sceneIndex] ?? 0) + 1;
+    sceneCheckEpochs[sceneIndex] = epoch;
+    deferredHiddenChecks.delete(sceneIndex);
+    if (activeCheckEntry && activeCheckEntry.sceneIndex === sceneIndex) {
+      players[sceneIndex]?.workerHost?.terminateIdle("check-superseded");
+    }
+    pendingChecksMap.set(sceneIndex, {
+      sceneIndex,
+      epoch,
+      variantId,
+      gen,
+      bundleDigest,
+      manifest: spec.manifest ?? {},
+      environment: spec.environment ?? options.environment,
+      onCheckReport: spec.onCheckReport
+    });
+    if (mountedEl) {
+      void runCheckLoop();
+    }
+  };
+
   const meta: PlayerMeta = {
     width: preview.width,
     height: preview.height,
@@ -2873,6 +4548,18 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       const activePlayer = players[activeIdx];
       if (!activePlayer) return "clip";
       const st = activePlayer.state;
+      if (st === "clip") {
+        const spec = sceneSpecs[activeIdx];
+        if (spec) {
+          if (!isSceneClipReady(activeIdx)) {
+            return "buffering";
+          }
+          if (clock.playing()) {
+            return "playing";
+          }
+        }
+        return "clip";
+      }
       if (st === "ready" && clock.playing()) return "playing";
       return st;
     },
@@ -2881,6 +4568,15 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     },
     get qualityJob(): QualityJob | null {
       return currentQualityJob;
+    },
+    get checksRun(): number {
+      return checksRunCount;
+    },
+    get checkTracker(): CheckOnceTracker {
+      return checkTracker;
+    },
+    get presentedFrames(): number {
+      return players.reduce((sum, p) => sum + p.presentedFrames, 0);
     },
     presentedSummary() {
       const perSceneUnique = players.map((p) => p.uniquePresentedFrameCount);
@@ -2898,33 +4594,54 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     },
     async mount(el: HTMLElement): Promise<void> {
       if (destroyed) throw new Error("FilmPlayer has been destroyed.");
-      mountedEl = el;
-      if (store && currentRenderMode === "full") {
-        await store.init();
-      }
-      for (let i = 0; i < players.length; i++) {
-        const p = players[i]!;
+      const doMount = (async () => {
+        mountedEl = el;
+        if (store && currentRenderMode === "full") {
+          await store.init();
+        }
+        for (let i = 0; i < players.length; i++) {
+          const p = players[i]!;
+          if (destroyed) return;
+          await p.mount(el, { active: false, deferMeasure: true });
+          if (destroyed) {
+            p.destroy();
+            return;
+          }
+        }
+        updateCanvasVisibility();
+        const f = frameAt(clock.now(), fps, totalFrames);
+        const first = sceneForGlobalFrame(f).sceneIndex;
+        activeIdx = first;
+        sceneSpecs.forEach((s, idx) => {
+          if (specNeedsBrowserCheck(s)) {
+            enqueueSceneCheck(idx, s);
+          }
+        });
+        if (!pendingChecksMap.has(first) && activeCheckEntry?.sceneIndex !== first) {
+          await players[first]?.measure().catch(() => {});
+        }
         if (destroyed) return;
-        await p.mount(el, { active: false, deferMeasure: true });
-        if (destroyed) {
-          p.destroy();
-          return;
+        const activePlayer = players[activeIdx];
+        if (activePlayer && !destroyed && !pendingChecksMap.has(activeIdx) && activeCheckEntry?.sceneIndex !== activeIdx) {
+          this.showFrame(f);
+        }
+        if (currentRenderMode === "full") {
+          maybeResumeQualityJob();
+          startBackgroundDrawLoop();
+        }
+        if (pendingChecksMap.size > 0) {
+          void runCheckLoop();
+        }
+        emit("ready");
+      })();
+      mountInFlightPromise = doMount;
+      try {
+        await doMount;
+      } finally {
+        if (mountInFlightPromise === doMount) {
+          mountInFlightPromise = null;
         }
       }
-      updateCanvasVisibility();
-      const f = frameAt(clock.now(), fps, totalFrames);
-      const first = sceneForGlobalFrame(f).sceneIndex;
-      await players[first]?.measure().catch(() => {});
-      if (destroyed) return;
-      const activePlayer = players[activeIdx];
-      if (activePlayer && !destroyed) {
-        this.showFrame(f);
-      }
-      if (currentRenderMode === "full") {
-        maybeResumeQualityJob();
-        startBackgroundDrawLoop();
-      }
-      emit("ready");
     },
     async updateScene(sceneIndex: number, spec: FilmSceneSpec): Promise<void> {
       if (destroyed || sceneIndex < 0 || sceneIndex >= players.length) return;
@@ -2933,6 +4650,45 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       if (oldDigest && oldDigest !== spec.bundleDigest) {
         currentQualityJob?.cancelScene(oldDigest);
         store?.cancelSceneWork(oldDigest);
+      }
+      const needsProactiveCheck = specNeedsBrowserCheck(spec);
+      if (!needsProactiveCheck) {
+        sceneCheckEpochs[sceneIndex] = (sceneCheckEpochs[sceneIndex] ?? 0) + 1;
+        pendingChecksMap.delete(sceneIndex);
+        deferredHiddenChecks.delete(sceneIndex);
+        if (activeCheckEntry && activeCheckEntry.sceneIndex === sceneIndex) {
+          oldPlayer?.workerHost?.terminateIdle("check-superseded");
+        }
+      }
+      // If a scene was already demoted to clip mode for the same bundleDigest and is now updating its clip status
+      // (e.g. "bundled" -> "rendering" -> "drawn" with hasClip: true), update in place so any held canvas frame stays intact until ready.
+      const nextClipReason = resolveSpecClipForceReason(spec);
+      if (
+        oldPlayer &&
+        oldDigest === spec.bundleDigest &&
+        oldPlayer.decision().mode === "clip" &&
+        nextClipReason &&
+        !needsProactiveCheck
+      ) {
+        sceneSpecs[sceneIndex] = { ...spec };
+        rebuildSpans();
+        if (filmClockInstance) {
+          filmClockInstance.setSpans(spans);
+        }
+        if (audioTimeline) {
+          audioTimeline.setSpans(spans);
+        }
+        oldPlayer.forceClipFallback(nextClipReason);
+        updateCanvasVisibility();
+        if (sceneIndex === activeIdx) {
+          syncAudioOnBufferState(sceneIndex, !isSceneClipReady(sceneIndex));
+        }
+        if (mountedEl && !destroyed && (sceneIndex === activeIdx || sceneIndex === activeIdx + 1)) {
+          const f = frameAt(clock.now(), fps, totalFrames);
+          this.showFrame(f);
+        }
+        emit("mode", { sceneIndex, mode: "clip", state: "clip", reason: nextClipReason });
+        return;
       }
       if (oldPlayer) {
         oldPlayer.destroy();
@@ -2960,15 +4716,40 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
           nextPlayer.destroy();
           return;
         }
-        if (sceneIndex === activeIdx) await nextPlayer.measure().catch(() => {});
+        if (needsProactiveCheck) {
+          updateCanvasVisibility();
+          enqueueSceneCheck(sceneIndex, spec);
+          startBackgroundDrawLoop();
+          return;
+        }
+        if (sceneIndex === activeIdx) {
+          await nextPlayer.measure().catch(() => {});
+        } else if (sceneIndex === activeIdx + 1) {
+          if (nextPlayer.decision().mode === "live") {
+            if (currentRenderMode === "draft") {
+              nextPlayer.prefetch(DRAFT_NEXT_SCENE_HEAD_FRAMES);
+            } else {
+              const bpf = preview.bytesPerFrame;
+              const cur = players[activeIdx];
+              const spare = sharedCache.budget - (cur ? cur.reservedBytes() : 0) - 2 * bpf;
+              nextPlayer.prefetch(Math.max(START_BUFFER_FRAMES, Math.floor(spare / bpf)));
+            }
+          }
+          void nextPlayer.measure().catch(() => {});
+        }
         if (destroyed) return;
         updateCanvasVisibility();
-        if (sceneIndex === activeIdx) {
+        if (sceneIndex === activeIdx || sceneIndex === activeIdx + 1) {
           const f = frameAt(clock.now(), fps, totalFrames);
           this.showFrame(f);
         }
         startBackgroundDrawLoop();
+      } else if (needsProactiveCheck) {
+        enqueueSceneCheck(sceneIndex, spec);
       }
+    },
+    enqueueSceneCheck(sceneIndex: number, spec?: FilmSceneSpec): void {
+      enqueueSceneCheck(sceneIndex, spec);
     },
     showFrame(globalFrame: number): void {
       if (destroyed || !players.length) return;
@@ -2980,9 +4761,9 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
           previous.deactivate();
           void previous.recycle().catch(() => {});
         }
-        if (currentRenderMode === "draft") {
+        if (currentRenderMode === "draft" || clock.playing()) {
           players.forEach((p, idx) => {
-            if (idx !== sceneIndex && idx !== sceneIndex + 1) {
+            if (idx !== sceneIndex && idx !== sceneIndex + 1 && idx !== activeCheckEntry?.sceneIndex) {
               p.releaseIdleWorker();
             }
           });
@@ -2994,14 +4775,30 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       current.setWantPlaying(clock.playing());
       const next = players[sceneIndex + 1];
       sharedCache.setPinned(next ? [current.cacheKey, next.cacheKey] : [current.cacheKey]);
+
+      if (pendingChecksMap.has(sceneIndex) || activeCheckEntry?.sceneIndex === sceneIndex) {
+        syncAudioOnBufferState(sceneIndex, !isSceneClipReady(sceneIndex));
+        void runCheckLoop();
+        return;
+      }
+
+      if (!current.measuredYet && current.workerHost && !current.workerHost.hasActiveTransport) {
+        preemptBackgroundCheckForScene(sceneIndex);
+      }
       current.showFrame(localFrame);
 
       if (currentQualityJob) {
         currentQualityJob.recenter(sceneIndex, current.currentPreviewFrame);
       }
 
-      syncAudioOnBufferState(sceneIndex, current.isBufferingNow || current.isPreparing || !current.measuredYet);
-      if (clock.playing() && !current.isBufferingNow && !current.isPreparing && current.measuredYet && audioBinding) {
+      const currentIsClip = current.decision().mode === "clip";
+      const currentClipNotReady = currentIsClip && !isSceneClipReady(sceneIndex);
+      const isSceneBufferingOrWaiting = currentIsClip
+        ? currentClipNotReady
+        : current.isBufferingNow || current.isPreparing;
+
+      syncAudioOnBufferState(sceneIndex, isSceneBufferingOrWaiting);
+      if (clock.playing() && !isSceneBufferingOrWaiting && audioBinding) {
         const globalSec = clock.now();
         const localSec = Math.max(0, globalSec - (spans[sceneIndex]?.start ?? 0));
         const vo = audioBinding.voices?.[sceneIndex];
@@ -3012,30 +4809,73 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
         }
       }
 
-      // Pipeline:
-      // - In Draft mode (§5.3): only prefetch next scene when within 1.0 s (`30` frames) of the end of the active scene
-      //   AND the active scene has >= 10 frames buffered ahead, capped at 6 frames (`DRAFT_NEXT_SCENE_HEAD_FRAMES`).
-      // - In Full mode: pre-draw the next scene with the bytes this scene does not need.
-      if (next && !current.isPreparing && (current.measuredYet || current.decision().mode === "clip")) {
+      // Pipeline ("the next scene is always ready"):
+      // - In Draft mode: during the last ~2.5 s (`ceil(2.5 * fps)` frames) of the active scene, (re)initialise and warm
+      //   `next` regardless of `measuredYet` or `activeAhead`, drawing at least `DRAFT_NEXT_SCENE_HEAD_FRAMES` (6) frames
+      //   into `FrameCache` within the scene reservation and Draft cache budget. Never warm scenes beyond `current + 1`.
+      // - In Full mode: pre-draw the next scene with the spare bytes (>= 30 frames).
+      const nextSceneIndex = sceneIndex + 1;
+      const nextChecking = pendingChecksMap.has(nextSceneIndex) || activeCheckEntry?.sceneIndex === nextSceneIndex;
+      const bgCheckUsingSecondWorker =
+        activeCheckEntry !== null &&
+        activeCheckEntry.sceneIndex !== sceneIndex &&
+        activeCheckEntry.sceneIndex !== nextSceneIndex;
+
+      if (next && !nextChecking && !current.isPreparing && !current.isBufferingNow && (current.measuredYet || currentIsClip)) {
+        const nextReleased = Boolean(
+          next.measuredYet &&
+            next.workerHost &&
+            !next.workerHost.hasActiveTransport &&
+            next.decision().mode === "live"
+        );
         if (currentRenderMode === "draft") {
-          const remainingInScene = Math.max(0, current.previewFrames - current.currentPreviewFrame);
-          const activeAhead = current.decodedWindowAhead(current.currentPreviewFrame);
-          if (remainingInScene <= 30 && (activeAhead >= Math.min(10, remainingInScene) || current.decision().mode === "clip")) {
-            if (!next.measuredYet) {
-              void next.measure().catch(() => {});
-            } else if (next.decision().mode === "live") {
+          const activePreviewFrame = currentIsClip
+            ? previewIndexForFrame(localFrame, current.meta.frames, current.frameStep)
+            : current.currentPreviewFrame;
+          const remainingInScene = Math.max(0, current.previewFrames - activePreviewFrame);
+          const warmupWindowFrames = Math.ceil(2.5 * current.previewFps);
+          if (clock.playing() && remainingInScene <= warmupWindowFrames) {
+            const nextWarmInCache =
+              next.measuredYet &&
+              next.decision().mode === "live" &&
+              next.readyAhead(0) >= Math.min(DRAFT_NEXT_SCENE_HEAD_FRAMES, next.previewFrames);
+            if (
+              next.decision().mode === "live" &&
+              (!bgCheckUsingSecondWorker || next.workerHost?.hasActiveTransport || !nextWarmInCache)
+            ) {
               next.prefetch(DRAFT_NEXT_SCENE_HEAD_FRAMES);
+            }
+            if (!next.measuredYet || nextReleased) {
+              if (!bgCheckUsingSecondWorker || remainingInScene <= Math.ceil(1.0 * current.previewFps) || !nextWarmInCache) {
+                preemptBackgroundCheckForScene(nextSceneIndex);
+                void next.measure().catch(() => {});
+              }
             }
           }
         } else {
-          if (!next.measuredYet) {
-            void next.measure().catch(() => {});
-          } else if (next.decision().mode === "live") {
-            const bpf = preview.bytesPerFrame;
-            const spare = sharedCache.budget - current.reservedBytes() - 2 * bpf;
-            next.prefetch(Math.floor(spare / bpf));
+          const bpf = preview.bytesPerFrame;
+          const spare = sharedCache.budget - current.reservedBytes() - 2 * bpf;
+          const fullPrefetchFrames = Math.max(START_BUFFER_FRAMES, Math.floor(spare / bpf));
+          const nextWarmInCache =
+            next.measuredYet &&
+            next.decision().mode === "live" &&
+            next.readyAhead(0) >= Math.min(START_BUFFER_FRAMES, next.previewFrames);
+          if (
+            next.decision().mode === "live" &&
+            (!bgCheckUsingSecondWorker || next.workerHost?.hasActiveTransport || !nextWarmInCache)
+          ) {
+            next.prefetch(fullPrefetchFrames);
+          }
+          if (!next.measuredYet || nextReleased) {
+            if (!bgCheckUsingSecondWorker || !nextWarmInCache) {
+              preemptBackgroundCheckForScene(nextSceneIndex);
+              void next.measure().catch(() => {});
+            }
           }
         }
+      }
+      if (pendingChecksMap.size > 0) {
+        void runCheckLoop();
       }
       startBackgroundDrawLoop();
     },
@@ -3095,6 +4935,28 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
         await store.flush();
       }
     },
+    async pendingChecks(): Promise<void> {
+      while (
+        (mountInFlightPromise !== null ||
+          pendingChecksMap.size > 0 ||
+          checkLoopPromise !== null ||
+          inFlightPlaybackReports.size > 0) &&
+        !destroyed
+      ) {
+        if (mountInFlightPromise) {
+          await mountInFlightPromise.catch(() => {});
+        } else if (checkLoopPromise) {
+          await checkLoopPromise.catch(() => {});
+        } else if (pendingChecksMap.size > 0) {
+          await runCheckLoop().catch(() => {});
+        } else if (inFlightPlaybackReports.size > 0) {
+          await Promise.allSettled([...inFlightPlaybackReports]);
+        }
+      }
+    },
+    async waitForChecks(): Promise<void> {
+      await this.pendingChecks();
+    },
     ready(globalFrame: number): boolean {
       const { sceneIndex, localFrame } = sceneForGlobalFrame(globalFrame);
       return players[sceneIndex]?.ready(localFrame) ?? false;
@@ -3125,6 +4987,16 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      pendingChecksMap.clear();
+      deferredHiddenChecks.clear();
+      if (docForVis && typeof docForVis.removeEventListener === "function") {
+        try {
+          docForVis.removeEventListener("visibilitychange", onDocumentVisibilityChange);
+        } catch {}
+      }
+      for (let i = 0; i < sceneCheckEpochs.length; i++) {
+        sceneCheckEpochs[i] = (sceneCheckEpochs[i] ?? 0) + 1;
+      }
       unsubFilmDraftTarget();
       unsubFilmStylePolicy();
       if (currentQualityJob) {

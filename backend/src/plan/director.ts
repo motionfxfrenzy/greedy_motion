@@ -1,12 +1,24 @@
-import { llmJson, type LlmProvider } from "../llm.ts";
+import { callModel, type ModelMessage } from "../models/providers.ts";
+import { routeFor, type Provider, type Route } from "../models/routes.ts";
 import {
+  CAST_MAX,
+  CHARACTER_RULE,
+  DURATION_MIN,
+  NARRATOR,
+  SCRIPT_BEATS_MAX,
+  SPEAKER_MAX,
+  filmKind,
+  storyWorldFor,
   defaultVoice,
+  effectiveBriefDurationSeconds,
+  isScriptLedDuration,
   lookDirection,
   familyDirection,
   sceneDirection,
   scenesFor,
   hookWordLimit,
   plainText,
+  scriptSeconds,
   voiceIds,
   voiceLanguages,
   beatCountRange,
@@ -170,14 +182,21 @@ export const directorProblems = (plan: BeatPlan, brief: ScriptBrief, context: Di
 
 export class DeterministicDirector implements Director {
   async plan(brief: ScriptBrief, context: DirectorContext): Promise<DirectorResult> {
-    const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
-    const count = Math.max(range.min, Math.min(range.max, Math.round((range.min + range.max) / 2)));
-    const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+    const scriptLed = isScriptLedDuration(brief);
     const source = sentences(brief.text);
+    const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
+    const count = brief.scriptBeats?.length
+      ? brief.scriptBeats.length
+      : scriptLed
+        ? Math.max(3, Math.min(SCRIPT_BEATS_MAX, source.length >= 3 ? source.length : 5))
+        : Math.max(range.min, Math.min(range.max, Math.round((range.min + range.max) / 2)));
+    const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
     const name = context.brandName || "It";
-    const lines: (string | null)[] = brief.scriptMode === "own"
-      ? Array.from({ length: count }, (_, i) => source[i] ?? null)
-      : [`${source[0] ?? "Your team ships faster than your videos"}.`, ...Array.from({ length: count - 2 }, (_, i) => `${name} handles step ${i + 1} for you.`), context.brandName ? `Try ${context.brandName} today.` : "That's the whole idea."];
+    const lines: (string | null)[] = brief.scriptBeats?.length
+      ? brief.scriptBeats.map((b) => b.line ?? null)
+      : brief.scriptMode === "own"
+        ? Array.from({ length: count }, (_, i) => source[i] ?? null)
+        : [`${source[0] ?? "Your team ships faster than your videos"}.`, ...Array.from({ length: count - 2 }, (_, i) => `${name} handles step ${i + 1} for you.`), context.brandName ? `Try ${context.brandName} today.` : "That's the whole idea."];
     const shots = context.screenshots;
     const beats: Beat[] = Array.from({ length: count }, (_, i) => {
       const role: Beat["role"] = i === 0 ? "hook" : i === count - 1 ? "cta" : i === count - 2 ? "success" : i === 1 ? "reveal" : "feature"; // a 3-beat (5 s) film is hook, success, call to action
@@ -185,6 +204,7 @@ export class DeterministicDirector implements Director {
       const kind: Beat["kind"] = role === "cta" ? "title" : shot && role !== "hook" ? "ui" : "kinetic";
       const line = voiced ? lines[i]?.replace(/\.+$/, ".") ?? null : null;
       const firstWord = line?.split(" ")[0] ?? null;
+      const scriptBeat = brief.scriptBeats?.[i];
       return {
         id: `b${i + 1}`,
         role,
@@ -192,8 +212,8 @@ export class DeterministicDirector implements Director {
         producer: "hyperframes",
         line,
         verb: firstWord,
-        keyword: role === "cta" && context.brandName ? `Try ${context.brandName}.`.slice(0, 28) : (line ?? brief.text).split(" ").slice(0, 3).join(" ").slice(0, 28),
-        on_screen: null,
+        keyword: scriptBeat?.keyword ? scriptBeat.keyword.slice(0, 28) : role === "cta" && context.brandName ? `Try ${context.brandName}.`.slice(0, 28) : (line ?? brief.text).split(" ").slice(0, 3).join(" ").slice(0, 28),
+        on_screen: scriptBeat?.onScreen ?? null,
         success: role === "success",
         energy: role === "hook" || role === "success" ? "high" : "medium",
         ...(kind === "ui" && shot ? { ui: { screen: shot.id, action: "click" as const, target: "primary" } } : {}),
@@ -203,13 +223,15 @@ export class DeterministicDirector implements Director {
         transition_out: { type: i === count - 1 ? "end" : voiced ? "j-cut" : "hard-cut-on-beat" }
       };
     });
+    const effectiveSec = effectiveBriefDurationSeconds(brief, beats);
     const plan: BeatPlan = {
       version: "1.0",
       mode: brief.scriptMode === "own" ? "own-script" : "problem-only",
       template: brief.template ?? null,
-      format: formatForDuration(brief.durationSeconds),
+      format: formatForDuration(effectiveSec),
       canvas: brief.aspect,
-      target_duration_s: brief.durationSeconds,
+      target_duration_s: effectiveSec,
+      ...(scriptLed ? { duration_mode: "script" as const } : {}),
       clock: voiced ? "voiceover" : "beats",
       brand: { name: context.brandName, motion_profile: brief.motionProfile, style_frame: null },
       characters: [],
@@ -341,20 +363,72 @@ function languageRule(brief: ScriptBrief): string[] {
   ];
 }
 
+/**
+ * The story style's hidden story notes (story-worlds.json): the kinds of moments and scenes this style tells well, so the writer
+ * picks scenes that suit it. Advisory only, and never over approved words or scenes. Only for styles that have them.
+ */
+export function storyWorldRule(brief: ScriptBrief): string[] {
+  const world = storyWorldFor(brief);
+  if (!world) return [];
+  const guard = brief.scriptBeats
+    ? "Plan pictures only; never change approved lines, keywords or scenes."
+    : brief.scriptMode === "own"
+      ? "Shape visuals and new beats only; never change the person's words."
+      : "Never change approved beats.";
+  return [`STORY NOTES (a helper, not a rule): ${world.world} Ideas: ${world.elements.join("; ")}. ${guard}`];
+}
+
+/** Character voices: who says each line, marked with SPEAKER so each character is voiced in its own voice. */
+export function castRule(brief: ScriptBrief): string[] {
+  if (brief.audio.cast !== "characters") return [];
+  return [
+    `CHARACTER VOICES: the story's characters speak their own lines, each in its own voice. When a character says a beat's VOICE line, put "SPEAKER: <name>" on the line just before "VOICE:"; for narration leave SPEAKER out. Use at most ${CAST_MAX} speaking characters with short names (at most ${SPEAKER_MAX} characters), spelled the same every time, and never "${NARRATOR}" as a character name.`,
+    "Let the narrator set the scene and move time on; let the characters talk, short and in character, the way that character would say it. Never put the speaker's name inside the VOICE line, and keep each VISUAL showing who is speaking."
+  ];
+}
+
+/** Storyboard character and prop rule for story films (`filmKind(brief) === "story"`). */
+export function characterRuleForDirector(brief: Pick<ScriptBrief, "look" | "styleFamily" | "styleExample">): string[] {
+  if (filmKind(brief) !== "story") return [];
+  return [`Each VISUAL must say plainly which level each thing is at (PROP, LIVING OBJECT or FULL CARTOON CHARACTER; for example 'the paper boat, a living object with a face and no arms, bobs' or 'the paper sheet, a full cartoon character with arms, waves'): ${CHARACTER_RULE}`];
+}
+
+export function directorSystem(brief?: Pick<ScriptBrief, "look" | "styleFamily" | "styleExample">): string {
+  const rule = brief ? characterRuleForDirector(brief)[0] : undefined;
+  return rule ? `${SYSTEM}\n\n${rule}` : SYSTEM;
+}
+
 export function userMessage(brief: ScriptBrief, context: DirectorContext) {
+  const scriptLed = isScriptLedDuration(brief);
   const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+  const actualScriptSec = brief.scriptBeats?.length
+    ? Math.max(DURATION_MIN, scriptSeconds(brief.scriptBeats, brief.pace))
+    : null;
+  const durationLine = scriptLed
+    ? actualScriptSec !== null
+      ? `Duration: script-led (~${actualScriptSec}s from ${brief.scriptBeats!.length} approved beats, ${formatForDuration(actualScriptSec)}); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`
+      : `Duration: script-led (let the story or explanation decide its natural length, at least ${DURATION_MIN}s with no upper cap); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`
+    : `Duration: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`;
+  const beatsLine = scriptLed
+    ? brief.scriptBeats?.length
+      ? `Beats: ${brief.scriptBeats.length} (from the approved script).${voiced ? ` The hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`
+      : `Beats: 3 or more (choose the natural beat count the idea needs, without an arbitrary cap).${voiced ? ` Voiceover word budget: follows the natural length of the script (at most 24 words per beat); the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`
+    : `Beats: ${range.min}–${range.max}.${voiced ? ` Voiceover word budget: about ${wordBudget(brief.durationSeconds, brief.pace)} words in total; the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`;
   return [
     `Mode: ${brief.scriptMode === "own" ? "OWN SCRIPT (keep the user's words verbatim)" : "PROBLEM ONLY (write the script)"}`,
     productLine(brief, context),
-    `Duration: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`,
-    `Beats: ${range.min}–${range.max}.${voiced ? ` Voiceover word budget: about ${wordBudget(brief.durationSeconds, brief.pace)} words in total; the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`,
+    durationLine,
+    beatsLine,
     lookDirection(brief.look),
     ...(brief.styleFamily ? [familyDirection(brief.styleFamily)] : []),
     ...(sceneDirection(brief.look, brief.styleFamily) ? [sceneDirection(brief.look, brief.styleFamily)] : []),
     ...styleExampleBlock(brief.styleExample),
     `Audio: ${brief.audio.mode}${brief.audio.musicMood ? `; music mood: ${brief.audio.musicMood}` : ""}. Captions: ${brief.captions}.`,
     ...(voiced ? languageRule(brief) : []),
+    ...(voiced ? castRule(brief) : []),
+    ...storyWorldRule(brief),
+    ...characterRuleForDirector(brief),
     brief.template ? `Structure template: ${brief.template}.` : "Structure: choose the shape for the format.",
     ...contextBlocks(brief, context),
     ...(context.approvedScript ? [approvedScriptBlock(context)] : []),
@@ -485,13 +559,15 @@ export function toPlan(output: ModelOutput, brief: ScriptBrief, context: Directo
   if (audio.music && output.music_prompt) audio.music.prompt = output.music_prompt.slice(0, 200);
   if (audio.voice && output.voice_direction) audio.voice.direction = output.voice_direction.slice(0, 200);
   const generatedShots = beats.filter((beat) => beat.kind === "3d" || beat.kind === "footage").length;
+  const effectiveSec = effectiveBriefDurationSeconds(brief, beats);
   return {
     version: "1.0",
     mode: brief.scriptMode === "own" ? "own-script" : "problem-only",
     template: brief.template ?? null,
-    format: formatForDuration(brief.durationSeconds),
+    format: formatForDuration(effectiveSec),
     canvas: brief.aspect,
-    target_duration_s: brief.durationSeconds,
+    target_duration_s: effectiveSec,
+    ...(isScriptLedDuration(brief) ? { duration_mode: "script" as const } : {}),
     clock: audio.voice ? "voiceover" : "beats",
     brand: { name: context.brandName, motion_profile: brief.motionProfile, style_frame: null },
     characters: output.characters.map((character) => ({ ...character, sheet: null })),
@@ -508,27 +584,54 @@ export function toPlan(output: ModelOutput, brief: ScriptBrief, context: Directo
 export const DIRECTOR_DEFAULT_MODEL = "claude-opus-5-5";
 
 export class AnthropicDirector implements Director {
-  private readonly httpRequest: typeof fetch;
-  /** Which model family and model write the plan (DIRECTOR_PROVIDER / DIRECTOR_MODEL); the A/B test sets them per run. */
-  readonly provider: LlmProvider;
+  private readonly httpRequest: typeof fetch | undefined;
+  private readonly explicitOptions: { provider?: Provider; model?: string };
+  /** Which model family and model write the plan (DIRECTOR_PROVIDER / DIRECTOR_MODEL / MODEL_DIRECTOR); the A/B test sets them per run. */
+  readonly provider: Provider;
   readonly model: string;
   /** Tokens and time spent by this instance's calls, for cost and speed comparisons. */
   usage = { calls: 0, inputTokens: 0, outputTokens: 0, ms: 0 };
-  constructor(request = fetch, options: { provider?: LlmProvider; model?: string } = {}) {
+  constructor(request?: typeof fetch, options: { provider?: Provider; model?: string } = {}) {
     this.httpRequest = request;
-    this.provider = options.provider ?? (process.env.DIRECTOR_PROVIDER === "gemini" ? "gemini" : "anthropic");
-    this.model = options.model ?? process.env.DIRECTOR_MODEL ?? (this.provider === "gemini" ? "gemini-3.1-pro-preview" : DIRECTOR_DEFAULT_MODEL);
+    this.explicitOptions = options;
+    // The route (MODEL_DIRECTOR, or the old DIRECTOR_PROVIDER / DIRECTOR_MODEL, see docs/MODEL_ROUTING.md) unless the A/B test names a model.
+    const route = this.resolveRoute();
+    this.provider = route.provider;
+    this.model = route.model;
+  }
+
+  private resolveRoute(): Route {
+    const route = routeFor("director");
+    if (!this.explicitOptions.provider && !this.explicitOptions.model) return route;
+    const provider: Provider =
+      this.explicitOptions.provider ??
+      (this.explicitOptions.model ? (this.explicitOptions.model.startsWith("gemini") ? "gemini" : "anthropic") : route.provider);
+    const model =
+      this.explicitOptions.model ??
+      (this.explicitOptions.provider && this.explicitOptions.provider !== route.provider
+        ? (this.explicitOptions.provider === "gemini" ? "gemini-3.1-pro-preview" : DIRECTOR_DEFAULT_MODEL)
+        : route.model);
+    return {
+      ...route,
+      provider,
+      model,
+      ...(provider !== route.provider ? { effort: undefined } : {}),
+      explicit: true
+    };
   }
 
   async plan(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<DirectorResult> {
-    const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userMessage(brief, context) }];
+    const messages: ModelMessage[] = [{ role: "user", content: userMessage(brief, context) }];
     let plan: BeatPlan | null = null;
     let problems: string[] = [];
     let repairedFrom: string[] | undefined;
+    let usedModel = this.resolveRoute().model;
     // A plan built from an approved script is checked against that script; otherwise against every director rule.
     const check = (candidate: BeatPlan) => brief.scriptBeats ? scriptBeatProblems(candidate, brief) : directorProblems(candidate, brief, context);
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const text = await this.request(messages, signal);
+      const res = await this.request(messages, signal, directorSystem(brief));
+      usedModel = res.model;
+      const text = res.text;
       const output = JSON.parse(text) as ModelOutput;
       plan = withScriptBeats(toPlan(output, brief, context), brief);
       problems = check(plan);
@@ -541,18 +644,28 @@ export class AnthropicDirector implements Director {
       }
       messages.push({ role: "assistant", content: text }, { role: "user", content: `Fix every problem and return the complete plan again:\n- ${problems.join("\n- ")}` });
     }
-    return { plan: plan!, problems, model: this.model, ...(repairedFrom ? { repairedFrom } : {}) };
+    return { plan: plan!, problems, model: usedModel, ...(repairedFrom ? { repairedFrom } : {}) };
   }
 
-  private async request(messages: { role: "user" | "assistant"; content: string }[], signal?: AbortSignal): Promise<string> {
-    const last = messages[messages.length - 1]!;
-    const result = await llmJson({
-      provider: this.provider, model: this.model, system: SYSTEM, user: last.content, history: messages.slice(0, -1), schema: OUTPUT_SCHEMA as unknown as Record<string, unknown>,
-      maxTokens: 16000, timeoutMs: 180_000, ...(signal ? { signal } : {}),
+  private async request(messages: ModelMessage[], signal?: AbortSignal, system = SYSTEM): Promise<{ text: string; model: string }> {
+    const route = this.resolveRoute();
+    const result = await callModel({
+      step: "director",
+      route,
+      system: [{ text: system, cache: true }],
+      messages,
+      schema: OUTPUT_SCHEMA as unknown as Record<string, unknown>,
+      maxTokens: 16000,
+      timeoutMs: 180_000,
+      errorPrefix: route.provider === "gemini" ? "Gemini request failed" : "Claude request failed",
+      includeErrorDetail: true,
+      ...(signal ? { signal } : {}),
+      ...(this.httpRequest ? { request: this.httpRequest } : {}),
       stopErrors: { refusal: "The script director declined this brief.", max_tokens: "The beat plan was too long; shorten the duration or the script." }
     });
-    this.usage.calls += 1; this.usage.inputTokens += result.inputTokens; this.usage.outputTokens += result.outputTokens; this.usage.ms += result.ms;
-    return result.text;
+    const inputTokens = result.usage.input + result.usage.cacheRead + result.usage.cacheWrite;
+    this.usage.calls += 1; this.usage.inputTokens += inputTokens; this.usage.outputTokens += result.usage.output; this.usage.ms += result.ms;
+    return { text: result.text, model: result.model };
   }
 }
 

@@ -8,8 +8,9 @@
 // Every message carries only { jobId }. Consumers reload the row and act only if its state allows,
 // so duplicate or late deliveries are harmless. Keep these names in sync with worker/src/jobs.mjs.
 import type pg from "pg";
-import { PgBoss, type Db, type Queue } from "pg-boss";
+import { PgBoss, type Db, type Queue, type SendOptions } from "pg-boss";
 import { config } from "../config.ts";
+import { pool } from "../db/database.ts";
 
 export const QUEUES = {
   visuals: "plan-visuals",
@@ -71,10 +72,11 @@ const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
  *  - bamIntervalSeconds, queueCacheIntervalSeconds: background schema migrations and the queue list refresh, both needed rarely.
  *  - idleTimeoutMillis: pg closes an idle connection after 10 s by default; with slow polls that meant a new connection (and a pooler auth lookup) every
  *    poll. Keep them for two minutes.
- * supervise stays on: it expires stuck jobs, retries after a missed heartbeat and archives, once a minute.
+ * supervise stays on at superviseIntervalSeconds: 30 (default 60) so a dead worker's missed 30 s heartbeat is reclaimed in ~30-60 s; supervise is a
+ * cheap indexed query, so doubling its cadence costs negligible egress while halving recovery latency.
  */
 export const POLL = { live: 5, dead: 30 } as const;
-export const quietBoss = { useListenNotify: true, schedule: false, registerInstance: false, flowIntervalSeconds: 3600, bamIntervalSeconds: 600, queueCacheIntervalSeconds: 300, idleTimeoutMillis: 120_000 } as const;
+export const quietBoss = { useListenNotify: true, schedule: false, registerInstance: false, superviseIntervalSeconds: 30, flowIntervalSeconds: 3600, bamIntervalSeconds: 600, queueCacheIntervalSeconds: 300, idleTimeoutMillis: 120_000 } as const;
 export const boss = new PgBoss({ connectionString: config.databaseUrl, max: 4, ...quietBoss });
 boss.on("warning", (warning) => console.warn(JSON.stringify({ level: "warn", event: "queue_warning", message: warning.message })));
 boss.on("error", (error) => console.error(JSON.stringify({ level: "error", event: "queue_error", message: error.message })));
@@ -84,8 +86,7 @@ export async function startQueues() {
   await boss.start();
   for (const { name, ...options } of queueOptions) {
     if (await boss.getQueue(name)) {
-      const { deadLetter: _deadLetter, heartbeatSeconds: _heartbeat, retryDelayMax: _delayMax, ...updatable } = options;
-      await boss.updateQueue(name, updatable);
+      await boss.updateQueue(name, options);
     } else {
       await boss.createQueue(name, options);
     }
@@ -95,4 +96,39 @@ export async function startQueues() {
 /** Lets pg-boss write its job inside the caller's transaction, so the row and the message commit together. */
 export function inTransaction(client: pg.PoolClient): Db {
   return { executeSql: (text: string, values?: unknown[]) => client.query(text, values) };
+}
+
+/**
+ * Deduplicated transactional enqueue: pg-boss 12's `singletonKey` without `singletonSeconds` does not deduplicate on standard
+ * queues. Takes a transaction-scoped advisory lock on `send:<name>:<key>`, returns `null` if a job with the same `name` and
+ * `singleton_key` is already in `created`, `retry`, or `active`, and otherwise sends inside the caller's transaction.
+ */
+export async function sendOnce(
+  client: pg.PoolClient | null,
+  name: string,
+  data: object,
+  key: string,
+  opts?: SendOptions
+): Promise<string | null> {
+  if (!client) {
+    const c = await pool.connect();
+    try {
+      await c.query("begin");
+      const out = await sendOnce(c, name, data, key, opts);
+      await c.query("commit");
+      return out;
+    } catch (err) {
+      await c.query("rollback").catch(() => undefined);
+      throw err;
+    } finally {
+      c.release();
+    }
+  }
+  await client.query("select pg_advisory_xact_lock(hashtextextended('send:' || $1 || ':' || $2, 0))", [name, key]);
+  const existing = await client.query<{ id: string }>(
+    "select id from pgboss.job where name = $1 and singleton_key = $2 and state in ('created', 'retry', 'active') limit 1",
+    [name, key]
+  );
+  if (existing.rows.length > 0) return null;
+  return boss.send(name, data, { singletonKey: key, db: inTransaction(client), ...opts });
 }

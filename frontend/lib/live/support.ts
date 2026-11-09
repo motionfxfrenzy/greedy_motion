@@ -7,6 +7,23 @@
  * back to the worker-drawn clip ("untested" never means "try anyway").
  */
 
+import {
+  DRAFT_SHARED_CACHE_BUDGET_MB,
+  SLOW_DRAW_MEDIAN_MS,
+  SLOW_DRAW_P90_MS,
+  isSlowScene,
+  type SlowSceneDecision,
+  type SlowSceneOptions
+} from "./draft-profile.ts";
+
+export {
+  SLOW_DRAW_MEDIAN_MS,
+  SLOW_DRAW_P90_MS,
+  isSlowScene,
+  type SlowSceneDecision,
+  type SlowSceneOptions
+};
+
 export type EnvironmentStatus = "verified" | "unverified" | "unsupported";
 
 export type DesktopOS = "macOS" | "Windows" | "Linux";
@@ -263,7 +280,8 @@ export function resolveCacheBudgetBytes(options?: {
 
 /**
  * Bounded shared RAM cache budget for Draft preview mode (§3.1 & §5.3 of TASK-draft-preview-integration.md):
- * 32 MiB default across the film (~36 raw 640×360 RGBA frames), 24 MiB on low-memory devices.
+ * 32 MiB default across the film (~36 raw 640×360 RGBA frames, holding active 30+2 runway + 6 next-scene head frames),
+ * 24 MiB on low-memory devices.
  */
 export function resolveDraftCacheBudgetMB(options?: {
   userAgent?: string;
@@ -278,7 +296,7 @@ export function resolveDraftCacheBudgetMB(options?: {
   if (typeof mem === "number" && mem > 0 && mem <= 4) {
     return 24;
   }
-  return 32;
+  return DRAFT_SHARED_CACHE_BUDGET_MB;
 }
 
 export function resolveDraftCacheBudgetBytes(options?: {

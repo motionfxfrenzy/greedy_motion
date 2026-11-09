@@ -27,6 +27,7 @@ services:
       context: .
       dockerfile: worker/Dockerfile
     image: videosaas-worker:local
+    restart: unless-stopped
     env_file:
       - path: worker/.env
         required: false
@@ -124,6 +125,7 @@ services:
   plate-worker:
     build: { context: ., dockerfile: worker/Dockerfile }
     image: videosaas-worker:plates-e2e
+    restart: unless-stopped
     environment:
       <<: *plate-env
       PORT: "8080"

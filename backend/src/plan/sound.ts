@@ -177,13 +177,39 @@ export function soundTracks(input: SoundInputs): { tracks: AudioTrack[]; cues: S
     if (music.seconds >= total) {
       tracks.push({ id: "music-bed", src: input.fileUrl(music.file), start: 0, duration: round(total), track: SOUND_RULES.tracks.music, volume: 1, automation: lane });
     } else {
-      // A bed shorter than the film plays twice: the first copy fades out as the second fades in.
+      // A bed shorter than the film loops with crossfades across as many copies as needed to span the full runtime.
       const x = Math.min(SOUND_RULES.music.loopCrossfade, music.seconds / 4);
-      const join = music.seconds - x;
-      const firstLane = [...lane.filter((p) => p.t < join), { t: round(join), v: levelAt(lane, join) }, { t: round(music.seconds), v: 0 }];
-      const secondLane = [{ t: 0, v: 0 }, { t: round(x), v: levelAt(lane, join + x) }, ...lane.filter((p) => p.t > join + x).map((p) => ({ t: round(p.t - join), v: p.v }))];
-      tracks.push({ id: "music-bed", src: input.fileUrl(music.file), start: 0, duration: round(music.seconds), track: SOUND_RULES.tracks.music, volume: 1, automation: firstLane });
-      tracks.push({ id: "music-bed-2", src: input.fileUrl(music.file), start: round(join), duration: round(total - join), track: SOUND_RULES.tracks.music + 1, volume: 1, automation: secondLane });
+      const step = Math.max(1, music.seconds - x);
+      for (let k = 0; k * step < total - 1e-6; k++) {
+        const copyStart = k * step;
+        const copyDur = Math.min(music.seconds, total - copyStart);
+        if (copyDur <= 0.05) break;
+        const isFirst = k === 0;
+        const isLast = copyStart + music.seconds >= total - 1e-6;
+        const fadeInEnd = isFirst ? 0 : Math.min(x, copyDur);
+        const fadeOutStart = isLast ? copyDur : Math.max(fadeInEnd, copyDur - x);
+        const inner = lane
+          .filter((p) => p.t > copyStart + fadeInEnd && p.t < copyStart + fadeOutStart)
+          .map((p) => ({ t: round(p.t - copyStart), v: p.v }));
+        const copyLane: { t: number; v: number }[] = [
+          ...(isFirst
+            ? lane.filter((p) => p.t <= copyStart).map((p) => ({ t: round(p.t - copyStart), v: p.v }))
+            : [{ t: 0, v: 0 }, { t: round(fadeInEnd), v: levelAt(lane, copyStart + fadeInEnd) }]),
+          ...inner,
+          ...(isLast
+            ? lane.filter((p) => p.t >= copyStart + fadeOutStart && p.t <= copyStart + copyDur).map((p) => ({ t: round(p.t - copyStart), v: p.v }))
+            : [{ t: round(fadeOutStart), v: levelAt(lane, copyStart + fadeOutStart) }, { t: round(copyDur), v: 0 }])
+        ];
+        tracks.push({
+          id: k === 0 ? "music-bed" : `music-bed-${k + 1}`,
+          src: input.fileUrl(music.file),
+          start: round(copyStart),
+          duration: round(copyDur),
+          track: SOUND_RULES.tracks.music + (k % 2),
+          volume: 1,
+          automation: copyLane
+        });
+      }
     }
   }
   const cues = sfxCues(plan, timing, input.hasShot);

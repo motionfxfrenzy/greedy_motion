@@ -2,9 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 import { chromium } from "../../node_modules/playwright-core/index.mjs";
 import { fixturePlateStatus } from "./fixtures/workspace/data.ts";
 
@@ -281,10 +283,114 @@ async function auditPopovers(page, viewportWidth, popovers, label) {
   }
 }
 
+async function startInMemoryFixtureServer() {
+  const combinedCss = [
+    readFileSync(join(FRONTEND_DIR, "app/theme.css"), "utf8"),
+    readFileSync(join(FRONTEND_DIR, "app/styles.css"), "utf8"),
+    readFileSync(join(FRONTEND_DIR, "app/animation-workspace.css"), "utf8"),
+    readFileSync(join(FRONTEND_DIR, "app/plate-preview.css"), "utf8")
+  ].join("\n");
+
+  const navShimPlugin = {
+    name: "next-navigation-shim",
+    setup(b) {
+      b.onResolve({ filter: /^next\/navigation$/ }, () => ({
+        path: "next-navigation-shim",
+        namespace: "shim"
+      }));
+      b.onLoad({ filter: /.*/, namespace: "shim" }, () => ({
+        contents: `
+          export function useSearchParams() {
+            return new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+          }
+          export function notFound() {}
+        `,
+        loader: "ts"
+      }));
+    }
+  };
+
+  const entrySource = `
+    import React from "react";
+    import { createRoot } from "react-dom/client";
+    import PlatePreviewFixturePage from "./app/dev/plate-preview-fixture/page.tsx";
+    import HfStepFixturePage from "./app/dev/hf-step-fixture/page.tsx";
+
+    const path = window.location.pathname;
+    const el = document.getElementById("root");
+    if (el) {
+      const root = createRoot(el);
+      if (path.includes("hf-step-fixture")) {
+        root.render(<HfStepFixturePage />);
+      } else {
+        root.render(<PlatePreviewFixturePage />);
+      }
+    }
+  `;
+
+  const bundled = await build({
+    stdin: {
+      contents: entrySource,
+      resolveDir: FRONTEND_DIR,
+      sourcefile: "workspace-bar-narrow-entry.tsx",
+      loader: "tsx"
+    },
+    bundle: true,
+    format: "esm",
+    target: "es2022",
+    write: false,
+    plugins: [navShimPlugin],
+    define: {
+      "process.env.NODE_ENV": '"development"',
+      "process.env.NEXT_PUBLIC_LIVE_DEV": '"1"',
+      "process.env.NEXT_PUBLIC_APP_ENV": '"local"',
+      "process.env.NEXT_PUBLIC_API_URL": '"http://127.0.0.1:4000"',
+      "process.env.NEXT_PUBLIC_SUPABASE_URL": '"http://127.0.0.1:54321"',
+      "process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": '"local-dev-anon-key"',
+      "process.env": '{"NEXT_PUBLIC_LIVE_DEV":"1","NEXT_PUBLIC_APP_ENV":"local"}'
+    }
+  });
+  const bundleJs = bundled.outputFiles[0].text;
+
+  const srv = createHttpServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/bundle.js") {
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+      res.end(bundleJs);
+      return;
+    }
+    if (url.pathname === "/styles.css") {
+      res.writeHead(200, { "content-type": "text/css; charset=utf-8" });
+      res.end(combinedCss);
+      return;
+    }
+    if (url.pathname.startsWith("/dev/")) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        '<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8"><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script type="module" src="/bundle.js"></script></body></html>'
+      );
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  const addr = srv.address();
+  const port = typeof addr === "object" && addr ? addr.port : 0;
+  return { proc: null, srv, origin: `http://127.0.0.1:${port}`, port };
+}
+
 async function startNextDevServer(timeoutMs = 240_000) {
+  if (existsSync(NEXT_DEV_LOCK)) {
+    return startInMemoryFixtureServer();
+  }
   const deadline = Date.now() + timeoutMs;
   // Yield briefly when concurrent Next-dev-server tests (hf-step-interaction at 0ms, final-view-interaction at 2500ms) may also be starting
   await new Promise((r) => setTimeout(r, 1500));
+  if (existsSync(NEXT_DEV_LOCK)) {
+    return startInMemoryFixtureServer();
+  }
   while (Date.now() < deadline) {
     // Wait until .next/dev/lock stays free for 1200ms so final-view-interaction (300ms poll) takes the first handoff
     let freeSince = existsSync(NEXT_DEV_LOCK) ? 0 : Date.now();
@@ -357,7 +463,7 @@ test(
   "OptionsBar layout at 400px and 1280px: Plates (Subtitle & Audio tabs, popovers, status chip) and HyperFrames",
   { timeout: 240_000 },
   async () => {
-    const { proc: nextProc, origin, port } = await startNextDevServer();
+    const { proc: nextProc, srv: memSrv, origin, port } = await startNextDevServer();
 
     let browser = null;
     let activePlateState = "c-ready";
@@ -532,18 +638,22 @@ test(
       assert.equal(audioAudit.controls.length, 7, `Plates Audio tab (${width}px) renders all 7 controls`);
       await auditPopovers(page, width, plateAudioPopovers, `Plates Audio popovers (${width}px)`);
 
-      // 3. Plates h-scene-updating: Subtitle & Audio tabs with statusBadge ("3/5 drawn…")
+      // 3. Plates h-scene-updating: toolbar stays free of film chip; film progress toast & unready-scene banner float over stage
       activePlateState = "h-scene-updating";
       await page.goto(`${origin}/dev/plate-preview-fixture?state=h-scene-updating&theme=light`, { waitUntil: "networkidle" });
       await page.waitForSelector(".aw-segments li:nth-child(5)");
       await page.evaluate(() => document.fonts.ready);
-      const statusSubAudit = await auditBarLayout(page, width, `Plates Subtitle+status tab (${width}px)`);
-      assert.ok(statusSubAudit.statusBox, `Plates Subtitle+status tab (${width}px) shows status chip`);
+      const statusSubAudit = await auditBarLayout(page, width, `Plates Subtitle+updating tab (${width}px)`);
+      assert.equal(statusSubAudit.statusBox, null, `Plates Subtitle+updating tab (${width}px) keeps toolbar slot free of film chip`);
+      assert.equal(await page.locator(".aw-floating-bar .aw-film-chip").count(), 0);
+      await page.locator('.aw-frame .aw-film-toast[role="status"][aria-live="polite"]').waitFor({ state: "visible" });
+      await page.locator('.aw-frame .aw-scene-banner[role="status"][aria-live="polite"]').waitFor({ state: "visible" });
+      assert.equal(await page.locator('.aw-segments li[data-banner-linked="true"]').count(), 1);
 
       await page.locator('.aw-floating-bar button[role="tab"]:has-text("Audio")').click();
       await page.waitForSelector('[role="group"][aria-label="Audio tracks"]');
-      const statusAudioAudit = await auditBarLayout(page, width, `Plates Audio+status tab (${width}px)`);
-      assert.ok(statusAudioAudit.statusBox, `Plates Audio+status tab (${width}px) shows status chip`);
+      const statusAudioAudit = await auditBarLayout(page, width, `Plates Audio+updating tab (${width}px)`);
+      assert.equal(statusAudioAudit.statusBox, null, `Plates Audio+updating tab (${width}px) keeps toolbar slot free of film chip`);
 
       // 4. HyperFrames c-ready: Subtitle tab & Audio tab
       await page.goto(`${origin}/dev/hf-step-fixture?state=c-ready&theme=light`, { waitUntil: "networkidle" });
@@ -570,6 +680,9 @@ test(
     }
   } finally {
     if (browser) await browser.close().catch(() => {});
+    if (memSrv) {
+      await new Promise((r) => memSrv.close(r));
+    }
     if (nextProc && nextProc.pid) {
       try {
         process.kill(-nextProc.pid, "SIGTERM");

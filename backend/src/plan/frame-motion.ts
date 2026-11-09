@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { currentTake, parseFrameMotion, type FrameMotion, type VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
+import { callModel } from "../models/providers.ts";
+import { routeFor } from "../models/routes.ts";
 import { getProject, saveFilmMotion } from "../projects/store.ts";
 import type { PlanTiming } from "./timing.ts";
 import { filmFeel } from "./frame-film.ts";
@@ -65,10 +67,18 @@ async function ask(scene: SceneInput, feedback: string | null, signal: AbortSign
     scene.previous ? `Previous frame (already on screen when this scene starts):\n${scene.previous.slice(0, 9000)}` : "This is the first scene.",
     feedback ?? ""
   ].filter(Boolean).join("\n\n");
+  const route = routeFor("motion");
+  const system = scene.feel === "explainer" ? `${SYSTEM}\n${EXPLAINER_PACE}` : SYSTEM;
+  if (route.provider !== "anthropic") {
+    // Another provider (MODEL_MOTION): the shared provider layer.
+    const result = await callModel({ step: "motion", route, system, messages: [{ role: "user", content }], maxTokens: 3000, effort: "low", signal, errorPrefix: "Motion request failed", includeErrorDetail: true });
+    const json = result.text.slice(result.text.indexOf("["), result.text.lastIndexOf("]") + 1);
+    return parseFrameMotion(JSON.parse(json || "[]"), scene.svg, scene.seconds);
+  }
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": config.anthropicApiKey, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: process.env.MOTION_MODEL || process.env.FRAME_MODEL || config.anthropicModel, max_tokens: 3000, output_config: { effort: "low" }, system: scene.feel === "explainer" ? `${SYSTEM}\n${EXPLAINER_PACE}` : SYSTEM, messages: [{ role: "user", content }] }),
+    body: JSON.stringify({ model: route.model, max_tokens: route.maxTokens, output_config: { effort: route.effort ?? "low" }, system, messages: [{ role: "user", content }] }),
     signal
   });
   const payload = await response.json().catch(() => ({})) as { content?: { type: string; text?: string }[]; error?: { message?: string } };

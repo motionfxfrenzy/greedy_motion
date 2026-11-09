@@ -105,7 +105,7 @@ try {
     results: { ok: true }
   });
   await pool.query(
-    "update app.plate_variants set enqueued_at = now() - interval '10 minutes', updated_at = now() - interval '10 minutes' where project_id = $1",
+    "update app.plate_variants set enqueued_at = now() - interval '10 minutes', updated_at = now() - interval '30 seconds' where project_id = $1",
     [projLive]
   );
 

@@ -169,7 +169,10 @@ try {
   });
   assert.equal(checkedBundleRes.statusCode, 200);
 
-  // --- 3. Clip-request route: 404 wrong project, 409 wrong state, 202 idempotent, 429 cap at 4
+  // --- 3. Clip-request route: 404 wrong project, 409 wrong state, 202 idempotent, 429 cap at projectClipCap
+  const origClipCap = config.plates.projectClipCap;
+  config.plates.projectClipCap = 4;
+  try {
   const wrongProjClip = await app.inject({
     method: "POST",
     url: `/v1/projects/${otherProject}/plates/${v0.id}/clip-request`
@@ -225,6 +228,9 @@ try {
     url: `/v1/projects/${liveProject}/plates/${v0.id}/clip-request`
   });
   assert.equal(repeatAtCap.statusCode, 202);
+  } finally {
+    config.plates.projectClipCap = origClipCap;
+  }
 
   console.log("plate live routes: ok");
 } finally {

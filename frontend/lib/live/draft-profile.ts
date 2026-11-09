@@ -86,6 +86,268 @@ export const DRAFT_NEXT_SCENE_HEAD_FRAMES = 6;
 export const DRAFT_SHARED_CACHE_BUDGET_MB = 32;
 export const DRAFT_SHARED_CACHE_BUDGET_BYTES = DRAFT_SHARED_CACHE_BUDGET_MB * 1024 * 1024;
 
+/**
+ * Slow-draw thresholds for the browser scene check (`SLOW_DRAW_MEDIAN_MS = 60`, `SLOW_DRAW_P90_MS = 80`):
+ * These numbers mirror the server's constants in `backend/src/plates/store.ts`; the server (`POST .../check`)
+ * is the single authoritative decision point, while `isSlowScene` stays as a local helper for the trace log and tests.
+ */
+export const SLOW_DRAW_MEDIAN_MS = 60;
+export const SLOW_DRAW_P90_MS = 80;
+
+export type SlowSceneOptions = {
+  /** Contended draw samples (in ms) when another scene was drawing concurrently. */
+  contendedSamplesMs?: readonly number[];
+  /** Override median threshold in ms (default `SLOW_DRAW_MEDIAN_MS` = 60). */
+  medianThresholdMs?: number;
+  /** Override p90 threshold in ms (default `SLOW_DRAW_P90_MS` = 80). */
+  p90ThresholdMs?: number;
+  /** Whether the first sample in `samplesMs` has already been stripped (default `false`: when `samplesMs.length > 5` or `stripFirst === true`, drops the first sample). */
+  stripFirst?: boolean;
+};
+
+export type SlowSceneDecision = {
+  slow: boolean;
+  median: number;
+  p90: number;
+  n: number;
+};
+
+function computeMedian(sorted: readonly number[]): number {
+  if (sorted.length === 0) return 0;
+  const mid = sorted.length >> 1;
+  const raw = sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  return Math.round(raw * 100) / 100;
+}
+
+function computeP90(sorted: readonly number[]): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * 0.9) - 1));
+  return Math.round(sorted[idx]! * 100) / 100;
+}
+
+/**
+ * Pure slow-scene classifier:
+ * - Requires at least 5 valid samples taken while the scene was drawn ALONE (`samplesMs`).
+ * - When `stripFirst` is true (used when raw frame timings include the first shader/compile draw),
+ *   ignores the first sample so a slow first draw never demotes a fast scene.
+ * - If fewer than 5 alone samples exist, falls back to `contendedSamplesMs` ONLY when there are at least 5
+ *   contended samples AND their median is strictly greater than `2 * medianThresholdMs`, so a busy machine
+ *   does not demote fast scenes.
+ */
+export function isSlowScene(
+  samplesMs: readonly number[],
+  opts?: SlowSceneOptions
+): SlowSceneDecision {
+  const medianThreshold = opts?.medianThresholdMs ?? SLOW_DRAW_MEDIAN_MS;
+  const p90Threshold = opts?.p90ThresholdMs ?? SLOW_DRAW_P90_MS;
+  const rawAlone = Array.isArray(samplesMs) ? (opts?.stripFirst ? samplesMs.slice(1) : samplesMs) : [];
+  const alone = rawAlone.filter((x) => typeof x === "number" && Number.isFinite(x) && x >= 0);
+
+  if (alone.length >= 5) {
+    const sorted = [...alone].sort((a, b) => a - b);
+    const med = computeMedian(sorted);
+    const p90 = computeP90(sorted);
+    const slow = med > medianThreshold || p90 > p90Threshold;
+    return { slow, median: med, p90, n: sorted.length };
+  }
+
+  const rawContended = Array.isArray(opts?.contendedSamplesMs)
+    ? opts?.stripFirst
+      ? opts.contendedSamplesMs.slice(1)
+      : opts.contendedSamplesMs
+    : [];
+  const contended = rawContended.filter((x) => typeof x === "number" && Number.isFinite(x) && x >= 0);
+
+  if (contended.length >= 5) {
+    const sorted = [...contended].sort((a, b) => a - b);
+    const med = computeMedian(sorted);
+    const p90 = computeP90(sorted);
+    const slow = med > medianThreshold * 2;
+    return { slow, median: med, p90, n: sorted.length };
+  }
+
+  const fallback = alone.length > 0 ? alone : contended;
+  const sorted = [...fallback].sort((a, b) => a - b);
+  return {
+    slow: false,
+    median: computeMedian(sorted),
+    p90: computeP90(sorted),
+    n: sorted.length
+  };
+}
+
+/**
+ * Three-minute (180 s) per-scene playable timeout (`SCENE_PLAYABLE_TIMEOUT_MS = 180_000`):
+ * If a scene's bundle is ready in the browser (`bundled` or `checked`) and spends more than 3 minutes
+ * of active foreground preparation/check wait without becoming playable, fall back to AWS MP4 rendering once.
+ * Background-tab time (`documentHidden === true`), paused idle time when not preparing, and already-playable
+ * time never count toward this timeout.
+ */
+export const SCENE_PLAYABLE_TIMEOUT_SECONDS = 180;
+export const SCENE_PLAYABLE_TIMEOUT_MS = SCENE_PLAYABLE_TIMEOUT_SECONDS * 1000;
+
+export type PlayableTimeoutStepInput = {
+  /** Elapsed delta in milliseconds since the last tick (`dtMs >= 0`). */
+  dtMs: number;
+  /** Whether the scene has a bundle (`state === "bundled" || state === "checked"`). */
+  hasBundle: boolean;
+  /** Whether the scene is playable right now (`isPlayable && !isPreparing`). */
+  isPlayable: boolean;
+  /** Whether the scene is actively checking, measuring, or preparing its initial buffer, or is the selected/next scene waiting to play. */
+  isActiveWork: boolean;
+  /** Whether the browser tab is hidden (`document.visibilityState === "hidden"`). */
+  documentHidden?: boolean;
+  /** Optional override for the timeout threshold in ms (default `SCENE_PLAYABLE_TIMEOUT_MS` = 180,000 ms). */
+  timeoutMs?: number;
+};
+
+export type PlayableTimeoutState = {
+  activeWaitMs: number;
+  timedOut: boolean;
+};
+
+/**
+ * Pure accumulator for the 3-minute per-scene playable timeout.
+ * Accumulates `dtMs` ONLY when `hasBundle && !isPlayable && isActiveWork && !documentHidden`.
+ */
+export function stepPlayableTimeout(
+  prev: PlayableTimeoutState,
+  input: PlayableTimeoutStepInput
+): PlayableTimeoutState {
+  const timeoutMs = input.timeoutMs ?? SCENE_PLAYABLE_TIMEOUT_MS;
+  if (input.isPlayable) {
+    return { activeWaitMs: 0, timedOut: false };
+  }
+  if (prev.timedOut) {
+    return prev;
+  }
+  if (!input.hasBundle || !input.isActiveWork || input.documentHidden) {
+    return prev;
+  }
+  const dt = typeof input.dtMs === "number" && Number.isFinite(input.dtMs) && input.dtMs > 0 ? input.dtMs : 0;
+  const activeWaitMs = prev.activeWaitMs + dt;
+  return {
+    activeWaitMs,
+    timedOut: activeWaitMs >= timeoutMs
+  };
+}
+
+/**
+ * Sustained jerky playback fallback thresholds:
+ * - `JITTER_MAX_BUFFER_EPISODES = 3`: 3 or more non-seek, non-hidden mid-scene/boundary buffering underrun episodes while playing.
+ * - `JITTER_MAX_BUFFER_STALL_MS = 5000`: 5+ seconds of cumulative non-seek, non-hidden buffering stall while playing.
+ * - `JITTER_MIN_PLAY_ELAPSED_MS = 3000`, `JITTER_MIN_LATE_FRAMES = 25`, `JITTER_MIN_ACHIEVED_FPS = 12`:
+ *   at least 3 seconds of active foreground playback where >= 25 frames were late and achieved FPS dropped below 12 fps (< 40% of 30 fps).
+ * Deliberate pause, user seeking (`cause === "seek"`), background-tab throttling (`documentHidden`), and brief initial startup (< 400 ms)
+ * are strictly excluded.
+ */
+export const JITTER_MAX_BUFFER_EPISODES = 3;
+export const JITTER_MAX_BUFFER_STALL_MS = 5_000;
+export const JITTER_MIN_PLAY_ELAPSED_MS = 3_000;
+export const JITTER_MIN_LATE_FRAMES = 25;
+export const JITTER_MIN_ACHIEVED_FPS = 12;
+export const JITTER_BRIEF_STARTUP_MS = 400;
+
+export type JitterEpisodeInput = {
+  cause: "boundary" | "mid-scene" | "seek" | "start";
+  durationMs: number;
+  playing: boolean;
+  documentHidden?: boolean;
+};
+
+export type SustainedJitterInput = {
+  /** Buffering episodes recorded on this scene while playing. */
+  episodes?: readonly JitterEpisodeInput[];
+  /** Active foreground playback duration on this scene in ms (excluding paused, buffering, seeking, or hidden tab time). */
+  activePlayElapsedMs?: number;
+  /** Late frames observed during active foreground playback (excluding paused, seeking, or hidden tab time). */
+  lateFrames?: number;
+  /** Total frames rendered during active foreground playback. */
+  framesRendered?: number;
+  /** Whether the user is currently paused, seeking, or the tab is in the background. */
+  paused?: boolean;
+  seeking?: boolean;
+  documentHidden?: boolean;
+};
+
+export type SustainedJitterDecision = {
+  jerky: boolean;
+  reason: "ok" | "buffer-episodes" | "buffer-stall-duration" | "low-fps-late-frames";
+  qualifyingEpisodes: number;
+  qualifyingStallMs: number;
+  achievedFps: number;
+};
+
+/**
+ * Pure classifier for sustained jerky playback during active viewing.
+ * Never marks a scene jerky due to deliberate pause, user seeking, background-tab throttling, or brief initial startup (< 400 ms).
+ */
+export function evaluateSustainedJitter(input: SustainedJitterInput): SustainedJitterDecision {
+  const qualifying = (input.episodes ?? []).filter((ep) => {
+    if (!ep || !ep.playing || ep.documentHidden) return false;
+    if (ep.cause === "seek") return false;
+    const dur = typeof ep.durationMs === "number" && Number.isFinite(ep.durationMs) ? ep.durationMs : 0;
+    if (ep.cause === "start" && dur < JITTER_BRIEF_STARTUP_MS) return false;
+    return dur >= JITTER_BRIEF_STARTUP_MS;
+  });
+
+  const qualifyingEpisodes = qualifying.length;
+  const qualifyingStallMs = Math.round(qualifying.reduce((sum, ep) => sum + Math.max(0, ep.durationMs), 0));
+
+  const playMs = typeof input.activePlayElapsedMs === "number" && Number.isFinite(input.activePlayElapsedMs) ? Math.max(0, input.activePlayElapsedMs) : 0;
+  const rendered = typeof input.framesRendered === "number" && Number.isFinite(input.framesRendered) ? Math.max(0, input.framesRendered) : 0;
+  const late = typeof input.lateFrames === "number" && Number.isFinite(input.lateFrames) ? Math.max(0, input.lateFrames) : 0;
+  const achievedFps = playMs >= 500 ? Math.round(((rendered * 1000) / playMs) * 10) / 10 : 30;
+
+  if (input.documentHidden || input.seeking) {
+    return {
+      jerky: false,
+      reason: "ok",
+      qualifyingEpisodes,
+      qualifyingStallMs,
+      achievedFps
+    };
+  }
+
+  if (qualifyingEpisodes >= JITTER_MAX_BUFFER_EPISODES) {
+    return {
+      jerky: true,
+      reason: "buffer-episodes",
+      qualifyingEpisodes,
+      qualifyingStallMs,
+      achievedFps
+    };
+  }
+
+  if (qualifyingStallMs >= JITTER_MAX_BUFFER_STALL_MS) {
+    return {
+      jerky: true,
+      reason: "buffer-stall-duration",
+      qualifyingEpisodes,
+      qualifyingStallMs,
+      achievedFps
+    };
+  }
+
+  if (!input.paused && playMs >= JITTER_MIN_PLAY_ELAPSED_MS && late >= JITTER_MIN_LATE_FRAMES && achievedFps < JITTER_MIN_ACHIEVED_FPS) {
+    return {
+      jerky: true,
+      reason: "low-fps-late-frames",
+      qualifyingEpisodes,
+      qualifyingStallMs,
+      achievedFps
+    };
+  }
+
+  return {
+    jerky: false,
+    reason: "ok",
+    qualifyingEpisodes,
+    qualifyingStallMs,
+    achievedFps
+  };
+}
+
 /** Intentional pause full-quality still upgrade debounce (§3.2 & §5.4). */
 export const PAUSE_STILL_DEBOUNCE_MS = 250;
 

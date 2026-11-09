@@ -1,6 +1,8 @@
 // Parity of the worker's assembler with the pipeline it replaced: the same clips, voice, music, effects and subtitle overlay are
 // assembled by (a) a verbatim copy of the previous in-process ffmpeg graph (backend plates.ts renderPlateFilm, encode branch) and
-// (b) the worker's assemble(); decoded video frames and decoded audio samples must be identical.
+// (b) the worker's assemble(); decoded video frames and decoded audio samples must be identical. Both encode with the final-film video
+// settings (PLATE_FINAL_VIDEO_ARGS: CRF 16, preset medium, High profile), so the comparison still pins the FILTER GRAPH; the encode settings
+// themselves are asserted separately below (the old graph's CRF 23 / preset fast was an unintended quality loss against the CRF 16 clips).
 // Run inside the worker image:
 //   docker compose --profile plates-e2e run --rm --no-deps -v $PWD/worker/test:/app/test:ro --entrypoint node plate-worker test/plates-legacy-parity.mjs
 import assert from "node:assert/strict";
@@ -8,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-const { assemble, renderSubtitlePng } = await import("../src/plates.mjs");
+const { assemble, renderSubtitlePng, PLATE_FINAL_VIDEO_ARGS } = await import("../src/plates.mjs");
 
 const dir = mkdtempSync(join(tmpdir(), "plate-parity-"));
 const ff = (...a) => execFileSync("ffmpeg", ["-v", "error", "-y", ...a]);
@@ -41,7 +43,7 @@ try {
   sfx.forEach((cue, k) => { inputs.push("-i", join(SFX, `${cue.name}.mp3`)); const d = Math.round((starts[cue.scene] + cue.offset) * 1000); const trim = cue.mediaStart ? `atrim=start=${cue.mediaStart.toFixed(3)},asetpts=PTS-STARTPTS,` : ""; filters.push(`[${nextIdx}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,${trim}volume=${cue.volume.toFixed(2)},adelay=${d}|${d},apad=whole_dur=${total.toFixed(3)}[asfx_${k}]`); labels.push(`[asfx_${k}]`); nextIdx++; });
   filters.push(`${labels.join("")}amix=inputs=${labels.length}:duration=first:dropout_transition=0:normalize=0[aout]`);
   const oldOut = join(dir, "old.mp4");
-  ff(...inputs.length ? ["-y", ...inputs] : [], "-filter_complex", filters.join(";"), "-map", "[vout]", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-movflags", "+faststart", oldOut);
+  ff(...inputs.length ? ["-y", ...inputs] : [], "-filter_complex", filters.join(";"), "-map", "[vout]", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k", ...PLATE_FINAL_VIDEO_ARGS, "-movflags", "+faststart", oldOut);
 
   // ---- (b) the worker's assembler, same inputs (audio files are read from a local map instead of R2)
   const storage = await import("../src/storage.mjs");
@@ -54,6 +56,13 @@ try {
   const v0 = md5(oldOut, ["-map", "0:v:0"]), v1 = md5(newOut, ["-map", "0:v:0"]);
   const a0 = md5(oldOut, ["-map", "0:a:0", "-c:a", "pcm_s16le"]), a1 = md5(newOut, ["-map", "0:a:0", "-c:a", "pcm_s16le"]);
   console.log({ video: [v0, v1], audio: [a0, a1] });
+  const probe = (f) => JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,profile,pix_fmt,r_frame_rate,nb_frames", "-of", "json", f]).toString()).streams[0];
+  const pv = probe(newOut);
+  assert.equal(pv.codec_name, "h264");
+  assert.equal(pv.profile, "High", "final re-encode uses the High profile");
+  assert.equal(pv.pix_fmt, "yuv420p");
+  assert.equal(pv.r_frame_rate, "30/1");
+  assert.equal(PLATE_FINAL_VIDEO_ARGS.slice(PLATE_FINAL_VIDEO_ARGS.indexOf("-crf"), PLATE_FINAL_VIDEO_ARGS.indexOf("-crf") + 2).join(" "), "-crf 16");
   assert.equal(v1, v0, "decoded video frames are identical to the previous graph's");
   assert.equal(a1, a0, "decoded audio samples are identical to the previous graph's");
   void storage;

@@ -119,6 +119,7 @@ test("(h)-(m) DOM tests for BeatStoryboardStep, OptionsBar, and BrowserAnimation
                 setMotionBlur(next);
               }}
               durationSeconds={spec.durationSeconds}
+              notice={spec.notice}
               onRetryAnimate={() => {}}
               onBackToStoryboard={() => {}}
               onStartFinalRender={() => {
@@ -381,7 +382,7 @@ test("(h)-(m) DOM tests for BeatStoryboardStep, OptionsBar, and BrowserAnimation
     assert.equal(await page.locator(".aw-floating-bar label.aw-blur").count(), 0, "(j) OptionsBar without motionBlur state prop hides control");
 
     // (j), (k), (l), (m) on BrowserAnimationStep:
-    // 1. Plate project on BrowserAnimationStep -> control absent
+    // 1. Plate project on BrowserAnimationStep -> control absent, and when notice is provided, renders role="status" notice banner
     await page.evaluate(
       ({ project, beats, frames }) => {
         const container = document.getElementById("root");
@@ -392,13 +393,19 @@ test("(h)-(m) DOM tests for BeatStoryboardStep, OptionsBar, and BrowserAnimation
           beats,
           frames,
           initialMotionBlur: true,
-          durationSeconds: 18
+          durationSeconds: 18,
+          notice: "This is a quick preview. Your styled scenes aren't drawn in this setup."
         });
       },
       { project: makeStoryboardProject("illus-blueprint", 18), beats: FIXTURE_HF_BEATS, frames: FIXTURE_HF_FRAMES }
     );
     await page.waitForSelector(".aw-floating-bar");
     assert.equal(await page.locator(".aw-floating-bar label.aw-blur").count(), 0, "(j) Plate project hides motion-blur control in workspace bar");
+    assert.equal(
+      await page.locator("p.aw-error[role='status']").textContent(),
+      "This is a quick preview. Your styled scenes aren't drawn in this setup.",
+      "Plate fallback notice is rendered at the top of the workspace with role='status'"
+    );
 
     // 2. (m) & (k): HF project under 20 s (18 s) with saved-draft initialMotionBlur=true -> shown checked; toggling updates studio state & next renderProject call
     activeDurationSeconds = 18;

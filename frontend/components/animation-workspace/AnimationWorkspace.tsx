@@ -1,10 +1,45 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CommentsPanel } from "./CommentsPanel";
 import { ControlRow } from "./ControlRow";
+import { FpsMeter } from "./FpsMeter";
 import { OptionsBar } from "./OptionsBar";
+import { LIVE_TEXT_THROTTLE_MS, stepThrottledLiveText, type LiveTextThrottleState } from "./progress";
 import { SceneTabs } from "./SceneTabs";
-import type { AnimationWorkspaceProps } from "./types";
+import type { AnimationWorkspaceProps, WorkspaceFilmToast } from "./types";
+
+const TOAST_FADE_MS = 300;
+
+function useThrottledPoliteText(rawText: string, resetKey?: string): string {
+  const stateRef = useRef<LiveTextThrottleState>({ text: "", updatedAtMs: null });
+  const prevResetKeyRef = useRef<string | undefined>(resetKey);
+  if (prevResetKeyRef.current !== resetKey) {
+    prevResetKeyRef.current = resetKey;
+    stateRef.current = { text: "", updatedAtMs: null };
+  }
+  const latestRawRef = useRef<string>(rawText);
+  latestRawRef.current = rawText;
+  const [, setTick] = useState(0);
+
+  const now = Date.now();
+  const stepped = stepThrottledLiveText(stateRef.current, rawText, now, LIVE_TEXT_THROTTLE_MS);
+  stateRef.current = stepped.state;
+
+  useEffect(() => {
+    const cur = stateRef.current;
+    const target = latestRawRef.current;
+    if (!target || cur.text === target || cur.updatedAtMs === null) return;
+    const waitMs = Math.max(1, LIVE_TEXT_THROTTLE_MS - (Date.now() - cur.updatedAtMs));
+    const timer = window.setTimeout(() => {
+      const next = stepThrottledLiveText(stateRef.current, latestRawRef.current, Date.now(), LIVE_TEXT_THROTTLE_MS);
+      stateRef.current = next.state;
+      setTick((n) => n + 1);
+    }, waitMs);
+    return () => window.clearTimeout(timer);
+  }, [rawText, resetKey]);
+
+  return stateRef.current.text;
+}
 
 /**
  * Shared step 3 ("Animation") workspace shell for both engines:
@@ -23,7 +58,11 @@ export function AnimationWorkspace({
   audioControls,
   subtitleControls,
   previewQualityControls,
+  motionBlurControls,
   statusBadge,
+  filmToast,
+  sceneBanner,
+  fpsMeter,
   renderStage,
   onStageClick,
   canvasRef,
@@ -57,16 +96,72 @@ export function AnimationWorkspace({
   commentsNote,
   onRender,
   rendering = false,
-  cost
-}: AnimationWorkspaceProps & { renderDisabled?: boolean }) {
+  renderDisabled = false,
+  renderTitle,
+  cost,
+  renderButtonRef
+}: AnimationWorkspaceProps & { renderButtonRef?: import("react").RefObject<HTMLButtonElement | null> }) {
   const stageRef = useRef<HTMLElement>(null);
   const dimRailRef = useRef<HTMLDivElement>(null);
   const [dimOpen, setDimOpen] = useState(false);
 
+  const isToastActive = Boolean(filmToast?.active);
+  const lastToastRef = useRef<WorkspaceFilmToast | null>(filmToast?.active ? filmToast : null);
+  if (filmToast?.active) {
+    lastToastRef.current = filmToast;
+  } else if (filmToast && lastToastRef.current) {
+    lastToastRef.current = {
+      ...lastToastRef.current,
+      secondLine: filmToast.secondLine,
+      compactLine: filmToast.compactLine,
+      percent: filmToast.percent
+    };
+  }
+
+  const [toastMounted, setToastMounted] = useState<boolean>(isToastActive);
+  const [toastExiting, setToastExiting] = useState<boolean>(false);
+  const prevToastActiveRef = useRef<boolean>(isToastActive);
+
+  useEffect(() => {
+    if (isToastActive) {
+      prevToastActiveRef.current = true;
+      setToastExiting(false);
+      setToastMounted(true);
+      return;
+    }
+    if (!prevToastActiveRef.current) {
+      return;
+    }
+    prevToastActiveRef.current = false;
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) {
+      setToastExiting(false);
+      setToastMounted(false);
+      return;
+    }
+    setToastExiting(true);
+    const timer = window.setTimeout(() => {
+      setToastExiting(false);
+      setToastMounted(false);
+    }, TOAST_FADE_MS);
+    return () => window.clearTimeout(timer);
+  }, [isToastActive]);
+
+  const activeToast = filmToast?.active ? filmToast : lastToastRef.current;
+  const showToast = (isToastActive || toastMounted) && Boolean(activeToast);
+
+  const throttledToastFirst = useThrottledPoliteText(showToast && activeToast ? activeToast.firstLine : "");
+  const throttledToastSecond = useThrottledPoliteText(showToast && activeToast ? activeToast.secondLine : "");
+  const throttledToastCompact = useThrottledPoliteText(showToast && activeToast ? activeToast.compactLine : "");
+  const throttledBannerText = useThrottledPoliteText(
+    sceneBanner ? sceneBanner.text : "",
+    sceneBanner ? `${sceneBanner.sceneIndex}:${sceneBanner.visualState}` : ""
+  );
+
   const currentScene = scenes[currentSceneIndex];
-  const readyCount = scenes.filter((s) => s.state === "drawn" || s.state === "ready" || s.state === "checked").length;
-  const renderDisabled =
-    applyingComments || Boolean(rendering) || scenes.length === 0 || readyCount < scenes.length;
 
   return (
     <div className="animation-workspace" data-aspect={aspect}>
@@ -82,6 +177,7 @@ export function AnimationWorkspace({
           audio={audioControls}
           subtitles={subtitleControls}
           previewQuality={previewQualityControls}
+          motionBlur={motionBlurControls}
           statusBadge={statusBadge}
         />
 
@@ -126,7 +222,58 @@ export function AnimationWorkspace({
 
           <div className="aw-canvas" ref={canvasRef} onClick={onStageClick}>
             {renderStage()}
+            {fpsMeter && <FpsMeter {...fpsMeter} />}
           </div>
+
+          {showToast && activeToast && (
+            <div
+              className={`aw-film-toast${toastExiting ? " exiting" : ""}`}
+              role="status"
+              aria-live="polite"
+            >
+              <div className="aw-film-toast-card">
+                <span className="aw-film-toast-primary">
+                  <i className="aw-film-toast-dot" aria-hidden="true" />
+                  <span className="aw-film-toast-primary-text">
+                    {throttledToastFirst || activeToast.firstLine}
+                  </span>
+                </span>
+                <span className="aw-film-toast-summary aw-film-toast-summary-full">
+                  {throttledToastSecond || activeToast.secondLine}
+                </span>
+                <span className="aw-film-toast-summary aw-film-toast-summary-short" aria-hidden="true">
+                  {throttledToastCompact || activeToast.compactLine}
+                </span>
+                <div
+                  className="aw-film-toast-bar"
+                  role="progressbar"
+                  aria-label="Film build progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={activeToast.percent}
+                >
+                  <b style={{ width: `${activeToast.percent}%` }} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {sceneBanner && (
+            <div
+              className={`aw-scene-banner aw-scene-banner-${sceneBanner.placement}${
+                showToast && sceneBanner.placement === "top" ? " below-toast" : ""
+              }`}
+              role="status"
+              aria-live="polite"
+              data-scene-index={sceneBanner.sceneIndex}
+              data-visual-state={sceneBanner.visualState}
+            >
+              <div className={`aw-scene-banner-card aw-seg-state-${sceneBanner.visualState}`}>
+                <i className="aw-seg-dot" aria-hidden="true" />
+                <span className="aw-scene-banner-text">{throttledBannerText || sceneBanner.text}</span>
+              </div>
+            </div>
+          )}
 
           {frameExtras}
         </div>
@@ -153,6 +300,7 @@ export function AnimationWorkspace({
           comments={comments}
           onSeek={onSeek}
           onTogglePlay={onTogglePlay}
+          bannerSceneIndex={sceneBanner?.sceneIndex ?? null}
         />
       </section>
 
@@ -177,9 +325,11 @@ export function AnimationWorkspace({
         applyPrefix={applyPrefix}
         note={commentsNote}
         onRender={onRender}
-        renderDisabled={renderDisabled}
         rendering={rendering}
+        renderDisabled={renderDisabled}
+        renderTitle={renderTitle}
         cost={cost}
+        renderButtonRef={renderButtonRef}
       />
     </div>
   );

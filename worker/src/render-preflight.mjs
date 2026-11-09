@@ -11,7 +11,7 @@ export async function preflightRender(folder,{requireManifest=false}={}) {
   let m;try{m=JSON.parse(text)}catch{fail('Invalid render manifest JSON')}
   if(m?.version!==1||m.compositor!=='hyperframes'||m.workerClass!=='browser'||m.fps!==30)fail('Unsupported render contract or worker class');
   if(![m.canvas?.width,m.canvas?.height].every(x=>Number.isInteger(x)&&x>=2&&x<=3840&&x%2===0))fail('Invalid render dimensions');
-  if(!Number.isInteger(m.totalFrames)||m.totalFrames<1||m.totalFrames>36000||!Array.isArray(m.scenes)||!m.scenes.length||m.scenes.length>128)fail('Invalid render duration/scenes');
+  if(!Number.isInteger(m.totalFrames)||m.totalFrames<1||m.totalFrames>108000||!Array.isArray(m.scenes)||!m.scenes.length||m.scenes.length>128)fail('Invalid render duration/scenes');
   if(!m.files||typeof m.files!=='object'||Array.isArray(m.files)||!m.files['index.html']||!m.files['variables.json'])fail('Missing composition fingerprints');
   let end=0;const ids=new Set();
   for(const s of m.scenes){

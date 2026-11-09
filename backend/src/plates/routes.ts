@@ -1,15 +1,19 @@
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { tierFor } from "../billing/service.ts";
 import { config } from "../config.ts";
 import { registerRequestId, upstreamError } from "../http-errors.ts";
 import { projectOwner, getProject } from "../projects/store.ts";
 import { PLANS } from "../tokens/plan.ts";
-import { presignKey, type Bucket } from "../storage.ts";
+import { presignKey, safeDownloadFilename, type Bucket } from "../storage.ts";
 import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
-import { isAspect, primaryAspect, type Aspect } from "./model.ts";
+import { desiredVariants, isPlateLook } from "./inputs.ts";
+import { aspectSlug, isAspect, primaryAspect, type Aspect } from "./model.ts";
 import { addPlateComment, drawAspectPlates, fixPlates, plateStatus, removePlateComment, setPlateSubtitles, startPlates } from "./service.ts";
-import { getCachedClip, getRevision, getVariant, listVariants, requestVariantClip, submitCheckReport, type CheckReportInput } from "./store.ts";
+import { getCachedClip, getRevision, getVariant, listVariants, matchVariantsToDesired, requestVariantClip, submitCheckReport, type CheckReportInput, type VariantRow } from "./store.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const notFound = { error: { code: "not_found", message: "Not found." } };
@@ -29,7 +33,8 @@ const withinBytes = (v: unknown, maxBytes: number): boolean => {
 
 const defaultPresign: typeof presignKey = async (bucket: Bucket, key: string, options = {}) => {
   if (config.storageDriver !== "r2") {
-    return `/local-storage/${bucket}/${encodeURIComponent(key)}?expires=${options.seconds ?? 3600}`;
+    const fn = options.filename ? `&disposition=attachment&filename=${encodeURIComponent(options.filename.replace(/[^\w.\- ]/g, "_"))}` : "";
+    return `/local-storage/${bucket}/${encodeURIComponent(key)}?expires=${options.seconds ?? 3600}${fn}`;
   }
   return presignKey(bucket, key, options);
 };
@@ -120,7 +125,7 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     return reply
       .header("Cache-Control", "no-store")
       .code(200)
-      .send({ url, expiresAt, bundleDigest: digest, manifest: row.bundle_manifest ?? {}, params });
+      .send({ url, expiresAt, bundleDigest: digest, gen: row.gen, rev: row.rev, manifest: row.bundle_manifest ?? {}, params });
   });
 
   /** Fenced, idempotent browser check report for a live variant. */
@@ -194,13 +199,26 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     return reply.code(202).send(outcome.body);
   });
 
+  async function resolveCompatibleVariant(projectId: string, sceneIndex: number, requestedAspect?: string): Promise<VariantRow | undefined> {
+    const [project, allVariants] = await Promise.all([getProject(projectId), listVariants(projectId)]);
+    const aspect = isAspect(requestedAspect) ? requestedAspect : project ? primaryAspect(project) : "16:9";
+    if (project && isPlateLook(project.brief?.look) && (project.brief?.scriptBeats?.length ?? 0) > 0) {
+      const desired = await desiredVariants(project, [aspect], allVariants);
+      const { matched } = matchVariantsToDesired(
+        allVariants.filter((v) => v.aspect === aspect),
+        desired,
+        { allowSyntheticSignature: true }
+      );
+      return matched.get(`${sceneIndex}:${aspect}`)?.row;
+    }
+    return allVariants.find((v) => v.scene_index === sceneIndex && v.aspect === aspect);
+  }
+
   /** A scene's clip: a short-lived link into object storage (the browser's player does its own range requests there). */
   app.get<{ Params: { id: string; index: string }; Querystring: { aspect?: string } }>("/v1/projects/:id/plates/:index/clip", async (request, reply) => {
     const { id, index } = request.params;
     if (!uuid.test(id) || !/^\d{1,2}$/.test(index)) return reply.code(404).send(notFound);
-    const project = await getProject(id);
-    const aspect = isAspect(request.query.aspect) ? request.query.aspect : project ? primaryAspect(project) : "16:9";
-    const row = (await listVariants(id)).find((v) => v.scene_index === Number(index) && v.aspect === aspect);
+    const row = await resolveCompatibleVariant(id, Number(index), request.query.aspect);
     let clipKey = row?.clip_key ?? null;
     if (!clipKey && row?.bundle_digest) {
       const cached = await getCachedClip(row.bundle_digest, row.width, row.height);
@@ -214,9 +232,7 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
   app.get<{ Params: { id: string; index: string }; Querystring: { aspect?: string } }>("/v1/projects/:id/plates/:index/still", async (request, reply) => {
     const { id, index } = request.params;
     if (!uuid.test(id) || !/^\d{1,2}$/.test(index)) return reply.code(404).send(notFound);
-    const project = await getProject(id);
-    const aspect = isAspect(request.query.aspect) ? request.query.aspect : project ? primaryAspect(project) : "16:9";
-    const row = (await listVariants(id)).find((v) => v.scene_index === Number(index) && v.aspect === aspect);
+    const row = await resolveCompatibleVariant(id, Number(index), request.query.aspect);
     let stillKey = row?.still_key ?? null;
     if (!stillKey && row?.bundle_digest) {
       const cached = await getCachedClip(row.bundle_digest, row.width, row.height);
@@ -239,7 +255,15 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     try {
       const watermark = PLANS[await tierFor(projectOwner(project))].watermark;
       const row = await requestExport(project, aspect, watermark);
-      return reply.code(row.state === "ready" ? 200 : 202).send({ state: row.state, progress: row.progress, stage: row.stage, aspect, ...(row.state === "ready" ? { url: `/v1/projects/${id}/plates/export/${slugOf(aspect)}` } : {}), ...(row.state === "failed" ? { error: row.error?.message ?? "The export failed." } : {}) });
+      return reply.code(row.state === "ready" ? 200 : 202).send({
+        state: row.state,
+        progress: row.progress,
+        stage: row.stage,
+        aspect,
+        signature: row.signature,
+        ...(row.state === "ready" ? { url: `/v1/projects/${id}/plates/export/${slugOf(aspect)}?v=${encodeURIComponent(row.signature)}` } : {}),
+        ...(row.state === "failed" ? { error: row.error?.message ?? "The export failed." } : {})
+      });
     } catch (error) {
       if (error instanceof NotDrawn) return reply.code(202).send({ state: error.state === "failed" ? "failed" : "drawing", progress: 0, aspect, error: error.state === "failed" ? error.message : undefined });
       if (isPlateDomainError(error)) return reply.code(409).send({ error: { code: "plates", message: error.message } });
@@ -247,13 +271,50 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     }
   });
 
-  app.get<{ Params: { id: string; aspect: string } }>("/v1/projects/:id/plates/export/:aspect", async (request, reply) => {
+  app.get<{ Params: { id: string; aspect: string }; Querystring: { download?: string; filename?: string; v?: string } }>("/v1/projects/:id/plates/export/:aspect", async (request, reply) => {
     const { id } = request.params;
     const aspect = slugAspect(request.params.aspect);
     if (!uuid.test(id) || !aspect) return reply.code(404).send(notFound);
-    const row = await currentExport(id, aspect);
+    const vParam = typeof request.query?.v === "string" ? request.query.v.trim() : undefined;
+    const row = await currentExport(id, aspect, vParam);
     if (!row) return reply.code(404).send(notFound);
     if (row.state !== "ready" || !row.output_key) return reply.code(409).send({ error: { code: "export_not_ready", message: "This export is not finished yet." }, state: row.state, progress: row.progress });
-    return reply.header("Cache-Control", "no-store").redirect(await signKey("outputs", row.output_key, { seconds: 900, filename: `film-${slugOf(aspect)}.mp4`, contentType: "video/mp4" }), 302);
+
+    const dlParam = typeof request.query?.download === "string" ? request.query.download.trim() : "";
+    const fnParam = typeof request.query?.filename === "string" ? request.query.filename.trim() : "";
+    const wantDownload = Boolean((dlParam && dlParam !== "0" && dlParam !== "false") || fnParam);
+    const requestedName = fnParam || (dlParam && dlParam !== "1" && dlParam !== "true" ? dlParam : undefined);
+    const downloadFilename = wantDownload ? safeDownloadFilename(requestedName, `${id}-${aspectSlug(aspect)}.mp4`) : undefined;
+
+    if (config.storageDriver !== "r2" && !options?.presign && /^plates\/[0-9a-f-]{36}\//i.test(row.output_key)) {
+      const localFile = join(config.renderOutputDir, row.output_key);
+      const size = await stat(localFile).then((info) => info.size).catch(() => null);
+      if (size !== null) {
+        reply.header("Content-Type", "video/mp4").header("Accept-Ranges", "bytes").header("Cache-Control", "no-store");
+        if (downloadFilename) {
+          reply.header("Content-Disposition", `attachment; filename="${downloadFilename}"`);
+        }
+        const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range ?? "");
+        if (!range) return reply.header("Content-Length", size).send(createReadStream(localFile));
+        const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+        const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+        if (start >= size || start > end) return reply.code(416).header("Content-Range", `bytes */${size}`).send();
+        return reply.code(206)
+          .header("Content-Range", `bytes ${start}-${end}/${size}`)
+          .header("Content-Length", end - start + 1)
+          .send(createReadStream(localFile, { start, end }));
+      }
+    }
+
+    return reply
+      .header("Cache-Control", "no-store")
+      .redirect(
+        await signKey("outputs", row.output_key, {
+          seconds: 900,
+          ...(downloadFilename ? { filename: downloadFilename } : {}),
+          contentType: "video/mp4"
+        }),
+        302
+      );
   });
 }

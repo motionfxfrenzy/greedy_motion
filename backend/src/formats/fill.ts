@@ -1,4 +1,4 @@
-import { anthropicMessage, responseText } from "../anthropic.ts";
+import { callModel } from "../models/providers.ts";
 // The model's part of fill mode: write the slots the caller did not supply, from the brief and the supplied facts.
 // Claude can only return the skill's own slots, within their budgets (checked again here, with one repair attempt),
 // and the skill's fill guidance is its system prompt. PLANNER=deterministic never calls a model: the caller must then
@@ -41,14 +41,12 @@ export async function fillSlots(skill: FormatSkill, brief: FillBrief, supplied: 
 }
 
 async function requestSlots(skill: FormatSkill, slots: Slot[], messages: { role: "user" | "assistant"; content: string }[], request = fetch): Promise<Record<string, unknown>> {
-  const payload = await anthropicMessage({
-      model: config.anthropicModel,
-      max_tokens: 2000,
-      system: [{ type: "text", text: system(skill), cache_control: { type: "ephemeral" } }],
+  const { text } = await callModel({
+      step: "formatFill", maxTokens: 2000,
+      system: [{ text: system(skill), cache: true }],
       messages,
-      output_config: { format: { type: "json_schema", schema: schema(slots) } }
-
-    }, { request: request, timeoutMs: 60000, errorPrefix: "The slot fill request failed", includeErrorDetail: true, stopErrors: {"refusal": "The model declined to fill this format."} });
-  const text = payload.content?.filter((block) => block.type === "text").map((block) => block.text ?? "").join("") ?? "";
+      schema: schema(slots),
+      request: request, timeoutMs: 60000, errorPrefix: "The slot fill request failed", includeErrorDetail: true, stopErrors: { refusal: "The model declined to fill this format." }
+    });
   try { return JSON.parse(text) as Record<string, unknown>; } catch { throw new Error("The model returned no usable slot values."); }
 }

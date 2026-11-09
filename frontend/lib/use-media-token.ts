@@ -13,8 +13,8 @@ export function useMediaToken() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const renew = () => {
       void ensureMediaToken().catch(() => undefined).finally(() => {
-        // Check again in 30 minutes; ensureMediaToken renews only within an hour of expiry.
-        if (live) timer = setTimeout(renew, 30 * 60_000);
+        // Check again in 30 minutes once acquired; if not yet available, retry shortly after session hydration.
+        if (live) timer = setTimeout(renew, currentMediaToken() ? 30 * 60_000 : 1_500);
       });
     };
     renew();

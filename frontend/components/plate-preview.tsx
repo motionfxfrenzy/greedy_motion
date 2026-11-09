@@ -21,7 +21,36 @@ import {
   type SceneModeResolution
 } from "../lib/live";
 import { useMediaToken } from "../lib/use-media-token";
-import { AnimationPrep, AnimationWorkspace, FinalView, activeSubtitleCueAt, buildPlateFinalRatios, buildSubtitleCues, sortWorkspaceComments, type WorkspaceAspectOption } from "./animation-workspace";
+import {
+  AnimationPrep,
+  AnimationWorkspace,
+  FinalView,
+  RenderConfirmModal,
+  activeSubtitleCueAt,
+  buildFilmProgressToast,
+  buildPlateFinalRatios,
+  buildRenderConfirmReasons,
+  buildStagePrepProps,
+  buildSubtitleCues,
+  buildUnreadySceneBanner,
+  computeBeatContentKey,
+  computeFilmVersionKey,
+  computeProjectPlateRevision,
+  computeServerOffset,
+  createWatchedTrackerState,
+  extractProjectScriptBeats,
+  filmProgress,
+  isSceneStaleState,
+  mapVariantPhase,
+  reconcilePlateStatusWithProject,
+  sceneProgress,
+  sortWorkspaceComments,
+  updateWatchedState,
+  type ProgressContext,
+  type WatchedTrackerState,
+  type WorkspaceAspectOption
+} from "./animation-workspace";
+import { shouldSeekClip } from "./animation-workspace/clip-seek";
 import { PlateLiveStage, type PlateLiveOptions } from "./plate-live-stage";
 import { svgSrc } from "./script-canvas";
 
@@ -110,20 +139,81 @@ function sceneTransitionCues(duration: number, index: number, totalScenes: numbe
   ];
 }
 
-const LABEL: Record<string, string> = { queued: "Waiting", authoring: "Writing the scene", bundled: "Checking", checked: "Ready", rendering: "Drawing", drawn: "Drawn", failed: "Failed" };
+const LABEL: Record<string, string> = { queued: "Waiting", authoring: "Writing the scene", bundled: "Checking", checked: "Ready", rendering: "Drawing", drawn: "Drawn", failed: "Failed", stale: "Needs update" };
+const isDemotedClipWorking = (item?: { state?: string; playback?: unknown; v?: string | null }) => {
+  if (!item) return false;
+  const isClip =
+    item.playback === "clip" ||
+    (typeof item.playback === "object" && item.playback !== null && (item.playback as { mode?: unknown }).mode === "clip");
+  if (!isClip) return false;
+  if (item.state === "failed") return false;
+  if (item.state === "drawn" && item.v !== null) return false;
+  return true;
+};
 const working = (scene?: PlateScene) => {
-  const st = (scene as LivePlateScene | undefined)?.state;
-  return st === "queued" || st === "authoring" || st === "bundled" || st === "rendering";
+  if (!scene || isSceneStaleState(scene)) return false;
+  const s = scene as LivePlateScene | undefined;
+  const st = s?.state;
+  if (st === "queued" || st === "authoring" || st === "bundled" || st === "rendering") return true;
+  if (isDemotedClipWorking(s as { state?: string; playback?: unknown; v?: string | null })) return true;
+  if (s?.variants) {
+    for (const v of Object.values(s.variants)) {
+      if (
+        v &&
+        !v.stale &&
+        v.stage !== "stale" &&
+        (v.state === "queued" ||
+          v.state === "authoring" ||
+          v.state === "bundled" ||
+          v.state === "rendering" ||
+          isDemotedClipWorking(v))
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
+export {
+  computeBeatContentKey,
+  computeProjectPlateRevision,
+  extractProjectScriptBeats,
+  isSceneStaleState,
+  reconcilePlateStatusWithProject
 };
 
 /**
  * The Preview of a code-drawn style (backend plates/): the storyboard's scenes drawn in the style's medium, played as ONE film on
  * one timeline. Comments are pinned to a moment of the film; applying them redraws only the scenes they fall in.
  */
-export function PlatePreview({ project, onBack: _onBack, onRender, rendering, cost, prep, liveOptions }: { project: VideoProject; onBack: () => void; onRender?: () => void; rendering?: boolean; cost?: number; prep?: "sound" | "scenes" | "motion" | null; liveOptions?: PlateLiveOptions }) {
+export function PlatePreview({
+  project,
+  onBack: _onBack,
+  onRender,
+  rendering,
+  cost,
+  prep,
+  liveOptions,
+  renderError,
+  autoStart = false,
+  onBeforeDraw
+}: {
+  project: VideoProject;
+  onBack: () => void;
+  onRender?: () => void;
+  rendering?: boolean;
+  cost?: number;
+  prep?: "sound" | "scenes" | "motion" | null;
+  liveOptions?: PlateLiveOptions;
+  renderError?: string | null;
+  autoStart?: boolean;
+  onBeforeDraw?: () => Promise<void> | void;
+}) {
   useMediaToken();
-  const [status, setStatus] = useState<PlateStatus | null>(null);
+  const [rawStatus, setRawStatus] = useState<PlateStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updatingStale, setUpdatingStale] = useState(false);
   const [current, setCurrent] = useState(0);
   const [playing, setPlaying] = useState(Boolean(liveOptions?.initialPlaying));
   const [time, setTime] = useState(liveOptions?.freezeClockAt ?? liveOptions?.initialTime ?? 0);
@@ -152,6 +242,14 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   );
   const [qualityJobProgress, setQualityJobProgress] = useState<QualityJobProgress | null>(null);
   const [storeStatus, setStoreStatus] = useState<FrameStoreStatus | null>(null);
+  const [nowClient, setNowClient] = useState<number>(() => Date.now());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [watched, setWatched] = useState(false);
+  const renderBtnRef = useRef<HTMLButtonElement | null>(null);
+  const watchedTrackerRef = useRef<WatchedTrackerState>(createWatchedTrackerState(""));
+  const seekingFlagRef = useRef(false);
+  const clientNowAtFetchRef = useRef<number>(Date.now());
+  const firstSeenRef = useRef<Record<string, number>>({});
   const subLoaded = useRef(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const subDrag = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
@@ -163,9 +261,24 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const sfxSceneIndex = useRef<number>(-1);
   const audioTimelineRef = useRef<WebAudioFilmTimeline<PlateSfxName> | null>(null);
   const musicAudio = useRef<HTMLAudioElement>(null);
-  const started = useRef(false);
-  const wantPlay = useRef(false);
+  const startedRevisionRef = useRef<string | null>(null);
+  const pollEpochRef = useRef(0);
+  const pollNowRef = useRef<((forceTrailing?: boolean) => void) | null>(null);
+  const liveResolutionsRef = useRef<SceneModeResolution[]>([]);
+  const knownBeatKeyBySigRef = useRef<Map<string, string>>(new Map());
+  const wantPlay = useRef(Boolean(liveOptions?.initialPlaying));
   const pending = useRef<number | null>(null);
+  const liveStageHandleRef = useRef<{
+    getPresentedFrames: () => number;
+    getMediaTimeSec: () => number;
+    isBuffering: () => boolean;
+  } | null>(null);
+  liveResolutionsRef.current = liveResolutions;
+  const projectRevision = useMemo(() => computeProjectPlateRevision(project), [project]);
+  const status = useMemo(
+    () => reconcilePlateStatusWithProject(rawStatus, project, knownBeatKeyBySigRef.current),
+    [rawStatus, project]
+  );
   const scenes = useMemo(() => status?.scenes ?? [], [status]);
   const comments = useMemo(() => sortWorkspaceComments(status?.comments ?? []), [status]);
   const voiceTakes = useMemo(() => {
@@ -173,7 +286,14 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     return scenes.map((_, idx) => {
       const beatLine = project.brief?.scriptBeats?.[idx]?.line ?? project.beatPlan?.beats?.[idx]?.line;
       const beatId = project.beatPlan?.beats?.[idx]?.id;
-      const take = voiceLines.find((item) => (beatId && item.beat === beatId) || (beatLine && item.text === voiceText(beatLine))) ?? voiceLines[idx];
+      const cleaned = beatLine ? voiceText(beatLine) : "";
+      const take =
+        voiceLines.find(
+          (item) =>
+            (cleaned && item.text === cleaned && (!beatId || !item.beat || item.beat === beatId)) ||
+            (beatId && item.beat === beatId && (!cleaned || !item.text || item.text === cleaned))
+        ) ??
+        (cleaned ? voiceLines.find((item) => item.text === cleaned) : undefined);
       return take ? { url: planVoiceUrl(project.id, take.file), seconds: take.seconds, words: take.words } : null;
     });
   }, [project, scenes]);
@@ -189,12 +309,26 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const flagEnabled = isPlateLiveEnabled(liveOptions?.flagOverride);
   const liveStatus = status as (PlateStatus & Partial<LivePlateStatus>) | null;
   const isLiveMode = flagEnabled && liveStatus?.mode === "live";
-  const drawn = scenes.filter((scene) => scene.state === "drawn").length;
-  const liveReadyCount = scenes.filter((scene, idx) => liveResolutions[idx]?.isReady ?? ((scene as LivePlateScene).state === "checked" || scene.state === "drawn")).length;
+  const drawn = scenes.filter((scene) => !isSceneStaleState(scene) && scene.state === "drawn").length;
+  const liveReadyCount = scenes.filter((scene, idx) => !isSceneStaleState(scene) && (liveResolutions[idx]?.isReady ?? ((scene as LivePlateScene).state === "checked" || scene.state === "drawn"))).length;
   const readyCount = isLiveMode ? liveReadyCount : drawn;
+  const staleCount = scenes.filter((scene) => isSceneStaleState(scene)).length;
   const busy = Boolean(status?.running) || scenes.some(working) || (isLiveMode && liveResolutions.some((r) => r.tabState === "updating"));
-  const failed = scenes.filter((scene) => scene.state === "failed").length;
+  const failed = scenes.filter((scene) => !isSceneStaleState(scene) && scene.state === "failed").length;
   const shown = scenes[current];
+
+  useEffect(() => {
+    if (scenes.length > 0 && current >= scenes.length) {
+      setCurrent(0);
+      setTime(0);
+    }
+  }, [scenes.length, current]);
+
+  useEffect(() => {
+    knownBeatKeyBySigRef.current.clear();
+    startedRevisionRef.current = null;
+    firstSeenRef.current = {};
+  }, [project.id]);
   const musicSrc = project.planAudio?.music?.file ? planVoiceUrl(project.id, project.planAudio.music.file) : null;
   const pendingCommentScenes = useMemo(() => new Set(comments.map((c) => c.scene)), [comments]);
   const referenceFrames = useMemo(() => {
@@ -202,19 +336,77 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     if (!saved.length) return [];
     const byKey = new Map(saved.map((f) => [f.key, f.svg]));
     const beats = project.brief?.scriptBeats ?? [];
-    return scenes.map((_, idx) => {
+    return scenes.map((scene, idx) => {
       const beat = beats[idx];
-      const svg = (beat && project.brief ? byKey.get(scriptFrameKey(beat, project.brief)) : undefined) ?? saved[idx]?.svg;
+      const byExact = beat && project.brief ? byKey.get(scriptFrameKey(beat, project.brief)) : undefined;
+      const kw = (beat?.keyword ?? scene.keyword ?? "").trim().toLowerCase();
+      const byKeyword = !byExact && kw
+        ? saved.find((f) => f.key.toLowerCase().includes(`\u0001${kw}\u0001`))?.svg
+        : undefined;
+      const svg = byExact ?? byKeyword ?? (scene.stale ? undefined : saved[idx]?.svg);
       return svg ? svgSrc(svg) : null;
     });
   }, [project.scriptFrames, project.brief, scenes]);
 
+  const applyStatus = useCallback((next: PlateStatus) => {
+    const fetchMs = Date.now();
+    clientNowAtFetchRef.current = fetchMs;
+    const offset = computeServerOffset(next.serverNow, fetchMs);
+    const alignedNow = fetchMs + offset;
+    for (const s of next.scenes) {
+      const keyState = `${s.index}:${s.state}`;
+      if (firstSeenRef.current[keyState] === undefined) {
+        firstSeenRef.current[keyState] = alignedNow;
+      }
+      const phase = mapVariantPhase(s, s);
+      const keyPhase = `${s.index}:${phase}`;
+      if (firstSeenRef.current[keyPhase] === undefined) {
+        firstSeenRef.current[keyPhase] = alignedNow;
+      }
+    }
+    setRawStatus(next);
+    setNowClient(fetchMs);
+  }, []);
+
+  const triggerDrawPlates = useCallback(async () => {
+    setError(null);
+    setUpdatingStale(true);
+    const epoch = ++pollEpochRef.current;
+    startedRevisionRef.current = projectRevision;
+    try {
+      if (onBeforeDraw) {
+        await onBeforeDraw();
+      }
+      await ensureMediaToken();
+      const drawnStatus = await drawPlates(project.id);
+      if (pollEpochRef.current === epoch) {
+        applyStatus(drawnStatus);
+      }
+      return drawnStatus;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start drawing.");
+      return null;
+    } finally {
+      setUpdatingStale(false);
+    }
+  }, [project.id, projectRevision, onBeforeDraw, applyStatus]);
+
   const refreshStatus = useCallback(() => {
+    if (pollNowRef.current) {
+      pollNowRef.current(true);
+      return;
+    }
+    const epoch = pollEpochRef.current;
     void ensureMediaToken()
       .then(() => getPlates(project.id))
-      .then((next) => { setStatus(next); setError(null); })
+      .then((next) => {
+        if (pollEpochRef.current === epoch) {
+          applyStatus(next);
+          setError(null);
+        }
+      })
       .catch(() => undefined);
-  }, [project.id]);
+  }, [project.id, applyStatus]);
 
   const rateFor = useCallback((index: number, el: HTMLVideoElement | null) => {
     const sceneDur = durations[index] ?? scenes[index]?.seconds ?? 0;
@@ -223,14 +415,28 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   }, [durations, scenes]);
 
   useEffect(() => {
-    if (prep) return;
+    if (prep) {
+      pollNowRef.current = null;
+      return;
+    }
     let live = true, timer: ReturnType<typeof setTimeout>;
+    let hadActiveWork = false;
+    let trailingPollPending = false;
+    const epoch = ++pollEpochRef.current;
+    const schedulePoll = (delayMs: number) => {
+      clearTimeout(timer);
+      if (live && pollEpochRef.current === epoch) {
+        timer = setTimeout(() => void poll(), delayMs);
+      }
+    };
     const poll = async () => {
       try {
         await ensureMediaToken();
-        const next = await getPlates(project.id);
-        if (!live) return;
-        setStatus(next); setError(null);
+        const rawNext = await getPlates(project.id);
+        if (!live || pollEpochRef.current !== epoch) return;
+        const next = reconcilePlateStatusWithProject(rawNext, project, knownBeatKeyBySigRef.current) ?? rawNext;
+        applyStatus(rawNext);
+        setError(null);
         if (!subLoaded.current && next.subtitles) {
           subLoaded.current = true;
           setSubMode(next.subtitles.mode);
@@ -254,29 +460,101 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
           if (typeof next.subtitles.sfx === "boolean") setSfxOn(next.subtitles.sfx);
           if (typeof next.subtitles.transitions === "boolean") setTransitionsOn(next.subtitles.transitions);
         }
-        let shouldKeepPolling = Boolean(next.running) || next.scenes.some(working) || (next.drawingAspects?.length ?? 0) > 0;
-        if (next.available && !started.current && !next.running) {
-          started.current = true;
+        const hasUnreadyLiveScene =
+          flagEnabled &&
+          liveResolutionsRef.current.some(
+            (r, idx) =>
+              !isSceneStaleState(next.scenes[idx]) &&
+              next.scenes[idx]?.state !== "failed" &&
+              (r.tabState === "updating" || (r.mode === "clip" && !r.isReady))
+          );
+        let shouldKeepPolling =
+          Boolean(next.running) ||
+          next.scenes.some(working) ||
+          (next.drawingAspects?.length ?? 0) > 0 ||
+          hasUnreadyLiveScene;
+        const canAutoStartRevision =
+          liveOptions?.autoDraw !== false &&
+          next.available &&
+          startedRevisionRef.current !== projectRevision &&
+          !next.running;
+        if (canAutoStartRevision) {
           const nextMode = (next as Partial<LivePlateStatus>).mode;
-          const isSceneDone = (s: { state: string }) =>
-            flagEnabled && nextMode === "live" ? s.state === "checked" || s.state === "drawn" : s.state === "drawn";
-          if (!next.scenes.length || next.scenes.some((s) => !isSceneDone(s))) {
+          const isSceneDone = (s: PlateScene) =>
+            !isSceneStaleState(s) &&
+            (flagEnabled && nextMode === "live" ? s.state === "checked" || s.state === "drawn" : s.state === "drawn");
+          const wantedFromBrief = project.brief?.aspects && project.brief.aspects.length > 0 ? project.brief.aspects : [defaultAspect];
+          const missingAspect = wantedFromBrief.some(
+            (asp) => !(next.drawnAspects ?? []).includes(asp) && !(next.drawingAspects ?? []).includes(asp)
+          );
+          const isFreeShiftOnly = Boolean(next.needsReconcile && !next.stale && next.scenes.length > 0);
+          const hasUnbuiltInitial = !next.stale && (!next.scenes.length || next.scenes.some((s) => !isSceneDone(s) && s.state !== "failed") || missingAspect);
+          const shouldInvokeDraw = isFreeShiftOnly || (next.stale ? Boolean(autoStart) : hasUnbuiltInitial);
+          if (shouldInvokeDraw) {
+            startedRevisionRef.current = projectRevision;
+            if (onBeforeDraw) {
+              await onBeforeDraw();
+            }
             const drawnStatus = await drawPlates(project.id);
-            setStatus(drawnStatus);
-            shouldKeepPolling = Boolean(drawnStatus.running) || drawnStatus.scenes.some(working) || (drawnStatus.drawingAspects?.length ?? 0) > 0;
+            if (!live || pollEpochRef.current !== epoch) return;
+            applyStatus(drawnStatus);
+            const reconciledDrawn = reconcilePlateStatusWithProject(drawnStatus, project, knownBeatKeyBySigRef.current) ?? drawnStatus;
+            shouldKeepPolling =
+              Boolean(reconciledDrawn.running) ||
+              reconciledDrawn.scenes.some(working) ||
+              (reconciledDrawn.drawingAspects?.length ?? 0) > 0;
           }
         }
-        if (live && shouldKeepPolling) timer = setTimeout(poll, flagEnabled ? 1500 : 3000);
+        const pollIntervalMs = flagEnabled ? 1500 : 3000;
+        if (shouldKeepPolling) {
+          hadActiveWork = true;
+          trailingPollPending = false;
+          schedulePoll(pollIntervalMs);
+        } else if (hadActiveWork || trailingPollPending) {
+          // Do one more poll after the last working scene finishes so a final clip version / state transition is never missed.
+          hadActiveWork = false;
+          trailingPollPending = false;
+          schedulePoll(pollIntervalMs);
+        }
       } catch (e) {
-        if (live) {
+        if (live && pollEpochRef.current === epoch) {
           setError(e instanceof Error ? e.message : "Could not load the scenes.");
-          timer = setTimeout(poll, 3000);
+          schedulePoll(3000);
         }
       }
     };
+    pollNowRef.current = (forceTrailing = false) => {
+      if (forceTrailing) {
+        trailingPollPending = true;
+      }
+      clearTimeout(timer);
+      if (live && pollEpochRef.current === epoch) {
+        void poll();
+      }
+    };
     void poll();
-    return () => { live = false; clearTimeout(timer); };
-  }, [project.id, project.brief?.scriptBeats?.length, prep, busy, flagEnabled]);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      if (pollNowRef.current) {
+        pollNowRef.current = null;
+      }
+    };
+  }, [project.id, projectRevision, prep, flagEnabled, autoStart, liveOptions?.autoDraw]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hasDemotedUnreadyClip =
+    isLiveMode &&
+    liveResolutions.some(
+      (r, idx) =>
+        !isSceneStaleState(scenes[idx]) &&
+        scenes[idx]?.state !== "failed" &&
+        (r.tabState === "updating" || (r.mode === "clip" && !r.isReady))
+    );
+  useEffect(() => {
+    if (hasDemotedUnreadyClip) {
+      pollNowRef.current?.(true);
+    }
+  }, [hasDemotedUnreadyClip]);
 
   const clearSfxTimers = useCallback(() => {
     // No setTimeout timers are used; reset tracker cursor on stop/clear.
@@ -425,7 +703,9 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     if (isLiveMode && liveResolutions[current]?.mode === "live") return;
     let frame = 0;
     const tick = () => {
-      const isSceneBuffering = Boolean(liveResolutions[current]?.isBuffering || liveResolutions[current]?.isPreparing);
+      const curRes = liveResolutions[current];
+      const waitingOnClip = Boolean(isLiveMode && curRes?.mode === "clip" && !curRes.isPlayable);
+      const isSceneBuffering = Boolean(curRes?.isBuffering || curRes?.isPreparing || waitingOnClip);
       if (isSceneBuffering) {
         audioTimelineRef.current?.setBuffering(true);
         voices.current[current]?.pause();
@@ -437,8 +717,12 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       audioTimelineRef.current?.setBuffering(false);
       const el = videos.current[current];
       const vo = voices.current[current];
+      if ((!el || el.paused) && (!vo || vo.paused)) {
+        frame = requestAnimationFrame(tick);
+        return;
+      }
       const rate = rateFor(current, el);
-      const vidElapsed = el ? el.currentTime / (rate || 1) : 0;
+      const vidElapsed = el && (!el.paused || el.ended) ? el.currentTime / (rate || 1) : 0;
       const voElapsed = vo && (!vo.paused || vo.ended) ? vo.currentTime : 0;
       const local = Math.min(durations[current] ?? 0, Math.max(vidElapsed, voElapsed));
       setTime((starts[current] ?? 0) + local);
@@ -449,6 +733,12 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     return () => cancelAnimationFrame(frame);
   }, [playing, current, starts, durations, rateFor, isLiveMode, liveResolutions, tickSceneSfx]);
 
+  // The film clock ticks every frame; the clip/voice seek below must NOT run on every tick (a seek per frame means the clip never plays:
+  // measured 0.1x to 0.2x speed with 60 `seeking` events in 3 s). It seeks only when the scene or its media element/source changed,
+  // for a pending offset, or when the media has drifted from the film clock by more than SEEK_DRIFT_SECONDS.
+  const timeRef = useRef(time);
+  timeRef.current = time;
+  const lastSeekRef = useRef<{ el: HTMLVideoElement | null; scene: number; src: string }>({ el: null, scene: -1, src: "" });
   useEffect(() => {
     videos.current.forEach((el, idx) => { if (idx !== current && el && !el.paused) el.pause(); });
     voices.current.forEach((el, idx) => { if (idx !== current && el && !el.paused) el.pause(); });
@@ -466,14 +756,28 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     if (!el) return;
     const rate = rateFor(current, el);
     el.playbackRate = rate;
-    if (pending.current !== null) {
-      const offset = pending.current;
-      el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, offset * rate) : offset;
-      if (vo) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), offset) : offset;
-      pending.current = null;
+    const localFromTime = Math.max(0, timeRef.current - (starts[current] ?? 0));
+    const offset = pending.current !== null ? pending.current : localFromTime > 0 ? localFromTime : null;
+    if (offset !== null) {
+      if (el.readyState >= 1) {
+        const last = lastSeekRef.current;
+        const sourceChanged = last.scene !== current || last.el !== el || last.src !== el.currentSrc;
+        const drifted = shouldSeekClip({ mediaTime: el.currentTime / (rate || 1), expected: offset });
+        if (pending.current !== null || sourceChanged || drifted) {
+          el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, offset * rate) : offset;
+          if (vo) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), offset) : offset;
+        }
+        lastSeekRef.current = { el, scene: current, src: el.currentSrc };
+        pending.current = null;
+      } else {
+        pending.current = offset;
+      }
     }
-    if (wantPlay.current) void el.play().catch(() => setPlaying(false));
-  }, [current, rateFor, isLiveMode, liveResolutions]);
+    if ((wantPlay.current || playing) && (!isLiveMode || Boolean(liveResolutions[current]?.isPlayable))) {
+      wantPlay.current = true;
+      void el.play().catch(() => setPlaying(false));
+    }
+  }, [current, rateFor, isLiveMode, liveResolutions, playing, starts]);
 
   const seek = useCallback((at: number) => {
     if (!scenes.length) return;
@@ -481,6 +785,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     let index = scenes.length - 1;
     for (let i = 0; i < scenes.length; i++) if (clamped < starts[i]! + durations[i]!) { index = i; break; }
     const local = clamped - starts[index]!;
+    seekingFlagRef.current = true;
     setTime(clamped);
     audioTimelineRef.current?.seek(clamped);
     if (musicAudio.current) musicAudio.current.currentTime = clamped;
@@ -587,20 +892,30 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     if (index !== current) return;
     voices.current[index]?.pause();
     const after = scenes.findIndex((scene, i) =>
-      i > current && (isLiveMode ? Boolean(liveResolutions[i]?.isPlayable) : scene.state === "drawn")
+      i > current &&
+      (isLiveMode
+        ? Boolean(
+            liveResolutions[i]?.isPlayable ||
+              (!isSceneStaleState(scene) &&
+                scene.state !== "failed" &&
+                liveResolutions[i]?.mode === "clip" &&
+                liveResolutions[i]?.reason === "slow-draw")
+          )
+        : scene.state === "drawn")
     );
     if (after >= 0) {
       const nextVideo = videos.current[after];
       const nextVoice = voices.current[after];
+      const nextStart = starts[after] ?? 0;
       if (isLiveMode && liveResolutions[after]?.mode === "live") {
         if (nextVoice && nextVoice.readyState >= 1) nextVoice.currentTime = 0;
         pending.current = null;
-        const nextStart = starts[after] ?? 0;
         setTime(nextStart);
         audioTimelineRef.current?.seek(nextStart);
         setCurrent(after);
       } else {
         audioTimelineRef.current?.pause();
+        setTime(nextStart);
         if (nextVideo && nextVideo.readyState >= 1) {
           nextVideo.playbackRate = rateFor(after, nextVideo);
           nextVideo.currentTime = 0;
@@ -612,13 +927,26 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
         setCurrent(after);
       }
     } else {
+      const endVerKey = computeFilmVersionKey(scenes);
+      const nextWatched = updateWatchedState(watchedTrackerRef.current, {
+        playing: true,
+        currentTime: total,
+        totalDuration: total,
+        currentSceneIndex: index,
+        sceneCount: scenes.length,
+        lastSceneDuration: durations[scenes.length - 1],
+        ended: true,
+        versionKey: endVerKey
+      });
+      watchedTrackerRef.current = nextWatched;
+      if (nextWatched.watched !== watched) setWatched(nextWatched.watched);
       wantPlay.current = false;
       audioTimelineRef.current?.pause();
       setPlaying(false);
       musicAudio.current?.pause();
       setTime(total);
     }
-  }, [current, scenes, isLiveMode, liveResolutions, starts, rateFor, total]);
+  }, [current, scenes, isLiveMode, liveResolutions, starts, rateFor, total, durations, watched]);
 
   const onVideoEnded = (index: number) => {
     if (index !== current) return;
@@ -640,12 +968,12 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     const body = draft.trim();
     if (!body || sending) return;
     setSending(true); wantPlay.current = false; setPlaying(false); audioTimelineRef.current?.pause(); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause();
-    try { await addPlateComment(project.id, time, body); setDraft(""); setStatus(await getPlates(project.id)); }
+    try { await addPlateComment(project.id, time, body); setDraft(""); applyStatus(await getPlates(project.id)); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not add the comment."); }
     finally { setSending(false); }
   };
-  const apply = async () => { setError(null); try { setStatus(await fixPlates(project.id)); } catch (e) { setError(e instanceof Error ? e.message : "Could not redraw the scenes."); } };
-  const remove = async (id: string) => { try { await removePlateComment(project.id, id); setStatus(await getPlates(project.id)); } catch (e) { setError(e instanceof Error ? e.message : "Could not remove the comment."); } };
+  const apply = async () => { setError(null); try { applyStatus(await fixPlates(project.id)); } catch (e) { setError(e instanceof Error ? e.message : "Could not redraw the scenes."); } };
+  const remove = async (id: string) => { try { await removePlateComment(project.id, id); applyStatus(await getPlates(project.id)); } catch (e) { setError(e instanceof Error ? e.message : "Could not remove the comment."); } };
 
   const chooseSubMode = (nextMode: SubtitleMode) => {
     subLoaded.current = true;
@@ -766,8 +1094,11 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   const effectiveTextColor = subColor || (subStyle === "cinema" ? "#fef08a" : subStyle === "kinetic" || subStyle === "paper" ? "#1e1b18" : "#ffffff");
   const effectiveBgColor = subBgColor || (subStyle === "kinetic" ? "#facc15" : subStyle === "paper" ? "#faf5e8" : subStyle === "blueprint" ? "#0c2a4a" : "#0c0f16");
   const defaultAspect = (project.brief?.aspect ?? (project.request.format === "portrait" ? "9:16" : "16:9")) as "16:9" | "9:16" | "1:1";
-  const selectedBriefAspects: ("16:9" | "9:16" | "1:1")[] = project.brief?.aspects && project.brief.aspects.length > 0 ? project.brief.aspects : [defaultAspect];
-  const [viewAspect, setViewAspect] = useState<"16:9" | "9:16" | "1:1">(selectedBriefAspects[0] ?? defaultAspect);
+  const selectedBriefAspects: ("16:9" | "9:16" | "1:1")[] =
+    project.brief?.aspects && project.brief.aspects.length > 0
+      ? [defaultAspect, ...project.brief.aspects.filter((a) => a !== defaultAspect)]
+      : [defaultAspect];
+  const [viewAspect, setViewAspect] = useState<"16:9" | "9:16" | "1:1">(defaultAspect);
   const drawnAspects = status?.drawnAspects ?? [defaultAspect];
   const drawingAspects = status?.drawingAspects ?? [];
   const isViewAspectDrawn = drawnAspects.includes(viewAspect);
@@ -782,7 +1113,7 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     musicAudio.current?.pause();
     setViewAspect(asp);
     if (!drawnAspects.includes(asp) && !drawingAspects.includes(asp) && readyCount === scenes.length && scenes.length > 0) {
-      void drawPlateAspect(project.id, asp).then(setStatus).catch((e) => setError(e instanceof Error ? e.message : "Could not draw this dimension."));
+      void drawPlateAspect(project.id, asp).then(applyStatus).catch((e) => setError(e instanceof Error ? e.message : "Could not draw this dimension."));
     }
   };
 
@@ -807,10 +1138,98 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
   };
 
   const errors: string[] = [];
-  if (error) errors.push(error);
+  if (renderError) errors.push(renderError);
+  if (error && error !== renderError) errors.push(error);
   if (status && !status.available) errors.push("Code-drawn scenes aren't available for this project right now.");
 
-  const currentLiveStatusText = isLiveMode ? liveResolutions[current]?.statusText : undefined;
+  const hasActiveWork = busy || isViewAspectDrawing || (scenes.length > 0 && readyCount < scenes.length && failed < scenes.length);
+  useEffect(() => {
+    if (!hasActiveWork) return;
+    const id = window.setInterval(() => setNowClient(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [hasActiveWork]);
+
+  const progressCtx: ProgressContext = useMemo(
+    () => ({
+      nowClient,
+      serverNow: status?.serverNow,
+      clientNowAtFetch: clientNowAtFetchRef.current,
+      viewAspect,
+      isLiveMode,
+      scenes,
+      firstSeenAt: firstSeenRef.current
+    }),
+    [nowClient, status?.serverNow, viewAspect, isLiveMode, scenes]
+  );
+
+  const perSceneProgress = useMemo(
+    () => scenes.map((s) => sceneProgress(s, s.variants?.[viewAspect] ?? null, progressCtx)),
+    [scenes, viewAspect, progressCtx]
+  );
+  const shownProgress = shown ? (perSceneProgress[shown.index] ?? sceneProgress(shown, shown.variants?.[viewAspect] ?? null, progressCtx)) : null;
+  const filmProg = useMemo(() => filmProgress(scenes, progressCtx), [scenes, progressCtx]);
+
+  const filmVersionKey = useMemo(() => computeFilmVersionKey(scenes), [scenes]);
+
+  useEffect(() => {
+    const isSeeking = seekingFlagRef.current;
+    seekingFlagRef.current = false;
+    const nextWatched = updateWatchedState(watchedTrackerRef.current, {
+      playing,
+      currentTime: time,
+      totalDuration: total,
+      currentSceneIndex: current,
+      sceneCount: scenes.length,
+      lastSceneDuration: durations[scenes.length - 1],
+      seeking: isSeeking,
+      versionKey: filmVersionKey
+    });
+    watchedTrackerRef.current = nextWatched;
+    if (nextWatched.watched !== watched) {
+      setWatched(nextWatched.watched);
+    }
+  }, [playing, time, total, current, scenes.length, durations, filmVersionKey, watched]);
+
+  const confirmDecision = useMemo(
+    () =>
+      buildRenderConfirmReasons({
+        progress: filmProg,
+        watched
+      }),
+    [filmProg, watched]
+  );
+
+  const pauseAllMedia = useCallback(() => {
+    wantPlay.current = false;
+    setPlaying(false);
+    audioTimelineRef.current?.pause();
+    videos.current[current]?.pause();
+    voices.current[current]?.pause();
+    musicAudio.current?.pause();
+  }, [current]);
+
+  const handleRenderClick = useCallback(() => {
+    if (!onRender) return;
+    pauseAllMedia();
+    if (!confirmDecision.shouldConfirm) {
+      onRender();
+      return;
+    }
+    setConfirmOpen(true);
+  }, [onRender, pauseAllMedia, confirmDecision.shouldConfirm]);
+
+  const handleReviewFirst = useCallback(() => {
+    setConfirmOpen(false);
+    queueMicrotask(() => {
+      renderBtnRef.current?.focus();
+    });
+  }, []);
+
+  const handleMakeVideo = useCallback(() => {
+    setConfirmOpen(false);
+    onRender?.();
+  }, [onRender]);
+
   const activeQualityJobText =
     (qualityJobProgress?.running && qualityJobProgress.text) ? qualityJobProgress.text : (storeStatus?.qualityJobText ?? null);
 
@@ -819,27 +1238,106 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
         text: activeQualityJobText,
         showRetry: false
       }
-    : currentLiveStatusText
+    : storeStatus?.disabled && storeStatus.disabledReason
       ? {
-          text: currentLiveStatusText,
+          text: storeStatus.disabledReason,
           showRetry: false
         }
-      : storeStatus?.disabled && storeStatus.disabledReason
+      : !busy && staleCount > 0
         ? {
-            text: storeStatus.disabledReason,
-            showRetry: false
+            text:
+              staleCount === scenes.length
+                ? "Storyboard changed · update needed"
+                : staleCount === 1
+                  ? "1 scene needs update"
+                  : `${staleCount} scenes need update`,
+            showRetry: true,
+            retryLabel: updatingStale ? "Updating…" : "Update animation",
+            onRetry: () => { void triggerDrawPlates(); }
           }
-        : busy || failed > 0 || (scenes.length > 0 && readyCount < scenes.length)
+        : !busy && failed > 0 && !(scenes.length > 0 && readyCount + failed < scenes.length)
           ? {
-              text: isLiveMode ? <>{readyCount}/{scenes.length || "…"} ready{busy ? "…" : ""}</> : <>{drawn}/{scenes.length || "…"} drawn{busy ? "…" : ""}</>,
-              showRetry: !busy,
-              onRetry: () => { void drawPlates(project.id).then(setStatus).catch((e) => setError(e instanceof Error ? e.message : "Could not start drawing.")); }
+              text: failed === 1 ? "1 scene failed" : `${failed} scenes failed`,
+              showRetry: true,
+              onRetry: () => { void triggerDrawPlates(); }
             }
           : null;
 
-  const isCurrentScenePlayable = isLiveMode ? Boolean(liveResolutions[current]?.isPlayable) : (shown?.state === "drawn" && isViewAspectDrawn);
+  const isSceneDrawnInAspect = (scene: PlateScene | undefined, asp: PlateAspect) => {
+    if (!scene || isSceneStaleState(scene, asp)) return false;
+    const v = scene.variants?.[asp];
+    if (v) return v.state === "drawn";
+    return asp === defaultAspect && scene.state === "drawn";
+  };
+  const isShownStale = isSceneStaleState(shown, viewAspect);
+  const isShownDrawnInViewAspect = isSceneDrawnInAspect(shown, viewAspect);
+  const isAnySceneDrawnInViewAspect = isViewAspectDrawn || scenes.some((s) => isSceneDrawnInAspect(s, viewAspect));
+  const isCurrentScenePlayable = !isShownStale && (isLiveMode ? Boolean(liveResolutions[current]?.isPlayable) : isShownDrawnInViewAspect);
+  const shownSketch = referenceFrames[current] ?? null;
+  const clipStagePrep = !isLiveMode
+    ? buildStagePrepProps({
+        prep,
+        sceneIndex: shown?.index ?? current,
+        sceneCount: scenes.length,
+        sceneState: shown?.state ?? "queued",
+        sceneStale: isShownStale,
+        sceneError: shown?.error ?? null,
+        playback: (shown as LivePlateScene | undefined)?.variants?.[viewAspect]?.playback ?? (shown as LivePlateScene | undefined)?.playback,
+        viewAspect,
+        primaryAspect: defaultAspect,
+        isViewAspectDrawn: isAnySceneDrawnInViewAspect,
+        isViewAspectDrawing,
+        isPlayable: Boolean(!isShownStale && isShownDrawnInViewAspect),
+        sceneProgress: shownProgress,
+        backgroundSketch: shownSketch
+      })
+    : null;
 
-  return <AnimationWorkspace
+  const isLiveStagePrepShowing =
+    isLiveMode &&
+    Boolean(
+      prep ||
+        shown?.state === "failed" ||
+        !isCurrentScenePlayable ||
+        liveResolutions[current]?.stageWait ||
+        (isViewAspectDrawing && !isViewAspectDrawn && !isCurrentScenePlayable)
+    );
+  const stagePrepSceneIndex = (!isLiveMode ? clipStagePrep !== null : isLiveStagePrepShowing) ? current : null;
+
+  const filmToast = useMemo(
+    () =>
+      buildFilmProgressToast({
+        scenes,
+        perSceneProgress,
+        filmProgress: filmProg,
+        progressContext: progressCtx,
+        isViewAspectDrawing,
+        viewAspect
+      }),
+    [scenes, perSceneProgress, filmProg, progressCtx, isViewAspectDrawing, viewAspect]
+  );
+
+  const sceneBanner = useMemo(
+    () =>
+      buildUnreadySceneBanner({
+        scenes,
+        perSceneProgress,
+        progressContext: progressCtx,
+        currentSceneIndex: current,
+        stagePrepSceneIndex
+      }),
+    [scenes, perSceneProgress, progressCtx, current, stagePrepSceneIndex]
+  );
+
+  const activeFpsSource: "clip" | "live" =
+    isLiveMode && liveResolutions[current]?.mode === "live" ? "live" : "clip";
+  const isActiveSceneBuffering = Boolean(
+    !isCurrentScenePlayable ||
+      (isLiveMode && (liveResolutions[current]?.isBuffering || liveResolutions[current]?.isPreparing))
+  );
+
+  return <>
+  <AnimationWorkspace
     aspect={viewAspect}
     aspects={aspectOptions}
     onSelectAspect={selectOrDrawAspect}
@@ -852,6 +1350,24 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
       ...(isLiveMode ? { renderMode, onSelectRenderMode: chooseRenderMode } : {})
     }}
     statusBadge={statusBadge}
+    filmToast={filmToast}
+    sceneBanner={sceneBanner}
+    fpsMeter={{
+      playing,
+      buffering: isActiveSceneBuffering,
+      source: activeFpsSource,
+      sceneKey: `${current}:${activeFpsSource}:${viewAspect}`,
+      getVideoElement: () => videos.current[current] ?? null,
+      getLiveMetrics: () => {
+        const h = liveStageHandleRef.current;
+        if (!h) return null;
+        return {
+          presentedFrames: h.getPresentedFrames(),
+          mediaTimeSec: h.getMediaTimeSec(),
+          buffering: h.isBuffering()
+        };
+      }
+    }}
     canvasRef={canvasRef}
     onStageClick={toggle}
     renderStage={() => <>
@@ -861,9 +1377,10 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
           look={liveStatus?.look ?? project.brief?.look ?? null}
           scenes={scenes as LivePlateScene[]}
           referenceFrames={referenceFrames}
+          perSceneProgress={perSceneProgress}
           viewAspect={viewAspect}
           primaryAspect={defaultAspect}
-          isViewAspectDrawn={isViewAspectDrawn}
+          isViewAspectDrawn={isAnySceneDrawnInViewAspect}
           isViewAspectDrawing={isViewAspectDrawing}
           prep={prep}
           current={current}
@@ -902,11 +1419,14 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
           qualityJobText={activeQualityJobText}
           storeDisabledReason={storeStatus?.disabled ? storeStatus.disabledReason : null}
           liveOptions={liveOptions}
+          liveStageHandleRef={liveStageHandleRef}
+          onUpdateStale={() => { void triggerDrawPlates(); }}
+          updatingStale={updatingStale}
         />
       ) : (
         <>
-          {isViewAspectDrawn && scenes.map((scene) => {
-            if (scene.state !== "drawn") return null;
+          {isAnySceneDrawnInViewAspect && scenes.map((scene) => {
+            if (!isSceneDrawnInAspect(scene, viewAspect)) return null;
             const clipSrc = plateClipUrl(project.id, scene.index, `${scene.variants?.[viewAspect]?.v ?? scene.sig}-${scene.rev ?? 0}-${viewAspect}`, viewAspect);
             return <video
               key={`${scene.index}-${clipSrc}`}
@@ -965,10 +1485,25 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
               }}
             />;
           })}
-          {(shown?.state !== "drawn" || !isViewAspectDrawn) && <AnimationPrep
-            failed={shown?.state === "failed"}
-            title={shown?.state === "failed" ? "This scene didn't draw" : isViewAspectDrawing || (shown?.state === "drawn" && !isViewAspectDrawn) ? <>Drawing scenes in {viewAspect}…</> : prep === "sound" ? "Making the voiceover and music…" : prep === "scenes" ? "Planning the scenes…" : shown ? `${LABEL[shown.state]}…` : "Preparing the scenes…"}
-            detail={shown?.state === "failed" ? shown.error : isViewAspectDrawing || (shown?.state === "drawn" && !isViewAspectDrawn) ? <>Drawing every scene on a {viewAspect} canvas so no character is cropped</> : prep === "sound" ? "Recording the narration and building the music bed" : prep === "scenes" ? "Preparing the storyboard timing" : <>Scene {(shown?.index ?? 0) + 1} of {scenes.length || "…"}</>}
+          {clipStagePrep && <AnimationPrep
+            failed={clipStagePrep.failed}
+            stale={clipStagePrep.stale}
+            compact={clipStagePrep.compact}
+            compactText={clipStagePrep.compactText}
+            title={clipStagePrep.title}
+            meaning={clipStagePrep.meaning}
+            detail={clipStagePrep.detail}
+            sceneLabel={clipStagePrep.sceneLabel}
+            elapsedText={clipStagePrep.elapsedText}
+            progressFraction={clipStagePrep.progressFraction}
+            progressIndeterminate={clipStagePrep.progressIndeterminate}
+            progressEstimated={clipStagePrep.progressEstimated}
+            etaText={clipStagePrep.etaText}
+            backgroundSketch={clipStagePrep.backgroundSketch}
+            compactCard={clipStagePrep.compactCard}
+            actionLabel={clipStagePrep.actionLabel}
+            onAction={clipStagePrep.stale ? () => { void triggerDrawPlates(); } : undefined}
+            actionBusy={updatingStale}
           />}
         </>
       )}
@@ -1038,17 +1573,53 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     onToggleMute={() => setMuted((m) => !m)}
     onChangeVolume={(v) => { setMaster(v); setMuted(v === 0); }}
     scenes={scenes.map((scene, idx) => {
+      const sp = perSceneProgress[idx];
+      const thumb = referenceFrames[idx] ?? null;
+      const isStale = isSceneStaleState(scene, viewAspect);
+      if (isStale) {
+        return {
+          index: scene.index,
+          keyword: scene.keyword,
+          duration: durations[scene.index] ?? scene.seconds,
+          state: "stale",
+          stateLabel: "Needs update",
+          stateClassName: "needs-update",
+          progressLabel: "Needs update",
+          progressFraction: null,
+          thumbnail: thumb,
+          error: scene.error
+        };
+      }
       if (!isLiveMode) {
-        return { index: scene.index, keyword: scene.keyword, duration: durations[scene.index] ?? scene.seconds, state: scene.state, stateLabel: LABEL[scene.state], stateClassName: scene.state, error: scene.error };
+        return {
+          index: scene.index,
+          keyword: scene.keyword,
+          duration: durations[scene.index] ?? scene.seconds,
+          state: scene.state,
+          stateLabel: LABEL[scene.state],
+          stateClassName: scene.state,
+          progressLabel: sp?.chipLabel ?? LABEL[scene.state],
+          progressFraction: sp?.fraction ?? null,
+          thumbnail: thumb,
+          error: scene.error
+        };
       }
       const res = liveResolutions[idx];
+      const liveTabState = res?.tabState ?? scene.state;
+      const liveLabel =
+        sp && (sp.retrying || sp.phase === "waiting" || sp.phase === "writing" || sp.phase === "checking" || sp.phase === "drawing" || sp.phase === "failed")
+          ? sp.chipLabel
+          : (res?.tabLabel ?? LABEL[scene.state] ?? "Ready");
       return {
         index: scene.index,
         keyword: scene.keyword,
         duration: durations[scene.index] ?? scene.seconds,
-        state: res?.tabState ?? scene.state,
+        state: liveTabState,
         stateLabel: res?.tabLabel ?? LABEL[scene.state] ?? "Ready",
         stateClassName: res?.tabClassName ?? scene.state,
+        progressLabel: liveLabel,
+        progressFraction: res?.preparingProgress ?? sp?.fraction ?? null,
+        thumbnail: thumb,
         error: scene.error
       };
     })}
@@ -1063,23 +1634,49 @@ export function PlatePreview({ project, onBack: _onBack, onRender, rendering, co
     onRemoveComment={(id) => void remove(id)}
     onApplyComments={() => void apply()}
     applyingComments={busy}
-    onRender={onRender ? () => { wantPlay.current = false; setPlaying(false); audioTimelineRef.current?.pause(); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause(); onRender(); } : undefined}
+    onRender={onRender ? handleRenderClick : undefined}
     rendering={rendering}
+    renderDisabled={staleCount > 0}
+    renderTitle={staleCount > 0 ? "Update the animation for your changed storyboard before rendering the final video" : undefined}
     cost={cost}
-  />;
+    renderButtonRef={renderBtnRef}
+  />
+  <RenderConfirmModal
+    open={confirmOpen}
+    reasons={confirmDecision.reasons}
+    onReviewFirst={handleReviewFirst}
+    onMakeVideo={handleMakeVideo}
+  />
+  </>;
 }
 
 /** The ratios of a film (its own first) and where each one's finished export stands: asked once, followed until ready. */
 export function usePlateRatios(project: VideoProject) {
   useMediaToken();
+  const projectRevision = useMemo(() => computeProjectPlateRevision(project), [project]);
   const primary: PlateAspect = project.brief?.aspect === "1:1" ? "1:1" : project.request.format === "portrait" || project.brief?.aspect === "9:16" ? "9:16" : "16:9";
-  const [others, setOthers] = useState<PlateAspect[]>([]);
+  const briefOthersKey = (project.brief?.aspects ?? [])
+    .filter((a): a is PlateAspect => a === "16:9" || a === "9:16" || a === "1:1")
+    .filter((a) => a !== primary)
+    .join(",");
+  const [others, setOthers] = useState<PlateAspect[]>(() =>
+    briefOthersKey ? (briefOthersKey.split(",") as PlateAspect[]) : []
+  );
   const [exports, setExports] = useState<Partial<Record<PlateAspect, PlateExportState>>>({});
   useEffect(() => {
+    setExports({});
+    const briefOthers = briefOthersKey ? (briefOthersKey.split(",") as PlateAspect[]) : [];
+    setOthers((curr) => [...new Set([...briefOthers, ...curr])].filter((a) => a !== primary));
     let live = true;
-    getPlates(project.id).then((st) => { if (live) setOthers([...new Set([...(st.subtitles?.aspects ?? []), ...(st.drawnAspects ?? [])])].filter((a) => a !== primary)); }).catch(() => undefined);
+    getPlates(project.id)
+      .then((st) => {
+        if (live) {
+          setOthers([...new Set([...briefOthers, ...(st.subtitles?.aspects ?? []), ...(st.drawnAspects ?? [])])].filter((a) => a !== primary));
+        }
+      })
+      .catch(() => undefined);
     return () => { live = false; };
-  }, [project.id, primary]);
+  }, [project.id, primary, briefOthersKey, projectRevision]);
   const key = others.join(",");
   useEffect(() => {
     if (!key) return;
@@ -1104,7 +1701,7 @@ export function usePlateRatios(project: VideoProject) {
     };
     void tick();
     return () => { live = false; clearTimeout(timer); };
-  }, [project.id, key]);
+  }, [project.id, key, projectRevision]);
   return { primary, ratios: [primary, ...others] as PlateAspect[], exports };
 }
 
@@ -1116,7 +1713,7 @@ const SHAPE: Record<PlateAspect, string> = { "16:9": "16 / 9", "9:16": "9 / 16",
  */
 export function PlateFinal({ project, finalUrl, onBack, onApprove, approved }: { project: VideoProject; finalUrl: string; onBack: () => void; onApprove: () => void | Promise<void>; approved: boolean }) {
   const { primary, ratios, exports } = usePlateRatios(project);
-  const ratioItems = buildPlateFinalRatios(project.id, primary, ratios, finalUrl, exports, (ratio) => plateExportUrl(project.id, ratio));
+  const ratioItems = buildPlateFinalRatios(project.id, primary, ratios, finalUrl, exports, (ratio) => plateExportUrl(project.id, ratio, exports[ratio]?.signature));
   return <FinalView
     title="Your film"
     subtitle="Watch and download every ratio. Each one was drawn for its own frame, not cropped."

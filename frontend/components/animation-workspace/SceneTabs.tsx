@@ -11,6 +11,8 @@ export interface SceneTabsProps {
   comments: readonly WorkspaceComment[];
   onSeek: (seconds: number) => void;
   onTogglePlay: () => void;
+  /** Optional 0-based scene index currently highlighted by the unready-scene banner (visually links its colour dot). */
+  bannerSceneIndex?: number | null;
 }
 
 /**
@@ -25,7 +27,8 @@ export function SceneTabs({
   totalDuration,
   comments,
   onSeek,
-  onTogglePlay
+  onTogglePlay,
+  bannerSceneIndex = null
 }: SceneTabsProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef(false);
@@ -70,15 +73,47 @@ export function SceneTabs({
         {scenes.map((scene) => {
           const mapped = mapSceneTabState(scene.state, scene.stateLabel);
           const cls = scene.stateClassName ?? mapped.cssClass;
+          const statusText = scene.progressLabel ?? mapped.label;
+          const hasBar =
+            typeof scene.progressFraction === "number" &&
+            Number.isFinite(scene.progressFraction) &&
+            scene.progressFraction > 0 &&
+            mapped.visualState === "updating";
+          const pct = hasBar ? Math.max(4, Math.min(100, Math.round((scene.progressFraction ?? 0) * 100))) : 0;
+          const showThumb = Boolean(scene.thumbnail && mapped.visualState !== "ready");
+          const isBannerLinked = typeof bannerSceneIndex === "number" && scene.index === bannerSceneIndex;
+          const chipStateLabel = scene.progressLabel ?? (isBannerLinked ? mapped.label : undefined);
           return (
             <li
               key={scene.index}
-              className={`${cls}${scene.index === currentSceneIndex ? " on" : ""}`}
+              className={`${cls}${scene.index === currentSceneIndex ? " on" : ""}${isBannerLinked ? " banner-linked" : ""}`}
+              data-banner-linked={isBannerLinked ? "true" : undefined}
               style={{ flexGrow: scene.duration }}
-              title={`${scene.keyword} · ${mapped.label}`}
+              title={`${scene.keyword} · ${statusText}`}
             >
-              <small>{String(scene.index + 1).padStart(2, "0")}</small>
+              {showThumb && (
+                <img
+                  src={scene.thumbnail!}
+                  alt=""
+                  aria-hidden="true"
+                  className="aw-seg-thumb"
+                />
+              )}
+              <div className="aw-seg-head">
+                <small>{String(scene.index + 1).padStart(2, "0")}</small>
+                {chipStateLabel && (
+                  <em className={`aw-seg-state aw-seg-state-${mapped.visualState}`}>
+                    <i className="aw-seg-dot" aria-hidden="true" />
+                    {chipStateLabel}
+                  </em>
+                )}
+              </div>
               <span>{scene.keyword}</span>
+              {hasBar && (
+                <i className="aw-seg-bar" aria-hidden="true">
+                  <b style={{ width: `${pct}%` }} />
+                </i>
+              )}
             </li>
           );
         })}

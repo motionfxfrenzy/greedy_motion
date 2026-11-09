@@ -5,11 +5,14 @@
 //   BEAT: Find the target
 //   VISUAL: A row of sorted numbers; a pointer drops on the middle one   (what the viewer sees; a direction, never printed)
 //   SCREEN: middle < target        (or "SCREEN: -" when nothing else is read on screen)
+//   SPEAKER: Teapot                (optional, films with character voices: who says the VOICE line; the narrator otherwise)
 //   VOICE: Can you find one number?
 //
 // A blank line between beats is optional; a new BEAT: line starts the next one.
 
 export type ScriptBeat = {
+  /** Optional stable client/server identity so inserting or removing scenes never confuses React keys or in-flight work. */
+  id?: string;
   /** The key phrase: ≤ 4 words, ≤ 28 characters. */
   keyword: string;
   /** What the viewer sees in this beat, in a sentence: a direction for the storyboard and the reference frame, never printed. */
@@ -18,9 +21,14 @@ export type ScriptBeat = {
   onScreen: string | null;
   /** The voiceover line, or null in a film without voiceover. */
   line: string | null;
+  /** Who says `line` when the film has character voices (audio.cast "characters"); absent or null = the narrator. */
+  speaker?: string | null;
 };
 
-export const SCRIPT_BEATS_MAX = 16;
+export const SCRIPT_BEATS_MIN = 1;
+export const SCRIPT_BEATS_MAX = 128;
+/** A speaker's name (same bound as audio.ts SPEAKER_MAX; kept here so this file stays import-free). */
+const SPEAKER_CHARS = 24;
 
 /**
  * The writer's plan for an explainer, written before the first beat: the one idea, and the worked example's data with
@@ -86,7 +94,7 @@ export function parseFrameMotion(input: unknown, svg: string, seconds: number): 
   return motion;
 }
 /** Frames kept per project, newest first: enough for a full script plus a few rounds of changes. */
-export const SCRIPT_FRAMES_KEPT = 48;
+export const SCRIPT_FRAMES_KEPT = 160;
 export const scriptFrameKey = (beat: ScriptBeat, style: { styleExample?: string | undefined; look?: string | undefined; aspect: string }) =>
   ["v2", style.styleExample ?? "", style.look ?? "", style.aspect, beat.keyword, beat.visual ?? "", beat.onScreen ?? ""].join("\u0001");
 
@@ -102,7 +110,7 @@ export function parseScriptStream(text: string): { beats: ScriptBeat[]; open: ke
     const last = index === lines.length - 1 && !text.endsWith("\n");
     const note = beats.length === 0 ? /^\s*(IDEA|EXAMPLE|OBJECTS)\s*:(.*)$/i.exec(raw) : null;
     if (note) { notes[({ IDEA: "idea", EXAMPLE: "example", OBJECTS: "objects" } as const)[note[1]!.toUpperCase() as "IDEA"]] = value(note[2]!) || null; return; }
-    const match = /^\s*(BEAT|VISUAL|SCREEN|VOICE)\s*:(.*)$/i.exec(raw);
+    const match = /^\s*(BEAT|VISUAL|SCREEN|SPEAKER|VOICE)\s*:(.*)$/i.exec(raw);
     if (!match) return;
     const tag = match[1]!.toUpperCase();
     const content = value(match[2]!);
@@ -116,6 +124,7 @@ export function parseScriptStream(text: string): { beats: ScriptBeat[]; open: ke
     if (!beat) return;
     if (tag === "VISUAL") { beat.visual = content && content !== "-" ? content : null; if (last) open = "visual"; }
     else if (tag === "SCREEN") { beat.onScreen = content && content !== "-" ? content : null; if (last) open = "onScreen"; }
+    else if (tag === "SPEAKER") { const who = content.slice(0, SPEAKER_CHARS).trim(); if (who && who !== "-") beat.speaker = who; else delete beat.speaker; if (last) open = "speaker"; }
     else { beat.line = content && content !== "-" ? content : null; if (last) open = "line"; }
   });
   return { beats, open, notes };
@@ -124,19 +133,111 @@ export function parseScriptStream(text: string): { beats: ScriptBeat[]; open: ke
 /** The script back in the stream format: what the model is shown when it is asked to change it. */
 export function formatScript(beats: readonly ScriptBeat[], notes?: ScriptNotes | null): string {
   const head = [notes?.idea ? `IDEA: ${notes.idea}` : "", notes?.example ? `EXAMPLE: ${notes.example}` : "", notes?.objects ? `OBJECTS: ${notes.objects}` : ""].filter(Boolean).join("\n");
-  return (head ? `${head}\n\n` : "") + beats.map((beat) => `BEAT: ${beat.keyword}\nVISUAL: ${beat.visual ?? "-"}\nSCREEN: ${beat.onScreen ?? "-"}\nVOICE: ${beat.line ?? "-"}`).join("\n\n");
+  return (head ? `${head}\n\n` : "") + beats.map((beat) => `BEAT: ${beat.keyword}\nVISUAL: ${beat.visual ?? "-"}\nSCREEN: ${beat.onScreen ?? "-"}${beat.speaker ? `\nSPEAKER: ${beat.speaker}` : ""}\nVOICE: ${beat.line ?? "-"}`).join("\n\n");
 }
 
 const clip = (input: unknown, max: number) => typeof input === "string" ? input.trim().replace(/\s+/g, " ").slice(0, max) : "";
+
+const BEAT_ID_RE = /^[a-zA-Z0-9_-]{1,48}$/;
 
 /** A script sent back by the page (edited or not): cleaned, bounded, or null when it is not a usable script. */
 export function parseScriptBeats(input: unknown): ScriptBeat[] | null {
   if (!Array.isArray(input) || input.length === 0 || input.length > SCRIPT_BEATS_MAX) return null;
   const beats = input.map((item) => {
     const record = (item ?? {}) as Record<string, unknown>;
-    return { keyword: clip(record.keyword, 28), visual: clip(record.visual, 200) || null, onScreen: clip(record.onScreen, 60) || null, line: clip(record.line, 300) || null };
+    const speaker = clip(record.speaker, SPEAKER_CHARS);
+    const rawId = typeof record.id === "string" ? record.id.trim() : "";
+    const id = BEAT_ID_RE.test(rawId) ? rawId : "";
+    return {
+      ...(id ? { id } : {}),
+      keyword: clip(record.keyword, 28),
+      visual: clip(record.visual, 200) || null,
+      onScreen: clip(record.onScreen, 60) || null,
+      line: clip(record.line, 300) || null,
+      ...(speaker ? { speaker } : {})
+    };
   });
   return beats.every((beat) => beat.keyword.length > 0) ? beats : null;
+}
+
+/** Ensures every beat in a list carries a unique, stable `id` (preserving existing valid `id`s). */
+export function ensureScriptBeatIds(beats: readonly ScriptBeat[], makeId?: (index: number) => string): ScriptBeat[] {
+  const seen = new Set<string>();
+  return beats.map((beat, index) => {
+    const existing = beat.id && BEAT_ID_RE.test(beat.id) && !seen.has(beat.id) ? beat.id : null;
+    if (existing) {
+      seen.add(existing);
+      return beat;
+    }
+    let candidate = makeId ? makeId(index) : `sb-${index + 1}-${Math.random().toString(36).slice(2, 9)}`;
+    while (seen.has(candidate) || !BEAT_ID_RE.test(candidate)) {
+      candidate = `sb-${index + 1}-${Math.random().toString(36).slice(2, 9)}`;
+    }
+    seen.add(candidate);
+    return { ...beat, id: candidate };
+  });
+}
+
+/** Shifts numeric keys >= `insertAt` up by 1 when a scene is inserted at `insertAt`. */
+export function remapRecordOnInsert<T>(record: Readonly<Record<number, T>>, insertAt: number): Record<number, T> {
+  const next: Record<number, T> = {};
+  for (const [rawKey, val] of Object.entries(record)) {
+    const k = Number(rawKey);
+    if (!Number.isInteger(k) || k < 0) continue;
+    next[k >= insertAt ? k + 1 : k] = val;
+  }
+  return next;
+}
+
+/** Removes key `removeAt` and shifts numeric keys > `removeAt` down by 1 when a scene is removed. */
+export function remapRecordOnRemove<T>(
+  record: Readonly<Record<number, T>>,
+  removeAt: number
+): { next: Record<number, T>; removed: T | undefined } {
+  const next: Record<number, T> = {};
+  let removed: T | undefined = undefined;
+  for (const [rawKey, val] of Object.entries(record)) {
+    const k = Number(rawKey);
+    if (!Number.isInteger(k) || k < 0) continue;
+    if (k === removeAt) {
+      removed = val;
+    } else {
+      next[k > removeAt ? k - 1 : k] = val;
+    }
+  }
+  return { next, removed };
+}
+
+/** Shifts sorted scene indices >= `insertAt` up by 1. */
+export function remapIndicesOnInsert(indices: readonly number[], insertAt: number): number[] {
+  return indices.map((i) => (i >= insertAt ? i + 1 : i));
+}
+
+/** Drops `removeAt` and shifts scene indices > `removeAt` down by 1. */
+export function remapIndicesOnRemove(indices: readonly number[], removeAt: number): number[] {
+  return indices.filter((i) => i !== removeAt).map((i) => (i > removeAt ? i - 1 : i));
+}
+
+/** Shifts `{ beat: number; message: string }[]` flags when a scene is inserted at `insertAt`. */
+export function remapFlagsOnInsert<F extends { beat: number }>(flags: readonly F[], insertAt: number, addedFlags: readonly F[] = []): F[] {
+  return [
+    ...flags.map((f) => (f.beat >= insertAt ? { ...f, beat: f.beat + 1 } : f)),
+    ...addedFlags
+  ];
+}
+
+/** Drops flags for `removeAt` (returning them for undo) and shifts flags with `beat > removeAt` down by 1. */
+export function remapFlagsOnRemove<F extends { beat: number }>(
+  flags: readonly F[],
+  removeAt: number
+): { next: F[]; removed: F[] } {
+  const next: F[] = [];
+  const removed: F[] = [];
+  for (const f of flags) {
+    if (f.beat === removeAt) removed.push(f);
+    else next.push(f.beat > removeAt ? { ...f, beat: f.beat - 1 } : f);
+  }
+  return { next, removed };
 }
 
 /** Notes sent back by the page: cleaned and bounded, or null when there are none. */

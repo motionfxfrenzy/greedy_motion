@@ -1,5 +1,7 @@
 import type { Aspect, ScriptBeat, ScriptNotes } from "@videosaas/contracts";
 import { config } from "../config.ts";
+import { callModel } from "../models/providers.ts";
+import { routeFor } from "../models/routes.ts";
 
 /**
  * Reference frames for the script canvas: one still SVG per beat, drawn by the model in the chosen template's style (its
@@ -76,13 +78,21 @@ export function cleanSvg(text: string): string | null {
 
 /** Draws one frame. Throws on an API error or an answer that is not an SVG. */
 export async function sketchFrame(request: FrameRequest, signal: AbortSignal, http: typeof fetch = fetch): Promise<string> {
+  const route = routeFor("frameSketch");
+  if (route.provider !== "anthropic") {
+    // Another provider (MODEL_FRAME_SKETCH): the shared provider layer.
+    const result = await callModel({ step: "frameSketch", route, system: SYSTEM, messages: [{ role: "user", content: prompt(request).map((part) => ({ type: "text" as const, text: part.text, ...(part.cache_control ? { cache: true } : {}) })) }], maxTokens: 6000, effort: "low", signal, errorPrefix: "Frame request failed", includeErrorDetail: true, ...(http !== fetch ? { request: http } : {}) });
+    const svg = cleanSvg(result.text);
+    if (!svg) throw new Error("The frame came back without a usable SVG.");
+    return svg;
+  }
   const response = await http("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": config.anthropicApiKey, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({
-      model: process.env.FRAME_MODEL || process.env.SCRIPT_MODEL || config.anthropicModel,
-      max_tokens: 6000,
-      output_config: { effort: "low" },
+      model: route.model,
+      max_tokens: route.maxTokens,
+      output_config: { effort: route.effort ?? "low" },
       system: SYSTEM,
       messages: [{ role: "user", content: prompt(request) }]
     }),

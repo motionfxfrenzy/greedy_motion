@@ -14,7 +14,7 @@ export const isAspect = (value: unknown): value is Aspect => typeof value === "s
 export const sizeForAspect = (aspect?: string) => aspect === "9:16" ? { w: 1080, h: 1920, label: "1080x1920 (9:16 portrait)" } : aspect === "1:1" ? { w: 1080, h: 1080, label: "1080x1080 (1:1 square)" } : { w: 1920, h: 1080, label: "1920x1080 (16:9)" };
 export const aspectSlug = (aspect: string) => aspect === "9:16" ? "9x16" : aspect === "1:1" ? "1x1" : "16x9";
 /** The ratio a project previews and exports by default. */
-export const primaryAspect = (project: VideoProject | null | undefined): Aspect => (project?.brief?.aspect ?? (project?.request.format === "portrait" ? "9:16" : "16:9")) as Aspect;
+export const primaryAspect = (project: VideoProject | null | undefined): Aspect => (project?.brief?.aspect ?? (project?.request?.format === "portrait" ? "9:16" : "16:9")) as Aspect;
 
 /**
  * Bump when a change to authoring, bundling or rendering means every stored scene should be drawn again. Signatures start
@@ -24,22 +24,61 @@ export const primaryAspect = (project: VideoProject | null | undefined): Aspect 
 export const PIPELINE_VERSION = 3;
 export const SIGNATURE_PREFIX = `v${PIPELINE_VERSION}:`;
 /** Bump when the final assembly (worker/src/plates.mjs) produces different bytes from the same inputs. */
-export const ASSEMBLER_VERSION = 1;
+export const ASSEMBLER_VERSION = 3;
 
 export type LiveMode = "live" | "clip";
 export type PlateState = "queued" | "authoring" | "bundled" | "checked" | "rendering" | "drawn" | "failed";
 /** The stored state: `bundled` (authored, waiting for a worker in clip mode or a browser check in live mode). */
 export type VariantState = PlateState;
+export type ProgressStage = "waiting" | "writing" | "checking" | "drawing" | "ready" | "failed";
+export type EtaRange = { low: number; high: number };
+export type SceneRetrying = { attempt: number; reason: string };
+export type SceneProgress = {
+  stage: ProgressStage;
+  written?: { chars: number; lines: number; tokens: number };
+  fraction?: number;
+  elapsedMs?: number;
+  etaSeconds?: EtaRange | null;
+  attempt?: number;
+  retrying?: SceneRetrying;
+};
+export type FilmProgress = {
+  total: number;
+  written: number;
+  checked: number;
+  drawn: number;
+  failed: number;
+  etaSeconds: EtaRange | null;
+  typicalSceneSeconds: EtaRange;
+};
 export type PlateVariantView = {
   state: PlateState;
   sig: string;
   /** Changes whenever the stored clip changes, so the browser fetches the new one. */
   v: string | null;
+  gen?: number;
+  rev?: number;
   stage?: string;
   error?: string;
   variantId?: string;
   bundleDigest?: string | null;
   live?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  frames?: number | null;
+  framesDone?: number | null;
+  authorMs?: number;
+  drawnAt?: string | null;
+  progress?: SceneProgress;
+  retrying?: SceneRetrying;
+  /** "clip" when the scene was too slow to draw live and plays from a worker clip (absent = plays live). */
+  playback?: "clip";
+  /** Median measured draw cost in ms per frame, set with playback. */
+  drawMsPerFrame?: number;
+  /** True when the stored variant was authored for an older script/style revision and does not match the current storyboard. */
+  stale?: boolean;
+  /** True when the variant needs reconciliation (either stale or shifted/reordered index). */
+  needsReconcile?: boolean;
 };
 export type PlateScene = {
   index: number;
@@ -48,14 +87,32 @@ export type PlateScene = {
   seconds: number;
   /** Whole frames at FPS: the unit scene boundaries are measured in, in the preview and in the export. */
   frames: number;
+  framesDone?: number | null;
   sig: string;
+  gen?: number;
   /** Bumped when the scene is redrawn from comments, so the browser fetches the new clip. */
   rev?: number;
+  stage?: string;
   error?: string;
   attempts?: number;
   variantId?: string;
   bundleDigest?: string | null;
   live?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  authorMs?: number;
+  drawnAt?: string | null;
+  progress?: SceneProgress;
+  /** Set while the server is retrying this scene (worker restarted, check did not report). Read from timings.retrying. */
+  retrying?: SceneRetrying;
+  /** "clip" when the scene was too slow to draw live and plays from a worker clip (absent = plays live). */
+  playback?: "clip";
+  /** Median measured draw cost in ms per frame, set with playback. */
+  drawMsPerFrame?: number;
+  /** True when the scene has no compatible variant for the current script/style revision and requires a redraw. */
+  stale?: boolean;
+  /** True when the scene needs reconciliation (either stale or shifted/reordered index). */
+  needsReconcile?: boolean;
   /** Per aspect ratio: each ratio is authored, verified and drawn on its own. */
   variants?: Partial<Record<Aspect, PlateVariantView>>;
 };
@@ -95,6 +152,14 @@ export type PlateStatus = {
   available: boolean;
   look: string | null;
   mode?: LiveMode;
+  serverNow?: string;
+  /** Deterministic digest of the project's current desired plate inputs (style, aspects, and per-scene signatures). */
+  revision?: string;
+  /** True when one or more scenes of the current storyboard do not have a compatible variant and need to be drawn. */
+  stale?: boolean;
+  /** True when stored variants differ from desired variants (including free index shifts / reorders or stale scenes). */
+  needsReconcile?: boolean;
+  film?: FilmProgress;
   scenes: PlateScene[];
   comments: PlateComment[];
   subtitles: PlateSubtitles;
@@ -239,7 +304,10 @@ export function defaultSubtitlesFor(project?: VideoProject | null): PlateSubtitl
   const mode: SubtitleMode = project?.brief?.captions && subtitleModes.has(project.brief.captions) ? project.brief.captions : "full";
   const look = project?.brief?.look ?? "";
   const style: SubtitleStyle = look === "illus-blueprint" ? "blueprint" : /^illus-(balloon|fox|folk-tale|gouache|watercolour)/.test(look) ? "paper" : "pill";
-  return { mode, style, size: 100, opacity: 100, x: 50, y: 88, scenePositions: {}, voice: true, music: true, sfx: true, transitions: false };
+  const primary = primaryAspect(project);
+  const briefAspects = (project?.brief?.aspects ?? []).filter(isAspect);
+  const aspects: Aspect[] = [primary, ...briefAspects.filter((a) => a !== primary)];
+  return { mode, style, size: 100, opacity: 100, x: 50, y: 88, scenePositions: {}, voice: true, music: true, sfx: true, transitions: false, aspects };
 }
 
 /** Applies an update to the stored settings: unknown or out-of-range values keep the current setting. */
@@ -292,13 +360,23 @@ export const followsAudio = (project: Pick<VideoProject, "brief">) => Boolean(pr
 export const framesForSeconds = (seconds: number) => Math.max(1, Math.round(seconds * FPS));
 
 export type Take = { beat?: string; text: string; seconds?: number; file?: string; words?: { text: string; start: number; end: number }[] };
-/** The voiceover take of beat `index` (matched by beat id or text, else by position). */
+/** The voiceover take of beat `index` (matched by text and beat id, never leaking a shifted neighbour's take onto an unvoiced scene). */
 export function takeFor(project: VideoProject, index: number): Take | undefined {
   const lines = (project.planAudio?.voice?.lines ?? []) as Take[];
   const beat = project.brief?.scriptBeats?.[index];
   const beatId = project.beatPlan?.beats?.[index]?.id;
   const line = beat?.line ?? project.beatPlan?.beats?.[index]?.line;
-  return lines.find((item) => (beatId && item.beat === beatId) || (line && item.text === voiceText(line))) ?? lines[index];
+  const cleaned = line ? voiceText(line) : "";
+  const exact = lines.find(
+    (item) =>
+      (cleaned && item.text === cleaned && (!beatId || !item.beat || item.beat === beatId)) ||
+      (beatId && item.beat === beatId && (!cleaned || !item.text || item.text === cleaned))
+  );
+  if (exact) return exact;
+  if (cleaned) return lines.find((item) => item.text === cleaned);
+  if (beatId) return lines.find((item) => item.beat === beatId && !item.text);
+  const positional = lines[index];
+  return positional && !positional.beat && !positional.text ? positional : undefined;
 }
 
 /**
@@ -322,15 +400,78 @@ const sha = (...parts: unknown[]) => createHash("sha256").update(JSON.stringify(
  * editing scene 3 must not redraw scene 4; the film brief and the list of scene keywords carry the shared cast).
  */
 export function variantSignature(input: {
-  look: string; engineDigest: string; styleDigest: string; promptDigest: string; film: string; castKeywords: string[];
-  beat: Pick<ScriptBeat, "keyword" | "visual" | "onScreen" | "line">; frames: number; aspect: Aspect;
+  look: string;
+  styleFamily?: string | null;
+  styleExample?: string | null;
+  engineDigest: string;
+  styleDigest: string;
+  promptDigest: string;
+  film: string;
+  castKeywords: string[];
+  beat: Pick<ScriptBeat, "keyword" | "visual" | "onScreen" | "line">;
+  frames: number;
+  aspect: Aspect;
 }) {
   const size = sizeForAspect(input.aspect);
-  return SIGNATURE_PREFIX + sha(PIPELINE_VERSION, input.look, input.engineDigest, input.styleDigest, input.promptDigest, input.film, input.castKeywords, input.beat.keyword, input.beat.visual, input.beat.onScreen, input.beat.line, input.frames, FPS, input.aspect, size.w, size.h).slice(0, 24);
+  const familyPart = input.styleFamily ? [`family:${input.styleFamily}`] : [];
+  const examplePart =
+    input.styleExample &&
+    input.styleExample !== `story-${input.look}` &&
+    input.styleExample !== `style-${input.look}`
+      ? [`example:${input.styleExample}`]
+      : [];
+  return (
+    SIGNATURE_PREFIX +
+    sha(
+      PIPELINE_VERSION,
+      input.look,
+      input.engineDigest,
+      input.styleDigest,
+      input.promptDigest,
+      input.film,
+      input.castKeywords,
+      input.beat.keyword,
+      input.beat.visual,
+      input.beat.onScreen,
+      input.beat.line,
+      input.frames,
+      FPS,
+      input.aspect,
+      size.w,
+      size.h,
+      ...familyPart,
+      ...examplePart
+    ).slice(0, 24)
+  );
 }
 
 /** A stored signature from an older pipeline version (or the legacy file pipeline): never reusable. */
 export const isCurrentSignature = (sig: string | null | undefined) => typeof sig === "string" && sig.startsWith(SIGNATURE_PREFIX);
+
+/** True when `sig` is a real 24-hex-character SHA-256 signature computed by `variantSignature` (as opposed to a short synthetic test token). */
+export const isComputedVariantSignature = (sig: string | null | undefined): boolean =>
+  typeof sig === "string" && new RegExp(`^v${PIPELINE_VERSION}:[0-9a-f]{24}$`).test(sig);
+
+/** Deterministic revision digest for the project's current desired scene variants across wanted aspects. */
+export function plateRevisionDigest(input: {
+  look: string | null | undefined;
+  styleFamily?: string | null;
+  styleExample?: string | null;
+  aspects: readonly Aspect[];
+  desired: readonly { index: number; aspect: Aspect; signature: string }[];
+}): string {
+  return (
+    `r${PIPELINE_VERSION}:` +
+    sha(
+      PIPELINE_VERSION,
+      input.look ?? "",
+      input.styleFamily ?? "",
+      input.styleExample ?? "",
+      input.aspects,
+      input.desired.map((d) => `${d.index}:${d.aspect}:${d.signature}`)
+    ).slice(0, 20)
+  );
+}
 
 /** Everything that changes the assembled film but not the artwork: pass to the worker as the export's identity. */
 export function exportSignature(input: { aspect: Aspect; clips: { sig: string; clipKey: string }[]; timelineFrames: number[]; subtitles: PlateSubtitles; audio: unknown; cues: unknown; watermark: boolean }) {

@@ -1,4 +1,4 @@
-import { anthropicMessage, responseText } from "../anthropic.ts";
+import { callModel } from "../models/providers.ts";
 import { config } from "../config.ts";
 import { BEAT_LIMITS, lookDirection, plainText, type Beat, type BeatPlan, type ScriptBrief } from "@videosaas/contracts";
 
@@ -18,11 +18,11 @@ export async function rewriteBeat(plan: BeatPlan, beat: Beat, instruction: strin
     brief?.look ? lookDirection(brief.look) : ""
   ].filter(Boolean).join("\n");
   const film = plan.beats.map((item, i) => `${i + 1}${item.id === beat.id ? " (REWRITE THIS)" : ""}: ${item.keyword}${item.on_screen ? ` / ${item.on_screen}` : ""}${item.line ? ` / "${item.line}"` : ""}`).join("\n");
-  const payload = await anthropicMessage({
-    model: config.anthropicModel, max_tokens: 600, system,
-    messages: [{ role: "user", content: `Script brief: ${brief?.text ?? ""}\n\nFilm so far:\n${film}\n\nInstruction for the marked frame: ${instruction}` }]
-  }, { ...(signal ? { signal } : {}), timeoutMs: 45000, errorPrefix: "Frame rewrite failed", includeErrorDetail: true });
-  const text = responseText(payload);
+  const { text } = await callModel({
+    step: "rewriteBeat", maxTokens: 600, system,
+    messages: [{ role: "user", content: `Script brief: ${brief?.text ?? ""}\n\nFilm so far:\n${film}\n\nInstruction for the marked frame: ${instruction}` }],
+    ...(signal ? { signal } : {}), timeoutMs: 45000, errorPrefix: "Frame rewrite failed", includeErrorDetail: true
+  });
   const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
   let value: Partial<BeatRewrite>;
   try { value = JSON.parse(json); } catch { throw new Error("The rewrite came back unreadable. Try again."); }

@@ -65,41 +65,240 @@ export {
   toggleAudioTrackMode
 };
 
+export type FrameReelItem = {
+  /** 0-based scene index in the saved storyboard order (never compacted). */
+  index: number;
+  /** Scene title / keyword, e.g. "A hen wants bread". */
+  label: string;
+  /** Optional on-screen copy or spoken line for scene context. */
+  subtitle?: string | null;
+  /** Primary visual source (raw SVG string, data URI, or authenticated URL). Null when unavailable. */
+  src: string | null;
+  /** Secondary fallback visual source (e.g. saved storyboard SVG when a plate still URL fails). */
+  fallbackSrc?: string | null;
+  /** Per-scene state when `src` is not yet ready. */
+  state?: "ready" | "loading" | "unavailable";
+};
+
 /** The storyboard's own frames while the film renders: one large, stepping through them, and the whole strip below. */
-export function FrameReel({ frames }: { frames: string[] }) {
+export function FrameReel({
+  frames,
+  items,
+  aspect = "16:9",
+  loading = false,
+  projectName
+}: {
+  frames?: (string | null | undefined)[];
+  items?: FrameReelItem[];
+  aspect?: string;
+  loading?: boolean;
+  projectName?: string;
+}) {
+  const normalizedAspect = aspect === "9:16" || aspect === "1:1" ? aspect : "16:9";
+  const sceneItems: FrameReelItem[] = useMemo(() => {
+    if (items) return items;
+    return (frames ?? []).map((raw, i) => ({
+      index: i,
+      label: `Scene ${i + 1}`,
+      subtitle: null,
+      src: raw ? svgSrc(raw) : null
+    }));
+  }, [items, frames]);
+
   const [at, setAt] = useState(0);
+  const [userSelected, setUserSelected] = useState(false);
+  const [failedUrls, setFailedUrls] = useState<Record<string, true>>({});
+  const thumbRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const resolveItemSrc = (item: FrameReelItem): { activeSrc: string | null; primarySrc: string | null; fallbackSrc: string | null } => {
+    const primarySrc = item.src ? svgSrc(item.src) : null;
+    const fallbackSrc = item.fallbackSrc ? svgSrc(item.fallbackSrc) : null;
+    const primaryKey = primarySrc ? `${item.index}:${primarySrc}` : "";
+    const fallbackKey = fallbackSrc ? `${item.index}:${fallbackSrc}` : "";
+    if (primarySrc && !failedUrls[primaryKey]) {
+      return { activeSrc: primarySrc, primarySrc, fallbackSrc };
+    }
+    if (fallbackSrc && !failedUrls[fallbackKey]) {
+      return { activeSrc: fallbackSrc, primarySrc, fallbackSrc };
+    }
+    return { activeSrc: null, primarySrc, fallbackSrc };
+  };
+
+  const resolvedList = useMemo(
+    () => sceneItems.map((item) => ({ item, ...resolveItemSrc(item) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sceneItems, failedUrls]
+  );
+
+  const readyIndices = useMemo(
+    () => resolvedList.filter((r) => Boolean(r.activeSrc)).map((r) => r.item.index),
+    [resolvedList]
+  );
+
   useEffect(() => {
-    if (frames.length < 2) return;
-    const timer = window.setInterval(() => setAt((current) => (current + 1) % frames.length), 2500);
+    setAt(0);
+    setUserSelected(false);
+  }, [projectName, sceneItems.length]);
+
+  useEffect(() => {
+    if (userSelected) return;
+    const currentHasSrc = Boolean(resolvedList[at]?.activeSrc);
+    if (!currentHasSrc && readyIndices.length > 0) {
+      setAt(readyIndices[0]!);
+    }
+  }, [at, userSelected, resolvedList, readyIndices]);
+
+  useEffect(() => {
+    if (userSelected || readyIndices.length < 2) return;
+    const timer = window.setInterval(() => {
+      setAt((current) => {
+        const pos = readyIndices.indexOf(current);
+        if (pos === -1) return readyIndices[0]!;
+        return readyIndices[(pos + 1) % readyIndices.length]!;
+      });
+    }, 2500);
     return () => window.clearInterval(timer);
-  }, [frames.length]);
+  }, [userSelected, readyIndices]);
+
+  const markUrlFailed = (index: number, url: string | null) => {
+    if (!url) return;
+    const key = `${index}:${url}`;
+    setFailedUrls((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  };
+
+  const clampedAt = sceneItems.length > 0 ? Math.min(Math.max(0, at), sceneItems.length - 1) : 0;
+  const activeEntry = resolvedList[clampedAt];
+  const activeItem = activeEntry?.item;
+  const activeSrc = activeEntry?.activeSrc ?? null;
+  const anyReady = readyIndices.length > 0;
+  const isInitialLoading = loading && !anyReady;
+  const isActiveSceneLoading = !activeSrc && (loading || activeItem?.state === "loading");
+
+  const selectScene = (nextIdx: number, focusThumb = false) => {
+    if (nextIdx < 0 || nextIdx >= sceneItems.length) return;
+    setUserSelected(true);
+    setAt(nextIdx);
+    if (focusThumb) {
+      const btn = thumbRefs.current[nextIdx];
+      btn?.focus();
+      btn?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  };
+
+  const handleStripKeyDown = (ev: React.KeyboardEvent<HTMLButtonElement>, idx: number) => {
+    if (sceneItems.length < 2) return;
+    if (ev.key === "ArrowRight" || ev.key === "ArrowDown") {
+      ev.preventDefault();
+      selectScene((idx + 1) % sceneItems.length, true);
+    } else if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      selectScene((idx - 1 + sceneItems.length) % sceneItems.length, true);
+    } else if (ev.key === "Home") {
+      ev.preventDefault();
+      selectScene(0, true);
+    } else if (ev.key === "End") {
+      ev.preventDefault();
+      selectScene(sceneItems.length - 1, true);
+    }
+  };
+
   return (
-    <div className="frame-reel">
-      <div className="frame-reel-stage">
-        {frames.map((svg, i) => (
-          <img
-            key={i}
-            className={i === at ? "on" : ""}
-            src={svgSrc(svg)}
-            alt={i === at ? `Storyboard frame ${i + 1} of ${frames.length}` : ""}
-            draggable={false}
-          />
-        ))}
+    <div className="frame-reel" data-aspect={normalizedAspect}>
+      <header className="frame-reel-head">
+        <div className="frame-reel-title">
+          <span className="frame-reel-step">
+            {sceneItems.length > 0 ? `Scene ${clampedAt + 1} of ${sceneItems.length}` : "Storyboard"}
+          </span>
+          <strong>{activeItem?.label ?? projectName ?? "Storyboard preview"}</strong>
+          {activeItem?.subtitle && <small className="frame-reel-subtitle">{activeItem.subtitle}</small>}
+        </div>
+        <span className="frame-reel-aspect">{normalizedAspect}</span>
+      </header>
+      <div className="frame-reel-stage" data-aspect={normalizedAspect}>
+        {resolvedList.map(({ item, activeSrc: itemSrc }, i) =>
+          itemSrc ? (
+            <img
+              key={`${item.index}-${itemSrc}`}
+              className={i === clampedAt ? "on" : ""}
+              src={itemSrc}
+              alt={i === clampedAt ? `Storyboard frame ${i + 1} of ${sceneItems.length}: ${item.label}` : ""}
+              draggable={false}
+              onError={() => markUrlFailed(item.index, itemSrc)}
+            />
+          ) : null
+        )}
+        {!activeSrc && (
+          <div className="frame-reel-empty" role="status" aria-live="polite">
+            {isInitialLoading || isActiveSceneLoading ? (
+              <>
+                <span className="gm-spinner" aria-hidden="true" />
+                <b>Loading storyboard…</b>
+                <p>
+                  {activeItem
+                    ? `Scene ${clampedAt + 1} · ${activeItem.label}`
+                    : projectName || "Loading saved storyboard scenes…"}
+                </p>
+              </>
+            ) : anyReady && activeItem ? (
+              <>
+                <span className="frame-reel-empty-badge">
+                  Scene {clampedAt + 1} of {sceneItems.length}
+                </span>
+                <b>{activeItem.label}</b>
+                {activeItem.subtitle && <p className="frame-reel-empty-copy">{activeItem.subtitle}</p>}
+                <small>Scene preview unavailable · choose another scene below</small>
+              </>
+            ) : (
+              <>
+                <b>Storyboard preview unavailable</b>
+                <p>
+                  {activeItem
+                    ? `Scene ${clampedAt + 1} · ${activeItem.label}${activeItem.subtitle ? ` — ${activeItem.subtitle}` : ""}`
+                    : projectName
+                    ? `${projectName} continues rendering while the preview is unavailable.`
+                    : "Saved scene previews are unavailable for this project right now."}
+                </p>
+              </>
+            )}
+          </div>
+        )}
       </div>
-      <ol className="frame-reel-strip">
-        {frames.map((svg, i) => (
-          <li key={i}>
-            <button
-              type="button"
-              aria-label={`Show frame ${i + 1}`}
-              aria-current={i === at}
-              onClick={() => setAt(i)}
-            >
-              <img src={svgSrc(svg)} alt="" draggable={false} />
-            </button>
-          </li>
-        ))}
-      </ol>
+      {sceneItems.length > 0 && (
+        <ol className="frame-reel-strip" aria-label="Storyboard scenes">
+          {resolvedList.map(({ item, activeSrc: itemSrc }, i) => (
+            <li key={item.index}>
+              <button
+                ref={(el) => {
+                  thumbRefs.current[i] = el;
+                }}
+                type="button"
+                className={i === clampedAt ? "on" : ""}
+                aria-label={`Show frame ${i + 1}: ${item.label}`}
+                aria-current={i === clampedAt}
+                onClick={() => selectScene(i)}
+                onKeyDown={(ev) => handleStripKeyDown(ev, i)}
+              >
+                <span className="frame-reel-thumb" data-aspect={normalizedAspect}>
+                  {itemSrc ? (
+                    <img
+                      src={itemSrc}
+                      alt=""
+                      draggable={false}
+                      onError={() => markUrlFailed(item.index, itemSrc)}
+                    />
+                  ) : (
+                    <i className="frame-reel-thumb-num">{String(i + 1).padStart(2, "0")}</i>
+                  )}
+                </span>
+                <span className="frame-reel-caption">
+                  <b>{String(i + 1).padStart(2, "0")}</b>
+                  <span>{item.label}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -243,6 +442,7 @@ export function BrowserAnimationStep({
   motionBlur,
   setMotionBlur,
   durationSeconds,
+  notice,
   onRetryAnimate,
   onBackToStoryboard,
   onStartFinalRender,
@@ -262,6 +462,7 @@ export function BrowserAnimationStep({
   motionBlur?: boolean;
   setMotionBlur?: (on: boolean) => void;
   durationSeconds?: number;
+  notice?: string | null;
   onRetryAnimate: () => void;
   onBackToStoryboard: () => void;
   onStartFinalRender: () => void;
@@ -1047,6 +1248,11 @@ export function BrowserAnimationStep({
 
   return (
     <>
+      {notice && (
+        <p className="aw-error" role="status" style={{ margin: "0 auto", width: "min(1360px, 100%)", boxSizing: "border-box" }}>
+          {notice}
+        </p>
+      )}
       <AnimationWorkspace
         aspect={viewAspect}
         aspects={aspectOptions}

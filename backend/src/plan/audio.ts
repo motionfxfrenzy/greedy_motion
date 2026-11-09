@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { currentTake, voiceText, type AudioMode, type PlanAudio, type VideoProject } from "@videosaas/contracts";
+import { currentTake, effectiveBriefDurationSeconds, voiceText, type AudioMode, type PlanAudio, type VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { TTS_MODEL } from "../audio/gemini-tts.ts";
 import { updateProjectAudio } from "../projects/store.ts";
@@ -68,14 +68,17 @@ async function run(project: VideoProject, requested?: AudioPart[]): Promise<Audi
   const mode = audioMode(project);
   const wantVoice = (mode === "voiceover" || mode === "both") && (!requested || requested.includes("voice"));
   const wantMusic = (mode === "music" || mode === "both") && (!requested || requested.includes("music"));
-  const sourceBeats = plan ? plan.beats.map((b) => ({ id: b.id, line: b.line })) : (scriptBeats ?? []).map((b, i) => ({ id: `b${i + 1}`, line: b.line }));
-  const jobs = wantVoice ? sourceBeats.filter((beat) => voiceText(beat.line)).map((beat) => ({ beat: beat.id, text: beat.line! })) : [];
+  // Plan beats match the script beats one to one, so a line's speaker (character voices) comes from the script beat at its place.
+  const sourceBeats = plan
+    ? plan.beats.map((b, i) => ({ id: b.id, line: b.line, speaker: scriptBeats?.[i]?.speaker ?? null }))
+    : (scriptBeats ?? []).map((b, i) => ({ id: `b${i + 1}`, line: b.line, speaker: b.speaker ?? null }));
+  const jobs = wantVoice ? sourceBeats.filter((beat) => voiceText(beat.line)).map((beat) => ({ beat: beat.id, text: beat.line!, ...(beat.speaker ? { speaker: beat.speaker } : {}) })) : [];
   if (!jobs.length && !wantMusic) return { project, warnings: [], spentUsd: 0 };
   if (!config.geminiApiKey) throw new AudioUnavailable("Voiceover and music need GEMINI_API_KEY in backend/.env.");
 
   const dir = planAudioDir(project.id);
   const settings = voiceSettings(project);
-  const targetSeconds = plan?.target_duration_s ?? project.brief?.durationSeconds ?? 30;
+  const targetSeconds = plan?.target_duration_s ?? (project.brief ? effectiveBriefDurationSeconds(project.brief, sourceBeats) : 30);
   const prompt = musicPrompt(plan, project.brief, targetSeconds);
   const [voice, music] = await Promise.allSettled([
     jobs.length ? produceVoice(config.geminiApiKey, dir, settings, jobs, project.planAudio?.voice?.lines ?? []) : Promise.resolve(null),

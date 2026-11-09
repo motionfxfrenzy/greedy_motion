@@ -3,7 +3,8 @@
 import sharp from "sharp";
 import type { ScreenshotAnalysis, VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
-import { llmJson } from "../llm.ts";
+import { callModel } from "../models/providers.ts";
+import { routeFor, routeHasKey } from "../models/routes.ts";
 import { getProject, screenshotFile, setScreenshotAnalysis } from "../projects/store.ts";
 
 const SCHEMA = {
@@ -26,12 +27,32 @@ const SYSTEM = [
 ].join("\n");
 
 /** Reads one screenshot; null when the read fails (the film is still made, just from the filename and purpose). */
-export async function analyzeScreenshot(bytes: Buffer, name: string, purpose: string): Promise<ScreenshotAnalysis | null> {
-  if (config.planner !== "anthropic" || !config.anthropicApiKey) return null;
+export async function analyzeScreenshot(bytes: Buffer, name: string, purpose: string, request?: typeof fetch): Promise<ScreenshotAnalysis | null> {
+  const route = routeFor("screenshot");
+  if (!request && !route.explicit && (config.planner !== "anthropic" || !routeHasKey("screenshot"))) return null;
   try {
     const jpeg = await sharp(bytes).resize({ width: 1568, height: 1568, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
-    const result = await llmJson({ provider: "anthropic", model: process.env.SCREENSHOT_MODEL || "claude-sonnet-5-5", system: SYSTEM, user: `File name: ${name}. The person labelled it: ${purpose}. Describe it.`, images: [{ mime: "image/jpeg", base64: jpeg.toString("base64") }], schema: SCHEMA, maxTokens: 1200, timeoutMs: 60_000 });
-    const raw = JSON.parse(result.text) as { title: string; summary: string; kind: string; elements: string[]; best_for: string; regions: { label: string; where: string }[] };
+    const result = await callModel({
+      step: "screenshot",
+      route,
+      system: [{ text: SYSTEM, cache: true }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", mime: "image/jpeg", base64: jpeg.toString("base64") },
+            { type: "text", text: `File name: ${name}. The person labelled it: ${purpose}. Describe it.` }
+          ]
+        }
+      ],
+      schema: SCHEMA as unknown as Record<string, unknown>,
+      maxTokens: 1200,
+      timeoutMs: 60_000,
+      errorPrefix: route.provider === "gemini" ? "Gemini request failed" : "Claude request failed",
+      includeErrorDetail: true,
+      ...(request ? { request } : {})
+    });
+    const raw = JSON.parse(result.text) as { title: string; summary: string; kind: ScreenshotAnalysis["kind"]; elements: string[]; best_for: string; regions: { label: string; where: string }[] };
     return { title: raw.title.slice(0, 80), summary: raw.summary.slice(0, 400), kind: raw.kind, elements: raw.elements.slice(0, 10).map((item) => item.slice(0, 80)), bestFor: raw.best_for.slice(0, 160), regions: raw.regions.slice(0, 6).map((region) => ({ label: region.label.slice(0, 60), where: region.where.slice(0, 40) })) };
   } catch {
     return null;

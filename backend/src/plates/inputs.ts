@@ -30,20 +30,85 @@ export function plateFilmSeconds(project: VideoProject): number | null {
   return buildTimeline(frames, voice).totalFrames / FPS;
 }
 
-/** What every (scene, ratio) variant must be right now, with its full dependency signature. */
-export async function desiredVariants(project: VideoProject, aspects: Aspect[]): Promise<Desired[]> {
+/** What every (scene, ratio) variant must be right now, with its full dependency signature and per-scene content signature. */
+export async function desiredVariants(
+  project: VideoProject,
+  aspects: Aspect[],
+  storedRows?: readonly { scene_index: number; aspect: Aspect; keyword: string; signature: string }[]
+): Promise<Desired[]> {
   const look = project.brief!.look!;
+  const styleFamily = project.brief?.styleFamily ?? null;
+  const styleExample = project.brief?.styleExample ?? null;
   const beats = project.brief?.scriptBeats ?? [];
   const film = filmBrief(project), keywords = castKeywords(beats);
-  const digests = { engineDigest: engineDigest(), styleDigest: styleDigest(look), promptDigest: await promptDigest() };
+  const digests = { engineDigest: engineDigest(), styleDigest: styleDigest(look), promptDigest: await promptDigest(plateNameOf(look)) };
   const frames = sceneFrames(project);
-  return aspects.flatMap((aspect) => beats.map((beat, index) => {
-    const size = sizeForAspect(aspect);
-    return {
-      index, aspect, keyword: beat.keyword, frames: frames[index]!.frames, width: size.w, height: size.h,
-      signature: variantSignature({ look, ...digests, film, castKeywords: keywords, beat, frames: frames[index]!.frames, aspect })
-    };
-  }));
+
+  const oldKeywordsByIdx = new Map<number, string>();
+  if (storedRows && storedRows.length > 0) {
+    const sorted = [...storedRows].sort((a, b) => a.scene_index - b.scene_index);
+    for (const r of sorted) {
+      if (!oldKeywordsByIdx.has(r.scene_index) && r.keyword) {
+        oldKeywordsByIdx.set(r.scene_index, r.keyword);
+      }
+    }
+  }
+  const oldKeywords = [...oldKeywordsByIdx.entries()].sort((a, b) => a[0] - b[0]).map(([, kw]) => kw);
+
+  return aspects.flatMap((aspect) =>
+    beats.map((beat, index) => {
+      const size = sizeForAspect(aspect);
+      const frameCount = frames[index]!.frames;
+      const signature = variantSignature({
+        look,
+        styleFamily,
+        styleExample,
+        ...digests,
+        film,
+        castKeywords: keywords,
+        beat,
+        frames: frameCount,
+        aspect
+      });
+      const contentSignature = variantSignature({
+        look,
+        styleFamily,
+        styleExample,
+        ...digests,
+        film,
+        castKeywords: [],
+        beat,
+        frames: frameCount,
+        aspect
+      });
+      const legacySet = new Set<string>();
+      if (oldKeywords.length > 0) {
+        const legacySig = variantSignature({
+          look,
+          styleFamily,
+          styleExample,
+          ...digests,
+          film,
+          castKeywords: oldKeywords,
+          beat,
+          frames: frameCount,
+          aspect
+        });
+        if (legacySig !== signature) legacySet.add(legacySig);
+      }
+      return {
+        index,
+        aspect,
+        keyword: beat.keyword,
+        frames: frameCount,
+        width: size.w,
+        height: size.h,
+        signature,
+        contentSignature,
+        ...(legacySet.size > 0 ? { legacySignatures: [...legacySet] } : {})
+      };
+    })
+  );
 }
 
 /** Ratios to keep drawn: the primary one first, then the ones the person selected. */

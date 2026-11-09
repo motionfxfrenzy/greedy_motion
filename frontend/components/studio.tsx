@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { optimisticUpdate } from "../lib/optimistic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aspectToFormat, beatCountRange, scriptSeconds, bundledFonts, findGalleryTemplate, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, parseScriptStream, templates, themes, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { aspectToFormat, beatCountRange, briefAspects, effectiveBriefDurationSeconds, ensureScriptBeatIds, isScriptLedDuration, remapFlagsOnInsert, remapFlagsOnRemove, remapIndicesOnInsert, remapIndicesOnRemove, remapRecordOnInsert, remapRecordOnRemove, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, scriptSeconds, bundledFonts, findGalleryTemplate, isFilmBrief, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, parseScriptStream, templates, themes, type Beat, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
 import { PlateFinal, PlatePreview } from "./plate-preview";
 import { BrowserAnimationStep } from "./browser-animation-step";
@@ -11,11 +11,13 @@ import { FinalRenderStep } from "./final-render-step";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
+import { FilmBrief } from "./film-brief";
 import { BeatStoryboardStep, FrameCard, type FrameLook } from "./beat-storyboard";
 import { ScriptCanvas, PlanLimitModal, svgSrc, type FrameSlot, type StoryboardState, type VoiceState } from "./script-canvas";
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
-import { LimitError, getPlates, getRenderQuote, cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, planVoiceUrl, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
+import { PLATE_CONFIRM_FALSE_DELAY_MS, PLATE_FALLBACK_NOTICE, nextPlateAnswer, plateRetryDelayMs, resolvePlateRouting, type PlateAnswerState } from "../lib/plate-availability";
+import { LimitError, getPlates, getRenderQuote, cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, insertScriptScene, planVoiceUrl, removeScriptScene, restoreScriptScene, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 
 type View = "projects" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
@@ -23,10 +25,12 @@ type Step = 0 | 1 | 2 | 3;
 const SCRIPT_STYLE: Step = 0, STORYBOARD: Step = 1, RENDER: Step = 2, REVIEW: Step = 3;
 const flowSteps: [Step, string][] = [[SCRIPT_STYLE, "Brief"], [STORYBOARD, "Storyboard"], [RENDER, "Animation"], [REVIEW, "Render"]];
 const imageFor = (template: Template) => "/templates/" + template.id + ".jpg";
+/** A film (story or explainer) is made from the idea alone: product facts and the brand kit never reach its script or storyboard. */
+const filmSafe = (value: ScriptBrief): ScriptBrief => isFilmBrief(value) ? { ...value, productUrl: undefined, productName: undefined, audience: undefined, brandId: undefined } : value;
 
 function statusStep(project: VideoProject): Step {
   if (project.renderJobId && (project.state === "Rendering draft" || project.state === "Approved" || project.state === "Render needs attention")) return REVIEW;
-  if (project.state === "Ready for review" || project.state === "Revisions needed" || project.filmMotion?.length) return RENDER;
+  if (project.state === "Ready for review" || project.state === "Revisions needed" || (project.state !== "Draft storyboard" && project.filmMotion?.length)) return RENDER;
   if (project.beatPlan || project.brief?.scriptBeats?.length) return STORYBOARD;
   return SCRIPT_STYLE;
 }
@@ -36,7 +40,7 @@ const styleFor = (profile: ScriptBrief["motionProfile"]): RenderRequest["style"]
 
 /** Older projects have no brief; start one from their saved request. */
 function briefFrom(project: VideoProject): ScriptBrief {
-  if (project.brief) return project.brief;
+  if (project.brief) return project.keepOverLength && !project.brief.keepOverLength ? { ...project.brief, keepOverLength: true } : project.brief;
   const audio = project.request.audio;
   return {
     ...defaultBrief,
@@ -44,7 +48,8 @@ function briefFrom(project: VideoProject): ScriptBrief {
     aspect: project.request.format === "portrait" ? "9:16" : "16:9",
     audio: { mode: audio?.music && audio?.voiceover ? "both" : audio?.voiceover ? "voiceover" : audio?.music ? "music" : "none", voice: audio?.voice ?? "Kore" },
     theme: project.request.theme,
-    ...(project.request.brandId ? { brandId: project.request.brandId } : {})
+    ...(project.request.brandId ? { brandId: project.request.brandId } : {}),
+    ...(project.keepOverLength ? { keepOverLength: true } : {})
   };
 }
 
@@ -105,6 +110,8 @@ export function Studio() {
   /** `writing`: the beat the words are streaming into (a scoped change writes only its beats). */
   type Canvas = { beats: ScriptBeat[]; previous: ScriptBeat[]; open: keyof ScriptBeat | null; writing: number | null; scoped?: boolean; /** The writer's idea and worked example, shared by every frame and change. */ notes?: ScriptNotes | null; streaming: boolean; startedAt: number; firstAt?: number; flags: ScriptFlag[]; error: string | null };
   const [canvas, setCanvas] = useState<Canvas | null>(null);
+  const canvasRef = useRef<Canvas | null>(null);
+  canvasRef.current = canvas;
   const wanted = useRef<UrlState | null>(null);
 
   const refresh = useCallback(async () => {
@@ -227,10 +234,38 @@ export function Studio() {
   const chosenLook = brief.look ?? "clean";
   const savedFamily = project?.brief?.styleFamily ?? null;
   const chosenFamily = brief.styleFamily ?? null;
+  const savedExample = project?.brief?.styleExample ?? null;
+  const chosenExample = brief.styleExample ?? null;
   useEffect(() => {
-    if (!project?.beatPlan || !project.brief || (chosenLook === savedLook && chosenFamily === savedFamily)) return;
-    void editPlan(project.id, { look: chosenLook, styleFamily: chosenFamily }).then(replaceProject).catch((caught) => { showLimit(caught); setError(caught instanceof Error ? caught.message : "Could not save the drawing style."); });
-  }, [project?.id, project?.beatPlan, project?.brief, chosenLook, savedLook, chosenFamily, savedFamily, replaceProject]);
+    if (!project?.beatPlan || !project.brief || (chosenLook === savedLook && chosenFamily === savedFamily && chosenExample === savedExample)) return;
+    void editPlan(project.id, { look: chosenLook, styleFamily: chosenFamily, styleExample: chosenExample }).then(replaceProject).catch((caught) => { showLimit(caught); setError(caught instanceof Error ? caught.message : "Could not save the drawing style."); });
+  }, [project?.id, project?.beatPlan, project?.brief, chosenLook, savedLook, chosenFamily, savedFamily, chosenExample, savedExample, replaceProject]);
+
+  // Keep format selections (aspect / aspects) and duration settings (durationMode / durationSeconds / lockDuration)
+  // persisted on the saved project when edited in Brief so Storyboard, Animation, Render quote and Export stay in sync.
+  const savedAspectsKey = project?.brief ? `${project.brief.aspect}|${briefAspects(project.brief).join(",")}` : "";
+  const chosenAspectsKey = `${brief.aspect}|${briefAspects(brief).join(",")}`;
+  const savedDurationKey = project?.brief ? `${project.brief.durationMode ?? ""}|${project.brief.durationSeconds}|${Boolean(project.brief.lockDuration)}` : "";
+  const chosenDurationKey = `${brief.durationMode ?? ""}|${brief.durationSeconds}|${Boolean(brief.lockDuration)}`;
+  useEffect(() => {
+    if (!project?.id || !project.brief) return;
+    if (savedAspectsKey === chosenAspectsKey && savedDurationKey === chosenDurationKey) return;
+    const checked = parseScriptBrief(filmSafe(brief));
+    if ("error" in checked) return;
+    const timer = window.setTimeout(() => {
+      void updateProject(project.id, {
+        brief: {
+          ...project.brief,
+          ...checked.brief,
+          ...(project.brief?.scriptBeats ? { scriptBeats: project.brief.scriptBeats } : {}),
+          ...(project.brief?.scriptNotes ? { scriptNotes: project.brief.scriptNotes } : {})
+        }
+      })
+        .then(replaceProject)
+        .catch(() => undefined);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [project?.id, project?.brief, savedAspectsKey, chosenAspectsKey, savedDurationKey, chosenDurationKey, brief, replaceProject]);
 
   const saveProject = useCallback(async (patch: Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "approvedAt">>) => {
     if (!project) return null;
@@ -349,7 +384,9 @@ export function Studio() {
     // Choices made after the last save (and not yet generated) are kept in this browser; they win when newer.
     const draft = readDraft(saved.id);
     const newer = draft && draft.savedAt >= Date.parse(saved.updatedAt);
-    setBrief(newer ? draft.brief : briefFrom(saved));
+    const nextBrief = newer ? draft.brief : briefFrom(saved);
+    const keepOverLength = Boolean(saved.keepOverLength || saved.brief?.keepOverLength || nextBrief.keepOverLength);
+    setBrief(keepOverLength && !nextBrief.keepOverLength ? { ...nextBrief, keepOverLength: true } : nextBrief);
     if (newer) setMotionBlur(draft.motionBlur);
     setDraftId(null);
     // The brand found on the site isn't stored (only offered for review), so a reopened project shows the facts and shots.
@@ -358,6 +395,15 @@ export function Studio() {
     setError(null);
     setStep(statusStep(saved));
     setView("create");
+    if (saved.scriptFrames === undefined) {
+      void getProject(saved.id)
+        .then((full) => {
+          if (opening !== openingProject.current || pendingMutation.current) return;
+          setProject((current) => (current?.id === full.id ? { ...current, scriptFrames: full.scriptFrames ?? [] } : current));
+          setProjects((current) => current.map((item) => (item.id === full.id ? { ...item, scriptFrames: full.scriptFrames ?? [] } : item)));
+        })
+        .catch(() => undefined);
+    }
     if (saved.renderJobId) {
       setJob(null);
       try { const nextJob = await getRenderJob(saved.renderJobId); if (opening === openingProject.current) setJob(nextJob); } catch { /* The project stays open while its render status is unavailable. */ }
@@ -441,36 +487,54 @@ export function Studio() {
   const drawFrames = (active: VideoProject, beats: ScriptBeat[], indices: number[], force = false) => {
     const checked = parseScriptBrief(brief);
     if ("error" in checked) return;
-    const todo = indices.filter((i) => beats[i] && (force || !frameCache.current[frameKey(beats[i]!)] || frameCache.current[frameKey(beats[i]!)]!.state === "failed"));
+    const withIds = ensureScriptBeatIds(beats);
+    const todo = indices.filter((i) => withIds[i] && (force || !frameCache.current[frameKey(withIds[i]!)] || frameCache.current[frameKey(withIds[i]!)]!.state === "failed"));
     if (todo.length === 0) return;
-    putFrames(todo.map((i) => [frameKey(beats[i]!), { state: "drawing", ...(frameCache.current[frameKey(beats[i]!)]?.svg ? { svg: frameCache.current[frameKey(beats[i]!)]!.svg } : {}) }]));
-    void streamFrames(active.id, { brief: checked.brief, beats, indices: todo, ...(notesRef.current ? { notes: notesRef.current } : {}) }, ({ index, svg, error }) => {
-      if (!beats[index]) return;
-      putFrames([[frameKey(beats[index]!), svg ? { state: "ready", svg } : { state: "failed", error: error ?? "Could not draw this frame." }]]);
-      if (svg) setFrameAt((current) => ({ ...current, [index]: svg }));
+    const identityByIndex = new Map(todo.map((i) => [i, { id: withIds[i]!.id, key: frameKey(withIds[i]!), beat: withIds[i]! }]));
+    putFrames(todo.map((i) => [frameKey(withIds[i]!), { state: "drawing", ...(frameCache.current[frameKey(withIds[i]!)]?.svg ? { svg: frameCache.current[frameKey(withIds[i]!)]!.svg } : {}) }]));
+    void streamFrames(active.id, { brief: checked.brief, beats: withIds, indices: todo, ...(notesRef.current ? { notes: notesRef.current } : {}) }, ({ index, svg, error }) => {
+      const info = identityByIndex.get(index);
+      if (!info) return;
+      putFrames([[info.key, svg ? { state: "ready", svg } : { state: "failed", error: error ?? "Could not draw this frame." }]]);
+      if (svg) {
+        const liveBeats = canvasRef.current?.beats ?? [];
+        const liveIdx = info.id
+          ? liveBeats.findIndex((b) => b.id === info.id)
+          : liveBeats[index] && frameKey(liveBeats[index]!) === info.key
+            ? index
+            : -1;
+        if (liveIdx >= 0) {
+          setFrameAt((current) => ({ ...current, [liveIdx]: svg }));
+        }
+      }
     }).catch((caught) => {
       showLimit(caught); const message = caught instanceof Error ? caught.message : "Could not draw the frames.";
-      putFrames(todo.map((i) => frameKey(beats[i]!)).filter((key) => frameCache.current[key]?.state === "drawing").map((key) => [key, { state: "failed", error: message }]));
+      putFrames(todo.map((i) => frameKey(withIds[i]!)).filter((key) => frameCache.current[key]?.state === "drawing").map((key) => [key, { state: "failed", error: message }]));
     });
   };
   /** Builds the storyboard from the script (its words fixed) as a server job; the page stays on the script. */
   const buildStoryboard = async (active: VideoProject, beats: ScriptBeat[], notes: ScriptNotes | null = notesRef.current) => {
-    const checked = parseScriptBrief(brief);
+    const checked = parseScriptBrief(filmSafe(brief));
     if ("error" in checked) return;
-    try { replaceProject((await planProject(active.id, { ...checked.brief, scriptBeats: beats, ...(notes ? { scriptNotes: notes } : {}), screenshotIds: active.screenshots.map((shot) => shot.id) })).project); }
+    // A film is made from the idea alone: no product screenshots reach its storyboard.
+    const shots = isFilmBrief(brief) ? {} : { screenshotIds: active.screenshots.map((shot) => shot.id) };
+    try { replaceProject((await planProject(active.id, { ...checked.brief, scriptBeats: beats, ...(notes ? { scriptNotes: notes } : {}), ...shots })).project); }
     catch (caught) { setCanvas((current) => current && { ...current, error: caught instanceof Error ? caught.message : "Could not start the storyboard." }); }
   };
   /** Streams a new script, or with `instruction` a changed one, into the canvas. */
   // Every AI version of a beat is kept (Reimagine, or a change to picked beats) so the person can go back to one.
   const [versions, setVersions] = useState<Record<number, { list: ScriptBeat[]; at: number }>>({});
-  /** Streams a new script, or with `instruction` a changed one; with `only`, just those beats are rewritten. */
-  const writeScript = async (instruction?: string, override?: Partial<ScriptBrief>, only?: number[]) => {
-    const checked = parseScriptBrief(override ? { ...brief, ...override } : brief);
+  /**
+   * Streams a new script, or with `instruction` a changed one; with `only`, just those beats are rewritten. With `draft`
+   * (a film's Brief page) it stays on the page and starts nothing else: the storyboard and frames wait for `continueDraft`.
+   */
+  const writeScript = async (instruction?: string, override?: Partial<ScriptBrief>, only?: number[], draft = false) => {
+    const checked = parseScriptBrief(filmSafe(override ? { ...brief, ...override } : brief));
     if ("error" in checked) { setError(checked.error); return; }
     setError(null);
     setLimit(null);
     const previous = instruction && canvas ? canvas.beats : [];
-    setStep(STORYBOARD);
+    if (!draft) setStep(STORYBOARD);
     const scope = instruction && only?.length ? only : undefined;
     const notes = instruction ? canvas?.notes ?? null : null;
     setCanvas({ beats: previous, previous, notes, open: null, writing: scope ? scope[0]! : null, scoped: Boolean(scope), streaming: true, startedAt: Date.now(), flags: [], error: null });
@@ -495,12 +559,15 @@ export function Studio() {
         // The plan (IDEA, EXAMPLE) comes before the first beat, so the early frames already share the example.
         if (parsed.notes.example) notesRef.current = parsed.notes;
         // A beat is complete once the next one starts: the first four go to the artist while the rest are still being written.
-        if (!early && parsed.beats.length > 4) { early = true; drawFrames(active, parsed.beats.slice(0, 4), [0, 1, 2, 3]); }
+        if (!draft && !early && parsed.beats.length > 4) { early = true; drawFrames(active, parsed.beats.slice(0, 4), [0, 1, 2, 3]); }
         // A change streams the whole script again: beats not rewritten yet keep showing their current words.
         setCanvas((current) => current && { ...current, beats: [...parsed.beats, ...current.previous.slice(parsed.beats.length)], open: parsed.open, writing: parsed.beats.length ? parsed.beats.length - 1 : null, firstAt: current.firstAt ?? Date.now() });
       }, stop.signal);
       notesRef.current = result.notes;
-      setCanvas((current) => current && { ...current, beats: result.beats, notes: result.notes, previous: [], open: null, writing: null, streaming: false, flags: result.flags });
+      const finishedBeats = ensureScriptBeatIds(
+        result.beats.map((b, i) => (scope && scope.includes(i) && previous[i]?.id ? { ...b, id: previous[i]!.id } : previous[i]?.id && !scope ? b : previous[i]?.id ? { ...b, id: previous[i]!.id } : b))
+      );
+      setCanvas((current) => current && { ...current, beats: finishedBeats, notes: result.notes, previous: [], open: null, writing: null, streaming: false, flags: result.flags });
       setVersions((current) => {
         if (!scope) return {};
         const next = { ...current };
@@ -508,16 +575,32 @@ export function Studio() {
           const entry = current[i] ?? { list: [previous[i]!], at: 0 };
           const list = [...entry.list];
           list[entry.at] = previous[i]!;
-          next[i] = { list: [...list, result.beats[i]!], at: list.length };
+          next[i] = { list: [...list, finishedBeats[i]!], at: list.length };
         }
         return next;
       });
-      void buildStoryboard(active, result.beats, result.notes);
-      drawFrames(active, result.beats, result.beats.map((_, i) => i));
+      // A draft on the Brief page costs only the script: the storyboard and frames start when the person continues.
+      if (!draft) {
+        void buildStoryboard(active, finishedBeats, result.notes);
+        drawFrames(active, finishedBeats, finishedBeats.map((_, i) => i));
+      }
     } catch (caught) {
       if (stop.signal.aborted) { setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: scope ? current.previous : current.beats.length ? current.beats : current.previous }); return; }
       showLimit(caught);
       setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: current.previous.length ? current.previous : current.beats, error: caught instanceof Error ? caught.message : "Could not write the script." });
+    }
+  };
+  /** A film's script drafted on the Brief page goes to the storyboard as written: page 2 shows it and draws it. */
+  const continueDraft = async () => {
+    if (!canvas?.beats.length || canvas.streaming) return;
+    const beats = canvas.beats;
+    try {
+      const active = await ensureProject();
+      void buildStoryboard(active, beats, notesRef.current);
+      drawFrames(active, beats, beats.map((_, i) => i));
+      setStep(STORYBOARD);
+    } catch (caught) {
+      setCanvas((current) => current && { ...current, error: caught instanceof Error ? caught.message : "Could not start the storyboard." });
     }
   };
   /** Reimagine: a new way to show one beat (the way a scoped change improved beat 8), kept beside the earlier versions. */
@@ -542,11 +625,63 @@ export function Studio() {
   };
   /** "Fit to N s": rewrites the script to the chosen length and holds later changes to it. */
   const fitScript = () => {
-    const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
+    const targetSec = brief.durationSeconds;
+    const nextDurationMode = brief.durationMode === "script" ? ("custom" as const) : brief.durationMode;
+    const range = beatCountRange(targetSec, brief.pace, brief.styleFamily);
     const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
-    setBrief((current) => ({ ...current, lockDuration: true }));
-    void writeScript(`Fit the whole script to about ${brief.durationSeconds} seconds: ${range.min}–${range.max} beats${voiced ? ` and at most ${wordBudget(brief.durationSeconds, brief.pace)} spoken words in total` : ""}. Keep the hook, the key idea, the essential steps of the example and the payoff; merge or cut the rest, and keep the lines flowing into each other.`, { lockDuration: true });
+    setBrief((current) => ({ ...current, durationSeconds: targetSec, ...(nextDurationMode ? { durationMode: nextDurationMode } : {}), lockDuration: true }));
+    void writeScript(`Fit the whole script to about ${targetSec} seconds: ${range.min}–${range.max} beats${voiced ? ` and at most ${wordBudget(targetSec, brief.pace)} spoken words in total` : ""}. Keep the hook, the key idea, the essential steps of the example and the payoff; merge or cut the rest, and keep the lines flowing into each other.`, { durationSeconds: targetSec, ...(nextDurationMode ? { durationMode: nextDurationMode } : {}), lockDuration: true });
   };
+  /** "Keep N s": remembers for this project that the user accepted a longer script, without rewriting or spending tokens. */
+  const keepingOverLength = useRef<Set<string>>(new Set());
+  const acceptOverLength = useCallback(async () => {
+    const activeId = project?.id;
+    if (!activeId) {
+      setBrief((current) => ({ ...current, keepOverLength: true }));
+      return;
+    }
+    if (keepingOverLength.current.has(activeId)) return;
+    keepingOverLength.current.add(activeId);
+    const hadKeep = Boolean(project.keepOverLength || project.brief?.keepOverLength || brief.keepOverLength);
+    const patchKeep = (nextKeep: boolean) => {
+      const applyProject = (item: VideoProject): VideoProject => {
+        if (item.id !== activeId) return item;
+        const nextBrief = item.brief
+          ? (() => {
+              const { keepOverLength: _old, ...rest } = item.brief;
+              return nextKeep ? { ...rest, keepOverLength: true } : rest;
+            })()
+          : item.brief;
+        const { keepOverLength: _oldProjectKeep, ...restProject } = item;
+        return {
+          ...restProject,
+          ...(nextBrief ? { brief: nextBrief } : {}),
+          ...(nextKeep ? { keepOverLength: true } : {})
+        };
+      };
+      setProject((current) => {
+        if (!current || current.id !== activeId) return current;
+        setBrief((currBrief) => {
+          const { keepOverLength: _old, ...rest } = currBrief;
+          return nextKeep ? { ...rest, keepOverLength: true } : rest;
+        });
+        return applyProject(current);
+      });
+      setProjects((current) => current.map(applyProject));
+    };
+    ++mutationEpoch.current;
+    try {
+      await optimisticUpdate({
+        apply: () => patchKeep(true),
+        persist: () => updateProject(activeId, { keepOverLength: true }),
+        reconcile: (saved) => patchKeep(Boolean(saved.keepOverLength ?? saved.brief?.keepOverLength ?? true)),
+        rollback: () => patchKeep(hadKeep)
+      });
+    } finally {
+      keepingOverLength.current.delete(activeId);
+      ++mutationEpoch.current;
+    }
+  }, [project, brief.keepOverLength]);
   const editScriptBeat = (index: number, patch: Partial<ScriptBeat>) => setCanvas((current) => current && { ...current, beats: current.beats.map((beat, i) => i === index ? { ...beat, ...patch } : beat), flags: current.flags.filter((flag) => flag.beat !== index) });
   // The storyboard is "ready" only while it still carries the script's exact words; any edit makes it stale.
   const planMatchesScript = (plan: BeatPlan | undefined, beats: ScriptBeat[]) => Boolean(plan && plan.beats.length === beats.length && plan.beats.every((beat, i) => beat.keyword === beats[i]!.keyword && (beat.on_screen ?? null) === beats[i]!.onScreen && (beat.line ?? null) === beats[i]!.line));
@@ -613,7 +748,9 @@ export function Studio() {
       setVoiceRun({ state: "failed", error: checked.error });
       return;
     }
-    const targetIndices = indices ?? canvas.beats.map((_, i) => i).filter((i) => Boolean(voiceText(canvas.beats[i]?.line)));
+    const requestBeats = ensureScriptBeatIds(canvas.beats);
+    const targetIndices = indices ?? requestBeats.map((_, i) => i).filter((i) => Boolean(voiceText(requestBeats[i]?.line)));
+    const identityByIndex = new Map(targetIndices.map((i) => [i, { id: requestBeats[i]?.id, text: voiceText(requestBeats[i]?.line) }]));
     setVoiceRun({ state: "voicing" });
     setVoiceProgress(3);
     setVoicingIndices(targetIndices);
@@ -631,7 +768,7 @@ export function Studio() {
         active.id,
         {
           brief: checked.brief,
-          beats: canvas.beats,
+          beats: requestBeats,
           ...(indices ? { indices } : {}),
           ...(force ? { force: true } : {}),
           includeMusic: !indices && musicBrief
@@ -640,15 +777,26 @@ export function Studio() {
           if (typeof ev.progress === "number") {
             setVoiceProgress((curr) => Math.max(curr, ev.progress));
           }
-          if (ev.type === "take") {
-            const text = voiceText(canvas.beats[ev.index]?.line);
-            if (text) {
-              setStreamedTakeFiles((curr) => ({ ...curr, [text]: ev.file }));
+          if (ev.type === "take" || ev.type === "take-error") {
+            const info = identityByIndex.get(ev.index);
+            const liveBeats = canvasRef.current?.beats ?? [];
+            const liveIdx = info?.id
+              ? liveBeats.findIndex((b) => b.id === info.id)
+              : info?.text
+                ? liveBeats.findIndex((b) => voiceText(b.line) === info.text)
+                : -1;
+            if (ev.type === "take") {
+              const text = info?.text ?? voiceText(requestBeats[ev.index]?.line);
+              if (text && liveIdx >= 0) {
+                setStreamedTakeFiles((curr) => ({ ...curr, [text]: ev.file }));
+              }
+              setVoicingIndices((curr) => curr.filter((i) => i !== ev.index && i !== liveIdx));
+            } else {
+              setVoicingIndices((curr) => curr.filter((i) => i !== ev.index && i !== liveIdx));
+              if (liveIdx >= 0) {
+                setVoiceErrors((curr) => ({ ...curr, [liveIdx]: ev.error }));
+              }
             }
-            setVoicingIndices((curr) => curr.filter((i) => i !== ev.index));
-          } else if (ev.type === "take-error") {
-            setVoicingIndices((curr) => curr.filter((i) => i !== ev.index));
-            setVoiceErrors((curr) => ({ ...curr, [ev.index]: ev.error }));
           } else if (ev.type === "music") {
             setStreamedMusicReady(true);
           } else if (ev.type === "done" && ev.project) {
@@ -687,6 +835,239 @@ export function Studio() {
       void recordVoice(project, undefined, true);
     }
   };
+  type UndoSceneState = {
+    projectId: string;
+    index: number;
+    beat: ScriptBeat;
+    planBeat: Beat | null;
+    overrides: Record<string, unknown>;
+    versionEntry?: { list: ScriptBeat[]; at: number };
+    frameSvg?: string;
+    voiceError?: string;
+    flags: ScriptFlag[];
+    busy?: boolean;
+    error?: string | null;
+  };
+  const [undoSceneState, setUndoSceneState] = useState<UndoSceneState | null>(null);
+
+  const insertSceneAt = async (position: number, prompt: string, signal?: AbortSignal) => {
+    if (!canvas || canvas.streaming) return;
+    if (canvas.beats.length >= SCRIPT_BEATS_MAX) {
+      throw new Error(`A storyboard can have at most ${SCRIPT_BEATS_MAX} scenes.`);
+    }
+    const checked = parseScriptBrief(filmSafe(brief));
+    if ("error" in checked) {
+      throw new Error(checked.error);
+    }
+    setError(null);
+    setLimit(null);
+    const active = await ensureProject();
+    const currentBeats = ensureScriptBeatIds(canvas.beats);
+    const idempotencyKey = crypto.randomUUID();
+    pendingMutation.current = true;
+    ++mutationEpoch.current;
+    try {
+      const result = await insertScriptScene(
+        active.id,
+        {
+          brief: checked.brief,
+          previous: currentBeats,
+          position,
+          prompt,
+          notes: canvas.notes ?? notesRef.current,
+          idempotencyKey
+        },
+        signal
+      );
+      if (signal?.aborted) return;
+      const nextBeats = ensureScriptBeatIds(
+        result.beats.map((b, i) => {
+          if (i === position) return result.insertedBeat.id ? b : { ...b, id: `sb-${crypto.randomUUID().slice(0, 8)}` };
+          const oldIdx = i > position ? i - 1 : i;
+          return currentBeats[oldIdx]?.id ? { ...b, id: currentBeats[oldIdx]!.id } : b;
+        })
+      );
+      notesRef.current = result.notes ?? notesRef.current;
+      setVersions((curr) => remapRecordOnInsert(curr, position));
+      setFrameAt((curr) => remapRecordOnInsert(curr, position));
+      setVoiceErrors((curr) => remapRecordOnInsert(curr, position));
+      setVoicingIndices((curr) => remapIndicesOnInsert(curr, position));
+      setUndoSceneState(null);
+      setCanvas((curr) =>
+        curr && {
+          ...curr,
+          beats: nextBeats,
+          notes: result.notes ?? curr.notes,
+          flags: result.flags,
+          error: null
+        }
+      );
+      setBrief((curr) => ({
+        ...curr,
+        scriptBeats: nextBeats,
+        ...(result.project.keepOverLength || curr.keepOverLength ? { keepOverLength: true } : {})
+      }));
+      replaceProject(result.project);
+      if (result.project.state === "Draft storyboard") {
+        setJob(null);
+      }
+      drawFrames(result.project, nextBeats, [position]);
+    } catch (caught) {
+      if (!signal?.aborted) {
+        showLimit(caught);
+      }
+      throw caught;
+    } finally {
+      pendingMutation.current = false;
+      ++mutationEpoch.current;
+    }
+  };
+
+  const removeSceneAt = async (index: number) => {
+    if (!canvas || canvas.streaming) return;
+    if (canvas.beats.length <= SCRIPT_BEATS_MIN) {
+      throw new Error("A storyboard needs at least one scene.");
+    }
+    const checked = parseScriptBrief(filmSafe(brief));
+    if ("error" in checked) {
+      throw new Error(checked.error);
+    }
+    const active = await ensureProject();
+    const currentBeats = ensureScriptBeatIds(canvas.beats);
+    const removedBeat = currentBeats[index];
+    if (!removedBeat) {
+      throw new Error("Choose an existing scene to remove.");
+    }
+    const versionSnap = remapRecordOnRemove(versions, index);
+    const frameAtSnap = remapRecordOnRemove(frameAt, index);
+    const voiceErrSnap = remapRecordOnRemove(voiceErrors, index);
+    const flagsSnap = remapFlagsOnRemove(canvas.flags, index);
+    const cachedFrameSvg = frameAtSnap.removed ?? frameCache.current[frameKey(removedBeat)]?.svg;
+
+    pendingMutation.current = true;
+    ++mutationEpoch.current;
+    try {
+      const result = await removeScriptScene(active.id, {
+        index,
+        brief: checked.brief,
+        beats: currentBeats
+      });
+      const survivingIds = [...currentBeats.slice(0, index), ...currentBeats.slice(index + 1)];
+      const nextBeats = ensureScriptBeatIds(
+        result.beats.map((b, i) => (survivingIds[i]?.id ? { ...b, id: survivingIds[i]!.id } : b))
+      );
+      setVersions(versionSnap.next);
+      setFrameAt(frameAtSnap.next);
+      setVoiceErrors(voiceErrSnap.next);
+      setVoicingIndices((curr) => remapIndicesOnRemove(curr, index));
+      setCanvas((curr) =>
+        curr && {
+          ...curr,
+          beats: nextBeats,
+          flags: flagsSnap.next,
+          error: null
+        }
+      );
+      setBrief((curr) => ({
+        ...curr,
+        scriptBeats: nextBeats,
+        ...(result.project.keepOverLength || curr.keepOverLength ? { keepOverLength: true } : {})
+      }));
+      replaceProject(result.project);
+      if (result.project.state === "Draft storyboard") {
+        setJob(null);
+      }
+      setUndoSceneState({
+        projectId: active.id,
+        index,
+        beat: removedBeat,
+        planBeat: result.removedPlanBeat,
+        overrides: result.removedOverrides,
+        ...(versionSnap.removed ? { versionEntry: versionSnap.removed } : {}),
+        ...(cachedFrameSvg ? { frameSvg: cachedFrameSvg } : {}),
+        ...(voiceErrSnap.removed ? { voiceError: voiceErrSnap.removed } : {}),
+        flags: flagsSnap.removed
+      });
+    } finally {
+      pendingMutation.current = false;
+      ++mutationEpoch.current;
+    }
+  };
+
+  const undoRemoveScene = async () => {
+    if (!canvas || canvas.streaming || !undoSceneState || undoSceneState.busy) return;
+    if (project && undoSceneState.projectId !== project.id) return;
+    const snap = undoSceneState;
+    const checked = parseScriptBrief(filmSafe(brief));
+    if ("error" in checked) {
+      throw new Error(checked.error);
+    }
+    setUndoSceneState((curr) => (curr ? { ...curr, busy: true, error: null } : null));
+    const active = await ensureProject();
+    const currentBeats = ensureScriptBeatIds(canvas.beats);
+    pendingMutation.current = true;
+    ++mutationEpoch.current;
+    try {
+      const result = await restoreScriptScene(active.id, {
+        index: snap.index,
+        beat: snap.beat,
+        planBeat: snap.planBeat,
+        overrides: snap.overrides,
+        brief: checked.brief,
+        beats: currentBeats
+      });
+      const expectedIds = [
+        ...currentBeats.slice(0, snap.index),
+        snap.beat,
+        ...currentBeats.slice(snap.index)
+      ];
+      const nextBeats = ensureScriptBeatIds(
+        result.beats.map((b, i) => (expectedIds[i]?.id ? { ...b, id: expectedIds[i]!.id } : b))
+      );
+      if (snap.frameSvg) {
+        putFrames([[frameKey(snap.beat), { state: "ready", svg: snap.frameSvg }]]);
+      }
+      setVersions((curr) => {
+        const shifted = remapRecordOnInsert(curr, snap.index);
+        if (snap.versionEntry) shifted[snap.index] = snap.versionEntry;
+        return shifted;
+      });
+      setFrameAt((curr) => {
+        const shifted = remapRecordOnInsert(curr, snap.index);
+        if (snap.frameSvg) shifted[snap.index] = snap.frameSvg;
+        return shifted;
+      });
+      setVoiceErrors((curr) => {
+        const shifted = remapRecordOnInsert(curr, snap.index);
+        if (snap.voiceError) shifted[snap.index] = snap.voiceError;
+        return shifted;
+      });
+      setVoicingIndices((curr) => remapIndicesOnInsert(curr, snap.index));
+      setCanvas((curr) =>
+        curr && {
+          ...curr,
+          beats: nextBeats,
+          flags: remapFlagsOnInsert(curr.flags, snap.index, snap.flags),
+          error: null
+        }
+      );
+      setBrief((curr) => ({
+        ...curr,
+        scriptBeats: nextBeats,
+        ...(result.project.keepOverLength || curr.keepOverLength ? { keepOverLength: true } : {})
+      }));
+      replaceProject(result.project);
+      setUndoSceneState(null);
+    } catch (caught) {
+      const msg = caught instanceof Error ? caught.message : "Could not restore the scene.";
+      setUndoSceneState((curr) => (curr ? { ...curr, busy: false, error: msg } : null));
+      throw caught;
+    } finally {
+      pendingMutation.current = false;
+      ++mutationEpoch.current;
+    }
+  };
+
   // Step 2 (Storyboard) -> Step 3 (Animation): prepares ONLY the in-browser animation (no MP4 worker encoding!),
   // streaming 0 -> 100% progress as missing frames, voiceover/music, and per-scene SVG motion finish in parallel.
   const [animating, setAnimating] = useState(false);
@@ -695,6 +1076,23 @@ export function Studio() {
   const [animScenesDone, setAnimScenesDone] = useState<number[]>([]);
   const [animError, setAnimError] = useState<string | null>(null);
   const [animVersion, setAnimVersion] = useState(0);
+  const [plateAutoStart, setPlateAutoStart] = useState(false);
+
+  const syncCurrentBriefToProject = useCallback(async () => {
+    if (!project) return;
+    const checked = parseScriptBrief(filmSafe(brief));
+    if ("error" in checked) return;
+    const nextBeats = canvas?.beats?.length ? ensureScriptBeatIds(canvas.beats) : project.brief?.scriptBeats;
+    const saved = await updateProject(project.id, {
+      brief: {
+        ...project.brief,
+        ...checked.brief,
+        ...(nextBeats?.length ? { scriptBeats: nextBeats } : {}),
+        ...(canvas?.notes ?? project.brief?.scriptNotes ? { scriptNotes: canvas?.notes ?? project.brief?.scriptNotes } : {})
+      }
+    });
+    replaceProject(saved);
+  }, [project, brief, canvas?.beats, canvas?.notes, replaceProject]);
 
   useEffect(() => {
     if (!animating) return;
@@ -706,20 +1104,97 @@ export function Studio() {
 
   // Code-drawn plate styles draw their scenes in PlatePreview (drawing, verification and assembly run on the render worker).
   // Only where the backend has the plate pipeline on (PLATE_PIPELINE=worker): elsewhere these styles keep their previous behaviour.
-  const plateLook = Boolean((project?.brief?.look ?? brief.look)?.startsWith("illus-"));
+  const effectiveLook = project?.brief?.look ?? brief.look ?? null;
+  const plateLook = Boolean(effectiveLook?.startsWith("illus-"));
   // The answer is kept with the project it belongs to, so there is no render in which a plate project is "not yet known" and the
   // previous animation editor flashes up.
-  const [plateAnswer, setPlateAnswer] = useState<{ id: string; available: boolean } | null>(null);
+  const [plateAnswer, setPlateAnswer] = useState<PlateAnswerState | null>(null);
+  const plateAnswerRef = useRef<PlateAnswerState | null>(null);
+  plateAnswerRef.current = plateAnswer;
+  const prevAnimatingForPlateRef = useRef<boolean>(animating);
+  const prevProjectLookForPlateRef = useRef<string | undefined>(project?.brief?.look);
   useEffect(() => {
+    const wasAnimating = prevAnimatingForPlateRef.current;
+    prevAnimatingForPlateRef.current = animating;
+    const prevLook = prevProjectLookForPlateRef.current;
+    prevProjectLookForPlateRef.current = project?.brief?.look;
+    const animatingFinished = wasAnimating && !animating;
+    const lookChanged = prevLook !== project?.brief?.look;
+    const stepIsRender = step === RENDER;
+
     if (!plateLook || !project?.id) return;
+    if (
+      plateAnswerRef.current?.id === project.id &&
+      plateAnswerRef.current.available === true &&
+      !animatingFinished &&
+      !lookChanged
+    ) {
+      return;
+    }
+
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const id = project.id;
-    getPlates(id).then((status) => { if (live) setPlateAnswer({ id, available: status.available }); }).catch(() => { if (live) setPlateAnswer({ id, available: false }); });
-    return () => { live = false; };
-  }, [plateLook, project?.id]);
-  const plateKnown = Boolean(project?.id) && plateAnswer?.id === project?.id;
-  const isPlateStyle = plateLook && plateKnown && plateAnswer?.available === true;
-  const plateChecking = plateLook && Boolean(project?.id) && !plateKnown;
+    const startedAt = Date.now();
+    let errorAttempts = 0;
+
+    if (
+      (animatingFinished || lookChanged || stepIsRender) &&
+      plateAnswerRef.current?.id === id &&
+      plateAnswerRef.current.available === false
+    ) {
+      const resetState: PlateAnswerState = { id, available: null, falseCount: 0 };
+      plateAnswerRef.current = resetState;
+      setPlateAnswer(resetState);
+    }
+
+    const check = () => {
+      getPlates(id)
+        .then((status) => {
+          if (!live) return;
+          errorAttempts = 0;
+          const next = nextPlateAnswer(
+            plateAnswerRef.current,
+            id,
+            { ok: true, available: status.available, look: status.look },
+            effectiveLook
+          );
+          plateAnswerRef.current = next;
+          setPlateAnswer(next);
+          if (next && next.available === null && next.falseCount === 1) {
+            timer = setTimeout(() => {
+              if (live) check();
+            }, PLATE_CONFIRM_FALSE_DELAY_MS);
+          }
+        })
+        .catch(() => {
+          if (!live) return;
+          const next = nextPlateAnswer(
+            plateAnswerRef.current,
+            id,
+            { ok: false },
+            effectiveLook
+          );
+          plateAnswerRef.current = next;
+          setPlateAnswer(next);
+          const delay = plateRetryDelayMs(errorAttempts, Date.now() - startedAt);
+          errorAttempts += 1;
+          if (delay !== null) {
+            timer = setTimeout(() => {
+              if (live) check();
+            }, delay);
+          }
+        });
+    };
+
+    check();
+    return () => {
+      live = false;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [plateLook, project?.id, project?.brief?.look, effectiveLook, step, animating]);
+  const { plateKnown, isPlateStyle, plateChecking } = resolvePlateRouting(plateLook, project?.id, plateAnswer);
+  const plateFallbackNotice = plateLook && plateKnown && plateAnswer?.available === false ? PLATE_FALLBACK_NOTICE : null;
   const [plateTokens, setPlateTokens] = useState<number | null>(null);
   useEffect(() => {
     if (!isPlateStyle || !project?.id || !project.beatPlan) { setPlateTokens(null); return; }
@@ -739,6 +1214,7 @@ export function Studio() {
     }
     setError(null);
     setAnimError(null);
+    setPlateAutoStart(true);
     setStep(RENDER);
     setAnimating(true);
     setAnimProgress(4);
@@ -795,11 +1271,11 @@ export function Studio() {
   useEffect(() => {
     if (!canvas && project?.brief?.scriptBeats?.length) notesRef.current = project.brief?.scriptNotes ?? null;
     // Older projects have a plan but no script beats: their script page is built from the plan's own words.
-    const planned = project?.beatPlan && !project.brief?.scriptBeats?.length ? project.beatPlan.beats.map((beat) => ({ keyword: beat.keyword, visual: null, onScreen: beat.on_screen ?? null, line: beat.line ?? null })) : null;
+    const planned = project?.beatPlan && !project.brief?.scriptBeats?.length ? ensureScriptBeatIds(project.beatPlan.beats.map((beat) => ({ keyword: beat.keyword, visual: null, onScreen: beat.on_screen ?? null, line: beat.line ?? null }))) : null;
     if (!canvas && planned) setCanvas({ beats: planned, notes: null, previous: [], open: null, writing: null, streaming: false, startedAt: Date.now(), flags: [], error: null });
-    if (!canvas && project?.brief?.scriptBeats?.length) setCanvas({ beats: project.brief.scriptBeats, notes: project.brief.scriptNotes ?? null, previous: [], open: null, writing: null, streaming: false, startedAt: Date.now(), flags: [], error: null });
+    if (!canvas && project?.brief?.scriptBeats?.length) setCanvas({ beats: ensureScriptBeatIds(project.brief.scriptBeats), notes: project.brief.scriptNotes ?? null, previous: [], open: null, writing: null, streaming: false, startedAt: Date.now(), flags: [], error: null });
     if (!project) { canvasStop.current?.abort(); setCanvas(null); }
-    frameCache.current = {}; setFrameAt({}); setVoiceRun({ state: "idle" }); setVersions({});
+    frameCache.current = {}; setFrameAt({}); setVoiceRun({ state: "idle" }); setVersions({}); setUndoSceneState(null);
   }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // The project list leaves the frames out, so only a fuller copy adds to the cache; nothing here removes from it.
   useEffect(() => {
@@ -808,10 +1284,10 @@ export function Studio() {
   }, [project?.id, project?.scriptFrames]); // eslint-disable-line react-hooks/exhaustive-deps
   // Frames for a script that was never drawn here (a reopened project): drawn once, not after every edit.
   useEffect(() => {
-    if (!canvas || canvas.streaming || !project) return;
+    if (step !== STORYBOARD || !canvas || canvas.streaming || !project) return;
     const missing = canvas.beats.map((_, i) => i).filter((i) => frameAt[i] === undefined && !frameCache.current[frameKey(canvas.beats[i]!)]);
     if (missing.length) drawFrames(project, canvas.beats, missing);
-  }, [project?.id, canvas?.streaming, canvas?.beats.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, project?.id, canvas?.streaming, canvas?.beats.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Stops the director on the server; the brief stays as it is. */
   const cancelPlan = async () => {
@@ -867,6 +1343,7 @@ export function Studio() {
   };
   const submit = async (): Promise<boolean> => {
     if (!project) return false;
+    const prevStep = step;
     setBusy(true);
     setError(null);
     setJob(null);
@@ -881,6 +1358,7 @@ export function Studio() {
       setProjects((current) => current.map(rendering));
       return true;
     } catch (caught) {
+      if (prevStep === RENDER) setStep(RENDER);
       showLimit(caught); setError(caught instanceof Error ? caught.message : "Could not start the render.");
       return false;
     } finally {
@@ -935,8 +1413,17 @@ export function Studio() {
     setStep(RENDER);
   };
 
+  const isFilmBriefView = view === "create" && step === SCRIPT_STYLE && isFilmBrief(brief);
+  const isStoryboardView = view === "create" && step === STORYBOARD && Boolean(canvas);
+
   return <main
-    className="relay-shell"
+    className={
+      isFilmBriefView
+        ? "relay-shell relay-shell--film-brief"
+        : isStoryboardView
+          ? "relay-shell relay-shell--storyboard"
+          : "relay-shell"
+    }
     style={
       view === "create" && (step === RENDER || step === REVIEW)
         ? { height: "100vh", maxHeight: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }
@@ -951,13 +1438,16 @@ export function Studio() {
       onRender={async () => { if (await submit()) setView("create"); }}
       onBack={() => setView("create")}
       screenshotUrl={projectScreenshotUrl}
-    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan || canvas ? STORYBOARD : SCRIPT_STYLE, project.renderJobId && (project.state === "Ready for review" || project.state === "Revisions needed") ? REVIEW : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} />
+    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan || (canvas && (!isFilmBrief(brief) || step !== SCRIPT_STYLE)) ? STORYBOARD : SCRIPT_STYLE, project.renderJobId && (project.state === "Ready for review" || project.state === "Revisions needed") ? REVIEW : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} />
       {error && step !== SCRIPT_STYLE && !(step === STORYBOARD && canvas) && step !== RENDER && step !== REVIEW && <p className="workspace-error">{error}</p>}
       {step === STORYBOARD && canvas && <ScriptCanvas
+        projectId={project?.id ?? draftId ?? undefined}
+        keepOverLength={Boolean(project?.keepOverLength || project?.brief?.keepOverLength || brief.keepOverLength)}
+        onKeepOverLength={acceptOverLength}
         beats={canvas.beats} open={canvas.open} streaming={canvas.streaming} startedAt={canvas.startedAt} firstAt={canvas.firstAt} flags={canvas.flags} error={canvas.error ?? error}
         limit={limit} onTryAgain={() => void writeScript()} onBackToBrief={() => setStep(SCRIPT_STYLE)}
         voiced={voicedBrief}
-        length={{ seconds: brief.durationSeconds, pace: brief.pace, locked: Boolean(brief.lockDuration) }}
+        length={{ seconds: brief.durationSeconds, pace: brief.pace, locked: Boolean(brief.lockDuration), scriptLed: isScriptLedDuration(brief), keepOverLength: Boolean(project?.keepOverLength || project?.brief?.keepOverLength || brief.keepOverLength) }}
         onFit={fitScript}
         onEdit={editScriptBeat} onAsk={(instruction, only) => void writeScript(instruction, undefined, only)} writing={canvas.writing} scoped={Boolean(canvas.scoped)}
         versions={canvas.beats.map((_, i) => versions[i] ? { count: versions[i]!.list.length, at: versions[i]!.at } : null)}
@@ -966,20 +1456,44 @@ export function Studio() {
         onRedraw={(index) => { if (project) drawFrames(project, canvas.beats, [index], true); }}
         voice={voice} onConfirm={confirmScript} onRetryVoice={retryVoice} music={musicBrief}
         onRender={renderFromScript} rendering={busy || animating}
-        storyboard={storyboardState} onContinue={continueFromScript} continuing={continueWhenReady} />}
+        storyboard={storyboardState} onContinue={continueFromScript} continuing={continueWhenReady}
+        onInsertScene={insertSceneAt}
+        onRemoveScene={removeSceneAt}
+        undoScene={undoSceneState && (!project || undoSceneState.projectId === project.id) ? { index: undoSceneState.index, keyword: undoSceneState.beat.keyword, busy: undoSceneState.busy, error: undoSceneState.error } : null}
+        onUndoRemoveScene={undoRemoveScene}
+        onDismissUndoScene={() => setUndoSceneState(null)} />}
       {seePlans && limit && <PlanLimitModal limit={limit} onClose={() => setSeePlans(false)} onBack={step === STORYBOARD ? () => { setSeePlans(false); setStep(SCRIPT_STYLE); } : undefined} />}
       {step === STORYBOARD && !canvas && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Describe the film in the brief, then generate the storyboard.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to the brief</button></div>}
-      {step === SCRIPT_STYLE && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || (canvas && canvas.beats.length > 0))} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
+      {step === SCRIPT_STYLE && isFilmBrief(brief) && <FilmBrief brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} error={error} back={() => setView("projects")}
+        draft={canvas} writeDraft={(instruction) => void writeScript(instruction, undefined, undefined, true)} editDraft={editScriptBeat} stopDraft={() => canvasStop.current?.abort()} continueDraft={() => void continueDraft()} continueToStoryboard={() => setStep(STORYBOARD)} hasStoryboard={Boolean(project?.beatPlan)} />}
+      {step === SCRIPT_STYLE && !isFilmBrief(brief) && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || (canvas && canvas.beats.length > 0))} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
       {step === RENDER && project && plateChecking && !animating && <div className="workspace-message" role="status">Opening your scenes…</div>}
       {step === RENDER && project && isPlateStyle && !animating && project.beatPlan && <PlatePreview
-        project={project}
-        onBack={() => setStep(STORYBOARD)}
+        project={{
+          ...project,
+          brief: {
+            ...(project.brief ?? brief),
+            ...(brief.look ? { look: brief.look } : {}),
+            ...(brief.styleFamily !== undefined ? { styleFamily: brief.styleFamily } : {}),
+            ...(brief.styleExample !== undefined ? { styleExample: brief.styleExample } : {}),
+            ...(brief.text ? { text: brief.text } : {}),
+            ...(canvas?.beats?.length ? { scriptBeats: canvas.beats } : {}),
+            aspect: brief.aspect,
+            ...(brief.aspects?.length ? { aspects: brief.aspects } : {}),
+            durationSeconds: brief.durationSeconds,
+            ...(brief.durationMode ? { durationMode: brief.durationMode } : {})
+          }
+        }}
+        autoStart={plateAutoStart}
+        onBeforeDraw={syncCurrentBriefToProject}
+        onBack={() => { setPlateAutoStart(false); setStep(STORYBOARD); }}
         onRender={() => void submit()}
         rendering={busy}
+        renderError={error}
         {...(plateTokens !== null ? { cost: plateTokens } : {})}
       />}
       {step === RENDER && project && !plateChecking && !(isPlateStyle && !animating && project.beatPlan) && <BrowserAnimationStep
-        project={project}
+        project={{ ...project, brief: { ...(project.brief ?? brief), aspect: brief.aspect, ...(brief.aspects?.length ? { aspects: brief.aspects } : {}), durationSeconds: brief.durationSeconds, ...(brief.durationMode ? { durationMode: brief.durationMode } : {}) } }}
         beats={canvas?.beats ?? []}
         frames={frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))}
         aspect={brief.aspect}
@@ -992,6 +1506,7 @@ export function Studio() {
         busy={busy}
         motionBlur={motionBlur}
         setMotionBlur={setMotionBlur}
+        notice={plateFallbackNotice}
         onRetryAnimate={() => void startBrowserAnimation()}
         onBackToStoryboard={() => setStep(STORYBOARD)}
         onStartFinalRender={() => void submit()}
@@ -1002,12 +1517,12 @@ export function Studio() {
           await writeScript(instruction, undefined, only);
         }}
       />}
-      {step === REVIEW && project && isPlateStyle && job?.state === "ready" && job.output && <PlateFinal project={project} finalUrl={outputUrl(job.output.url)} onBack={() => setStep(RENDER)} onApprove={approve} approved={project.state === "Approved"} />}
+      {step === REVIEW && project && isPlateStyle && job?.state === "ready" && job.output && <PlateFinal project={{ ...project, brief: { ...(project.brief ?? brief), aspect: brief.aspect, ...(brief.aspects?.length ? { aspects: brief.aspects } : {}) } }} finalUrl={outputUrl(job.output.url)} onBack={() => setStep(RENDER)} onApprove={approve} approved={project.state === "Approved"} />}
       {step === REVIEW && project && plateChecking && <div className="workspace-message" role="status">Opening your film…</div>}
       {step === REVIEW && project && !plateChecking && !(isPlateStyle && job?.state === "ready" && job.output) && <FinalRenderStep
         project={project}
         job={job}
-        frames={plateLook ? [] : frameSlots.map((slot) => slot?.svg).filter((svg): svg is string => Boolean(svg))}
+        frames={frameSlots.map((slot) => slot?.svg ?? null)}
         aspect={brief.aspect}
         look={lookFor(brief, brands)}
         error={error}

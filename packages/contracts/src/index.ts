@@ -11,6 +11,7 @@ import { defaultThemeId, themeIds } from "./themes.ts";
 export * from "./audio.ts";
 export * from "./beat-plan.ts";
 export * from "./brand.ts";
+export * from "./character-rule.ts";
 export * from "./engine.ts";
 export * from "./frame.ts";
 export * from "./gallery.ts";
@@ -60,7 +61,7 @@ export type RenderJobState = "queued" | "planning" | "rendering" | "ready" | "fa
 export type RenderStage = "queued" | "planning" | "audio" | "directing" | "waiting" | "preparing" | "objects" | "voice" | "music" | "painting" | "frames" | "encoding" | "retrying" | "done" | "failed";
 
 /** Which planner produced the storyboard, so the UI can show whether Claude was used. */
-export type PlannerInfo = { provider: "anthropic" | "deterministic"; model?: string };
+export type PlannerInfo = { provider: "anthropic" | "gemini" | "openai-compatible" | "deterministic"; model?: string };
 
 export type RenderJob = {
   id: string;
@@ -223,6 +224,8 @@ export type VideoProject = {
   pro?: ProManifest;
   /** True when the user archived this project from the Projects list. */
   archived?: boolean;
+  /** True once the user accepted the over-length script notice ("Keep Ns") for this project. */
+  keepOverLength?: boolean;
 };
 
 export function parseRenderRequest(value: unknown): RenderRequest | null {

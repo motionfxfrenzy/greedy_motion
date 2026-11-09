@@ -452,6 +452,30 @@ export function finalRatioDownloadName(projectId: string, ratioId: string): stri
   return `${projectId}-${ratioId.replace(/:/g, "x")}.mp4`;
 }
 
+/**
+ * Builds an explicit attachment download URL from a playback media URL and target filename.
+ * Preserves existing query parameters (such as `?t=` media tokens) while signalling `download=1&filename=...`
+ * so the backend/storage response carries `Content-Disposition: attachment` across origins.
+ */
+export function buildFinalRatioDownloadUrl(
+  url: string | null | undefined,
+  downloadName: string
+): string | null {
+  if (!url) return null;
+  if (url.startsWith("blob:") || url.startsWith("data:")) return url;
+  const [withoutHash, hashPart] = url.split("#", 2);
+  const hash = hashPart !== undefined ? `#${hashPart}` : "";
+  const qIndex = withoutHash!.indexOf("?");
+  const basePath = qIndex >= 0 ? withoutHash!.slice(0, qIndex) : withoutHash!;
+  const params = new URLSearchParams(qIndex >= 0 ? withoutHash!.slice(qIndex + 1) : "");
+  params.set("download", "1");
+  if (downloadName) {
+    params.set("filename", downloadName);
+  }
+  const qs = params.toString();
+  return `${basePath}${qs ? `?${qs}` : ""}${hash}`;
+}
+
 /** Returns whether the ratio tablist should be rendered (hidden when there is only a single ratio). */
 export function shouldShowFinalRatioTabs(ratios: readonly { id: string }[]): boolean {
   return ratios.length > 1;

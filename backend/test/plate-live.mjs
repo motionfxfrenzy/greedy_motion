@@ -47,7 +47,7 @@ assertThrowawayDb();
   assert.equal(parsed.enabled, true);
   assert.equal(parsed.live, true);
   assert.equal(parsed.liveForceOff, true);
-  assert.equal(parsed.projectClipCap, 4);
+  assert.equal(parsed.projectClipCap, 16);
 }
 
 const { config } = await import("../src/config.ts");
@@ -147,8 +147,9 @@ try {
   assert.equal(b0.state, "bundled");
   assert.ok(b0.bundle_digest, "bundle_digest recorded on bundled variant");
 
+  // (within the check grace; after PLATE_CHECK_GRACE_SECONDS the server fallback draws it, see plate-check-fallback.mjs)
   // Reconciler must NOT treat a live project's bundled variant as needing plate-render
-  await pool.query("update app.plate_variants set updated_at = now() - interval '10 minutes' where id = $1", [b0.id]);
+  await pool.query("update app.plate_variants set updated_at = now() - interval '30 seconds' where id = $1", [b0.id]);
   await reconcilePlates();
   assert.equal(await msgs("plate-render", b0.id), 0, "reconciler does not enqueue plate-render for live bundled variant");
 

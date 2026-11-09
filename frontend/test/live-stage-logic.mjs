@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  CLIP_AFTER_UNPLAYABLE_MS,
   CheckOnceTracker,
   ClipRequestTracker,
+  canTriggerClipRequestForReason,
   decideSceneMode,
   isPlateLiveEnabled,
   parseGenFromBundleUrl,
@@ -346,4 +348,309 @@ test("decideSceneMode: a drawing scene shows 'Drawing scene 2… 42 %', stays pl
   assert.equal(fallen.mode, "clip");
   assert.equal(fallen.tabLabel, "Drawn");
   assert.equal(fallen.reason, "worker-unhealthy");
+
+  // a scene marked playback: "clip" and drawMsPerFrame: 185 by the server (while bundled or rendering)
+  const slowBundledVar = resolveSceneVariant(
+    {
+      index: 1,
+      keyword: "Crayon forest",
+      state: "bundled",
+      seconds: 4,
+      frames: 120,
+      sig: "sig-slow",
+      rev: 0,
+      variantId: "var-slow",
+      bundleDigest: "dig-slow",
+      playback: "clip",
+      drawMsPerFrame: 185
+    },
+    "16:9",
+    "16:9"
+  );
+  assert.equal(slowBundledVar.playbackClip, true);
+  assert.equal(slowBundledVar.hasBundle, false);
+  assert.equal(slowBundledVar.drawMsPerFrame, 185);
+  const slowBundledMode = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: slowBundledVar,
+    environment: CHROME_MAC_UA
+  });
+  assert.equal(slowBundledMode.mode, "clip");
+  assert.equal(slowBundledMode.reason, "slow-draw");
+  assert.equal(slowBundledMode.needsClipRequest, false, "server already queued render on /check; do not send clip-request");
+  assert.equal(slowBundledMode.isPlayable, false);
+  assert.equal(
+    slowBundledMode.stageWait?.title,
+    "Scene 2 is being prepared as a video for smooth playback"
+  );
+
+  // immediate client demotion right after POST .../check returns { state: "bundled", playback: "clip" } (before next /plates poll)
+  const prePollVar = resolveSceneVariant(
+    {
+      index: 1,
+      keyword: "Crayon forest",
+      state: "bundled",
+      seconds: 4,
+      frames: 120,
+      sig: "sig-slow",
+      rev: 0,
+      variantId: "var-slow",
+      bundleDigest: "dig-slow"
+    },
+    "16:9",
+    "16:9"
+  );
+  const immediateDemotedMode = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: prePollVar,
+    environment: CHROME_MAC_UA,
+    checkOutcome: { ok: true, drawMs: { medianMs: 185, p90Ms: 210 } },
+    forcedClipReason: "slow-draw"
+  });
+  assert.equal(immediateDemotedMode.mode, "clip");
+  assert.equal(immediateDemotedMode.reason, "slow-draw");
+  assert.equal(immediateDemotedMode.needsClipRequest, false, "must not send clip-request when demoted by /check response");
+  assert.equal(
+    immediateDemotedMode.stageWait?.title,
+    "Scene 2 is being prepared as a video for smooth playback"
+  );
+
+  const slowUnreadyVar = resolveSceneVariant(
+    {
+      index: 1,
+      keyword: "Crayon forest",
+      state: "rendering",
+      seconds: 4,
+      frames: 120,
+      sig: "sig-slow",
+      rev: 0,
+      variantId: "var-slow",
+      bundleDigest: "dig-slow",
+      playback: "clip",
+      drawMsPerFrame: 185
+    },
+    "16:9",
+    "16:9"
+  );
+  assert.equal(slowUnreadyVar.playbackClip, true);
+  assert.equal(slowUnreadyVar.hasBundle, false);
+  assert.equal(slowUnreadyVar.drawMsPerFrame, 185);
+  const slowUnreadyMode = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: slowUnreadyVar,
+    environment: CHROME_MAC_UA
+  });
+  assert.equal(slowUnreadyMode.mode, "clip");
+  assert.equal(slowUnreadyMode.reason, "slow-draw");
+  assert.equal(slowUnreadyMode.needsClipRequest, false);
+  assert.equal(slowUnreadyMode.isPlayable, false);
+  assert.equal(
+    slowUnreadyMode.stageWait?.title,
+    "Scene 2 is being prepared as a video for smooth playback"
+  );
+
+  // once the clip is drawn on the worker, the slow-draw scene plays from the clip
+  const slowDrawnVar = resolveSceneVariant(
+    {
+      index: 1,
+      keyword: "Crayon forest",
+      state: "drawn",
+      seconds: 4,
+      frames: 120,
+      sig: "sig-slow",
+      rev: 0,
+      variantId: "var-slow",
+      bundleDigest: "dig-slow",
+      playback: "clip",
+      drawMsPerFrame: 185,
+      variants: {
+        "16:9": {
+          state: "drawn",
+          sig: "sig-slow",
+          v: "clipv1",
+          variantId: "var-slow",
+          bundleDigest: "dig-slow",
+          playback: "clip",
+          drawMsPerFrame: 185
+        }
+      }
+    },
+    "16:9",
+    "16:9"
+  );
+  const slowDrawnMode = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: slowDrawnVar,
+    environment: CHROME_MAC_UA
+  });
+  assert.equal(slowDrawnMode.mode, "clip");
+  assert.equal(slowDrawnMode.reason, "slow-draw");
+  assert.equal(slowDrawnMode.isPlayable, true);
+  assert.equal(slowDrawnMode.isReady, true);
+  assert.equal(slowDrawnMode.stageWait, null);
+
+  // If state becomes 'drawn' while v is still null on a demoted clip scene, it waits until v is set,
+  // and once v is set (even with forcedClipReason and playerDecision from playback demotion still present),
+  // it immediately becomes clip-ready with stageWait cleared:
+  const slowDrawnNoVVar = resolveSceneVariant(
+    {
+      index: 1,
+      keyword: "Crayon forest",
+      state: "drawn",
+      seconds: 5,
+      frames: 150,
+      sig: "sig-slow",
+      rev: 0,
+      variantId: "var-slow",
+      bundleDigest: "dig-slow",
+      playback: "clip",
+      drawMsPerFrame: 185,
+      variants: {
+        "16:9": {
+          state: "drawn",
+          sig: "sig-slow",
+          v: null,
+          variantId: "var-slow",
+          bundleDigest: "dig-slow",
+          playback: "clip",
+          drawMsPerFrame: 185
+        }
+      }
+    },
+    "16:9",
+    "16:9"
+  );
+  assert.equal(slowDrawnNoVVar.hasClip, false);
+  const slowDrawnNoVMode = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: slowDrawnNoVVar,
+    environment: CHROME_MAC_UA,
+    forcedClipReason: "slow-draw",
+    playerDecision: { mode: "clip", state: "clip", reason: "slow-draw" }
+  });
+  assert.equal(slowDrawnNoVMode.isPlayable, false);
+  assert.equal(
+    slowDrawnNoVMode.stageWait?.title,
+    "Scene 2 is being prepared as a video for smooth playback"
+  );
+
+  const slowDrawnWithVMode = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: slowDrawnVar,
+    environment: CHROME_MAC_UA,
+    forcedClipReason: "slow-draw",
+    playerDecision: { mode: "clip", state: "clip", reason: "slow-draw" }
+  });
+  assert.equal(slowDrawnWithVMode.mode, "clip");
+  assert.equal(slowDrawnWithVMode.isReady, true);
+  assert.equal(slowDrawnWithVMode.isPlayable, true);
+  assert.equal(slowDrawnWithVMode.stageWait, null);
+});
+
+test("Browser-first decision order: hasClip with no browser verdict runs check/measure instead of clip-only, switches to live on ok verdict, and never requests clips on watchdog timeouts or drawn/checked bundles", () => {
+  assert.equal(CLIP_AFTER_UNPLAYABLE_MS, 180_000);
+
+  // Drawn scene with a clip AND a bundle, but no server playback:'clip' and no browser verdict yet (e.g. S1, S4, S6 in 324093f5…)
+  const drawnWithBundle = resolveSceneVariant(
+    {
+      index: 3,
+      keyword: "Fast scene 4",
+      state: "drawn",
+      seconds: 3,
+      frames: 90,
+      sig: "sig-s4",
+      rev: 0,
+      v: "clipv1",
+      variantId: "var-s4",
+      bundleDigest: "dig-s4",
+      live: false,
+      variants: {
+        "16:9": {
+          state: "drawn",
+          sig: "sig-s4",
+          v: "clipv1",
+          variantId: "var-s4",
+          bundleDigest: "dig-s4",
+          live: false
+        }
+      }
+    },
+    "16:9",
+    "16:9"
+  );
+  assert.equal(drawnWithBundle.hasBundle, true);
+  assert.equal(drawnWithBundle.hasClip, true);
+  assert.equal(drawnWithBundle.playbackClip, false, "drawn variant with bundle and no server playback:'clip' is not forced to clip");
+
+  // 1. Before bundle load / verdict: must lead to a browser check, NOT clip-only!
+  const beforeVerdict = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: drawnWithBundle,
+    environment: CHROME_MAC_UA,
+    bundleLoaded: false
+  });
+  assert.equal(beforeVerdict.mode, "live", "must not choose clip-only when bundle exists and no browser verdict");
+  assert.notEqual(beforeVerdict.reason, "clip-only");
+  assert.equal(beforeVerdict.needsBundleFetch, true);
+  assert.equal(beforeVerdict.needsCheck, true);
+  assert.equal(beforeVerdict.needsClipRequest, false);
+  assert.equal(beforeVerdict.stageWait, null, "existing clip covers stage while live check runs");
+
+  // 2. CheckOnceTracker allows checking a 'drawn' variant that has no browser verdict yet
+  const tracker = new CheckOnceTracker();
+  assert.equal(tracker.shouldCheck("var-s4", 1, "dig-s4", "drawn"), true);
+
+  // 3. Once browser check verdict is ok and player is ready -> plays live!
+  const afterVerdictOk = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: drawnWithBundle,
+    environment: CHROME_MAC_UA,
+    bundleLoaded: true,
+    playerReady: true,
+    checkOutcome: { ok: true, drawMs: { medianMs: 16, p90Ms: 18 } }
+  });
+  assert.equal(afterVerdictOk.mode, "live");
+  assert.equal(afterVerdictOk.reason, "ok");
+  assert.equal(afterVerdictOk.isPlayable, true);
+  assert.equal(afterVerdictOk.needsClipRequest, false);
+
+  // 4. Inconclusive check outcome (from hidden tab) does not demote to clip or request a clip
+  const inconclusiveMode = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: { ...drawnWithBundle, state: "bundled", hasClip: false, clipVersion: null },
+    environment: CHROME_MAC_UA,
+    bundleLoaded: true,
+    checkOutcome: { ok: false, kind: "inconclusive", inconclusive: true, reason: "document-hidden" }
+  });
+  assert.equal(inconclusiveMode.mode, "live");
+  assert.equal(inconclusiveMode.needsCheck, true);
+  assert.equal(inconclusiveMode.needsClipRequest, false);
+
+  // 5. Watchdog timeout error in checkOutcome or reason must never trigger a client clip request
+  const watchdogEnvMode = decideSceneMode({
+    flagEnabled: true,
+    projectMode: "live",
+    variant: { ...drawnWithBundle, state: "bundled", hasClip: false, clipVersion: null },
+    environment: CHROME_MAC_UA,
+    bundleLoaded: true,
+    checkOutcome: { ok: false, kind: "env", error: "Watchdog timeout (frame-timeout) after 2000ms" }
+  });
+  assert.equal(watchdogEnvMode.needsClipRequest, false, "watchdog timeout must not request a clip from client");
+  assert.equal(canTriggerClipRequestForReason("check-env", "Watchdog timeout (init-timeout) after 2000ms"), false);
+  assert.equal(canTriggerClipRequestForReason("worker-unhealthy:frame-timeout"), false);
+  assert.equal(canTriggerClipRequestForReason("clip-only"), false);
+  assert.equal(canTriggerClipRequestForReason("slow-draw"), false);
+  assert.equal(canTriggerClipRequestForReason("unplayable-timeout"), true);
+  assert.equal(canTriggerClipRequestForReason("jitter"), true);
+  assert.equal(canTriggerClipRequestForReason("code-permanent"), true);
+  assert.equal(canTriggerClipRequestForReason("device-env", "WebGL context creation failed"), true);
 });

@@ -1,26 +1,27 @@
 import { enqueueVisuals, visualStatus, VisualWorkerBusy } from "./visuals.ts";
 import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
-import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { audioModes, captionModes, BEAT_LIMITS, findGalleryTemplate, formatForDuration, inferVideoType, parseScriptNotes, scriptFrameKey, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voiceText, validateBeatLayoutHint, validateHyperFramesOverrides, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type EditPatch, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type VideoProject } from "@videosaas/contracts";
+import { aspects, audioModes, captionModes, BEAT_LIMITS, effectiveBriefDurationSeconds, ensureScriptBeatIds, findGalleryTemplate, formatForDuration, inferVideoType, isScriptLedDuration, parseScriptNotes, resolvePrimaryAspect, scriptFrameKey, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voices, voiceIds, voiceText, validateBeatLayoutHint, validateHyperFramesOverrides, type Aspect, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type EditPatch, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type ScriptNotes, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
 import { registerRequestId, requestIdOf, upstreamError, upstreamSseError } from "../http-errors.ts";
-import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan } from "../projects/store.ts";
+import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan, type PlanMutationPatch } from "../projects/store.ts";
 import { config } from "../config.ts";
-import { TTS_MODEL } from "../audio/gemini-tts.ts";
-import { readMedia } from "../media.ts";
+import { synthesizeVoiceover, TTS_MODEL } from "../audio/gemini-tts.ts";
+import { readMedia, saveMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
 import { filmFrames } from "./frame-film.ts";
 import { ensureFilmMotion, filmScenes } from "./frame-motion.ts";
 import { musicPrompt, produceMusic } from "./music.ts";
-import { VOICE_RULES, voiceOneLine, voiceSettings } from "./voice.ts";
+import { speakerSettings, takeKey, VOICE_RULES, voiceOneLine, voiceSettings } from "./voice.ts";
 import { director } from "./director.ts";
 import { directorContextFor } from "./context.ts";
 import { draftScript, reviseScript } from "./script-draft.ts";
-import { finishScript, writeScript } from "./script-writer.ts";
+import { finishInsertedScene, finishScript, writeInsertedScene, writeScript } from "./script-writer.ts";
 import { sketchFrame } from "./frame-sketch.ts";
 import { readGalleryText } from "../gallery.ts";
 import { rewriteBeat } from "./rewrite-beat.ts";
@@ -43,6 +44,7 @@ import { PreviewUnavailable } from "../preview/service.ts";
 import { ensurePromptAllowed } from "../moderation/creem.ts";
 import { admitPreview, meteringOn } from "./preview-meter.ts";
 import { tierFor } from "../billing/service.ts";
+import { isPlateLook, startPlates } from "../plates/service.ts";
 
 const notFound = { error: { code: "not_found", message: "Project not found." } };
 
@@ -55,11 +57,29 @@ export async function waitForPlans(timeoutMs: number) {
   await Promise.race([Promise.allSettled([...runningPlans]), new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
 }
 
+type SceneInsertWriter = typeof writeInsertedScene;
+let sceneInsertWriterOverride: SceneInsertWriter | null = null;
+export function setSceneInsertWriterForTest(writer: SceneInsertWriter | null) {
+  sceneInsertWriterOverride = writer;
+}
+
+export type SceneInsertApiResult = {
+  project: VideoProject;
+  insertedBeat: ScriptBeat;
+  position: number;
+  beats: ScriptBeat[];
+  notes: ScriptNotes | null;
+  flags: { beat: number; message: string }[];
+};
+
+const sceneInsertIdempotency = new Map<string, Promise<SceneInsertApiResult>>();
+const meteredSceneInsertKeys = new Set<string>();
+
 /** A script view of the plan, so existing screens (review, comments) keep working. */
 function scriptFromPlan(plan: BeatPlan, source: ProjectScript["source"]): ProjectScript {
   return {
     source,
-    lines: plan.beats.slice(0, 12).map((beat) => ({ label: beat.role[0].toUpperCase() + beat.role.slice(1), onScreen: (beat.on_screen ?? beat.keyword).slice(0, 180), ...(beat.line ? { voiceover: beat.line.slice(0, 240) } : {}) })),
+    lines: plan.beats.slice(0, SCRIPT_BEATS_MAX).map((beat) => ({ label: beat.role[0].toUpperCase() + beat.role.slice(1), onScreen: (beat.on_screen ?? beat.keyword).slice(0, 180), ...(beat.line ? { voiceover: beat.line.slice(0, 240) } : {}) })),
     confirmed: false,
     updatedAt: new Date().toISOString()
   };
@@ -105,13 +125,15 @@ function buildPlanFromScriptBeats(brief: ScriptBrief, beats: ScriptBeat[], exist
       transition_out: { type: index === count - 1 ? "end" : (prev?.transition_out.type && prev.transition_out.type !== "end" ? prev.transition_out.type : "j-cut") }
     };
   });
+  const effectiveSec = effectiveBriefDurationSeconds(brief, beats);
   return {
     version: "1.0",
     mode: brief.scriptMode === "own" ? "own-script" : "problem-only",
     template: brief.template ?? existing?.template ?? null,
-    format: formatForDuration(brief.durationSeconds),
+    format: formatForDuration(effectiveSec),
     canvas: brief.aspect,
-    target_duration_s: brief.durationSeconds,
+    target_duration_s: effectiveSec,
+    ...(isScriptLedDuration(brief) ? { duration_mode: "script" as const } : {}),
     clock: voiced ? "voiceover" : "beats",
     brand: {
       name: brief.productName ?? existing?.brand.name ?? "",
@@ -145,6 +167,336 @@ function buildPlanFromScriptBeats(brief: ScriptBrief, beats: ScriptBeat[], exist
   };
 }
 
+function makeInsertedPlanBeat(beat: ScriptBeat, index: number, total: number, notes?: ScriptNotes | null): Beat {
+  const role: Beat["role"] = index === 0 ? "hook" : index === total - 1 ? "cta" : "step";
+  const kind: Beat["kind"] = index === total - 1 && !notes?.example ? "title" : "kinetic";
+  return {
+    id: `b${index + 1}`,
+    role,
+    kind,
+    producer: "hyperframes",
+    line: beat.line ?? null,
+    verb: null,
+    keyword: (beat.keyword || `Scene ${index + 1}`).trim(),
+    on_screen: beat.onScreen ?? null,
+    success: false,
+    energy: index === 0 || index === total - 1 ? "high" : "medium",
+    motion: {
+      camera: "steady",
+      entry: { axis: "x", dir: -1 },
+      exit: { axis: "x", dir: -1 },
+      text_effect: "waterfall"
+    },
+    sfx: null,
+    scene: null,
+    transition_out: { type: index === total - 1 ? "end" : "j-cut" }
+  };
+}
+
+function rechainPlanBeats(planBeats: Beat[], scriptBeats: ScriptBeat[]): Beat[] {
+  const total = planBeats.length;
+  const out = planBeats.map((b, i) => {
+    const sb = scriptBeats[i];
+    const isLast = i === total - 1;
+    const prevType = b.transition_out?.type;
+    const nextTransitionType: Beat["transition_out"]["type"] = isLast ? "end" : prevType && prevType !== "end" ? prevType : "j-cut";
+    return {
+      ...b,
+      id: `b${i + 1}`,
+      keyword: (sb?.keyword ?? b.keyword ?? `Scene ${i + 1}`).trim(),
+      on_screen: sb !== undefined ? (sb.onScreen ?? null) : (b.on_screen ?? null),
+      line: sb !== undefined ? (sb.line ?? null) : (b.line ?? null),
+      motion: {
+        ...b.motion,
+        entry: { ...(b.motion?.entry ?? { axis: "x", dir: -1 }) },
+        exit: { ...(b.motion?.exit ?? { axis: "x", dir: -1 }) }
+      },
+      transition_out: {
+        ...b.transition_out,
+        type: nextTransitionType
+      }
+    };
+  });
+  for (let i = 1; i < out.length; i++) {
+    out[i]!.motion.entry = { ...out[i - 1]!.motion.exit };
+  }
+  return out;
+}
+
+function remapOverridesOnInsert(
+  overrides: BeatPlan["overrides"] | undefined,
+  position: number,
+  restoredForPosition?: Record<string, unknown> | null
+): BeatPlan["overrides"] | undefined {
+  if (!overrides && (!restoredForPosition || Object.keys(restoredForPosition).length === 0)) return undefined;
+  const next: Record<string, NonNullable<BeatPlan["overrides"]>[string]> = {};
+  for (const [key, val] of Object.entries(overrides ?? {})) {
+    const m = /^b(\d+)(:.*|$)/.exec(key);
+    if (!m) {
+      next[key] = val;
+      continue;
+    }
+    const oldIdx = Number(m[1]) - 1;
+    const newIdx = oldIdx >= position ? oldIdx + 1 : oldIdx;
+    next[`b${newIdx + 1}${m[2]}`] = val;
+  }
+  if (restoredForPosition) {
+    for (const [suffix, val] of Object.entries(restoredForPosition)) {
+      const fullKey = suffix.startsWith(":") || suffix === "" ? `b${position + 1}${suffix}` : suffix;
+      next[fullKey] = val as NonNullable<BeatPlan["overrides"]>[string];
+    }
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function remapOverridesOnRemove(
+  overrides: BeatPlan["overrides"] | undefined,
+  removeIndex: number
+): { next: BeatPlan["overrides"] | undefined; removed: Record<string, unknown> } {
+  const removed: Record<string, unknown> = {};
+  if (!overrides) return { next: undefined, removed };
+  const next: Record<string, NonNullable<BeatPlan["overrides"]>[string]> = {};
+  for (const [key, val] of Object.entries(overrides)) {
+    const m = /^b(\d+)(:.*|$)/.exec(key);
+    if (!m) {
+      next[key] = val;
+      continue;
+    }
+    const oldIdx = Number(m[1]) - 1;
+    if (oldIdx === removeIndex) {
+      removed[m[2] || ""] = val;
+    } else {
+      const newIdx = oldIdx > removeIndex ? oldIdx - 1 : oldIdx;
+      next[`b${newIdx + 1}${m[2]}`] = val;
+    }
+  }
+  return { next: Object.keys(next).length > 0 ? next : undefined, removed };
+}
+
+function remapPlanAudioOnInsert(
+  audio: PlanAudio | undefined,
+  position: number,
+  insertedBeat: ScriptBeat
+): PlanAudio | undefined {
+  if (!audio?.voice?.lines) return audio;
+  const insertedText = voiceText(insertedBeat.line);
+  let restoredMatch = false;
+  const lines = audio.voice.lines.map((line) => {
+    const m = /^b(\d+)$/.exec(line.beat);
+    if (m) {
+      const oldIdx = Number(m[1]) - 1;
+      const newIdx = oldIdx >= position ? oldIdx + 1 : oldIdx;
+      return { ...line, beat: `b${newIdx + 1}` };
+    }
+    if (!restoredMatch && insertedText && line.text === insertedText && line.beat.startsWith("archived:")) {
+      restoredMatch = true;
+      return { ...line, beat: `b${position + 1}` };
+    }
+    return line;
+  });
+  return {
+    ...audio,
+    voice: { ...audio.voice, lines }
+  };
+}
+
+function remapPlanAudioOnRemove(audio: PlanAudio | undefined, removeIndex: number): PlanAudio | undefined {
+  if (!audio?.voice?.lines) return audio;
+  const lines = audio.voice.lines.map((line) => {
+    const m = /^b(\d+)$/.exec(line.beat);
+    if (!m) return line;
+    const oldIdx = Number(m[1]) - 1;
+    if (oldIdx === removeIndex) {
+      return { ...line, beat: `archived:b${removeIndex + 1}` };
+    }
+    const newIdx = oldIdx > removeIndex ? oldIdx - 1 : oldIdx;
+    return { ...line, beat: `b${newIdx + 1}` };
+  });
+  return {
+    ...audio,
+    voice: { ...audio.voice, lines }
+  };
+}
+
+export function reconcileProjectAfterSceneInsert(
+  current: VideoProject,
+  options: {
+    brief: ScriptBrief;
+    previousBeats: ScriptBeat[];
+    position: number;
+    insertedBeat: ScriptBeat;
+    notes?: ScriptNotes | null;
+    planBeatOverride?: Beat | null;
+    restoredOverrides?: Record<string, unknown> | null;
+  }
+): PlanMutationPatch {
+  const { brief: incomingBrief, previousBeats, position, insertedBeat, notes, planBeatOverride, restoredOverrides } = options;
+  const nextBeats = ensureScriptBeatIds([
+    ...previousBeats.slice(0, position),
+    insertedBeat,
+    ...previousBeats.slice(position)
+  ]);
+  const keepOverLength = current.keepOverLength ?? current.brief?.keepOverLength ?? incomingBrief.keepOverLength;
+  const nextNotes = notes !== undefined ? notes : incomingBrief.scriptNotes ?? current.brief?.scriptNotes;
+  const nextBrief: ScriptBrief = {
+    ...incomingBrief,
+    scriptBeats: nextBeats,
+    ...(nextNotes ? { scriptNotes: nextNotes } : {}),
+    ...(keepOverLength ? { keepOverLength: true } : {})
+  };
+
+  let nextPlan: BeatPlan | undefined = current.beatPlan ? structuredClone(current.beatPlan) : undefined;
+  if (nextPlan) {
+    const existingBeats = nextPlan.beats.length === previousBeats.length
+      ? nextPlan.beats
+      : buildPlanFromScriptBeats(incomingBrief, previousBeats, nextPlan).beats;
+    const insertedPlanBeat = planBeatOverride
+      ? structuredClone(planBeatOverride)
+      : makeInsertedPlanBeat(insertedBeat, position, nextBeats.length, nextNotes);
+    const rawPlanBeats = [
+      ...existingBeats.slice(0, position),
+      insertedPlanBeat,
+      ...existingBeats.slice(position)
+    ];
+    nextPlan.beats = rechainPlanBeats(rawPlanBeats, nextBeats);
+    const effectiveSec = effectiveBriefDurationSeconds(nextBrief, nextBeats);
+    nextPlan.target_duration_s = effectiveSec;
+    nextPlan.format = formatForDuration(effectiveSec);
+    nextPlan.canvas = nextBrief.aspect;
+    if (isScriptLedDuration(nextBrief)) nextPlan.duration_mode = "script";
+    else delete nextPlan.duration_mode;
+    const nextOverrides = remapOverridesOnInsert(nextPlan.overrides, position, restoredOverrides);
+    if (nextOverrides) nextPlan.overrides = nextOverrides;
+    else delete nextPlan.overrides;
+    if (Array.isArray(nextPlan.suggestions)) {
+      nextPlan.suggestions = nextPlan.suggestions.map((s) => {
+        const m = /^b(\d+)$/.exec(s.beat);
+        if (!m) return s;
+        const oldIdx = Number(m[1]) - 1;
+        return { ...s, beat: `b${(oldIdx >= position ? oldIdx + 1 : oldIdx) + 1}` };
+      });
+    }
+  } else {
+    nextPlan = buildPlanFromScriptBeats(nextBrief, nextBeats);
+  }
+
+  const nextAudio = remapPlanAudioOnInsert(current.planAudio, position, insertedBeat);
+  const firstFrameKey = scriptFrameKey(nextBeats[0]!, nextBrief);
+  const savedFirstSvg = (current.scriptFrames ?? []).find((f) => f.key === firstFrameKey)?.svg;
+  const requiresNewRender = ["Ready for review", "Revisions needed", "Approved", "Render needs attention"].includes(current.state);
+
+  return {
+    brief: nextBrief,
+    beatPlan: nextPlan,
+    script: scriptFromPlan(nextPlan, nextBrief.scriptMode === "own" ? "provided" : "generated"),
+    state: requiresNewRender ? "Draft storyboard" : current.state,
+    ...(nextAudio ? { planAudio: nextAudio } : {}),
+    ...(savedFirstSvg ? { coverFrame: savedFirstSvg } : {}),
+    ...(requiresNewRender ? { filmSeconds: undefined } : {}),
+    ...(keepOverLength !== undefined ? { keepOverLength } : {})
+  };
+}
+
+export function reconcileProjectAfterSceneRemove(
+  current: VideoProject,
+  options: {
+    index: number;
+    brief?: ScriptBrief | null;
+    beats?: ScriptBeat[] | null;
+  }
+): {
+  patch: PlanMutationPatch;
+  removedBeat: ScriptBeat;
+  removedPlanBeat: Beat | null;
+  removedOverrides: Record<string, unknown>;
+  beats: ScriptBeat[];
+} {
+  const baseBrief = options.brief ?? current.brief;
+  if (!baseBrief) throw new ProjectInvalid("Generate the storyboard first.");
+  const sourceBeats = ensureScriptBeatIds(
+    options.beats ??
+      baseBrief.scriptBeats ??
+      current.brief?.scriptBeats ??
+      (current.beatPlan?.beats ?? []).map((b) => ({
+        keyword: b.keyword,
+        visual: null,
+        onScreen: b.on_screen ?? null,
+        line: b.line ?? null
+      }))
+  );
+  const { index } = options;
+  if (!Number.isInteger(index) || index < 0 || index >= sourceBeats.length) {
+    throw new ProjectInvalid("Choose an existing scene to remove.");
+  }
+  if (sourceBeats.length <= SCRIPT_BEATS_MIN) {
+    throw new ProjectInvalid("A storyboard needs at least one scene.");
+  }
+  const removedBeat = sourceBeats[index]!;
+  const nextBeats = [...sourceBeats.slice(0, index), ...sourceBeats.slice(index + 1)];
+  const keepOverLength = current.keepOverLength ?? current.brief?.keepOverLength ?? baseBrief.keepOverLength;
+  const nextBrief: ScriptBrief = {
+    ...baseBrief,
+    scriptBeats: nextBeats,
+    ...(keepOverLength ? { keepOverLength: true } : {})
+  };
+
+  let removedPlanBeat: Beat | null = null;
+  let removedOverrides: Record<string, unknown> = {};
+  let nextPlan: BeatPlan | undefined = current.beatPlan ? structuredClone(current.beatPlan) : undefined;
+  if (nextPlan) {
+    const existingBeats = nextPlan.beats.length === sourceBeats.length
+      ? nextPlan.beats
+      : buildPlanFromScriptBeats(baseBrief, sourceBeats, nextPlan).beats;
+    removedPlanBeat = existingBeats[index] ? structuredClone(existingBeats[index]!) : null;
+    const remainingPlanBeats = [...existingBeats.slice(0, index), ...existingBeats.slice(index + 1)];
+    nextPlan.beats = rechainPlanBeats(remainingPlanBeats, nextBeats);
+    const effectiveSec = effectiveBriefDurationSeconds(nextBrief, nextBeats);
+    nextPlan.target_duration_s = effectiveSec;
+    nextPlan.format = formatForDuration(effectiveSec);
+    nextPlan.canvas = nextBrief.aspect;
+    if (isScriptLedDuration(nextBrief)) nextPlan.duration_mode = "script";
+    else delete nextPlan.duration_mode;
+    const remappedOv = remapOverridesOnRemove(nextPlan.overrides, index);
+    removedOverrides = remappedOv.removed;
+    if (remappedOv.next) nextPlan.overrides = remappedOv.next;
+    else delete nextPlan.overrides;
+    if (Array.isArray(nextPlan.suggestions)) {
+      nextPlan.suggestions = nextPlan.suggestions
+        .filter((s) => s.beat !== `b${index + 1}`)
+        .map((s) => {
+          const m = /^b(\d+)$/.exec(s.beat);
+          if (!m) return s;
+          const oldIdx = Number(m[1]) - 1;
+          return { ...s, beat: `b${(oldIdx > index ? oldIdx - 1 : oldIdx) + 1}` };
+        });
+    }
+  } else {
+    nextPlan = buildPlanFromScriptBeats(nextBrief, nextBeats);
+  }
+
+  const nextAudio = remapPlanAudioOnRemove(current.planAudio, index);
+  const firstFrameKey = scriptFrameKey(nextBeats[0]!, nextBrief);
+  const savedFirstSvg = (current.scriptFrames ?? []).find((f) => f.key === firstFrameKey)?.svg;
+  const requiresNewRender = ["Ready for review", "Revisions needed", "Approved", "Render needs attention"].includes(current.state);
+
+  return {
+    patch: {
+      brief: nextBrief,
+      beatPlan: nextPlan,
+      script: scriptFromPlan(nextPlan, nextBrief.scriptMode === "own" ? "provided" : "generated"),
+      state: requiresNewRender ? "Draft storyboard" : current.state,
+      ...(nextAudio ? { planAudio: nextAudio } : {}),
+      ...(savedFirstSvg ? { coverFrame: savedFirstSvg } : {}),
+      ...(requiresNewRender ? { filmSeconds: undefined } : {}),
+      ...(keepOverLength !== undefined ? { keepOverLength } : {})
+    },
+    removedBeat,
+    removedPlanBeat,
+    removedOverrides,
+    beats: nextBeats
+  };
+}
+
 type BeatEdit = { id?: unknown; keyword?: unknown; on_screen?: unknown; line?: unknown; camera?: unknown; text_effect?: unknown; transition?: unknown; sfx?: unknown; scene?: unknown; hints?: unknown };
 /** "clean" is the default, so it is stored as no look at all (same as parseScriptBrief). */
 const withLook = (brief: ScriptBrief, look: LookId): ScriptBrief => {
@@ -152,12 +504,18 @@ const withLook = (brief: ScriptBrief, look: LookId): ScriptBrief => {
   return look === "clean" ? rest : { ...rest, look };
 };
 
-type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown; captions?: unknown; audioMode?: unknown; overrides?: unknown };
+type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown; styleExample?: unknown; captions?: unknown; audioMode?: unknown; aspect?: unknown; aspects?: unknown; overrides?: unknown };
 
 /** Applies storyboard edits. Returns the edited plan, or the problems that block it. */
 export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan: BeatPlan } | { problems: string[] } {
   if (!project.beatPlan || !project.brief) return { problems: ["Generate the plan first."] };
   const plan: BeatPlan = structuredClone(project.beatPlan);
+  if (patch.aspect !== undefined) {
+    if (typeof patch.aspect !== "string" || !(aspects as readonly string[]).includes(patch.aspect)) {
+      return { problems: ["Choose 16:9, 9:16 or 1:1."] };
+    }
+    plan.canvas = patch.aspect as Aspect;
+  }
   if (patch.captions !== undefined) {
     if (typeof patch.captions !== "string" || !(captionModes as readonly string[]).includes(patch.captions)) {
       return { problems: ["Choose captions: key phrases, full or off."] };
@@ -361,6 +719,347 @@ export async function registerPlanRoutes(app: FastifyInstance) {
   });
 
   /**
+   * Dedicated single-scene insertion at a boundary (`0..previous.length`, e.g. `2` = between Scene 2 and Scene 3).
+   * Generates ONE scene from neighboring story/cast/style context, leaves every other scene byte-for-byte untouched,
+   * reconciles `brief.scriptBeats`, `beatPlan`, `planAudio` and transition seams atomically, and deduplicates by `idempotencyKey`.
+   */
+  app.post<{
+    Params: { id: string };
+    Body: {
+      brief?: unknown;
+      previous?: unknown;
+      position?: unknown;
+      prompt?: unknown;
+      notes?: unknown;
+      idempotencyKey?: unknown;
+    };
+  }>("/v1/projects/:id/script/scenes/insert", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (project.state === "Rendering draft") {
+      return reply.code(409).send({
+        error: { code: "invalid_project", message: "Wait for the current render to finish before changing the storyboard." }
+      });
+    }
+
+    const parsedBrief = request.body?.brief ? parseScriptBrief(request.body.brief) : project.brief ? { brief: project.brief } : { error: "Send the project brief." };
+    if ("error" in parsedBrief) {
+      return reply.code(400).send({ error: { code: "invalid_brief", message: parsedBrief.error } });
+    }
+    const brief = parsedBrief.brief;
+
+    const rawPrevious = request.body?.previous ?? project.brief?.scriptBeats;
+    if (Array.isArray(rawPrevious) && rawPrevious.length >= SCRIPT_BEATS_MAX) {
+      return reply.code(422).send({
+        error: { code: "max_scenes", message: `A storyboard can have at most ${SCRIPT_BEATS_MAX} scenes.` }
+      });
+    }
+    const previous = ensureScriptBeatIds(parseScriptBeats(rawPrevious) ?? []);
+    if (previous.length === 0) {
+      return reply.code(400).send({ error: { code: "invalid_script", message: "Send the current storyboard scenes." } });
+    }
+    if (previous.length >= SCRIPT_BEATS_MAX) {
+      return reply.code(422).send({
+        error: { code: "max_scenes", message: `A storyboard can have at most ${SCRIPT_BEATS_MAX} scenes.` }
+      });
+    }
+
+    const position = request.body?.position;
+    if (typeof position !== "number" || !Number.isInteger(position) || position < 0 || position > previous.length) {
+      return reply.code(400).send({
+        error: { code: "invalid_position", message: `Choose a valid scene boundary between 0 and ${previous.length}.` }
+      });
+    }
+
+    if (typeof request.body?.prompt !== "string") {
+      return reply.code(400).send({
+        error: { code: "invalid_prompt", message: "Describe the new scene in at least a few words." }
+      });
+    }
+    const trimmedPrompt = plainText(request.body.prompt).replace(/\s+/g, " ").trim();
+    if (trimmedPrompt.length < 3) {
+      return reply.code(400).send({
+        error: { code: "invalid_prompt", message: "Describe the new scene in at least 3 characters." }
+      });
+    }
+    if (trimmedPrompt.length > 400) {
+      return reply.code(400).send({
+        error: { code: "invalid_prompt", message: "Keep the scene description under 400 characters." }
+      });
+    }
+
+    const headerIdem = request.headers["idempotency-key"] ?? request.headers["x-idempotency-key"];
+    const rawIdem = typeof headerIdem === "string" ? headerIdem : typeof request.body?.idempotencyKey === "string" ? request.body.idempotencyKey : "";
+    const idemKey = rawIdem.trim().slice(0, 128);
+    const idemScopeKey = idemKey ? `${project.id}:${idemKey}` : "";
+
+    if (idemScopeKey && sceneInsertIdempotency.has(idemScopeKey)) {
+      try {
+        return await sceneInsertIdempotency.get(idemScopeKey)!;
+      } catch (error) {
+        return reply.code(502).send(upstreamError(request, error, "scene_insert_failed", "Could not write the new scene. Try again."));
+      }
+    }
+
+    if (!(await ensurePromptAllowed(reply, [brief.text, brief.productName, trimmedPrompt], `project_${project.id}:scene_insert`))) {
+      return;
+    }
+
+    const userId = callerId(request);
+    if (meteringOn() && (!idemScopeKey || !meteredSceneInsertKeys.has(idemScopeKey))) {
+      const refusal = await admitPreview(userId, project.id, await tierFor(userId));
+      if (refusal) return reply.code(402).send(refusal);
+      if (idemScopeKey) meteredSceneInsertKeys.add(idemScopeKey);
+    }
+
+    const notes = parseScriptNotes(request.body?.notes) ?? brief.scriptNotes ?? project.brief?.scriptNotes ?? null;
+    const controller = new AbortController();
+    request.raw.on("close", () => {
+      if (!reply.sent && request.raw.aborted) controller.abort();
+    });
+
+    const runInsert = async (): Promise<SceneInsertApiResult> => {
+      const { context } = await directorContextFor(project, brief);
+      const writer = sceneInsertWriterOverride ?? writeInsertedScene;
+      const text = await writer(
+        {
+          brief,
+          context,
+          previous,
+          position,
+          prompt: trimmedPrompt,
+          notes
+        },
+        controller.signal
+      );
+      const beatId = `sb-${randomUUID().slice(0, 8)}`;
+      const finished = finishInsertedScene(text, brief, context, {
+        previous,
+        position,
+        notes,
+        beatId
+      });
+      const updated = await updateProjectPlan(project.id, (current) => {
+        const latestBeats = current.brief?.scriptBeats?.length === previous.length
+          ? ensureScriptBeatIds(
+              current.brief.scriptBeats.map((b, i) => ({
+                ...b,
+                ...(previous[i]?.id ? { id: previous[i]!.id } : {})
+              }))
+            )
+          : previous;
+        return reconcileProjectAfterSceneInsert(current, {
+          brief,
+          previousBeats: latestBeats,
+          position,
+          insertedBeat: finished.insertedBeat,
+          notes: finished.notes
+        });
+      });
+      if (!updated) throw new ProjectInvalid("Project not found.");
+      const persistedBeats = updated.brief?.scriptBeats ?? finished.beats;
+      return {
+        project: updated,
+        insertedBeat: persistedBeats[position] ?? finished.insertedBeat,
+        position,
+        beats: persistedBeats,
+        notes: finished.notes,
+        flags: finished.flags
+      };
+    };
+
+    const task = runInsert();
+    if (idemScopeKey) {
+      sceneInsertIdempotency.set(idemScopeKey, task);
+    }
+    try {
+      const result = await task;
+      return reply.send(result);
+    } catch (error) {
+      if (idemScopeKey) sceneInsertIdempotency.delete(idemScopeKey);
+      if (error instanceof ProjectInvalid) {
+        return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
+      }
+      return reply.code(502).send(
+        upstreamError(request, error, "scene_insert_failed", error instanceof Error ? error.message : "Could not write the new scene. Try again.")
+      );
+    }
+  });
+
+  /**
+   * Dedicated scene removal at `index` (`0..beats.length - 1`), enforcing minimum 1 scene and keeping existing assets/takes
+   * intact on disk and in `planAudio`/`scriptFrames` so Undo can restore the scene with zero regeneration cost.
+   */
+  app.post<{
+    Params: { id: string };
+    Body: {
+      index?: unknown;
+      brief?: unknown;
+      beats?: unknown;
+    };
+  }>("/v1/projects/:id/script/scenes/remove", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (project.state === "Rendering draft") {
+      return reply.code(409).send({
+        error: { code: "invalid_project", message: "Wait for the current render to finish before changing the storyboard." }
+      });
+    }
+    const index = request.body?.index;
+    if (typeof index !== "number" || !Number.isInteger(index) || index < 0) {
+      return reply.code(400).send({ error: { code: "invalid_index", message: "Choose a valid scene to remove." } });
+    }
+    const parsedBrief = request.body?.brief ? parseScriptBrief(request.body.brief) : null;
+    if (parsedBrief && "error" in parsedBrief) {
+      return reply.code(400).send({ error: { code: "invalid_brief", message: parsedBrief.error } });
+    }
+    const parsedBeats = request.body?.beats !== undefined ? parseScriptBeats(request.body.beats) : null;
+    if (request.body?.beats !== undefined && !parsedBeats) {
+      return reply.code(400).send({ error: { code: "invalid_script", message: "Send the current storyboard scenes." } });
+    }
+
+    let removedInfo: ReturnType<typeof reconcileProjectAfterSceneRemove> | null = null;
+    try {
+      const updated = await updateProjectPlan(project.id, (current) => {
+        const currentCount = (parsedBeats ?? current.brief?.scriptBeats ?? current.beatPlan?.beats ?? []).length;
+        if (currentCount <= SCRIPT_BEATS_MIN) {
+          throw new Error("MIN_SCENES");
+        }
+        if (index >= currentCount) {
+          throw new Error("OUT_OF_RANGE");
+        }
+        removedInfo = reconcileProjectAfterSceneRemove(current, {
+          index,
+          brief: parsedBrief && !("error" in parsedBrief) ? parsedBrief.brief : current.brief,
+          beats: parsedBeats
+        });
+        return removedInfo.patch;
+      });
+      if (!updated || !removedInfo) return reply.code(404).send(notFound);
+      const info = removedInfo as ReturnType<typeof reconcileProjectAfterSceneRemove>;
+      return reply.send({
+        project: updated,
+        index,
+        removedBeat: info.removedBeat,
+        removedPlanBeat: info.removedPlanBeat,
+        removedOverrides: info.removedOverrides,
+        beats: updated.brief?.scriptBeats ?? info.beats
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "MIN_SCENES") {
+        return reply.code(422).send({ error: { code: "min_scenes", message: "A storyboard needs at least one scene." } });
+      }
+      if (error instanceof Error && error.message === "OUT_OF_RANGE") {
+        return reply.code(400).send({ error: { code: "invalid_index", message: "Choose an existing scene to remove." } });
+      }
+      if (error instanceof ProjectInvalid) {
+        return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
+      }
+      throw error;
+    }
+  });
+
+  /**
+   * Restores a previously removed scene at `index` (`0..beats.length`), re-attaching its saved `Beat`, overrides,
+   * cached reference frame, and voiceover take.
+   */
+  app.post<{
+    Params: { id: string };
+    Body: {
+      index?: unknown;
+      beat?: unknown;
+      planBeat?: unknown;
+      overrides?: unknown;
+      brief?: unknown;
+      beats?: unknown;
+    };
+  }>("/v1/projects/:id/script/scenes/restore", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (project.state === "Rendering draft") {
+      return reply.code(409).send({
+        error: { code: "invalid_project", message: "Wait for the current render to finish before changing the storyboard." }
+      });
+    }
+    const index = request.body?.index;
+    if (typeof index !== "number" || !Number.isInteger(index) || index < 0) {
+      return reply.code(400).send({ error: { code: "invalid_index", message: "Choose a valid position to restore the scene." } });
+    }
+    const restoredList = parseScriptBeats([request.body?.beat]);
+    const restoredBeat = restoredList?.[0];
+    if (!restoredBeat) {
+      return reply.code(400).send({ error: { code: "invalid_beat", message: "Send the scene to restore." } });
+    }
+    const parsedBrief = request.body?.brief ? parseScriptBrief(request.body.brief) : null;
+    if (parsedBrief && "error" in parsedBrief) {
+      return reply.code(400).send({ error: { code: "invalid_brief", message: parsedBrief.error } });
+    }
+    const parsedBeats = request.body?.beats !== undefined ? parseScriptBeats(request.body.beats) : null;
+    if (request.body?.beats !== undefined && !parsedBeats) {
+      return reply.code(400).send({ error: { code: "invalid_script", message: "Send the current storyboard scenes." } });
+    }
+
+    try {
+      const updated = await updateProjectPlan(project.id, (current) => {
+        const baseBrief = (parsedBrief && !("error" in parsedBrief) ? parsedBrief.brief : null) ?? current.brief;
+        if (!baseBrief) throw new ProjectInvalid("Generate the storyboard first.");
+        const previousBeats = ensureScriptBeatIds(
+          parsedBeats ??
+            current.brief?.scriptBeats ??
+            (current.beatPlan?.beats ?? []).map((b) => ({
+              keyword: b.keyword,
+              visual: null,
+              onScreen: b.on_screen ?? null,
+              line: b.line ?? null
+            }))
+        );
+        if (previousBeats.length >= SCRIPT_BEATS_MAX) {
+          throw new Error("MAX_SCENES");
+        }
+        if (index > previousBeats.length) {
+          throw new Error("OUT_OF_RANGE");
+        }
+        const planBeatOverride =
+          request.body?.planBeat && typeof request.body.planBeat === "object"
+            ? (request.body.planBeat as Beat)
+            : null;
+        const restoredOverrides =
+          request.body?.overrides && typeof request.body.overrides === "object" && !Array.isArray(request.body.overrides)
+            ? (request.body.overrides as Record<string, unknown>)
+            : null;
+        return reconcileProjectAfterSceneInsert(current, {
+          brief: baseBrief,
+          previousBeats,
+          position: index,
+          insertedBeat: restoredBeat,
+          planBeatOverride,
+          restoredOverrides
+        });
+      });
+      if (!updated) return reply.code(404).send(notFound);
+      return reply.send({
+        project: updated,
+        index,
+        restoredBeat,
+        beats: updated.brief?.scriptBeats ?? []
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "MAX_SCENES") {
+        return reply.code(422).send({
+          error: { code: "max_scenes", message: `A storyboard can have at most ${SCRIPT_BEATS_MAX} scenes.` }
+        });
+      }
+      if (error instanceof Error && error.message === "OUT_OF_RANGE") {
+        return reply.code(400).send({ error: { code: "invalid_index", message: "Choose a valid position to restore the scene." } });
+      }
+      if (error instanceof ProjectInvalid) {
+        return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
+      }
+      throw error;
+    }
+  });
+
+  /**
    * Reference frames for the script canvas: one still SVG per beat in the chosen template's style, streamed as server-sent
    * events (`{ index, svg }` or `{ index, error }` as each is drawn, then `{ done }`). `indices` limits it to the beats that
    * changed. Each frame is saved on the project (`scriptFrames`) under its key, and a beat whose key is already saved is
@@ -477,10 +1176,18 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const existingByText = new Map(
       existingVoiceMatches ? (project.planAudio?.voice?.lines ?? []).map((l) => [l.text, l]) : []
     );
+    // Character voices: each line's speaker (from the script; plan-only beats fall back to the saved script).
+    const speakerAt = (index: number) => (beats[index] as { speaker?: string | null } | undefined)?.speaker ?? brief.scriptBeats?.[index]?.speaker ?? project.brief?.scriptBeats?.[index]?.speaker;
+    const lineSettings = (index: number) => speakerSettings(settings, speakerAt(index));
+    const reusable = (index: number, cleaned: string) => {
+      const cached = existingByText.get(cleaned);
+      // With characters a take is reused only when it was made in this speaker's current voice and delivery.
+      return cached && (settings.cast !== "characters" || cached.file === `vo/${takeKey(lineSettings(index), cleaned)}.wav`) ? cached : undefined;
+    };
     const queue: number[] = [];
     for (const index of wanted) {
       const cleaned = voiceText(beats[index]?.line);
-      const cached = existingByText.get(cleaned);
+      const cached = reusable(index, cleaned);
       if (cached) {
         completedSteps += 1;
         send({ type: "take", index, file: cached.file, seconds: cached.seconds, progress: progressPct() });
@@ -494,7 +1201,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         const beatId = project.beatPlan?.beats[index]?.id ?? `b${index + 1}`;
         const rawLine = beats[index]?.line ?? "";
         try {
-          const res = await voiceOneLine(config.geminiApiKey, dir, settings, beatId, rawLine, force);
+          const res = await voiceOneLine(config.geminiApiKey, dir, lineSettings(index), beatId, rawLine, force);
           if (controller.signal.aborted) return;
           const spentUsd = Math.round(res.spentSeconds * VOICE_RULES.usdPerSecond * 10000) / 10000;
           await updateProjectAudio(project.id, (current) => {
@@ -536,7 +1243,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const musicJob = wantMusic
       ? (async () => {
           try {
-            const targetSeconds = project.beatPlan?.target_duration_s ?? brief.durationSeconds ?? 30;
+            const targetSeconds = effectiveBriefDurationSeconds(brief, beats);
             const prompt = musicPrompt(project.beatPlan, brief, targetSeconds);
             const track = await produceMusic(config.geminiApiKey, dir, prompt, targetSeconds);
             if (controller.signal.aborted) return;
@@ -671,10 +1378,14 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         const dir = planAudioDir(project.id);
         const existingVoiceMatches = project.planAudio?.voice?.voice === settings.voice;
         const existingByText = new Map(existingVoiceMatches ? (project.planAudio?.voice?.lines ?? []).map((l) => [l.text, l]) : []);
+        // Character voices: each line in its speaker's voice; a kept take must have been made in that voice.
+        const lineSettings = (i: number) => speakerSettings(settings, beats[i]?.speaker);
         const wantedVoice = voiced
           ? beats.map((_, i) => i).filter((i) => {
               const cleaned = voiceText(beats[i]?.line);
-              return Boolean(cleaned) && !existingByText.has(cleaned);
+              const cached = existingByText.get(cleaned);
+              const kept = cached && (settings.cast !== "characters" || cached.file === `vo/${takeKey(lineSettings(i), cleaned)}.wav`);
+              return Boolean(cleaned) && !kept;
             })
           : [];
         const wantMusicBed = music && !project.planAudio?.music;
@@ -687,7 +1398,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
             for (let idx = voiceQueue.shift(); idx !== undefined && !controller.signal.aborted; idx = voiceQueue.shift()) {
               const beatId = `b${idx + 1}`;
               try {
-                const res = await voiceOneLine(config.geminiApiKey, dir, settings, beatId, beats[idx]?.line ?? "", false);
+                const res = await voiceOneLine(config.geminiApiKey, dir, lineSettings(idx), beatId, beats[idx]?.line ?? "", false);
                 const spentUsd = Math.round(res.spentSeconds * VOICE_RULES.usdPerSecond * 10000) / 10000;
                 await updateProjectAudio(project!.id, (current) => {
                   const before = current.planAudio;
@@ -758,23 +1469,38 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         }
       }
 
-      // 3. Direct per-scene SVG motion in parallel across all scenes, streaming each scene's completion
-      const timing = projectTiming(project);
-      const frames = timing ? filmFrames(project, timing) : null;
-      if (timing && frames) {
-        const scenes = filmScenes(project, timing, frames);
-        send({ type: "stage", stage: "motion", done: 0, total: scenes.length, progress: 52 });
-        project = await ensureFilmMotion(project, scenes, 60_000, ({ index, done, total, cached }) => {
+      // 3. For code-drawn plate styles, reconcile and start plate scenes; for HyperFrames, direct per-scene SVG motion
+      if (isPlateLook(brief.look)) {
+        send({ type: "stage", stage: "motion", done: 0, total: beats.length, progress: 55 });
+        await startPlates(project.id);
+        for (let idx = 0; idx < beats.length; idx++) {
           send({
             type: "motion",
-            index,
-            done,
-            total,
-            cached,
-            progress: 50 + Math.round((done / Math.max(1, total)) * 48)
+            index: idx,
+            done: idx + 1,
+            total: beats.length,
+            cached: false,
+            progress: 55 + Math.round(((idx + 1) / Math.max(1, beats.length)) * 43)
           });
-        });
-        project = (await setCoverFrame(project.id, frames[0]!.svg, timing.total)) ?? project;
+        }
+      } else {
+        const timing = projectTiming(project);
+        const frames = timing ? filmFrames(project, timing) : null;
+        if (timing && frames) {
+          const scenes = filmScenes(project, timing, frames);
+          send({ type: "stage", stage: "motion", done: 0, total: scenes.length, progress: 52 });
+          project = await ensureFilmMotion(project, scenes, 60_000, ({ index, done, total, cached }) => {
+            send({
+              type: "motion",
+              index,
+              done,
+              total,
+              cached,
+              progress: 50 + Math.round((done / Math.max(1, total)) * 48)
+            });
+          });
+          project = (await setCoverFrame(project.id, frames[0]!.svg, timing.total)) ?? project;
+        }
       }
 
       const finalProject = (await getProject(project.id)) ?? project;
@@ -927,18 +1653,65 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           const family = typeof patch.styleFamily === "string" ? getStyleFamily(patch.styleFamily) : undefined;
           brief = family && family.look === (brief.look ?? "clean") ? { ...rest, styleFamily: family.id } : rest;
         }
+        if (brief && patch.styleExample !== undefined) {
+          const { styleExample: _oldExample, ...rest } = brief;
+          const example = typeof patch.styleExample === "string" ? findGalleryTemplate(patch.styleExample) : undefined;
+          brief = example && example.look === (brief.look ?? "clean") ? { ...rest, styleExample: example.id } : rest;
+        }
         if (brief && typeof patch.captions === "string" && (captionModes as readonly string[]).includes(patch.captions)) {
           brief = { ...brief, captions: patch.captions as CaptionMode };
         }
         if (brief && typeof patch.audioMode === "string" && (audioModes as readonly string[]).includes(patch.audioMode)) {
           brief = { ...brief, audio: { ...brief.audio, mode: patch.audioMode as AudioMode } };
         }
+        if (brief && (patch.aspect !== undefined || patch.aspects !== undefined)) {
+          const validAspects = Array.isArray(patch.aspects)
+            ? aspects.filter((a) => (patch.aspects as unknown[]).includes(a))
+            : undefined;
+          const nextPrimary =
+            typeof patch.aspect === "string" && (aspects as readonly string[]).includes(patch.aspect)
+              ? (validAspects?.length ? resolvePrimaryAspect(patch.aspect, validAspects) : (patch.aspect as Aspect))
+              : validAspects?.length
+                ? resolvePrimaryAspect(brief.aspect, validAspects)
+                : brief.aspect;
+          brief = {
+            ...brief,
+            aspect: nextPrimary,
+            ...(validAspects?.length ? { aspects: validAspects } : {})
+          };
+        }
         const valid = new Set(scenesFor(brief?.look, brief?.styleFamily).map((scene) => scene.id));
-        const plan = { ...result.plan, beats: result.plan.beats.map((beat) => (beat.scene && !valid.has(beat.scene) ? { ...beat, scene: null } : beat)) };
+        const plan = { ...result.plan, canvas: brief?.aspect ?? result.plan.canvas, beats: result.plan.beats.map((beat) => (beat.scene && !valid.has(beat.scene) ? { ...beat, scene: null } : beat)) };
+        if (
+          brief?.scriptBeats &&
+          current.beatPlan?.beats &&
+          brief.scriptBeats.length === current.beatPlan.beats.length &&
+          (patch.order !== undefined || patch.beats !== undefined)
+        ) {
+          const oldPlanBeats = current.beatPlan.beats;
+          const oldScriptBeats = brief.scriptBeats;
+          const syncedScriptBeats: ScriptBeat[] = plan.beats.map((pb, idx) => {
+            const oldIdx = oldPlanBeats.findIndex((ob) => ob.id === pb.id);
+            const baseSb = (oldIdx >= 0 ? oldScriptBeats[oldIdx] : oldScriptBeats[idx]) ?? {
+              keyword: pb.keyword,
+              visual: null,
+              onScreen: pb.on_screen ?? null,
+              line: pb.line ?? null
+            };
+            return {
+              ...baseSb,
+              keyword: pb.keyword,
+              onScreen: pb.on_screen ?? null,
+              line: pb.line ?? null
+            };
+          });
+          brief = { ...brief, scriptBeats: ensureScriptBeatIds(syncedScriptBeats) };
+        }
         return {
           brief,
           beatPlan: plan,
-          script: scriptFromPlan(plan, current.script?.source ?? "generated")
+          script: scriptFromPlan(plan, current.script?.source ?? "generated"),
+          ...(brief ? { request: { ...current.request, format: aspectToFormat(brief.aspect) } } : {})
         };
       });
       return updated ?? reply.code(404).send(notFound);
@@ -970,7 +1743,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       return {
         project: result.project,
         audio: audioStatus(result.project),
-        durationSeconds: timing?.total ?? (result.project.brief?.durationSeconds ?? 30),
+        durationSeconds: timing?.total ?? (result.project.brief ? effectiveBriefDurationSeconds(result.project.brief) : 30),
         beatTimes: timing ? beatTimes(timing) : {},
         warnings: [...result.warnings, ...(timing?.warnings ?? [])],
         spent_usd: result.spentUsd
@@ -997,6 +1770,47 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const bytes = await readFile(join(config.templatesDir, "beat-plan", "sfx", request.params.file)).catch(() => null);
     if (!bytes) return reply.code(404).send({ error: { code: "not_found", message: "Sound not found." } });
     return sendMedia(request, reply, bytes, "audio/mpeg");
+  });
+
+  const inFlightVoicePreviews = new Map<string, Promise<Buffer>>();
+
+  /** Voice sample preview for any prebuilt Gemini TTS voice (`voices` in @videosaas/contracts), cached on disk after first synthesis. */
+  app.get<{ Params: { voice: string }; Querystring: { cached?: string } }>("/v1/voices/:voice/preview", async (request, reply) => {
+    const voiceId = request.params.voice;
+    if (!voiceIds.includes(voiceId)) return reply.code(404).send({ error: { code: "not_found", message: "Unknown voice." } });
+    const cacheDir = join(config.audioDir, "_voice_previews");
+    const cacheFile = join(cacheDir, `${voiceId}.wav`);
+    const cachedBytes = (await readFile(cacheFile).catch(() => null)) ?? (await readMedia(cacheFile).catch(() => null));
+    if (cachedBytes) {
+      return sendMedia(request, reply, cachedBytes, "audio/wav");
+    }
+    if (request.query.cached === "1" || !config.geminiApiKey) {
+      return reply.code(503).send({ error: { code: "audio_unavailable", message: "Sample preview is not cached yet or GEMINI_API_KEY is unavailable." } });
+    }
+    const meta = voices.find((v) => v.id === voiceId);
+    const sampleText = `Hello, I'm ${meta?.label ?? voiceId}. Every story has a rhythm, and here is how I sound.`;
+    try {
+      let pending = inFlightVoicePreviews.get(voiceId);
+      if (!pending) {
+        pending = (async () => {
+          const { wav } = await synthesizeVoiceover(config.geminiApiKey, {
+            text: sampleText,
+            voice: voiceId,
+            style: `${meta?.character ?? "Clear, natural"} narration`
+          });
+          await mkdir(cacheDir, { recursive: true });
+          await saveMedia(cacheFile, wav).catch(() => writeFile(cacheFile, wav).catch(() => undefined));
+          return wav;
+        })().finally(() => {
+          inFlightVoicePreviews.delete(voiceId);
+        });
+        inFlightVoicePreviews.set(voiceId, pending);
+      }
+      const wav = await pending;
+      return sendMedia(request, reply, wav, "audio/wav");
+    } catch (e) {
+      return reply.code(502).send({ error: { code: "tts_failed", message: e instanceof Error ? e.message : "Could not synthesize voice preview." } });
+    }
   });
 
   /**

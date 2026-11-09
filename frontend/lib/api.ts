@@ -1,6 +1,6 @@
 import { createClient } from "../utils/supabase/client";
 import { normalizeSearch } from "@videosaas/contracts/gallery-use-cases";
-import type { ActiveElementInfo, BeatLayoutHint, BeatPlan, ClassifierDecision, EditPatch, FrameElementsSnapshot, HyperFramesOverridesMap, BrandExtraction, BrandKit, BrandKitInput, GalleryPage, GalleryStyleCard, ScriptBeat, ScriptBrief, ScriptNotes, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
+import type { ActiveElementInfo, Beat, BeatLayoutHint, BeatPlan, ClassifierDecision, EditPatch, FrameElementsSnapshot, HyperFramesOverridesMap, BrandExtraction, BrandKit, BrandKitInput, GalleryPage, GalleryScope, GalleryStyleCard, ScriptBeat, ScriptBrief, ScriptNotes, SiteCapture, ProjectStudioDraft, RenderJob, RenderRequest, VideoProject } from "@videosaas/contracts";
 
 // Public by design: the backend origin, e.g. https://api.<domain>. The frontend holds no secrets.
 const apiOrigin = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
@@ -255,7 +255,7 @@ export async function createProject(input: { name?: string; request: RenderReque
   return parse<VideoProject>(response, "Could not create the project.");
 }
 
-export async function updateProject(id: string, input: Partial<Pick<VideoProject, "name" | "state" | "request" | "script" | "approvedAt" | "archived">>) {
+export async function updateProject(id: string, input: Partial<Pick<VideoProject, "name" | "state" | "request" | "brief" | "script" | "approvedAt" | "archived" | "keepOverLength">>) {
   const response = await apiFetch(apiOrigin + "/v1/projects/" + id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return parse<VideoProject>(response, "Could not save the project.");
 }
@@ -339,10 +339,16 @@ export type PlanPatch = {
   look?: string;
   /** The style family (a look split into kinds of film); null clears it. */
   styleFamily?: string | null;
+  /** The gallery template example for the chosen style; null clears it. */
+  styleExample?: string | null;
   /** Caption mode ("key-phrases" | "full" | "none"). */
   captions?: "key-phrases" | "full" | "none";
   /** Film audio mode ("voiceover" | "music" | "both" | "none"). */
   audioMode?: "voiceover" | "music" | "both" | "none";
+  /** Primary aspect ratio ("16:9" | "9:16" | "1:1"). */
+  aspect?: "16:9" | "9:16" | "1:1";
+  /** Selected multi-format aspect ratios. */
+  aspects?: ("16:9" | "9:16" | "1:1")[];
   /** Element-level overrides keyed by stable element id (`data-el`); null clears an entry or all overrides. */
   overrides?: Record<string, HyperFramesOverridesMap[string] | null> | null;
 };
@@ -444,6 +450,92 @@ export async function streamScript(projectId: string, input: { brief: ScriptBrie
     }
   }
   throw new Error("The script stopped before it finished. Try again.");
+}
+
+export type SceneInsertResult = {
+  project: VideoProject;
+  insertedBeat: ScriptBeat;
+  position: number;
+  beats: ScriptBeat[];
+  notes: ScriptNotes | null;
+  flags: ScriptFlag[];
+};
+
+export type SceneRemoveResult = {
+  project: VideoProject;
+  index: number;
+  removedBeat: ScriptBeat;
+  removedPlanBeat: Beat | null;
+  removedOverrides: Record<string, unknown>;
+  beats: ScriptBeat[];
+};
+
+export type SceneRestoreResult = {
+  project: VideoProject;
+  index: number;
+  restoredBeat: ScriptBeat;
+  beats: ScriptBeat[];
+};
+
+/**
+ * Generates and inserts ONE new scene at `input.position` (`0..previous.length`, e.g. `2` = between Scene 2 and Scene 3)
+ * using neighboring story/style/cast context, without rewriting any other scene.
+ */
+export async function insertScriptScene(
+  projectId: string,
+  input: {
+    brief: ScriptBrief;
+    previous: ScriptBeat[];
+    position: number;
+    prompt: string;
+    notes?: ScriptNotes | null;
+    idempotencyKey?: string;
+  },
+  signal?: AbortSignal
+): Promise<SceneInsertResult> {
+  const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/script/scenes/insert`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(input.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {})
+    },
+    body: JSON.stringify(input),
+    ...(signal ? { signal } : {})
+  });
+  return parse<SceneInsertResult>(response, "Could not add the scene.");
+}
+
+/** Removes the scene at `input.index` (`0..beats.length - 1`), keeping cached frames and voice takes intact for Undo. */
+export async function removeScriptScene(
+  projectId: string,
+  input: { index: number; brief?: ScriptBrief; beats?: ScriptBeat[] }
+): Promise<SceneRemoveResult> {
+  const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/script/scenes/remove`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return parse<SceneRemoveResult>(response, "Could not remove the scene.");
+}
+
+/** Restores a removed scene at `input.index`, re-attaching its saved beat, plan beat, overrides, frame, and voice take. */
+export async function restoreScriptScene(
+  projectId: string,
+  input: {
+    index: number;
+    beat: ScriptBeat;
+    planBeat?: Beat | null;
+    overrides?: Record<string, unknown> | null;
+    brief?: ScriptBrief;
+    beats?: ScriptBeat[];
+  }
+): Promise<SceneRestoreResult> {
+  const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/script/scenes/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return parse<SceneRestoreResult>(response, "Could not restore the scene.");
 }
 
 /** A voiceover take made by generatePlanAudio (`file` is "vo/<hash>.wav"), playable in an <audio> element (signed with the media token). */
@@ -790,9 +882,59 @@ export async function generatePlanVisuals(projectId: string, budgetUsd: number):
 
 /** Code-drawn plate scenes (backend plates/): one clip per storyboard beat, authored and drawn in the chosen style. */
 export type PlateAspect = "16:9" | "9:16" | "1:1";
+export type PlateVariantState = "queued" | "authoring" | "bundled" | "checked" | "rendering" | "drawn" | "failed";
+export type PlateRetrying = { attempt: number; reason: string };
 /** One ratio of one scene: `v` changes whenever its stored clip changes, so the player fetches the new one. */
-export type PlateVariant = { state: "queued" | "authoring" | "rendering" | "drawn" | "failed"; sig: string; v: string | null; stage?: string; error?: string };
-export type PlateScene = { index: number; keyword: string; state: "queued" | "authoring" | "rendering" | "drawn" | "failed"; seconds: number; frames?: number; sig: string; rev?: number; error?: string; attempts?: number; variants?: Partial<Record<PlateAspect, PlateVariant>> };
+export type PlateVariant = {
+  state: PlateVariantState;
+  sig: string;
+  v: string | null;
+  gen?: number;
+  rev?: number;
+  stage?: string;
+  error?: string;
+  variantId?: string;
+  bundleDigest?: string | null;
+  live?: boolean;
+  playback?: "clip";
+  drawMsPerFrame?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  frames?: number | null;
+  framesDone?: number | null;
+  authorMs?: number;
+  drawnAt?: string | null;
+  retrying?: PlateRetrying;
+  stale?: boolean;
+  needsReconcile?: boolean;
+};
+export type PlateScene = {
+  index: number;
+  keyword: string;
+  state: PlateVariantState;
+  seconds: number;
+  frames?: number;
+  framesDone?: number | null;
+  sig: string;
+  gen?: number;
+  rev?: number;
+  stage?: string;
+  error?: string;
+  attempts?: number;
+  variantId?: string;
+  bundleDigest?: string | null;
+  live?: boolean;
+  playback?: "clip";
+  drawMsPerFrame?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  authorMs?: number;
+  drawnAt?: string | null;
+  retrying?: PlateRetrying;
+  stale?: boolean;
+  needsReconcile?: boolean;
+  variants?: Partial<Record<PlateAspect, PlateVariant>>;
+};
 export type PlateComment = { id: string; at: number; scene: number; sceneAt: number; body: string };
 export type SubtitleMode = "none" | "key-phrases" | "full";
 export type SubtitleStyle = "pill" | "cinema" | "kinetic" | "paper" | "blueprint";
@@ -817,6 +959,11 @@ export const planSfxUrl = (name: PlateSfxName) => `${apiOrigin}/v1/preview/plan-
 export type PlateStatus = {
   available: boolean;
   look: string | null;
+  mode?: "live" | "clip";
+  serverNow?: string;
+  revision?: string;
+  stale?: boolean;
+  needsReconcile?: boolean;
   scenes: PlateScene[];
   comments: PlateComment[];
   subtitles?: PlateSubtitles;
@@ -850,14 +997,25 @@ export function plateClipUrl(projectId: string, index: number, version: string, 
   const base = outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/plates/${index}/clip`) + (outputUrl("/x").includes("?") ? "&" : "?") + `v=${encodeURIComponent(version)}`;
   return aspect ? `${base}&aspect=${encodeURIComponent(aspect)}` : base;
 }
+export function plateStillUrl(projectId: string, index: number, version?: string | null, aspect?: "16:9" | "9:16" | "1:1") {
+  const raw = outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/plates/${index}/still`);
+  const params = new URLSearchParams();
+  if (version) params.set("v", version);
+  if (aspect) params.set("aspect", aspect);
+  const qs = params.toString();
+  if (!qs) return raw;
+  return `${raw}${raw.includes("?") ? "&" : "?"}${qs}`;
+}
 /** Where a companion export of one ratio stands. It is assembled on the render worker; this asks for it (once) and reports progress. */
-export type PlateExportState = { state: "queued" | "assembling" | "ready" | "failed" | "drawing"; progress: number; stage?: string | null; error?: string };
+export type PlateExportState = { state: "queued" | "assembling" | "ready" | "failed" | "drawing"; progress: number; stage?: string | null; error?: string; signature?: string; url?: string };
 export async function requestPlateExport(projectId: string, aspect: PlateAspect): Promise<PlateExportState> {
   return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/export`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aspect }) }), "Could not prepare the video.");
 }
-export function plateExportUrl(projectId: string, aspect: "16:9" | "9:16" | "1:1") {
+export function plateExportUrl(projectId: string, aspect: "16:9" | "9:16" | "1:1", version?: string | null) {
   const slug = aspect === "9:16" ? "9-16" : aspect === "1:1" ? "1-1" : "16-9";
-  return outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/plates/export/${slug}`);
+  const raw = outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/plates/export/${slug}`);
+  if (!version) return raw;
+  return `${raw}${raw.includes("?") ? "&" : "?"}v=${encodeURIComponent(version)}`;
 }
 
 
@@ -865,12 +1023,15 @@ export function plateExportUrl(projectId: string, aspect: "16:9" | "9:16" | "1:1
 /** `reference` is the hand-built clip's source code (plain text), when the template has one: the author can reuse its structure and components. */
 export type GalleryTemplateBrief = { id: string; name: string; starterId?: string; brief: Partial<ScriptBrief>; reference?: { name: string; url: string } };
 
-export async function listGalleryTemplates(params: { useCase?: string; q?: string; look?: string; cursor?: string | null; limit?: number; featured?: boolean }, signal?: AbortSignal): Promise<GalleryPage> {
+export const voicePreviewUrl = (voice: string) => `${apiOrigin}/v1/voices/${encodeURIComponent(voice)}/preview`;
+
+export async function listGalleryTemplates(params: { useCase?: string; q?: string; look?: string; scope?: GalleryScope; cursor?: string | null; limit?: number; featured?: boolean }, signal?: AbortSignal): Promise<GalleryPage> {
   const query = new URLSearchParams();
   if (params.useCase && params.useCase !== "all") query.set("use_case", params.useCase);
   const text = normalizeSearch(params.q);
   if (text) query.set("q", text);
   if (params.look) query.set("look", params.look);
+  if (params.scope && params.scope !== "all") query.set("scope", params.scope);
   if (params.cursor) query.set("cursor", params.cursor);
   if (params.limit) query.set("limit", String(params.limit));
   if (params.featured) query.set("featured", "1");
@@ -880,10 +1041,16 @@ export async function listGalleryTemplates(params: { useCase?: string; q?: strin
 }
 
 /** Every visual style with its example count and one real example clip (the style picker). */
-export async function listGalleryStyles(signal?: AbortSignal): Promise<GalleryStyleCard[]> {
-  const response = await fetch(`${apiOrigin}/v1/gallery/styles`, { signal });
+export async function listGalleryStyles(signalOrOptions?: AbortSignal | { scope?: GalleryScope; signal?: AbortSignal }, maybeSignal?: AbortSignal): Promise<GalleryStyleCard[]> {
+  const isSignal = Boolean(signalOrOptions && typeof (signalOrOptions as AbortSignal).aborted === "boolean");
+  const scope = isSignal ? undefined : (signalOrOptions as { scope?: GalleryScope } | undefined)?.scope;
+  const signal = isSignal ? (signalOrOptions as AbortSignal) : (maybeSignal ?? (signalOrOptions as { signal?: AbortSignal } | undefined)?.signal);
+  const query = new URLSearchParams();
+  if (scope && scope !== "all") query.set("scope", scope);
+  const response = await fetch(`${apiOrigin}/v1/gallery/styles${query.size ? `?${query}` : ""}`, { signal });
   if (!response.ok) throw new Error("Could not load styles.");
-  return ((await response.json()) as { items: GalleryStyleCard[] }).items;
+  const payload = (await response.json()) as { items?: GalleryStyleCard[] } | GalleryStyleCard[];
+  return Array.isArray(payload) ? payload : (payload.items ?? []);
 }
 
 /** The starting values for a chosen template: example prompt, structure skill, look, length and sound. */

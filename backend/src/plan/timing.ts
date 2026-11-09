@@ -1,4 +1,4 @@
-import { currentTake, paceWpm, type Beat, type BeatPlan, type Pace, type PlanAudio, type PlanVoiceWord, type ScriptBrief } from "@videosaas/contracts";
+import { currentTake, isScriptLedDuration, paceWpm, type Beat, type BeatPlan, type Pace, type PlanAudio, type PlanVoiceWord, type ScriptBrief } from "@videosaas/contracts";
 
 /**
  * The beat-plan clock. Every boundary in the beat-plan composition engine
@@ -161,12 +161,13 @@ function flex(rows: Row[], amount: number): number {
  * - when the narration is not English and every voiced line has a measured take, the film follows the audio instead: a short voiced line is not held to the
  *   minimum, and nothing is stretched to reach the chosen length (a short Hindi line is not followed by silence).
  */
-export function planTiming(plan: BeatPlan, brief?: (Pick<ScriptBrief, "pace"> & { audio?: { language?: string } }) | null, options: TimingOptions = {}): PlanTiming {
+export function planTiming(plan: BeatPlan, brief?: (Pick<ScriptBrief, "pace" | "durationMode"> & { audio?: { language?: string } }) | null, options: TimingOptions = {}): PlanTiming {
   const R = TIMING_RULES;
   const pace = brief?.pace ?? inferPace(plan);
   const wpm = paceWpm[pace];
   const warnings: string[] = [];
   const beats = plan.beats;
+  const scriptLed = isScriptLedDuration(brief) || plan.duration_mode === "script";
   // When every voiced line has a measured take, the film follows the audio: nothing is stretched to reach the chosen length and a short
   // line is not held to the default minimum, so cuts and waits are the voice's own (a short Hindi line is not followed by silence).
   const voicedBeats = beats.filter((beat) => beat.line?.trim());
@@ -201,25 +202,27 @@ export function planTiming(plan: BeatPlan, brief?: (Pick<ScriptBrief, "pace"> & 
     return { beat, kind, line, lineDur, pre, duration, hardMin, max };
   });
 
-  const target = plan.target_duration_s;
   const sum = () => rows.reduce((total, row) => total + row.duration, 0);
-  const lastRow = rows[rows.length - 1];
-  const silentFirst = rows.filter((row) => !row.line || row === lastRow);
-  const voiced = rows.filter((row) => row.line && row !== lastRow);
-  let diff = target - sum();
-  if (followAudio && diff > 0) diff = 0;
-  if (Math.abs(diff) > 0.01) {
-    diff -= flex(silentFirst, diff);
-    if (Math.abs(diff) > 0.01) diff -= flex(voiced, diff);
-  }
-  // Still short of the -10% bound: stretch every beat proportionally past its soft max (never the hook).
-  const floor = target * (1 - R.tolerance);
-  if (sum() < floor && !followAudio) {
-    const stretchable = rows.filter((row) => row.beat.role !== "hook");
-    const short = floor - sum();
-    const base = stretchable.reduce((total, row) => total + row.duration, 0);
-    for (const row of stretchable) row.duration += short * row.duration / base;
-    // A shorter film is fine: the beats are stretched to fill, and the person is not asked to fix it.
+  const target = scriptLed ? round(sum()) : plan.target_duration_s;
+  if (!scriptLed) {
+    const lastRow = rows[rows.length - 1];
+    const silentFirst = rows.filter((row) => !row.line || row === lastRow);
+    const voiced = rows.filter((row) => row.line && row !== lastRow);
+    let diff = target - sum();
+    if (followAudio && diff > 0) diff = 0;
+    if (Math.abs(diff) > 0.01) {
+      diff -= flex(silentFirst, diff);
+      if (Math.abs(diff) > 0.01) diff -= flex(voiced, diff);
+    }
+    // Still short of the -10% bound: stretch every beat proportionally past its soft max (never the hook).
+    const floor = target * (1 - R.tolerance);
+    if (sum() < floor && !followAudio) {
+      const stretchable = rows.filter((row) => row.beat.role !== "hook");
+      const short = floor - sum();
+      const base = stretchable.reduce((total, row) => total + row.duration, 0);
+      for (const row of stretchable) row.duration += short * row.duration / base;
+      // A shorter film is fine: the beats are stretched to fill, and the person is not asked to fix it.
+    }
   }
   // The length is a target, not a rule: a film a few seconds over or under is fine, and the real length follows
   // the measured voiceover. Nothing here blocks submitting, so the person never has to count seconds.

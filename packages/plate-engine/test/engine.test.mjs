@@ -50,6 +50,34 @@ test("source validation rejects imports and APIs a scene may not use", () => {
   assert.ok(allowedImports("fox").has("./core"));
 });
 
+test("any valid static import form bundles; dynamic import is rejected with a repairable message", async () => {
+  const body = `export const film: Film = { W: 1920, H: 1080, fps: 30, durationFrames: 90, draw() {} } as any;\n`;
+  const forms = {
+    multiLine: `import {\n  fox,\n  far,\n} from "./core";\n`,
+    inlineType: `import { fox, type Box, type Grass } from "./core";\n`,
+    multiLineInlineType: `import {\n  fox,\n  type Box,\n  type Grass,\n} from "./core";\n`,
+    typeOnly: `import type { Film } from "./core";\n`
+  };
+  for (const [name, imp] of Object.entries(forms)) assert.equal(validateSceneSource(imp + body, "illus-fox"), null, name);
+  // The disallowed specifier in a multi-line import is still caught.
+  assert.match(validateSceneSource(`import {\n  a,\n} from "node:fs";\n` + body, "illus-fox").message, /not allowed/);
+  const dyn = validateSceneSource(`import type { Film } from "./core";\n${body}const m = import("./core");`, "illus-fox");
+  assert.equal(dyn.code, "invalid_source");
+  assert.match(dyn.message, /dynamic import\(\).*static import/);
+});
+
+test("a multi-line import with inline types and a trailing comma bundles, and matches the one-line form", async () => {
+  const one = src("fox-0");
+  const m = /^import \{([^}]*)\} from "\.\/gallery";/m.exec(one);
+  assert.ok(m, "fixture has a single-line gallery import");
+  const names = m[1].split(",").map((x) => x.trim()).filter(Boolean);
+  const multi = one.replace(m[0], `import {\n  ${names.join(",\n  ")},\n} from "./gallery";`);
+  assert.notEqual(multi, one);
+  const a = await bundleScene({ look: "illus-fox", code: one, frames: 30, aspect: "16:9" });
+  const b = await bundleScene({ look: "illus-fox", code: multi, frames: 30, aspect: "16:9" });
+  assert.equal(a.html, b.html);
+});
+
 test("the bundler resolver is closed to files outside the engine", async () => {
   const bad = src("fox-0").replace(`from "./gallery"`, `from "../../../../etc/passwd"`);
   await assert.rejects(bundleScene({ look: "illus-fox", code: bad, frames: 90, aspect: "9:16" }), /not allowed/);

@@ -9,7 +9,7 @@ import { build } from "esbuild";
 
 export const ENGINE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SRC_DIR = join(ENGINE_DIR, "src");
-const CORE_DIR = join(SRC_DIR, "canvas-core");
+export const CORE_DIR = join(SRC_DIR, "canvas-core");
 export const FPS = 30;
 export const ASPECTS = {
   "16:9": { w: 1920, h: 1080, label: "1920x1080 (16:9)" },
@@ -43,7 +43,9 @@ export const engineVersion = () => JSON.parse(readFileSync(join(ENGINE_DIR, "pac
 export const plateNameOf = (look) => (typeof look === "string" && look.startsWith("illus-") ? look.slice(6).replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase()) : null);
 
 export const plateFile = (name) => join(CORE_DIR, `${name}.ts`);
+export const coreFile = (name) => join(CORE_DIR, `${name}.ts`);
 export const kitFile = (name) => join(CORE_DIR, `${name}Kit.ts`);
+export const guideFile = (name) => join(ENGINE_DIR, "guides", `${name}.md`);
 
 /** Style names that ship in this package (derived from the generated manifest, never from a developer path). */
 export function loadManifest() {
@@ -71,11 +73,14 @@ export function allowedImports(name) {
 
 // Defence in depth only: the real boundary is the network-blocked browser and the bundler's resolver.
 const FORBIDDEN = [
-  [/\bimport\s*\(/, "dynamic import"], [/\brequire\s*\(/, "require"], [/\bfetch\s*\(/, "fetch"], [/\bXMLHttpRequest\b/, "XMLHttpRequest"],
+  [/\bimport\s*\(/, "dynamic import()"], [/\brequire\s*\(/, "require"], [/\bfetch\s*\(/, "fetch"], [/\bXMLHttpRequest\b/, "XMLHttpRequest"],
   [/\bWebSocket\b/, "WebSocket"], [/\bimportScripts\b/, "importScripts"], [/\beval\s*\(/, "eval"], [/\bnew\s+Function\b/, "Function constructor"],
   [/\bMath\.random\b/, "Math.random"], [/\bDate\.now\b|\bnew\s+Date\b|\bperformance\.now\b/, "clock"], [/\bctx\.filter\b/, "ctx.filter"],
   [/\bnavigator\b|\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bdocument\b|\bwindow\b|\blocation\b/, "browser global"]
 ];
+
+/** Any static import statement: single or multi-line, inline `type` names, trailing commas, side-effect form. Group 1/2 = specifier. */
+const STATIC_IMPORT = /(?:^|\n)[ \t]*import\s*(?:type\s+)?(?:[^;"'()]*?\bfrom\s*)?["']([^"']+)["'][ \t]*;?/g;
 
 /** A deterministic, human-readable failure for code the model can repair. Returns null when the source is acceptable. */
 export function validateSceneSource(code, look) {
@@ -85,12 +90,12 @@ export function validateSceneSource(code, look) {
   if (code.length > 120_000) return { code: "invalid_source", message: "The scene module is longer than 120000 characters." };
   if (!/export\s+const\s+film\b/.test(code)) return { code: "invalid_source", message: "The module has no `film` export." };
   const allowed = allowedImports(name);
-  for (const m of code.matchAll(/(?:^|\n)\s*import\s+(?:type\s+)?[^;\n]*?from\s+["']([^"']+)["']|(?:^|\n)\s*import\s+["']([^"']+)["']/g)) {
-    const spec = m[1] ?? m[2];
+  for (const m of code.matchAll(STATIC_IMPORT)) {
+    const spec = m[1];
     if (!allowed.has(spec)) return { code: "invalid_source", message: `Import "${spec}" is not allowed. Allowed: ${[...allowed].join(", ")}.` };
   }
   const stripped = code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-  for (const [re, what] of FORBIDDEN) if (re.test(stripped)) return { code: "invalid_source", message: `The module uses ${what}, which scenes may not use.` };
+  for (const [re, what] of FORBIDDEN) if (re.test(stripped)) return { code: "invalid_source", message: `The module uses ${what}, which scenes may not use.${what === "dynamic import()" ? ' Replace it with a static import at the top of the file, e.g. `import { name } from "./core";`; scenes cannot load modules at run time.' : ""}` };
   return null;
 }
 
@@ -103,7 +108,7 @@ export function prepareSceneSource(code, { frames, aspect }) {
     .replace(/export\s+const\s+film\s*:\s*Film/, "export const sceneFilm: Film")
     .replace(/durationFrames:\s*[A-Za-z0-9_]+/, `durationFrames: ${frames}`)
     .replace(/W:\s*\d+\s*,\s*H:\s*\d+/, `W: ${size.w}, H: ${size.h}`);
-  const lastImport = (src) => { let end = 0; for (const x of src.matchAll(/^import[^\n]*\n/gm)) end = x.index + x[0].length; return end; };
+  const lastImport = (src) => { let end = 0; for (const x of src.matchAll(STATIC_IMPORT)) end = x.index + x[0].length; const nl = src.indexOf("\n", end); return end && nl >= 0 ? nl + 1 : end; };
   const insertAfterImports = (src, text) => { const at = lastImport(src); return src.slice(0, at) + text + src.slice(at); };
   if (w0 !== size.w || h0 !== size.h) {
     const s = Math.min(size.w / w0, size.h / h0), tx = (size.w - w0 * s) / 2, ty = (size.h - h0 * s) / 2;

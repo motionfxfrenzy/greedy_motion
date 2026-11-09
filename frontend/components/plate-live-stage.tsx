@@ -3,22 +3,27 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { outputUrl, plateClipUrl } from "../lib/api";
 import {
+  CLIP_AFTER_UNPLAYABLE_MS,
   CheckOnceTracker,
   ClipRequestTracker,
   DEFAULT_PLAYBACK_RENDER_MODE,
-  WorkerHost,
+  SCENE_PLAYABLE_TIMEOUT_MS,
+  canTriggerClipRequestForReason,
   createFilmPlayer,
   decideSceneMode,
   environmentStatus,
   fetchBundle,
   getActiveBrowserTransportCount,
   getDraftTargetVerticesPerFrame,
+  getLiveTraceLog,
+  isDocumentHidden,
+  isWatchdogTimeoutError,
   reportCheck,
   requestClip,
   resolveCacheBudgetBytes,
   resolveDraftCacheBudgetBytes,
   resolveSceneVariant,
-  runCheck,
+  stepPlayableTimeout,
   supportsWorkerHost,
   type AspectRatio,
   type FetchedBundle,
@@ -26,6 +31,8 @@ import {
   type FilmSceneSpec,
   type FrameStoreStatus,
   type LivePlateScene,
+  type LiveTraceEntry,
+  type PlayableTimeoutState,
   type PlaybackRenderMode,
   type PlayerDecision,
   type PreviewQuality,
@@ -35,8 +42,17 @@ import {
   type WebAudioFilmTimeline,
   withBackendAuth
 } from "../lib/live";
+
+export { CLIP_AFTER_UNPLAYABLE_MS };
 import { createClient } from "../utils/supabase/client";
-import { AnimationPrep } from "./animation-workspace";
+import {
+  AnimationPrep,
+  BUFFERING_SHOW_DELAY_MS,
+  buildStagePrepProps,
+  recordBufferingSample,
+  type BufferingRateSample,
+  type SceneProgressResult
+} from "./animation-workspace";
 
 const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
@@ -58,7 +74,10 @@ export type PlateLiveTelemetry = {
   stillUpgradeState?: StillUpgradeState;
   draftTargetVerticesPerFrame?: number;
   cacheBytes?: number;
+  cacheBudget?: number;
   activeWorkers?: number;
+  bufferingPauses?: number;
+  traceLog?: readonly (LiveTraceEntry | Record<string, unknown>)[];
   uniquePresentedFrames?: number;
   totalBlits?: number;
   repeatedBlits?: number;
@@ -90,6 +109,15 @@ export type PlateLiveOptions = {
   draftTargetVerticesPerFrame?: number;
   freezeClockAt?: number;
   forceBuffering?: boolean;
+  autoDraw?: boolean;
+  unplayableTimeoutMs?: number;
+  unplayableTickMs?: number;
+  onTriggerClipRequest?: (info: {
+    variantId: string;
+    gen: number;
+    bundleDigest: string | null;
+    reason: string;
+  }) => void;
   onDecisionsChange?: (
     decisions: { index: number; mode: "live" | "clip"; reason: string; state: string }[]
   ) => void;
@@ -100,6 +128,7 @@ export interface PlateLiveStageProps {
   look?: string | null;
   scenes: readonly LivePlateScene[];
   referenceFrames?: readonly (string | null | undefined)[];
+  perSceneProgress?: readonly (SceneProgressResult | undefined)[];
   viewAspect: AspectRatio;
   primaryAspect: AspectRatio;
   isViewAspectDrawn: boolean;
@@ -141,6 +170,13 @@ export interface PlateLiveStageProps {
   qualityJobText?: string | null;
   storeDisabledReason?: string | null;
   liveOptions?: PlateLiveOptions;
+  liveStageHandleRef?: MutableRefObject<{
+    getPresentedFrames: () => number;
+    getMediaTimeSec: () => number;
+    isBuffering: () => boolean;
+  } | null>;
+  onUpdateStale?: () => void;
+  updatingStale?: boolean;
 }
 
 function bundleCacheKeys(variantId: string, rev: number, bundleDigest?: string | null): { exact: string; revLatest: string } {
@@ -148,6 +184,18 @@ function bundleCacheKeys(variantId: string, rev: number, bundleDigest?: string |
     exact: `${variantId}:r${rev}:${bundleDigest ?? "latest"}`,
     revLatest: `${variantId}:r${rev}:latest`
   };
+}
+
+function getLoadedBundle(
+  bundles: Map<string, FetchedBundle>,
+  v: { variantId?: string; rev: number; bundleDigest?: string | null }
+): FetchedBundle | undefined {
+  if (!v.variantId) return undefined;
+  const keys = bundleCacheKeys(v.variantId, v.rev, v.bundleDigest);
+  const exact = bundles.get(keys.exact);
+  if (exact) return exact;
+  if (v.bundleDigest) return undefined;
+  return bundles.get(keys.revLatest);
 }
 
 /**
@@ -161,6 +209,7 @@ export function PlateLiveStage({
   look,
   scenes,
   referenceFrames,
+  perSceneProgress,
   viewAspect,
   primaryAspect,
   isViewAspectDrawn,
@@ -201,7 +250,10 @@ export function PlateLiveStage({
   audioTimeline,
   qualityJobText,
   storeDisabledReason,
-  liveOptions
+  liveOptions,
+  liveStageHandleRef,
+  onUpdateStale,
+  updatingStale
 }: PlateLiveStageProps) {
   const hostContainerRef = useRef<HTMLDivElement | null>(null);
   const filmPlayerRef = useRef<FilmPlayer | null>(null);
@@ -218,10 +270,10 @@ export function PlateLiveStage({
   const playerDecisionsRef = useRef<Map<number, PlayerDecision>>(new Map());
   const playerReadyRef = useRef<Set<number>>(new Set());
   const bufferingScenesRef = useRef<Set<number>>(new Set());
-  const activeCheckHostsRef = useRef<Set<WorkerHost>>(new Set());
-  const checkQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const lastSceneIdentityRef = useRef<Map<number, string>>(new Map());
   const checksRunRef = useRef<number>(0);
   const stillFailedRef = useRef<Set<number>>(new Set());
+  const playableTimeoutRef = useRef<Map<string, PlayableTimeoutState>>(new Map());
 
   const [revisionTick, setRevisionTick] = useState(0);
   const bump = () => {
@@ -243,6 +295,35 @@ export function PlateLiveStage({
   tickSceneSfxRef.current = tickSceneSfx;
   onSetTimeRef.current = onSetTime;
   onAdvanceSceneRef.current = onAdvanceScene;
+
+  if (liveStageHandleRef) {
+    liveStageHandleRef.current = {
+      getPresentedFrames: () => {
+        const fp = filmPlayerRef.current;
+        if (!fp) return 0;
+        return fp.scenes[current]?.presentedFrames ?? fp.presentedFrames;
+      },
+      getMediaTimeSec: () => {
+        const fp = filmPlayerRef.current;
+        const activePlayer = fp?.scenes[current];
+        const srcFrame = activePlayer?.lastPresentedSourceFrame ?? null;
+        if (srcFrame !== null) {
+          return srcFrame / (activePlayer?.meta.fps || 30);
+        }
+        return Math.max(0, clockTimeRef.current - (starts[current] ?? 0));
+      },
+      isBuffering: () => {
+        const fp = filmPlayerRef.current;
+        const activePlayer = fp?.scenes[current];
+        return Boolean(
+          activePlayer?.isBufferingNow ||
+            activePlayer?.isPreparing ||
+            bufferingScenesRef.current.has(current) ||
+            liveOptions?.forceBuffering
+        );
+      }
+    };
+  }
 
   const telemetryRef = useRef<{
     framesRendered: number;
@@ -266,21 +347,40 @@ export function PlateLiveStage({
     () => scenes.map((s) => resolveSceneVariant(s, viewAspect, primaryAspect)),
     [scenes, viewAspect, primaryAspect]
   );
+  const resolvedVariantsRef = useRef(resolvedVariants);
+  resolvedVariantsRef.current = resolvedVariants;
 
   const resolutions = useMemo(() => {
     void revisionTick;
+    // Prune cached decisions/ready state for scenes beyond current scene count or whose revision identity changed
+    for (const k of [...lastSceneIdentityRef.current.keys()]) {
+      if (k >= resolvedVariants.length) {
+        lastSceneIdentityRef.current.delete(k);
+        playerDecisionsRef.current.delete(k);
+        playerReadyRef.current.delete(k);
+        bufferingScenesRef.current.delete(k);
+      }
+    }
     return resolvedVariants.map((v, idx) => {
-      const keys = v.variantId ? bundleCacheKeys(v.variantId, v.rev, v.bundleDigest) : null;
-      const loadedBundle = keys
-        ? bundlesRef.current.get(keys.exact) ?? bundlesRef.current.get(keys.revLatest)
-        : undefined;
+      const identityKey = `${v.variantId ?? "none"}:${v.sig}:${v.gen}:${v.rev}:${v.bundleDigest ?? "none"}:${v.look ?? look ?? ""}:${v.stale ? "stale" : "ok"}`;
+      const prevIdentity = lastSceneIdentityRef.current.get(idx);
+      if (prevIdentity !== undefined && prevIdentity !== identityKey) {
+        playerDecisionsRef.current.delete(idx);
+        playerReadyRef.current.delete(idx);
+        bufferingScenesRef.current.delete(idx);
+      }
+      lastSceneIdentityRef.current.set(idx, identityKey);
+
+      const loadedBundle = v.stale ? undefined : getLoadedBundle(bundlesRef.current, v);
       const effectiveDigest = loadedBundle?.bundleDigest ?? v.bundleDigest ?? null;
       const effectiveGen = Math.max(loadedBundle?.gen ?? 1, v.gen);
       const checkOutcome =
         v.variantId && effectiveDigest
           ? checkTrackerRef.current.getOutcome(v.variantId, effectiveGen, effectiveDigest) ?? null
           : null;
-      const clipStatus = clipTrackerRef.current.getState(v.variantId, effectiveDigest);
+      const clipStatus =
+        clipTrackerRef.current.getState(v.variantId, `${effectiveGen}:${effectiveDigest ?? "default"}`) ??
+        clipTrackerRef.current.getState(v.variantId, effectiveDigest);
       const forcedReason =
         (v.variantId && effectiveDigest
           ? forcedClipRef.current.get(`${v.variantId}:g${effectiveGen}:${effectiveDigest}`)
@@ -369,7 +469,10 @@ export function PlateLiveStage({
         stillUpgradeState: fp?.stillUpgradeState ?? resolutions[current]?.stillUpgradeState ?? "idle",
         draftTargetVerticesPerFrame: fp?.draftTargetVerticesPerFrame ?? getDraftTargetVerticesPerFrame(),
         cacheBytes: fp?.cache.bytes ?? 0,
+        cacheBudget: fp?.cache.budget ?? 0,
         activeWorkers: getActiveBrowserTransportCount(),
+        bufferingPauses: fp?.bufferingPauses ?? 0,
+        traceLog: getLiveTraceLog(),
         uniquePresentedFrames: pres.uniquePresentedFrames,
         totalBlits: pres.totalBlits,
         repeatedBlits: pres.repeatedBlits,
@@ -394,10 +497,11 @@ export function PlateLiveStage({
     }
   }, [resolutions, resolvedVariants, onResolutionsChange, liveOptions, renderMode, current]);
 
-  // Clean up FilmPlayer and any active check hosts on unmount, project change, or aspect change.
+  // Clean up FilmPlayer on unmount, project change, or aspect change.
+  // Note (Requirement 6): when no browser page is open, nothing in the browser can check a `bundled` scene;
+  // that case is handled by the backend reconciler's server-side CHECK_GRACE fallback to clip rendering.
   useEffect(() => {
     mountedRef.current = true;
-    const checkHosts = activeCheckHostsRef.current;
     const mountedSpecs = mountedSpecsRef;
     const playerDecisions = playerDecisionsRef.current;
     const playerReady = playerReadyRef.current;
@@ -405,12 +509,6 @@ export function PlateLiveStage({
     const fetchingBundles = fetchingBundlesRef.current;
     return () => {
       mountedRef.current = false;
-      for (const h of checkHosts) {
-        try {
-          h.destroy();
-        } catch {}
-      }
-      checkHosts.clear();
       if (filmPlayerRef.current) {
         filmPlayerRef.current.destroy();
         filmPlayerRef.current = null;
@@ -421,121 +519,196 @@ export function PlateLiveStage({
       playerReady.clear();
       bufferingScenes.clear();
       fetchingBundles.clear();
+      playableTimeoutRef.current.clear();
     };
   }, [projectId, viewAspect]);
 
-  // Fetch bundles, run fenced browser checks once per (variantId, gen, bundleDigest), and request fallback clips.
+  const triggerClipRequest = async (
+    variantId: string,
+    bundleDigest: string | null | undefined,
+    hasClip: boolean,
+    reason: string,
+    gen = 1
+  ) => {
+    if (!canTriggerClipRequestForReason(reason)) return;
+    const trackerDigestKey = `${gen}:${bundleDigest ?? "default"}`;
+    if (!clipTrackerRef.current.shouldRequest(variantId, trackerDigestKey, hasClip)) return;
+    if (!clipTrackerRef.current.begin(variantId, trackerDigestKey)) return;
+    liveOptions?.onTriggerClipRequest?.({
+      variantId,
+      gen,
+      bundleDigest: bundleDigest ?? null,
+      reason
+    });
+    const res = await requestClip(projectId, variantId, LIVE_API);
+    if (!mountedRef.current) return;
+    if (res.status === "rendering") {
+      clipTrackerRef.current.complete(variantId, trackerDigestKey, "rendering");
+      bump();
+      onStatusRefresh();
+    } else if (res.status === "clip_cap") {
+      clipTrackerRef.current.complete(variantId, trackerDigestKey, "clip_cap");
+      bump();
+    } else {
+      clipTrackerRef.current.failTransient(variantId, trackerDigestKey);
+    }
+  };
+  const triggerClipRequestRef = useRef(triggerClipRequest);
+  triggerClipRequestRef.current = triggerClipRequest;
+
+  // Three-minute (180 s) active foreground playable timeout per scene (`CLIP_AFTER_UNPLAYABLE_MS = 180_000`).
+  // Background-tab time (`document.visibilityState === "hidden"`) never counts.
+  useEffect(() => {
+    const tickMs = liveOptions?.unplayableTickMs ?? 1000;
+    const timeoutMs = liveOptions?.unplayableTimeoutMs ?? CLIP_AFTER_UNPLAYABLE_MS ?? SCENE_PLAYABLE_TIMEOUT_MS;
+    const nowFn = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+    let lastTickMs = nowFn();
+
+    const onVisChange = () => {
+      lastTickMs = nowFn();
+    };
+    const doc = typeof document !== "undefined" ? document : null;
+    if (doc && typeof doc.addEventListener === "function") {
+      try {
+        doc.addEventListener("visibilitychange", onVisChange);
+      } catch {}
+    }
+
+    const timer = window.setInterval(() => {
+      if (!mountedRef.current) return;
+      const nowMs = nowFn();
+      const docHidden = isDocumentHidden();
+      if (docHidden) {
+        lastTickMs = nowMs;
+        return;
+      }
+      const elapsed = Math.max(0, nowMs - lastTickMs);
+      const dtMs = elapsed >= 1 ? elapsed : tickMs;
+      lastTickMs = nowMs;
+
+      const variants = resolvedVariantsRef.current;
+      variants.forEach((v, idx) => {
+        if (v.stale || !v.hasBundle || !v.variantId || v.hasClip || v.playbackClip) return;
+        const loaded = getLoadedBundle(bundlesRef.current, v);
+        const effDigest = loaded?.bundleDigest ?? v.bundleDigest;
+        if (!effDigest) return;
+        const effGen = Math.max(loaded?.gen ?? 1, v.gen);
+        const key = `${v.variantId}:g${effGen}:${effDigest}`;
+        if (forcedClipRef.current.has(key)) return;
+
+        const player = filmPlayerRef.current?.scenes[idx];
+        const isPlayableNow =
+          playerReadyRef.current.has(idx) &&
+          Boolean(loaded) &&
+          !player?.isPreparing &&
+          player?.decision().mode === "live";
+
+        const prev = playableTimeoutRef.current.get(key) ?? { activeWaitMs: 0, timedOut: false };
+        const next = stepPlayableTimeout(prev, {
+          dtMs,
+          hasBundle: true,
+          isPlayable: isPlayableNow,
+          isActiveWork: !isPlayableNow,
+          documentHidden: docHidden,
+          timeoutMs
+        });
+        playableTimeoutRef.current.set(key, next);
+        if (next.timedOut && !prev.timedOut) {
+          forcedClipRef.current.set(key, "unplayable-timeout");
+          playerReadyRef.current.delete(idx);
+          bufferingScenesRef.current.delete(idx);
+          playerDecisionsRef.current.set(idx, { mode: "clip", state: "clip", reason: "unplayable-timeout" });
+          player?.forceClipFallback("unplayable-timeout");
+          bump();
+          void triggerClipRequestRef.current(v.variantId, effDigest, v.hasClip, "unplayable-timeout", effGen);
+        }
+      });
+    }, tickMs);
+    return () => {
+      window.clearInterval(timer);
+      if (doc && typeof doc.removeEventListener === "function") {
+        try {
+          doc.removeEventListener("visibilitychange", onVisChange);
+        } catch {}
+      }
+    };
+  }, [projectId, viewAspect, liveOptions?.unplayableTickMs, liveOptions?.unplayableTimeoutMs, onStatusRefresh]);
+
+  // Fetch bundles, handle unsupported-env fallback reports, and request fallback clips.
+  // Actual Worker measurement + check execution for `bundled` variants runs through `FilmPlayer`'s single shared
+  // background check slot so `peakWorkersDuringPlay <= 2` and checks are ordered by distance ahead of the playhead.
   useEffect(() => {
     const envArg = liveOptions?.environment;
     const envSupported = envArg !== undefined ? supportsWorkerHost(envArg) : supportsWorkerHost();
 
-    const triggerClipRequest = async (variantId: string, bundleDigest: string | null | undefined, hasClip: boolean) => {
-      if (!clipTrackerRef.current.shouldRequest(variantId, bundleDigest, hasClip)) return;
-      if (!clipTrackerRef.current.begin(variantId, bundleDigest)) return;
-      const res = await requestClip(projectId, variantId, LIVE_API);
-      if (!mountedRef.current) return;
-      if (res.status === "rendering") {
-        clipTrackerRef.current.complete(variantId, bundleDigest, "rendering");
-        bump();
-        onStatusRefresh();
-      } else if (res.status === "clip_cap") {
-        clipTrackerRef.current.complete(variantId, bundleDigest, "clip_cap");
-        bump();
-      } else {
-        clipTrackerRef.current.failTransient(variantId, bundleDigest);
-      }
-    };
-
     resolvedVariants.forEach((v, idx) => {
-      // Clear cached bundle entries if a variant is currently queued or authoring a new revision/repair.
-      if (v.variantId && (v.state === "queued" || v.state === "authoring")) {
-        for (const k of [...bundlesRef.current.keys()]) {
-          if (k.startsWith(`${v.variantId}:`)) {
-            bundlesRef.current.delete(k);
+      // Clear cached bundle entries if a variant is stale or currently queued/authoring a new revision/repair.
+      if (v.stale || v.state === "queued" || v.state === "authoring") {
+        if (v.variantId) {
+          for (const k of [...bundlesRef.current.keys()]) {
+            if (k.startsWith(`${v.variantId}:`)) {
+              bundlesRef.current.delete(k);
+            }
+          }
+          for (const k of [...failedBundleKeysRef.current]) {
+            if (k.startsWith(`${v.variantId}:`)) {
+              failedBundleKeysRef.current.delete(k);
+            }
           }
         }
+        playerDecisionsRef.current.delete(idx);
+        playerReadyRef.current.delete(idx);
+        bufferingScenesRef.current.delete(idx);
         return;
       }
 
       const res = resolutions[idx];
       if (!res) return;
 
-      // If scene needs a clip request (e.g. unverified environment or fallback with no clip yet)
+      // If environment cannot run Worker checks and variant is bundled, report kind:"env" once so server falls back cleanly.
+      if (!envSupported && v.state === "bundled" && v.variantId && v.bundleDigest) {
+        if (
+          checkTrackerRef.current.shouldCheck(v.variantId, v.gen, v.bundleDigest, v.state) &&
+          checkTrackerRef.current.begin(v.variantId, v.gen, v.bundleDigest)
+        ) {
+          const outcome = {
+            ok: false as const,
+            kind: "env" as const,
+            error: "Worker host is not supported in this browser environment."
+          };
+          checkTrackerRef.current.complete(v.variantId, v.gen, v.bundleDigest, outcome);
+          forcedClipRef.current.set(`${v.variantId}:g${v.gen}:${v.bundleDigest}`, "check-env");
+          checksRunRef.current += 1;
+          void reportCheck(
+            projectId,
+            v.variantId,
+            {
+              gen: v.gen,
+              bundleDigest: v.bundleDigest,
+              results: outcome,
+              device: {
+                ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
+                env: envArg !== undefined ? environmentStatus(envArg) : environmentStatus()
+              }
+            },
+            LIVE_API
+          ).then(() => {
+            if (mountedRef.current) onStatusRefresh();
+          });
+        }
+      }
+
+      // If scene needs a clip request for a valid fallback trigger (e.g. unverified/unsupported environment)
       if (res.needsClipRequest && v.variantId) {
-        void triggerClipRequest(v.variantId, v.bundleDigest, v.hasClip);
+        void triggerClipRequestRef.current(v.variantId, v.bundleDigest, v.hasClip, res.reason, v.gen);
         return;
       }
 
       if (!v.hasBundle || !v.variantId || !envSupported) return;
 
       const keys = bundleCacheKeys(v.variantId, v.rev, v.bundleDigest);
-      const existingBundle =
-        bundlesRef.current.get(keys.exact) ??
-        (v.bundleDigest ? undefined : bundlesRef.current.get(keys.revLatest));
-
-      const runSceneCheckIfNeeded = async (b: FetchedBundle) => {
-        const gen = Math.max(b.gen ?? 1, v.gen);
-        const digest = b.bundleDigest;
-        if (v.state !== "bundled") return;
-        if (!checkTrackerRef.current.shouldCheck(v.variantId, gen, digest, v.state)) return;
-        if (!checkTrackerRef.current.begin(v.variantId!, gen, digest)) return;
-
-        // One check at a time per page: several full-size Workers drawing at once can push the browser off its GPU canvas path
-        // and make a healthy scene look non-deterministic.
-        const previousChecks = checkQueueRef.current;
-        let releaseCheckSlot: () => void = () => {};
-        checkQueueRef.current = new Promise<void>((resolve) => { releaseCheckSlot = resolve; });
-        await previousChecks;
-        const checkHost = new WorkerHost({ html: b.html, params: b.params });
-        activeCheckHostsRef.current.add(checkHost);
-        let outcome;
-        try {
-          checksRunRef.current += 1;
-          outcome = await runCheck(checkHost, b.manifest);
-        } finally {
-          activeCheckHostsRef.current.delete(checkHost);
-          checkHost.destroy();
-          releaseCheckSlot();
-        }
-
-        if (!mountedRef.current) {
-          checkTrackerRef.current.failTransient(v.variantId!, gen, digest);
-          return;
-        }
-
-        checkTrackerRef.current.complete(v.variantId!, gen, digest, outcome);
-
-        if (!outcome.ok && outcome.kind === "env") {
-          forcedClipRef.current.set(`${v.variantId}:g${gen}:${digest}`, "check-env");
-        }
-        bump();
-
-        await reportCheck(
-          projectId,
-          v.variantId!,
-          {
-            gen,
-            bundleDigest: digest,
-            results: outcome,
-            device: {
-              ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
-              env: envArg !== undefined ? environmentStatus(envArg) : environmentStatus()
-            }
-          },
-          LIVE_API
-        );
-
-        if (!mountedRef.current) return;
-
-        if (!outcome.ok && outcome.kind === "env") {
-          await triggerClipRequest(v.variantId!, digest, v.hasClip);
-        }
-        bump();
-        onStatusRefresh();
-      };
-
+      const existingBundle = getLoadedBundle(bundlesRef.current, v);
       if (existingBundle) {
-        void runSceneCheckIfNeeded(existingBundle);
         return;
       }
 
@@ -552,14 +725,10 @@ export function PlateLiveStage({
           bundlesRef.current.set(keys.exact, b);
           fetchingBundlesRef.current.delete(keys.exact);
           bump();
-          await runSceneCheckIfNeeded(b);
         } catch {
           fetchingBundlesRef.current.delete(keys.exact);
           failedBundleKeysRef.current.add(keys.exact);
           bump();
-          // A bundle this page cannot load (route refused, storage unreachable, digest mismatch) never plays live, so ask for
-          // the scene's clip instead of leaving it waiting on a check that will not run.
-          if (mountedRef.current) await triggerClipRequest(v.variantId!, v.bundleDigest, v.hasClip);
         }
       })();
     });
@@ -573,31 +742,24 @@ export function PlateLiveStage({
     const envArg = liveOptions?.environment;
     const envSupported = envArg !== undefined ? supportsWorkerHost(envArg) : supportsWorkerHost();
 
-    // Wait until at least one scene has a bundle or clip, and wait for initial bundle fetches & checks before first mount.
+    // Wait until at least one scene has a bundle or clip, and wait for initial bundle fetches before first mount.
     if (!filmPlayerRef.current && envSupported) {
       const anyPlayableOrBundled = resolvedVariants.some((v) => v.hasBundle || v.hasClip);
       if (!anyPlayableOrBundled) return;
-      const anyInitialBundleOrCheckPending = resolvedVariants.some((v) => {
+      const anyInitialBundlePending = resolvedVariants.some((v) => {
         if (!v.hasBundle || !v.variantId) return false;
         const keys = bundleCacheKeys(v.variantId, v.rev, v.bundleDigest);
-        const loaded = bundlesRef.current.get(keys.exact) ?? bundlesRef.current.get(keys.revLatest);
+        const loaded = getLoadedBundle(bundlesRef.current, v);
         if (!loaded) return !failedBundleKeysRef.current.has(keys.exact);
-        const effectiveGen = Math.max(loaded.gen ?? 1, v.gen);
-        if (v.state === "bundled" && !checkTrackerRef.current.hasCompleted(v.variantId, effectiveGen, loaded.bundleDigest)) {
-          return true;
-        }
         return false;
       });
-      if (anyInitialBundleOrCheckPending) return;
+      if (anyInitialBundlePending) return;
     }
 
     const buildSpecForIndex = (idx: number): { spec: FilmSceneSpec; key: string } => {
       const v = resolvedVariants[idx]!;
       const durSec = durations[idx] ?? v.seconds;
-      const keys = v.variantId ? bundleCacheKeys(v.variantId, v.rev, v.bundleDigest) : null;
-      const loadedBundle = keys
-        ? bundlesRef.current.get(keys.exact) ?? bundlesRef.current.get(keys.revLatest)
-        : undefined;
+      const loadedBundle = getLoadedBundle(bundlesRef.current, v);
       const effectiveDigest = loadedBundle?.bundleDigest ?? v.bundleDigest ?? `pending-${idx}`;
       const effectiveGen = Math.max(loadedBundle?.gen ?? 1, v.gen);
       const checkOutcome =
@@ -609,11 +771,24 @@ export function PlateLiveStage({
           ? forcedClipRef.current.get(`${v.variantId}:g${effectiveGen}:${effectiveDigest}`)
           : undefined;
 
+      const checkFailed = checkOutcome?.ok === false && checkOutcome.kind !== "inconclusive";
+      const serverForceClip = v.playbackClip;
       const canMountLive =
         envSupported &&
+        !serverForceClip &&
         Boolean(loadedBundle) &&
         !forcedReason &&
-        (v.state === "checked" || v.state === "drawn" || checkOutcome?.ok === true);
+        !checkFailed &&
+        (v.state === "bundled" ||
+          v.state === "checked" ||
+          (v.state === "drawn" && v.hasBundle) ||
+          checkOutcome?.ok === true);
+
+      const needsCheck =
+        canMountLive &&
+        (v.state === "bundled" || (v.state === "drawn" && v.hasBundle && !checkOutcome?.ok)) &&
+        Boolean(v.variantId) &&
+        checkTrackerRef.current.shouldCheck(v.variantId, effectiveGen, effectiveDigest, v.state);
 
       const forceClipReason = !envSupported
         ? (envArg !== undefined ? environmentStatus(envArg) : environmentStatus()) === "unverified"
@@ -621,11 +796,17 @@ export function PlateLiveStage({
           : "unsupported-environment"
         : forcedReason
           ? forcedReason
-          : !canMountLive
-            ? v.state === "drawn" && !v.hasBundle
-              ? "clip-only"
-              : "pending-live"
-            : undefined;
+          : serverForceClip
+            ? v.playbackReason === "slow-draw" || v.playbackReason === "slow"
+              ? "slow-draw"
+              : v.state === "drawn"
+                ? "clip-only"
+                : "variant-rendering"
+            : !canMountLive
+              ? v.state === "drawn" && !v.hasBundle
+                ? "clip-only"
+                : "pending-live"
+              : undefined;
 
       const sceneLook = v.look ?? look ?? null;
       const spec: FilmSceneSpec = {
@@ -638,10 +819,18 @@ export function PlateLiveStage({
         durationSeconds: durSec,
         environment: envArg,
         variantKey: `${projectId}:${v.variantId ?? `scene-${idx}`}:${viewAspect}`,
+        state: v.state,
+        needsCheck,
+        variantId: v.variantId,
+        gen: effectiveGen,
+        hasClip: v.hasClip,
+        clipReady: v.hasClip,
+        ...(v.playbackClip || forceClipReason === "slow-draw" ? { playback: "clip" as const } : {}),
+        ...(loadedBundle ? { manifest: loadedBundle.manifest } : {}),
         ...(forceClipReason ? { forceClipReason } : {})
       };
 
-      const key = `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:${canMountLive ? "live" : forceClipReason ?? "clip"}:${spec.frames}:${durSec}:${sceneLook ?? ""}`;
+      const key = `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:${canMountLive ? "live" : forceClipReason ?? "clip"}:${v.state}:${v.hasClip ? "clip-ready" : "clip-wait"}:${v.clipVersion ?? ""}:${spec.frames}:${durSec}:${sceneLook ?? ""}`;
       return { spec, key };
     };
 
@@ -652,6 +841,7 @@ export function PlateLiveStage({
       const explicitTargetVertices = liveOptions?.draftTargetVerticesPerFrame;
       const fp = createFilmPlayer({
         scenes: nextSpecsAndKeys.map((x) => x.spec),
+        projectId,
         filmKey: projectId,
         look: look ?? null,
         aspect: viewAspect,
@@ -662,6 +852,73 @@ export function PlateLiveStage({
         ...(explicitTargetVertices !== undefined ? { draftTargetVerticesPerFrame: explicitTargetVertices } : {}),
         onQualityProgress: onQualityJobProgress,
         onStoreStatus: onStoreStatusChange,
+        api: LIVE_API,
+        checkTracker: checkTrackerRef.current,
+        onCheckReport: ({ sceneIndex, variantId, gen, bundleDigest, outcome, response }) => {
+          checksRunRef.current += 1;
+          if (!mountedRef.current) return;
+          if (response.status === "dropped") {
+            for (const k of [...bundlesRef.current.keys()]) {
+              if (k.startsWith(`${variantId}:`)) {
+                bundlesRef.current.delete(k);
+              }
+            }
+            checkTrackerRef.current.failTransient(variantId, gen, bundleDigest);
+            bump();
+            onStatusRefresh();
+            return;
+          }
+          if (outcome.ok) {
+            if (response.status === "ok" && response.playback === "clip") {
+              const fallbackReason = outcome.reason === "jitter" ? "jitter" : "slow-draw";
+              forcedClipRef.current.set(`${variantId}:g${gen}:${bundleDigest}`, fallbackReason);
+              playerReadyRef.current.delete(sceneIndex);
+              bufferingScenesRef.current.delete(sceneIndex);
+              playerDecisionsRef.current.set(sceneIndex, { mode: "clip", state: "clip", reason: "slow-draw" });
+            } else if (outcome.reason === "jitter") {
+              forcedClipRef.current.set(`${variantId}:g${gen}:${bundleDigest}`, "jitter");
+              playerReadyRef.current.delete(sceneIndex);
+              bufferingScenesRef.current.delete(sceneIndex);
+              playerDecisionsRef.current.set(sceneIndex, { mode: "clip", state: "clip", reason: "jitter" });
+              const curVar = resolvedVariantsRef.current[sceneIndex];
+              void triggerClipRequestRef.current(variantId, bundleDigest, curVar?.hasClip ?? false, "jitter", gen);
+            } else {
+              playerReadyRef.current.add(sceneIndex);
+              const dec = filmPlayerRef.current?.decision(sceneIndex);
+              if (dec && dec.reason !== "pending-live" && dec.reason !== "no-bundle") {
+                playerDecisionsRef.current.set(sceneIndex, dec);
+              }
+            }
+          } else if (outcome.kind === "code") {
+            if (response.status === "ok" && response.fallback === true) {
+              forcedClipRef.current.set(`${variantId}:g${gen}:${bundleDigest}`, "check-code-failed");
+              const curVar = resolvedVariantsRef.current[sceneIndex];
+              void triggerClipRequestRef.current(
+                variantId,
+                bundleDigest,
+                curVar?.hasClip ?? false,
+                "code-permanent",
+                gen
+              );
+            }
+          } else if (outcome.kind === "env") {
+            if (!isWatchdogTimeoutError(outcome.error)) {
+              forcedClipRef.current.set(`${variantId}:g${gen}:${bundleDigest}`, "check-env");
+              if (!(response.status === "ok" && response.playback === "clip")) {
+                const curVar = resolvedVariantsRef.current[sceneIndex];
+                void triggerClipRequestRef.current(
+                  variantId,
+                  bundleDigest,
+                  curVar?.hasClip ?? false,
+                  "device-env",
+                  gen
+                );
+              }
+            }
+          }
+          bump();
+          onStatusRefresh();
+        },
         timeSource: {
           currentTime: () => clockTimeRef.current,
           playing: () => playingRef.current
@@ -687,7 +944,7 @@ export function PlateLiveStage({
           draftTargetVerticesPerFrame?: number;
         } | undefined;
         if (d && typeof d.sceneIndex === "number" && (d.mode === "live" || d.mode === "clip")) {
-          if (d.mode === "clip" && (d.reason === "pending-live" || d.reason === "no-bundle")) {
+          if (d.mode === "clip" && (d.reason === "pending-live" || d.reason === "no-bundle" || d.reason === "clip-only")) {
             return;
           }
           const dec: PlayerDecision = {
@@ -704,10 +961,16 @@ export function PlateLiveStage({
           };
           playerDecisionsRef.current.set(d.sceneIndex, dec);
           if (d.mode === "clip") {
-            const v = resolvedVariants[d.sceneIndex];
-            if (v?.variantId && v.bundleDigest) {
-              forcedClipRef.current.set(`${v.variantId}:g${v.gen}:${v.bundleDigest}`, d.reason ?? "clip");
+            bufferingScenesRef.current.delete(d.sceneIndex);
+            const v = resolvedVariantsRef.current[d.sceneIndex];
+            const loaded = v ? getLoadedBundle(bundlesRef.current, v) : undefined;
+            const effGen = v ? Math.max(loaded?.gen ?? 1, v.gen) : 1;
+            const effDigest = loaded?.bundleDigest ?? v?.bundleDigest;
+            if (v?.variantId && effDigest && !isWatchdogTimeoutError(d.reason)) {
+              forcedClipRef.current.set(`${v.variantId}:g${effGen}:${effDigest}`, d.reason ?? "clip");
             }
+          } else if (d.mode === "live") {
+            playerReadyRef.current.add(d.sceneIndex);
           }
           bump();
         }
@@ -741,6 +1004,7 @@ export function PlateLiveStage({
           await fp.mount(container);
           if (filmPlayerRef.current !== fp) return;
           fp.scenes.forEach((p, idx) => {
+            if (nextSpecsAndKeys[idx]?.spec.needsCheck) return;
             const dec = p.decision();
             if (dec.reason !== "pending-live" && dec.reason !== "no-bundle") {
               playerDecisionsRef.current.set(idx, dec);
@@ -773,16 +1037,18 @@ export function PlateLiveStage({
               if (filmPlayerRef.current !== fp) return;
               await fp.updateScene(idx, spec);
               if (filmPlayerRef.current !== fp) return;
-              const dec = fp.decision(idx);
-              if (dec.reason !== "pending-live" && dec.reason !== "no-bundle") {
-                playerDecisionsRef.current.set(idx, dec);
-              }
-              if (dec.mode === "live") {
-                playerReadyRef.current.add(idx);
+              if (!spec.needsCheck) {
+                const dec = fp.decision(idx);
+                if (dec.reason !== "pending-live" && dec.reason !== "no-bundle") {
+                  playerDecisionsRef.current.set(idx, dec);
+                }
+                if (dec.mode === "live") {
+                  playerReadyRef.current.add(idx);
+                }
               }
               if (liveOptions?.forceBuffering && idx === 0) {
                 fp.showFrame(45);
-              } else {
+              } else if (idx === current || idx === current + 1) {
                 fp.syncToClock();
               }
               bump();
@@ -790,6 +1056,8 @@ export function PlateLiveStage({
               // ignore
             }
           })();
+        } else if (spec.needsCheck) {
+          fp.enqueueSceneCheck(idx, spec);
         }
       });
     }
@@ -856,18 +1124,58 @@ export function PlateLiveStage({
   // Single clock RAF loop when playing a live scene (pauses clock and all audio during initial drawing or mid-scene buffering).
   const activeRes = resolutions[current];
   const activeSceneShowsLive = activeRes?.mode === "live" && activeRes.isPlayable;
+  const activeSceneShowsClipMeanwhile =
+    Boolean(activeRes?.mode === "live" && !activeRes.isPlayable && resolvedVariants[current]?.hasClip);
+  const activeSceneShowsClip =
+    (activeRes?.mode === "clip" && activeRes.isPlayable) || activeSceneShowsClipMeanwhile;
   const activeScenePausedForBuffer = Boolean(activeRes?.isPreparing || activeRes?.isBuffering);
   const activeSceneIsLive = activeSceneShowsLive && !activeScenePausedForBuffer;
 
   useEffect(() => {
     if (!playing || !activeSceneIsLive) {
-      if (playing && activeSceneShowsLive && activeScenePausedForBuffer) {
-        // Hold clock and suspend Web Audio timeline (and pause fallback elements) at the same instant while buffering or drawing.
+      const waitingOnUnreadyClip = Boolean(activeRes?.mode === "clip" && !activeRes.isPlayable);
+      if (playing && ((activeSceneShowsLive && activeScenePausedForBuffer) || waitingOnUnreadyClip)) {
+        // Hold clock and suspend Web Audio timeline (and pause fallback elements) at the same instant while buffering, drawing, or waiting for a demoted slow-scene clip.
         audioTimeline?.setBuffering(true);
         voices.current[current]?.pause();
         musicAudio.current?.pause();
         clearSfxTimers();
         Object.values(sfxAudios.current).forEach((el) => el?.pause());
+      } else if ((playing || wantPlay.current) && activeSceneShowsClip) {
+        const localSec = Math.max(0, clockTimeRef.current - (starts[current] ?? 0));
+        audioTimeline?.setBuffering(false);
+        const el = videos.current[current];
+        if (el) {
+          const rate = rateFor(current, el);
+          el.playbackRate = rate;
+          if (localSec > 0 && Math.abs((el.currentTime || 0) / (rate || 1) - localSec) > 0.05) {
+            try {
+              el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, localSec * rate) : localSec;
+            } catch {}
+          }
+          void el.play?.()?.catch?.(() => undefined);
+        }
+        const vo = voices.current[current];
+        if (vo && (!audioTimeline || !audioTimeline.hasDecodedAudio())) {
+          vo.muted = !voiceOn || muted;
+          vo.volume = master;
+          if (vo.readyState >= 1) {
+            vo.currentTime = Number.isFinite(vo.duration)
+              ? Math.min(Math.max(0, vo.duration - 0.05), localSec)
+              : localSec;
+          }
+          if (vo.paused) {
+            void vo.play?.()?.catch?.(() => undefined);
+          }
+        }
+        if (musicAudio.current && musicSrc && (!audioTimeline || !audioTimeline.hasDecodedAudio())) {
+          musicAudio.current.muted = !musicOn || muted;
+          musicAudio.current.volume = 0.22 * master;
+          if (musicAudio.current.paused) {
+            musicAudio.current.currentTime = clockTimeRef.current;
+            void musicAudio.current.play?.()?.catch?.(() => undefined);
+          }
+        }
       }
       if (telemetryRef.current.playStartMs !== null) {
         telemetryRef.current.accumulatedPlayMs += performance.now() - telemetryRef.current.playStartMs;
@@ -882,6 +1190,9 @@ export function PlateLiveStage({
       filmPlayerRef.current?.syncToClock();
       return;
     }
+
+    // Switching from clip-meanwhile to live: pause the hidden video element without restarting the film clock.
+    videos.current[current]?.pause?.();
 
     const startLocal = Math.max(0, clockTimeRef.current - (starts[current] ?? 0));
     const useWebAudio = Boolean(audioTimeline && audioTimeline.hasDecodedAudio());
@@ -900,18 +1211,22 @@ export function PlateLiveStage({
       if (vo) {
         vo.muted = !voiceOn || muted;
         vo.volume = master;
-        if (vo.readyState >= 1) {
+        if (vo.readyState >= 1 && (vo.paused || Math.abs(vo.currentTime - startLocal) > 0.08)) {
           vo.currentTime = Number.isFinite(vo.duration)
             ? Math.min(Math.max(0, vo.duration - 0.05), startLocal)
             : startLocal;
         }
-        void vo.play().catch(() => undefined);
+        if (vo.paused) {
+          void vo.play().catch(() => undefined);
+        }
       }
 
       if (musicAudio.current && musicSrc) {
         musicAudio.current.muted = !musicOn || muted;
         musicAudio.current.volume = 0.22 * master;
-        musicAudio.current.currentTime = clockTimeRef.current;
+        if (musicAudio.current.paused || Math.abs(musicAudio.current.currentTime - clockTimeRef.current) > 0.08) {
+          musicAudio.current.currentTime = clockTimeRef.current;
+        }
         if (musicAudio.current.paused) {
           void musicAudio.current.play().catch(() => undefined);
         }
@@ -1042,6 +1357,7 @@ export function PlateLiveStage({
     playing,
     activeSceneIsLive,
     activeSceneShowsLive,
+    activeSceneShowsClip,
     activeScenePausedForBuffer,
     current,
     starts,
@@ -1066,55 +1382,132 @@ export function PlateLiveStage({
     .map((r, i) => `S${i + 1}:${r.mode}(${r.reason})`)
     .join(" | ");
 
-  // Determine whether the stage wait overlay should be displayed for the currently selected scene.
-  let stagePrep: { failed: boolean; title: React.ReactNode; detail?: React.ReactNode } | null = null;
-  if (prep === "sound") {
-    stagePrep = {
-      failed: false,
-      title: "Making the voiceover and music…",
-      detail: "Recording the narration and building the music bed"
-    };
-  } else if (prep === "scenes") {
-    stagePrep = {
-      failed: false,
-      title: "Planning the scenes…",
-      detail: "Preparing the storyboard timing"
-    };
-  } else if (!shownResolution || !shownVariant) {
-    stagePrep = {
-      failed: false,
-      title: "Preparing the scenes…",
-      detail: <>Scene 1 of {scenes.length || "…"}</>
-    };
-  } else if (viewAspect !== primaryAspect && !isViewAspectDrawn && !shownResolution.isPlayable && isViewAspectDrawing) {
-    stagePrep = {
-      failed: false,
-      title: <>Drawing scenes in {viewAspect}…</>,
-      detail: <>Drawing every scene on a {viewAspect} canvas so no character is cropped</>
-    };
-  } else if (shownResolution.stageWait) {
-    stagePrep = {
-      failed: shownResolution.stageWait.failed,
-      title: shownResolution.stageWait.title,
-      detail:
-        shownResolution.stageWait.detail ?? (
-          <>
-            Scene {current + 1} of {scenes.length || "…"}
-          </>
-        )
-    };
-  }
-
+  const shownProgress = perSceneProgress?.[current] ?? null;
   const refFrameSrc = referenceFrames?.[current] ?? null;
+  const isLiveBufferOrPrepare =
+    Boolean(shownResolution?.mode === "live" && (shownResolution.isBuffering || shownResolution.isPreparing)) ||
+    Boolean(liveOptions?.forceBuffering);
+
+  const bufferingSamplesRef = useRef<BufferingRateSample[]>([]);
+  const [bufferingVisible, setBufferingVisible] = useState<boolean>(Boolean(liveOptions?.forceBuffering));
+  const [bufferingTick, setBufferingTick] = useState<number>(0);
+
+  useEffect(() => {
+    bufferingSamplesRef.current = [];
+    if (!isLiveBufferOrPrepare) {
+      setBufferingVisible(false);
+      return;
+    }
+    if (liveOptions?.forceBuffering) {
+      setBufferingVisible(true);
+    }
+    const samplePlayer = () => {
+      const p = filmPlayerRef.current?.scenes[current];
+      if (!p) return;
+      const snap = p.bufferingSnapshot();
+      const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+      bufferingSamplesRef.current = recordBufferingSample(bufferingSamplesRef.current, {
+        atMs: nowMs,
+        readyFrames: snap.readyFrames
+      });
+    };
+    samplePlayer();
+
+    const showTimer = window.setTimeout(() => {
+      samplePlayer();
+      setBufferingVisible(true);
+      setBufferingTick((n) => n + 1);
+    }, liveOptions?.forceBuffering ? 0 : BUFFERING_SHOW_DELAY_MS);
+
+    const sampleTimer = window.setInterval(() => {
+      samplePlayer();
+    }, 250);
+
+    const uiTimer = window.setInterval(() => {
+      samplePlayer();
+      setBufferingTick((n) => n + 1);
+    }, 1000);
+
+    return () => {
+      window.clearTimeout(showTimer);
+      window.clearInterval(sampleTimer);
+      window.clearInterval(uiTimer);
+    };
+  }, [isLiveBufferOrPrepare, current, liveOptions?.forceBuffering]);
+
+  void bufferingTick;
+  const activePlayerForFeedback = filmPlayerRef.current?.scenes[current];
+  const playerSnap = isLiveBufferOrPrepare && activePlayerForFeedback ? activePlayerForFeedback.bufferingSnapshot() : null;
+  const nowMsForEst = typeof performance !== "undefined" ? performance.now() : Date.now();
+
+  const fallbackNeededFrames = shownVariant ? Math.min(30, Math.max(1, shownVariant.frames)) : 30;
+  const fallbackReadyFrames =
+    typeof shownResolution?.preparingProgress === "number"
+      ? Math.round(shownResolution.preparingProgress * fallbackNeededFrames)
+      : 0;
+
+  const liveBufferingInfo = isLiveBufferOrPrepare
+    ? {
+        active: true,
+        visibleAfterDelay: bufferingVisible || Boolean(liveOptions?.forceBuffering),
+        hasAnyFrame:
+          playerSnap?.hasAnyFrame ??
+          (Boolean(liveOptions?.forceBuffering) ||
+            (typeof shownResolution?.preparingProgress === "number" && shownResolution.preparingProgress > 0)),
+        readyFrames: playerSnap ? playerSnap.readyFrames : fallbackReadyFrames,
+        neededFrames: playerSnap ? playerSnap.neededFrames : fallbackNeededFrames,
+        samples: bufferingSamplesRef.current,
+        nowMs: nowMsForEst
+      }
+    : null;
+
+  // Determine whether the stage wait overlay should be displayed for the currently selected scene.
+  const shownScene = scenes[current];
+  const shownPlayback = shownScene?.variants?.[viewAspect]?.playback ?? shownScene?.playback;
+  const stagePrep = buildStagePrepProps({
+    prep,
+    sceneIndex: current,
+    sceneCount: scenes.length,
+    sceneState: shownVariant?.state ?? shownScene?.state ?? "queued",
+    sceneStale: Boolean(shownVariant?.stale || shownScene?.stale),
+    sceneError: shownVariant?.error ?? shownScene?.error ?? null,
+    playback: shownPlayback,
+    isClipScene: Boolean(
+      !shownVariant?.stale &&
+        (shownVariant?.playbackClip ||
+          (shownResolution?.mode === "clip" &&
+            (shownResolution.reason === "slow-draw" ||
+              shownResolution.reason === "check-env" ||
+              shownResolution.reason === "variant-rendering")))
+    ),
+    viewAspect,
+    primaryAspect,
+    isViewAspectDrawn,
+    isViewAspectDrawing,
+    isPlayable: Boolean(shownResolution && shownVariant && !shownVariant.stale && shownResolution.isPlayable),
+    sceneProgress: shownProgress,
+    backgroundSketch: refFrameSrc,
+    liveStageWait: !isLiveBufferOrPrepare ? (shownResolution?.stageWait ?? null) : null,
+    liveBuffering: liveBufferingInfo
+  });
+
+  const activeSceneHoldingLastFrameForClip =
+    Boolean(shownVariant && !shownVariant.stale && shownResolution?.mode === "clip" && !shownVariant.hasClip) &&
+    (filmPlayerRef.current?.scenes[current]?.lastPresentedSourceFrame ?? null) !== null;
+  const activeSceneShowsCanvas = activeSceneShowsLive || activeSceneHoldingLastFrameForClip;
+
+  const canUseServerStill =
+    Boolean(shownVariant && !shownVariant.stale && shownVariant.state !== "queued" && shownVariant.state !== "authoring");
   const showStillFallback =
     Boolean(shownVariant && shownResolution?.mode === "clip" && !shownVariant.hasClip) &&
-    (Boolean(refFrameSrc) || !stillFailedRef.current.has(current));
+    !activeSceneHoldingLastFrameForClip &&
+    (Boolean(refFrameSrc) || (canUseServerStill && !stillFailedRef.current.has(current)));
   const stillUrl =
     refFrameSrc ??
-    (shownVariant
+    (shownVariant && canUseServerStill
       ? `${outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/plates/${shownVariant.index}/still`)}${
           outputUrl("/x").includes("?") ? "&" : "?"
-        }aspect=${encodeURIComponent(viewAspect)}`
+        }aspect=${encodeURIComponent(viewAspect)}&v=${encodeURIComponent(`${shownVariant.sig}-${shownVariant.rev}`)}`
       : null);
 
   return (
@@ -1132,8 +1525,8 @@ export function PlateLiveStage({
           width: "100%",
           height: "100%",
           pointerEvents: "none",
-          zIndex: activeSceneShowsLive ? 2 : 0,
-          opacity: activeSceneShowsLive ? 1 : 0
+          zIndex: activeSceneShowsCanvas ? 2 : 0,
+          opacity: activeSceneShowsCanvas ? 1 : 0
         }}
       />
 
@@ -1148,7 +1541,7 @@ export function PlateLiveStage({
             width: "100%",
             height: "100%",
             objectFit: "contain",
-            opacity: 0.45,
+            opacity: 1,
             pointerEvents: "none",
             zIndex: 1
           }}
@@ -1169,7 +1562,9 @@ export function PlateLiveStage({
           `${v.clipVersion ?? v.sig}-${v.rev}-${viewAspect}`,
           viewAspect
         );
-        const isCurrentClip = v.index === current && res?.mode === "clip";
+        const isCurrentClip =
+          v.index === current &&
+          (res?.mode === "clip" || (res?.mode === "live" && !res.isPlayable && v.hasClip));
         return (
           <video
             key={`${v.index}-${clipSrc}`}
@@ -1181,7 +1576,23 @@ export function PlateLiveStage({
             preload="auto"
             muted
             playsInline
-            onLoadedData={() => onLoadedVideo(v.index)}
+            onLoadedData={(e) => {
+              if (isCurrentClip && (playingRef.current || wantPlay.current)) {
+                const rate = rateFor(v.index, e.currentTarget);
+                e.currentTarget.playbackRate = rate;
+                const localSec = Math.max(0, clockTimeRef.current - (starts[v.index] ?? 0));
+                if (localSec > 0) {
+                  try {
+                    e.currentTarget.currentTime = Number.isFinite(e.currentTarget.duration)
+                      ? Math.min(e.currentTarget.duration, localSec * rate)
+                      : localSec;
+                  } catch {}
+                }
+                audioTimeline?.setBuffering(false);
+                void e.currentTarget.play().catch(() => undefined);
+              }
+              onLoadedVideo(v.index);
+            }}
             onError={(e) => {
               const el = e.currentTarget;
               const tries = Number(el.dataset.retries ?? "0");
@@ -1190,7 +1601,7 @@ export function PlateLiveStage({
               window.setTimeout(() => el.load(), 1500 * (tries + 1));
             }}
             onPlay={(e) => {
-              if (v.index !== current || res?.mode !== "clip") return;
+              if (!isCurrentClip) return;
               onSetPlaying(true);
               const rate = rateFor(v.index, e.currentTarget);
               e.currentTarget.playbackRate = rate;
@@ -1215,7 +1626,7 @@ export function PlateLiveStage({
               playSceneSfx(v.index, realOffset);
             }}
             onPause={(e) => {
-              if (v.index !== current || res?.mode !== "clip") return;
+              if (!isCurrentClip) return;
               if (!wantPlay.current || !e.currentTarget.ended) voices.current[v.index]?.pause();
               if (!wantPlay.current) {
                 onSetPlaying(false);
@@ -1226,7 +1637,7 @@ export function PlateLiveStage({
             }}
             onEnded={() => onVideoEnded(v.index)}
             onTimeUpdate={(e) => {
-              if (v.index === current && res?.mode === "clip" && !playing) {
+              if (isCurrentClip && !playing) {
                 const rate = rateFor(current, e.currentTarget);
                 onSetTime((starts[current] ?? 0) + e.currentTarget.currentTime / (rate || 1));
               }
@@ -1238,8 +1649,23 @@ export function PlateLiveStage({
       {stagePrep && (
         <AnimationPrep
           failed={stagePrep.failed}
+          stale={stagePrep.stale}
+          compact={stagePrep.compact}
+          compactText={stagePrep.compactText}
           title={stagePrep.title}
+          meaning={stagePrep.meaning}
           detail={stagePrep.detail}
+          sceneLabel={stagePrep.sceneLabel}
+          elapsedText={stagePrep.elapsedText}
+          progressFraction={stagePrep.progressFraction}
+          progressIndeterminate={stagePrep.progressIndeterminate}
+          progressEstimated={stagePrep.progressEstimated}
+          etaText={stagePrep.etaText}
+          backgroundSketch={stagePrep.backgroundSketch}
+          compactCard={stagePrep.compactCard}
+          actionLabel={stagePrep.actionLabel}
+          onAction={stagePrep.stale ? onUpdateStale : undefined}
+          actionBusy={updatingStale}
         />
       )}
     </>

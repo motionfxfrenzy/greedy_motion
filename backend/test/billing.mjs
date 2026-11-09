@@ -81,7 +81,7 @@ try {
   assert.equal((await entitlementsFor(U, { fresh: true })).features.proEditor, "edit");
   assert.equal(await applyWebhook(invoice("5001", "initial", U)), "applied");
   let t = await tokenSummary(U);
-  assert.deepEqual([t.plan.granted, t.plan.used, t.plan.remaining, t.remaining], [550, 0, 550, 565], "the Pro plan's 550 tokens, plus the free allowance");
+  assert.deepEqual([t.plan.granted, t.plan.used, t.plan.remaining, t.remaining], [550, 0, 550, 583], "the Pro plan's 550 tokens, plus the free allowance");
   const delivered = invoice("5001", "initial", U);
   assert.equal(await applyWebhook(delivered), "ignored", "a new delivery of the same invoice (new update time) changes nothing");
   assert.equal((await tokenSummary(U)).plan.granted, 550, "but the invoice grants its tokens once");
@@ -96,7 +96,7 @@ try {
   assert.equal(await applyWebhook(invoice("5002", "renewal", U)), "applied");
   t = await tokenSummary(U);
   assert.deepEqual([t.plan.granted, t.plan.used, t.plan.remaining], [550, 0, 550], "renewed: 0% used, full allowance, the unused 440 expired");
-  assert.equal(t.remaining, 565);
+  assert.equal(t.remaining, 583);
   assert.equal(await applyWebhook(invoice("5003", "updated", U)), "ignored");
   assert.equal((await tokenSummary(U)).plan.remaining, 550, "a plan-change invoice grants nothing");
 
@@ -114,7 +114,7 @@ try {
   assert.equal(await tierFor(U), "free");
   assert.equal((await entitlementsFor(U, { fresh: true })).features.proEditor, "view");
   t = await tokenSummary(U);
-  assert.deepEqual([t.plan.remaining, t.free.remaining, t.remaining], [0, 15, 15], "the plan's monthly tokens end with the plan; the free allowance stays");
+  assert.deepEqual([t.plan.remaining, t.free.remaining, t.remaining], [0, 33, 33], "the plan's monthly tokens end with the plan; the free allowance stays");
 
   // An older event cannot undo a newer one.
   const stale = sub("subscription_updated", U, { status: "active", updated_at: iso(now - 5 * day) });
@@ -197,7 +197,7 @@ try {
   wt = await tokenSummary(W, 20, addUtcMonths(yearEnd, 1));
   assert.deepEqual([wt.plan.granted, wt.plan.used, wt.plan.remaining], [550, 0, 550], "still paid through ends_at, so month 2 of year 2 is granted");
   wt = await tokenSummary(W, 20, cancelEnd);
-  assert.deepEqual([wt.plan.remaining, wt.free.remaining, wt.remaining], [0, 15, 15], "at ends_at the annual plan's remaining tokens expire");
+  assert.deepEqual([wt.plan.remaining, wt.free.remaining, wt.remaining], [0, 33, 33], "at ends_at the annual plan's remaining tokens expire");
 
   // Status mapping the entitlement layer depends on.
   const at = new Date();
@@ -205,11 +205,18 @@ try {
   assert.equal(snapshotFromSubscription({ status: "paused" }, at).status, "canceled");
   assert.equal(snapshotFromSubscription({ status: "wat" }, at), null);
 
-  // The Free plan's watermark lands inside the film, once, sized from the canvas.
+  // The Free plan's watermark lands inside the film, once, sized from the canvas, with logo mark above stacked "Greedy" / "Motion" and 4s alternation.
   const film = '<div id="root" data-composition-id="main" data-start="0" data-width="1080" data-height="1920"><div id="captions" data-layout-allow-overlap></div></div>';
   const marked = withWatermark(film);
   assert.equal(marked.match(/id="gm-watermark"/g).length, 1);
-  assert.ok(marked.includes("Made with Greedy Motion") && marked.includes("font:600 17px"), "17 px = 1.6% of a 1080 px canvas");
+  assert.ok(
+    marked.includes('class="gm-watermark-logo"') &&
+      marked.includes(">Greedy<") &&
+      marked.includes(">Motion<") &&
+      marked.includes('data-watermark-interval="4"') &&
+      marked.includes("font:700 24px"),
+    "stacked Greedy Motion logo + Greedy / Motion lines sized from Math.min(w, h) = 1080 (24 px)"
+  );
   console.log("billing: ok");
 } finally {
   await clean();

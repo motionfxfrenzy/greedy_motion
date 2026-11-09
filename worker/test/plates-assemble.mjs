@@ -7,7 +7,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-const { assemble } = await import("../src/plates.mjs");
+const { assemble, PLATE_FINAL_VIDEO_ARGS } = await import("../src/plates.mjs");
+assert.equal(PLATE_FINAL_VIDEO_ARGS.join(" "), "-c:v libx264 -preset medium -crf 16 -profile:v high -pix_fmt yuv420p", "final re-encode matches the scene clips (CRF 16, medium)");
 const { probeVideo } = await import("../plate-engine/capture.mjs").catch(() => import("../../packages/plate-engine/lib/capture.mjs"));
 
 const dir = mkdtempSync(join(tmpdir(), "plate-asm-"));

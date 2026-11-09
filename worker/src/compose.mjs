@@ -1,10 +1,12 @@
 // Builds a self-contained HyperFrames project (template + GSAP + bundled fonts + theme) for one render.
 // Shared by the HTTP worker (worker.mjs) and the preview generator (previews.mjs).
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const APP_ROOT = "/app";
+const RUN_CWD = existsSync(APP_ROOT) ? APP_ROOT : process.cwd();
 export const HYPERFRAMES = join(APP_ROOT, "node_modules/.bin/hyperframes");
 const SAFE_ID = /^[a-z0-9-]{1,40}$/;
 
@@ -147,13 +149,26 @@ export async function writeVariables(project, variables) {
  * Runs a command. `onLine` receives each output line (progress bars redraw with \r, so both \r and \n
  * end a line). Aborting `signal` kills the whole process group, including Chromium and FFmpeg children.
  */
-export function run(command, args, { onLine, signal } = {}) {
+export function run(command, args, { onLine, signal, cwd = RUN_CWD } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason ?? new Error("Aborted."));
-    const child = spawn(command, args, { cwd: APP_ROOT, env: process.env, detached: Boolean(signal) });
+    const child = spawn(command, args, { cwd, env: process.env, detached: Boolean(signal) });
     let stdout = "";
     let stderr = "";
     let pending = "";
+    let settled = false;
+    const settleReject = (error) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", kill);
+      reject(error);
+    };
+    const settleResolve = (value) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", kill);
+      resolve(value);
+    };
     const lines = (chunk) => {
       if (!onLine) return;
       pending += chunk;
@@ -162,16 +177,23 @@ export function run(command, args, { onLine, signal } = {}) {
       for (const line of parts) if (line.trim()) onLine(line);
     };
     const kill = () => {
-      try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+      try { process.kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch {} }
+    };
+    const onStreamError = (error) => {
+      if (error?.code === "EPIPE") return;
+      kill();
+      settleReject(error);
     };
     signal?.addEventListener("abort", kill, { once: true });
+    child.stdin?.on("error", onStreamError);
+    child.stdout.on("error", onStreamError);
+    child.stderr.on("error", onStreamError);
     child.stdout.on("data", (chunk) => { stdout += chunk; lines(String(chunk)); });
     child.stderr.on("data", (chunk) => { stderr += chunk; lines(String(chunk)); });
-    child.on("error", reject);
+    child.on("error", settleReject);
     child.on("close", (code) => {
-      signal?.removeEventListener("abort", kill);
-      if (signal?.aborted) return reject(signal.reason ?? new Error("Aborted."));
-      return code === 0 ? resolve(stdout) : reject(Object.assign(new Error(`Command failed (${code}): ${(stderr || stdout).slice(-800)}`), { stdout }));
+      if (signal?.aborted) return settleReject(signal.reason ?? new Error("Aborted."));
+      return code === 0 ? settleResolve(stdout) : settleReject(Object.assign(new Error(`Command failed (${code}): ${(stderr || stdout).slice(-800)}`), { stdout }));
     });
   });
 }

@@ -472,6 +472,8 @@ Production CORS permits the www and apex `greedymotion.com` origins. Auth callba
 
 ## 11. Configuration and credentials
 
+Which model each AI step uses (any provider, per step, set by env such as `MODEL_SCENE_WRITER=gemini:gemini-3.8-flash`) is described in [MODEL_ROUTING.md](MODEL_ROUTING.md): the steps, the env format, examples and the price table.
+
 | Location | What belongs there | What must not be inferred |
 | --- | --- | --- |
 | Vercel project/environment variables | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `NEXT_PUBLIC_*` values are browser-visible, not server secrets |

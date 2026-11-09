@@ -26,6 +26,12 @@ export interface WorkspaceSceneTab {
   stateLabel?: string;
   /** Optional class override to preserve exact styling for engine sub-states. */
   stateClassName?: string;
+  /** Optional live status text shown on the segment chip (e.g. "Waiting", "Writing 40%", "Drawing 42/120"). */
+  progressLabel?: string;
+  /** Optional 0..1 progress fraction for the per-segment mini bar. */
+  progressFraction?: number | null;
+  /** Optional sketch/reference frame URL shown as a faint background thumbnail until drawn. */
+  thumbnail?: string | null;
   error?: string;
 }
 
@@ -132,13 +138,55 @@ export interface WorkspaceMotionBlurControlState {
 export interface WorkspaceStatusBadge {
   text: ReactNode;
   showRetry?: boolean;
+  retryLabel?: string;
   onRetry?: () => void;
+}
+
+export interface WorkspaceFilmToast {
+  /** Whether any scene is currently being written, checked, or drawn. */
+  active: boolean;
+  /** First line: what is being built right now (e.g. "Scene 5 is being written · about 1 min" or "Retrying scene 3 (the drawing worker restarted)"). */
+  firstLine: string;
+  /** Second line: film summary (e.g. "6 of 7 written · 6 drawn · about 4 min left"). */
+  secondLine: string;
+  /** Compact summary for narrow viewports (e.g. "6/7 written · 6 drawn · ~4 min"). */
+  compactLine: string;
+  /** Determinate film progress percentage (0..100). */
+  percent: number;
+}
+
+export interface WorkspaceSceneBanner {
+  /** 0-based index of the unready scene explained by the banner. */
+  sceneIndex: number;
+  /** Visual state category matching the scene's timeline chip dot ("updating" | "needs-update" | "ready"). */
+  visualState: WorkspaceSceneTabVisualState;
+  /** Where to anchor the banner inside the stage frame ("top" for the selected scene, "timeline" when explaining a scene ahead). */
+  placement: "top" | "timeline";
+  /** Single-line status text (e.g. "Scene 7 is being written · about 2 min"). */
+  text: string;
 }
 
 export interface WorkspaceAspectOption {
   aspect: WorkspaceAspect;
   status: "ready" | "busy" | "available";
   title: string;
+}
+
+export interface WorkspaceFpsMeterProps {
+  /** Whether playback is currently active. */
+  playing: boolean;
+  /** Whether the active scene is currently buffering or preparing. */
+  buffering?: boolean;
+  /** Active scene source kind ("clip" for `<video>`, "live" for canvas live stage). */
+  source: "clip" | "live";
+  /** Active scene identifier so the meter re-attaches when the active scene changes. */
+  sceneKey: string | number;
+  /** Returns the active `<video>` element when `source === "clip"`. */
+  getVideoElement?: () => HTMLVideoElement | null;
+  /** Returns the live stage's cumulative presented frame count and media time when `source === "live"`. */
+  getLiveMetrics?: () => { presentedFrames: number; mediaTimeSec: number; buffering?: boolean } | null;
+  /** Optional direct snapshot override. */
+  snapshot?: import("./fps").FpsMeterSnapshot | null;
 }
 
 export interface AnimationWorkspaceProps {
@@ -161,6 +209,12 @@ export interface AnimationWorkspaceProps {
   motionBlurControls?: WorkspaceMotionBlurControlState;
   /** Optional status chip and retry button at the end of the options bar. */
   statusBadge?: WorkspaceStatusBadge | null;
+  /** Optional floating film-progress toast overlay at the top-centre of the stage frame. */
+  filmToast?: WorkspaceFilmToast | null;
+  /** Optional single-line unready-scene banner inside the stage frame, linked to its timeline chip. */
+  sceneBanner?: WorkspaceSceneBanner | null;
+  /** Optional real-time playback FPS meter chip in the top-right corner of the canvas. */
+  fpsMeter?: WorkspaceFpsMeterProps | null;
   /** Renders the engine-specific stage surface inside `.aw-canvas`. */
   renderStage: () => ReactNode;
   /** Optional click handler on the stage canvas (e.g. toggle play/pause). */
@@ -202,7 +256,10 @@ export interface AnimationWorkspaceProps {
   /** Primary render action at the top of the right column. */
   onRender?: () => void;
   rendering?: boolean;
+  renderDisabled?: boolean;
+  renderTitle?: string;
   cost?: number;
+  renderButtonRef?: RefObject<HTMLButtonElement | null>;
 }
 
 export type FinalViewRatioStatus = "ready" | "preparing" | "failed";

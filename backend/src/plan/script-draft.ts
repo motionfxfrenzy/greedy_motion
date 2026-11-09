@@ -1,8 +1,9 @@
 // The script, written before the storyboard: scene by scene, in words a person can read and edit like a document.
 // It is fast (one short call, no motion direction) so the person sees something to correct within seconds; the
 // storyboard is then built from the script they approved, in their own words (scriptMode "own").
-import { beatCountRange, beatRoles, formatForDuration, paceWpm, sceneDirection, wordBudget, type ProjectScript, type ProjectScriptLine, type ScriptBrief, type VideoType } from "@videosaas/contracts";
-import { llmJson, type LlmProvider } from "../llm.ts";
+import { beatCountRange, beatRoles, DURATION_MIN, formatForDuration, isScriptLedDuration, paceWpm, sceneDirection, SCRIPT_BEATS_MAX, wordBudget, type ProjectScript, type ProjectScriptLine, type ScriptBrief, type VideoType } from "@videosaas/contracts";
+import { callModel } from "../models/providers.ts";
+import { routeFor } from "../models/routes.ts";
 import { PLAYBOOKS, playbookBlock } from "../skills/playbooks.ts";
 import { contextBlocks, productLine, screenshotBlock, resolveVideoType, type DirectorContext } from "./director.ts";
 
@@ -41,12 +42,16 @@ const SYSTEM = [
 ].join("\n");
 
 export function scriptMessage(brief: ScriptBrief, context: DirectorContext): string {
+  const scriptLed = isScriptLedDuration(brief);
   const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+  const lengthLine = scriptLed
+    ? `Length: script-led (let the script decide its natural runtime, at least ${DURATION_MIN}s with no upper cap), pace ${brief.pace} (~${paceWpm[brief.pace]} wpm). Scenes: 3 or more (as many as the idea needs).${voiced ? " Voiceover word budget follows the natural scene count (at most 24 words per scene)." : " No voiceover: leave voiceover empty and let on_screen carry the story."}`
+    : `Length: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}), pace ${brief.pace} (~${paceWpm[brief.pace]} wpm). Scenes: ${range.min}-${range.max}.${voiced ? ` Total voiceover about ${wordBudget(brief.durationSeconds, brief.pace)} words at most.` : " No voiceover: leave voiceover empty and let on_screen carry the story."}`;
   return [
     `PROBLEM / BRIEF:\n${brief.text}`,
     productLine(brief, context),
-    `Length: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}), pace ${brief.pace} (~${paceWpm[brief.pace]} wpm). Scenes: ${range.min}-${range.max}.${voiced ? ` Total voiceover about ${wordBudget(brief.durationSeconds, brief.pace)} words at most.` : " No voiceover: leave voiceover empty and let on_screen carry the story."}`,
+    lengthLine,
     ...contextBlocks(brief, context),
     ...(sceneDirection(brief.look, brief.styleFamily) ? [sceneDirection(brief.look, brief.styleFamily)] : []),
     context.screenshots.length ? screenshotBlock(context.screenshots) : "Screenshots: none uploaded (screenshot_index is always null)."
@@ -55,16 +60,14 @@ export function scriptMessage(brief: ScriptBrief, context: DirectorContext): str
 
 export type ScriptDraft = { script: ProjectScript; model: string; ms: number };
 
-const modelOf = (): { provider: LlmProvider; model: string } => {
-  const provider: LlmProvider = process.env.SCRIPT_PROVIDER === "gemini" ? "gemini" : "anthropic";
-  return { provider, model: process.env.SCRIPT_MODEL ?? (provider === "gemini" ? "gemini-3.1-pro-preview" : "claude-sonnet-5-5") };
-};
+/** The script step's model (MODEL_SCRIPT, or the old SCRIPT_PROVIDER / SCRIPT_MODEL): see docs/MODEL_ROUTING.md. */
+const modelOf = () => routeFor("script");
 
 type RawScene = { role: string; voiceover: string; on_screen: string; visual: string; screenshot_index: number | null };
 const titleCase = (role: string) => role[0]!.toUpperCase() + role.slice(1);
 
 function toScript(raw: { title: string; video_type: VideoType; hook_alternatives?: string[]; caption?: string; scenes: RawScene[] }, context: DirectorContext, source: ProjectScript["source"]): ProjectScript {
-  const lines: ProjectScriptLine[] = raw.scenes.slice(0, 12).map((scene) => {
+  const lines: ProjectScriptLine[] = raw.scenes.slice(0, SCRIPT_BEATS_MAX).map((scene) => {
     const shot = scene.screenshot_index !== null && scene.screenshot_index >= 0 ? context.screenshots[scene.screenshot_index] : undefined;
     return {
       label: titleCase(scene.role).slice(0, 32), role: scene.role,
@@ -80,10 +83,23 @@ function toScript(raw: { title: string; video_type: VideoType; hook_alternatives
 }
 
 /** Writes the first draft. */
-export async function draftScript(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<ScriptDraft> {
-  const { provider, model } = modelOf();
-  const result = await llmJson({ provider, model, system: `${SYSTEM}\n\n${playbookBlock(resolveVideoType(brief, context))}`, user: scriptMessage(brief, context), schema: SCHEMA as unknown as Record<string, unknown>, maxTokens: 6000, timeoutMs: 90_000, ...(signal ? { signal } : {}), stopErrors: { refusal: "The script writer declined this brief.", max_tokens: "The script was too long; shorten the duration or the brief." } });
-  return { script: toScript(JSON.parse(result.text), context, "generated"), model, ms: result.ms };
+export async function draftScript(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal, request?: typeof fetch): Promise<ScriptDraft> {
+  const route = modelOf();
+  const result = await callModel({
+    step: "script",
+    route,
+    system: [{ text: `${SYSTEM}\n\n${playbookBlock(resolveVideoType(brief, context))}`, cache: true }],
+    messages: [{ role: "user", content: scriptMessage(brief, context) }],
+    schema: SCHEMA as unknown as Record<string, unknown>,
+    maxTokens: 16000,
+    timeoutMs: 120_000,
+    errorPrefix: route.provider === "gemini" ? "Gemini request failed" : "Claude request failed",
+    includeErrorDetail: true,
+    ...(signal ? { signal } : {}),
+    ...(request ? { request } : {}),
+    stopErrors: { refusal: "The script writer declined this brief.", max_tokens: "The script was too long; shorten the duration or the brief." }
+  });
+  return { script: toScript(JSON.parse(result.text), context, "generated"), model: result.model, ms: result.ms };
 }
 
 const REVISE_SYSTEM = [
@@ -92,12 +108,24 @@ const REVISE_SYSTEM = [
 ].join("\n");
 
 /** Applies a person's instruction ("make it shorter", "add a scene on pricing") to the script they have been editing. */
-export async function reviseScript(script: ProjectScript, instruction: string, brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal): Promise<ScriptDraft> {
-  const { provider, model } = modelOf();
+export async function reviseScript(script: ProjectScript, instruction: string, brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal, request?: typeof fetch): Promise<ScriptDraft> {
+  const route = modelOf();
   const current = script.lines.map((line, i) => ({ n: i + 1, role: line.role ?? line.label.toLowerCase(), voiceover: line.voiceover ?? "", on_screen: line.onScreen, visual: line.visual ?? "", screenshot_index: line.screenshotId ? context.screenshots.findIndex((shot) => shot.id === line.screenshotId) : null }));
   const user = [scriptMessage(brief, context), `\nCURRENT SCRIPT (the person's edited version):\n${JSON.stringify({ title: script.title ?? "", caption: script.caption ?? "", hook_alternatives: script.hooks ?? [], scenes: current })}`, `\nTHE PERSON ASKS: ${instruction}`].join("\n");
-  const result = await llmJson({ provider, model, system: `${REVISE_SYSTEM}\n\n${playbookBlock(resolveVideoType(brief, context))}`, user, schema: SCHEMA as unknown as Record<string, unknown>, maxTokens: 6000, timeoutMs: 90_000, ...(signal ? { signal } : {}) });
-  return { script: toScript(JSON.parse(result.text), context, "generated"), model, ms: result.ms };
+  const result = await callModel({
+    step: "script",
+    route,
+    system: [{ text: `${REVISE_SYSTEM}\n\n${playbookBlock(resolveVideoType(brief, context))}`, cache: true }],
+    messages: [{ role: "user", content: user }],
+    schema: SCHEMA as unknown as Record<string, unknown>,
+    maxTokens: 16000,
+    timeoutMs: 120_000,
+    errorPrefix: route.provider === "gemini" ? "Gemini request failed" : "Claude request failed",
+    includeErrorDetail: true,
+    ...(signal ? { signal } : {}),
+    ...(request ? { request } : {})
+  });
+  return { script: toScript(JSON.parse(result.text), context, "generated"), model: result.model, ms: result.ms };
 }
 
 /** The script as the plain text the storyboard step reads in "own script" mode: the voiceover lines, one per scene. */

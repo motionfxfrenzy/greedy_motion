@@ -2,10 +2,10 @@ import { resolveSceneRoute, type SceneRendering } from "./scene-rendering.ts";
 // Product flow v2 (docs/PRODUCT_FLOW_V2.md): the Script & Style brief and the beat plan.
 // The beat plan mirrors .claude/skills/gm-script-director/references/beat-plan.schema.json;
 // change both together. Budgets come from gm-skill-authoring/references/script-for-motion.md.
-import { voiceLanguageIds } from "./audio.ts";
+import { CAST_MAX, SPEAKER_MAX, voiceIds, voiceLanguageIds, type VoiceCast } from "./audio.ts";
 import { isLook, type LookId } from "./looks.ts";
 import { getStyleFamily } from "./style-families.ts";
-import { parseScriptBeats, parseScriptNotes, type ScriptBeat, type ScriptNotes } from "./script-stream.ts";
+import { parseScriptBeats, parseScriptNotes, SCRIPT_BEATS_MAX, type ScriptBeat, type ScriptNotes } from "./script-stream.ts";
 
 export const aspects = ["16:9", "9:16", "1:1"] as const;
 export const paces = ["calm", "balanced", "fast"] as const;
@@ -14,10 +14,10 @@ export const audioModes = ["voiceover", "music", "both", "none"] as const;
 export const captionModes = ["key-phrases", "full", "none"] as const;
 export const scriptModes = ["problem", "own"] as const;
 export const durationPresets = [5, 15, 30, 45, 60, 90] as const;
+export const durationModes = ["preset", "custom", "script"] as const;
 export const DURATION_MIN = 5;
-export const DURATION_MAX = 120;
 export const PROBLEM_TEXT_MAX = 600;
-export const OWN_SCRIPT_MAX = 4000;
+export const OWN_SCRIPT_MAX = 20000;
 
 export type Aspect = (typeof aspects)[number];
 export type Pace = (typeof paces)[number];
@@ -25,7 +25,22 @@ export type MotionProfile = (typeof motionProfiles)[number];
 export type AudioMode = (typeof audioModes)[number];
 export type CaptionMode = (typeof captionModes)[number];
 export type ScriptMode = (typeof scriptModes)[number];
+export type DurationMode = (typeof durationModes)[number];
 export type VideoFormatKind = "social" | "launch" | "explainer";
+
+export const defaultScriptBrief: ScriptBrief = {
+  scriptMode: "problem",
+  text: "",
+  durationSeconds: 30,
+  durationMode: "script",
+  aspect: "16:9",
+  motionProfile: "smooth",
+  pace: "balanced",
+  audio: { mode: "voiceover", voice: "Kore" },
+  captions: "key-phrases",
+  template: null,
+  theme: "neutral"
+};
 
 /** Everything the Script & Style screen collects. */
 export type ScriptBrief = {
@@ -34,16 +49,32 @@ export type ScriptBrief = {
   text: string;
   durationSeconds: number;
   /**
+   * How the film's length is chosen: a fixed preset ("preset"), a user-entered target ("custom"), or decided by the
+   * script's natural content within operational limits ("script"). Omitted on older projects, which infer "preset" or "custom".
+   */
+  durationMode?: DurationMode;
+  /**
    * Hold the script to `durationSeconds`. Without it the duration is a target: a script whose idea needs longer may run
    * longer, and the canvas says so (with a one-click rewrite to fit).
    */
   lockDuration?: boolean;
+  /**
+   * True once the user clicked "Keep Ns" on the Storyboard to accept a script that runs longer than `durationSeconds`.
+   * Persisted per project so the over-length banner never re-prompts after reloads, navigation, or edits.
+   */
+  keepOverLength?: boolean;
   aspect: Aspect;
   /** Multiple dimensions selected by the user to draw frames and animation in (1, 2, or all 3 of "16:9", "9:16", "1:1"). */
   aspects?: Aspect[];
   motionProfile: MotionProfile;
   pace: Pace;
-  audio: { mode: AudioMode; voice?: string; musicMood?: string; /** Language of the VOICE lines (voiceLanguages); English when absent. */ language?: string };
+  audio: {
+    mode: AudioMode; voice?: string; musicMood?: string; /** Language of the VOICE lines (voiceLanguages); English when absent. */ language?: string;
+    /** "characters": the story's characters speak their own lines in their own voices; one narrator when absent. */
+    cast?: VoiceCast;
+    /** The person's voice pick per character name (voiceIds); characters without a pick get `voiceForSpeaker`'s. */
+    voices?: Record<string, string>;
+  };
   captions: CaptionMode;
   /** Optional structure skill, e.g. "gm-feature-explainer". Null lets the director choose. */
   template?: string | null;
@@ -122,7 +153,9 @@ export function formatForDuration(seconds: number): VideoFormatKind {
 export function beatCountRange(seconds: number, pace: Pace, family?: string | null): { min: number; max: number } {
   // A typography showreel cuts every two seconds or so, whatever the pace.
   const target = seconds / (family === "clean-type" ? 2.2 : paceBeatSeconds[pace]);
-  return { min: Math.max(3, Math.floor(target * 0.8)), max: Math.min(16, Math.ceil(target * 1.2) + 1) };
+  const min = Math.max(3, Math.floor(target * 0.8));
+  const max = Math.min(SCRIPT_BEATS_MAX, Math.max(min + 1, Math.ceil(target * 1.2) + 1));
+  return { min, max };
 }
 
 /** Voiceover word budget for the whole film (leaves room for gaps, the hook and the landed ending). */
@@ -134,6 +167,114 @@ export function wordBudget(seconds: number, pace: Pace): number {
 export function scriptSeconds(beats: readonly { line: string | null }[], pace: Pace): number {
   const words = beats.reduce((total, beat) => total + (beat.line ? beat.line.split(/\s+/).filter(Boolean).length : 0), 0);
   return words === 0 ? beats.length * 2 : Math.round(words * 60 / paceWpm[pace] + beats.length * 0.4 + 1);
+}
+
+/** Formats a runtime in seconds as a human-readable string (`45s` under 1 min, `2m 30s (150s)` or `4m (240s)` for 1 min+). */
+export function formatDurationSeconds(seconds: number): string {
+  const total = Math.max(1, Math.round(Number.isFinite(seconds) ? seconds : 30));
+  if (total < 60) return `${total}s`;
+  const mins = Math.floor(total / 60);
+  const rem = total % 60;
+  return rem === 0 ? `${mins}m (${total}s)` : `${mins}m ${rem}s (${total}s)`;
+}
+
+/**
+ * Effective duration mode for a brief:
+ * - Honors an explicit `durationMode` (`"script" | "custom" | "preset"`).
+ * - For legacy briefs without `durationMode`:
+ *   - Infers `"custom"` when `durationSeconds` is a finite number outside `durationPresets` (`[5, 15, 30, 45, 60, 90]`).
+ *   - Infers `"preset"` when `lockDuration` or `keepOverLength` was explicitly set on a preset duration.
+ *   - Defaults to `"script"` ("Let script decide") otherwise so new, template-seeded, and un-locked legacy briefs let the script decide.
+ */
+export function resolveDurationMode(
+  brief?: Partial<Pick<ScriptBrief, "durationMode" | "durationSeconds" | "lockDuration" | "keepOverLength">> | null
+): DurationMode {
+  if (brief?.durationMode === "script" || brief?.durationMode === "custom" || brief?.durationMode === "preset") {
+    return brief.durationMode;
+  }
+  const sec = brief?.durationSeconds;
+  if (typeof sec === "number" && Number.isFinite(sec) && !(durationPresets as readonly number[]).includes(Math.round(sec))) {
+    return "custom";
+  }
+  if (brief?.lockDuration === true || brief?.keepOverLength === true) {
+    return "preset";
+  }
+  return "script";
+}
+
+/** Whether a brief lets the script decide its own runtime instead of aiming for a preset or custom target. */
+export function isScriptLedDuration(
+  brief?: Partial<Pick<ScriptBrief, "durationMode" | "durationSeconds" | "lockDuration" | "keepOverLength">> | null
+): boolean {
+  if (!brief) return false;
+  if (brief.durationMode === "script" || brief.durationMode === "custom" || brief.durationMode === "preset") {
+    return brief.durationMode === "script";
+  }
+  if (typeof brief.durationSeconds !== "number" || !Number.isFinite(brief.durationSeconds)) {
+    return false;
+  }
+  return resolveDurationMode(brief) === "script";
+}
+
+/**
+ * The effective runtime in seconds for a brief: when script-led and beats exist, uses the script's own estimated
+ * runtime (at least DURATION_MIN, with no upper product cap); otherwise returns `brief.durationSeconds`.
+ */
+export function effectiveBriefDurationSeconds(
+  brief: Pick<ScriptBrief, "durationSeconds" | "pace"> & Partial<Pick<ScriptBrief, "durationMode" | "lockDuration" | "keepOverLength">> & { scriptBeats?: readonly { line: string | null }[] | null },
+  fallbackBeats?: readonly { line: string | null }[] | null
+): number {
+  const beats = fallbackBeats && fallbackBeats.length > 0 ? fallbackBeats : brief.scriptBeats;
+  if (isScriptLedDuration(brief) && beats && beats.length > 0) {
+    return Math.max(DURATION_MIN, scriptSeconds(beats, brief.pace));
+  }
+  const base = typeof brief.durationSeconds === "number" && Number.isFinite(brief.durationSeconds) ? Math.round(brief.durationSeconds) : 30;
+  return Math.max(DURATION_MIN, base);
+}
+
+/** Normalizes a list of aspect ratios in canonical `["16:9", "9:16", "1:1"]` order, deduplicated, defaulting to `[fallbackPrimary]`. */
+export function normalizeAspects(raw: readonly unknown[] | null | undefined, fallbackPrimary: Aspect = "16:9"): Aspect[] {
+  const primary: Aspect = (aspects as readonly string[]).includes(fallbackPrimary) ? fallbackPrimary : "16:9";
+  if (!Array.isArray(raw)) return [primary];
+  const valid = aspects.filter((a) => raw.includes(a));
+  return valid.length > 0 ? valid : [primary];
+}
+
+/** Resolves the primary aspect ratio: preserves `currentPrimary` if it remains selected, else picks the first selected aspect in canonical order. */
+export function resolvePrimaryAspect(currentPrimary: unknown, selected: readonly Aspect[]): Aspect {
+  if (typeof currentPrimary === "string" && (aspects as readonly string[]).includes(currentPrimary) && selected.includes(currentPrimary as Aspect)) {
+    return currentPrimary as Aspect;
+  }
+  return selected[0] ?? "16:9";
+}
+
+/** Returns the normalized list of selected aspects for a brief, treating legacy absent `aspects` as `[brief.aspect]`. */
+export function briefAspects(brief?: Pick<ScriptBrief, "aspect" | "aspects"> | null): Aspect[] {
+  const fallback: Aspect = brief?.aspect && (aspects as readonly string[]).includes(brief.aspect) ? brief.aspect : "16:9";
+  return normalizeAspects(brief?.aspects, fallback);
+}
+
+/**
+ * Toggles one aspect ratio in a multi-select brief while requiring at least one selected aspect,
+ * normalizing duplicates/canonical order, and preserving primary aspect continuity unless deselected.
+ */
+export function toggleBriefAspect(
+  brief: Pick<ScriptBrief, "aspect" | "aspects">,
+  toggled: Aspect
+): { aspect: Aspect; aspects: Aspect[] } {
+  const currentSelected = briefAspects(brief);
+  const currentPrimary = resolvePrimaryAspect(brief.aspect, currentSelected);
+  if (currentSelected.includes(toggled)) {
+    if (currentSelected.length <= 1) {
+      return { aspect: currentPrimary, aspects: currentSelected };
+    }
+    const nextSelected = currentSelected.filter((a) => a !== toggled);
+    const nextPrimary = resolvePrimaryAspect(currentPrimary, nextSelected);
+    return { aspect: nextPrimary, aspects: nextSelected };
+  }
+  const nextSelected = aspects.filter((a) => currentSelected.includes(a) || a === toggled);
+  const nextPrimary = resolvePrimaryAspect(currentPrimary, nextSelected);
+  return { aspect: nextPrimary, aspects: nextSelected };
 }
 
 /** Most words a hook line can have and still be said within 3 s at this pace. */
@@ -199,6 +340,7 @@ export type BeatPlan = {
   format: VideoFormatKind;
   canvas: Aspect;
   target_duration_s: number;
+  duration_mode?: DurationMode;
   clock: "voiceover" | "beats";
   brand: { name: string; motion_profile: MotionProfile; style_frame?: string | null };
   characters: { id: string; description: string; sheet?: string | null }[];
@@ -231,9 +373,32 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
   const text = typeof value.text === "string" ? value.text.trim() : "";
   if (text.length < 12) return { error: value.scriptMode === "own" ? "Paste a script of at least a sentence." : "Describe the problem in at least a sentence." };
   if (text.length > max) return { error: `Keep it under ${max} characters.` };
-  const durationSeconds = typeof value.durationSeconds === "number" ? Math.round(value.durationSeconds) : NaN;
-  if (!(durationSeconds >= DURATION_MIN && durationSeconds <= DURATION_MAX)) return { error: `Duration must be ${DURATION_MIN}–${DURATION_MAX} seconds.` };
-  if (!oneOf(aspects, value.aspect)) return { error: "Choose 16:9, 9:16 or 1:1." };
+  if (value.durationMode !== undefined && !oneOf(durationModes, value.durationMode)) {
+    return { error: "Choose a preset duration, custom duration, or let the script decide." };
+  }
+  const durationMode = value.durationMode;
+  const rawDuration = typeof value.durationSeconds === "number" && Number.isFinite(value.durationSeconds) ? Math.round(value.durationSeconds) : NaN;
+  const durationSeconds =
+    durationMode === "script"
+      ? (Number.isSafeInteger(rawDuration) && rawDuration >= DURATION_MIN ? rawDuration : 30)
+      : rawDuration;
+  if (!Number.isSafeInteger(durationSeconds) || durationSeconds < DURATION_MIN) {
+    return { error: `Duration must be at least ${DURATION_MIN} seconds.` };
+  }
+  if (value.aspects !== undefined) {
+    if (!Array.isArray(value.aspects)) return { error: "Choose at least one format (16:9, 9:16 or 1:1)." };
+    const validInputAspects = aspects.filter((a) => value.aspects && (value.aspects as unknown[]).includes(a));
+    if (validInputAspects.length === 0) return { error: "Choose at least one format (16:9, 9:16 or 1:1)." };
+  }
+  const selectedAspects = Array.isArray(value.aspects)
+    ? aspects.filter((a) => (value.aspects as unknown[]).includes(a))
+    : undefined;
+  if (!oneOf(aspects, value.aspect) && (!selectedAspects || selectedAspects.length === 0)) {
+    return { error: "Choose 16:9, 9:16 or 1:1." };
+  }
+  const primaryAspect: Aspect = selectedAspects?.length
+    ? resolvePrimaryAspect(value.aspect, selectedAspects)
+    : (value.aspect as Aspect);
   if (!oneOf(motionProfiles, value.motionProfile)) return { error: "Choose a motion style: snappy, smooth or springy." };
   if (!oneOf(paces, value.pace)) return { error: "Choose a pace: calm, balanced or fast." };
   if (!isRecord(value.audio) || !oneOf(audioModes, value.audio.mode)) return { error: "Choose voiceover, music, both or none." };
@@ -245,15 +410,14 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
   const family = typeof value.styleFamily === "string" ? getStyleFamily(value.styleFamily) : undefined;
   if (value.styleFamily !== undefined && value.styleFamily !== null && !family) return { error: "Unknown style family." };
   const screenshotIds = Array.isArray(value.screenshotIds) ? value.screenshotIds.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 20) : undefined;
-  const selectedAspects = Array.isArray(value.aspects)
-    ? [...new Set(value.aspects.filter((a): a is Aspect => oneOf(aspects, a)))]
-    : undefined;
   const brief: ScriptBrief = {
     scriptMode: value.scriptMode,
     text,
     durationSeconds,
-    ...(value.lockDuration === true ? { lockDuration: true } : {}),
-    aspect: selectedAspects?.[0] ?? value.aspect,
+    ...(durationMode ? { durationMode } : {}),
+    ...(value.lockDuration === true && durationMode !== "script" ? { lockDuration: true } : {}),
+    ...(value.keepOverLength === true ? { keepOverLength: true } : {}),
+    aspect: primaryAspect,
     ...(selectedAspects?.length ? { aspects: selectedAspects } : {}),
     motionProfile: value.motionProfile,
     pace: value.pace,
@@ -261,7 +425,17 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
       mode: value.audio.mode,
       ...(clean(value.audio.voice, 40) ? { voice: clean(value.audio.voice, 40) } : {}),
       ...(clean(value.audio.musicMood, 120) ? { musicMood: clean(value.audio.musicMood, 120) } : {}),
-      ...(typeof value.audio.language === "string" && value.audio.language !== "en" && voiceLanguageIds.includes(value.audio.language) ? { language: value.audio.language } : {})
+      ...(typeof value.audio.language === "string" && value.audio.language !== "en" && voiceLanguageIds.includes(value.audio.language) ? { language: value.audio.language } : {}),
+      ...(value.audio.cast === "characters" ? { cast: "characters" as const } : {}),
+      ...(() => {
+        // Voice picks per character: known voices only, names bounded, at most CAST_MAX (the narrator is `voice`).
+        if (!isRecord(value.audio.voices)) return {};
+        const picks = Object.entries(value.audio.voices)
+          .map(([name, voice]) => [clean(name, SPEAKER_MAX), voice] as const)
+          .filter((entry): entry is readonly [string, string] => Boolean(entry[0]) && typeof entry[1] === "string" && voiceIds.includes(entry[1]))
+          .slice(0, CAST_MAX);
+        return picks.length ? { voices: Object.fromEntries(picks) } : {};
+      })()
     },
     captions,
     template: typeof value.template === "string" ? value.template : null,
@@ -294,7 +468,7 @@ const vector = (value: unknown): Vector | null =>
 export function beatPlanProblems(plan: BeatPlan, brief?: ScriptBrief, { editing = false }: { editing?: boolean } = {}): string[] {
   const problems: string[] = [];
   if (!Array.isArray(plan.beats) || plan.beats.length < 1) return ["A plan needs at least one beat."];
-  if (!editing && plan.beats.length > 24) problems.push("A plan can have at most 24 beats.");
+  if (!editing && plan.beats.length > SCRIPT_BEATS_MAX) problems.push(`A plan can have at most ${SCRIPT_BEATS_MAX} beats.`);
   const ids = new Set<string>();
   plan.beats.forEach((beat, index) => {
     const at = `beat ${index + 1} (${beat.id})`;

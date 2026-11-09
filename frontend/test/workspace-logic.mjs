@@ -12,6 +12,13 @@ import {
   sceneSpansFromDurations,
   sortWorkspaceComments
 } from "../components/animation-workspace/logic.ts";
+import {
+  PLATE_CONFIRM_FALSE_DELAY_MS,
+  PLATE_FALLBACK_NOTICE,
+  nextPlateAnswer,
+  plateRetryDelayMs,
+  resolvePlateRouting
+} from "../lib/plate-availability.ts";
 
 test("formatClock formats M:SS and clamps negative or invalid values", () => {
   assert.equal(formatClock(0), "0:00");
@@ -207,4 +214,93 @@ test("buildSubtitleCues and activeSubtitleCueAt chunk full lines and select acti
   assert.equal(activeSubtitleCueAt("full", fullCues, 3.5, 0)?.text, "seven eight");
   assert.equal(activeSubtitleCueAt("full", fullCues, 4.5, 1)?.text, "Short second line");
   assert.equal(activeSubtitleCueAt("none", fullCues, 0.5, 0), null);
+});
+
+test("nextPlateAnswer and resolvePlateRouting: errors keep unknown, available:true is known true, available:false requires non-plate look or 2 confirmations for plate looks", () => {
+  const id = "324093f5-0000-4000-8000-000000000001";
+
+  // 1. Error / 401 / timeout keeps answer unknown (never caches available:false)
+  const afterErr = nextPlateAnswer(null, id, { ok: false, error: new Error("401") }, "illus-folk-tale");
+  assert.equal(afterErr, null, "transient error on unknown state stays null (unknown)");
+  assert.deepEqual(resolvePlateRouting(true, id, afterErr), {
+    plateKnown: false,
+    isPlateStyle: false,
+    plateChecking: true
+  });
+
+  // 2. Success { available: true } -> immediately known true
+  const afterTrue = nextPlateAnswer(afterErr, id, { ok: true, available: true, look: "illus-folk-tale" }, "illus-folk-tale");
+  assert.deepEqual(afterTrue, { id, available: true, falseCount: 0 });
+  assert.deepEqual(resolvePlateRouting(true, id, afterTrue), {
+    plateKnown: true,
+    isPlateStyle: true,
+    plateChecking: false
+  });
+
+  // Transient error after already known true preserves the known true state for the same project
+  const errAfterTrue = nextPlateAnswer(afterTrue, id, { ok: false }, "illus-folk-tale");
+  assert.deepEqual(errAfterTrue, { id, available: true, falseCount: 0 });
+
+  // 3. Non-plate look with { available: false } -> trusted immediately on first response
+  const nonPlateFalse = nextPlateAnswer(null, id, { ok: true, available: false, look: "clean" }, "clean");
+  assert.deepEqual(nonPlateFalse, { id, available: false, falseCount: 1 });
+  assert.deepEqual(resolvePlateRouting(false, id, nonPlateFalse), {
+    plateKnown: true,
+    isPlateStyle: false,
+    plateChecking: false
+  });
+
+  // 4. Plate look (`illus-*`) with { available: false }:
+  //    First false -> stays unknown (`available: null, falseCount: 1`), `plateChecking` stays true
+  const firstFalse = nextPlateAnswer(null, id, { ok: true, available: false, look: null }, "illus-folk-tale");
+  assert.deepEqual(firstFalse, { id, available: null, falseCount: 1 });
+  assert.deepEqual(resolvePlateRouting(true, id, firstFalse), {
+    plateKnown: false,
+    isPlateStyle: false,
+    plateChecking: true
+  });
+
+  //    If an error happens between first and second false, it stays unknown with falseCount: 1
+  const errBetween = nextPlateAnswer(firstFalse, id, { ok: false }, "illus-folk-tale");
+  assert.deepEqual(errBetween, { id, available: null, falseCount: 1 });
+  assert.equal(resolvePlateRouting(true, id, errBetween).plateChecking, true);
+
+  //    If the second check 2s later returns { available: true } (brief.look now saved), it resolves to known true!
+  const recoveredTrue = nextPlateAnswer(errBetween, id, { ok: true, available: true, look: "illus-folk-tale" }, "illus-folk-tale");
+  assert.deepEqual(recoveredTrue, { id, available: true, falseCount: 0 });
+  assert.deepEqual(resolvePlateRouting(true, id, recoveredTrue), {
+    plateKnown: true,
+    isPlateStyle: true,
+    plateChecking: false
+  });
+
+  //    If the second check 2s later ALSO returns { available: false }, it is confirmed false
+  const secondFalse = nextPlateAnswer(firstFalse, id, { ok: true, available: false, look: "illus-folk-tale" }, "illus-folk-tale");
+  assert.deepEqual(secondFalse, { id, available: false, falseCount: 2 });
+  assert.deepEqual(resolvePlateRouting(true, id, secondFalse), {
+    plateKnown: true,
+    isPlateStyle: false,
+    plateChecking: false
+  });
+
+  // 5. Switching project ID resets state for the new project
+  const otherId = "other-project-id";
+  assert.deepEqual(resolvePlateRouting(true, otherId, secondFalse), {
+    plateKnown: false,
+    isPlateStyle: false,
+    plateChecking: true
+  });
+
+  // 6. Backoff schedule: 1s, 2s, 4s, capped at 8s, stops at 120s
+  assert.equal(PLATE_CONFIRM_FALSE_DELAY_MS, 2_000);
+  assert.equal(plateRetryDelayMs(0, 0), 1_000);
+  assert.equal(plateRetryDelayMs(1, 1_000), 2_000);
+  assert.equal(plateRetryDelayMs(2, 3_000), 4_000);
+  assert.equal(plateRetryDelayMs(3, 7_000), 8_000);
+  assert.equal(plateRetryDelayMs(4, 15_000), 8_000);
+  assert.equal(plateRetryDelayMs(5, 120_000), null);
+  assert.equal(
+    PLATE_FALLBACK_NOTICE,
+    "This is a quick preview. Your styled scenes aren't drawn in this setup."
+  );
 });

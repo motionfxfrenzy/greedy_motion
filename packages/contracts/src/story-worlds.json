@@ -1,0 +1,250 @@
+{
+  "illus-balloon": {
+    "world": "Gentle, wonder-filled stories for children, one big simple thing per scene.",
+    "elements": [
+      "rising, drifting, glowing",
+      "a journey across open sky",
+      "a quiet payoff"
+    ]
+  },
+  "illus-blueprint": {
+    "world": "Explains how something works, one part at a time.",
+    "elements": [
+      "build it part by part",
+      "cause and effect between parts",
+      "one short label as takeaway"
+    ]
+  },
+  "illus-broken-colour": {
+    "world": "Quiet, observational stories where light changes over one moment.",
+    "elements": [
+      "time of day as the clock",
+      "small slow journeys",
+      "stillness before the end"
+    ]
+  },
+  "illus-charcoal-erasure": {
+    "world": "Change over time: one place or object seen again and again.",
+    "elements": [
+      "before and after",
+      "fading, then returning",
+      "memory and seasons"
+    ]
+  },
+  "illus-coloured-pencil": {
+    "world": "Cosy small-scale stories of keepsakes, toys and quiet rooms.",
+    "elements": [
+      "objects with feelings",
+      "one careful small task",
+      "a gentle close"
+    ]
+  },
+  "illus-embroidery": {
+    "world": "Gentle handmade tales that grow stitch by stitch.",
+    "elements": [
+      "one motif per scene",
+      "a journey along a path",
+      "growing, mending, connecting"
+    ]
+  },
+  "illus-flat-vector": {
+    "world": "Clear, confident modern explainers, one idea per scene.",
+    "elements": [
+      "zoom from small to big",
+      "before and after",
+      "a calm optimistic close"
+    ]
+  },
+  "illus-folk-tale": {
+    "world": "Old-fashioned tales with a small cast: a journey, a trial, a lesson.",
+    "elements": [
+      "a traveller and a path",
+      "a simple choice",
+      "the moral said simply"
+    ]
+  },
+  "illus-fox": {
+    "world": "Hushed fable-like stories read by silhouette, with quiet tension.",
+    "elements": [
+      "hide, seek or wait",
+      "one figure per scene",
+      "a still last image"
+    ]
+  },
+  "illus-halftone": {
+    "world": "Factual, dramatic stories told like an old newspaper report.",
+    "elements": [
+      "one striking scene per beat",
+      "a turning point",
+      "facts stated plainly"
+    ]
+  },
+  "illus-isometric": {
+    "world": "How a place or system works from inside, built piece by piece.",
+    "elements": [
+      "one small figure, one task",
+      "cutaway to the inside",
+      "the finished system humming"
+    ]
+  },
+  "illus-koi": {
+    "world": "Lively stories of living things moving, one creature leading each scene.",
+    "elements": [
+      "follow one creature's journey",
+      "meetings and chases, then calm",
+      "a flowing ending"
+    ]
+  },
+  "illus-lighthouse": {
+    "world": "Warm poster-style stories of guidance, journeys and light.",
+    "elements": [
+      "one bold image per scene",
+      "dusk, dawn and night",
+      "a return or arrival"
+    ]
+  },
+  "illus-low-poly": {
+    "world": "Calm, expansive stories of terrain and discovery, slowly revealed.",
+    "elements": [
+      "one object travelling a world",
+      "light shifting over land",
+      "a wide quiet final view"
+    ]
+  },
+  "illus-mellan": {
+    "world": "A contemplative story about one round, lit subject per scene; few beats.",
+    "elements": [
+      "close view, then pull back",
+      "each beat a new insight",
+      "one striking final image"
+    ]
+  },
+  "illus-mid-century": {
+    "world": "Cheerful, sunny picture-book stories of play and small adventures.",
+    "elements": [
+      "a playful mishap",
+      "wind carrying things along",
+      "a happy ending"
+    ]
+  },
+  "illus-moon-phases": {
+    "world": "Lessons told like a teacher at the board, one idea per scene.",
+    "elements": [
+      "a cycle or sequence",
+      "compare two things",
+      "a recap to close"
+    ]
+  },
+  "illus-painted-oil": {
+    "world": "Patient, weighty stories of objects and rooms as light moves through a day.",
+    "elements": [
+      "an object with history",
+      "time passing slowly",
+      "a reflective ending"
+    ]
+  },
+  "illus-paper-craft": {
+    "world": "Playful toy-theatre stories: pieces enter a stage, act, and leave.",
+    "elements": [
+      "setup, gag, payoff",
+      "entrances and exits",
+      "a curtain-call ending"
+    ]
+  },
+  "illus-pixel-art": {
+    "world": "Small retro game stories, each scene one clear moment of play.",
+    "elements": [
+      "a quest in short levels",
+      "a challenge, then a reward",
+      "level complete"
+    ]
+  },
+  "illus-pocket-watch": {
+    "world": "Close, curious stories about one object and what it holds.",
+    "elements": [
+      "study it closely",
+      "look inside, then step back",
+      "a final insight"
+    ]
+  },
+  "illus-ranunculus": {
+    "world": "Soft, still stories about flowers and plants only.",
+    "elements": [
+      "one bloom per scene",
+      "opening, growing, fading",
+      "a tender close"
+    ]
+  },
+  "illus-rubber-hose": {
+    "world": "Playful stories of everyday objects with personalities; one character acts per scene.",
+    "elements": [
+      "setup, gag, payoff",
+      "dance or song on the beat",
+      "a silly bouncy ending"
+    ]
+  },
+  "illus-scrapbook": {
+    "world": "Field-notes explainers: one clue or finding per scene, building a case.",
+    "elements": [
+      "compare, annotate, label",
+      "an investigation unfolds",
+      "a conclusion stamped"
+    ]
+  },
+  "illus-scratchboard": {
+    "world": "Dramatic night stories: one close subject, one light, slow suspense.",
+    "elements": [
+      "a slow reveal",
+      "stalking or waiting",
+      "a sharp last image"
+    ]
+  },
+  "illus-stipple": {
+    "world": "Natural-history stories of how one thing is built, one specimen per scene.",
+    "elements": [
+      "cut it open",
+      "a small detail, a big idea",
+      "a closing fact"
+    ]
+  },
+  "illus-storybook": {
+    "world": "Gentle bedtime stories starring one little character, Bit.",
+    "elements": [
+      "Bit with one feeling per scene",
+      "a small wish or worry",
+      "a sleepy happy ending"
+    ]
+  },
+  "illus-sumi-e": {
+    "world": "Spare, poetic nature stories: few scenes, each a moment held.",
+    "elements": [
+      "weather past a still subject",
+      "one gesture per scene",
+      "restraint, then a quiet turn"
+    ]
+  },
+  "illus-toy-brick": {
+    "world": "Build-it stories assembled step by step, one step per scene.",
+    "elements": [
+      "a problem solved by building",
+      "parts fitting together",
+      "the finished model"
+    ]
+  },
+  "illus-woodcut": {
+    "world": "Calm stories of weather, travel and everyday life; large still subjects.",
+    "elements": [
+      "weather crossing the scene",
+      "seasons passing",
+      "stillness at the end"
+    ]
+  },
+  "illus-wren": {
+    "world": "Small, lively nature moments: a bird, a leaf, noticed up close.",
+    "elements": [
+      "a quick turn or surprise",
+      "one small subject",
+      "a bright cheerful close"
+    ]
+  }
+}

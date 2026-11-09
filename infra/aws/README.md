@@ -68,8 +68,8 @@ cd infra/aws
 ```
 It creates: ECR repo (scan on push, keep last 25 images), CloudWatch log group (30 days), ECS cluster, the two worker roles, optionally the two private encrypted S3 buckets, and the deployer (OIDC role or IAM user). Then, by hand (they depend on your VPC):
 
-1. Secrets Manager: create `greedymotion/<env>/worker/database-url` with the worker role's Postgres URL (session pooler).
-2. Register the task definition from `policies/worker-taskdef.json` (2 vCPU / 4 GB, `RENDER_CONCURRENCY=2`, `stopTimeout 30` to match `DRAIN_SECONDS`), then create the service `greedymotion-<env>/worker` (Fargate, public subnets, public IP, no inbound rules, desired count 1, rolling deploy with minimum healthy 100%).
+1. Secrets Manager: create `greedymotion/<env>/worker/control-token` (matching `WORKER_CONTROL_TOKEN` on the backend) and the R2 access key secrets (`./deploy-worker.sh secrets`). The worker reaches Postgres only through the backend's job-control routes (`WORKER_CONTROL_URL`) and holds zero database connections.
+2. Register the task definition from `policies/worker-taskdef.json` (8 vCPU / 16 GB ARM64, `RENDER_CONCURRENCY=1`, `PLATE_CONCURRENCY=1`, `stopTimeout 30` to match `DRAIN_SECONDS`), then run `./deploy-worker.sh ondemand` (or create the service `greedymotion-<env>/worker` in public subnets with a public IP, no inbound rules).
 3. GitHub: environment `staging`/`production` with the variable `AWS_ROLE_ARN` (OIDC) or the two key secrets (user). Deploy step, sketched:
 ```yaml
 permissions: { id-token: write, contents: read }
@@ -88,7 +88,7 @@ steps:
 An always-on task (2 vCPU / 4 GB ARM) bills about $57/month per environment even when nobody renders. With
 `WORKER_LAUNCH=ecs` on the backend nothing runs while idle:
 
-- **Queue a render** → the backend (`backend/src/jobs/worker-launcher.ts`) counts queued + active `render-video` jobs, counts the worker family's ECS tasks, and `RunTask`s the shortfall (2 renders per task, max `ECS_WORKER_MAX_TASKS`). Fargate **Spot** first (~70% cheaper; an interruption is a normal queue retry), on-demand if Spot has no capacity.
+- **Queue a render or ready scene job** → the backend (`backend/src/jobs/worker-launcher.ts`) counts queued + active `render-video` jobs and ready plate worker jobs (`plate-render`, `plate-export`, `plate-rebundle`), paginates `ListTasks` for the worker family's active ECS tasks, and `RunTask`s the shortfall in bounded batches of up to 10 (`1` render per task by default: `ECS_WORKER_CONCURRENCY=1`, `ECS_PLATE_CONCURRENCY=1`, aiming for `N` simultaneous tasks for `N` ready jobs or at least `ceil(N / 2)` when AWS capacity is constrained, up to the operator's configurable `ECS_WORKER_MAX_TASKS` ceiling). Fargate **Spot** first (~70% cheaper; an interruption is a normal queue retry), falling back to on-demand and smaller achievable sub-batches if Spot or account vCPU quota has partial capacity.
 - **A worker with nothing to do for `IDLE_EXIT_SECONDS` (600)** and an empty queue exits; the task stops billing. Ten minutes keeps a user's next iteration warm.
 - **A 30 s sweep** on the backend repeats the check. With an empty queue it is one Postgres query and no AWS call. It covers the one race: a worker exiting just as a job arrives.
 - **Watching a finished video, reopening a project, editing the storyboard, adding comments** never start a worker. The MP4 streams from R2 through a signed URL; the project, prompt, script, plan and comments are Postgres rows; screenshots, brand files, voice/music takes, generated visuals and Pro Editor files are in R2 under `media/` (`backend/src/media.ts`). Only a new render or a Pro preview render starts one.

@@ -8,12 +8,12 @@
 //   render_attempt   raised by each claim; publication is conditional on it, so a stale worker cannot publish over a newer one
 //   attempt          render_jobs / plate_exports attempt number fencing clip.record, progress, and finish/ready
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join, dirname } from "node:path";
 import sharp from "sharp";
 import { run } from "./compose.mjs";
-import { deleteOutputs, downloadPlateInput, downloadPlateOutput, plateKeyOk, uploadPlateOutput } from "./storage.mjs";
+import { DISK_FULL_CODE, DISK_FULL_MESSAGE, cleanTempScratchDirs, deleteOutputs, downloadPlateInput, downloadPlateOutput, isDiskFullError, plateKeyOk, uploadPlateOutput, wrapDiskFull } from "./storage.mjs";
 
 export const PLATE_RENDER_QUEUE = "plate-render";
 export const PLATE_EXPORT_QUEUE = "plate-export";
@@ -21,11 +21,33 @@ export const PLATE_REBUNDLE_QUEUE = "plate-rebundle";
 const AUTHOR_QUEUE = "plate-author";
 const UUID = /^[a-f0-9-]{36}$/i;
 const FPS = 30;
-const PROJECT_CAP = Number.parseInt(process.env.PLATE_PROJECT_CAP ?? "2", 10);
-const STALE_SECONDS = Number.parseInt(process.env.PLATE_STALE_SECONDS ?? "90", 10);
+const PROJECT_CAP = Number.parseInt(process.env.PLATE_PROJECT_CAP ?? "16", 10);
+const STALE_SECONDS = Number.parseInt(process.env.PLATE_STALE_SECONDS ?? "60", 10);
 const MAX_AUTHOR_CALLS = Number.parseInt(process.env.PLATE_MAX_AUTHOR_CALLS ?? "3", 10);
 const RENDER_WORKERS = Math.max(1, Number.parseInt(process.env.PLATE_FRAME_WORKERS ?? "2", 10));
 const PLATE_DRAW_CONCURRENCY = Math.max(1, Number.parseInt(process.env.PLATE_CONCURRENCY ?? "2", 10));
+
+/** Default 120 s per scene check, env-overridable via PLATE_CHECK_TIMEOUT_MS / PLATE_CHECK_TIMEOUT_SECONDS / PLATE_VERIFY_TIMEOUT_MS. */
+export function getCheckTimeoutMs() {
+  const ms = Number(process.env.PLATE_CHECK_TIMEOUT_MS ?? process.env.PLATE_VERIFY_TIMEOUT_MS);
+  if (Number.isFinite(ms) && ms > 0) return ms;
+  const sec = Number(process.env.PLATE_CHECK_TIMEOUT_SECONDS);
+  if (Number.isFinite(sec) && sec > 0) return sec * 1000;
+  return 120_000;
+}
+
+/** Default 10 min (600 s) per scene draw, env-overridable via PLATE_DRAW_TIMEOUT_MS / PLATE_DRAW_TIMEOUT_SECONDS. */
+export function getDrawTimeoutMs() {
+  const ms = Number(process.env.PLATE_DRAW_TIMEOUT_MS);
+  if (Number.isFinite(ms) && ms > 0) return ms;
+  const sec = Number(process.env.PLATE_DRAW_TIMEOUT_SECONDS);
+  if (Number.isFinite(sec) && sec > 0) return sec * 1000;
+  return 10 * 60_000;
+}
+
+const VERIFY_TIMEOUT_MS = getCheckTimeoutMs();
+const DRAW_TIMEOUT_MS = getDrawTimeoutMs();
+const FRAME_STALL_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.PLATE_FRAME_STALL_TIMEOUT_MS ?? String(DRAW_TIMEOUT_MS), 10));
 const SFX_DIR = join(import.meta.dirname, "..", "templates", "beat-plan", "sfx");
 
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
@@ -177,43 +199,139 @@ export function checkSoftwareRenderer(renderer) {
 
 let cachedRendererString = null;
 
+const BROWSER_CRASH_RE = /\b(crash|crashed|disconnected|target closed|target page, context or browser has been closed|browser has been closed|context or browser has been closed|frame was detached|execution context was destroyed|session closed|watchdog timeout)\b/i;
+
+/** Returns true when an error came from a crashed/closed/disconnected Chromium page or browser, or a watchdog timeout. */
+export function isBrowserCrashOrTimeout(error) {
+  if (!error) return false;
+  if (error.code === "plate_watchdog_timeout" || error.code === "browser_crashed") return true;
+  const msg = `${error.message ?? ""} ${error.cause?.message ?? ""}`;
+  return BROWSER_CRASH_RE.test(msg);
+}
+
+/** Ensures any browser crash/disconnect/timeout error is marked retryable (`kind: "infra"`, `permanent: false`). */
+export function normalizeBrowserError(error) {
+  if (isBrowserCrashOrTimeout(error)) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    err.kind = "infra";
+    err.permanent = false;
+    return err;
+  }
+  return error;
+}
+
+/** Closes a Playwright browser and kills its underlying OS process so no zombie Chromium survives. */
+export async function closeAndKillBrowser(browser) {
+  if (!browser) return;
+  const proc = typeof browser.process === "function" ? browser.process() : browser._process ?? null;
+  try {
+    await Promise.race([
+      Promise.resolve(browser.close?.()),
+      new Promise((resolve) => setTimeout(resolve, 3000))
+    ]);
+  } catch {
+    // ignore close error
+  } finally {
+    const pid = proc?.pid;
+    if (typeof proc?.kill === "function") {
+      try { proc.kill("SIGKILL"); } catch { /* already dead */ }
+    } else if (pid) {
+      try { process.kill(pid, "SIGKILL"); } catch { /* already dead */ }
+    }
+  }
+}
+
+/** Bounds an async browser check/draw operation by `timeoutMs`, aborting its signal and rejecting as a retryable infra error on hang. */
+export async function withWatchdog(fn, { timeoutMs, label = "Chromium", signal } = {}) {
+  const watchdog = new AbortController();
+  const combined = signal ? AbortSignal.any([signal, watchdog.signal]) : watchdog.signal;
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = Object.assign(new Error(`${label} hung and exceeded watchdog timeout (${timeoutMs}ms).`), {
+        code: "plate_watchdog_timeout",
+        kind: "infra",
+        permanent: false
+      });
+      watchdog.abort(err);
+      reject(err);
+    }, timeoutMs);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([fn(combined), timeoutPromise]);
+  } catch (error) {
+    throw normalizeBrowserError(error);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Probes Chromium's active WebGL renderer string in the worker environment. */
 export async function probeRendererString({
   executablePath = process.env.PLATE_BROWSER_PATH || process.env.HYPERFRAMES_BROWSER_PATH || undefined,
-  force = false
+  force = false,
+  timeoutMs = getCheckTimeoutMs(),
+  signal,
+  chromiumImpl
 } = {}) {
   if (process.env.PLATE_FAKE_GL_RENDERER) {
     return process.env.PLATE_FAKE_GL_RENDERER;
   }
   if (!force && cachedRendererString) return cachedRendererString;
-  const { chromium } = await import("playwright-core");
-  const browser = await chromium.launch({
-    executablePath,
-    args: [
-      "--disable-background-timer-throttling",
-      "--disable-extensions",
-      "--disable-dev-shm-usage",
-      "--no-sandbox",
-      "--use-gl=angle",
-      "--use-angle=swiftshader",
-      "--disable-gpu",
-      ...(process.env.PLATE_CHROME_ARGS ? process.env.PLATE_CHROME_ARGS.split(" ") : [])
-    ]
-  });
+  const chromium = chromiumImpl ?? (await import("playwright-core")).chromium;
+  let browser;
   try {
-    const page = await browser.newPage();
-    const renderer = await page.evaluate(() => {
-      const c = document.createElement("canvas");
-      const gl = c.getContext("webgl") || c.getContext("experimental-webgl") || c.getContext("webgl2");
-      if (!gl) return "Software Canvas2D (SwiftShader)";
-      const dbg = gl.getExtension("WEBGL_debug_renderer_info");
-      const unmasked = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null;
-      return String(unmasked || gl.getParameter(gl.RENDERER) || "");
-    });
-    cachedRendererString = renderer;
-    return renderer;
+    return await withWatchdog(async (wdSignal) => {
+      browser = await chromium.launch({
+        executablePath,
+        timeout: timeoutMs,
+        args: [
+          "--disable-background-timer-throttling",
+          "--disable-extensions",
+          "--disable-dev-shm-usage",
+          "--no-sandbox",
+          "--use-gl=angle",
+          "--use-angle=swiftshader",
+          "--disable-gpu",
+          ...(process.env.PLATE_CHROME_ARGS ? process.env.PLATE_CHROME_ARGS.split(" ") : [])
+        ]
+      });
+      const onAbort = () => { void closeAndKillBrowser(browser); };
+      wdSignal?.addEventListener("abort", onAbort, { once: true });
+      try {
+        let crashReject;
+        const crashPromise = new Promise((_, reject) => { crashReject = reject; });
+        const onDisconnect = () => crashReject(Object.assign(new Error("Browser disconnected"), { code: "browser_crashed", kind: "infra", permanent: false }));
+        const onCrash = () => crashReject(Object.assign(new Error("Page crashed"), { code: "browser_crashed", kind: "infra", permanent: false }));
+        const onClose = () => crashReject(Object.assign(new Error("Target closed"), { code: "browser_crashed", kind: "infra", permanent: false }));
+        browser.on?.("disconnected", onDisconnect);
+        const page = await browser.newPage();
+        page.on?.("crash", onCrash);
+        page.on?.("close", onClose);
+        page.setDefaultTimeout?.(timeoutMs);
+        const renderer = await Promise.race([
+          page.evaluate(() => {
+            const c = document.createElement("canvas");
+            const gl = c.getContext("webgl") || c.getContext("experimental-webgl") || c.getContext("webgl2");
+            if (!gl) return "Software Canvas2D (SwiftShader)";
+            const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+            const unmasked = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null;
+            return String(unmasked || gl.getParameter(gl.RENDERER) || "");
+          }),
+          crashPromise
+        ]);
+        page.off?.("crash", onCrash);
+        page.off?.("close", onClose);
+        browser.off?.("disconnected", onDisconnect);
+        cachedRendererString = renderer;
+        return renderer;
+      } finally {
+        wdSignal?.removeEventListener("abort", onAbort);
+      }
+    }, { timeoutMs, label: "Chromium GL probe", signal });
   } finally {
-    await browser.close().catch(() => undefined);
+    await closeAndKillBrowser(browser);
   }
 }
 
@@ -261,14 +379,26 @@ const ref = (row) => ({ id: row.id, gen: row.gen, renderAttempt: row.render_atte
 const fenceProgress = async (control, row, stage, framesDone) => (await control.op("plate.progress", { ...ref(row), stage, framesDone })).ok === true;
 const fenceDrawn = async (control, row, args) => (await control.op("plate.drawn", { ...ref(row), ...args })).ok === true;
 const fenceFailed = async (control, row, error) => (await control.op("plate.failed", { ...ref(row), error })).ok === true;
-const fenceRetry = async (control, row) => (await control.op("plate.retry", ref(row))).ok === true;
+const fenceRetry = async (control, row, reason = "the drawing worker restarted") => (await control.op("plate.retry", { ...ref(row), reason })).ok === true;
 
 /** A deterministic defect of the scene code goes back to authoring (bounded); anything else is infrastructure. */
 async function sendBackForRepair(control, row, detail) {
   return control.op("plate.sendBackForRepair", { ...ref(row), authored: row.authored, sourceKey: row.source_key, detail });
 }
 
-export async function handlePlateRender(job, { control, probeRenderer = probeRendererString } = {}) {
+export async function handlePlateRender(job, {
+  control,
+  probeRenderer = probeRendererString,
+  verifyTimeoutMs,
+  checkTimeoutMs,
+  drawTimeoutMs,
+  frameStallTimeoutMs,
+  engineImpl,
+  storageImpl
+} = {}) {
+  const effectiveCheckTimeoutMs = checkTimeoutMs ?? verifyTimeoutMs ?? getCheckTimeoutMs();
+  const effectiveDrawTimeoutMs = drawTimeoutMs ?? getDrawTimeoutMs();
+  const effectiveStallTimeoutMs = frameStallTimeoutMs ?? Math.min(effectiveDrawTimeoutMs, FRAME_STALL_TIMEOUT_MS);
   const { variantId, gen } = job.data ?? {};
   if (typeof variantId !== "string" || !UUID.test(variantId) || !Number.isInteger(gen)) return;
   const row = await claimVariant(control, variantId, gen);
@@ -281,13 +411,21 @@ export async function handlePlateRender(job, { control, probeRenderer = probeRen
     else if (now?.gen === gen && now?.state === "rendering" && (job.retryCount > 0 || job.data?.looks > 0) && (job.data?.looks ?? 0) < 6) await control.op("plate.sendLater", { variantId, gen, looks: (job.data?.looks ?? 0) + 1, startAfter: Math.ceil(STALE_SECONDS / 2) });
     return;
   }
+  const downloadInput = storageImpl?.downloadPlateInput ?? downloadPlateInput;
+  const uploadOutput = storageImpl?.uploadPlateOutput ?? uploadPlateOutput;
+  const deleteOut = storageImpl?.deleteOutputs ?? deleteOutputs;
   const started = Date.now();
   const lost = new AbortController();
-  const signal = AbortSignal.any([job.signal, lost.signal]);
+  const stall = new AbortController();
+  const signal = AbortSignal.any([job.signal, lost.signal, stall.signal]);
   const scratch = join("/tmp", `plate-${row.id}-a${row.render_attempt}`);
   const uploaded = [];
-  let framesDone = 0, stage = "verifying", ticking = Promise.resolve();
+  let framesDone = 0, stage = "verifying", lastActivityAt = Date.now(), ticking = Promise.resolve();
   const tick = setInterval(() => {
+    if (Date.now() - lastActivityAt > Math.max(effectiveCheckTimeoutMs, effectiveDrawTimeoutMs)) {
+      stall.abort(new Error(`Chromium stalled in stage "${stage}" with ${framesDone}/${row.frames} frames.`));
+      return;
+    }
     ticking = ticking.then(async () => {
       if (!(await fenceProgress(control, row, stage, framesDone))) lost.abort(new Error("superseded"));
     }).catch((error) => log("warn", "plate_progress_failed", { variantId, message: messageOf(error) }));
@@ -298,43 +436,77 @@ export async function handlePlateRender(job, { control, probeRenderer = probeRen
     await rm(scratch, { recursive: true, force: true });
     await mkdir(scratch, { recursive: true });
     const page = join(scratch, "scene.html");
-    await downloadPlateInput(row.bundle_key, page);
+    await downloadInput(row.bundle_key, page);
+    lastActivityAt = Date.now();
     const [w, h] = DIM[row.aspect] ?? [];
     if (row.width !== w || row.height !== h || row.fps !== FPS) throw new InputError("The scene's size does not match its ratio.");
     const prefix = row.bundle_key.slice(0, row.bundle_key.lastIndexOf("/") + 1);
-    const { verifyScene, renderScene, probeVideo, classifyFailure } = await engine();
+    const { verifyScene, renderScene, probeVideo, classifyFailure } = engineImpl ?? (await engine());
 
-    const renderer = await probeRenderer({ signal });
+    const renderer = await probeRenderer({ signal, timeoutMs: effectiveCheckTimeoutMs });
     checkSoftwareRenderer(renderer);
+    lastActivityAt = Date.now();
 
     // 1. verify in Chromium: first, true middle and last frame, each drawn twice and again on a second page
     const t0 = Date.now();
     let verified;
     try {
-      verified = await verifyScene(page, { frames: row.frames, signal });
+      verified = await withWatchdog(
+        (wdSignal) => verifyScene(page, { frames: row.frames, signal: wdSignal }),
+        { timeoutMs: effectiveCheckTimeoutMs, label: "Chromium scene check", signal }
+      );
     } catch (error) {
       if (lost.signal.aborted) return;
       if (job.signal.aborted) throw error;
-      if (classifyFailure(error) === "code") {
+      if (!isBrowserCrashOrTimeout(error) && classifyFailure(error) === "code") {
         const sent = await sendBackForRepair(control, row, messageOf(error));
         log("warn", "plate_scene_code_failure", { variantId, scene: row.scene_index, aspect: row.aspect, exhausted: sent.exhausted, message: messageOf(error).slice(0, 300) });
         return;
       }
-      throw error;
+      throw normalizeBrowserError(error);
     }
+    lastActivityAt = Date.now();
     if (verified.blocked.length) log("warn", "plate_network_blocked", { variantId, blocked: verified.blocked.slice(0, 5) });
     const verifyMs = Date.now() - t0;
     const stillKey = `${prefix}still-a${row.render_attempt}.png`;
     await writeFile(join(scratch, "still.png"), verified.midPng);
-    await uploadPlateOutput(join(scratch, "still.png"), stillKey, "image/png");
+    await uploadOutput(join(scratch, "still.png"), stillKey, "image/png");
     uploaded.push(stillKey);
+    lastActivityAt = Date.now();
     if (lost.signal.aborted) return;
 
     // 2. draw every frame and encode
     stage = "rendering";
     const t1 = Date.now();
     const video = join(scratch, "clip.mp4");
-    await renderScene(page, video, { frames: row.frames, fps: FPS, workers: RENDER_WORKERS, signal, onProgress: (n) => { framesDone = n; } });
+    const renderStall = new AbortController();
+    let stallTimer = setTimeout(() => renderStall.abort(new Error(`Chromium hung drawing frames (${framesDone}/${row.frames}).`)), effectiveStallTimeoutMs);
+    stallTimer.unref?.();
+    const resetStall = () => {
+      lastActivityAt = Date.now();
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => renderStall.abort(new Error(`Chromium hung drawing frames (${framesDone}/${row.frames}).`)), effectiveStallTimeoutMs);
+      stallTimer.unref?.();
+    };
+    try {
+      await withWatchdog(
+        (wdSignal) =>
+          renderScene(page, video, {
+            frames: row.frames,
+            fps: FPS,
+            workers: RENDER_WORKERS,
+            signal: AbortSignal.any([wdSignal, renderStall.signal]),
+            onProgress: (n) => {
+              framesDone = n;
+              resetStall();
+            }
+          }),
+        { timeoutMs: effectiveDrawTimeoutMs, label: "Chromium scene draw", signal }
+      );
+    } finally {
+      clearTimeout(stallTimer);
+    }
+    if (renderStall.signal.aborted) throw normalizeBrowserError(renderStall.signal.reason ?? new Error("Chromium hung drawing frames."));
     const renderMs = Date.now() - t1;
     const facts = await probeVideo(video);
     if (facts.frames !== row.frames || facts.width !== w || facts.height !== h || Math.abs(facts.fps - FPS) > 1e-6) {
@@ -342,7 +514,7 @@ export async function handlePlateRender(job, { control, probeRenderer = probeRen
     }
     const clipKey = `${prefix}clip-a${row.render_attempt}.mp4`;
     const t2 = Date.now();
-    await uploadPlateOutput(video, clipKey, "video/mp4");
+    await uploadOutput(video, clipKey, "video/mp4");
     uploaded.push(clipKey);
     const uploadMs = Date.now() - t2;
 
@@ -354,35 +526,52 @@ export async function handlePlateRender(job, { control, probeRenderer = probeRen
       timings: { verifyMs, renderMs, uploadMs, workerTotalMs: Date.now() - started }
     });
     if (!published) {
-      await deleteOutputs(uploaded).catch(() => undefined);
+      await deleteOut(uploaded).catch(() => undefined);
       log("info", "plate_render_superseded", { variantId, gen: row.gen, attempt: row.render_attempt });
       return;
     }
     log("info", "plate_drawn", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, frames: row.frames, verifyMs, renderMs, uploadMs, seconds: Math.round((Date.now() - started) / 100) / 10 });
   } catch (error) {
     if (lost.signal.aborted) {
-      await deleteOutputs(uploaded).catch(() => undefined);
+      await deleteOut(uploaded).catch(() => undefined);
       log("info", "plate_render_dropped", { variantId, gen: row.gen });
       return;
     }
-    if (error?.permanent) {
-      await fenceFailed(control, row, { code: "scene_invalid", message: error.message });
+    if (isDiskFullError(error)) {
+      await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+      await cleanTempScratchDirs("/tmp").catch(() => undefined);
+      await deleteOut(uploaded).catch(() => undefined);
+      await fenceFailed(control, row, {
+        code: DISK_FULL_CODE,
+        message: DISK_FULL_MESSAGE,
+        detail: messageOf(error).slice(-400)
+      });
+      log("error", "plate_render_disk_full", { variantId, gen: row.gen, attempt: row.render_attempt });
       return;
     }
-    const { classifyFailure } = await engine();
-    if (!job.signal.aborted && classifyFailure(error) === "code") {
+    if (error?.permanent && !isBrowserCrashOrTimeout(error)) {
+      await fenceFailed(control, row, { code: error.code || "scene_invalid", message: error.message });
+      return;
+    }
+    const { classifyFailure } = engineImpl ?? (await engine());
+    if (!job.signal.aborted && !isBrowserCrashOrTimeout(error) && classifyFailure(error) === "code") {
       // A scene that fails while drawing (or draws a clip that breaks its contract) is a code defect: bounded repair.
       await sendBackForRepair(control, row, messageOf(error));
       return;
     }
     const final = (job.retryCount ?? 0) >= 2;
     log("warn", "plate_render_interrupted", { variantId, gen: row.gen, attempt: row.render_attempt, final, message: messageOf(error).slice(-300) });
-    await deleteOutputs(uploaded).catch(() => undefined);
-    if (job.signal.aborted) throw error; // worker stopping or heartbeat lost: the lease ages out and a retry takes over
+    await deleteOut(uploaded).catch(() => undefined);
+    if (job.signal.aborted) {
+      // Worker stopping or heartbeat lost. Put the row back to "bundled" (fenced by this attempt, so a no-op if another attempt already owns
+      // it) so the retry can claim it at once instead of waiting for the row to go stale; the lease/job is handed back by runLeased.
+      await fenceRetry(control, row, "the drawing worker restarted").catch(() => undefined);
+      throw error;
+    }
     // Browser start-up, Spot interruption, storage or network failure: the same bundle is tried again, no model call.
     if (final) await fenceFailed(control, row, { code: "render_failed", message: "Drawing this scene did not finish. Press Draw to try again.", detail: messageOf(error).slice(-400) });
-    else await fenceRetry(control, row);
-    if (!final) throw error;
+    else await fenceRetry(control, row, "the drawing worker restarted");
+    if (!final) throw normalizeBrowserError(error);
   } finally {
     clearInterval(tick);
     await ticking;
@@ -448,14 +637,74 @@ export async function renderSubtitlePng(text, sub, w, h) {
   return sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><g opacity="${alpha.toFixed(2)}">${bgSvg}${textEls}</g></svg>`)).png().toBuffer();
 }
 
-/** The Free plan's mark ("Made with Greedy Motion", lower right), sized from the frame like the other pipeline's. */
-export async function renderWatermarkPng(w, h) {
-  const size = Math.round(w * 0.016), pad = Math.round(w * 0.02);
-  const label = "Made with Greedy Motion";
-  const padX = Math.round(size * 0.8), padY = Math.round(size * 0.45);
-  const boxW = Math.round(label.length * size * 0.56 + padX * 2), boxH = Math.round(size + padY * 2);
-  const x = w - pad - boxW, y = h - pad - boxH;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="${Math.round(boxH / 2)}" fill="rgba(10,13,18,0.62)"/><text x="${x + boxW / 2}" y="${y + padY + size * 0.82}" text-anchor="middle" font-family="'Plus Jakarta Sans', Inter, Arial, sans-serif" font-size="${size}" font-weight="600" fill="#ffffff">${escapeXml(label)}</text></svg>`;
+export const WATERMARK_INTERVAL_SECONDS = 4;
+const GM_MARK_SVG_PATHS = `<g fill="#168BFF"><rect x="18" y="55" width="42" height="12" rx="6"/><rect x="8" y="74" width="58" height="12" rx="6"/><rect x="20" y="93" width="34" height="12" rx="6"/><path d="M76 49C76 31 96 20 114 28c26 12 46 32 64 52-18 20-38 40-64 52-18 8-38-3-38-21V49Z"/></g><path fill="#FF5A1F" d="M192 54c0-9 10-14 18-9l31 20c8 5 8 16 0 21l-31 20c-8 5-18 0-18-9V54Z"/>`;
+
+/**
+ * Deterministic layout for the Free plan's narrow centered stacked Greedy Motion watermark:
+ *   [Greedy Motion logo]
+ *         Greedy
+ *         Motion
+ * Alternates every `WATERMARK_INTERVAL_SECONDS` (4 s) between LEFT above vertical midpoint (~40% frame height)
+ * and RIGHT below vertical midpoint (~60% frame height), never using top or bottom corners.
+ */
+export function watermarkLayout(w, h) {
+  const ref = Math.min(w, h);
+  const lines = ["Greedy", "Motion"];
+  const label = "Greedy Motion";
+  const fontSize = Math.max(10, Math.round(ref * 0.022));
+  const lineHeight = Math.max(12, Math.round(fontSize * 1.15));
+  const logoH = Math.max(14, Math.round(fontSize * 1.65));
+  const logoW = Math.round(logoH * 1.6);
+  const gap = Math.max(3, Math.round(fontSize * 0.25));
+  const padX = Math.max(8, Math.round(fontSize * 0.65));
+  const padY = Math.max(6, Math.round(fontSize * 0.5));
+  const textW = Math.round(fontSize * 3.8);
+  const boxW = Math.max(logoW, textW) + padX * 2;
+  const textBlockH = fontSize + lineHeight;
+  const boxH = padY + logoH + gap + textBlockH + padY;
+  const rx = Math.max(8, Math.round(fontSize * 0.65));
+  const strokeW = Math.max(1, Math.round(fontSize * 0.06));
+  const marginX = Math.max(10, Math.round(w * 0.035));
+  const leftX = marginX;
+  const leftCenterY = Math.round(h * 0.40);
+  const leftY = Math.max(marginX, Math.min(h - marginX - boxH, Math.round(leftCenterY - boxH / 2)));
+  const rightX = Math.max(marginX, w - marginX - boxW);
+  const rightCenterY = Math.round(h * 0.60);
+  const rightY = Math.max(marginX, Math.min(h - marginX - boxH, Math.round(rightCenterY - boxH / 2)));
+  return {
+    label,
+    lines,
+    intervalSeconds: WATERMARK_INTERVAL_SECONDS,
+    fontSize,
+    lineHeight,
+    logoW,
+    logoH,
+    gap,
+    padX,
+    padY,
+    boxW,
+    boxH,
+    rx,
+    strokeW,
+    marginX,
+    left: { x: leftX, y: leftY, centerY: Math.round(leftY + boxH / 2) },
+    right: { x: rightX, y: rightY, centerY: Math.round(rightY + boxH / 2) }
+  };
+}
+
+/** The Free plan's narrow stacked mark (logo / Greedy / Motion), rendered on `side` ("left" | "right"). */
+export async function renderWatermarkPng(w, h, { side = "left" } = {}) {
+  const layout = watermarkLayout(w, h);
+  const pos = side === "right" ? layout.right : layout.left;
+  const { x, y } = pos;
+  const { lines, fontSize, lineHeight, logoW, logoH, gap, padY, boxW, boxH, rx, strokeW } = layout;
+  const logoX = Math.round(x + (boxW - logoW) / 2);
+  const logoY = y + padY;
+  const textX = Math.round(x + boxW / 2);
+  const line1Y = logoY + logoH + gap + Math.round(fontSize * 0.84);
+  const line2Y = line1Y + lineHeight;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="${rx}" fill="rgba(10,14,22,0.64)" stroke="rgba(255,255,255,0.18)" stroke-width="${strokeW}"/><svg x="${logoX}" y="${logoY}" width="${logoW}" height="${logoH}" viewBox="0 0 256 160">${GM_MARK_SVG_PATHS}</svg><text x="${textX}" y="${line1Y}" text-anchor="middle" font-family="'Plus Jakarta Sans', 'Liberation Sans', Inter, Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="#ffffff" letter-spacing="0.01em">${escapeXml(lines[0])}</text><text x="${textX}" y="${line2Y}" text-anchor="middle" font-family="'Plus Jakarta Sans', 'Liberation Sans', Inter, Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="#ffffff" letter-spacing="0.01em">${escapeXml(lines[1])}</text></svg>`;
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
@@ -464,6 +713,9 @@ export async function renderWatermarkPng(w, h) {
  * One timeline, integer frames. Stream copy only when the clips are exactly the timeline and nothing touches pixels.
  * Returns facts about what it wrote.
  */
+/** The final re-encode matches the per-scene clips (CRF 16, preset medium; packages/plate-engine/lib/capture.mjs), so it adds no visible loss. */
+export const PLATE_FINAL_VIDEO_ARGS = ["-c:v", "libx264", "-preset", "medium", "-crf", "16", "-profile:v", "high", "-pix_fmt", "yuv420p"];
+
 export async function assemble(manifest, { clipFiles, scratch, output, signal, onProgress, audioFiles, storageImpl }) {
   const downloadInput = storageImpl?.downloadPlateInput ?? downloadPlateInput;
   const { canStreamCopy } = await rules();
@@ -500,9 +752,14 @@ export async function assemble(manifest, { clipFiles, scratch, output, signal, o
       overlayFiles.push({ png, enable: `between(t,${cue.start.toFixed(3)},${cue.end.toFixed(3)})` });
     }
     if (manifest.watermark) {
-      const png = join(scratch, "watermark.png");
-      await writeFile(png, await renderWatermarkPng(W, H));
-      overlayFiles.push({ png, enable: null });
+      const leftPng = join(scratch, "watermark-left.png");
+      const rightPng = join(scratch, "watermark-right.png");
+      await Promise.all([
+        renderWatermarkPng(W, H, { side: "left" }).then((buf) => writeFile(leftPng, buf)),
+        renderWatermarkPng(W, H, { side: "right" }).then((buf) => writeFile(rightPng, buf))
+      ]);
+      overlayFiles.push({ png: leftPng, enable: `eq(mod(floor(t/${WATERMARK_INTERVAL_SECONDS}),2),0)` });
+      overlayFiles.push({ png: rightPng, enable: `eq(mod(floor(t/${WATERMARK_INTERVAL_SECONDS}),2),1)` });
     }
     overlayFiles.forEach((o, i) => {
       inputs.push("-i", o.png);
@@ -570,7 +827,7 @@ export async function assemble(manifest, { clipFiles, scratch, output, signal, o
   if (filters.length) args.push("-filter_complex", filters.join(";"));
   const aargs = audio.length ? ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"] : [];
   if (copy) args.push("-map", "0:v:0", ...aargs, "-c:v", "copy", "-t", total.toFixed(6), "-movflags", "+faststart", output);
-  else args.push("-map", "[vout]", ...aargs, "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", String(FPS), "-t", total.toFixed(6), "-movflags", "+faststart", output);
+  else args.push("-map", "[vout]", ...aargs, ...PLATE_FINAL_VIDEO_ARGS, "-r", String(FPS), "-t", total.toFixed(6), "-movflags", "+faststart", output);
   await run("ffmpeg", args, { signal, onLine: (line) => { const m = /^out_time_(?:us|ms)=(\d+)/.exec(line); if (m) onProgress?.(Math.min(1, Number(m[1]) / 1e6 / total)); } });
   const facts = await probeVideo(output);
   if (facts.frames !== manifest.totalFrames) throw new Error(`The assembled film has ${facts.frames} frames, expected ${manifest.totalFrames}.`);
@@ -663,12 +920,17 @@ async function downloadClips(manifest, keys, scratch, { storageImpl } = {}) {
 
 /**
  * Schema 2 worker pipeline:
- *  1. Downloads and verifies EVERY scene bundle first (storage existence, SHA-256 bundleDigest check, in-browser verifyScene).
+ *  1. Looks up each scene's clip FIRST in `app.plate_clips` by `(bundleDigest, engineDigest, fontSetDigest, size)`.
+ *     For any cached hit (or matching `scene.clipKey`), downloads the MP4 and validates its integrity via `probeVideo`
+ *     (`frames === sceneFrames`, `width === manifest.width`, `height === manifest.height`, `fps === 30`).
+ *     Trusted valid cache hits skip bundle download and skip Chromium `verifyScene` / `renderScene` completely!
+ *     Missing or corrupt cached objects fall back cleanly to cache misses.
+ *  2. For cache misses ONLY: downloads and verifies EVERY missed scene bundle first (`verifyBundleDigest` + in-browser `verifyScene`).
  *     If any scene fails verification, stops immediately BEFORE drawing any frame, sends the scene to `plate.sendBackForRepair`
  *     (for code failures), and throws `SceneNeedsFixError` (`code: "scene_needs_fix"`, non-retriable).
- *  2. Looks up each scene's clip in `app.plate_clips` by `(bundleDigest, engineDigest, fontSetDigest, size)`.
- *  3. Runs the Software-GL self-check (`checkSoftwareRenderer`), then draws cache misses with bounded concurrency (`PLATE_CONCURRENCY`),
- *     uploads each to a content-addressed key, and records it via `clip.record` (fenced by job attempt).
+ *  3. When multiple cache misses exist, dispatches them to `plate-render` (`plate.enqueueMisses`) so the AWS Fargate worker fleet
+ *     scales out in parallel for all ready scene jobs, while local lanes also draw misses and poll `clip.lookup` to pick up clips
+ *     completed by peer workers without drawing any scene twice.
  */
 export async function prepareManifestClips(
   control,
@@ -681,7 +943,10 @@ export async function prepareManifestClips(
     engineImpl,
     storageImpl,
     probeRenderer = probeRendererString,
-    concurrency = PLATE_DRAW_CONCURRENCY
+    concurrency = PLATE_DRAW_CONCURRENCY,
+    checkTimeoutMs = getCheckTimeoutMs(),
+    drawTimeoutMs = getDrawTimeoutMs(),
+    fleetPollMs = 1500
   }
 ) {
   const downloadInput = storageImpl?.downloadPlateInput ?? downloadPlateInput;
@@ -690,59 +955,22 @@ export async function prepareManifestClips(
   const deleteOut = storageImpl?.deleteOutputs ?? deleteOutputs;
   const { verifyScene, renderScene, probeVideo, classifyFailure } = engineImpl ?? (await engine());
 
-  await mkdir(scratch, { recursive: true });
-  const size = `${manifest.width}x${manifest.height}`;
-  const pages = [];
-  const verifiedByIndex = new Map();
-
-  // ---- 1. Download and verify EVERY bundle before drawing ANY frame
-  for (const [idx, scene] of manifest.scenes.entries()) {
-    if (signal?.aborted) throw signal.reason ?? new Error("Aborted.");
-    const sceneIndex = scene.index ?? idx;
-    if (!plateKeyOk(scene.bundleKey, manifest.projectId)) {
-      throw new SceneNeedsFixError(sceneIndex, "The scene bundle location is invalid.");
-    }
-    const pagePath = join(scratch, `scene-${sceneIndex}.html`);
-    try {
-      await downloadInput(scene.bundleKey, pagePath);
-    } catch (error) {
-      throw new SceneNeedsFixError(sceneIndex, `Scene bundle could not be downloaded: ${messageOf(error)}`);
-    }
-    const rawHtml = await readFile(pagePath, "utf8");
-    const digestCheck = verifyBundleDigest(rawHtml, scene, manifest);
-    if (!digestCheck.ok) {
-      throw new SceneNeedsFixError(sceneIndex, digestCheck.reason);
-    }
-    const bakedHtml = bakeSceneParams(rawHtml, scene.params);
-    if (bakedHtml !== rawHtml) {
-      await writeFile(pagePath, bakedHtml, "utf8");
-    }
-    const sceneFrames = Number(scene.bundleFrames ?? scene.frames);
-    let verified;
-    try {
-      verified = await verifyScene(pagePath, { frames: sceneFrames, signal });
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      if (classifyFailure(error) === "code") {
-        await control.op("plate.sendBackForRepair", {
-          id: scene.variantId,
-          gen: scene.gen,
-          detail: messageOf(error)
-        }).catch((err) => log("warn", "plate_repair_op_failed", { variantId: scene.variantId, message: messageOf(err) }));
-        throw new SceneNeedsFixError(sceneIndex, messageOf(error));
-      }
-      throw error;
-    }
-    if (verified?.blocked?.length) {
-      log("warn", "plate_network_blocked", { variantId: scene.variantId, blocked: verified.blocked.slice(0, 5) });
-    }
-    pages.push({ scene, sceneIndex, pagePath, sceneFrames });
-    verifiedByIndex.set(sceneIndex, verified);
+  try {
+    await mkdir(scratch, { recursive: true });
+  } catch (error) {
+    throw wrapDiskFull(error);
   }
+  const size = `${manifest.width}x${manifest.height}`;
+  const sceneEntries = manifest.scenes.map((scene, idx) => ({
+    slot: idx,
+    scene,
+    sceneIndex: scene.index ?? idx,
+    sceneFrames: Number(scene.bundleFrames ?? scene.frames)
+  }));
 
-  // ---- 2. Look up clip cache by (bundleDigest, engineDigest, fontSetDigest, size)
+  // ---- 1. Look up clip cache FIRST by (bundleDigest, engineDigest, fontSetDigest, size)
   const lookupRes = await control.op("clip.lookup", {
-    keys: pages.map(({ scene }) => ({
+    keys: sceneEntries.map(({ scene }) => ({
       bundleDigest: scene.bundleDigest,
       engineDigest: manifest.engineDigest,
       fontSetDigest: manifest.fontSetDigest,
@@ -758,25 +986,133 @@ export async function prepareManifestClips(
     }
   }
 
-  const clipFiles = new Array(pages.length);
-  const misses = [];
-  let cacheHits = 0;
-  const framesByScene = pages.map(() => 0);
+  const isClipProbeValid = (facts, expectedFrames) => {
+    if (!facts || typeof facts !== "object") return false;
+    if (facts.width !== manifest.width || facts.height !== manifest.height) return false;
+    if (Math.abs(Number(facts.fps) - FPS) > 1e-6) return false;
+    if (facts.codec && facts.codec !== "h264") return false;
+    if (facts.frames !== expectedFrames && facts.frames !== manifest.scenes[0]?.frames) {
+      return facts.frames === expectedFrames;
+    }
+    return facts.frames === expectedFrames;
+  };
 
-  for (let i = 0; i < pages.length; i++) {
-    const item = pages[i];
+  const tryUseCachedClip = async (item, candidateKey, cachedRow = null) => {
+    if (!candidateKey || !plateKeyOk(candidateKey, manifest.projectId)) return false;
+    const rowHasMetadata = Boolean(cachedRow && Number(cachedRow.frames) > 0);
+    if (cachedRow) {
+      if (cachedRow.width && Number(cachedRow.width) !== manifest.width) return false;
+      if (cachedRow.height && Number(cachedRow.height) !== manifest.height) return false;
+      if (cachedRow.fps && Number(cachedRow.fps) !== FPS) return false;
+      if (cachedRow.frames && Number(cachedRow.frames) !== item.sceneFrames) return false;
+    }
+    const localClip = join(scratch, `clip-${item.sceneIndex}.mp4`);
+    try {
+      await downloadOutput(candidateKey, localClip);
+      const statBytes = (await readFile(localClip)).length;
+      if (statBytes === 0) {
+        await rm(localClip, { force: true }).catch(() => undefined);
+        return false;
+      }
+      if (!rowHasMetadata) {
+        const facts = await probeVideo(localClip);
+        if (!isClipProbeValid(facts, item.sceneFrames)) {
+          log("warn", "plate_cached_clip_invalid_probe", {
+            projectId: manifest.projectId,
+            scene: item.sceneIndex,
+            clipKey: candidateKey,
+            expectedFrames: item.sceneFrames,
+            actualFrames: facts?.frames,
+            actualWidth: facts?.width,
+            actualHeight: facts?.height
+          });
+          await rm(localClip, { force: true }).catch(() => undefined);
+          return false;
+        }
+      }
+      clipFiles[item.slot] = localClip;
+      framesByScene[item.slot] = item.scene.frames;
+      return true;
+    } catch (error) {
+      if (isDiskFullError(error)) throw wrapDiskFull(error);
+      await rm(localClip, { force: true }).catch(() => undefined);
+      return false;
+    }
+  };
+
+  const clipFiles = new Array(sceneEntries.length);
+  const uncachedEntries = [];
+  let cacheHits = 0;
+  const framesByScene = sceneEntries.map(() => 0);
+
+  for (const item of sceneEntries) {
+    if (signal?.aborted) throw signal.reason ?? new Error("Aborted.");
     const cached = cachedByDigest.get(item.scene.bundleDigest);
-    if (cached && cached.clip_key) {
-      const localClip = join(scratch, `clip-${item.sceneIndex}.mp4`);
-      const downloaded = await downloadOutput(cached.clip_key, localClip).then(() => true, () => false);
-      if (downloaded) {
-        clipFiles[i] = localClip;
-        framesByScene[i] = item.scene.frames;
-        cacheHits += 1;
-        continue;
+    if (cached && cached.clip_key && (await tryUseCachedClip(item, cached.clip_key, cached))) {
+      cacheHits += 1;
+      continue;
+    }
+    if (item.scene.clipKey && item.scene.clipKey !== cached?.clip_key && (await tryUseCachedClip(item, item.scene.clipKey, null))) {
+      cacheHits += 1;
+      continue;
+    }
+    uncachedEntries.push(item);
+  }
+
+  // ---- 2. Download and verify bundles ONLY for cache misses before drawing ANY frame
+  const misses = [];
+  const verifiedByIndex = new Map();
+
+  for (const item of uncachedEntries) {
+    if (signal?.aborted) throw signal.reason ?? new Error("Aborted.");
+    const { scene, sceneIndex, sceneFrames } = item;
+    if (!plateKeyOk(scene.bundleKey, manifest.projectId)) {
+      throw new SceneNeedsFixError(sceneIndex, "The scene bundle location is invalid.");
+    }
+    const pagePath = join(scratch, `scene-${sceneIndex}.html`);
+    try {
+      await downloadInput(scene.bundleKey, pagePath);
+    } catch (error) {
+      if (isDiskFullError(error)) throw wrapDiskFull(error);
+      throw new SceneNeedsFixError(sceneIndex, `Scene bundle could not be downloaded: ${messageOf(error)}`);
+    }
+    const rawHtml = await readFile(pagePath, "utf8");
+    const digestCheck = verifyBundleDigest(rawHtml, scene, manifest);
+    if (!digestCheck.ok) {
+      throw new SceneNeedsFixError(sceneIndex, digestCheck.reason);
+    }
+    const bakedHtml = bakeSceneParams(rawHtml, scene.params);
+    if (bakedHtml !== rawHtml) {
+      try {
+        await writeFile(pagePath, bakedHtml, "utf8");
+      } catch (error) {
+        throw wrapDiskFull(error);
       }
     }
-    misses.push({ slot: i, ...item });
+    let verified;
+    try {
+      verified = await withWatchdog(
+        (wdSignal) => verifyScene(pagePath, { frames: sceneFrames, signal: wdSignal }),
+        { timeoutMs: checkTimeoutMs, label: `Scene ${sceneIndex + 1} check`, signal }
+      );
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (isDiskFullError(error)) throw wrapDiskFull(error);
+      if (!isBrowserCrashOrTimeout(error) && classifyFailure(error) === "code") {
+        await control.op("plate.sendBackForRepair", {
+          id: scene.variantId,
+          gen: scene.gen,
+          detail: messageOf(error)
+        }).catch((err) => log("warn", "plate_repair_op_failed", { variantId: scene.variantId, message: messageOf(err) }));
+        throw new SceneNeedsFixError(sceneIndex, messageOf(error));
+      }
+      throw normalizeBrowserError(error);
+    }
+    if (verified?.blocked?.length) {
+      log("warn", "plate_network_blocked", { variantId: scene.variantId, blocked: verified.blocked.slice(0, 5) });
+    }
+    misses.push({ ...item, pagePath });
+    verifiedByIndex.set(sceneIndex, verified);
   }
 
   const reportFrames = async () => {
@@ -785,129 +1121,248 @@ export async function prepareManifestClips(
   };
   await reportFrames();
 
-  // ---- 3. Software-GL self-check & draw misses with bounded concurrency
+  // ---- 3. Software-GL self-check & draw misses (with parallel fleet fan-out when multiple misses exist)
   let renderer = "cached";
+  let drawnLocally = 0;
+  let fleetCompleted = 0;
   if (misses.length > 0) {
-    renderer = await probeRenderer({ signal });
+    renderer = await probeRenderer({ signal, timeoutMs: checkTimeoutMs });
     checkSoftwareRenderer(renderer);
     log("info", "plate_gl_renderer", { projectId: manifest.projectId, renderer, misses: misses.length, cacheHits });
 
+    // When multiple scenes are cache misses, enqueue the tail misses on `plate-render` so separate Fargate workers
+    // spin up in parallel and draw from the back of the list while this worker draws from the front!
+    if (misses.length > 1) {
+      await control.op("plate.enqueueMisses", {
+        ...fence,
+        scenes: misses.slice(1).map((m) => ({
+          variantId: m.scene.variantId,
+          gen: m.scene.gen,
+          bundleDigest: m.scene.bundleDigest
+        }))
+      }).catch(() => undefined);
+    }
+
+    const activeLocalControllers = new Map();
+    let pollTimer = null;
+    const checkFleetHits = async () => {
+      const unresolved = misses.filter((m) => !clipFiles[m.slot]);
+      if (unresolved.length === 0) return;
+      try {
+        const pollRes = await control.op("clip.lookup", {
+          keys: unresolved.map(({ scene }) => ({
+            bundleDigest: scene.bundleDigest,
+            engineDigest: manifest.engineDigest,
+            fontSetDigest: manifest.fontSetDigest,
+            size,
+            width: manifest.width,
+            height: manifest.height
+          }))
+        });
+        const pollMap = new Map();
+        for (const r of pollRes?.clips ?? []) {
+          if (r?.bundle_digest && r?.clip_key) pollMap.set(r.bundle_digest, r);
+        }
+        for (const m of unresolved) {
+          if (clipFiles[m.slot]) continue;
+          const hit = pollMap.get(m.scene.bundleDigest);
+          if (!hit?.clip_key) continue;
+          // Download to a fleet-staging path first so we don't collide with an active local ffmpeg write
+          const fleetClipPath = join(scratch, `clip-fleet-${m.sceneIndex}.mp4`);
+          const finalClipPath = join(scratch, `clip-${m.sceneIndex}.mp4`);
+          try {
+            await downloadOutput(hit.clip_key, fleetClipPath);
+            const rowFramesValid = hit.frames ? Number(hit.frames) === m.sceneFrames : true;
+            const rowWidthValid = hit.width ? Number(hit.width) === manifest.width : true;
+            const rowHeightValid = hit.height ? Number(hit.height) === manifest.height : true;
+            const statBytes = (await readFile(fleetClipPath)).length;
+            if (statBytes > 0 && rowFramesValid && rowWidthValid && rowHeightValid) {
+              const ctrl = activeLocalControllers.get(m.slot);
+              if (ctrl) {
+                ctrl.abort(Object.assign(new Error("Completed by peer worker"), { fleetDone: true, fleetClipPath, finalClipPath }));
+              } else if (!clipFiles[m.slot]) {
+                await rename(fleetClipPath, finalClipPath).catch(async () => {
+                  await writeFile(finalClipPath, await readFile(fleetClipPath));
+                });
+                clipFiles[m.slot] = finalClipPath;
+                framesByScene[m.slot] = m.scene.frames;
+                fleetCompleted += 1;
+                await reportFrames();
+              }
+            } else {
+              await rm(fleetClipPath, { force: true }).catch(() => undefined);
+            }
+          } catch {
+            await rm(fleetClipPath, { force: true }).catch(() => undefined);
+          }
+        }
+      } catch {
+        // Ignore transient lookup poll error
+      }
+    };
+
+    if (misses.length > 1 && fleetPollMs > 0) {
+      pollTimer = setInterval(() => {
+        void checkFleetHits();
+      }, fleetPollMs);
+      pollTimer.unref?.();
+    }
+
     let nextMiss = 0;
     const laneCount = Math.min(Math.max(1, concurrency), misses.length);
-    const lanes = Array.from({ length: laneCount }, async () => {
-      for (;;) {
-        const idx = nextMiss++;
-        if (idx >= misses.length) break;
-        if (signal?.aborted) throw signal.reason ?? new Error("Aborted.");
-        const { slot, scene, sceneIndex, pagePath, sceneFrames } = misses[idx];
-        const localClip = join(scratch, `clip-${sceneIndex}.mp4`);
-        const verified = verifiedByIndex.get(sceneIndex);
-        let lastReportAt = 0;
+    try {
+      const lanes = Array.from({ length: laneCount }, async () => {
+        for (;;) {
+          const idx = nextMiss++;
+          if (idx >= misses.length) break;
+          if (signal?.aborted) throw signal.reason ?? new Error("Aborted.");
+          const item = misses[idx];
+          const { slot, scene, sceneIndex, pagePath, sceneFrames } = item;
+          if (clipFiles[slot]) continue;
 
-        try {
-          await renderScene(pagePath, localClip, {
-            frames: sceneFrames,
-            fps: FPS,
-            workers: RENDER_WORKERS,
-            signal,
-            onProgress: (n) => {
-              framesByScene[slot] = Math.min(scene.frames, n);
-              const nowMs = Date.now();
-              if (nowMs - lastReportAt >= 1000) {
-                lastReportAt = nowMs;
-                void reportFrames().catch(() => undefined);
-              }
+          // Check if a peer Fargate worker already finished this scene before starting local Chromium
+          if (misses.length > 1) {
+            await checkFleetHits();
+            if (clipFiles[slot]) continue;
+          }
+
+          const localClip = join(scratch, `clip-${sceneIndex}.mp4`);
+          const verified = verifiedByIndex.get(sceneIndex);
+          let lastReportAt = 0;
+          const fleetAbort = new AbortController();
+          activeLocalControllers.set(slot, fleetAbort);
+
+          try {
+            await withWatchdog(
+              (wdSignal) =>
+                renderScene(pagePath, localClip, {
+                  frames: sceneFrames,
+                  fps: FPS,
+                  workers: RENDER_WORKERS,
+                  signal: AbortSignal.any([wdSignal, fleetAbort.signal]),
+                  onProgress: (n) => {
+                    if (clipFiles[slot]) return;
+                    framesByScene[slot] = Math.min(scene.frames, n);
+                    const nowMs = Date.now();
+                    if (nowMs - lastReportAt >= 1000) {
+                      lastReportAt = nowMs;
+                      void reportFrames().catch(() => undefined);
+                    }
+                  }
+                }),
+              { timeoutMs: drawTimeoutMs, label: `Scene ${sceneIndex + 1} draw`, signal }
+            );
+          } catch (error) {
+            activeLocalControllers.delete(slot);
+            if (fleetAbort.signal.aborted && fleetAbort.signal.reason?.fleetDone) {
+              const { fleetClipPath, finalClipPath } = fleetAbort.signal.reason;
+              await rm(localClip, { force: true }).catch(() => undefined);
+              await rename(fleetClipPath, finalClipPath).catch(async () => {
+                await writeFile(finalClipPath, await readFile(fleetClipPath));
+              });
+              clipFiles[slot] = finalClipPath;
+              framesByScene[slot] = scene.frames;
+              fleetCompleted += 1;
+              await reportFrames();
+              continue;
             }
-          });
-        } catch (error) {
-          if (signal?.aborted) throw error;
-          if (classifyFailure(error) === "code") {
+            if (signal?.aborted) throw error;
+            if (isDiskFullError(error)) throw wrapDiskFull(error);
+            if (!isBrowserCrashOrTimeout(error) && classifyFailure(error) === "code") {
+              await control.op("plate.sendBackForRepair", {
+                id: scene.variantId,
+                gen: scene.gen,
+                detail: messageOf(error)
+              }).catch(() => undefined);
+              throw new SceneNeedsFixError(sceneIndex, messageOf(error));
+            }
+            throw normalizeBrowserError(error);
+          } finally {
+            activeLocalControllers.delete(slot);
+          }
+
+          const facts = await probeVideo(localClip);
+          if (
+            facts.frames !== sceneFrames ||
+            facts.width !== manifest.width ||
+            facts.height !== manifest.height ||
+            Math.abs(facts.fps - FPS) > 1e-6
+          ) {
+            const detail = `The drawn clip is ${facts.width}x${facts.height} with ${facts.frames} frames, expected ${manifest.width}x${manifest.height} with ${sceneFrames}.`;
             await control.op("plate.sendBackForRepair", {
               id: scene.variantId,
               gen: scene.gen,
-              detail: messageOf(error)
+              detail
             }).catch(() => undefined);
-            throw new SceneNeedsFixError(sceneIndex, messageOf(error));
+            throw new SceneNeedsFixError(sceneIndex, detail);
           }
-          throw error;
-        }
 
-        const facts = await probeVideo(localClip);
-        if (
-          facts.frames !== sceneFrames ||
-          facts.width !== manifest.width ||
-          facts.height !== manifest.height ||
-          Math.abs(facts.fps - FPS) > 1e-6
-        ) {
-          const detail = `The drawn clip is ${facts.width}x${facts.height} with ${facts.frames} frames, expected ${manifest.width}x${manifest.height} with ${sceneFrames}.`;
-          await control.op("plate.sendBackForRepair", {
-            id: scene.variantId,
+          const clipKey = clipCacheKey(
+            manifest.projectId,
+            scene.bundleDigest,
+            manifest.engineDigest,
+            manifest.fontSetDigest,
+            manifest.width,
+            manifest.height
+          );
+          const stillKey = stillCacheKey(
+            manifest.projectId,
+            scene.bundleDigest,
+            manifest.engineDigest,
+            manifest.fontSetDigest,
+            manifest.width,
+            manifest.height
+          );
+          const uploadedKeys = [];
+          if (verified?.midPng) {
+            const stillPath = join(scratch, `still-${sceneIndex}.png`);
+            await writeFile(stillPath, verified.midPng);
+            await uploadOutput(stillPath, stillKey, "image/png");
+            uploadedKeys.push(stillKey);
+          }
+          await uploadOutput(localClip, clipKey, "video/mp4");
+          uploadedKeys.push(clipKey);
+
+          const rec = await control.op("clip.record", {
+            ...fence,
+            variantId: scene.variantId,
             gen: scene.gen,
-            detail
-          }).catch(() => undefined);
-          throw new SceneNeedsFixError(sceneIndex, detail);
+            bundleDigest: scene.bundleDigest,
+            engineDigest: manifest.engineDigest,
+            fontSetDigest: manifest.fontSetDigest,
+            size,
+            width: manifest.width,
+            height: manifest.height,
+            fps: FPS,
+            frames: sceneFrames,
+            clipKey,
+            stillKey: verified?.midPng ? stillKey : null,
+            clipMeta: { ...facts, renderer, worker: hostname() }
+          });
+
+          if (!rec?.ok) {
+            await deleteOut(uploadedKeys).catch(() => undefined);
+            throw new Error("This attempt no longer owns the job.");
+          }
+
+          drawnLocally += 1;
+          framesByScene[slot] = scene.frames;
+          clipFiles[slot] = localClip;
+          await reportFrames();
         }
-
-        const clipKey = clipCacheKey(
-          manifest.projectId,
-          scene.bundleDigest,
-          manifest.engineDigest,
-          manifest.fontSetDigest,
-          manifest.width,
-          manifest.height
-        );
-        const stillKey = stillCacheKey(
-          manifest.projectId,
-          scene.bundleDigest,
-          manifest.engineDigest,
-          manifest.fontSetDigest,
-          manifest.width,
-          manifest.height
-        );
-        const uploadedKeys = [];
-        if (verified?.midPng) {
-          const stillPath = join(scratch, `still-${sceneIndex}.png`);
-          await writeFile(stillPath, verified.midPng);
-          await uploadOutput(stillPath, stillKey, "image/png");
-          uploadedKeys.push(stillKey);
-        }
-        await uploadOutput(localClip, clipKey, "video/mp4");
-        uploadedKeys.push(clipKey);
-
-        const rec = await control.op("clip.record", {
-          ...fence,
-          variantId: scene.variantId,
-          gen: scene.gen,
-          bundleDigest: scene.bundleDigest,
-          engineDigest: manifest.engineDigest,
-          fontSetDigest: manifest.fontSetDigest,
-          size,
-          width: manifest.width,
-          height: manifest.height,
-          fps: FPS,
-          frames: sceneFrames,
-          clipKey,
-          stillKey: verified?.midPng ? stillKey : null,
-          clipMeta: { ...facts, renderer, worker: hostname() }
-        });
-
-        if (!rec?.ok) {
-          await deleteOut(uploadedKeys).catch(() => undefined);
-          throw new Error("This attempt no longer owns the job.");
-        }
-
-        framesByScene[slot] = scene.frames;
-        clipFiles[slot] = localClip;
-        await reportFrames();
-      }
-    });
-    await Promise.all(lanes);
+      });
+      await Promise.all(lanes);
+    } finally {
+      if (pollTimer) clearInterval(pollTimer);
+    }
   }
 
   return {
     clipFiles,
     cacheHits,
     cacheMisses: misses.length,
+    drawnLocally,
+    fleetCompleted,
     renderer
   };
 }
@@ -925,9 +1380,9 @@ export async function renderPlateFilmJob(
 ) {
   if (!UUID.test(input.projectId ?? "")) throw new InputError("A valid project id is required.");
   const scratch = join("/tmp", `plate-film-${id}-a${attempt}`);
-  await rm(scratch, { recursive: true, force: true });
-  await mkdir(scratch, { recursive: true });
   try {
+    await rm(scratch, { recursive: true, force: true });
+    await mkdir(scratch, { recursive: true });
     const manifest = await loadManifest(input.manifestKey, input.projectId, scratch, { storageImpl });
     let clips;
     let cacheStats = { cacheHits: 0, cacheMisses: 0, renderer: "legacy" };
@@ -982,6 +1437,13 @@ export async function renderPlateFilmJob(
       assembleSeconds: Math.round((Date.now() - started) / 100) / 10
     });
     return { durationSeconds: Math.round((manifest.totalFrames / FPS) * 10) / 10, facts, ...cacheStats };
+  } catch (error) {
+    if (isDiskFullError(error)) {
+      await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+      await cleanTempScratchDirs("/tmp").catch(() => undefined);
+      throw wrapDiskFull(error);
+    }
+    throw error;
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
@@ -1049,8 +1511,21 @@ export async function handlePlateExport(job, { control, engineImpl, storageImpl,
   } catch (error) {
     if (uploaded) await deleteOut([key]).catch(() => undefined);
     if (lost.signal.aborted) return;
+    if (isDiskFullError(error)) {
+      await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+      await cleanTempScratchDirs("/tmp").catch(() => undefined);
+      await control.op("export.failed", {
+        id: row.id,
+        attempt: row.attempt,
+        error: {
+          code: DISK_FULL_CODE,
+          message: DISK_FULL_MESSAGE
+        }
+      });
+      return;
+    }
     if (job.signal.aborted) throw error;
-    const final = error?.permanent || (job.retryCount ?? 0) >= 2;
+    const final = (error?.permanent && !isBrowserCrashOrTimeout(error)) || (job.retryCount ?? 0) >= 2;
     log("warn", "plate_export_failed", { exportId, final, code: error?.code, message: messageOf(error).slice(-300) });
     if (final) {
       await control.op("export.failed", {
@@ -1064,14 +1539,14 @@ export async function handlePlateExport(job, { control, engineImpl, storageImpl,
       return;
     }
     await control.op("export.requeue", { id: row.id, attempt: row.attempt });
-    throw error;
+    throw normalizeBrowserError(error);
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
 }
 
 // ================================================================ re-bundle verification (phase 2: worker verifies in Chromium -> backend commits pointer swap)
-export async function handlePlateRebundle(job, { control, engineImpl, storageImpl } = {}) {
+export async function handlePlateRebundle(job, { control, engineImpl, storageImpl, checkTimeoutMs = getCheckTimeoutMs() } = {}) {
   const data = job.data ?? {};
   const {
     variantId,
@@ -1093,9 +1568,9 @@ export async function handlePlateRebundle(job, { control, engineImpl, storageImp
   const downloadInput = storageImpl?.downloadPlateInput ?? downloadPlateInput;
   const { verifyScene } = engineImpl ?? (await engine());
   const scratch = join("/tmp", `plate-rebundle-${variantId}-g${gen}-r${rev}`);
-  await rm(scratch, { recursive: true, force: true });
-  await mkdir(scratch, { recursive: true });
   try {
+    await rm(scratch, { recursive: true, force: true });
+    await mkdir(scratch, { recursive: true });
     if (!plateKeyOk(bundleKey, projectId)) {
       log("warn", "plate_rebundle_verify_failed", { variantId, projectId, gen, rev, reason: "invalid_bundle_key" });
       return { status: "failed", reason: "invalid_bundle_key" };
@@ -1119,9 +1594,14 @@ export async function handlePlateRebundle(job, { control, engineImpl, storageImp
     }
     let verified;
     try {
-      verified = await verifyScene(pagePath, { frames: Number(frames) || 90, signal: job.signal });
+      verified = await withWatchdog(
+        (wdSignal) => verifyScene(pagePath, { frames: Number(frames) || 90, signal: wdSignal }),
+        { timeoutMs: checkTimeoutMs, label: "Chromium rebundle check", signal: job.signal }
+      );
     } catch (error) {
       if (job.signal?.aborted) throw error;
+      if (isDiskFullError(error)) throw wrapDiskFull(error);
+      if (isBrowserCrashOrTimeout(error)) throw normalizeBrowserError(error);
       log("warn", "plate_rebundle_verify_failed", { variantId, projectId, gen, rev, reason: messageOf(error).slice(0, 300) });
       return { status: "failed", reason: messageOf(error) };
     }
@@ -1147,6 +1627,13 @@ export async function handlePlateRebundle(job, { control, engineImpl, storageImp
     }
     log("info", "plate_rebundle_committed", { variantId, projectId, gen, rev: committed.rev, bundleKey, bundleDigest: bDigest });
     return { status: "committed", rev: committed.rev, bundleKey, bundleDigest: bDigest };
+  } catch (error) {
+    if (isDiskFullError(error)) {
+      await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+      await cleanTempScratchDirs("/tmp").catch(() => undefined);
+      throw wrapDiskFull(error);
+    }
+    throw error;
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }

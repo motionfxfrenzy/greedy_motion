@@ -1,5 +1,7 @@
-import { formatScript, parseScriptStream, type BeatPlan, type ScriptBeat, type ScriptBrief, type ScriptNotes } from "@videosaas/contracts";
+import { CHARACTER_RULE, filmKind, formatScript, isScriptLedDuration, parseScriptBeats, parseScriptStream, plainText, type BeatPlan, type ScriptBeat, type ScriptBrief, type ScriptNotes } from "@videosaas/contracts";
 import { config } from "../config.ts";
+import { streamModel, callModel } from "../models/providers.ts";
+import { routeFor, routeHasKey } from "../models/routes.ts";
 import { inventedNumbers, userMessage, type DirectorContext } from "./director.ts";
 
 /**
@@ -57,15 +59,80 @@ const EXPLAINER_VOICE = [
   "NUMBERS (this replaces the numbers rule above): illustrative example values are encouraged (16 boxes, find 37; a million numbers). Work out every number you derive and make sure it is right (halving a million takes about 20 steps). Never state statistics, shares, prices or facts about the world that the brief doesn't give."
 ].join("\n");
 
+/**
+ * The voice for a story film (story templates and code-drawn story styles): a short told tale with characters and a turn,
+ * not an explainer. Educational templates keep EXPLAINER_VOICE.
+ */
+const STORY_VOICE = [
+  "VOICE FOR THIS FILM: a short told story, not an explainer and not an ad. Characters the viewer can follow, something that happens, and a line that stays.",
+  "",
+  "PLAN FIRST. Before the first BEAT, write these lines for yourself (they are never shown; the only lines allowed before the script):",
+  "IDEA: <the heart of the story in one sentence: who wants what, and what changes, at most 25 words>",
+  "EXAMPLE: <the cast and the place, fixed for every frame: each character's name and look in a few words, and the one setting>",
+  "OBJECTS: <ids for the characters and props that recur across scenes, so every frame names them the same way: e.g. fox, lantern, bridge. Lowercase, hyphens>",
+  "Every beat then tells that story with that cast in that place: no new main character after the opening, and every VISUAL names the characters by their ids.",
+  "",
+  "ARC (fit it to the beat count; merge steps in a short film):",
+  "1. Open on the world and the main character doing their usual thing, so the viewer knows who to follow within 3 seconds.",
+  "2. Want or trouble: what the character wants, or what goes wrong.",
+  "3. Try: one or two attempts, each a clear action with a result, cause then effect.",
+  "4. The turn: one small moment that changes things (a surprise, a kindness, a mistake that helps).",
+  "5. After: the world a little different because of it.",
+  "6. A closing line that stays with the viewer: an image or a thought, never a moral spelled out as a lecture and never a call to action.",
+  "If the idea is about a topic (how money evolved, why leaves fall), tell it through characters living it, not as a lesson: the facts happen to them.",
+  "",
+  "FLOW: read every VOICE line in order as one paragraph. It must sound like one told story: each line follows from the one before (Then, But, So, Until one day), and no two lines could swap places. Each VISUAL shows exactly what its line is telling, with the same characters continuing from the beat before.",
+  "",
+  "STYLE:",
+  "- Tell it simply, in spoken English with contractions, keeping one tense throughout. Short sentences; one image per line.",
+  "- Show the character's feeling through what they do, not by naming it. A little humour is welcome when the style is playful.",
+  "- No questions to the viewer as a hook, no \"Did you know\", no hype or marketing words, no exclamation marks.",
+  "- Key phrases on screen are short story beats (\"The lid trick\", \"Still warm\"), not lessons or slogans.",
+  "",
+  "FACTS: when the story touches real facts (history, science), keep them right and simple; never invent dates, statistics or prices the brief doesn't give.",
+  "",
+  `When you turn the topic into a story, decide who the characters are and at which level each one is (prop, living object or full cartoon character), name them in the cast, and write what they say and do: ${CHARACTER_RULE}`
+].join("\n");
+
+/**
+ * The writer's system prompt: the shared rules plus the film's voice. A story film (story template or story style) is told
+ * as a story; any other film without a product is an explainer; a product film gets only the shared rules.
+ */
+export function systemBlocks(request: Pick<ScriptRequest, "brief" | "context">): { type: "text"; text: string; cache_control?: { type: "ephemeral" } }[] {
+  const voice = filmKind(request.brief) === "story" ? STORY_VOICE : request.context.brandName ? null : EXPLAINER_VOICE;
+  return voice
+    ? [{ type: "text", text: SYSTEM }, { type: "text", text: voice, cache_control: { type: "ephemeral" } }]
+    : [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }];
+}
+
+/** The system blocks in the provider-neutral shape (a cached block stays cached on Anthropic; Gemini caches by itself). */
+const neutralSystem = (request: Pick<ScriptRequest, "brief" | "context">) => systemBlocks(request).map((block) => ({ text: block.text, ...(block.cache_control ? { cache: true } : {}) }));
+
 /** `only`: indices of the beats to rewrite; the answer then holds just those beats, in order, and the rest stay as they are. */
 export type ScriptRequest = { brief: ScriptBrief; context: DirectorContext; instruction?: string; previous?: ScriptBeat[]; notes?: ScriptNotes | null; only?: number[] };
 
+export type InsertSceneRequest = {
+  brief: ScriptBrief;
+  context: DirectorContext;
+  previous: ScriptBeat[];
+  /** Insertion boundary in `0..previous.length` (`0` = before beat 1, `k` = between beat `k` and beat `k + 1`, `previous.length` = after last beat). */
+  position: number;
+  prompt: string;
+  notes?: ScriptNotes | null;
+};
+
 /** The chosen length is a target unless the person locked it: an idea that needs longer gets it, and the canvas says so. */
-function lengthRule(brief: ScriptBrief): string {
+export function lengthRule(brief: ScriptBrief): string {
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+  if (isScriptLedDuration(brief)) {
+    return [
+      `LENGTH IS SCRIPT-LED: there is no preset duration target or runtime cap. Let the story or explanation take the natural number of beats${voiced ? " and spoken words" : ""} its idea genuinely needs to land clearly (at least 3 beats, and as many beats as a longer script or multi-step story requires).`,
+      "Never pad a short idea to fill time, and never cram or truncate a longer script into an arbitrary short target. The hook word limit still applies."
+    ].join(" ");
+  }
   if (brief.lockDuration) return `LENGTH IS FIXED at ${brief.durationSeconds}s: keep to the beat range${voiced ? " and the word budget" : ""}; cut to the essentials rather than rushing them.`;
   return [
-    `LENGTH: ${brief.durationSeconds}s is a target, not a limit. If the idea needs more time to land clearly, take it: more beats${voiced ? " and words" : ""}, up to 16 beats and about ${Math.round(brief.durationSeconds * 2)}s. The person is told the real length and can ask for a shorter cut.`,
+    `LENGTH: ${brief.durationSeconds}s is a target, not a limit. If the idea needs more time to land clearly, take it: more beats${voiced ? " and words" : ""}, up to about ${Math.round(brief.durationSeconds * 1.5)}s. The person is told the real length and can ask for a shorter cut.`,
     "Never pad: an idea that lands in less time stays short. The hook word limit still applies."
   ].join(" ");
 }
@@ -92,21 +159,36 @@ function messages({ brief, context, instruction, previous, notes, only }: Script
 
 /** Streams the script's text as it is written. Throws on an API error; stops when `signal` aborts. */
 export async function* writeScript(request: ScriptRequest, signal: AbortSignal, http: typeof fetch = fetch): AsyncGenerator<string> {
+  // Per-step routing (MODEL_SCRIPT_WRITE, which follows MODEL_SCRIPT): when the route is not Anthropic (or no custom http was injected), stream through streamModel.
+  const route = routeFor("scriptWrite");
+  if (route.provider !== "anthropic" || http === fetch) {
+    yield* streamModel({
+      step: "scriptWrite",
+      route,
+      system: neutralSystem(request),
+      messages: messages(request),
+      maxTokens: 16000,
+      effort: "low",
+      signal,
+      errorPrefix: "Script writer request failed",
+      includeErrorDetail: true,
+      ...(http !== fetch ? { request: http } : {}),
+      stopErrors: { max_tokens: "The script ran too long and was cut off. Try again, or ask for a shorter film." }
+    });
+    return;
+  }
   const response = await http("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": config.anthropicApiKey, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({
-      model: process.env.SCRIPT_MODEL || config.anthropicModel,
-      // Room for the plan (IDEA, EXAMPLE) plus 16 beats; at 2000 a long explainer was cut off mid-beat.
-      max_tokens: 5000,
+      model: route.model,
+      // Room for the plan (IDEA, EXAMPLE) plus multi-minute scripts without cutting off mid-beat.
+      max_tokens: route.maxTokens,
       stream: true,
       // Thinking is always on for current models and runs before the first word: short copy needs little of it, and the
       // first words arriving fast is the point of the canvas (measured: ~11 s to the first word at the default effort).
-      output_config: { effort: "low" },
-      system: [
-        { type: "text", text: SYSTEM, ...(request.context.brandName ? { cache_control: { type: "ephemeral" } } : {}) },
-        ...(request.context.brandName ? [] : [{ type: "text", text: EXPLAINER_VOICE, cache_control: { type: "ephemeral" } }])
-      ],
+      output_config: { effort: route.effort ?? "low" },
+      system: systemBlocks(request),
       messages: messages(request)
     }),
     signal
@@ -159,4 +241,175 @@ export function finishScript(text: string, brief: ScriptBrief, context: Director
     if ((beat.onScreen?.match(/\d+/g) ?? []).length >= 5) flags.push({ beat: i, message: "The on-screen text reads like a list of data; the frame draws the numbers, so keep a short label here." });
   });
   return { beats, notes, flags };
+}
+
+export function insertSceneMessages({ brief, context, previous, position, prompt, notes }: InsertSceneRequest) {
+  const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+  const insertionLengthNote = isScriptLedDuration(brief)
+    ? "USER SCENE INSERTION: The person is explicitly adding 1 new scene to their storyboard. The film is script-led, so let this new scene take its natural length without compressing or rewriting any other beat."
+    : `USER SCENE INSERTION: The person is explicitly adding 1 new scene to their storyboard. Adding a scene is allowed to extend the film's total runtime beyond ${brief.durationSeconds}s; do not compress or rewrite any other beat.`;
+  const base = [
+    userMessage({ ...brief, scriptBeats: undefined }, context),
+    "",
+    insertionLengthNote
+  ].join("\n");
+  const before = position > 0 ? previous[position - 1] : null;
+  const after = position < previous.length ? previous[position] : null;
+  const boundaryLabel =
+    before && after
+      ? `between beat ${position} ("${before.keyword}") and beat ${position + 1} ("${after.keyword}")`
+      : before
+        ? `after the final beat ${previous.length} ("${before.keyword}")`
+        : `before the opening beat 1 ("${after?.keyword ?? "Scene 1"}")`;
+  const neighborContext = [
+    before ? `Preceding scene (beat ${position}):\n${formatScript([before])}` : "Preceding scene: (none — this new scene opens the film)",
+    after ? `Following scene (beat ${position + 1}):\n${formatScript([after])}` : "Following scene: (none — this new scene closes the film)"
+  ].join("\n\n");
+  return [
+    { role: "user" as const, content: base },
+    { role: "assistant" as const, content: formatScript(previous, notes) },
+    {
+      role: "user" as const,
+      content: [
+        `Insert ONE new scene ${boundaryLabel}.`,
+        `What the new scene should show / say: ${prompt}`,
+        "",
+        neighborContext,
+        "",
+        `Answer with ONLY that 1 new beat in the same BEAT/VISUAL/SCREEN/${voiced ? "VOICE" : "VOICE: -"} format, and nothing else: no IDEA, EXAMPLE or OBJECTS lines, and no other beats. Keep the same cast, recurring objects, visual style, and narrative continuity so it flows naturally from the preceding scene into the following scene.`
+      ].join("\n")
+    }
+  ];
+}
+
+function deterministicInsertedSceneBlock(request: InsertSceneRequest): string {
+  const { brief, previous, position, prompt } = request;
+  const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+  const cleanPrompt = plainText(prompt).replace(/\s+/g, " ").trim();
+  const words = cleanPrompt.split(/\s+/).filter(Boolean);
+  const rawKeyword = words.slice(0, 3).join(" ").replace(/[.,;:!?]+$/g, "") || `Scene ${position + 1}`;
+  const keyword = rawKeyword.slice(0, 28).trim() || `Scene ${position + 1}`;
+  const before = position > 0 ? previous[position - 1] : null;
+  const after = position < previous.length ? previous[position] : null;
+  const visual = cleanPrompt.slice(0, 195);
+  const onScreen = words.slice(0, 5).join(" ").slice(0, 60) || keyword;
+  const speaker = brief.audio.cast === "characters" ? (before?.speaker ?? after?.speaker ?? null) : null;
+  const voiceLine = voiced
+    ? (cleanPrompt.endsWith(".") || cleanPrompt.endsWith("?") || cleanPrompt.endsWith("!") ? cleanPrompt : `${cleanPrompt}.`).slice(0, 180)
+    : "-";
+  return [
+    `BEAT: ${keyword}`,
+    `VISUAL: ${visual}`,
+    `SCREEN: ${onScreen}`,
+    ...(speaker ? [`SPEAKER: ${speaker}`] : []),
+    `VOICE: ${voiceLine}`
+  ].join("\n");
+}
+
+/** Writes a single new scene for insertion at `request.position`, using neighboring context without rewriting other scenes. */
+export async function writeInsertedScene(
+  request: InsertSceneRequest,
+  signal: AbortSignal,
+  http: typeof fetch = fetch
+): Promise<string> {
+  if (http === fetch && (config.planner === "deterministic" || !routeHasKey("sceneInsert")) && !process.env.SCRIPT_WRITER_FORCE_HTTP) {
+    if (signal.aborted) throw new Error("Scene insertion was cancelled.");
+    return deterministicInsertedSceneBlock(request);
+  }
+  const route = routeFor("sceneInsert");
+  if (route.provider !== "anthropic") {
+    const result = await callModel({ step: "sceneInsert", route, system: neutralSystem(request), messages: insertSceneMessages(request), maxTokens: 900, effort: "low", signal, errorPrefix: "Scene writer request failed", includeErrorDetail: true, ...(http !== fetch ? { request: http } : {}), stopErrors: { max_tokens: "The new scene ran too long and was cut off. Try again with a shorter description." } });
+    return result.text;
+  }
+  const response = await http("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": config.anthropicApiKey, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({
+      model: route.model,
+      max_tokens: route.maxTokens,
+      stream: true,
+      output_config: { effort: route.effort ?? "low" },
+      system: systemBlocks(request),
+      messages: insertSceneMessages(request)
+    }),
+    signal
+  });
+  if (!response.ok || !response.body) {
+    const detail = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
+    throw new Error(`Scene writer request failed (${response.status})${detail.error?.message ? `: ${detail.error.message}` : "."}`);
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffered = "";
+  let text = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffered += value;
+    let end: number;
+    while ((end = buffered.indexOf("\n\n")) >= 0) {
+      const event = buffered.slice(0, end);
+      buffered = buffered.slice(end + 2);
+      const data = event.split("\n").find((line) => line.startsWith("data:"))?.slice(5).trim();
+      if (!data) continue;
+      const payload = JSON.parse(data) as { type?: string; delta?: { type?: string; text?: string; stop_reason?: string }; error?: { message?: string } };
+      if (payload.type === "message_delta" && payload.delta?.stop_reason === "max_tokens") {
+        throw new Error("The new scene ran too long and was cut off. Try again with a shorter description.");
+      }
+      if (payload.type === "error") throw new Error(`Scene writer failed: ${payload.error?.message ?? "unknown error"}`);
+      if (payload.type === "content_block_delta" && payload.delta?.type === "text_delta" && payload.delta.text) {
+        text += payload.delta.text;
+      }
+    }
+  }
+  return text;
+}
+
+/** Validates the single generated beat, splices it into `previous` at `position` leaving every existing beat untouched, and checks flags. */
+export function finishInsertedScene(
+  text: string,
+  brief: ScriptBrief,
+  context: DirectorContext,
+  options: { previous: ScriptBeat[]; position: number; notes?: ScriptNotes | null; beatId: string }
+): {
+  insertedBeat: ScriptBeat;
+  beats: ScriptBeat[];
+  position: number;
+  notes: ScriptNotes | null;
+  flags: { beat: number; message: string }[];
+} {
+  const { previous, position, notes, beatId } = options;
+  if (!Number.isInteger(position) || position < 0 || position > previous.length) {
+    throw new Error("Choose a valid scene boundary.");
+  }
+  const parsed = parseScriptStream(text);
+  if (parsed.beats.length !== 1) {
+    throw new Error(parsed.beats.length === 0 ? "The new scene came back empty. Try again." : "The model returned more than one scene. Try again.");
+  }
+  const validated = parseScriptBeats([
+    {
+      ...parsed.beats[0]!,
+      id: beatId,
+      visual: parsed.beats[0]!.visual ?? null,
+      onScreen: parsed.beats[0]!.onScreen ?? null,
+      line: brief.audio.mode === "voiceover" || brief.audio.mode === "both" ? parsed.beats[0]!.line ?? null : null
+    }
+  ]);
+  const insertedBeat = validated?.[0];
+  if (!insertedBeat || !insertedBeat.keyword.trim() || !insertedBeat.visual?.trim()) {
+    throw new Error("The new scene came back incomplete. Try again.");
+  }
+  const beats = [...previous.slice(0, position), insertedBeat, ...previous.slice(position)];
+  const asPlan = {
+    beats: beats.map((beat, i) => ({ id: `b${i + 1}`, keyword: beat.keyword, on_screen: beat.onScreen, line: beat.line }))
+  } as unknown as BeatPlan;
+  const flags = inventedNumbers(asPlan, brief, context).map((problem) => {
+    const match = /^b(\d+): (.*)$/.exec(problem);
+    return { beat: match ? Number(match[1]) - 1 : -1, message: (match?.[2] ?? problem).replace(/; remove it or use the brief's wording\.$/, ".") };
+  });
+  beats.forEach((beat, i) => {
+    if ((beat.onScreen?.match(/\d+/g) ?? []).length >= 5) {
+      flags.push({ beat: i, message: "The on-screen text reads like a list of data; the frame draws the numbers, so keep a short label here." });
+    }
+  });
+  return { insertedBeat, beats, position, notes: notes ?? null, flags };
 }

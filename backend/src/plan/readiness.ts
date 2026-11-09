@@ -1,7 +1,7 @@
 import { visualStatus, currentClips } from "./visual-state.ts";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { beatPlanProblems, resolveSceneRoute, type VideoProject } from "@videosaas/contracts";
+import { beatPlanProblems, isScriptLedDuration, resolveSceneRoute, type VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { uploadDirectory } from "../storage.ts";
 import { audioStatus } from "./audio.ts";
@@ -70,11 +70,18 @@ export function planReadiness(project: VideoProject): Readiness {
     warnings.push({ beat: null, message: "This video uses a gallery theme, not your brand. Choose the brand kit read from your website so its colours, fonts and logo are used." });
   }
   const target = plan.target_duration_s;
-  const offTarget = Math.abs(timing.total - target) > Math.max(target * TIMING_RULES.tolerance, 3) + 0.05;
+  const scriptLed = isScriptLedDuration(project.brief) || plan.duration_mode === "script";
+  const offTarget = !scriptLed && Math.abs(timing.total - target) > Math.max(target * TIMING_RULES.tolerance, 3) + 0.05;
   if (offTarget) {
     warnings.push({ beat: null, message: `The film runs ${timing.total.toFixed(0)}s; you chose ${target}s as a target.` });
   }
   const durationSeconds = (isPlate ? plateFilmSeconds(project) : null) ?? timing.total;
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    blocking.push({
+      beat: null,
+      message: "The film has an invalid runtime duration."
+    });
+  }
   return { ok: blocking.length === 0, blocking, warnings, durationSeconds };
 }
 

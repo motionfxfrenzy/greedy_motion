@@ -1,26 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  formatFinalRatioTabLabel,
-  formatFinalWaitMessage,
-  shouldShowFinalRatioTabs
-} from "./logic";
+import { useCallback, useRef, useState } from "react";
+import { FinalRatioPlayer } from "./FinalRatioPlayer";
 import type { FinalViewProps } from "./types";
 
 /**
- * Shared Step 4 (Final review) view used by both Plates and HyperFrames.
- * Extracted from `PlateFinal` with identical DOM structure and styling:
- * - Renders ratio tabs only when `ratios.length > 1`
- * - One native `<video controls>` stage frame
- * - Download button/chip per ratio
- * - `← Back to Animation` and `Approve final` (with in-flight & locked states)
+ * Shared Step 4 (Final review) view used by both Plates and HyperFrames:
+ * - Renders all available/generated ratios side-by-side in a responsive comparison stage
+ *   (or a centered single frame when `ratios.length === 1`)
+ * - Each player frame carries its own top-right download action (or preparing/failed status chip)
+ *   and branded Greedy Motion media controls
+ * - Coordinates playback so starting one player pauses any other active player in this view
+ * - Preserves `← Back to Animation` and `Approve final` (with in-flight & locked states)
  */
 export function FinalView({
   title,
   subtitle,
   ratios,
-  initialRatio,
   shape,
   poster,
   onBack,
@@ -30,19 +26,22 @@ export function FinalView({
   renderPreparingText,
   renderFailedText
 }: FinalViewProps) {
-  const [view, setView] = useState<string>(initialRatio);
   const [approving, setApproving] = useState(false);
+  const stageRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    setView(initialRatio);
-  }, [initialRatio]);
-
-  const activeRatio = ratios.find((r) => r.id === view) ?? ratios[0];
-  const showTabs = shouldShowFinalRatioTabs(ratios);
-  const src = activeRatio?.url ?? null;
+  const handleMediaPlay = useCallback((activeVideo: HTMLVideoElement) => {
+    const stageEl = stageRef.current;
+    if (!stageEl) return;
+    const videos = stageEl.querySelectorAll<HTMLVideoElement>("video.pf-video");
+    videos.forEach((v) => {
+      if (v !== activeVideo && !v.paused) {
+        v.pause();
+      }
+    });
+  }, []);
 
   return (
-    <div className="pf" role="region" aria-label="Final film">
+    <div className="pf" role="region" aria-label="Final film" data-ratio-count={ratios.length}>
       <div className="pf-head">
         <div>
           <h1>{title}</h1>
@@ -73,75 +72,26 @@ export function FinalView({
           )}
         </div>
       </div>
-      {showTabs && (
-        <div className="pf-tabs" role="tablist" aria-label="Ratio">
+
+      {ratios.length > 0 && (
+        <div
+          ref={stageRef}
+          className="pf-stage"
+          data-count={ratios.length}
+        >
           {ratios.map((ratio) => (
-            <button
+            <FinalRatioPlayer
               key={ratio.id}
-              type="button"
-              role="tab"
-              aria-selected={activeRatio?.id === ratio.id}
-              className={`pp-track-chip${activeRatio?.id === ratio.id ? " on" : ""}`}
-              onClick={() => setView(ratio.id)}
-            >
-              {formatFinalRatioTabLabel(ratio)}
-            </button>
+              ratio={ratio}
+              shape={shape(ratio.id)}
+              poster={poster}
+              renderPreparingText={renderPreparingText}
+              renderFailedText={renderFailedText}
+              onMediaPlay={handleMediaPlay}
+            />
           ))}
         </div>
       )}
-      {activeRatio && (
-        <div className="pf-stage">
-          <div
-            className="pf-frame"
-            style={{ aspectRatio: shape(activeRatio.id) }}
-            data-ratio={activeRatio.id}
-          >
-            {src ? (
-              <video
-                key={src}
-                src={src}
-                poster={poster}
-                controls
-                playsInline
-                preload="metadata"
-                className="pf-video"
-              />
-            ) : (
-              <p className="pf-wait" role="status">
-                {activeRatio.status === "failed"
-                  ? renderFailedText
-                    ? renderFailedText(activeRatio)
-                    : formatFinalWaitMessage(activeRatio)
-                  : renderPreparingText
-                  ? renderPreparingText(activeRatio)
-                  : formatFinalWaitMessage(activeRatio)}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-      <div className="pf-downloads">
-        {ratios.map((ratio) =>
-          ratio.url ? (
-            <a
-              key={ratio.id}
-              className="aw-btn"
-              href={ratio.url}
-              download={ratio.downloadName}
-            >
-              Download {ratio.label}
-            </a>
-          ) : (
-            <span
-              key={ratio.id}
-              className="aw-btn"
-              aria-busy={ratio.status === "preparing"}
-            >
-              {ratio.label}: {ratio.status === "failed" ? "failed" : "preparing…"}
-            </span>
-          )
-        )}
-      </div>
     </div>
   );
 }

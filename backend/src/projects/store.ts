@@ -2,8 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import sharp from "sharp";
 import {
+  aspectToFormat,
+  effectiveBriefDurationSeconds,
   findTemplate,
+  formatForDuration,
+  isScriptLedDuration,
   parseRenderRequest,
+  parseScriptBrief,
   validateTemplateValues,
   type ProjectReviewComment,
   type ProjectScript,
@@ -14,6 +19,7 @@ import {
   type ProjectState,
   type ProjectStudioDraft,
   type VideoProject,
+  SCRIPT_BEATS_MAX,
   SCRIPT_FRAMES_KEPT,
   type ScriptFrame
 } from "@videosaas/contracts";
@@ -143,13 +149,13 @@ export async function createProject(input: { name?: unknown; request?: unknown }
   return save({ id: randomUUID(), ownerId, name: name || "Untitled video", state: "Ready to create", createdAt: now, updatedAt: now, request, screenshots: [], comments: [] });
 }
 
-type ProjectUpdate = { name?: unknown; request?: unknown; state?: unknown; script?: unknown; renderJobId?: unknown; approvedAt?: unknown; archived?: unknown };
+type ProjectUpdate = { name?: unknown; request?: unknown; brief?: unknown; state?: unknown; script?: unknown; renderJobId?: unknown; approvedAt?: unknown; archived?: unknown; keepOverLength?: unknown };
 
 function cleanScript(value: unknown): ProjectScript | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Record<string, unknown>;
   if (candidate.source !== "generated" && candidate.source !== "provided") throw new ProjectInvalid("The script source is invalid.");
-  if (!Array.isArray(candidate.lines) || candidate.lines.length === 0 || candidate.lines.length > 12) throw new ProjectInvalid("A script needs between one and twelve scenes.");
+  if (!Array.isArray(candidate.lines) || candidate.lines.length === 0 || candidate.lines.length > SCRIPT_BEATS_MAX) throw new ProjectInvalid(`A script needs between one and ${SCRIPT_BEATS_MAX} scenes.`);
   const lines = candidate.lines.map((line) => {
     if (!line || typeof line !== "object") throw new ProjectInvalid("Each script scene must be valid.");
     const item = line as Record<string, unknown>;
@@ -258,11 +264,67 @@ export async function updateProject(id: string, update: ProjectUpdate) {
     const renderJobId = update.renderJobId === undefined ? current.renderJobId : typeof update.renderJobId === "string" && idPattern.test(update.renderJobId) ? update.renderJobId : undefined;
     const approvedAt = update.approvedAt === undefined ? current.approvedAt : typeof update.approvedAt === "string" ? update.approvedAt : undefined;
     const archived = typeof update.archived === "boolean" ? update.archived : current.archived;
+    if (update.keepOverLength !== undefined && typeof update.keepOverLength !== "boolean") throw new ProjectInvalid("The duration acceptance flag must be a boolean.");
+    let parsedBriefUpdate = current.brief;
+    if (update.brief !== undefined) {
+      const checkedBrief = parseScriptBrief(update.brief);
+      if ("error" in checkedBrief) throw new ProjectInvalid(checkedBrief.error);
+      // Preserve existing scriptBeats/scriptNotes on the project when updating brief settings unless explicitly provided
+      parsedBriefUpdate = {
+        ...(current.brief?.scriptBeats && !checkedBrief.brief.scriptBeats ? { scriptBeats: current.brief.scriptBeats } : {}),
+        ...(current.brief?.scriptNotes && !checkedBrief.brief.scriptNotes ? { scriptNotes: current.brief.scriptNotes } : {}),
+        ...checkedBrief.brief,
+        ...(current.keepOverLength && update.keepOverLength === undefined ? { keepOverLength: true } : {})
+      };
+    }
+    const keepOverLength =
+      typeof update.keepOverLength === "boolean"
+        ? update.keepOverLength
+        : parsedBriefUpdate?.keepOverLength ?? current.keepOverLength;
+    const brief = typeof update.keepOverLength === "boolean" && parsedBriefUpdate
+      ? (() => {
+          const { keepOverLength: _old, ...restBrief } = parsedBriefUpdate;
+          return update.keepOverLength ? { ...restBrief, keepOverLength: true } : restBrief;
+        })()
+      : parsedBriefUpdate;
+    const beatPlan =
+      update.brief !== undefined && brief && current.beatPlan
+        ? (() => {
+            const effectiveSec = effectiveBriefDurationSeconds(brief, current.beatPlan.beats);
+            const nextPlan = {
+              ...current.beatPlan,
+              canvas: brief.aspect,
+              target_duration_s: effectiveSec,
+              format: formatForDuration(effectiveSec)
+            };
+            if (isScriptLedDuration(brief)) nextPlan.duration_mode = "script";
+            else delete nextPlan.duration_mode;
+            return nextPlan;
+          })()
+        : current.beatPlan;
+    const syncedRequest =
+      update.brief !== undefined && update.request === undefined && brief
+        ? { ...request, format: aspectToFormat(brief.aspect) }
+        : request;
     // Variable ids belong to a template. Dropping a draft on a template switch
     // is safer than carrying values into unrelated slots.
     const { studio: _studio, ...withoutStudio } = current;
-    const base = request.template === current.request.template ? current : withoutStudio;
-    return save({ ...base, name, request, state, ...(script ? { script } : {}), ...(renderJobId ? { renderJobId } : {}), ...(approvedAt ? { approvedAt } : {}), ...(archived !== undefined ? { archived } : {}), updatedAt: new Date().toISOString() });
+    const base = syncedRequest.template === current.request.template ? current : withoutStudio;
+    const { keepOverLength: _baseKeep, ...cleanBase } = base;
+    return save({
+      ...cleanBase,
+      name,
+      request: syncedRequest,
+      state,
+      ...(brief ? { brief } : {}),
+      ...(beatPlan ? { beatPlan } : {}),
+      ...(script ? { script } : {}),
+      ...(renderJobId ? { renderJobId } : {}),
+      ...(approvedAt ? { approvedAt } : {}),
+      ...(archived !== undefined ? { archived } : {}),
+      ...(keepOverLength !== undefined ? { keepOverLength } : {}),
+      updatedAt: new Date().toISOString()
+    });
   });
 }
 
@@ -404,7 +466,9 @@ export async function setProjectPlanning(id: string, planning: VideoProject["pla
     const current = await getProject(id);
     if (!current) return null;
     const { planning: _old, ...rest } = current;
-    return save({ ...rest, ...(brief && !current.beatPlan ? { brief } : {}), ...(planning ? { planning } : {}), updatedAt: new Date().toISOString() });
+    const keepOverLength = brief?.keepOverLength ?? current.keepOverLength;
+    const nextBrief = brief && keepOverLength ? { ...brief, keepOverLength: true } : brief;
+    return save({ ...rest, ...(nextBrief && !current.beatPlan ? { brief: nextBrief } : {}), ...(keepOverLength !== undefined ? { keepOverLength } : {}), ...(planning ? { planning } : {}), updatedAt: new Date().toISOString() });
   });
 }
 
@@ -414,9 +478,12 @@ export type UpdateProjectPlanOptions = {
   onVersionMismatch?: (currentVersion: string) => Error;
 };
 
+export type PlanMutationPatch = Pick<VideoProject, "brief" | "beatPlan"> &
+  Partial<Pick<VideoProject, "script" | "state" | "request" | "planAudio" | "coverFrame" | "filmSeconds" | "keepOverLength">>;
+
 export async function updateProjectPlan(
   id: string,
-  mutate: (current: VideoProject) => (Pick<VideoProject, "brief" | "beatPlan"> & Partial<Pick<VideoProject, "script" | "state" | "request">>) | Promise<Pick<VideoProject, "brief" | "beatPlan"> & Partial<Pick<VideoProject, "script" | "state" | "request">>>,
+  mutate: (current: VideoProject) => PlanMutationPatch | Promise<PlanMutationPatch>,
   options?: UpdateProjectPlanOptions
 ) {
   return serializeProject(id, async () => {
@@ -432,9 +499,21 @@ export async function updateProjectPlan(
       }
     }
     const changes = await mutate(current);
+    const keepOverLength = changes.keepOverLength ?? changes.brief?.keepOverLength ?? current.keepOverLength;
+    const nextBrief = changes.brief && keepOverLength ? { ...changes.brief, keepOverLength: true } : changes.brief;
     // A plan being applied also ends the director's job record (planning).
     const { approvedAt: _approvedAt, planning: _planning, ...withoutApproval } = current;
-    return save({ ...withoutApproval, ...changes, updatedAt: new Date().toISOString() });
+    const merged: VideoProject = {
+      ...withoutApproval,
+      ...changes,
+      ...(nextBrief ? { brief: nextBrief } : {}),
+      ...(keepOverLength !== undefined ? { keepOverLength } : {}),
+      updatedAt: new Date().toISOString()
+    };
+    if ("filmSeconds" in changes && changes.filmSeconds === undefined) {
+      delete merged.filmSeconds;
+    }
+    return save(merged);
   });
 }
 

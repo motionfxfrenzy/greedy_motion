@@ -6,11 +6,16 @@ import http from "node:http";
 import { access, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
-import { deleteOutputs, downloadProject, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
+import { DISK_FULL_CODE, DISK_FULL_MESSAGE, cleanTempScratchDirs, deleteOutputs, downloadProject, isDiskFullError, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
 import { QUEUES, claim, finish, noteRetry, progress } from "./jobs.mjs";
 import { consume, createControl, runLeased } from "./control.mjs";
 import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
 import { PLATE_EXPORT_QUEUE, PLATE_REBUNDLE_QUEUE, PLATE_RENDER_QUEUE, handlePlateExport, handlePlateRebundle, handlePlateRender, plateCapability, renderPlateFilmJob } from "./plates.mjs";
+import { handBackInFlight, installProcessSafety, installStdioSafety, writeFatalLine } from "./safety.mjs";
+
+export { handBackInFlight, installProcessSafety, installStdioSafety, writeFatalLine };
+
+installStdioSafety();
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 // Railway private networking needs "::"; local Docker uses 0.0.0.0.
@@ -20,6 +25,8 @@ const concurrency = Number.parseInt(process.env.RENDER_CONCURRENCY ?? "1", 10);
 const plateConcurrency = Number.parseInt(process.env.PLATE_CONCURRENCY ?? "2", 10);
 // Seconds to let in-flight renders finish on SIGTERM before handing them back to the queue.
 const drainSeconds = Number.parseInt(process.env.DRAIN_SECONDS ?? "25", 10);
+// Seconds to let in-flight jobs drain on uncaughtException / unhandledRejection before exiting 1.
+const fatalDrainSeconds = Number.parseInt(process.env.FATAL_DRAIN_SECONDS ?? "10", 10);
 const RENDERS_DIR = "/renders";
 // Scale to zero (WORKER_LAUNCH=ecs on the backend): exit after this many seconds with nothing running and
 // nothing queued, so the task stops billing. The backend starts a new one when a render is queued.
@@ -33,7 +40,7 @@ const QUEUE = QUEUES.video;
 const log = (level, event, fields = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 // The worker holds no database connection and no pg-boss client: every claim, heartbeat, write and acknowledgment goes through the
 // backend's job-control routes (control.mjs, docs/JOB_CONTROL.md), so adding workers never adds pooler clients.
-const control = createControl();
+const control = createControl({ log });
 
 let ready = false;
 let shuttingDown = false;
@@ -145,10 +152,12 @@ async function renderBeatPlan(id, input, attempt, signal, reporter) {
     try {
       try {
         await rm(scratch, { recursive: true, force: true });
+        await mkdir(scratch, { recursive: true });
         await downloadProject(input.projectPrefix, folder);
         await access(join(folder, "index.html"));
         if (input.kind === "beat-plan") await access(join(folder, "variables.json"));
       } catch (error) {
+        if (isDiskFullError(error)) throw new PermanentError(DISK_FULL_MESSAGE, DISK_FULL_CODE);
         if (error?.code === "ENOENT" || /missing in storage|Invalid project prefix/.test(error?.message ?? "")) throw new PermanentError("The prepared storyboard folder is incomplete. Submit the storyboard again.");
         throw error;
       }
@@ -198,6 +207,7 @@ async function renderPlateFilm(id, input, attempt, signal) {
     try {
       result = await renderPlateFilmJob(id, input, attempt, { control, signal, report, output });
     } catch (error) {
+      if (isDiskFullError(error)) throw new PermanentError(DISK_FULL_MESSAGE, DISK_FULL_CODE);
       if (error?.permanent) throw new PermanentError(error.message, error.code || "render_invalid");
       throw error;
     }
@@ -228,11 +238,13 @@ async function renderVideo(input, attempt, signal, reporter) {
   try {
     let variablesFile;
     try {
+      await mkdir(project, { recursive: true });
       const { brandVariables } = await buildProject(project, { template, theme, brandId });
       const screenshotVariables = await addScreenshot(project, input.screenshot);
       await addAudio(project, id, input.audio);
       variablesFile = await writeVariables(project, { ...variables, ...brandVariables, ...screenshotVariables });
     } catch (error) {
+      if (isDiskFullError(error)) throw new PermanentError(DISK_FULL_MESSAGE, DISK_FULL_CODE);
       // Missing brand kit, screenshot or audio: the inputs are wrong, so a retry cannot help.
       throw new PermanentError(error instanceof Error ? error.message : "The render inputs are invalid.");
     }
@@ -298,6 +310,17 @@ async function handle(job) {
       log("warn", "render_abandoned", { jobId, attempt, message });
       throw error;
     }
+    if (isDiskFullError(error)) {
+      await cleanTempScratchDirs("/tmp").catch(() => undefined);
+      await finish(control, jobId, attempt, {
+        error: {
+          code: DISK_FULL_CODE,
+          message: DISK_FULL_MESSAGE
+        }
+      });
+      log("error", "render_failed_disk_full", { jobId, attempt, message: message.slice(-400) });
+      return;
+    }
     if (error instanceof PermanentError) {
       const code = error.code || "render_invalid";
       await finish(control, jobId, attempt, { error: { code, message } });
@@ -320,6 +343,8 @@ async function handle(job) {
  * (Chromium + the engine's capture adapter).
  */
 const stop = new AbortController();
+const jobShutdown = new AbortController();
+const activeLeases = new Set();
 let activeExports = 0;
 const leased = { [QUEUES.video]: 0, [PLATE_RENDER_QUEUE]: 0, [PLATE_EXPORT_QUEUE]: 0, [PLATE_REBUNDLE_QUEUE]: 0 };
 let drawsPlates = false;
@@ -361,7 +386,7 @@ async function startConsuming() {
       // Counted from the moment it is leased (not when the handler starts), so the next poll never offers this slot again.
       leased[lease.queue] += 1;
       lastBusy = Date.now();
-      const run = runLeased(control, lease, handler, { shutdown: stop.signal }).then((outcome) => log("info", "job_ended", { queue: lease.queue, id: lease.id, attempt: lease.attempt, outcome })).finally(() => { leased[lease.queue] -= 1; lastBusy = Date.now(); inFlight.delete(run); });
+      const run = runLeased(control, lease, handler, { shutdown: jobShutdown.signal, inFlight: activeLeases }).then((outcome) => log("info", "job_ended", { queue: lease.queue, id: lease.id, attempt: lease.attempt, outcome })).finally(() => { leased[lease.queue] -= 1; lastBusy = Date.now(); inFlight.delete(run); });
       inFlight.add(run);
     }
   });
@@ -377,43 +402,53 @@ function watchIdle() {
     if (!demand || demand.plate === null) return;
     if (demand.queued + demand.plate > 0) { lastBusy = Date.now(); return; }
     clearInterval(timer);
-    void shutdown("idle");
+    void safety.shutdown("idle");
   }, 15_000);
   timer.unref();
 }
 
 function send(response, status, payload) {
-  response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-  response.end(`${JSON.stringify(payload)}\n`);
+  if (response.writableEnded || response.destroyed) return;
+  try {
+    response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    response.end(`${JSON.stringify(payload)}\n`);
+  } catch { /* peer closed socket mid-response */ }
 }
 
 // Health only. Renders arrive through the queue, never over HTTP.
 const server = http.createServer((request, response) => {
-  if (request.method === "GET" && request.url === "/capabilities") return void plateCapability().then((plates) => send(response, 200, { ...RENDER_CAPABILITIES, ...(plates ? { plates } : {}) }));
+  request.on("error", () => {});
+  response.on("error", () => {});
+  request.socket?.on("error", () => {});
+  if (request.method === "GET" && request.url === "/capabilities") return void plateCapability().then((plates) => send(response, 200, { ...RENDER_CAPABILITIES, ...(plates ? { plates } : {}) })).catch(() => send(response, 500, { error: { code: "error", message: "Failed." } }));
   if (request.method === "GET" && request.url === "/healthz") return send(response, 200, { status: "ok", service: "worker" });
   if (request.method === "GET" && request.url === "/readyz") return send(response, ready && !shuttingDown ? 200 : 503, { ready: ready && !shuttingDown, active, concurrency });
   return send(response, 404, { error: { code: "not_found", message: "Not found." } });
 });
+server.on("clientError", (_error, socket) => {
+  socket.on("error", () => {});
+  socket.destroy();
+});
+server.on("error", (error) => {
+  log("error", "worker_http_error", { message: error instanceof Error ? error.message : String(error) });
+});
 
-async function shutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  log("info", "worker_shutdown", { signal, active });
-  // Stop taking jobs and let running renders finish. Anything still running at the deadline is handed
-  // back: its heartbeat lapses and another replica retries it as a new, fenced attempt.
-  // Stop polling; in-flight jobs get DRAIN_SECONDS, then their lease lapses and another worker retries them as a new, fenced attempt.
-  const deadline = Date.now() + drainSeconds * 1000;
-  stop.abort();
-  while ((active > 0 || activePlates > 0) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 500));
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 2000).unref();
-}
-
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
-process.on("SIGINT", () => void shutdown("SIGINT"));
+const safety = installProcessSafety({
+  control,
+  inFlight: activeLeases,
+  isActive: () => active > 0 || activePlates > 0 || activeLeases.size > 0 || Object.values(leased).some((n) => n > 0),
+  onShuttingDown: () => { shuttingDown = true; },
+  stopPolling: () => stop.abort(),
+  abortJobs: () => jobShutdown.abort(new Error("worker shutting down")),
+  server,
+  log,
+  drainSeconds,
+  fatalDrainSeconds,
+  handBackTimeoutMs: 5000
+});
 
 server.listen(port, host, () => log("info", "worker_ready", { host, port, concurrency }));
 void startConsuming().catch((error) => {
   log("error", "worker_start_failed", { message: error instanceof Error ? error.message : String(error) });
-  process.exit(1);
+  void safety.onFatal("worker_start_failed", error);
 });

@@ -160,6 +160,124 @@ export const FIXTURE_PROJECT: VideoProject = {
   }
 };
 
+export const OLD_RUBBER_HOSE_7_BEATS = [
+  { keyword: "A hen wants bread", visual: "A rubber-hose hen eyes a warm loaf of bread.", onScreen: "Bread for eggs?", line: "A little hen wants a loaf of bread." },
+  { keyword: "Eggs, no thanks", visual: "The baker shakes his head at the basket of eggs.", onScreen: "No eggs today", line: "The baker already has plenty of eggs." },
+  { keyword: "The long swap", visual: "The hen trades across three market stalls in a row.", onScreen: "Three swaps later", line: "She has to swap with three neighbours first." },
+  { keyword: "A pretty shell", visual: "Everyone agrees to trade cowrie shells.", onScreen: "Cowrie shells", line: "Then the town picks a shiny shell everyone takes." },
+  { keyword: "Shell to coin", visual: "Shells give way to stamped brass coins.", onScreen: "Stamped coins", line: "Heavy metal coins last longer than brittle shells." },
+  { keyword: "Coin to paper", visual: "A vault receipt replaces the heavy sack of coins.", onScreen: "Paper receipts", line: "Paper notes promise the coins are safe in the vault." },
+  { keyword: "Still warm", visual: "The hen finally enjoys her warm loaf of bread.", onScreen: "Shared trust", line: "And the hen gets her bread while it is still warm." }
+];
+
+export const UPDATED_FOLK_TALE_7_BEATS = [
+  { id: "sb-1", keyword: "Wren wants fish", visual: "In the cobbled market square by the well, wren holds out her bread-basket toward tobin's fish-crate.", onScreen: null, line: "Wren wants Tobin's fish." },
+  { id: "sb-2", keyword: "Bread for fish", visual: "Wren hands a round loaf across the fish-crate; tobin passes her a silver fish.", onScreen: "The old swap", line: "So she does what everyone in the square does. She swaps a loaf of bread for a fish." },
+  { id: "sb-3", keyword: "No more bread", visual: "Tobin sits beside a tall pile of loaves and shakes his head.", onScreen: null, line: "But one morning Tobin's had bread all week. He wants boots, not loaves." },
+  { id: "sb-4", keyword: "A string of shells", visual: "Wren lifts a shell-string from her apron; tobin weighs it and smiles.", onScreen: "Shells", line: "So the square picks one thing everyone accepts: shells." },
+  { id: "sb-5", keyword: "Little coins", visual: "Small round metal coins clink into tobin's open hand beside the fish-crate.", onScreen: "Metal coins", line: "So they need something rare that lasts. They melt metal into little coins." },
+  { id: "sb-6", keyword: "A paper promise", visual: "Wren drops the heavy coin-purse into the strongbox by the well and hands tobin a paper note.", onScreen: "Paper notes", line: "So Wren locks her coins in the square's strongbox and carries a paper note instead." },
+  { id: "sb-7", keyword: "Still bread and fish", visual: "Wren and tobin sit on the well's edge sharing a loaf and a fish, the tally-book closed between them.", onScreen: "Crypto & trust", line: "And Wren still gets her fish. Money keeps changing shape." }
+];
+
+export const UPDATED_FOLK_TALE_7_PROJECT: VideoProject = {
+  ...FIXTURE_PROJECT,
+  id: "316f1cbd-b5b9-49af-ae3b-2add10a18ed5",
+  name: "how money evolves",
+  state: "Ready for review",
+  request: {
+    ...FIXTURE_PROJECT.request,
+    format: "portrait",
+    prompt: "how money evolves from barter system to crypto"
+  },
+  brief: {
+    ...FIXTURE_PROJECT.brief!,
+    text: "how money evolves from barter system to crypto",
+    look: "illus-folk-tale",
+    styleExample: "story-illus-folk-tale",
+    aspect: "9:16",
+    aspects: ["9:16"],
+    captions: "key-phrases",
+    scriptBeats: UPDATED_FOLK_TALE_7_BEATS
+  },
+  beatPlan: {
+    ...FIXTURE_PROJECT.beatPlan!,
+    canvas: "9:16",
+    beats: UPDATED_FOLK_TALE_7_BEATS.map((b, i) => ({
+      id: `b${i + 1}`,
+      role: i === 0 ? ("setup" as const) : i === 6 ? ("resolution" as const) : ("turn" as const),
+      kind: "kinetic" as const,
+      producer: "hyperframes" as const,
+      line: b.line,
+      verb: null,
+      keyword: b.keyword,
+      on_screen: b.onScreen,
+      success: i === 6,
+      energy: "calm" as const,
+      motion: {
+        camera: "slow drift",
+        entry: { axis: "x" as const, dir: 1 as const },
+        exit: { axis: "x" as const, dir: -1 as const },
+        text_effect: "waterfall" as const
+      },
+      sfx: "pop",
+      scene: null,
+      transition_out: { type: i === 6 ? ("end" as const) : ("j-cut" as const), carrier: null }
+    }))
+  }
+};
+
+export function makeOldRubberHose7Status(): PlateStatus {
+  return {
+    available: true,
+    look: "illus-rubber-hose",
+    mode: "live",
+    scenes: OLD_RUBBER_HOSE_7_BEATS.map((b, index) => ({
+      index,
+      keyword: b.keyword,
+      state: "drawn" as const,
+      seconds: 4,
+      frames: 120,
+      sig: `v3:old-rh-${index}`,
+      rev: 0,
+      gen: 1,
+      variantId: `00000000-0000-4000-8000-00000000070${index + 1}`,
+      bundleDigest: `old-rh-digest-${index}-${"b".repeat(48)}`,
+      live: false,
+      variants: {
+        "9:16": {
+          state: "drawn" as const,
+          sig: `v3:old-rh-${index}`,
+          v: `rhclip${index}`,
+          variantId: `00000000-0000-4000-8000-00000000070${index + 1}`,
+          bundleDigest: `old-rh-digest-${index}-${"b".repeat(48)}`,
+          live: false
+        }
+      }
+    })),
+    comments: [],
+    subtitles: {
+      mode: "full",
+      style: "kinetic",
+      size: 100,
+      opacity: 100,
+      color: null,
+      bgColor: null,
+      x: 50,
+      y: 88,
+      scenePositions: null,
+      voice: true,
+      music: true,
+      sfx: true,
+      transitions: false,
+      aspects: ["9:16"]
+    },
+    running: false,
+    drawnAspects: ["9:16"],
+    drawingAspects: []
+  };
+}
+
 function makeScenes(states: PlateScene["state"][], errors?: Partial<Record<number, string>>): PlateScene[] {
   return BEATS.map((b, index) => {
     const state = states[index] ?? "drawn";
@@ -330,6 +448,7 @@ export function fixturePlateStatus(stateName: string): PlateStatus {
     case "i-aspect-picker":
     case "k-plate-final":
     case "q-plate-final-approved":
+    case "r-plate-final-all-ready":
       return {
         available: true,
         look: "illus-fox",
@@ -338,6 +457,30 @@ export function fixturePlateStatus(stateName: string): PlateStatus {
         subtitles: baseSubtitles,
         running: false,
         drawnAspects: ["16:9", "9:16", "1:1"],
+        drawingAspects: []
+      };
+
+    case "s-plate-final-two-ratios":
+      return {
+        available: true,
+        look: "illus-fox",
+        scenes: makeScenes(["drawn", "drawn", "drawn", "drawn", "drawn"]),
+        comments: [],
+        subtitles: { ...baseSubtitles, aspects: ["16:9", "9:16"] },
+        running: false,
+        drawnAspects: ["16:9", "9:16"],
+        drawingAspects: []
+      };
+
+    case "t-plate-final-single-9x16":
+      return {
+        available: true,
+        look: "illus-fox",
+        scenes: makeScenes(["drawn", "drawn", "drawn", "drawn", "drawn"]),
+        comments: [],
+        subtitles: { ...baseSubtitles, aspects: ["9:16"] },
+        running: false,
+        drawnAspects: ["9:16"],
         drawingAspects: []
       };
 
@@ -445,6 +588,98 @@ export function fixturePlateStatus(stateName: string): PlateStatus {
         drawingAspects: []
       } as PlateStatus;
 
+    case "u-stale-revision":
+      return makeOldRubberHose7Status();
+
+    case "v-partial-stale":
+      return {
+        available: true,
+        look: "illus-folk-tale",
+        mode: "live",
+        stale: true,
+        needsReconcile: true,
+        scenes: UPDATED_FOLK_TALE_7_BEATS.map((b, index) => {
+          const isStale = index === 1 || index === 4;
+          const variantId = isStale ? undefined : `00000000-0000-4000-8000-00000000080${index + 1}`;
+          return {
+            index,
+            keyword: b.keyword,
+            state: isStale ? ("queued" as const) : ("drawn" as const),
+            stage: isStale ? "stale" : undefined,
+            stale: isStale,
+            needsReconcile: isStale,
+            seconds: 4,
+            frames: 120,
+            sig: `v3:ft-${index}`,
+            rev: 0,
+            gen: 1,
+            variantId,
+            bundleDigest: null,
+            live: false,
+            variants: {
+              "9:16": {
+                state: isStale ? ("queued" as const) : ("drawn" as const),
+                stage: isStale ? "stale" : undefined,
+                stale: isStale,
+                needsReconcile: isStale,
+                sig: `v3:ft-${index}`,
+                v: isStale ? null : `ftclip${index}`,
+                variantId,
+                bundleDigest: null,
+                live: false
+              }
+            }
+          };
+        }),
+        comments: [],
+        subtitles: { ...baseSubtitles, aspects: ["9:16"] },
+        running: false,
+        drawnAspects: [],
+        drawingAspects: []
+      };
+
+    case "w-preparing-revision":
+      return {
+        available: true,
+        look: "illus-folk-tale",
+        mode: "live",
+        stale: false,
+        needsReconcile: false,
+        scenes: UPDATED_FOLK_TALE_7_BEATS.map((b, index) => {
+          const state = index < 2 ? ("authoring" as const) : ("queued" as const);
+          return {
+            index,
+            keyword: b.keyword,
+            state,
+            stale: false,
+            seconds: 4,
+            frames: 120,
+            sig: `v3:ft-${index}`,
+            rev: 0,
+            gen: 2,
+            variantId: `00000000-0000-4000-8000-00000000070${index + 1}`,
+            bundleDigest: null,
+            live: false,
+            variants: {
+              "9:16": {
+                state,
+                stale: false,
+                sig: `v3:ft-${index}`,
+                v: null,
+                variantId: `00000000-0000-4000-8000-00000000070${index + 1}`,
+                bundleDigest: null,
+                live: false
+              }
+            }
+          };
+        }),
+        comments: [],
+        subtitles: { ...baseSubtitles, aspects: ["9:16"] },
+        running: true,
+        drawnAspects: [],
+        drawingAspects: ["9:16"]
+      };
+
     default:
       return {
         available: true,
@@ -460,6 +695,9 @@ export function fixturePlateStatus(stateName: string): PlateStatus {
 }
 
 export function fixturePlateExport(stateName: string, aspect: PlateAspect): PlateExportState {
+  if (stateName === "r-plate-final-all-ready" || stateName === "s-plate-final-two-ratios" || stateName === "t-plate-final-single-9x16") {
+    return { state: "ready", progress: 100 };
+  }
   if (stateName === "q-plate-final-approved") {
     if (aspect === "9:16") return { state: "ready", progress: 100 };
     return { state: "failed", progress: 0, error: "Square 1:1 export timed out." };

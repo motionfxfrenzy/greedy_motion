@@ -1,3 +1,6 @@
+import {
+  isSlowScene
+} from "./draft-profile.ts";
 import type { HostFilmMeta, HostFrameResult, HostInitResult } from "./worker-host.ts";
 
 /**
@@ -35,13 +38,57 @@ export type FetchedBundle = {
   gen?: number;
 };
 
+export const DEFAULT_CHECK_WATCHDOG_MS = 10_000;
+export const DEFAULT_FRAME_WATCHDOG_MS = 2_000;
+export const DEFAULT_INIT_WATCHDOG_MS = 2_000;
+export const MAX_CONSECUTIVE_OVER_BUDGET_FRAMES = 3;
+export const MAX_VISIBILITY_RECHECKS = 3;
+export const DEFAULT_CHECK_MAX_RETRIES = 2;
+export const DEFAULT_CHECK_RETRY_BACKOFF_MS: readonly number[] = [150, 400];
+
+export function isDocumentHidden(
+  doc?: { hidden?: boolean; visibilityState?: string } | null
+): boolean {
+  try {
+    const d =
+      doc !== undefined
+        ? doc
+        : (globalThis as { document?: { hidden?: boolean; visibilityState?: string } }).document;
+    if (!d) return false;
+    if (d.hidden === true) return true;
+    if (typeof d.visibilityState === "string" && d.visibilityState !== "visible") return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function isWatchdogTimeoutError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err ?? "")).toLowerCase();
+  return (
+    msg.includes("watchdog") ||
+    msg.includes("frame-timeout") ||
+    msg.includes("init-timeout") ||
+    msg.includes("heartbeat-timeout") ||
+    msg.includes("check-watchdog")
+  );
+}
+
+export function isInitTimeoutError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err ?? "")).toLowerCase();
+  return msg.includes("init-timeout") || (msg.includes("watchdog") && msg.includes("init"));
+}
+
+const BUNDLE_URL_GEN_REGEX = /(?:\/|%2F)g(\d+)(?:\/|%2F)(?:bundles(?:\/|%2F)[^/?#]+(?:\/|%2F))?bundle\.html/i;
+
 /**
- * Extracts the variant generation (`gen`) from a presigned bundle URL (`.../g<gen>/bundle.html`),
+ * Extracts the variant generation (`gen`) from a presigned bundle URL
+ * (`.../g<gen>/bundle.html` or `.../g<gen>/bundles/<sha>/bundle.html`),
  * falling back to `fallbackGen` (default `1`).
  */
 export function parseGenFromBundleUrl(url?: string | null, fallbackGen = 1): number {
   if (typeof url === "string" && url.length > 0) {
-    const m = /(?:\/|%2F)g(\d+)(?:\/|%2F)bundle\.html/i.exec(url);
+    const m = BUNDLE_URL_GEN_REGEX.exec(url);
     if (m && m[1]) {
       const n = Number(m[1]);
       if (Number.isInteger(n) && n >= 1) return n;
@@ -50,10 +97,44 @@ export function parseGenFromBundleUrl(url?: string | null, fallbackGen = 1): num
   return Number.isInteger(fallbackGen) && fallbackGen >= 1 ? fallbackGen : 1;
 }
 
+export type CheckOutcomeResults = {
+  source?: "playback";
+  reason?: string;
+  samples?: number;
+  drawMsMedian?: number;
+  drawMsP90?: number;
+  drawMs?: { medianMs: number; p90Ms: number };
+  [key: string]: unknown;
+};
+
 export type CheckOutcome =
-  | { ok: true }
-  | { ok: false; kind: "code"; error: string }
-  | { ok: false; kind: "env"; error?: string };
+  | {
+      ok: true;
+      source?: "playback";
+      reason?: string;
+      samples?: number;
+      results?: CheckOutcomeResults;
+      drawMsMedian?: number;
+      drawMsP90?: number;
+      drawMs?: { medianMs: number; p90Ms: number };
+      initRetries?: number;
+    }
+  | { ok: false; kind: "code"; error: string; results?: CheckOutcomeResults }
+  | {
+      ok: false;
+      kind: "env";
+      error?: string;
+      results?: CheckOutcomeResults;
+      initRetries?: number;
+      overBudgetExhausted?: boolean;
+    }
+  | {
+      ok: false;
+      kind: "inconclusive";
+      inconclusive: true;
+      reason?: string;
+      error?: string;
+    };
 
 export type CheckReportPayload = {
   gen: number;
@@ -63,7 +144,16 @@ export type CheckReportPayload = {
 };
 
 export type ReportCheckResult =
-  | { status: "ok"; ok: true; dropped: false; httpStatus: 200; state?: string; repair?: boolean; fallback?: boolean }
+  | {
+      status: "ok";
+      ok: true;
+      dropped: false;
+      httpStatus: 200;
+      state?: "bundled" | "checked" | "rendering" | "drawn" | "failed" | string;
+      repair?: boolean;
+      fallback?: boolean;
+      playback?: "clip";
+    }
   | { status: "dropped"; ok: true; dropped: true; httpStatus: 204 }
   | { status: "error"; ok: false; dropped: false; httpStatus: number; code?: string; message?: string }
   | { status: "network_error"; ok: false; dropped: false; error: string };
@@ -217,7 +307,7 @@ export async function fetchBundle(
     );
   }
 
-  const matchedUrlGen = /(?:\/|%2F)g(\d+)(?:\/|%2F)bundle\.html/i.exec(meta.url ?? "");
+  const matchedUrlGen = BUNDLE_URL_GEN_REGEX.exec(meta.url ?? "");
   const resolvedGen =
     typeof meta.gen === "number" && Number.isInteger(meta.gen) && meta.gen >= 1
       ? meta.gen
@@ -284,7 +374,8 @@ export async function reportCheck(
         httpStatus: 200,
         ...(typeof body.state === "string" ? { state: body.state } : {}),
         ...(typeof body.repair === "boolean" ? { repair: body.repair } : {}),
-        ...(typeof body.fallback === "boolean" ? { fallback: body.fallback } : {})
+        ...(typeof body.fallback === "boolean" ? { fallback: body.fallback } : {}),
+        ...(body.playback === "clip" ? { playback: "clip" as const } : {})
       };
     }
 
@@ -369,7 +460,62 @@ export interface CheckableHost {
   readonly unhealthy?: boolean;
   readonly errors?: readonly string[];
   init(options?: { scale?: number; params?: Record<string, unknown> }): Promise<HostInitResult>;
-  frame(n: number, options?: { includeHash?: boolean }): Promise<Omit<HostFrameResult, "bytes"> & { bytes?: number | Uint8Array; data?: Uint8Array }>;
+  frame(n: number, options?: { includeHash?: boolean; qualitySpec?: unknown; epoch?: number; includeCalibration?: boolean }): Promise<Omit<HostFrameResult, "bytes"> & { bytes?: number | Uint8Array; data?: Uint8Array }>;
+  terminateIdle?(reason?: string): void;
+}
+
+export type RunCheckOptions = {
+  /** Overall visible wall-clock watchdog timeout for a check in milliseconds (default `DEFAULT_CHECK_WATCHDOG_MS` = 10_000 ms). */
+  watchdogMs?: number;
+  /** Per-frame visible wall-clock budget in milliseconds (default `DEFAULT_FRAME_WATCHDOG_MS` = 2_000 ms). */
+  frameWatchdogMs?: number;
+  /** Optional `init` watchdog timeout in milliseconds (default `DEFAULT_INIT_WATCHDOG_MS` = 2_000 ms when enforced). */
+  initWatchdogMs?: number;
+  /** Consecutive over-budget frames required before reporting a frame watchdog timeout (default `MAX_CONSECUTIVE_OVER_BUDGET_FRAMES` = 3). */
+  maxConsecutiveOverBudgetFrames?: number;
+  /** Preview scale at which to measure slow-draw sample frames (e.g. `640 / 1920`). When provided (or when `measureSlowDraw` is true), draws >= 8 sample frames spread across first, middle, and last thirds and evaluates `isSlowScene`. */
+  previewScale?: number;
+  /** Quality spec to pass when drawing preview-scale slow-draw sample frames. */
+  qualitySpec?: unknown;
+  /** Params to pass when re-initialising at `previewScale`. */
+  params?: Record<string, unknown>;
+  /** Explicitly enable or disable the slow-draw check pass (defaults to `true` when `previewScale` is provided). */
+  measureSlowDraw?: boolean;
+  /** Optional hook returning whether another Worker draw is concurrently in flight on the page (`> 0` means contended). */
+  activeDrawWork?: () => number;
+  /** Optional getter for the active host instance (used when `onResetHost` recreates the host on an `init` retry). */
+  getHost?: () => CheckableHost | null | undefined;
+  /** Optional callback to recreate/reset the host before retrying a timed-out `init` or frame. */
+  onResetHost?: () => void;
+  /** Optional millisecond clock (default `performance.now`). */
+  now?: () => number;
+  /** Optional callback invoked with the computed `isSlowScene` decision and raw samples. */
+  onSlowSceneEvaluated?: (info: {
+    slow: boolean;
+    median: number;
+    p90: number;
+    n: number;
+    aloneSamples: number[];
+    contendedSamples: number[];
+  }) => void;
+};
+
+/**
+ * Picks at least `minCount` (default 8) sample frame indices spread across the first, middle, and last thirds of `[0, totalFrames - 1]`.
+ */
+export function buildCheckSampleFrames(totalFrames: number, minCount = 8): number[] {
+  const count = Math.max(8, minCount);
+  const maxFrame = Math.max(0, Math.floor(totalFrames) - 1);
+  if (maxFrame <= 1) {
+    return Array.from({ length: count }, () => maxFrame);
+  }
+  const indices: number[] = [];
+  // Spread evenly across first, middle, and last thirds of [1, maxFrame] (since frame 0 was already drawn in pass1/pass2)
+  for (let i = 0; i < count; i++) {
+    const f = 1 + Math.round((i * (maxFrame - 1)) / Math.max(1, count - 1));
+    indices.push(Math.max(1, Math.min(maxFrame, f)));
+  }
+  return indices;
 }
 
 function classifyFailureKind(err: unknown, beforeFirstFrame: boolean): "env" | "code" {
@@ -381,13 +527,18 @@ function classifyFailureKind(err: unknown, beforeFirstFrame: boolean): "env" | "
     msg.includes("oom") ||
     msg.includes("allocation failed") ||
     msg.includes("exceeds host byte budget") ||
-    msg.includes("timed out waiting for bootstrap iframe")
+    msg.includes("timed out waiting for bootstrap iframe") ||
+    msg.includes("watchdog") ||
+    msg.includes("check-watchdog") ||
+    msg.includes("worker terminated") ||
+    msg.includes("unhealthy") ||
+    msg.includes("crash") ||
+    msg.includes("webgl") ||
+    msg.includes("context lost")
   ) {
     return "env";
   }
-  if (beforeFirstFrame && (msg.includes("watchdog") || msg.includes("worker terminated") || msg.includes("unhealthy"))) {
-    return "env";
-  }
+  void beforeFirstFrame;
   return "code";
 }
 
@@ -419,107 +570,495 @@ function signatureOfFrame(r: Omit<HostFrameResult, "bytes"> & { bytes?: number |
  */
 export async function runCheck(
   host: CheckableHost | null | undefined,
-  expectedMeta: BundleManifest | HostFilmMeta
+  expectedMeta: BundleManifest | HostFilmMeta = {},
+  options?: RunCheckOptions
 ): Promise<CheckOutcome> {
-  if (!host) {
+  const resolveActiveHost = (): CheckableHost | null | undefined =>
+    options?.getHost ? options.getHost() : host;
+
+  const initialHost = resolveActiveHost();
+  if (!initialHost) {
     return { ok: false, kind: "env", error: "Worker host is not available on this device." };
   }
-  if (host.unhealthy) {
+  if (initialHost.unhealthy) {
     return { ok: false, kind: "env", error: "Worker host is unhealthy." };
   }
 
-  let initRes: HostInitResult;
-  try {
-    initRes = await host.init({ scale: 1 });
-  } catch (err) {
-    const kind = classifyFailureKind(err, true);
-    const error = err instanceof Error ? err.message : String(err);
-    return kind === "env" ? { ok: false, kind: "env", error } : { ok: false, kind: "code", error };
-  }
+  const now = options?.now ?? (() => (typeof performance !== "undefined" ? performance.now() : Date.now()));
+  const watchdogMs = options?.watchdogMs ?? DEFAULT_CHECK_WATCHDOG_MS;
+  const frameBudgetMs = options?.frameWatchdogMs ?? DEFAULT_FRAME_WATCHDOG_MS;
+  const maxConsecutiveOverBudget =
+    options?.maxConsecutiveOverBudgetFrames ?? MAX_CONSECUTIVE_OVER_BUDGET_FRAMES;
 
-  if (host.errors && host.errors.length > 0) {
-    return { ok: false, kind: "code", error: host.errors[0]! };
-  }
+  let sawHidden = isDocumentHidden();
+  let visibleElapsedMs = 0;
+  let consecutiveOverBudgetFrames = 0;
+  let initRetriesUsed = 0;
+  let overBudgetExhausted = false;
 
-  const m = initRes.meta ?? ({} as HostFilmMeta);
-  const actualW = m.W ?? m.width ?? initRes.w;
-  const actualH = m.H ?? m.height ?? initRes.h;
-  const actualFps = m.fps;
-  const actualFrames = m.durationFrames ?? m.frames;
-
-  const wantW = expectedMeta.width ?? expectedMeta.W;
-  const wantH = expectedMeta.height ?? expectedMeta.H;
-  const wantFps = expectedMeta.fps;
-  const wantFrames = expectedMeta.frames ?? expectedMeta.durationFrames;
-
-  if (wantW !== undefined && actualW !== wantW) {
-    return { ok: false, kind: "code", error: `Width mismatch: scene reported ${actualW}, manifest expected ${wantW}.` };
-  }
-  if (wantH !== undefined && actualH !== wantH) {
-    return { ok: false, kind: "code", error: `Height mismatch: scene reported ${actualH}, manifest expected ${wantH}.` };
-  }
-  if (wantFps !== undefined && actualFps !== wantFps) {
-    return { ok: false, kind: "code", error: `FPS mismatch: scene reported ${actualFps}, manifest expected ${wantFps}.` };
-  }
-  if (wantFrames !== undefined && actualFrames !== wantFrames) {
-    return { ok: false, kind: "code", error: `Frames mismatch: scene reported ${actualFrames}, manifest expected ${wantFrames}.` };
-  }
-
-  const totalFrames = Math.max(1, Number(actualFrames ?? wantFrames ?? 90));
-  const midFrame = Math.floor(totalFrames / 2);
-  const lastFrame = Math.max(0, totalFrames - 1);
-  const samples = [...new Set([0, midFrame, lastFrame])];
-
-  const pass1 = new Map<number, string>();
-  let drewFirstFrame = false;
-
-  try {
-    for (const f of samples) {
-      const r1 = await host.frame(f, { includeHash: true });
-      drewFirstFrame = true;
-      pass1.set(f, signatureOfFrame(r1));
-      try {
-        r1.bitmap?.close?.();
-      } catch {}
+  const checkHidden = (): boolean => {
+    if (isDocumentHidden()) {
+      sawHidden = true;
     }
+    return sawHidden;
+  };
 
-    for (const f of samples) {
-      const r2 = await host.frame(f, { includeHash: true });
-      const sig2 = signatureOfFrame(r2);
+  const onVisibilityChange = () => {
+    sawHidden = true;
+  };
+
+  const doc = (
+    globalThis as {
+      document?: {
+        addEventListener?: (t: string, cb: () => void) => void;
+        removeEventListener?: (t: string, cb: () => void) => void;
+      };
+    }
+  ).document;
+  if (doc && typeof doc.addEventListener === "function") {
+    try {
+      doc.addEventListener("visibilitychange", onVisibilityChange);
+    } catch {}
+  }
+
+  const makeInconclusiveOutcome = (error?: string): CheckOutcome => ({
+    ok: false,
+    kind: "inconclusive",
+    inconclusive: true,
+    reason: "document-hidden",
+    ...(error ? { error } : {})
+  });
+
+  const nonTimeoutHostErrors = (): readonly string[] => {
+    const h = resolveActiveHost();
+    if (!h?.errors || h.errors.length === 0) return [];
+    return h.errors.filter((e) => !isWatchdogTimeoutError(e));
+  };
+
+  const runInitWithOneRetry = async (initOpts: {
+    scale?: number;
+    params?: Record<string, unknown>;
+  }): Promise<HostInitResult> => {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      checkHidden();
+      const t0 = now();
+      let initTimer: ReturnType<typeof setTimeout> | null = null;
       try {
-        r2.bitmap?.close?.();
-      } catch {}
-      const sig1 = pass1.get(f);
-      if (sig1 !== sig2) {
-        // A mismatch can be the browser changing raster path under load (for example a GPU canvas falling back to software while
-        // several scenes are checked at once), which says nothing about the scene's code and must never start a paid repair.
-        // Draw the frame twice more, one after the other: a scene whose code is really non-deterministic keeps disagreeing with
-        // itself; a transient raster change settles.
-        const r3 = await host.frame(f, { includeHash: true });
-        const sig3 = signatureOfFrame(r3);
-        try { r3.bitmap?.close?.(); } catch {}
-        const r4 = await host.frame(f, { includeHash: true });
-        const sig4 = signatureOfFrame(r4);
-        try { r4.bitmap?.close?.(); } catch {}
-        if (sig3 !== sig4) {
-          return {
-            ok: false,
-            kind: "code",
-            error: `Non-deterministic draw on frame ${f} (${sig1} !== ${sig2}, and again ${sig3} !== ${sig4}).`
-          };
+        const activeHost = resolveActiveHost();
+        if (!activeHost) throw new Error("Worker host is not available on this device.");
+        const initCall = activeHost.init(initOpts);
+        const res =
+          typeof options?.initWatchdogMs === "number" && options.initWatchdogMs > 0
+            ? await Promise.race([
+                initCall,
+                new Promise<HostInitResult>((_res, rej) => {
+                  initTimer = setTimeout(() => {
+                    rej(new Error(`Watchdog timeout (init-timeout) after ${options.initWatchdogMs}ms`));
+                  }, options.initWatchdogMs);
+                })
+              ])
+            : await initCall;
+        const wallMs = Math.max(0, now() - t0);
+        if (!checkHidden()) {
+          visibleElapsedMs += wallMs;
         }
-        pass1.set(f, sig4);
+        return res;
+      } catch (err) {
+        const wallMs = Math.max(0, now() - t0);
+        if (!checkHidden()) {
+          visibleElapsedMs += wallMs;
+        }
+        lastErr = err;
+        if (checkHidden()) {
+          throw err;
+        }
+        if (attempt === 0 && isInitTimeoutError(err)) {
+          initRetriesUsed += 1;
+          try {
+            options?.onResetHost?.();
+          } catch {}
+          continue;
+        }
+        throw err;
+      } finally {
+        if (initTimer !== null) {
+          clearTimeout(initTimer);
+        }
       }
     }
-  } catch (err) {
-    const kind = classifyFailureKind(err, !drewFirstFrame);
-    const error = err instanceof Error ? err.message : String(err);
-    return kind === "env" ? { ok: false, kind: "env", error } : { ok: false, kind: "code", error };
+    throw lastErr;
+  };
+
+  const drawFrameWithWatchdog = async (
+    n: number,
+    frameOpts?: { includeHash?: boolean; qualitySpec?: unknown; epoch?: number; includeCalibration?: boolean }
+  ): Promise<Omit<HostFrameResult, "bytes"> & { bytes?: number | Uint8Array; data?: Uint8Array; drawMs?: number }> => {
+    while (true) {
+      checkHidden();
+      const t0 = now();
+      try {
+        const activeHost = resolveActiveHost();
+        if (!activeHost) throw new Error("Worker host is not available on this device.");
+        const r = await activeHost.frame(n, frameOpts);
+        const wallMs = Math.max(0, now() - t0);
+        if (checkHidden()) {
+          try {
+            r.bitmap?.close?.();
+          } catch {}
+          throw new Error("Check inconclusive: document was hidden or visibility changed during frame draw.");
+        }
+        const reportedDrawMs = typeof r.drawMs === "number" && r.drawMs > 0 ? r.drawMs : 0;
+        const effectiveFrameMs = Math.max(wallMs, reportedDrawMs);
+        visibleElapsedMs += wallMs;
+        if (effectiveFrameMs > frameBudgetMs) {
+          consecutiveOverBudgetFrames += 1;
+          if (
+            consecutiveOverBudgetFrames >= maxConsecutiveOverBudget ||
+            (watchdogMs > 0 && visibleElapsedMs >= watchdogMs)
+          ) {
+            overBudgetExhausted = true;
+            try {
+              r.bitmap?.close?.();
+            } catch {}
+            throw new Error(
+              `Watchdog timeout (frame-timeout) after ${consecutiveOverBudgetFrames} consecutive over-budget frames (${Math.round(effectiveFrameMs)}ms > ${frameBudgetMs}ms, visible ${Math.round(visibleElapsedMs)}ms)`
+            );
+          }
+        } else {
+          consecutiveOverBudgetFrames = 0;
+        }
+        if (watchdogMs > 0 && visibleElapsedMs >= watchdogMs) {
+          overBudgetExhausted = true;
+          try {
+            r.bitmap?.close?.();
+          } catch {}
+          throw new Error(`Check watchdog timeout (check-watchdog) after ${Math.round(visibleElapsedMs)}ms of visible time`);
+        }
+        return r;
+      } catch (err) {
+        const wallMs = Math.max(0, now() - t0);
+        if (checkHidden()) {
+          throw err;
+        }
+        visibleElapsedMs += Math.max(wallMs, isWatchdogTimeoutError(err) ? frameBudgetMs : 0);
+        const activeHost = resolveActiveHost();
+        const hasHostErrors = Boolean(activeHost?.errors && activeHost.errors.length > 0);
+        if (
+          !overBudgetExhausted &&
+          isWatchdogTimeoutError(err) &&
+          !isInitTimeoutError(err) &&
+          !hasHostErrors
+        ) {
+          consecutiveOverBudgetFrames += 1;
+          if (
+            consecutiveOverBudgetFrames < maxConsecutiveOverBudget &&
+            !(watchdogMs > 0 && visibleElapsedMs >= watchdogMs)
+          ) {
+            try {
+              options?.onResetHost?.();
+            } catch {}
+            continue;
+          }
+          overBudgetExhausted = true;
+        }
+        throw err;
+      }
+    }
+  };
+
+  let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const checkPromise = (async (): Promise<CheckOutcome> => {
+    let initRes: HostInitResult;
+    try {
+      initRes = await runInitWithOneRetry({ scale: 1 });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      if (checkHidden() && isWatchdogTimeoutError(err)) {
+        return makeInconclusiveOutcome(error);
+      }
+      const kind = classifyFailureKind(err, true);
+      if (checkHidden() && kind !== "env") {
+        return makeInconclusiveOutcome(error);
+      }
+      return kind === "env"
+        ? {
+            ok: false,
+            kind: "env",
+            error,
+            ...(initRetriesUsed > 0 ? { initRetries: initRetriesUsed } : {})
+          }
+        : { ok: false, kind: "code", error };
+    }
+
+    const initErrors = nonTimeoutHostErrors();
+    if (initErrors.length > 0) {
+      return { ok: false, kind: "code", error: initErrors[0]! };
+    }
+
+    const m = initRes.meta ?? ({} as HostFilmMeta);
+    const actualW = m.W ?? m.width ?? initRes.w;
+    const actualH = m.H ?? m.height ?? initRes.h;
+    const actualFps = m.fps;
+    const actualFrames = m.durationFrames ?? m.frames;
+
+    const wantW = expectedMeta.width ?? expectedMeta.W;
+    const wantH = expectedMeta.height ?? expectedMeta.H;
+    const wantFps = expectedMeta.fps;
+    const wantFrames = expectedMeta.frames ?? expectedMeta.durationFrames;
+
+    if (wantW !== undefined && actualW !== wantW) {
+      return { ok: false, kind: "code", error: `Width mismatch: scene reported ${actualW}, manifest expected ${wantW}.` };
+    }
+    if (wantH !== undefined && actualH !== wantH) {
+      return { ok: false, kind: "code", error: `Height mismatch: scene reported ${actualH}, manifest expected ${wantH}.` };
+    }
+    if (wantFps !== undefined && actualFps !== wantFps) {
+      return { ok: false, kind: "code", error: `FPS mismatch: scene reported ${actualFps}, manifest expected ${wantFps}.` };
+    }
+    if (wantFrames !== undefined && actualFrames !== wantFrames) {
+      return { ok: false, kind: "code", error: `Frames mismatch: scene reported ${actualFrames}, manifest expected ${wantFrames}.` };
+    }
+
+    const totalFrames = Math.max(1, Number(actualFrames ?? wantFrames ?? 90));
+    const midFrame = Math.floor(totalFrames / 2);
+    const lastFrame = Math.max(0, totalFrames - 1);
+    const samples = [...new Set([0, midFrame, lastFrame])];
+
+    const pass1 = new Map<number, string>();
+    let drewFirstFrame = false;
+
+    try {
+      for (const f of samples) {
+        const r1 = await drawFrameWithWatchdog(f, { includeHash: true });
+        drewFirstFrame = true;
+        pass1.set(f, signatureOfFrame(r1));
+        try {
+          r1.bitmap?.close?.();
+        } catch {}
+      }
+
+      for (const f of samples) {
+        const r2 = await drawFrameWithWatchdog(f, { includeHash: true });
+        const sig2 = signatureOfFrame(r2);
+        try {
+          r2.bitmap?.close?.();
+        } catch {}
+        const sig1 = pass1.get(f);
+        if (sig1 !== sig2) {
+          // A mismatch can be the browser changing raster path under load (for example a GPU canvas falling back to software while
+          // several scenes are checked at once), which says nothing about the scene's code and must never start a paid repair.
+          // Draw the frame twice more, one after the other: a scene whose code is really non-deterministic keeps disagreeing with
+          // itself; a transient raster change settles.
+          const r3 = await drawFrameWithWatchdog(f, { includeHash: true });
+          const sig3 = signatureOfFrame(r3);
+          try { r3.bitmap?.close?.(); } catch {}
+          const r4 = await drawFrameWithWatchdog(f, { includeHash: true });
+          const sig4 = signatureOfFrame(r4);
+          try { r4.bitmap?.close?.(); } catch {}
+          if (sig3 !== sig4) {
+            return {
+              ok: false,
+              kind: "code",
+              error: `Non-deterministic draw on frame ${f} (${sig1} !== ${sig2}, and again ${sig3} !== ${sig4}).`
+            };
+          }
+          pass1.set(f, sig4);
+        }
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      if (checkHidden() && (isWatchdogTimeoutError(err) || error.includes("Check inconclusive"))) {
+        return makeInconclusiveOutcome(error);
+      }
+      const kind = classifyFailureKind(err, !drewFirstFrame);
+      if (checkHidden() && kind !== "env") {
+        return makeInconclusiveOutcome(error);
+      }
+      return kind === "env"
+        ? {
+            ok: false,
+            kind: "env",
+            error,
+            ...(initRetriesUsed > 0 ? { initRetries: initRetriesUsed } : {}),
+            ...(overBudgetExhausted ? { overBudgetExhausted: true } : {})
+          }
+        : { ok: false, kind: "code", error };
+    }
+
+    const detErrors = nonTimeoutHostErrors();
+    if (detErrors.length > 0) {
+      return { ok: false, kind: "code", error: detErrors[0]! };
+    }
+
+    const shouldMeasureSlowDraw =
+      options?.measureSlowDraw ?? (typeof options?.previewScale === "number" && options.previewScale > 0);
+
+    if (shouldMeasureSlowDraw) {
+      const previewScale =
+        typeof options?.previewScale === "number" && options.previewScale > 0 ? options.previewScale : 1;
+      const sampleFrames = buildCheckSampleFrames(totalFrames, 8);
+      const rawAlone: number[] = [];
+      const rawContended: number[] = [];
+
+      try {
+        if (previewScale !== 1 || options?.params) {
+          await runInitWithOneRetry({
+            scale: previewScale,
+            ...(options?.params ? { params: options.params } : {})
+          });
+        }
+        // Draw at least 8 sample frames spread across the scene (first, middle, last third) at the preview scale,
+        // and ignore the first sample (`i === 0`) so shader compile / first draw never marks a fast scene slow.
+        const framesToDraw = sampleFrames;
+        for (let i = 0; i < framesToDraw.length; i++) {
+          const fn = framesToDraw[i]!;
+          const contendedBefore = (options?.activeDrawWork?.() ?? 0) > 0;
+          const t0 = now();
+          const rf = await drawFrameWithWatchdog(fn, {
+            ...(options?.qualitySpec !== undefined ? { qualitySpec: options.qualitySpec } : {})
+          });
+          const elapsed = now() - t0;
+          const drawMs = typeof rf.drawMs === "number" && rf.drawMs > 0 ? rf.drawMs : Math.max(0, elapsed);
+          const contendedAfter = (options?.activeDrawWork?.() ?? 0) > 0;
+          try {
+            rf.bitmap?.close?.();
+          } catch {}
+          // Never mark slow from the first frame only (shader compile / first draw is slow): ignore the first sample (i === 0).
+          if (i === 0) continue;
+          if (contendedBefore || contendedAfter) {
+            rawContended.push(drawMs);
+          } else {
+            rawAlone.push(drawMs);
+          }
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        if (checkHidden() && (isWatchdogTimeoutError(err) || error.includes("Check inconclusive"))) {
+          return makeInconclusiveOutcome(error);
+        }
+        const kind = classifyFailureKind(err, false);
+        if (checkHidden() && kind !== "env") {
+          return makeInconclusiveOutcome(error);
+        }
+        return kind === "env"
+          ? {
+              ok: false,
+              kind: "env",
+              error,
+              ...(initRetriesUsed > 0 ? { initRetries: initRetriesUsed } : {}),
+              ...(overBudgetExhausted ? { overBudgetExhausted: true } : {})
+            }
+          : { ok: false, kind: "code", error };
+      }
+
+      const slowErrors = nonTimeoutHostErrors();
+      if (slowErrors.length > 0) {
+        return { ok: false, kind: "code", error: slowErrors[0]! };
+      }
+
+      if (checkHidden()) {
+        return makeInconclusiveOutcome("Check ran while document was hidden or visibility changed.");
+      }
+
+      // `isSlowScene` is a local helper for the trace log and tests; its numbers (60 ms median / 80 ms p90)
+      // mirror the server's constants, and the server (`POST .../check`) is the single decision point.
+      // Always report a successful check (`ok: true`) with `drawMs = { medianMs, p90Ms }`; keep `kind: "env"` for real device failures only.
+      const slowDecision = isSlowScene(rawAlone, {
+        contendedSamplesMs: rawContended
+      });
+      options?.onSlowSceneEvaluated?.({
+        ...slowDecision,
+        aloneSamples: rawAlone,
+        contendedSamples: rawContended
+      });
+
+      const drawMs = { medianMs: slowDecision.median, p90Ms: slowDecision.p90 };
+      return {
+        ok: true,
+        drawMs,
+        drawMsMedian: slowDecision.median,
+        drawMsP90: slowDecision.p90,
+        ...(initRetriesUsed > 0 ? { initRetries: initRetriesUsed } : {}),
+        results: {
+          drawMs,
+          drawMsMedian: slowDecision.median,
+          drawMsP90: slowDecision.p90
+        }
+      };
+    }
+
+    if (checkHidden()) {
+      return makeInconclusiveOutcome("Check ran while document was hidden or visibility changed.");
+    }
+
+    return {
+      ok: true,
+      ...(initRetriesUsed > 0 ? { initRetries: initRetriesUsed } : {})
+    };
+  })();
+
+  if (!(watchdogMs > 0)) {
+    try {
+      return await checkPromise;
+    } finally {
+      if (doc && typeof doc.removeEventListener === "function") {
+        try {
+          doc.removeEventListener("visibilitychange", onVisibilityChange);
+        } catch {}
+      }
+    }
   }
 
-  if (host.errors && host.errors.length > 0) {
-    return { ok: false, kind: "code", error: host.errors[0]! };
-  }
+  let checkFinished = false;
+  let lastWatchdogTickMs = now();
+  let accumulatedVisibleWatchdogMs = 0;
 
-  return { ok: true };
+  const timeoutPromise = new Promise<CheckOutcome>((resolve) => {
+    const scheduleWatchdogTick = (delayMs: number) => {
+      watchdogTimer = setTimeout(() => {
+        if (checkFinished) return;
+        const curMs = now();
+        const dt = Math.max(0, curMs - lastWatchdogTickMs);
+        lastWatchdogTickMs = curMs;
+        if (checkHidden()) {
+          try {
+            resolveActiveHost()?.terminateIdle?.("check-watchdog");
+          } catch {}
+          resolve(makeInconclusiveOutcome(`Check watchdog timeout while tab was hidden (${watchdogMs}ms)`));
+          return;
+        }
+        accumulatedVisibleWatchdogMs += Math.max(dt, delayMs);
+        if (accumulatedVisibleWatchdogMs >= watchdogMs) {
+          try {
+            resolveActiveHost()?.terminateIdle?.("check-watchdog");
+          } catch {}
+          resolve({
+            ok: false,
+            kind: "env",
+            overBudgetExhausted: true,
+            error: `Check watchdog timeout (check-watchdog) after ${watchdogMs}ms`
+          });
+          return;
+        }
+        scheduleWatchdogTick(Math.max(50, watchdogMs - accumulatedVisibleWatchdogMs));
+      }, delayMs);
+    };
+    scheduleWatchdogTick(watchdogMs);
+  });
+
+  try {
+    return await Promise.race([checkPromise, timeoutPromise]);
+  } finally {
+    checkFinished = true;
+    if (watchdogTimer !== null) {
+      clearTimeout(watchdogTimer);
+    }
+    if (doc && typeof doc.removeEventListener === "function") {
+      try {
+        doc.removeEventListener("visibilitychange", onVisibilityChange);
+      } catch {}
+    }
+  }
 }

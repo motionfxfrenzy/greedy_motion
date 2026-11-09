@@ -1,5 +1,6 @@
 export const ENGINE_DIR: string;
 export const SRC_DIR: string;
+export const CORE_DIR: string;
 export const FPS: number;
 export const ASPECTS: Record<string, { w: number; h: number; label: string }>;
 export function sizeForAspect(aspect?: string): { w: number; h: number; label: string };
@@ -7,7 +8,9 @@ export function engineDigest(): string;
 export function engineVersion(): string;
 export function plateNameOf(look: string | undefined | null): string | null;
 export function plateFile(name: string): string;
+export function coreFile(name: string): string;
 export function kitFile(name: string): string;
+export function guideFile(name: string): string;
 export function loadManifest(): { schema: number; engine: string; engineVersion: string; license: string; styles: Record<string, { file: string; kit: string | null; files: string[] }> };
 export function isSupportedStyle(look: string | undefined | null): boolean;
 export function styleDigest(look: string): string;

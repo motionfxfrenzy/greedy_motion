@@ -36,7 +36,8 @@ import {
   type FrameElementsSnapshot,
   type VideoProject
 } from "@videosaas/contracts";
-import { anthropicMessage, responseText } from "../anthropic.ts";
+import { callModel } from "../models/providers.ts";
+import { routeFor, routeHasKey } from "../models/routes.ts";
 import { config } from "../config.ts";
 import { brandNameFor, projectLook, projectTiming } from "./preview.ts";
 import type { PreviewRefusal } from "./preview-meter.ts";
@@ -208,25 +209,22 @@ export function createModelCommentTranslator(options: ModelTranslatorOptions = {
         "Return ONLY the JSON object matching the schema."
       ].join("\n");
 
-      const payload = await anthropicMessage(
-        {
-          model: options.model ?? config.anthropicModel,
-          max_tokens: 450,
-          system: COMMENT_TO_PATCH_SYSTEM_PROMPT,
-          messages: [{ role: "user", content: userPrompt }]
-        },
-        {
-          ...(options.request ? { request: options.request } : {}),
-          ...(options.log ? { log: options.log } : {}),
-          ...(options.sleep ? { sleep: options.sleep } : {}),
-          ...(options.signal ? { signal: options.signal } : {}),
-          timeoutMs: options.timeoutMs ?? 30_000,
-          errorPrefix: "Comment patch translation failed",
-          includeErrorDetail: true
-        }
-      );
+      const result = await callModel({
+        step: "elementEdits",
+        ...(options.model ? { route: { ...routeFor("elementEdits"), model: options.model } } : {}),
+        maxTokens: 450,
+        system: COMMENT_TO_PATCH_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userPrompt }],
+        ...(options.request ? { request: options.request } : {}),
+        ...(options.log ? { log: options.log } : {}),
+        ...(options.sleep ? { sleep: options.sleep } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
+        timeoutMs: options.timeoutMs ?? 30_000,
+        errorPrefix: "Comment patch translation failed",
+        includeErrorDetail: true
+      });
 
-      const text = responseText(payload).trim();
+      const text = result.text.trim();
       const firstBrace = text.indexOf("{");
       const lastBrace = text.lastIndexOf("}");
       if (firstBrace < 0 || lastBrace <= firstBrace) {
@@ -398,7 +396,7 @@ async function translateCommentModelOnly(
   const hasModelStubOrKey =
     Boolean(options?.modelTranslator) ||
     Boolean(effectiveModelOptions?.request) ||
-    (config.planner !== "deterministic" && Boolean(config.anthropicApiKey));
+    (config.planner !== "deterministic" && routeHasKey("elementEdits"));
 
   if (!hasModelStubOrKey) {
     return {

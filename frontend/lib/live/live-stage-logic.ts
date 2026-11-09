@@ -1,10 +1,36 @@
 import type { CheckOutcome } from "./api.ts";
-import { parseGenFromBundleUrl } from "./api.ts";
+import { isWatchdogTimeoutError, parseGenFromBundleUrl } from "./api.ts";
 import type { PlaybackRenderMode, StillUpgradeState } from "./draft-profile.ts";
 import { isPlateLiveEnabled } from "./flag.ts";
 import type { AspectRatio } from "./plate-player.ts";
 import { environmentStatus, supportsWorkerHost, type EnvironmentProbeInput } from "./support.ts";
 import type { PlaybackState, PlayerDecision } from "./types.ts";
+
+export const CLIP_AFTER_UNPLAYABLE_MS = 180_000;
+
+export function canTriggerClipRequestForReason(
+  reason: string | undefined | null,
+  checkError?: string | null
+): boolean {
+  if (!reason) return false;
+  if (isWatchdogTimeoutError(reason) || isWatchdogTimeoutError(checkError)) {
+    return false;
+  }
+  if (
+    reason === "code-permanent" ||
+    reason === "check-code-failed" ||
+    reason === "unverified-environment" ||
+    reason === "unsupported-environment" ||
+    reason === "device-env" ||
+    reason === "check-env" ||
+    reason === "unplayable-timeout" ||
+    reason === "jitter" ||
+    reason === "sustained-jitter"
+  ) {
+    return true;
+  }
+  return false;
+}
 
 /**
  * Pure per-scene mode, check-once, clip-request, and workspace status mapping logic
@@ -20,6 +46,8 @@ export type LivePlateVariantState =
   | "drawn"
   | "failed";
 
+export type LivePlatePlayback = "clip";
+
 export type LivePlateVariantView = {
   state: LivePlateVariantState;
   sig: string;
@@ -30,6 +58,13 @@ export type LivePlateVariantView = {
   bundleDigest?: string | null;
   live?: boolean;
   gen?: number;
+  rev?: number;
+  frames?: number | null;
+  framesDone?: number | null;
+  playback?: "clip";
+  drawMsPerFrame?: number;
+  stale?: boolean;
+  needsReconcile?: boolean;
 };
 
 export type LivePlateScene = {
@@ -39,14 +74,21 @@ export type LivePlateScene = {
   state: LivePlateVariantState;
   seconds: number;
   frames?: number;
+  framesDone?: number | null;
   sig: string;
+  v?: string | null;
   rev?: number;
   gen?: number;
+  stage?: string;
   error?: string;
   attempts?: number;
   variantId?: string;
   bundleDigest?: string | null;
   live?: boolean;
+  playback?: "clip";
+  drawMsPerFrame?: number;
+  stale?: boolean;
+  needsReconcile?: boolean;
   variants?: Partial<Record<AspectRatio, LivePlateVariantView>>;
 };
 
@@ -54,6 +96,9 @@ export type LivePlateStatus = {
   available: boolean;
   look: string | null;
   mode?: "live" | "clip";
+  revision?: string;
+  stale?: boolean;
+  needsReconcile?: boolean;
   scenes: LivePlateScene[];
   comments: { id: string; at: number; scene: number; sceneAt: number; body: string }[];
   subtitles?: Record<string, unknown>;
@@ -78,9 +123,20 @@ export type ResolvedSceneVariant = {
   hasBundle: boolean;
   hasClip: boolean;
   clipVersion: string | null;
+  playbackClip: boolean;
+  playbackReason?: string;
+  drawMsPerFrame?: number;
   stage?: string;
   error?: string;
+  stale?: boolean;
 };
+
+export function isPlaybackClipMode(playback?: unknown): boolean {
+  if (!playback) return false;
+  if (playback === "clip") return true;
+  if (typeof playback === "object" && (playback as { mode?: unknown }).mode === "clip") return true;
+  return false;
+}
 
 /**
  * Resolves the variant fields for a scene in the currently viewed aspect ratio.
@@ -92,18 +148,63 @@ export function resolveSceneVariant(
 ): ResolvedSceneVariant {
   const view = scene.variants?.[aspect];
   const isPrimary = aspect === primaryAspect;
-  const state: LivePlateVariantState = view?.state ?? (isPrimary ? scene.state : "queued");
-  const variantId = view?.variantId ?? (isPrimary ? scene.variantId : undefined);
-  const bundleDigest = view?.bundleDigest ?? (isPrimary ? scene.bundleDigest : null) ?? null;
-  const clipVersion = view ? view.v : state === "drawn" && isPrimary ? "v1" : null;
+  const stale = Boolean(
+    view?.stale ??
+      (isPrimary ? scene.stale : false) ??
+      (view?.stage === "stale" || (isPrimary && scene.stage === "stale"))
+  );
+  const state: LivePlateVariantState = stale ? "queued" : (view?.state ?? (isPrimary ? scene.state : "queued"));
+  const variantId = stale ? undefined : (view?.variantId ?? (isPrimary ? scene.variantId : undefined));
+  const bundleDigest = stale ? null : (view?.bundleDigest ?? (isPrimary ? scene.bundleDigest : null) ?? null);
+  const rawClipV = view && view.v !== undefined ? view.v : scene.v;
+  const clipVersion = stale
+    ? null
+    : rawClipV !== undefined
+      ? rawClipV
+      : state === "drawn" && isPrimary
+        ? "v1"
+        : null;
   const rev = scene.rev ?? 0;
   const gen = view?.gen ?? scene.gen ?? rev + 1;
   const seconds = scene.seconds > 0 ? scene.seconds : 4;
   const frames = scene.frames && scene.frames > 0 ? scene.frames : Math.max(1, Math.round(seconds * 30));
+  const rawPlayback = stale ? undefined : ((view?.playback ?? (isPrimary ? scene.playback : undefined)) as unknown);
+  const rawPlaybackObj =
+    typeof rawPlayback === "object" && rawPlayback !== null
+      ? (rawPlayback as { mode?: unknown; reason?: unknown; drawMs?: unknown; medianMs?: unknown })
+      : null;
   const hasBundle =
+    !stale &&
+    !isPlaybackClipMode(rawPlayback) &&
+    state !== "rendering" &&
     Boolean(variantId) &&
     (state === "bundled" || state === "checked" || (state === "drawn" && Boolean(bundleDigest)));
-  const hasClip = state === "drawn" || Boolean(clipVersion);
+  const playbackClip =
+    !stale &&
+    (isPlaybackClipMode(rawPlayback) ||
+      state === "rendering" ||
+      (state === "drawn" && !hasBundle));
+  const playbackReason =
+    rawPlaybackObj && typeof rawPlaybackObj.reason === "string"
+      ? rawPlaybackObj.reason
+      : isPlaybackClipMode(rawPlayback)
+        ? "slow-draw"
+        : state === "rendering"
+          ? "variant-rendering"
+          : state === "drawn" && !hasBundle
+            ? "drawn"
+            : undefined;
+  const legacyDrawMs =
+    rawPlaybackObj && typeof (rawPlaybackObj.drawMs ?? rawPlaybackObj.medianMs) === "number"
+      ? ((rawPlaybackObj.drawMs ?? rawPlaybackObj.medianMs) as number)
+      : undefined;
+  const drawMsPerFrame =
+    view?.drawMsPerFrame ??
+    legacyDrawMs ??
+    (isPrimary ? scene.drawMsPerFrame : undefined);
+  const hasClip =
+    !stale &&
+    (Boolean(clipVersion) || (state === "drawn" && (rawClipV !== null || !isPlaybackClipMode(rawPlayback))));
 
   return {
     index: scene.index,
@@ -121,8 +222,12 @@ export function resolveSceneVariant(
     hasBundle,
     hasClip,
     clipVersion,
-    stage: view?.stage,
-    error: view?.error ?? (state === "failed" ? scene.error : undefined)
+    playbackClip,
+    ...(playbackReason !== undefined ? { playbackReason } : {}),
+    ...(typeof drawMsPerFrame === "number" && Number.isFinite(drawMsPerFrame) ? { drawMsPerFrame } : {}),
+    stage: stale ? "stale" : view?.stage,
+    error: view?.error ?? (state === "failed" ? scene.error : undefined),
+    ...(stale ? { stale: true } : {})
   };
 }
 
@@ -157,7 +262,21 @@ export class CheckOnceTracker {
     bundleDigest: string | null | undefined,
     state: LivePlateVariantState = "bundled"
   ): boolean {
-    if (state !== "bundled") return false;
+    if (state !== "bundled" && state !== "drawn") return false;
+    if (!variantId || !bundleDigest || !(gen >= 1)) return false;
+    const key = CheckOnceTracker.keyFor(variantId, gen, bundleDigest);
+    return !this.inFlight.has(key) && !this.completed.has(key);
+  }
+
+  shouldReportPlayback(
+    variantId: string | undefined,
+    gen: number,
+    bundleDigest: string | null | undefined,
+    state: LivePlateVariantState = "checked",
+    playback?: unknown
+  ): boolean {
+    if (state !== "checked") return false;
+    if (isPlaybackClipMode(playback)) return false;
     if (!variantId || !bundleDigest || !(gen >= 1)) return false;
     const key = CheckOnceTracker.keyFor(variantId, gen, bundleDigest);
     return !this.inFlight.has(key) && !this.completed.has(key);
@@ -312,6 +431,27 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
   const flagOn = isPlateLiveEnabled(input.flagEnabled);
   const v = input.variant;
 
+  if (v.stale || v.stage === "stale") {
+    return {
+      mode: "clip",
+      reason: "variant-stale",
+      eligibleForLive: false,
+      needsBundleFetch: false,
+      needsCheck: false,
+      needsClipRequest: false,
+      isReady: false,
+      isPlayable: false,
+      tabState: "stale",
+      tabLabel: "Needs update",
+      tabClassName: "needs-update",
+      stageWait: {
+        failed: false,
+        title: "Storyboard updated · scene needs redraw",
+        detail: "Update the animation to draw the changed scenes. Unchanged scenes are kept."
+      }
+    };
+  }
+
   // 1. Flag off or project not in live mode -> standard clip behavior.
   if (!flagOn || input.projectMode !== "live") {
     const isDrawn = v.state === "drawn";
@@ -375,9 +515,11 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
 
   if (v.state === "rendering" && !v.hasBundle) {
     const isQueuedCap = input.clipRequestStatus === "clip_cap";
+    const isSlowClip = v.playbackReason === "slow-draw" || v.playbackReason === "slow";
+    const sceneNumber = Math.max(1, Math.floor(v.index) + 1);
     return {
       mode: "clip",
-      reason: "variant-rendering",
+      reason: isSlowClip ? "slow-draw" : "variant-rendering",
       eligibleForLive: false,
       needsBundleFetch: false,
       needsCheck: false,
@@ -389,28 +531,59 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
       tabClassName: isQueuedCap ? "updating" : "rendering",
       stageWait: {
         failed: false,
-        title: isQueuedCap ? "Preview video is queued…" : "Drawing…"
+        title: isQueuedCap
+          ? "Preview video is queued…"
+          : isSlowClip
+            ? `Scene ${sceneNumber} is being prepared as a video for smooth playback`
+            : "Drawing…"
       }
     };
   }
 
-  // Drawn variant with no bundle metadata -> pure clip scene.
-  if (v.state === "drawn" && !v.hasBundle) {
-    const hasComment = Boolean(input.hasPendingComment);
-    return {
-      mode: "clip",
-      reason: "clip-only",
-      eligibleForLive: false,
-      needsBundleFetch: false,
-      needsCheck: false,
-      needsClipRequest: false,
-      isReady: true,
-      isPlayable: true,
-      tabState: "drawn",
-      tabLabel: hasComment ? "Needs update" : "Drawn",
-      tabClassName: hasComment ? "needs-update" : "drawn",
-      stageWait: null
-    };
+  // Drawn variant without a live bundle, or scene marked with playback="clip" on server -> plays from the worker clip.
+  if ((v.state === "drawn" && !v.hasBundle) || v.playbackClip) {
+    if (v.hasClip) {
+      const isServerPlaybackClip = v.playbackReason === "slow-draw" || v.playbackReason === "slow";
+      if (!v.hasBundle || isServerPlaybackClip) {
+        const hasComment = Boolean(input.hasPendingComment);
+        return {
+          mode: "clip",
+          reason: isServerPlaybackClip ? "slow-draw" : "clip-only",
+          eligibleForLive: false,
+          needsBundleFetch: false,
+          needsCheck: false,
+          needsClipRequest: false,
+          isReady: true,
+          isPlayable: true,
+          tabState: "drawn",
+          tabLabel: hasComment ? "Needs update" : "Drawn",
+          tabClassName: hasComment ? "needs-update" : "drawn",
+          stageWait: null
+        };
+      }
+    } else if (v.playbackReason === "slow-draw" || v.playbackReason === "slow") {
+      const isQueuedCap = input.clipRequestStatus === "clip_cap";
+      const sceneNumber = Math.max(1, Math.floor(v.index) + 1);
+      return {
+        mode: "clip",
+        reason: "slow-draw",
+        eligibleForLive: false,
+        needsBundleFetch: false,
+        needsCheck: false,
+        needsClipRequest: false,
+        isReady: false,
+        isPlayable: false,
+        tabState: isQueuedCap ? "updating" : "rendering",
+        tabLabel: isQueuedCap ? "Preview video is queued" : "Drawing",
+        tabClassName: isQueuedCap ? "updating" : "rendering",
+        stageWait: {
+          failed: false,
+          title: isQueuedCap
+            ? "Preview video is queued…"
+            : `Scene ${sceneNumber} is being prepared as a video for smooth playback`
+        }
+      };
+    }
   }
 
   // 3. Variant is live-eligible (`bundled`, `checked`, or `drawn` with a bundle).
@@ -440,13 +613,22 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
     }
 
     const isQueuedCap = input.clipRequestStatus === "clip_cap";
+    const isSlowClip = reason === "slow-draw" || reason === "slow" || v.playbackReason === "slow-draw" || v.playbackReason === "slow";
+    const sceneNumber = Math.max(1, Math.floor(v.index) + 1);
+    const checkErr = input.checkOutcome && !input.checkOutcome.ok ? input.checkOutcome.error : null;
     return {
       mode: "clip",
       reason,
-      eligibleForLive,
+      eligibleForLive: isSlowClip ? false : eligibleForLive,
       needsBundleFetch: false,
       needsCheck: false,
-      needsClipRequest: Boolean(v.variantId) && !input.clipRequestStatus,
+      // Only request a clip from the client for a real trigger (permanent code failure, non-watchdog device/env failure,
+      // 3-minute unplayable timeout, or sustained jitter).
+      needsClipRequest:
+        !isSlowClip &&
+        Boolean(v.variantId) &&
+        !input.clipRequestStatus &&
+        canTriggerClipRequestForReason(reason, checkErr),
       isReady: false,
       isPlayable: false,
       tabState: isQueuedCap ? "updating" : "rendering",
@@ -454,7 +636,11 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
       tabClassName: isQueuedCap ? "updating" : "rendering",
       stageWait: {
         failed: false,
-        title: isQueuedCap ? "Preview video is queued…" : "Drawing…"
+        title: isQueuedCap
+          ? "Preview video is queued…"
+          : isSlowClip
+            ? `Scene ${sceneNumber} is being prepared as a video for smooth playback`
+            : "Drawing…"
       }
     };
   };
@@ -474,41 +660,48 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
     if (input.checkOutcome.kind === "env") {
       return buildClipFallback("check-env");
     }
-    // kind === "code": reported to backend -> bounded repair loop runs, tab shows "updating".
-    return {
-      mode: "live",
-      reason: "check-code-repair",
-      eligibleForLive: true,
-      needsBundleFetch: false,
-      needsCheck: false,
-      needsClipRequest: false,
-      isReady: false,
-      isPlayable: false,
-      tabState: "updating",
-      tabLabel: "Updating",
-      tabClassName: "updating",
-      stageWait: { failed: false, title: "Updating…" }
-    };
+    if (input.checkOutcome.kind === "code") {
+      // kind === "code": reported to backend -> bounded repair loop runs, tab shows "updating".
+      return {
+        mode: "live",
+        reason: "check-code-repair",
+        eligibleForLive: true,
+        needsBundleFetch: false,
+        needsCheck: false,
+        needsClipRequest: false,
+        isReady: false,
+        isPlayable: false,
+        tabState: "updating",
+        tabLabel: "Updating",
+        tabClassName: "updating",
+        stageWait: { failed: false, title: "Updating…" }
+      };
+    }
+    // kind === "inconclusive": do not demote to clip; continue to live check path so it re-checks when visible.
   }
 
-  // 3d. Player decision (buffering gate exceeded, worker unhealthy, etc. — ignore placeholder pending-live / no-bundle).
+  // 3d. Player decision (buffering gate exceeded, worker unhealthy, etc. — ignore placeholder pending-live / no-bundle / clip-only).
   if (
     input.playerDecision &&
     input.playerDecision.mode === "clip" &&
     input.playerDecision.reason !== "pending-live" &&
-    input.playerDecision.reason !== "no-bundle"
+    input.playerDecision.reason !== "no-bundle" &&
+    input.playerDecision.reason !== "clip-only"
   ) {
     return buildClipFallback(input.playerDecision.reason);
   }
 
   // 3e. Live path!
-  const checkPassed = v.state === "checked" || v.state === "drawn" || input.checkOutcome?.ok === true;
+  const hasBrowserVerdictOk = v.state === "checked" || input.checkOutcome?.ok === true;
   const needsBundleFetch = !input.bundleLoaded && Boolean(v.variantId);
-  const needsCheck = v.state === "bundled" && !input.checkOutcome;
-  const isReady = checkPassed;
-  const isPlayable = checkPassed && Boolean(input.bundleLoaded) && Boolean(input.playerReady ?? true);
+  const needsCheck =
+    (v.state === "bundled" || (v.state === "drawn" && v.hasBundle && !v.playbackClip)) &&
+    !hasBrowserVerdictOk;
+  const isReady = hasBrowserVerdictOk || v.hasClip;
+  const isPlayable = hasBrowserVerdictOk && Boolean(input.bundleLoaded) && Boolean(input.playerReady ?? true);
 
-  if (!isReady || !input.bundleLoaded) {
+  if (!hasBrowserVerdictOk || !input.bundleLoaded) {
+    const hasComment = Boolean(input.hasPendingComment);
     return {
       mode: "live",
       reason: needsCheck ? "checking" : "loading-bundle",
@@ -518,10 +711,10 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
       needsClipRequest: false,
       isReady,
       isPlayable: false,
-      tabState: isReady ? "checked" : "bundled",
-      tabLabel: isReady ? "Ready" : "Checking",
-      tabClassName: isReady ? "ready" : "updating",
-      stageWait: { failed: false, title: "Checking…" }
+      tabState: isReady ? (v.hasClip && !hasBrowserVerdictOk ? "drawn" : "checked") : "bundled",
+      tabLabel: isReady ? (hasComment ? "Needs update" : "Ready") : "Checking",
+      tabClassName: isReady ? (hasComment ? "needs-update" : "ready") : "updating",
+      stageWait: v.hasClip ? null : { failed: false, title: "Checking…" }
     };
   }
 
@@ -585,6 +778,37 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
     ...(stillUpgradeState ? { stillUpgradeState } : {}),
     ...(statusText ? { statusText } : {})
   };
+}
+
+/**
+ * Computes distance ahead of the playhead for a scene index in a multi-scene film:
+ * scenes at or ahead of `playheadSceneIndex` have distance `sceneIndex - playheadSceneIndex` (`0, 1, ...`);
+ * scenes behind the playhead follow after all ahead scenes, ordered by their `sceneIndex`.
+ */
+export function distanceAheadOfPlayhead(
+  sceneIndex: number,
+  playheadSceneIndex: number,
+  totalScenes: number
+): number {
+  const n = Math.max(1, totalScenes);
+  const cur = Math.max(0, Math.min(n - 1, playheadSceneIndex));
+  return sceneIndex >= cur ? sceneIndex - cur : n - cur + sceneIndex;
+}
+
+/**
+ * Orders queued scene checks by distance ahead of the playhead first, then by scene index.
+ */
+export function orderPendingChecks<T extends { sceneIndex: number }>(
+  items: Iterable<T>,
+  playheadSceneIndex: number,
+  totalScenes: number
+): T[] {
+  return [...items].sort((a, b) => {
+    const dA = distanceAheadOfPlayhead(a.sceneIndex, playheadSceneIndex, totalScenes);
+    const dB = distanceAheadOfPlayhead(b.sceneIndex, playheadSceneIndex, totalScenes);
+    if (dA !== dB) return dA - dB;
+    return a.sceneIndex - b.sceneIndex;
+  });
 }
 
 export { parseGenFromBundleUrl };

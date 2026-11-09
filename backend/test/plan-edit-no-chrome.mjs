@@ -597,7 +597,7 @@ try {
         {
           modelOptions: {
             request: stubRequest,
-            log: (line) => usageLogs.push(JSON.parse(line))
+            log: (line) => { const entry = JSON.parse(line); if (entry.event === "anthropic_usage") usageLogs.push(entry); }
           }
         }
       );
@@ -626,7 +626,7 @@ try {
       {
         modelOptions: {
           request: stubRequest,
-          log: (line) => usageLogs.push(JSON.parse(line))
+          log: (line) => { const entry = JSON.parse(line); if (entry.event === "anthropic_usage") usageLogs.push(entry); }
         }
       }
     );

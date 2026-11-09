@@ -46,8 +46,9 @@ import { registerGalleryRoutes } from "./gallery.ts";
 import { registerLibraryRoutes } from "./library.ts";
 import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
-import { presignOutput } from "./storage.ts";
+import { presignOutput, safeDownloadFilename } from "./storage.ts";
 import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, removedVariants, updateBrand, validateBrandInput } from "./brand/store.ts";
+import { allRoutes } from "./models/routes.ts";
 import { genReqId, registerRequestId, upstreamError } from "./http-errors.ts";
 import { addReviewComment, addScreenshot, applyReviewComments, createProject, deleteProject, getProject, listProjects, projectByRenderJob, ProjectInvalid, removeReviewComment, removeScreenshot, screenshotFile, setProjectPlanning, updateProject, updateProjectStudio } from "./projects/store.ts";
 
@@ -474,22 +475,36 @@ app.get<{ Params: { id: string } }>("/v1/renders/:id/events", async (request, re
   ping = setInterval(() => { if (!closed) reply.raw.write(": ping\n\n"); }, 20_000);
 });
 
-app.get<{ Params: { id: string } }>("/v1/renders/:id", async (request, reply) => {
+app.get<{ Params: { id: string }; Querystring: { download?: string; filename?: string } }>("/v1/renders/:id", async (request, reply) => {
   const { id } = request.params;
   if (!uuid.test(id)) return reply.code(404).send({ error: { code: "not_found", message: "Rendered video not found." } });
   // Each render attempt writes its own file; the job row records the attempt that won. Older jobs used <id>.mp4.
   const row = await renderJobRepository.row(id);
   const stored = row?.output?.file;
-  // Object storage: the worker committed an R2 key; hand the player a short-lived signed URL (R2 serves ranges).
+  const dlParam = typeof request.query?.download === "string" ? request.query.download.trim() : "";
+  const fnParam = typeof request.query?.filename === "string" ? request.query.filename.trim() : "";
+  const wantDownload = Boolean((dlParam && dlParam !== "0" && dlParam !== "false") || fnParam);
+  const requestedName = fnParam || (dlParam && dlParam !== "1" && dlParam !== "true" ? dlParam : undefined);
+  const downloadFilename = wantDownload ? safeDownloadFilename(requestedName, `${row?.project_id ?? id}.mp4`) : undefined;
+
+  // Object storage: the worker committed an R2 key; hand the player a short-lived signed URL (R2 serves ranges; `filename` sets attachment disposition).
   const key = (row?.output as { key?: unknown } | undefined)?.key;
   if (config.storageDriver === "r2" && typeof key === "string" && /^renders\/[a-f0-9-]{36}\/a\d+\.mp4$/i.test(key)) {
-    return reply.header("Cache-Control", "no-store").redirect(await presignOutput(key), 302);
+    return reply
+      .header("Cache-Control", "no-store")
+      .redirect(
+        await presignOutput(key, 3600, downloadFilename ? { filename: downloadFilename, contentType: "video/mp4" } : {}),
+        302
+      );
   }
   const file = join(config.renderOutputDir, stored && /^[a-f0-9-]{36}(-a\d+)?\.mp4$/i.test(stored) ? stored : `${id}.mp4`);
   const size = await stat(file).then((info) => info.size).catch(() => null);
   if (size === null) return reply.code(503).send({ error: { code: "video_unavailable", message: "The worker did not leave an output file." } });
 
   reply.header("Content-Type", "video/mp4").header("Accept-Ranges", "bytes").header("Cache-Control", "no-store");
+  if (downloadFilename) {
+    reply.header("Content-Disposition", `attachment; filename="${downloadFilename}"`);
+  }
   const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range ?? "");
   if (!range) return reply.header("Content-Length", size).send(createReadStream(file));
   const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
@@ -597,5 +612,5 @@ startWorkerSweep();
 await startPlatePipeline();
 startSweep(() => grantDueAnnualTokens(), 60_000, 3_600_000);
 await app.listen({ port: config.port, host: config.host });
-app.log.info({ ...config.environmentSummary, planner: config.anthropicApiKey ? "anthropic" : "deterministic", planConcurrency: config.planConcurrency }, "backend ready");
+app.log.info({ ...config.environmentSummary, planner: config.planner, modelRoutes: Object.fromEntries(Object.entries(allRoutes()).map(([step, route]) => [step, `${route.provider}:${route.model}`])), planConcurrency: config.planConcurrency }, "backend ready");
 if (config.environmentSummary.note) app.log.warn(config.environmentSummary.note);

@@ -5,7 +5,8 @@ import { pool } from "../db/database.ts";
 import { fontSetDigest } from "../plates/digest.ts";
 import { commitRebundleRevision } from "../plates/store.ts";
 import { refundSpend } from "../tokens/store.ts";
-import { boss, inTransaction, QUEUES } from "./queues.ts";
+import { boss, inTransaction, QUEUES, sendOnce } from "./queues.ts";
+import { kickPlateWorkers, kickWorkers } from "./worker-launcher.ts";
 
 const loopDelay = monitorEventLoopDelay({ resolution: 10 });
 loopDelay.enable();
@@ -21,18 +22,154 @@ loopDelay.enable();
  * process dies between the two, pg-boss redelivers and the handler finds a terminal state and returns, as it always has.
  */
 
-const POLL_MAX_SECONDS = 25;
+export const POLL_MAX_SECONDS = 25;
 const FETCH_BACKSTOP_MS = 3000;
-const LEASE_SECONDS = 30;
+export const LEASE_SECONDS = 30;
+export const LEASE_EXPIRY_SECONDS = Number.parseInt(process.env.WORKER_LEASE_EXPIRY_SECONDS ?? "45", 10);
+const LEASE_SWEEP_MS = 5000;
 const QUEUE_NAMES: readonly string[] = [QUEUES.video, QUEUES.plateRender, QUEUES.plateExport, QUEUES.plateRebundle];
 
 const FPS = 30;
-const PROJECT_CAP = Number.parseInt(process.env.PLATE_PROJECT_CAP ?? "2", 10);
-const STALE_SECONDS = Number.parseInt(process.env.PLATE_STALE_SECONDS ?? "90", 10);
+export const PROJECT_CAP = Number.parseInt(process.env.PLATE_PROJECT_CAP ?? "16", 10);
+const projectRenderCap = () => Math.max(1, Number.parseInt(process.env.PLATE_PROJECT_CAP ?? String(PROJECT_CAP), 10) || PROJECT_CAP);
+export const STALE_SECONDS = Number.parseInt(process.env.PLATE_STALE_SECONDS ?? "60", 10);
 const MAX_AUTHOR_CALLS = Number.parseInt(process.env.PLATE_MAX_AUTHOR_CALLS ?? "3", 10);
 
 type Row = Record<string, unknown>;
 type Args = Record<string, any>;
+
+export type TrackedLease = {
+  queue: string;
+  id: string;
+  attempt: number;
+  workerId: string;
+  data: unknown;
+  leaseSeconds: number;
+  leasedAt: number;
+  lastHeartbeatAt: number;
+};
+
+/**
+ * Pure lease tracker with injectable clock (`now`) and `leaseExpiryMs` (default 45 s) so fast reclaim after missed
+ * worker heartbeats can be unit-tested with a fake clock as well as run live in the job-control dispatcher.
+ */
+export function createLeaseTracker(options: { now?: () => number; leaseExpiryMs?: number } = {}) {
+  const now = options.now ?? Date.now;
+  const defaultExpiryMs = options.leaseExpiryMs ?? LEASE_EXPIRY_SECONDS * 1000;
+  const leases = new Map<string, TrackedLease>();
+  const keyOf = (queue: string, id: string) => `${queue}:${id}`;
+
+  return {
+    record(input: { queue: string; id: string; attempt: number; workerId: string; data: unknown; leaseSeconds?: number }): TrackedLease {
+      const ts = now();
+      const entry: TrackedLease = {
+        queue: input.queue,
+        id: input.id,
+        attempt: input.attempt,
+        workerId: input.workerId,
+        data: input.data,
+        leaseSeconds: input.leaseSeconds ?? LEASE_SECONDS,
+        leasedAt: ts,
+        lastHeartbeatAt: ts
+      };
+      leases.set(keyOf(input.queue, input.id), entry);
+      return entry;
+    },
+    touch(queue: string, id: string, attempt: number): boolean {
+      const cur = leases.get(keyOf(queue, id));
+      if (!cur || cur.attempt !== attempt) return false;
+      cur.lastHeartbeatAt = now();
+      return true;
+    },
+    remove(queue: string, id: string, attempt?: number): boolean {
+      const k = keyOf(queue, id);
+      const cur = leases.get(k);
+      if (!cur) return false;
+      if (attempt !== undefined && cur.attempt !== attempt) return false;
+      leases.delete(k);
+      return true;
+    },
+    get(queue: string, id: string): TrackedLease | undefined {
+      return leases.get(keyOf(queue, id));
+    },
+    size(): number {
+      return leases.size;
+    },
+    clear(): void {
+      leases.clear();
+    },
+    collectExpired(customExpiryMs?: number): TrackedLease[] {
+      const cutoff = now() - (customExpiryMs ?? defaultExpiryMs);
+      const expired: TrackedLease[] = [];
+      for (const [k, entry] of leases.entries()) {
+        if (entry.lastHeartbeatAt <= cutoff) {
+          leases.delete(k);
+          expired.push(entry);
+        }
+      }
+      return expired;
+    }
+  };
+}
+
+export const defaultLeaseTracker = createLeaseTracker();
+let leaseSweepTimer: NodeJS.Timeout | null = null;
+
+async function reclaimLeaseInDb(lease: TrackedLease, reason = "worker lease expired (missed heartbeats)") {
+  const data = (lease.data && typeof lease.data === "object" ? lease.data : {}) as Record<string, unknown>;
+  try {
+    await boss.fail(lease.queue, { id: lease.id, retryCount: lease.attempt - 1 }, { reason }).catch(() => undefined);
+    await pool.query("update pgboss.job set start_after = now() where id = $1 and state = 'retry'", [lease.id]).catch(() => undefined);
+    if (lease.queue === QUEUES.plateRender && typeof data.variantId === "string") {
+      await pool.query(
+        `update app.plate_variants
+            set state = 'bundled', stage = 'queued for rendering', updated_at = now(),
+                timings = timings || jsonb_build_object('retrying', jsonb_build_object('attempt', greatest(1, render_attempt), 'reason', 'the drawing worker restarted'))
+          where id = $1 and state = 'rendering'`,
+        [data.variantId]
+      ).catch(() => undefined);
+      void kickPlateWorkers().catch(() => undefined);
+    } else if (lease.queue === QUEUES.plateExport && typeof data.exportId === "string") {
+      await pool.query(
+        "update app.plate_exports set state = 'queued', stage = 'retrying', updated_at = now() where id = $1 and state = 'assembling'",
+        [data.exportId]
+      ).catch(() => undefined);
+      void kickPlateWorkers().catch(() => undefined);
+    } else if (lease.queue === QUEUES.video && typeof data.jobId === "string") {
+      await pool.query(
+        "update app.render_jobs set stage = 'retrying', updated_at = now() where id = $1 and attempt = $2 and state = 'rendering'",
+        [data.jobId, lease.attempt]
+      ).catch(() => undefined);
+      void kickWorkers(true).catch(() => undefined);
+    }
+  } catch {
+    // Best-effort reclaim
+  }
+}
+
+export async function expireStaleLeases(customExpiryMs?: number): Promise<TrackedLease[]> {
+  const expired = defaultLeaseTracker.collectExpired(customExpiryMs);
+  for (const lease of expired) {
+    console.warn(JSON.stringify({ level: "warn", event: "worker_lease_expired", queue: lease.queue, id: lease.id, attempt: lease.attempt, workerId: lease.workerId }));
+    await reclaimLeaseInDb(lease, "worker lease expired (missed heartbeats)");
+  }
+  if (expired.length > 0) {
+    void dispatch();
+  }
+  if (defaultLeaseTracker.size() === 0 && leaseSweepTimer) {
+    clearInterval(leaseSweepTimer);
+    leaseSweepTimer = null;
+  }
+  return expired;
+}
+
+function ensureLeaseSweepTimer() {
+  if (leaseSweepTimer) return;
+  leaseSweepTimer = setInterval(() => {
+    void expireStaleLeases();
+  }, LEASE_SWEEP_MS);
+  leaseSweepTimer.unref();
+}
 
 // ------------------------------------------------------------------ dispatcher (long-held work requests)
 
@@ -65,6 +202,15 @@ async function dispatch() {
           if (!taker) { await boss.fail(queue, { id: job.id, retryCount: job.retryCount }, { reason: "no taker" }).catch(() => undefined); continue; }
           taker.slots[queue] = (taker.slots[queue] ?? 0) - 1;
           taker.got.push(lease);
+          defaultLeaseTracker.record({
+            queue,
+            id: job.id,
+            attempt: lease.attempt,
+            workerId: taker.workerId,
+            data: job.data,
+            leaseSeconds: LEASE_SECONDS
+          });
+          ensureLeaseSweepTimer();
         }
       }
       for (const w of [...waiters]) {
@@ -92,6 +238,17 @@ function wait(workerId: string, slots: Record<string, number>, seconds: number, 
     backstop ??= setInterval(() => void dispatch(), FETCH_BACKSTOP_MS);
     void dispatch();
   });
+}
+
+export function flushWaitingPolls() {
+  for (const w of [...waiters]) {
+    waiters.delete(w);
+    w.resolve([]);
+  }
+  if (backstop) {
+    clearInterval(backstop);
+    backstop = null;
+  }
 }
 
 // ------------------------------------------------------------------ operations (the worker's persistence, verbatim)
@@ -159,7 +316,7 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
       );
       return { committed: done.rowCount === 1, duplicate: done.rowCount === 1, prep: done.rows[0]?.prep ?? null };
     });
-    if (out.committed && !outcome.output && outcome.error?.code !== "cancelled" && out.prep?.ownerId && out.prep?.spendEvent) {
+    if (out.committed && !out.duplicate && !outcome.output && outcome.error?.code !== "cancelled" && out.prep?.ownerId && out.prep?.spendEvent) {
       await refundSpend(out.prep.ownerId, out.prep.spendEvent).catch((error) =>
         console.error(JSON.stringify({ level: "error", event: "render_refund_failed", jobId, message: error instanceof Error ? error.message : String(error) }))
       );
@@ -175,12 +332,12 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
       await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate-cap:${found.rows[0].project_id}`]);
       const result = await client.query(
         `update app.plate_variants v
-            set state = 'rendering', render_attempt = render_attempt + 1, stage = 'verifying', frames_done = 0, error = null, updated_at = now()
+            set state = 'rendering', render_attempt = render_attempt + 1, stage = 'verifying', frames_done = 0, error = null, timings = timings - 'retrying', updated_at = now()
           where v.id = $1 and v.gen = $2
             and (v.state in ('bundled', 'checked') or (v.state = 'rendering' and v.updated_at < now() - make_interval(secs => $4)))
             and (select count(*) from app.plate_variants o where o.project_id = v.project_id and o.state = 'rendering' and o.id <> v.id
                    and o.updated_at >= now() - make_interval(secs => $4)) < $3
-          returning v.*`, [variantId, gen, PROJECT_CAP, STALE_SECONDS]);
+          returning v.*`, [variantId, gen, projectRenderCap(), STALE_SECONDS]);
       return { row: result.rows[0] ?? null };
     });
   },
@@ -189,7 +346,15 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
     return { row: rows[0] ?? null };
   },
   async "plate.sendLater"({ variantId, gen, looks, startAfter }) {
-    await boss.send(QUEUES.plateRender, looks === undefined ? { variantId, gen } : { variantId, gen, looks }, { startAfter: Math.max(1, Math.min(120, Number(startAfter) || 4)) });
+    await tx((client) =>
+      sendOnce(
+        client,
+        QUEUES.plateRender,
+        looks === undefined ? { variantId, gen } : { variantId, gen, looks },
+        `${variantId}:${gen}`,
+        { startAfter: Math.max(1, Math.min(120, Number(startAfter) || 4)) }
+      )
+    );
     return { ok: true };
   },
   /** Fenced writes of the one attempt that owns the row: progress, drawn (publish), failed, or back to bundled for a retry. */
@@ -200,7 +365,7 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
   async "plate.drawn"({ id, gen, renderAttempt, clipKey, stillKey, clipMeta, timings, engineDigest, fontSetDigest: fDigest }) {
     return tx(async (client) => {
       const r = await client.query(
-        `${plateFence("state = 'drawn', stage = null, frames_done = frames, clip_key = $4, still_key = $5, clip_meta = $6::jsonb, error = null, drawn_at = now(), timings = timings || $7::jsonb")} returning *`,
+        `${plateFence("state = 'drawn', stage = null, frames_done = frames, clip_key = $4, still_key = $5, clip_meta = $6::jsonb, error = null, drawn_at = now(), timings = (timings - 'retrying') || $7::jsonb")} returning *`,
         [id, gen, renderAttempt, clipKey, stillKey, JSON.stringify(clipMeta ?? {}), JSON.stringify(timings ?? {})]
       );
       if (r.rowCount === 1) {
@@ -237,8 +402,12 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
     const r = await pool.query(plateFence("state = 'failed', stage = null, error = $4::jsonb"), [id, gen, renderAttempt, JSON.stringify(error)]);
     return { ok: r.rowCount === 1 };
   },
-  async "plate.retry"({ id, gen, renderAttempt }) {
-    const r = await pool.query(plateFence("state = 'bundled', stage = 'retrying'"), [id, gen, renderAttempt]);
+  async "plate.retry"({ id, gen, renderAttempt, reason }) {
+    const retryReason = typeof reason === "string" && reason ? reason : "the drawing worker restarted";
+    const r = await pool.query(
+      plateFence("state = 'bundled', stage = 'retrying', timings = timings || jsonb_build_object('retrying', jsonb_build_object('attempt', $3::int, 'reason', $4::text))"),
+      [id, gen, renderAttempt, retryReason]
+    );
     return { ok: r.rowCount === 1 };
   },
   /** A deterministic defect of the scene code goes back to authoring (bounded by PLATE_MAX_AUTHOR_CALLS). */
@@ -256,7 +425,9 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
               where id = $1 and gen = $2 and render_attempt = $3 and state = 'rendering'
               returning rev`,
             [id, gen, renderAttempt, JSON.stringify({ error: String(detail).slice(-2500), previousKey: sourceKey })]);
-        if (result.rowCount === 1 && !exhausted) await boss.send(QUEUES.plateAuthor, { variantId: id, gen }, { db: inTransaction(client) });
+        if (result.rowCount === 1 && !exhausted) {
+          await sendOnce(client, QUEUES.plateAuthor, { variantId: id, gen }, `${id}:${gen}:r${result.rows[0]?.rev}`);
+        }
         return { applied: result.rowCount === 1, exhausted, ...(result.rows[0]?.rev !== undefined ? { rev: result.rows[0].rev } : {}) };
       }
 
@@ -308,7 +479,7 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
             [id, gen, JSON.stringify({ error: String(detail).slice(-2500), previousKey: prevKey })]
           );
       if (result.rowCount === 1 && !exhausted) {
-        await boss.send(QUEUES.plateAuthor, { variantId: id, gen }, { db: inTransaction(client) });
+        await sendOnce(client, QUEUES.plateAuthor, { variantId: id, gen }, `${id}:${gen}:r${result.rows[0]?.rev}`);
       }
       return { applied: result.rowCount === 1, exhausted, ...(result.rows[0]?.rev !== undefined ? { rev: result.rows[0].rev } : {}) };
     });
@@ -404,6 +575,27 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
           JSON.stringify(clipMeta ?? {})
         ]
       );
+      if (typeof variantId === "string" && Number.isInteger(Number(gen)) && bDigest) {
+        await client.query(
+          `update app.plate_variants
+              set state = 'drawn',
+                  stage = null,
+                  frames_done = frames,
+                  clip_key = coalesce(clip_key, $4),
+                  still_key = coalesce(still_key, $5),
+                  clip_meta = coalesce(clip_meta, $6::jsonb),
+                  error = null,
+                  drawn_at = coalesce(drawn_at, now()),
+                  timings = coalesce(timings, '{}'::jsonb) - 'retrying',
+                  updated_at = now()
+            where id = $1
+              and gen = $2
+              and bundle_digest = $3
+              and state in ('checked', 'bundled')
+              and clip_key is null`,
+          [variantId, Number(gen), String(bDigest), String(clipKey), stillKey ? String(stillKey) : null, JSON.stringify(clipMeta ?? {})]
+        ).catch(() => undefined);
+      }
       if (inserted.rowCount === 1) {
         return { ok: true, duplicate: false, clip: inserted.rows[0] };
       }
@@ -442,8 +634,59 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
     return { ok: r.rowCount === 1 };
   },
   async "scenes.states"({ ids }) {
-    const { rows } = await pool.query("select id, project_id, signature, state, clip_key, error from app.plate_variants where id = any($1)", [ids]);
+    const { rows } = await pool.query("select id, project_id, signature, state, clip_key, error, frames_done from app.plate_variants where id = any($1)", [ids]);
     return { rows };
+  },
+  async "plate.enqueueMisses"(args) {
+    const { jobId, exportId, attempt, scenes } = args ?? {};
+    if (!Array.isArray(scenes) || !scenes.length) return { ok: true, enqueued: 0 };
+    const result = await tx(async (client) => {
+      let fenceOk = false;
+      if (typeof jobId === "string" && Number.isInteger(Number(attempt))) {
+        const f = await client.query(
+          "select 1 from app.render_jobs where id = $1 and attempt = $2 and state = 'rendering'",
+          [jobId, Number(attempt)]
+        );
+        fenceOk = f.rowCount === 1;
+      } else if (typeof exportId === "string" && Number.isInteger(Number(attempt))) {
+        const f = await client.query(
+          "select 1 from app.plate_exports where id = $1 and attempt = $2 and state = 'assembling'",
+          [exportId, Number(attempt)]
+        );
+        fenceOk = f.rowCount === 1;
+      }
+      if (!fenceOk) return { ok: false, fenced: true, enqueued: 0 };
+
+      let enqueued = 0;
+      for (const s of scenes) {
+        const vId = typeof s?.variantId === "string" ? s.variantId : "";
+        const vGen = Number(s?.gen);
+        const bDigest = typeof s?.bundleDigest === "string" ? s.bundleDigest : "";
+        if (!vId || !Number.isInteger(vGen) || !bDigest) continue;
+        const updated = await client.query(
+          `update app.plate_variants
+              set state = 'bundled',
+                  stage = 'queued for rendering',
+                  enqueued_at = now(),
+                  updated_at = now()
+            where id = $1
+              and gen = $2
+              and bundle_digest = $3
+              and state in ('checked', 'bundled')
+              and clip_key is null`,
+          [vId, vGen, bDigest]
+        );
+        if (updated.rowCount === 1) {
+          const sent = await sendOnce(client, QUEUES.plateRender, { variantId: vId, gen: vGen }, `${vId}:${vGen}`);
+          if (sent) enqueued += 1;
+        }
+      }
+      return { ok: true, enqueued };
+    });
+    if (result.ok && result.enqueued > 0) {
+      void kickPlateWorkers(true).catch(() => undefined);
+    }
+    return result;
   },
 
   // ---- plate-rebundle (phase 2: worker verification + atomic cutover)
@@ -513,6 +756,10 @@ export async function registerJobControlRoutes(app: FastifyInstance, secret = pr
   const deny = { error: { code: "unauthorized", message: "Not authorised." } };
   const bad = (reply: any, message: string) => reply.code(400).send({ error: { code: "bad_request", message } });
 
+  app.addHook("preClose", async () => {
+    flushWaitingPolls();
+  });
+
   app.post<{ Body: { workerId?: string; slots?: Record<string, number>; waitSeconds?: number } }>("/internal/worker/poll", async (request, reply) => {
     if (!authorised(request, secret)) return reply.code(401).send(deny);
     const { workerId, slots, waitSeconds } = request.body ?? {};
@@ -527,7 +774,7 @@ export async function registerJobControlRoutes(app: FastifyInstance, secret = pr
     return { jobs };
   });
 
-  const ack = (verb: "heartbeat" | "complete" | "fail") => async (request: FastifyRequest<{ Params: { queue: string; id: string }; Body: { attempt?: number; reason?: string } }>, reply: any) => {
+  const ack = (verb: "heartbeat" | "complete" | "fail" | "release") => async (request: FastifyRequest<{ Params: { queue: string; id: string }; Body: { workerId?: string; attempt?: number; reason?: string; data?: unknown } }>, reply: any) => {
     if (!authorised(request, secret)) return reply.code(401).send(deny);
     const { queue, id } = request.params;
     const attempt = Number(request.body?.attempt);
@@ -537,8 +784,28 @@ export async function registerJobControlRoutes(app: FastifyInstance, secret = pr
       if (verb === "heartbeat") {
         const result = (await boss.touch(queue, target)) as { affected?: number; jobs?: unknown[] };
         const ok = (result?.affected ?? result?.jobs?.length ?? 0) > 0;
+        if (ok) defaultLeaseTracker.touch(queue, id, attempt);
+        else defaultLeaseTracker.remove(queue, id, attempt);
         return ok ? { ok: true } : { ok: false, reason: "superseded" };
       }
+      if (verb === "release") {
+        const tracked = defaultLeaseTracker.get(queue, id);
+        defaultLeaseTracker.remove(queue, id, attempt);
+        const leaseObj: TrackedLease = tracked ?? {
+          queue,
+          id,
+          attempt,
+          workerId: String(request.body?.workerId ?? ""),
+          data: request.body?.data ?? {},
+          leaseSeconds: LEASE_SECONDS,
+          leasedAt: Date.now(),
+          lastHeartbeatAt: Date.now()
+        };
+        await reclaimLeaseInDb(leaseObj, String(request.body?.reason ?? "worker_released").slice(0, 300));
+        void dispatch();
+        return { ok: true, released: true };
+      }
+      defaultLeaseTracker.remove(queue, id, attempt);
       const result = (verb === "complete" ? await boss.complete(queue, target) : await boss.fail(queue, target, { reason: String(request.body?.reason ?? "worker").slice(0, 300) })) as { affected?: number; jobs?: unknown[] };
       // Acknowledging an attempt that is no longer active (already completed, retried by pg-boss, superseded) is not an error.
       return { ok: true, applied: (result?.affected ?? result?.jobs?.length ?? 0) > 0 };
@@ -549,6 +816,7 @@ export async function registerJobControlRoutes(app: FastifyInstance, secret = pr
   app.post("/internal/worker/jobs/:queue/:id/heartbeat", ack("heartbeat"));
   app.post("/internal/worker/jobs/:queue/:id/complete", ack("complete"));
   app.post("/internal/worker/jobs/:queue/:id/fail", ack("fail"));
+  app.post("/internal/worker/jobs/:queue/:id/release", ack("release"));
 
   app.post<{ Params: { op: string }; Body: Args }>("/internal/worker/op/:op", async (request, reply) => {
     if (!authorised(request, secret)) return reply.code(401).send(deny);

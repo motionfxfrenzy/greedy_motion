@@ -1,5 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateRoutes } from "./models/routes.ts";
 
 const backendSourceDir = dirname(fileURLToPath(import.meta.url));
 const repositoryDir = resolve(backendSourceDir, "../..");
@@ -23,13 +24,10 @@ if (env === "production" && corsOrigins.some((origin) => !origin.startsWith("htt
   throw new Error("In production, CORS_ORIGINS must list only HTTPS production origins.");
 }
 
-// Claude is the planner. The deterministic planner runs only when explicitly requested (PLANNER=deterministic),
-// so a missing key fails loudly at startup instead of silently producing non-AI plans.
+// Claude is the default planner. The deterministic planner runs only when explicitly requested (PLANNER=deterministic),
+// so a missing key for any active route fails loudly at startup (validated below via validateRoutes after config is built).
 const planner = process.env.PLANNER ?? "anthropic";
 if (planner !== "anthropic" && planner !== "deterministic") throw new Error(`PLANNER must be "anthropic" or "deterministic"; got "${planner}".`);
-if (planner === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
-  throw new Error("ANTHROPIC_API_KEY is not set in backend/.env. Add the key, or set PLANNER=deterministic to run without Claude.");
-}
 
 // Render jobs and the render queue (pg-boss) live in Postgres; the backend cannot run without it.
 const databaseUrl = process.env.DATABASE_URL ?? "";
@@ -86,9 +84,12 @@ const workerLaunch = workerLaunchMode === "ecs"
         taskDefinition: need("ECS_WORKER_TASK_DEFINITION"),
         subnets: list("ECS_SUBNETS"),
         securityGroups: list("ECS_SECURITY_GROUPS"),
-        // Must match the worker's RENDER_CONCURRENCY: renders one task takes at once.
-        perTask: positiveInt("ECS_WORKER_CONCURRENCY", 2),
-        maxTasks: positiveInt("ECS_WORKER_MAX_TASKS", 3),
+        // Must match the worker's RENDER_CONCURRENCY: final renders one task takes at once (default 1 on Fargate).
+        perTask: positiveInt("ECS_WORKER_CONCURRENCY", 1),
+        // Must match the worker's PLATE_CONCURRENCY on ECS (default 1 on Fargate; independent of local PLATE_CONCURRENCY).
+        platePerTask: positiveInt("ECS_PLATE_CONCURRENCY", 1),
+        // Configurable operator ceiling on concurrent Fargate tasks (not a hard-coded application job cap).
+        maxTasks: positiveInt("ECS_WORKER_MAX_TASKS", 32),
         // Spot is ~70% cheaper; an interrupted render is retried by the queue. "0" uses on-demand only.
         spot: process.env.ECS_USE_SPOT !== "0",
       };
@@ -217,8 +218,14 @@ export const config = {
       liveForceOff,
       authorConcurrency: positiveInt("PLATE_AUTHOR_CONCURRENCY", 3),
       projectAuthorCap: positiveInt("PLATE_PROJECT_AUTHOR_CAP", 4),
-      projectClipCap: positiveInt("PLATE_PROJECT_CLIP_CAP", 4),
-      maxAuthorCalls: positiveInt("PLATE_MAX_AUTHOR_CALLS", 3)
+      projectClipCap: positiveInt("PLATE_PROJECT_CLIP_CAP", 16),
+      projectRenderCap: positiveInt("PLATE_PROJECT_CAP", 16),
+      maxAuthorCalls: positiveInt("PLATE_MAX_AUTHOR_CALLS", 3),
+      maxModelStartsPerGen: positiveInt("PLATE_MAX_MODEL_STARTS", 3),
+      checkGraceSeconds: positiveInt("PLATE_CHECK_GRACE_SECONDS", 180),
+      reviseCoalesceSeconds: nonNegativeInt("PLATE_REVISE_COALESCE_SECONDS", 90),
+      cacheGate: (process.env.PLATE_CACHE_GATE ?? "on") !== "off",
+      cacheWarmTimeoutMs: positiveInt("PLATE_CACHE_WARM_TIMEOUT_MS", 20_000)
     };
   })(),
   creemApiKey: process.env.CREEM_API_KEY || "",
@@ -266,3 +273,11 @@ export const config = {
     returnUrl: process.env.BILLING_RETURN_URL || `${corsOrigins[0] ?? "http://localhost:3000"}/profile`
   }
 } as const;
+
+if (config.planner === "anthropic") {
+  validateRoutes(process.env, {
+    anthropic: config.anthropicApiKey,
+    gemini: config.geminiApiKey,
+    openaiCompatible: process.env.OPENAI_COMPATIBLE_API_KEY || ""
+  });
+}

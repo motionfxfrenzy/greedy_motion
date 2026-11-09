@@ -34,6 +34,8 @@ export async function openScene(pagePath, { executablePath = process.env.PLATE_B
     const chromium = await playwright();
     browser = await chromium.launch({
       executablePath,
+      // The worker owns shutdown (it drains, then hands jobs back); playwright must not kill Chromium on SIGTERM mid-draw.
+      handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false,
       args: ["--disable-background-timer-throttling", "--disable-extensions", "--disable-dev-shm-usage", "--no-sandbox", "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost", ...(process.env.PLATE_CHROME_ARGS ? process.env.PLATE_CHROME_ARGS.split(" ") : [])]
     });
   } catch (error) {

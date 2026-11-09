@@ -8,7 +8,7 @@ import { PlateFinal, PlatePreview } from "../../../components/plate-preview";
 import { TokenModal } from "../../../components/script-canvas";
 import { getProject, renderProject } from "../../../lib/api";
 import { isPlateLiveEnabled } from "../../../lib/live/flag";
-import { FIXTURE_PROJECT } from "../../../test/fixtures/workspace/data";
+import { FIXTURE_PROJECT, UPDATED_FOLK_TALE_7_PROJECT } from "../../../test/fixtures/workspace/data";
 
 const UNVERIFIED_SAFARI_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
@@ -69,8 +69,38 @@ function PlatePreviewFixtureInner() {
     };
   }, [liveEnabled, isLiveFixtureState, envParam, state, handleDecisionsChange]);
 
-  const isFinal = state === "k-plate-final" || state === "q-plate-final-approved";
-  const activeProject = projectParam ? realProject : FIXTURE_PROJECT;
+  const isFinal =
+    state === "k-plate-final" ||
+    state === "q-plate-final-approved" ||
+    state === "r-plate-final-all-ready" ||
+    state === "s-plate-final-two-ratios" ||
+    state === "t-plate-final-single-9x16";
+  const isFolkTaleFixture =
+    state === "u-stale-revision" ||
+    state === "v-partial-stale" ||
+    state === "w-preparing-revision";
+  const baseProject = projectParam ? realProject : isFolkTaleFixture ? UPDATED_FOLK_TALE_7_PROJECT : FIXTURE_PROJECT;
+  const activeProject = useMemo(() => {
+    if (!baseProject) return null;
+    if (state === "t-plate-final-single-9x16") {
+      return {
+        ...baseProject,
+        request: { ...baseProject.request, format: "portrait" as const },
+        brief: baseProject.brief
+          ? { ...baseProject.brief, aspect: "9:16" as const, aspects: ["9:16" as const] }
+          : undefined
+      };
+    }
+    if (state === "s-plate-final-two-ratios") {
+      return {
+        ...baseProject,
+        brief: baseProject.brief
+          ? { ...baseProject.brief, aspect: "16:9" as const, aspects: ["16:9" as const, "9:16" as const] }
+          : undefined
+      };
+    }
+    return baseProject;
+  }, [baseProject, state]);
 
   const handleRender = () => {
     if (projectParam && activeProject) {
@@ -101,7 +131,7 @@ function PlatePreviewFixtureInner() {
       {!activeProject ? null : isFinal ? (
         <PlateFinal
           project={activeProject}
-          finalUrl={`/api/backend/projects/${activeProject.id}/plates/export/16-9`}
+          finalUrl={`/api/backend/projects/${activeProject.id}/plates/export/${state === "t-plate-final-single-9x16" ? "9-16" : "16-9"}`}
           onBack={() => {}}
           onApprove={() => {}}
           approved={state === "q-plate-final-approved"}

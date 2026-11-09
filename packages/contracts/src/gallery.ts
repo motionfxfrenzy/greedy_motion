@@ -8,6 +8,7 @@ import opusRows from "./gallery-opus.json" with { type: "json" };
 import sceneRows from "./gallery-scenes.json" with { type: "json" };
 import styleRows from "./gallery-styles.json" with { type: "json" };
 import previewManifest from "./gallery-previews.json" with { type: "json" };
+import storyWorlds from "./story-worlds.json" with { type: "json" };
 import { getLook, looks, type LookId } from "./looks.ts";
 import { themes } from "./themes.ts";
 import { familiesOfLook } from "./style-families.ts";
@@ -264,10 +265,14 @@ export const HOLD_GENERATED_STYLES = true;
 export const heldForV2 = (look: string) => HOLD_GENERATED_STYLES && getLook(look).renderMode === "generated";
 /** The Story & film plates of the illustration styles: each is code-drawn (anidoodle), so they stay in the gallery while the generated looks are held. */
 export const isStylePlate = (item: GalleryTemplate) => item.id.startsWith("story-illus-");
+export const isStylePlateLook = (look: string) => everyGalleryTemplate.some((item) => item.look === look && isStylePlate(item));
 export const galleryTemplates: readonly GalleryTemplate[] = everyGalleryTemplate.filter((item) => !heldForV2(item.look) || isStylePlate(item));
 
 import { galleryUseCases, normalizeSearch, type GalleryUseCase } from "./gallery-use-cases.ts";
 export { galleryUseCases, type GalleryUseCase };
+
+export type GalleryScope = "all" | "film";
+export const isGalleryScope = (value: unknown): value is GalleryScope => value === "all" || value === "film";
 
 // What was built first (starters, the product explainers, the remade prompts, every drawn style) all serve product videos,
 // so it is browsed under SaaS & product. Explainers & learning holds the distinct teaching styles; Story & film the art-led
@@ -287,8 +292,50 @@ export function useCaseOf(item: GalleryTemplate): GalleryUseCase {
   return "saas";
 }
 
+/** True when a gallery template is a film (an educational explainer or a story/illustrated film) rather than a product, brand or colour template. */
+export function isFilmTemplate(item: GalleryTemplate): boolean {
+  const useCase = useCaseOf(item);
+  return useCase === "explain" || useCase === "story";
+}
+
 export const galleryIds = galleryTemplates.map((item) => item.id);
 export const findGalleryTemplate = (id: string | null | undefined) => everyGalleryTemplate.find((item) => item.id === id);
+
+/**
+ * A film (a story or an explainer) rather than a product video: it needs no product site, name, audience, brand kit,
+ * theme or screenshots, because everything in it is made from the idea. True for story and educational templates and
+ * for any code-drawn story style (illus-*); product, brand and colour templates keep the product brief.
+ */
+export type StoryWorld = { world: string; elements: string[] };
+/**
+ * The hidden world rules of a story style (story-worlds.json, drafted from each style's engine kit): how the style tells
+ * a story and what its engine draws and animates well. Sent to the script writer with the person's idea, never shown,
+ * so the script asks for what makes that style come alive. By the brief's look, else the look of the template it started from.
+ */
+export function storyWorldFor(brief: { look?: string | null; styleExample?: string | null }): StoryWorld | null {
+  const worlds = storyWorlds as Record<string, StoryWorld>;
+  const look = brief.look ?? findGalleryTemplate(brief.styleExample)?.look ?? null;
+  return (look && worlds[look]) || null;
+}
+
+export function isFilmBrief(brief: { look?: string | null; styleFamily?: string | null; styleExample?: string | null }): boolean {
+  return filmKind(brief) !== null;
+}
+
+/**
+ * Which kind of film: "explainer" for educational templates (told the way the best explainer shorts talk), "story" for
+ * story templates and code-drawn story styles (told as a story), null for product, brand and colour films.
+ */
+export function filmKind(brief: { look?: string | null; styleFamily?: string | null; styleExample?: string | null }): "story" | "explainer" | null {
+  const template = findGalleryTemplate(brief.styleExample);
+  const useCase = template ? useCaseOf(template) : null;
+  if (useCase === "explain") return "explainer";
+  if (useCase === "story") return "story";
+  if (useCase !== null) return null;
+  if (brief.look?.startsWith("illus-")) return "story";
+  if (brief.styleFamily === "clean-data") return "explainer";
+  return null;
+}
 
 /** True when the style needs generated footage (and a confirmed budget) rather than a native drawing treatment. */
 export const needsGeneration = (item: GalleryTemplate) => getLook(item.look).renderMode === "generated";
@@ -297,11 +344,12 @@ export const needsGeneration = (item: GalleryTemplate) => getLook(item.look).ren
 /** A film starts from a small story, never a product pitch: a template in the Story & film group that has no story of its own gets this. */
 const dummyFilmPrompt = "A short film about a lighthouse keeper who lights an old lantern by hand when the lamp goes dark, and guides the fishing boats home before morning.";
 
-export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMode" | "text" | "durationSeconds" | "aspect" | "motionProfile" | "pace" | "audio" | "captions" | "template" | "theme" | "look" | "styleFamily" | "styleExample"> {
+export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMode" | "text" | "durationSeconds" | "durationMode" | "aspect" | "motionProfile" | "pace" | "audio" | "captions" | "template" | "theme" | "look" | "styleFamily" | "styleExample"> {
   return {
     scriptMode: "problem",
     text: useCaseOf(item) === "story" && !item.id.startsWith("story-") ? dummyFilmPrompt : item.prompt,
     durationSeconds: item.durationSeconds,
+    durationMode: "script",
     aspect: item.aspect,
     motionProfile: item.motionProfile,
     pace: item.pace,
@@ -343,17 +391,18 @@ export const GALLERY_PAGE_MAX = 48;
 /** Use-case groups held back from the gallery for now. Remove an id here to show it again. */
 const hiddenUseCases: readonly GalleryUseCase[] = ["threed"];
 
-export function queryGallery(options: { useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[]; look?: string /* a look id or a family id */; /** Include the code-drawn plate templates (only where the backend has the plate pipeline on). */ plates?: boolean } = {}): GalleryPage {
+export function queryGallery(options: { useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[]; look?: string /* a look id or a family id */; /** Include the code-drawn plate templates (only where the backend has the plate pipeline on). */ plates?: boolean; /** Restrict to templates compatible with a specific brief flow ("film" = educational explainers and story/illustrated films). */ scope?: GalleryScope } = {}): GalleryPage {
   const needle = normalizeSearch(options.q).toLowerCase();
   const base = options.look ? styleExamples(options.look) : galleryTemplates;
-  const matches = needle ? base.filter((item) => `${item.name} ${item.summary} ${item.bestFor} ${item.group} ${item.look}`.toLowerCase().includes(needle)) : base;
+  const scoped = options.scope === "film" ? base.filter(isFilmTemplate) : base;
+  const matches = needle ? scoped.filter((item) => `${item.name} ${item.summary} ${item.bestFor} ${item.group} ${item.look}`.toLowerCase().includes(needle)) : scoped;
   // Hidden groups stay out of browsing and counts (so their tab disappears); a template asked for by id still resolves.
   const shown = matches.filter((item) => !hiddenUseCases.includes(useCaseOf(item)) && (options.plates || !isStylePlate(item)));
   const counts = { all: shown.length } as Record<GalleryUseCase | "all", number>;
   for (const entry of galleryUseCases) counts[entry.id] = 0;
   for (const item of shown) counts[useCaseOf(item)]++;
   const pool = options.ids
-    ? options.ids.flatMap((id) => matches.filter((item) => item.id === id))
+    ? options.ids.flatMap((id) => (options.scope === "film" ? shown : matches).filter((item) => item.id === id))
     : options.useCase && galleryUseCases.some((entry) => entry.id === options.useCase) ? shown.filter((item) => useCaseOf(item) === options.useCase) : shown;
   const limit = Math.min(Math.max(Math.floor(options.limit ?? 24) || 24, 1), GALLERY_PAGE_MAX);
   const offset = Math.max(Math.floor(Number(options.cursor)) || 0, 0);
@@ -377,21 +426,48 @@ export const familyOf = (item: GalleryTemplate): string => {
 
 /** Every example of one style: a look id (all of its families) or a family id (just that family). Colour themes are
  *  palettes, not styles, so they are not examples. */
-const styleExamples = (id: string): readonly GalleryTemplate[] => galleryTemplates.filter((item) => item.group !== "Colour" && (item.look === id || familyOf(item) === id));
+export const styleExamples = (id: string, options: { scope?: GalleryScope; plates?: boolean } = {}): readonly GalleryTemplate[] => {
+  const plates = options.plates ?? true;
+  return galleryTemplates.filter((item) =>
+    item.group !== "Colour" &&
+    (item.look === id || familyOf(item) === id) &&
+    (plates || !isStylePlate(item)) &&
+    (options.scope === "film" ? isFilmTemplate(item) && !hiddenUseCases.includes(useCaseOf(item)) : true)
+  );
+};
+
+/** The default example template for a style or family within a given scope (e.g. when "Use this style" is chosen without a specific example card). */
+export const defaultStyleExample = (id: string, options: { scope?: GalleryScope; plates?: boolean } = {}): string | undefined => {
+  const examples = styleExamples(id, options);
+  const hero = examples.find((item) => item.kind === "style" && item.preview.video) ?? examples.find((item) => item.preview.video) ?? examples[0];
+  return hero?.id;
+};
 
 /** A visual style as the style picker shows it. `id` is a look id, or a family id for a look that is split into families
  *  (`look` is the look to set either way); `examples` is how many templates are made in it; `preview` is one real clip. */
-export type GalleryStyleCard = { id: string; look: string; name: string; group: string; description: string; examples: number; preview: GalleryTemplate["preview"] };
+export type GalleryStyleCard = { id: string; look: string; name: string; group: string; description: string; examples: number; preview: GalleryTemplate["preview"]; defaultExample?: string };
 
-export function galleryStyles(): GalleryStyleCard[] {
+export function galleryStyles(options: { plates?: boolean; scope?: GalleryScope } = {}): GalleryStyleCard[] {
+  const plates = options.plates ?? true;
+  const scope = options.scope;
   const card = (id: string, look: (typeof looks)[number], name: string, description: string): GalleryStyleCard => {
-    const examples = styleExamples(id);
+    const examples = styleExamples(id, { scope, plates });
     // Prefer a style-led example (the style itself) over a product starter, then any example with a clip.
-    const hero = examples.find((item) => item.kind === "style" && item.preview.video) ?? examples.find((item) => item.preview.video);
-    return { id, look: look.id, name, group: look.group, description, examples: examples.length, preview: hero?.preview ?? { src: look.preview.src, kind: look.preview.kind === "video" ? "video" : "image", label: look.preview.label, ...(look.preview.kind === "video" ? { video: look.preview.src } : {}) } };
+    const hero = examples.find((item) => item.kind === "style" && item.preview.video) ?? examples.find((item) => item.preview.video) ?? examples[0];
+    return {
+      id,
+      look: look.id,
+      name,
+      group: look.group,
+      description,
+      examples: examples.length,
+      preview: hero?.preview ?? { src: look.preview.src, kind: look.preview.kind === "video" ? "video" : "image", label: look.preview.label, ...(look.preview.kind === "video" ? { video: look.preview.src } : {}) },
+      ...(hero ? { defaultExample: hero.id } : {})
+    };
   };
-  return looks.filter((look) => look.available && !heldForV2(look.id)).flatMap((look) => {
+  const items = looks.filter((look) => look.available && (!heldForV2(look.id) || (plates && isStylePlateLook(look.id)))).flatMap((look) => {
     const families = familiesOfLook(look.id);
     return families.length ? families.map((family) => card(family.id, look, family.name, family.description)) : [card(look.id, look, look.name, look.description)];
   });
+  return scope === "film" ? items.filter((item) => item.examples > 0) : items;
 }

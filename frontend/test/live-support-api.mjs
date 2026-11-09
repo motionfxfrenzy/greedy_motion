@@ -1,13 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  SLOW_DRAW_MEDIAN_MS,
+  SLOW_DRAW_P90_MS,
   VERIFIED_ENVIRONMENTS,
   environmentStatus,
+  isSlowScene,
   resolveCacheBudgetBytes,
   resolveCacheBudgetMB,
   supportsWorkerHost
 } from "../lib/live/support.ts";
 import {
+  buildCheckSampleFrames,
   fetchBundle,
   reportCheck,
   requestClip,
@@ -429,4 +433,286 @@ test("runCheck does not report a scene as non-deterministic when only the first 
   assert.equal(real.ok, false);
   assert.equal(real.kind, "code");
   assert.match(real.error, /Non-deterministic draw on frame 45/);
+});
+
+test("isSlowScene pure classifier: thresholds (60ms median / 80ms p90), >=5 alone samples, contended samples (>2x threshold), single outlier, and first-frame strip", () => {
+  assert.equal(SLOW_DRAW_MEDIAN_MS, 60);
+  assert.equal(SLOW_DRAW_P90_MS, 80);
+
+  // 1. Boundary cases (at least 5 alone samples)
+  assert.deepEqual(isSlowScene([20, 22, 24, 21, 23, 22, 25, 21]), {
+    slow: false,
+    median: 22,
+    p90: 25,
+    n: 8
+  });
+  // Exactly on threshold (60 median, 80 p90) -> not slow
+  assert.deepEqual(isSlowScene([55, 60, 60, 60, 60, 60, 60, 80]), {
+    slow: false,
+    median: 60,
+    p90: 80,
+    n: 8
+  });
+  // Just above median threshold (61 median, 70 p90) -> slow
+  assert.deepEqual(isSlowScene([58, 60, 61, 61, 61, 62, 65, 70]), {
+    slow: true,
+    median: 61,
+    p90: 70,
+    n: 8
+  });
+  // Fast median (25ms) but p90 > 80ms (e.g. 2 spikes at 95ms out of 10 samples -> p90 index 8 is 95ms) -> slow
+  assert.deepEqual(isSlowScene([20, 22, 24, 25, 25, 26, 28, 30, 95, 110]), {
+    slow: true,
+    median: 25.5,
+    p90: 95,
+    n: 10
+  });
+
+  // 2. Single outlier out of 10 samples: 9 fast samples (~20ms) and 1 single spike (150ms):
+  // ceil(10 * 0.9) - 1 = index 8 -> 9th sorted sample is 24ms (<= 80ms), median is 22ms (<= 60ms) -> NOT slow!
+  const oneOutlier = isSlowScene([20, 21, 22, 22, 22, 23, 23, 24, 24, 150]);
+  assert.equal(oneOutlier.slow, false, "single outlier in 10 samples does not exceed p90 or median");
+  assert.equal(oneOutlier.median, 22.5);
+  assert.equal(oneOutlier.p90, 24);
+  assert.equal(oneOutlier.n, 10);
+
+  // 3. Few samples (< 5 alone samples and no contended samples) -> never marked slow
+  assert.deepEqual(isSlowScene([]), { slow: false, median: 0, p90: 0, n: 0 });
+  assert.deepEqual(isSlowScene([200]), { slow: false, median: 200, p90: 200, n: 1 });
+  assert.deepEqual(isSlowScene([180, 190, 210, 220]), {
+    slow: false,
+    median: 200,
+    p90: 220,
+    n: 4
+  });
+
+  // 4. Contended samples only: does NOT mark slow unless median > 2x threshold (> 120ms)
+  const contendedBusyFast = isSlowScene([], {
+    contendedSamplesMs: [85, 90, 95, 100, 110, 115, 120, 120]
+  });
+  assert.equal(contendedBusyFast.slow, false, "contended median <= 120ms is not marked slow");
+  assert.equal(contendedBusyFast.n, 8);
+
+  const contendedVerySlow = isSlowScene([], {
+    contendedSamplesMs: [130, 140, 150, 160, 170, 180, 190, 200]
+  });
+  assert.equal(contendedVerySlow.slow, true, "contended median > 2x threshold (165ms > 120ms) is marked slow");
+
+  // When >= 5 alone samples exist, alone samples are authoritative over contended samples
+  const aloneWins = isSlowScene([20, 22, 24, 25, 26], {
+    contendedSamplesMs: [180, 190, 200, 210, 220, 230]
+  });
+  assert.equal(aloneWins.slow, false);
+  assert.equal(aloneWins.median, 24);
+
+  // 5. stripFirst option ignores a slow first shader-compile sample
+  const withSlowFirst = isSlowScene([350, 20, 22, 21, 23, 24, 22, 25, 21], { stripFirst: true });
+  assert.equal(withSlowFirst.slow, false, "slow first sample is ignored when stripFirst is true");
+  assert.equal(withSlowFirst.n, 8);
+});
+
+test("runCheck with previewScale draws >= 8 sample frames across first/middle/last thirds, ignores first sample, and always reports ok:true with drawMs { medianMs, p90Ms } for server decision", async () => {
+  const manifest = { width: 1920, height: 1080, fps: 30, frames: 120 };
+  const samples = buildCheckSampleFrames(120, 8);
+  assert.ok(samples.length >= 8);
+  assert.ok(samples[0] < 40, "includes first third");
+  assert.ok(samples.some((f) => f >= 40 && f < 80), "includes middle third");
+  assert.equal(samples.at(-1), 119, "includes last third end");
+
+  // 1. Fast scene with a slow first preview draw (300ms shader compile on first preview sample, then 22ms/frame) -> ok: true with drawMs
+  let previewDrawsFast = 0;
+  let lastInitScale = 1;
+  const fastHost = {
+    async init(opts) {
+      lastInitScale = opts?.scale ?? 1;
+      return { w: Math.round(1920 * lastInitScale), h: Math.round(1080 * lastInitScale), meta: { W: 1920, H: 1080, fps: 30, durationFrames: 120 } };
+    },
+    async frame(n) {
+      const isPreview = lastInitScale < 1;
+      if (isPreview) previewDrawsFast++;
+      const drawMs = isPreview ? (previewDrawsFast === 1 ? 300 : 22) : 12;
+      return {
+        n,
+        drawMs,
+        hash: `fast-${n}`,
+        bitmap: { width: 640, height: 360, close() {} }
+      };
+    }
+  };
+
+  const fastOut = await runCheck(fastHost, manifest, { previewScale: 640 / 1920 });
+  assert.equal(fastOut.ok, true, "slow first draw is ignored; fast scene passes check");
+  assert.equal(fastOut.results?.drawMsMedian, 22);
+  assert.deepEqual(fastOut.drawMs, { medianMs: 22, p90Ms: 22 });
+
+  // 2. Slow scene (Crayon scene 2: ~180ms median, 240ms p90) -> ok: true with drawMs: { medianMs: 180, p90Ms: 240 } (server decides slow)
+  const slowTimings = [280, 145, 160, 175, 180, 185, 210, 240, 250];
+  let previewDrawsSlow = 0;
+  let scaleSlow = 1;
+  let evalCallbackInfo = null;
+  const slowHost = {
+    async init(opts) {
+      scaleSlow = opts?.scale ?? 1;
+      return { w: Math.round(1920 * scaleSlow), h: Math.round(1080 * scaleSlow), meta: { W: 1920, H: 1080, fps: 30, durationFrames: 120 } };
+    },
+    async frame(n) {
+      const isPreview = scaleSlow < 1;
+      const drawMs = isPreview ? (slowTimings[previewDrawsSlow++] ?? 180) : 15;
+      return {
+        n,
+        drawMs,
+        hash: `slow-${n}`,
+        bitmap: { width: 640, height: 360, close() {} }
+      };
+    }
+  };
+
+  const slowOut = await runCheck(slowHost, manifest, {
+    previewScale: 640 / 1920,
+    onSlowSceneEvaluated: (info) => {
+      evalCallbackInfo = info;
+    }
+  });
+  assert.equal(slowOut.ok, true, "slow scene reports ok: true with drawMs so the server makes the single slow decision");
+  assert.equal(slowOut.results?.drawMsMedian, 180);
+  assert.equal(slowOut.results?.drawMsP90, 240);
+  assert.deepEqual(slowOut.drawMs, { medianMs: 180, p90Ms: 240 });
+  assert.deepEqual(slowOut.results?.drawMs, { medianMs: 180, p90Ms: 240 });
+  assert.equal(evalCallbackInfo?.slow, true);
+
+  // 3. reportCheck sends { gen, bundleDigest, host: "worker", results: { ok: true, drawMs: { medianMs, p90Ms } } }
+  //    and parses { state: "bundled", playback: "clip" } from the server response
+  let sentBody = null;
+  const checkRes = await reportCheck(
+    "proj-slow",
+    "var-slow",
+    { gen: 1, bundleDigest: "dig-slow", results: slowOut },
+    {
+      fetch: async (_url, init) => {
+        sentBody = JSON.parse(String(init?.body ?? "{}"));
+        return new Response(JSON.stringify({ state: "bundled", playback: "clip" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+  );
+  assert.equal(sentBody.host, "worker");
+  assert.equal(sentBody.results.ok, true);
+  assert.deepEqual(sentBody.results.drawMs, { medianMs: 180, p90Ms: 240 });
+  assert.equal(checkRes.status, "ok");
+  assert.equal(checkRes.state, "bundled");
+  assert.equal(checkRes.playback, "clip");
+});
+
+test("runCheck relative watchdog, init timeout retry once, and hidden-tab inconclusive outcome", async (t) => {
+  const manifest = { width: 1920, height: 1080, fps: 30, frames: 90 };
+  const savedDoc = Object.getOwnPropertyDescriptor(globalThis, "document");
+  t.after(() => {
+    if (savedDoc) Object.defineProperty(globalThis, "document", savedDoc);
+    else delete globalThis.document;
+  });
+
+  // 1. One or two over-budget (2.4 s) frames do NOT fail the check; N = 3 consecutive over-budget frames DO fail
+  let frameCallA = 0;
+  const twoSlowFramesHost = {
+    async init() {
+      return { w: 1920, h: 1080, meta: { W: 1920, H: 1080, fps: 30, durationFrames: 90 } };
+    },
+    async frame(n) {
+      frameCallA++;
+      // First 2 frames are 2400 ms (> 2000 ms budget), then 15 ms
+      const drawMs = frameCallA <= 2 ? 2400 : 15;
+      return {
+        n,
+        drawMs,
+        hash: `h-${n}`,
+        bitmap: { width: 1920, height: 1080, close() {} }
+      };
+    }
+  };
+  const twoSlowRes = await runCheck(twoSlowFramesHost, manifest, { frameWatchdogMs: 2000, watchdogMs: 10000 });
+  assert.equal(twoSlowRes.ok, true, "2 consecutive over-budget frames (< N=3) do not fail runCheck");
+
+  let frameCallB = 0;
+  const threeConsecutiveSlowHost = {
+    async init() {
+      return { w: 1920, h: 1080, meta: { W: 1920, H: 1080, fps: 30, durationFrames: 90 } };
+    },
+    async frame(n) {
+      frameCallB++;
+      return {
+        n,
+        drawMs: 2200,
+        hash: `h-${n}`,
+        bitmap: { width: 1920, height: 1080, close() {} }
+      };
+    }
+  };
+  const threeSlowRes = await runCheck(threeConsecutiveSlowHost, manifest, { frameWatchdogMs: 2000, watchdogMs: 10000 });
+  assert.equal(threeSlowRes.ok, false);
+  assert.equal(threeSlowRes.kind, "env");
+  assert.equal(frameCallB, 3, "fails after N = 3 consecutive over-budget frames");
+
+  // 2. Init timeout gets ONE retry when visible the whole time
+  let initCallsRecover = 0;
+  const initRetryRecoverHost = {
+    async init() {
+      initCallsRecover++;
+      if (initCallsRecover === 1) {
+        throw new Error("Watchdog timeout (init-timeout) after 2000ms");
+      }
+      return { w: 1920, h: 1080, meta: { W: 1920, H: 1080, fps: 30, durationFrames: 90 } };
+    },
+    async frame(n) {
+      return {
+        n,
+        drawMs: 14,
+        hash: `h-${n}`,
+        bitmap: { width: 1920, height: 1080, close() {} }
+      };
+    }
+  };
+  const initRecovered = await runCheck(initRetryRecoverHost, manifest);
+  assert.equal(initRecovered.ok, true, "init timeout succeeds on its 1 retry while visible");
+  assert.equal(initCallsRecover, 2, "init was called twice (1 initial + 1 retry)");
+
+  let initCallsFail = 0;
+  const initRetryExhaustedHost = {
+    async init() {
+      initCallsFail++;
+      throw new Error("Watchdog timeout (init-timeout) after 2000ms");
+    },
+    async frame(n) {
+      return { n, drawMs: 10, hash: `h-${n}`, bitmap: { width: 1920, height: 1080, close() {} } };
+    }
+  };
+  const initExhausted = await runCheck(initRetryExhaustedHost, manifest);
+  assert.equal(initExhausted.ok, false);
+  assert.equal(initExhausted.kind, "env");
+  assert.equal(initCallsFail, 2, "init timeout retried once (2 total calls) before reporting env failure");
+
+  // 3. Hidden tab during check -> result is inconclusive (not env)
+  Object.defineProperty(globalThis, "document", {
+    value: { hidden: true, visibilityState: "hidden", addEventListener() {}, removeEventListener() {} },
+    configurable: true,
+    writable: true
+  });
+  const hiddenTimeoutRes = await runCheck(initRetryExhaustedHost, manifest);
+  assert.equal(hiddenTimeoutRes.ok, false);
+  assert.equal(hiddenTimeoutRes.kind, "inconclusive");
+  assert.equal(hiddenTimeoutRes.inconclusive, true);
+
+  // 4. Genuine env failure (no WebGL) still reports kind: "env" even when hidden
+  const noWebglHost = {
+    async init() {
+      throw new Error("WebGL context creation failed: unsupported GPU");
+    },
+    async frame() {
+      throw new Error("unreachable");
+    }
+  };
+  const genuineEnvRes = await runCheck(noWebglHost, manifest);
+  assert.equal(genuineEnvRes.ok, false);
+  assert.equal(genuineEnvRes.kind, "env");
 });

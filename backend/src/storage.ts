@@ -43,10 +43,22 @@ export async function uploadDirectory(dir: string, prefix: string): Promise<numb
   return files.length;
 }
 
-/** Short-lived download URL for a finished render; the browser's player streams it with range requests. */
-export async function presignOutput(key: string, seconds = 3600): Promise<string> {
-  if (!client || !config.r2) throw new Error("Object storage is not configured.");
-  return getSignedUrl(signer!, new GetObjectCommand({ Bucket: config.r2.outputsBucket, Key: key }), { expiresIn: seconds });
+/** Sanitizes a requested MP4 download filename into a safe ASCII attachment name. */
+export function safeDownloadFilename(raw: unknown, fallback: string): string {
+  const safeFallback = (fallback.replace(/[^\w.\- ]/g, "_").replace(/^\.+/, "") || "video.mp4");
+  if (typeof raw !== "string") return safeFallback.toLowerCase().endsWith(".mp4") ? safeFallback : `${safeFallback}.mp4`;
+  const cleaned = raw.trim().replace(/[^\w.\- ]/g, "_").replace(/^\.+/, "").slice(0, 120);
+  if (!cleaned) return safeFallback.toLowerCase().endsWith(".mp4") ? safeFallback : `${safeFallback}.mp4`;
+  return cleaned.toLowerCase().endsWith(".mp4") ? cleaned : `${cleaned}.mp4`;
+}
+
+/** Short-lived URL for a finished render; streams inline by default or forces a browser save when `options.filename` is set. */
+export async function presignOutput(
+  key: string,
+  seconds = 3600,
+  options: { filename?: string; contentType?: string } = {}
+): Promise<string> {
+  return presignKey("outputs", key, { seconds, ...options });
 }
 
 export async function outputExists(key: string): Promise<boolean> {

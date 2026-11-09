@@ -115,14 +115,44 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   return { timing, tracks, durationSeconds: timing.total };
 }
 
+export const WATERMARK_INTERVAL_SECONDS = 4;
+const GM_MARK_SVG_PATHS = `<g fill="#168BFF"><rect x="18" y="55" width="42" height="12" rx="6"/><rect x="8" y="74" width="58" height="12" rx="6"/><rect x="20" y="93" width="34" height="12" rx="6"/><path d="M76 49C76 31 96 20 114 28c26 12 46 32 64 52-18 20-38 40-64 52-18 8-38-3-38-21V49Z"/></g><path fill="#FF5A1F" d="M192 54c0-9 10-14 18-9l31 20c8 5 8 16 0 21l-31 20c-8 5-18 0-18-9V54Z"/>`;
+
 /**
- * The Free plan's mark: a small "Made with Greedy Motion" label in the lower right, drawn above every scene for the whole
- * film. It is static (no timeline) and sized from the stamped canvas, so it reads the same on every format.
+ * The Free plan's mark: a narrow centered stacked badge ([Greedy Motion logo] / Greedy / Motion), sized from the stamped canvas
+ * (`Math.min(width, height)`) and deterministically alternating every 4 s on the composition timeline between LEFT above
+ * vertical midpoint (~40% height) and RIGHT below vertical midpoint (~60% height).
  */
 export function withWatermark(html: string): string {
-  const width = Number(/data-composition-id="main"[^>]*data-width="(\d+)"/.exec(html)?.[1] ?? 1920);
-  const size = Math.round(width * 0.016);
-  const pad = Math.round(width * 0.02);
-  const mark = `<div id="gm-watermark" data-layout-allow-overlap style="position:absolute;right:${pad}px;bottom:${pad}px;z-index:2147483000;padding:${Math.round(size * 0.45)}px ${Math.round(size * 0.8)}px;border-radius:999px;background:rgba(10,13,18,.62);color:#fff;font:600 ${size}px/1 'Plus Jakarta Sans',Inter,Arial,sans-serif;letter-spacing:.01em;pointer-events:none">Made with Greedy Motion</div>`;
-  return html.replace('<div id="captions" data-layout-allow-overlap></div>', (tag) => `${tag}\n    ${mark}`);
+  const rootMatch = /<div[^>]*data-composition-id="main"[^>]*>/.exec(html)?.[0] ?? "";
+  const width = Number(/data-width="(\d+)"/.exec(rootMatch)?.[1] ?? 1920);
+  const height = Number(/data-height="(\d+)"/.exec(rootMatch)?.[1] ?? 1080);
+  const ref = Math.min(width, height);
+  const fontSize = Math.max(10, Math.round(ref * 0.022));
+  const lineHeight = Math.max(12, Math.round(fontSize * 1.15));
+  const logoH = Math.max(14, Math.round(fontSize * 1.65));
+  const logoW = Math.round(logoH * 1.6);
+  const gap = Math.max(3, Math.round(fontSize * 0.25));
+  const padX = Math.max(8, Math.round(fontSize * 0.65));
+  const padY = Math.max(6, Math.round(fontSize * 0.5));
+  const textW = Math.round(fontSize * 3.8);
+  const boxW = Math.max(logoW, textW) + padX * 2;
+  const textBlockH = fontSize + lineHeight;
+  const boxH = padY + logoH + gap + textBlockH + padY;
+  const rx = Math.max(8, Math.round(fontSize * 0.65));
+  const strokeW = Math.max(1, Math.round(fontSize * 0.06));
+  const marginX = Math.max(10, Math.round(width * 0.035));
+  const leftX = marginX;
+  const leftCenterY = Math.round(height * 0.40);
+  const leftY = Math.max(marginX, Math.min(height - marginX - boxH, Math.round(leftCenterY - boxH / 2)));
+  const rightX = Math.max(marginX, width - marginX - boxW);
+  const rightCenterY = Math.round(height * 0.60);
+  const rightY = Math.max(marginX, Math.min(height - marginX - boxH, Math.round(rightCenterY - boxH / 2)));
+
+  const mark = `<div id="gm-watermark" data-layout-allow-overlap data-watermark-interval="${WATERMARK_INTERVAL_SECONDS}" data-left-x="${leftX}" data-left-y="${leftY}" data-right-x="${rightX}" data-right-y="${rightY}" style="position:absolute;left:${leftX}px;top:${leftY}px;width:${boxW}px;height:${boxH}px;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${gap}px;padding:${padY}px ${padX}px;border-radius:${rx}px;background:rgba(10,14,22,.64);border:${strokeW}px solid rgba(255,255,255,.18);color:#fff;font:700 ${fontSize}px/${lineHeight}px 'Plus Jakarta Sans',Inter,Arial,sans-serif;letter-spacing:.01em;text-align:center;pointer-events:none;box-sizing:border-box"><svg class="gm-watermark-logo" width="${logoW}" height="${logoH}" viewBox="0 0 256 160" aria-hidden="true" style="display:block;width:${logoW}px;height:${logoH}px;flex:none">${GM_MARK_SVG_PATHS}</svg><span class="gm-watermark-lines" style="display:flex;flex-direction:column;align-items:center;line-height:${lineHeight}px"><span class="gm-watermark-line" style="display:block;white-space:nowrap;line-height:1">Greedy</span><span class="gm-watermark-line" style="display:block;white-space:nowrap;line-height:${lineHeight}px">Motion</span></span></div>`;
+  const script = `<script id="gm-watermark-script">(function(){var wm=document.getElementById("gm-watermark"),tl=window.__timelines&&window.__timelines.main;if(!wm||!tl||typeof tl.set!=="function")return;var dur=Math.max(typeof tl.duration==="function"?tl.duration():0,(window.__bp&&window.__bp.total)||0,${WATERMARK_INTERVAL_SECONDS});for(var t=0,step=0;t<dur;t+=${WATERMARK_INTERVAL_SECONDS},step++){var isRight=(step%2)===1;tl.set(wm,{left:(isRight?${rightX}:${leftX})+"px",top:(isRight?${rightY}:${leftY})+"px"},t)}})();</script>`;
+  const withMark = html.replace('<div id="captions" data-layout-allow-overlap></div>', (tag) => `${tag}\n    ${mark}`);
+  return withMark.includes("</body>")
+    ? withMark.replace("</body>", () => `  ${script}\n</body>`)
+    : `${withMark}\n${script}`;
 }

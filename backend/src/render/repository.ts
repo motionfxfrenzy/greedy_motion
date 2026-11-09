@@ -19,8 +19,14 @@ export const clearProjectIdempotencyKey = (projectId: string): void => {
 export const getProjectIdempotencyKey = (projectId?: string | null): string | undefined =>
   projectId ? activeIdempotencyKeys.get(projectId.toLowerCase()) : undefined;
 
-/** A motion-blur render captures several times the frames, so its queue expiry (and the worker's claim) is stretched by the same factor. */
-const blurExpiry = (renderInput: Record<string, unknown>) => (renderInput.motionBlur === true ? { expireInSeconds: config.renderTimeoutSeconds * motionBlur.slowdown } : {});
+/** A motion-blur render captures several times the frames, and longer films take proportionally longer, so queue expiry scales accordingly. */
+const blurExpiry = (renderInput: Record<string, unknown>) => {
+  const dur = Number(renderInput.durationSeconds);
+  const base = Number.isFinite(dur) && dur > 120 ? Math.max(config.renderTimeoutSeconds, Math.ceil(dur * 8)) : config.renderTimeoutSeconds;
+  if (renderInput.motionBlur === true) return { expireInSeconds: base * motionBlur.slowdown };
+  if (base > config.renderTimeoutSeconds) return { expireInSeconds: base };
+  return {};
+};
 /** A story film writes, draws props, speaks, composes and paints in one job: far longer than a template render. */
 
 type Row = {

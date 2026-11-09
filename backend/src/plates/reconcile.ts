@@ -1,11 +1,11 @@
 import { pool } from "../db/database.ts";
-import { boss, inTransaction, POLL, QUEUES } from "../jobs/queues.ts";
+import { boss, POLL, QUEUES, sendOnce } from "../jobs/queues.ts";
 import { startSweep } from "../jobs/sweep.ts";
 import { kickPlateWorkers } from "../jobs/worker-launcher.ts";
 import { config } from "../config.ts";
 import { deletePrefix } from "../storage.ts";
 import { handleAuthor, handleAuthorDead, type AuthorMessage } from "./author.ts";
-import { failVariant } from "./store.ts";
+import { failVariant, fallbackCheckVariantClipWithClient, type VariantRetrying } from "./store.ts";
 
 /**
  * Recovery. Queue messages and rows commit together, but a message can still be lost (queue maintenance, a crash between a
@@ -16,11 +16,84 @@ import { failVariant } from "./store.ts";
 const log = (level: string, event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 const RESEND_AFTER = "90 seconds";
 const ROLLBACK_PASS_LIMIT = 20;
+export const CHECK_GRACE_SECONDS = Math.max(1, Number.parseInt(process.env.PLATE_CHECK_GRACE_SECONDS ?? "180", 10) || 180);
+export const CHECK_GRACE = CHECK_GRACE_SECONDS;
+export const CHECK_FALLBACK_REASON = "the preview check did not report; drawing it on the server";
+export const PLATE_MAX_SWEEP_RETRIES = Math.max(1, Number.parseInt(process.env.PLATE_MAX_SWEEP_RETRIES ?? "4", 10) || 4);
+export const MAX_SWEEP_RETRIES = PLATE_MAX_SWEEP_RETRIES;
+const checkGraceSeconds = () => Math.max(1, Number.parseInt(process.env.PLATE_CHECK_GRACE_SECONDS ?? String(config.plates.checkGraceSeconds ?? CHECK_GRACE_SECONDS), 10) || CHECK_GRACE_SECONDS);
+const maxSweepRetries = () => Math.max(1, Number.parseInt(process.env.PLATE_MAX_SWEEP_RETRIES ?? String(PLATE_MAX_SWEEP_RETRIES), 10) || PLATE_MAX_SWEEP_RETRIES);
+
+export type CheckGraceCandidate = {
+  id: string;
+  gen: number;
+  state: string;
+  stage?: string | null;
+  liveMode?: "live" | "clip" | null;
+  bundleDigest?: string | null;
+  clipKey?: string | null;
+  hasCheckReport?: boolean;
+  updatedAt: Date | string | number;
+  timings?: { retrying?: { attempt?: number; reason?: string } } | null;
+};
+
+export type CheckGraceEvaluation =
+  | {
+      fallback: true;
+      stage: "queued for rendering";
+      singletonKey: string;
+      retrying: { attempt: number; reason: string; at: number };
+    }
+  | {
+      fallback: false;
+      reason: "not_live" | "wrong_state" | "wrong_stage" | "has_clip" | "no_digest" | "already_reported" | "within_grace";
+    };
+
+/**
+ * Pure DB-free evaluator for the live check-grace watchdog (testable with a fake clock `now`).
+ */
+export function evaluateCheckGraceFallback(
+  candidate: CheckGraceCandidate,
+  options: { now?: number; checkGraceSeconds?: number } = {}
+): CheckGraceEvaluation {
+  const now = options.now ?? Date.now();
+  const graceMs = (options.checkGraceSeconds ?? checkGraceSeconds()) * 1000;
+  if (candidate.liveMode !== "live") return { fallback: false, reason: "not_live" };
+  if (candidate.state !== "bundled") return { fallback: false, reason: "wrong_state" };
+  if (candidate.stage !== "checking") return { fallback: false, reason: "wrong_stage" };
+  if (candidate.clipKey) return { fallback: false, reason: "has_clip" };
+  if (!candidate.bundleDigest) return { fallback: false, reason: "no_digest" };
+  if (candidate.hasCheckReport) return { fallback: false, reason: "already_reported" };
+
+  const updatedMs =
+    candidate.updatedAt instanceof Date
+      ? candidate.updatedAt.getTime()
+      : typeof candidate.updatedAt === "number"
+        ? candidate.updatedAt
+        : Date.parse(String(candidate.updatedAt));
+  if (!Number.isFinite(updatedMs) || now - updatedMs < graceMs) {
+    return { fallback: false, reason: "within_grace" };
+  }
+
+  const prevAttempt = Number(candidate.timings?.retrying?.attempt ?? 0);
+  const attempt = (Number.isFinite(prevAttempt) && prevAttempt > 0 ? prevAttempt : 0) + 1;
+  return {
+    fallback: true,
+    stage: "queued for rendering",
+    singletonKey: `${candidate.id}:${candidate.gen}`,
+    retrying: {
+      attempt,
+      reason: CHECK_FALLBACK_REASON,
+      at: now
+    }
+  };
+}
 
 export async function reconcilePlates(): Promise<number> {
   const client = await pool.connect();
   let resent = 0, open = 0;
   const forceOff = config.plates.liveForceOff;
+  const graceSecs = checkGraceSeconds();
   try {
     await client.query("begin");
 
@@ -60,13 +133,61 @@ export async function reconcilePlates(): Promise<number> {
           "update app.plate_variants set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(), updated_at = now() where id = $1",
           [v.id]
         );
-        await boss.send(QUEUES.plateRender, { variantId: v.id, gen: v.gen }, { db: inTransaction(client), singletonKey: `${v.id}:${v.gen}` });
+        await sendOnce(client, QUEUES.plateRender, { variantId: v.id, gen: v.gen }, `${v.id}:${v.gen}`);
         resent++;
+      }
+    } else {
+      const stuckChecks = await client.query<{
+        id: string;
+        project_id: string;
+        scene_index: number;
+        aspect: string;
+        gen: number;
+        bundle_digest: string;
+        timings: { retrying?: VariantRetrying } | null;
+      }>(
+        `select v.id, v.project_id, v.scene_index, v.aspect, v.gen, v.bundle_digest, v.timings
+           from app.plate_variants v
+           join app.plate_state s on s.project_id = v.project_id
+          where v.state = 'bundled'
+            and v.stage = 'checking'
+            and v.clip_key is null
+            and v.bundle_digest is not null
+            and s.live_mode = 'live'
+            and v.updated_at < now() - make_interval(secs => $1)
+            and not exists (
+              select 1 from app.plate_check_reports r
+               where r.variant_id = v.id
+                 and r.gen = v.gen
+                 and r.bundle_digest = v.bundle_digest
+            )
+          order by v.created_at, v.scene_index, v.aspect
+          for update of v skip locked`,
+        [graceSecs]
+      );
+      for (const v of stuckChecks.rows) {
+        const out = await fallbackCheckVariantClipWithClient(
+          client,
+          { ...v, aspect: v.aspect as any, timings: (v.timings ?? {}) as any },
+          config.plates.projectClipCap
+        );
+        if (out.status === "ok") {
+          resent++;
+          log("info", "plate_check_fallback", {
+            variantId: v.id,
+            projectId: v.project_id,
+            scene: v.scene_index,
+            aspect: v.aspect,
+            gen: v.gen,
+            bundleDigest: v.bundle_digest,
+            attempt: out.attempt
+          });
+        }
       }
     }
 
-    const variants = await client.query<{ id: string; gen: number; state: string }>(
-      `select v.id, v.gen, v.state
+    const variants = await client.query<{ id: string; gen: number; state: string; timings: { retrying?: VariantRetrying } | null }>(
+      `select v.id, v.gen, v.state, v.timings
          from app.plate_variants v
          left join app.plate_state s on s.project_id = v.project_id
         where (
@@ -87,20 +208,66 @@ export async function reconcilePlates(): Promise<number> {
         for update of v skip locked`,
       [RESEND_AFTER, forceOff]
     );
+    const maxRetries = maxSweepRetries();
     for (const v of variants.rows) {
+      const prevAttempt = Number(v.timings?.retrying?.attempt ?? 0);
+      const safePrev = Number.isFinite(prevAttempt) && prevAttempt > 0 ? prevAttempt : 0;
+      // Only a scene that LOST progress (a worker or writer died) can stall out. One merely waiting for its turn (project caps, a worker
+      // still starting) is resent forever without failing: a long film legitimately queues for many minutes.
+      const lostProgress = v.state === "rendering" || v.state === "authoring";
+      if (lostProgress && safePrev >= maxRetries) {
+        await client.query(
+          `update app.plate_variants
+              set state = 'failed', stage = null,
+                  error = $3::jsonb,
+                  author_owner = null, author_until = null,
+                  timings = coalesce(timings, '{}'::jsonb) - 'retrying',
+                  updated_at = now()
+            where id = $1 and gen = $2 and state in ('queued', 'authoring', 'bundled', 'checked', 'rendering')`,
+          [
+            v.id,
+            v.gen,
+            JSON.stringify({
+              code: "scene_stalled",
+              message: "This scene stopped making progress. Press Draw to try again."
+            })
+          ]
+        );
+        continue;
+      }
+      const attempt = safePrev + 1;
+      const reason =
+        v.state === "rendering"
+          ? "the drawing worker restarted"
+          : v.state === "authoring"
+            ? "the writing process restarted"
+            : "the scene was waiting for a worker";
+      const retrying = JSON.stringify({ attempt, reason, at: Date.now() });
       const kind = v.state === "bundled" || v.state === "checked" || v.state === "rendering" ? "render" : "author";
       if (kind === "render" && (v.state === "bundled" || v.state === "checked")) {
         await client.query(
-          "update app.plate_variants set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(), updated_at = now() where id = $1",
-          [v.id]
+          `update app.plate_variants
+              set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(),
+                  timings = coalesce(timings, '{}'::jsonb) || jsonb_build_object('retrying', $2::jsonb),
+                  updated_at = now()
+            where id = $1`,
+          [v.id, retrying]
         );
-        await boss.send(QUEUES.plateRender, { variantId: v.id, gen: v.gen }, { db: inTransaction(client), singletonKey: `${v.id}:${v.gen}` });
+        await sendOnce(client, QUEUES.plateRender, { variantId: v.id, gen: v.gen }, `${v.id}:${v.gen}`);
       } else {
-        await client.query("update app.plate_variants set enqueued_at = now() where id = $1", [v.id]);
-        await boss.send(
+        await client.query(
+          `update app.plate_variants
+              set enqueued_at = now(),
+                  timings = case when $3::boolean then coalesce(timings, '{}'::jsonb) || jsonb_build_object('retrying', $2::jsonb) else timings end
+            where id = $1`,
+          // A scene still queued for its author slot is just waiting its turn: resent quietly, not shown as "retrying".
+          [v.id, retrying, v.state !== "queued"]
+        );
+        await sendOnce(
+          client,
           kind === "render" ? QUEUES.plateRender : QUEUES.plateAuthor,
           { variantId: v.id, gen: v.gen },
-          { db: inTransaction(client), ...(kind === "render" ? { singletonKey: `${v.id}:${v.gen}` } : {}) }
+          `${v.id}:${v.gen}`
         );
       }
       resent++;
@@ -111,17 +278,17 @@ export async function reconcilePlates(): Promise<number> {
         for update skip locked`, [RESEND_AFTER]);
     for (const e of exports.rows) {
       await client.query("update app.plate_exports set enqueued_at = now() where id = $1", [e.id]);
-      await boss.send(QUEUES.plateExport, { exportId: e.id }, { db: inTransaction(client) });
+      await sendOnce(client, QUEUES.plateExport, { exportId: e.id }, `export:${e.id}`);
       resent++;
     }
     // A render that could not even be claimed (database/pooler/worker trouble) is dead-lettered as `render_unavailable`; its bundle is
     // intact, so retry it from the bundle (no model call) up to twice before leaving it for the person's Draw.
     const revived = await client.query<{ id: string; gen: number }>(
       `update app.plate_variants set state = 'bundled', gen = gen + 1, render_attempt = 0, error = null, stage = 'retrying', enqueued_at = now(), updated_at = now(),
-         timings = timings || jsonb_build_object('autoRetries', coalesce((timings->>'autoRetries')::int, 0) + 1)
+         timings = (coalesce(timings, '{}'::jsonb) - 'retrying' - 'restartsDuringWrite') || jsonb_build_object('autoRetries', coalesce((timings->>'autoRetries')::int, 0) + 1)
         where state = 'failed' and error->>'code' = 'render_unavailable' and bundle_key is not null and updated_at < now() - $1::interval
           and coalesce((timings->>'autoRetries')::int, 0) < 2 returning id, gen`, [RESEND_AFTER]);
-    for (const v of revived.rows) { await boss.send(QUEUES.plateRender, { variantId: v.id, gen: v.gen }, { db: inTransaction(client), singletonKey: `${v.id}:${v.gen}` }); resent++; }
+    for (const v of revived.rows) { await sendOnce(client, QUEUES.plateRender, { variantId: v.id, gen: v.gen }, `${v.id}:${v.gen}`); resent++; }
     open = Number(
       (
         await client.query(
@@ -136,11 +303,25 @@ export async function reconcilePlates(): Promise<number> {
                    and (
                      coalesce(s.live_mode, 'clip') <> 'live'
                      or v.stage = 'queued for rendering'
+                     or (
+                       v.state = 'bundled'
+                       and v.stage = 'checking'
+                       and v.bundle_digest is not null
+                       and s.live_mode = 'live'
+                       and v.updated_at < now() - make_interval(secs => $1)
+                       and not exists (
+                         select 1 from app.plate_check_reports r
+                          where r.variant_id = v.id
+                            and r.gen = v.gen
+                            and r.bundle_digest = v.bundle_digest
+                       )
+                     )
                    )
                  )
            ) + (
              select count(*) from app.plate_exports where state in ('queued', 'assembling')
-           ) as n`
+           ) as n`,
+          [graceSecs]
         )
       ).rows[0].n
     );
@@ -153,7 +334,7 @@ export async function reconcilePlates(): Promise<number> {
   }
   if (resent) log("info", "plate_reconciled", { resent, open });
   // Workers for the open work: covers a kick that failed at enqueue time and workers that exited with jobs still queued.
-  if (open) await kickPlateWorkers().catch(() => undefined);
+  if (open) await kickPlateWorkers(false).catch(() => undefined);
   await sweepGarbage().catch((error) => log("warn", "plate_garbage_failed", { message: error instanceof Error ? error.message : String(error) }));
   return open;
 }

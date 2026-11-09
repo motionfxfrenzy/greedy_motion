@@ -2,26 +2,17 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BrandExtraction, BrandKit, SiteCapture } from "@videosaas/contracts";
-import { aspects, beatCountRange, DEFAULT_LOOK, DURATION_MAX, DURATION_MIN, durationPresets, OWN_SCRIPT_MAX, parseScriptBrief, PROBLEM_TEXT_MAX, voiceLanguages, voices, wordBudget, type Aspect, type AudioMode, type CaptionMode, type MotionProfile, type Pace, type ScriptBrief } from "@videosaas/contracts";
+import { aspects, beatCountRange, briefAspects, DEFAULT_LOOK, defaultScriptBrief, DURATION_MIN, durationPresets, formatDurationSeconds, NARRATOR, OWN_SCRIPT_MAX, parseScriptBrief, PROBLEM_TEXT_MAX, resolveDurationMode, scriptSeconds, toggleBriefAspect, voiceLanguages, voices, wordBudget, type Aspect, type AudioMode, type CaptionMode, type MotionProfile, type Pace, type ScriptBrief } from "@videosaas/contracts";
 import { BrandKitField } from "./brand-kit";
+import { BrandedSelect } from "./branded-select";
 import { ThemePicker } from "./theme-picker";
 import { StylePicker } from "./style-picker";
+import { VoicePickerModal } from "./voice-picker-modal";
 
 /** How long the director usually takes (production, 2026-10-27: ~77 s with a repair round). Drives the estimate shown while writing. */
 const TYPICAL_PLAN_SECONDS = 80;
 
-export const defaultBrief: ScriptBrief = {
-  scriptMode: "problem",
-  text: "",
-  durationSeconds: 30,
-  aspect: "16:9",
-  motionProfile: "smooth",
-  pace: "balanced",
-  audio: { mode: "voiceover", voice: "Kore" },
-  captions: "key-phrases",
-  template: null,
-  theme: "neutral"
-};
+export const defaultBrief: ScriptBrief = defaultScriptBrief;
 
 
 const motionOptions: { id: MotionProfile; label: string; hint: string }[] = [
@@ -73,14 +64,45 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
 }) {
   const own = brief.scriptMode === "own";
   const max = own ? OWN_SCRIPT_MAX : PROBLEM_TEXT_MAX;
-  const custom = !(durationPresets as readonly number[]).includes(brief.durationSeconds);
+  const durationMode = resolveDurationMode(brief);
+  const selectedAspects = briefAspects(brief);
+  const lastCustomRef = useRef<number>(
+    Number.isSafeInteger(Math.round(brief.durationSeconds)) && Math.round(brief.durationSeconds) >= DURATION_MIN
+      ? Math.round(brief.durationSeconds)
+      : 30
+  );
+  const [customDraft, setCustomDraft] = useState<string>(() => String(brief.durationSeconds));
+  const customEditingRef = useRef(false);
+  useEffect(() => {
+    if (Number.isSafeInteger(Math.round(brief.durationSeconds)) && Math.round(brief.durationSeconds) >= DURATION_MIN) {
+      lastCustomRef.current = Math.round(brief.durationSeconds);
+    }
+    if (!customEditingRef.current) {
+      setCustomDraft(String(brief.durationSeconds));
+    }
+  }, [brief.durationSeconds, brief.durationMode]);
+
+  const trimmedCustom = customDraft.trim();
+  const customParsedNum =
+    trimmedCustom !== "" && /^-?\d+(\.\d+)?$/.test(trimmedCustom) ? Math.round(Number(trimmedCustom)) : NaN;
+  const customError =
+    durationMode !== "custom"
+      ? null
+      : trimmedCustom === ""
+        ? `Enter a duration (at least ${DURATION_MIN}s).`
+        : !Number.isSafeInteger(customParsedNum) || customParsedNum < DURATION_MIN
+          ? `Duration must be at least ${DURATION_MIN} seconds.`
+          : null;
   const beats = beatCountRange(brief.durationSeconds, brief.pace);
   const budget = wordBudget(brief.durationSeconds, brief.pace);
   const parsed = parseScriptBrief(brief);
-  const invalid = "error" in parsed ? parsed.error : null;
+  const invalid = customError ?? ("error" in parsed ? parsed.error : null);
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
   const music = brief.audio.mode === "music" || brief.audio.mode === "both";
   const [urlDraft, setUrlDraft] = useState(brief.productUrl ?? "");
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const voiceTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const currentVoice = voices.find((v) => v.id === (brief.audio.voice ?? "Kore")) ?? voices[0]!;
   const host = (value: string) => value.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "").toLowerCase();
   const readHost = site.site ? host(site.site.url) : null;
   const siteInUse = Boolean(readHost && brief.productUrl && host(brief.productUrl) === readHost);
@@ -127,10 +149,169 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
         </section>
 
         <section className="ss-card">
-          <header><b>Length and shape</b><span>{brief.lockDuration ? `About ${beats.min}–${beats.max} beats · up to ${budget} spoken words` : "A target: the script can run longer if the idea needs it, and tells you"}</span></header>
-          <div className="ss-field"><b>Duration</b><div className="ss-chips">{durationPresets.map((seconds) => <button type="button" key={seconds} className={brief.durationSeconds === seconds ? "selected" : ""} onClick={() => update({ durationSeconds: seconds })}>{seconds}s</button>)}<label className={custom ? "ss-custom selected" : "ss-custom"}><span>Custom</span><input type="number" min={DURATION_MIN} max={DURATION_MAX} value={brief.durationSeconds} onChange={(event) => update({ durationSeconds: Math.round(Number(event.target.value) || DURATION_MIN) })} aria-label="Custom duration in seconds" /><span>s</span></label></div></div>
-          <label className="ss-lock"><input type="checkbox" checked={Boolean(brief.lockDuration)} onChange={(event) => update({ lockDuration: event.target.checked || undefined })} /><span><b>Fit exactly</b> Hold the script to {brief.durationSeconds}s, cutting what doesn't fit</span></label>
-          <div className="ss-field"><b>Aspect ratio</b><div className="ss-chips">{aspects.map((aspect) => <button type="button" key={aspect} className={brief.aspect === aspect ? "selected" : ""} onClick={() => update({ aspect })}><i className={"ss-shape " + aspectShape[aspect]} />{aspect}</button>)}</div>{brief.aspect === "1:1" && <small className="ss-note">Square drafts render in the landscape frame until square layouts ship.</small>}</div>
+          <header>
+            <b>Length and shape</b>
+            <span>
+              {durationMode === "script"
+                ? brief.scriptBeats?.length
+                  ? `Length follows your script · ~${formatDurationSeconds(scriptSeconds(brief.scriptBeats, brief.pace))} from ${brief.scriptBeats.length} beats`
+                  : "Length follows your script"
+                : brief.lockDuration
+                  ? `About ${beats.min}–${beats.max} beats · up to ${budget} spoken words`
+                  : `Target ${formatDurationSeconds(brief.durationSeconds)}: the script can run longer if the idea needs it, and tells you`}
+            </span>
+          </header>
+          <div className="ss-field">
+            <b>Duration</b>
+            <div className="ss-chips" role="group" aria-label="Duration">
+              {durationPresets.map((seconds) => {
+                const isSelected = durationMode === "preset" && brief.durationSeconds === seconds;
+                return (
+                  <button
+                    type="button"
+                    key={seconds}
+                    aria-pressed={isSelected}
+                    className={isSelected ? "selected" : ""}
+                    onClick={() => {
+                      customEditingRef.current = false;
+                      lastCustomRef.current = seconds;
+                      setCustomDraft(String(seconds));
+                      update({ durationMode: "preset", durationSeconds: seconds });
+                    }}
+                  >
+                    {seconds}s
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                aria-pressed={durationMode === "script"}
+                className={durationMode === "script" ? "selected" : ""}
+                onClick={() => {
+                  customEditingRef.current = false;
+                  setCustomDraft(String(brief.durationSeconds));
+                  update({ durationMode: "script", lockDuration: undefined });
+                }}
+              >
+                Let script decide
+              </button>
+              <label
+                className={`ss-custom${durationMode === "custom" ? " selected" : ""}${customError ? " invalid" : ""}`}
+                onClick={() => {
+                  if (durationMode !== "custom") {
+                    const nextSec = lastCustomRef.current;
+                    setCustomDraft(String(nextSec));
+                    update({ durationMode: "custom", durationSeconds: nextSec });
+                  }
+                }}
+              >
+                <span>Custom</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={customDraft}
+                  aria-label="Custom duration in seconds"
+                  aria-invalid={Boolean(customError)}
+                  onFocus={() => {
+                    customEditingRef.current = true;
+                    if (durationMode !== "custom") {
+                      update({ durationMode: "custom", durationSeconds: lastCustomRef.current });
+                    }
+                  }}
+                  onChange={(event) => {
+                    customEditingRef.current = true;
+                    const raw = event.target.value;
+                    setCustomDraft(raw);
+                    const clean = raw.trim();
+                    if (/^-?\d+(\.\d+)?$/.test(clean)) {
+                      const n = Math.round(Number(clean));
+                      if (Number.isSafeInteger(n) && n >= DURATION_MIN) {
+                        lastCustomRef.current = n;
+                        update({ durationMode: "custom", durationSeconds: n });
+                        return;
+                      }
+                    }
+                    if (durationMode !== "custom") {
+                      update({ durationMode: "custom" });
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  onBlur={() => {
+                    customEditingRef.current = false;
+                    const clean = customDraft.trim();
+                    if (/^-?\d+(\.\d+)?$/.test(clean)) {
+                      const n = Math.round(Number(clean));
+                      if (Number.isSafeInteger(n) && n >= DURATION_MIN) {
+                        lastCustomRef.current = n;
+                        setCustomDraft(String(n));
+                      }
+                    }
+                  }}
+                />
+                <span>s</span>
+              </label>
+            </div>
+            {customError ? (
+              <small className="ss-note is-error" role="alert">{customError}</small>
+            ) : durationMode === "script" ? (
+              <small className="ss-note">
+                {brief.scriptBeats?.length
+                  ? `Estimated ~${formatDurationSeconds(scriptSeconds(brief.scriptBeats, brief.pace))} from your script. Tokens are quoted from the actual measured length.`
+                  : "Length follows your script. Tokens are quoted from the actual measured length."}
+              </small>
+            ) : (
+              <small className="ss-note">Target {formatDurationSeconds(brief.durationSeconds)} (minimum {DURATION_MIN}s).</small>
+            )}
+          </div>
+          {durationMode !== "script" && (
+            <label className="ss-lock">
+              <input type="checkbox" checked={Boolean(brief.lockDuration)} onChange={(event) => update({ lockDuration: event.target.checked || undefined })} />
+              <span><b>Fit exactly</b> Hold the script to {brief.durationSeconds}s, cutting what doesn&apos;t fit</span>
+            </label>
+          )}
+          <div className="ss-field">
+            <div className="ss-field-head">
+              <b>Aspect ratio</b>
+              <small className="ss-format-hint">Select one or more{selectedAspects.length > 1 ? ` · ${brief.aspect} primary preview` : ""}</small>
+            </div>
+            <div className="ss-chips" role="group" aria-label="Aspect ratio">
+              {aspects.map((aspect) => {
+                const isSelected = selectedAspects.includes(aspect);
+                const isPrimary = brief.aspect === aspect;
+                const isOnly = isSelected && selectedAspects.length === 1;
+                return (
+                  <button
+                    type="button"
+                    key={aspect}
+                    aria-pressed={isSelected}
+                    className={isSelected ? (isPrimary && selectedAspects.length > 1 ? "selected primary" : "selected") : ""}
+                    title={
+                      isOnly
+                        ? `${aspect} selected (at least one format required)`
+                        : isSelected
+                          ? `${aspect} selected${isPrimary && selectedAspects.length > 1 ? " (primary preview)" : ""} — click to deselect`
+                          : `Select ${aspect} format`
+                    }
+                    onClick={() => update(toggleBriefAspect(brief, aspect))}
+                  >
+                    <i className={"ss-shape " + aspectShape[aspect]} />
+                    {aspect}
+                  </button>
+                );
+              })}
+            </div>
+            {selectedAspects.length > 1 && !(brief.look ?? DEFAULT_LOOK).startsWith("illus-") && (
+              <small className="ss-note">Illustrated styles export all selected formats natively; standard template styles render {brief.aspect} as the primary MP4 while allowing multi-ratio preview in Animation.</small>
+            )}
+            {selectedAspects.includes("1:1") && !(brief.look ?? DEFAULT_LOOK).startsWith("illus-") && (
+              <small className="ss-note">Square drafts in standard template styles render in the landscape frame until square layouts ship.</small>
+            )}
+          </div>
         </section>
 
         <section className="ss-card">
@@ -151,21 +332,70 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
           <header><b>Motion and pace</b><span>Sets eases, cut rate and how fast the voice reads</span></header>
           <div className="ss-field"><b>Motion style</b><Segmented label="Motion style" value={brief.motionProfile} options={motionOptions} onChange={(motionProfile) => update({ motionProfile })} /></div>
           <div className="ss-field"><b>Pace</b><Segmented label="Pace" value={brief.pace} options={paceOptions} onChange={(pace) => update({ pace })} /></div>
-          <label className="ss-field ss-select"><b>Template <em>optional</em></b><select value={brief.template ?? ""} onChange={(event) => update({ template: event.target.value || null })}>{templateOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+          <div className="ss-field ss-select">
+            <b>Template <em>optional</em></b>
+            <BrandedSelect
+              size="default"
+              ariaLabel="Template"
+              value={brief.template ?? ""}
+              options={templateOptions}
+              onChange={(val) => update({ template: val || null })}
+            />
+          </div>
         </section>
 
         <section className="ss-card">
           <header><b>Sound and captions</b><span>{voiced ? "Narration drives the timing" : "Beats drive the timing"}</span></header>
           <div className="ss-field"><b>Audio</b><Segmented label="Audio" value={brief.audio.mode} options={audioOptions} onChange={(mode) => update({ audio: { ...brief.audio, mode } })} /></div>
-          {voiced && <label className="ss-field ss-select"><b>Voice language</b><select value={brief.audio.language ?? "en"} onChange={(event) => update({ audio: { ...brief.audio, language: event.target.value === "en" ? undefined : event.target.value } })}>{voiceLanguages.map((language) => <option key={language.id} value={language.id}>{language.label}</option>)}</select></label>}
+          {voiced && (
+            <div className="ss-field ss-select">
+              <b>Voice language</b>
+              <BrandedSelect
+                size="default"
+                ariaLabel="Voice language"
+                value={brief.audio.language ?? "en"}
+                options={voiceLanguages.map((language) => ({ id: language.id, label: language.label }))}
+                onChange={(val) => update({ audio: { ...brief.audio, language: val === "en" ? undefined : val } })}
+              />
+            </div>
+          )}
           {(voiced || music) && <div className="ss-inline-fields">
-            {voiced && <label><span>Voice</span><select value={brief.audio.voice ?? "Kore"} onChange={(event) => update({ audio: { ...brief.audio, voice: event.target.value } })}>{voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.label} · {voice.character}</option>)}</select></label>}
+            {voiced && (
+              <div className="ss-field">
+                <span>Voice ({voices.length} voices)</span>
+                <button
+                  ref={voiceTriggerRef}
+                  type="button"
+                  className="gm-voice-trigger gm-voice-trigger-default"
+                  aria-haspopup="dialog"
+                  aria-label="Voice"
+                  onClick={() => setVoiceModalOpen(true)}
+                >
+                  <span className="gm-voice-trigger-copy">
+                    <b>{currentVoice.label}</b>
+                    <small>· {currentVoice.character}</small>
+                  </span>
+                  <span className="gm-voice-trigger-badge">Browse {voices.length} ▾</span>
+                </button>
+              </div>
+            )}
             {music && <label><span>Music mood <em>optional</em></span><input value={brief.audio.musicMood ?? ""} maxLength={60} onChange={(event) => update({ audio: { ...brief.audio, musicMood: event.target.value || undefined } })} placeholder="Warm, confident, light percussion" /></label>}
           </div>}
           <div className="ss-field"><b>Captions</b><Segmented label="Captions" value={brief.captions} options={captionOptions} onChange={(captions) => update({ captions })} /></div>
         </section>
       </aside>
     </div>
+    <VoicePickerModal
+      open={voiceModalOpen}
+      targetSpeaker={NARRATOR}
+      castMode="narrator"
+      cast={[]}
+      narratorVoice={brief.audio.voice ?? "Kore"}
+      language={brief.audio.language ?? "en"}
+      onSelectVoice={(_speaker, voiceId) => update({ audio: { ...brief.audio, voice: voiceId } })}
+      onClose={() => setVoiceModalOpen(false)}
+      returnFocusEl={voiceTriggerRef.current}
+    />
     <div className="flow-footer">
       {generating ? <span className="ss-progress"><i />Writing your script… {elapsed}s <small>It keeps going if you leave this page, and your storyboard will be here when you come back.</small></span> : <span className={invalid ? "" : "ready"}><i />{error ?? invalid ?? (confirmRegenerate ? "Regenerating writes a new script and storyboard from this brief and replaces the one you have, including your edits." : hasPlan ? "Your storyboard is saved. Continue to it, or write the script again from this brief." : "Ready. Generate the script and storyboard.")}</span>}
       <div>

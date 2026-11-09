@@ -1,9 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { PLANS, PAID_TIERS, PREVIEW_ALLOWANCE, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, type BillingInterval, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
+import { formatDurationSeconds, PLANS, PAID_TIERS, PREVIEW_ALLOWANCE, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, remapIndicesOnInsert, remapIndicesOnRemove, type BillingInterval, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
 import Link from "next/link";
 import { getMyTokens, startCheckout, type LimitError, type ScriptFlag } from "../lib/api";
+
+export type UndoSceneBanner = {
+  index: number;
+  keyword: string;
+  busy?: boolean;
+  error?: string | null;
+};
+
+export function sceneBoundaryLabel(position: number, count: number): string {
+  if (position <= 0) return "Add a scene before Scene 1";
+  if (position >= count) return `Add a scene after Scene ${count}`;
+  return `Add a scene between Scene ${position} and Scene ${position + 1}`;
+}
+
+export function sceneBoundaryPlaceholder(position: number, beats: readonly ScriptBeat[]): string {
+  if (position <= 0) {
+    const first = beats[0]?.keyword;
+    return `Describe the opening scene before Scene 1${first ? ` (“${first}”)` : ""}…`;
+  }
+  if (position >= beats.length) {
+    const last = beats[beats.length - 1]?.keyword;
+    return `Describe the closing scene after Scene ${beats.length}${last ? ` (“${last}”)` : ""}…`;
+  }
+  const prev = beats[position - 1]?.keyword;
+  const next = beats[position]?.keyword;
+  return `Describe what happens between Scene ${position}${prev ? ` (“${prev}”)` : ""} and Scene ${position + 1}${next ? ` (“${next}”)` : ""}…`;
+}
 
 export type StoryboardState = { state: "waiting" | "building" | "ready" | "stale" | "failed"; plan?: BeatPlan; error?: string; /** When the storyboard job started (ms), while building. */ startedAt?: number };
 /** A beat's reference frame: SVG text drawn by the backend, shown only as an image. `stale` keeps the old drawing after an edit. */
@@ -22,7 +49,7 @@ const SUGGESTIONS = ["Make it punchier", "Shorter", "More playful", "Simpler wor
 const RATIO: Record<Aspect, string> = { "16:9": "16 / 9", "9:16": "9 / 16", "1:1": "1 / 1" };
 
 /** Keeps an input in step with a value that streams in, without fighting the person typing in it. */
-function Field({ value, onChange, readOnly, className, placeholder, caret, label }: { value: string; onChange: (next: string) => void; readOnly: boolean; className?: string; placeholder?: string; caret?: boolean; label: string }) {
+function Field({ value, onChange, readOnly, className, placeholder, caret, label, dataSceneKeyword }: { value: string; onChange: (next: string) => void; readOnly: boolean; className?: string; placeholder?: string; caret?: boolean; label: string; dataSceneKeyword?: number }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   // Grow with the text so a beat never scrolls inside itself, and again when the column's width changes (wrapping changes).
   const fit = () => { const el = ref.current; if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } };
@@ -36,14 +63,20 @@ function Field({ value, onChange, readOnly, className, placeholder, caret, label
     return () => observer.disconnect();
   }, [readOnly]);
   if (readOnly) return <p className={`${className ?? ""} sc-static`}>{value || <span className="sc-placeholder">{placeholder}</span>}{caret && <i className="sc-caret" aria-hidden="true" />}</p>;
-  return <textarea ref={ref} rows={1} className={className} value={value} placeholder={placeholder} aria-label={label} onChange={(event) => onChange(event.target.value.replace(/\n/g, " "))} />;
+  return <textarea ref={ref} rows={1} className={className} value={value} placeholder={placeholder} aria-label={label} {...(dataSceneKeyword !== undefined ? { "data-scene-keyword": String(dataSceneKeyword) } : {})} onChange={(event) => onChange(event.target.value.replace(/\n/g, " "))} />;
 }
 
-/** A frame is SVG text from the model (or a data:/static image URL for painted story films); as an <img> nothing in it can run or load. */
-export const svgSrc = (svg: string) =>
-  svg.startsWith("data:image/") || svg.startsWith("/")
-    ? svg
-    : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(/^<svg[^>]*\sxmlns\s*=/.test(svg) ? svg : svg.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"'))}`;
+/** Whether `value` is already a resolved image URL / data URI rather than raw `<svg>` markup. */
+export const isImageAssetUrl = (value: string) =>
+  /^(data:image\/|https?:\/\/|blob:|\/)/i.test(value.trim());
+
+/** A frame is SVG text from the model (or a data:/static/backend image URL); as an <img> nothing in it can run or load. */
+export const svgSrc = (svg: string) => {
+  const trimmed = svg.trim();
+  return isImageAssetUrl(trimmed)
+    ? trimmed
+    : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(/^<svg[^>]*\sxmlns\s*=/.test(trimmed) ? trimmed : trimmed.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"'))}`;
+};
 
 const FRAME_BOX: Record<Aspect, { width: number; height: number; col: string }> = {
   "9:16": { width: 156, height: 277, col: "minmax(0, 1fr) 172px" },
@@ -222,7 +255,13 @@ function RenderAction({ seconds, rendering, label, disabled, onRender }: { secon
  * beside it; a single prompt bar at the bottom asks the AI for changes. Confirming the script voices it; the storyboard is
  * built from it in the background.
  */
-export function ScriptCanvas({ music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing }: {
+export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing, onInsertScene, onRemoveScene, undoScene, onUndoRemoveScene, onDismissUndoScene }: {
+  /** Identifies the open project so duration acceptance never leaks across projects. */
+  projectId?: string;
+  /** Durable per-project flag indicating the user already accepted the over-length notice. */
+  keepOverLength?: boolean;
+  /** Persists the user's "Keep Ns" choice for this project; rejecting rolls back the dismissal and shows an error. */
+  onKeepOverLength?: () => Promise<void> | void;
   beats: ScriptBeat[];
   /** The field being written, and the beat it is written into, while streaming. */
   open: keyof ScriptBeat | null;
@@ -243,8 +282,8 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
   onTryAgain?: () => void;
   onBackToBrief?: () => void;
   voiced: boolean;
-  /** The length the person chose and how the script is read; `locked` holds it to that length. */
-  length: { seconds: number; pace: Pace; locked: boolean };
+  /** The length the person chose and how the script is read; `locked` holds it to that length; `scriptLed` means runtime follows the script; `keepOverLength` remembers acceptance. */
+  length: { seconds: number; pace: Pace; locked: boolean; scriptLed?: boolean; keepOverLength?: boolean };
   /** Rewrites the script to the chosen length. */
   onFit: () => void;
   onEdit: (index: number, patch: Partial<ScriptBeat>) => void;
@@ -267,6 +306,16 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
   storyboard: StoryboardState;
   onContinue: () => void;
   continuing: boolean;
+  /** Inserts one generated scene at boundary `position` (`0..beats.length`) from `prompt`. */
+  onInsertScene?: (position: number, prompt: string, signal?: AbortSignal) => Promise<void>;
+  /** Removes the scene at `index` (`0..beats.length - 1`). */
+  onRemoveScene?: (index: number) => Promise<void> | void;
+  /** Most recently removed scene available for one-click Undo restoration. */
+  undoScene?: UndoSceneBanner | null;
+  /** Restores the most recently removed scene at its original index with its assets intact. */
+  onUndoRemoveScene?: () => Promise<void> | void;
+  /** Dismisses the Undo banner. */
+  onDismissUndoScene?: () => void;
 }) {
   const [ask, setAsk] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -287,9 +336,310 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
   const submitAsk = () => send(ask.trim());
   const drawn = frames.filter((slot) => slot?.svg).length;
   const runs = scriptSeconds(beats, length.pace);
-  // A script may run past the target when its idea needs the time; say so, once it is written, with a way to fit it.
-  const [keptLong, setKeptLong] = useState<number | null>(null);
-  const overLength = !streaming && beats.length > 0 && runs > length.seconds * 1.15 + 2 && keptLong !== runs;
+  // A script may run past the target when its idea needs the time; say so once per project, with a way to keep or fit it.
+  const keepKey = projectId ?? "__default__";
+  const [keptByProject, setKeptByProject] = useState<Record<string, boolean>>({});
+  const [savingKeep, setSavingKeep] = useState(false);
+  const [keepError, setKeepError] = useState<string | null>(null);
+  useEffect(() => {
+    setSavingKeep(false);
+    setKeepError(null);
+  }, [keepKey]);
+
+  // ---------- Scene boundary insertion & removal state ----------
+  const [openBoundary, setOpenBoundary] = useState<number | null>(null);
+  const [boundaryDrafts, setBoundaryDrafts] = useState<Record<number, string>>({});
+  const [insertingAt, setInsertingAt] = useState<number | null>(null);
+  const [insertError, setInsertError] = useState<string | null>(null);
+  const [removingAt, setRemovingAt] = useState<number | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const insertStopRef = useRef<AbortController | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const docListRef = useRef<HTMLOListElement | null>(null);
+  const focusSceneRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    insertStopRef.current?.abort();
+    insertStopRef.current = null;
+    setOpenBoundary(null);
+    setBoundaryDrafts({});
+    setInsertingAt(null);
+    setInsertError(null);
+    setRemovingAt(null);
+    setRemoveError(null);
+  }, [keepKey]);
+
+  useEffect(() => {
+    if (openBoundary === null) return;
+    const raf = window.requestAnimationFrame(() => {
+      const el = composerInputRef.current;
+      const box = el?.closest(".sc-insert-composer");
+      box?.scrollIntoView({ block: "nearest" });
+      el?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [openBoundary]);
+
+  const undoBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!undoScene || !docListRef.current) return;
+    const neighborIdx = Math.min(undoScene.index, Math.max(0, beats.length - 1));
+    const row = docListRef.current.querySelector<HTMLElement>(`li[data-scene-index="${neighborIdx}"]`);
+    row?.scrollIntoView({ block: "nearest" });
+    const raf = window.requestAnimationFrame(() => {
+      undoBtnRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [undoScene?.index, Boolean(undoScene)]);
+
+  useEffect(() => {
+    const targetIdx = focusSceneRef.current;
+    if (targetIdx === null || !docListRef.current) return;
+    focusSceneRef.current = null;
+    const row = docListRef.current.querySelector<HTMLElement>(`li[data-scene-index="${targetIdx}"]`);
+    const field = docListRef.current.querySelector<HTMLTextAreaElement>(`textarea[data-scene-keyword="${targetIdx}"]`);
+    row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    field?.focus({ preventScroll: true });
+  }, [beats]);
+
+  const maxScenesReached = beats.length >= SCRIPT_BEATS_MAX;
+  const minScenesReached = beats.length <= SCRIPT_BEATS_MIN;
+  const structuralBusy = insertingAt !== null || removingAt !== null || Boolean(undoScene?.busy);
+
+  const openComposerAt = (position: number) => {
+    if (streaming || structuralBusy || maxScenesReached) return;
+    setInsertError(null);
+    setRemoveError(null);
+    setOpenBoundary(position);
+  };
+
+  const cancelComposer = () => {
+    if (insertingAt !== null) {
+      insertStopRef.current?.abort();
+      insertStopRef.current = null;
+      setInsertingAt(null);
+      return;
+    }
+    setInsertError(null);
+    setOpenBoundary(null);
+  };
+
+  const submitInsertAt = async (position: number) => {
+    if (!onInsertScene || streaming || structuralBusy) return;
+    const rawPrompt = (boundaryDrafts[position] ?? "").trim().replace(/\s+/g, " ");
+    if (rawPrompt.length < 3) {
+      setInsertError("Describe the new scene in at least a few words.");
+      composerInputRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (beats.length >= SCRIPT_BEATS_MAX) {
+      setInsertError(`A storyboard can have at most ${SCRIPT_BEATS_MAX} scenes.`);
+      return;
+    }
+    setInsertError(null);
+    setInsertingAt(position);
+    const stop = new AbortController();
+    insertStopRef.current = stop;
+    try {
+      await onInsertScene(position, rawPrompt, stop.signal);
+      if (stop.signal.aborted) return;
+      setPicked((current) => remapIndicesOnInsert(current, position));
+      setBoundaryDrafts((current) => {
+        const next = { ...current };
+        delete next[position];
+        return next;
+      });
+      setOpenBoundary(null);
+      focusSceneRef.current = position;
+    } catch (caught) {
+      if (stop.signal.aborted) return;
+      setInsertError(caught instanceof Error ? caught.message : "Could not add the scene. Try again.");
+      composerInputRef.current?.focus({ preventScroll: true });
+    } finally {
+      if (insertStopRef.current === stop) insertStopRef.current = null;
+      setInsertingAt(null);
+    }
+  };
+
+  const handleRemoveScene = async (index: number) => {
+    if (!onRemoveScene || streaming || structuralBusy) return;
+    if (beats.length <= SCRIPT_BEATS_MIN) {
+      setRemoveError("A storyboard needs at least one scene.");
+      return;
+    }
+    setRemoveError(null);
+    setRemovingAt(index);
+    const prevPicked = picked;
+    setPicked((current) => remapIndicesOnRemove(current, index));
+    if (openBoundary !== null) {
+      if (openBoundary === index || openBoundary === index + 1) setOpenBoundary(null);
+      else if (openBoundary > index + 1) setOpenBoundary(openBoundary - 1);
+    }
+    try {
+      await onRemoveScene(index);
+    } catch (caught) {
+      setPicked(prevPicked);
+      setRemoveError(caught instanceof Error ? caught.message : "Could not remove the scene. Try again.");
+    } finally {
+      setRemovingAt(null);
+    }
+  };
+
+  const handleUndoRemove = async () => {
+    if (!onUndoRemoveScene || !undoScene || streaming || structuralBusy) return;
+    const restoreIndex = undoScene.index;
+    setRemoveError(null);
+    try {
+      await onUndoRemoveScene();
+      setPicked((current) => remapIndicesOnInsert(current, restoreIndex));
+      focusSceneRef.current = restoreIndex;
+    } catch (caught) {
+      setRemoveError(caught instanceof Error ? caught.message : "Could not restore the scene. Try again.");
+    }
+  };
+
+  const renderBoundary = (position: number) => {
+    if (streaming || !onInsertScene) return null;
+    const isOpen = openBoundary === position;
+    const isBusyHere = insertingAt === position;
+    const title = sceneBoundaryLabel(position, beats.length);
+    const beforeBeat = position > 0 ? beats[position - 1] : null;
+    const afterBeat = position < beats.length ? beats[position] : null;
+    const draftValue = boundaryDrafts[position] ?? "";
+
+    if (!isOpen) {
+      return (
+        <li key={`boundary-${position}`} className="sc-boundary" data-boundary={position}>
+          <span className="sc-boundary-line" aria-hidden="true" />
+          <button
+            type="button"
+            className="sc-add-scene-btn"
+            disabled={structuralBusy || maxScenesReached}
+            aria-label={title}
+            title={maxScenesReached ? `A storyboard can have at most ${SCRIPT_BEATS_MAX} scenes` : title}
+            onClick={() => openComposerAt(position)}
+          >
+            <span className="sc-add-scene-plus" aria-hidden="true">+</span>
+            <span>Add scene</span>
+          </button>
+          {maxScenesReached && position === beats.length && (
+            <small className="sc-boundary-limit" role="note">Max {SCRIPT_BEATS_MAX} scenes</small>
+          )}
+          <span className="sc-boundary-line" aria-hidden="true" />
+        </li>
+      );
+    }
+
+    return (
+      <li key={`boundary-${position}`} className="sc-boundary sc-boundary--open" data-boundary={position}>
+        <div
+          className="sc-insert-composer"
+          role="region"
+          aria-labelledby={`sc-insert-heading-${position}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="sc-insert-head">
+            <div className="sc-insert-title-wrap">
+              <strong id={`sc-insert-heading-${position}`} className="sc-insert-title">{title}</strong>
+              <span className="sc-insert-neighbors">
+                {beforeBeat && <span>After Scene {position}: “{beforeBeat.keyword}”</span>}
+                {beforeBeat && afterBeat && <span aria-hidden="true">·</span>}
+                {afterBeat && <span>Before Scene {position + 1}: “{afterBeat.keyword}”</span>}
+              </span>
+            </div>
+            <span className="sc-insert-runtime-note">Adding a scene may extend runtime (~+4–6s). Existing scenes stay untouched.</span>
+          </div>
+          <textarea
+            ref={composerInputRef}
+            rows={2}
+            maxLength={400}
+            className="sc-insert-textarea"
+            aria-label={title}
+            disabled={isBusyHere}
+            value={draftValue}
+            placeholder={sceneBoundaryPlaceholder(position, beats)}
+            onChange={(event) => {
+              const nextVal = event.target.value;
+              setBoundaryDrafts((curr) => ({ ...curr, [position]: nextVal }));
+              if (insertError) setInsertError(null);
+            }}
+            onKeyDown={(event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancelComposer();
+              } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                void submitInsertAt(position);
+              }
+            }}
+          />
+          {insertError && (
+            <p className="sc-insert-error" role="alert">{insertError}</p>
+          )}
+          <div className="sc-insert-actions">
+            {isBusyHere && (
+              <span className="sc-insert-progress" role="status" aria-live="polite">
+                <i className="sc-live" />
+                Writing scene…
+              </span>
+            )}
+            <button
+              type="button"
+              className="secondary-button sc-insert-cancel"
+              onClick={cancelComposer}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary-button sc-insert-submit"
+              disabled={isBusyHere || draftValue.trim().length < 3}
+              onClick={() => void submitInsertAt(position)}
+            >
+              {isBusyHere ? "Adding scene…" : "Add scene"}
+            </button>
+          </div>
+        </div>
+      </li>
+    );
+  };
+  const acceptedOverLength = Boolean(keepOverLength || length.keepOverLength || keptByProject[keepKey]);
+  const overLength = !streaming && beats.length > 0 && !length.scriptLed && runs > length.seconds * 1.15 + 2 && !acceptedOverLength;
+  const canvasRootRef = useRef<HTMLDivElement | null>(null);
+  const dockRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const dock = dockRef.current;
+    const root = canvasRootRef.current;
+    if (!dock || !root) return;
+    const syncDockHeight = () => {
+      const h = Math.ceil(dock.getBoundingClientRect().height);
+      if (h > 0) root.style.setProperty("--sc-dock-height", `${h}px`);
+    };
+    syncDockHeight();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(syncDockHeight);
+    ro.observe(dock);
+    return () => ro.disconnect();
+  }, [picked.length, ask, beats.length]);
+  const handleKeepOverLength = async () => {
+    if (savingKeep || acceptedOverLength) return;
+    setKeepError(null);
+    setSavingKeep(true);
+    setKeptByProject((current) => ({ ...current, [keepKey]: true }));
+    try {
+      await onKeepOverLength?.();
+    } catch (caught) {
+      setKeptByProject((current) => {
+        const next = { ...current };
+        delete next[keepKey];
+        return next;
+      });
+      setKeepError(caught instanceof Error ? caught.message : "Could not save your choice. Try again.");
+    } finally {
+      setSavingKeep(false);
+    }
+  };
   // Nothing renders without its sound: a voiced (or scored) film needs its takes first; a silent one can render at once.
   const confirmed = (!voiced && !music) || voice.state === "ready";
   const soundLabel = voiced && music ? "voiceover and music" : voiced ? "voiceover" : "music";
@@ -303,25 +653,27 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
     : voice.state === "storyboard" || voice.state === "voicing"
     ? <><i className="sc-live" />{`Recording ${soundLabel} in parallel · ${voicedCount}/${totalVoicedBeats} scenes ready · ${voicePct}%`}</>
     : voice.state === "failed" ? voice.error ?? `Could not make the ${soundLabel}.`
-    : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${runs}s${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}${voicedCount > 0 ? ` · ${voicedCount}/${totalVoicedBeats} voiced` : ""}`;
+    : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${formatDurationSeconds(runs)}${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}${voicedCount > 0 ? ` · ${voicedCount}/${totalVoicedBeats} voiced` : ""}`;
 
   if (!streaming && beats.length === 0 && error) return <div className="script-canvas">
-    <header className="sc-head"><div><h1>Storyboard</h1></div></header>
-    <section className="sc-empty" role="alert">
-      <h2>{limit ? limitCopy(limit).title : "We couldn't write your script"}</h2>
-      <p>{error}</p>
-      {limit && <PlanLimitOptions limit={limit} />}
-      <p className="sc-empty-note">{limit?.code === "preview_call_cap" ? "Start a new film to keep going; your other films are not affected." : limit ? "Your brief is saved. After checkout, come back here and press Try again: the storyboard is written straight away." : "Your brief is saved. Nothing was charged."}</p>
-      <div className="sc-empty-actions">
-        {onTryAgain && limit?.code !== "preview_call_cap" && <button type="button" className={limit ? "secondary-button" : "primary-button"} onClick={onTryAgain}>Try again</button>}
-        {onBackToBrief && <button type="button" className="secondary-button" onClick={onBackToBrief}>Back to brief</button>}
-      </div>
-    </section>
+    <header className="sc-head"><div className="sc-head-title"><h1>Storyboard</h1></div></header>
+    <div className="sc-scroll">
+      <section className="sc-empty" role="alert">
+        <h2>{limit ? limitCopy(limit).title : "We couldn't write your script"}</h2>
+        <p>{error}</p>
+        {limit && <PlanLimitOptions limit={limit} />}
+        <p className="sc-empty-note">{limit?.code === "preview_call_cap" ? "Start a new film to keep going; your other films are not affected." : limit ? "Your brief is saved. After checkout, come back here and press Try again: the storyboard is written straight away." : "Your brief is saved. Nothing was charged."}</p>
+        <div className="sc-empty-actions">
+          {onTryAgain && limit?.code !== "preview_call_cap" && <button type="button" className={limit ? "secondary-button" : "primary-button"} onClick={onTryAgain}>Try again</button>}
+          {onBackToBrief && <button type="button" className="secondary-button" onClick={onBackToBrief}>Back to brief</button>}
+        </div>
+      </section>
+    </div>
   </div>;
 
-  return <div className="script-canvas">
+  return <div ref={canvasRootRef} className="script-canvas">
     <header className="sc-head">
-      <div>
+      <div className="sc-head-title">
         <h1>Storyboard</h1>
         <p role="status" aria-live="polite">{status}</p>
       </div>
@@ -341,7 +693,7 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
               style={{
                 position: "relative",
                 overflow: "hidden",
-                minWidth: 230,
+                minWidth: "min(200px, 100%)",
                 fontVariantNumeric: "tabular-nums"
               }}
             >
@@ -396,106 +748,170 @@ export function ScriptCanvas({ music, onRender, rendering, beats, open, writing,
       </div>
     </header>
 
-    {overLength && <div className="sc-length" role="note">
-      <p><b>Runs about {runs}s</b>, longer than the {length.seconds}s you chose{length.locked ? "" : ", because the idea needs the time"}. A longer film uses more tokens.</p>
-      <div><button className="secondary-button" onClick={() => setKeptLong(runs)}>Keep {runs}s</button><button className="primary-button" disabled={busyVoice} onClick={onFit}>Fit to {length.seconds}s</button></div>
-    </div>}
-    <div className="sc-doc-head" aria-hidden="true" style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col }}><span>Script</span><span>Reference frames{styleName ? ` · ${styleName} style` : ""}</span></div>
-    <ol className="sc-doc">
-      {beats.map((beat, index) => {
-        const locked = writingAt(index);
-        const beatFlags = flags.filter((flag) => flag.beat === index);
-        const take = voice.takes[index];
-        const isPicked = picked.includes(index);
-        // A click anywhere in a scene picks it for the prompt box (Cmd/Ctrl or Shift adds it to the ones picked); the
-        // number button toggles. Buttons and the audio player keep their own clicks.
-        const pickScene = (event: MouseEvent) => {
-          if (streaming || (event.target as HTMLElement).closest("button, audio, a")) return;
-          const add = event.metaKey || event.ctrlKey || event.shiftKey;
-          setPicked((current) => add ? (current.includes(index) ? current : [...current, index].sort((a, b) => a - b)) : [index]);
-        };
-        return <li key={index} className={`sc-beat${locked ? " writing" : ""}${isPicked ? " picked" : ""}`} style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col, padding: "16px 6px", alignItems: "center" }} onClick={pickScene}>
-          <div className="sc-text">
-            <div className="sc-title-row">
-              <button type="button" className="sc-num" aria-pressed={isPicked} disabled={streaming} aria-label={isPicked ? `Stop referring to beat ${index + 1}` : `Refer to beat ${index + 1} in the prompt`} title={isPicked ? "Remove from the prompt" : "Refer to this beat in the prompt"} onClick={() => togglePick(index)}>{String(index + 1).padStart(2, "0")}</button>
-              <Field label={`Beat ${index + 1} key phrase`} className="sc-keyword" value={beat.keyword} placeholder="Key phrase" readOnly={locked} caret={locked && open === "keyword"} onChange={(keyword) => onEdit(index, { keyword: keyword.slice(0, 28) })} />
-              <div className="sc-beat-tools">
-                {versions[index] && <span className="sc-versions" aria-label={`Version ${versions[index]!.at + 1} of ${versions[index]!.count}`}>
-                  <button type="button" disabled={streaming || versions[index]!.at === 0} aria-label={`Previous version of beat ${index + 1}`} onClick={() => onVersion(index, versions[index]!.at - 1)}>‹</button>
-                  <span>{versions[index]!.at + 1}/{versions[index]!.count}</span>
-                  <button type="button" disabled={streaming || versions[index]!.at === versions[index]!.count - 1} aria-label={`Next version of beat ${index + 1}`} onClick={() => onVersion(index, versions[index]!.at + 1)}>›</button>
-                </span>}
-                <button type="button" className="sc-reimagine" disabled={streaming} title="A new way to show this scene. The current version is kept." aria-label={`Reimagine beat ${index + 1}`} onClick={() => onReimagine(index)}>
-                  {locked ? "Reimagining…" : "Reimagine"}
-                </button>
-              </div>
-            </div>
-            <dl>
-              <div><dt>Visual</dt><dd><Field label={`Beat ${index + 1} visual`} className="sc-visual" value={beat.visual ?? ""} placeholder="What the viewer sees" readOnly={locked} caret={locked && open === "visual"} onChange={(visual) => onEdit(index, { visual: visual.slice(0, 200) || null })} /></dd></div>
-              <div><dt>On screen</dt><dd><Field label={`Beat ${index + 1} on-screen text`} className="sc-screen" value={beat.onScreen ?? ""} placeholder="Only the key phrase" readOnly={locked} caret={locked && open === "onScreen"} onChange={(onScreen) => onEdit(index, { onScreen: onScreen.slice(0, 60) || null })} /></dd></div>
-              {voiced && <div><dt>Voiceover</dt><dd>
-                <Field label={`Beat ${index + 1} voiceover`} className="sc-line" value={beat.line ?? ""} placeholder="Voiceover" readOnly={locked} caret={locked && open === "line"} onChange={(line) => onEdit(index, { line: line || null })} />
-                {voice.busyIndices?.includes(index) && (
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 6, fontSize: 12, color: "var(--muted)" }}>
-                    <i className="sc-live" />
-                    <span>Recording scene {index + 1} voiceover…</span>
-                  </div>
-                )}
-                {take && !voice.busyIndices?.includes(index) && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
-                    <audio key={take} className="sc-take" controls preload="metadata" src={take} aria-label={`Voiceover for beat ${index + 1}`} style={{ marginTop: 0, flex: "1 1 220px" }} />
-                    {onRetryVoice && (
-                      <button
-                        type="button"
-                        className="sc-reimagine"
-                        disabled={busyVoice || streaming}
-                        title="Record a fresh take for this scene"
-                        onClick={() => onRetryVoice(index)}
-                      >
-                        ↻ Retry voice
-                      </button>
-                    )}
-                  </div>
-                )}
-                {!take && !voice.busyIndices?.includes(index) && voice.errors?.[index] && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
-                    <small className="sc-flag" style={{ margin: 0 }}>{voice.errors[index]}</small>
-                    {onRetryVoice && (
-                      <button
-                        type="button"
-                        className="sc-reimagine"
-                        disabled={busyVoice || streaming}
-                        onClick={() => onRetryVoice(index)}
-                      >
-                        ↻ Retry scene voice
-                      </button>
-                    )}
-                  </div>
-                )}
-              </dd></div>}
-            </dl>
-            {beatFlags.map((flag) => <small className="sc-flag" key={flag.message}>{flag.message} Edit it, or keep it if it is right.</small>)}
+    {(undoScene || removeError) && (
+      <div className="sc-undo-banner" role="status" aria-live="polite">
+        <div className="sc-undo-copy">
+          {undoScene && (
+            <span>
+              Removed <b>Scene {undoScene.index + 1}</b>{undoScene.keyword ? ` (“${undoScene.keyword}”)` : ""}.
+            </span>
+          )}
+          {(removeError || undoScene?.error) && (
+            <small className="sc-length-error" role="alert">{removeError ?? undoScene?.error}</small>
+          )}
+        </div>
+        {undoScene && onUndoRemoveScene && (
+          <div className="sc-undo-actions">
+            <button
+              ref={undoBtnRef}
+              type="button"
+              className="secondary-button sc-undo-btn"
+              disabled={Boolean(undoScene.busy) || streaming || structuralBusy || maxScenesReached}
+              aria-label={`Undo removing Scene ${undoScene.index + 1}`}
+              onClick={() => void handleUndoRemove()}
+            >
+              {undoScene.busy ? "Restoring…" : "Undo"}
+            </button>
+            {onDismissUndoScene && (
+              <button
+                type="button"
+                className="sc-undo-dismiss"
+                disabled={Boolean(undoScene.busy)}
+                aria-label="Dismiss undo notice"
+                onClick={onDismissUndoScene}
+              >
+                ×
+              </button>
+            )}
           </div>
-          <Frame onPick={streaming ? undefined : (add: boolean) => setPicked((current) => add ? (current.includes(index) ? current : [...current, index].sort((x, y) => x - y)) : [index])} picked={isPicked} slot={frames[index]} aspect={aspect} index={index} writing={locked} onRedraw={() => onRedraw(index)} />
-        </li>;
-      })}
-      {streaming && !scoped && Array.from({ length: beats.length === 0 ? 3 : 1 }, (_, index) => {
-        const box = FRAME_BOX[aspect] ?? FRAME_BOX["16:9"];
-        return <li key={`s${index}`} className="sc-beat sc-skeleton" aria-hidden="true" style={{ gridTemplateColumns: box.col, padding: "16px 6px", alignItems: "center" }}><div className="sc-text"><i /><i className="short" /><i className="long" /></div><div className="sc-frame sc-frame-wait" style={{ width: box.width, height: box.height, aspectRatio: RATIO[aspect], borderRadius: 12, justifySelf: "end" }} /></li>;
-      })}
-    </ol>
-    {storyboard.state === "failed" && !streaming && <p className="sc-note">{storyboard.error ?? "Could not plan the storyboard."}</p>}
-
-    <form className="sc-ask" onSubmit={(event) => { event.preventDefault(); submitAsk(); }}>
-      {(picked.length > 0 || !ask) && <div className="sc-chips">
-        {picked.map((index) => <span className="sc-chip" key={index}>Beat {index + 1} · {beats[index]?.keyword}<button type="button" aria-label={`Stop referring to beat ${index + 1}`} onClick={() => togglePick(index)}>×</button></span>)}
-        {!ask && SUGGESTIONS.map((label) => <button type="button" className="sc-suggest" key={label} disabled={streaming || beats.length === 0} onClick={() => send(label)}>{label}</button>)}
-      </div>}
-      <div className="sc-ask-row">
-        <input value={ask} onChange={(event) => setAsk(event.target.value)} disabled={streaming || beats.length === 0} maxLength={400} aria-label="Ask the AI to change the script"
-          placeholder={streaming ? "Writing…" : picked.length ? `What should change in ${picked.length === 1 ? `beat ${picked[0]! + 1}` : "these beats"}?` : "Ask for a change, or click a scene to refer to it"} />
-        <button className="sc-send" type="submit" aria-label="Send" disabled={streaming || ask.trim().length < 3}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15V5M5 10l5-5 5 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+        )}
       </div>
-    </form>
+    )}
+
+    <div className="sc-scroll">
+      {(overLength || keepError) && <div className="sc-length" role="note">
+        <div className="sc-length-copy">
+          <p><b>Runs about {formatDurationSeconds(runs)}</b>, longer than the {formatDurationSeconds(length.seconds)} you chose{length.locked ? "" : ", because the idea needs the time"}. A longer film uses more tokens.</p>
+          {keepError && <small className="sc-length-error" role="alert">{keepError}</small>}
+        </div>
+        <div className="sc-length-actions"><button type="button" className="secondary-button" disabled={savingKeep} onClick={() => void handleKeepOverLength()}>{savingKeep ? "Saving…" : `Keep ${runs}s`}</button><button type="button" className="primary-button" disabled={busyVoice || savingKeep} onClick={onFit}>Fit to {length.seconds}s</button></div>
+      </div>}
+      <div className="sc-doc-head" aria-hidden="true" style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col }}><span>Script</span><span>Reference frames{styleName ? ` · ${styleName} style` : ""}</span></div>
+      <ol className="sc-doc" ref={docListRef}>
+        {beats.length > 0 && renderBoundary(0)}
+        {beats.map((beat, index) => {
+          const locked = writingAt(index);
+          const beatFlags = flags.filter((flag) => flag.beat === index);
+          const take = voice.takes[index];
+          const isPicked = picked.includes(index);
+          // A click anywhere in a scene picks it for the prompt box (Cmd/Ctrl or Shift adds it to the ones picked); the
+          // number button toggles. Buttons, inputs and the audio player keep their own clicks.
+          const pickScene = (event: MouseEvent) => {
+            if (streaming || (event.target as HTMLElement).closest("button, audio, a, textarea, input, .sc-insert-composer")) return;
+            const add = event.metaKey || event.ctrlKey || event.shiftKey;
+            setPicked((current) => add ? (current.includes(index) ? current : [...current, index].sort((a, b) => a - b)) : [index]);
+          };
+          return <Fragment key={beat.id ?? `beat-${index}`}>
+            <li data-scene-index={index} data-scene-id={beat.id ?? `idx-${index}`} className={`sc-beat${locked ? " writing" : ""}${isPicked ? " picked" : ""}`} style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col, padding: "16px 6px", alignItems: "center" }} onClick={pickScene}>
+              <div className="sc-text">
+                <div className="sc-title-row">
+                  <button type="button" className="sc-num" aria-pressed={isPicked} disabled={streaming} aria-label={isPicked ? `Stop referring to beat ${index + 1}` : `Refer to beat ${index + 1} in the prompt`} title={isPicked ? "Remove from the prompt" : "Refer to this beat in the prompt"} onClick={() => togglePick(index)}>{String(index + 1).padStart(2, "0")}</button>
+                  <Field label={`Beat ${index + 1} key phrase`} dataSceneKeyword={index} className="sc-keyword" value={beat.keyword} placeholder="Key phrase" readOnly={locked} caret={locked && open === "keyword"} onChange={(keyword) => onEdit(index, { keyword: keyword.slice(0, 28) })} />
+                  <div className="sc-beat-tools">
+                    {versions[index] && <span className="sc-versions" aria-label={`Version ${versions[index]!.at + 1} of ${versions[index]!.count}`}>
+                      <button type="button" disabled={streaming || versions[index]!.at === 0} aria-label={`Previous version of beat ${index + 1}`} onClick={() => onVersion(index, versions[index]!.at - 1)}>‹</button>
+                      <span>{versions[index]!.at + 1}/{versions[index]!.count}</span>
+                      <button type="button" disabled={streaming || versions[index]!.at === versions[index]!.count - 1} aria-label={`Next version of beat ${index + 1}`} onClick={() => onVersion(index, versions[index]!.at + 1)}>›</button>
+                    </span>}
+                    <button type="button" className="sc-reimagine" disabled={streaming || structuralBusy} title="A new way to show this scene. The current version is kept." aria-label={`Reimagine beat ${index + 1}`} onClick={() => onReimagine(index)}>
+                      {locked ? "Reimagining…" : "Reimagine"}
+                    </button>
+                    {onRemoveScene && (
+                      <button
+                        type="button"
+                        className="sc-remove"
+                        disabled={streaming || structuralBusy || minScenesReached}
+                        title={minScenesReached ? "A storyboard needs at least one scene" : `Remove Scene ${index + 1} (${beat.keyword || `Beat ${index + 1}`})`}
+                        aria-label={`Remove Scene ${index + 1}: ${beat.keyword || `Beat ${index + 1}`}`}
+                        onClick={() => void handleRemoveScene(index)}
+                      >
+                        {removingAt === index ? "Removing…" : "Remove"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <dl>
+                  <div><dt>Visual</dt><dd><Field label={`Beat ${index + 1} visual`} className="sc-visual" value={beat.visual ?? ""} placeholder="What the viewer sees" readOnly={locked} caret={locked && open === "visual"} onChange={(visual) => onEdit(index, { visual: visual.slice(0, 200) || null })} /></dd></div>
+                  <div><dt>On screen</dt><dd><Field label={`Beat ${index + 1} on-screen text`} className="sc-screen" value={beat.onScreen ?? ""} placeholder="Only the key phrase" readOnly={locked} caret={locked && open === "onScreen"} onChange={(onScreen) => onEdit(index, { onScreen: onScreen.slice(0, 60) || null })} /></dd></div>
+                  {voiced && <div><dt>Voiceover</dt><dd>
+                    <Field label={`Beat ${index + 1} voiceover`} className="sc-line" value={beat.line ?? ""} placeholder="Voiceover" readOnly={locked} caret={locked && open === "line"} onChange={(line) => onEdit(index, { line: line || null })} />
+                    {voice.busyIndices?.includes(index) && (
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 6, fontSize: 12, color: "var(--muted)" }}>
+                        <i className="sc-live" />
+                        <span>Recording scene {index + 1} voiceover…</span>
+                      </div>
+                    )}
+                    {take && !voice.busyIndices?.includes(index) && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                        <audio key={take} className="sc-take" controls preload="metadata" src={take} aria-label={`Voiceover for beat ${index + 1}`} style={{ marginTop: 0, flex: "1 1 220px" }} />
+                        {onRetryVoice && (
+                          <button
+                            type="button"
+                            className="sc-reimagine"
+                            disabled={busyVoice || streaming}
+                            title="Record a fresh take for this scene"
+                            onClick={() => onRetryVoice(index)}
+                          >
+                            ↻ Retry voice
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {!take && !voice.busyIndices?.includes(index) && voice.errors?.[index] && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                        <small className="sc-flag" style={{ margin: 0 }}>{voice.errors[index]}</small>
+                        {onRetryVoice && (
+                          <button
+                            type="button"
+                            className="sc-reimagine"
+                            disabled={busyVoice || streaming}
+                            onClick={() => onRetryVoice(index)}
+                          >
+                            ↻ Retry scene voice
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </dd></div>}
+                </dl>
+                {beatFlags.map((flag) => <small className="sc-flag" key={flag.message}>{flag.message} Edit it, or keep it if it is right.</small>)}
+              </div>
+              <Frame onPick={streaming ? undefined : (add: boolean) => setPicked((current) => add ? (current.includes(index) ? current : [...current, index].sort((x, y) => x - y)) : [index])} picked={isPicked} slot={frames[index]} aspect={aspect} index={index} writing={locked} onRedraw={() => onRedraw(index)} />
+            </li>
+            {renderBoundary(index + 1)}
+          </Fragment>;
+        })}
+        {streaming && !scoped && Array.from({ length: beats.length === 0 ? 3 : 1 }, (_, index) => {
+          const box = FRAME_BOX[aspect] ?? FRAME_BOX["16:9"];
+          return <li key={`s${index}`} className="sc-beat sc-skeleton" aria-hidden="true" style={{ gridTemplateColumns: box.col, padding: "16px 6px", alignItems: "center" }}><div className="sc-text"><i /><i className="short" /><i className="long" /></div><div className="sc-frame sc-frame-wait" style={{ width: box.width, height: box.height, aspectRatio: RATIO[aspect], borderRadius: 12, justifySelf: "end" }} /></li>;
+        })}
+      </ol>
+      {storyboard.state === "failed" && !streaming && <p className="sc-note">{storyboard.error ?? "Could not plan the storyboard."}</p>}
+    </div>
+
+    <div ref={dockRef} className="sc-dock">
+      <div className="sc-bottom-blur" aria-hidden="true" />
+      <form className="sc-ask" onSubmit={(event) => { event.preventDefault(); submitAsk(); }}>
+        {(picked.length > 0 || !ask) && <div className="sc-chips">
+          {picked.map((index) => <span className="sc-chip" key={index}>Beat {index + 1} · {beats[index]?.keyword}<button type="button" aria-label={`Stop referring to beat ${index + 1}`} onClick={() => togglePick(index)}>×</button></span>)}
+          {!ask && SUGGESTIONS.map((label) => <button type="button" className="sc-suggest" key={label} disabled={streaming || beats.length === 0} onClick={() => send(label)}>{label}</button>)}
+        </div>}
+        <div className="sc-ask-row">
+          <input value={ask} onChange={(event) => setAsk(event.target.value)} disabled={streaming || beats.length === 0} maxLength={400} aria-label="Ask the AI to change the script"
+            placeholder={streaming ? "Writing…" : picked.length ? `What should change in ${picked.length === 1 ? `beat ${picked[0]! + 1}` : "these beats"}?` : "Ask for a change, or click a scene to refer to it"} />
+          <button className="sc-send" type="submit" aria-label="Send" disabled={streaming || ask.trim().length < 3}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15V5M5 10l5-5 5 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+        </div>
+      </form>
+    </div>
   </div>;
 }

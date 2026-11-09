@@ -4,11 +4,12 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defaultVoice, paceWpm, voiceIds, voiceText, type Pace, type PlanVoiceLine, type PlanVoiceWord, type VideoProject } from "@videosaas/contracts";
+import { defaultVoice, isNarrator, paceWpm, voiceForSpeaker, voiceIds, voiceText, type Pace, type VoiceCast, type PlanVoiceLine, type PlanVoiceWord, type VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { synthesizeVoiceover, TTS_MODEL } from "../audio/gemini-tts.ts";
 import { joinWithGaps, pcmSeconds, readWav, trimSilence, writeWav, type Pcm } from "./pcm.ts";
 import { estimateLineSeconds } from "./timing.ts";
+import { routeFor } from "../models/routes.ts";
 import { readMedia, saveMedia } from "../media.ts";
 
 /**
@@ -35,14 +36,32 @@ const PACE_DELIVERY: Record<Pace, string> = {
   fast: "fast and punchy, about 160 words per minute, no lingering pauses"
 };
 
-export type VoiceSettings = { voice: string; direction: string; pace: Pace; /** Spoken language id (voiceLanguages); "en" when the film is in English. */ language: string };
+export type VoiceSettings = {
+  voice: string; direction: string; pace: Pace; /** Spoken language id (voiceLanguages); "en" when the film is in English. */ language: string;
+  /** "characters": lines with a speaker are spoken in that character's voice (`speakerSettings`). */
+  cast?: VoiceCast;
+  /** The person's voice picks per character name. */
+  voices?: Record<string, string>;
+};
 
 /** The narrator for a project: the brief's voice, else the plan's, else the request's, else the default. */
 export function voiceSettings(project: Pick<VideoProject, "brief" | "beatPlan" | "request">): VoiceSettings {
   const candidates = [project.brief?.audio.voice, project.beatPlan?.audio.voice?.voice, project.request.audio?.voice];
   const voice = candidates.find((id): id is string => typeof id === "string" && voiceIds.includes(id)) ?? defaultVoice;
   const direction = project.beatPlan?.audio.voice?.direction?.trim() || "clear, confident product narration";
-  return { voice, direction: direction.slice(0, 200), pace: project.brief?.pace ?? "balanced", language: project.brief?.audio.language ?? "en" };
+  const cast = project.brief?.audio.cast === "characters" ? { cast: "characters" as const, ...(project.brief.audio.voices ? { voices: project.brief.audio.voices } : {}) } : {};
+  return { voice, direction: direction.slice(0, 200), pace: project.brief?.pace ?? "balanced", language: project.brief?.audio.language ?? "en", ...cast };
+}
+
+/**
+ * The settings one line is spoken with: the narrator's for narration (unchanged, so its cached takes stay valid), or with
+ * character voices on, the speaker's own voice acted in character. Gemini speaks every line as its own take, so a film
+ * with characters is the same per-line pipeline with a different voice and delivery per speaker.
+ */
+export function speakerSettings(settings: VoiceSettings, speaker: string | null | undefined): VoiceSettings {
+  if (settings.cast !== "characters" || isNarrator(speaker)) return settings;
+  const name = speaker!.trim();
+  return { ...settings, voice: voiceForSpeaker(name, settings.voice, settings.voices), direction: `spoken in character as ${name}: expressive and natural, the character talking, not a narrator reading`.slice(0, 200) };
 }
 
 export const takeKey = (settings: VoiceSettings, text: string) =>
@@ -63,7 +82,7 @@ async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R
   return out;
 }
 
-export type VoiceJob = { beat: string; text: string };
+export type VoiceJob = { beat: string; text: string; /** Who says it (character voices); the narrator when absent. */ speaker?: string | null };
 type Take = { beat: string; text: string; file: string; pcm: Pcm; seconds: number; spentSeconds: number };
 
 /** Voices a single scene line into `dir/vo/` (reusing cached takes unless `force` is true). */
@@ -116,10 +135,11 @@ export async function voiceOneLine(
 }
 
 /** Voices every line (reusing cached takes) into `dir/vo/`. Returns the takes and the speech billed. */
-async function voiceTakes(apiKey: string, dir: string, settings: VoiceSettings, jobs: VoiceJob[]): Promise<Take[]> {
+async function voiceTakes(apiKey: string, dir: string, filmSettings: VoiceSettings, jobs: VoiceJob[]): Promise<Take[]> {
   await mkdir(join(dir, "vo"), { recursive: true });
-  const style = `${settings.direction}; ${PACE_DELIVERY[settings.pace]}`;
-  return pool(jobs, VOICE_RULES.concurrency, async ({ beat, text }) => {
+  return pool(jobs, VOICE_RULES.concurrency, async ({ beat, text, speaker }) => {
+    const settings = speakerSettings(filmSettings, speaker);
+    const style = `${settings.direction}; ${PACE_DELIVERY[settings.pace]}`;
     const file = `vo/${takeKey(settings, text)}.wav`;
     const path = join(dir, file);
     const cached = await readMedia(path);
@@ -224,7 +244,7 @@ export function alignWords(text: string, heard: Heard[], seconds: number): PlanV
 const repositoryDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const hyperframesBin = process.env.HYPERFRAMES_BIN ?? resolve(repositoryDir, "worker/node_modules/.bin/hyperframes");
 
-export const alignModel = process.env.VOICE_ALIGN_MODEL || "gemini-2.5-flash";
+export const alignModel = routeFor("voiceAlign").model; // MODEL_VOICE_ALIGN or the old VOICE_ALIGN_MODEL (Gemini only: it listens to audio)
 
 /**
  * Word times from the audio itself, for a server with no Whisper: Gemini listens to all the takes (joined with the same gaps)
@@ -304,7 +324,7 @@ export type VoiceResult = { lines: PlanVoiceLine[]; spentSeconds: number; aligne
  */
 export async function produceVoice(apiKey: string, dir: string, settings: VoiceSettings, jobs: VoiceJob[], known: PlanVoiceLine[] = []): Promise<VoiceResult> {
   const reuse = new Map(known.map((line) => [`${line.file}\u0000${line.text}`, line]));
-  const clean = jobs.map((job) => ({ beat: job.beat, text: voiceText(job.text) })).filter((job) => job.text);
+  const clean = jobs.map((job) => ({ beat: job.beat, text: voiceText(job.text), ...(job.speaker ? { speaker: job.speaker } : {}) })).filter((job) => job.text);
   const takes = await voiceTakes(apiKey, dir, settings, clean);
   const fresh = takes.filter((take) => !reuse.has(`${take.file}\u0000${take.text}`));
   const heard = await transcribeTakes(fresh, settings.language);

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motionBlurCopy, motionBlurProblem } from "@videosaas/contracts";
 import {
   WORKSPACE_PLAYBACK_RENDER_MODES,
@@ -21,6 +21,8 @@ import type {
 const TEXT_SWATCHES = ["#ffffff", "#fef08a", "#facc15", "#7dd3fc", "#fca5a5", "#231f1b", "#0b0d12"];
 const BOX_SWATCHES = ["#0c0f16", "#faf5e8", "#facc15", "#0c2a4a", "#1e293b", "#451a03", "#3b0764"];
 
+type MenuId = "captions" | "style" | "colors" | "opacity" | "position" | "quality";
+
 export interface OptionsBarProps {
   optionsConfig?: WorkspaceOptionsConfig;
   audio?: WorkspaceAudioControlState;
@@ -36,8 +38,84 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
   const [barMode, setBarMode] = useState<"audio" | "subtitles" | null>(
     visible.showSubtitleTab ? "subtitles" : visible.showAudioTab ? "audio" : null
   );
-  const [openMenu, setOpenMenu] = useState<"captions" | "style" | "colors" | "opacity" | "position" | "quality" | null>(null);
+  const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
   const headBarRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const triggerRefs = useRef<Partial<Record<MenuId, HTMLButtonElement | null>>>({});
+
+  const closeMenuAndFocus = useCallback((menuId: MenuId) => {
+    setOpenMenu(null);
+    queueMicrotask(() => {
+      triggerRefs.current[menuId]?.focus();
+    });
+  }, []);
+
+  const positionActivePopover = useCallback(() => {
+    const barEl = headBarRef.current;
+    const dlgEl = dialogRef.current;
+    if (!barEl || !dlgEl) return;
+    const wrapEl = dlgEl.closest(".aw-menu-wrap") as HTMLElement | null;
+    if (!wrapEl) return;
+    const stageEl =
+      (barEl.closest(".aw-stage") as HTMLElement | null) ??
+      barEl.parentElement ??
+      document.documentElement;
+    const stageRect = stageEl.getBoundingClientRect();
+    const barRect = barEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const minX = Math.max(6, Math.round(stageRect.left));
+    const maxX = Math.min(vw - 6, Math.round(stageRect.right));
+    const availW = Math.max(160, maxX - minX);
+    barEl.style.setProperty("--aw-stage-w", `${availW}px`);
+
+    dlgEl.style.left = "0px";
+    dlgEl.style.right = "auto";
+    dlgEl.style.top = "calc(100% + 6px)";
+    dlgEl.style.bottom = "auto";
+    dlgEl.style.transform = "none";
+    dlgEl.style.maxWidth = `${Math.min(320, availW)}px`;
+
+    const wrapRect = wrapEl.getBoundingClientRect();
+    const dlgRect = dlgEl.getBoundingClientRect();
+    const dlgW = dlgRect.width;
+    const dlgH = dlgRect.height;
+
+    const rightLimit = Math.min(maxX, Math.max(barRect.right, wrapRect.right));
+    if (wrapRect.left >= minX && wrapRect.left + dlgW <= rightLimit) {
+      dlgEl.style.left = "0px";
+      dlgEl.style.right = "auto";
+      dlgEl.dataset.align = "left";
+    } else if (wrapRect.right <= maxX && wrapRect.right - dlgW >= minX) {
+      dlgEl.style.left = "auto";
+      dlgEl.style.right = "0px";
+      dlgEl.dataset.align = "right";
+    } else {
+      const clampedLeft = Math.max(minX, Math.min(wrapRect.left, maxX - dlgW));
+      dlgEl.style.left = `${Math.round(clampedLeft - wrapRect.left)}px`;
+      dlgEl.style.right = "auto";
+      dlgEl.dataset.align = "clamped";
+    }
+
+    if (wrapRect.bottom + 8 + dlgH > vh - 8 && wrapRect.top - 8 - dlgH >= 8) {
+      dlgEl.style.top = "auto";
+      dlgEl.style.bottom = "calc(100% + 6px)";
+      dlgEl.dataset.vpos = "up";
+    } else {
+      dlgEl.style.top = "calc(100% + 6px)";
+      dlgEl.style.bottom = "auto";
+      dlgEl.dataset.vpos = "down";
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!openMenu) return;
+    positionActivePopover();
+    window.addEventListener("resize", positionActivePopover);
+    return () => {
+      window.removeEventListener("resize", positionActivePopover);
+    };
+  }, [openMenu, positionActivePopover, previewQuality?.renderMode, previewQuality?.quality]);
 
   useEffect(() => {
     if (!openMenu) return;
@@ -48,7 +126,29 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setOpenMenu(null);
+        e.preventDefault();
+        closeMenuAndFocus(openMenu);
+        return;
+      }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "ArrowRight" || e.key === "ArrowLeft") {
+        const dlgEl = dialogRef.current;
+        if (!dlgEl) return;
+        const active = document.activeElement;
+        if (active && active instanceof HTMLInputElement) return;
+        const opts = Array.from(
+          dlgEl.querySelectorAll<HTMLButtonElement>("button.aw-option-row:not(:disabled), button.aw-style-card:not(:disabled)")
+        );
+        if (opts.length === 0) return;
+        e.preventDefault();
+        const idx = opts.indexOf(active as HTMLButtonElement);
+        const forward = e.key === "ArrowDown" || e.key === "ArrowRight";
+        const nextIdx =
+          idx === -1
+            ? forward
+              ? 0
+              : opts.length - 1
+            : (idx + (forward ? 1 : opts.length - 1)) % opts.length;
+        opts[nextIdx]?.focus();
       }
     };
     window.addEventListener("pointerdown", onPointerDown);
@@ -57,7 +157,7 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [openMenu]);
+  }, [openMenu, closeMenuAndFocus]);
 
   const subMode = subtitles?.mode ?? "full";
   const subStyle = subtitles?.style ?? "pill";
@@ -175,37 +275,46 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
           {/* 1. Subtitle Mode Dropdown */}
           <div className="aw-menu-wrap">
             <button
+              ref={(el) => {
+                triggerRefs.current.captions = el;
+              }}
               type="button"
               className={`aw-pill-item${openMenu === "captions" ? " active" : ""}`}
+              aria-haspopup="dialog"
               aria-expanded={openMenu === "captions"}
+              title={`Subtitle mode: ${subMode === "none" ? "Off" : curModeLabel}`}
               onClick={() => setOpenMenu(openMenu === "captions" ? null : "captions")}
             >
               <span>{subMode === "none" ? "Off" : curModeLabel}</span>
               <span className="aw-caret">▾</span>
             </button>
             {openMenu === "captions" && (
-              <div className="aw-dialog aw-dialog-list" role="dialog" aria-label="Subtitle mode">
+              <div ref={dialogRef} className="aw-dialog aw-dialog-list" role="dialog" aria-label="Subtitle mode">
                 <div className="aw-dialog-head">
                   <b>Subtitle Mode</b>
                   <span>Choose how captions appear on screen</span>
                 </div>
-                {availableSubtitleModes.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className={`aw-option-row${subMode === m.id ? " on" : ""}`}
-                    onClick={() => {
-                      subtitles.onSelectMode(m.id);
-                      setOpenMenu(null);
-                    }}
-                  >
-                    <div>
-                      <b>{m.label}</b>
-                      <small>{m.description}</small>
-                    </div>
-                    {subMode === m.id && <span className="aw-check">✓</span>}
-                  </button>
-                ))}
+                <div className="aw-dialog-group" role="radiogroup" aria-label="Subtitle mode">
+                  {availableSubtitleModes.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={subMode === m.id}
+                      className={`aw-option-row${subMode === m.id ? " on" : ""}`}
+                      onClick={() => {
+                        subtitles.onSelectMode(m.id);
+                        closeMenuAndFocus("captions");
+                      }}
+                    >
+                      <div>
+                        <b>{m.label}</b>
+                        <small>{m.description}</small>
+                      </div>
+                      {subMode === m.id && <span className="aw-check">✓</span>}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -218,29 +327,36 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
                   <i className="aw-bar-sep" />
                   <div className="aw-menu-wrap">
                     <button
+                      ref={(el) => {
+                        triggerRefs.current.style = el;
+                      }}
                       type="button"
                       className={`aw-pill-item${openMenu === "style" ? " active" : ""}`}
+                      aria-haspopup="dialog"
                       aria-expanded={openMenu === "style"}
+                      title={`Subtitle style: ${curStyleLabel}`}
                       onClick={() => setOpenMenu(openMenu === "style" ? null : "style")}
                     >
                       <span>{curStyleLabel}</span>
                       <span className="aw-caret">▾</span>
                     </button>
                     {openMenu === "style" && (
-                      <div className="aw-dialog aw-dialog-styles" role="dialog" aria-label="Subtitle style">
+                      <div ref={dialogRef} className="aw-dialog aw-dialog-styles" role="dialog" aria-label="Subtitle style">
                         <div className="aw-dialog-head">
                           <b>Subtitle Style</b>
                           <span>Pick a look for your captions</span>
                         </div>
-                        <div className="aw-style-grid">
+                        <div className="aw-style-grid" role="radiogroup" aria-label="Subtitle style">
                           {WORKSPACE_SUBTITLE_STYLES.map((st) => (
                             <button
                               key={st.id}
                               type="button"
+                              role="radio"
+                              aria-checked={subStyle === st.id}
                               className={`aw-style-card aw-style-preview-${st.id}${subStyle === st.id ? " on" : ""}`}
                               onClick={() => {
                                 subtitles.onSelectStyle(st.id);
-                                setOpenMenu(null);
+                                closeMenuAndFocus("style");
                               }}
                             >
                               <span className="aw-style-sample">Sample</span>
@@ -288,8 +404,12 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
                   <i className="aw-bar-sep" />
                   <div className="aw-menu-wrap">
                     <button
+                      ref={(el) => {
+                        triggerRefs.current.colors = el;
+                      }}
                       type="button"
                       className={`aw-pill-item aw-pill-swatches${openMenu === "colors" ? " active" : ""}`}
+                      aria-haspopup="dialog"
                       aria-expanded={openMenu === "colors"}
                       aria-label="Subtitle colors"
                       title="Text &amp; Box colors"
@@ -299,7 +419,7 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
                       <i className="aw-circle-swatch" style={{ background: effectiveBgColor }} />
                     </button>
                     {openMenu === "colors" && (
-                      <div className="aw-dialog aw-dialog-colors" role="dialog" aria-label="Colors">
+                      <div ref={dialogRef} className="aw-dialog aw-dialog-colors" role="dialog" aria-label="Colors">
                         <div className="aw-dialog-head">
                           <b>Subtitle Colors</b>
                           <span>Text and box colors</span>
@@ -368,8 +488,12 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
                   <i className="aw-bar-sep" />
                   <div className="aw-menu-wrap">
                     <button
+                      ref={(el) => {
+                        triggerRefs.current.opacity = el;
+                      }}
                       type="button"
                       className={`aw-pill-item aw-pill-icon${openMenu === "opacity" ? " active" : ""}`}
+                      aria-haspopup="dialog"
                       aria-expanded={openMenu === "opacity"}
                       aria-label="Transparency"
                       title={`Subtitle transparency (${subOpacity}%)`}
@@ -378,7 +502,7 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
                       <span className="aw-checker-icon" aria-hidden="true" />
                     </button>
                     {openMenu === "opacity" && (
-                      <div className="aw-dialog aw-dialog-opacity" role="dialog" aria-label="Transparency">
+                      <div ref={dialogRef} className="aw-dialog aw-dialog-opacity" role="dialog" aria-label="Transparency">
                         <div className="aw-sec-label">
                           <span>Transparency</span>
                           <b>{subOpacity}%</b>
@@ -405,16 +529,23 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
                   <i className="aw-bar-sep" />
                   <div className="aw-menu-wrap">
                     <button
+                      ref={(el) => {
+                        triggerRefs.current.position = el;
+                      }}
                       type="button"
-                      className={`aw-pill-item${openMenu === "position" ? " active" : ""}`}
+                      className={`aw-pill-item aw-pill-secondary${openMenu === "position" ? " active" : ""}`}
+                      aria-haspopup="dialog"
                       aria-expanded={openMenu === "position"}
+                      title={`Subtitle position (Scene ${current + 1})`}
                       onClick={() => setOpenMenu(openMenu === "position" ? null : "position")}
                     >
-                      <span>Position</span>
+                      <span className="aw-pill-glyph" aria-hidden="true">⌖</span>
+                      <span className="aw-pill-label">Position</span>
                       <span className="aw-caret">▾</span>
                     </button>
                     {openMenu === "position" && (
                       <div
+                        ref={dialogRef}
                         className="aw-dialog aw-dialog-pos"
                         role="dialog"
                         aria-label={`Scene ${current + 1} subtitle position`}
@@ -514,10 +645,14 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
       {visible.previewQuality && previewQuality && (
         <>
           <i className="aw-bar-sep" />
-          <div className="aw-menu-wrap">
+          <div className="aw-menu-wrap aw-menu-wrap-quality">
             <button
+              ref={(el) => {
+                triggerRefs.current.quality = el;
+              }}
               type="button"
               className={`aw-pill-item${openMenu === "quality" ? " active" : ""}`}
+              aria-haspopup="dialog"
               aria-expanded={openMenu === "quality"}
               aria-label="Preview quality"
               data-render-mode={curRenderMode ?? "full"}
@@ -528,34 +663,43 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
               <span className="aw-caret">▾</span>
             </button>
             {openMenu === "quality" && (
-              <div className="aw-dialog aw-dialog-list" role="dialog" aria-label="Preview quality">
+              <div
+                ref={dialogRef}
+                className="aw-dialog aw-dialog-list aw-dialog-quality"
+                role="dialog"
+                aria-label="Preview quality"
+              >
                 {previewQuality.onSelectRenderMode && (
                   <>
                     <div className="aw-dialog-head">
                       <b>Playback quality</b>
                       <span>Draft plays immediately; Full draws every detail</span>
                     </div>
-                    {WORKSPACE_PLAYBACK_RENDER_MODES.map((m) => {
-                      const isSelected = (curRenderMode ?? "draft") === m.id;
-                      return (
-                        <button
-                          key={m.id}
-                          type="button"
-                          data-playback-mode={m.id}
-                          className={`aw-option-row${isSelected ? " on" : ""}`}
-                          onClick={() => {
-                            previewQuality.onSelectRenderMode?.(m.id);
-                            setOpenMenu(null);
-                          }}
-                        >
-                          <div>
-                            <b>{m.label}{m.id === "draft" ? " (Default)" : ""}</b>
-                            <small>{m.description}</small>
-                          </div>
-                          {isSelected && <span className="aw-check">✓</span>}
-                        </button>
-                      );
-                    })}
+                    <div className="aw-dialog-group" role="radiogroup" aria-label="Playback quality">
+                      {WORKSPACE_PLAYBACK_RENDER_MODES.map((m) => {
+                        const isSelected = (curRenderMode ?? "draft") === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={isSelected}
+                            data-playback-mode={m.id}
+                            className={`aw-option-row${isSelected ? " on" : ""}`}
+                            onClick={() => {
+                              previewQuality.onSelectRenderMode?.(m.id);
+                              closeMenuAndFocus("quality");
+                            }}
+                          >
+                            <div>
+                              <b>{m.label}{m.id === "draft" ? " (Default)" : ""}</b>
+                              <small>{m.description}</small>
+                            </div>
+                            {isSelected && <span className="aw-check">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </>
                 )}
                 {(!previewQuality.onSelectRenderMode || curRenderMode === "full") && (
@@ -564,23 +708,27 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
                       <b>{previewQuality.onSelectRenderMode ? "Stored frame quality (Full)" : "Preview quality"}</b>
                       <span>Stored frame quality in this browser</span>
                     </div>
-                    {WORKSPACE_PREVIEW_QUALITIES.map((q) => (
-                      <button
-                        key={q.id}
-                        type="button"
-                        className={`aw-option-row${curQuality === q.id ? " on" : ""}`}
-                        onClick={() => {
-                          previewQuality.onSelectQuality(q.id);
-                          setOpenMenu(null);
-                        }}
-                      >
-                        <div>
-                          <b>{q.label}</b>
-                          <small>{q.description}</small>
-                        </div>
-                        {curQuality === q.id && <span className="aw-check">✓</span>}
-                      </button>
-                    ))}
+                    <div className="aw-dialog-group" role="radiogroup" aria-label="Stored frame quality">
+                      {WORKSPACE_PREVIEW_QUALITIES.map((q) => (
+                        <button
+                          key={q.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={curQuality === q.id}
+                          className={`aw-option-row${curQuality === q.id ? " on" : ""}`}
+                          onClick={() => {
+                            previewQuality.onSelectQuality(q.id);
+                            closeMenuAndFocus("quality");
+                          }}
+                        >
+                          <div>
+                            <b>{q.label}</b>
+                            <small>{q.description}</small>
+                          </div>
+                          {curQuality === q.id && <span className="aw-check">✓</span>}
+                        </button>
+                      ))}
+                    </div>
                   </>
                 )}
               </div>
@@ -619,7 +767,7 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
         <>
           <i className="aw-bar-sep" />
           <span className="aw-status-wrap">
-            <StatusLine showRetry={statusBadge.showRetry} onRetry={statusBadge.onRetry}>
+            <StatusLine showRetry={statusBadge.showRetry} retryLabel={statusBadge.retryLabel} onRetry={statusBadge.onRetry}>
               {statusBadge.text}
             </StatusLine>
           </span>
