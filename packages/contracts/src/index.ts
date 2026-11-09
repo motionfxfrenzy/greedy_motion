@@ -227,6 +227,10 @@ export type VideoProject = {
   archived?: boolean;
   /** True once the user accepted the over-length script notice ("Keep Ns") for this project. */
   keepOverLength?: boolean;
+  /** Versioned billing policy governing this project ("v1_render_only" for grandfathered legacy projects, "v2_step_tier" for per-step billing). */
+  billingPolicyVersion?: import("./pricing.ts").BillingPolicyVersion;
+  /** Default animation quality tier preference on the project ("standard" | "premium"). */
+  animationTier?: import("./pricing.ts").AnimationTier;
 };
 
 export function parseRenderRequest(value: unknown): RenderRequest | null {

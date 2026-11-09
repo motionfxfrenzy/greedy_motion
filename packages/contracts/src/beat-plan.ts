@@ -4,6 +4,7 @@ import { resolveSceneRoute, type SceneRendering } from "./scene-rendering.ts";
 // change both together. Budgets come from gm-skill-authoring/references/script-for-motion.md.
 import { CAST_MAX, SPEAKER_MAX, voiceIds, voiceLanguageIds, type VoiceCast } from "./audio.ts";
 import { isLook, type LookId } from "./looks.ts";
+import { isAnimationTier, type AnimationTier } from "./pricing.ts";
 import { getStyleFamily } from "./style-families.ts";
 import { parseScriptBeats, parseScriptNotes, SCRIPT_BEATS_MAX, type ScriptBeat, type ScriptNotes } from "./script-stream.ts";
 
@@ -104,6 +105,8 @@ export type ScriptBrief = {
   scriptBeats?: ScriptBeat[];
   /** The writer's idea and worked example for that script (contracts/script-stream.ts), so the storyboard uses the same data. */
   scriptNotes?: ScriptNotes;
+  /** Animation authoring quality tier ("standard" = gemini-3.8-flash default, "premium" = claude-opus-5-5 for paid plans). */
+  animationTier?: AnimationTier;
 };
 
 /** The kinds of film the director knows how to structure (backend/src/skills/playbooks.ts holds each one's playbook). */
@@ -407,6 +410,9 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
   if (value.template !== undefined && value.template !== null && (typeof value.template !== "string" || !/^gm-[a-z0-9-]+$/.test(value.template))) return { error: "Unknown template." };
   if (value.brandId !== undefined && (typeof value.brandId !== "string" || !/^[0-9a-f-]{36}$/i.test(value.brandId))) return { error: "Unknown brand kit." };
   if (value.look !== undefined && value.look !== null && !isLook(value.look)) return { error: "Unknown look." };
+  if (value.animationTier !== undefined && value.animationTier !== null && !isAnimationTier(value.animationTier)) {
+    return { error: 'Animation tier must be "standard" or "premium".' };
+  }
   const family = typeof value.styleFamily === "string" ? getStyleFamily(value.styleFamily) : undefined;
   if (value.styleFamily !== undefined && value.styleFamily !== null && !family) return { error: "Unknown style family." };
   const screenshotIds = Array.isArray(value.screenshotIds) ? value.screenshotIds.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 20) : undefined;
@@ -452,7 +458,8 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
     ...(oneOf(videoTypes, value.videoType) ? { videoType: value.videoType } : {}),
     ...(clean(value.styleNote, 200) ? { styleNote: clean(value.styleNote, 200) } : {}),
     ...(parseScriptBeats(value.scriptBeats) ? { scriptBeats: parseScriptBeats(value.scriptBeats)! } : {}),
-    ...(parseScriptNotes(value.scriptNotes) ? { scriptNotes: parseScriptNotes(value.scriptNotes)! } : {})
+    ...(parseScriptNotes(value.scriptNotes) ? { scriptNotes: parseScriptNotes(value.scriptNotes)! } : {}),
+    ...(isAnimationTier(value.animationTier) ? { animationTier: value.animationTier } : {})
   };
   return { brief };
 }

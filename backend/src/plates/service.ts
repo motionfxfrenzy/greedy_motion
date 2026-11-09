@@ -7,6 +7,7 @@ import {
   ASPECTS, FPS, defaultSubtitlesFor, isAspect, isComputedVariantSignature, mergeSubtitles, plateRevisionDigest, primaryAspect, type Aspect, type LiveMode, type PlateComment, type PlateScene, type PlateState, type PlateStatus, type SceneProgress, type VariantState, type PlateSubtitles, type PlateVariantView
 } from "./model.ts";
 import { decideLiveMode, editComments, listVariants, matchVariantsToDesired, readProjectState, recentAuthorMedians, reconcileVariants, reviseScene, writeSubtitles, type VariantRow } from "./store.ts";
+import type { AnimationRouteSnapshot } from "../billing/step-billing.ts";
 
 export { isPlateLook };
 const OPEN: VariantState[] = ["queued", "authoring", "bundled", "rendering"];
@@ -419,7 +420,11 @@ export async function setPlateSubtitles(projectId: string, input: Record<string,
  * its drawn clip (no model call, no render); a changed scene is superseded and queued; a failed one is retried from its saved
  * bundle when it has one. Returns at once; authoring and rendering continue on the queues whatever happens to this process.
  */
-export async function startPlates(projectId: string, extraAspects: Aspect[] = []): Promise<PlateStatus> {
+export async function startPlates(
+  projectId: string,
+  extraAspects: Aspect[] = [],
+  options?: { routeSnapshot?: AnimationRouteSnapshot; reservationId?: string }
+): Promise<PlateStatus> {
   const project = await plateProject(projectId);
   const beats = project.brief?.scriptBeats ?? [];
   if (!beats.length) throw new Error("Write the script and storyboard first.");
@@ -427,18 +432,26 @@ export async function startPlates(projectId: string, extraAspects: Aspect[] = []
   const [stored, existingVariants] = await Promise.all([readProjectState(projectId), listVariants(projectId)]);
   const aspects = [...new Set([...wantedAspects(project, [...(project.brief?.aspects ?? []), ...(stored.subtitles?.aspects ?? []), ...extraAspects])])];
   const desired = await desiredVariants(project, aspects, existingVariants);
-  await reconcileVariants(projectId, desired, { scenes: beats.length });
+  await reconcileVariants(projectId, desired, {
+    scenes: beats.length,
+    ...(options?.routeSnapshot ? { routeSnapshot: options.routeSnapshot } : {}),
+    ...(options?.reservationId ? { reservationId: options.reservationId } : {})
+  });
   return plateStatus(projectId);
 }
 
 /** Draws one more ratio natively (its own authoring, verification and render); the ratios already drawn are untouched. */
-export async function drawAspectPlates(projectId: string, aspect: Aspect): Promise<PlateStatus> {
+export async function drawAspectPlates(
+  projectId: string,
+  aspect: Aspect,
+  options?: { routeSnapshot?: AnimationRouteSnapshot; reservationId?: string }
+): Promise<PlateStatus> {
   if (!isAspect(aspect)) throw new Error("Aspect must be 16:9, 9:16, or 1:1.");
   const project = await plateProject(projectId);
   const stored = await readProjectState(projectId);
   const current = { ...defaultSubtitlesFor(project), ...(stored.subtitles ?? {}) };
   await writeSubtitles(projectId, mergeSubtitles(current, { aspects: [...new Set([...(current.aspects ?? []), aspect])] }, primaryAspect(project)));
-  return startPlates(projectId, [aspect]);
+  return startPlates(projectId, [aspect], options);
 }
 
 const clockOf = (scenes: { index: number; seconds: number }[], at: number) => {
@@ -462,7 +475,10 @@ export async function addPlateComment(projectId: string, input: { at: unknown; b
 export async function removePlateComment(projectId: string, id: string) { await editComments(projectId, (all) => all.filter((c) => c.id !== id)); }
 
 /** Sends the scenes that have comments back to the model with the notes; every drawn or checked ratio of such a scene is redrawn. */
-export async function fixPlates(projectId: string): Promise<PlateStatus> {
+export async function fixPlates(
+  projectId: string,
+  options?: { routeSnapshot?: AnimationRouteSnapshot; reservationId?: string }
+): Promise<PlateStatus> {
   await plateProject(projectId);
   const stored = await readProjectState(projectId);
   const comments = stored.comments as (PlateComment & { fixing?: number })[];
@@ -478,7 +494,14 @@ export async function fixPlates(projectId: string): Promise<PlateStatus> {
   const noted = new Set<number>();
   for (const i of targets) {
     const notes = comments.filter((c) => c.scene === i).map((c) => `- at ${c.sceneAt.toFixed(1)} s: ${c.body}`).join("\n");
-    if (await reviseScene(projectId, i, notes)) noted.add(i);
+    if (
+      await reviseScene(projectId, i, notes, {
+        ...(options?.routeSnapshot ? { routeSnapshot: options.routeSnapshot } : {}),
+        ...(options?.reservationId ? { reservationId: options.reservationId } : {})
+      })
+    ) {
+      noted.add(i);
+    }
   }
   if (!noted.size) throw new Error("Wait for the scenes that are being drawn.");
   const after = await listVariants(projectId);

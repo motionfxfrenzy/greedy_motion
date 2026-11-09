@@ -244,10 +244,14 @@ export type AuthorRequest = {
   look: string; plateName: string; film: string; beats: ScriptBeat[]; aspect: string; index: number; frames: number;
   styleExample?: string | null; storyWorld?: string; guidesDir?: string; kitModules?: readonly KitModule[];
   error?: string; previous?: string; revise?: { notes: string; code: string }; reference?: string;
+  modelKey?: string;
 };
 
-export const cacheKeyFor = (sharedText: string): string =>
-  createHash("sha256").update(sharedText).digest("hex").slice(0, 16);
+export const cacheKeyFor = (sharedText: string, modelKey?: string): string =>
+  createHash("sha256")
+    .update(modelKey ? `${modelKey}\0${sharedText}` : sharedText)
+    .digest("hex")
+    .slice(0, 16);
 
 /** The model request (system + messages) for one scene; the large shared context is cached across scenes. */
 export async function buildAuthorMessages(args: AuthorRequest) {
@@ -277,7 +281,7 @@ export async function buildAuthorMessages(args: AuthorRequest) {
       system: legacyContractFor(size, DEFAULT_MAX_LINES),
       messages: [{ role: "user", content: [{ type: "text", text: shared, cache_control: { type: "ephemeral" } }, { type: "text", text: scene }] }]
     };
-    Object.defineProperty(legacyOut, "cacheKey", { value: cacheKeyFor(shared), enumerable: false });
+    Object.defineProperty(legacyOut, "cacheKey", { value: cacheKeyFor(shared, args.modelKey), enumerable: false });
     return legacyOut as typeof legacyOut & { cacheKey: string };
   }
 
@@ -313,7 +317,7 @@ export async function buildAuthorMessages(args: AuthorRequest) {
   return {
     system: contractFor(size, maxLines, args.plateName),
     messages: [{ role: "user", content: [{ type: "text", text: shared, cache_control: { type: "ephemeral" } }, { type: "text", text: scene }] }],
-    cacheKey: cacheKeyFor(shared)
+    cacheKey: cacheKeyFor(shared, args.modelKey)
   };
 }
 

@@ -4,7 +4,8 @@ import { tierFor } from "../billing/service.ts";
 import { config } from "../config.ts";
 import { pool } from "../db/database.ts";
 import { PLANS, PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, type PlanTier } from "../tokens/plan.ts";
-import { projectOwnerById } from "../projects/store.ts";
+import { getProject, projectOwnerById } from "../projects/store.ts";
+import { stepBillingOnForProject } from "../billing/step-billing.ts";
 
 /**
  * The preview allowance (docs/PRICING.md). A film's storyboard, voice, motion and fixes cost about $0.79 in model calls before
@@ -84,6 +85,9 @@ export function registerPreviewMeter(app: FastifyInstance) {
     const userId = callerId(request);
     const owner = await projectOwnerById(projectId);
     if (owner === undefined || owner !== userId) return;
+    const project = await getProject(projectId);
+    // When v2_step_tier per-step token billing is active for this project, steps are paid by tokens directly rather than unpaid preview slots.
+    if (project && stepBillingOnForProject(project)) return;
     const refusal = await admitPreview(userId, projectId, await tierFor(userId));
     if (refusal) return reply.code(402).send(refusal);
   });

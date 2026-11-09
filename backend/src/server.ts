@@ -36,6 +36,16 @@ import { isPlanRunning, registerPlanRoutes, waitForPlans } from "./plan/routes.t
 import { registerEntitlementRoutes } from "./entitlements/routes.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerBillingRoutes } from "./billing/routes.ts";
+import {
+  QuoteStaleError,
+  quoteRenderExportStep,
+  reconcileExpiredStepReservations,
+  registerStepBillingRoutes,
+  releaseStepReservation,
+  reserveStepTokens,
+  settleStepReservation,
+  stepBillingOnForProject
+} from "./billing/step-billing.ts";
 import { registerMailRoutes } from "./mail/routes.ts";
 import { startRenderReadyEmails } from "./mail/render-ready-watch.ts";
 import { InsufficientTokens, refundSpend, spendTokens } from "./tokens/store.ts";
@@ -185,6 +195,7 @@ await registerProRoutes(app);
 await registerEntitlementRoutes(app);
 await registerTokenRoutes(app);
 await registerBillingRoutes(app);
+registerStepBillingRoutes(app);
 await registerMailRoutes(app);
 
 // The token the browser adds as ?t= to media URLs (<img>, <video>, the preview iframe); see media-links.ts.
@@ -261,7 +272,7 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/script", async (request, 
   }
 });
 
-app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>("/v1/projects/:id/render", async (request, reply) => {
+app.post<{ Params: { id: string }; Body: { motionBlur?: unknown; quoteId?: string } | undefined }>("/v1/projects/:id/render", async (request, reply) => {
   try {
     let project = await getProject(request.params.id);
     if (!project) return reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
@@ -287,12 +298,38 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>
       const owner = callerId(request);
       const seconds = readiness.durationSeconds;
       let spend: { charged: boolean; event: string | null } = { charged: false, event: null };
+      let renderReservationId: string | null = null;
       if (seconds !== null) {
-        try {
-          spend = await spendTokens(owner, renderCostMillitokens(seconds), "render", jobId, project.id);
-        } catch (error) {
-          if (error instanceof InsufficientTokens) return reply.code(402).send({ error: { code: "insufficient_tokens", message: `This film needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
-          throw error;
+        if (stepBillingOnForProject(project)) {
+          try {
+            const renderStep = await quoteRenderExportStep({ userId: owner, project, persist: false });
+            if (renderStep.quote) {
+              const reservation = await reserveStepTokens({
+                userId: owner,
+                projectId: project.id,
+                quote: renderStep.quote,
+                quoteIdFromClient: request.body?.quoteId,
+                ledgerReason: "render_export"
+              });
+              renderReservationId = reservation.id;
+              spend = { charged: Boolean(reservation.spendEvent), event: reservation.spendEvent };
+            }
+          } catch (error) {
+            if (error instanceof QuoteStaleError) {
+              return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+            }
+            if (error instanceof InsufficientTokens) {
+              return reply.code(402).send({ error: { code: "insufficient_tokens", message: `Exporting this film needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+            }
+            throw error;
+          }
+        } else {
+          try {
+            spend = await spendTokens(owner, renderCostMillitokens(seconds), "render", jobId, project.id);
+          } catch (error) {
+            if (error instanceof InsufficientTokens) return reply.code(402).send({ error: { code: "insufficient_tokens", message: `This film needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+            throw error;
+          }
         }
       }
       const watermark = PLANS[await tierFor(owner)].watermark;
@@ -300,9 +337,15 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown } | undefined }>
       // and the page follows every stage on /v1/renders/:id/events. A job that cannot be prepared returns the tokens.
       try {
         await updateProject(project.id, { state: "Rendering draft", renderJobId: jobId });
-        return reply.code(202).send(await renderService.createBeatPlanRender(project, jobId, { watermark, motionBlur: blur.on, ownerId: owner, spendEvent: spend.charged ? spend.event : null }, seconds ?? 0));
+        const createdJob = await renderService.createBeatPlanRender(project, jobId, { watermark, motionBlur: blur.on, ownerId: owner, spendEvent: spend.charged ? spend.event : null }, seconds ?? 0);
+        if (renderReservationId) await settleStepReservation(renderReservationId).catch(() => undefined);
+        return reply.code(202).send(createdJob);
       } catch (error) {
-        if (spend.charged && spend.event) await refundSpend(owner, spend.event).catch((refundError) => app.log.error({ err: refundError }, "could not return tokens"));
+        if (renderReservationId) {
+          await releaseStepReservation(renderReservationId).catch((refundError) => app.log.error({ err: refundError }, "could not release render reservation"));
+        } else if (spend.charged && spend.event) {
+          await refundSpend(owner, spend.event).catch((refundError) => app.log.error({ err: refundError }, "could not return tokens"));
+        }
         throw error;
       }
     }
@@ -610,7 +653,10 @@ renderEvents.start();
 const renderReadyEmails = startRenderReadyEmails();
 startWorkerSweep();
 await startPlatePipeline();
-startSweep(() => grantDueAnnualTokens(), 60_000, 3_600_000);
+startSweep(async () => {
+  await grantDueAnnualTokens();
+  await reconcileExpiredStepReservations();
+}, 60_000, 300_000);
 await app.listen({ port: config.port, host: config.host });
 app.log.info({ ...config.environmentSummary, planner: config.planner, modelRoutes: Object.fromEntries(Object.entries(allRoutes()).map(([step, route]) => [step, `${route.provider}:${route.model}`])), planConcurrency: config.planConcurrency }, "backend ready");
 if (config.environmentSummary.note) app.log.warn(config.environmentSummary.note);

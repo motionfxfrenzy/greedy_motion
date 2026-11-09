@@ -408,3 +408,23 @@ Lemon Squeezy redelivers; an older event cannot overwrite a newer one; a first o
 once (a redelivered invoice changes nothing), a plan-change invoice grants nothing; a cancelled plan keeps Pro-editor access to the paid end date; an expired plan
 returns to Free with the editor view-only, its remaining monthly tokens ended and the free allowance and packs kept; a refunded token pack takes its 100 tokens back.
 A refunded subscription invoice is stored but needs a manual decision about its tokens.
+
+## Versioned per-step generation billing and Standard / Premium animation tiers (`v2_step_tier`, 2026-11-09)
+
+Production continues to run `BILLING_POLICY_VERSION=v1_render_only` (above) by default, and any existing project with prior progress is grandfathered on `v1_render_only`. When `BILLING_POLICY_VERSION=v2_step_tier` is enabled on staging (`packages/contracts/src/pricing.ts`, `backend/src/billing/step-billing.ts`, full derivation in `docs/handoff/GENERATION_QUALITY_STEP_PRICING.md`):
+
+- **Animation quality tiers**:
+  - **Standard (`standard`, default)**: `gemini-3.8-flash` for animation authoring (`sceneWriter`, `sceneRepair`, `motion`). Available on all plans including Free.
+  - **Premium (`premium`)**: `claude-opus-5-5` with prompt-cache gate (`plateCacheGate`). Available **only** with an active paid subscription (`starter`, `pro`, `business`), not merely free or top-up tokens. Free accounts see the locked option (`"Upgrade to access Premium animation."`) and receive `402 premium_requires_subscription` on tampered requests before any provider call or token reservation.
+- **30% contribution margin floor**: Every billable step is priced against the cheapest effective paid token price (**Studio Annual**: `$990 / 14,400 tokens = $0.06875` gross, `$0.004847` modeled `7% + $0.50` fee, `$0.043278` maximum variable cost budget per token, `~23.11 tokens per $1.00` variable cost).
+- **2026 Step Tariff Schedule (`STEP_TARIFFS_V2_2026`, with scheduled `2027-01-01` Flash rate doubling in `STEP_TARIFFS_V2_2027`)**:
+  - Script generation / full rewrite (`gemini-4-argon`): **0.7 tokens** (`0.3 tokens` for single-beat rewrite or single-scene insert; manual text edits = `0`).
+  - Storyboard beat-plan director (`gemini-3.8-flash`): **1.0 token** (`2.0 tokens` in 2027; `0` when deterministic or built directly from approved script beats).
+  - Reference frame sketch (`gemini-3.8-flash`): **0.3 tokens / uncached frame** (`0.6 tokens` in 2027; cached frames = `0`).
+  - Voiceover (`gemini-3.8-flash-tts` + alignment): **0.1 tokens / uncached line** (reused lines = `0`).
+  - Music bed (`lyria-3`): **1.0 token** ($\le 28\text{s}$ clip) or **1.9 tokens** ($> 28\text{s}$ song; reused track = `0`).
+  - Code-drawn plate animation (`illus-*`): **2.3 tokens / unauthored scene** on Standard (`4.5 tokens` in 2027, `0` batch setup) or **8.0 tokens batch setup + 9.7 tokens / unauthored scene** on Premium (`claude-opus-5-5` with prompt caching, covering the `$0.3456` `71,993`-token cold-write delta even on a 1-scene job). Unchanged, transferred, or bundle-retried scenes cost **0 tokens**.
+  - Non-plate SVG `frame-motion`: **0.2 tokens / uncached scene** on Standard (`0.3` in 2027) or **0.8 tokens / uncached scene** on Premium (`0` for template-only films).
+  - Generated material (`visuals`): **24.3 tokens per $1.00** provider list cost (`materialMarkupV2 = 2.43`, paid plans only).
+  - Final MP4 render export: **0.6 tokens start + 0.03 tokens / second** (`1.5 tokens` for 30s; downloading/replaying completed renders = `0`).
+  - Under `v2_step_tier`, the legacy `v1_render_only` flat 2-token revision fee is disabled so step fees never stack on flat revision fees.

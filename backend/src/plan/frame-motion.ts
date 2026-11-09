@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { currentTake, parseFrameMotion, type FrameMotion, type VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { callModel } from "../models/providers.ts";
-import { routeFor } from "../models/routes.ts";
+import { routeFor, type Route } from "../models/routes.ts";
 import { getProject, saveFilmMotion } from "../projects/store.ts";
 import type { PlanTiming } from "./timing.ts";
 import { filmFeel } from "./frame-film.ts";
@@ -57,7 +57,7 @@ function uncovered(motion: FrameMotion[], scene: SceneInput): number {
   return Math.max(0, to - from - covered);
 }
 
-async function ask(scene: SceneInput, feedback: string | null, signal: AbortSignal): Promise<FrameMotion[]> {
+async function ask(scene: SceneInput, feedback: string | null, signal: AbortSignal, routeOverride?: Route): Promise<FrameMotion[]> {
   const words = scene.words.map((word) => `${word.text}@${word.start.toFixed(2)}`).join(" ");
   const content = [
     `Scene ${scene.index + 1}, ${scene.seconds.toFixed(2)} s long.`,
@@ -67,10 +67,10 @@ async function ask(scene: SceneInput, feedback: string | null, signal: AbortSign
     scene.previous ? `Previous frame (already on screen when this scene starts):\n${scene.previous.slice(0, 9000)}` : "This is the first scene.",
     feedback ?? ""
   ].filter(Boolean).join("\n\n");
-  const route = routeFor("motion");
+  const route = routeOverride ?? routeFor("motion");
   const system = scene.feel === "explainer" ? `${SYSTEM}\n${EXPLAINER_PACE}` : SYSTEM;
-  if (route.provider !== "anthropic") {
-    // Another provider (MODEL_MOTION): the shared provider layer.
+  if (route.provider !== "anthropic" || routeOverride) {
+    // Another provider (MODEL_MOTION) or explicit tier route snapshot: the shared provider layer.
     const result = await callModel({ step: "motion", route, system, messages: [{ role: "user", content }], maxTokens: 3000, effort: "low", signal, errorPrefix: "Motion request failed", includeErrorDetail: true });
     const json = result.text.slice(result.text.indexOf("["), result.text.lastIndexOf("]") + 1);
     return parseFrameMotion(JSON.parse(json || "[]"), scene.svg, scene.seconds);
@@ -89,8 +89,8 @@ async function ask(scene: SceneInput, feedback: string | null, signal: AbortSign
 }
 
 /** Directs one scene in a single fast pass so all scenes run in parallel without sequential retry latency. */
-async function direct(scene: SceneInput, signal: AbortSignal): Promise<FrameMotion[]> {
-  return ask(scene, null, signal);
+async function direct(scene: SceneInput, signal: AbortSignal, routeOverride?: Route): Promise<FrameMotion[]> {
+  return ask(scene, null, signal, routeOverride);
 }
 
 /** The scenes of a frame film, with ids added and word times relative to each scene. */
@@ -114,7 +114,8 @@ export async function ensureFilmMotion(
   project: VideoProject,
   scenes: SceneInput[],
   budgetMs = 60_000,
-  onScene?: (info: { index: number; done: number; total: number; cached: boolean }) => void
+  onScene?: (info: { index: number; done: number; total: number; cached: boolean; ok?: boolean }) => void,
+  routeOverride?: Route
 ): Promise<VideoProject> {
   const cached = new Map((project.filmMotion ?? []).map((entry) => [entry.signature, entry]));
   const signal = AbortSignal.timeout(budgetMs);
@@ -125,16 +126,18 @@ export async function ensureFilmMotion(
     const hit = cached.get(signature);
     if (hit) {
       doneCount += 1;
-      onScene?.({ index: scene.index, done: doneCount, total: scenes.length, cached: true });
+      onScene?.({ index: scene.index, done: doneCount, total: scenes.length, cached: true, ok: true });
       return hit;
     }
-    const motion = await direct(scene, signal).catch((error) => {
+    let failed = false;
+    const motion = await direct(scene, signal, routeOverride).catch((error) => {
+      failed = true;
       console.warn(JSON.stringify({ level: "warn", event: "motion_failed", projectId: project.id, scene: scene.index + 1, message: error instanceof Error ? error.message : String(error) }));
       return [] as FrameMotion[];
     });
     directed += 1;
     doneCount += 1;
-    onScene?.({ index: scene.index, done: doneCount, total: scenes.length, cached: false });
+    onScene?.({ index: scene.index, done: doneCount, total: scenes.length, cached: false, ok: !failed && motion.length > 0 });
     return { signature, svg: scene.svg, motion };
   }));
   if (directed === 0) return project;

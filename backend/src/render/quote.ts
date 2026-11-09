@@ -3,14 +3,25 @@ import { callerId } from "../auth.ts";
 import { getProject } from "../projects/store.ts";
 import { planReadiness, type Readiness } from "../plan/readiness.ts";
 import { visualStatus } from "../plan/visual-state.ts";
-import { MILLITOKENS_PER_SECOND, START_FEE_MILLITOKENS, renderCostMillitokens, tokensFromMilli } from "../tokens/plan.ts";
+import {
+  MILLITOKENS_PER_SECOND,
+  START_FEE_MILLITOKENS,
+  renderCostMillitokens,
+  renderExportCostMillitokensV2,
+  stepTariffsAt,
+  tokensFromMilli,
+  type AnimationTier,
+  type BillingPolicyVersion
+} from "../tokens/plan.ts";
+import { quoteRenderExportStep } from "../billing/step-billing.ts";
 import { tokenSummary } from "../tokens/store.ts";
 import { clearProjectIdempotencyKey, renderJobRepository, setProjectIdempotencyKey } from "./repository.ts";
 
 /**
  * What the final render of a film costs, worked out once on the server from the saved storyboard and shown by the page as it is:
- * the same duration (the voiceover's measured length) and the same function (renderCostMillitokens) the render charges with, so the
- * price on the button is the price taken. Generated scenes are paid when they are generated and shown here as already known.
+ * the same duration (the voiceover's measured length) and the same function (renderCostMillitokens in v1_render_only, or
+ * renderExportCostMillitokensV2 + remaining unpaid generation in v2_step_tier) the render charges with, so the price on the
+ * button is the price taken. Generated scenes and already-paid step charges are shown beside it.
  */
 export type RenderQuote = {
   /** The film's length in whole seconds as it will be charged (each started second counts), or null before the storyboard exists. */
@@ -23,15 +34,65 @@ export type RenderQuote = {
   material: { required: boolean; owedTokens: number };
   balance: number;
   enough: boolean;
+  pricingVersion?: BillingPolicyVersion;
+  animationTier?: AnimationTier;
+  exportTokens?: number | null;
+  remainingGenerationTokens?: number;
+  alreadyPaidTokens?: number;
+  quoteId?: string | null;
 };
 
-export function quoteFrom(readiness: Pick<Readiness, "ok" | "durationSeconds">, material: { required: boolean; owedTokens: number }, balance: number): RenderQuote {
+export function quoteFrom(
+  readiness: Pick<Readiness, "ok" | "durationSeconds">,
+  material: { required: boolean; owedTokens: number },
+  balance: number,
+  options?: {
+    pricingVersion?: BillingPolicyVersion;
+    animationTier?: AnimationTier;
+    remainingGenerationMilli?: number;
+    alreadyPaidMilli?: number;
+    quoteId?: string | null;
+    now?: Date;
+  }
+): RenderQuote {
   const seconds = readiness.durationSeconds === null ? null : Math.max(1, Math.ceil(readiness.durationSeconds));
+  const pricingVersion = options?.pricingVersion ?? "v1_render_only";
+  if (pricingVersion === "v2_step_tier") {
+    const sched = stepTariffsAt(options?.now);
+    const exportMilli = seconds === null ? null : renderExportCostMillitokensV2(seconds, options?.now);
+    const remainingGenMilli = Math.max(0, options?.remainingGenerationMilli ?? 0);
+    const alreadyPaidMilli = Math.max(0, options?.alreadyPaidMilli ?? 0);
+    const totalMilli = exportMilli === null ? null : exportMilli + remainingGenMilli;
+    const tokens = totalMilli === null ? null : tokensFromMilli(totalMilli);
+    return {
+      seconds,
+      tokens,
+      parts: {
+        start: sched.renderExportStartMillitokens / 1000,
+        perSecond: sched.renderExportPerSecondMillitokens / 1000,
+        seconds
+      },
+      ready: readiness.ok,
+      material,
+      balance,
+      enough: tokens !== null && balance >= tokens,
+      pricingVersion: "v2_step_tier",
+      ...(options?.animationTier ? { animationTier: options.animationTier } : {}),
+      exportTokens: exportMilli === null ? null : tokensFromMilli(exportMilli),
+      remainingGenerationTokens: tokensFromMilli(remainingGenMilli),
+      alreadyPaidTokens: tokensFromMilli(alreadyPaidMilli),
+      quoteId: options?.quoteId ?? null
+    };
+  }
   const tokens = seconds === null ? null : tokensFromMilli(renderCostMillitokens(seconds));
   return {
-    seconds, tokens,
+    seconds,
+    tokens,
     parts: { start: START_FEE_MILLITOKENS / 1000, perSecond: MILLITOKENS_PER_SECOND / 1000, seconds },
-    ready: readiness.ok, material, balance, enough: tokens !== null && balance >= tokens
+    ready: readiness.ok,
+    material,
+    balance,
+    enough: tokens !== null && balance >= tokens
   };
 }
 
@@ -76,8 +137,24 @@ export function registerRenderQuote(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>("/v1/projects/:id/render/quote", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
+    const userId = callerId(request);
     const visuals = visualStatus(project);
-    const balance = (await tokenSummary(callerId(request))).remaining;
+    const balance = (await tokenSummary(userId)).remaining;
+    const renderStep = await quoteRenderExportStep({ userId, project, persist: true });
+    if (renderStep.pricingVersion === "v2_step_tier") {
+      return quoteFrom(
+        planReadiness(project),
+        { required: visuals.required, owedTokens: visuals.priceTokens },
+        balance,
+        {
+          pricingVersion: "v2_step_tier",
+          animationTier: renderStep.animationTier,
+          remainingGenerationMilli: renderStep.remainingGenerationMilli,
+          alreadyPaidMilli: renderStep.alreadyPaidMilli,
+          quoteId: renderStep.quote?.quoteId ?? null
+        }
+      );
+    }
     return quoteFrom(planReadiness(project), { required: visuals.required, owedTokens: visuals.priceTokens }, balance);
   });
 

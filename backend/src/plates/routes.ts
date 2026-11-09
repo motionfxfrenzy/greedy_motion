@@ -2,11 +2,24 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
+import { callerId } from "../auth.ts";
 import { tierFor } from "../billing/service.ts";
+import {
+  PremiumRequiresSubscriptionError,
+  QuoteStaleError,
+  assertAnimationTierEntitled,
+  quotePlateDrawStep,
+  quotePlateFixStep,
+  releaseStepReservation,
+  reserveStepTokens,
+  resolveProjectAnimationTier,
+  stepBillingOnForProject
+} from "../billing/step-billing.ts";
 import { config } from "../config.ts";
 import { registerRequestId, upstreamError } from "../http-errors.ts";
 import { projectOwner, getProject } from "../projects/store.ts";
-import { PLANS } from "../tokens/plan.ts";
+import { PLANS, isAnimationTier } from "../tokens/plan.ts";
+import { InsufficientTokens } from "../tokens/store.ts";
 import { presignKey, safeDownloadFilename, type Bucket } from "../storage.ts";
 import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
@@ -63,10 +76,42 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
   });
 
   /** Starts (or resumes) drawing every scene of the storyboard. Unchanged scenes keep their clips; the work continues on the queues. */
-  app.post<{ Params: { id: string } }>("/v1/projects/:id/plates/draw", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { animationTier?: unknown; quoteId?: string } | undefined }>("/v1/projects/:id/plates/draw", async (request, reply) => {
     if (!uuid.test(request.params.id)) return reply.code(404).send(notFound);
-    try { return reply.code(202).send(await startPlates(request.params.id)); }
-    catch (error) {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (request.body?.animationTier !== undefined && !isAnimationTier(request.body.animationTier)) {
+      return reply.code(400).send({ error: { code: "invalid_tier", message: 'Animation tier must be "standard" or "premium".' } });
+    }
+    const userId = callerId(request);
+    const requestedTier = resolveProjectAnimationTier(project, project.brief, request.body?.animationTier);
+    let reservationId: string | undefined;
+    try {
+      const { routeSnapshot } = await assertAnimationTierEntitled(userId, requestedTier);
+      if (stepBillingOnForProject(project)) {
+        const quote = await quotePlateDrawStep({ userId, project, tier: requestedTier, persist: false });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote,
+          quoteIdFromClient: request.body?.quoteId,
+          routeSnapshot,
+          ledgerReason: "plate_draw"
+        });
+        if (reservation.reservedMilli > 0) reservationId = reservation.id;
+      }
+      return reply.code(202).send(await startPlates(request.params.id, [], { routeSnapshot, ...(reservationId ? { reservationId } : {}) }));
+    } catch (error) {
+      if (reservationId) await releaseStepReservation(reservationId).catch(() => undefined);
+      if (error instanceof PremiumRequiresSubscriptionError) {
+        return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+      }
+      if (error instanceof QuoteStaleError) {
+        return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+      }
+      if (error instanceof InsufficientTokens) {
+        return reply.code(402).send({ error: { code: "insufficient_tokens", message: `Drawing these scenes needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+      }
       if (isPlateDomainError(error)) return reply.code(409).send({ error: { code: "plates", message: error.message } });
       return reply.code(409).send(upstreamError(request, error, "plates", "Could not draw the scenes."));
     }
@@ -89,20 +134,84 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     if (!uuid.test(request.params.id)) return reply.code(404).send(notFound);
     return setPlateSubtitles(request.params.id, request.body ?? {});
   });
-  app.post<{ Params: { id: string } }>("/v1/projects/:id/plates/fix", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { animationTier?: unknown; quoteId?: string } | undefined }>("/v1/projects/:id/plates/fix", async (request, reply) => {
     if (!uuid.test(request.params.id)) return reply.code(404).send(notFound);
-    try { return reply.code(202).send(await fixPlates(request.params.id)); }
-    catch (error) {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (request.body?.animationTier !== undefined && !isAnimationTier(request.body.animationTier)) {
+      return reply.code(400).send({ error: { code: "invalid_tier", message: 'Animation tier must be "standard" or "premium".' } });
+    }
+    const userId = callerId(request);
+    const requestedTier = resolveProjectAnimationTier(project, project.brief, request.body?.animationTier);
+    let reservationId: string | undefined;
+    try {
+      const { routeSnapshot } = await assertAnimationTierEntitled(userId, requestedTier);
+      if (stepBillingOnForProject(project)) {
+        const quote = await quotePlateFixStep({ userId, project, tier: requestedTier, persist: false });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote,
+          quoteIdFromClient: request.body?.quoteId,
+          routeSnapshot,
+          ledgerReason: "plate_fix"
+        });
+        if (reservation.reservedMilli > 0) reservationId = reservation.id;
+      }
+      return reply.code(202).send(await fixPlates(request.params.id, { routeSnapshot, ...(reservationId ? { reservationId } : {}) }));
+    } catch (error) {
+      if (reservationId) await releaseStepReservation(reservationId).catch(() => undefined);
+      if (error instanceof PremiumRequiresSubscriptionError) {
+        return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+      }
+      if (error instanceof QuoteStaleError) {
+        return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+      }
+      if (error instanceof InsufficientTokens) {
+        return reply.code(402).send({ error: { code: "insufficient_tokens", message: `Redrawing these scenes needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+      }
       if (isPlateDomainError(error)) return reply.code(409).send({ error: { code: "plates", message: error.message } });
       return reply.code(409).send(upstreamError(request, error, "plates", "Could not redraw the scenes."));
     }
   });
-  app.post<{ Params: { id: string }; Body: { aspect?: string } }>("/v1/projects/:id/plates/draw-aspect", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { aspect?: string; animationTier?: unknown; quoteId?: string } }>("/v1/projects/:id/plates/draw-aspect", async (request, reply) => {
     if (!uuid.test(request.params.id)) return reply.code(404).send(notFound);
     const aspect = request.body?.aspect;
     if (!isAspect(aspect)) return reply.code(400).send({ error: { code: "invalid_aspect", message: "Aspect must be 16:9, 9:16, or 1:1." } });
-    try { return reply.code(202).send(await drawAspectPlates(request.params.id, aspect)); }
-    catch (error) {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (request.body?.animationTier !== undefined && !isAnimationTier(request.body.animationTier)) {
+      return reply.code(400).send({ error: { code: "invalid_tier", message: 'Animation tier must be "standard" or "premium".' } });
+    }
+    const userId = callerId(request);
+    const requestedTier = resolveProjectAnimationTier(project, project.brief, request.body?.animationTier);
+    let reservationId: string | undefined;
+    try {
+      const { routeSnapshot } = await assertAnimationTierEntitled(userId, requestedTier);
+      if (stepBillingOnForProject(project)) {
+        const quote = await quotePlateDrawStep({ userId, project, extraAspects: [aspect], stage: "plate_aspect", tier: requestedTier, persist: false });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote,
+          quoteIdFromClient: request.body?.quoteId,
+          routeSnapshot,
+          ledgerReason: "plate_aspect"
+        });
+        if (reservation.reservedMilli > 0) reservationId = reservation.id;
+      }
+      return reply.code(202).send(await drawAspectPlates(request.params.id, aspect, { routeSnapshot, ...(reservationId ? { reservationId } : {}) }));
+    } catch (error) {
+      if (reservationId) await releaseStepReservation(reservationId).catch(() => undefined);
+      if (error instanceof PremiumRequiresSubscriptionError) {
+        return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+      }
+      if (error instanceof QuoteStaleError) {
+        return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+      }
+      if (error instanceof InsufficientTokens) {
+        return reply.code(402).send({ error: { code: "insufficient_tokens", message: `Drawing this format needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+      }
       if (isPlateDomainError(error)) return reply.code(409).send({ error: { code: "plates", message: error.message } });
       return reply.code(409).send(upstreamError(request, error, "plates", "Could not draw this dimension."));
     }

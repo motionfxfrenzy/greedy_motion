@@ -255,19 +255,37 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
             });
             return;
           }
-          const request = await buildAuthorMessages({ look, plateName, film: project.brief?.text ?? "", beats, aspect: row.aspect, index: row.scene_index, frames: row.frames, ...(reference ? { reference } : {}), ...(revise && !lastError ? { revise } : {}), ...(lastError ? { error: lastError, previous: previous ?? "" } : {}) });
+          // Prompt-cache gate: the first scene of a film writes the cache; the others wait only until its stream starts (bounded, never rejects).
+          // Per-step routing (MODEL_SCENE_WRITER / MODEL_SCENE_REPAIR) or immutable per-variant tier route snapshot:
+          // when a variant carries a frozen routeSnapshot (Standard gemini-3.8-flash vs Premium claude-opus-5-5), use it without reading global process.env.
+          const step = lastError ? "sceneRepair" : "sceneWriter";
+          const routeSnap = row.timings?.routeSnapshot;
+          const baseRoute =
+            routeSnap && (lastError ? routeSnap.repair : routeSnap.writer)
+              ? { ...(lastError ? routeSnap.repair : routeSnap.writer), step }
+              : routeFor(step);
+          const tiers = ladder(baseRoute);
+          cutOffLimit = tiers.length - 1;
+          const tierRoute = tiers[Math.min(cutOffs, cutOffLimit)]!;
+          const request = await buildAuthorMessages({
+            look,
+            plateName,
+            film: project.brief?.text ?? "",
+            beats,
+            aspect: row.aspect,
+            index: row.scene_index,
+            frames: row.frames,
+            ...(routeSnap ? { modelKey: `${tierRoute.provider}:${tierRoute.model}` } : {}),
+            ...(reference ? { reference } : {}),
+            ...(revise && !lastError ? { revise } : {}),
+            ...(lastError ? { error: lastError, previous: previous ?? "" } : {})
+          });
           const throttle = createProgressThrottle({
             write: (p) => noteAuthorProgress(row.id, row.gen, owner, p),
             ...(recordStartOnCall ? { authorStartedAt: started } : {})
           });
           recordStartOnCall = false;
           await throttle.reset();
-          // Prompt-cache gate: the first scene of a film writes the cache; the others wait only until its stream starts (bounded, never rejects).
-          // Per-step routing (MODEL_SCENE_WRITER / MODEL_SCENE_REPAIR): a repair round may use another model than the first write.
-          const step = lastError ? "sceneRepair" : "sceneWriter";
-          const tiers = ladder(routeFor(step));
-          cutOffLimit = tiers.length - 1;
-          const tierRoute = tiers[Math.min(cutOffs, cutOffLimit)]!;
           // The cache gate only helps providers whose prompt cache is explicit (Anthropic); Gemini's implicit cache is not gated.
           const gate = config.plates.cacheGate && request.cacheKey && supportsPromptCacheGate(tierRoute.provider) ? await plateCacheGate.acquire(request.cacheKey, signal) : null;
           let reply: Awaited<ReturnType<typeof callModel>>;

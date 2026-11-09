@@ -7,6 +7,7 @@ import { kickPlateWorkers } from "../jobs/worker-launcher.ts";
 import { bundleDigest, paramsDigest } from "./digest.ts";
 import { median } from "./eta.ts";
 import { aspectSlug, isComputedVariantSignature, isCurrentSignature, type Aspect, type LiveMode, type PlateComment, type PlateSubtitles, type VariantState } from "./model.ts";
+import { recordVariantReservationOutcome, type AnimationRouteSnapshot } from "../billing/step-billing.ts";
 
 /**
  * Postgres access for plate scenes. Postgres is the only authority: an empty result means "nothing drawn", never "look on
@@ -39,7 +40,15 @@ export type VariantRow = {
   render_attempt: number; source_key: string | null; bundle_key: string | null; bundle_manifest: Record<string, unknown> | null;
   bundle_digest: string | null; checked_at: Date | null; check_report: Record<string, unknown> | null; host: string | null;
   still_key: string | null; clip_key: string | null; clip_meta: Record<string, unknown> | null; error: { code?: string; message: string } | null;
-  timings: Record<string, number> & { retrying?: VariantRetrying; restartsDuringWrite?: number; modelStarts?: number; authorInFlight?: number }; enqueued_at: Date | null; created_at: Date; updated_at: Date; drawn_at: Date | null;
+  timings: Record<string, number> & {
+    retrying?: VariantRetrying;
+    restartsDuringWrite?: number;
+    modelStarts?: number;
+    authorInFlight?: number;
+    routeSnapshot?: AnimationRouteSnapshot;
+    reservationId?: string;
+    contentSig?: string;
+  }; enqueued_at: Date | null; created_at: Date; updated_at: Date; drawn_at: Date | null;
 };
 
 export type RevisionRow = {
@@ -257,11 +266,20 @@ export async function getLiveMode(projectId: string): Promise<LiveMode | null> {
  *  - rows beyond the storyboard are removed.
  * Returns how many messages were queued.
  */
-export async function reconcileVariants(projectId: string, desired: Desired[], options: { scenes: number }): Promise<{ queued: number }> {
+export async function reconcileVariants(
+  projectId: string,
+  desired: Desired[],
+  options: { scenes: number; routeSnapshot?: AnimationRouteSnapshot; reservationId?: string }
+): Promise<{ queued: number; authorQueued: number }> {
   const client = await pool.connect();
   let queued = 0;
+  let authorQueued = 0;
   let queuedWorker = 0;
   let isLive = false;
+  const authorTimingsExtra: Record<string, unknown> = {
+    ...(options.routeSnapshot ? { routeSnapshot: options.routeSnapshot } : {}),
+    ...(options.reservationId ? { reservationId: options.reservationId } : {})
+  };
   try {
     await client.query("begin");
     await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate:${projectId}`]);
@@ -465,10 +483,11 @@ export async function reconcileVariants(projectId: string, desired: Desired[], o
         const inserted = await client.query<VariantRow>(
           `insert into app.plate_variants (project_id, scene_index, aspect, signature, keyword, frames, width, height, fps, timings)
            values ($1,$2,$3,$4,$5,$6,$7,$8,30,$9::jsonb) returning *`,
-          [projectId, d.index, d.aspect, d.signature, d.keyword, d.frames, d.width, d.height, JSON.stringify(contentSigPatch)]
+          [projectId, d.index, d.aspect, d.signature, d.keyword, d.frames, d.width, d.height, JSON.stringify({ ...contentSigPatch, ...authorTimingsExtra })]
         );
         await queue(client, inserted.rows[0]!, QUEUES.plateAuthor);
         queued++;
+        authorQueued++;
         continue;
       }
 
@@ -482,10 +501,11 @@ export async function reconcileVariants(projectId: string, desired: Desired[], o
              source_key = null, bundle_key = null, bundle_manifest = null, bundle_digest = null, checked_at = null, check_report = null, host = null,
              still_key = null, clip_key = null, clip_meta = null, error = null,
              timings = $7::jsonb, drawn_at = null, updated_at = now() where id = $1 returning *`,
-          [row.id, d.signature, d.keyword, d.frames, d.width, d.height, JSON.stringify(contentSigPatch)]
+          [row.id, d.signature, d.keyword, d.frames, d.width, d.height, JSON.stringify({ ...contentSigPatch, ...authorTimingsExtra })]
         );
         await queue(client, next.rows[0]!, QUEUES.plateAuthor);
         queued++;
+        authorQueued++;
         continue;
       }
 
@@ -513,18 +533,20 @@ export async function reconcileVariants(projectId: string, desired: Desired[], o
         // A retry of the same inputs: from the saved bundle when there is one (no model call), else from authoring.
         const fromBundle = Boolean(row.bundle_key);
         const shouldRender = !isLive;
+        const retryTimingsPatch = fromBundle ? {} : authorTimingsExtra;
         const next = await client.query<VariantRow>(
           `update app.plate_variants set gen = gen + 1, state = $2, stage = $4, frames_done = null, author_owner = null, author_until = null,
              authored = case when $3 then authored else 0 end, repairs = case when $3 then repairs else 0 end, repair = null, render_attempt = 0,
              checked_at = null, check_report = null, host = null, error = null,
-             timings = coalesce(timings, '{}'::jsonb) - 'retrying' - 'restartsDuringWrite',
+             timings = (coalesce(timings, '{}'::jsonb) - 'retrying' - 'restartsDuringWrite') || $6::jsonb,
              enqueued_at = case when $5 then null else enqueued_at end, updated_at = now()
            where id = $1 returning *`,
-          [row.id, fromBundle ? "bundled" : "queued", fromBundle, fromBundle ? (shouldRender ? "queued for rendering" : "checking") : null, fromBundle && !shouldRender]
+          [row.id, fromBundle ? "bundled" : "queued", fromBundle, fromBundle ? (shouldRender ? "queued for rendering" : "checking") : null, fromBundle && !shouldRender, JSON.stringify(retryTimingsPatch)]
         );
         if (!fromBundle) {
           await queue(client, next.rows[0]!, QUEUES.plateAuthor);
           queued++;
+          authorQueued++;
         } else if (shouldRender) {
           await queue(client, next.rows[0]!, QUEUES.plateRender, `${next.rows[0]!.id}:${next.rows[0]!.gen}`);
           queued++;
@@ -541,7 +563,7 @@ export async function reconcileVariants(projectId: string, desired: Desired[], o
     client.release();
   }
   if (queued) void kickPlateWorkers(!isLive || queuedWorker > 0);
-  return { queued };
+  return { queued, authorQueued };
 }
 
 /**
@@ -718,12 +740,16 @@ export async function reviseScene(
   projectId: string,
   sceneIndex: number,
   notes: string,
-  options: { now?: number; coalesceSeconds?: number } = {}
+  options: { now?: number; coalesceSeconds?: number; routeSnapshot?: AnimationRouteSnapshot; reservationId?: string } = {}
 ): Promise<number> {
   const client = await pool.connect();
   let n = 0;
   let queuedNew = 0;
   let isLive = false;
+  const authorTimingsExtra: Record<string, unknown> = {
+    ...(options.routeSnapshot ? { routeSnapshot: options.routeSnapshot } : {}),
+    ...(options.reservationId ? { reservationId: options.reservationId } : {})
+  };
   try {
     await client.query("begin");
     await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate:${projectId}`]);
@@ -775,10 +801,10 @@ export async function reviseScene(
         `update app.plate_variants set gen = gen + 1, rev = rev + 1, state = 'queued', stage = null, frames_done = null, author_owner = null, author_until = null,
            authored = 0, repairs = 0, repair = null, revise = $2::jsonb, draft_source = null, render_attempt = 0,
            bundle_key = null, bundle_manifest = null, bundle_digest = null, checked_at = null, check_report = null, host = null,
-           timings = coalesce(timings, '{}'::jsonb) - 'retrying' - 'restartsDuringWrite' - 'modelStarts' - 'authorInFlight',
+           timings = (coalesce(timings, '{}'::jsonb) - 'retrying' - 'restartsDuringWrite' - 'modelStarts' - 'authorInFlight') || $3::jsonb,
            error = null, drawn_at = null, updated_at = now()
          where id = $1 returning *`,
-        [row.id, JSON.stringify(revisePayload)]
+        [row.id, JSON.stringify(revisePayload), JSON.stringify(authorTimingsExtra)]
       );
       await queue(client, next.rows[0]!, QUEUES.plateAuthor, `${next.rows[0]!.id}:${next.rows[0]!.gen}`);
       n++;
@@ -980,12 +1006,17 @@ export async function commitBundle(
     );
     if (res.rowCount === 1) {
       const updated = res.rows[0]!;
+      const routeSnap = updated.timings?.routeSnapshot;
+      const authorLabel =
+        routeSnap && routeSnap.tier && routeSnap.writer?.model
+          ? `${routeSnap.tier}:${routeSnap.writer.model}`
+          : null;
       if (row.repairs > 0) {
         await client.query("delete from app.plate_check_reports where variant_id = $1 and gen = $2", [updated.id, updated.gen]);
       }
       await client.query(
         `insert into app.plate_revisions (variant_id, rev, bundle_digest, source_key, bundle_key, bundle_manifest, params, params_digest, author)
-         values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, null)
+         values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)
          on conflict (variant_id, rev) do update
            set bundle_digest = excluded.bundle_digest,
                source_key = excluded.source_key,
@@ -995,7 +1026,7 @@ export async function commitBundle(
                params_digest = excluded.params_digest,
                author = excluded.author,
                created_at = now()`,
-        [updated.id, updated.rev, digest, artifacts.sourceKey, artifacts.bundleKey, JSON.stringify(artifacts.manifest), JSON.stringify(revParams), pDigest]
+        [updated.id, updated.rev, digest, artifacts.sourceKey, artifacts.bundleKey, JSON.stringify(artifacts.manifest), JSON.stringify(revParams), pDigest, authorLabel]
       );
       if (shouldRender) {
         await queue(client, updated, QUEUES.plateRender, `${updated.id}:${updated.gen}`);
@@ -1003,6 +1034,13 @@ export async function commitBundle(
       }
     }
     await client.query("commit");
+    if (res.rowCount === 1 && row.timings?.reservationId) {
+      await recordVariantReservationOutcome(
+        row.timings.reservationId,
+        `${row.scene_index}:${row.aspect}`,
+        "delivered"
+      ).catch(() => undefined);
+    }
     if (shouldKick) void kickPlateWorkers();
     return res.rowCount === 1;
   } catch (error) {
@@ -1574,11 +1612,20 @@ export async function requestDraws(_projectId: string, _aspects: Aspect[]): Prom
 
 /** Marks an authoring that cannot succeed (or an exhausted model-failure retry). Fenced by gen + owner (owner null: by gen and state). */
 export async function failVariant(variantId: string, gen: number, owner: string | null, error: { code: string; message: string; detail?: string }): Promise<boolean> {
-  const res = await pool.query(
+  const res = await pool.query<VariantRow>(
     `update app.plate_variants set state = 'failed', stage = null, error = $4::jsonb, author_owner = null, author_until = null, updated_at = now()
-      where id = $1 and gen = $2 and state in ('authoring', 'queued', 'bundled', 'rendering') and ($3::text is null or author_owner = $3)`,
+      where id = $1 and gen = $2 and state in ('authoring', 'queued', 'bundled', 'rendering') and ($3::text is null or author_owner = $3)
+      returning *`,
     [variantId, gen, owner, JSON.stringify(error)]
   );
+  if (res.rowCount === 1 && res.rows[0]?.timings?.reservationId) {
+    const row = res.rows[0];
+    await recordVariantReservationOutcome(
+      row.timings.reservationId,
+      `${row.scene_index}:${row.aspect}`,
+      "failed"
+    ).catch(() => undefined);
+  }
   return res.rowCount === 1;
 }
 

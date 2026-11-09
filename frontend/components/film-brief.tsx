@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { aspects, briefAspects, castOf, DEFAULT_LOOK, defaultStyleExample, DURATION_MIN, durationPresets, findGalleryTemplate, formatDurationSeconds, isFilmTemplate, isNarrator, NARRATOR, OWN_SCRIPT_MAX, parseScriptBrief, PROBLEM_TEXT_MAX, resolveDurationMode, scriptSeconds, toggleBriefAspect, voiceForSpeaker, voiceLanguages, voices, type Aspect, type CaptionMode, type Pace, type ScriptBeat, type ScriptBrief } from "@videosaas/contracts";
+import { ANIMATION_TIER_SPECS, aspects, briefAspects, castOf, DEFAULT_ANIMATION_TIER, DEFAULT_LOOK, defaultStyleExample, DURATION_MIN, durationPresets, findGalleryTemplate, formatDurationSeconds, isFilmTemplate, isNarrator, NARRATOR, OWN_SCRIPT_MAX, parseScriptBrief, PREMIUM_LOCKED_COPY, PROBLEM_TEXT_MAX, resolveDurationMode, scriptSeconds, toggleBriefAspect, voiceForSpeaker, voiceLanguages, voices, type AnimationTier, type Aspect, type CaptionMode, type Pace, type ScriptBeat, type ScriptBrief } from "@videosaas/contracts";
 import { BrandedSelect } from "./branded-select";
 import { StylePicker } from "./style-picker";
 import { VoicePickerModal } from "./voice-picker-modal";
@@ -59,7 +59,7 @@ const aspectShape: Record<Aspect, string> = { "16:9": "landscape", "9:16": "port
  * bottom prompt composer, and compact film settings on the right. The script goes to the storyboard (page 2) only when
  * the person continues.
  */
-export function FilmBrief({ brief, update, draft, writeDraft, editDraft, stopDraft, continueDraft, continueToStoryboard, hasStoryboard, error }: {
+export function FilmBrief({ brief, update, draft, writeDraft, editDraft, stopDraft, continueDraft, continueToStoryboard, hasStoryboard, error, canUsePremium = false, onLockedPremiumClick, scriptQuoteTokens }: {
   brief: ScriptBrief;
   update: (patch: Partial<ScriptBrief>) => void;
   draft: ScriptDraft | null;
@@ -73,6 +73,9 @@ export function FilmBrief({ brief, update, draft, writeDraft, editDraft, stopDra
   hasStoryboard: boolean;
   error: string | null;
   back?: () => void;
+  canUsePremium?: boolean;
+  onLockedPremiumClick?: () => void;
+  scriptQuoteTokens?: number | null;
 }) {
   const own = brief.scriptMode === "own";
   const max = own ? OWN_SCRIPT_MAX : PROBLEM_TEXT_MAX;
@@ -351,7 +354,7 @@ export function FilmBrief({ brief, update, draft, writeDraft, editDraft, stopDra
             <div className="fb-brief-entry">
               <textarea className="script-prompt" value={brief.text} maxLength={max} rows={own ? 3 : 2} disabled={streaming} onChange={(event) => update({ text: event.target.value })} aria-label={own ? "Your script" : "Your idea"} placeholder={own ? "Paste your script. One sentence per idea works best." : "A coffee pot that dances on the counter every morning, until one day…"} />
               <div className="fb-actions">
-                <small>{brief.text.length}/{max}</small>
+                <small>{brief.text.length}/{max}{scriptQuoteTokens && scriptQuoteTokens > 0 ? ` · ${scriptQuoteTokens} tokens` : ""}</small>
                 {streaming
                   ? <button type="button" className="secondary-button" onClick={stopDraft}>Stop</button>
                   : <button type="button" className={hasScript ? "secondary-button" : "primary-button"} disabled={Boolean(invalid)} onClick={submitBrief}>{hasScript ? "Write it again" : "Write script"}</button>}
@@ -618,6 +621,47 @@ export function FilmBrief({ brief, update, draft, writeDraft, editDraft, stopDra
                 options={paceOptions}
                 onChange={(val) => update({ pace: val })}
               />
+            </div>
+          </div>
+          <div className="fb-row fb-tier-row" aria-label="Animation quality">
+            <div className="fb-label-row">
+              <span className="fb-field-label">Animation quality</span>
+              <small className="fb-format-hint">
+                {(brief.animationTier ?? DEFAULT_ANIMATION_TIER) === "premium" && canUsePremium
+                  ? "Claude Opus 5.5 · Higher token rate"
+                  : !canUsePremium
+                    ? PREMIUM_LOCKED_COPY
+                    : "Standard (Gemini 3.8 Flash) default"}
+              </small>
+            </div>
+            <div className="ss-chips" role="radiogroup" aria-label="Animation quality">
+              {(["standard", "premium"] as AnimationTier[]).map((tierId) => {
+                const activeTier: AnimationTier =
+                  (brief.animationTier ?? DEFAULT_ANIMATION_TIER) === "premium" && canUsePremium ? "premium" : "standard";
+                const isSelected = activeTier === tierId;
+                const locked = tierId === "premium" && !canUsePremium;
+                const spec = ANIMATION_TIER_SPECS[tierId];
+                return (
+                  <button
+                    type="button"
+                    key={tierId}
+                    role="radio"
+                    aria-checked={isSelected}
+                    aria-disabled={locked || undefined}
+                    className={`${isSelected ? "selected" : ""}${locked ? " is-locked" : ""}`.trim()}
+                    title={locked ? PREMIUM_LOCKED_COPY : spec.summary}
+                    onClick={() => {
+                      if (locked) {
+                        onLockedPremiumClick?.();
+                        return;
+                      }
+                      update({ animationTier: tierId });
+                    }}
+                  >
+                    {spec.label}{locked ? " 🔒" : ""}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

@@ -98,14 +98,92 @@ export async function spendTokens(userId: string, milli: number, reason: string,
   });
 }
 
-/** Puts back what a spend took, from the pools it took it from, when the work it paid for could not start. Once per spend. */
+/** Puts back what a spend took (less any partial refund already returned), from the pools it took it from, when the work it paid for could not start. Once per spend. */
 export async function refundSpend(userId: string, event: string): Promise<void> {
   await query(
     `insert into app.token_ledger (user_id, amount, kind, reason, project_id, ref, pool)
-     select user_id, -amount, 'refund', reason, project_id, 'refund:' || ref, pool from app.token_ledger where user_id = $1 and kind = 'spend' and ref like $2
+     select s.user_id,
+            (-s.amount) - coalesce((
+              select sum(p.amount)
+                from app.token_ledger p
+               where p.user_id = s.user_id
+                 and p.kind = 'refund'
+                 and p.pool = s.pool
+                 and p.ref like ('refund-part:' || s.ref || ':%')
+            ), 0),
+            'refund',
+            s.reason,
+            s.project_id,
+            'refund:' || s.ref,
+            s.pool
+       from app.token_ledger s
+      where s.user_id = $1
+        and s.kind = 'spend'
+        and s.ref like $2
+        and ((-s.amount) - coalesce((
+              select sum(p.amount)
+                from app.token_ledger p
+               where p.user_id = s.user_id
+                 and p.kind = 'refund'
+                 and p.pool = s.pool
+                 and p.ref like ('refund-part:' || s.ref || ':%')
+            ), 0)) > 0
      on conflict (user_id, ref) where ref is not null do nothing`,
     [userId, `${event}|%`]
   );
+}
+
+/**
+ * Refunds up to `refundMilli` millitokens of an existing spend `event`, returning tokens to the pools they were taken
+ * from in reverse spend order (`pack` -> `free` -> `plan`) and never exceeding the remaining unrefunded spend on each pool.
+ * Idempotent per `partKey`. Returns the total millitokens actually refunded by this call.
+ */
+export async function refundPartialSpend(
+  userId: string,
+  event: string,
+  refundMilli: number,
+  partKey = "partial"
+): Promise<number> {
+  const wanted = Math.floor(refundMilli);
+  if (wanted <= 0) return 0;
+  return withTransaction(async () => {
+    await query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`tokens:${userId}`]);
+    const spends = await query<{ pool: Pool; amount: number; reason: string; project_id: string | null; ref: string }>(
+      "select pool, -amount as amount, reason, project_id, ref from app.token_ledger where user_id = $1 and kind = 'spend' and ref like $2",
+      [userId, `${event}|%`]
+    );
+    if (spends.rows.length === 0) return 0;
+    const refunds = await query<{ pool: Pool; refunded: string }>(
+      "select pool, coalesce(sum(amount), 0) as refunded from app.token_ledger where user_id = $1 and kind = 'refund' and (ref like $2 or ref like $3) group by pool",
+      [userId, `refund:${event}|%`, `refund-part:${event}|%`]
+    );
+    const alreadyByPool = new Map<Pool, number>();
+    for (const r of refunds.rows) alreadyByPool.set(r.pool, Number(r.refunded));
+
+    const reverseOrder: Pool[] = ["pack", "free", "plan"];
+    let left = wanted;
+    let totalRefunded = 0;
+    for (const pool of reverseOrder) {
+      if (left <= 0) break;
+      const spendRow = spends.rows.find((s) => s.pool === pool);
+      if (!spendRow) continue;
+      const unrefunded = Math.max(0, Number(spendRow.amount) - (alreadyByPool.get(pool) ?? 0));
+      const giveBack = Math.min(left, unrefunded);
+      if (giveBack <= 0) continue;
+      const refKey = `refund-part:${spendRow.ref}:${partKey}`;
+      const inserted = await query(
+        `insert into app.token_ledger (user_id, amount, kind, reason, project_id, ref, pool)
+         values ($1, $2, 'refund', $3, $4, $5, $6)
+         on conflict (user_id, ref) where ref is not null do nothing`,
+        [userId, giveBack, spendRow.reason, spendRow.project_id, refKey, pool]
+      );
+      if (inserted.rowCount === 1) {
+        left -= giveBack;
+        totalRefunded += giveBack;
+      }
+    }
+    return totalRefunded;
+  });
 }
 
 /** Adds tokens to a pool. `ref` makes the grant idempotent (an invoice or order id); omit it for a manual grant. */

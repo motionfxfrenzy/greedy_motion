@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BrandExtraction, BrandKit, SiteCapture } from "@videosaas/contracts";
-import { aspects, beatCountRange, briefAspects, DEFAULT_LOOK, defaultScriptBrief, DURATION_MIN, durationPresets, formatDurationSeconds, NARRATOR, OWN_SCRIPT_MAX, parseScriptBrief, PROBLEM_TEXT_MAX, resolveDurationMode, scriptSeconds, toggleBriefAspect, voiceLanguages, voices, wordBudget, type Aspect, type AudioMode, type CaptionMode, type MotionProfile, type Pace, type ScriptBrief } from "@videosaas/contracts";
+import { ANIMATION_TIER_SPECS, aspects, beatCountRange, briefAspects, DEFAULT_ANIMATION_TIER, DEFAULT_LOOK, defaultScriptBrief, DURATION_MIN, durationPresets, formatDurationSeconds, NARRATOR, OWN_SCRIPT_MAX, parseScriptBrief, PREMIUM_LOCKED_COPY, PROBLEM_TEXT_MAX, resolveDurationMode, scriptSeconds, toggleBriefAspect, voiceLanguages, voices, wordBudget, type AnimationTier, type Aspect, type AudioMode, type CaptionMode, type MotionProfile, type Pace, type ScriptBrief } from "@videosaas/contracts";
 import { BrandKitField } from "./brand-kit";
 import { BrandedSelect } from "./branded-select";
 import { ThemePicker } from "./theme-picker";
@@ -41,7 +41,7 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
 /** `savedBrand`: a kit already saved for the site; `autoKit`: it was selected automatically by the read. */
 export type SiteState = { reading: boolean; site?: SiteCapture | null; brand?: BrandExtraction | null; savedBrand?: BrandKit | null; autoKit?: boolean; shots: number; warnings: string[]; error?: string | null };
 
-export function ScriptStyleStep({ brief, update, site, readSite, screenshots, generating, elapsed, error, generate, cancel, back, hasPlan, confirmRegenerate, setConfirmRegenerate, continueToStoryboard }: {
+export function ScriptStyleStep({ brief, update, site, readSite, screenshots, generating, elapsed, error, generate, cancel, back, hasPlan, confirmRegenerate, setConfirmRegenerate, continueToStoryboard, canUsePremium = false, onLockedPremiumClick }: {
   brief: ScriptBrief;
   update: (patch: Partial<ScriptBrief>) => void;
   /** Product site read: state, and the action that reads `url`. */
@@ -61,6 +61,8 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
   confirmRegenerate: boolean;
   setConfirmRegenerate: (value: boolean) => void;
   continueToStoryboard: () => void;
+  canUsePremium?: boolean;
+  onLockedPremiumClick?: () => void;
 }) {
   const own = brief.scriptMode === "own";
   const max = own ? OWN_SCRIPT_MAX : PROBLEM_TEXT_MAX;
@@ -332,6 +334,45 @@ export function ScriptStyleStep({ brief, update, site, readSite, screenshots, ge
           <header><b>Motion and pace</b><span>Sets eases, cut rate and how fast the voice reads</span></header>
           <div className="ss-field"><b>Motion style</b><Segmented label="Motion style" value={brief.motionProfile} options={motionOptions} onChange={(motionProfile) => update({ motionProfile })} /></div>
           <div className="ss-field"><b>Pace</b><Segmented label="Pace" value={brief.pace} options={paceOptions} onChange={(pace) => update({ pace })} /></div>
+          <div className="ss-field">
+            <b>Animation quality</b>
+            <div className="ss-chips" role="radiogroup" aria-label="Animation quality">
+              {(["standard", "premium"] as AnimationTier[]).map((tierId) => {
+                const activeTier: AnimationTier =
+                  (brief.animationTier ?? DEFAULT_ANIMATION_TIER) === "premium" && canUsePremium ? "premium" : "standard";
+                const isSelected = activeTier === tierId;
+                const locked = tierId === "premium" && !canUsePremium;
+                const spec = ANIMATION_TIER_SPECS[tierId];
+                return (
+                  <button
+                    type="button"
+                    key={tierId}
+                    role="radio"
+                    aria-checked={isSelected}
+                    aria-disabled={locked || undefined}
+                    className={`${isSelected ? "selected" : ""}${locked ? " is-locked" : ""}`.trim()}
+                    title={locked ? PREMIUM_LOCKED_COPY : spec.summary}
+                    onClick={() => {
+                      if (locked) {
+                        onLockedPremiumClick?.();
+                        return;
+                      }
+                      update({ animationTier: tierId });
+                    }}
+                  >
+                    {spec.label}{locked ? " 🔒" : ""}
+                  </button>
+                );
+              })}
+            </div>
+            <small className="ss-note">
+              {!canUsePremium
+                ? PREMIUM_LOCKED_COPY
+                : (brief.animationTier ?? DEFAULT_ANIMATION_TIER) === "premium"
+                  ? ANIMATION_TIER_SPECS.premium.summary
+                  : ANIMATION_TIER_SPECS.standard.summary}
+            </small>
+          </div>
           <div className="ss-field ss-select">
             <b>Template <em>optional</em></b>
             <BrandedSelect

@@ -2,7 +2,43 @@
 // measured cost of a film (docs/PRICING.md, "What a film costs us"). Changing a number here means changing the document too.
 // Run: node backend/test/pricing-lock.mjs   (no database)
 import assert from "node:assert/strict";
-const { FREE_REVISIONS, REVISION_TOKENS, PREVIEW_ALLOWANCE, PREVIEW_CALL_CAP, PLANS, TOP_UP, START_FEE_MILLITOKENS, MILLITOKENS_PER_SECOND, TOKEN_USD, MATERIAL_MARKUP, ANNUAL_MONTHS_CHARGED, ANNUAL_MONTHS_GRANTED, annualMonthlyUsd, annualSavingsUsd, annualSavingsPercent, tokenPriceUsd, renderCostMillitokens, filmsFromTokens, materialCostMillitokens } = await import("@videosaas/contracts");
+const {
+  FREE_REVISIONS,
+  REVISION_TOKENS,
+  PREVIEW_ALLOWANCE,
+  PREVIEW_CALL_CAP,
+  PLANS,
+  TOP_UP,
+  START_FEE_MILLITOKENS,
+  MILLITOKENS_PER_SECOND,
+  TOKEN_USD,
+  MATERIAL_MARKUP,
+  ANNUAL_MONTHS_CHARGED,
+  ANNUAL_MONTHS_GRANTED,
+  ANIMATION_TIERS,
+  BILLING_POLICY_VERSIONS,
+  PREMIUM_LOCKED_COPY,
+  TARGET_CONTRIBUTION_MARGIN,
+  STEP_TARIFFS_V2_2026,
+  STEP_TARIFFS_V2_2027,
+  canUseAnimationTier,
+  grossTokenPriceUsd,
+  allocatedOrderFeePerTokenUsd,
+  costBudgetPerTokenUsd,
+  contributionMarginForCost,
+  plateAnimationCostMillitokensV2,
+  frameMotionCostMillitokensV2,
+  renderExportCostMillitokensV2,
+  materialCostMillitokensV2,
+  estimateWholeFilmQuoteV2,
+  annualMonthlyUsd,
+  annualSavingsUsd,
+  annualSavingsPercent,
+  tokenPriceUsd,
+  renderCostMillitokens,
+  filmsFromTokens,
+  materialCostMillitokens
+} = await import("@videosaas/contracts");
 
 // ---- the locked numbers ----
 assert.equal(TOKEN_USD, 0.1);
@@ -91,4 +127,79 @@ for (const tier of ["starter", "pro", "business"]) {
 assert.ok(PREVIEW_ALLOWANCE.free * PREVIEW_COST < 3, "a Free signup that only previews costs us under $3");
 // A paid revision must cover what it costs us (measured 2026-10-28: a recreate $0.14, an applied fix $0.09) on every plan.
 for (const tier of ["starter", "pro", "business"]) assert.ok(REVISION_TOKENS * ((PLANS[tier].priceUsd * 0.93 - 0.5) / PLANS[tier].tokens) > 0.14, `${tier}: ${REVISION_TOKENS} tokens must pay for a $0.14 recreate`);
+
+// ---- v2_step_tier per-step generation billing and Standard/Premium animation tiers (2026-11-09) ----
+assert.deepEqual([...BILLING_POLICY_VERSIONS], ["v1_render_only", "v2_step_tier"]);
+assert.deepEqual([...ANIMATION_TIERS], ["standard", "premium"]);
+assert.equal(PREMIUM_LOCKED_COPY, "Upgrade to access Premium animation.");
+assert.equal(TARGET_CONTRIBUTION_MARGIN, 0.3);
+
+// Free-tier entitlement: Free always uses Standard (Gemini 3.8 Flash); Premium (Claude Opus 5.5) requires an active paid subscription
+assert.equal(canUseAnimationTier("free", "standard"), true);
+assert.equal(canUseAnimationTier("free", "premium"), false, "Free users cannot use Premium animation");
+for (const paidTier of ["starter", "pro", "business"]) {
+  assert.equal(canUseAnimationTier(paidTier, "standard"), true);
+  assert.equal(canUseAnimationTier(paidTier, "premium"), true);
+}
+
+// Exact unrounded Studio Annual token economics at the 30% contribution margin floor after 7% + $0.50 fee
+assert.equal(grossTokenPriceUsd("business", "year"), 990 / 14400);
+assert.ok(Math.abs(allocatedOrderFeePerTokenUsd("business", "year") - 69.8 / 14400) < 1e-12);
+assert.ok(Math.abs(costBudgetPerTokenUsd(0.3, "business", "year") - 0.04327777777777778) < 1e-12);
+
+// Verify 2026 step tariff schedule and 30% contribution margin on every measured/modeled step at Studio Annual floor
+assert.equal(STEP_TARIFFS_V2_2026.scriptWriteMillitokens, 700);
+assert.equal(STEP_TARIFFS_V2_2026.scriptEditBeatMillitokens, 300);
+assert.equal(STEP_TARIFFS_V2_2026.storyboardDirectorMillitokens, 1000);
+assert.equal(STEP_TARIFFS_V2_2026.frameSketchPerBeatMillitokens, 300);
+assert.equal(STEP_TARIFFS_V2_2026.voicePerLineMillitokens, 100);
+assert.equal(STEP_TARIFFS_V2_2026.musicClipMillitokens, 1000);
+assert.equal(STEP_TARIFFS_V2_2026.musicSongMillitokens, 1900);
+assert.deepEqual(STEP_TARIFFS_V2_2026.plateAnimationBatchSetupMillitokens, { standard: 0, premium: 8000 });
+assert.deepEqual(STEP_TARIFFS_V2_2026.plateAnimationSceneMillitokens, { standard: 2300, premium: 9700 });
+assert.deepEqual(STEP_TARIFFS_V2_2026.frameMotionSceneMillitokens, { standard: 200, premium: 800 });
+assert.equal(STEP_TARIFFS_V2_2026.materialMarkupV2, 2.43);
+assert.equal(STEP_TARIFFS_V2_2026.renderExportStartMillitokens, 600);
+assert.equal(STEP_TARIFFS_V2_2026.renderExportPerSecondMillitokens, 30);
+
+// Cold 1-scene Premium Opus job must cover the $0.3455664 cold-write delta + $0.41914 warm scene cost = $0.7647 at >=30% margin
+const oneScenePremiumTokens = plateAnimationCostMillitokensV2(1, "premium", new Date("2026-11-09T00:00:00Z")) / 1000;
+assert.equal(oneScenePremiumTokens, 17.7, "1 cold Premium scene charges 8.0 setup + 9.7 scene = 17.7 tokens");
+assert.ok(
+  contributionMarginForCost(oneScenePremiumTokens, 0.3455664 + 0.41914, "business", "year") >= 0.3,
+  "1 cold Premium scene maintains >=30% contribution margin on Studio Annual"
+);
+
+// 6-scene 30s plate film estimates (2026 schedule)
+const std6 = estimateWholeFilmQuoteV2({
+  scenes: 6,
+  durationSeconds: 30,
+  voicedScenes: 6,
+  music: true,
+  isPlateStyle: true,
+  tier: "standard",
+  now: new Date("2026-11-09T00:00:00Z")
+});
+assert.equal(std6.totalTokens, 21.3);
+
+const prem6 = estimateWholeFilmQuoteV2({
+  scenes: 6,
+  durationSeconds: 30,
+  voicedScenes: 6,
+  music: true,
+  isPlateStyle: true,
+  tier: "premium",
+  now: new Date("2026-11-09T00:00:00Z")
+});
+assert.equal(prem6.animationSetupTokens, 8);
+assert.equal(prem6.animationSceneTokens, 58.2);
+assert.equal(prem6.totalTokens, 73.7);
+
+// 2027-01-01 scheduled Gemini 3.8 Flash rate doubling
+assert.equal(STEP_TARIFFS_V2_2027.plateAnimationSceneMillitokens.standard, 4500);
+assert.equal(plateAnimationCostMillitokensV2(6, "standard", new Date("2027-01-15T00:00:00Z")), 27000);
+assert.equal(frameMotionCostMillitokensV2(6, "standard", new Date("2026-11-09T00:00:00Z")), 1200);
+assert.equal(renderExportCostMillitokensV2(30, new Date("2026-11-09T00:00:00Z")), 1500);
+assert.equal(materialCostMillitokensV2(1, new Date("2026-11-09T00:00:00Z")), 24300);
+
 console.log("pricing lock: ok");

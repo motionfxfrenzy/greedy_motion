@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { optimisticUpdate } from "../lib/optimistic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aspectToFormat, beatCountRange, briefAspects, effectiveBriefDurationSeconds, ensureScriptBeatIds, isScriptLedDuration, remapFlagsOnInsert, remapFlagsOnRemove, remapIndicesOnInsert, remapIndicesOnRemove, remapRecordOnInsert, remapRecordOnRemove, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, scriptSeconds, bundledFonts, findGalleryTemplate, isFilmBrief, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, parseScriptStream, templates, themes, type Beat, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
+import { aspectToFormat, beatCountRange, briefAspects, DEFAULT_ANIMATION_TIER, effectiveBriefDurationSeconds, ensureScriptBeatIds, isPaidTier, isScriptLedDuration, PREMIUM_LOCKED_COPY, remapFlagsOnInsert, remapFlagsOnRemove, remapIndicesOnInsert, remapIndicesOnRemove, remapRecordOnInsert, remapRecordOnRemove, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, scriptSeconds, bundledFonts, findGalleryTemplate, isFilmBrief, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, parseScriptStream, templates, themes, type AnimationTier, type Beat, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
 import { GalleryGrid, useGalleryShelf } from "./template-gallery";
 import { PlateFinal, PlatePreview } from "./plate-preview";
 import { BrowserAnimationStep } from "./browser-animation-step";
@@ -17,7 +17,7 @@ import { ScriptCanvas, PlanLimitModal, svgSrc, type FrameSlot, type StoryboardSt
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
 import { PLATE_CONFIRM_FALSE_DELAY_MS, PLATE_FALLBACK_NOTICE, nextPlateAnswer, plateRetryDelayMs, resolvePlateRouting, type PlateAnswerState } from "../lib/plate-availability";
-import { LimitError, getPlates, getRenderQuote, cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, insertScriptScene, planVoiceUrl, removeScriptScene, restoreScriptScene, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
+import { LimitError, getMySubscription, getPlates, getProjectBillingQuote, getRenderQuote, cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, insertScriptScene, planVoiceUrl, removeScriptScene, restoreScriptScene, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ProjectBillingOverview, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 
 type View = "projects" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
@@ -93,6 +93,23 @@ export function Studio() {
   const [seePlans, setSeePlans] = useState(false);
   /** A refusal for allowance or tokens opens the plan dialog (and is remembered for the storyboard page); returns whether it was one. */
   const showLimit = (caught: unknown) => { if (!(caught instanceof LimitError)) return false; setLimit(caught); setSeePlans(true); return true; };
+  const [canUsePremium, setCanUsePremium] = useState(false);
+  const [billingOverview, setBillingOverview] = useState<ProjectBillingOverview | null>(null);
+  const openLockedPremiumModal = useCallback(() => {
+    setLimit(new LimitError(PREMIUM_LOCKED_COPY, "premium_requires_subscription", "free", null, null));
+    setSeePlans(true);
+  }, []);
+  useEffect(() => {
+    let live = true;
+    getMySubscription()
+      .then((sub) => {
+        if (live) setCanUsePremium(isPaidTier(sub.tier));
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
   const [busy, setBusy] = useState(false);
   // Chosen on the storyboard's Submit; kept for a retry or a re-render. Previews never use it.
   const [motionBlur, setMotionBlur] = useState(false);
@@ -1203,11 +1220,61 @@ export function Studio() {
     return () => { live = false; };
   }, [isPlateStyle, project?.id, project?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!project?.id) {
+      setBillingOverview(null);
+      return;
+    }
+    let live = true;
+    const requestedTier: AnimationTier =
+      (brief.animationTier ?? project.animationTier ?? project.brief?.animationTier ?? DEFAULT_ANIMATION_TIER) === "premium" && canUsePremium
+        ? "premium"
+        : "standard";
+    getProjectBillingQuote(project.id, {
+      brief,
+      ...(canvas?.beats?.length ? { beats: canvas.beats } : {}),
+      animationTier: requestedTier
+    })
+      .then((overview) => {
+        if (!live) return;
+        setBillingOverview(overview);
+        setCanUsePremium(overview.canUsePremium);
+      })
+      .catch(() => {
+        if (live) setBillingOverview(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [project?.id, project?.updatedAt, brief.look, brief.animationTier, brief.durationSeconds, brief.durationMode, brief.audio.mode, canvas?.beats?.length, canUsePremium]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleAnimationTierChange = useCallback(
+    (nextTier: AnimationTier) => {
+      if (nextTier === "premium" && !canUsePremium) {
+        openLockedPremiumModal();
+        return;
+      }
+      setBrief((curr) => ({ ...curr, animationTier: nextTier }));
+      if (project?.id) {
+        void updateProject(project.id, { animationTier: nextTier })
+          .then((saved) => replaceProject(saved))
+          .catch((caught) => {
+            showLimit(caught);
+          });
+      }
+    },
+    [canUsePremium, openLockedPremiumModal, project?.id, replaceProject]
+  );
+
   const needsSound = voicedBrief || musicBrief;
   const startBrowserAnimation = async (beatsOverride?: ScriptBeat[]) => {
     const activeBeats = beatsOverride ?? canvas?.beats;
     if (!activeBeats?.length || !project) return;
-    const checked = parseScriptBrief(brief);
+    const activeTier: AnimationTier =
+      (brief.animationTier ?? project.animationTier ?? DEFAULT_ANIMATION_TIER) === "premium" && canUsePremium
+        ? "premium"
+        : "standard";
+    const checked = parseScriptBrief({ ...brief, animationTier: activeTier });
     if ("error" in checked) {
       setError(checked.error);
       return;
@@ -1223,7 +1290,7 @@ export function Studio() {
     try {
       const updated = await streamScriptAnimate(
         project.id,
-        { brief: checked.brief, beats: activeBeats },
+        { brief: checked.brief, beats: activeBeats, animationTier: activeTier },
         (ev) => {
           if ("progress" in ev && typeof ev.progress === "number") {
             setAnimProgress((curr) => Math.max(curr, ev.progress));
@@ -1464,12 +1531,18 @@ export function Studio() {
         onRemoveScene={removeSceneAt}
         undoScene={undoSceneState && (!project || undoSceneState.projectId === project.id) ? { index: undoSceneState.index, keyword: undoSceneState.beat.keyword, busy: undoSceneState.busy, error: undoSceneState.error } : null}
         onUndoRemoveScene={undoRemoveScene}
-        onDismissUndoScene={() => setUndoSceneState(null)} />}
+        onDismissUndoScene={() => setUndoSceneState(null)}
+        animationTier={(brief.animationTier ?? project?.animationTier ?? DEFAULT_ANIMATION_TIER) === "premium" && canUsePremium ? "premium" : "standard"}
+        canUsePremium={canUsePremium}
+        onAnimationTierChange={handleAnimationTierChange}
+        onLockedPremiumClick={openLockedPremiumModal}
+        animationQuoteTokens={billingOverview?.pricingVersion === "v2_step_tier" ? billingOverview.steps.animation.tokens : null}
+        voiceQuoteTokens={billingOverview?.pricingVersion === "v2_step_tier" ? billingOverview.steps.voiceMusic.tokens : null} />}
       {seePlans && limit && <PlanLimitModal limit={limit} onClose={() => setSeePlans(false)} onBack={step === STORYBOARD ? () => { setSeePlans(false); setStep(SCRIPT_STYLE); } : undefined} />}
       {step === STORYBOARD && !canvas && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Describe the film in the brief, then generate the storyboard.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to the brief</button></div>}
       {step === SCRIPT_STYLE && isFilmBrief(brief) && <FilmBrief brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} error={error} back={() => setView("projects")}
-        draft={canvas} writeDraft={(instruction) => void writeScript(instruction, undefined, undefined, true)} editDraft={editScriptBeat} stopDraft={() => canvasStop.current?.abort()} continueDraft={() => void continueDraft()} continueToStoryboard={() => setStep(STORYBOARD)} hasStoryboard={Boolean(project?.beatPlan)} />}
-      {step === SCRIPT_STYLE && !isFilmBrief(brief) && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || (canvas && canvas.beats.length > 0))} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} />}
+        draft={canvas} writeDraft={(instruction) => void writeScript(instruction, undefined, undefined, true)} editDraft={editScriptBeat} stopDraft={() => canvasStop.current?.abort()} continueDraft={() => void continueDraft()} continueToStoryboard={() => setStep(STORYBOARD)} hasStoryboard={Boolean(project?.beatPlan)} canUsePremium={canUsePremium} onLockedPremiumClick={openLockedPremiumModal} scriptQuoteTokens={billingOverview?.pricingVersion === "v2_step_tier" ? billingOverview.steps.scriptWrite.tokens : null} />}
+      {step === SCRIPT_STYLE && !isFilmBrief(brief) && <ScriptStyleStep brief={brief} update={(patch) => setBrief((current) => ({ ...current, ...patch }))} site={site} readSite={(url) => void readSite(url)} screenshots={<Screenshots project={project} busy={busy} upload={uploadScreenshot} remove={removeScreenshot} />} generating={generating && !canvas} elapsed={elapsed} error={error} generate={() => void writeScript()} cancel={() => void cancelPlan()} hasPlan={Boolean(project?.beatPlan || (canvas && canvas.beats.length > 0))} confirmRegenerate={confirmRegenerate} setConfirmRegenerate={setConfirmRegenerate} continueToStoryboard={() => setStep(STORYBOARD)} back={() => setView("projects")} canUsePremium={canUsePremium} onLockedPremiumClick={openLockedPremiumModal} />}
       {step === RENDER && project && plateChecking && !animating && <div className="workspace-message" role="status">Opening your scenes…</div>}
       {step === RENDER && project && isPlateStyle && !animating && project.beatPlan && <PlatePreview
         project={{

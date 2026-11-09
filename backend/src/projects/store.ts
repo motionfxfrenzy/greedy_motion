@@ -6,10 +6,14 @@ import {
   effectiveBriefDurationSeconds,
   findTemplate,
   formatForDuration,
+  isAnimationTier,
+  isBillingPolicyVersion,
   isScriptLedDuration,
   parseRenderRequest,
   parseScriptBrief,
   validateTemplateValues,
+  type AnimationTier,
+  type BillingPolicyVersion,
   type ProjectReviewComment,
   type ProjectScript,
   type ProjectScreenshot,
@@ -141,15 +145,33 @@ export async function getProject(id: string) {
   return project;
 }
 
-export async function createProject(input: { name?: unknown; request?: unknown }, ownerId: string) {
+export async function createProject(input: { name?: unknown; request?: unknown; animationTier?: unknown; billingPolicyVersion?: unknown }, ownerId: string) {
   const request = parseRenderRequest(input.request);
   if (!request) throw new ProjectInvalid("Choose a template, format, and motion style before creating the project.");
   const name = typeof input.name === "string" ? input.name.trim().replace(/\s+/g, " ").slice(0, 80) : "";
   const now = new Date().toISOString();
-  return save({ id: randomUUID(), ownerId, name: name || "Untitled video", state: "Ready to create", createdAt: now, updatedAt: now, request, screenshots: [], comments: [] });
+  const activePolicy: BillingPolicyVersion =
+    isBillingPolicyVersion(input.billingPolicyVersion)
+      ? input.billingPolicyVersion
+      : process.env.BILLING_POLICY_VERSION === "v2_step_tier"
+        ? "v2_step_tier"
+        : "v1_render_only";
+  const animationTier: AnimationTier = isAnimationTier(input.animationTier) ? input.animationTier : "standard";
+  return save({
+    id: randomUUID(),
+    ownerId,
+    name: name || "Untitled video",
+    state: "Ready to create",
+    createdAt: now,
+    updatedAt: now,
+    request,
+    screenshots: [],
+    comments: [],
+    ...(activePolicy === "v2_step_tier" ? { billingPolicyVersion: "v2_step_tier", animationTier } : {})
+  });
 }
 
-type ProjectUpdate = { name?: unknown; request?: unknown; brief?: unknown; state?: unknown; script?: unknown; renderJobId?: unknown; approvedAt?: unknown; archived?: unknown; keepOverLength?: unknown };
+type ProjectUpdate = { name?: unknown; request?: unknown; brief?: unknown; state?: unknown; script?: unknown; renderJobId?: unknown; approvedAt?: unknown; archived?: unknown; keepOverLength?: unknown; animationTier?: unknown; billingPolicyVersion?: unknown };
 
 function cleanScript(value: unknown): ProjectScript | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -265,18 +287,32 @@ export async function updateProject(id: string, update: ProjectUpdate) {
     const approvedAt = update.approvedAt === undefined ? current.approvedAt : typeof update.approvedAt === "string" ? update.approvedAt : undefined;
     const archived = typeof update.archived === "boolean" ? update.archived : current.archived;
     if (update.keepOverLength !== undefined && typeof update.keepOverLength !== "boolean") throw new ProjectInvalid("The duration acceptance flag must be a boolean.");
+    if (update.animationTier !== undefined && !isAnimationTier(update.animationTier)) throw new ProjectInvalid('Animation tier must be "standard" or "premium".');
+    if (update.billingPolicyVersion !== undefined && !isBillingPolicyVersion(update.billingPolicyVersion)) throw new ProjectInvalid("Invalid billing policy version.");
     let parsedBriefUpdate = current.brief;
     if (update.brief !== undefined) {
       const checkedBrief = parseScriptBrief(update.brief);
       if ("error" in checkedBrief) throw new ProjectInvalid(checkedBrief.error);
-      // Preserve existing scriptBeats/scriptNotes on the project when updating brief settings unless explicitly provided
+      // Preserve existing scriptBeats/scriptNotes/animationTier on the project when updating brief settings unless explicitly provided
       parsedBriefUpdate = {
         ...(current.brief?.scriptBeats && !checkedBrief.brief.scriptBeats ? { scriptBeats: current.brief.scriptBeats } : {}),
         ...(current.brief?.scriptNotes && !checkedBrief.brief.scriptNotes ? { scriptNotes: current.brief.scriptNotes } : {}),
+        ...(current.brief?.animationTier && !checkedBrief.brief.animationTier ? { animationTier: current.brief.animationTier } : {}),
         ...checkedBrief.brief,
+        ...(isAnimationTier(update.animationTier) ? { animationTier: update.animationTier } : {}),
         ...(current.keepOverLength && update.keepOverLength === undefined ? { keepOverLength: true } : {})
       };
+    } else if (isAnimationTier(update.animationTier) && parsedBriefUpdate) {
+      parsedBriefUpdate = { ...parsedBriefUpdate, animationTier: update.animationTier };
     }
+    const animationTier: AnimationTier | undefined =
+      isAnimationTier(update.animationTier)
+        ? update.animationTier
+        : parsedBriefUpdate?.animationTier ?? current.animationTier;
+    const billingPolicyVersion: BillingPolicyVersion | undefined =
+      isBillingPolicyVersion(update.billingPolicyVersion)
+        ? update.billingPolicyVersion
+        : current.billingPolicyVersion;
     const keepOverLength =
       typeof update.keepOverLength === "boolean"
         ? update.keepOverLength
@@ -323,6 +359,8 @@ export async function updateProject(id: string, update: ProjectUpdate) {
       ...(approvedAt ? { approvedAt } : {}),
       ...(archived !== undefined ? { archived } : {}),
       ...(keepOverLength !== undefined ? { keepOverLength } : {}),
+      ...(animationTier ? { animationTier } : {}),
+      ...(billingPolicyVersion ? { billingPolicyVersion } : {}),
       updatedAt: new Date().toISOString()
     });
   });
@@ -479,7 +517,7 @@ export type UpdateProjectPlanOptions = {
 };
 
 export type PlanMutationPatch = Pick<VideoProject, "brief" | "beatPlan"> &
-  Partial<Pick<VideoProject, "script" | "state" | "request" | "planAudio" | "coverFrame" | "filmSeconds" | "keepOverLength">>;
+  Partial<Pick<VideoProject, "script" | "state" | "request" | "planAudio" | "coverFrame" | "filmSeconds" | "keepOverLength" | "animationTier" | "billingPolicyVersion">>;
 
 export async function updateProjectPlan(
   id: string,

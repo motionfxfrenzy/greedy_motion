@@ -271,7 +271,9 @@ export const config = {
     },
     /** Where checkout sends the buyer afterwards. */
     returnUrl: process.env.BILLING_RETURN_URL || `${corsOrigins[0] ?? "http://localhost:3000"}/profile`
-  }
+  },
+  /** Versioned billing policy ("v1_render_only" default in production; "v2_step_tier" enables per-step generation billing and Standard/Premium animation tiers). */
+  billingPolicyVersion: (process.env.BILLING_POLICY_VERSION === "v2_step_tier" ? "v2_step_tier" : "v1_render_only") as "v1_render_only" | "v2_step_tier"
 } as const;
 
 if (config.planner === "anthropic") {

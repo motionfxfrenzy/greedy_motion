@@ -43,8 +43,8 @@ type ApiError = { error?: { message?: string; code?: string; tier?: string; used
 export class LimitError extends Error {
   constructor(
     message: string,
-    /** preview_limit: films allowed by the plan are used; preview_call_cap: this film has had too many changes; insufficient_tokens: the balance does not cover the action. */
-    readonly code: "preview_limit" | "preview_call_cap" | "insufficient_tokens",
+    /** preview_limit: films allowed by the plan are used; preview_call_cap: this film has had too many changes; insufficient_tokens: the balance does not cover the action; premium_requires_subscription: Free account requested Premium animation. */
+    readonly code: "preview_limit" | "preview_call_cap" | "insufficient_tokens" | "premium_requires_subscription",
     readonly tier: string | null,
     readonly used: number | null,
     readonly limit: number | null,
@@ -59,7 +59,13 @@ export class LimitError extends Error {
 /** The error to throw for a failed backend answer: a LimitError for an allowance refusal (402), else a plain Error with the backend's message. */
 function failure(response: Response, body: ApiError, fallback: string): Error {
   const error = body.error;
-  if (response.status === 402 && (error?.code === "preview_limit" || error?.code === "preview_call_cap" || error?.code === "insufficient_tokens")) {
+  if (
+    response.status === 402 &&
+    (error?.code === "preview_limit" ||
+      error?.code === "preview_call_cap" ||
+      error?.code === "insufficient_tokens" ||
+      error?.code === "premium_requires_subscription")
+  ) {
     return new LimitError(error.message ?? fallback, error.code, error.tier ?? null, error.used ?? null, error.limit ?? null, error.needed ?? null, error.remaining ?? null);
   }
   return new Error(error?.message ?? fallback);
@@ -189,10 +195,86 @@ export type TokenSummary = {
 
 /** The caller's token balance and recent activity, read from the backend's ledger. */
 /** What the final render takes, worked out by the server with the same function the render charges with (backend: render/quote.ts). */
-export type RenderQuote = { seconds: number | null; tokens: number | null; parts: { start: number; perSecond: number; seconds: number | null }; ready: boolean; material: { required: boolean; owedTokens: number }; balance: number; enough: boolean };
+export type RenderQuote = {
+  seconds: number | null;
+  tokens: number | null;
+  parts: { start: number; perSecond: number; seconds: number | null };
+  ready: boolean;
+  material: { required: boolean; owedTokens: number };
+  balance: number;
+  enough: boolean;
+  pricingVersion?: "v1_render_only" | "v2_step_tier";
+  animationTier?: "standard" | "premium";
+  exportTokens?: number | null;
+  remainingGenerationTokens?: number;
+  alreadyPaidTokens?: number;
+  quoteId?: string | null;
+};
 export async function getRenderQuote(projectId: string): Promise<RenderQuote> {
   const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/render/quote", { cache: "no-store" });
   return parse<RenderQuote>(response, "Could not work out the price.");
+}
+
+export type StepQuoteView = {
+  quoteId: string;
+  projectId: string;
+  stage: string;
+  pricingVersion: "v1_render_only" | "v2_step_tier";
+  animationTier: "standard" | "premium";
+  tokens: number;
+  milli: number;
+  unitsTotal: number;
+  reusedUnits: number;
+  workFingerprint: string;
+  revisionDigest: string;
+  expiresAt: string;
+};
+
+export type ProjectBillingOverview = {
+  projectId: string;
+  pricingVersion: "v1_render_only" | "v2_step_tier";
+  planTier: "free" | "starter" | "pro" | "business";
+  animationTier: "standard" | "premium";
+  canUsePremium: boolean;
+  premiumLockedCopy: string;
+  balance: number;
+  alreadyPaidTokens: number;
+  steps: {
+    scriptWrite: StepQuoteView;
+    scriptEditBeat: StepQuoteView;
+    storyboardPlan: StepQuoteView;
+    frameSketch: StepQuoteView & { uncachedIndices: number[] };
+    voiceMusic: StepQuoteView & { uncachedVoiceIndices: number[]; needsMusic: boolean };
+    animation: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
+    renderExport: {
+      seconds: number | null;
+      tokens: number | null;
+      exportTokens: number | null;
+      remainingGenerationTokens: number;
+      alreadyPaidTokens: number;
+      quoteId: string | null;
+    };
+  };
+  tiers: {
+    standard: { available: boolean; animationQuoteTokens: number };
+    premium: { available: boolean; lockedCopy: string; animationQuoteTokens: number };
+  };
+};
+
+export async function getProjectBillingQuote(
+  projectId: string,
+  options?: { brief?: ScriptBrief; beats?: ScriptBeat[]; animationTier?: "standard" | "premium" }
+): Promise<ProjectBillingOverview> {
+  if (options?.brief || options?.beats || options?.animationTier) {
+    const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/billing/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options)
+    });
+    return parse<ProjectBillingOverview>(response, "Could not load the step quote.");
+  }
+  const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/billing/quote`, { cache: "no-store" });
+  return parse<ProjectBillingOverview>(response, "Could not load the step quote.");
 }
 
 /** Changes made to a film after it was first made, against the ones its start fee covers (backend: revision-meter). */
@@ -299,8 +381,21 @@ export async function generateProjectScript(id: string) {
 }
 
 /** `motionBlur` is the person's choice at final submission; a preview never takes it. */
-export async function renderProject(id: string, options: { motionBlur?: boolean } = {}) {
-  const response = await apiFetch(apiOrigin + "/v1/projects/" + id + "/render", options.motionBlur ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ motionBlur: true }) } : { method: "POST" });
+export async function renderProject(id: string, options: { motionBlur?: boolean; quoteId?: string | null } = {}) {
+  const hasBody = Boolean(options.motionBlur || options.quoteId);
+  const response = await apiFetch(
+    apiOrigin + "/v1/projects/" + id + "/render",
+    hasBody
+      ? {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(options.motionBlur ? { motionBlur: true } : {}),
+            ...(options.quoteId ? { quoteId: options.quoteId } : {})
+          })
+        }
+      : { method: "POST" }
+  );
   return parse<RenderJob>(response, "Could not start the render.");
 }
 
@@ -359,6 +454,8 @@ export type PlanPatch = {
   aspect?: "16:9" | "9:16" | "1:1";
   /** Selected multi-format aspect ratios. */
   aspects?: ("16:9" | "9:16" | "1:1")[];
+  /** Animation authoring quality tier ("standard" | "premium"). */
+  animationTier?: "standard" | "premium";
   /** Element-level overrides keyed by stable element id (`data-el`); null clears an entry or all overrides. */
   overrides?: Record<string, HyperFramesOverridesMap[string] | null> | null;
 };
@@ -641,7 +738,7 @@ export type AnimateStreamEvent =
  */
 export async function streamScriptAnimate(
   projectId: string,
-  input: { brief: ScriptBrief; beats: ScriptBeat[] },
+  input: { brief: ScriptBrief; beats: ScriptBeat[]; animationTier?: "standard" | "premium"; quoteId?: string },
   onEvent: (event: AnimateStreamEvent) => void,
   signal?: AbortSignal
 ): Promise<VideoProject | null> {
@@ -987,11 +1084,19 @@ export async function getPlates(projectId: string): Promise<PlateStatus> {
 export async function savePlateSubtitles(projectId: string, input: Partial<PlateSubtitles>): Promise<PlateSubtitles> {
   return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/subtitles`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }), "Could not update subtitles.");
 }
-export async function drawPlates(projectId: string): Promise<PlateStatus> {
-  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/draw`, { method: "POST" }), "Could not start drawing the scenes.");
+export async function drawPlates(projectId: string, options?: { animationTier?: "standard" | "premium"; quoteId?: string }): Promise<PlateStatus> {
+  return parse(
+    await apiFetch(
+      `${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/draw`,
+      options
+        ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(options) }
+        : { method: "POST" }
+    ),
+    "Could not start drawing the scenes."
+  );
 }
-export async function drawPlateAspect(projectId: string, aspect: "16:9" | "9:16" | "1:1"): Promise<PlateStatus> {
-  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/draw-aspect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aspect }) }), "Could not draw this dimension.");
+export async function drawPlateAspect(projectId: string, aspect: "16:9" | "9:16" | "1:1", options?: { animationTier?: "standard" | "premium"; quoteId?: string }): Promise<PlateStatus> {
+  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/draw-aspect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aspect, ...(options ?? {}) }) }), "Could not draw this dimension.");
 }
 export async function addPlateComment(projectId: string, at: number, body: string): Promise<PlateComment> {
   return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/comments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ at, body }) }), "Could not add the comment.");
@@ -1000,8 +1105,16 @@ export async function removePlateComment(projectId: string, id: string): Promise
   const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/comments/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!response.ok && response.status !== 204) throw new Error("Could not remove the comment.");
 }
-export async function fixPlates(projectId: string): Promise<PlateStatus> {
-  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/fix`, { method: "POST" }), "Could not redraw the scenes.");
+export async function fixPlates(projectId: string, options?: { animationTier?: "standard" | "premium"; quoteId?: string }): Promise<PlateStatus> {
+  return parse(
+    await apiFetch(
+      `${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/fix`,
+      options
+        ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(options) }
+        : { method: "POST" }
+    ),
+    "Could not redraw the scenes."
+  );
 }
 export function plateClipUrl(projectId: string, index: number, version: string, aspect?: "16:9" | "9:16" | "1:1") {
   const base = outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/plates/${index}/clip`) + (outputUrl("/x").includes("?") ? "&" : "?") + `v=${encodeURIComponent(version)}`;

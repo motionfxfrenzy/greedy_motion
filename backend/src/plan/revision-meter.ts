@@ -4,6 +4,7 @@ import { callerId, isOpen } from "../auth.ts";
 import { tierFor } from "../billing/service.ts";
 import { pool } from "../db/database.ts";
 import { getProject } from "../projects/store.ts";
+import { stepBillingOnForProject } from "../billing/step-billing.ts";
 import { FREE_REVISIONS, REVISION_TOKENS, type PlanTier } from "../tokens/plan.ts";
 import { InsufficientTokens, refundSpend, spendTokens } from "../tokens/store.ts";
 import { meteringOn, previewPeriod } from "./preview-meter.ts";
@@ -85,8 +86,11 @@ export function registerRevisionMeter(app: FastifyInstance) {
     if (!match) return;
     const projectId = match[1]!.toLowerCase();
     const route = match[2]!.toLowerCase() as "plan" | "film/fix";
+    const project = await getProject(projectId);
+    // Under v2_step_tier, each explicit rebuild or fix charges for its actual changed step work; never stack the v1 flat revision fee.
+    if (project && stepBillingOnForProject(project)) return;
     // The first storyboard of a film is its making, covered by the start fee; only a rebuild is a revision.
-    if (route === "plan" && !(await getProject(projectId))?.beatPlan) return;
+    if (route === "plan" && !project?.beatPlan) return;
     const userId = callerId(request);
     try {
       const token = await takeRevision(userId, projectId, await tierFor(userId));

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
-import { formatDurationSeconds, PLANS, PAID_TIERS, PREVIEW_ALLOWANCE, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, remapIndicesOnInsert, remapIndicesOnRemove, type BillingInterval, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
+import { ANIMATION_TIER_SPECS, DEFAULT_ANIMATION_TIER, formatDurationSeconds, PLANS, PAID_TIERS, PREMIUM_LOCKED_COPY, PREVIEW_ALLOWANCE, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, remapIndicesOnInsert, remapIndicesOnRemove, type AnimationTier, type BillingInterval, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
 import Link from "next/link";
 import { getMyTokens, startCheckout, type LimitError, type ScriptFlag } from "../lib/api";
 
@@ -143,6 +143,7 @@ export function limitCopy(limit: LimitError) {
   const have = limit.limit ?? 0;
   if (limit.code === "preview_call_cap") return { title: "This film has had a lot of changes", plans: false, pack: false };
   if (limit.code === "insufficient_tokens") return { title: "You need more tokens for this", plans: true, pack: true };
+  if (limit.code === "premium_requires_subscription") return { title: "Upgrade to access Premium animation", plans: true, pack: false };
   if (limit.tier === "free" || limit.tier === null) return { title: `You've used your ${have || 3} free previews`, plans: true, pack: false };
   return { title: "You've reached this month's film limit", plans: true, pack: false };
 }
@@ -255,7 +256,7 @@ function RenderAction({ seconds, rendering, label, disabled, onRender }: { secon
  * beside it; a single prompt bar at the bottom asks the AI for changes. Confirming the script voices it; the storyboard is
  * built from it in the background.
  */
-export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing, onInsertScene, onRemoveScene, undoScene, onUndoRemoveScene, onDismissUndoScene }: {
+export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing, onInsertScene, onRemoveScene, undoScene, onUndoRemoveScene, onDismissUndoScene, animationTier = DEFAULT_ANIMATION_TIER, canUsePremium = false, onAnimationTierChange, onLockedPremiumClick, animationQuoteTokens, voiceQuoteTokens }: {
   /** Identifies the open project so duration acceptance never leaks across projects. */
   projectId?: string;
   /** Durable per-project flag indicating the user already accepted the over-length notice. */
@@ -316,6 +317,14 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
   onUndoRemoveScene?: () => Promise<void> | void;
   /** Dismisses the Undo banner. */
   onDismissUndoScene?: () => void;
+  /** Selected animation authoring quality tier ("standard" = Gemini 3.8 Flash, "premium" = Claude Opus 5.5). */
+  animationTier?: AnimationTier;
+  /** Whether the signed-in account has an active paid subscription eligible for Premium animation. */
+  canUsePremium?: boolean;
+  onAnimationTierChange?: (tier: AnimationTier) => void;
+  onLockedPremiumClick?: () => void;
+  animationQuoteTokens?: number | null;
+  voiceQuoteTokens?: number | null;
 }) {
   const [ask, setAsk] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -721,7 +730,7 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
               title={`Make the ${soundLabel} now to listen before rendering`}
               onClick={() => (voice.state === "failed" || hasVoiceErrors ? (onRetryVoice ? onRetryVoice() : onConfirm()) : onConfirm())}
             >
-              {voice.state === "failed" || hasVoiceErrors ? `Retry ${soundLabel}` : `Build ${soundLabel}`}
+              {voice.state === "failed" || hasVoiceErrors ? `Retry ${soundLabel}` : `Build ${soundLabel}`}{voiceQuoteTokens && voiceQuoteTokens > 0 ? ` · ${voiceQuoteTokens}t` : ""}
             </button>
           ) : (
             <button
@@ -735,6 +744,36 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
             </button>
           )
         )}
+        {!streaming && onAnimationTierChange && (
+          <div className="ss-chips sc-tier-chips" role="radiogroup" aria-label="Animation quality" title={!canUsePremium ? PREMIUM_LOCKED_COPY : "Animation quality tier"}>
+            {(["standard", "premium"] as AnimationTier[]).map((tierId) => {
+              const effectiveTier: AnimationTier = animationTier === "premium" && canUsePremium ? "premium" : "standard";
+              const isSelected = effectiveTier === tierId;
+              const locked = tierId === "premium" && !canUsePremium;
+              const spec = ANIMATION_TIER_SPECS[tierId];
+              return (
+                <button
+                  type="button"
+                  key={tierId}
+                  role="radio"
+                  aria-checked={isSelected}
+                  aria-disabled={locked || undefined}
+                  className={`${isSelected ? "selected" : ""}${locked ? " is-locked" : ""}`.trim()}
+                  title={locked ? PREMIUM_LOCKED_COPY : spec.summary}
+                  onClick={() => {
+                    if (locked) {
+                      onLockedPremiumClick?.();
+                      return;
+                    }
+                    onAnimationTierChange(tierId);
+                  }}
+                >
+                  {spec.label}{locked ? " 🔒" : ""}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {!streaming && (
           <button
             type="button"
@@ -742,7 +781,9 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
             disabled={beats.length === 0 || rendering}
             onClick={onRender}
           >
-            {rendering ? "Preparing animation…" : "Create animation →"}
+            {rendering
+              ? "Preparing animation…"
+              : `Create animation${animationQuoteTokens && animationQuoteTokens > 0 ? ` (${animationQuoteTokens} tokens)` : ""} →`}
           </button>
         )}
       </div>

@@ -1,15 +1,34 @@
 import { enqueueVisuals, visualStatus, VisualWorkerBusy } from "./visuals.ts";
-import { visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
+import { materialBillingOn, visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { aspects, audioModes, captionModes, BEAT_LIMITS, effectiveBriefDurationSeconds, ensureScriptBeatIds, findGalleryTemplate, formatForDuration, inferVideoType, isScriptLedDuration, parseScriptNotes, resolvePrimaryAspect, scriptFrameKey, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voices, voiceIds, voiceText, validateBeatLayoutHint, validateHyperFramesOverrides, type Aspect, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type EditPatch, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type ScriptNotes, type VideoProject } from "@videosaas/contracts";
+import { aspects, audioModes, captionModes, BEAT_LIMITS, effectiveBriefDurationSeconds, ensureScriptBeatIds, findGalleryTemplate, formatForDuration, inferVideoType, isAnimationTier, isPaidTier, isScriptLedDuration, materialCostMillitokens, materialCostMillitokensV2, parseScriptNotes, resolvePrimaryAspect, scriptFrameKey, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voices, voiceIds, voiceText, validateBeatLayoutHint, validateHyperFramesOverrides, type Aspect, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type EditPatch, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type ScriptNotes, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
 import { getBrand } from "../brand/store.ts";
 import { registerRequestId, requestIdOf, upstreamError, upstreamSseError } from "../http-errors.ts";
 import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan, type PlanMutationPatch } from "../projects/store.ts";
 import { config } from "../config.ts";
+import {
+  PremiumRequiresSubscriptionError,
+  QuoteStaleError,
+  assertAnimationTierEntitled,
+  effectiveBillingPolicyVersion,
+  quoteAnimationStep,
+  quoteFrameSketchStep,
+  quotePlateDrawStep,
+  quoteScriptStep,
+  quoteStoryboardPlanStep,
+  quoteVoiceMusicStep,
+  releaseStepReservation,
+  reserveStepTokens,
+  resolveProjectAnimationTier,
+  settlePartialStepReservation,
+  settleStepReservation,
+  stepBillingOnForProject
+} from "../billing/step-billing.ts";
+import { InsufficientTokens, refundSpend, spendTokens } from "../tokens/store.ts";
 import { synthesizeVoiceover, TTS_MODEL } from "../audio/gemini-tts.ts";
 import { readMedia, saveMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
@@ -51,6 +70,7 @@ const notFound = { error: { code: "not_found", message: "Project not found." } }
 /** Director jobs running in this process. Shutdown waits for them, so a deploy does not drop a script half-written. */
 const runningPlans = new Set<Promise<void>>();
 const jobs = new Map<string, AbortController>();
+const planReservations = new Map<string, string>();
 export const isPlanRunning = (projectId: string) => jobs.has(projectId);
 export async function waitForPlans(timeoutMs: number) {
   if (runningPlans.size === 0) return;
@@ -504,7 +524,7 @@ const withLook = (brief: ScriptBrief, look: LookId): ScriptBrief => {
   return look === "clean" ? rest : { ...rest, look };
 };
 
-type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown; styleExample?: unknown; captions?: unknown; audioMode?: unknown; aspect?: unknown; aspects?: unknown; overrides?: unknown };
+type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown; styleExample?: unknown; captions?: unknown; audioMode?: unknown; aspect?: unknown; aspects?: unknown; overrides?: unknown; animationTier?: unknown };
 
 /** Applies storyboard edits. Returns the edited plan, or the problems that block it. */
 export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan: BeatPlan } | { problems: string[] } {
@@ -644,9 +664,45 @@ export async function registerPlanRoutes(app: FastifyInstance) {
   });
   app.post<{ Params: { id: string }; Body: { budgetUsd?: number } }>("/v1/projects/:id/visuals", async (request, reply) => {
     try {
-      const project = await enqueueVisuals(request.params.id, Number(request.body?.budgetUsd));
+      const current = await getProject(request.params.id);
+      if (!current) return reply.code(404).send(notFound);
+      const userId = callerId(request);
+      let billing: import("./visuals.ts").MaterialBilling | undefined;
+      if (materialBillingOn()) {
+        const userTier = await tierFor(userId);
+        if (!isPaidTier(userTier)) {
+          return reply.code(402).send({
+            error: {
+              code: "material_requires_plan",
+              message: "Generated scenes are included with paid plans. Choose a plan to generate scenes.",
+              tier: userTier
+            }
+          });
+        }
+        const isV2 = effectiveBillingPolicyVersion(current) === "v2_step_tier";
+        billing = {
+          charge: async (usd, runId) => {
+            const milli = isV2 ? materialCostMillitokensV2(usd) : materialCostMillitokens(usd);
+            const spend = await spendTokens(userId, milli, "material", `${current.id}:${runId}`, current.id);
+            return async () => {
+              if (spend.charged) await refundSpend(userId, spend.event);
+            };
+          }
+        };
+      }
+      const project = await enqueueVisuals(request.params.id, Number(request.body?.budgetUsd), undefined, billing);
       return project ? reply.code(202).send(visualStatus(project)) : reply.code(404).send(notFound);
     } catch (error) {
+      if (error instanceof InsufficientTokens) {
+        return reply.code(402).send({
+          error: {
+            code: "insufficient_tokens",
+            message: `Generating these scenes needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+            needed: error.needed,
+            remaining: error.remaining
+          }
+        });
+      }
       if (isVisualEnqueueDomainError(error)) return reply.code(409).send({ error: { code: "visual_generation", message: error.message } });
       return reply.code(409).send(upstreamError(request, error, "visual_generation", "Generation unavailable."));
     }
@@ -676,7 +732,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
    * or `{ error }`. With `instruction` and `previous` it changes an existing script. Nothing is saved: the page keeps the
    * script and sends it with the brief (`scriptBeats`) when it asks for the storyboard.
    */
-  app.post<{ Params: { id: string }; Body: { brief?: unknown; instruction?: unknown; previous?: unknown; notes?: unknown; only?: unknown } }>("/v1/projects/:id/script/stream", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { brief?: unknown; instruction?: unknown; previous?: unknown; notes?: unknown; only?: unknown; quoteId?: string } }>("/v1/projects/:id/script/stream", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
     const parsed = parseScriptBrief(request.body?.brief);
@@ -691,6 +747,43 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const notes = parseScriptNotes(request.body?.notes);
     const { context } = await directorContextFor(project, parsed.brief);
 
+    const userId = callerId(request);
+    let reservationId: string | null = null;
+    if (stepBillingOnForProject(project)) {
+      try {
+        const quote = await quoteScriptStep({
+          userId,
+          project,
+          brief: parsed.brief,
+          ...(only.length ? { onlyIndices: only } : {}),
+          persist: false
+        });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote,
+          quoteIdFromClient: request.body?.quoteId,
+          ledgerReason: only.length ? "script_edit" : "script"
+        });
+        if (reservation.reservedMilli > 0) reservationId = reservation.id;
+      } catch (error) {
+        if (error instanceof QuoteStaleError) {
+          return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+        }
+        if (error instanceof InsufficientTokens) {
+          return reply.code(402).send({
+            error: {
+              code: "insufficient_tokens",
+              message: `Writing this script needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+              needed: error.needed,
+              remaining: error.remaining
+            }
+          });
+        }
+        throw error;
+      }
+    }
+
     const controller = new AbortController();
     request.raw.on("close", () => controller.abort());
     reply.hijack();
@@ -699,6 +792,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const started = Date.now();
     let firstMs: number | null = null;
     let text = "";
+    let settled = false;
     try {
       for await (const chunk of writeScript({ brief: parsed.brief, context, ...(instruction && previous ? { instruction, previous, notes, ...(only.length ? { only } : {}) } : {}) }, controller.signal)) {
         if (firstMs === null) firstMs = Date.now() - started;
@@ -707,13 +801,23 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       }
       const { beats, notes: plan, flags } = finishScript(text, parsed.brief, context, only.length && previous ? { previous, only, notes } : undefined);
       if (beats.length === 0) throw new Error("The script came back empty. Try again.");
+      if (reservationId) {
+        await settleStepReservation(reservationId).catch(() => undefined);
+        settled = true;
+      }
       send({ done: true, beats, notes: plan ?? (instruction ? notes : null), flags, ms: Date.now() - started });
       app.log.info({ event: "script_streamed", projectId: project.id, firstMs, ms: Date.now() - started, beats: beats.length, flags: flags.length, change: Boolean(instruction), only: only.length || undefined }, "script streamed");
     } catch (error) {
+      if (reservationId && !settled) {
+        await releaseStepReservation(reservationId).catch(() => undefined);
+      }
       if (!controller.signal.aborted) {
         send(upstreamSseError(request, error, "Could not write the script."));
       }
     } finally {
+      if (reservationId && !settled) {
+        await releaseStepReservation(reservationId).catch(() => undefined);
+      }
       reply.raw.end();
     }
   });
@@ -806,7 +910,34 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     }
 
     const userId = callerId(request);
-    if (meteringOn() && (!idemScopeKey || !meteredSceneInsertKeys.has(idemScopeKey))) {
+    let insertReservationId: string | null = null;
+    if (stepBillingOnForProject(project)) {
+      if (!idemScopeKey || !meteredSceneInsertKeys.has(idemScopeKey)) {
+        try {
+          const quote = await quoteScriptStep({ userId, project, brief, isSingleSceneInsert: true, persist: false });
+          const reservation = await reserveStepTokens({
+            userId,
+            projectId: project.id,
+            quote,
+            ledgerReason: "scene_insert"
+          });
+          if (reservation.reservedMilli > 0) insertReservationId = reservation.id;
+          if (idemScopeKey) meteredSceneInsertKeys.add(idemScopeKey);
+        } catch (error) {
+          if (error instanceof InsufficientTokens) {
+            return reply.code(402).send({
+              error: {
+                code: "insufficient_tokens",
+                message: `Adding a scene needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+                needed: error.needed,
+                remaining: error.remaining
+              }
+            });
+          }
+          throw error;
+        }
+      }
+    } else if (meteringOn() && (!idemScopeKey || !meteredSceneInsertKeys.has(idemScopeKey))) {
       const refusal = await admitPreview(userId, project.id, await tierFor(userId));
       if (refusal) return reply.code(402).send(refusal);
       if (idemScopeKey) meteredSceneInsertKeys.add(idemScopeKey);
@@ -874,8 +1005,10 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     }
     try {
       const result = await task;
+      if (insertReservationId) await settleStepReservation(insertReservationId).catch(() => undefined);
       return reply.send(result);
     } catch (error) {
+      if (insertReservationId) await releaseStepReservation(insertReservationId).catch(() => undefined);
       if (idemScopeKey) sceneInsertIdempotency.delete(idemScopeKey);
       if (error instanceof ProjectInvalid) {
         return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
@@ -1065,7 +1198,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
    * changed. Each frame is saved on the project (`scriptFrames`) under its key, and a beat whose key is already saved is
    * sent back at once instead of being drawn again.
    */
-  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown; indices?: unknown; notes?: unknown } }>("/v1/projects/:id/script/frames", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown; indices?: unknown; notes?: unknown; quoteId?: string } }>("/v1/projects/:id/script/frames", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
     const parsed = parseScriptBrief(request.body?.brief);
@@ -1082,6 +1215,44 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const style = template && code ? { name: template.name, code } : null;
     const notes = parseScriptNotes(request.body?.notes) ?? brief.scriptNotes ?? null;
 
+    const userId = callerId(request);
+    let framesReservationId: string | null = null;
+    if (stepBillingOnForProject(project)) {
+      try {
+        const quote = await quoteFrameSketchStep({
+          userId,
+          project,
+          brief,
+          beats,
+          wantedIndices: wanted,
+          persist: false
+        });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote,
+          quoteIdFromClient: request.body?.quoteId,
+          ledgerReason: "frames"
+        });
+        if (reservation.reservedMilli > 0) framesReservationId = reservation.id;
+      } catch (error) {
+        if (error instanceof QuoteStaleError) {
+          return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+        }
+        if (error instanceof InsufficientTokens) {
+          return reply.code(402).send({
+            error: {
+              code: "insufficient_tokens",
+              message: `Drawing these storyboard frames needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+              needed: error.needed,
+              remaining: error.remaining
+            }
+          });
+        }
+        throw error;
+      }
+    }
+
     const controller = new AbortController();
     request.raw.on("close", () => controller.abort());
     reply.hijack();
@@ -1089,6 +1260,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const send = (event: unknown) => { if (!reply.raw.writableEnded) reply.raw.write(`data: ${JSON.stringify(event)}\n\n`); };
     const started = Date.now();
     let failed = 0;
+    let delivered = 0;
     // Four at a time: each frame takes a few seconds, and the first ones should land while the person is still reading.
     const keyFor = (index: number) => scriptFrameKey(beats[index]!, brief);
     const saved = new Map((project.scriptFrames ?? []).map((frame) => [frame.key, frame.svg]));
@@ -1104,6 +1276,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           send({ index, svg });
           await saveScriptFrame(project.id, { key: keyFor(index), svg }).catch((error) => app.log.warn({ err: error, projectId: project.id }, "frame not saved"));
           if (index === 0) await setCoverFrame(project.id, svg).catch(() => undefined);
+          delivered += 1;
         } catch (error) {
           if (controller.signal.aborted) return;
           failed += 1;
@@ -1111,7 +1284,13 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         }
       }
     };
-    await Promise.all(Array.from({ length: Math.min(4, queue.length) }, draw));
+    try {
+      await Promise.all(Array.from({ length: Math.min(4, queue.length) }, draw));
+    } finally {
+      if (framesReservationId) {
+        await settlePartialStepReservation(framesReservationId, delivered, "frames-stream").catch(() => undefined);
+      }
+    }
     send({ done: true, ms: Date.now() - started });
     app.log.info({ event: "frames_sketched", projectId: project.id, frames: wanted.length, drawn: drawnCount, failed, styled: Boolean(style), ms: Date.now() - started }, "frames sketched");
     reply.raw.end();
@@ -1124,7 +1303,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
    * Does not wait for `beatPlan`: works directly from the Storyboard's `beats` and `brief`, and saves each
    * take onto `project.planAudio` as soon as it finishes so the browser can play each scene immediately.
    */
-  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown; indices?: unknown; force?: unknown; includeMusic?: unknown } }>("/v1/projects/:id/script/voice", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown; indices?: unknown; force?: unknown; includeMusic?: unknown; quoteId?: string } }>("/v1/projects/:id/script/voice", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
     if (!config.geminiApiKey) return reply.code(503).send({ error: { code: "audio_unavailable", message: "Voiceover and music need GEMINI_API_KEY." } });
@@ -1149,6 +1328,46 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       (brief.audio.mode === "music" || brief.audio.mode === "both") &&
       (force || !project.planAudio?.music);
 
+    const userId = callerId(request);
+    let voiceReservationId: string | null = null;
+    if (stepBillingOnForProject(project)) {
+      try {
+        const quote = await quoteVoiceMusicStep({
+          userId,
+          project,
+          brief,
+          beats,
+          ...(hasScopedIndices ? { wantedIndices: candidateIndices } : {}),
+          force,
+          includeMusic: request.body?.includeMusic !== false,
+          persist: false
+        });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote,
+          quoteIdFromClient: request.body?.quoteId,
+          ledgerReason: "voice"
+        });
+        if (reservation.reservedMilli > 0) voiceReservationId = reservation.id;
+      } catch (error) {
+        if (error instanceof QuoteStaleError) {
+          return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+        }
+        if (error instanceof InsufficientTokens) {
+          return reply.code(402).send({
+            error: {
+              code: "insufficient_tokens",
+              message: `Recording voiceover and music needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+              needed: error.needed,
+              remaining: error.remaining
+            }
+          });
+        }
+        throw error;
+      }
+    }
+
     const controller = new AbortController();
     request.raw.on("close", () => controller.abort());
     reply.hijack();
@@ -1167,6 +1386,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const totalSteps = Math.max(1, wanted.length + (wantMusic ? 1 : 0));
     let completedSteps = 0;
     let failed = 0;
+    let deliveredUnits = 0;
     const progressPct = () => Math.min(99, Math.round((completedSteps / totalSteps) * 100));
 
     send({ type: "start", total: totalSteps, progress: 2 });
@@ -1224,6 +1444,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
             } satisfies PlanAudio;
           });
           completedSteps += 1;
+          deliveredUnits += 1;
           send({ type: "take", index, file: res.line.file, seconds: res.line.seconds, progress: progressPct() });
         } catch (error) {
           if (controller.signal.aborted) return;
@@ -1263,6 +1484,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
               } satisfies PlanAudio;
             });
             completedSteps += 1;
+            deliveredUnits += 1;
             send({ type: "music", file: track.file, seconds: track.seconds, progress: progressPct() });
           } catch (error) {
             if (controller.signal.aborted) return;
@@ -1277,10 +1499,16 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         })()
       : Promise.resolve();
 
-    await Promise.all([
-      Promise.all(Array.from({ length: Math.min(VOICE_RULES.concurrency, queue.length) }, voiceWorker)),
-      musicJob
-    ]);
+    try {
+      await Promise.all([
+        Promise.all(Array.from({ length: Math.min(VOICE_RULES.concurrency, queue.length) }, voiceWorker)),
+        musicJob
+      ]);
+    } finally {
+      if (voiceReservationId) {
+        await settlePartialStepReservation(voiceReservationId, deliveredUnits, "voice-stream").catch(() => undefined);
+      }
+    }
 
     const latest = await getProject(project.id);
     send({ type: "done", progress: 100, failed, project: latest });
@@ -1292,9 +1520,13 @@ export async function registerPlanRoutes(app: FastifyInstance) {
    * Streams SSE progress (`0% -> 100%`) as missing frames, voiceover/music, and per-scene SVG animations (`ensureFilmMotion`)
    * finish in parallel.
    */
-  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown } }>("/v1/projects/:id/script/animate", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown; animationTier?: unknown; quoteId?: string } }>("/v1/projects/:id/script/animate", async (request, reply) => {
     let project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
+
+    if (request.body?.animationTier !== undefined && !isAnimationTier(request.body.animationTier)) {
+      return reply.code(400).send({ error: { code: "invalid_tier", message: 'Animation tier must be "standard" or "premium".' } });
+    }
 
     const parsedBrief = request.body?.brief ? parseScriptBrief(request.body.brief) : null;
     const rawBrief = parsedBrief && !("error" in parsedBrief) ? parsedBrief.brief : project.brief;
@@ -1303,11 +1535,66 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const beats = parseScriptBeats(request.body?.beats) ?? rawBrief.scriptBeats ?? project.brief?.scriptBeats;
     if (!beats || !beats.length) return reply.code(400).send({ error: { code: "invalid_script", message: "Send the storyboard scenes." } });
 
+    const userId = callerId(request);
+    const requestedTier = resolveProjectAnimationTier(project, rawBrief, request.body?.animationTier);
+    let routeSnapshot;
+    try {
+      ({ routeSnapshot } = await assertAnimationTierEntitled(userId, requestedTier));
+    } catch (error) {
+      if (error instanceof PremiumRequiresSubscriptionError) {
+        return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+      }
+      throw error;
+    }
+
+    const brief: ScriptBrief = { ...rawBrief, scriptBeats: beats, animationTier: requestedTier };
+
+    let framesReservationId: string | null = null;
+    let audioReservationId: string | null = null;
+    let animCodeReservationId: string | null = null;
+    if (stepBillingOnForProject(project)) {
+      try {
+        const animQuote = await quoteAnimationStep({
+          userId,
+          project,
+          brief,
+          beats,
+          tier: requestedTier,
+          persist: false
+        });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote: animQuote,
+          quoteIdFromClient: request.body?.quoteId,
+          routeSnapshot,
+          ledgerReason: "animation"
+        });
+        if (reservation.reservedMilli > 0) {
+          animCodeReservationId = reservation.id;
+        }
+      } catch (error) {
+        if (error instanceof QuoteStaleError) {
+          return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+        }
+        if (error instanceof InsufficientTokens) {
+          return reply.code(402).send({
+            error: {
+              code: "insufficient_tokens",
+              message: `Creating this animation needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+              needed: error.needed,
+              remaining: error.remaining
+            }
+          });
+        }
+        throw error;
+      }
+    }
+
     // Cancel any slow background director job since we build/sync the BeatPlan from the approved Storyboard beats here
     jobs.get(project.id)?.abort();
     jobs.delete(project.id);
 
-    const brief: ScriptBrief = { ...rawBrief, scriptBeats: beats };
     const plan = buildPlanFromScriptBeats(brief, beats, project.beatPlan);
     const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
     const music = brief.audio.mode === "music" || brief.audio.mode === "both";
@@ -1315,6 +1602,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       (await updateProjectPlan(project.id, (current) => ({
         brief,
         beatPlan: plan,
+        animationTier: requestedTier,
         script: { ...scriptFromPlan(plan, brief.scriptMode === "own" ? "provided" : "generated"), confirmed: true },
         state: current.state === "Approved" ? "Approved" : "Ready for review",
         request: {
@@ -1338,6 +1626,8 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       if (!reply.raw.writableEnded) reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
     };
 
+    let deliveredUnits = 0;
+    let delegatedToPlates = false;
     try {
       // 1. Check any missing reference frames and draw them in parallel (4 at a time)
       const keyFor = (index: number) => scriptFrameKey(beats[index]!, brief);
@@ -1361,6 +1651,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
                 );
                 await saveScriptFrame(project!.id, { key: keyFor(idx), svg });
                 if (idx === 0) await setCoverFrame(project!.id, svg).catch(() => undefined);
+                deliveredUnits += 1;
               } catch {
                 // Keep going if a single frame sketch fails
               }
@@ -1418,6 +1709,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
                     updatedAt: new Date().toISOString()
                   } satisfies PlanAudio;
                 });
+                deliveredUnits += 1;
               } catch {
                 // Non-fatal: timing falls back to estimate for any unvoiced beat
               }
@@ -1452,6 +1744,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
                       updatedAt: new Date().toISOString()
                     } satisfies PlanAudio;
                   });
+                  deliveredUnits += 1;
                 } catch {
                   // Non-fatal: plays without music bed
                 }
@@ -1472,7 +1765,21 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       // 3. For code-drawn plate styles, reconcile and start plate scenes; for HyperFrames, direct per-scene SVG motion
       if (isPlateLook(brief.look)) {
         send({ type: "stage", stage: "motion", done: 0, total: beats.length, progress: 55 });
-        await startPlates(project.id);
+        let plateResId: string | undefined;
+        if (animCodeReservationId && stepBillingOnForProject(project)) {
+          // Settle synchronous frames+audio part and create/attach a dedicated plate-draw reservation if scenes need authoring
+          const drawQuote = await quotePlateDrawStep({ userId, project, tier: requestedTier, persist: false });
+          if (drawQuote.toAuthor.length === 0) {
+            await settleStepReservation(animCodeReservationId).catch(() => undefined);
+          } else {
+            plateResId = animCodeReservationId;
+            delegatedToPlates = true;
+          }
+        }
+        await startPlates(project.id, [], {
+          routeSnapshot,
+          ...(plateResId ? { reservationId: plateResId } : {})
+        });
         for (let idx = 0; idx < beats.length; idx++) {
           send({
             type: "motion",
@@ -1489,29 +1796,49 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         if (timing && frames) {
           const scenes = filmScenes(project, timing, frames);
           send({ type: "stage", stage: "motion", done: 0, total: scenes.length, progress: 52 });
-          project = await ensureFilmMotion(project, scenes, 60_000, ({ index, done, total, cached }) => {
-            send({
-              type: "motion",
-              index,
-              done,
-              total,
-              cached,
-              progress: 50 + Math.round((done / Math.max(1, total)) * 48)
-            });
-          });
+          project = await ensureFilmMotion(
+            project,
+            scenes,
+            60_000,
+            ({ index, done, total, cached, ok }) => {
+              if (!cached && ok) deliveredUnits += 1;
+              send({
+                type: "motion",
+                index,
+                done,
+                total,
+                cached,
+                progress: 50 + Math.round((done / Math.max(1, total)) * 48)
+              });
+            },
+            routeSnapshot.motion
+          );
           project = (await setCoverFrame(project.id, frames[0]!.svg, timing.total)) ?? project;
+        }
+        if (animCodeReservationId) {
+          await settlePartialStepReservation(animCodeReservationId, deliveredUnits, "animate-done").catch(() => undefined);
+          animCodeReservationId = null;
         }
       }
 
       const finalProject = (await getProject(project.id)) ?? project;
       send({ type: "done", progress: 100, project: finalProject });
     } catch (error) {
+      if (animCodeReservationId && !delegatedToPlates) {
+        await settlePartialStepReservation(animCodeReservationId, deliveredUnits, "animate-error").catch(() => undefined);
+        animCodeReservationId = null;
+      }
       send(
         upstreamSseError(request, error, "Could not prepare the browser animation.", {
           type: "error"
         })
       );
     } finally {
+      void framesReservationId;
+      void audioReservationId;
+      if (animCodeReservationId && !delegatedToPlates) {
+        await settlePartialStepReservation(animCodeReservationId, deliveredUnits, "animate-finally").catch(() => undefined);
+      }
       reply.raw.end();
     }
   });
@@ -1524,9 +1851,49 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
     const brief = parsed.brief;
     if (!(await ensurePromptAllowed(reply, [brief.text, brief.productName], `project_${project.id}:plan`))) return;
+    const userId = callerId(request);
+    let planReservationId: string | null = null;
+    if (stepBillingOnForProject(project)) {
+      try {
+        const quoteId = (request.body as { quoteId?: string } | undefined)?.quoteId;
+        const quote = await quoteStoryboardPlanStep({ userId, project, brief, persist: false });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote,
+          quoteIdFromClient: quoteId,
+          ledgerReason: "storyboard"
+        });
+        if (reservation.reservedMilli > 0) {
+          planReservationId = reservation.id;
+          planReservations.set(project.id, reservation.id);
+        }
+      } catch (error) {
+        if (error instanceof QuoteStaleError) {
+          return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+        }
+        if (error instanceof InsufficientTokens) {
+          return reply.code(402).send({
+            error: {
+              code: "insufficient_tokens",
+              message: `Building the storyboard needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+              needed: error.needed,
+              remaining: error.remaining
+            }
+          });
+        }
+        throw error;
+      }
+    }
     const { context, videoType, brandId } = await directorContextFor(project, brief);
     const started = await setProjectPlanning(project.id, { status: "running", startedAt: new Date().toISOString() }, brief);
-    if (!started) return reply.code(404).send(notFound);
+    if (!started) {
+      if (planReservationId) {
+        planReservations.delete(project.id);
+        await releaseStepReservation(planReservationId).catch(() => undefined);
+      }
+      return reply.code(404).send(notFound);
+    }
     const controller = new AbortController();
     jobs.set(project.id, controller);
     const startedAt = Date.now();
@@ -1534,7 +1901,13 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const job = (async () => {
       try {
         const result = await director.plan({ ...brief, videoType }, context, controller.signal);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          if (planReservationId) {
+            planReservations.delete(project.id);
+            await releaseStepReservation(planReservationId).catch(() => undefined);
+          }
+          return;
+        }
         const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
         const music = brief.audio.mode === "music" || brief.audio.mode === "both";
         await updateProjectPlan(project.id, (current) => ({
@@ -1545,8 +1918,16 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           // Keep the existing render request in step with the brief (format and audio) for the current pipeline.
           request: { ...current.request, format: aspectToFormat(brief.aspect), audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" }, ...(brandId ? { brandId } : {}) }
         }));
+        if (planReservationId) {
+          planReservations.delete(project.id);
+          await settleStepReservation(planReservationId).catch(() => undefined);
+        }
         app.log.info({ event: "plan_done", projectId: project.id, ms: Date.now() - startedAt, model: result.model, ...(result.repairedFrom ? { repairedFrom: result.repairedFrom } : {}), ...(result.problems.length ? { problems: result.problems } : {}) }, "plan applied");
       } catch (error) {
+        if (planReservationId) {
+          planReservations.delete(project.id);
+          await releaseStepReservation(planReservationId).catch(() => undefined);
+        }
         if (controller.signal.aborted) return; // cancelled: the cancel route already recorded it
         request.log.error({ event: "plan_failed", projectId: project.id, ms: Date.now() - startedAt, err: error, requestId: requestIdOf(request) }, "script director failed");
         const message = error instanceof ProjectInvalid ? error.message : "The script director failed.";
@@ -1570,14 +1951,30 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const parsed = parseScriptBrief(request.body);
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
     if (!(await ensurePromptAllowed(reply, [parsed.brief.text, parsed.brief.productName], `project_${project.id}:script_draft`))) return;
+    const userId = callerId(request);
+    let draftResId: string | null = null;
+    if (stepBillingOnForProject(project)) {
+      try {
+        const quote = await quoteScriptStep({ userId, project, brief: parsed.brief, persist: false });
+        const reservation = await reserveStepTokens({ userId, projectId: project.id, quote, ledgerReason: "script" });
+        if (reservation.reservedMilli > 0) draftResId = reservation.id;
+      } catch (error) {
+        if (error instanceof InsufficientTokens) {
+          return reply.code(402).send({ error: { code: "insufficient_tokens", message: `Writing this script needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+        }
+        throw error;
+      }
+    }
     try {
       // The words come from the problem text here; a pasted script is already a script.
       const brief = { ...parsed.brief, scriptMode: "problem" as const };
       const { context } = await directorContextFor(project, brief);
       const draft = await draftScript(brief, context, AbortSignal.timeout(100_000));
       const updated = await updateProject(project.id, { script: draft.script });
+      if (draftResId) await settleStepReservation(draftResId).catch(() => undefined);
       return reply.code(201).send(updated);
     } catch (error) {
+      if (draftResId) await releaseStepReservation(draftResId).catch(() => undefined);
       if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
       return reply.code(502).send(upstreamError(request, error, "script_failed", "The script could not be written. Try again."));
     }
@@ -1593,12 +1990,29 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const parsed = parseScriptBrief(request.body?.brief);
     if ("error" in parsed) return reply.code(400).send({ error: { code: "invalid_brief", message: parsed.error } });
     if (!(await ensurePromptAllowed(reply, [instruction, parsed.brief.text, parsed.brief.productName], `project_${project.id}:script_revise`))) return;
+    const userId = callerId(request);
+    let reviseResId: string | null = null;
+    if (stepBillingOnForProject(project)) {
+      try {
+        const quote = await quoteScriptStep({ userId, project, brief: parsed.brief, persist: false });
+        const reservation = await reserveStepTokens({ userId, projectId: project.id, quote, ledgerReason: "script_edit" });
+        if (reservation.reservedMilli > 0) reviseResId = reservation.id;
+      } catch (error) {
+        if (error instanceof InsufficientTokens) {
+          return reply.code(402).send({ error: { code: "insufficient_tokens", message: `Revising this script needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+        }
+        throw error;
+      }
+    }
     try {
       const brief = { ...parsed.brief, scriptMode: "problem" as const };
       const { context } = await directorContextFor(project, brief);
       const draft = await reviseScript(project.script, instruction, brief, context, AbortSignal.timeout(100_000));
-      return reply.send(await updateProject(project.id, { script: draft.script }));
+      const updated = await updateProject(project.id, { script: draft.script });
+      if (reviseResId) await settleStepReservation(reviseResId).catch(() => undefined);
+      return reply.send(updated);
     } catch (error) {
+      if (reviseResId) await releaseStepReservation(reviseResId).catch(() => undefined);
       if (error instanceof ProjectInvalid) return reply.code(400).send({ error: { code: "invalid_project", message: error.message } });
       return reply.code(502).send(upstreamError(request, error, "script_failed", "The change could not be made. Try again."));
     }
@@ -1610,6 +2024,11 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (!project) return reply.code(404).send(notFound);
     jobs.get(project.id)?.abort();
     jobs.delete(project.id);
+    const pendingResId = planReservations.get(project.id);
+    if (pendingResId) {
+      planReservations.delete(project.id);
+      await releaseStepReservation(pendingResId).catch(() => undefined);
+    }
     if (project.planning?.status !== "running") return reply.send({ project });
     const updated = await setProjectPlanning(project.id, { status: "cancelled", startedAt: project.planning.startedAt });
     return reply.send({ project: updated });
@@ -1624,12 +2043,33 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const instruction = typeof request.body?.instruction === "string" ? plainText(request.body.instruction).slice(0, 300).trim() : "";
     if (instruction.length < 3) return reply.code(400).send({ error: { code: "invalid_instruction", message: "Say what to change in a few words." } });
     if (!(await ensurePromptAllowed(reply, [instruction], `project_${project.id}:beat_rewrite_${beat.id}`))) return;
+    const userId = callerId(request);
+    let beatResId: string | null = null;
+    if (stepBillingOnForProject(project) && project.brief) {
+      try {
+        const quote = await quoteScriptStep({ userId, project, brief: project.brief, isSingleBeatRewrite: true, persist: false });
+        const reservation = await reserveStepTokens({ userId, projectId: project.id, quote, ledgerReason: "beat_rewrite" });
+        if (reservation.reservedMilli > 0) beatResId = reservation.id;
+      } catch (error) {
+        if (error instanceof InsufficientTokens) {
+          return reply.code(402).send({ error: { code: "insufficient_tokens", message: `Rewriting this frame needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+        }
+        throw error;
+      }
+    }
     let rewrite;
     try { rewrite = await rewriteBeat(project.beatPlan, beat, instruction, project.brief); }
-    catch (error) { return reply.code(502).send(upstreamError(request, error, "rewrite_failed", "Could not rewrite the frame.")); }
+    catch (error) {
+      if (beatResId) await releaseStepReservation(beatResId).catch(() => undefined);
+      return reply.code(502).send(upstreamError(request, error, "rewrite_failed", "Could not rewrite the frame."));
+    }
     const result = applyPlanEdits(project, { beats: [{ id: beat.id, ...rewrite }] });
-    if ("problems" in result) return reply.code(422).send({ error: { code: "plan_problems", message: result.problems[0] }, problems: result.problems });
+    if ("problems" in result) {
+      if (beatResId) await releaseStepReservation(beatResId).catch(() => undefined);
+      return reply.code(422).send({ error: { code: "plan_problems", message: result.problems[0] }, problems: result.problems });
+    }
     const updated = await updateProjectPlan(project.id, (current) => ({ brief: current.brief, beatPlan: result.plan, script: scriptFromPlan(result.plan, current.script?.source ?? "generated") }));
+    if (beatResId) await settleStepReservation(beatResId).catch(() => undefined);
     return updated ?? reply.code(404).send(notFound);
   });
 
@@ -1638,6 +2078,19 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const patch = (request.body ?? {}) as PlanPatch;
     // The drawing style is visual only (colours and fonts stay the brand's), so it changes without replanning.
     if (patch.look !== undefined && !isLook(patch.look)) return reply.code(400).send({ error: { code: "invalid_look", message: "Unknown look." } });
+    if (patch.animationTier !== undefined && !isAnimationTier(patch.animationTier)) {
+      return reply.code(400).send({ error: { code: "invalid_tier", message: 'Animation tier must be "standard" or "premium".' } });
+    }
+    if (patch.animationTier === "premium") {
+      try {
+        await assertAnimationTierEntitled(callerId(request), "premium");
+      } catch (error) {
+        if (error instanceof PremiumRequiresSubscriptionError) {
+          return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+        }
+        throw error;
+      }
+    }
     let planProblems: string[] | null = null;
     try {
       const updated = await updateProjectPlan(request.params.id, (current) => {
@@ -1648,6 +2101,9 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         }
         // A style change keeps the plan's words; the scenes belong to the style, so any the new style does not have are cleared.
         let brief = current.brief && isLook(patch.look) ? withLook(current.brief, patch.look) : current.brief;
+        if (brief && isAnimationTier(patch.animationTier)) {
+          brief = { ...brief, animationTier: patch.animationTier };
+        }
         if (brief && patch.styleFamily !== undefined) {
           const { styleFamily: _old, ...rest } = brief;
           const family = typeof patch.styleFamily === "string" ? getStyleFamily(patch.styleFamily) : undefined;
@@ -1710,6 +2166,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         return {
           brief,
           beatPlan: plan,
+          ...(isAnimationTier(patch.animationTier) ? { animationTier: patch.animationTier } : {}),
           script: scriptFromPlan(plan, current.script?.source ?? "generated"),
           ...(brief ? { request: { ...current.request, format: aspectToFormat(brief.aspect) } } : {})
         };
@@ -1728,7 +2185,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
    * (default: everything the brief's audio mode needs). The measured takes become the clock, so the
    * response carries the re-timed `durationSeconds` and `beatTimes`.
    */
-  app.post<{ Params: { id: string }; Body: { parts?: unknown } }>("/v1/projects/:id/plan/audio", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { parts?: unknown; quoteId?: string } }>("/v1/projects/:id/plan/audio", async (request, reply) => {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
     if (!project.beatPlan && !project.brief?.scriptBeats?.length) return reply.code(409).send({ error: { code: "no_plan", message: "Generate the plan first." } });
@@ -1736,9 +2193,62 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (raw !== undefined && (!Array.isArray(raw) || raw.some((part) => part !== "voice" && part !== "music"))) {
       return reply.code(400).send({ error: { code: "invalid_parts", message: "parts must list \"voice\" and/or \"music\"." } });
     }
+    const userId = callerId(request);
+    let audioReservationId: string | null = null;
+    if (stepBillingOnForProject(project) && project.brief) {
+      const beats =
+        project.brief.scriptBeats ??
+        (project.beatPlan?.beats ?? []).map((b) => ({
+          id: b.id,
+          keyword: b.keyword,
+          visual: null,
+          onScreen: b.on_screen ?? null,
+          line: b.line ?? null
+        }));
+      const includeMusic = !Array.isArray(raw) || raw.includes("music");
+      const includeVoice = !Array.isArray(raw) || raw.includes("voice");
+      try {
+        const quote = await quoteVoiceMusicStep({
+          userId,
+          project,
+          brief: project.brief,
+          beats,
+          ...(includeVoice ? {} : { wantedIndices: [] }),
+          includeMusic,
+          persist: false
+        });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote,
+          quoteIdFromClient: request.body?.quoteId,
+          ledgerReason: "voice"
+        });
+        if (reservation.reservedMilli > 0) audioReservationId = reservation.id;
+      } catch (error) {
+        if (error instanceof QuoteStaleError) {
+          return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
+        }
+        if (error instanceof InsufficientTokens) {
+          return reply.code(402).send({
+            error: {
+              code: "insufficient_tokens",
+              message: `Recording voiceover and music needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+              needed: error.needed,
+              remaining: error.remaining
+            }
+          });
+        }
+        throw error;
+      }
+    }
     try {
       const result = await producePlanAudio(project.id, () => getProject(project.id), raw as AudioPart[] | undefined);
-      if (!result) return reply.code(404).send(notFound);
+      if (!result) {
+        if (audioReservationId) await releaseStepReservation(audioReservationId).catch(() => undefined);
+        return reply.code(404).send(notFound);
+      }
+      if (audioReservationId) await settleStepReservation(audioReservationId).catch(() => undefined);
       const timing = projectTiming(result.project);
       return {
         project: result.project,
@@ -1749,6 +2259,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         spent_usd: result.spentUsd
       };
     } catch (error) {
+      if (audioReservationId) await releaseStepReservation(audioReservationId).catch(() => undefined);
       if (error instanceof AudioUnavailable) return reply.code(503).send({ error: { code: "audio_unavailable", message: error.message } });
       return reply.code(502).send(upstreamError(request, error, "audio_failed", "The voiceover failed."));
     }
@@ -1919,7 +2430,11 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         },
         {
           admitBatch: async () =>
-            meteringOn() ? admitPreview(userId, project.id, await tierFor(userId)) : null
+            stepBillingOnForProject(project)
+              ? null
+              : meteringOn()
+                ? admitPreview(userId, project.id, await tierFor(userId))
+                : null
         }
       );
       return proposed;
