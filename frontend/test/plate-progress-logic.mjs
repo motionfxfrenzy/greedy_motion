@@ -1777,5 +1777,29 @@ test("buildStagePrepProps picture-visible variants: sketch present (writing/chec
   assert.equal(failedWithSketch.detail, "Worker timed out while drawing scene 1");
   assert.equal(failedWithSketch.sceneLabel, "Scene 1 of 7");
   assert.equal(failedWithSketch.backgroundSketch, sketchUrl);
+
+  // 7. Overdue checking scene (>= 60s elapsed in checking) stops promising "under a minute" and shows "taking longer than usual"
+  const nowStuckChecking = Date.parse(sinceIso) + 95_000;
+  const spStuckChecking = sceneProgress(checkingScene, null, {
+    nowClient: nowStuckChecking,
+    isLiveMode: true,
+    scenes: [checkingScene, finishedHistoryScene]
+  });
+  assert.equal(spStuckChecking.phase, "checking");
+  assert.equal(spStuckChecking.etaSeconds, null, "overdue checking scene clears etaSeconds");
+  assert.equal(spStuckChecking.etaNote, TAKING_LONGER_NOTE);
+  assert.equal(spStuckChecking.takingLongerThanUsual, true);
+
+  const stuckToast = buildFilmProgressToast({
+    scenes: [checkingScene, finishedHistoryScene],
+    progressContext: {
+      nowClient: nowStuckChecking,
+      isLiveMode: true,
+      scenes: [checkingScene, finishedHistoryScene]
+    }
+  });
+  assert.ok(stuckToast);
+  assert.equal(stuckToast.firstLine, "Checking scene 1 · taking longer than usual");
+  assert.ok(!stuckToast.secondLine.includes("under a minute"), "toast second line must not promise under a minute when checking is overdue");
 });
 

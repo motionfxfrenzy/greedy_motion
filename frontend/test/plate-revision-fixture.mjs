@@ -410,6 +410,29 @@ test(
         path: join(SCREENSHOTS_DIR, "stale-revision-1135x775-preparing.png")
       });
 
+      // 2b. Preparing state with storyboard sketches (withSketches=1) -> Play button is enabled, plays storyboard sketch while keeping top toast visible
+      await page.goto(`${origin}/dev/plate-preview-fixture?state=w-preparing-revision&withSketches=1&theme=light`, {
+        waitUntil: "networkidle"
+      });
+      await page.waitForSelector(".aw-wait-sketch");
+      const sketchPrepDom = await page.evaluate(() => ({
+        playDisabled: Boolean(document.querySelector("button.aw-play")?.hasAttribute("disabled")),
+        toastPrimary: (document.querySelector(".aw-film-toast-primary")?.textContent ?? "").trim()
+      }));
+      assert.equal(sketchPrepDom.playDisabled, false, "Play button is enabled while scene is still being processed so storyboard sketch can play");
+      assert.match(sketchPrepDom.toastPrimary, /Scene 1 is being written/);
+      await page.click("button.aw-play");
+      await page.waitForTimeout(350);
+      const playingSketchDom = await page.evaluate(() => ({
+        playLabel: document.querySelector("button.aw-play")?.getAttribute("aria-label") ?? "",
+        toastPrimary: (document.querySelector(".aw-film-toast-primary")?.textContent ?? "").trim(),
+        sketchVisible: Boolean(document.querySelector(".aw-wait-sketch"))
+      }));
+      assert.equal(playingSketchDom.playLabel, "Pause", "storyboard sketch is playing while scene is still being written");
+      assert.match(playingSketchDom.toastPrimary, /Scene 1 is being written/, "top drawing toast stays visible during storyboard playback");
+      assert.equal(playingSketchDom.sketchVisible, true, "storyboard sketch remains visible on stage");
+      await page.click("button.aw-play");
+
       // 3. Partial stale state (v-partial-stale: 5 scenes drawn/reused, 2 scenes edited & marked Needs update)
       activeState = "v-partial-stale";
       await page.goto(`${origin}/dev/plate-preview-fixture?state=v-partial-stale&theme=light`, {

@@ -284,6 +284,8 @@ export function PlateLiveStage({
 
   const clockTimeRef = useRef<number>(time);
   const playingRef = useRef<boolean>(playing);
+  const currentRef = useRef<number>(current);
+  const audioTimelinePropRef = useRef(audioTimeline);
   const playSceneSfxRef = useRef(playSceneSfx);
   const tickSceneSfxRef = useRef(tickSceneSfx);
   const onSetTimeRef = useRef(onSetTime);
@@ -291,6 +293,8 @@ export function PlateLiveStage({
   const lastCheckedFrameRef = useRef<number>(-1);
   clockTimeRef.current = time;
   playingRef.current = playing;
+  currentRef.current = current;
+  audioTimelinePropRef.current = audioTimeline;
   playSceneSfxRef.current = playSceneSfx;
   tickSceneSfxRef.current = tickSceneSfx;
   onSetTimeRef.current = onSetTime;
@@ -966,7 +970,14 @@ export function PlateLiveStage({
             const loaded = v ? getLoadedBundle(bundlesRef.current, v) : undefined;
             const effGen = v ? Math.max(loaded?.gen ?? 1, v.gen) : 1;
             const effDigest = loaded?.bundleDigest ?? v?.bundleDigest;
-            if (v?.variantId && effDigest && !isWatchdogTimeoutError(d.reason)) {
+            const checkOut =
+              v?.variantId && effDigest
+                ? checkTrackerRef.current.getOutcome(v.variantId, effGen, effDigest)
+                : undefined;
+            const isWatchdogEnv =
+              isWatchdogTimeoutError(d.reason) ||
+              Boolean(checkOut && !checkOut.ok && isWatchdogTimeoutError(checkOut.error));
+            if (v?.variantId && effDigest && !isWatchdogEnv) {
               forcedClipRef.current.set(`${v.variantId}:g${effGen}:${effDigest}`, d.reason ?? "clip");
             }
           } else if (d.mode === "live") {
@@ -980,19 +991,21 @@ export function PlateLiveStage({
         if (filmPlayerRef.current !== fp) return;
         const d = detail as { sceneIndex?: number; buffering?: boolean } | undefined;
         if (d && typeof d.sceneIndex === "number") {
+          const curIdx = currentRef.current;
+          const activeAudioTl = audioTimelinePropRef.current;
           if (d.buffering) {
             bufferingScenesRef.current.add(d.sceneIndex);
-            if (d.sceneIndex === current) {
-              audioTimeline?.setBuffering(true);
-              voices.current[current]?.pause();
+            if (d.sceneIndex === curIdx) {
+              activeAudioTl?.setBuffering(true);
+              voices.current[curIdx]?.pause();
               musicAudio.current?.pause();
               clearSfxTimers();
               Object.values(sfxAudios.current).forEach((el) => el?.pause());
             }
           } else {
             bufferingScenesRef.current.delete(d.sceneIndex);
-            if (d.sceneIndex === current) {
-              audioTimeline?.setBuffering(false);
+            if (d.sceneIndex === curIdx) {
+              activeAudioTl?.setBuffering(false);
             }
           }
           bump();
@@ -1121,7 +1134,7 @@ export function PlateLiveStage({
     }
   }, [time, current, liveOptions?.forceBuffering]);
 
-  // Single clock RAF loop when playing a live scene (pauses clock and all audio during initial drawing or mid-scene buffering).
+  // Single clock RAF loop when playing a live scene or a storyboard sketch fallback while a scene is still being processed.
   const activeRes = resolutions[current];
   const activeSceneShowsLive = activeRes?.mode === "live" && activeRes.isPlayable;
   const activeSceneShowsClipMeanwhile =
@@ -1130,10 +1143,23 @@ export function PlateLiveStage({
     (activeRes?.mode === "clip" && activeRes.isPlayable) || activeSceneShowsClipMeanwhile;
   const activeScenePausedForBuffer = Boolean(activeRes?.isPreparing || activeRes?.isBuffering);
   const activeSceneIsLive = activeSceneShowsLive && !activeScenePausedForBuffer;
+  const activeVariant = resolvedVariants[current];
+  const activeSceneShowsSketchFallback = Boolean(
+    !activeSceneShowsLive &&
+      !activeSceneShowsClip &&
+      !activeScenePausedForBuffer &&
+      activeVariant &&
+      !activeVariant.stale &&
+      activeVariant.state !== "failed" &&
+      Boolean(referenceFrames?.[current])
+  );
+  const activeSceneDrivesClock = activeSceneIsLive || activeSceneShowsSketchFallback;
 
   useEffect(() => {
-    if (!playing || !activeSceneIsLive) {
-      const waitingOnUnreadyClip = Boolean(activeRes?.mode === "clip" && !activeRes.isPlayable);
+    if (!playing || !activeSceneDrivesClock) {
+      const waitingOnUnreadyClip = Boolean(
+        activeRes?.mode === "clip" && !activeRes.isPlayable && !activeSceneShowsSketchFallback
+      );
       if (playing && ((activeSceneShowsLive && activeScenePausedForBuffer) || waitingOnUnreadyClip)) {
         // Hold clock and suspend Web Audio timeline (and pause fallback elements) at the same instant while buffering, drawing, or waiting for a demoted slow-scene clip.
         audioTimeline?.setBuffering(true);
@@ -1284,10 +1310,14 @@ export function PlateLiveStage({
         }
       }
 
-      clockTimeRef.current = nextGlobalTime;
+      const inSceneGlobalTime =
+        localSec >= sceneDur && current < resolvedVariants.length - 1
+          ? (starts[current] ?? 0) + Math.max(0, sceneDur - 1 / 60)
+          : nextGlobalTime;
+      clockTimeRef.current = inSceneGlobalTime;
       onSetTimeRef.current(nextGlobalTime);
 
-      if (fp) {
+      if (fp && activeSceneIsLive) {
         const targetFrame = fp.clock.frame();
         if (targetFrame !== lastCheckedFrameRef.current) {
           lastCheckedFrameRef.current = targetFrame;
@@ -1299,6 +1329,7 @@ export function PlateLiveStage({
           telemetryRef.current.distinctFramesSet.add(targetFrame);
         }
         fp.syncToClock();
+        clockTimeRef.current = nextGlobalTime;
         if (fp.scenes[current]?.isBufferingNow || fp.scenes[current]?.isPreparing) {
           audioTimeline?.setBuffering(true);
           voices.current[current]?.pause();
@@ -1331,7 +1362,12 @@ export function PlateLiveStage({
 
       if (localSec >= sceneDur && !voStillRunning) {
         const hasPlayableAfter = resolvedVariants.some(
-          (_, i) => i > current && Boolean(resolutions[i]?.isPlayable)
+          (v, i) =>
+            i > current &&
+            Boolean(
+              resolutions[i]?.isPlayable ||
+                (!v.stale && v.state !== "failed" && Boolean(referenceFrames?.[i]))
+            )
         );
         if (!hasPlayableAfter) {
           telemetryRef.current.naturalEndCleanupTriggered = true;
@@ -1355,14 +1391,17 @@ export function PlateLiveStage({
     };
   }, [
     playing,
+    activeSceneDrivesClock,
     activeSceneIsLive,
     activeSceneShowsLive,
     activeSceneShowsClip,
+    activeSceneShowsSketchFallback,
     activeScenePausedForBuffer,
     current,
     starts,
     durations,
     resolvedVariants,
+    referenceFrames,
     voiceOn,
     musicOn,
     master,

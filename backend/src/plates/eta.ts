@@ -16,6 +16,8 @@ export const MAX_WRITING_FRACTION = 0.95;
 export const MIN_REMAINING_SECONDS = 10;
 /** Assumed duration (in seconds) for browser/worker bundle verification (`bundled` / unplayable `checked`). */
 export const CHECKING_SECONDS = 20;
+/** Threshold (in seconds) after which a scene still in `checking` stops promising a short countdown (`etaSeconds: null`). */
+export const CHECKING_TAKING_LONGER_SECONDS = 90;
 /** Assumed full duration (in seconds) for rendering frames of one scene clip when `framesDone` is 0. */
 export const DEFAULT_DRAWING_SECONDS = 40;
 /** Default per-project concurrent authoring cap when not supplied by caller. */
@@ -270,13 +272,17 @@ function estimateSceneInternal(
   }
 
   if (stage === "checking") {
-    const remainingSeconds = CHECKING_SECONDS;
+    const updatedMs = toEpochMs(row.updatedAt);
+    const checkingElapsedSec =
+      updatedMs !== undefined ? Math.max(0, (opts.now - updatedMs) / 1000) : 0;
+    const overdue = checkingElapsedSec >= CHECKING_TAKING_LONGER_SECONDS;
+    const remainingSeconds = overdue ? 0 : CHECKING_SECONDS;
     return {
       progress: {
         stage,
         ...(written ? { written } : {}),
         ...(elapsedMs !== undefined ? { elapsedMs } : {}),
-        etaSeconds: toEtaRange(remainingSeconds),
+        etaSeconds: overdue ? null : toEtaRange(remainingSeconds),
         ...(attempt !== undefined ? { attempt } : {}),
         ...(retrying ? { retrying } : {})
       },
@@ -399,6 +405,7 @@ export function estimateFilmWithScenes(
   const activeTails = open.filter((e) => e.writingSeconds === 0 && e.tailSeconds > 0).map((e) => e.tailSeconds);
   const maxActiveTail = activeTails.length > 0 ? Math.max(...activeTails) : 0;
   const drawingTail = writingWorks.length > 0 ? Math.max(maxActiveTail, CHECKING_SECONDS) : maxActiveTail;
+  const hasMeasurableEta = writingWorks.length > 0 || activeTails.length > 0;
 
   const totalEstimateSeconds = Math.max(MIN_REMAINING_SECONDS, writingSpread + drawingTail);
   return {
@@ -408,7 +415,7 @@ export function estimateFilmWithScenes(
       checked,
       drawn,
       failed,
-      etaSeconds: toEtaRange(totalEstimateSeconds),
+      etaSeconds: hasMeasurableEta ? toEtaRange(totalEstimateSeconds) : null,
       typicalSceneSeconds
     },
     scenes: evaluated.map((e) => e.progress)

@@ -504,6 +504,47 @@ function makeSseResponse(chunks, status = 200) {
         assert.equal(failedScene.stage, "failed");
         assert.equal(failedScene.etaSeconds, null);
       }
+    },
+    {
+      name: "overdue checking scene (>= 60s in checking) clears etaSeconds instead of promising 'under a minute' indefinitely",
+      run: () => {
+        const freshCheck = estimateScene(
+          {
+            state: "bundled",
+            stage: "checking",
+            mode: "live",
+            updatedAt: now - 15_000,
+            authorStartedAt: now - 75_000
+          },
+          { now }
+        );
+        assert.equal(freshCheck.stage, "checking");
+        assert.deepEqual(freshCheck.etaSeconds, { low: 20, high: 30 });
+
+        const stuckCheck = estimateScene(
+          {
+            state: "bundled",
+            stage: "checking",
+            mode: "live",
+            updatedAt: now - 120_000,
+            authorStartedAt: now - 180_000
+          },
+          { now }
+        );
+        assert.equal(stuckCheck.stage, "checking");
+        assert.equal(stuckCheck.etaSeconds, null, "stuck checking scene must not promise 20-30s indefinitely");
+
+        const stuckFilm = estimateFilm({
+          now,
+          mode: "live",
+          scenes: [
+            { state: "bundled", stage: "checking", updatedAt: now - 120_000, authorTotalMs: 56_000, writtenTokens: 7000 },
+            { state: "checked", authorTotalMs: 60_000, writtenTokens: 8000 },
+            { state: "checked", authorTotalMs: 50_000, writtenTokens: 7500 }
+          ]
+        });
+        assert.equal(stuckFilm.etaSeconds, null, "film with only an overdue checking scene must not promise under a minute");
+      }
     }
   ];
 

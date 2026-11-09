@@ -1220,13 +1220,30 @@ export async function submitCheckReport(variantId: string, input: CheckReportInp
     }
 
     // Check idempotency for the current generation before rejecting a state that our own earlier report transitioned.
-    const existing = await client.query<{ report: { response?: { state: "checked" } | { state: "bundled"; fallback: true } | { state: "bundled"; playback: "clip" } | { state: "queued" | "failed"; repair: boolean } } }>(
+    // A prior non-mutating `kind: "env"` report (`response.fallback === true`) that left the variant in `bundled / checking`
+    // must NOT block a subsequent decisive report (`ok: true` or `kind: "code"`) from transitioning the variant out of `checking`.
+    const existing = await client.query<{
+      report: {
+        results?: { ok?: boolean; kind?: string; error?: string; message?: string };
+        response?:
+          | { state: "checked" }
+          | { state: "bundled"; fallback: true }
+          | { state: "bundled"; playback: "clip" }
+          | { state: "queued" | "failed"; repair: boolean };
+      };
+    }>(
       "select report from app.plate_check_reports where variant_id = $1 and gen = $2 and bundle_digest = $3 and host = $4",
       [variantId, input.gen, input.bundleDigest, input.host]
     );
-    if (existing.rows.length > 0 && existing.rows[0]!.report?.response) {
+    const cachedResp = existing.rows[0]?.report?.response;
+    const isPriorEnvFallbackStillChecking =
+      Boolean(cachedResp && "fallback" in cachedResp && cachedResp.fallback === true) &&
+      row.state === "bundled" &&
+      row.stage !== "queued for rendering" &&
+      (input.results.ok === true || input.results.kind === "code");
+    if (cachedResp && !isPriorEnvFallbackStillChecking) {
       await client.query("commit");
-      return { status: "ok", duplicate: true, body: existing.rows[0]!.report.response };
+      return { status: "ok", duplicate: true, body: cachedResp };
     }
 
     if (!row.bundle_digest || row.bundle_digest !== input.bundleDigest) {
@@ -1293,7 +1310,9 @@ export async function submitCheckReport(variantId: string, input: CheckReportInp
     await client.query(
       `insert into app.plate_check_reports (variant_id, gen, bundle_digest, host, report)
        values ($1, $2, $3, $4, $5::jsonb)
-       on conflict (variant_id, gen, bundle_digest, host) do nothing`,
+       on conflict (variant_id, gen, bundle_digest, host) do update
+         set report = excluded.report, created_at = now()
+       where (app.plate_check_reports.report->'response'->>'fallback')::boolean is true`,
       [row.id, row.gen, input.bundleDigest, input.host, JSON.stringify(storedReportPayload)]
     );
 
@@ -1437,6 +1456,10 @@ export async function fallbackCheckVariantClipWithClient(
            where r.variant_id = v.id
              and r.gen = v.gen
              and r.bundle_digest = v.bundle_digest
+             and not (
+               r.report->'results'->>'kind' = 'env'
+               and coalesce(r.report->'results'->>'error', r.report->'results'->>'message', '') ~* '(watchdog|init-timeout|frame-timeout|check-watchdog|heartbeat-timeout)'
+             )
         )`,
     [row.id, row.gen, row.bundle_digest, JSON.stringify(retrying)]
   );

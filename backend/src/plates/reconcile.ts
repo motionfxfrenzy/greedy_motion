@@ -33,6 +33,7 @@ export type CheckGraceCandidate = {
   bundleDigest?: string | null;
   clipKey?: string | null;
   hasCheckReport?: boolean;
+  checkReportIsWatchdogTimeout?: boolean;
   updatedAt: Date | string | number;
   timings?: { retrying?: { attempt?: number; reason?: string } } | null;
 };
@@ -63,7 +64,9 @@ export function evaluateCheckGraceFallback(
   if (candidate.stage !== "checking") return { fallback: false, reason: "wrong_stage" };
   if (candidate.clipKey) return { fallback: false, reason: "has_clip" };
   if (!candidate.bundleDigest) return { fallback: false, reason: "no_digest" };
-  if (candidate.hasCheckReport) return { fallback: false, reason: "already_reported" };
+  if (candidate.hasCheckReport && !candidate.checkReportIsWatchdogTimeout) {
+    return { fallback: false, reason: "already_reported" };
+  }
 
   const updatedMs =
     candidate.updatedAt instanceof Date
@@ -160,6 +163,10 @@ export async function reconcilePlates(): Promise<number> {
                where r.variant_id = v.id
                  and r.gen = v.gen
                  and r.bundle_digest = v.bundle_digest
+                 and not (
+                   r.report->'results'->>'kind' = 'env'
+                   and coalesce(r.report->'results'->>'error', r.report->'results'->>'message', '') ~* '(watchdog|init-timeout|frame-timeout|check-watchdog|heartbeat-timeout)'
+                 )
             )
           order by v.created_at, v.scene_index, v.aspect
           for update of v skip locked`,
@@ -314,6 +321,10 @@ export async function reconcilePlates(): Promise<number> {
                           where r.variant_id = v.id
                             and r.gen = v.gen
                             and r.bundle_digest = v.bundle_digest
+                            and not (
+                              r.report->'results'->>'kind' = 'env'
+                              and coalesce(r.report->'results'->>'error', r.report->'results'->>'message', '') ~* '(watchdog|init-timeout|frame-timeout|check-watchdog|heartbeat-timeout)'
+                            )
                        )
                      )
                    )
