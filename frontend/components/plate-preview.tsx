@@ -790,6 +790,24 @@ export function PlatePreview({
     const hasSketchFallback = canPlaySceneWithSketch(current);
     if (isLiveMode && (curRes?.mode === "live" || (!curRes?.isPlayable && hasSketchFallback))) return;
     let frame = 0;
+    let fallbackTimer = 0;
+    const scheduleNext = () => {
+      let fired = false;
+      frame = requestAnimationFrame(() => {
+        if (fired) return;
+        fired = true;
+        window.clearTimeout(fallbackTimer);
+        tick();
+      });
+      fallbackTimer = window.setTimeout(() => {
+        if (fired) return;
+        fired = true;
+        cancelAnimationFrame(frame);
+        if (typeof document === "undefined" || !document.hidden) {
+          tick();
+        }
+      }, 33);
+    };
     const wallAnchorRef = { startMs: performance.now() - Math.max(0, time - (starts[current] ?? 0)) * 1000 };
     const tick = () => {
       const activeRes = liveResolutions[current];
@@ -800,7 +818,7 @@ export function PlatePreview({
         voices.current[current]?.pause();
         musicAudio.current?.pause();
         Object.values(sfxAudios.current).forEach((s) => s?.pause());
-        frame = requestAnimationFrame(tick);
+        scheduleNext();
         return;
       }
       audioTimelineRef.current?.setBuffering(false);
@@ -808,7 +826,7 @@ export function PlatePreview({
       const vo = voices.current[current];
       const useWebAudio = Boolean(audioTimelineRef.current && audioTimelineRef.current.hasDecodedAudio() && audioTimelineRef.current.audioContext?.state === "running");
       if ((!el || el.paused) && (!vo || vo.paused) && !useWebAudio && !hasSketchFallback) {
-        frame = requestAnimationFrame(tick);
+        scheduleNext();
         return;
       }
       const sceneDur = durations[current] ?? 0;
@@ -830,10 +848,13 @@ export function PlatePreview({
         advanceFrom(current);
         return;
       }
-      frame = requestAnimationFrame(tick);
+      scheduleNext();
     };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    scheduleNext();
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(fallbackTimer);
+    };
   }, [playing, current, starts, durations, rateFor, isLiveMode, liveResolutions, tickSceneSfx, canPlaySceneWithSketch, advanceFrom]);
 
   // The film clock ticks every frame; the clip/voice seek below must NOT run on every tick (a seek per frame means the clip never plays:

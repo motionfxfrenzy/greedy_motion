@@ -1177,7 +1177,7 @@ export async function submitCheckReport(variantId: string, input: CheckReportInp
         await client.query("commit");
         return { status: "ok", duplicate: true, body: seen.rows[0].report.response };
       }
-      if (row.state !== "checked") {
+      if (row.state !== "checked" && row.state !== "drawn") {
         await client.query("rollback");
         log("info", "plate_check_dropped", { variantId, gen: input.gen, state: row.state, stage: row.stage, reason: "state" });
         return { status: "dropped", reason: "state" };
@@ -1201,27 +1201,37 @@ export async function submitCheckReport(variantId: string, input: CheckReportInp
       }
       const playbackReason = isExplicitFallback ? explicitReason : "slow";
       const body = { state: "bundled", playback: "clip" } as const;
-      await client.query(
-        `update app.plate_variants
-            set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(), error = null,
-                timings = (coalesce(timings, '{}'::jsonb) - 'retrying') || jsonb_build_object('playback', $3::jsonb), updated_at = now()
-          where id = $1 and gen = $2 and state = 'checked'`,
-        [row.id, row.gen, JSON.stringify({ mode: "clip", reason: playbackReason, medianMs: slowNow.medianMs, p90Ms: slowNow.p90Ms, gen: row.gen, digest: input.bundleDigest })]
-      );
-      await sendOnce(client, QUEUES.plateRender, { variantId: row.id, gen: row.gen }, `${row.id}:${row.gen}`);
+      if (row.state === "drawn") {
+        await client.query(
+          `update app.plate_variants
+              set timings = (coalesce(timings, '{}'::jsonb) - 'retrying') || jsonb_build_object('playback', $3::jsonb), updated_at = now()
+            where id = $1 and gen = $2 and state = 'drawn'`,
+          [row.id, row.gen, JSON.stringify({ mode: "clip", reason: playbackReason, medianMs: slowNow.medianMs, p90Ms: slowNow.p90Ms, gen: row.gen, digest: input.bundleDigest })]
+        );
+      } else {
+        await client.query(
+          `update app.plate_variants
+              set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(), error = null,
+                  timings = (coalesce(timings, '{}'::jsonb) - 'retrying') || jsonb_build_object('playback', $3::jsonb), updated_at = now()
+            where id = $1 and gen = $2 and state = 'checked'`,
+          [row.id, row.gen, JSON.stringify({ mode: "clip", reason: playbackReason, medianMs: slowNow.medianMs, p90Ms: slowNow.p90Ms, gen: row.gen, digest: input.bundleDigest })]
+        );
+        await sendOnce(client, QUEUES.plateRender, { variantId: row.id, gen: row.gen }, `${row.id}:${row.gen}`);
+        shouldKick = true;
+      }
       await client.query(
         "insert into app.plate_check_reports (variant_id, gen, bundle_digest, host, report) values ($1, $2, $3, $4, $5::jsonb) on conflict (variant_id, gen, bundle_digest, host) do nothing",
         [row.id, row.gen, input.bundleDigest, PLAYBACK_HOST, JSON.stringify({ results: input.results, response: body })]
       );
       await client.query("commit");
       log("info", "plate_slow_scene_clip", { variantId, gen: row.gen, reason: playbackReason, medianMs: slowNow.medianMs, p90Ms: slowNow.p90Ms, source: "playback" });
-      void kickPlateWorkers();
+      if (shouldKick) void kickPlateWorkers();
       return { status: "ok", duplicate: false, body };
     }
 
     // Check idempotency for the current generation before rejecting a state that our own earlier report transitioned.
     // A prior non-mutating `kind: "env"` report (`response.fallback === true`) that left the variant in `bundled / checking`
-    // must NOT block a subsequent decisive report (`ok: true` or `kind: "code"`) from transitioning the variant out of `checking`.
+    // (or that was later drawn by the check-grace worker fallback) must NOT block a subsequent decisive report (`ok: true` or `kind: "code"`).
     const existing = await client.query<{
       report: {
         results?: { ok?: boolean; kind?: string; error?: string; message?: string };
@@ -1236,12 +1246,11 @@ export async function submitCheckReport(variantId: string, input: CheckReportInp
       [variantId, input.gen, input.bundleDigest, input.host]
     );
     const cachedResp = existing.rows[0]?.report?.response;
-    const isPriorEnvFallbackStillChecking =
+    const isPriorEnvFallback =
       Boolean(cachedResp && "fallback" in cachedResp && cachedResp.fallback === true) &&
-      row.state === "bundled" &&
-      row.stage !== "queued for rendering" &&
+      ((row.state === "bundled" && row.stage !== "queued for rendering") || row.state === "drawn") &&
       (input.results.ok === true || input.results.kind === "code");
-    if (cachedResp && !isPriorEnvFallbackStillChecking) {
+    if (cachedResp && !isPriorEnvFallback) {
       await client.query("commit");
       return { status: "ok", duplicate: true, body: cachedResp };
     }
@@ -1252,7 +1261,8 @@ export async function submitCheckReport(variantId: string, input: CheckReportInp
       return { status: "dropped", reason: "digest" };
     }
 
-    if (row.state !== "bundled" || row.stage === "queued for rendering") {
+    const isCheckableDrawn = row.state === "drawn";
+    if (!isCheckableDrawn && (row.state !== "bundled" || row.stage === "queued for rendering")) {
       await client.query("rollback");
       log("info", "plate_check_dropped", { variantId, gen: input.gen, state: row.state, stage: row.stage, reason: "state" });
       return { status: "dropped", reason: "state" };
@@ -1265,7 +1275,32 @@ export async function submitCheckReport(variantId: string, input: CheckReportInp
     };
 
     const slow = input.results.ok === true ? slowDraw(input.results.drawMs) : null;
-    if (slow) {
+    if (isCheckableDrawn) {
+      if (slow) {
+        responseBody = { state: "bundled", playback: "clip" };
+        storedReportPayload.response = responseBody;
+        await client.query(
+          `update app.plate_variants
+              set checked_at = coalesce(checked_at, now()), check_report = $3::jsonb, host = coalesce(host, $4),
+                  timings = (coalesce(timings, '{}'::jsonb) - 'retrying') || jsonb_build_object('playback', $5::jsonb), updated_at = now()
+            where id = $1 and gen = $2 and state = 'drawn'`,
+          [row.id, row.gen, JSON.stringify(storedReportPayload), input.host, JSON.stringify({ mode: "clip", reason: "slow", medianMs: slow.medianMs, p90Ms: slow.p90Ms, gen: row.gen, digest: input.bundleDigest })]
+        );
+      } else if (input.results.ok === true) {
+        responseBody = { state: "checked" };
+        storedReportPayload.response = responseBody;
+        await client.query(
+          `update app.plate_variants
+              set checked_at = coalesce(checked_at, now()), check_report = $3::jsonb, host = coalesce(host, $4),
+                  timings = coalesce(timings, '{}'::jsonb) - 'retrying', updated_at = now()
+            where id = $1 and gen = $2 and state = 'drawn'`,
+          [row.id, row.gen, JSON.stringify(storedReportPayload), input.host]
+        );
+      } else {
+        responseBody = { state: "bundled", fallback: true };
+        storedReportPayload.response = responseBody;
+      }
+    } else if (slow) {
       // Too slow to draw live in the browser: play this scene from a worker clip instead (same path as the env fallback, no model call).
       // The marker carries gen + digest so a later revision of the scene never inherits it.
       responseBody = { state: "bundled", playback: "clip" };

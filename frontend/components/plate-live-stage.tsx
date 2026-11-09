@@ -862,12 +862,30 @@ export function PlateLiveStage({
           checksRunRef.current += 1;
           if (!mountedRef.current) return;
           if (response.status === "dropped") {
-            for (const k of [...bundlesRef.current.keys()]) {
-              if (k.startsWith(`${variantId}:`)) {
-                bundlesRef.current.delete(k);
+            const curVar = resolvedVariantsRef.current[sceneIndex];
+            const stillSameTuple =
+              curVar &&
+              curVar.variantId === variantId &&
+              curVar.gen === gen &&
+              curVar.bundleDigest === bundleDigest;
+            if (stillSameTuple && outcome.ok) {
+              playerReadyRef.current.add(sceneIndex);
+              const dec = filmPlayerRef.current?.decision(sceneIndex);
+              if (dec && dec.reason !== "pending-live" && dec.reason !== "no-bundle") {
+                playerDecisionsRef.current.set(sceneIndex, dec);
               }
+              bump();
+              onStatusRefresh();
+              return;
             }
-            checkTrackerRef.current.failTransient(variantId, gen, bundleDigest);
+            if (!stillSameTuple) {
+              for (const k of [...bundlesRef.current.keys()]) {
+                if (k.startsWith(`${variantId}:`)) {
+                  bundlesRef.current.delete(k);
+                }
+              }
+              checkTrackerRef.current.failTransient(variantId, gen, bundleDigest);
+            }
             bump();
             onStatusRefresh();
             return;
@@ -1266,6 +1284,25 @@ export function PlateLiveStage({
       telemetryRef.current.playStartMs = performance.now();
     }
     let raf = 0;
+    let fallbackTimer = 0;
+
+    const scheduleNextTick = () => {
+      let fired = false;
+      raf = requestAnimationFrame((now) => {
+        if (fired) return;
+        fired = true;
+        window.clearTimeout(fallbackTimer);
+        tick(now);
+      });
+      fallbackTimer = window.setTimeout(() => {
+        if (fired) return;
+        fired = true;
+        cancelAnimationFrame(raf);
+        if (!isDocumentHidden()) {
+          tick(performance.now());
+        }
+      }, 33);
+    };
 
     const tick = (now: number) => {
       const fp = filmPlayerRef.current;
@@ -1378,12 +1415,13 @@ export function PlateLiveStage({
         return;
       }
 
-      raf = requestAnimationFrame(tick);
+      scheduleNextTick();
     };
 
-    raf = requestAnimationFrame(tick);
+    scheduleNextTick();
     return () => {
       cancelAnimationFrame(raf);
+      window.clearTimeout(fallbackTimer);
       if (telemetryRef.current.playStartMs !== null) {
         telemetryRef.current.accumulatedPlayMs += performance.now() - telemetryRef.current.playStartMs;
         telemetryRef.current.playStartMs = null;

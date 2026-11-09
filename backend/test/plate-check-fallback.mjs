@@ -219,6 +219,21 @@ try {
     assert.equal(await renderMsgs(b2.id), 1, "plate-render enqueued for watchdog-timeout stuck check");
   });
 
+  await test("8. Browser check report on a variant already drawn by worker fallback is accepted (never 204 dropped) and preserves state='drawn'", async () => {
+    await pool.query("update app.plate_variants set state = 'drawn', stage = null, clip_key = 'plates/x/b2.mp4' where id = $1", [b2.id]);
+    const checkOnDrawn = await store.submitCheckReport(b2.id, {
+      gen: b2.gen,
+      bundleDigest: b2.bundle_digest,
+      host: "worker",
+      results: { ok: true, drawMs: { medianMs: 10, p90Ms: 14 } }
+    });
+    assert.equal(checkOnDrawn.status, "ok", "check report on drawn variant is accepted instead of dropped");
+    assert.deepEqual(checkOnDrawn.body, { state: "checked" });
+    const afterDrawnCheck = await store.getVariant(b2.id);
+    assert.equal(afterDrawnCheck.state, "drawn", "drawn state and clip_key are preserved");
+    assert.equal(afterDrawnCheck.clip_key, "plates/x/b2.mp4");
+  });
+
   console.log(`plate-check-fallback: ok (${passed} assertions/cases passed)`);
 } finally {
   config.plates.live = false;
