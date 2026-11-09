@@ -110,14 +110,17 @@ test("trims surrounding whitespace and preserves ordinary email syntax checks", 
 });
 
 test("frontend auth entry points and backend trust boundary import the shared validator", async () => {
-  const [authPage, callbackRoute, middleware, resetPage, profilePage, backendAuth, backendHook] = await Promise.all([
+  const [authPage, callbackRoute, middleware, resetPage, profilePage, accountMenu, backendAuth, backendHook, backendWelcome, backendRenderReady] = await Promise.all([
     readFile(new URL("../components/auth-page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/auth/callback/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../utils/supabase/middleware.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/auth/reset/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/profile-page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/account-menu.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../backend/src/auth.ts", import.meta.url), "utf8"),
-    readFile(new URL("../../backend/src/mail/hook.ts", import.meta.url), "utf8")
+    readFile(new URL("../../backend/src/mail/hook.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../backend/src/mail/welcome.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../backend/src/mail/render-ready.ts", import.meta.url), "utf8")
   ]);
 
   for (const [name, source] of [
@@ -126,8 +129,11 @@ test("frontend auth entry points and backend trust boundary import the shared va
     ["utils/supabase/middleware.ts", middleware],
     ["auth/reset/page.tsx", resetPage],
     ["profile-page.tsx", profilePage],
+    ["account-menu.tsx", accountMenu],
     ["backend/src/auth.ts", backendAuth],
-    ["backend/src/mail/hook.ts", backendHook]
+    ["backend/src/mail/hook.ts", backendHook],
+    ["backend/src/mail/welcome.ts", backendWelcome],
+    ["backend/src/mail/render-ready.ts", backendRenderReady]
   ]) {
     assert.match(source, /validateEmailAddress/, `${name} must use validateEmailAddress`);
   }

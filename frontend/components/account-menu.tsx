@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { PLANS } from "@videosaas/contracts";
+import { PLANS, validateEmailAddress } from "@videosaas/contracts";
 import { createClient } from "../utils/supabase/client";
 import { getMySubscription, getMyTokens, type Subscription, type TokenSummary } from "../lib/api";
 import { useEntitlements } from "../lib/entitlements";
@@ -31,8 +31,17 @@ function lookUp(): void {
   const auth = createClient().auth;
   lookup = (async () => {
     const { data } = await auth.getSession();
-    if (data.session?.user) publish(accountOf(data.session.user));
+    const sessionUser = data.session?.user;
+    if (sessionUser?.email && !validateEmailAddress(sessionUser.email).ok) {
+      await auth.signOut().catch(() => undefined);
+      return;
+    }
+    if (sessionUser) publish(accountOf(sessionUser));
     const { data: checked } = await auth.getUser();
+    if (checked.user?.email && !validateEmailAddress(checked.user.email).ok) {
+      await auth.signOut().catch(() => undefined);
+      return;
+    }
     if (checked.user) publish(accountOf(checked.user));
   })().catch(() => undefined).finally(() => { lookup = null; });
 }

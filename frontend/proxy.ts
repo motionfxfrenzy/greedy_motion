@@ -43,9 +43,9 @@ export async function proxy(request: NextRequest) {
     return redirect;
   }
   if (pathname === "/auth" && signedIn) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/studio";
-    url.search = "";
+    const requestedNext = request.nextUrl.searchParams.get("next") ?? "";
+    const nextPath = requestedNext.startsWith("/") && !requestedNext.startsWith("//") && requestedNext !== "/auth" ? requestedNext : "/studio";
+    const url = new URL(nextPath, request.nextUrl.origin);
     const redirect = NextResponse.redirect(url);
     response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
     redirect.headers.set("Cache-Control", "private, no-store");

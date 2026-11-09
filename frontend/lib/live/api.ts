@@ -215,7 +215,11 @@ function resolveApiUrl(path: string, baseUrl?: string): string {
  * presigned object-storage link of a bundle) is fetched untouched: an Authorization header there would break the presigned
  * signature and trigger a CORS preflight the storage bucket does not allow.
  */
-export function withBackendAuth(getToken: () => Promise<string | null | undefined>, baseFetch?: typeof fetch): typeof fetch {
+export function withBackendAuth(
+  getToken: () => Promise<string | null | undefined>,
+  baseFetch?: typeof fetch,
+  onInvalidEmail?: () => void
+): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const doFetch = baseFetch ?? globalThis.fetch;
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -229,7 +233,13 @@ export function withBackendAuth(getToken: () => Promise<string | null | undefine
     if (!token) return doFetch(input, init);
     const headers = new Headers(init?.headers);
     headers.set("Authorization", `Bearer ${token}`);
-    return doFetch(input, { ...init, headers });
+    const response = await doFetch(input, { ...init, headers });
+    if (response.status === 403 && onInvalidEmail) {
+      void response.clone().json().then((body: { error?: { code?: string } }) => {
+        if (body?.error?.code === "invalid_email") onInvalidEmail();
+      }).catch(() => undefined);
+    }
+    return response;
   }) as typeof fetch;
 }
 

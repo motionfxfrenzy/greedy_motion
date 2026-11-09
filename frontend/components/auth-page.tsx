@@ -32,11 +32,15 @@ export function AuthPage() {
   const [forgot, setForgot] = useState(false);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [authError, setAuthError] = useState(
-    searchParams.get("error") === "reset" ? "That reset link expired, or was opened in a different browser from the one you asked in. Choose Forgot password to get a new one."
-      : searchParams.get("error") === "invalid_email" ? "Email addresses with '+' or more than 2 dots before '@' are not supported."
-      : searchParams.get("error") ? "Sign-in failed. Please try again." : ""
-  );
+  const initialError = searchParams.get("error");
+  const initialErrorDescription = searchParams.get("error_description") ?? "";
+  const [authError, setAuthError] = useState(() => {
+    if (initialError === "reset") return "That reset link expired, or was opened in a different browser from the one you asked in. Choose Forgot password to get a new one.";
+    if (initialError === "invalid_email" || /before '@'\s+are not supported/i.test(initialErrorDescription)) {
+      return initialErrorDescription.includes("before '@'") ? initialErrorDescription : "Email addresses with '+' or more than 2 dots before '@' are not supported.";
+    }
+    return initialError ? "Sign-in failed. Please try again." : "";
+  });
   const [sceneIdx, setSceneIdx] = useState(0);
   const router = useRouter();
   // Only same-origin relative paths are honoured, so ?next= can't redirect off-site.

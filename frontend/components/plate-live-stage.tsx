@@ -60,7 +60,17 @@ const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffec
 // lib/api.ts does the same). Without it every bundle, check and clip request is refused with 401 wherever auth is on.
 const LIVE_API = {
   baseUrl: "/api/backend",
-  fetch: withBackendAuth(async () => (await createClient().auth.getSession()).data.session?.access_token)
+  fetch: withBackendAuth(
+    async () => (await createClient().auth.getSession()).data.session?.access_token,
+    undefined,
+    () => {
+      if (typeof window !== "undefined") {
+        void createClient().auth.signOut().finally(() => {
+          window.location.href = "/auth?error=invalid_email";
+        });
+      }
+    }
+  )
 };
 
 export type PlateLiveTelemetry = {

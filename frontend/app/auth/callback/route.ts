@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
   const requestedNext = searchParams.get("next") ?? "";
   // Same-origin relative paths only, so ?next= can't be used as an open redirect.
   const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/studio";
+  const oauthErrorDesc = searchParams.get("error_description") ?? "";
 
   if (code) {
     const supabase = createClient(await cookies());
@@ -38,6 +39,9 @@ export async function GET(request: NextRequest) {
       }
       return NextResponse.redirect(`${origin}${next}`);
     }
+  }
+  if (/before '@'\s+are not supported/i.test(oauthErrorDesc)) {
+    return NextResponse.redirect(`${origin}/auth?error=invalid_email&error_description=${encodeURIComponent(oauthErrorDesc)}`);
   }
   return NextResponse.redirect(`${origin}/auth?error=${next === "/auth/reset" ? "reset" : "callback"}`);
 }
