@@ -354,15 +354,54 @@ async function startFixtureServer() {
   const entrySource = `
     import React from "react";
     import { createRoot } from "react-dom/client";
+    import { PlatePreview } from "./components/plate-preview.tsx";
+    import { FIXTURE_PROJECT } from "./test/fixtures/workspace/data.ts";
     import PlatePreviewFixturePage from "./app/dev/plate-preview-fixture/page.tsx";
     import HfStepFixturePage from "./app/dev/hf-step-fixture/page.tsx";
 
     const path = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const withHeader = params.get("withHeader") === "1";
     const el = document.getElementById("root");
     if (el) {
       const root = createRoot(el);
       if (path.includes("hf-step-fixture")) {
         root.render(<HfStepFixturePage />);
+      } else if (withHeader) {
+        root.render(
+          <main className="relay-shell relay-shell--animation">
+            <header className="creation-header">
+              <div className="creation-project">
+                <button type="button">← Projects</button>
+                <i />
+                <strong>{FIXTURE_PROJECT.name}</strong>
+                <span>{FIXTURE_PROJECT.state}</span>
+              </div>
+              <ol className="flow-steps">
+                {([
+                  [0, "Brief"],
+                  [1, "Storyboard"],
+                  [2, "Animation"],
+                  [3, "Render"]
+                ]).map(([id, label], pos) => (
+                  <li key={label}>
+                    <button type="button" className={id === 2 ? "current" : id < 2 ? "complete" : ""}>
+                      <b>{id < 2 ? "✓" : pos + 1}</b>
+                      <span>{label}</span>
+                    </button>
+                    {pos !== 3 && <i />}
+                  </li>
+                ))}
+              </ol>
+            </header>
+            <PlatePreview
+              project={FIXTURE_PROJECT}
+              onBack={() => {}}
+              onRender={() => {}}
+              cost={15}
+            />
+          </main>
+        );
       } else {
         root.render(<PlatePreviewFixturePage />);
       }
@@ -727,6 +766,138 @@ test(
       assert.ok(reviewBox && proceedBox && proceedBox.y >= reviewBox.y + reviewBox.height - 1, "At 400px, modal buttons stack vertically");
       await confirmModal.locator("button.aw-confirm-review").click();
       assert.equal(await confirmModal.count(), 0);
+
+      // 8. Stacked workspace page scrolling at the 860px breakpoint (861x775 desktop vs 860x775, 855x775, 390x844, 855x500 stacked)
+      activePlateState = "d-comments";
+      await page.setViewportSize({ width: 861, height: 775 });
+      await page.goto(`${origin}/dev/plate-preview-fixture?state=d-comments&withHeader=1&theme=dark`, { waitUntil: "networkidle" });
+      await page.waitForSelector(".aw-segments li:nth-child(5)");
+      await page.evaluate(() => document.fonts.ready);
+
+      const desktop861 = await page.evaluate(() => {
+        window.scrollTo(0, 0);
+        const doc = document.scrollingElement || document.documentElement;
+        const stage = document.querySelector("section.aw-stage").getBoundingClientRect();
+        const rightCol = document.querySelector(".aw-right-col").getBoundingClientRect();
+        const canvas = document.querySelector(".aw-canvas").getBoundingClientRect();
+        return {
+          clientWidth: doc.clientWidth,
+          clientHeight: doc.clientHeight,
+          scrollWidth: doc.scrollWidth,
+          scrollHeight: doc.scrollHeight,
+          stageRight: stage.right,
+          stageTop: stage.top,
+          rightColLeft: rightCol.left,
+          rightColTop: rightCol.top,
+          aspectRatio: canvas.width / canvas.height
+        };
+      });
+      assert.ok(desktop861.rightColLeft >= desktop861.stageRight - 1, `861x775 keeps two-column layout (stageRight=${desktop861.stageRight}, rightColLeft=${desktop861.rightColLeft})`);
+      assert.ok(Math.abs(desktop861.rightColTop - desktop861.stageTop) < 5, "861x775 aligns stage and right column on the same row");
+      assert.equal(desktop861.scrollHeight, desktop861.clientHeight, "861x775 keeps desktop viewport lock");
+      assert.ok(desktop861.scrollWidth <= desktop861.clientWidth, "861x775 has no horizontal overflow");
+      assert.ok(Math.abs(desktop861.aspectRatio - 16 / 9) < 0.03, `861x775 preserves 16:9 aspect ratio (${desktop861.aspectRatio})`);
+
+      for (const vp of [
+        { width: 860, height: 775, label: "860x775 (at breakpoint)" },
+        { width: 855, height: 775, label: "855x775 (observed staging comment viewport)" },
+        { width: 390, height: 844, label: "390x844 (narrow mobile viewport)" },
+        { width: 855, height: 500, label: "855x500 (short-height viewport)" }
+      ]) {
+        await page.setViewportSize({ width: vp.width, height: vp.height });
+        await page.evaluate(() => window.scrollTo(0, 0));
+
+        const stackedTop = await page.evaluate(() => {
+          const doc = document.scrollingElement || document.documentElement;
+          const stage = document.querySelector("section.aw-stage").getBoundingClientRect();
+          const rightCol = document.querySelector(".aw-right-col").getBoundingClientRect();
+          const canvas = document.querySelector(".aw-canvas").getBoundingClientRect();
+          const bar = document.querySelector('.aw-floating-bar[role="toolbar"]').getBoundingClientRect();
+          return {
+            clientWidth: doc.clientWidth,
+            clientHeight: doc.clientHeight,
+            scrollWidth: doc.scrollWidth,
+            scrollHeight: doc.scrollHeight,
+            stageBottom: stage.bottom,
+            rightColTop: rightCol.top,
+            aspectRatio: canvas.width / canvas.height,
+            barVisibleAtTop: bar.top >= 0 && bar.bottom <= doc.clientHeight
+          };
+        });
+
+        assert.ok(
+          stackedTop.rightColTop >= stackedTop.stageBottom - 1,
+          `${vp.label}: stacks right column below stage (stageBottom=${stackedTop.stageBottom}, rightColTop=${stackedTop.rightColTop})`
+        );
+        assert.ok(
+          stackedTop.scrollHeight > stackedTop.clientHeight,
+          `${vp.label}: page is vertically scrollable (scrollHeight=${stackedTop.scrollHeight} > clientHeight=${stackedTop.clientHeight})`
+        );
+        assert.ok(
+          stackedTop.scrollWidth <= stackedTop.clientWidth,
+          `${vp.label}: no horizontal overflow (scrollWidth=${stackedTop.scrollWidth} <= clientWidth=${stackedTop.clientWidth})`
+        );
+        assert.ok(
+          Math.abs(stackedTop.aspectRatio - 16 / 9) < 0.03,
+          `${vp.label}: preserves 16:9 film aspect ratio (${stackedTop.aspectRatio})`
+        );
+        assert.ok(stackedTop.barVisibleAtTop, `${vp.label}: toolbar is visible at top of page`);
+
+        // Scroll to bottom and confirm Render button, comments list, and Redraw/Apply button are reachable and unclipped
+        const stackedBottom = await page.evaluate(() => {
+          const doc = document.scrollingElement || document.documentElement;
+          window.scrollTo(0, doc.scrollHeight);
+          const renderBtn = document.querySelector("button.aw-render-top");
+          const applyBtn = document.querySelector("button.aw-apply");
+          const commentItems = Array.from(document.querySelectorAll(".aw-comments li"));
+          const lastComment = commentItems[commentItems.length - 1];
+          const applyRect = applyBtn.getBoundingClientRect();
+          const lastCommentRect = lastComment.getBoundingClientRect();
+          const hitApply = document.elementFromPoint(applyRect.left + applyRect.width / 2, applyRect.top + applyRect.height / 2);
+          return {
+            scrollTop: doc.scrollTop,
+            clientHeight: doc.clientHeight,
+            commentCount: commentItems.length,
+            lastCommentBottom: lastCommentRect.bottom,
+            applyTop: applyRect.top,
+            applyBottom: applyRect.bottom,
+            applyHit: Boolean(hitApply && (applyBtn === hitApply || applyBtn.contains(hitApply))),
+            renderExists: Boolean(renderBtn)
+          };
+        });
+
+        assert.ok(stackedBottom.scrollTop > 0, `${vp.label}: page scrolled vertically (scrollTop=${stackedBottom.scrollTop})`);
+        assert.ok(stackedBottom.commentCount >= 2, `${vp.label}: comments rendered in stacked panel`);
+        assert.ok(
+          stackedBottom.lastCommentBottom <= stackedBottom.clientHeight && stackedBottom.applyBottom <= stackedBottom.clientHeight,
+          `${vp.label}: scrolling reaches bottom comments (${stackedBottom.lastCommentBottom}) and apply button (${stackedBottom.applyBottom} <= ${stackedBottom.clientHeight})`
+        );
+        assert.ok(stackedBottom.applyHit, `${vp.label}: bottom apply button is directly clickable after scrolling`);
+
+        // Scroll Render button into view and confirm it is reachable and hit-testable
+        const renderReachable = await page.evaluate(() => {
+          const renderBtn = document.querySelector("button.aw-render-top");
+          renderBtn.scrollIntoView({ block: "center" });
+          const r = renderBtn.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return {
+            inViewport: r.top >= 0 && r.bottom <= window.innerHeight,
+            hitSelf: Boolean(hit && (renderBtn === hit || renderBtn.contains(hit)))
+          };
+        });
+        assert.ok(renderReachable.inViewport && renderReachable.hitSelf, `${vp.label}: Render button is reachable and clickable`);
+      }
+
+      // Verify playback controls still work at 855x775
+      await page.setViewportSize({ width: 855, height: 775 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const playBtn = page.locator("button.aw-play");
+      await playBtn.scrollIntoViewIfNeeded();
+      assert.equal(await playBtn.getAttribute("aria-label"), "Play");
+      await playBtn.click();
+      await page.waitForFunction(() => document.querySelector("button.aw-play")?.getAttribute("aria-label") === "Pause");
+      await playBtn.click();
+      await page.waitForFunction(() => document.querySelector("button.aw-play")?.getAttribute("aria-label") === "Play");
     } finally {
       if (browser) await browser.close().catch(() => {});
       await new Promise((r) => srv.close(r));

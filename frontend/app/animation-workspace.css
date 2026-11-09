@@ -1,5 +1,9 @@
 /* Shared Animation Workspace shell (components/animation-workspace/). */
 
+.relay-shell.relay-shell--animation,.relay-shell:has(>.animation-workspace),.relay-shell:has(>.aw-prep-screen){height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+
+.relay-shell.relay-shell--animation>.creation-header,.relay-shell:has(>.animation-workspace)>.creation-header,.relay-shell:has(>.aw-prep-screen)>.creation-header{flex:0 0 auto}
+
 .animation-workspace{--aw-h:calc(100dvh - 96px);box-sizing:border-box;width:min(1360px,100%);height:var(--aw-h);max-height:var(--aw-h);margin:0 auto;padding:8px 24px 12px;display:grid;grid-template-columns:minmax(0,1fr) 300px;grid-template-rows:minmax(0,1fr);gap:10px 20px;overflow:hidden}
 
 .animation-workspace:has(>.aw-error){grid-template-rows:auto minmax(0,1fr)}
@@ -387,7 +391,7 @@
 
 @media (max-width:960px){.aw-pill-secondary .aw-pill-glyph{display:inline-block}.aw-pill-secondary .aw-pill-label,.aw-blur small{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;pointer-events:none}}
 
-@media (max-width:860px){.animation-workspace{height:auto;max-height:none;overflow:visible;grid-template-columns:minmax(0,1fr);grid-template-rows:none}.aw-frame{container-type:normal}.aw-canvas{width:100%}.aw-comments{overflow:visible}}
+@media (max-width:860px){.relay-shell.relay-shell--animation,.relay-shell:has(>.animation-workspace),.relay-shell:has(>.aw-prep-screen){height:auto!important;max-height:none!important;overflow-x:clip!important;overflow-y:visible!important}.animation-workspace,.animation-workspace:has(>.aw-error){height:auto;max-height:none;overflow:visible;flex:none;grid-template-columns:minmax(0,1fr);grid-template-rows:none}.aw-frame{container-type:normal}.aw-canvas{width:100%}.aw-right-col,.aw-side,.aw-comments{height:auto;max-height:none;overflow:visible;flex:none}}
 
 @media (max-width:560px){.aw-floating-bar{z-index:30;flex-wrap:wrap;justify-content:center;height:auto;min-height:38px;max-height:none;padding:3px 6px;row-gap:6px}.aw-floating-bar .aw-bar-sep:has(+.aw-inline-stepper),.aw-floating-bar .aw-bar-sep:has(+.aw-status-wrap),.aw-floating-bar .aw-bar-sep:has(+.aw-inline-group .aw-track-chip:nth-child(3)){display:none}.aw-inline-group,.aw-status-wrap{display:inline-flex;align-items:center;flex-wrap:wrap;justify-content:center;gap:3px;max-width:100%}.aw-mode-tab{position:relative;z-index:0;height:36px;margin-block:-5px}.aw-mode-tab.on{background:transparent}.aw-mode-tab.on::before{content:"";position:absolute;inset:5px 0;border-radius:6px;background:var(--blue);z-index:-1;pointer-events:none}.aw-pill-item{position:relative;z-index:0;height:36px;margin-block:-4px}.aw-pill-item:hover,.aw-pill-item.active{background:transparent}.aw-pill-item:hover::before,.aw-pill-item.active::before{content:"";position:absolute;inset:4px 0;border-radius:6px;background:var(--d-bg-eef6ff);z-index:-1;pointer-events:none}.aw-track-chip{position:relative;z-index:0;height:36px;margin-block:-5px;border-color:transparent;background:transparent}.aw-track-chip.on{background:transparent;border-color:transparent}.aw-track-chip::before{content:"";position:absolute;inset:5px 0;border:1px solid var(--line);border-radius:999px;background:transparent;z-index:-1;pointer-events:none;transition:background-color .15s,border-color .15s}.aw-track-chip:hover::before{border-color:var(--blue)}.aw-track-chip.on::before{background:rgba(37,99,235,.16);border-color:var(--blue)}.aw-inline-stepper{overflow:visible}.aw-inline-stepper button{position:relative;z-index:0;height:36px;width:24px;margin-block:-5px}.aw-inline-stepper button:hover:not(:disabled){background:transparent}.aw-inline-stepper button:hover:not(:disabled)::before{content:"";position:absolute;inset:5px 0;background:var(--d-bg-eef6ff);z-index:-1;pointer-events:none}.aw-mini-status{max-width:100%;overflow:hidden;text-overflow:ellipsis}.aw-dialog{max-width:min(320px,var(--aw-stage-w,calc(100vw - 24px)));box-sizing:border-box}.aw-blur{position:relative;z-index:0;height:36px;margin-block:-5px;border-color:transparent;background:transparent}.aw-blur::before{content:"";position:absolute;inset:5px 0;border:1px solid var(--line);border-radius:999px;background:transparent;z-index:-1;pointer-events:none}.aw-blur:hover:not(.disabled)::before{border-color:var(--blue)}.aw-blur.on{background:transparent;border-color:transparent}.aw-blur.on::before{background:rgba(37,99,235,.16);border-color:var(--blue)}}
 
@@ -416,7 +420,7 @@
 .aw-prep-scene-chip.done{background:rgba(22,128,60,.16);color:#22c55e}
 .aw-prep-error{display:grid;gap:10px}
 .aw-prep-actions{display:flex;gap:8px;flex-wrap:wrap}
-@media (max-width:860px){.aw-prep-screen{grid-template-columns:minmax(0,1fr);height:auto;overflow:visible}}
+@media (max-width:860px){.aw-prep-screen{grid-template-columns:minmax(0,1fr);height:auto;max-height:none;flex:none;overflow:visible}.aw-prep-preview,.aw-prep-card{height:auto;overflow:visible}}
 
 /* Shared FinalView action buttons */
 .aw-btn,.aw-btn-primary,.aw-locked{padding:8px 14px;border:0;border-radius:9999px;background:var(--d-bg-fafdff);color:var(--d-tx-0a0d12);font-size:13px;font-weight:600;white-space:nowrap;text-decoration:none;cursor:pointer}

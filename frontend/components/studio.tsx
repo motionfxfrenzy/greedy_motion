@@ -1415,6 +1415,7 @@ export function Studio() {
 
   const isFilmBriefView = view === "create" && step === SCRIPT_STYLE && isFilmBrief(brief);
   const isStoryboardView = view === "create" && step === STORYBOARD && Boolean(canvas);
+  const isAnimationView = view === "create" && step === RENDER;
 
   return <main
     className={
@@ -1422,10 +1423,12 @@ export function Studio() {
         ? "relay-shell relay-shell--film-brief"
         : isStoryboardView
           ? "relay-shell relay-shell--storyboard"
-          : "relay-shell"
+          : isAnimationView
+            ? "relay-shell relay-shell--animation"
+            : "relay-shell"
     }
     style={
-      view === "create" && (step === RENDER || step === REVIEW)
+      view === "create" && step === REVIEW
         ? { height: "100vh", maxHeight: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }
         : undefined
     }
