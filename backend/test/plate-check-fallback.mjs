@@ -186,6 +186,54 @@ try {
     }
   });
 
+  await test("6. Prior kind='env' report (e.g. init-timeout) does NOT block a subsequent decisive ok:true check report from transitioning bundled -> checked", async () => {
+    const passAfterEnv = await store.submitCheckReport(b1.id, {
+      gen: b1.gen,
+      bundleDigest: b1.bundle_digest,
+      host: "worker",
+      results: { ok: true, drawMs: { medianMs: 12, p90Ms: 18 } }
+    });
+    assert.equal(passAfterEnv.status, "ok");
+    assert.equal(passAfterEnv.duplicate, false, "decisive ok:true report supersedes prior non-mutating env fallback report");
+    assert.deepEqual(passAfterEnv.body, { state: "checked" });
+    const afterPass = await store.getVariant(b1.id);
+    assert.equal(afterPass.state, "checked");
+    assert.equal(afterPass.stage, null);
+  });
+
+  await test("7. Watchdog-timeout kind='env' report (where client does not request a clip) DOES fall back to server clip rendering after CHECK_GRACE_SECONDS", async () => {
+    const wdEnvRes = await store.submitCheckReport(b2.id, {
+      gen: b2.gen,
+      bundleDigest: b2.bundle_digest,
+      host: "worker",
+      results: { ok: false, kind: "env", error: "Watchdog timeout (init-timeout) after 2000ms", initRetries: 1 }
+    });
+    assert.equal(wdEnvRes.status, "ok");
+    assert.deepEqual(wdEnvRes.body, { state: "bundled", fallback: true });
+
+    await pool.query("update app.plate_variants set updated_at = now() - interval '200 seconds' where id = $1", [b2.id]);
+    await reconcilePlates();
+    const afterGrace = await store.getVariant(b2.id);
+    assert.equal(afterGrace.state, "bundled");
+    assert.equal(afterGrace.stage, "queued for rendering", "watchdog-timeout env report falls back after CHECK_GRACE_SECONDS");
+    assert.equal(await renderMsgs(b2.id), 1, "plate-render enqueued for watchdog-timeout stuck check");
+  });
+
+  await test("8. Browser check report on a variant already drawn by worker fallback is accepted (never 204 dropped) and preserves state='drawn'", async () => {
+    await pool.query("update app.plate_variants set state = 'drawn', stage = null, clip_key = 'plates/x/b2.mp4' where id = $1", [b2.id]);
+    const checkOnDrawn = await store.submitCheckReport(b2.id, {
+      gen: b2.gen,
+      bundleDigest: b2.bundle_digest,
+      host: "worker",
+      results: { ok: true, drawMs: { medianMs: 10, p90Ms: 14 } }
+    });
+    assert.equal(checkOnDrawn.status, "ok", "check report on drawn variant is accepted instead of dropped");
+    assert.deepEqual(checkOnDrawn.body, { state: "checked" });
+    const afterDrawnCheck = await store.getVariant(b2.id);
+    assert.equal(afterDrawnCheck.state, "drawn", "drawn state and clip_key are preserved");
+    assert.equal(afterDrawnCheck.clip_key, "plates/x/b2.mp4");
+  });
+
   console.log(`plate-check-fallback: ok (${passed} assertions/cases passed)`);
 } finally {
   config.plates.live = false;

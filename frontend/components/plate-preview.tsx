@@ -698,195 +698,25 @@ export function PlatePreview({
     [sfxOn, transitionsOn, buildCuesForScene, muted, master]
   );
 
-  useEffect(() => {
-    if (!playing) return;
-    if (isLiveMode && liveResolutions[current]?.mode === "live") return;
-    let frame = 0;
-    const tick = () => {
-      const curRes = liveResolutions[current];
-      const waitingOnClip = Boolean(isLiveMode && curRes?.mode === "clip" && !curRes.isPlayable);
-      const isSceneBuffering = Boolean(curRes?.isBuffering || curRes?.isPreparing || waitingOnClip);
-      if (isSceneBuffering) {
-        audioTimelineRef.current?.setBuffering(true);
-        voices.current[current]?.pause();
-        musicAudio.current?.pause();
-        Object.values(sfxAudios.current).forEach((s) => s?.pause());
-        frame = requestAnimationFrame(tick);
-        return;
-      }
-      audioTimelineRef.current?.setBuffering(false);
-      const el = videos.current[current];
-      const vo = voices.current[current];
-      if ((!el || el.paused) && (!vo || vo.paused)) {
-        frame = requestAnimationFrame(tick);
-        return;
-      }
-      const rate = rateFor(current, el);
-      const vidElapsed = el && (!el.paused || el.ended) ? el.currentTime / (rate || 1) : 0;
-      const voElapsed = vo && (!vo.paused || vo.ended) ? vo.currentTime : 0;
-      const local = Math.min(durations[current] ?? 0, Math.max(vidElapsed, voElapsed));
-      setTime((starts[current] ?? 0) + local);
-      tickSceneSfx(current, local, { playing: true, buffering: isSceneBuffering });
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [playing, current, starts, durations, rateFor, isLiveMode, liveResolutions, tickSceneSfx]);
+  const defaultAspect = (project.brief?.aspect ?? (project.request.format === "portrait" ? "9:16" : "16:9")) as "16:9" | "9:16" | "1:1";
+  const selectedBriefAspects: ("16:9" | "9:16" | "1:1")[] =
+    project.brief?.aspects && project.brief.aspects.length > 0
+      ? [defaultAspect, ...project.brief.aspects.filter((a) => a !== defaultAspect)]
+      : [defaultAspect];
+  const [viewAspect, setViewAspect] = useState<"16:9" | "9:16" | "1:1">(defaultAspect);
+  const drawnAspects = status?.drawnAspects ?? [defaultAspect];
+  const drawingAspects = status?.drawingAspects ?? [];
+  const isViewAspectDrawn = drawnAspects.includes(viewAspect);
+  const isViewAspectDrawing = drawingAspects.includes(viewAspect);
 
-  // The film clock ticks every frame; the clip/voice seek below must NOT run on every tick (a seek per frame means the clip never plays:
-  // measured 0.1x to 0.2x speed with 60 `seeking` events in 3 s). It seeks only when the scene or its media element/source changed,
-  // for a pending offset, or when the media has drifted from the film clock by more than SEEK_DRIFT_SECONDS.
-  const timeRef = useRef(time);
-  timeRef.current = time;
-  const lastSeekRef = useRef<{ el: HTMLVideoElement | null; scene: number; src: string }>({ el: null, scene: -1, src: "" });
-  useEffect(() => {
-    videos.current.forEach((el, idx) => { if (idx !== current && el && !el.paused) el.pause(); });
-    voices.current.forEach((el, idx) => { if (idx !== current && el && !el.paused) el.pause(); });
-    if (isLiveMode && liveResolutions[current]?.mode === "live") {
-      if (pending.current !== null) {
-        const offset = pending.current;
-        const vo = voices.current[current];
-        if (vo && vo.readyState >= 1) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), offset) : offset;
-        pending.current = null;
-      }
-      return;
-    }
-    const el = videos.current[current];
-    const vo = voices.current[current];
-    if (!el) return;
-    const rate = rateFor(current, el);
-    el.playbackRate = rate;
-    const localFromTime = Math.max(0, timeRef.current - (starts[current] ?? 0));
-    const offset = pending.current !== null ? pending.current : localFromTime > 0 ? localFromTime : null;
-    if (offset !== null) {
-      if (el.readyState >= 1) {
-        const last = lastSeekRef.current;
-        const sourceChanged = last.scene !== current || last.el !== el || last.src !== el.currentSrc;
-        const drifted = shouldSeekClip({ mediaTime: el.currentTime / (rate || 1), expected: offset });
-        if (pending.current !== null || sourceChanged || drifted) {
-          el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, offset * rate) : offset;
-          if (vo) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), offset) : offset;
-        }
-        lastSeekRef.current = { el, scene: current, src: el.currentSrc };
-        pending.current = null;
-      } else {
-        pending.current = offset;
-      }
-    }
-    if ((wantPlay.current || playing) && (!isLiveMode || Boolean(liveResolutions[current]?.isPlayable))) {
-      wantPlay.current = true;
-      void el.play().catch(() => setPlaying(false));
-    }
-  }, [current, rateFor, isLiveMode, liveResolutions, playing, starts]);
-
-  const seek = useCallback((at: number) => {
-    if (!scenes.length) return;
-    const clamped = Math.min(Math.max(0, at), Math.max(0, total - 0.05));
-    let index = scenes.length - 1;
-    for (let i = 0; i < scenes.length; i++) if (clamped < starts[i]! + durations[i]!) { index = i; break; }
-    const local = clamped - starts[index]!;
-    seekingFlagRef.current = true;
-    setTime(clamped);
-    audioTimelineRef.current?.seek(clamped);
-    if (musicAudio.current) musicAudio.current.currentTime = clamped;
-    const vo = voices.current[index];
-    if (isLiveMode && liveResolutions[index]?.mode === "live") {
-      videos.current.forEach((v) => { if (v && !v.paused) v.pause(); });
-      voices.current.forEach((v, idx) => { if (idx !== index && v && !v.paused) v.pause(); });
-      if (vo && vo.readyState >= 1) {
-        vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), local) : local;
-      } else {
-        pending.current = local;
-      }
-      if (wantPlay.current) playSceneSfx(index, local);
-      else clearSfxTimers();
-      if (index !== current) setCurrent(index);
-      return;
-    }
-    const el = videos.current[index];
-    const rate = rateFor(index, el);
-    if (index === current && el) {
-      el.playbackRate = rate;
-      el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, local * rate) : local;
-      if (vo) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), local) : local;
-      if (wantPlay.current) playSceneSfx(index, local);
-      else clearSfxTimers();
-    } else {
-      if (el && el.readyState >= 1) {
-        el.playbackRate = rate;
-        el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, local * rate) : local;
-        if (vo && vo.readyState >= 1) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), local) : local;
-        pending.current = null;
-      } else {
-        pending.current = local;
-      }
-      setCurrent(index);
-    }
-  }, [scenes, starts, durations, total, current, rateFor, isLiveMode, liveResolutions]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const onLoaded = (index: number) => {
-    const el = videos.current[index];
-    const vo = voices.current[index];
-    if (!el) return;
-    const rate = rateFor(index, el);
-    el.playbackRate = rate;
-    if (index !== current) { el.currentTime = 0.001; return; }
-    const offset = pending.current;
-    if (offset !== null) {
-      el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, offset * rate) : offset;
-      if (vo) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), offset) : offset;
-      pending.current = null;
-    } else if (!wantPlay.current && el.currentTime === 0) {
-      el.currentTime = 0.001;
-    }
-    if (wantPlay.current && (!isLiveMode || liveResolutions[index]?.mode === "clip")) void el.play().catch(() => setPlaying(false));
-  };
-
-  const toggle = () => {
-    const el = videos.current[current];
-    const vo = voices.current[current];
-    if (isLiveMode) {
-      const curRes = liveResolutions[current];
-      if (!curRes?.isPlayable) return;
-      if (!playing) {
-        wantPlay.current = true;
-        if (time >= total - 0.1) seek(0);
-        void audioTimelineRef.current?.unlockFromUserGesture();
-        if (curRes.mode === "live") {
-          setPlaying(true);
-          void audioTimelineRef.current?.play({ fromUserGesture: true });
-        } else if (el) {
-          el.playbackRate = rateFor(current, el);
-          void el.play().catch(() => setPlaying(false));
-        }
-      } else {
-        wantPlay.current = false;
-        audioTimelineRef.current?.pause();
-        el?.pause();
-        vo?.pause();
-        musicAudio.current?.pause();
-        clearSfxTimers();
-        Object.values(sfxAudios.current).forEach((s) => s?.pause());
-        setPlaying(false);
-      }
-      return;
-    }
-    if (!el || shown?.state !== "drawn") return;
-    if (!playing) {
-      wantPlay.current = true;
-      if (time >= total - 0.1) seek(0);
-      void audioTimelineRef.current?.unlockFromUserGesture();
-      el.playbackRate = rateFor(current, el);
-      void el.play().catch(() => undefined);
-    } else {
-      wantPlay.current = false;
-      audioTimelineRef.current?.pause();
-      el.pause();
-      vo?.pause();
-      musicAudio.current?.pause();
-      setPlaying(false);
-    }
-  };
+  const canPlaySceneWithSketch = useCallback(
+    (index: number) => {
+      const sc = scenes[index];
+      if (!sc || isSceneStaleState(sc, viewAspect) || sc.state === "failed") return false;
+      return Boolean(referenceFrames[index]);
+    },
+    [scenes, viewAspect, referenceFrames]
+  );
 
   const advanceFrom = useCallback((index: number) => {
     if (index !== current) return;
@@ -896,18 +726,24 @@ export function PlatePreview({
       (isLiveMode
         ? Boolean(
             liveResolutions[i]?.isPlayable ||
+              canPlaySceneWithSketch(i) ||
               (!isSceneStaleState(scene) &&
                 scene.state !== "failed" &&
                 liveResolutions[i]?.mode === "clip" &&
                 liveResolutions[i]?.reason === "slow-draw")
           )
-        : scene.state === "drawn")
+        : scene.state === "drawn" || canPlaySceneWithSketch(i))
     );
     if (after >= 0) {
       const nextVideo = videos.current[after];
       const nextVoice = voices.current[after];
       const nextStart = starts[after] ?? 0;
-      if (isLiveMode && liveResolutions[after]?.mode === "live") {
+      const nextRes = liveResolutions[after];
+      const nextDrivesLiveOrSketch =
+        isLiveMode
+          ? nextRes?.mode === "live" || (!nextRes?.isPlayable && canPlaySceneWithSketch(after))
+          : scenes[after]?.state !== "drawn" && canPlaySceneWithSketch(after);
+      if (nextDrivesLiveOrSketch) {
         if (nextVoice && nextVoice.readyState >= 1) nextVoice.currentTime = 0;
         pending.current = null;
         setTime(nextStart);
@@ -946,7 +782,278 @@ export function PlatePreview({
       musicAudio.current?.pause();
       setTime(total);
     }
-  }, [current, scenes, isLiveMode, liveResolutions, starts, rateFor, total, durations, watched]);
+  }, [current, scenes, isLiveMode, liveResolutions, starts, rateFor, total, durations, watched, canPlaySceneWithSketch]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const curRes = liveResolutions[current];
+    const hasSketchFallback = canPlaySceneWithSketch(current);
+    if (isLiveMode && (curRes?.mode === "live" || (!curRes?.isPlayable && hasSketchFallback))) return;
+    let frame = 0;
+    let fallbackTimer = 0;
+    const scheduleNext = () => {
+      let fired = false;
+      frame = requestAnimationFrame(() => {
+        if (fired) return;
+        fired = true;
+        window.clearTimeout(fallbackTimer);
+        tick();
+      });
+      fallbackTimer = window.setTimeout(() => {
+        if (fired) return;
+        fired = true;
+        cancelAnimationFrame(frame);
+        if (typeof document === "undefined" || !document.hidden) {
+          tick();
+        }
+      }, 33);
+    };
+    const wallAnchorRef = { startMs: performance.now() - Math.max(0, time - (starts[current] ?? 0)) * 1000 };
+    const tick = () => {
+      const activeRes = liveResolutions[current];
+      const waitingOnClip = Boolean(isLiveMode && activeRes?.mode === "clip" && !activeRes.isPlayable && !hasSketchFallback);
+      const isSceneBuffering = Boolean(activeRes?.isBuffering || activeRes?.isPreparing || waitingOnClip);
+      if (isSceneBuffering) {
+        audioTimelineRef.current?.setBuffering(true);
+        voices.current[current]?.pause();
+        musicAudio.current?.pause();
+        Object.values(sfxAudios.current).forEach((s) => s?.pause());
+        scheduleNext();
+        return;
+      }
+      audioTimelineRef.current?.setBuffering(false);
+      const el = videos.current[current];
+      const vo = voices.current[current];
+      const useWebAudio = Boolean(audioTimelineRef.current && audioTimelineRef.current.hasDecodedAudio() && audioTimelineRef.current.audioContext?.state === "running");
+      if ((!el || el.paused) && (!vo || vo.paused) && !useWebAudio && !hasSketchFallback) {
+        scheduleNext();
+        return;
+      }
+      const sceneDur = durations[current] ?? 0;
+      let local: number;
+      if ((!el || el.paused) && useWebAudio && audioTimelineRef.current) {
+        const tickRes = audioTimelineRef.current.tick();
+        local = Math.min(sceneDur, Math.max(0, tickRes.filmTime - (starts[current] ?? 0)));
+      } else if ((!el || el.paused) && (!vo || vo.paused) && hasSketchFallback) {
+        local = Math.min(sceneDur, Math.max(0, (performance.now() - wallAnchorRef.startMs) / 1000));
+      } else {
+        const rate = rateFor(current, el);
+        const vidElapsed = el && (!el.paused || el.ended) ? el.currentTime / (rate || 1) : 0;
+        const voElapsed = vo && (!vo.paused || vo.ended) ? vo.currentTime : 0;
+        local = Math.min(sceneDur, Math.max(vidElapsed, voElapsed));
+      }
+      setTime((starts[current] ?? 0) + local);
+      tickSceneSfx(current, local, { playing: true, buffering: isSceneBuffering });
+      if ((!el || el.paused) && hasSketchFallback && local >= sceneDur && (!vo || vo.paused || vo.ended)) {
+        advanceFrom(current);
+        return;
+      }
+      scheduleNext();
+    };
+    scheduleNext();
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(fallbackTimer);
+    };
+  }, [playing, current, starts, durations, rateFor, isLiveMode, liveResolutions, tickSceneSfx, canPlaySceneWithSketch, advanceFrom]);
+
+  // The film clock ticks every frame; the clip/voice seek below must NOT run on every tick (a seek per frame means the clip never plays:
+  // measured 0.1x to 0.2x speed with 60 `seeking` events in 3 s). It seeks only when the scene or its media element/source changed,
+  // for a pending offset, or when the media has drifted from the film clock by more than SEEK_DRIFT_SECONDS.
+  const timeRef = useRef(time);
+  timeRef.current = time;
+  const lastSeekRef = useRef<{ el: HTMLVideoElement | null; scene: number; src: string }>({ el: null, scene: -1, src: "" });
+  useEffect(() => {
+    videos.current.forEach((el, idx) => { if (idx !== current && el && !el.paused) el.pause(); });
+    voices.current.forEach((el, idx) => { if (idx !== current && el && !el.paused) el.pause(); });
+    const curRes = liveResolutions[current];
+    const hasSketchFallback = canPlaySceneWithSketch(current);
+    if (isLiveMode && (curRes?.mode === "live" || (!curRes?.isPlayable && hasSketchFallback))) {
+      if (pending.current !== null) {
+        const offset = pending.current;
+        const vo = voices.current[current];
+        if (vo && vo.readyState >= 1) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), offset) : offset;
+        pending.current = null;
+      }
+      return;
+    }
+    const el = videos.current[current];
+    const vo = voices.current[current];
+    if (!el) {
+      if (!isLiveMode && hasSketchFallback && (wantPlay.current || playing)) {
+        wantPlay.current = true;
+        setPlaying(true);
+        void audioTimelineRef.current?.play();
+        if (vo) {
+          if (pending.current !== null && vo.readyState >= 1) {
+            vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), pending.current) : pending.current;
+            pending.current = null;
+          }
+          vo.muted = !voiceOn || muted;
+          vo.volume = master;
+          void vo.play().catch(() => undefined);
+        }
+        if (musicAudio.current && musicSrc && musicAudio.current.paused) {
+          musicAudio.current.muted = !musicOn || muted;
+          musicAudio.current.volume = 0.22 * master;
+          void musicAudio.current.play().catch(() => undefined);
+        }
+      }
+      return;
+    }
+    const rate = rateFor(current, el);
+    el.playbackRate = rate;
+    const localFromTime = Math.max(0, timeRef.current - (starts[current] ?? 0));
+    const offset = pending.current !== null ? pending.current : localFromTime > 0 ? localFromTime : null;
+    if (offset !== null) {
+      if (el.readyState >= 1) {
+        const last = lastSeekRef.current;
+        const sourceChanged = last.scene !== current || last.el !== el || last.src !== el.currentSrc;
+        const drifted = shouldSeekClip({ mediaTime: el.currentTime / (rate || 1), expected: offset });
+        if (pending.current !== null || sourceChanged || drifted) {
+          el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, offset * rate) : offset;
+          if (vo) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), offset) : offset;
+        }
+        lastSeekRef.current = { el, scene: current, src: el.currentSrc };
+        pending.current = null;
+      } else {
+        pending.current = offset;
+      }
+    }
+    if ((wantPlay.current || playing) && (!isLiveMode || Boolean(liveResolutions[current]?.isPlayable))) {
+      wantPlay.current = true;
+      void el.play().catch(() => setPlaying(false));
+    }
+  }, [current, rateFor, isLiveMode, liveResolutions, playing, starts, canPlaySceneWithSketch, voiceOn, musicOn, muted, master, musicSrc]);
+
+  const seek = useCallback((at: number) => {
+    if (!scenes.length) return;
+    const clamped = Math.min(Math.max(0, at), Math.max(0, total - 0.05));
+    let index = scenes.length - 1;
+    for (let i = 0; i < scenes.length; i++) if (clamped < starts[i]! + durations[i]!) { index = i; break; }
+    const local = clamped - starts[index]!;
+    seekingFlagRef.current = true;
+    setTime(clamped);
+    audioTimelineRef.current?.seek(clamped);
+    if (musicAudio.current) musicAudio.current.currentTime = clamped;
+    const vo = voices.current[index];
+    const targetRes = liveResolutions[index];
+    const targetDrivesLiveOrSketch = isLiveMode
+      ? targetRes?.mode === "live" || (!targetRes?.isPlayable && canPlaySceneWithSketch(index))
+      : scenes[index]?.state !== "drawn" && canPlaySceneWithSketch(index);
+    if (targetDrivesLiveOrSketch) {
+      videos.current.forEach((v) => { if (v && !v.paused) v.pause(); });
+      voices.current.forEach((v, idx) => { if (idx !== index && v && !v.paused) v.pause(); });
+      if (vo && vo.readyState >= 1) {
+        vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), local) : local;
+      } else {
+        pending.current = local;
+      }
+      if (wantPlay.current) playSceneSfx(index, local);
+      else clearSfxTimers();
+      if (index !== current) setCurrent(index);
+      return;
+    }
+    const el = videos.current[index];
+    const rate = rateFor(index, el);
+    if (index === current && el) {
+      el.playbackRate = rate;
+      el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, local * rate) : local;
+      if (vo) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), local) : local;
+      if (wantPlay.current) playSceneSfx(index, local);
+      else clearSfxTimers();
+    } else {
+      if (el && el.readyState >= 1) {
+        el.playbackRate = rate;
+        el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, local * rate) : local;
+        if (vo && vo.readyState >= 1) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), local) : local;
+        pending.current = null;
+      } else {
+        pending.current = local;
+      }
+      setCurrent(index);
+    }
+  }, [scenes, starts, durations, total, current, rateFor, isLiveMode, liveResolutions, canPlaySceneWithSketch]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onLoaded = (index: number) => {
+    const el = videos.current[index];
+    const vo = voices.current[index];
+    if (!el) return;
+    const rate = rateFor(index, el);
+    el.playbackRate = rate;
+    if (index !== current) { el.currentTime = 0.001; return; }
+    const offset = pending.current;
+    if (offset !== null) {
+      el.currentTime = Number.isFinite(el.duration) ? Math.min(el.duration, offset * rate) : offset;
+      if (vo) vo.currentTime = Number.isFinite(vo.duration) ? Math.min(Math.max(0, vo.duration - 0.05), offset) : offset;
+      pending.current = null;
+    } else if (!wantPlay.current && el.currentTime === 0) {
+      el.currentTime = 0.001;
+    }
+    if (wantPlay.current && (!isLiveMode || liveResolutions[index]?.mode === "clip")) void el.play().catch(() => setPlaying(false));
+  };
+
+  const toggle = () => {
+    const el = videos.current[current];
+    const vo = voices.current[current];
+    const hasSketchFallback = canPlaySceneWithSketch(current);
+    if (isLiveMode) {
+      const curRes = liveResolutions[current];
+      if (!curRes?.isPlayable && !hasSketchFallback) return;
+      if (!playing) {
+        wantPlay.current = true;
+        if (time >= total - 0.1) seek(0);
+        void audioTimelineRef.current?.unlockFromUserGesture();
+        if (curRes?.mode === "live" || !curRes?.isPlayable) {
+          setPlaying(true);
+          void audioTimelineRef.current?.play({ fromUserGesture: true });
+        } else if (el) {
+          el.playbackRate = rateFor(current, el);
+          void el.play().catch(() => setPlaying(false));
+        }
+      } else {
+        wantPlay.current = false;
+        audioTimelineRef.current?.pause();
+        el?.pause();
+        vo?.pause();
+        musicAudio.current?.pause();
+        clearSfxTimers();
+        Object.values(sfxAudios.current).forEach((s) => s?.pause());
+        setPlaying(false);
+      }
+      return;
+    }
+    if ((!el || shown?.state !== "drawn") && !hasSketchFallback) return;
+    if (!playing) {
+      wantPlay.current = true;
+      if (time >= total - 0.1) seek(0);
+      void audioTimelineRef.current?.unlockFromUserGesture();
+      if (el && shown?.state === "drawn") {
+        el.playbackRate = rateFor(current, el);
+        void el.play().catch(() => undefined);
+      } else {
+        setPlaying(true);
+        void audioTimelineRef.current?.play({ fromUserGesture: true });
+        if (vo) {
+          vo.muted = !voiceOn || muted;
+          vo.volume = master;
+          void vo.play().catch(() => undefined);
+        }
+        if (musicAudio.current && musicSrc) {
+          musicAudio.current.muted = !musicOn || muted;
+          musicAudio.current.volume = 0.22 * master;
+          void musicAudio.current.play().catch(() => undefined);
+        }
+      }
+    } else {
+      wantPlay.current = false;
+      audioTimelineRef.current?.pause();
+      el?.pause();
+      vo?.pause();
+      musicAudio.current?.pause();
+      setPlaying(false);
+    }
+  };
 
   const onVideoEnded = (index: number) => {
     if (index !== current) return;
@@ -957,7 +1064,13 @@ export function PlatePreview({
 
   const onVoiceEnded = (index: number) => {
     if (index !== current) return;
-    if (isLiveMode && liveResolutions[index]?.mode === "live") return;
+    if (
+      isLiveMode &&
+      (liveResolutions[index]?.mode === "live" ||
+        (!liveResolutions[index]?.isPlayable && canPlaySceneWithSketch(index)))
+    ) {
+      return;
+    }
     const el = videos.current[index];
     if (!el || el.ended || el.paused || (Number.isFinite(el.duration) && el.duration - el.currentTime <= 0.2)) {
       advanceFrom(index);
@@ -1093,16 +1206,6 @@ export function PlatePreview({
   const curScenePos = scenePositions[String(current)] ?? subPos;
   const effectiveTextColor = subColor || (subStyle === "cinema" ? "#fef08a" : subStyle === "kinetic" || subStyle === "paper" ? "#1e1b18" : "#ffffff");
   const effectiveBgColor = subBgColor || (subStyle === "kinetic" ? "#facc15" : subStyle === "paper" ? "#faf5e8" : subStyle === "blueprint" ? "#0c2a4a" : "#0c0f16");
-  const defaultAspect = (project.brief?.aspect ?? (project.request.format === "portrait" ? "9:16" : "16:9")) as "16:9" | "9:16" | "1:1";
-  const selectedBriefAspects: ("16:9" | "9:16" | "1:1")[] =
-    project.brief?.aspects && project.brief.aspects.length > 0
-      ? [defaultAspect, ...project.brief.aspects.filter((a) => a !== defaultAspect)]
-      : [defaultAspect];
-  const [viewAspect, setViewAspect] = useState<"16:9" | "9:16" | "1:1">(defaultAspect);
-  const drawnAspects = status?.drawnAspects ?? [defaultAspect];
-  const drawingAspects = status?.drawingAspects ?? [];
-  const isViewAspectDrawn = drawnAspects.includes(viewAspect);
-  const isViewAspectDrawing = drawingAspects.includes(viewAspect);
 
   const selectOrDrawAspect = (asp: "16:9" | "9:16" | "1:1") => {
     wantPlay.current = false;
@@ -1149,6 +1252,41 @@ export function PlatePreview({
     return () => window.clearInterval(id);
   }, [hasActiveWork]);
 
+  const effectiveScenesForProgress = useMemo(
+    () =>
+      !isLiveMode
+        ? scenes
+        : scenes.map((s, idx) => {
+            const res = liveResolutions[idx];
+            if (
+              res &&
+              res.mode === "live" &&
+              res.isPlayable &&
+              res.tabState === "checked" &&
+              !isSceneStaleState(s, viewAspect) &&
+              (s.state === "bundled" || s.variants?.[viewAspect]?.state === "bundled")
+            ) {
+              const curVar = s.variants?.[viewAspect];
+              return {
+                ...s,
+                ...(viewAspect === defaultAspect ? { state: "checked" as const, live: true, stage: undefined } : {}),
+                ...(s.variants
+                  ? {
+                      variants: {
+                        ...s.variants,
+                        ...(curVar
+                          ? { [viewAspect]: { ...curVar, state: "checked" as const, live: true, stage: undefined } }
+                          : {})
+                      }
+                    }
+                  : {})
+              };
+            }
+            return s;
+          }),
+    [isLiveMode, scenes, liveResolutions, viewAspect, defaultAspect]
+  );
+
   const progressCtx: ProgressContext = useMemo(
     () => ({
       nowClient,
@@ -1156,18 +1294,21 @@ export function PlatePreview({
       clientNowAtFetch: clientNowAtFetchRef.current,
       viewAspect,
       isLiveMode,
-      scenes,
+      scenes: effectiveScenesForProgress,
       firstSeenAt: firstSeenRef.current
     }),
-    [nowClient, status?.serverNow, viewAspect, isLiveMode, scenes]
+    [nowClient, status?.serverNow, viewAspect, isLiveMode, effectiveScenesForProgress]
   );
 
   const perSceneProgress = useMemo(
-    () => scenes.map((s) => sceneProgress(s, s.variants?.[viewAspect] ?? null, progressCtx)),
-    [scenes, viewAspect, progressCtx]
+    () => effectiveScenesForProgress.map((s) => sceneProgress(s, s.variants?.[viewAspect] ?? null, progressCtx)),
+    [effectiveScenesForProgress, viewAspect, progressCtx]
   );
-  const shownProgress = shown ? (perSceneProgress[shown.index] ?? sceneProgress(shown, shown.variants?.[viewAspect] ?? null, progressCtx)) : null;
-  const filmProg = useMemo(() => filmProgress(scenes, progressCtx), [scenes, progressCtx]);
+  const shownForProgress = effectiveScenesForProgress[current] ?? shown;
+  const shownProgress = shownForProgress
+    ? (perSceneProgress[shownForProgress.index] ?? sceneProgress(shownForProgress, shownForProgress.variants?.[viewAspect] ?? null, progressCtx))
+    : null;
+  const filmProg = useMemo(() => filmProgress(effectiveScenesForProgress, progressCtx), [effectiveScenesForProgress, progressCtx]);
 
   const filmVersionKey = useMemo(() => computeFilmVersionKey(scenes), [scenes]);
 
@@ -1274,6 +1415,8 @@ export function PlatePreview({
   const isAnySceneDrawnInViewAspect = isViewAspectDrawn || scenes.some((s) => isSceneDrawnInAspect(s, viewAspect));
   const isCurrentScenePlayable = !isShownStale && (isLiveMode ? Boolean(liveResolutions[current]?.isPlayable) : isShownDrawnInViewAspect);
   const shownSketch = referenceFrames[current] ?? null;
+  const canPlayCurrentWithSketch = !isShownStale && shown?.state !== "failed" && Boolean(shownSketch);
+  const isCurrentSceneOrSketchPlayable = isCurrentScenePlayable || canPlayCurrentWithSketch;
   const clipStagePrep = !isLiveMode
     ? buildStagePrepProps({
         prep,
@@ -1304,29 +1447,34 @@ export function PlatePreview({
     );
   const stagePrepSceneIndex = (!isLiveMode ? clipStagePrep !== null : isLiveStagePrepShowing) ? current : null;
 
+  const isEffectiveViewAspectDrawing =
+    isLiveMode && liveResolutions.length === scenes.length && scenes.length > 0 && liveResolutions.every((r) => r.isReady)
+      ? false
+      : isViewAspectDrawing;
+
   const filmToast = useMemo(
     () =>
       buildFilmProgressToast({
-        scenes,
+        scenes: effectiveScenesForProgress,
         perSceneProgress,
         filmProgress: filmProg,
         progressContext: progressCtx,
-        isViewAspectDrawing,
+        isViewAspectDrawing: isEffectiveViewAspectDrawing,
         viewAspect
       }),
-    [scenes, perSceneProgress, filmProg, progressCtx, isViewAspectDrawing, viewAspect]
+    [effectiveScenesForProgress, perSceneProgress, filmProg, progressCtx, isEffectiveViewAspectDrawing, viewAspect]
   );
 
   const sceneBanner = useMemo(
     () =>
       buildUnreadySceneBanner({
-        scenes,
+        scenes: effectiveScenesForProgress,
         perSceneProgress,
         progressContext: progressCtx,
         currentSceneIndex: current,
         stagePrepSceneIndex
       }),
-    [scenes, perSceneProgress, progressCtx, current, stagePrepSceneIndex]
+    [effectiveScenesForProgress, perSceneProgress, progressCtx, current, stagePrepSceneIndex]
   );
 
   const activeFpsSource: "clip" | "live" =
@@ -1507,7 +1655,7 @@ export function PlatePreview({
           />}
         </>
       )}
-      {isCurrentScenePlayable && activeCue && <div
+      {(isCurrentScenePlayable || canPlayCurrentWithSketch) && activeCue && <div
         className={`aw-subtitle aw-sub-${subStyle}`}
         aria-live="polite"
         title={`Drag to move Scene ${current + 1}'s subtitle anywhere on the screen`}
@@ -1562,7 +1710,7 @@ export function PlatePreview({
       {SFX_NAMES.flatMap((sfxName) => [0, 1].map((slot) => <audio key={`${sfxName}:${slot}`} ref={(el) => { sfxAudios.current[`${sfxName}:${slot}`] = el; }} src={planSfxUrl(sfxName)} muted={muted} preload="auto" />))}
     </>}
     playing={playing}
-    playDisabled={!isCurrentScenePlayable}
+    playDisabled={!isCurrentSceneOrSketchPlayable}
     onTogglePlay={toggle}
     currentTime={time}
     totalDuration={total}

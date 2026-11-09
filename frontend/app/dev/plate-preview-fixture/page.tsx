@@ -20,6 +20,7 @@ function PlatePreviewFixtureInner() {
   const prepParam = searchParams.get("prep") as "sound" | "scenes" | "motion" | null;
   const projectParam = searchParams.get("project");
   const envParam = searchParams.get("env");
+  const withSketches = searchParams.get("withSketches") === "1";
 
   const [tokenModalOpen, setTokenModalOpen] = useState(false);
   const [realProject, setRealProject] = useState<VideoProject | null>(null);
@@ -82,25 +83,34 @@ function PlatePreviewFixtureInner() {
   const baseProject = projectParam ? realProject : isFolkTaleFixture ? UPDATED_FOLK_TALE_7_PROJECT : FIXTURE_PROJECT;
   const activeProject = useMemo(() => {
     if (!baseProject) return null;
+    const proj = withSketches
+      ? {
+          ...baseProject,
+          scriptFrames: (baseProject.brief?.scriptBeats ?? []).map((b, idx) => ({
+            key: `\u0001${(b.keyword ?? `scene-${idx}`).toLowerCase()}\u0001`,
+            svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><rect width="640" height="360" fill="#1e293b"/><text x="320" y="180" fill="#f8fafc" font-size="24" text-anchor="middle">${b.keyword}</text></svg>`
+          }))
+        }
+      : baseProject;
     if (state === "t-plate-final-single-9x16") {
       return {
-        ...baseProject,
-        request: { ...baseProject.request, format: "portrait" as const },
-        brief: baseProject.brief
-          ? { ...baseProject.brief, aspect: "9:16" as const, aspects: ["9:16" as const] }
+        ...proj,
+        request: { ...proj.request, format: "portrait" as const },
+        brief: proj.brief
+          ? { ...proj.brief, aspect: "9:16" as const, aspects: ["9:16" as const] }
           : undefined
       };
     }
     if (state === "s-plate-final-two-ratios") {
       return {
-        ...baseProject,
-        brief: baseProject.brief
-          ? { ...baseProject.brief, aspect: "16:9" as const, aspects: ["16:9" as const, "9:16" as const] }
+        ...proj,
+        brief: proj.brief
+          ? { ...proj.brief, aspect: "16:9" as const, aspects: ["16:9" as const, "9:16" as const] }
           : undefined
       };
     }
-    return baseProject;
-  }, [baseProject, state]);
+    return proj;
+  }, [baseProject, state, withSketches]);
 
   const handleRender = () => {
     if (projectParam && activeProject) {

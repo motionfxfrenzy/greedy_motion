@@ -9,6 +9,7 @@ export const WRITE_PARALLEL = 2;
 
 export const DEFAULT_TYPICAL_WRITE_SECONDS = 180;
 export const DEFAULT_CHECKING_SECONDS = 20;
+export const CHECKING_TAKING_LONGER_SECONDS = 90;
 export const DEFAULT_DRAWING_SECONDS = 40;
 export const CLIP_RENDER_SECONDS_PER_FRAME = 1;
 export const TAKING_LONGER_NOTE = "taking longer than usual";
@@ -586,6 +587,19 @@ export function sceneProgress(
   }
 
   if (phase === "checking") {
+    if (elapsedSec >= CHECKING_TAKING_LONGER_SECONDS) {
+      return applyRetryingOverride({
+        phase: "checking",
+        label: "Checking",
+        chipLabel: "Checking",
+        meaning: "Checking it draws correctly",
+        fraction: null,
+        elapsedMs,
+        etaSeconds: null,
+        etaNote: TAKING_LONGER_NOTE,
+        takingLongerThanUsual: true
+      });
+    }
     const rem = Math.max(5, DEFAULT_CHECKING_SECONDS - Math.min(15, elapsedSec));
     return applyRetryingOverride({
       phase: "checking",
@@ -789,8 +803,10 @@ export function filmProgress(scenes: readonly PlateScene[], ctx?: ProgressContex
     } else if (sp.phase === "checking") {
       written += 1;
       progressSum += 0.65;
-      const rem = Math.max(5, DEFAULT_CHECKING_SECONDS - Math.min(15, elapsedSec));
-      maxPostWriteRemain = Math.max(maxPostWriteRemain, rem + (ctx?.isLiveMode ? 0 : DEFAULT_DRAWING_SECONDS));
+      if (!sp.takingLongerThanUsual) {
+        const rem = Math.max(5, DEFAULT_CHECKING_SECONDS - Math.min(15, elapsedSec));
+        maxPostWriteRemain = Math.max(maxPostWriteRemain, rem + (ctx?.isLiveMode ? 0 : DEFAULT_DRAWING_SECONDS));
+      }
     } else if (sp.phase === "writing") {
       const writeFrac = sp.fraction ?? 0.05;
       progressSum += 0.6 * writeFrac;
@@ -1814,6 +1830,9 @@ export function formatSceneStatusText(
   }
 
   if (sp.phase === "checking") {
+    if (options?.includeEta && sp.takingLongerThanUsual && sp.etaNote) {
+      return `Checking scene ${sceneNumber} · ${sp.etaNote}`;
+    }
     return options?.includeEta && etaBrief ? `Checking scene ${sceneNumber} · ${etaBrief}` : `Checking scene ${sceneNumber}`;
   }
 
