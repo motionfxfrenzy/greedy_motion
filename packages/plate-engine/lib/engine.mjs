@@ -114,6 +114,7 @@ export function prepareSceneSource(code, { frames, aspect }) {
     const s = Math.min(size.w / w0, size.h / h0), tx = (size.w - w0 * s) / 2, ty = (size.h - h0 * s) / 2;
     const padX = Math.ceil(tx / s) + 80, padY = Math.ceil(ty / s) + 80;
     patched = insertAfterImports(patched, `\n(globalThis as any).__ANIDOODLE_ADAPT__ = { w0: ${w0}, h0: ${h0}, wt: ${size.w}, ht: ${size.h}, s: ${s.toFixed(6)}, tx: ${tx.toFixed(2)}, ty: ${ty.toFixed(2)}, padX: ${padX}, padY: ${padY} };\n`)
+      .replace(/(\bmeta\s*:\s*\{[^}]*?)\bW\s*,\s*H\b/, `$1W: ${size.w}, H: ${size.h}`)
       .replace(/ctx\.setTransform\(\s*env\.scale\s*,\s*0\s*,\s*0\s*,\s*env\.scale\s*,\s*0\s*,\s*0\s*\)/g, `ctx.setTransform(env.scale * ${s.toFixed(6)}, 0, 0, env.scale * ${s.toFixed(6)}, env.scale * ${tx.toFixed(2)}, env.scale * ${ty.toFixed(2)})`)
       .replace(/ctx\.fillRect\(\s*0\s*,\s*0\s*,\s*W\s*,\s*H\s*\)/g, `ctx.fillRect(-${padX}, -${padY}, W + ${padX * 2}, H + ${padY * 2})`);
   } else {
