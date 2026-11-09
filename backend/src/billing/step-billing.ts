@@ -1926,7 +1926,18 @@ export function registerStepBillingRoutes(app: FastifyInstance) {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
     const userId = callerId(request);
-    const parsedBrief = request.body?.brief ? parseScriptBrief(request.body.brief) : null;
+    const rawBrief =
+      request.body?.brief && typeof request.body.brief === "object" && !Array.isArray(request.body.brief)
+        ? {
+            ...(request.body.brief as Record<string, unknown>),
+            text:
+              typeof (request.body.brief as { text?: unknown }).text === "string" &&
+              (request.body.brief as { text: string }).text.trim().length >= 10
+                ? (request.body.brief as { text: string }).text
+                : project.request.prompt || "Product explainer video"
+          }
+        : request.body?.brief;
+    const parsedBrief = rawBrief ? parseScriptBrief(rawBrief) : null;
     const briefOverride = parsedBrief && !("error" in parsedBrief) ? parsedBrief.brief : undefined;
     const beatsOverride = parseScriptBeats(request.body?.beats) ?? undefined;
     const tierOverride = isAnimationTier(request.body?.animationTier) ? request.body.animationTier : undefined;
