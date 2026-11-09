@@ -1099,14 +1099,60 @@ export async function prepareManifestClips(
       if (signal?.aborted) throw error;
       if (isDiskFullError(error)) throw wrapDiskFull(error);
       if (!isBrowserCrashOrTimeout(error) && classifyFailure(error) === "code") {
-        await control.op("plate.sendBackForRepair", {
-          id: scene.variantId,
-          gen: scene.gen,
-          detail: messageOf(error)
-        }).catch((err) => log("warn", "plate_repair_op_failed", { variantId: scene.variantId, message: messageOf(err) }));
-        throw new SceneNeedsFixError(sceneIndex, messageOf(error));
+        const repairOut = await control
+          .op("plate.sendBackForRepair", {
+            id: scene.variantId,
+            gen: scene.gen,
+            detail: messageOf(error)
+          })
+          .catch((err) => {
+            log("warn", "plate_repair_op_failed", { variantId: scene.variantId, message: messageOf(err) });
+            return null;
+          });
+        if (repairOut && (repairOut.applied || repairOut.duplicate) && !repairOut.exhausted) {
+          await report?.({ stage: "retrying", done: 0, total: manifest.totalFrames, fixingScene: sceneIndex + 1 }).catch(() => undefined);
+          const waited = await control
+            .op("plate.awaitRepair", {
+              id: scene.variantId,
+              gen: scene.gen,
+              minRev: repairOut.rev ?? (Number(scene.rev) || 0) + 1
+            })
+            .catch(() => null);
+          if (waited?.repaired && waited.bundleKey && waited.bundleDigest && plateKeyOk(waited.bundleKey, manifest.projectId)) {
+            scene.bundleKey = waited.bundleKey;
+            scene.bundleDigest = waited.bundleDigest;
+            if (waited.params && typeof waited.params === "object") {
+              scene.params = waited.params;
+            }
+            await downloadInput(scene.bundleKey, pagePath);
+            const repairedRawHtml = await readFile(pagePath, "utf8");
+            const repairedBakedHtml = bakeSceneParams(repairedRawHtml, scene.params);
+            if (repairedBakedHtml !== repairedRawHtml) {
+              await writeFile(pagePath, repairedBakedHtml, "utf8");
+            }
+            try {
+              verified = await withWatchdog(
+                (wdSignal) => verifyScene(pagePath, { frames: sceneFrames, signal: wdSignal }),
+                { timeoutMs: checkTimeoutMs, label: `Scene ${sceneIndex + 1} repaired check`, signal }
+              );
+              log("info", "plate_export_repaired_in_place", {
+                projectId: manifest.projectId,
+                sceneIndex,
+                variantId: scene.variantId,
+                rev: waited.rev
+              });
+            } catch (reverifyErr) {
+              if (signal?.aborted) throw reverifyErr;
+              throw new SceneNeedsFixError(sceneIndex, messageOf(reverifyErr));
+            }
+          }
+        }
+        if (!verified) {
+          throw new SceneNeedsFixError(sceneIndex, messageOf(error));
+        }
+      } else {
+        throw normalizeBrowserError(error);
       }
-      throw normalizeBrowserError(error);
     }
     if (verified?.blocked?.length) {
       log("warn", "plate_network_blocked", { variantId: scene.variantId, blocked: verified.blocked.slice(0, 5) });

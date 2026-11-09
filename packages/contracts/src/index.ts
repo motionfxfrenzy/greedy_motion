@@ -182,6 +182,14 @@ export type PlanningState = {
   startedAt: string;
   /** Why it failed (status "failed"). */
   error?: string;
+  /** True when an interrupted storyboard planning job is being automatically resumed after a server restart. */
+  resuming?: boolean;
+  /** 1-based attempt counter for bounded restart recovery. */
+  attempt?: number;
+  /** Durable step-billing reservation id so a resumed run settles or releases the original reservation without double-charging. */
+  reservationId?: string | null;
+  /** Durable brief snapshot requested for this planning run so restart recovery uses the exact approved scriptBeats and notes. */
+  brief?: ScriptBrief;
 };
 
 export type VideoProject = {

@@ -85,7 +85,12 @@ export function canonicalJson(value: unknown): string {
 
 /** Extracts inline `<script>` blocks from a scene bundle HTML document and wires `__preloadAssets()` before the scene entry. */
 export function extractBundleScripts(html: string): string {
-  const list = [...String(html ?? "").matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
+  const list = [...String(html ?? "").matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) =>
+    (m[1] ?? "").replace(
+      /\.clearRect\(([A-Za-z0-9_$]+)\[0\],\1\[1\],\1\[2\]-\1\[0\],\1\[3\]-\1\[1\]\)/g,
+      ".clearRect(0,0,this.DW,this.DH)"
+    )
+  );
   if (list.length > 1) {
     return `${list[0]}\n;self.__SCRIPTS_READY__ = (async () => {\nawait __preloadAssets();\n${list.slice(1).join("\n;\n")}\n})();\n`;
   }

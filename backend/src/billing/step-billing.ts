@@ -1526,7 +1526,6 @@ export async function quotePlateFixStep(input: {
         ["drawn", "checked", "failed", "bundled", "queued", "authoring"].includes(v.state)
     );
     for (const row of sceneRows) {
-      if ((row.state === "queued" || row.state === "authoring") && !row.revise && !row.source_key) continue;
       const dec = decideRevisionApply(row, notes, { now: now.getTime() });
       if (dec.action === "new_generation") {
         newGenVariants += 1;

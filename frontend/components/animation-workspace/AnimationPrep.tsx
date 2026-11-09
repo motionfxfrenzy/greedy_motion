@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { LIVE_TEXT_THROTTLE_MS, stepThrottledLiveText, type LiveTextThrottleState } from "./progress";
 import { StatusLine } from "./StatusLine";
 
@@ -225,6 +226,41 @@ export function AnimationPrep(props: AnimationPrepProps) {
       ? props.meaning
       : undefined;
 
+  const topSlotEl =
+    isCompact && typeof document !== "undefined" && typeof document.querySelector === "function"
+      ? document.querySelector(".aw-frame .aw-top-wait-slot")
+      : null;
+
+  const compactChipNode = isCompact ? (
+    <div
+      className="aw-wait-body aw-wait-chip"
+      role="status"
+      aria-live="polite"
+      title={chipTooltip}
+    >
+      <div className="aw-wait-chip-line">
+        <i className="aw-spin" aria-hidden="true" />
+        <b>{throttledCompactText || props.compactText || props.title}</b>
+      </div>
+      {showProgressBar && (
+        <div className="aw-wait-progress">
+          <div
+            className={`aw-wait-bar${props.progressEstimated ? " estimated" : ""}${isIndeterminate ? " indeterminate" : ""}`}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            {...(hasDeterminateProgress ? { "aria-valuenow": pct } : {})}
+          >
+            <div
+              className="aw-wait-bar-fill"
+              style={hasDeterminateProgress ? { width: `${pct}%` } : undefined}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className={waitClasses}>
       {props.backgroundSketch && (
@@ -236,33 +272,7 @@ export function AnimationPrep(props: AnimationPrepProps) {
         />
       )}
       {isCompact ? (
-        <div
-          className="aw-wait-body aw-wait-chip"
-          role="status"
-          aria-live="polite"
-          title={chipTooltip}
-        >
-          <div className="aw-wait-chip-line">
-            <i className="aw-spin" aria-hidden="true" />
-            <b>{throttledCompactText || props.compactText || props.title}</b>
-          </div>
-          {showProgressBar && (
-            <div className="aw-wait-progress">
-              <div
-                className={`aw-wait-bar${props.progressEstimated ? " estimated" : ""}${isIndeterminate ? " indeterminate" : ""}`}
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                {...(hasDeterminateProgress ? { "aria-valuenow": pct } : {})}
-              >
-                <div
-                  className="aw-wait-bar-fill"
-                  style={hasDeterminateProgress ? { width: `${pct}%` } : undefined}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+        topSlotEl ? createPortal(compactChipNode, topSlotEl) : compactChipNode
       ) : (
         <div className="aw-wait-body">
           {!props.failed && !props.stale && <i className="aw-spin" aria-hidden="true" />}
@@ -305,12 +315,13 @@ export function AnimationPrep(props: AnimationPrepProps) {
               type="button"
               className="primary-button aw-wait-action"
               disabled={Boolean(props.actionBusy)}
+              aria-busy={Boolean(props.actionBusy)}
               onClick={(e) => {
                 e.stopPropagation();
                 props.onAction?.();
               }}
             >
-              {props.actionBusy ? "Updating…" : props.actionLabel}
+              {props.actionBusy ? (props.failed ? "Retrying scene…" : "Updating…") : props.actionLabel}
             </button>
           )}
         </div>

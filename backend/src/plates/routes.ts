@@ -25,7 +25,7 @@ import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
 import { desiredVariants, isPlateLook } from "./inputs.ts";
 import { aspectSlug, isAspect, primaryAspect, type Aspect } from "./model.ts";
-import { addPlateComment, drawAspectPlates, fixPlates, plateStatus, removePlateComment, setPlateSubtitles, startPlates } from "./service.ts";
+import { addPlateComment, drawAspectPlates, fixPlates, plateStatus, removePlateComment, retryPlateScene, setPlateSubtitles, startPlates } from "./service.ts";
 import { getCachedClip, getRevision, getVariant, listVariants, matchVariantsToDesired, requestVariantClip, submitCheckReport, type CheckReportInput, type VariantRow } from "./store.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -216,6 +216,35 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
       return reply.code(409).send(upstreamError(request, error, "plates", "Could not draw this dimension."));
     }
   });
+
+  /** Retries a single failed scene (by variantId UUID or 0-based scene index) without touching other scenes. */
+  app.post<{ Params: { id: string; variantId: string }; Body: { aspect?: string; animationTier?: unknown; quoteId?: string } | undefined }>(
+    "/v1/projects/:id/plates/:variantId/retry",
+    async (request, reply) => {
+      const { id, variantId } = request.params;
+      if (!uuid.test(id) || (!uuid.test(variantId) && !/^\d+$/.test(variantId))) {
+        return reply.code(404).send(notFound);
+      }
+      const project = await getProject(id);
+      if (!project) return reply.code(404).send(notFound);
+      if (request.body?.animationTier !== undefined && !isAnimationTier(request.body.animationTier)) {
+        return reply.code(400).send({ error: { code: "invalid_tier", message: 'Animation tier must be "standard" or "premium".' } });
+      }
+      const aspect = request.body?.aspect && isAspect(request.body.aspect) ? request.body.aspect : undefined;
+      const userId = callerId(request);
+      const requestedTier = resolveProjectAnimationTier(project, project.brief, request.body?.animationTier);
+      try {
+        const { routeSnapshot } = await assertAnimationTierEntitled(userId, requestedTier);
+        return reply.code(202).send(await retryPlateScene(id, variantId, { ...(aspect ? { aspect } : {}), routeSnapshot }));
+      } catch (error) {
+        if (error instanceof PremiumRequiresSubscriptionError) {
+          return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+        }
+        if (isPlateDomainError(error)) return reply.code(409).send({ error: { code: "plates", message: error.message } });
+        return reply.code(409).send(upstreamError(request, error, "plates", "Could not retry this scene."));
+      }
+    }
+  );
 
   /** Short-lived bundle URL, manifest, digest and current revision params for live browser execution. */
   app.get<{ Params: { id: string; variantId: string } }>("/v1/projects/:id/plates/:variantId/bundle", async (request, reply) => {

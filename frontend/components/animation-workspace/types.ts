@@ -238,6 +238,8 @@ export interface AnimationWorkspaceProps {
   /** Scene tabs & timeline scrubbing. */
   scenes: readonly WorkspaceSceneTab[];
   onSeek: (seconds: number) => void;
+  onRetryScene?: (sceneIndex: number) => void;
+  retryingSceneIndex?: number | null;
   /** Comments panel state and handlers. */
   comments: readonly WorkspaceComment[];
   commentDraft: string;

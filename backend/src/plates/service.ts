@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { config } from "../config.ts";
 import { getProject } from "../projects/store.ts";
-import { desiredVariants, isPlateLook, wantedAspects } from "./inputs.ts";
+import { desiredVariants, isPlateLook, sceneFrames, wantedAspects } from "./inputs.ts";
 import { estimateFilmWithScenes, estimateScene, type SceneEtaRow } from "./eta.ts";
 import {
   ASPECTS, FPS, defaultSubtitlesFor, isAspect, isComputedVariantSignature, mergeSubtitles, plateRevisionDigest, primaryAspect, type Aspect, type LiveMode, type PlateComment, type PlateScene, type PlateState, type PlateStatus, type SceneProgress, type VariantState, type PlateSubtitles, type PlateVariantView
 } from "./model.ts";
-import { decideLiveMode, editComments, listVariants, matchVariantsToDesired, readProjectState, recentAuthorMedians, reconcileVariants, reviseScene, writeSubtitles, type VariantRow } from "./store.ts";
+import { decideLiveMode, editComments, listVariants, matchVariantsToDesired, readProjectState, recentAuthorMedians, reconcileVariants, retryVariant, reviseScene, writeSubtitles, type VariantRow } from "./store.ts";
 import { authorRouteForTier, resolveProjectAnimationTier, type AnimationRouteSnapshot } from "../billing/step-billing.ts";
 
 export { isPlateLook };
@@ -464,7 +464,8 @@ const clockOf = (scenes: { index: number; seconds: number }[], at: number) => {
 export async function addPlateComment(projectId: string, input: { at: unknown; body: unknown }): Promise<PlateComment> {
   const project = await getProject(projectId);
   const rows = (await listVariants(projectId)).filter((v) => v.aspect === (project ? primaryAspect(project) : "16:9"));
-  const scenes = rows.map((v) => ({ index: v.scene_index, seconds: v.frames / v.fps }));
+  const fallbackScenes = project ? sceneFrames(project).map((s, index) => ({ index, seconds: s.seconds })) : [];
+  const scenes = rows.length > 0 ? rows.map((v) => ({ index: v.scene_index, seconds: v.frames / v.fps })) : fallbackScenes;
   const body = typeof input.body === "string" ? input.body.trim().slice(0, 600) : "", at = Number(input.at);
   if (!body) throw new Error("Write what should change.");
   if (!scenes.length || !Number.isFinite(at) || at < 0) throw new Error("Pick a moment in the film.");
@@ -475,7 +476,7 @@ export async function addPlateComment(projectId: string, input: { at: unknown; b
 }
 export async function removePlateComment(projectId: string, id: string) { await editComments(projectId, (all) => all.filter((c) => c.id !== id)); }
 
-/** Sends the scenes that have comments back to the model with the notes; every drawn or checked ratio of such a scene is redrawn. */
+/** Sends the scenes that have comments back to the model with the notes; every drawn or checked ratio of such a scene is redrawn (or coalesced into an in-flight write). */
 export async function fixPlates(
   projectId: string,
   options?: { routeSnapshot?: AnimationRouteSnapshot; reservationId?: string }
@@ -483,16 +484,16 @@ export async function fixPlates(
   const project = await plateProject(projectId);
   const routeSnapshot = options?.routeSnapshot ?? authorRouteForTier(resolveProjectAnimationTier(project, project.brief));
   const stored = await readProjectState(projectId);
-  const comments = stored.comments as (PlateComment & { fixing?: number })[];
-  if (!comments.length) throw new Error("Add a comment first.");
-  const variants = await listVariants(projectId);
+  const allComments = stored.comments as (PlateComment & { fixing?: number })[];
+  if (!allComments.length) throw new Error("Add a comment first.");
+  const unapplied = allComments.filter((c) => c.fixing === undefined);
+  const comments = unapplied.length > 0 ? unapplied : allComments;
+  let variants = await listVariants(projectId);
+  if (variants.length === 0) {
+    await startPlates(projectId, [], { routeSnapshot });
+    variants = await listVariants(projectId);
+  }
   const targets = [...new Set(comments.map((c) => c.scene))].filter((i) => variants.some((v) => v.scene_index === i));
-  const blocked = targets.some((i) =>
-    variants
-      .filter((v) => v.scene_index === i)
-      .some((v) => OPEN.includes(v.state) && !v.source_key && !v.revise?.codeKey)
-  );
-  if (blocked) throw new Error("Wait for the scenes that are being drawn.");
   const noted = new Set<number>();
   for (const i of targets) {
     const notes = comments.filter((c) => c.scene === i).map((c) => `- at ${c.sceneAt.toFixed(1)} s: ${c.body}`).join("\n");
@@ -507,7 +508,38 @@ export async function fixPlates(
   }
   if (!noted.size) throw new Error("Wait for the scenes that are being drawn.");
   const after = await listVariants(projectId);
-  const revOf = (scene: number) => Math.max(...after.filter((v) => v.scene_index === scene).map((v) => v.rev));
+  const revOf = (scene: number) => Math.max(1, ...after.filter((v) => v.scene_index === scene).map((v) => v.rev));
   await editComments(projectId, (all) => (all as (PlateComment & { fixing?: number })[]).map((c) => noted.has(c.scene) ? { ...c, fixing: revOf(c.scene) } : c));
+  return plateStatus(projectId);
+}
+
+/** Retries a single failed scene (by variant UUID or 0-based scene index) without requiring comments or redrawing other scenes. */
+export async function retryPlateScene(
+  projectId: string,
+  variantOrScene: string,
+  options?: { aspect?: Aspect; routeSnapshot?: AnimationRouteSnapshot; reservationId?: string }
+): Promise<PlateStatus> {
+  const project = await plateProject(projectId);
+  const routeSnapshot = options?.routeSnapshot ?? authorRouteForTier(resolveProjectAnimationTier(project, project.brief));
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(variantOrScene);
+  const sceneIdx = !isUuid && /^\d+$/.test(variantOrScene) ? Number(variantOrScene) : undefined;
+  if (!isUuid && sceneIdx === undefined) {
+    throw new Error("Pick a scene to retry.");
+  }
+  const existing = await listVariants(projectId);
+  if (existing.length === 0) {
+    return startPlates(projectId, options?.aspect ? [options.aspect] : [], {
+      routeSnapshot,
+      ...(options?.reservationId ? { reservationId: options.reservationId } : {})
+    });
+  }
+  await retryVariant(
+    projectId,
+    isUuid ? { variantId: variantOrScene } : { sceneIndex: sceneIdx, ...(options?.aspect ? { aspect: options.aspect } : {}) },
+    {
+      routeSnapshot,
+      ...(options?.reservationId ? { reservationId: options.reservationId } : {})
+    }
+  );
   return plateStatus(projectId);
 }

@@ -73,13 +73,185 @@ const notFound = { error: { code: "not_found", message: "Project not found." } }
 const runningPlans = new Set<Promise<void>>();
 const jobs = new Map<string, AbortController>();
 const planReservations = new Map<string, string>();
+export const MAX_PLAN_ATTEMPTS = 3;
+export const PLAN_RESUME_GRACE_MS = 5_000;
 export const isPlanRunning = (projectId: string) => jobs.has(projectId);
+export function clearRunningPlansForTest(projectId?: string) {
+  if (projectId) {
+    jobs.delete(projectId);
+    return;
+  }
+  jobs.clear();
+}
 export async function waitForPlans(timeoutMs: number) {
   if (runningPlans.size === 0) return;
   await Promise.race([Promise.allSettled([...runningPlans]), new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
 }
 
-type SceneInsertWriter = typeof writeInsertedScene;
+function spawnPlanExecution(input: {
+  project: VideoProject;
+  brief: ScriptBrief;
+  planReservationId: string | null;
+  startedAtIso: string;
+  attempt: number;
+  resuming: boolean;
+  logInfo?: (obj: Record<string, unknown>, msg: string) => void;
+  logError?: (obj: Record<string, unknown>, msg: string) => void;
+  requestId?: string;
+}): void {
+  const { project, brief, planReservationId, startedAtIso, attempt, resuming } = input;
+  if (planReservationId) {
+    planReservations.set(project.id, planReservationId);
+  }
+  const controller = new AbortController();
+  jobs.set(project.id, controller);
+  const startedAt = Date.now();
+  input.logInfo?.(
+    { event: resuming ? "plan_resumed" : "plan_started", projectId: project.id, attempt, resuming, template: brief.styleExample ?? null },
+    resuming ? "plan resumed after restart" : "plan started"
+  );
+  const job = (async () => {
+    try {
+      const { context, videoType, brandId } = await directorContextFor(project, brief);
+      const result = await director.plan({ ...brief, videoType }, context, controller.signal);
+      if (controller.signal.aborted) {
+        if (planReservationId) {
+          planReservations.delete(project.id);
+          await releaseStepReservation(planReservationId).catch(() => undefined);
+        }
+        return;
+      }
+      const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+      const music = brief.audio.mode === "music" || brief.audio.mode === "both";
+      await updateProjectPlan(project.id, (current) => ({
+        brief: {
+          ...brief,
+          videoType,
+          // Preserve any newer scriptBeats edits made by the user while background planning was running
+          ...(current.brief?.scriptBeats?.length ? { scriptBeats: current.brief.scriptBeats } : {}),
+          ...(current.brief?.scriptNotes ? { scriptNotes: current.brief.scriptNotes } : {})
+        },
+        beatPlan: result.plan,
+        script: {
+          ...scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"),
+          ...(current.script?.title ? { title: current.script.title } : {}),
+          videoType
+        },
+        state: "Draft storyboard",
+        request: {
+          ...current.request,
+          format: aspectToFormat(brief.aspect),
+          audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" },
+          ...(brandId ? { brandId } : {})
+        }
+      }));
+      if (planReservationId) {
+        planReservations.delete(project.id);
+        await settleStepReservation(planReservationId).catch(() => undefined);
+      }
+      input.logInfo?.(
+        {
+          event: "plan_done",
+          projectId: project.id,
+          attempt,
+          resumed: resuming,
+          ms: Date.now() - startedAt,
+          model: result.model,
+          ...(result.repairedFrom ? { repairedFrom: result.repairedFrom } : {}),
+          ...(result.problems.length ? { problems: result.problems } : {})
+        },
+        "plan applied"
+      );
+    } catch (error) {
+      if (planReservationId) {
+        planReservations.delete(project.id);
+        await releaseStepReservation(planReservationId).catch(() => undefined);
+      }
+      if (controller.signal.aborted) return; // cancelled: the cancel route already recorded it
+      input.logError?.(
+        { event: "plan_failed", projectId: project.id, attempt, ms: Date.now() - startedAt, err: error, ...(input.requestId ? { requestId: input.requestId } : {}) },
+        "script director failed"
+      );
+      const message = error instanceof ProjectInvalid ? error.message : "The script director failed.";
+      await setProjectPlanning(project.id, {
+        status: "failed",
+        startedAt: startedAtIso,
+        attempt,
+        error: message
+      }).catch(() => undefined);
+    } finally {
+      if (jobs.get(project.id) === controller) jobs.delete(project.id);
+    }
+  })();
+  runningPlans.add(job);
+  void job.finally(() => runningPlans.delete(job));
+}
+
+/**
+ * Reconciles an interrupted in-flight storyboard planning job (`planning.status === "running"` with no active in-process worker).
+ * Automatically resumes transient server-restart interruptions up to `MAX_PLAN_ATTEMPTS` with `resuming: true`
+ * ("Resuming your storyboard"), preserving user edits and reservations, and never resurrecting cancelled jobs.
+ */
+export async function reconcileInterruptedPlanning(
+  project: VideoProject,
+  options?: { graceMs?: number; maxAttempts?: number; nowMs?: number }
+): Promise<VideoProject> {
+  if (!project.planning || project.planning.status !== "running") return project;
+  if (isPlanRunning(project.id)) return project;
+  const nowMs = options?.nowMs ?? Date.now();
+  const graceMs = options?.graceMs ?? PLAN_RESUME_GRACE_MS;
+  const maxAttempts = options?.maxAttempts ?? MAX_PLAN_ATTEMPTS;
+  const startedMs = Date.parse(project.planning.startedAt);
+  if (Number.isFinite(startedMs) && nowMs - startedMs < graceMs) {
+    return project;
+  }
+
+  const prevAttempt = Math.max(1, project.planning.attempt ?? 1);
+  const savedReservationId = project.planning.reservationId ?? planReservations.get(project.id) ?? null;
+  const resumeBrief = project.planning.brief ?? project.brief;
+
+  if (resumeBrief && prevAttempt < maxAttempts) {
+    const nextAttempt = prevAttempt + 1;
+    const nextStartedAt = new Date(nowMs).toISOString();
+    const updated =
+      (await setProjectPlanning(
+        project.id,
+        {
+          status: "running",
+          startedAt: nextStartedAt,
+          resuming: true,
+          attempt: nextAttempt,
+          ...(savedReservationId ? { reservationId: savedReservationId } : {}),
+          brief: resumeBrief
+        },
+        resumeBrief
+      )) ?? project;
+    if (!isPlanRunning(project.id) && updated.planning?.status === "running") {
+      spawnPlanExecution({
+        project: updated,
+        brief: resumeBrief,
+        planReservationId: savedReservationId,
+        startedAtIso: nextStartedAt,
+        attempt: nextAttempt,
+        resuming: true
+      });
+    }
+    return updated;
+  }
+
+  if (savedReservationId) {
+    planReservations.delete(project.id);
+    await releaseStepReservation(savedReservationId).catch(() => undefined);
+  }
+  return (
+    (await setProjectPlanning(project.id, {
+      status: "failed",
+      startedAt: project.planning.startedAt,
+      attempt: prevAttempt,
+      error: "Planning was interrupted by a server restart. Click Retry to continue."
+    })) ?? project
+  );
+}
 let sceneInsertWriterOverride: SceneInsertWriter | null = null;
 export function setSceneInsertWriterForTest(writer: SceneInsertWriter | null) {
   sceneInsertWriterOverride = writer;
@@ -719,7 +891,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const bytes = await readMedia(join(visualDir(id), file));
     return bytes && digest(bytes) === asset.sha256 ? sendMedia(request, reply, bytes, file.endsWith(".mp4") ? "video/mp4" : "image/png") : reply.code(404).send(notFound);
   });
-  /** Jobs in flight on this server, so a cancel can reach the model call. A job record older than the director's own deadline is stale (a restart lost it). */
+type SceneInsertWriter = typeof writeInsertedScene;
   const STALE_MS = 4 * 60_000;
   const stale = (planning: { startedAt: string } | undefined) => !planning || Date.now() - Date.parse(planning.startedAt) > STALE_MS;
 
@@ -1948,8 +2120,19 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         throw error;
       }
     }
-    const { context, videoType, brandId } = await directorContextFor(project, brief);
-    const started = await setProjectPlanning(project.id, { status: "running", startedAt: new Date().toISOString() }, brief);
+    const startedAtIso = new Date().toISOString();
+    const started = await setProjectPlanning(
+      project.id,
+      {
+        status: "running",
+        startedAt: startedAtIso,
+        resuming: false,
+        attempt: 1,
+        ...(planReservationId ? { reservationId: planReservationId } : {}),
+        brief
+      },
+      brief
+    );
     if (!started) {
       if (planReservationId) {
         planReservations.delete(project.id);
@@ -1957,50 +2140,17 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       }
       return reply.code(404).send(notFound);
     }
-    const controller = new AbortController();
-    jobs.set(project.id, controller);
-    const startedAt = Date.now();
-    app.log.info({ event: "plan_started", projectId: project.id, template: brief.styleExample ?? null }, "plan started");
-    const job = (async () => {
-      try {
-        const result = await director.plan({ ...brief, videoType }, context, controller.signal);
-        if (controller.signal.aborted) {
-          if (planReservationId) {
-            planReservations.delete(project.id);
-            await releaseStepReservation(planReservationId).catch(() => undefined);
-          }
-          return;
-        }
-        const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
-        const music = brief.audio.mode === "music" || brief.audio.mode === "both";
-        await updateProjectPlan(project.id, (current) => ({
-          brief: { ...brief, videoType },
-          beatPlan: result.plan,
-          script: { ...scriptFromPlan(result.plan, brief.scriptMode === "own" ? "provided" : "generated"), ...(current.script?.title ? { title: current.script.title } : {}), videoType },
-          state: "Draft storyboard",
-          // Keep the existing render request in step with the brief (format and audio) for the current pipeline.
-          request: { ...current.request, format: aspectToFormat(brief.aspect), audio: { music, voiceover: voiced, voice: current.request.audio?.voice ?? "Kore" }, ...(brandId ? { brandId } : {}) }
-        }));
-        if (planReservationId) {
-          planReservations.delete(project.id);
-          await settleStepReservation(planReservationId).catch(() => undefined);
-        }
-        app.log.info({ event: "plan_done", projectId: project.id, ms: Date.now() - startedAt, model: result.model, ...(result.repairedFrom ? { repairedFrom: result.repairedFrom } : {}), ...(result.problems.length ? { problems: result.problems } : {}) }, "plan applied");
-      } catch (error) {
-        if (planReservationId) {
-          planReservations.delete(project.id);
-          await releaseStepReservation(planReservationId).catch(() => undefined);
-        }
-        if (controller.signal.aborted) return; // cancelled: the cancel route already recorded it
-        request.log.error({ event: "plan_failed", projectId: project.id, ms: Date.now() - startedAt, err: error, requestId: requestIdOf(request) }, "script director failed");
-        const message = error instanceof ProjectInvalid ? error.message : "The script director failed.";
-        await setProjectPlanning(project.id, { status: "failed", startedAt: started.planning?.startedAt ?? new Date().toISOString(), error: message }).catch(() => undefined);
-      } finally {
-        if (jobs.get(project.id) === controller) jobs.delete(project.id);
-      }
-    })();
-    runningPlans.add(job);
-    void job.finally(() => runningPlans.delete(job));
+    spawnPlanExecution({
+      project: started,
+      brief,
+      planReservationId,
+      startedAtIso,
+      attempt: 1,
+      resuming: false,
+      logInfo: (obj, msg) => app.log.info(obj, msg),
+      logError: (obj, msg) => request.log.error(obj, msg),
+      requestId: requestIdOf(request)
+    });
     return reply.code(202).send({ project: started });
   });
 
@@ -2087,7 +2237,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (!project) return reply.code(404).send(notFound);
     jobs.get(project.id)?.abort();
     jobs.delete(project.id);
-    const pendingResId = planReservations.get(project.id);
+    const pendingResId = planReservations.get(project.id) ?? project.planning?.reservationId ?? null;
     if (pendingResId) {
       planReservations.delete(project.id);
       await releaseStepReservation(pendingResId).catch(() => undefined);

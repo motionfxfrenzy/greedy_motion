@@ -150,12 +150,26 @@ export const contractFor = (
     const inferredPlate = consumeLastKitModulesPlateName();
     if (inferredPlate) letterHelpers = letterHelpersFor(inferredPlate);
   }
+  const hasRealSize = size.w > 0 && size.h > 0;
+  const yTopSafe = Math.round(size.h * 0.12);
+  const yBandTop = Math.round(size.h * 0.22);
+  const yCenter = Math.round(size.h * 0.48);
+  const yBandBot = Math.round(size.h * 0.72);
+  const yBotSafe = Math.round(size.h * 0.78);
+  const xLeftSafe = Math.round(size.w * 0.16);
+  const xRightSafe = Math.round(size.w * 0.84);
   return [
     "You write ONE scene of a film as a single TypeScript module for the anidoodle engine: pictures drawn entirely in code, in a named hand-made medium.",
-    "THE CONTRACT (absolute): the module is a pure function of (ctx, frame, env). Randomness only through rng(seed) or the helpers' seeds; no Date, no Math.random, no clock, no ctx.filter, no fetch, no images, no fonts, no external assets.",
+    hasRealSize
+      ? "THE CONTRACT (absolute): the module is a pure function of (ctx, frame, env). Randomness only through rng(seed) or the helpers' seeds; no Date, no Math.random, no clock, no ctx.filter, no fetch, no images, no fonts, no external assets. Never mutate module-scope state across frames, never cache frame-dependent geometry in env.cache without frame in the cache key, and always use fillShape from \"./gallery\" (so layer bounds are tracked)."
+      : "THE CONTRACT (absolute): the module is a pure function of (ctx, frame, env). Randomness only through rng(seed) or the helpers' seeds; no Date, no Math.random, no clock, no ctx.filter, no fetch, no images, no fonts, no external assets.",
     "Draw every mark in the SAME MEDIUM AND ORDER OF MARKS as the style's plate (the plate source below is the recipe: its marks, its textures, its palette habits, its contour). A different palette is not a different style.",
-    `The scene is ${size.w}x${size.h} (${size.label}), 30 fps. All coordinates are in that ${size.w}x${size.h} space. Start with ctx.setTransform(env.scale,0,0,env.scale,0,0), fill the full ${size.w}x${size.h} paper, draw, then finish with the plate's paper pass.`,
-    "Draw what the beat's VISUAL line says, as a finished picture with one focal subject and one light. Something visibly changes every second (a swing, a drift, a flame, drawing-on marks): no dead frames. Keep recurring characters and objects consistent with the film's other scenes, as described in the CAST note.",
+    hasRealSize
+      ? `The scene is ${size.w}x${size.h} (${size.label}), 30 fps. All coordinates are in that ${size.w}x${size.h} space. Start with ctx.setTransform(env.scale,0,0,env.scale,0,0), fill the full ${size.w}x${size.h} paper, draw background sky/hills/ground FIRST and the foreground focal subject AFTER background hills so hills never occlude the subject, then finish with the plate's paper pass.`
+      : `The scene is ${size.w}x${size.h} (${size.label}), 30 fps. All coordinates are in that ${size.w}x${size.h} space. Start with ctx.setTransform(env.scale,0,0,env.scale,0,0), fill the full ${size.w}x${size.h} paper, draw, then finish with the plate's paper pass.`,
+    hasRealSize
+      ? `Draw what the beat's VISUAL line says, as a finished picture with one focal subject and one light centered in the ${size.w}x${size.h} frame (focal action in X=${xLeftSafe}..${xRightSafe}, Y=${yBandTop}..${yBandBot} around Y≈${yCenter} with balanced top/bottom padding; keep all subject/prop geometry including hanging baskets/tethers inside Y=${yTopSafe}..${yBotSafe} above the bottom caption safe zone, never bottom-heavy). Something visibly changes every second (a swing, a drift, a flame, drawing-on marks): no dead frames. Keep recurring characters and objects consistent with the film's other scenes, as described in the CAST note.`
+      : "Draw what the beat's VISUAL line says, as a finished picture with one focal subject and one light. Something visibly changes every second (a swing, a drift, a flame, drawing-on marks): no dead frames. Keep recurring characters and objects consistent with the film's other scenes, as described in the CAST note.",
     "People are friendly and simple; faces are a few marks (eye strokes, a mouth line). No text in the picture: the words are laid on by the editor.",
     ...(letterHelpers.length > 0 ? [`Do not call ${letterHelpers.join(", ")}: they print words.`] : []),
     `Export exactly (the typed form, on one line start): \`export const film: Film = { meta: { title, W: ${size.w}, H: ${size.h}, fps: 30, bpm: 120, durationFrames }, assets: { images: {} }, shots: [{ id: "scene", start: 0, end: durationFrames, draw }] }\` where draw has the signature (ctx: Ctx, frame: number, env: Env) => void and durationFrames is given in the request.`,
@@ -243,6 +257,7 @@ export async function promptDigest(
 export type AuthorRequest = {
   look: string; plateName: string; film: string; beats: ScriptBeat[]; aspect: string; index: number; frames: number;
   styleExample?: string | null; storyWorld?: string; guidesDir?: string; kitModules?: readonly KitModule[];
+  scriptNotes?: { idea?: string | null; example?: string | null; objects?: string | null } | null;
   error?: string; previous?: string; revise?: { notes: string; code: string }; reference?: string;
   modelKey?: string;
 };
@@ -306,12 +321,33 @@ export async function buildAuthorMessages(args: AuthorRequest) {
     ...(charBlock ? [charBlock] : []),
     ex.block,
     ...(storyWorld ? [storyWorld] : []),
-    `THE FILM: ${args.film}\nFRAME SIZE: W=${size.w}, H=${size.h} (${size.label}), 30 fps. Use W: ${size.w}, H: ${size.h} in meta and compose all coordinates within ${size.w}x${size.h}.\nCAST AND STORY (all scenes, for consistency of recurring characters and objects):\n${cast}`
+    `THE FILM: ${args.film}\nFRAME SIZE: W=${size.w}, H=${size.h} (${size.label}), 30 fps. Use W: ${size.w}, H: ${size.h} in meta and compose all coordinates within ${size.w}x${size.h}.${args.scriptNotes?.idea ? `\nCORE IDEA: ${args.scriptNotes.idea}` : ""}${args.scriptNotes?.objects ? `\nRECURRING OBJECTS / CAST NOTES: ${args.scriptNotes.objects}` : ""}${args.scriptNotes?.example ? `\nWORKED EXAMPLE: ${args.scriptNotes.example}` : ""}\nCAST AND STORY (all scenes, for consistency of recurring characters and objects):\n${cast}`
   ].join("\n\n");
+  const yTopSafe = Math.round(size.h * 0.12);
+  const yBandTop = Math.round(size.h * 0.22);
+  const yCenter = Math.round(size.h * 0.48);
+  const yBandBot = Math.round(size.h * 0.72);
+  const yBotSafe = Math.round(size.h * 0.78);
+  const xLeftSafe = Math.round(size.w * 0.16);
+  const xCenter = Math.round(size.w * 0.5);
+  const xRightSafe = Math.round(size.w * 0.84);
+  const compositionRule = [
+    `COMPOSITION, LAYERING & CONTINUITY (${size.w}x${size.h}, ${args.aspect}):`,
+    `- CENTERED FRAMING ACROSS ALL RATIOS: Compose the primary focal subject and action in the central focal zone (X=${xLeftSafe}..${xRightSafe} centered near X≈${xCenter}, Y=${yBandTop}..${yBandBot} centered near Y≈${yCenter}) with balanced top sky/headroom and bottom ground padding. Never make the composition bottom-heavy or crowd the focal subject into the bottom third.`,
+    `- COMPLETE SUBJECT VISIBILITY & CAPTION SAFE ZONE: Keep every part of the focal character or prop (including hanging parts such as a hot-air balloon's burner, rigging cables, and wicker basket) completely inside Y=${yTopSafe}..${yBotSafe} across all frames, leaving the bottom strip (Y>${Math.round(size.h * 0.80)}) clear for captions while preserving natural narrative motion (e.g. rising, drifting, swaying).`,
+    `- FOREGROUND OVER BACKGROUND LAYERING: Paint background sky, clouds, distant ridges, rolling hills, and valley ground FIRST; draw the primary focal subject/prop (and its lower parts like a basket or feet) AFTER the landscape hills and ground so background hills never occlude or paint over the foreground subject.`,
+    `- PROP VS CHARACTER IDENTITY: Respect the exact level (PROP, LIVING OBJECT, or FULL CARTOON CHARACTER) specified in VISUAL and CAST. Never add eyes, brows, or a mouth to a PROP.`
+  ].join("\n");
   const scene = [
-    `WRITE SCENE ${args.index + 1} OF ${args.beats.length}: "${beat.keyword}".\nVISUAL: ${beat.visual ?? beat.keyword}\nVOICEOVER (for pacing only, not drawn): ${beat.line ?? ""}\nLength: ${args.frames} frames (${args.frames / FPS} s).Frame dimensions: W=${size.w}, H=${size.h}.`,
+    `WRITE SCENE ${args.index + 1} OF ${args.beats.length}: "${beat.keyword}".\nVISUAL: ${beat.visual ?? beat.keyword}\nVOICEOVER (for pacing only, not drawn): ${beat.line ?? ""}\nLength: ${args.frames} frames (${args.frames / FPS} s).Frame dimensions: W=${size.w}, H=${size.h}.\n\n${compositionRule}`,
     ...(args.reference ? [`THE SAME SCENE WAS ALREADY AUTHORED FOR ANOTHER FRAME SHAPE. Keep its characters, objects, palette, light and story beats exactly; recompose them natively for ${size.w}x${size.h} (do not letterbox or crop).\nREFERENCE MODULE:\n${args.reference.slice(0, 14_000)}`] : []),
-    ...(args.revise ? [`THIS SCENE WAS ALREADY DRAWN. The person watched it and left notes with the time in the scene (seconds from the scene start). REVISE the module below to answer the notes; keep everything the notes do not mention exactly as it is (same composition, characters and palette), and return the whole revised module.\nNOTES:\n${args.revise.notes}\nCURRENT MODULE:\n${args.revise.code.slice(0, 16_000)}`] : []),
+    ...(args.revise
+      ? [
+          args.revise.code
+            ? `THIS SCENE WAS ALREADY DRAWN. The person watched it and left notes with the time in the scene (seconds from the scene start). REVISE the module below to answer the notes; keep everything the notes do not mention exactly as it is (same composition, characters and palette), and return the whole revised module.\nNOTES:\n${args.revise.notes}\nCURRENT MODULE:\n${args.revise.code.slice(0, 16_000)}`
+            : `THE PERSON LEFT NOTES FOR THIS SCENE (seconds from the scene start). Incorporate these notes directly into the scene you write:\nNOTES:\n${args.revise.notes}`
+        ]
+      : []),
     ...(args.error ? [`YOUR PREVIOUS MODULE FAILED. Fix it and return the whole corrected module.\nERROR:\n${args.error.slice(0, 2500)}\nPREVIOUS MODULE:\n${args.previous?.slice(0, 14_000) ?? ""}`] : [])
   ].join("\n\n");
   return {

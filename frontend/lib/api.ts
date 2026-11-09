@@ -1116,6 +1116,21 @@ export async function fixPlates(projectId: string, options?: { animationTier?: "
     "Could not redraw the scenes."
   );
 }
+export async function retryPlateScene(
+  projectId: string,
+  variantOrScene: string | number,
+  options?: { aspect?: "16:9" | "9:16" | "1:1"; animationTier?: "standard" | "premium"; quoteId?: string }
+): Promise<PlateStatus> {
+  return parse(
+    await apiFetch(
+      `${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/${encodeURIComponent(String(variantOrScene))}/retry`,
+      options
+        ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(options) }
+        : { method: "POST" }
+    ),
+    "Could not retry this scene."
+  );
+}
 export function plateClipUrl(projectId: string, index: number, version: string, aspect?: "16:9" | "9:16" | "1:1") {
   const base = outputUrl(`/v1/projects/${encodeURIComponent(projectId)}/plates/${index}/clip`) + (outputUrl("/x").includes("?") ? "&" : "?") + `v=${encodeURIComponent(version)}`;
   return aspect ? `${base}&aspect=${encodeURIComponent(aspect)}` : base;
@@ -1148,7 +1163,7 @@ export type GalleryTemplateBrief = { id: string; name: string; starterId?: strin
 
 export const voicePreviewUrl = (voice: string) => `${apiOrigin}/v1/voices/${encodeURIComponent(voice)}/preview`;
 
-export async function listGalleryTemplates(params: { useCase?: string; q?: string; look?: string; scope?: GalleryScope; cursor?: string | null; limit?: number; featured?: boolean }, signal?: AbortSignal): Promise<GalleryPage> {
+export async function listGalleryTemplates(params: { useCase?: string; q?: string; look?: string; scope?: GalleryScope; cursor?: string | null; limit?: number; featured?: boolean; seed?: string }, signal?: AbortSignal): Promise<GalleryPage> {
   const query = new URLSearchParams();
   if (params.useCase && params.useCase !== "all") query.set("use_case", params.useCase);
   const text = normalizeSearch(params.q);
@@ -1158,6 +1173,7 @@ export async function listGalleryTemplates(params: { useCase?: string; q?: strin
   if (params.cursor) query.set("cursor", params.cursor);
   if (params.limit) query.set("limit", String(params.limit));
   if (params.featured) query.set("featured", "1");
+  if (params.seed && (!params.useCase || params.useCase === "all") && !params.featured) query.set("seed", params.seed);
   const response = await fetch(`${apiOrigin}/v1/gallery/templates${query.size ? `?${query}` : ""}`, { signal });
   if (!response.ok) throw new Error("Could not load templates.");
   return response.json() as Promise<GalleryPage>;

@@ -203,7 +203,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
     let revise: { notes: string; code: string } | undefined;
     if (row.revise) {
       const code = row.revise.codeKey ? (await getObject("uploads", row.revise.codeKey))?.toString("utf8") : undefined;
-      revise = code ? { notes: row.revise.notes, code } : undefined;
+      revise = { notes: row.revise.notes, code: code ?? "" };
     }
 
     let lastError = row.repair?.error;
@@ -275,6 +275,8 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
             aspect: row.aspect,
             index: row.scene_index,
             frames: row.frames,
+            ...(project.brief?.styleExample ? { styleExample: project.brief.styleExample } : {}),
+            ...(project.brief?.scriptNotes ? { scriptNotes: project.brief.scriptNotes } : {}),
             ...(routeSnap ? { modelKey: `${tierRoute.provider}:${tierRoute.model}` } : {}),
             ...(reference ? { reference } : {}),
             ...(revise && !lastError ? { revise } : {}),

@@ -485,6 +485,46 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
     });
   },
 
+  /** Polls for an in-flight `plate-author` repair to commit a new bundle at `rev >= minRev` so an active export can continue without failing. */
+  async "plate.awaitRepair"({ id, gen, minRev, timeoutMs = 95_000 }) {
+    const targetGen = Number(gen);
+    const targetRev = Number(minRev) || 1;
+    const maxWait = Math.min(120_000, Math.max(500, Number(timeoutMs) || 95_000));
+    const deadline = Date.now() + maxWait;
+    while (Date.now() < deadline) {
+      const { rows } = await pool.query<{
+        state: string;
+        rev: number;
+        bundle_key: string | null;
+        bundle_digest: string | null;
+        bundle_manifest: Record<string, unknown> | null;
+      }>(
+        "select state, rev, bundle_key, bundle_digest, bundle_manifest from app.plate_variants where id = $1 and gen = $2",
+        [id, targetGen]
+      );
+      const row = rows[0];
+      if (!row || row.state === "failed") {
+        return { repaired: false, exhausted: row?.state === "failed" };
+      }
+      if (row.rev >= targetRev && row.bundle_key && row.bundle_digest && ["bundled", "checked", "rendering", "drawn"].includes(row.state)) {
+        const revRes = await pool.query<{ params: Record<string, unknown> | null }>(
+          "select params from app.plate_revisions where variant_id = $1 and rev = $2",
+          [id, row.rev]
+        );
+        return {
+          repaired: true,
+          rev: row.rev,
+          bundleKey: row.bundle_key,
+          bundleDigest: row.bundle_digest,
+          manifest: row.bundle_manifest ?? {},
+          params: revRes.rows[0]?.params ?? {}
+        };
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    return { repaired: false, timedOut: true };
+  },
+
   // ---- clip cache by digest (app.plate_clips)
   async "clip.lookup"(args) {
     if (Array.isArray(args.keys)) {

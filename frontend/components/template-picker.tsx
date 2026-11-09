@@ -42,7 +42,7 @@ export function TemplatePicker({ value, disabled, onChoose }: TemplatePickerProp
             <div>
               <span className="eyebrow">Starter templates</span>
               <h2 id="template-dialog-title">Start from a template</h2>
-              <p>Pick a structure, describe your product, and Claude writes the copy for every scene. You can change the theme and every line afterwards.</p>
+              <p>Pick a structure, describe your product, and we write the copy for every scene. You can change the theme and every line afterwards.</p>
             </div>
             <button type="button" className="theme-close" onClick={close} aria-label="Close template gallery">✕</button>
           </header>

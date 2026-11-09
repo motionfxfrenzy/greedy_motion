@@ -125,7 +125,7 @@ export function Studio() {
   const [restored, setRestored] = useState(false);
   // The script canvas (see writeScript below): declared early because the plan watcher reads it.
   /** `writing`: the beat the words are streaming into (a scoped change writes only its beats). */
-  type Canvas = { beats: ScriptBeat[]; previous: ScriptBeat[]; open: keyof ScriptBeat | null; writing: number | null; scoped?: boolean; /** The writer's idea and worked example, shared by every frame and change. */ notes?: ScriptNotes | null; streaming: boolean; startedAt: number; firstAt?: number; flags: ScriptFlag[]; error: string | null };
+  type Canvas = { beats: ScriptBeat[]; previous: ScriptBeat[]; open: keyof ScriptBeat | null; writing: number | null; scoped?: boolean; /** The writer's idea and worked example, shared by every frame and change. */ notes?: ScriptNotes | null; streaming: boolean; startedAt: number; firstAt?: number; flags: ScriptFlag[]; error: string | null; language?: string };
   const [canvas, setCanvas] = useState<Canvas | null>(null);
   const canvasRef = useRef<Canvas | null>(null);
   canvasRef.current = canvas;
@@ -554,7 +554,8 @@ export function Studio() {
     if (!draft) setStep(STORYBOARD);
     const scope = instruction && only?.length ? only : undefined;
     const notes = instruction ? canvas?.notes ?? null : null;
-    setCanvas({ beats: previous, previous, notes, open: null, writing: scope ? scope[0]! : null, scoped: Boolean(scope), streaming: true, startedAt: Date.now(), flags: [], error: null });
+    const targetLang = checked.brief.audio.language ?? "en";
+    setCanvas({ beats: previous, previous, notes, open: null, writing: scope ? scope[0]! : null, scoped: Boolean(scope), streaming: true, startedAt: Date.now(), flags: [], error: null, language: targetLang });
     canvasStop.current?.abort();
     const stop = new AbortController();
     canvasStop.current = stop;
@@ -705,7 +706,7 @@ export function Studio() {
   const visualsMatch = (beats: ScriptBeat[]) => (project?.brief?.scriptBeats ?? []).length === beats.length && project!.brief!.scriptBeats!.every((beat, i) => (beat.visual ?? null) === (beats[i]!.visual ?? null));
   const storyboardState: StoryboardState = !canvas || canvas.streaming
     ? { state: "waiting" }
-    : running ? { state: "building", ...(planning?.startedAt ? { startedAt: Date.parse(planning.startedAt) } : {}) }
+    : running ? { state: "building", ...(planning?.startedAt ? { startedAt: Date.parse(planning.startedAt) } : {}), ...(planning?.resuming ? { resuming: true } : {}) }
     : planning?.status === "failed" ? { state: "failed", error: planning.error ?? "Could not build the storyboard." }
     : project?.beatPlan ? { state: planMatchesScript(project.beatPlan, canvas.beats) && visualsMatch(canvas.beats) ? "ready" : "stale", plan: project.beatPlan }
     : { state: "waiting" };

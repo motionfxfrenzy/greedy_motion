@@ -1162,6 +1162,12 @@ button.sc-num[aria-pressed="true"]{border-color:var(--blue);background:var(--blu
 .fb-cast-pill-voice{color:var(--d-tx-0058bd);font-weight:700}
 .fb-cast-pill i{font-style:normal;font-size:10px;color:var(--muted)}
 .fb-cast-silent-note{color:var(--muted);font-size:11.5px}
+.fb-lang-stale-banner{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;padding:8px 12px;border-radius:12px;background:var(--d-bg-ebf5ff);border:1px solid var(--d-bd-cce7ff);color:var(--ink)}
+.fb-lang-stale-copy{display:grid;gap:2px;min-width:0;flex:1 1 240px}
+.fb-lang-stale-copy b{font-size:12.5px;font-weight:700;color:var(--d-tx-0058bd)}
+.fb-lang-stale-copy small{font-size:11.5px;color:var(--body);line-height:1.35}
+.fb-lang-regen-btn{flex:0 0 auto;padding:6px 12px!important;font-size:12px!important;white-space:nowrap}
+.fb-lang-policy-note{display:block;font-size:11px;color:var(--muted);line-height:1.3;margin-top:2px}
 
 .fb-who-cell{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
 .fb-who-cell .fb-who{flex:0 0 110px;width:110px;padding:2px 7px;border:1px solid transparent;border-radius:6px;background:var(--soft);color:var(--d-tx-0058bd);font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}

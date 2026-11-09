@@ -1322,7 +1322,8 @@ export function buildStagePrepProps(input: BuildStagePrepPropsInput): StagePrepB
       title: "This scene didn't draw",
       detail: input.sceneError ?? input.liveStageWait?.detail ?? sp?.meaning,
       sceneLabel,
-      backgroundSketch: sketch
+      backgroundSketch: sketch,
+      actionLabel: "Retry scene"
     };
   }
 

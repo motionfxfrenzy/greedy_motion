@@ -5,7 +5,10 @@
 // are no service workers, no secrets are placed in the page, and the caller bounds time (AbortSignal) and memory (pages).
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+
+const PARTIAL_LAYER_CLEAR_RE = /\.clearRect\(([A-Za-z0-9_$]+)\[0\],\1\[1\],\1\[2\]-\1\[0\],\1\[3\]-\1\[1\]\)/g;
 
 const md5 = (buf) => createHash("md5").update(buf).digest("hex");
 
@@ -46,7 +49,20 @@ export async function openScene(pagePath, { executablePath = process.env.PLATE_B
   const context = await browser.newContext({ viewport: { width: 640, height: 640 }, deviceScaleFactor: 1, serviceWorkers: "block", acceptDownloads: false, permissions: [] });
   await context.route("**/*", (route) => {
     const url = route.request().url();
-    if (url === target || url.startsWith("data:") || url.startsWith("blob:") || url === "about:blank") return route.continue();
+    if (url === target) {
+      try {
+        const rawHtml = readFileSync(pagePath, "utf8");
+        if (PARTIAL_LAYER_CLEAR_RE.test(rawHtml)) {
+          return route.fulfill({
+            status: 200,
+            contentType: "text/html; charset=utf-8",
+            body: rawHtml.replace(PARTIAL_LAYER_CLEAR_RE, ".clearRect(0,0,this.DW,this.DH)")
+          });
+        }
+      } catch {}
+      return route.continue();
+    }
+    if (url.startsWith("data:") || url.startsWith("blob:") || url === "about:blank") return route.continue();
     blocked.push(url.slice(0, 200));
     return route.abort("blockedbyclient");
   });

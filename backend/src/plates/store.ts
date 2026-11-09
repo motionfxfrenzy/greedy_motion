@@ -648,6 +648,7 @@ export function decideRevisionApply(
 ): RevisionApplyDecision {
   const now = options.now ?? Date.now();
   const coalesceSeconds = options.coalesceSeconds ?? REVISE_COALESCE_SECONDS;
+  const isInFlightInitial = (row.state === "queued" || row.state === "authoring") && !row.revise && !row.source_key;
   const isInFlightRevision = (row.state === "queued" || row.state === "authoring") && Boolean(row.revise);
   const baseBundleDigest = isInFlightRevision
     ? (row.revise?.baseBundleDigest ?? row.bundle_digest ?? row.revise?.codeKey ?? row.source_key ?? null)
@@ -658,6 +659,19 @@ export function decideRevisionApply(
   const existingHash =
     row.revise?.dedupeHash ??
     (row.revise?.notes ? revisionDedupeHash(row.revise.notes, baseBundleDigest) : undefined);
+
+  if (isInFlightInitial) {
+    return {
+      action: "coalesce",
+      gen: row.gen,
+      rev: Math.max(1, row.rev),
+      notes: incomingNotes.trim(),
+      codeKey: null,
+      baseBundleDigest: null,
+      dedupeHash: incomingHash,
+      coalescedCount: 1
+    };
+  }
 
   if (isInFlightRevision && existingHash === incomingHash) {
     return {
@@ -760,10 +774,6 @@ export async function reviseScene(
       [projectId, sceneIndex]
     );
     for (const row of rows) {
-      if ((row.state === "queued" || row.state === "authoring") && !row.revise && !row.source_key) {
-        // Initial scene authoring has not produced a base module yet; skip until it finishes.
-        continue;
-      }
       const decision = decideRevisionApply(row, notes, options);
       if (decision.action === "deduplicate") {
         if (row.state === "queued") {
@@ -781,8 +791,8 @@ export async function reviseScene(
           coalescedCount: decision.coalescedCount
         };
         await client.query(
-          "update app.plate_variants set revise = $2::jsonb, updated_at = now() where id = $1",
-          [row.id, JSON.stringify(revisePayload)]
+          "update app.plate_variants set rev = $2, revise = $3::jsonb, updated_at = now() where id = $1",
+          [row.id, decision.rev, JSON.stringify(revisePayload)]
         );
         if (row.state === "queued") {
           await sendOnce(client, QUEUES.plateAuthor, { variantId: row.id, gen: row.gen }, `${row.id}:${row.gen}`);
@@ -819,6 +829,99 @@ export async function reviseScene(
   }
   if (queuedNew) void kickPlateWorkers(!isLive);
   return n;
+}
+
+/**
+ * Retries a single failed (or targeted) scene variant without touching any other scene in the project.
+ * Reuses `bundle_key` when present (0 model calls); otherwise resets authoring budget and queues `plate-author`.
+ */
+export async function retryVariant(
+  projectId: string,
+  target: { variantId?: string; sceneIndex?: number; aspect?: Aspect },
+  options: { routeSnapshot?: AnimationRouteSnapshot; reservationId?: string; force?: boolean } = {}
+): Promise<{ retried: number; authorQueued: number; rows: VariantRow[] }> {
+  const client = await pool.connect();
+  let retried = 0;
+  let authorQueued = 0;
+  let workerQueued = 0;
+  let isLive = false;
+  const updatedRows: VariantRow[] = [];
+  const authorTimingsExtra: Record<string, unknown> = {
+    ...(options.routeSnapshot ? { routeSnapshot: options.routeSnapshot } : {}),
+    ...(options.reservationId ? { reservationId: options.reservationId } : {})
+  };
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate:${projectId}`]);
+    const modeRes = await client.query<{ live_mode: LiveMode | null }>("select live_mode from app.plate_state where project_id = $1", [projectId]);
+    isLive = (modeRes.rows[0]?.live_mode ?? (config.plates.live ? "live" : "clip")) === "live";
+
+    const rowsRes = target.variantId
+      ? await client.query<VariantRow>("select * from app.plate_variants where project_id = $1 and id = $2 for update", [projectId, target.variantId])
+      : target.aspect
+        ? await client.query<VariantRow>("select * from app.plate_variants where project_id = $1 and scene_index = $2 and aspect = $3 for update", [projectId, target.sceneIndex ?? 0, target.aspect])
+        : await client.query<VariantRow>("select * from app.plate_variants where project_id = $1 and scene_index = $2 for update", [projectId, target.sceneIndex ?? 0]);
+
+    for (const row of rowsRes.rows) {
+      if (row.state !== "failed" && !options.force) {
+        updatedRows.push(row);
+        continue;
+      }
+      const fromBundle = Boolean(row.bundle_key) && !options.force;
+      const shouldRender = !isLive || Boolean((row.timings as Record<string, any> | undefined)?.playback?.mode === "clip");
+      const retryTimingsPatch = fromBundle ? {} : authorTimingsExtra;
+      const next = await client.query<VariantRow>(
+        `update app.plate_variants
+            set gen = gen + 1,
+                state = $2,
+                stage = $4,
+                frames_done = null,
+                author_owner = null,
+                author_until = null,
+                authored = case when $3 then authored else 0 end,
+                repairs = case when $3 then repairs else 0 end,
+                repair = null,
+                render_attempt = 0,
+                checked_at = null,
+                check_report = null,
+                host = null,
+                error = null,
+                timings = (coalesce(timings, '{}'::jsonb) - 'retrying' - 'restartsDuringWrite' - 'modelStarts' - 'authorInFlight') || $6::jsonb,
+                enqueued_at = case when $5 then null else now() end,
+                updated_at = now()
+          where id = $1
+          returning *`,
+        [
+          row.id,
+          fromBundle ? "bundled" : "queued",
+          fromBundle,
+          fromBundle ? (shouldRender ? "queued for rendering" : "checking") : null,
+          fromBundle && !shouldRender,
+          JSON.stringify(retryTimingsPatch)
+        ]
+      );
+      const updated = next.rows[0]!;
+      updatedRows.push(updated);
+      retried += 1;
+      if (!fromBundle) {
+        await queue(client, updated, QUEUES.plateAuthor, `${updated.id}:${updated.gen}`);
+        authorQueued += 1;
+      } else if (shouldRender) {
+        await queue(client, updated, QUEUES.plateRender, `${updated.id}:${updated.gen}`);
+        workerQueued += 1;
+      }
+    }
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+  if (authorQueued > 0 || workerQueued > 0) {
+    void kickPlateWorkers(!isLive || workerQueued > 0);
+  }
+  return { retried, authorQueued, rows: updatedRows };
 }
 
 // ---------------------------------------------------------------- authoring (backend)
@@ -996,6 +1099,15 @@ export async function commitBundle(
     const isLive = modeRes.rows[0]?.live_mode === "live";
     const shouldRender = !isLive || row.render_attempt > 0;
     const stage = shouldRender ? "queued for rendering" : "checking";
+    const curRowRes = await client.query<{ revise: VariantRevise | null }>(
+      "select revise from app.plate_variants where id = $1 and gen = $2 and author_owner = $3 and state = 'authoring' for update",
+      [row.id, row.gen, owner]
+    );
+    const dbRevise = curRowRes.rows[0]?.revise ?? null;
+    const claimedHash = row.revise?.dedupeHash ?? (row.revise?.notes ? revisionDedupeHash(row.revise.notes, row.revise.baseBundleDigest) : null);
+    const dbHash = dbRevise?.dedupeHash ?? (dbRevise?.notes ? revisionDedupeHash(dbRevise.notes, dbRevise.baseBundleDigest) : null);
+    const hasPostClaimRevise = Boolean(dbRevise?.notes && dbHash !== claimedHash);
+
     const res = await client.query<VariantRow>(
       `update app.plate_variants set state = 'bundled', stage = $8, source_key = $4, bundle_key = $5, bundle_manifest = $6::jsonb, bundle_digest = $9,
          checked_at = null, check_report = null, host = null, author_owner = null, author_until = null,
@@ -1028,7 +1140,27 @@ export async function commitBundle(
                created_at = now()`,
         [updated.id, updated.rev, digest, artifacts.sourceKey, artifacts.bundleKey, JSON.stringify(artifacts.manifest), JSON.stringify(revParams), pDigest, authorLabel]
       );
-      if (shouldRender) {
+      if (hasPostClaimRevise && dbRevise) {
+        const followUpRevise: VariantRevise = {
+          notes: dbRevise.notes,
+          codeKey: artifacts.sourceKey,
+          baseBundleDigest: digest,
+          dedupeHash: revisionDedupeHash(dbRevise.notes, digest),
+          ...(dbRevise.coalescedCount ? { coalescedCount: dbRevise.coalescedCount } : {})
+        };
+        const followUp = await client.query<VariantRow>(
+          `update app.plate_variants
+              set gen = gen + 1, rev = greatest(rev + 1, 1), state = 'queued', stage = null,
+                  frames_done = null, author_owner = null, author_until = null,
+                  authored = 0, repairs = 0, repair = null, revise = $2::jsonb, draft_source = null, render_attempt = 0,
+                  timings = coalesce(timings, '{}'::jsonb) - 'retrying' - 'restartsDuringWrite' - 'modelStarts' - 'authorInFlight',
+                  error = null, updated_at = now()
+            where id = $1 returning *`,
+          [updated.id, JSON.stringify(followUpRevise)]
+        );
+        await queue(client, followUp.rows[0]!, QUEUES.plateAuthor, `${followUp.rows[0]!.id}:${followUp.rows[0]!.gen}`);
+        shouldKick = !isLive;
+      } else if (shouldRender) {
         await queue(client, updated, QUEUES.plateRender, `${updated.id}:${updated.gen}`);
         shouldKick = true;
       }

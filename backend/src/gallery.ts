@@ -26,14 +26,15 @@ export async function registerGalleryRoutes(app: FastifyInstance) {
   const cache = config.appEnv === "local" ? "no-cache" : "public, max-age=60, stale-while-revalidate=300";
 
   /** One page of starting points. Filtering, search and paging all happen here. */
-  app.get<{ Querystring: { use_case?: string; q?: string; cursor?: string; limit?: string; featured?: string; look?: string; scope?: string } }>("/v1/gallery/templates", async (request, reply) => {
-    const { use_case, q, cursor, limit, featured, look, scope } = request.query;
+  app.get<{ Querystring: { use_case?: string; q?: string; cursor?: string; limit?: string; featured?: string; look?: string; scope?: string; seed?: string } }>("/v1/gallery/templates", async (request, reply) => {
+    const { use_case, q, cursor, limit, featured, look, scope, seed } = request.query;
     if (look !== undefined && !/^[a-z0-9-]{1,48}$/.test(look)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown style." } });
     if (scope !== undefined && !isGalleryScope(scope)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown scope." } });
     if (cursor !== undefined && !/^\d{1,6}$/.test(cursor)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown cursor." } });
     if (limit !== undefined && !/^\d{1,3}$/.test(limit)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown limit." } });
-    const page = queryGallery({ plates: config.plates.enabled, useCase: use_case, q, look, scope, cursor, limit: limit === undefined ? undefined : Number(limit), ...(featured === "1" ? { ids: featuredGalleryIds } : {}) });
-    return reply.header("Cache-Control", cache).send(page);
+    if (seed !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(seed)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown seed." } });
+    const page = queryGallery({ plates: config.plates.enabled, useCase: use_case, q, look, scope, cursor, seed, limit: limit === undefined ? undefined : Number(limit), ...(featured === "1" ? { ids: featuredGalleryIds } : {}) });
+    return reply.header("Cache-Control", seed ? "no-store" : cache).send(page);
   });
 
   /** Every visual style with its example count and one real example clip: what the style picker lists. */

@@ -187,6 +187,8 @@ export interface PlateLiveStageProps {
   } | null>;
   onUpdateStale?: () => void;
   updatingStale?: boolean;
+  onRetryScene?: (sceneIndex: number) => void;
+  retryingSceneIndex?: number | null;
 }
 
 function bundleCacheKeys(variantId: string, rev: number, bundleDigest?: string | null): { exact: string; revLatest: string } {
@@ -263,7 +265,9 @@ export function PlateLiveStage({
   liveOptions,
   liveStageHandleRef,
   onUpdateStale,
-  updatingStale
+  updatingStale,
+  onRetryScene,
+  retryingSceneIndex = null
 }: PlateLiveStageProps) {
   const hostContainerRef = useRef<HTMLDivElement | null>(null);
   const filmPlayerRef = useRef<FilmPlayer | null>(null);
@@ -1751,8 +1755,8 @@ export function PlateLiveStage({
           backgroundSketch={stagePrep.backgroundSketch}
           compactCard={stagePrep.compactCard}
           actionLabel={stagePrep.actionLabel}
-          onAction={stagePrep.stale ? onUpdateStale : undefined}
-          actionBusy={updatingStale}
+          onAction={stagePrep.failed && onRetryScene ? () => onRetryScene(current) : stagePrep.stale ? onUpdateStale : undefined}
+          actionBusy={stagePrep.failed ? retryingSceneIndex === current : updatingStale}
         />
       )}
     </>

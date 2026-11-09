@@ -4,9 +4,8 @@ type StoryboardProps = { scenes: Scene[]; activeScene: number; planner?: Planner
 
 function plannerLabel(planner?: PlannerInfo) {
   if (!planner) return "Example storyboard";
-  if (planner.provider === "deterministic") return "Offline planner (no Claude)";
-  const name = planner.provider === "gemini" ? "Gemini" : planner.provider === "openai-compatible" ? "AI" : "Claude";
-  return `Planned by ${name}${planner.model ? ` · ${planner.model}` : ""}`;
+  if (planner.provider === "deterministic") return "Offline planner";
+  return "Storyboard planner";
 }
 
 export function Storyboard({ scenes, activeScene, planner, audio }: StoryboardProps) {

@@ -80,6 +80,8 @@ export function AnimationWorkspace({
   onChangeVolume,
   scenes,
   onSeek,
+  onRetryScene,
+  retryingSceneIndex = null,
   comments,
   commentDraft,
   onChangeCommentDraft,
@@ -225,55 +227,59 @@ export function AnimationWorkspace({
             {fpsMeter && <FpsMeter {...fpsMeter} />}
           </div>
 
-          {showToast && activeToast && (
-            <div
-              className={`aw-film-toast${toastExiting ? " exiting" : ""}`}
-              role="status"
-              aria-live="polite"
-            >
-              <div className="aw-film-toast-card">
-                <span className="aw-film-toast-primary">
-                  <i className="aw-film-toast-dot" aria-hidden="true" />
-                  <span className="aw-film-toast-primary-text">
-                    {throttledToastFirst || activeToast.firstLine}
+          <div className="aw-top-status-stack">
+            {showToast && activeToast && (
+              <div
+                className={`aw-film-toast${toastExiting ? " exiting" : ""}`}
+                role="status"
+                aria-live="polite"
+              >
+                <div className="aw-film-toast-card">
+                  <span className="aw-film-toast-primary">
+                    <i className="aw-film-toast-dot" aria-hidden="true" />
+                    <span className="aw-film-toast-primary-text">
+                      {throttledToastFirst || activeToast.firstLine}
+                    </span>
                   </span>
-                </span>
-                <span className="aw-film-toast-summary aw-film-toast-summary-full">
-                  {throttledToastSecond || activeToast.secondLine}
-                </span>
-                <span className="aw-film-toast-summary aw-film-toast-summary-short" aria-hidden="true">
-                  {throttledToastCompact || activeToast.compactLine}
-                </span>
-                <div
-                  className="aw-film-toast-bar"
-                  role="progressbar"
-                  aria-label="Film build progress"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={activeToast.percent}
-                >
-                  <b style={{ width: `${activeToast.percent}%` }} />
+                  <span className="aw-film-toast-summary aw-film-toast-summary-full">
+                    {throttledToastSecond || activeToast.secondLine}
+                  </span>
+                  <span className="aw-film-toast-summary aw-film-toast-summary-short" aria-hidden="true">
+                    {throttledToastCompact || activeToast.compactLine}
+                  </span>
+                  <div
+                    className="aw-film-toast-bar"
+                    role="progressbar"
+                    aria-label="Film build progress"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={activeToast.percent}
+                  >
+                    <b style={{ width: `${activeToast.percent}%` }} />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {sceneBanner && (
-            <div
-              className={`aw-scene-banner aw-scene-banner-${sceneBanner.placement}${
-                showToast && sceneBanner.placement === "top" ? " below-toast" : ""
-              }`}
-              role="status"
-              aria-live="polite"
-              data-scene-index={sceneBanner.sceneIndex}
-              data-visual-state={sceneBanner.visualState}
-            >
-              <div className={`aw-scene-banner-card aw-seg-state-${sceneBanner.visualState}`}>
-                <i className="aw-seg-dot" aria-hidden="true" />
-                <span className="aw-scene-banner-text">{throttledBannerText || sceneBanner.text}</span>
+            {sceneBanner && (
+              <div
+                className={`aw-scene-banner aw-scene-banner-${sceneBanner.placement}${
+                  showToast ? " below-toast" : ""
+                }`}
+                role="status"
+                aria-live="polite"
+                data-scene-index={sceneBanner.sceneIndex}
+                data-visual-state={sceneBanner.visualState}
+              >
+                <div className={`aw-scene-banner-card aw-seg-state-${sceneBanner.visualState}`}>
+                  <i className="aw-seg-dot" aria-hidden="true" />
+                  <span className="aw-scene-banner-text">{throttledBannerText || sceneBanner.text}</span>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+            <div className="aw-top-wait-slot" data-has-toast={showToast ? "true" : "false"} />
+          </div>
 
           {frameExtras}
         </div>
@@ -301,6 +307,8 @@ export function AnimationWorkspace({
           onSeek={onSeek}
           onTogglePlay={onTogglePlay}
           bannerSceneIndex={sceneBanner?.sceneIndex ?? null}
+          onRetryScene={onRetryScene}
+          retryingSceneIndex={retryingSceneIndex}
         />
       </section>
 

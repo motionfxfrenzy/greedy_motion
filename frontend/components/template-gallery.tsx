@@ -52,11 +52,21 @@ function Preview({ item, onOpen }: { item: GalleryCard; onOpen: () => void }) {
 /** One starting point: a real preview, what it is, and the action. With `href` it is a link, otherwise a button. */
 export function GalleryCardView({ item, onUse, href, action = "Use this", busy }: { item: GalleryCard; onUse?: (item: GalleryCard) => void; href?: string; action?: string; busy?: boolean }) {
   const [open, setOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
+  useEffect(() => {
+    if (!busy) setPicking(false);
+  }, [busy]);
+  const isBusy = Boolean(busy || picking);
+  const handlePick = () => {
+    if (isBusy || !onUse) return;
+    setPicking(true);
+    onUse(item);
+  };
   const use = item.locked
     ? <button type="button" className="secondary-button gallery-action" disabled>Coming soon</button>
     : href
     ? <Link className="primary-button gallery-action" href={href}>{action}</Link>
-    : <button type="button" className="primary-button gallery-action" disabled={busy} aria-busy={busy} onClick={() => onUse?.(item)}>{action}</button>;
+    : <button type="button" className="primary-button gallery-action" disabled={isBusy} aria-busy={isBusy} onClick={handlePick}>{picking ? "Opening…" : action}</button>;
   return <article className="gallery-card">
     <Preview item={item} onOpen={() => setOpen(true)} />
     <div className="gallery-body">
@@ -132,6 +142,15 @@ export function useGalleryShelf({ featured, limit }: { featured?: boolean; limit
 
 const PAGE = 24;
 type Counts = GalleryPage["counts"];
+const makeVisitSeed = () => {
+  try {
+    const buf = new Uint32Array(2);
+    crypto.getRandomValues(buf);
+    return `${buf[0]!.toString(36)}${buf[1]!.toString(36)}`;
+  } catch {
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  }
+};
 
 /** The Templates page: every starting point in one grid, browsed by what the video is for. Paging, filtering and search
  *  are done by the backend; the browser holds only the pages it has shown. */
@@ -140,6 +159,7 @@ export function TemplatesPage({ onUse, busy }: { onUse: (item: GalleryCard) => v
   const params = useSearchParams();
   const asked = params.get("use");
   const [useCase, setUseCase] = useState<GalleryUseCase | "all">(galleryUseCases.some((entry) => entry.id === asked) ? (asked as GalleryUseCase) : "all");
+  const [seed, setSeed] = useState<string>(() => makeVisitSeed());
   const [query, setQuery] = useState(normalizeSearch(params.get("q")));
   const [search, setSearch] = useState(normalizeSearch(params.get("q")));
   const [items, setItems] = useState<GalleryCard[]>([]);
@@ -166,21 +186,26 @@ export function TemplatesPage({ onUse, busy }: { onUse: (item: GalleryCard) => v
     const request = ++latest.current;
     if (cursor) setMore(true); else setLoading(true);
     try {
-      const page = await listGalleryTemplates({ useCase, q: search, cursor, limit: PAGE });
+      const page = await listGalleryTemplates({ useCase, q: search, cursor, limit: PAGE, ...(useCase === "all" ? { seed } : {}) });
       if (request !== latest.current) return;
       setItems((current) => cursor ? [...current, ...page.items.filter((item) => !current.some((known) => known.id === item.id))] : page.items);
       setNext(page.nextCursor); setCounts(page.counts); setTotal(page.total); setFailed(false);
     } catch { if (request === latest.current) setFailed(true); }
     finally { if (request === latest.current) { setLoading(false); setMore(false); } }
-  }, [useCase, search]);
+  }, [useCase, search, seed]);
   useEffect(() => { void load(null); }, [load]);
+
+  const selectAllTab = () => {
+    setSeed(makeVisitSeed());
+    setUseCase("all");
+  };
 
   const blurb = galleryUseCases.find((entry) => entry.id === useCase)?.blurb;
   return <section className="page-container">
     <div className="page-heading"><div><h1>Templates</h1><p>{counts ? `${counts.all} starting ${counts.all === 1 ? "point" : "points"}. ` : ""}Pick one and the script prompt, structure, look and sound are filled in. Change anything before you generate.</p></div></div>
     <div className="gallery-tools">
       <div className="filter-tabs" role="group" aria-label="What the video is for">
-        <button className={useCase === "all" ? "selected" : ""} aria-pressed={useCase === "all"} onClick={() => setUseCase("all")}>All {counts && <span>{counts.all}</span>}</button>
+        <button className={useCase === "all" ? "selected" : ""} aria-pressed={useCase === "all"} onClick={selectAllTab}>All {counts && <span>{counts.all}</span>}</button>
         {galleryUseCases.filter((entry) => !counts || counts[entry.id] > 0 || useCase === entry.id).map((entry) => <button key={entry.id} className={useCase === entry.id ? "selected" : ""} aria-pressed={useCase === entry.id} onClick={() => setUseCase(entry.id)}>{entry.label} {counts && <span>{counts[entry.id]}</span>}</button>)}
       </div>
       <input className="gallery-search" type="search" value={query} placeholder="Search templates" aria-label="Search templates" onChange={(event) => setQuery(event.target.value)} />

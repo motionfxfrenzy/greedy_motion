@@ -32,7 +32,7 @@ import { startSweep } from "./jobs/sweep.ts";
 import { describeScreenshot } from "./plan/screenshots.ts";
 import { AssetRejected, readStaged, stageFont, stageLogo } from "./brand/assets.ts";
 import { extractBrand } from "./brand/extract.ts";
-import { isPlanRunning, registerPlanRoutes, waitForPlans } from "./plan/routes.ts";
+import { isPlanRunning, reconcileInterruptedPlanning, registerPlanRoutes, waitForPlans } from "./plan/routes.ts";
 import { registerEntitlementRoutes } from "./entitlements/routes.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerBillingRoutes } from "./billing/routes.ts";
@@ -233,17 +233,8 @@ app.post("/v1/projects", async (request, reply) => {
 app.get<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) => {
   let project = await getProject(request.params.id);
   if (!project) return reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
-  if (
-    project.planning?.status === "running" &&
-    !isPlanRunning(project.id) &&
-    Date.now() - Date.parse(project.planning.startedAt) > 15_000
-  ) {
-    project =
-      (await setProjectPlanning(project.id, {
-        status: "failed",
-        startedAt: project.planning.startedAt,
-        error: "Planning was interrupted by a server restart. Click Retry to continue."
-      })) ?? project;
+  if (project.planning?.status === "running" && !isPlanRunning(project.id)) {
+    project = await reconcileInterruptedPlanning(project);
   }
   return project;
 });

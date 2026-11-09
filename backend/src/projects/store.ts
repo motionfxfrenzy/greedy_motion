@@ -510,7 +510,8 @@ export async function setProjectPlanning(id: string, planning: VideoProject["pla
     const { planning: _old, ...rest } = current;
     const keepOverLength = brief?.keepOverLength ?? current.keepOverLength;
     const nextBrief = brief && keepOverLength ? { ...brief, keepOverLength: true } : brief;
-    return save({ ...rest, ...(nextBrief && !current.beatPlan ? { brief: nextBrief } : {}), ...(keepOverLength !== undefined ? { keepOverLength } : {}), ...(planning ? { planning } : {}), updatedAt: new Date().toISOString() });
+    const shouldSaveBrief = Boolean(nextBrief && (!current.beatPlan || nextBrief.scriptBeats?.length));
+    return save({ ...rest, ...(shouldSaveBrief ? { brief: nextBrief } : {}), ...(keepOverLength !== undefined ? { keepOverLength } : {}), ...(planning ? { planning } : {}), updatedAt: new Date().toISOString() });
   });
 }
 

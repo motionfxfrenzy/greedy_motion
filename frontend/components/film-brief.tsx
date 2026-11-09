@@ -37,7 +37,7 @@ function AutoText({ value, onChange, disabled, label }: { value: string; onChang
 }
 
 /** The script being drafted on the Brief page (the studio's script canvas state). */
-export type ScriptDraft = { beats: ScriptBeat[]; streaming: boolean; writing?: number | null; flags?: { beat: number; message: string }[]; error?: string | null };
+export type ScriptDraft = { beats: ScriptBeat[]; streaming: boolean; writing?: number | null; flags?: { beat: number; message: string }[]; error?: string | null; language?: string };
 
 type VoicePick = "narrator" | "characters" | "none";
 const voicePicks: { id: VoicePick; label: string }[] = [{ id: "narrator", label: "Narrator" }, { id: "characters", label: "Narrator + characters" }, { id: "none", label: "No voice" }];
@@ -121,6 +121,29 @@ export function FilmBrief({ brief, update, draft, writeDraft, editDraft, stopDra
   const streaming = Boolean(draft?.streaming);
   const hasScript = beats.length > 0;
   const isBriefMode = (!hasScript && !streaming) || composerTab === "brief";
+  const currentLang = brief.audio.language ?? "en";
+  const selectedLanguageLabel = voiceLanguages.find((l) => l.id === currentLang)?.label ?? "English";
+  const [scriptWrittenLang, setScriptWrittenLang] = useState<string>(() => draft?.language ?? currentLang);
+  const prevStreamingRef = useRef<boolean>(streaming);
+  useEffect(() => {
+    if (draft?.language) {
+      setScriptWrittenLang(draft.language);
+    } else if (streaming && !prevStreamingRef.current) {
+      setScriptWrittenLang(currentLang);
+    }
+    prevStreamingRef.current = streaming;
+  }, [streaming, draft?.language, currentLang]);
+
+  const effectiveScriptLang = draft?.language ?? scriptWrittenLang;
+  const isScriptAsciiOnly =
+    hasScript &&
+    beats.some((b) => Boolean(b.line?.trim())) &&
+    beats.every((b) => !b.line || /^[\x00-\x7F\s.,!?;:'"()\-\u2013\u2014\u2018\u2019\u201C\u201D…]+$/.test(b.line));
+  const languageStale =
+    Boolean(brief.audio.mode === "voiceover" || brief.audio.mode === "both") &&
+    hasScript &&
+    !streaming &&
+    (effectiveScriptLang !== currentLang || (currentLang === "hi" && isScriptAsciiOnly));
 
   useLayoutEffect(() => {
     const node = askRef.current;
@@ -248,6 +271,23 @@ export function FilmBrief({ brief, update, draft, writeDraft, editDraft, stopDra
 
         {/* The script, read as a script: the spoken lines (or, with no voice, the words on screen). The key phrase and the
             picture of each beat are kept for the storyboard, which plans the visuals on the next page. */}
+        {languageStale && (
+          <div className="fb-lang-stale-banner" role="status" aria-live="polite">
+            <div className="fb-lang-stale-copy">
+              <b>Language changed to {selectedLanguageLabel}. Regenerate the script to apply it.</b>
+              <small>Spoken voiceover will be written in {selectedLanguageLabel}; scene titles and on-screen text stay in English.</small>
+            </div>
+            <button
+              type="button"
+              className="secondary-button fb-lang-regen-btn"
+              disabled={streaming || Boolean(invalid)}
+              aria-busy={streaming}
+              onClick={submitBrief}
+            >
+              Regenerate script{scriptQuoteTokens && scriptQuoteTokens > 0 ? ` · ${scriptQuoteTokens} tokens` : ""}
+            </button>
+          </div>
+        )}
         <div className="fb-doc" aria-live="polite">
           {(hasScript || streaming) ? <>
             {beats.map((beat, index) => {
@@ -422,6 +462,9 @@ export function FilmBrief({ brief, update, draft, writeDraft, editDraft, stopDra
                   options={languageSelectOptions}
                   onChange={(val) => update({ audio: { ...brief.audio, language: val === "en" ? undefined : val } })}
                 />
+                {currentLang !== "en" && (
+                  <small className="fb-lang-policy-note">Voiceover in {selectedLanguageLabel}; on-screen text in English.</small>
+                )}
               </div>
             )}
             <div className={!voiced && !music ? "fb-field fb-grow" : "fb-field"}>
@@ -628,10 +671,10 @@ export function FilmBrief({ brief, update, draft, writeDraft, editDraft, stopDra
               <span className="fb-field-label">Animation quality</span>
               <small className="fb-format-hint">
                 {(brief.animationTier ?? DEFAULT_ANIMATION_TIER) === "premium" && canUsePremium
-                  ? "Claude Opus 5.5 · Higher token rate"
+                  ? "Premium · Higher token rate"
                   : !canUsePremium
                     ? PREMIUM_LOCKED_COPY
-                    : "Standard (Gemini 3.8 Flash) default"}
+                    : "Standard default"}
               </small>
             </div>
             <div className="ss-chips" role="radiogroup" aria-label="Animation quality">

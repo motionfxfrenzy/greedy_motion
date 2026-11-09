@@ -391,7 +391,86 @@ export const GALLERY_PAGE_MAX = 48;
 /** Use-case groups held back from the gallery for now. Remove an id here to show it again. */
 const hiddenUseCases: readonly GalleryUseCase[] = ["threed"];
 
-export function queryGallery(options: { useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[]; look?: string /* a look id or a family id */; /** Include the code-drawn plate templates (only where the backend has the plate pipeline on). */ plates?: boolean; /** Restrict to templates compatible with a specific brief flow ("film" = educational explainers and story/illustrated films). */ scope?: GalleryScope } = {}): GalleryPage {
+const ALL_INTERLEAVE_ORDER: readonly GalleryUseCase[] = ["story", "saas", "explain", "brand", "colour"];
+
+function hashGallerySeed(seed: string | number): number {
+  const str = String(seed || "default");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) || 0x9e3779b9;
+}
+
+function makeSeededPrng(seed: string | number): () => number {
+  let a = hashGallerySeed(seed);
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seededShuffle<T>(arr: readonly T[], rand: () => number): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = out[i]!;
+    out[i] = out[j]!;
+    out[j] = tmp;
+  }
+  return out;
+}
+
+/**
+ * Balanced, seeded category interleaving across the full matching pool when browsing "All".
+ * Shuffles items within each category (`story`, `saas`, `explain`, `brand`, `colour`) and interleaves
+ * one item per category per round (with seeded round order) so Page 1 has balanced representation
+ * across all categories, while remaining 100% deterministic for a given `seed` across pagination cursors.
+ */
+export function interleaveGalleryPool(
+  items: readonly GalleryTemplate[],
+  seed: string | number = "default"
+): GalleryTemplate[] {
+  if (items.length <= 1) return [...items];
+  const rand = makeSeededPrng(seed);
+  const buckets = new Map<GalleryUseCase, GalleryTemplate[]>();
+  for (const uc of ALL_INTERLEAVE_ORDER) buckets.set(uc, []);
+  for (const item of items) {
+    const uc = useCaseOf(item);
+    let list = buckets.get(uc);
+    if (!list) {
+      list = [];
+      buckets.set(uc, list);
+    }
+    list.push(item);
+  }
+  const activeBuckets: { uc: GalleryUseCase; items: GalleryTemplate[]; idx: number }[] = [];
+  for (const [uc, list] of buckets.entries()) {
+    if (list.length > 0) {
+      activeBuckets.push({ uc, items: seededShuffle(list, rand), idx: 0 });
+    }
+  }
+  if (activeBuckets.length <= 1) {
+    return activeBuckets[0]?.items ?? [];
+  }
+  const out: GalleryTemplate[] = [];
+  while (out.length < items.length) {
+    const roundBuckets = seededShuffle(
+      activeBuckets.filter((b) => b.idx < b.items.length),
+      rand
+    );
+    if (roundBuckets.length === 0) break;
+    for (const b of roundBuckets) {
+      out.push(b.items[b.idx++]!);
+    }
+  }
+  return out;
+}
+
+export function queryGallery(options: { useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[]; look?: string /* a look id or a family id */; /** Include the code-drawn plate templates (only where the backend has the plate pipeline on). */ plates?: boolean; /** Restrict to templates compatible with a specific brief flow ("film" = educational explainers and story/illustrated films). */ scope?: GalleryScope; /** Deterministic shuffle seed for balanced category interleaving in "all" mode. */ seed?: string | number } = {}): GalleryPage {
   const needle = normalizeSearch(options.q).toLowerCase();
   const base = options.look ? styleExamples(options.look) : galleryTemplates;
   const scoped = options.scope === "film" ? base.filter(isFilmTemplate) : base;
@@ -401,9 +480,14 @@ export function queryGallery(options: { useCase?: string; q?: string; cursor?: s
   const counts = { all: shown.length } as Record<GalleryUseCase | "all", number>;
   for (const entry of galleryUseCases) counts[entry.id] = 0;
   for (const item of shown) counts[useCaseOf(item)]++;
+  const isSpecificUseCase = Boolean(options.useCase && galleryUseCases.some((entry) => entry.id === options.useCase));
   const pool = options.ids
     ? options.ids.flatMap((id) => (options.scope === "film" ? shown : matches).filter((item) => item.id === id))
-    : options.useCase && galleryUseCases.some((entry) => entry.id === options.useCase) ? shown.filter((item) => useCaseOf(item) === options.useCase) : shown;
+    : isSpecificUseCase
+      ? shown.filter((item) => useCaseOf(item) === options.useCase)
+      : options.look
+        ? shown
+        : interleaveGalleryPool(shown, options.seed ?? "default");
   const limit = Math.min(Math.max(Math.floor(options.limit ?? 24) || 24, 1), GALLERY_PAGE_MAX);
   const offset = Math.max(Math.floor(Number(options.cursor)) || 0, 0);
   const page = pool.slice(offset, offset + limit);

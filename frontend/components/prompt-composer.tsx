@@ -92,7 +92,7 @@ export function PromptComposer({ request, disabled, onChange, onSubmit }: Prompt
         </label>
         <label className="sound-toggle">
           <input type="checkbox" checked={request.audio?.voiceover ?? false} onChange={(event) => onChange({ ...request, audio: { music: request.audio?.music ?? false, voiceover: event.target.checked, voice: request.audio?.voice ?? defaultVoice } })} />
-          <span><strong>Voiceover</strong><small>Claude writes a short script; Gemini reads it</small></span>
+          <span><strong>Voiceover</strong><small>Writes a short script and reads it aloud</small></span>
         </label>
         {request.audio?.voiceover ? (
           <label className="sound-voice">

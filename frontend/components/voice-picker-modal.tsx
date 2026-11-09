@@ -365,7 +365,7 @@ export function VoicePickerModal({
         <header className="theme-dialog-header voice-dialog-header">
           <div className="voice-dialog-heading">
             <div className="voice-dialog-eyebrow-row">
-              <span className="eyebrow">{voices.length} prebuilt Gemini voices</span>
+              <span className="eyebrow">{voices.length} prebuilt voices</span>
               <span className="voice-sample-lang-pill">Sample audio: English</span>
             </div>
             <h2 id={titleId}>Choose a voice for {displaySpeaker}</h2>

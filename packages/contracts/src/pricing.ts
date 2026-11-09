@@ -182,7 +182,7 @@ export const ANIMATION_TIER_SPECS: Record<AnimationTier, AnimationTierSpec> = {
     provider: "gemini",
     model: "gemini-3.8-flash",
     requiresPaidSubscription: false,
-    summary: "Gemini 3.8 Flash scene animation (default). Fast, cost-effective scene authoring."
+    summary: "Standard scene animation (default). Fast, cost-effective scene authoring."
   },
   premium: {
     id: "premium",
@@ -190,7 +190,7 @@ export const ANIMATION_TIER_SPECS: Record<AnimationTier, AnimationTierSpec> = {
     provider: "anthropic",
     model: "claude-opus-5-5",
     requiresPaidSubscription: true,
-    summary: "Claude Opus 5.5 scene animation with prompt caching. Higher token rate per scene; available on paid plans.",
+    summary: "Premium scene animation with prompt caching. Higher token rate per scene; available on paid plans.",
     lockedCopy: PREMIUM_LOCKED_COPY
   }
 };

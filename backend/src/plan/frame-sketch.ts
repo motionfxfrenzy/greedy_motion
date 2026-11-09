@@ -20,6 +20,8 @@ const SYSTEM = [
   "Rules:",
   "- Use the exact width, height and viewBox you are given. Paint the full background first.",
   "- Draw the beat's key moment: the objects the VISUAL line names, laid out as the finished frame would show them.",
+  "- Compose the primary focal subject and action in the central focal band of the frame (roughly 22% to 72% of frame height, centered near 48% height, and 16% to 84% of frame width) with balanced top headroom and bottom ground padding across all aspect ratios (16:9, 9:16, and 1:1). Never make the frame bottom-heavy, keep complete character/prop geometry (such as a balloon and its hanging basket) above the bottom 20% caption safe zone, and draw background hills/landscapes before foreground subjects so hills never occlude the subject.",
+  "- Respect each object's role (PROP, LIVING OBJECT, or FULL CARTOON CHARACTER): never draw eyes, brows, or a mouth on a plain PROP.",
   "- Print the key phrase and the on-screen words exactly as given (they are what the viewer reads). Never print the VISUAL line itself, and never copy words, numbers or labels from the style guide's code: other text is limited to short labels the VISUAL line names.",
   "- Plain SVG elements only: rect, circle, ellipse, line, polyline, polygon, path, text, tspan, g, defs, linearGradient, radialGradient, stop, clipPath, marker. No script, no foreignObject, no image, no external links, no animation, no CSS @import.",
   "- Keep it under 6 KB: simple shapes, no long point lists.",

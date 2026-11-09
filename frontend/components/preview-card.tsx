@@ -27,7 +27,7 @@ export function PreviewCard({ job, template }: PreviewCardProps) {
             {job ? (
               <div className="preview-center">
                 <span className="spark">✦</span>
-                <p>{job.state === "planning" ? "Claude is writing your scenes…" : "Rendering your video…"}</p>
+                <p>{job.state === "planning" ? "Writing your scenes…" : "Rendering your video…"}</p>
                 <small>This render is kept as its own revision, separate from your next edit.</small>
               </div>
             ) : (

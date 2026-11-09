@@ -13,6 +13,8 @@ export interface SceneTabsProps {
   onTogglePlay: () => void;
   /** Optional 0-based scene index currently highlighted by the unready-scene banner (visually links its colour dot). */
   bannerSceneIndex?: number | null;
+  onRetryScene?: (sceneIndex: number) => void;
+  retryingSceneIndex?: number | null;
 }
 
 /**
@@ -28,7 +30,9 @@ export function SceneTabs({
   comments,
   onSeek,
   onTogglePlay,
-  bannerSceneIndex = null
+  bannerSceneIndex = null,
+  onRetryScene,
+  retryingSceneIndex = null
 }: SceneTabsProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef(false);
@@ -101,11 +105,28 @@ export function SceneTabs({
               )}
               <div className="aw-seg-head">
                 <small>{String(scene.index + 1).padStart(2, "0")}</small>
-                {chipStateLabel && (
-                  <em className={`aw-seg-state aw-seg-state-${mapped.visualState}`}>
-                    <i className="aw-seg-dot" aria-hidden="true" />
-                    {chipStateLabel}
-                  </em>
+                {scene.state === "failed" && onRetryScene ? (
+                  <button
+                    type="button"
+                    className="aw-seg-retry"
+                    aria-label={`Retry Scene ${scene.index + 1}`}
+                    disabled={retryingSceneIndex === scene.index}
+                    aria-busy={retryingSceneIndex === scene.index}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRetryScene(scene.index);
+                    }}
+                  >
+                    {retryingSceneIndex === scene.index ? "Retrying…" : "↻ Retry"}
+                  </button>
+                ) : (
+                  chipStateLabel && (
+                    <em className={`aw-seg-state aw-seg-state-${mapped.visualState}`}>
+                      <i className="aw-seg-dot" aria-hidden="true" />
+                      {chipStateLabel}
+                    </em>
+                  )
                 )}
               </div>
               <span>{scene.keyword}</span>

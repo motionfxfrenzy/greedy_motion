@@ -46,7 +46,18 @@ export const renderSteps: { key: string; label: string; stages: RenderStage[] }[
   { key: "encode", label: "Adding audio and encoding", stages: ["encoding"] }
 ];
 
-export function resolveRenderAspect(project: VideoProject, aspectProp?: string): PlateAspect {
+export function friendlyRenderErrorMessage(rawMessage: string | undefined | null, jobId?: string | null): string {
+  const msg = (rawMessage ?? "").trim();
+  if (!msg) return "We could not finish rendering this video. Click Try again or return to Animation.";
+  const sceneMatch = /Scene\s+(\d+)\s+(?:needs a fix before rendering|could not be verified)/i.exec(msg);
+  if (sceneMatch) {
+    const sceneNum = sceneMatch[1];
+    return `Scene ${sceneNum} needed an automatic adjustment before export. Click Try again to render with the updated scene, or go back to Animation to review Scene ${sceneNum}.${jobId ? ` (Ref: ${jobId.slice(0, 8)})` : ""}`;
+  }
+  return msg;
+}
+
+function resolveRenderAspect(project: VideoProject, aspectProp?: string): PlateAspect {
   if (aspectProp === "9:16" || aspectProp === "1:1" || aspectProp === "16:9") return aspectProp;
   if (
     project.brief?.aspect === "9:16" ||
@@ -490,9 +501,9 @@ export function FinalRenderStep({
         {failed ? (
           <div className="render-error">
             <b>We could not render this project.</b>
-            <p>{error || job?.error?.message}</p>
+            <p>{friendlyRenderErrorMessage(error || job?.error?.message, job?.id)}</p>
             <div className="render-error-actions">
-              <button disabled={busy} onClick={() => void retry()}>
+              <button disabled={busy} aria-busy={busy} onClick={() => void retry()}>
                 {busy ? "Starting…" : "Try again"}
               </button>
               <button className="render-error-back" onClick={backToAnimation}>
@@ -516,7 +527,9 @@ export function FinalRenderStep({
             </ol>
             {stage === "retrying" && (
               <p className="render-retry">
-                Attempt {job?.attempt ?? 1} hit a renderer error. Trying again automatically.
+                {isPlate
+                  ? "Fixing a scene before export and continuing automatically…"
+                  : `Attempt ${job?.attempt ?? 1} hit a renderer error. Trying again automatically.`}
               </p>
             )}
             <button type="button" className="secondary-button render-back-button" onClick={backToAnimation}>

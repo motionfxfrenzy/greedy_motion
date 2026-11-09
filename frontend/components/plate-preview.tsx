@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scriptFrameKey, voiceText, type VideoProject } from "@videosaas/contracts";
-import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, getPlates, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
+import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, getPlates, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, retryPlateScene, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
 import {
   SfxCueTracker,
   WebAudioFilmTimeline,
@@ -220,6 +220,8 @@ export function PlatePreview({
   const [liveResolutions, setLiveResolutions] = useState<SceneModeResolution[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [applyingFix, setApplyingFix] = useState(false);
+  const [retryingSceneIdx, setRetryingSceneIdx] = useState<number | null>(null);
   const [voiceDurations, setVoiceDurations] = useState<Record<number, number>>({});
   const defaultStyle: SubtitleStyle = project.brief?.look === "illus-blueprint" ? "blueprint" : /^illus-(balloon|fox|folk-tale|gouache|watercolour)/.test(project.brief?.look ?? "") ? "paper" : "pill";
   const [subMode, setSubMode] = useState<SubtitleMode>(() => (project.brief?.captions as SubtitleMode) ?? "full");
@@ -1085,7 +1087,36 @@ export function PlatePreview({
     catch (e) { setError(e instanceof Error ? e.message : "Could not add the comment."); }
     finally { setSending(false); }
   };
-  const apply = async () => { setError(null); try { applyStatus(await fixPlates(project.id)); } catch (e) { setError(e instanceof Error ? e.message : "Could not redraw the scenes."); } };
+  const apply = async () => {
+    if (applyingFix) return;
+    setApplyingFix(true);
+    setError(null);
+    try {
+      applyStatus(await fixPlates(project.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not redraw the scenes.");
+    } finally {
+      setApplyingFix(false);
+    }
+  };
+  const handleRetryScene = useCallback(
+    async (sceneIndex: number) => {
+      if (retryingSceneIdx !== null) return;
+      setRetryingSceneIdx(sceneIndex);
+      setError(null);
+      try {
+        await ensureMediaToken();
+        const target = scenes[sceneIndex]?.variants?.[viewAspect]?.variantId ?? scenes[sceneIndex]?.variantId ?? sceneIndex;
+        const next = await retryPlateScene(project.id, target, { aspect: viewAspect });
+        applyStatus(next);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not retry this scene.");
+      } finally {
+        setRetryingSceneIdx(null);
+      }
+    },
+    [retryingSceneIdx, scenes, viewAspect, project.id, applyStatus]
+  );
   const remove = async (id: string) => { try { await removePlateComment(project.id, id); applyStatus(await getPlates(project.id)); } catch (e) { setError(e instanceof Error ? e.message : "Could not remove the comment."); } };
 
   const chooseSubMode = (nextMode: SubtitleMode) => {
@@ -1570,6 +1601,8 @@ export function PlatePreview({
           liveStageHandleRef={liveStageHandleRef}
           onUpdateStale={() => { void triggerDrawPlates(); }}
           updatingStale={updatingStale}
+          onRetryScene={(idx) => { void handleRetryScene(idx); }}
+          retryingSceneIndex={retryingSceneIdx}
         />
       ) : (
         <>
@@ -1650,8 +1683,8 @@ export function PlatePreview({
             backgroundSketch={clipStagePrep.backgroundSketch}
             compactCard={clipStagePrep.compactCard}
             actionLabel={clipStagePrep.actionLabel}
-            onAction={clipStagePrep.stale ? () => { void triggerDrawPlates(); } : undefined}
-            actionBusy={updatingStale}
+            onAction={clipStagePrep.failed ? () => { void handleRetryScene(shown?.index ?? current); } : clipStagePrep.stale ? () => { void triggerDrawPlates(); } : undefined}
+            actionBusy={clipStagePrep.failed ? retryingSceneIdx === (shown?.index ?? current) : updatingStale}
           />}
         </>
       )}
@@ -1772,16 +1805,18 @@ export function PlatePreview({
       };
     })}
     onSeek={seek}
+    onRetryScene={(idx) => { void handleRetryScene(idx); }}
+    retryingSceneIndex={retryingSceneIdx}
     comments={comments}
     commentDraft={draft}
     onChangeCommentDraft={setDraft}
     onCommentFocus={() => { wantPlay.current = false; setPlaying(false); audioTimelineRef.current?.pause(); videos.current[current]?.pause(); voices.current[current]?.pause(); musicAudio.current?.pause(); }}
-    canAddComment={readyCount > 0}
+    canAddComment={scenes.length > 0 || (project.brief?.scriptBeats?.length ?? 0) > 0}
     addingComment={sending}
     onAddComment={() => void add()}
     onRemoveComment={(id) => void remove(id)}
     onApplyComments={() => void apply()}
-    applyingComments={busy}
+    applyingComments={applyingFix || (comments.length > 0 && comments.every((c) => (c as { fixing?: number }).fixing !== undefined))}
     onRender={onRender ? handleRenderClick : undefined}
     rendering={rendering}
     renderDisabled={staleCount > 0}

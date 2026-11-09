@@ -159,7 +159,10 @@ export async function bundleScene({ look, code, frames, aspect }) {
     const text = (error.errors ?? []).map((e) => `${e.location ? `${e.location.file}:${e.location.line}: ` : ""}${e.text}`).join("\n") || String(error.message);
     throw Object.assign(new Error(`Bundling failed:\n${text}`.slice(0, 2500)), { code: "bundle_failed", repairable: true });
   }
-  const js = result.outputFiles[0].text;
+  const js = result.outputFiles[0].text.replace(
+    /\.clearRect\(([A-Za-z0-9_$]+)\[0\],\1\[1\],\1\[2\]-\1\[0\],\1\[3\]-\1\[1\]\)/g,
+    ".clearRect(0,0,this.DW,this.DH)"
+  );
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>scene</title><style>html,body{margin:0;background:#fff}canvas{display:block}</style></head><body><canvas id="film"></canvas><script>window.__ASSETS__={};window.__BAKE_SRC__={};</script><script>${js.replace(/<\/script/g, "<\\/script")}</script></body></html>`;
   const imports = Object.keys(result.metafile.inputs).filter((i) => !i.startsWith("scene:")).sort();
   return {

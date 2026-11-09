@@ -2,7 +2,7 @@ import { CHARACTER_RULE, filmKind, formatScript, isScriptLedDuration, parseScrip
 import { config } from "../config.ts";
 import { streamModel, callModel } from "../models/providers.ts";
 import { routeFor, routeHasKey } from "../models/routes.ts";
-import { inventedNumbers, userMessage, type DirectorContext } from "./director.ts";
+import { inventedNumbers, languageRule, userMessage, type DirectorContext } from "./director.ts";
 
 /**
  * The script canvas's writer: one short streamed call that returns only the script (key phrase, visual direction, on-screen
@@ -17,7 +17,7 @@ const SYSTEM = [
   "SCREEN: <words the viewer reads under the key phrase, at most 60 characters, or - when nothing else needs reading>",
   "VOICE: <the voiceover line, at most 24 words; - when the film has no voiceover>",
   "Leave one blank line between beats.",
-  "VISUAL is a direction and is never printed: describe concrete shapes and objects the template can draw (boxes, arrows, charts, a product screen), not camera jargon or feelings.",
+  "VISUAL is a direction and is never printed: describe concrete shapes and objects the template can draw (boxes, arrows, charts, a product screen), not camera jargon or feelings. Compose the main focal subject and action in the central area of the frame with balanced top and bottom padding in all aspect ratios (9:16, 16:9, and 1:1), never bottom-heavy, with foreground subjects clearly in front of background hills or landscapes and complete character/prop geometry (such as a balloon and its basket) visible.",
   "SCREEN is printed exactly as written: never describe what to show or animate there (not \"Pointer jumps to the middle box\"); that belongs in VISUAL. It is a short label people read (at most 8 words), never a list of data values: the numbers themselves are drawn in the visual.",
   "Each VISUAL shows what its own VOICE line is saying, at the moment it is said: if the line talks about a million, the visual shows the million; if it says \"take sixteen\", the visual shrinks to sixteen. Read each VOICE line against its VISUAL and SCREEN before moving on.",
   "Numbers: use only numbers (digits or words) that appear in the brief, the product or the site facts; do not invent example values, counts, prices or stats, unless a voice section below says otherwise.",
@@ -50,7 +50,7 @@ const EXPLAINER_VOICE = [
   "FLOW: read every VOICE line in order as one paragraph. It must sound like one continuous explanation: each line follows from the one before (So, But, Now, Which means, Here's the catch), and no two lines could swap places. Each VISUAL shows exactly what its line is talking about, and consecutive VISUALs continue the same objects rather than starting new scenes.",
   "",
   "STYLE:",
-  "- Talk to \"you\"; \"I\" and \"we\" are fine. Spoken English with contractions. Mix short punches (two or three words) with longer sentences that carry the reasoning.",
+  "- Talk to \"you\"; \"I\" and \"we\" are fine. Natural spoken phrasing (in the requested VOICE language; spoken English with contractions when English). Mix short punches (two or three words) with longer sentences that carry the reasoning.",
   "- Say the obvious idea or the common wrong answer before the right one, and turn it. Anticipate the viewer's objection and answer it once, when it helps.",
   "- Name a technical term only after the idea is clear, in plain words.",
   "- No hype or marketing words (amazing, powerful, unlock, game-changer, seamless, effortless), no exclamation marks, no \"In this video\".",
@@ -84,7 +84,7 @@ const STORY_VOICE = [
   "FLOW: read every VOICE line in order as one paragraph. It must sound like one told story: each line follows from the one before (Then, But, So, Until one day), and no two lines could swap places. Each VISUAL shows exactly what its line is telling, with the same characters continuing from the beat before.",
   "",
   "STYLE:",
-  "- Tell it simply, in spoken English with contractions, keeping one tense throughout. Short sentences; one image per line.",
+  "- Tell it simply, in natural spoken phrasing (in the requested VOICE language; spoken English with contractions when English), keeping one tense throughout. Short sentences; one image per line.",
   "- Show the character's feeling through what they do, not by naming it. A little humour is welcome when the style is playful.",
   "- No questions to the viewer as a hook, no \"Did you know\", no hype or marketing words, no exclamation marks.",
   "- Key phrases on screen are short story beats (\"The lid trick\", \"Still warm\"), not lessons or slogans.",
@@ -100,9 +100,12 @@ const STORY_VOICE = [
  */
 export function systemBlocks(request: Pick<ScriptRequest, "brief" | "context">): { type: "text"; text: string; cache_control?: { type: "ephemeral" } }[] {
   const voice = filmKind(request.brief) === "story" ? STORY_VOICE : request.context.brandName ? null : EXPLAINER_VOICE;
+  const voiced = request.brief.audio?.mode === "voiceover" || request.brief.audio?.mode === "both";
+  const langLines = voiced ? languageRule(request.brief) : [];
+  const baseSystem = langLines.length > 0 ? `${SYSTEM}\n\n${langLines.join("\n")}` : SYSTEM;
   return voice
-    ? [{ type: "text", text: SYSTEM }, { type: "text", text: voice, cache_control: { type: "ephemeral" } }]
-    : [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }];
+    ? [{ type: "text", text: baseSystem }, { type: "text", text: voice, cache_control: { type: "ephemeral" } }]
+    : [{ type: "text", text: baseSystem, cache_control: { type: "ephemeral" } }];
 }
 
 /** The system blocks in the provider-neutral shape (a cached block stays cached on Anthropic; Gemini caches by itself). */

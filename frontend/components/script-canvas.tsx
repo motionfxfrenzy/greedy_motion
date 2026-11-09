@@ -32,7 +32,7 @@ export function sceneBoundaryPlaceholder(position: number, beats: readonly Scrip
   return `Describe what happens between Scene ${position}${prev ? ` (“${prev}”)` : ""} and Scene ${position + 1}${next ? ` (“${next}”)` : ""}…`;
 }
 
-export type StoryboardState = { state: "waiting" | "building" | "ready" | "stale" | "failed"; plan?: BeatPlan; error?: string; /** When the storyboard job started (ms), while building. */ startedAt?: number };
+export type StoryboardState = { state: "waiting" | "building" | "ready" | "stale" | "failed"; plan?: BeatPlan; error?: string; /** When the storyboard job started (ms), while building. */ startedAt?: number; resuming?: boolean };
 /** A beat's reference frame: SVG text drawn by the backend, shown only as an image. `stale` keeps the old drawing after an edit. */
 export type FrameSlot = { state: "drawing" | "ready" | "stale" | "failed"; svg?: string; error?: string };
 /** Confirm script → voiceover. `takes` holds a playable URL per beat once that beat's line is voiced. */
@@ -662,6 +662,8 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
     : voice.state === "storyboard" || voice.state === "voicing"
     ? <><i className="sc-live" />{`Recording ${soundLabel} in parallel · ${voicedCount}/${totalVoicedBeats} scenes ready · ${voicePct}%`}</>
     : voice.state === "failed" ? voice.error ?? `Could not make the ${soundLabel}.`
+    : storyboard.state === "building" && storyboard.resuming
+    ? <><i className="sc-live" />{`Resuming your storyboard · ${beats.length} beats · about ${formatDurationSeconds(runs)}`}</>
     : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${formatDurationSeconds(runs)}${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}${voicedCount > 0 ? ` · ${voicedCount}/${totalVoicedBeats} voiced` : ""}`;
 
   if (!streaming && beats.length === 0 && error) return <div className="script-canvas">
