@@ -26,9 +26,11 @@ import {
   resolveProjectAnimationTier,
   settlePartialStepReservation,
   settleStepReservation,
-  stepBillingOnForProject
+  settleVoiceMusicReservation,
+  stepBillingOnForProject,
+  verifyStepQuote
 } from "../billing/step-billing.ts";
-import { InsufficientTokens, refundSpend, spendTokens } from "../tokens/store.ts";
+import { InsufficientTokens, refundSpend, spendTokens, tokenSummary } from "../tokens/store.ts";
 import { synthesizeVoiceover, TTS_MODEL } from "../audio/gemini-tts.ts";
 import { readMedia, saveMedia } from "../media.ts";
 import { mediaToken, signPreviewUrls } from "../media-links.ts";
@@ -1386,7 +1388,8 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const totalSteps = Math.max(1, wanted.length + (wantMusic ? 1 : 0));
     let completedSteps = 0;
     let failed = 0;
-    let deliveredUnits = 0;
+    let voiceDelivered = 0;
+    let musicDelivered = false;
     const progressPct = () => Math.min(99, Math.round((completedSteps / totalSteps) * 100));
 
     send({ type: "start", total: totalSteps, progress: 2 });
@@ -1444,7 +1447,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
             } satisfies PlanAudio;
           });
           completedSteps += 1;
-          deliveredUnits += 1;
+          voiceDelivered += 1;
           send({ type: "take", index, file: res.line.file, seconds: res.line.seconds, progress: progressPct() });
         } catch (error) {
           if (controller.signal.aborted) return;
@@ -1484,7 +1487,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
               } satisfies PlanAudio;
             });
             completedSteps += 1;
-            deliveredUnits += 1;
+            musicDelivered = true;
             send({ type: "music", file: track.file, seconds: track.seconds, progress: progressPct() });
           } catch (error) {
             if (controller.signal.aborted) return;
@@ -1506,7 +1509,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       ]);
     } finally {
       if (voiceReservationId) {
-        await settlePartialStepReservation(voiceReservationId, deliveredUnits, "voice-stream").catch(() => undefined);
+        await settleVoiceMusicReservation(voiceReservationId, voiceDelivered, musicDelivered, "voice-stream").catch(() => undefined);
       }
     }
 
@@ -1562,18 +1565,45 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           tier: requestedTier,
           persist: false
         });
-        const reservation = await reserveStepTokens({
-          userId,
-          projectId: project.id,
-          quote: animQuote,
-          quoteIdFromClient: request.body?.quoteId,
-          routeSnapshot,
-          ledgerReason: "animation"
-        });
-        if (reservation.reservedMilli > 0) {
-          animCodeReservationId = reservation.id;
+        await verifyStepQuote(request.body?.quoteId, userId, animQuote);
+        if (animQuote.milli > 0) {
+          const bal = await tokenSummary(userId);
+          if (Math.round(bal.remaining * 1000) < animQuote.milli) {
+            throw new InsufficientTokens(animQuote.tokens, bal.remaining);
+          }
+        }
+        if (animQuote.framesQuote.milli > 0) {
+          const fRes = await reserveStepTokens({
+            userId,
+            projectId: project.id,
+            quote: animQuote.framesQuote,
+            ledgerReason: "frames"
+          });
+          if (fRes.reservedMilli > 0) framesReservationId = fRes.id;
+        }
+        if (animQuote.audioQuote.milli > 0) {
+          const aRes = await reserveStepTokens({
+            userId,
+            projectId: project.id,
+            quote: animQuote.audioQuote,
+            ledgerReason: "voice"
+          });
+          if (aRes.reservedMilli > 0) audioReservationId = aRes.id;
+        }
+        if (animQuote.animationCodeQuote.milli > 0) {
+          const cRes = await reserveStepTokens({
+            userId,
+            projectId: project.id,
+            quote: animQuote.animationCodeQuote,
+            routeSnapshot,
+            ledgerReason: animQuote.isPlate ? "plate_draw" : "animation"
+          });
+          if (cRes.reservedMilli > 0) animCodeReservationId = cRes.id;
         }
       } catch (error) {
+        if (framesReservationId) await releaseStepReservation(framesReservationId).catch(() => undefined);
+        if (audioReservationId) await releaseStepReservation(audioReservationId).catch(() => undefined);
+        if (animCodeReservationId) await releaseStepReservation(animCodeReservationId).catch(() => undefined);
         if (error instanceof QuoteStaleError) {
           return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
         }
@@ -1626,7 +1656,10 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       if (!reply.raw.writableEnded) reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
     };
 
-    let deliveredUnits = 0;
+    let framesDelivered = 0;
+    let voiceDelivered = 0;
+    let musicDelivered = false;
+    let motionDelivered = 0;
     let delegatedToPlates = false;
     try {
       // 1. Check any missing reference frames and draw them in parallel (4 at a time)
@@ -1651,7 +1684,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
                 );
                 await saveScriptFrame(project!.id, { key: keyFor(idx), svg });
                 if (idx === 0) await setCoverFrame(project!.id, svg).catch(() => undefined);
-                deliveredUnits += 1;
+                framesDelivered += 1;
               } catch {
                 // Keep going if a single frame sketch fails
               }
@@ -1661,6 +1694,10 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           })
         );
         project = (await getProject(project.id)) ?? project;
+      }
+      if (framesReservationId) {
+        await settlePartialStepReservation(framesReservationId, framesDelivered, "animate-frames").catch(() => undefined);
+        framesReservationId = null;
       }
 
       // 2. Record any missing voiceover takes (4 in parallel) and music bed in parallel
@@ -1709,7 +1746,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
                     updatedAt: new Date().toISOString()
                   } satisfies PlanAudio;
                 });
-                deliveredUnits += 1;
+                voiceDelivered += 1;
               } catch {
                 // Non-fatal: timing falls back to estimate for any unvoiced beat
               }
@@ -1744,7 +1781,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
                       updatedAt: new Date().toISOString()
                     } satisfies PlanAudio;
                   });
-                  deliveredUnits += 1;
+                  musicDelivered = true;
                 } catch {
                   // Non-fatal: plays without music bed
                 }
@@ -1761,16 +1798,20 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           project = (await getProject(project.id)) ?? project;
         }
       }
+      if (audioReservationId) {
+        await settleVoiceMusicReservation(audioReservationId, voiceDelivered, musicDelivered, "animate-audio").catch(() => undefined);
+        audioReservationId = null;
+      }
 
       // 3. For code-drawn plate styles, reconcile and start plate scenes; for HyperFrames, direct per-scene SVG motion
       if (isPlateLook(brief.look)) {
         send({ type: "stage", stage: "motion", done: 0, total: beats.length, progress: 55 });
         let plateResId: string | undefined;
         if (animCodeReservationId && stepBillingOnForProject(project)) {
-          // Settle synchronous frames+audio part and create/attach a dedicated plate-draw reservation if scenes need authoring
           const drawQuote = await quotePlateDrawStep({ userId, project, tier: requestedTier, persist: false });
           if (drawQuote.toAuthor.length === 0) {
-            await settleStepReservation(animCodeReservationId).catch(() => undefined);
+            await releaseStepReservation(animCodeReservationId).catch(() => undefined);
+            animCodeReservationId = null;
           } else {
             plateResId = animCodeReservationId;
             delegatedToPlates = true;
@@ -1801,7 +1842,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
             scenes,
             60_000,
             ({ index, done, total, cached, ok }) => {
-              if (!cached && ok) deliveredUnits += 1;
+              if (!cached && ok) motionDelivered += 1;
               send({
                 type: "motion",
                 index,
@@ -1816,7 +1857,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           project = (await setCoverFrame(project.id, frames[0]!.svg, timing.total)) ?? project;
         }
         if (animCodeReservationId) {
-          await settlePartialStepReservation(animCodeReservationId, deliveredUnits, "animate-done").catch(() => undefined);
+          await settlePartialStepReservation(animCodeReservationId, motionDelivered, "animate-done").catch(() => undefined);
           animCodeReservationId = null;
         }
       }
@@ -1824,8 +1865,16 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       const finalProject = (await getProject(project.id)) ?? project;
       send({ type: "done", progress: 100, project: finalProject });
     } catch (error) {
+      if (framesReservationId) {
+        await settlePartialStepReservation(framesReservationId, framesDelivered, "animate-frames-error").catch(() => undefined);
+        framesReservationId = null;
+      }
+      if (audioReservationId) {
+        await settleVoiceMusicReservation(audioReservationId, voiceDelivered, musicDelivered, "animate-audio-error").catch(() => undefined);
+        audioReservationId = null;
+      }
       if (animCodeReservationId && !delegatedToPlates) {
-        await settlePartialStepReservation(animCodeReservationId, deliveredUnits, "animate-error").catch(() => undefined);
+        await settlePartialStepReservation(animCodeReservationId, motionDelivered, "animate-error").catch(() => undefined);
         animCodeReservationId = null;
       }
       send(
@@ -1834,10 +1883,14 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         })
       );
     } finally {
-      void framesReservationId;
-      void audioReservationId;
+      if (framesReservationId) {
+        await settlePartialStepReservation(framesReservationId, framesDelivered, "animate-frames-finally").catch(() => undefined);
+      }
+      if (audioReservationId) {
+        await settleVoiceMusicReservation(audioReservationId, voiceDelivered, musicDelivered, "animate-audio-finally").catch(() => undefined);
+      }
       if (animCodeReservationId && !delegatedToPlates) {
-        await settlePartialStepReservation(animCodeReservationId, deliveredUnits, "animate-finally").catch(() => undefined);
+        await settlePartialStepReservation(animCodeReservationId, motionDelivered, "animate-finally").catch(() => undefined);
       }
       reply.raw.end();
     }
@@ -1852,6 +1905,16 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const brief = parsed.brief;
     if (!(await ensurePromptAllowed(reply, [brief.text, brief.productName], `project_${project.id}:plan`))) return;
     const userId = callerId(request);
+    if (brief.animationTier === "premium") {
+      try {
+        await assertAnimationTierEntitled(userId, "premium");
+      } catch (error) {
+        if (error instanceof PremiumRequiresSubscriptionError) {
+          return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+        }
+        throw error;
+      }
+    }
     let planReservationId: string | null = null;
     if (stepBillingOnForProject(project)) {
       try {

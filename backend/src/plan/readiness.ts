@@ -9,6 +9,7 @@ import { projectTiming } from "./preview.ts";
 import { buildPlanRenderProject } from "./render-project.ts";
 import { filmFrames } from "./frame-film.ts";
 import { ensureFilmMotion, filmScenes } from "./frame-motion.ts";
+import { authorRouteForTier, resolveProjectAnimationTier } from "../billing/step-billing.ts";
 import { setCoverFrame } from "../projects/store.ts";
 import { plateFilmSeconds } from "../plates/inputs.ts";
 import { TIMING_RULES } from "./timing.ts";
@@ -107,7 +108,8 @@ export async function prepareBeatPlanRender(project: VideoProject, jobId: string
   const timing = projectTiming(project);
   const frames = timing ? filmFrames(project, timing) : null;
   if (timing && frames) {
-    project = await ensureFilmMotion(project, filmScenes(project, timing, frames));
+    const tier = resolveProjectAnimationTier(project, project.brief);
+    project = await ensureFilmMotion(project, filmScenes(project, timing, frames), 60_000, undefined, authorRouteForTier(tier).motion);
     // The card shows the film's opening frame.
     project = (await setCoverFrame(project.id, frames[0]!.svg, timing.total)) ?? project;
   }

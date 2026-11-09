@@ -33,7 +33,13 @@ async function jobOwner(id: string) {
 export function registerOwnership(app: FastifyInstance) {
   app.addHook("preHandler", async (request, reply) => {
     if (isOpen(request)) return;
-    const path = request.url.split("?")[0];
+    // Route params reach handlers percent-decoded, so the ids are matched on the decoded path; a raw match is bypassed by encoding one character.
+    let path: string;
+    try {
+      path = decodeURIComponent(request.url.split("?")[0]);
+    } catch {
+      return notFound(reply, "Not found.");
+    }
     const me = callerId(request);
 
     const projectId = projectPath.exec(path)?.[1];

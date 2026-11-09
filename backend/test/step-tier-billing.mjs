@@ -12,13 +12,17 @@
 // Run: node --experimental-strip-types backend/test/step-tier-billing.mjs
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { migrate, query } from "../src/db/database.ts";
+import { assertThrowawayDb } from "./support/throwaway-db.mjs";
+process.env.APP_ENV ??= "local";
+assertThrowawayDb();
+import { migrate, pool, query } from "../src/db/database.ts";
 import { grantTokens, refundPartialSpend, spendTokens, tokenSummary } from "../src/tokens/store.ts";
 import {
   PremiumRequiresSubscriptionError,
   QuoteStaleError,
   assertAnimationTierEntitled,
   authorRouteForTier,
+  buildProjectBillingOverview,
   createStepQuote,
   effectiveBillingPolicyVersion,
   projectPaidStepMillitokens,
@@ -26,8 +30,10 @@ import {
   releaseStepReservation,
   reserveStepTokens,
   settlePartialStepReservation,
-  settleStepReservation
+  settleStepReservation,
+  settleVoiceMusicReservation
 } from "../src/billing/step-billing.ts";
+import { createProject, deleteProject } from "../src/projects/store.ts";
 
 await migrate();
 
@@ -59,8 +65,8 @@ await migrate();
   // Paid subscriber (Starter active) can use both Standard and Premium
   const paidUser = randomUUID();
   await query(
-    `insert into app.subscriptions (user_id, ls_subscription_id, tier, billing_interval, status, renews_at)
-     values ($1, $2, 'starter', 'month', 'active', now() + interval '30 days')`,
+    `insert into app.subscriptions (user_id, provider_ref, variant_id, tier, billing_interval, status, renews_at)
+     values ($1, $2, '101', 'starter', 'month', 'active', now() + interval '30 days')`,
     [paidUser, `sub_${paidUser}`]
   );
   const premEntitled = await assertAnimationTierEntitled(paidUser, "premium");
@@ -75,6 +81,9 @@ await migrate();
   assert.notEqual(snapA.writer.model, snapB.writer.model);
   assert.equal(snapA.writer.model, "gemini-3.8-flash");
   assert.equal(snapB.writer.model, "claude-opus-5-5");
+
+  await query("delete from app.subscriptions where user_id = $1", [paidUser]);
+  await query("delete from app.token_ledger where user_id = $1", [freeUserWithPack]);
 }
 
 // 2. Quote verification, idempotent reservation, partial settlement/refund, and full release
@@ -82,6 +91,7 @@ await migrate();
   const userId = randomUUID();
   const projectId = randomUUID();
   await grantTokens(userId, 100, "test grant", "test", `grant:${userId}`, "plan");
+  const startBalance = (await tokenSummary(userId)).remaining; // 100 plan + 33 free = 133
 
   const quote = await createStepQuote({
     userId,
@@ -106,7 +116,7 @@ await migrate();
   });
 
   // Stale quote rejection when project/tier changes
-  const changedExpected = { ...quote, animationTier: "standard" as const, milli: 13800 };
+  const changedExpected = { ...quote, animationTier: "standard", milli: 13800 };
   await assert.rejects(
     () =>
       reserveStepTokens({
@@ -138,7 +148,7 @@ await migrate();
   assert.equal(resDup.id, res1.id);
 
   const afterReserve = await tokenSummary(userId);
-  assert.equal(afterReserve.remaining, 33.8, "100 - 66.2 = 33.8 tokens remaining");
+  assert.equal(afterReserve.remaining, Math.round((startBalance - 66.2) * 10) / 10, "startBalance - 66.2 tokens remaining");
 
   // Simulate 4 scenes delivered and 2 scenes permanently failed via recordVariantReservationOutcome
   await recordVariantReservationOutcome(res1.id, "0:16:9", "delivered");
@@ -150,7 +160,7 @@ await migrate();
 
   // 2 failed scenes * 9.7 tokens/scene = 19.4 tokens refunded; 46.8 tokens settled (8.0 setup + 4 * 9.7)
   const afterPartial = await tokenSummary(userId);
-  assert.equal(afterPartial.remaining, 53.2, "33.8 + 19.4 refunded = 53.2 tokens remaining");
+  assert.equal(afterPartial.remaining, Math.round((startBalance - 46.8) * 10) / 10, "19.4 refunded -> 46.8 settled");
   const paidMilli = await projectPaidStepMillitokens(projectId, userId);
   assert.equal(paidMilli, 46800, "46.8 tokens settled on project");
 
@@ -178,23 +188,70 @@ await migrate();
   const resFail = await reserveStepTokens({ userId, projectId, quote: quoteZero });
   await settlePartialStepReservation(resFail.id, 0, "all-failed");
   const afterFullRefund = await tokenSummary(userId);
-  assert.equal(afterFullRefund.remaining, 53.2, "0 delivered units refunds the entire reservation");
+  assert.equal(afterFullRefund.remaining, Math.round((startBalance - 46.8) * 10) / 10, "0 delivered units refunds the entire reservation");
+
+  // Voice + music mixed-unit settlement: 3 voice lines (300 milli) succeed, 1 music track (1000 milli) fails -> refunds 1.0 token
+  const quoteAudio = await createStepQuote({
+    userId,
+    projectId,
+    stage: "voice_music",
+    pricingVersion: "v2_step_tier",
+    animationTier: "standard",
+    workFingerprint: "fp-audio-partial",
+    milli: 1300,
+    unitsTotal: 4,
+    breakdown: {
+      stage: "voice_music",
+      pricingVersion: "v2_step_tier",
+      animationTier: "standard",
+      model: "gemini-3.8-flash-tts+lyria",
+      unitsTotal: 4,
+      reusedUnits: 0,
+      setupMilli: 1000,
+      perUnitMilli: 100,
+      parts: { voiceMilli: 300, musicMilli: 1000 }
+    }
+  });
+  const resAudio = await reserveStepTokens({ userId, projectId, quote: quoteAudio });
+  const audioOutcome = await settleVoiceMusicReservation(resAudio.id, 3, false, "music-failed");
+  assert.equal(audioOutcome.settledMilli, 300, "3 delivered voice lines settle 0.3 tokens");
+  assert.equal(audioOutcome.refundedMilli, 1000, "failed music bed refunds full 1.0 token");
+  const afterAudio = await tokenSummary(userId);
+  assert.equal(afterAudio.remaining, Math.round((startBalance - 47.1) * 10) / 10, "additional 0.3 settled");
+
+  await query("delete from app.generation_reservations where user_id = $1", [userId]);
+  await query("delete from app.generation_quotes where user_id = $1", [userId]);
+  await query("delete from app.token_ledger where user_id = $1", [userId]);
 }
 
 // 3. Grandfathering legacy projects on v1_render_only
 {
   const legacyProject = {
     billingPolicyVersion: undefined,
-    beatPlan: { canvas: "16:9" as const, mode: "problem" as const, target_duration_s: 30, beats: [], suggestions: [] },
+    beatPlan: { canvas: "16:9", mode: "problem", target_duration_s: 30, beats: [], suggestions: [] },
     script: undefined,
     planAudio: undefined,
     filmMotion: undefined,
     renderJobId: undefined
   };
   assert.equal(
-    effectiveBillingPolicyVersion(legacyProject, { BILLING_POLICY_VERSION: "v2_step_tier" } as NodeJS.ProcessEnv),
+    effectiveBillingPolicyVersion(legacyProject, { BILLING_POLICY_VERSION: "v2_step_tier" }),
     "v1_render_only",
     "Existing project with a beatPlan is grandfathered on v1_render_only"
+  );
+  const legacyScriptBeatsProject = {
+    billingPolicyVersion: undefined,
+    beatPlan: undefined,
+    script: undefined,
+    planAudio: undefined,
+    filmMotion: undefined,
+    renderJobId: undefined,
+    brief: { scriptBeats: [{ id: "sb-1", keyword: "Hook", visual: null, onScreen: null, line: "Hello" }] }
+  };
+  assert.equal(
+    effectiveBillingPolicyVersion(legacyScriptBeatsProject, { BILLING_POLICY_VERSION: "v2_step_tier" }),
+    "v1_render_only",
+    "Existing project with drafted scriptBeats is grandfathered on v1_render_only"
   );
   const freshProject = {
     billingPolicyVersion: undefined,
@@ -205,15 +262,96 @@ await migrate();
     renderJobId: undefined
   };
   assert.equal(
-    effectiveBillingPolicyVersion(freshProject, { BILLING_POLICY_VERSION: "v2_step_tier" } as NodeJS.ProcessEnv),
+    effectiveBillingPolicyVersion(freshProject, { BILLING_POLICY_VERSION: "v2_step_tier" }),
     "v2_step_tier",
     "Fresh project uses v2_step_tier when BILLING_POLICY_VERSION=v2_step_tier"
   );
   assert.equal(
-    effectiveBillingPolicyVersion(freshProject, {} as NodeJS.ProcessEnv),
+    effectiveBillingPolicyVersion(freshProject, {}),
     "v1_render_only",
     "Production default remains v1_render_only when BILLING_POLICY_VERSION is unset"
   );
 }
 
+// 4. Project billing overview (v2_step_tier vs v1_render_only, Free vs Paid)
+{
+  const prevEnv = process.env.BILLING_POLICY_VERSION;
+  process.env.BILLING_POLICY_VERSION = "v2_step_tier";
+  const freeOwner = randomUUID();
+  const paidOwner = randomUUID();
+  await query(
+    `insert into app.subscriptions (user_id, provider_ref, variant_id, tier, billing_interval, status, renews_at)
+     values ($1, $2, '102', 'pro', 'month', 'active', now() + interval '30 days')`,
+    [paidOwner, `sub_${paidOwner}`]
+  );
+  const pFree = await createProject(
+    { name: "Free v2 test", request: { prompt: "A launch video for the new dashboard", format: "landscape", style: "kinetic", theme: "neutral", template: "product-launch" } },
+    freeOwner
+  );
+  const pPaid = await createProject(
+    { name: "Paid v2 test", request: { prompt: "A launch video for the new dashboard", format: "landscape", style: "kinetic", theme: "neutral", template: "product-launch" } },
+    paidOwner
+  );
+  try {
+    assert.equal(pFree.billingPolicyVersion, "v2_step_tier");
+    const freeOverview = await buildProjectBillingOverview({
+      userId: freeOwner,
+      project: pFree,
+      tierOverride: "premium",
+      briefOverride: {
+        scriptMode: "problem",
+        text: "A 30s blueprint explainer",
+        durationSeconds: 30,
+        durationMode: "script",
+        aspect: "16:9",
+        motionProfile: "smooth",
+        pace: "balanced",
+        audio: { mode: "both", voice: "Kore" },
+        captions: "key-phrases",
+        template: null,
+        theme: "neutral",
+        look: "illus-blueprint"
+      }
+    });
+    assert.equal(freeOverview.planTier, "free");
+    assert.equal(freeOverview.canUsePremium, false);
+    assert.equal(freeOverview.animationTier, "standard", "Free user requesting premium in overview is clamped to standard");
+    assert.equal(freeOverview.tiers.premium.available, false);
+    assert.equal(freeOverview.tiers.premium.lockedCopy, "Upgrade to access Premium animation.");
+
+    const paidOverview = await buildProjectBillingOverview({
+      userId: paidOwner,
+      project: pPaid,
+      tierOverride: "premium",
+      briefOverride: {
+        scriptMode: "problem",
+        text: "A 30s blueprint explainer",
+        durationSeconds: 30,
+        durationMode: "script",
+        aspect: "16:9",
+        motionProfile: "smooth",
+        pace: "balanced",
+        audio: { mode: "both", voice: "Kore" },
+        captions: "key-phrases",
+        template: null,
+        theme: "neutral",
+        look: "illus-blueprint"
+      }
+    });
+    assert.equal(paidOverview.planTier, "pro");
+    assert.equal(paidOverview.canUsePremium, true);
+    assert.equal(paidOverview.animationTier, "premium");
+    assert.equal(paidOverview.tiers.premium.available, true);
+  } finally {
+    if (prevEnv === undefined) delete process.env.BILLING_POLICY_VERSION;
+    else process.env.BILLING_POLICY_VERSION = prevEnv;
+    await deleteProject(pFree.id).catch(() => undefined);
+    await deleteProject(pPaid.id).catch(() => undefined);
+    await query("delete from app.generation_quotes where user_id = any($1)", [[freeOwner, paidOwner]]);
+    await query("delete from app.subscriptions where user_id = $1", [paidOwner]);
+    await query("delete from app.token_ledger where user_id = any($1)", [[freeOwner, paidOwner]]);
+  }
+}
+
+await pool.end();
 console.log("step-tier-billing: ok");

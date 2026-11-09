@@ -258,7 +258,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
           // Prompt-cache gate: the first scene of a film writes the cache; the others wait only until its stream starts (bounded, never rejects).
           // Per-step routing (MODEL_SCENE_WRITER / MODEL_SCENE_REPAIR) or immutable per-variant tier route snapshot:
           // when a variant carries a frozen routeSnapshot (Standard gemini-3.8-flash vs Premium claude-opus-5-5), use it without reading global process.env.
-          const step = lastError ? "sceneRepair" : "sceneWriter";
+          const step: "sceneRepair" | "sceneWriter" = lastError ? "sceneRepair" : "sceneWriter";
           const routeSnap = row.timings?.routeSnapshot;
           const baseRoute =
             routeSnap && (lastError ? routeSnap.repair : routeSnap.writer)

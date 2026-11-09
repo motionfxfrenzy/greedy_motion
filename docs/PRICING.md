@@ -411,7 +411,7 @@ A refunded subscription invoice is stored but needs a manual decision about its 
 
 ## Versioned per-step generation billing and Standard / Premium animation tiers (`v2_step_tier`, 2026-11-09)
 
-Production continues to run `BILLING_POLICY_VERSION=v1_render_only` (above) by default, and any existing project with prior progress is grandfathered on `v1_render_only`. When `BILLING_POLICY_VERSION=v2_step_tier` is enabled on staging (`packages/contracts/src/pricing.ts`, `backend/src/billing/step-billing.ts`, full derivation in `docs/handoff/GENERATION_QUALITY_STEP_PRICING.md`):
+Legacy projects with existing progress are grandfathered on `v1_render_only` (above) so existing paid promises are preserved and never double-charged. When `BILLING_POLICY_VERSION=v2_step_tier` is enabled (`packages/contracts/src/pricing.ts`, `backend/src/billing/step-billing.ts`, full derivation in `docs/handoff/GENERATION_QUALITY_STEP_PRICING.md`), fresh projects use per-step token billing and plans advertise token grants rather than guaranteed film counts:
 
 - **Animation quality tiers**:
   - **Standard (`standard`, default)**: `gemini-3.8-flash` for animation authoring (`sceneWriter`, `sceneRepair`, `motion`). Available on all plans including Free.

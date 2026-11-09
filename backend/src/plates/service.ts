@@ -7,7 +7,7 @@ import {
   ASPECTS, FPS, defaultSubtitlesFor, isAspect, isComputedVariantSignature, mergeSubtitles, plateRevisionDigest, primaryAspect, type Aspect, type LiveMode, type PlateComment, type PlateScene, type PlateState, type PlateStatus, type SceneProgress, type VariantState, type PlateSubtitles, type PlateVariantView
 } from "./model.ts";
 import { decideLiveMode, editComments, listVariants, matchVariantsToDesired, readProjectState, recentAuthorMedians, reconcileVariants, reviseScene, writeSubtitles, type VariantRow } from "./store.ts";
-import type { AnimationRouteSnapshot } from "../billing/step-billing.ts";
+import { authorRouteForTier, resolveProjectAnimationTier, type AnimationRouteSnapshot } from "../billing/step-billing.ts";
 
 export { isPlateLook };
 const OPEN: VariantState[] = ["queued", "authoring", "bundled", "rendering"];
@@ -432,9 +432,10 @@ export async function startPlates(
   const [stored, existingVariants] = await Promise.all([readProjectState(projectId), listVariants(projectId)]);
   const aspects = [...new Set([...wantedAspects(project, [...(project.brief?.aspects ?? []), ...(stored.subtitles?.aspects ?? []), ...extraAspects])])];
   const desired = await desiredVariants(project, aspects, existingVariants);
+  const routeSnapshot = options?.routeSnapshot ?? authorRouteForTier(resolveProjectAnimationTier(project, project.brief));
   await reconcileVariants(projectId, desired, {
     scenes: beats.length,
-    ...(options?.routeSnapshot ? { routeSnapshot: options.routeSnapshot } : {}),
+    routeSnapshot,
     ...(options?.reservationId ? { reservationId: options.reservationId } : {})
   });
   return plateStatus(projectId);
@@ -479,7 +480,8 @@ export async function fixPlates(
   projectId: string,
   options?: { routeSnapshot?: AnimationRouteSnapshot; reservationId?: string }
 ): Promise<PlateStatus> {
-  await plateProject(projectId);
+  const project = await plateProject(projectId);
+  const routeSnapshot = options?.routeSnapshot ?? authorRouteForTier(resolveProjectAnimationTier(project, project.brief));
   const stored = await readProjectState(projectId);
   const comments = stored.comments as (PlateComment & { fixing?: number })[];
   if (!comments.length) throw new Error("Add a comment first.");
@@ -496,7 +498,7 @@ export async function fixPlates(
     const notes = comments.filter((c) => c.scene === i).map((c) => `- at ${c.sceneAt.toFixed(1)} s: ${c.body}`).join("\n");
     if (
       await reviseScene(projectId, i, notes, {
-        ...(options?.routeSnapshot ? { routeSnapshot: options.routeSnapshot } : {}),
+        routeSnapshot,
         ...(options?.reservationId ? { reservationId: options.reservationId } : {})
       })
     ) {

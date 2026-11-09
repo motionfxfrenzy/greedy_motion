@@ -113,8 +113,14 @@ export function activeBillingPolicyEnv(env: NodeJS.ProcessEnv = process.env): Bi
  *   are grandfathered on `v1_render_only` so existing paid promises are preserved and never double-charged.
  * - Fresh projects follow `activeBillingPolicyEnv()`.
  */
+export type LegacyCheckProject = Pick<
+  VideoProject,
+  "billingPolicyVersion" | "beatPlan" | "script" | "planAudio" | "filmMotion" | "renderJobId"
+> &
+  Partial<Pick<VideoProject, "brief" | "scriptFrames">>;
+
 export function effectiveBillingPolicyVersion(
-  project?: Pick<VideoProject, "billingPolicyVersion" | "beatPlan" | "script" | "planAudio" | "filmMotion" | "renderJobId"> | null,
+  project?: LegacyCheckProject | null,
   env: NodeJS.ProcessEnv = process.env
 ): BillingPolicyVersion {
   if (project?.billingPolicyVersion === "v2_step_tier") return "v2_step_tier";
@@ -126,6 +132,8 @@ export function effectiveBillingPolicyVersion(
         project.script ||
         project.planAudio ||
         (project.filmMotion && project.filmMotion.length > 0) ||
+        (project.brief?.scriptBeats && project.brief.scriptBeats.length > 0) ||
+        (project.scriptFrames && project.scriptFrames.length > 0) ||
         project.renderJobId)
   );
   return hasLegacyProgress ? "v1_render_only" : "v2_step_tier";
@@ -138,7 +146,7 @@ export function effectiveBillingPolicyVersion(
  *   defaults to `on` unless `STEP_BILLING=off`.
  */
 export function stepBillingOnForProject(
-  project?: Pick<VideoProject, "billingPolicyVersion" | "beatPlan" | "script" | "planAudio" | "filmMotion" | "renderJobId"> | null,
+  project?: LegacyCheckProject | null,
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
   if (effectiveBillingPolicyVersion(project, env) !== "v2_step_tier") return false;
@@ -267,7 +275,7 @@ export async function createStepQuote(input: {
   const unitsTotal = Math.max(1, Math.floor(input.unitsTotal ?? input.breakdown.unitsTotal ?? 1));
   const reusedUnits = Math.max(0, Math.floor(input.reusedUnits ?? input.breakdown.reusedUnits ?? 0));
   const revisionDigest = input.revisionDigest ?? "";
-  let quoteId = randomUUID();
+  let quoteId: string = randomUUID();
 
   if (input.persist !== false) {
     const res = await query<{ id: string }>(
@@ -681,6 +689,75 @@ export async function settlePartialStepReservation(
               updated_at = now()
         where id = $1`,
       [row.id, settledMilli, totalRefunded, clampedDelivered]
+    );
+    return { settledMilli, refundedMilli: totalRefunded };
+  });
+}
+
+/**
+ * Settles a `voice_music` reservation with separate accounting for delivered voice lines (`perUnitMilli`)
+ * and the music bed (`setupMilli` / `parts.musicMilli`), so a failed music track refunds its full 1.0/1.9 token fee
+ * and failed voice lines refund 0.1 token each.
+ */
+export async function settleVoiceMusicReservation(
+  reservationId: string | null | undefined,
+  voiceDelivered: number,
+  musicDelivered: boolean,
+  partKey = "voice-music-final"
+): Promise<{ settledMilli: number; refundedMilli: number }> {
+  if (!reservationId) return { settledMilli: 0, refundedMilli: 0 };
+  const clampedVoice = Math.max(0, Math.floor(voiceDelivered));
+  if (clampedVoice === 0 && !musicDelivered) {
+    await releaseStepReservation(reservationId);
+    const { rows } = await query<{ refunded_milli: number }>(
+      "select refunded_milli from app.generation_reservations where id = $1",
+      [reservationId]
+    );
+    return { settledMilli: 0, refundedMilli: rows[0]?.refunded_milli ?? 0 };
+  }
+
+  return withTransaction(async () => {
+    const { rows } = await query<{
+      id: string;
+      user_id: string;
+      reserved_milli: number;
+      settled_milli: number;
+      refunded_milli: number;
+      units_total: number;
+      status: string;
+      spend_event: string | null;
+      breakdown: StepQuoteBreakdown | null;
+    }>("select * from app.generation_reservations where id = $1 for update", [reservationId]);
+    const row = rows[0];
+    if (!row || row.status === "settled" || row.status === "refunded") {
+      return { settledMilli: row?.settled_milli ?? 0, refundedMilli: row?.refunded_milli ?? 0 };
+    }
+    const perVoice = typeof row.breakdown?.perUnitMilli === "number" ? row.breakdown.perUnitMilli : 100;
+    const maxVoiceMilli = typeof row.breakdown?.parts?.voiceMilli === "number" ? row.breakdown.parts.voiceMilli : row.reserved_milli;
+    const musicMilli = typeof row.breakdown?.parts?.musicMilli === "number" ? row.breakdown.parts.musicMilli : (row.breakdown?.setupMilli ?? 0);
+    const deliveredMilli = Math.min(
+      row.reserved_milli,
+      Math.min(maxVoiceMilli, clampedVoice * perVoice) + (musicDelivered ? musicMilli : 0)
+    );
+    const desiredTotalRefund = Math.max(0, row.reserved_milli - deliveredMilli);
+    const additionalRefund = Math.max(0, desiredTotalRefund - row.refunded_milli);
+
+    if (additionalRefund > 0 && row.spend_event) {
+      await refundPartialSpend(row.user_id, row.spend_event, additionalRefund, partKey);
+    }
+
+    const totalRefunded = row.refunded_milli + additionalRefund;
+    const settledMilli = Math.max(0, row.reserved_milli - totalRefunded);
+    const unitsDelivered = Math.min(row.units_total, clampedVoice + (musicDelivered && musicMilli > 0 ? 1 : 0));
+    await query(
+      `update app.generation_reservations
+          set status = case when $3 >= reserved_milli then 'refunded' when $3 > 0 then 'partial_refunded' else 'settled' end,
+              settled_milli = $2,
+              refunded_milli = $3,
+              units_delivered = $4,
+              updated_at = now()
+        where id = $1`,
+      [row.id, settledMilli, totalRefunded, unitsDelivered]
     );
     return { settledMilli, refundedMilli: totalRefunded };
   });
@@ -1155,6 +1232,7 @@ export async function quoteAnimationStep(input: {
   StepQuoteView & {
     framesQuote: StepQuoteView & { uncachedIndices: number[] };
     audioQuote: StepQuoteView & { uncachedVoiceIndices: number[]; needsMusic: boolean };
+    animationCodeQuote: StepQuoteView;
     scenesToAuthor: number;
     scenesReused: number;
     isPlate: boolean;
@@ -1253,6 +1331,31 @@ export async function quoteAnimationStep(input: {
     animSigParts
   );
 
+  const animationCodeStage: BillableStage = isPlate ? "plate_draw" : "animation";
+  const animationCodeQuote = await createStepQuote({
+    userId: input.userId,
+    projectId: input.project.id,
+    stage: animationCodeStage,
+    pricingVersion,
+    animationTier,
+    workFingerprint: sha256Short(animationCodeStage, pricingVersion, animationTier, animSigParts),
+    milli: pricingVersion === "v2_step_tier" ? animCodeMilli : 0,
+    unitsTotal: Math.max(1, scenesToAuthor),
+    reusedUnits: scenesReused,
+    breakdown: {
+      stage: animationCodeStage,
+      pricingVersion,
+      animationTier,
+      model: spec.model,
+      unitsTotal: scenesToAuthor,
+      reusedUnits: scenesReused,
+      setupMilli,
+      perUnitMilli: perSceneMilli
+    },
+    persist: false,
+    now
+  });
+
   const quote = await createStepQuote({
     userId: input.userId,
     projectId: input.project.id,
@@ -1288,6 +1391,7 @@ export async function quoteAnimationStep(input: {
     ...quote,
     framesQuote,
     audioQuote,
+    animationCodeQuote,
     scenesToAuthor,
     scenesReused,
     isPlate,
@@ -1508,7 +1612,7 @@ export async function quoteRenderExportStep(input: {
   const alreadyPaidMilli = await projectPaidStepMillitokens(input.project.id, input.userId);
   const exportMilli = seconds === null ? null : renderExportCostMillitokensV2(seconds, now);
 
-  // Check if any plate scenes or pending comments would still be authored during prepareFilm at Render
+  // Check if any plate scenes or pending comments (or uncached non-plate frame-motion scenes) would still be authored at Render
   let remainingGenerationMilli = 0;
   if (input.project.brief && isPlateLook(input.project.brief.look) && (input.project.brief.scriptBeats?.length ?? 0) > 0) {
     const [drawQ, fixQ] = await Promise.all([
@@ -1516,6 +1620,17 @@ export async function quoteRenderExportStep(input: {
       quotePlateFixStep({ userId: input.userId, project: input.project, tier: animationTier, persist: false, now })
     ]);
     remainingGenerationMilli = drawQ.milli + fixQ.milli;
+  } else {
+    const timing = projectTiming(input.project);
+    const frames = timing ? filmFrames(input.project, timing) : null;
+    if (timing && frames) {
+      const scenes = filmScenes(input.project, timing, frames);
+      const cached = new Map((input.project.filmMotion ?? []).map((e) => [e.signature, e]));
+      const uncached = scenes.filter((s) => !cached.has(motionSignature(s)));
+      if (uncached.length > 0) {
+        remainingGenerationMilli = frameMotionCostMillitokensV2(uncached.length, animationTier, now);
+      }
+    }
   }
 
   const totalRenderMilli = exportMilli === null ? null : exportMilli + remainingGenerationMilli;

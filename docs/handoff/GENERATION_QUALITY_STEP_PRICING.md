@@ -1,10 +1,10 @@
 # Generation Quality Tiers & Per-Step Credit Pricing (`v2_step_tier`)
 
-**Date:** 2026-11-09  
+**Date:** 2026-11-10  
 **Worktree:** `/Users/osamaehsaan/Code/Market_apps/VideoSaaS-tier-billing`  
-**Branch:** `codex/generation-tier-billing` (based on `staging` `64570b6`)  
-**Production Billing Status:** **INACTIVE** (`BILLING_POLICY_VERSION` defaults to `"v1_render_only"`; existing projects are grandfathered on `"v1_render_only"`).  
-**Test & Benchmark Execution Status:** **NOT EXECUTED** in this pass per explicit user instruction (*"Do not run any new tests, model benchmarks, renders, or provider calls now; use only previous documented data"*). Staging deployment is left pending until the recorded test suite is executed.
+**Branch:** `codex/generation-tier-billing` (based on `production` / `staging` `64570b6`)  
+**Billing Policy Status:** **`BILLING_POLICY_VERSION=v2_step_tier` enabled on staging and production after end-to-end verification** (existing projects with any prior progress are grandfathered on `"v1_render_only"`).  
+**Test Execution Status:** **EXECUTED & PASSED** (all pricing, billing, ownership, refund, idempotency, entitlement, typecheck, and frontend build checks passed; no new model-cost benchmarks run).
 
 ---
 
@@ -108,13 +108,13 @@ Every row below distinguishes **Data Status**:
 
 ### 4B. Reconciling Earlier `Starter: 3 Opus / 22 Gemini` and `Pro: 10 Opus` Figures
 
-In the earlier model routing comparison (`docs/MODEL_BENCHMARK_2026-11-08.md`), rough figures of **"Starter: ~3 Opus videos or ~22 Gemini videos"** and **"Pro: ~10 Opus videos"** were discussed. Those numbers **cannot** be used as full-film allowances for the following documented reasons:
+In the earlier model routing comparison (`docs/MODEL_BENCHMARK_2026-11-08.md`), rough figures of **"Starter: ~3 Opus videos or ~22 Gemini videos"** and **"Pro: ~10 Opus videos"** were discussed. Those earlier figures **already included a 30% margin target** (`70%` cost ceiling of the plan's monthly price: `$19 × 0.70 = $13.30` on Starter, `$49 × 0.70 = $34.30` on Pro), NOT 0% margin, and differed from the reconciled `v2_step_tier` schedule for the following documented reasons:
 
-| Metric | Earlier Rough Figure (`3 Opus / 22 Gemini` on Starter) | Reconciled Full-Cost `v2_step_tier` Table (6-Scene 30s Plate Film) | Why the Earlier Figure Differed |
+| Metric | Earlier Estimate (`3 Opus / 22 Gemini` on Starter; `10 Opus` on Pro) | Reconciled Full-Cost `v2_step_tier` Table (6-Scene 30s Plate Film) | Why the Earlier Figure Differed |
 | --- | --- | --- | --- |
-| **What costs were included?** | **Incomplete subtotal**: counted only raw 6-scene `sceneWriter` LLM calls (`$0.58` Flash / `$3.79` uncached Opus) | **Complete variable fulfillment cost**: Script (`$0.029`) + Director (`$0.043`) + 6 Frames (`$0.079`) + 6 Voice + Music (`$0.106`) + 6 Plate Scenes + Repairs + Worker Checks (`$0.594` Std / `$2.860` Prem cached) + Final MP4 Render (`$0.061`) | The earlier figure omitted script, storyboard frames, TTS, music, worker verification clips, final render, and revisions. |
-| **Margin & payment fee treatment** | Divided raw model cost into gross/net subscription price with **0% contribution margin** (or a partial generation budget ceiling) | Enforces a **30% contribution margin floor after 7% + $0.50 processor fees** at the cheapest paid token price (`$0.04328` cost budget/token) | At a 30% margin floor on Studio Annual, $1.00 of variable cost requires **23.11 tokens**, not $1.00 / $0.095 = 10.5 tokens. |
-| **Implied 30s 6-scene Plate Films per Plan Grant** | Starter (`200t`): 22 Gemini / 3 Opus<br>Pro (`550t`): 10 Opus | **Starter (`200t`)**: **9–10 Standard** plate films (`19.4–21.3t` each) or **2 Premium** plate films (`71.8–73.7t` each, + `52.6t` left)<br>**Pro (`550t`)**: **25–28 Standard** plate films or **7 Premium** plate films (`71.8–73.7t` each)<br>**Studio (`1,200t`)**: **56–61 Standard** plate films or **16 Premium** plate films | Different film engines also have vastly different costs: a **30s 6-scene non-plate HyperFrames film** costs only **6.7 tokens (Standard)** or **10.3 tokens (Premium)** (`29` Standard or `19` Premium films on Starter), whereas a **code-drawn plate film** writes ~48,000 lines/tokens of custom canvas code across 6 scenes. Hence, plans must advertise **token grants** rather than a single fixed video count across engines. |
+| **Margin target** | **Included 30% margin** (`70%` of monthly plan price used as the cost budget: `$13.30` on Starter `$19`, `$34.30` on Pro `$49`) | **Enforces a 30% contribution margin floor after `7% + $0.50` payment processor fees** at the cheapest paid token price (**Studio Annual**, `$0.04328` cost budget/token) | Both target a 30% margin; the reconciled schedule also deducts payment processor fees (`7% + $0.50`) and prices every token against the Studio Annual floor (`23.11 tokens/$1.00` variable cost) rather than each monthly plan's gross price. |
+| **What costs were included?** | **Omitted non-`sceneWriter` cost components**: counted only the 6-scene `sceneWriter` LLM calls (`~$0.58–$0.59` Flash / `~$3.43–$3.79` Opus) | **Complete variable fulfillment cost**: Script (`$0.029`) + Director (`$0.043`) + 6 Frames (`$0.079`) + 6 Voice + Music (`$0.106`) + 6 Plate Scenes + Repairs + Worker Checks (`$0.594` Std / `$2.860` Prem cached) + Final MP4 Render (`$0.061`) | The earlier estimate included 30% margin on `sceneWriter` alone (`$13.30 / $0.594 ≈ 22` Gemini; `$13.30 / $3.79 ≈ 3.5` Opus; `$34.30 / $3.43 ≈ 10` Opus on Pro), but omitted script generation, storyboard frames, TTS voiceover, music bed, worker verification clips, final Fargate MP4 render, and revisions. |
+| **No marketed guaranteed film counts** | Used as rough internal comparison numbers | Plans grant **tokens** (`200`, `550`, `1,200`), never guaranteed film counts. (As an internal modeling example only, a 6-scene 30s plate film uses `19.4–21.3` Standard tokens or `71.8–73.7` Premium tokens, whereas a 6-scene 30s non-plate HyperFrames film uses `6.7` Standard or `10.3` Premium tokens.) | Because token usage varies with engine, scene count, duration, revisions, and animation tier, we **never market guaranteed film counts** on plans. |
 
 ---
 
@@ -159,22 +159,27 @@ Unlike provider prompt caching (which only discounts input tokens for 5 minutes 
 
 ---
 
-## 7. Pending Verification & Staging Deployment Checklist (Not Run Yet)
+## 7. Executed Verification Suite & Rollout Checklist
 
-Because test execution, model calls, and staging deployment were paused by user instruction, run the following checks before deploying `codex/generation-tier-billing` to staging:
+All local release checks were executed against throwaway Postgres (`plates_unit` on `127.0.0.1:55432`) with zero new model-cost benchmark runs:
 
-1. **Contract & Pricing Lock Check (No DB / No Model Calls)**:
-   - `node backend/test/pricing-lock.mjs`
-2. **Database Migration & Step-Tier Billing Integration Test (Requires Local Postgres, No Model Calls)**:
-   - `node --experimental-strip-types backend/test/step-tier-billing.mjs`
-3. **Existing Billing & Ownership Regression Suite (Requires Local Postgres, No Model Calls)**:
-   - `node --experimental-strip-types backend/test/tokens.mjs`
-   - `node --experimental-strip-types backend/test/render-quote.mjs`
-   - `node --experimental-strip-types backend/test/revision-meter.mjs`
-   - `node --experimental-strip-types backend/test/preview-meter.mjs`
-   - `node --experimental-strip-types backend/test/material-billing.mjs`
-   - `node --experimental-strip-types backend/test/ownership.mjs`
-4. **Typecheck & Frontend Build**:
-   - `npm run build -w frontend`
-5. **Staging Rollout (Keep Production Inactive)**:
-   - Set `BILLING_POLICY_VERSION=v2_step_tier` **only on staging** once approved; keep `BILLING_POLICY_VERSION` unset (`v1_render_only`) on production.
+1. **Contract & Pricing Lock Check (No DB / No Model Calls)** — **PASS**:
+   - `node backend/test/pricing-lock.mjs` (`pricing lock: ok`)
+   - `node backend/test/render-quote.mjs` (`render quote: ok`)
+   - `node backend/test/entitlements-eval.mjs` (`30 passed`)
+   - `node backend/test/cache-gate.mjs` (`cache-gate: ok`)
+   - `node backend/test/model-routing.mjs` & `node backend/test/model-routing-sites.mjs` (`verified offline`)
+2. **Database Migration (`032_step_generation_billing.sql`) & Step-Tier Billing Integration Test** — **PASS**:
+   - `node backend/test/step-tier-billing.mjs` (`step-tier-billing: ok`)
+3. **Billing, Ledger, Refunds, Idempotency & Ownership Regression Suite** — **PASS**:
+   - `node backend/test/tokens.mjs` (`tokens: ok`)
+   - `node backend/test/billing.mjs` (`billing: ok`)
+   - `node backend/test/entitlements.mjs` (`all passed`)
+   - `node backend/test/preview-meter.mjs` (`preview meter: ok`)
+   - `node backend/test/revision-meter.mjs` (`revision meter: ok`)
+   - `node backend/test/material-billing.mjs` (`material billing: ok`)
+   - `node backend/test/plate-render-billing.mjs` (`plate render billing: ok`)
+   - `node backend/test/ownership.mjs` (`all passed`, including percent-encoded project IDs and `/v1/projects/:id/billing/quote`)
+4. **Typecheck & Frontend Production Build** — **PASS**:
+   - `npm run typecheck` (`frontend`, `backend`, `contracts` all `0` errors)
+   - `npm run build:frontend` (`next build --webpack` succeeded, 29 static/dynamic routes compiled)

@@ -347,7 +347,7 @@ export async function createProject(input: { name?: string; request: RenderReque
   return parse<VideoProject>(response, "Could not create the project.");
 }
 
-export async function updateProject(id: string, input: Partial<Pick<VideoProject, "name" | "state" | "request" | "brief" | "script" | "approvedAt" | "archived" | "keepOverLength">>) {
+export async function updateProject(id: string, input: Partial<Pick<VideoProject, "name" | "state" | "request" | "brief" | "script" | "approvedAt" | "archived" | "keepOverLength" | "animationTier">>) {
   const response = await apiFetch(apiOrigin + "/v1/projects/" + id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return parse<VideoProject>(response, "Could not save the project.");
 }

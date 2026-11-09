@@ -37,12 +37,16 @@ import { registerEntitlementRoutes } from "./entitlements/routes.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerBillingRoutes } from "./billing/routes.ts";
 import {
+  PremiumRequiresSubscriptionError,
   QuoteStaleError,
+  assertAnimationTierEntitled,
   quoteRenderExportStep,
+  quoteScriptStep,
   reconcileExpiredStepReservations,
   registerStepBillingRoutes,
   releaseStepReservation,
   reserveStepTokens,
+  resolveProjectAnimationTier,
   settleStepReservation,
   stepBillingOnForProject
 } from "./billing/step-billing.ts";
@@ -205,10 +209,23 @@ app.get("/v1/projects", async (request) => ({ projects: await listProjects(calle
 
 app.post("/v1/projects", async (request, reply) => {
   try {
-    const requested = (request.body as { request?: { prompt?: unknown } } | undefined)?.request?.prompt;
-    if (typeof requested === "string" && !(await ensurePromptAllowed(reply, [requested], `user_${callerId(request)}:project_create`))) return;
-    return reply.code(201).send(await createProject(request.body as { name?: unknown; request?: unknown }, callerId(request)));
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const requested = (body as { request?: { prompt?: unknown } })?.request?.prompt;
+    const userId = callerId(request);
+    if (typeof requested === "string" && !(await ensurePromptAllowed(reply, [requested], `user_${userId}:project_create`))) return;
+    if (body.animationTier === "premium") {
+      await assertAnimationTierEntitled(userId, "premium");
+    }
+    return reply.code(201).send(
+      await createProject(
+        { name: body.name, request: body.request, ...(body.animationTier !== undefined ? { animationTier: body.animationTier } : {}) },
+        userId
+      )
+    );
   } catch (error) {
+    if (error instanceof PremiumRequiresSubscriptionError) {
+      return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+    }
     return projectError(request, reply, error);
   }
 });
@@ -233,9 +250,21 @@ app.get<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) =
 
 app.put<{ Params: { id: string } }>("/v1/projects/:id", async (request, reply) => {
   try {
-    const project = await updateProject(request.params.id, request.body as Record<string, unknown>);
+    const rawBody = (request.body ?? {}) as Record<string, unknown>;
+    const { billingPolicyVersion: _ignoredPolicy, ...safeBody } = rawBody;
+    const requestedBriefTier =
+      safeBody.brief && typeof safeBody.brief === "object"
+        ? (safeBody.brief as { animationTier?: unknown }).animationTier
+        : undefined;
+    if (safeBody.animationTier === "premium" || requestedBriefTier === "premium") {
+      await assertAnimationTierEntitled(callerId(request), "premium");
+    }
+    const project = await updateProject(request.params.id, safeBody);
     return project ?? reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
   } catch (error) {
+    if (error instanceof PremiumRequiresSubscriptionError) {
+      return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+    }
     return projectError(request, reply, error);
   }
 });
@@ -261,13 +290,38 @@ app.patch<{ Params: { id: string } }>("/v1/projects/:id/studio", async (request,
 });
 
 app.post<{ Params: { id: string } }>("/v1/projects/:id/script", async (request, reply) => {
+  let scriptResId: string | null = null;
   try {
     const project = await getProject(request.params.id);
     if (!project) return reply.code(404).send({ error: { code: "not_found", message: "Project not found." } });
+    const userId = callerId(request);
+    if (stepBillingOnForProject(project)) {
+      const fallbackBrief = project.brief ?? {
+        scriptMode: "problem" as const,
+        text: project.request.prompt || "Product explainer video",
+        durationSeconds: 30,
+        durationMode: "script" as const,
+        aspect: "16:9" as const,
+        motionProfile: "smooth" as const,
+        pace: "balanced" as const,
+        audio: { mode: "voiceover" as const, voice: "Kore" as const },
+        captions: "key-phrases" as const,
+        template: null,
+        theme: "neutral" as const
+      };
+      const quote = await quoteScriptStep({ userId, project, brief: fallbackBrief, persist: false });
+      const reservation = await reserveStepTokens({ userId, projectId: project.id, quote, ledgerReason: "script" });
+      if (reservation.reservedMilli > 0) scriptResId = reservation.id;
+    }
     const lines = await renderService.draftScript(project.request);
     const updated = await updateProject(project.id, { script: { source: "generated", lines, confirmed: false } });
+    if (scriptResId) await settleStepReservation(scriptResId).catch(() => undefined);
     return reply.code(201).send(updated);
   } catch (error) {
+    if (scriptResId) await releaseStepReservation(scriptResId).catch(() => undefined);
+    if (error instanceof InsufficientTokens) {
+      return reply.code(402).send({ error: { code: "insufficient_tokens", message: `Writing this script needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
+    }
     return projectError(request, reply, error);
   }
 });
@@ -303,6 +357,9 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown; quoteId?: strin
         if (stepBillingOnForProject(project)) {
           try {
             const renderStep = await quoteRenderExportStep({ userId: owner, project, persist: false });
+            if (renderStep.remainingGenerationMilli > 0 && resolveProjectAnimationTier(project, project.brief) === "premium") {
+              await assertAnimationTierEntitled(owner, "premium");
+            }
             if (renderStep.quote) {
               const reservation = await reserveStepTokens({
                 userId: owner,
@@ -315,6 +372,9 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown; quoteId?: strin
               spend = { charged: Boolean(reservation.spendEvent), event: reservation.spendEvent };
             }
           } catch (error) {
+            if (error instanceof PremiumRequiresSubscriptionError) {
+              return reply.code(402).send({ error: { code: error.code, message: error.message, tier: error.tier } });
+            }
             if (error instanceof QuoteStaleError) {
               return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
             }
@@ -654,8 +714,9 @@ const renderReadyEmails = startRenderReadyEmails();
 startWorkerSweep();
 await startPlatePipeline();
 startSweep(async () => {
-  await grantDueAnnualTokens();
-  await reconcileExpiredStepReservations();
+  const granted = await grantDueAnnualTokens();
+  const reconciled = await reconcileExpiredStepReservations();
+  return granted + reconciled;
 }, 60_000, 300_000);
 await app.listen({ port: config.port, host: config.host });
 app.log.info({ ...config.environmentSummary, planner: config.planner, modelRoutes: Object.fromEntries(Object.entries(allRoutes()).map(([step, route]) => [step, `${route.provider}:${route.model}`])), planConcurrency: config.planConcurrency }, "backend ready");

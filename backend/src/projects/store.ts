@@ -145,14 +145,18 @@ export async function getProject(id: string) {
   return project;
 }
 
-export async function createProject(input: { name?: unknown; request?: unknown; animationTier?: unknown; billingPolicyVersion?: unknown }, ownerId: string) {
+export async function createProject(
+  input: { name?: unknown; request?: unknown; animationTier?: unknown },
+  ownerId: string,
+  options?: { billingPolicyVersion?: BillingPolicyVersion }
+) {
   const request = parseRenderRequest(input.request);
   if (!request) throw new ProjectInvalid("Choose a template, format, and motion style before creating the project.");
   const name = typeof input.name === "string" ? input.name.trim().replace(/\s+/g, " ").slice(0, 80) : "";
   const now = new Date().toISOString();
   const activePolicy: BillingPolicyVersion =
-    isBillingPolicyVersion(input.billingPolicyVersion)
-      ? input.billingPolicyVersion
+    options?.billingPolicyVersion && isBillingPolicyVersion(options.billingPolicyVersion)
+      ? options.billingPolicyVersion
       : process.env.BILLING_POLICY_VERSION === "v2_step_tier"
         ? "v2_step_tier"
         : "v1_render_only";
