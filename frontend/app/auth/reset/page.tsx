@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { validateEmailAddress } from "@videosaas/contracts";
 import { createClient } from "../../../utils/supabase/client";
 import { PasswordRules } from "../../../components/password-rules";
 import { PasswordInput } from "../../../components/password-input";
@@ -17,8 +18,16 @@ export default function ResetPassword() {
   const [session, setSession] = useState<"checking" | "ready" | "missing">("checking");
 
   useEffect(() => {
-    void createClient().auth.getSession().then(({ data }) => setSession(data.session ? "ready" : "missing"));
-  }, []);
+    void createClient().auth.getSession().then(async ({ data }) => {
+      if (!data.session) return setSession("missing");
+      if (data.session.user?.email && !validateEmailAddress(data.session.user.email).ok) {
+        await createClient().auth.signOut().catch(() => undefined);
+        router.replace("/auth?error=invalid_email");
+        return;
+      }
+      setSession("ready");
+    });
+  }, [router]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

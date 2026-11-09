@@ -21,6 +21,16 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
   }
   if ([502, 503, 504].includes(response.status)) throw new Error("The service is temporarily unavailable. Please try again shortly.");
   if (response.status === 401 && typeof window !== "undefined") window.location.href = "/auth?next=" + encodeURIComponent(window.location.pathname);
+  if (response.status === 403 && typeof window !== "undefined") {
+    const cloned = response.clone();
+    void cloned.json().then((body: ApiError) => {
+      if (body?.error?.code === "invalid_email") {
+        void createClient().auth.signOut().finally(() => {
+          window.location.href = "/auth?error=invalid_email";
+        });
+      }
+    }).catch(() => undefined);
+  }
   return response;
 }
 

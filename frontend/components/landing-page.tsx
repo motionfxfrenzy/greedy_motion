@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { validateEmailAddress } from "@videosaas/contracts";
 import { appHref } from "../lib/hosts";
 import { ThemeToggle } from "./theme-toggle";
 import { PublicLinks } from "./public-links";
@@ -74,10 +75,12 @@ function useSignedIn() {
   useEffect(() => {
     let alive = true;
     let unsubscribe = () => {};
+    const validSession = (session: { user?: { email?: string | null } } | null | undefined) =>
+      Boolean(session && (!session.user?.email || validateEmailAddress(session.user.email).ok));
     try {
       const supabase = createClient();
-      supabase.auth.getSession().then(({ data }) => { if (alive) setSignedIn(Boolean(data.session)); }).catch(() => { if (alive) setSignedIn(false); });
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => { if (alive) setSignedIn(Boolean(session)); });
+      supabase.auth.getSession().then(({ data }) => { if (alive) setSignedIn(validSession(data.session)); }).catch(() => { if (alive) setSignedIn(false); });
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => { if (alive) setSignedIn(validSession(session)); });
       unsubscribe = () => data.subscription.unsubscribe();
     } catch { setSignedIn(false); }
     return () => { alive = false; unsubscribe(); };

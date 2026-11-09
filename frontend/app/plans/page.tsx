@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies, headers } from "next/headers";
+import { validateEmailAddress } from "@videosaas/contracts";
 import { PaddlePricing } from "../../components/paddle-pricing";
 import { PublicLinks } from "../../components/public-links";
 import { SiteNav } from "../../components/site-nav";
@@ -19,8 +20,10 @@ export default async function Plans() {
   let userId: string | undefined;
   try {
     const { data } = await createClient(await cookies()).auth.getUser();
-    email = data.user?.email ?? undefined;
-    userId = data.user?.id;
+    if (data.user && (!data.user.email || validateEmailAddress(data.user.email).ok)) {
+      email = data.user.email ?? undefined;
+      userId = data.user.id;
+    }
   } catch {
     // Signed out, or Supabase not configured here: checkout simply asks for the email.
   }

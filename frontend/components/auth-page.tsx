@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { validateEmailAddress } from "@videosaas/contracts";
 import { PasswordInput } from "./password-input";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -33,6 +34,7 @@ export function AuthPage() {
   const [busy, setBusy] = useState(false);
   const [authError, setAuthError] = useState(
     searchParams.get("error") === "reset" ? "That reset link expired, or was opened in a different browser from the one you asked in. Choose Forgot password to get a new one."
+      : searchParams.get("error") === "invalid_email" ? "Email addresses with '+' or more than 2 dots before '@' are not supported."
       : searchParams.get("error") ? "Sign-in failed. Please try again." : ""
   );
   const [sceneIdx, setSceneIdx] = useState(0);
@@ -50,8 +52,10 @@ export function AuthPage() {
     return () => clearInterval(timer);
   }, []);
 
-  const isValidEmail = /.+@.+\..+/.test(email);
+  const emailCheck = validateEmailAddress(email);
+  const isValidEmail = emailCheck.ok;
   const emailError = tried && !isValidEmail;
+  const emailErrorMessage = emailCheck.ok ? "" : emailCheck.message;
   // Creating an account must meet the project's password rules; signing in only needs the password to be plausible.
   const weakPassword = mode === "signup" ? passwordProblem(password) !== null : password.length < MIN_PASSWORD_LENGTH;
   const passwordError = tried && weakPassword;
@@ -61,13 +65,14 @@ export function AuthPage() {
     if (busy) return;
     setTried(true);
     setAuthError("");
-    if (!isValidEmail || weakPassword) return;
+    if (!emailCheck.ok || weakPassword) return;
+    const trimmedEmail = emailCheck.email;
     setBusy(true);
     try {
       const supabase = createClient();
       if (mode === "signup") {
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: trimmedEmail,
           password,
           options: { data: { full_name: name }, emailRedirectTo: callbackUrl() }
         });
@@ -81,7 +86,7 @@ export function AuthPage() {
         }
         setSent(true);
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password });
         // On success the button keeps its spinner until the workspace replaces this page.
         if (error) {
           setBusy(false);
@@ -113,10 +118,10 @@ export function AuthPage() {
     if (busy) return;
     setTried(true);
     setAuthError("");
-    if (!isValidEmail) return;
+    if (!emailCheck.ok) return;
     setBusy(true);
     try {
-      const { error } = await createClient().auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
+      const { error } = await createClient().auth.resetPasswordForEmail(emailCheck.email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
       if (error) throw error;
       setForgot(false);
       setSent(true);
@@ -129,13 +134,14 @@ export function AuthPage() {
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
+    if (!emailCheck.ok) return setAuthError(emailCheck.message);
     const token = code.replace(/\s/g, "");
     if (!/^\d{6,10}$/.test(token)) return setAuthError("Enter the code from the email.");
     setBusy(true);
     setAuthError("");
     try {
       const signup = mode === "signup";
-      const { error } = await createClient().auth.verifyOtp({ email, token, type: signup ? "signup" : "recovery" });
+      const { error } = await createClient().auth.verifyOtp({ email: emailCheck.email, token, type: signup ? "signup" : "recovery" });
       if (error) throw error;
       if (signup) void sendWelcomeEmail();
       router.replace(signup ? next : "/auth/reset");
@@ -296,7 +302,8 @@ export function AuthPage() {
                   <h2 style={{ margin: 0, fontWeight: 600, fontSize: "20px", letterSpacing: "-0.02em" }}>Reset your password</h2>
                   <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.5, color: "var(--d-tx-535862)" }}>Enter your email and we’ll send you a reset link and a code.</p>
                   <label htmlFor="reset-email" style={{ fontSize: "14px", fontWeight: 500, marginBottom: -8 }}>Email address</label>
-                  <input style={{ padding: "13px 16px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: 16, background: "var(--d-bg-ffffff)", color: "var(--d-tx-0a0d12)", fontSize: 15 }} id="reset-email" type="email" autoComplete="email" autoFocus required value={email} onChange={(event) => setEmail(event.target.value)} />
+                  <input style={{ padding: "13px 16px", border: emailError ? "1px solid #C2410C" : "1px solid var(--d-bd-d6e4f2)", borderRadius: 16, background: "var(--d-bg-ffffff)", color: "var(--d-tx-0a0d12)", fontSize: 15 }} id="reset-email" type="email" autoComplete="email" autoFocus required value={email} onChange={(event) => setEmail(event.target.value)} />
+                  {emailError && <span role="alert" style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>{emailErrorMessage}</span>}
                   {authError && <span role="alert" style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>{authError}</span>}
                   <button className="primary-button" type="submit" disabled={busy} aria-busy={busy}>{busy ? "Sending…" : "Send reset email"}</button>
                   <button type="button" disabled={busy} onClick={() => { setForgot(false); setTried(false); setAuthError(""); }} style={{ alignSelf: "center", border: 0, background: "transparent", padding: "4px 0", color: "var(--d-tx-535862)", fontSize: "14px", cursor: "pointer", textDecoration: "underline" }}>Back to sign in</button>
@@ -315,7 +322,7 @@ export function AuthPage() {
                 >
                   <strong style={{ fontSize: "18px", fontWeight: 600 }}>Check your inbox</strong>
                   <span style={{ fontSize: "15px", color: "var(--d-tx-535862)", lineHeight: 1.5 }}>
-                    We sent {isSignup ? "a confirmation email" : "a reset email"} to <strong>{email}</strong>. Open the link in it, or enter the code below. Both expire in {EMAIL_CODE_MINUTES} minutes.
+                    We sent {isSignup ? "a confirmation email" : "a reset email"} to <strong>{emailCheck.ok ? emailCheck.email : email.trim()}</strong>. Open the link in it, or enter the code below. Both expire in {EMAIL_CODE_MINUTES} minutes.
                   </span>
                   <form onSubmit={(e) => void handleVerify(e)} style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                     <input
@@ -443,8 +450,8 @@ export function AuthPage() {
                     </label>
 
                     {emailError && (
-                      <span style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>
-                        Enter a valid email address.
+                      <span role="alert" style={{ fontSize: "13px", color: "var(--d-tx-c2410c)" }}>
+                        {emailErrorMessage}
                       </span>
                     )}
 

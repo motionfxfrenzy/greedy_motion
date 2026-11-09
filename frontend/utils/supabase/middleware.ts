@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { validateEmailAddress } from "@videosaas/contracts";
 import { COOKIE_DOMAIN } from "../../lib/hosts";
 import { type NextRequest, NextResponse } from "next/server";
 
@@ -25,5 +26,10 @@ export const updateSession = async (request: NextRequest) => {
 
   // getClaims validates the JWT signature; don't trust getSession() on the server.
   const { data } = await supabase.auth.getClaims();
-  return { response, signedIn: Boolean(data?.claims) };
+  const claims = data?.claims;
+  if (claims && typeof claims.email === "string" && !validateEmailAddress(claims.email).ok) {
+    await supabase.auth.signOut().catch(() => undefined);
+    return { response, signedIn: false, emailRejected: true };
+  }
+  return { response, signedIn: Boolean(claims), emailRejected: false };
 };

@@ -27,14 +27,16 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   // Landing and policy pages are in the matcher only so the host split can see them; they never wait for an auth round trip.
   if (MARKETING_PATH.test(pathname) || pathname === "/") return NextResponse.next();
-  const { response, signedIn } = await updateSession(request);
+  const { response, signedIn, emailRejected } = await updateSession(request);
 
   // /editor/<project id> needs a session. The demo (fixtures, no backend) and the editor's own files (frame.html, gsap.min.js) are public.
   const guarded = pathname === "/studio" || pathname.startsWith("/studio/") || pathname === "/app" || pathname.startsWith("/app/") || ["/templates", "/brand-kits", "/library", "/profile"].includes(pathname) || /^\/editor\/(?!demo$)[^/.]+$/.test(pathname);
   if (guarded && !signedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
-    url.search = `?next=${encodeURIComponent(pathname)}`;
+    url.search = emailRejected
+      ? `?error=invalid_email&next=${encodeURIComponent(pathname)}`
+      : `?next=${encodeURIComponent(pathname)}`;
     const redirect = NextResponse.redirect(url);
     response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
     redirect.headers.set("Cache-Control", "private, no-store");

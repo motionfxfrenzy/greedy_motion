@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "../utils/supabase/client";
-import { PLANS, PREVIEW_ALLOWANCE, TOP_UP, annualMonthlyUsd, filmsFromTokens, isPaidTier } from "@videosaas/contracts";
+import { PLANS, PREVIEW_ALLOWANCE, TOP_UP, annualMonthlyUsd, filmsFromTokens, isPaidTier, validateEmailAddress } from "@videosaas/contracts";
 import { getMyPreviews, getMySubscription, getMyTokens, startCheckout, type PreviewUsage, type Subscription, type TokenSummary } from "../lib/api";
 import { AppShell } from "./app-shell";
 import { useAccount } from "./account-menu";
@@ -43,8 +43,12 @@ export function ProfilePage() {
   };
   const sendReset = async () => {
     if (!account?.email || reset === "sending") return;
+    if (!validateEmailAddress(account.email).ok) {
+      setReset("error");
+      return;
+    }
     setReset("sending");
-    const { error } = await createClient().auth.resetPasswordForEmail(account.email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
+    const { error } = await createClient().auth.resetPasswordForEmail(account.email.trim(), { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
     setReset(error ? "error" : "sent");
   };
 

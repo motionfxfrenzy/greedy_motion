@@ -135,6 +135,8 @@ assert.equal(validHookSignature(Buffer.from(body), headers(), "", now), false, "
 }
 assert.throws(() => emailFromHook({ user: {}, email_data: {} }, "https://abc.supabase.co"), (e) => e instanceof HookError && e.status === 400);
 assert.throws(() => emailFromHook({ user: { email: "a@b.co" }, email_data: { token: "1", token_hash: "h", email_action_type: "email_change" } }, "https://abc.supabase.co"), (e) => e instanceof HookError && /email_change/.test(e.message));
+assert.throws(() => emailFromHook({ user: { email: "ada+alias@b.co" }, email_data: { token: "1", token_hash: "h", email_action_type: "signup" } }, "https://abc.supabase.co"), (e) => e instanceof HookError && e.status === 400 && /\+/.test(e.message));
+assert.throws(() => emailFromHook({ user: { email: "a.b.c.d@b.co" }, email_data: { token: "1", token_hash: "h", email_action_type: "signup" } }, "https://abc.supabase.co"), (e) => e instanceof HookError && e.status === 400 && /2 dots/.test(e.message));
 
 // ---- sender and reply-to: account emails use the mailer's default (noreply@); a message can override it, on both providers ----
 {
@@ -194,6 +196,10 @@ const { sendWelcome } = await import("../src/mail/welcome.ts");
   await assert.rejects(sendWelcome({ id: "u3", email: "c@d.co" }, deps({ send: async () => { throw new Error("both providers down"); } })), /both providers down/);
   assert.deepEqual(released, ["u3"], "a failed send gives the claim back");
   assert.deepEqual(await sendWelcome({ id: "u3", email: "c@d.co" }, deps()), { status: "sent", provider: "resend" }, "so a retry can deliver it");
+  assert.deepEqual(await sendWelcome({ id: "u4", email: "bad+plus@d.co" }, deps()), { status: "no_email" }, "disallowed '+' address does not claim or send");
+  assert.deepEqual(await sendWelcome({ id: "u5", email: "a.b.c.d@d.co" }, deps()), { status: "no_email" }, "disallowed 3+ dot address does not claim or send");
+  assert.equal(claimed.has("u4"), false);
+  assert.equal(claimed.has("u5"), false);
 }
 
 console.log("mail: ok");

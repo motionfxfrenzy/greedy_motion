@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { appHref } from "../lib/hosts";
 import { useEffect, useState } from "react";
+import { validateEmailAddress } from "@videosaas/contracts";
 import { createClient } from "../utils/supabase/client";
 import { AccountMenu } from "./account-menu";
 import { ThemeToggle } from "./theme-toggle";
@@ -12,7 +13,12 @@ export function useSignedIn(): boolean | null {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   useEffect(() => {
     let live = true;
-    void createClient().auth.getSession().then(({ data }) => { if (live) setSignedIn(Boolean(data.session)); }).catch(() => { if (live) setSignedIn(false); });
+    void createClient().auth.getSession().then(({ data }) => {
+      if (!live) return;
+      const session = data.session;
+      const valid = Boolean(session && (!session.user?.email || validateEmailAddress(session.user.email).ok));
+      setSignedIn(valid);
+    }).catch(() => { if (live) setSignedIn(false); });
     return () => { live = false; };
   }, []);
   return signedIn;

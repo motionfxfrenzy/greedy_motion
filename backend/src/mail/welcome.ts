@@ -1,5 +1,6 @@
 // The welcome email: sent once per person, from hello@, right after an account is confirmed. "Once" is a row in
 // app.welcome_emails claimed before sending and given back if the send fails, so a retry can still deliver it.
+import { validateEmailAddress } from "@videosaas/contracts";
 import type { MailMessage, MailResult } from "./send.ts";
 import { SUPPORT_EMAIL, welcomeEmail } from "./templates.ts";
 
@@ -16,9 +17,11 @@ export type WelcomeOutcome = { status: "sent"; provider: MailResult["provider"] 
 
 export async function sendWelcome(user: { id: string; email?: string; name?: string }, deps: WelcomeDeps): Promise<WelcomeOutcome> {
   if (!user.email) return { status: "no_email" };
+  const checked = validateEmailAddress(user.email);
+  if (!checked.ok) return { status: "no_email" };
   if (!(await deps.claim(user.id))) return { status: "already_sent" };
   try {
-    const result = await deps.send({ ...welcomeEmail({ to: user.email, name: user.name, appUrl: deps.appUrl }), from: deps.from, replyTo: SUPPORT_EMAIL });
+    const result = await deps.send({ ...welcomeEmail({ to: checked.email, name: user.name, appUrl: deps.appUrl }), from: deps.from, replyTo: SUPPORT_EMAIL });
     return { status: "sent", provider: result.provider };
   } catch (error) {
     await deps.release(user.id).catch(() => undefined);

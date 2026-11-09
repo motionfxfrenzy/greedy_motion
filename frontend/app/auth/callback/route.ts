@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { after, NextResponse, type NextRequest } from "next/server";
+import { validateEmailAddress } from "@videosaas/contracts";
 import { createClient } from "../../../utils/supabase/server";
 
 const backendOrigin = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
@@ -18,6 +19,10 @@ export async function GET(request: NextRequest) {
     const supabase = createClient(await cookies());
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
+      if (data.user?.email && !validateEmailAddress(data.user.email).ok) {
+        await supabase.auth.signOut().catch(() => undefined);
+        return NextResponse.redirect(`${origin}/auth?error=invalid_email`);
+      }
       // A brand-new account (confirmed by email link, or created with Google) gets the one-time welcome email. Returning
       // sign-ins and password resets do not; the backend also sends it only once per person.
       const created = data.user ? Date.parse(data.user.created_at) : 0;

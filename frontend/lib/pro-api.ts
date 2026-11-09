@@ -33,6 +33,11 @@ async function proFetch(path: string, init: RequestInit = {}): Promise<unknown> 
   }
   if (response.status === 401 && typeof window !== "undefined") window.location.href = "/auth?next=" + encodeURIComponent(window.location.pathname);
   const body = (await response.json().catch(() => ({}))) as { error?: { code?: string; message?: string } } & Record<string, unknown>;
+  if (response.status === 403 && body.error?.code === "invalid_email" && typeof window !== "undefined") {
+    void createClient().auth.signOut().finally(() => {
+      window.location.href = "/auth?error=invalid_email";
+    });
+  }
   if (!response.ok) throw new ProApiError(response.status, body.error?.code ?? "error", body.error?.message ?? "Something went wrong.", { ...(body.error ?? {}), ...body });
   return body;
 }

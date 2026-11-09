@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, errors, jwtVerify } from "jose";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { validateEmailAddress } from "@videosaas/contracts";
 import { config, LOCAL_USER_ID } from "./config.ts";
 import { verifyMediaToken } from "./media-links.ts";
 
@@ -81,8 +82,15 @@ export function registerAuth(app: FastifyInstance) {
     try {
       const { payload } = await jwtVerify(token, jwks, { issuer, audience: "authenticated" });
       if (typeof payload.sub !== "string") throw new Error("Token has no subject.");
+      const rawEmail = typeof payload.email === "string" ? payload.email : undefined;
+      if (rawEmail !== undefined) {
+        const checked = validateEmailAddress(rawEmail);
+        if (!checked.ok) {
+          return reply.code(403).send({ error: { code: "invalid_email", message: checked.message } });
+        }
+      }
       const fullName = (payload.user_metadata as { full_name?: unknown } | undefined)?.full_name;
-      request.user = { id: payload.sub, email: typeof payload.email === "string" ? payload.email : undefined, name: typeof fullName === "string" && fullName.trim() ? fullName.trim() : undefined };
+      request.user = { id: payload.sub, email: rawEmail?.trim(), name: typeof fullName === "string" && fullName.trim() ? fullName.trim() : undefined };
     } catch (error) {
       if (!(error instanceof errors.JOSEError)) request.log.warn({ err: error }, "Auth verification failed");
       return reply.code(401).send({ error: { code: "invalid_token", message: "Your session has expired. Sign in again." } });

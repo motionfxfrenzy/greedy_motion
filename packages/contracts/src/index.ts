@@ -12,6 +12,7 @@ export * from "./audio.ts";
 export * from "./beat-plan.ts";
 export * from "./brand.ts";
 export * from "./character-rule.ts";
+export * from "./email.ts";
 export * from "./engine.ts";
 export * from "./frame.ts";
 export * from "./gallery.ts";
