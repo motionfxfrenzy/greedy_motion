@@ -367,7 +367,11 @@ export function Studio() {
     const found = projects.find((item) => item.id === target.project);
     if (found) {
       void openProject(found);
-      const reached = found.beatPlan ? Math.max(statusStep(found), STORYBOARD) : statusStep(found);
+      const reached = Math.max(
+        statusStep(found),
+        found.beatPlan ? STORYBOARD : SCRIPT_STYLE,
+        found.renderJobId && (found.state === "Ready for review" || found.state === "Revisions needed") ? REVIEW : SCRIPT_STYLE
+      );
       setStep(Math.min(target.step, reached) as Step);
       if (target.studio && found.script) setView("studio");
     }

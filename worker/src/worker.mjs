@@ -94,9 +94,10 @@ function progressReporter(jobId, attempt, onLost) {
   };
 }
 
-const RENDER_FLAGS = ["--fps", "30", "--no-best-effort", "--workers", "1", "--quality", "standard", "--no-browser-gpu"];
+const hyperframesWorkers = Math.max(1, Math.min(16, Number.parseInt(process.env.HYPERFRAMES_WORKERS ?? "8", 10) || 8));
+const RENDER_FLAGS = ["--fps", "30", "--no-best-effort", "--workers", String(hyperframesWorkers), "--quality", "standard", "--no-browser-gpu"];
 // Previews (Pro Editor): fewer frames and a cheaper encode, then scaled down. They are for checking timing, never delivered.
-const PREVIEW_FLAGS = ["--fps", "24", "--no-best-effort", "--workers", "1", "--quality", "draft", "--no-browser-gpu"];
+const PREVIEW_FLAGS = ["--fps", "24", "--no-best-effort", "--workers", String(hyperframesWorkers), "--quality", "draft", "--no-browser-gpu"];
 const isPreview = (input) => input.quality === "draft540" || input.quality === "preview720";
 
 /** The preview's pixel size. The backend computes it (contracts previewSize); a row is never trusted: even integers in range, or no scaling. */
@@ -124,16 +125,28 @@ async function renderFolder(folder, output, input, options) {
   const hasVariables = await access(variables).then(() => true, () => false);
   const args = (to, fps) => ["render", folder, ...(hasVariables ? ["--variables-file", variables] : []), "--output", to, ...(isPreview(input) ? PREVIEW_FLAGS : fps ? ["--fps", String(fps), ...RENDER_FLAGS.slice(2)] : RENDER_FLAGS)];
   // Motion blur is the person's choice at final submission and never touches a preview.
-  if (wantsMotionBlur(input, isPreview)) await renderWithMotionBlur({ run, hyperframes: HYPERFRAMES, hyperframesArgs: args, output, options });
+  const hasBlur = wantsMotionBlur(input, isPreview);
+  if (hasBlur) await renderWithMotionBlur({ run, hyperframes: HYPERFRAMES, hyperframesArgs: args, output, options });
   else await run(HYPERFRAMES, args(output), options);
   const scale = previewScale(input);
-  if (!scale) return;
-  const scaled = `${output}.scaled.mp4`;
-  try {
-    await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", output, "-vf", `scale=${scale.width}:${scale.height}`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", scaled], { signal: options.signal });
-    await rename(scaled, output);
-  } finally {
-    await rm(scaled, { force: true });
+  if (scale) {
+    const scaled = `${output}.scaled.mp4`;
+    try {
+      await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", output, "-vf", `scale=${scale.width}:${scale.height}`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", scaled], { signal: options.signal });
+      await rename(scaled, output);
+    } finally {
+      await rm(scaled, { force: true });
+    }
+    return;
+  }
+  if (!hasBlur && !isPreview(input)) {
+    const optimized = `${output}.fast.mp4`;
+    try {
+      await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", output, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", optimized], { signal: options.signal });
+      await rename(optimized, output);
+    } finally {
+      await rm(optimized, { force: true });
+    }
   }
 }
 
@@ -248,7 +261,7 @@ async function renderVideo(input, attempt, signal, reporter) {
       // Missing brand kit, screenshot or audio: the inputs are wrong, so a retry cannot help.
       throw new PermanentError(error instanceof Error ? error.message : "The render inputs are invalid.");
     }
-    await run(HYPERFRAMES, ["render", project, "--variables-file", variablesFile, "--strict-variables", "--output", output, "--fps", "30", "--workers", "1", "--quality", "standard", "--no-browser-gpu"], { onLine: reporter.line, signal });
+    await run(HYPERFRAMES, ["render", project, "--variables-file", variablesFile, "--strict-variables", "--output", output, "--fps", "30", "--workers", String(hyperframesWorkers), "--quality", "standard", "--no-browser-gpu"], { onLine: reporter.line, signal });
     return { url: `/v1/renders/${id}`, format: "mp4", durationSeconds: Number(input.durationSeconds) || 10, file };
   } catch (error) {
     await rm(output, { force: true });

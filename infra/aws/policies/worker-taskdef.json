@@ -38,6 +38,14 @@
           "value": "1"
         },
         {
+          "name": "HYPERFRAMES_WORKERS",
+          "value": "8"
+        },
+        {
+          "name": "PLATE_FRAME_WORKERS",
+          "value": "8"
+        },
+        {
           "name": "RENDER_MAX_SECONDS",
           "value": "300"
         },

@@ -60,7 +60,7 @@ import { registerGalleryRoutes } from "./gallery.ts";
 import { registerLibraryRoutes } from "./library.ts";
 import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
-import { presignOutput, safeDownloadFilename, slugifyProjectDownloadStem } from "./storage.ts";
+import { getObject, presignOutput, safeDownloadFilename, slugifyProjectDownloadStem } from "./storage.ts";
 import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, removedVariants, updateBrand, validateBrandInput } from "./brand/store.ts";
 import { allRoutes } from "./models/routes.ts";
 import { genReqId, registerRequestId, upstreamError } from "./http-errors.ts";
@@ -589,6 +589,17 @@ app.get<{ Params: { id: string }; Querystring: { download?: string; filename?: s
   // Object storage: the worker committed an R2 key; hand the player a short-lived signed URL (R2 serves ranges; `filename` sets attachment disposition).
   const key = (row?.output as { key?: unknown } | undefined)?.key;
   if (config.storageDriver === "r2" && typeof key === "string" && /^renders\/[a-f0-9-]{36}\/a\d+\.mp4$/i.test(key)) {
+    if (downloadFilename) {
+      const bytes = await getObject("outputs", key).catch(() => null);
+      if (bytes) {
+        return reply
+          .header("Content-Type", "video/mp4")
+          .header("Content-Length", bytes.length)
+          .header("Content-Disposition", `attachment; filename="${downloadFilename}"`)
+          .header("Cache-Control", "no-store")
+          .send(bytes);
+      }
+    }
     return reply
       .header("Cache-Control", "no-store")
       .redirect(

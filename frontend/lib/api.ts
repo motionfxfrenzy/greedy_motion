@@ -1081,8 +1081,55 @@ export type PlateStatus = {
 export async function getPlates(projectId: string): Promise<PlateStatus> {
   return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates`), "Could not load the scenes.");
 }
+type PendingSubtitleSave = {
+  timer: ReturnType<typeof setTimeout>;
+  patch: Partial<PlateSubtitles>;
+  resolvers: Array<{ resolve: (v: PlateSubtitles) => void; reject: (e: unknown) => void }>;
+};
+const pendingSubtitleSaves = new Map<string, PendingSubtitleSave>();
+
 export async function savePlateSubtitles(projectId: string, input: Partial<PlateSubtitles>): Promise<PlateSubtitles> {
-  return parse(await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/subtitles`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }), "Could not update subtitles.");
+  return new Promise<PlateSubtitles>((resolve, reject) => {
+    const existing = pendingSubtitleSaves.get(projectId);
+    if (existing) {
+      clearTimeout(existing.timer);
+      const nextScenePos =
+        input.scenePositions === null
+          ? null
+          : input.scenePositions !== undefined
+            ? { ...(existing.patch.scenePositions ?? {}), ...input.scenePositions }
+            : existing.patch.scenePositions;
+      existing.patch = {
+        ...existing.patch,
+        ...input,
+        ...(nextScenePos !== undefined ? { scenePositions: nextScenePos } : {})
+      };
+      existing.resolvers.push({ resolve, reject });
+    } else {
+      pendingSubtitleSaves.set(projectId, {
+        timer: 0 as unknown as ReturnType<typeof setTimeout>,
+        patch: { ...input },
+        resolvers: [{ resolve, reject }]
+      });
+    }
+    const entry = pendingSubtitleSaves.get(projectId)!;
+    entry.timer = setTimeout(async () => {
+      pendingSubtitleSaves.delete(projectId);
+      try {
+        const res = await parse<PlateSubtitles>(
+          await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/subtitles`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(entry.patch)
+          }),
+          "Could not update subtitles."
+        );
+        for (const r of entry.resolvers) r.resolve(res);
+      } catch (err) {
+        for (const r of entry.resolvers) r.reject(err);
+      }
+    }, 180);
+  });
 }
 export async function drawPlates(projectId: string, options?: { animationTier?: "standard" | "premium"; quoteId?: string }): Promise<PlateStatus> {
   return parse(

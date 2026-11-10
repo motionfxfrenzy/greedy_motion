@@ -24,7 +24,7 @@ const FPS = 30;
 const PROJECT_CAP = Number.parseInt(process.env.PLATE_PROJECT_CAP ?? "16", 10);
 const STALE_SECONDS = Number.parseInt(process.env.PLATE_STALE_SECONDS ?? "60", 10);
 const MAX_AUTHOR_CALLS = Number.parseInt(process.env.PLATE_MAX_AUTHOR_CALLS ?? "3", 10);
-const RENDER_WORKERS = Math.max(1, Number.parseInt(process.env.PLATE_FRAME_WORKERS ?? "2", 10));
+const RENDER_WORKERS = Math.max(1, Number.parseInt(process.env.PLATE_FRAME_WORKERS ?? process.env.HYPERFRAMES_WORKERS ?? "8", 10));
 const PLATE_DRAW_CONCURRENCY = Math.max(1, Number.parseInt(process.env.PLATE_CONCURRENCY ?? "2", 10));
 
 /** Default 120 s per scene check, env-overridable via PLATE_CHECK_TIMEOUT_MS / PLATE_CHECK_TIMEOUT_SECONDS / PLATE_VERIFY_TIMEOUT_MS. */

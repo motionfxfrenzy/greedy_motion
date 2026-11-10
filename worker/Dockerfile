@@ -9,12 +9,14 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean -
 FROM ${NODE_IMAGE} AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
-    HYPERFRAMES_BROWSER_PATH=/usr/bin/chromium \
+    HYPERFRAMES_BROWSER_PATH=/usr/local/bin/chromium-no-shm \
     HYPERFRAMES_NO_TELEMETRY=1 \
     HYPERFRAMES_NO_UPDATE_CHECK=1
 RUN apt-get update \
   && apt-get install -y --no-install-recommends chromium ffmpeg fonts-liberation fonts-dejavu-core fonts-noto-core ca-certificates tini \
   && rm -rf /var/lib/apt/lists/* \
+  && printf '#!/bin/sh\nexec /usr/bin/chromium --disable-dev-shm-usage --no-sandbox "$@"\n' > /usr/local/bin/chromium-no-shm \
+  && chmod +x /usr/local/bin/chromium-no-shm \
   && useradd --create-home --uid 10001 --shell /usr/sbin/nologin renderer
 WORKDIR /app
 COPY --from=dependencies --chown=renderer:renderer /app/node_modules ./node_modules
