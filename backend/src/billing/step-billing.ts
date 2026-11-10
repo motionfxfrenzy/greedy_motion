@@ -1743,7 +1743,7 @@ export async function buildProjectBillingOverview(input: {
       motionProfile: "smooth",
       pace: "balanced",
       audio: { mode: "voiceover", voice: "Kore" },
-      captions: "key-phrases",
+      captions: "full",
       template: null,
       theme: "neutral"
     };

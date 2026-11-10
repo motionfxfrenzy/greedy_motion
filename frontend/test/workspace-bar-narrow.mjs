@@ -647,7 +647,7 @@ test(
       assert.equal(statusSubAudit.statusBox, null, `Plates Subtitle+updating tab (${width}px) keeps toolbar slot free of film chip`);
       assert.equal(await page.locator(".aw-floating-bar .aw-film-chip").count(), 0);
       await page.locator('.aw-frame .aw-film-toast[role="status"][aria-live="polite"]').waitFor({ state: "visible" });
-      await page.locator('.aw-frame .aw-scene-banner[role="status"][aria-live="polite"]').waitFor({ state: "visible" });
+      assert.equal(await page.locator('.aw-frame .aw-scene-banner[role="status"][aria-live="polite"]').count(), 0);
       assert.equal(await page.locator('.aw-segments li[data-banner-linked="true"]').count(), 1);
 
       await page.locator('.aw-floating-bar button[role="tab"]:has-text("Audio")').click();

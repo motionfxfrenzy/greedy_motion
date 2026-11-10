@@ -65,6 +65,8 @@
 .aw-top-status-stack{position:absolute;top:8px;left:0;right:0;z-index:12;display:flex;flex-direction:column;align-items:center;gap:6px;padding:0 12px;pointer-events:none;box-sizing:border-box}
 .aw-top-wait-slot{display:flex;justify-content:center;width:100%;pointer-events:none}
 .aw-top-wait-slot:empty{display:none}
+.aw-bottom-scene-slot{position:absolute;bottom:8px;left:0;right:0;z-index:12;display:flex;justify-content:center;padding:0 12px;pointer-events:none;box-sizing:border-box}
+.aw-bottom-scene-slot:empty{display:none}
 .aw-film-toast{position:relative;z-index:12;display:flex;justify-content:center;width:100%;pointer-events:none;box-sizing:border-box;opacity:1;transition:opacity .3s ease}
 .aw-film-toast.exiting{opacity:0}
 .aw-film-toast-card{display:grid;gap:3px;width:max-content;max-width:min(420px,90%);padding:7px 13px 8px;border-radius:12px;background:rgba(10,13,18,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.14);box-shadow:0 6px 20px rgba(0,0,0,.32);color:#f8fafc;font-size:12px;line-height:1.25;text-align:center;box-sizing:border-box;pointer-events:none}
@@ -294,7 +296,7 @@
 .aw-clock{font-family:DMMono,monospace;font-size:12.5px;color:var(--muted);flex:none}
 .aw-clock b{color:var(--ink)}
 
-.aw-subtitle{position:absolute;left:50%;top:88%;transform:translate(-50%,-50%);z-index:4;width:max-content;max-width:88%;display:flex;justify-content:center;pointer-events:auto;cursor:grab;user-select:none;touch-action:none;text-align:center}
+.aw-subtitle{position:absolute;left:50%;top:70%;transform:translate(-50%,-50%);z-index:4;width:max-content;max-width:88%;display:flex;justify-content:center;pointer-events:auto;cursor:grab;user-select:none;touch-action:none;text-align:center}
 
 .aw-subtitle:active{cursor:grabbing}
 

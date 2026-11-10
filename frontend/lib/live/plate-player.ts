@@ -738,7 +738,7 @@ export class PlatePlayer implements ScenePlayer {
       strictAhead: true,
       draw: async (sceneKey, previewIdx) => {
         if (this.currentDecision.mode === "clip" || this.isDestroyed) {
-          throw new Error("Player is in clip mode or destroyed.");
+          throw Object.assign(new Error("Player is in clip mode or destroyed."), { aborted: true });
         }
         const drawEpoch = this.requestEpoch;
         // 1. In Full mode, if the frame is already prepared on disk in FrameStore, load and decode the stored copy without calling WorkerHost!
@@ -752,7 +752,7 @@ export class PlatePlayer implements ScenePlayer {
               try {
                 loaded.close();
               } catch {}
-              throw new Error("Player destroyed, switched to clip, or changed mode during store load.");
+              throw Object.assign(new Error("Player destroyed, switched to clip, or changed mode during store load."), { aborted: true });
             }
             return { value: loaded, bytes: this.previewSize.bytesPerFrame };
           }
@@ -767,7 +767,7 @@ export class PlatePlayer implements ScenePlayer {
           try {
             res.bitmap.close();
           } catch {}
-          throw new Error("Player destroyed, switched to clip, or changed mode during draw.");
+          throw Object.assign(new Error("Player destroyed, switched to clip, or changed mode during draw."), { aborted: true });
         }
         // Draft fast path (§3.1 & §5.3): keep raw ImageBitmaps in the bounded RAM buffer without WebP encoding or IndexedDB writes.
         if (!this.shouldUseStore()) {
@@ -1730,6 +1730,7 @@ export class PlatePlayer implements ScenePlayer {
       const rp = this.host
         .init({ scale: this.previewSize.scale, params: this.params })
         .then(() => {
+          this.scheduler.clearFailed(this.cacheKey);
           if (this.autoPump && !this.isDestroyed && !this.isClip()) {
             if ((!this.active && this.prefetchFrames > 0) || this.active) {
               if (this.scheduler.isPaused) this.scheduler.resume();
@@ -2725,6 +2726,7 @@ export class PlatePlayer implements ScenePlayer {
     this.active = true;
     if (!wasActive) {
       this.cache.setSceneReservation(this.cacheKey, null);
+      this.scheduler.clearFailed(this.cacheKey);
       if (this.scheduler.isPaused) this.scheduler.resume();
       if (
         this.isMeasured &&
@@ -2914,6 +2916,7 @@ export class PlatePlayer implements ScenePlayer {
       if (this.currentDecision.mode === "live") this.publish({ reason: "ok", state: "ready", progress: undefined });
     }
     this.scheduler.focus(this.cacheKey, 0, this.ownsCache);
+    this.scheduler.clearFailed(this.cacheKey);
     this.scheduler.pause();
     this.cache.drop(this.cacheKey);
     this.lastShownFrame = null;
@@ -2974,6 +2977,7 @@ export class PlatePlayer implements ScenePlayer {
       this.prefetchFrames = 0;
       this.maxPrefetchedFrames = 0;
       this.scheduler.focus(this.cacheKey, 0, this.ownsCache);
+      this.scheduler.clearFailed(this.cacheKey);
       this.scheduler.pause();
       if (this.effectiveRenderMode === "draft") {
         this.cache.drop(this.cacheKey);
@@ -3137,6 +3141,7 @@ export interface FilmPlayer extends ScenePlayer {
   };
   decision(sceneIndex?: number): PlayerDecision;
   syncToClock(): void;
+  syncToScene(sceneIndex: number, localSeconds: number): void;
   updateScene(sceneIndex: number, spec: FilmSceneSpec): Promise<void>;
   enqueueSceneCheck(sceneIndex: number, spec?: FilmSceneSpec): void;
   setPreviewQuality(quality: number): Promise<void>;
@@ -3213,15 +3218,19 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     spans.length = 0;
     startFrames.length = 0;
     let cursorFrames = 0;
+    let cumSeconds = 0;
     for (const s of sceneSpecs) {
-      const startSec = cursorFrames / fps;
+      const hasDurSec = typeof s.durationSeconds === "number" && s.durationSeconds > 0;
+      const durSec = hasDurSec ? Math.max(s.frames / fps, s.durationSeconds!) : s.frames / fps;
+      const startSec = hasDurSec ? cumSeconds : cursorFrames / fps;
       startFrames.push(cursorFrames);
-      const spanFrames =
-        typeof s.durationSeconds === "number" && s.durationSeconds > 0
-          ? Math.max(s.frames, Math.round(s.durationSeconds * fps))
-          : s.frames;
+      const nextCumSeconds = cumSeconds + durSec;
+      const spanFrames = hasDurSec
+        ? Math.max(s.frames, Math.round(nextCumSeconds * fps) - cursorFrames)
+        : s.frames;
       cursorFrames += spanFrames;
-      const endSec = cursorFrames / fps;
+      cumSeconds = nextCumSeconds;
+      const endSec = hasDurSec ? cumSeconds : cursorFrames / fps;
       spans.push({ id: s.id, start: startSec, end: endSec });
     }
     totalFrames = Math.max(1, cursorFrames);
@@ -3387,6 +3396,11 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
   const specNeedsBrowserCheck = (s: FilmSceneSpec): boolean => {
     if (resolveSpecClipForceReason(s)) return false;
     if (!s.html || !s.html.trim()) return false;
+    const vId = s.variantId ?? s.id;
+    const gen = typeof s.gen === "number" && Number.isInteger(s.gen) && s.gen >= 1 ? s.gen : 1;
+    if (vId && s.bundleDigest && checkTracker.getOutcome(vId, gen, s.bundleDigest)?.ok) {
+      return false;
+    }
     if (s.needsCheck || s.state === "bundled") return true;
     if ((s.state === "drawn" || s.hasClip) && s.state !== "checked") return true;
     return false;
@@ -4651,7 +4665,19 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
         currentQualityJob?.cancelScene(oldDigest);
         store?.cancelSceneWork(oldDigest);
       }
-      const needsProactiveCheck = specNeedsBrowserCheck(spec);
+      const nextClipReason = resolveSpecClipForceReason(spec);
+      const alreadyLiveAndChecked = Boolean(
+        oldPlayer &&
+          oldDigest === spec.bundleDigest &&
+          oldPlayer.decision().mode === "live" &&
+          !nextClipReason &&
+          !spec.needsCheck &&
+          (sceneSpecs[sceneIndex]?.state === "checked" || oldPlayer.measuredYet) &&
+          !pendingChecksMap.has(sceneIndex) &&
+          activeCheckEntry?.sceneIndex !== sceneIndex &&
+          oldPlayer.meta.frames === spec.frames
+      );
+      const needsProactiveCheck = alreadyLiveAndChecked ? false : specNeedsBrowserCheck(spec);
       if (!needsProactiveCheck) {
         sceneCheckEpochs[sceneIndex] = (sceneCheckEpochs[sceneIndex] ?? 0) + 1;
         pendingChecksMap.delete(sceneIndex);
@@ -4662,7 +4688,22 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
       }
       // If a scene was already demoted to clip mode for the same bundleDigest and is now updating its clip status
       // (e.g. "bundled" -> "rendering" -> "drawn" with hasClip: true), update in place so any held canvas frame stays intact until ready.
-      const nextClipReason = resolveSpecClipForceReason(spec);
+      if (alreadyLiveAndChecked && oldPlayer) {
+        sceneSpecs[sceneIndex] = { ...spec, state: sceneSpecs[sceneIndex]?.state === "checked" ? "checked" : spec.state };
+        rebuildSpans();
+        if (filmClockInstance) {
+          filmClockInstance.setSpans(spans);
+        }
+        if (audioTimeline) {
+          audioTimeline.setSpans(spans);
+        }
+        updateCanvasVisibility();
+        if (mountedEl && !destroyed && (sceneIndex === activeIdx || sceneIndex === activeIdx + 1)) {
+          const f = frameAt(clock.now(), fps, totalFrames);
+          this.showFrame(f);
+        }
+        return;
+      }
       if (
         oldPlayer &&
         oldDigest === spec.bundleDigest &&
@@ -4882,6 +4923,14 @@ export function createFilmPlayer(options: FilmPlayerOptions): FilmPlayer {
     syncToClock(): void {
       const f = frameAt(clock.now(), fps, totalFrames);
       this.showFrame(f);
+    },
+    syncToScene(sceneIndex: number, localSeconds: number): void {
+      if (destroyed || !players.length) return;
+      const clampedIdx = Math.max(0, Math.min(players.length - 1, Math.floor(sceneIndex)));
+      const sceneFrames = Math.max(1, sceneSpecs[clampedIdx]?.frames ?? 1);
+      const localFrame = Math.max(0, Math.min(sceneFrames - 1, Math.floor(Math.max(0, localSeconds) * fps)));
+      const globalFrame = (startFrames[clampedIdx] ?? 0) + localFrame;
+      this.showFrame(globalFrame);
     },
     setRenderMode(mode: PlaybackRenderMode): void {
       const nextMode = normalizePlaybackRenderMode(mode);

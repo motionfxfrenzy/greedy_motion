@@ -38,7 +38,7 @@ export const defaultScriptBrief: ScriptBrief = {
   motionProfile: "smooth",
   pace: "balanced",
   audio: { mode: "voiceover", voice: "Kore" },
-  captions: "key-phrases",
+  captions: "full",
   template: null,
   theme: "neutral"
 };

@@ -296,7 +296,7 @@ app.post<{ Params: { id: string } }>("/v1/projects/:id/script", async (request, 
         motionProfile: "smooth" as const,
         pace: "balanced" as const,
         audio: { mode: "voiceover" as const, voice: "Kore" as const },
-        captions: "key-phrases" as const,
+        captions: "full" as const,
         template: null,
         theme: "neutral" as const
       };

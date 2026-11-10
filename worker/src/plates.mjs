@@ -609,7 +609,7 @@ export async function renderSubtitlePng(text, sub, w, h) {
   const boxW = Math.min(w - 48, Math.round(maxLineChars * fontSize * charWidth + padX * 2));
   const boxH = blockH + padY * 2;
   const centerX = Math.round(((sub.x ?? 50) / 100) * w);
-  const centerY = Math.round(((sub.y ?? 88) / 100) * h);
+  const centerY = Math.round(((sub.y ?? 70) / 100) * h);
   const boxX = Math.max(20, Math.min(w - boxW - 20, Math.round(centerX - boxW / 2)));
   const boxY = Math.max(20, Math.min(h - boxH - 20, Math.round(centerY - boxH / 2)));
   const textX = Math.round(boxX + boxW / 2);

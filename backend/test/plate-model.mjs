@@ -55,6 +55,8 @@ assert.equal(m.canStreamCopy([{ ...good, pixFmt: "yuv444p" }], [90], size, 0), f
 // --- subtitle settings
 const defaults = m.defaultSubtitlesFor({ brief: { look: "illus-blueprint" } });
 assert.equal(defaults.style, "blueprint");
+assert.equal(defaults.mode, "full");
+assert.equal(defaults.y, 70);
 const merged = m.mergeSubtitles(defaults, { size: 500, opacity: 5, x: -4, color: "#abcdef", music: false, transitions: true, aspects: ["9:16", "bogus"], scenePositions: { 0: { x: 20, y: 30 }, x: { x: 1, y: 1 } } }, "16:9");
 assert.equal(merged.size, 160); assert.equal(merged.opacity, 20); assert.equal(merged.x, 8);
 assert.equal(merged.color, "#abcdef"); assert.equal(merged.music, false); assert.equal(merged.transitions, true); assert.equal(merged.sfx, true);

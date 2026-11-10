@@ -70,6 +70,12 @@ export interface AnimationPrepStageProps {
   actionLabel?: string;
   onAction?: () => void;
   actionBusy?: boolean;
+  /** When true, the top aggregate toast already covers this scene's status; render only the background sketch without a duplicate text card/chip. */
+  suppressDuplicateText?: boolean;
+  /** Target slot for non-failed/non-stale status chips: `"top"` (`.aw-top-wait-slot`), `"bottom"` (`.aw-bottom-scene-slot`), or `"stage"`. */
+  placement?: "top" | "bottom" | "stage";
+  /** Optional explicit one-line text for the bottom selected-scene status slot. */
+  bottomText?: string;
 }
 
 export interface AnimationPrepFullProps {
@@ -98,16 +104,23 @@ export type AnimationPrepProps =
  */
 export function AnimationPrep(props: AnimationPrepProps) {
   const isStage = props.mode !== "full";
-  const isCompact = isStage && !props.failed && !props.stale && Boolean(props.compact || props.compactCard);
+  const isBottomSlot = isStage && !props.failed && !props.stale && props.placement === "bottom";
+  const isCompact =
+    isStage &&
+    !props.failed &&
+    !props.stale &&
+    Boolean(props.compact || props.compactCard || isBottomSlot || props.placement === "top");
   const rawCompactText = isStage
-    ? typeof props.compactText === "string"
-      ? props.compactText
-      : typeof props.title === "string"
-        ? props.title
-        : ""
+    ? isBottomSlot && typeof props.bottomText === "string" && props.bottomText.trim()
+      ? props.bottomText
+      : typeof props.compactText === "string"
+        ? props.compactText
+        : typeof props.title === "string"
+          ? props.title
+          : ""
     : "";
   const resetKey = isStage
-    ? `${String(props.sceneLabel ?? "")}:${typeof props.meaning === "string" ? props.meaning : ""}:${isCompact ? "compact" : "card"}`
+    ? `${String(props.sceneLabel ?? "")}:${typeof props.meaning === "string" ? props.meaning : ""}:${isCompact ? "compact" : "card"}:${props.placement ?? ""}`
     : "full";
   const throttledCompactText = useThrottledPoliteText(isCompact ? rawCompactText : "", resetKey);
 
@@ -226,21 +239,23 @@ export function AnimationPrep(props: AnimationPrepProps) {
       ? props.meaning
       : undefined;
 
-  const topSlotEl =
+  const portalSlotEl =
     isCompact && typeof document !== "undefined" && typeof document.querySelector === "function"
-      ? document.querySelector(".aw-frame .aw-top-wait-slot")
+      ? document.querySelector(
+          isBottomSlot ? ".aw-frame .aw-bottom-scene-slot" : ".aw-frame .aw-top-wait-slot"
+        )
       : null;
 
-  const compactChipNode = isCompact ? (
+  const compactChipNode = isCompact && !props.suppressDuplicateText ? (
     <div
-      className="aw-wait-body aw-wait-chip"
+      className={`aw-wait-body aw-wait-chip${isBottomSlot ? " aw-wait-chip-bottom" : ""}`}
       role="status"
       aria-live="polite"
       title={chipTooltip}
     >
       <div className="aw-wait-chip-line">
         <i className="aw-spin" aria-hidden="true" />
-        <b>{throttledCompactText || props.compactText || props.title}</b>
+        <b>{throttledCompactText || rawCompactText || props.compactText || props.title}</b>
       </div>
       {showProgressBar && (
         <div className="aw-wait-progress">
@@ -271,8 +286,8 @@ export function AnimationPrep(props: AnimationPrepProps) {
           className="aw-wait-sketch"
         />
       )}
-      {isCompact ? (
-        topSlotEl ? createPortal(compactChipNode, topSlotEl) : compactChipNode
+      {props.suppressDuplicateText ? null : isCompact ? (
+        portalSlotEl ? createPortal(compactChipNode, portalSlotEl) : compactChipNode
       ) : (
         <div className="aw-wait-body">
           {!props.failed && !props.stale && <i className="aw-spin" aria-hidden="true" />}

@@ -390,21 +390,32 @@ test(
         path: join(SCREENSHOTS_DIR, "stale-revision-1135x775-needs-update.png")
       });
 
-      // 2. Click "Update animation" -> invokes POST /plates/draw once and transitions to preparing state
+      // 2. Click "Update animation" -> invokes POST /plates/draw once and transitions to preparing state (single top toast, no duplicate card)
       await page.click(".aw-wait-action");
       await page.waitForFunction(
-        () => (document.querySelector(".aw-wait-body b")?.textContent ?? "").includes("Writing the scene")
+        () => (document.querySelector(".aw-film-toast-primary")?.textContent ?? "").includes("Scene 1 is being written")
       );
       assert.equal(drawCalls, 1, "clicking Update animation invokes POST /plates/draw exactly once");
 
       const prepDom = await page.evaluate(() => ({
-        waitTitle: (document.querySelector(".aw-wait-body b")?.textContent ?? "").trim(),
+        duplicateWaitBodies: document.querySelectorAll(".aw-wait-body").length,
+        duplicateSceneBanners: document.querySelectorAll(".aw-scene-banner").length,
         toastPrimary: (document.querySelector(".aw-film-toast-primary")?.textContent ?? "").trim(),
         tab0Chip: (document.querySelector(".aw-segments li .aw-seg-state")?.textContent ?? "").trim()
       }));
-      assert.match(prepDom.waitTitle, /Writing the scene/);
+      assert.equal(prepDom.duplicateWaitBodies, 0, "Selected Scene 1 does not render a duplicate wait card when top toast already covers Scene 1");
+      assert.equal(prepDom.duplicateSceneBanners, 0, "No middle duplicate scene banner is rendered");
       assert.match(prepDom.toastPrimary, /Scene 1 is being written/);
       assert.match(prepDom.tab0Chip, /Writing/);
+
+      // Clicking Scene 3 (distinct from top toast's Scene 1) shows ONLY Scene 3's status in the bottom slot outside .aw-canvas
+      await page.click(".aw-segments li:nth-child(3)");
+      await page.waitForSelector(".aw-bottom-scene-slot .aw-wait-chip-bottom");
+      const bottomSlotText = await page.evaluate(
+        () => (document.querySelector(".aw-bottom-scene-slot .aw-wait-chip-bottom")?.textContent ?? "").trim()
+      );
+      assert.match(bottomSlotText, /Scene 3 of 7/, "Bottom slot shows only the selected Scene 3 status when distinct from top toast");
+      await page.click(".aw-segments li:nth-child(1)");
 
       await page.screenshot({
         path: join(SCREENSHOTS_DIR, "stale-revision-1135x775-preparing.png")

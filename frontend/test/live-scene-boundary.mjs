@@ -2917,4 +2917,193 @@ test("(J) Browser-first (project 324093f5…): fast scenes (16 ms & 21 ms) stay 
   }
 });
 
+test("Observations 1 & 2 + Issue 15B: Status overlay hierarchy (1 top toast, 0 middle banners, bottom slot only for distinct selected scene) and continuous playback Scene 6 -> Scene 7 boundary at 0:40/0:47 without stall", async (t) => {
+  const {
+    buildFilmProgressToast,
+    buildStagePrepProps,
+    resolveStagePrepOverlay,
+    sceneProgress
+  } = await import("../components/animation-workspace/progress.ts");
+
+  // --- Part A: Status overlay hierarchy (Observations 1 & 2) ---
+  const scenes6Building = Array.from({ length: 6 }, (_, i) => ({
+    index: i,
+    keyword: `Scene ${i + 1}`,
+    state: i < 2 ? "authoring" : "queued",
+    seconds: 5,
+    frames: 150,
+    sig: `sig-${i}`,
+    rev: 0
+  }));
+  const ctx6 = { isLiveMode: true, viewAspect: "9:16", scenes: scenes6Building, nowClient: 10_000 };
+  const perScene6 = scenes6Building.map((s) => sceneProgress(s, null, ctx6));
+  const topToast = buildFilmProgressToast({
+    scenes: scenes6Building,
+    perSceneProgress: perScene6,
+    progressContext: ctx6
+  });
+  assert.ok(topToast?.active, "Top aggregate toast is active while scenes are being written");
+  assert.equal(topToast.sceneIndex, 0, "Top aggregate toast reports Scene 1 (index 0)");
+
+  // 1. When user is on Scene 1 (index 0, same as topToast.sceneIndex), stagePrep duplicate text is suppressed!
+  const prepScene1 = buildStagePrepProps({
+    sceneIndex: 0,
+    sceneCount: 6,
+    sceneState: "authoring",
+    viewAspect: "9:16",
+    isViewAspectDrawn: false,
+    isViewAspectDrawing: false,
+    isPlayable: false,
+    sceneProgress: perScene6[0],
+    backgroundSketch: "data:image/svg+xml;utf8,<svg/>"
+  });
+  const resScene1 = resolveStagePrepOverlay({
+    currentSceneIndex: 0,
+    filmToast: topToast,
+    stagePrep: prepScene1
+  });
+  assert.equal(resScene1.suppressDuplicateText, true, "Selected Scene 1 status is suppressed because top aggregate toast already shows Scene 1");
+
+  // 2. When user clicks Scene 3 (index 2, distinct from topToast.sceneIndex = 0), status is shown ONLY at the bottom slot with Scene 3 label
+  const prepScene3 = buildStagePrepProps({
+    sceneIndex: 2,
+    sceneCount: 6,
+    sceneState: "queued",
+    viewAspect: "9:16",
+    isViewAspectDrawn: false,
+    isViewAspectDrawing: false,
+    isPlayable: false,
+    sceneProgress: perScene6[2],
+    backgroundSketch: "data:image/svg+xml;utf8,<svg/>"
+  });
+  const resScene3 = resolveStagePrepOverlay({
+    currentSceneIndex: 2,
+    filmToast: topToast,
+    stagePrep: prepScene3
+  });
+  assert.equal(resScene3.suppressDuplicateText, false, "Distinct selected Scene 3 status is not suppressed");
+  assert.equal(resScene3.placement, "bottom", "Distinct selected Scene 3 status is placed in the bottom slot outside .aw-canvas");
+  assert.match(resScene3.bottomText ?? "", /^Scene 3 of 6 · Waiting in queue/, "Bottom slot explicitly identifies Scene 3");
+
+  // 3. When all scenes are built (filmToast.active === false) and live frame buffering occurs, it uses the top slot
+  const prepBuffering = buildStagePrepProps({
+    sceneIndex: 6,
+    sceneCount: 7,
+    sceneState: "checked",
+    viewAspect: "9:16",
+    isViewAspectDrawn: true,
+    isViewAspectDrawing: false,
+    isPlayable: true,
+    liveBuffering: {
+      active: true,
+      visibleAfterDelay: true,
+      hasAnyFrame: true,
+      readyFrames: 4,
+      neededFrames: 15
+    }
+  });
+  const resBuffering = resolveStagePrepOverlay({
+    currentSceneIndex: 6,
+    filmToast: { ...topToast, active: false, sceneIndex: null },
+    stagePrep: prepBuffering
+  });
+  assert.equal(resBuffering.suppressDuplicateText, false);
+  assert.equal(resBuffering.placement, "top", "Live buffering bar uses the top toast slot when filmToast is inactive");
+
+  // --- Part B: Issue 15B continuous playback Scene 6 -> Scene 7 boundary at 0:40 / 0:47 on 7-scene 9:16 koi project ---
+  // Fractional durations that sum to 40.00s at Scene 7 start (index 6) and 47.00s total, where per-scene Math.round(d*30) previously drifted by +2 frames:
+  const koiDurations = [6.68, 6.68, 6.68, 6.68, 6.64, 6.64, 7.0];
+  const koiStarts = koiDurations.reduce((acc, _, i) => {
+    acc.push(i ? Math.round((acc[i - 1] + koiDurations[i - 1]) * 100) / 100 : 0);
+    return acc;
+  }, []);
+  assert.equal(koiStarts[6], 40, "Scene 7 starts at 40.00s");
+
+  let clockTime = 39.5;
+  let clockPlaying = true;
+  const koiSpecs = koiDurations.map((dur, idx) => ({
+    id: `koi-${idx + 1}`,
+    variantId: `var-koi-${idx + 1}`,
+    gen: 1,
+    state: "checked",
+    bundleDigest: `dig-koi-${idx + 1}`,
+    html: `<script>window.FILM={scene:${idx + 1}};</script>`,
+    frames: Math.round(dur * 30),
+    durationSeconds: dur
+  }));
+
+  const koiFilm = createFilmPlayer({
+    projectId: "23d17aea-6818-477a-a0fb-75d2a22462c6",
+    scenes: koiSpecs,
+    aspect: "9:16",
+    fps: 30,
+    renderMode: "draft",
+    frameStore: null,
+    timeSource: {
+      currentTime: () => clockTime,
+      playing: () => clockPlaying
+    },
+    transportFactory: makeTrackingTransport().factory
+  });
+  t.after(() => koiFilm.destroy());
+
+  await koiFilm.mount(fakeElement());
+  await koiFilm.waitForChecks();
+
+  // Verify spans[6].start matches koiStarts[6] (40.00s) with zero cumulative rounding drift:
+  // At clockTime = koiStarts[6] (40.00s), syncToClock() must resolve to Scene 7 (index 6), NOT Scene 6 (index 5)!
+  clockTime = koiStarts[6];
+  koiFilm.syncToClock();
+  assert.equal(koiFilm.activeSceneIndex, 6, "At clockTime = 40.00s (starts[6]), syncToClock() resolves to Scene 7 (index 6) with zero cumulative rounding drift");
+
+  const waitSceneIdle = async (...players) => {
+    for (let i = 0; i < 200; i++) {
+      await new Promise((r) => setTimeout(r, 4));
+      if (players.every((p) => p.workerState === "idle" && !p.isPumping && !p.isPreparing)) return;
+    }
+  };
+
+  // Simulate Scene 7 worker having been idled earlier while playing Scene 1..5, including an aborted draw during releaseIdleWorker()
+  const p7 = koiFilm.scenes[6];
+  await waitSceneIdle(p7);
+  clockTime = 0;
+  koiFilm.syncToScene(0, 0);
+  await waitSceneIdle(koiFilm.scenes[0], p7);
+  p7.releaseIdleWorker();
+
+  // Play through end of Scene 6 (index 5) at 39.95s
+  clockTime = 39.95;
+  koiFilm.syncToScene(5, clockTime - koiStarts[5]);
+  await waitSceneIdle(koiFilm.scenes[5], p7);
+
+  // Concurrent background export updates Scene 7 from checked (hasClip:false) to drawn (hasClip:true) with same bundleDigest:
+  await koiFilm.updateScene(6, {
+    ...koiSpecs[6],
+    state: "drawn",
+    hasClip: true,
+    clipReady: true
+  });
+  assert.equal(koiFilm.scenes[6], p7, "Background clip state update preserves live PlatePlayer instance in-place without destroying it");
+
+  // Now advance automatically across Scene 6 -> Scene 7 boundary at 40.00s (0:40 / 0:47):
+  clockTime = koiStarts[6]; // 40.00s
+  koiFilm.syncToScene(6, 0);
+  assert.equal(koiFilm.activeSceneIndex, 6, "syncToScene(6, 0) immediately activates Scene 7 (index 6) at 0:40 boundary");
+
+  await waitSceneIdle(p7);
+  const snapAtBoundary = p7.bufferingSnapshot();
+  assert.ok(snapAtBoundary.readyFrames > 0, `Scene 7 drew ready frames ahead at 0:40 boundary (got ${snapAtBoundary.readyFrames}, never stuck at 0 of 15)`);
+
+  // Continue playing through Scene 7 to film end (47.00s)
+  for (const offsetSec of [0.1, 0.2, 0.3, 0.4, 1.0, 1.1]) {
+    clockTime = koiStarts[6] + offsetSec;
+    koiFilm.syncToScene(6, offsetSec);
+    await waitSceneIdle(p7);
+    koiFilm.syncToScene(6, offsetSec);
+  }
+  assert.equal(koiFilm.activeSceneIndex, 6);
+  assert.ok(p7.presentedFrames >= 4, `Scene 7 presented frames continuously through film end (presented=${p7.presentedFrames})`);
+});
+
+
 

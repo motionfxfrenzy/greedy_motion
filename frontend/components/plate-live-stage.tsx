@@ -50,6 +50,7 @@ import {
   BUFFERING_SHOW_DELAY_MS,
   buildStagePrepProps,
   recordBufferingSample,
+  resolveStagePrepOverlay,
   type BufferingRateSample,
   type SceneProgressResult
 } from "./animation-workspace";
@@ -189,6 +190,7 @@ export interface PlateLiveStageProps {
   updatingStale?: boolean;
   onRetryScene?: (sceneIndex: number) => void;
   retryingSceneIndex?: number | null;
+  filmToast?: { active: boolean; sceneIndex: number | null } | null;
 }
 
 function bundleCacheKeys(variantId: string, rev: number, bundleDigest?: string | null): { exact: string; revLatest: string } {
@@ -267,7 +269,8 @@ export function PlateLiveStage({
   onUpdateStale,
   updatingStale,
   onRetryScene,
-  retryingSceneIndex = null
+  retryingSceneIndex = null,
+  filmToast = null
 }: PlateLiveStageProps) {
   const hostContainerRef = useRef<HTMLDivElement | null>(null);
   const filmPlayerRef = useRef<FilmPlayer | null>(null);
@@ -848,7 +851,9 @@ export function PlateLiveStage({
         ...(forceClipReason ? { forceClipReason } : {})
       };
 
-      const key = `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:${canMountLive ? "live" : forceClipReason ?? "clip"}:${v.state}:${v.hasClip ? "clip-ready" : "clip-wait"}:${v.clipVersion ?? ""}:${spec.frames}:${durSec}:${sceneLook ?? ""}`;
+      const key = canMountLive
+        ? `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:live:${needsCheck ? "check" : "ok"}:${spec.frames}:${durSec}:${sceneLook ?? ""}`
+        : `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:${forceClipReason ?? "clip"}:${v.state}:${v.hasClip ? "clip-ready" : "clip-wait"}:${v.clipVersion ?? ""}:${spec.frames}:${durSec}:${sceneLook ?? ""}`;
       return { spec, key };
     };
 
@@ -1152,19 +1157,21 @@ export function PlateLiveStage({
       prevPlayingRef.current = playing;
       const fp = filmPlayerRef.current;
       if (fp && !liveOptions?.forceBuffering) {
-        fp.syncToClock();
+        const localSec = Math.max(0, clockTimeRef.current - (starts[current] ?? 0));
+        fp.syncToScene(current, localSec);
       }
     }
-  }, [playing, liveOptions?.forceBuffering]);
+  }, [playing, current, starts, liveOptions?.forceBuffering]);
 
   // Synchronize FilmPlayer before paint whenever `time` or `current` changes so scene-boundary switches never flash.
   useIsomorphicLayoutEffect(() => {
     clockTimeRef.current = time;
     const fp = filmPlayerRef.current;
     if (fp && !liveOptions?.forceBuffering) {
-      fp.syncToClock();
+      const localSec = Math.max(0, time - (starts[current] ?? 0));
+      fp.syncToScene(current, localSec);
     }
-  }, [time, current, liveOptions?.forceBuffering]);
+  }, [time, current, starts, liveOptions?.forceBuffering]);
 
   // Single clock RAF loop when playing a live scene or a storyboard sketch fallback while a scene is still being processed.
   const activeRes = resolutions[current];
@@ -1199,6 +1206,21 @@ export function PlateLiveStage({
         musicAudio.current?.pause();
         clearSfxTimers();
         Object.values(sfxAudios.current).forEach((el) => el?.pause());
+        if (activeSceneShowsLive && !liveOptions?.forceBuffering) {
+          const syncPausedScene = () => {
+            const fp = filmPlayerRef.current;
+            if (!fp) return;
+            const localSec = Math.max(0, clockTimeRef.current - (starts[current] ?? 0));
+            if (fp.activeSceneIndex !== current || !fp.scenes[current]?.isPumping) {
+              fp.syncToScene(current, localSec);
+            }
+          };
+          syncPausedScene();
+          const recoveryTimer = window.setInterval(syncPausedScene, 120);
+          return () => {
+            window.clearInterval(recoveryTimer);
+          };
+        }
       } else if ((playing || wantPlay.current) && activeSceneShowsClip) {
         const localSec = Math.max(0, clockTimeRef.current - (starts[current] ?? 0));
         audioTimeline?.setBuffering(false);
@@ -1379,7 +1401,8 @@ export function PlateLiveStage({
           telemetryRef.current.framesRendered += 1;
           telemetryRef.current.distinctFramesSet.add(targetFrame);
         }
-        fp.syncToClock();
+        const localForSync = Math.min(Math.max(0, sceneDur - 1 / 60), Math.max(0, localSec));
+        fp.syncToScene(current, localForSync);
         clockTimeRef.current = nextGlobalTime;
         if (fp.scenes[current]?.isBufferingNow || fp.scenes[current]?.isPreparing) {
           audioTimeline?.setBuffering(true);
@@ -1582,6 +1605,14 @@ export function PlateLiveStage({
     liveBuffering: liveBufferingInfo
   });
 
+  const stageOverlay = resolveStagePrepOverlay({
+    currentSceneIndex: current,
+    filmToast,
+    stagePrep,
+    prep,
+    isSecondaryAspectDrawing: isViewAspectDrawing && !isViewAspectDrawn
+  });
+
   const activeSceneHoldingLastFrameForClip =
     Boolean(shownVariant && !shownVariant.stale && shownResolution?.mode === "clip" && !shownVariant.hasClip) &&
     (filmPlayerRef.current?.scenes[current]?.lastPresentedSourceFrame ?? null) !== null;
@@ -1757,6 +1788,9 @@ export function PlateLiveStage({
           actionLabel={stagePrep.actionLabel}
           onAction={stagePrep.failed && onRetryScene ? () => onRetryScene(current) : stagePrep.stale ? onUpdateStale : undefined}
           actionBusy={stagePrep.failed ? retryingSceneIndex === current : updatingStale}
+          suppressDuplicateText={stageOverlay.suppressDuplicateText}
+          placement={stageOverlay.placement}
+          bottomText={stageOverlay.bottomText}
         />
       )}
     </>

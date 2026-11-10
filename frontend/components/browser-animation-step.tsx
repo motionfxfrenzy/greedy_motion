@@ -528,7 +528,7 @@ export function BrowserAnimationStep({
   }, [defaultAspect]);
 
   const [subMode, setSubMode] = useState<WorkspaceSubtitleMode>(
-    () => (project.beatPlan?.audio.captions ?? project.brief?.captions ?? "key-phrases") as WorkspaceSubtitleMode
+    () => (project.beatPlan?.audio.captions ?? project.brief?.captions ?? "full") as WorkspaceSubtitleMode
   );
   const [audioModeState, setAudioModeState] = useState<AudioMode>(() => initialAudioMode(project));
 
@@ -1285,7 +1285,7 @@ export function BrowserAnimationStep({
           bgColor: "",
           effectiveTextColor: "#ffffff",
           effectiveBgColor: "#0c0f16",
-          position: { x: 50, y: 88 },
+          position: { x: 50, y: 70 },
           currentSceneIndex: activeSceneIndex,
           onSelectMode: chooseSubMode,
           onSelectStyle: nopStyle,

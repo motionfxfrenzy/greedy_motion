@@ -95,7 +95,16 @@ export class FrameScheduler<T extends Disposable = Disposable> {
   /** A scene's code changed: forget it (cache, failures) so it is drawn again from its new signature. */
   invalidate(scene: string) {
     this.opts.cache.drop(scene);
-    for (const key of [...this.failed]) if (key.startsWith(`${scene}\u0000`)) this.failed.delete(key);
+    this.clearFailed(scene);
+  }
+
+  /** Clears transient draw failures (e.g. after an idle Worker termination or scene reactivation) without dropping cached frames. */
+  clearFailed(scene?: string) {
+    if (!scene) {
+      this.failed.clear();
+    } else {
+      for (const key of [...this.failed]) if (key.startsWith(`${scene}\u0000`)) this.failed.delete(key);
+    }
     this.halted = false;
     this.consecutiveFailures = 0;
   }
@@ -173,6 +182,13 @@ export class FrameScheduler<T extends Disposable = Disposable> {
       this.consecutiveFailures = 0;
       return true;
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error ?? "");
+      if (
+        (error as { aborted?: boolean })?.aborted ||
+        /terminated|destroyed|switched to clip|changed mode/i.test(msg)
+      ) {
+        return false;
+      }
       this.failed.add(`${slot.scene}\u0000${slot.frame}`);
       this.failures++;
       this.consecutiveFailures++;

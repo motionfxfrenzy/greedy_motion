@@ -1166,6 +1166,20 @@ export async function commitBundle(
       }
     }
     await client.query("commit");
+    if (res.rowCount === 1) {
+      // Wake any remaining queued variants on this project immediately when an authoring slot frees up.
+      void pool
+        .query<{ id: string; gen: number }>(
+          "select id, gen from app.plate_variants where project_id = $1 and state = 'queued' order by scene_index asc",
+          [row.project_id]
+        )
+        .then(async ({ rows: queuedRows }) => {
+          for (const qr of queuedRows) {
+            await sendOnce(null, QUEUES.plateAuthor, { variantId: qr.id, gen: qr.gen }, `${qr.id}:${qr.gen}`).catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+    }
     if (res.rowCount === 1 && row.timings?.reservationId) {
       await recordVariantReservationOutcome(
         row.timings.reservationId,

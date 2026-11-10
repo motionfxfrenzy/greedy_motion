@@ -1561,6 +1561,77 @@ export function buildStagePrepProps(input: BuildStagePrepPropsInput): StagePrepB
   return null;
 }
 
+export interface ResolveStagePrepOverlayInput {
+  currentSceneIndex: number;
+  filmToast?: { active: boolean; sceneIndex: number | null } | null;
+  stagePrep: StagePrepBuiltProps | null;
+  prep?: "sound" | "scenes" | "motion" | null;
+  isSecondaryAspectDrawing?: boolean;
+}
+
+export interface StagePrepOverlayResolution {
+  /** When true, the top aggregate toast already shows this exact scene/work status, so suppress the second status card/chip (keep only backgroundSketch if any). */
+  suppressDuplicateText: boolean;
+  /** Where any visible non-failed/non-stale status chip should sit: "top" (when no filmToast is active and live buffering is shown), "bottom" (dedicated selected-scene slot when distinct from top toast), or "stage" (for interactive failed/stale cards). */
+  placement: "top" | "bottom" | "stage";
+  /** Compact one-line text for the bottom selected-scene slot (includes Scene label when distinct from top toast). */
+  bottomText?: string;
+}
+
+/**
+ * Resolves the status overlay hierarchy so there is at most ONE aggregate toast at the top and zero duplicate banners/cards:
+ * - When `stagePrep` is `failed` or `stale`, keeps the interactive card on `"stage"` with `suppressDuplicateText: false`.
+ * - When `filmToast.active` is true and already covers `currentSceneIndex` (`filmToast.sceneIndex === currentSceneIndex` while not live frame buffering, or during top-level `prep` / secondary aspect wait), sets `suppressDuplicateText: true`.
+ * - When `filmToast.active` is true for a DIFFERENT scene (`filmToast.sceneIndex !== currentSceneIndex`), places ONLY the selected scene's status in the dedicated `"bottom"` slot outside `.aw-canvas` (`suppressDuplicateText: false, placement: "bottom"`).
+ * - When `filmToast` is inactive (`!filmToast?.active`), live buffering (`cause === "drawing" | "opening"`) uses the `"top"` slot, while a selected unready scene status uses `"bottom"`.
+ */
+export function resolveStagePrepOverlay(input: ResolveStagePrepOverlayInput): StagePrepOverlayResolution {
+  const { currentSceneIndex, filmToast, stagePrep, prep, isSecondaryAspectDrawing } = input;
+  if (!stagePrep) {
+    return { suppressDuplicateText: false, placement: "stage" };
+  }
+  if (stagePrep.failed || stagePrep.stale) {
+    return { suppressDuplicateText: false, placement: "stage" };
+  }
+
+  const isLiveFrameBuffering = stagePrep.cause === "drawing" || stagePrep.cause === "opening";
+  const toastActive = Boolean(filmToast?.active);
+
+  if (toastActive) {
+    const coveredByTopToast =
+      (!isLiveFrameBuffering && filmToast?.sceneIndex === currentSceneIndex) ||
+      prep === "sound" ||
+      prep === "scenes" ||
+      Boolean(isSecondaryAspectDrawing && filmToast?.sceneIndex === null);
+    if (coveredByTopToast) {
+      return { suppressDuplicateText: true, placement: "top" };
+    }
+    const baseText = (stagePrep.compactText ?? stagePrep.title ?? "").trim();
+    const scenePrefix = stagePrep.sceneLabel ?? `Scene ${currentSceneIndex + 1}`;
+    const bottomText =
+      baseText && !/^scene\s+\d+/i.test(baseText) ? `${scenePrefix} · ${baseText}` : baseText;
+    return {
+      suppressDuplicateText: false,
+      placement: "bottom",
+      ...(bottomText ? { bottomText } : {})
+    };
+  }
+
+  if (isLiveFrameBuffering) {
+    return { suppressDuplicateText: false, placement: "top" };
+  }
+
+  const baseText = (stagePrep.compactText ?? stagePrep.title ?? "").trim();
+  const scenePrefix = stagePrep.sceneLabel ?? `Scene ${currentSceneIndex + 1}`;
+  const bottomText =
+    baseText && !/^scene\s+\d+/i.test(baseText) ? `${scenePrefix} · ${baseText}` : baseText;
+  return {
+    suppressDuplicateText: false,
+    placement: "bottom",
+    ...(bottomText ? { bottomText } : {})
+  };
+}
+
 /**
  * Formats elapsed milliseconds as `M:SS` (never negative; e.g. `67000` -> `"1:07"`).
  */

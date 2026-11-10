@@ -154,10 +154,13 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
   const owner = newOwner();
   const row = await claimAuthor(variantId, gen, owner, LEASE_SECONDS, config.plates.projectAuthorCap);
   if (!row) {
-    // Held by a live owner or at the project cap: look again shortly, without spending a retry. Superseded or done: drop it.
+    // Held by a live owner or at the project cap: re-enqueue AFTER this pg-boss handler returns (so the active singletonKey is released first).
     const current = await getVariant(variantId);
     if (current && current.gen === gen && (current.state === "queued" || (current.state === "authoring" && current.author_until && current.author_until < new Date(Date.now() + 5_000)))) {
-      await sendOnce(null, QUEUES.plateAuthor, { variantId, gen }, `${variantId}:${gen}`, { startAfter: 8 });
+      await sendOnce(null, QUEUES.plateAuthor, { variantId, gen }, `${variantId}:${gen}`, { startAfter: 4 });
+      setTimeout(() => {
+        void sendOnce(null, QUEUES.plateAuthor, { variantId, gen }, `${variantId}:${gen}`, { startAfter: 2 }).catch(() => undefined);
+      }, 600).unref?.();
     }
     return;
   }

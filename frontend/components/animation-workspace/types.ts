@@ -145,6 +145,8 @@ export interface WorkspaceStatusBadge {
 export interface WorkspaceFilmToast {
   /** Whether any scene is currently being written, checked, or drawn. */
   active: boolean;
+  /** Optional 0-based scene index currently reported in `firstLine`. */
+  sceneIndex?: number | null;
   /** First line: what is being built right now (e.g. "Scene 5 is being written · about 1 min" or "Retrying scene 3 (the drawing worker restarted)"). */
   firstLine: string;
   /** Second line: film summary (e.g. "6 of 7 written · 6 drawn · about 4 min left"). */

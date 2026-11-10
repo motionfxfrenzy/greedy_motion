@@ -32,7 +32,7 @@ import {
   buildRenderConfirmReasons,
   buildStagePrepProps,
   buildSubtitleCues,
-  buildUnreadySceneBanner,
+  resolveStagePrepOverlay,
   computeBeatContentKey,
   computeFilmVersionKey,
   computeProjectPlateRevision,
@@ -230,7 +230,7 @@ export function PlatePreview({
   const [subOpacity, setSubOpacity] = useState<number>(100);
   const [subColor, setSubColor] = useState<string>("");
   const [subBgColor, setSubBgColor] = useState<string>("");
-  const [subPos, setSubPos] = useState<{ x: number; y: number }>({ x: 50, y: 88 });
+  const [subPos, setSubPos] = useState<{ x: number; y: number }>({ x: 50, y: 70 });
   const [scenePositions, setScenePositions] = useState<Record<string, { x: number; y: number }>>({});
   const [voiceOn, setVoiceOn] = useState<boolean>(true);
   const [musicOn, setMusicOn] = useState<boolean>(true);
@@ -1227,9 +1227,9 @@ export function PlatePreview({
     setSubOpacity(100);
     setSubColor("");
     setSubBgColor("");
-    setSubPos({ x: 50, y: 88 });
+    setSubPos({ x: 50, y: 70 });
     setScenePositions({});
-    void savePlateSubtitles(project.id, { size: 100, opacity: 100, color: null, bgColor: null, x: 50, y: 88, scenePositions: null }).catch(() => undefined);
+    void savePlateSubtitles(project.id, { size: 100, opacity: 100, color: null, bgColor: null, x: 50, y: 70, scenePositions: null }).catch(() => undefined);
   };
 
   const subtitleCues = useMemo(() => buildSubtitleCues(subMode, scenes, project.brief?.scriptBeats, starts, durations), [subMode, scenes, project.brief?.scriptBeats, starts, durations]);
@@ -1496,16 +1496,20 @@ export function PlatePreview({
     [effectiveScenesForProgress, perSceneProgress, filmProg, progressCtx, isEffectiveViewAspectDrawing, viewAspect]
   );
 
-  const sceneBanner = useMemo(
+  // Keep ONE main aggregate toast at the top; never render a middle duplicate sceneBanner.
+  const sceneBanner = null;
+  void stagePrepSceneIndex;
+
+  const clipStageOverlay = useMemo(
     () =>
-      buildUnreadySceneBanner({
-        scenes: effectiveScenesForProgress,
-        perSceneProgress,
-        progressContext: progressCtx,
-        currentSceneIndex: current,
-        stagePrepSceneIndex
+      resolveStagePrepOverlay({
+        currentSceneIndex: shown?.index ?? current,
+        filmToast,
+        stagePrep: clipStagePrep,
+        prep,
+        isSecondaryAspectDrawing: isViewAspectDrawing && !isAnySceneDrawnInViewAspect
       }),
-    [effectiveScenesForProgress, perSceneProgress, progressCtx, current, stagePrepSceneIndex]
+    [shown?.index, current, filmToast, clipStagePrep, prep, isViewAspectDrawing, isAnySceneDrawnInViewAspect]
   );
 
   const activeFpsSource: "clip" | "live" =
@@ -1603,6 +1607,7 @@ export function PlatePreview({
           updatingStale={updatingStale}
           onRetryScene={(idx) => { void handleRetryScene(idx); }}
           retryingSceneIndex={retryingSceneIdx}
+          filmToast={filmToast}
         />
       ) : (
         <>
@@ -1685,6 +1690,9 @@ export function PlatePreview({
             actionLabel={clipStagePrep.actionLabel}
             onAction={clipStagePrep.failed ? () => { void handleRetryScene(shown?.index ?? current); } : clipStagePrep.stale ? () => { void triggerDrawPlates(); } : undefined}
             actionBusy={clipStagePrep.failed ? retryingSceneIdx === (shown?.index ?? current) : updatingStale}
+            suppressDuplicateText={clipStageOverlay.suppressDuplicateText}
+            placement={clipStageOverlay.placement}
+            bottomText={clipStageOverlay.bottomText}
           />}
         </>
       )}

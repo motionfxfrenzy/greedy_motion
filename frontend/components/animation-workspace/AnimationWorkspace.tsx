@@ -281,6 +281,8 @@ export function AnimationWorkspace({
             <div className="aw-top-wait-slot" data-has-toast={showToast ? "true" : "false"} />
           </div>
 
+          <div className="aw-bottom-scene-slot" />
+
           {frameExtras}
         </div>
 
@@ -306,7 +308,7 @@ export function AnimationWorkspace({
           comments={comments}
           onSeek={onSeek}
           onTogglePlay={onTogglePlay}
-          bannerSceneIndex={sceneBanner?.sceneIndex ?? null}
+          bannerSceneIndex={sceneBanner?.sceneIndex ?? (filmToast?.active ? filmToast.sceneIndex : null) ?? null}
           onRetryScene={onRetryScene}
           retryingSceneIndex={retryingSceneIndex}
         />

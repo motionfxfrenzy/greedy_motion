@@ -190,7 +190,7 @@ const styleTemplates: readonly GalleryTemplate[] = looks
     summary: look.description,
     bestFor: look.renderMode === "native" ? "A drawn treatment that keeps your text and screenshots crisp" : "Generated footage in this look, with your text and screenshots on top",
     preview: look.preview,
-    skill: null, look: look.id, theme: "neutral", aspect: "16:9", durationSeconds: 30, motionProfile: "smooth", pace: "balanced", audio: "voiceover", captions: "key-phrases",
+    skill: null, look: look.id, theme: "neutral", aspect: "16:9", durationSeconds: 30, motionProfile: "smooth", pace: "balanced", audio: "voiceover", captions: "full",
     prompt: exampleStylePrompt
   }));
 
@@ -202,7 +202,7 @@ const styleTemplates: readonly GalleryTemplate[] = looks
  */
 type StyleRow = { look: LookId; name: string; description: string; hero: string | null };
 const styleVersions: readonly GalleryTemplate[] = (styleRows as unknown as StyleRow[]).flatMap((row): GalleryTemplate[] => {
-  const base = { look: row.look, theme: "neutral", aspect: "16:9" as const, durationSeconds: 30, captions: "key-phrases" as const, skill: null, kind: "style" as const, preview: getLook(row.look).preview };
+  const base = { look: row.look, theme: "neutral", aspect: "16:9" as const, durationSeconds: 30, captions: "full" as const, skill: null, kind: "style" as const, preview: getLook(row.look).preview };
   const name = row.name.toLowerCase();
   return [
     { ...base, id: `story-${row.look}`, name: `${row.name} story`, group: "Story", summary: row.description, bestFor: "Narrative and cinematic films told in one handmade look",
@@ -218,12 +218,12 @@ const styleVersions: readonly GalleryTemplate[] = (styleRows as unknown as Style
 
 /** Hand-built explainer styles (maths, tech diagrams, whiteboard, flat vector, 3D and more): scripts/gallery-scenes. */
 type SceneRow = Omit<GalleryTemplate, "kind" | "skill" | "captions" | "preview">;
-const sceneTemplates: readonly GalleryTemplate[] = (sceneRows as unknown as SceneRow[]).map((row) => ({ ...row, kind: "explainer", skill: null, captions: "key-phrases", preview: lookPreview(row.look) }));
+const sceneTemplates: readonly GalleryTemplate[] = (sceneRows as unknown as SceneRow[]).map((row) => ({ ...row, kind: "explainer", skill: null, captions: "full", preview: lookPreview(row.look) }));
 
 /** Remakes of public motion prompts (scripts/merge-gallery-opus.mjs validates and writes the rows). */
 type OpusRow = Omit<GalleryTemplate, "kind" | "skill" | "captions" | "preview">;
 const opusTemplates: readonly GalleryTemplate[] = (opusRows as unknown as OpusRow[]).map((row) => ({
-  ...row, kind: "explainer", skill: null, captions: "key-phrases",
+  ...row, kind: "explainer", skill: null, captions: "full",
   preview: lookPreview(row.look)
 }));
 
@@ -233,7 +233,7 @@ const themeTemplates: readonly GalleryTemplate[] = themes.map((theme): GalleryTe
   summary: `${theme.mode === "dark" ? "A dark" : "A light"} palette with its own type. Your brand kit can override it.`,
   bestFor: "Matching a mood or a brand before you add your own kit",
   preview: still(`/themes/${theme.id}.jpg`, "Rendered still"),
-  skill: null, look: "clean", theme: theme.id, aspect: "16:9", durationSeconds: 30, motionProfile: "smooth", pace: "balanced", audio: "voiceover", captions: "key-phrases",
+  skill: null, look: "clean", theme: theme.id, aspect: "16:9", durationSeconds: 30, motionProfile: "smooth", pace: "balanced", audio: "voiceover", captions: "full",
   prompt: exampleStylePrompt
 }));
 
@@ -354,7 +354,7 @@ export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMo
     motionProfile: item.motionProfile,
     pace: item.pace,
     audio: { mode: "both", voice: "Kore" },
-    captions: item.captions,
+    captions: "full",
     template: item.skill,
     theme: item.theme,
     look: item.look,

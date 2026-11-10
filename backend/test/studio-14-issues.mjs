@@ -160,10 +160,51 @@ test("Issue 4, 8 & 14: All-ratio centered composition (9:16, 16:9, 1:1), foregro
   assert.match(sketchSrc, /never draw eyes, brows, or a mouth on a plain PROP/);
 });
 
-test("Issue 5 & 6: Planning restart recovery config and 6-way parallel authoring defaults", () => {
+test("Issue 5, 6 & 15A: Planning restart recovery config, 8/12 authoring concurrency/cap, post-return re-enqueue, and checked live preservation during background export", () => {
   assert.equal(MAX_PLAN_ATTEMPTS, 3, "Interrupted storyboard planning supports bounded automatic restart recovery");
-  assert.equal(config.plates.authorConcurrency, 6, "Default PLATE_AUTHOR_CONCURRENCY is 6");
-  assert.equal(config.plates.projectAuthorCap, 6, "Default PLATE_PROJECT_AUTHOR_CAP is 6");
+  assert.equal(config.plates.authorConcurrency, 8, "Default PLATE_AUTHOR_CONCURRENCY is 8");
+  assert.equal(config.plates.projectAuthorCap, 12, "Default PLATE_PROJECT_AUTHOR_CAP is 12 so 6-, 7-, and 10-scene projects never cap the final scene");
+
+  const authorSrc = readFileSync(join(repoRoot, "backend/src/plates/author.ts"), "utf8");
+  assert.match(authorSrc, /setTimeout\(\(\) => \{\s*void sendOnce\(null, QUEUES\.plateAuthor/, "author.ts re-enqueues after pg-boss handler returns so singletonKey does not self-collide");
+
+  const storeSrc = readFileSync(join(repoRoot, "backend/src/plates/store.ts"), "utf8");
+  assert.match(storeSrc, /select id, gen from app\.plate_variants where project_id = \$1 and state = 'queued'/, "commitBundle immediately wakes remaining queued variants on the project");
+
+  const serviceSrc = readFileSync(join(repoRoot, "backend/src/plates/service.ts"), "utf8");
+  assert.match(serviceSrc, /hasPassedFastLiveCheck/, "service.ts keeps already-checked live scenes playable when background export renders clips");
+});
+
+test("Observations 3 & 4: Default subtitle mode is 'full' (Subtitles) and default vertical offset is Y=70% across contracts, backend, frontend, and worker", async () => {
+  const { defaultSubtitlesFor, mergeSubtitles } = await import("../src/plates/model.ts");
+  assert.equal(contracts.defaultScriptBrief.captions, "full", "defaultScriptBrief.captions is 'full'");
+
+  const allTemplates = contracts.galleryTemplates;
+  assert.ok(allTemplates.length >= 160);
+  for (const item of allTemplates) {
+    const b = contracts.galleryBrief(item);
+    assert.equal(b.captions, "full", `galleryBrief(${item.id}).captions defaults to 'full'`);
+  }
+
+  const def = defaultSubtitlesFor({ brief: { look: "illus-koi", aspect: "9:16" } });
+  assert.equal(def.mode, "full", "defaultSubtitlesFor mode is 'full'");
+  assert.equal(def.x, 50, "defaultSubtitlesFor x is 50");
+  assert.equal(def.y, 70, "defaultSubtitlesFor y is 70");
+
+  // Explicit user choices (none, key-phrases, custom y, per-scene positions) are preserved
+  const explicit = defaultSubtitlesFor({ brief: { look: "illus-koi", captions: "none" } });
+  assert.equal(explicit.mode, "none");
+  const merged = mergeSubtitles(def, { mode: "key-phrases", y: 82, scenePositions: { "2": { x: 45, y: 64 } } }, "9:16");
+  assert.equal(merged.mode, "key-phrases");
+  assert.equal(merged.y, 82);
+  assert.deepEqual(merged.scenePositions, { "2": { x: 45, y: 64 } });
+
+  const workerSrc = readFileSync(join(repoRoot, "worker/src/plates.mjs"), "utf8");
+  assert.match(workerSrc, /sub\.y \?\? 70/, "worker/src/plates.mjs defaults subtitle Y to 70%");
+
+  const cssSrc = readFileSync(join(repoRoot, "frontend/app/animation-workspace.css"), "utf8");
+  assert.match(cssSrc, /\.aw-subtitle\{position:absolute;left:50%;top:70%/, "animation-workspace.css defaults .aw-subtitle top to 70%");
+  assert.match(cssSrc, /\.aw-bottom-scene-slot\{/, "animation-workspace.css defines dedicated .aw-bottom-scene-slot outside .aw-canvas");
 });
 
 test("Issue 9: Live comments coalesce onto in-flight initial queued/authoring scenes without blocking", () => {

@@ -19,11 +19,24 @@ async function plateProject(projectId: string) {
 }
 
 const clipVersion = (v: VariantRow) => (v.clip_key ? createHash("md5").update(v.clip_key).digest("hex").slice(0, 10) : null);
-// In clip mode (or when a clip fallback render was requested), "bundled" (waiting for a worker) is rendering as far as the person is concerned.
-const shown = (v: VariantRow, mode: LiveMode): PlateState =>
-  v.state === "bundled" && (mode === "clip" || v.stage === "queued for rendering") ? "rendering" : v.state;
+/** timings.playback = { mode: "clip", reason: "slow", medianMs, gen, digest } is written by submitCheckReport; honoured only for the same bundle. */
+const playbackOf = (v: VariantRow): { playback: "clip"; drawMsPerFrame: number } | undefined => {
+  const p = (v.timings as Record<string, any> | undefined)?.playback;
+  return p && p.mode === "clip" && p.digest && p.digest === v.bundle_digest && p.gen === v.gen ? { playback: "clip", drawMsPerFrame: Math.round(Number(p.medianMs) * 10) / 10 } : undefined;
+};
+// A live scene that already passed its browser check (`checked_at != null`) and was NOT demoted to slow-draw clip mode stays
+// live-playable (`"checked"`) even if a background export worker (`plate.enqueueMisses` / `plate.claim`) is currently rendering its MP4 clip.
+const hasPassedFastLiveCheck = (v: VariantRow): boolean =>
+  Boolean(v.checked_at) && Boolean(v.bundle_digest) && playbackOf(v)?.playback !== "clip";
+const shown = (v: VariantRow, mode: LiveMode): PlateState => {
+  if (mode === "live" && (v.state === "bundled" || v.state === "rendering") && hasPassedFastLiveCheck(v)) {
+    return "checked";
+  }
+  return v.state === "bundled" && (mode === "clip" || v.stage === "queued for rendering") ? "rendering" : v.state;
+};
 
-const isLivePlayable = (v: VariantRow, mode: LiveMode): boolean => mode === "live" && v.state === "checked";
+const isLivePlayable = (v: VariantRow, mode: LiveMode): boolean =>
+  mode === "live" && (v.state === "checked" || ((v.state === "bundled" || v.state === "rendering") && hasPassedFastLiveCheck(v)));
 const isPlayable = (v: VariantRow, mode: LiveMode): boolean => v.state === "drawn" || isLivePlayable(v, mode);
 
 const toIso = (d: Date | string | null | undefined): string | null =>
@@ -31,11 +44,6 @@ const toIso = (d: Date | string | null | undefined): string | null =>
 const authorMsOf = (v: VariantRow): number | undefined => {
   const raw = v.timings?.authorTotalMs;
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
-};
-/** timings.playback = { mode: "clip", reason: "slow", medianMs, gen, digest } is written by submitCheckReport; honoured only for the same bundle. */
-const playbackOf = (v: VariantRow): { playback: "clip"; drawMsPerFrame: number } | undefined => {
-  const p = (v.timings as Record<string, any> | undefined)?.playback;
-  return p && p.mode === "clip" && p.digest && p.digest === v.bundle_digest && p.gen === v.gen ? { playback: "clip", drawMsPerFrame: Math.round(Number(p.medianMs) * 10) / 10 } : undefined;
 };
 /** timings.retrying is set by the sweep (reconcile.ts) and cleared when a worker claims the row; shown only while the row is open. */
 const retryingOf = (v: VariantRow): { attempt: number; reason: string } | undefined => {
