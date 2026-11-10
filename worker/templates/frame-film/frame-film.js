@@ -38,6 +38,173 @@
     return m.kind === "move" && Object.keys(m.from || {}).some(function (name) { return !/^(fill|stroke|stroke-width|fill-opacity|stroke-opacity)$/.test(name); });
   }
 
+  function round2(n) { return Math.round(n * 100) / 100; }
+  function round3(n) { return Math.round(n * 1000) / 1000; }
+
+  function parseTransform(str) {
+    if (!str) return { hasTranslate: false, x: 0, y: 0, hasScale: false, sx: 1, sy: 1, hasRotate: false, rot: 0 };
+    var tr = /translate\(\s*(-?[\d.]+)(?:[\s,]+(-?[\d.]+))?\s*\)/.exec(str);
+    var sc = /scale\(\s*(-?[\d.]+)(?:[\s,]+(-?[\d.]+))?\s*\)/.exec(str);
+    var ro = /rotate\(\s*(-?[\d.]+)/.exec(str);
+    var sx = sc ? Number(sc[1]) : 1;
+    var sy = sc ? Number(sc[2] !== undefined ? sc[2] : sc[1]) : 1;
+    return {
+      hasTranslate: Boolean(tr),
+      x: tr ? Number(tr[1]) : 0,
+      y: tr && tr[2] !== undefined ? Number(tr[2]) : 0,
+      hasScale: Boolean(sc),
+      sx: Number.isFinite(sx) ? sx : 1,
+      sy: Number.isFinite(sy) ? sy : 1,
+      hasRotate: Boolean(ro),
+      rot: ro && Number.isFinite(Number(ro[1])) ? Number(ro[1]) : 0
+    };
+  }
+
+  function center(el) {
+    try { var b = el.getBBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; } catch (e) { return { x: 0, y: 0 }; }
+  }
+
+  function baseInfo(el) {
+    if (el.__ffBase) return el.__ffBase;
+    var raw = el.getAttribute("transform");
+    var parsed = parseTransform(raw);
+    var lc = center(el);
+    var px = 0, py = 0;
+    var cur = el.parentElement;
+    var svg = el.ownerSVGElement;
+    while (cur && cur !== svg) {
+      var pt = parseTransform(cur.getAttribute && cur.getAttribute("transform"));
+      if (pt.hasTranslate) { px += pt.x; py += pt.y; }
+      cur = cur.parentElement;
+    }
+    var wc = {
+      x: px + parsed.x + lc.x * parsed.sx,
+      y: py + parsed.y + lc.y * parsed.sy
+    };
+    el.__ffBase = {
+      raw: raw,
+      parsed: parsed,
+      localCenter: lc,
+      parentTranslate: { x: px, y: py },
+      worldCenter: wc
+    };
+    return el.__ffBase;
+  }
+
+  function composeTransform(el, st) {
+    var info = baseInfo(el);
+    var base = info.parsed;
+    var lc = info.localCenter;
+    var x = st.x !== undefined ? st.x : base.x;
+    var y = st.y !== undefined ? st.y : base.y;
+    var rot = st.rot !== undefined ? st.rot : base.rot;
+    var sx = st.sx !== undefined ? st.sx : base.sx;
+    var sy = st.sy !== undefined ? st.sy : base.sy;
+    if (
+      Math.abs(x - base.x) < 1e-3 &&
+      Math.abs(y - base.y) < 1e-3 &&
+      Math.abs(rot - base.rot) < 1e-3 &&
+      Math.abs(sx - base.sx) < 1e-3 &&
+      Math.abs(sy - base.sy) < 1e-3
+    ) {
+      return info.raw;
+    }
+    var parts = [];
+    if (Math.abs(x) > 1e-3 || Math.abs(y) > 1e-3 || base.hasTranslate) {
+      parts.push("translate(" + round2(x) + " " + round2(y) + ")");
+    }
+    var hasRot = Math.abs(rot) > 1e-3 || base.hasRotate;
+    var hasSc = Math.abs(sx - 1) > 1e-3 || Math.abs(sy - 1) > 1e-3 || base.hasScale;
+    if (hasRot || hasSc) {
+      var pivotLocal = !base.hasTranslate && (Math.abs(lc.x) > 1e-2 || Math.abs(lc.y) > 1e-2);
+      if (pivotLocal) parts.push("translate(" + round2(lc.x) + " " + round2(lc.y) + ")");
+      if (hasRot) parts.push("rotate(" + round2(rot) + ")");
+      if (hasSc) parts.push("scale(" + round3(sx) + (Math.abs(sx - sy) > 1e-3 ? " " + round3(sy) : "") + ")");
+      if (pivotLocal) parts.push("translate(" + round2(-lc.x) + " " + round2(-lc.y) + ")");
+    }
+    return parts.length ? parts.join(" ") : info.raw;
+  }
+
+  function applyTransformState(el, st) {
+    var attr = composeTransform(el, st);
+    if (attr === null || attr === undefined || attr === "") el.removeAttribute("transform");
+    else el.setAttribute("transform", attr);
+  }
+
+  function tweenTransform(el, fromSt, toSt, duration, ease, startTime, setAtTime, hops) {
+    var info = baseInfo(el);
+    var base = info.parsed;
+    var s0 = {
+      x: fromSt.x !== undefined ? fromSt.x : base.x,
+      y: fromSt.y !== undefined ? fromSt.y : base.y,
+      rot: fromSt.rot !== undefined ? fromSt.rot : base.rot,
+      sx: fromSt.sx !== undefined ? fromSt.sx : base.sx,
+      sy: fromSt.sy !== undefined ? fromSt.sy : base.sy
+    };
+    var s1 = {
+      x: toSt && toSt.x !== undefined ? toSt.x : base.x,
+      y: toSt && toSt.y !== undefined ? toSt.y : base.y,
+      rot: toSt && toSt.rot !== undefined ? toSt.rot : base.rot,
+      sx: toSt && toSt.sx !== undefined ? toSt.sx : base.sx,
+      sy: toSt && toSt.sy !== undefined ? toSt.sy : base.sy
+    };
+    var lerpState = function (p) {
+      applyTransformState(el, {
+        x: s0.x + (s1.x - s0.x) * p,
+        y: s0.y + (s1.y - s0.y) * p,
+        rot: s0.rot + (s1.rot - s0.rot) * p,
+        sx: s0.sx + (s1.sx - s0.sx) * p,
+        sy: s0.sy + (s1.sy - s0.sy) * p
+      });
+    };
+    var proxy = { p: 0 };
+    if (typeof setAtTime === "number") {
+      tl.set(proxy, { p: 0, onUpdate: function () { lerpState(0); } }, setAtTime);
+    }
+    if (hops && hops > 1) {
+      var each = duration / hops;
+      for (var h = 1; h <= hops; h++) {
+        (function (pStart, pEnd, hopAt) {
+          var hp = { p: pStart };
+          tl.fromTo(
+            hp,
+            { p: pStart },
+            {
+              p: pEnd,
+              duration: each * (1 - F.hold),
+              ease: ease,
+              immediateRender: false,
+              onUpdate: function () { lerpState(hp.p); }
+            },
+            hopAt
+          );
+        })((h - 1) / hops, h / hops, startTime + (h - 1) * each);
+      }
+    } else {
+      tl.fromTo(
+        proxy,
+        { p: 0 },
+        {
+          p: 1,
+          duration: duration,
+          ease: ease,
+          immediateRender: false,
+          onUpdate: function () { lerpState(proxy.p); }
+        },
+        startTime
+      );
+    }
+  }
+
+  function isInsideMoving(el, svg, movingSet) {
+    var cur = el;
+    while (cur && cur !== svg) {
+      if (cur.id && movingSet.has(cur.id)) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
   // Each frame in its own layer, stacked; only the current one (and the outgoing one during a cut) is visible.
   var frames = data.beats.map(function (beat, i) {
     var layer = document.createElement("div");
@@ -51,6 +218,10 @@
     svg.setAttribute("height", "100%");
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     var leaves = Array.prototype.filter.call(svg.querySelectorAll(LEAVES), function (el) { return !el.closest("defs,clipPath,marker,pattern,mask"); });
+    // Pre-cache resting transform and bounding box geometry while all layers are laid out.
+    Array.prototype.forEach.call(svg.querySelectorAll("*"), function (el) {
+      if (!el.closest("defs,clipPath,marker,pattern,mask")) baseInfo(el);
+    });
     // The full-frame background rectangles are the ground, not content: they never animate.
     // Pointers and markers sit on top: a triangle drawn before the range bracket would hide behind it.
     Array.prototype.forEach.call(svg.querySelectorAll(":scope > polygon"), function (el) { svg.appendChild(el); });
@@ -62,13 +233,9 @@
     if (i > 0) leaves.filter(isGround).forEach(function (el) { gsap.set(el, { opacity: 0 }); });
     // Elements the scene's motion moves arrive by that motion, not by the cut's glide or draw-on.
     var moving = new Set((beat.motion || []).filter(entrance).map(function (m) { return m.id; }));
-    var own = content.filter(function (el) { return !moving.has(el.id); });
+    var own = content.filter(function (el) { return !isInsideMoving(el, svg, moving); });
     return { layer: layer, svg: svg, leaves: own, all: content, motion: beat.motion || [], start: beat.start, end: beat.end, index: i };
   });
-
-  function center(el) {
-    try { var b = el.getBBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; } catch (e) { return { x: 0, y: 0 }; }
-  }
   function attrsOf(el) {
     var out = {};
     (NUM[el.tagName] || []).concat(PAINT).forEach(function (name) { var v = el.getAttribute(name); if (v !== null) out[name] = v; });
@@ -128,9 +295,13 @@
       var len = el.getTotalLength() || 1;
       tl.fromTo(el, { attr: { "stroke-dasharray": len, "stroke-dashoffset": len } }, { attr: { "stroke-dashoffset": 0 }, duration: F.draw, ease: EXPLAINER ? smooth : "power2.inOut", immediateRender: true }, t);
     } else if (tag === "text") {
-      tl.fromTo(el, { opacity: 0, y: EXPLAINER ? 10 : 14 }, { opacity: 1, y: 0, duration: F.text, ease: F.textEase, immediateRender: true }, t);
+      var infoT = baseInfo(el), baseT = infoT.parsed;
+      tweenTransform(el, { x: baseT.x, y: baseT.y + (EXPLAINER ? 10 : 14), rot: baseT.rot, sx: baseT.sx, sy: baseT.sy }, baseT, F.text, F.textEase, t, t);
+      tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: F.text, ease: F.textEase, immediateRender: true }, t);
     } else {
-      tl.fromTo(el, { opacity: 0, scale: EXPLAINER ? 0.96 : 0.92, svgOrigin: center(el).x + " " + center(el).y }, { opacity: 1, scale: 1, duration: F.shape, ease: F.shapeEase, immediateRender: true }, t);
+      var infoS = baseInfo(el), baseS = infoS.parsed, s0 = EXPLAINER ? 0.96 : 0.92;
+      tweenTransform(el, { x: baseS.x, y: baseS.y, rot: baseS.rot, sx: baseS.sx * s0, sy: baseS.sy * s0 }, baseS, F.shape, F.shapeEase, t, t);
+      tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: F.shape, ease: F.shapeEase, immediateRender: true }, t);
     }
   }
   function stagger(count, room) { return count <= 1 ? 0 : Math.min(F.lag, room / count); }
@@ -144,61 +315,142 @@
     });
     return out;
   }
+
+  function resolveMoveFromState(el, fromStr) {
+    var info = baseInfo(el);
+    var base = info.parsed;
+    var ft = parseTransform(fromStr);
+    var x = base.x, y = base.y, rot = base.rot, sx = base.sx, sy = base.sy;
+    if (ft.hasTranslate) {
+      if (base.hasTranslate) {
+        if (Math.hypot(base.x, base.y) >= 180 && Math.hypot(ft.x, ft.y) <= 90) {
+          x = base.x + ft.x;
+          y = base.y + ft.y;
+        } else if (
+          Math.hypot(info.parentTranslate.x, info.parentTranslate.y) >= 100 &&
+          Math.hypot(ft.x - info.worldCenter.x, ft.y - info.worldCenter.y) < Math.hypot(ft.x - base.x, ft.y - base.y) * 0.7
+        ) {
+          x = ft.x - info.parentTranslate.x;
+          y = ft.y - info.parentTranslate.y;
+        } else {
+          x = ft.x;
+          y = ft.y;
+        }
+      } else {
+        var lc = info.localCenter;
+        if (
+          (Math.abs(lc.x) > 100 || Math.abs(lc.y) > 100) &&
+          Math.hypot(ft.x - lc.x, ft.y - lc.y) < Math.hypot(ft.x, ft.y) * 0.6
+        ) {
+          x = ft.x - lc.x;
+          y = ft.y - lc.y;
+        } else {
+          x = ft.x;
+          y = ft.y;
+        }
+      }
+    }
+    if (ft.hasScale) {
+      sx = Math.max(0.01, ft.sx);
+      sy = Math.max(0.01, ft.sy);
+    }
+    if (ft.hasRotate) {
+      rot = ft.rot;
+    }
+    return { x: x, y: y, rot: rot, sx: sx, sy: sy, hasTransform: ft.hasTranslate || ft.hasScale || ft.hasRotate };
+  }
+
   // The scene's directed motion (frame-motion.ts): the frame is the end state; each entry runs on its words.
   function play(frame) {
     var t0 = frame.start;
+    var movesById = {};
+    frame.motion.forEach(function (m) {
+      if (m.kind === "move" && m.id) {
+        (movesById[m.id] = movesById[m.id] || []).push(m);
+      }
+    });
+    Object.keys(movesById).forEach(function (id) {
+      movesById[id].sort(function (a, b) { return (a.start || 0) - (b.start || 0); });
+    });
+
+    var seenMoveCountById = {};
     frame.motion.forEach(function (m) {
       var at = t0 + m.start, span = Math.max(F.minSpan, m.end - m.start);
       if (m.kind === "move") {
         var el = byId(frame, m.id);
         if (!el) return;
-        var from = Object.assign({}, m.from), shift = null;
+        var seqList = movesById[m.id] || [m];
+        var seqIdx = seenMoveCountById[m.id] || 0;
+        seenMoveCountById[m.id] = seqIdx + 1;
+        var isFirstForEl = seqIdx === 0;
+        var from = Object.assign({}, m.from);
         // Explainer: something new (not carried over) is not on screen until its move begins, and fades in as it moves;
         // new words never start before the old ones have cleared.
-        if (EXPLAINER && frame.index > 0 && entrance(m)) {
+        if (EXPLAINER && frame.index > 0 && isFirstForEl && entrance(m)) {
           if (el.tagName === "text" || el.querySelector && el.querySelector("text")) at = Math.max(at, t0 + 0.45);
           if (from.opacity === undefined) {
             tl.set(el, { opacity: 0 }, t0);
             tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: Math.min(0.6, span), ease: smooth, immediateRender: false }, at);
           }
         }
-        if (from.transform) {
-          var tr = /translate\(\s*(-?[\d.]+)[\s,]*(-?[\d.]+)?\s*\)/.exec(from.transform);
-          if (tr) shift = { x: Number(tr[1]), y: Number(tr[2] || 0) };
-          delete from.transform;
-        }
+        var rawFromTransform = from.transform;
+        delete from.transform;
         var to = drawn(el, Object.keys(from));
         Object.keys(to).forEach(function (name) { if (to[name] === null) { delete to[name]; delete from[name]; } });
-        // Explainer: a hop is a smooth glide then a short dwell on the box it checks, never a teleport.
-        var hops = EXPLAINER && m.steps && shift ? m.steps : 0;
         var ease = EXPLAINER ? smooth : m.steps ? "steps(" + m.steps + ")" : "power2.inOut";
         if (Object.keys(from).length) {
-          tl.set(el, { attr: from }, t0);
+          if (isFirstForEl) tl.set(el, { attr: from }, t0);
           tl.fromTo(el, { attr: from }, { attr: to, duration: span, ease: ease, immediateRender: false }, at);
         }
-        if (shift && hops) {
-          tl.set(el, { x: shift.x, y: shift.y }, t0);
-          var each = span / hops;
-          for (var h = 1; h <= hops; h++) tl.fromTo(el, { x: shift.x * (1 - (h - 1) / hops), y: shift.y * (1 - (h - 1) / hops) }, { x: shift.x * (1 - h / hops), y: shift.y * (1 - h / hops), duration: each * (1 - F.hold), ease: smooth, immediateRender: false }, at + (h - 1) * each);
-        } else if (shift) {
-          tl.set(el, { x: shift.x, y: shift.y }, t0);
-          tl.fromTo(el, { x: shift.x, y: shift.y }, { x: 0, y: 0, duration: span, ease: ease, immediateRender: false }, at);
+        if (rawFromTransform) {
+          var info = baseInfo(el);
+          var base = info.parsed;
+          var fromSt = resolveMoveFromState(el, rawFromTransform);
+          var toSt = { x: base.x, y: base.y, rot: base.rot, sx: base.sx, sy: base.sy };
+          if (seqIdx + 1 < seqList.length && seqList[seqIdx + 1].from && seqList[seqIdx + 1].from.transform) {
+            var nextSt = resolveMoveFromState(el, seqList[seqIdx + 1].from.transform);
+            toSt = { x: nextSt.x, y: nextSt.y, rot: nextSt.rot, sx: base.sx, sy: base.sy };
+          } else if (seqList.length > 1 && seqIdx === seqList.length - 1) {
+            var earlierStartedAtBase = seqList.slice(0, seqIdx).some(function (em) {
+              if (!em.from || !em.from.transform) return false;
+              var es = resolveMoveFromState(el, em.from.transform);
+              return Math.hypot(es.x - base.x, es.y - base.y) < 5;
+            });
+            if (earlierStartedAtBase && Math.hypot(fromSt.x - base.x, fromSt.y - base.y) > 20) {
+              toSt = { x: fromSt.x, y: fromSt.y, rot: base.rot, sx: base.sx, sy: base.sy };
+            }
+          }
+          var hops = EXPLAINER && m.steps ? m.steps : 0;
+          tweenTransform(el, fromSt, toSt, span, hops ? smooth : ease, at, isFirstForEl ? t0 : undefined, hops);
         }
       } else if (m.kind === "sweep") {
         var list = m.ids.map(function (id) { return byId(frame, id); }).filter(Boolean);
         var gap = span / Math.max(1, list.length);
         list.forEach(function (el, k) {
-          var back = drawn(el, Object.keys(m.flash));
+          var flashAttrs = Object.assign({}, m.flash);
+          var flashTr = flashAttrs.transform ? parseTransform(flashAttrs.transform) : null;
+          delete flashAttrs.transform;
+          var back = drawn(el, Object.keys(flashAttrs));
           var when = at + k * gap;
           // Explainer: like Manim's Indicate, the element swells a little as it takes the colour, then settles.
           var swell = EXPLAINER ? Math.max(0.3, Math.min(F.flash, gap)) : Math.min(F.flash, gap * 0.5);
           var rest = {};
           Object.keys(back).forEach(function (name) { if (back[name] !== null) rest[name] = back[name]; });
-          tl.fromTo(el, { attr: rest }, { attr: m.flash, duration: swell, ease: EXPLAINER ? smooth : "power1.out", immediateRender: false }, when);
-          if (EXPLAINER) tl.fromTo(el, { scale: 1, svgOrigin: center(el).x + " " + center(el).y }, { scale: 1.08, svgOrigin: center(el).x + " " + center(el).y, duration: swell / 2, ease: smooth, yoyo: true, repeat: 1, immediateRender: false }, when);
-          if (!m.stay) {
+          if (Object.keys(flashAttrs).length) {
+            tl.fromTo(el, { attr: rest }, { attr: flashAttrs, duration: swell, ease: EXPLAINER ? smooth : "power1.out", immediateRender: false }, when);
+          }
+          var infoSw = baseInfo(el), baseSw = infoSw.parsed;
+          var swellFactor = flashTr && flashTr.hasScale ? flashTr.sx : EXPLAINER ? 1.08 : 1;
+          if (swellFactor !== 1) {
+            var peakSt = { x: baseSw.x, y: baseSw.y, rot: baseSw.rot, sx: baseSw.sx * swellFactor, sy: baseSw.sy * swellFactor };
+            tweenTransform(el, baseSw, peakSt, swell / 2, smooth, when);
+            if (!m.stay || !flashTr) {
+              tweenTransform(el, peakSt, baseSw, swell / 2, smooth, when + swell / 2);
+            }
+          }
+          if (!m.stay && Object.keys(flashAttrs).length) {
             Object.keys(back).forEach(function (name) { if (back[name] === null) delete back[name]; });
-            if (Object.keys(back).length) tl.fromTo(el, { attr: m.flash }, { immediateRender: false, attr: back, duration: EXPLAINER ? swell : Math.min(0.25, gap * 0.6), ease: EXPLAINER ? smooth : "power1.inOut" }, when + Math.max(EXPLAINER ? swell : gap * 0.6, 0.12));
+            if (Object.keys(back).length) tl.fromTo(el, { attr: flashAttrs }, { immediateRender: false, attr: back, duration: EXPLAINER ? swell : Math.min(0.25, gap * 0.6), ease: EXPLAINER ? smooth : "power1.inOut" }, when + Math.max(EXPLAINER ? swell : gap * 0.6, 0.12));
           }
         });
       } else if (m.kind === "count") {
@@ -228,13 +480,28 @@
   function named(el) { return el.id && !/^m\d+$/.test(el.id) && !ground(el) && !el.closest("defs,clipPath,marker,pattern,mask"); }
   function isSlot(el) { return /^(title|subtitle|caption(-\d+)?)$/.test(el.id || ""); }
   function leavesOf(el) { return el.matches(LEAVES) ? [el] : Array.prototype.slice.call(el.querySelectorAll(LEAVES)); }
+  function directLeavesOfGroup(g) {
+    return Array.prototype.filter.call(g.querySelectorAll(LEAVES), function (leaf) {
+      var cur = leaf.parentElement;
+      while (cur && cur !== g) {
+        if (cur.tagName === "g" && named(cur)) return false;
+        cur = cur.parentElement;
+      }
+      return true;
+    });
+  }
+  function hasNestedNamedGroup(g) {
+    return Array.prototype.some.call(g.querySelectorAll("g[id]"), function (child) {
+      return child !== g && named(child);
+    });
+  }
   // Pairs elements by the ids the frames share: a shared group pairs its parts in drawing order (rect with rect, text with
   // text); a text slot pairs only if its words are unchanged (otherwise it clears and is rewritten). Null when the frames
   // carry no named ids, which leaves the older matching as a fallback.
   function pairById(prev, next) {
     var before = {}, any = false;
     Array.prototype.forEach.call(prev.svg.querySelectorAll("[id]"), function (el) { if (named(el)) { before[el.id] = el; any = true; } });
-    var pairs = [], groups = [], used = new Set();
+    var pairs = [], groups = [], used = new Set(), groupLeavesA = [], groupLeavesB = [];
     Array.prototype.forEach.call(next.svg.querySelectorAll("[id]"), function (b) {
       if (!named(b)) return;
       any = true;
@@ -243,17 +510,32 @@
       if (isSlot(b) && a.textContent.trim() !== b.textContent.trim()) return;
       used.add(a);
       if (b.tagName === "g") {
-        groups.push([a, b]);
-        var la = leavesOf(a), lb = leavesOf(b);
-        lb.forEach(function (leaf) {
-          var match = la.find(function (x) { return !used.has(x) && x.tagName === leaf.tagName; });
-          if (match) { used.add(match); pairs.push([match, leaf]); }
-        });
+        var ia = baseInfo(a), ib = baseInfo(b);
+        var wrapsNamed = hasNestedNamedGroup(a) || hasNestedNamedGroup(b);
+        var sameCoordMode = !wrapsNamed && ia.parsed.hasTranslate === ib.parsed.hasTranslate;
+        var la = wrapsNamed ? directLeavesOfGroup(a) : leavesOf(a);
+        var lb = wrapsNamed ? directLeavesOfGroup(b) : leavesOf(b);
+        if (sameCoordMode) {
+          groups.push([a, b, true]);
+          lb.forEach(function (leaf) {
+            var match = la.find(function (x) { return !used.has(x) && x.tagName === leaf.tagName; });
+            if (match) { used.add(match); pairs.push([match, leaf]); }
+          });
+        } else if (!wrapsNamed) {
+          groups.push([a, b, false]);
+          la.forEach(function (leaf) { used.add(leaf); groupLeavesA.push(leaf); });
+          lb.forEach(function (leaf) { groupLeavesB.push(leaf); });
+        } else if (ia.parsed.hasTranslate && ib.parsed.hasTranslate) {
+          lb.forEach(function (leaf) {
+            var match = la.find(function (x) { return !used.has(x) && x.tagName === leaf.tagName; });
+            if (match) { used.add(match); pairs.push([match, leaf]); }
+          });
+        }
       } else {
         pairs.push([a, b]);
       }
     });
-    return any ? { pairs: pairs, groups: groups } : null;
+    return any ? { pairs: pairs, groups: groups, groupLeavesA: groupLeavesA, groupLeavesB: groupLeavesB } : null;
   }
 
   // The older matching (by kind, size and position), for frames drawn before shared ids existed.
@@ -290,6 +572,10 @@
     // and with software rendering (the render worker) too many of them made Chrome drop tiles, so parts of a scene vanished.
     tl.set(frame.layer, { display: "block" }, t);
     // The first layer carries the ground, so it stays; its content has faded or handed over by then.
+    if (i === 0 && frames.length > 1) {
+      var clearFirstAt = frames[1].start + Math.max(MOVE, F.fadeOut) + 0.1;
+      frame.all.forEach(function (el) { tl.set(el, { opacity: 0 }, clearFirstAt); });
+    }
     if (i > 0 && i + 1 < frames.length) tl.set(frame.layer, { display: "none" }, frames[i + 1].start + Math.max(MOVE, F.fadeOut) + 0.1);
     var room = Math.min(F.room, Math.max(0.3, (frame.end - frame.start) * 0.35));
 
@@ -305,20 +591,43 @@
     if (!byIdPairs) return heuristicCut(prev, frame, t, room);
     var pairs = byIdPairs.pairs, groups = byIdPairs.groups;
     // What carries over is already on screen: its own "appear" move (or its group's) would hide it.
-    var carriedEls = pairs.map(function (p) { return p[1]; }).concat(groups.map(function (g) { return g[1]; }));
+    var carriedEls = pairs.map(function (p) { return p[1]; }).concat(groups.map(function (g) { return g[1]; })).concat(byIdPairs.groupLeavesB || []);
     frame.motion = frame.motion.filter(function (m) {
       if (m.kind !== "move") return true;
       var target = byId(frame, m.id);
       return !target || !carriedEls.some(function (el) { return el === target || target.contains(el); });
     });
     play(frame);
-    var paired = new Set(pairs.map(function (p) { return p[1]; }));
-    var left = new Set(pairs.map(function (p) { return p[0]; }));
-    var continuity = pairs.some(function (p) { return !isSlot(p[1]); });
+    var paired = new Set(pairs.map(function (p) { return p[1]; }).concat(byIdPairs.groupLeavesB || []));
+    var left = new Set(pairs.map(function (p) { return p[0]; }).concat(byIdPairs.groupLeavesA || []));
+    var continuity = pairs.some(function (p) { return !isSlot(p[1]); }) || groups.length > 0;
     // Shared objects transform into their new state (Manim's Transform); their old copies hand over at the cut.
     groups.forEach(function (g) {
-      var a = g[0], b = g[1], ta = a.getAttribute("transform") || "translate(0 0)", tb = b.getAttribute("transform") || "translate(0 0)";
-      if (ta !== tb && numbers(ta) === numbers(tb)) tl.fromTo(b, { attr: { transform: ta } }, { attr: { transform: tb }, duration: MOVE, ease: F.ease, immediateRender: false }, t);
+      var a = g[0], b = g[1], sameCoordMode = g[2];
+      var ia = baseInfo(a), ib = baseInfo(b);
+      tl.set(a, { opacity: 0 }, t);
+      if (sameCoordMode) {
+        if (ia.parsed.hasTranslate || ib.parsed.hasTranslate) {
+          var d = Math.hypot(ia.parsed.x - ib.parsed.x, ia.parsed.y - ib.parsed.y) + Math.abs(ia.parsed.rot - ib.parsed.rot);
+          if (d > 0.5) {
+            tweenTransform(b, ia.parsed, ib.parsed, MOVE, F.ease, t, t);
+          }
+        }
+      } else {
+        var dx = ia.worldCenter.x - ib.worldCenter.x;
+        var dy = ia.worldCenter.y - ib.worldCenter.y;
+        if (Math.hypot(dx, dy) > 0.5) {
+          tweenTransform(
+            b,
+            { x: ib.parsed.x + dx, y: ib.parsed.y + dy, rot: ib.parsed.rot, sx: ib.parsed.sx, sy: ib.parsed.sy },
+            ib.parsed,
+            MOVE,
+            F.ease,
+            t,
+            t
+          );
+        }
+      }
     });
     pairs.forEach(function (pair) {
       var a = pair[0], b = pair[1], from = attrsOf(a), to = attrsOf(b), start = {}, end = {};

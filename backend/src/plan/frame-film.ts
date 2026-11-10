@@ -47,7 +47,7 @@ export async function withFrameFilm(html: string, frames: FilmFrame[], feel: "ex
   const ground = /<rect[^>]*width="(?:100%|\d{3,})"[^>]*fill="(#[0-9a-fA-F]{3,8})"/.exec(frames[0]!.svg)?.[1] ?? "#0b0d12";
   const data = JSON.stringify({ feel, beats: frames }).replace(/</g, "\\u003c");
   return html
-    .replace("</head>", () => `  <style id="frame-film-css">#stage, #captions { display: none !important; } #frame-film { position: absolute; inset: 0; background: ${ground}; } .ff-layer { position: absolute; inset: 0; } .ff-layer svg { display: block; width: 100%; height: 100%; }</style>\n</head>`)
+    .replace("</head>", () => `  <style id="frame-film-css">#stage { display: none !important; } #frame-film { position: absolute; inset: 0; background: ${ground}; } #captions { z-index: 20; pointer-events: none; } #captions .cap { top: 70%; bottom: auto !important; } #captions .cap span { background: rgba(12, 15, 22, 0.86); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.38); } .ff-layer { position: absolute; inset: 0; } .ff-layer svg { display: block; width: 100%; height: 100%; }</style>\n</head>`)
     .replace('<div id="captions" data-layout-allow-overlap></div>', (tag) => `<div id="frame-film" data-layout-allow-overflow></div>\n    ${tag}`)
     .replace("</body>", () => `  <script id="ff-data" type="application/json">${data}</script>\n  <script id="ff-script">${script}</script>\n</body>`);
 }

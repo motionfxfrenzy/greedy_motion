@@ -237,3 +237,237 @@ test("Issue 13: Gfx.layer() full clearRect in bundleScene eliminates offscreen l
     "bundleScene has zero partial dirty-rect clearRect calls"
   );
 });
+
+test("Issues 16 & 17: frame-film SVG transform preservation on late-reveal elements (no top-left 0,0 jump) and visible narration subtitles at Y=70% across 9:16, 16:9, 1:1", async () => {
+  const { withFrameFilm } = await import("../src/plan/frame-film.ts");
+  const { engineVariables, fillTextBlock, hfBlockValues, scriptJson, stampCanvas } = await import("../src/plan/composition.ts");
+  const { chromium } = await import("../../node_modules/playwright-core/index.mjs");
+
+  const templateHtml = readFileSync(join(repoRoot, "worker/templates/beat-plan/index.html"), "utf8");
+  const runtimeJs = readFileSync(join(repoRoot, "node_modules/hyperframes/dist/hyperframe-runtime.js"), "utf8");
+  const gsapJs = readFileSync(join(repoRoot, "frontend/public/editor/gsap.min.js"), "utf8");
+  const themeCss = readFileSync(join(repoRoot, "worker/themes/blue-professional.css"), "utf8");
+
+  const frames = [
+    {
+      start: 0,
+      end: 4,
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">
+        <rect id="m2" width="720" height="1280" fill="#0d2438"/>
+        <text id="title" x="60" y="140" fill="#ffffff" font-size="44">One password across 30 hops</text>
+        <g id="node-1"><circle id="m8" cx="180" cy="390" r="28" fill="#1d4468"/></g>
+        <g id="m38" transform="translate(360, 990)">
+          <rect id="m39" x="-140" y="-30" width="280" height="60" rx="30" fill="#091b2b"/>
+          <text id="m41" x="-75" y="7" fill="#ffffff" font-size="20">HOP COUNT: 30</text>
+        </g>
+      </svg>`,
+      motion: [
+        { id: "m38", kind: "move", start: 1.87, end: 2.5, from: { opacity: "0", transform: "translate(360, 1020)" } }
+      ]
+    },
+    {
+      start: 4,
+      end: 11,
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">
+        <rect id="m2" width="720" height="1280" fill="#0d2438"/>
+        <g id="node-1" transform="translate(180, 420)"><circle id="m9" r="28" fill="#1d4468"/></g>
+        <g id="node-2"><circle id="m13" cx="520" cy="520" r="24" fill="#1d4468"/></g>
+        <g id="packet-card" transform="translate(180, 420)">
+          <rect id="m25" x="-14" y="0" width="160" height="96" rx="8" fill="#ffffff"/>
+          <text id="m29" x="-4" y="26" font-size="12" fill="#e63946">HTTP GET /</text>
+        </g>
+      </svg>`,
+      motion: [
+        { id: "packet-card", kind: "move", start: 1.86, end: 2.68, from: { opacity: "0", transform: "translate(180, 360) scale(0.2)" } },
+        { id: "node-2", kind: "move", start: 3.5, end: 4.2, from: { opacity: "0", transform: "scale(0.5)" } },
+        { id: "packet-card", kind: "move", start: 3.71, end: 5.7, steps: 2, from: { transform: "translate(180, 420)" } },
+        { id: "packet-card", kind: "move", start: 5.97, end: 6.65, from: { transform: "translate(360, 770)" } }
+      ]
+    },
+    {
+      start: 11,
+      end: 18,
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">
+        <rect id="m2" width="720" height="1280" fill="#0d2438"/>
+        <g id="node-1"><circle id="m7" cx="180" cy="300" r="28" fill="#143450"/></g>
+        <g id="eye-icon">
+          <g id="m23" transform="translate(480, 434)">
+            <path id="m24" d="M -40 0 Q 0 -26 40 0 Q 0 26 -40 0 Z" fill="#0d2438" stroke="#ff5964" stroke-width="3.5"/>
+            <circle id="m25" cx="0" cy="0" r="14" fill="#ff5964"/>
+          </g>
+          <g id="m29" transform="translate(240, 734)">
+            <path id="m30" d="M -40 0 Q 0 -26 40 0 Q 0 26 -40 0 Z" fill="#0d2438" stroke="#ff5964" stroke-width="3.5"/>
+            <circle id="m31" cx="0" cy="0" r="14" fill="#ff5964"/>
+          </g>
+        </g>
+        <g id="packet-card" transform="translate(350, 640)">
+          <rect id="m34" x="-140" y="-70" width="280" height="140" rx="8" fill="#fffdfa"/>
+        </g>
+        <g id="m48" transform="translate(360, 1190)">
+          <rect id="m49" x="-240" y="-30" width="480" height="56" rx="28" fill="#143450"/>
+        </g>
+      </svg>`,
+      motion: [
+        { id: "packet-card", kind: "move", start: 1.06, end: 2.4, from: { transform: "translate(450, 500) rotate(20)" } },
+        { id: "m23", kind: "move", start: 2.35, end: 3.2, from: { opacity: "0", transform: "translate(480, 434) scale(0)" } },
+        { id: "m29", kind: "move", start: 2.7, end: 3.55, from: { opacity: "0", transform: "translate(240, 734) scale(0)" } },
+        { id: "m48", kind: "move", start: 5.5, end: 6.5, from: { opacity: "0", transform: "translate(360, 1250)" } }
+      ]
+    }
+  ];
+
+  const browser = await chromium.launch({
+    executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    headless: true
+  });
+
+  try {
+    for (const [aspect, vw, vh] of [
+      ["9:16", 1080, 1920],
+      ["16:9", 1920, 1080],
+      ["1:1", 1080, 1080]
+    ]) {
+      const plan = {
+        canvas: aspect,
+        brand: { name: "Test", motion_profile: "smooth" },
+        audio: { voice: { voice: "Kore", speed: 1, engine: "gemini-tts" }, music: null, captions: "full" },
+        beats: [
+          {
+            id: "b1",
+            role: "question",
+            kind: "kinetic",
+            keyword: "One password across 30 hops",
+            on_screen: "30 public nodes",
+            line: "One password crosses thirty strangers. How?",
+            verb: "crosses",
+            success: false,
+            energy: "calm",
+            ui: null,
+            motion: { entry: { axis: "x", dir: 1 }, exit: { axis: "x", dir: 1 } },
+            transition_out: { type: "match-cut" }
+          },
+          {
+            id: "b2",
+            role: "setup",
+            kind: "kinetic",
+            keyword: "Typing google.com hops route",
+            on_screen: "Public routers pass your request",
+            line: "Say you type google.com and your browser sends a message.",
+            verb: "type",
+            success: false,
+            energy: "calm",
+            ui: null,
+            motion: { entry: { axis: "x", dir: 1 }, exit: { axis: "y", dir: 1 } },
+            transition_out: { type: "push-through" }
+          },
+          {
+            id: "b3",
+            role: "step",
+            kind: "kinetic",
+            keyword: "Middle stops can read it",
+            on_screen: "Routers 2 and 3 see the text",
+            line: "But as that postcard hops through stops two and three, anyone can read it.",
+            verb: "read",
+            success: false,
+            energy: "medium",
+            ui: null,
+            motion: { entry: { axis: "x", dir: 1 }, exit: { axis: "x", dir: 1 } },
+            transition_out: { type: "end" }
+          }
+        ]
+      };
+      const timing = {
+        total: 18,
+        beats: [
+          { id: "b1", start: 0, end: 4, vo: { start: 0.2, end: 3.5 }, actAt: null, successAt: null, words: null },
+          { id: "b2", start: 4, end: 11, vo: { start: 4.2, end: 10.5 }, actAt: null, successAt: null, words: null },
+          { id: "b3", start: 11, end: 18, vo: { start: 11.2, end: 17.5 }, actAt: null, successAt: null, words: null }
+        ]
+      };
+      const vars = engineVariables({ plan, timing, shots: {}, brandName: "Test" });
+      let html = stampCanvas(templateHtml, aspect);
+      html = html.replace(
+        '<script src="vendor/gsap.min.js"></script>',
+        () => `<script>window.__hfVariables = ${scriptJson(vars)};</script>\n<script>${runtimeJs}</script>\n<script>${gsapJs}</script>`
+      );
+      html = fillTextBlock(html, hfBlockValues(plan.beats));
+      html = await withFrameFilm(html, frames, "explainer");
+      html = html.replace("</head>", () => `<style id="theme">${themeCss}</style></head>`);
+
+      const page = await browser.newPage({ viewport: { width: vw, height: vh } });
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+
+      const inspect = await page.evaluate(
+        ({ vw, vh }) => {
+          const tl = window.__timelines.main;
+          const sampleAt = (t) => {
+            tl.seek(t, false);
+            const activeCap = Array.from(document.querySelectorAll("#captions .cap")).find((el) => {
+              const cs = getComputedStyle(el);
+              return cs.display !== "none" && cs.visibility !== "hidden" && parseFloat(cs.opacity) > 0.1;
+            });
+            const capRect = activeCap ? activeCap.getBoundingClientRect() : null;
+            const boxOf = (sceneIdx, id) => {
+              const layer = document.querySelectorAll("#frame-film .ff-layer")[sceneIdx];
+              const el = layer?.querySelector("#" + CSS.escape(id));
+              if (!el) return null;
+              const r = el.getBoundingClientRect();
+              return {
+                cxPct: ((r.left + r.width / 2) / vw) * 100,
+                cyPct: ((r.top + r.height / 2) / vh) * 100,
+                transform: el.getAttribute("transform")
+              };
+            };
+            return {
+              capText: activeCap ? activeCap.textContent.trim() : null,
+              capTopPct: capRect ? (capRect.top / vh) * 100 : null,
+              s1_m38: boxOf(0, "m38"),
+              s2_packet: boxOf(1, "packet-card"),
+              s2_node2: boxOf(1, "node-2"),
+              s3_m23: boxOf(2, "m23"),
+              s3_m29: boxOf(2, "m29"),
+              s3_m48: boxOf(2, "m48")
+            };
+          };
+          return {
+            at2_0: sampleAt(2.0),
+            at2_6: sampleAt(2.6),
+            at9_0: sampleAt(9.0),
+            at14_0: sampleAt(14.0),
+            at17_0: sampleAt(17.0),
+            seekBack14_0: sampleAt(14.0),
+            seekBack2_6: sampleAt(2.6)
+          };
+        },
+        { vw, vh }
+      );
+
+      // 1. Subtitles visible at Y ≈ 70% during spoken lines in all ratios
+      for (const snap of [inspect.at2_0, inspect.at9_0, inspect.at14_0]) {
+        assert.ok(snap.capText && snap.capText.length > 0, `${aspect}: narration subtitle is visible`);
+        assert.ok(snap.capTopPct >= 68 && snap.capTopPct <= 72, `${aspect}: subtitle sits at Y=70% (got ${snap.capTopPct}%)`);
+      }
+
+      // 2. Scene 1 #m38 (count badge) stays centered horizontally (~50%) and near lower-middle (~75-80% Y), never at top-left (0,0)
+      assert.ok(inspect.at2_0.s1_m38.cxPct > 40 && inspect.at2_0.s1_m38.cxPct < 60, `${aspect}: S1 #m38 centered at 2.0s`);
+      assert.ok(inspect.at2_6.s1_m38.cyPct > 65 && inspect.at2_6.s1_m38.cyPct < 88, `${aspect}: S1 #m38 at 2.6s (${inspect.at2_6.s1_m38.cyPct}%)`);
+
+      // 3. Scene 2 #packet-card and #node-2 stay in the middle of the route at 9.0s, never at top-left (0,0)
+      assert.ok(inspect.at9_0.s2_packet.cxPct > 25 && inspect.at9_0.s2_packet.cyPct > 35, `${aspect}: S2 #packet-card in route at 9.0s`);
+      assert.ok(inspect.at9_0.s2_node2.cxPct > 40 && inspect.at9_0.s2_node2.cyPct > 30, `${aspect}: S2 #node-2 in route at 9.0s`);
+
+      // 4. Scene 3 (Scene 4 in koi/http film) late-reveal eye icons (#m23, #m29) and bottom banner (#m48) stay at their nodes, never at (0,0)
+      assert.ok(inspect.at14_0.s3_m23.cxPct > 45 && inspect.at14_0.s3_m23.cyPct > 25, `${aspect}: late-reveal #m23 at Node 2`);
+      assert.ok(inspect.at14_0.s3_m29.cxPct > 20 && inspect.at14_0.s3_m29.cyPct > 45, `${aspect}: late-reveal #m29 at Node 3`);
+      assert.ok(inspect.at17_0.s3_m48.cxPct > 40 && inspect.at17_0.s3_m48.cyPct > 80, `${aspect}: late-reveal #m48 at bottom banner`);
+
+      // 5. Backward seek matches forward playback identically
+      assert.equal(inspect.seekBack14_0.s3_m23.transform, inspect.at14_0.s3_m23.transform);
+      assert.equal(inspect.seekBack2_6.s1_m38.transform, inspect.at2_6.s1_m38.transform);
+
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});

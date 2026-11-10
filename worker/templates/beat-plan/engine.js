@@ -173,7 +173,7 @@
       title: { name: 170, logoH: 190, logoW: 0.42 * W, kw: 120, kwW: 0.7 * W, pill: 46 },
       discs: [[[0.97 * W, 0.64 * H, 1.05 * H], [0.8 * W, 0.1 * H, 0.26 * H]], [[0.9 * W, 1.0 * H, 0.95 * H], [0.03 * W, 0.08 * H, 0.22 * H]]],
       titleDiscs: [[0.97 * W, 1.04 * H, 0.56 * H], [0.03 * W, -0.02 * H, 0.34 * H]],
-      capBottom: 0.1 * H, capFs: 40, capWords: 7, cursor: 0.07 * W, DX: 0.12 * W, DY: 0.14 * H
+      capBottom: 0.27 * H, capFs: 40, capWords: 7, cursor: 0.07 * W, DX: 0.12 * W, DY: 0.14 * H
     },
     tall: {
       kin: { col: [0.09 * W, 0.06 * H, 0.82 * W, 0.78 * H], cap: 176, lines: 3, sub: 48, align: "left", top: false },
@@ -181,7 +181,7 @@
       title: { name: 150, logoH: 200, logoW: 0.76 * W, kw: 120, kwW: 0.84 * W, pill: 48 },
       discs: [[[0.95 * W, 0.98 * H, 0.95 * W], [0.06 * W, 0.06 * H, 0.34 * W]], [[0.02 * W, 0.97 * H, 0.9 * W], [0.96 * W, 0.07 * H, 0.32 * W]]],
       titleDiscs: [[1.0 * W, 1.0 * H, 0.7 * W], [0.0 * W, 0.0 * H, 0.46 * W]],
-      capBottom: 0.2 * H, capFs: 46, capWords: 4, cursor: 0.11 * W, DX: 0.16 * W, DY: 0.1 * H
+      capBottom: 0.27 * H, capFs: 46, capWords: 4, cursor: 0.11 * W, DX: 0.16 * W, DY: 0.1 * H
     },
     square: {
       kin: { col: [0.1 * W, 0.04 * H, 0.8 * W, 0.84 * H], cap: 150, lines: 3, sub: 42, align: "center", top: false },
@@ -189,7 +189,7 @@
       title: { name: 140, logoH: 160, logoW: 0.66 * W, kw: 104, kwW: 0.82 * W, pill: 44 },
       discs: [[[0.96 * W, 1.0 * H, 0.62 * W], [0.05 * W, 0.05 * H, 0.28 * W]], [[0.04 * W, 0.98 * H, 0.56 * W], [0.95 * W, 0.04 * H, 0.26 * W]]],
       titleDiscs: [[1.0 * W, 1.02 * H, 0.46 * W], [0.0 * W, -0.02 * H, 0.32 * W]],
-      capBottom: 0.1 * H, capFs: 40, capWords: 5, cursor: 0.1 * W, DX: 0.14 * W, DY: 0.14 * H
+      capBottom: 0.27 * H, capFs: 40, capWords: 5, cursor: 0.1 * W, DX: 0.14 * W, DY: 0.14 * H
     }
   }[MODE];
 
