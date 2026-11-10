@@ -276,7 +276,7 @@ export function StylePicker({
     <div className="sp-head"><b>Visual style</b><button type="button" className="sp-browse" onClick={() => open(scope === "film" ? null : current)} aria-haspopup="dialog">Change style →</button></div>
 
     <div className="sp-current" aria-live="polite">
-      <div className="sp-current-thumb"><Clip key={featured?.id ?? chosen.id} style={featured ? { ...chosen, preview: featured.preview } : chosen} live />{featured && <span className="sp-now">{featured.id === activePinned?.id ? `Your template · ${featured.name}` : featured.name}</span>}</div>
+      <div className="sp-current-thumb"><Clip key={featured?.id ?? chosen.id} style={featured ? { ...chosen, preview: featured.preview } : chosen} live />{featured && <span className="sp-now">{featured.id === activePinned?.id ? `Your style · ${featured.name}` : featured.name}</span>}</div>
       <div className="sp-current-body">
         <span className="sp-tag">{activePinned ? `Selected · from ${activePinned.name}` : `Selected · ${selected.group}`}</span>
         <h3>{chosen.name}</h3>

@@ -7,11 +7,12 @@ import { deriveBrandTheme, themeIds, type VideoProject } from "@videosaas/contra
 import { getBrand, restoreBrandFiles } from "../brand/store.ts";
 import { config } from "../config.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
-import { ENGINE_TEMPLATE, engineVariables, fillTextBlock, hfBlockValues, scriptJson, stampCanvas } from "./composition.ts";
+import { ENGINE_TEMPLATE, engineVariables, fillTextBlock, hfBlockValues, scriptJson, stampCanvas, withSubtitleStyling } from "./composition.ts";
 import { audioMode } from "./audio.ts";
 import { filmFeel, filmFrames, withFrameFilm } from "./frame-film.ts";
-import { soundTracks, withSoundtrack } from "./sound.ts";
+import { soundTracks, withAudioContinuity, withSoundtrack } from "./sound.ts";
 import { planTiming, takeOptions, type PlanTiming } from "./timing.ts";
+import { getProjectSubtitles } from "../plates/service.ts";
 
 /**
  * The live storyboard page for a project's beat plan: the beat-plan engine template
@@ -83,6 +84,7 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
   const logoWordmark = Boolean(look.logo?.spellsName);
 
   const timing = projectTiming(project)!;
+  const subtitles = await getProjectSubtitles(project);
   const screens = new Map(project.screenshots.map((shot) => [shot.id, shot]));
   const used = [...new Set(plan.beats.flatMap((beat) => (beat.ui && screens.has(beat.ui.screen) ? [beat.ui.screen] : [])))];
   const variables = { ...visualVariables(project), ...engineVariables({
@@ -95,7 +97,8 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
     logoWordmark,
     logoBug,
     look: project.brief?.look,
-    family: project.brief?.styleFamily
+    family: project.brief?.styleFamily,
+    subtitles
   }) };
 
   // Bootstrap: the runtime and GSAP replace the template's vendor line; the editable text block
@@ -122,9 +125,11 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
     mode: audioMode(project)
   });
   html = withSoundtrack(html, tracks);
+  html = withAudioContinuity(html);
   // A film written in the script canvas animates its approved SVG reference frames directly in the browser player.
   const frames = filmFrames(project, timing);
   if (frames) html = await withFrameFilm(html, frames, filmFeel(project));
+  html = withSubtitleStyling(html, subtitles);
   html = withVisuals(html, project, timing, file => `${studioAssetBase}/plans/${project.id}/visuals/${file}`);
   const fontCss = rewriteFontUrls(bundledFonts, "fonts", `${studioAssetBase}/fonts`);
   return html.replace(

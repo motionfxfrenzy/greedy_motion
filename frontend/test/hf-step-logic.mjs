@@ -93,11 +93,11 @@ test("hfAvailableAudioTracks and hfOptionsConfig expose only existing voice/musi
   assert.deepEqual(visBoth.audioTracks, ["voice", "music"]);
   assert.equal(visBoth.showSubtitleTab, true);
   assert.deepEqual(visBoth.subtitleModes, ["none", "key-phrases", "full"]);
-  assert.equal(visBoth.subtitleStyle, false);
-  assert.equal(visBoth.subtitleSize, false);
-  assert.equal(visBoth.subtitleColors, false);
-  assert.equal(visBoth.subtitleOpacity, false);
-  assert.equal(visBoth.subtitlePosition, false);
+  assert.equal(visBoth.subtitleStyle, true);
+  assert.equal(visBoth.subtitleSize, true);
+  assert.equal(visBoth.subtitleColors, true);
+  assert.equal(visBoth.subtitleOpacity, true);
+  assert.equal(visBoth.subtitlePosition, true);
   assert.equal(visBoth.previewQuality, false);
   assert.equal(visBoth.motionBlur, true);
 

@@ -20,9 +20,11 @@ import {
 import {
   AnimationPrep,
   AnimationWorkspace,
+  activeSubtitleCueAt,
   anchorCommentAtTime,
   audioModeFromToggles,
   audioTogglesFromMode,
+  buildSubtitleCues,
   groupCommentsByScene,
   hfAvailableAudioTracks,
   hfOptionsConfig,
@@ -48,10 +50,12 @@ import {
   ensureMediaToken,
   getComposition,
   getMyTokens,
+  getPlates,
   getRenderQuote,
   PlanEditRefusedError,
   projectScreenshotUrl,
   proposePlanCommentEdits,
+  savePlateSubtitles,
   undoPlanElementOverride,
   type PlanAudioStatus
 } from "../lib/api";
@@ -535,9 +539,51 @@ export function BrowserAnimationStep({
   const [subMode, setSubMode] = useState<WorkspaceSubtitleMode>(
     () => (project.beatPlan?.audio.captions ?? project.brief?.captions ?? "full") as WorkspaceSubtitleMode
   );
+  const [subStyle, setSubStyle] = useState<WorkspaceSubtitleStyle>("pill");
+  const [subSize, setSubSize] = useState<number>(100);
+  const [subOpacity, setSubOpacity] = useState<number>(100);
+  const [subColor, setSubColor] = useState<string>("");
+  const [subBgColor, setSubBgColor] = useState<string>("");
+  const [subPos, setSubPos] = useState<{ x: number; y: number }>({ x: 50, y: 70 });
+  const [scenePositions, setScenePositions] = useState<Record<string, { x: number; y: number }>>({});
+  const subLoaded = useRef(false);
+  const subDrag = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
   const [audioModeState, setAudioModeState] = useState<AudioMode>(() => initialAudioMode(project));
 
   useEffect(() => {
+    subLoaded.current = false;
+  }, [project.id]);
+
+  useEffect(() => {
+    if (!project.id) return;
+    let live = true;
+    getPlates(project.id)
+      .then((s) => {
+        if (!live || subLoaded.current || !s?.subtitles) return;
+        subLoaded.current = true;
+        if (s.subtitles.mode) setSubMode(s.subtitles.mode as WorkspaceSubtitleMode);
+        if (s.subtitles.style) setSubStyle(s.subtitles.style as WorkspaceSubtitleStyle);
+        if (typeof s.subtitles.size === "number") setSubSize(s.subtitles.size);
+        if (typeof s.subtitles.opacity === "number") setSubOpacity(s.subtitles.opacity);
+        setSubColor(s.subtitles.color ?? "");
+        setSubBgColor(s.subtitles.bgColor ?? "");
+        setSubPos({ x: s.subtitles.x ?? 50, y: s.subtitles.y ?? 70 });
+        const sp: Record<string, { x: number; y: number }> = {};
+        if (s.subtitles.scenePositions) {
+          for (const [k, v] of Object.entries(s.subtitles.scenePositions)) {
+            if (v && typeof v.x === "number" && typeof v.y === "number") sp[k] = v;
+          }
+        }
+        setScenePositions(sp);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [project.id]);
+
+  useEffect(() => {
+    if (subLoaded.current) return;
     const nextCap = project.beatPlan?.audio.captions ?? project.brief?.captions;
     if (nextCap) setSubMode(nextCap as WorkspaceSubtitleMode);
   }, [project.beatPlan?.audio.captions, project.brief?.captions]);
@@ -570,8 +616,8 @@ export function BrowserAnimationStep({
     let live = true;
     getRenderQuote(project.id)
       .then((quote) => {
-        if (!live) return;
-        setServerRenderCost(quote.tokens);
+        if (!live || !quote) return;
+        if (typeof quote.tokens === "number") setServerRenderCost(quote.tokens);
         if (typeof quote.balance === "number") setBalance(quote.balance);
       })
       .catch(() => undefined);
@@ -1143,8 +1189,18 @@ export function BrowserAnimationStep({
 
   const chooseSubMode = (nextMode: WorkspaceSubtitleMode) => {
     const prevMode = subMode;
+    subLoaded.current = true;
     setSubMode(nextMode);
     setPreviewError(null);
+    void savePlateSubtitles(project.id, {
+      mode: nextMode,
+      style: subStyle,
+      size: subSize,
+      color: subColor || null,
+      bgColor: subBgColor || null,
+      x: subPos.x,
+      y: subPos.y
+    }).catch(() => undefined);
     void editPlan(project.id, { captions: nextMode })
       .then(() => {
         setLocalVersion((v) => v + 1);
@@ -1154,6 +1210,170 @@ export function BrowserAnimationStep({
         setPreviewError(caught instanceof Error ? caught.message : "Could not update subtitles.");
       });
   };
+
+  const chooseSubStyle = (nextStyle: WorkspaceSubtitleStyle) => {
+    subLoaded.current = true;
+    setSubStyle(nextStyle);
+    setSubColor("");
+    setSubBgColor("");
+    void savePlateSubtitles(project.id, {
+      mode: subMode,
+      style: nextStyle,
+      size: subSize,
+      color: null,
+      bgColor: null,
+      x: subPos.x,
+      y: subPos.y
+    }).catch(() => undefined);
+  };
+
+  const changeSubSize = (delta: number) => {
+    subLoaded.current = true;
+    const nextSize = Math.min(160, Math.max(50, subSize + delta));
+    setSubSize(nextSize);
+    void savePlateSubtitles(project.id, { size: nextSize }).catch(() => undefined);
+  };
+
+  const setSubOpacityDirect = (nextOpacity: number) => {
+    subLoaded.current = true;
+    const clamped = Math.min(100, Math.max(20, nextOpacity));
+    setSubOpacity(clamped);
+    void savePlateSubtitles(project.id, { opacity: clamped }).catch(() => undefined);
+  };
+
+  const applyPosToAllScenes = (pos: { x: number; y: number }) => {
+    subLoaded.current = true;
+    setSubPos(pos);
+    setScenePositions({});
+    void savePlateSubtitles(project.id, { x: pos.x, y: pos.y, scenePositions: null }).catch(() => undefined);
+  };
+
+  const setSceneSubtitlePos = (sceneIdx: number, pos: { x: number; y: number }) => {
+    subLoaded.current = true;
+    const key = String(sceneIdx);
+    setScenePositions((prev) => ({ ...prev, [key]: pos }));
+    void savePlateSubtitles(project.id, { scenePositions: { [key]: pos } }).catch(() => undefined);
+  };
+
+  const changeSubColor = (hex: string) => {
+    subLoaded.current = true;
+    setSubColor(hex);
+    void savePlateSubtitles(project.id, { color: hex }).catch(() => undefined);
+  };
+
+  const changeSubBgColor = (hex: string) => {
+    subLoaded.current = true;
+    setSubBgColor(hex);
+    void savePlateSubtitles(project.id, { bgColor: hex }).catch(() => undefined);
+  };
+
+  const resetSubCustomization = () => {
+    subLoaded.current = true;
+    setSubSize(100);
+    setSubOpacity(100);
+    setSubColor("");
+    setSubBgColor("");
+    setSubPos({ x: 50, y: 70 });
+    setScenePositions({});
+    void savePlateSubtitles(project.id, {
+      size: 100,
+      opacity: 100,
+      color: null,
+      bgColor: null,
+      x: 50,
+      y: 70,
+      scenePositions: null
+    }).catch(() => undefined);
+  };
+
+  const effectiveBeatsForCues = useMemo(() => {
+    const planBeats = project.beatPlan?.beats ?? [];
+    const count = Math.max(beats.length, planBeats.length);
+    return Array.from({ length: count }, (_, i) => ({
+      line: planBeats[i]?.line ?? beats[i]?.line ?? null,
+      onScreen: planBeats[i]?.on_screen ?? beats[i]?.onScreen ?? null,
+      keyword: planBeats[i]?.keyword ?? beats[i]?.keyword ?? `Scene ${i + 1}`
+    }));
+  }, [beats, project.beatPlan?.beats]);
+
+  const subtitleCues = useMemo(
+    () =>
+      buildSubtitleCues(
+        subMode,
+        segments.map((s) => ({ seconds: s.duration, keyword: s.label })),
+        effectiveBeatsForCues,
+        segments.map((s) => s.start),
+        segments.map((s) => s.duration)
+      ),
+    [subMode, segments, effectiveBeatsForCues]
+  );
+
+  const activeCue = useMemo(
+    () => activeSubtitleCueAt(subMode, subtitleCues, currentTime, activeSceneIndex),
+    [subMode, subtitleCues, currentTime, activeSceneIndex]
+  );
+
+  const curScenePos = scenePositions[String(activeSceneIndex)] ?? subPos;
+  const effectiveTextColor =
+    subColor ||
+    (subStyle === "cinema"
+      ? "#fef08a"
+      : subStyle === "kinetic" || subStyle === "paper"
+      ? "#1e1b18"
+      : "#ffffff");
+  const effectiveBgColor =
+    subBgColor ||
+    (subStyle === "kinetic"
+      ? "#facc15"
+      : subStyle === "paper"
+      ? "#faf5e8"
+      : subStyle === "blueprint"
+      ? "#0c2a4a"
+      : "#0c0f16");
+
+  // Keep the iframe's #captions .cap elements in sync with live subtitle settings and mute #captions opacity so .aw-subtitle is the single visible interactive layer
+  useEffect(() => {
+    const doc = playerRef.current?.iframeElement?.contentDocument;
+    if (!doc) return;
+    const capContainer = doc.getElementById("captions");
+    if (capContainer) {
+      capContainer.style.opacity = "0";
+    }
+    const caps = Array.from(doc.querySelectorAll<HTMLElement>("#captions .cap"));
+    caps.forEach((capEl) => {
+      const scIdx = capEl.getAttribute("data-scene-index") ?? String(activeSceneIndex);
+      const pos = scenePositions[scIdx] ?? subPos;
+      capEl.className = `cap cap-${subStyle}`;
+      capEl.style.left = `${pos.x}%`;
+      capEl.style.top = `${pos.y}%`;
+      capEl.style.bottom = "auto";
+      const sp = capEl.querySelector<HTMLElement>("span");
+      if (sp) {
+        sp.style.opacity = String(subOpacity / 100);
+        if (subColor) sp.style.color = subColor;
+        if (subBgColor) {
+          if (subStyle === "cinema") {
+            sp.style.background = "transparent";
+            sp.style.textShadow = `0 2px 4px ${subBgColor}, -1.5px -1.5px 0 ${subBgColor}, 1.5px -1.5px 0 ${subBgColor}, -1.5px 1.5px 0 ${subBgColor}, 1.5px 1.5px 0 ${subBgColor}`;
+          } else {
+            sp.style.backgroundColor = subBgColor;
+          }
+        }
+      }
+    });
+  }, [
+    playerLoaded,
+    previewHtml,
+    subMode,
+    subStyle,
+    subSize,
+    subOpacity,
+    subColor,
+    subBgColor,
+    subPos,
+    scenePositions,
+    activeSceneIndex
+  ]);
 
   const handleToggleAudio = (track: "voice" | "music") => {
     if (!availableAudio[track]) return;
@@ -1257,11 +1477,6 @@ export function BrowserAnimationStep({
     : null;
 
   const nop = () => {};
-  const nopStyle = (_s: WorkspaceSubtitleStyle) => {};
-  const nopNum = (_n: number) => {};
-  const nopStr = (_s: string) => {};
-  const nopPos = (_i: number, _p: { x: number; y: number }) => {};
-  const nopAllPos = (_p: { x: number; y: number }) => {};
 
   const handleRender = () => {
     if (playerRef.current && playing) {
@@ -1307,24 +1522,24 @@ export function BrowserAnimationStep({
         }}
         subtitleControls={{
           mode: subMode,
-          style: "pill",
-          size: 100,
-          opacity: 100,
-          textColor: "",
-          bgColor: "",
-          effectiveTextColor: "#ffffff",
-          effectiveBgColor: "#0c0f16",
-          position: { x: 50, y: 70 },
+          style: subStyle,
+          size: subSize,
+          opacity: subOpacity,
+          textColor: subColor,
+          bgColor: subBgColor,
+          effectiveTextColor,
+          effectiveBgColor,
+          position: curScenePos,
           currentSceneIndex: activeSceneIndex,
           onSelectMode: chooseSubMode,
-          onSelectStyle: nopStyle,
-          onStepSize: nopNum,
-          onChangeTextColor: nopStr,
-          onChangeBgColor: nopStr,
-          onChangeOpacity: nopNum,
-          onChangeScenePosition: nopPos,
-          onApplyPositionToAll: nopAllPos,
-          onResetCustomization: nop
+          onSelectStyle: chooseSubStyle,
+          onStepSize: changeSubSize,
+          onChangeTextColor: changeSubColor,
+          onChangeBgColor: changeSubBgColor,
+          onChangeOpacity: setSubOpacityDirect,
+          onChangeScenePosition: setSceneSubtitlePos,
+          onApplyPositionToAll: applyPosToAllScenes,
+          onResetCustomization: resetSubCustomization
         }}
         statusBadge={statusBadge}
         onStageClick={togglePlay}
@@ -1336,23 +1551,89 @@ export function BrowserAnimationStep({
               detail={previewError}
             />
           ) : playerLoaded && previewHtml ? (
-            createElement("hyperframes-player", {
-              ref: playerRef,
-              className: "studio-hyperframes-player",
-              "disable-click-to-play": "",
-              "assets-loading-ui": "none",
-              "aria-label": "In-browser animation preview",
-              style: {
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                maxWidth: "none",
-                maxHeight: "none",
-                aspectRatio: "auto",
-                display: "block"
-              }
-            })
+            <>
+              {createElement("hyperframes-player", {
+                ref: playerRef,
+                className: "studio-hyperframes-player",
+                "disable-click-to-play": "",
+                "assets-loading-ui": "none",
+                "aria-label": "In-browser animation preview",
+                style: {
+                  position: "absolute",
+                  inset: 0,
+                  width: "100%",
+                  height: "100%",
+                  maxWidth: "none",
+                  maxHeight: "none",
+                  aspectRatio: "auto",
+                  display: "block"
+                }
+              })}
+              {activeCue && (
+                <div
+                  className={`aw-subtitle aw-sub-${subStyle}`}
+                  aria-live="polite"
+                  title={`Drag to move Scene ${activeSceneIndex + 1}'s subtitle anywhere on the screen`}
+                  style={
+                    {
+                      left: `${curScenePos.x}%`,
+                      top: `${curScenePos.y}%`,
+                      opacity: subOpacity / 100,
+                      "--sub-scale": String(subSize / 100)
+                    } as React.CSSProperties
+                  }
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    subDrag.current = {
+                      startX: e.clientX,
+                      startY: e.clientY,
+                      origX: curScenePos.x,
+                      origY: curScenePos.y,
+                      moved: false
+                    };
+                  }}
+                  onPointerMove={(e) => {
+                    const d = subDrag.current;
+                    const box = e.currentTarget.closest(".aw-canvas")?.getBoundingClientRect();
+                    if (!d || !box || !box.width || !box.height) return;
+                    const dx = ((e.clientX - d.startX) / box.width) * 100;
+                    const dy = ((e.clientY - d.startY) / box.height) * 100;
+                    if (Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3) d.moved = true;
+                    const nx = Math.min(92, Math.max(8, Math.round((d.origX + dx) * 10) / 10));
+                    const ny = Math.min(92, Math.max(8, Math.round((d.origY + dy) * 10) / 10));
+                    setScenePositions((prev) => ({ ...prev, [String(activeSceneIndex)]: { x: nx, y: ny } }));
+                  }}
+                  onPointerUp={(e) => {
+                    e.stopPropagation();
+                    const d = subDrag.current;
+                    subDrag.current = null;
+                    if (d?.moved) {
+                      const latest = scenePositions[String(activeSceneIndex)] ?? curScenePos;
+                      void savePlateSubtitles(project.id, {
+                        scenePositions: { [String(activeSceneIndex)]: latest }
+                      }).catch(() => undefined);
+                    }
+                  }}
+                >
+                  <span
+                    style={{
+                      ...(subColor ? { color: subColor } : {}),
+                      ...(subBgColor
+                        ? subStyle === "cinema"
+                          ? {
+                              textShadow: `0 2px 4px ${subBgColor}, -1.5px -1.5px 0 ${subBgColor}, 1.5px -1.5px 0 ${subBgColor}, -1.5px 1.5px 0 ${subBgColor}, 1.5px 1.5px 0 ${subBgColor}`
+                            }
+                          : { backgroundColor: subBgColor }
+                        : {})
+                    }}
+                  >
+                    {activeCue.text}
+                  </span>
+                </div>
+              )}
+            </>
           ) : (
             <AnimationPrep title="Loading browser animation…" />
           )

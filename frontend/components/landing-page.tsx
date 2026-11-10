@@ -23,7 +23,7 @@ const WORDS = ["product launches", "feature demos", "social stories", "visual ex
 const FAQS = [
   {
     q: "Do I need video-editing skills?",
-    a: "No. Pick a template or goal, enter a short brief (and optional screenshots), and Studio builds the script, storyboard, voiceover, and motion for you to review scene by scene."
+    a: "No. Pick a style or goal, enter a short brief (and optional screenshots), and Studio builds the script, storyboard, voiceover, and motion for you to review scene by scene."
   },
   {
     q: "Will it change my video without asking?",
@@ -925,11 +925,11 @@ export function LandingPage() {
               Pick a starting point. We fill in the script prompt, structure and style, so you edit an example instead of a blank page.
             </p>
           </div>
-          <GalleryGrid items={featured.items} loading={featured.loading} skeletons={4} hrefFor={(item) => signedIn ? `/studio?template=${item.id}` : startHref(item.id)} action={signedIn ? "Use this template" : "Start with this template"} />
+          <GalleryGrid items={featured.items} loading={featured.loading} skeletons={4} hrefFor={(item) => signedIn ? `/studio?template=${item.id}` : startHref(item.id)} action={signedIn ? "Use this style" : "Start with this style"} />
           <p style={{ margin: "20px 0 0", textAlign: "center", fontSize: "14px", color: "var(--d-tx-535862)" }}>
             {signedIn
-              ? <><Link href={appHref("/studio")} style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Open Studio</Link> to see every template and style.</>
-              : <><Link href={appHref("/auth?mode=signup")} style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Create a free account</Link> to see every template and style.</>}
+              ? <><Link href={appHref("/studio")} style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Open Studio</Link> to see every style.</>
+              : <><Link href={appHref("/auth?mode=signup")} style={{ color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>Create a free account</Link> to see every style.</>}
           </p>
         </section>
 

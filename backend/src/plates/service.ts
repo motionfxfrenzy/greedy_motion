@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
-import { getProject } from "../projects/store.ts";
+import { editProject, getProject } from "../projects/store.ts";
 import { desiredVariants, isPlateLook, sceneFrames, wantedAspects } from "./inputs.ts";
 import { estimateFilmWithScenes, estimateScene, type SceneEtaRow } from "./eta.ts";
 import {
@@ -414,12 +415,29 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
   return { available: isPlateLook(look ?? undefined), look, mode, serverNow: new Date(now).toISOString(), film, scenes, comments, subtitles, running: variants.some((v) => OPEN.includes(v.state)), drawnAspects, drawingAspects };
 }
 
+export async function getProjectSubtitles(project: VideoProject): Promise<PlateSubtitles> {
+  const stored = await readProjectState(project.id).catch(() => ({ liveMode: null, comments: [], subtitles: null }));
+  const defaults = defaultSubtitlesFor(project);
+  const merged: PlateSubtitles = { ...defaults, ...(stored.subtitles ?? {}) };
+  if (project.beatPlan?.audio?.captions && !stored.subtitles?.mode) {
+    merged.mode = project.beatPlan.audio.captions;
+  }
+  return merged;
+}
+
 export async function setPlateSubtitles(projectId: string, input: Record<string, unknown>): Promise<PlateSubtitles> {
   const project = await getProject(projectId);
   const stored = await readProjectState(projectId);
   const current = { ...defaultSubtitlesFor(project), ...(stored.subtitles ?? {}) };
   const next = mergeSubtitles(current, input, project ? primaryAspect(project) : "16:9");
   await writeSubtitles(projectId, next);
+  if (project && typeof input.mode === "string" && (project.brief?.captions !== next.mode || (project.beatPlan && project.beatPlan.audio.captions !== next.mode))) {
+    await editProject(projectId, (p) => ({
+      ...p,
+      ...(p.brief ? { brief: { ...p.brief, captions: next.mode } } : {}),
+      ...(p.beatPlan ? { beatPlan: { ...p.beatPlan, audio: { ...p.beatPlan.audio, captions: next.mode } } } : {})
+    })).catch(() => undefined);
+  }
   return next;
 }
 

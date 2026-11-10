@@ -7,7 +7,7 @@ import { AccountMenu } from "./account-menu";
 export type AppPage = "projects" | "templates" | "brand-kits" | "library" | "profile";
 const pages: { id: Exclude<AppPage, "profile">; label: string; href: string }[] = [
   { id: "projects", label: "Projects", href: "/studio" },
-  { id: "templates", label: "Templates", href: "/templates" },
+  { id: "templates", label: "Styles", href: "/templates" },
   { id: "brand-kits", label: "Brand kits", href: "/brand-kits" },
   { id: "library", label: "Library", href: "/library" }
 ];

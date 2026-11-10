@@ -119,8 +119,8 @@ export function GalleryGrid({ items, onUse, hrefFor, action, busy, loading, skel
   if (!row) return grid;
   return <div className="gallery-rowwrap">
     {grid}
-    {!edge.start && <button type="button" className="gallery-arrow left" aria-label="Show earlier templates" onClick={() => scroll(-1)}>←</button>}
-    {(!edge.end || onMore) && <button type="button" className="gallery-arrow right" aria-label={edge.end ? "Explore all templates" : "Explore more templates"} onClick={() => edge.end ? onMore?.() : scroll(1)}><span>Explore more</span><b aria-hidden="true">→</b></button>}
+    {!edge.start && <button type="button" className="gallery-arrow left" aria-label="Show earlier styles" onClick={() => scroll(-1)}>←</button>}
+    {(!edge.end || onMore) && <button type="button" className="gallery-arrow right" aria-label={edge.end ? "Explore all styles" : "Explore more styles"} onClick={() => edge.end ? onMore?.() : scroll(1)}><span>Explore more</span><b aria-hidden="true">→</b></button>}
   </div>;
 }
 
@@ -152,16 +152,16 @@ const makeVisitSeed = () => {
   }
 };
 
-/** The Templates page: every starting point in one grid, browsed by what the video is for. Paging, filtering and search
- *  are done by the backend; the browser holds only the pages it has shown. */
-export function TemplatesPage({ onUse, busy }: { onUse: (item: GalleryCard) => void; busy?: boolean }) {
-  // The tab and the search live in the URL (/templates?use=saas&q=...), so a reload or a shared link opens the same view.
+/** The Styles page (and embedded chooser gallery): every starting point in one grid, browsed by what the video is for.
+ *  Paging, filtering and search are done by the backend; the browser holds only the pages it has shown. */
+export function TemplatesPage({ onUse, busy, embedded = false }: { onUse: (item: GalleryCard) => void; busy?: boolean; embedded?: boolean }) {
+  // The tab and the search live in the URL (/templates?use=saas&q=...) when standalone, so a reload or a shared link opens the same view.
   const params = useSearchParams();
-  const asked = params.get("use");
+  const asked = embedded ? null : params.get("use");
   const [useCase, setUseCase] = useState<GalleryUseCase | "all">(galleryUseCases.some((entry) => entry.id === asked) ? (asked as GalleryUseCase) : "all");
   const [seed, setSeed] = useState<string>(() => makeVisitSeed());
-  const [query, setQuery] = useState(normalizeSearch(params.get("q")));
-  const [search, setSearch] = useState(normalizeSearch(params.get("q")));
+  const [query, setQuery] = useState(embedded ? "" : normalizeSearch(params.get("q")));
+  const [search, setSearch] = useState(embedded ? "" : normalizeSearch(params.get("q")));
   const [items, setItems] = useState<GalleryCard[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [counts, setCounts] = useState<Counts | null>(null);
@@ -172,12 +172,13 @@ export function TemplatesPage({ onUse, busy }: { onUse: (item: GalleryCard) => v
   const latest = useRef(0);
 
   useEffect(() => {
+    if (embedded) return;
     const next = new URLSearchParams(window.location.search);
     if (useCase === "all") next.delete("use"); else next.set("use", useCase);
     if (search) next.set("q", search); else next.delete("q");
     const text = next.toString();
     if (text !== window.location.search.replace(/^\?/, "")) window.history.replaceState(window.history.state, "", `${window.location.pathname}${text ? `?${text}` : ""}`);
-  }, [useCase, search]);
+  }, [embedded, useCase, search]);
 
   // Search waits for a pause in typing, then asks the backend.
   useEffect(() => { const timer = window.setTimeout(() => setSearch(normalizeSearch(query)), 250); return () => window.clearTimeout(timer); }, [query]);
@@ -201,21 +202,27 @@ export function TemplatesPage({ onUse, busy }: { onUse: (item: GalleryCard) => v
   };
 
   const blurb = galleryUseCases.find((entry) => entry.id === useCase)?.blurb;
-  return <section className="page-container">
-    <div className="page-heading"><div><h1>Templates</h1><p>{counts ? `${counts.all} starting ${counts.all === 1 ? "point" : "points"}. ` : ""}Pick one and the script prompt, structure, look and sound are filled in. Change anything before you generate.</p></div></div>
+  const content = <>
+    <div className={embedded ? "chooser-styles-heading" : "page-heading"}>
+      <div>
+        {embedded ? <h2>Styles</h2> : <h1>Styles</h1>}
+        <p>{counts ? `${counts.all} starting ${counts.all === 1 ? "style" : "styles"}. ` : ""}Pick one and the script prompt, structure, look and sound are filled in. Change anything before you generate.</p>
+      </div>
+    </div>
     <div className="gallery-tools">
       <div className="filter-tabs" role="group" aria-label="What the video is for">
-        <button className={useCase === "all" ? "selected" : ""} aria-pressed={useCase === "all"} onClick={selectAllTab}>All {counts && <span>{counts.all}</span>}</button>
-        {galleryUseCases.filter((entry) => !counts || counts[entry.id] > 0 || useCase === entry.id).map((entry) => <button key={entry.id} className={useCase === entry.id ? "selected" : ""} aria-pressed={useCase === entry.id} onClick={() => setUseCase(entry.id)}>{entry.label} {counts && <span>{counts[entry.id]}</span>}</button>)}
+        <button type="button" className={useCase === "all" ? "selected" : ""} aria-pressed={useCase === "all"} onClick={selectAllTab}>All {counts && <span>{counts.all}</span>}</button>
+        {galleryUseCases.filter((entry) => !counts || counts[entry.id] > 0 || useCase === entry.id).map((entry) => <button type="button" key={entry.id} className={useCase === entry.id ? "selected" : ""} aria-pressed={useCase === entry.id} onClick={() => setUseCase(entry.id)}>{entry.label} {counts && <span>{counts[entry.id]}</span>}</button>)}
       </div>
-      <input className="gallery-search" type="search" value={query} placeholder="Search templates" aria-label="Search templates" onChange={(event) => setQuery(event.target.value)} />
+      <input className="gallery-search" type="search" value={query} placeholder="Search styles" aria-label="Search styles" onChange={(event) => setQuery(event.target.value)} />
     </div>
     {blurb && <p className="gallery-blurb">Good for: {blurb}</p>}
     {failed
-      ? <div className="workspace-message" role="alert">Templates could not be loaded. <button className="secondary-button" onClick={() => void load(null)}>Try again</button></div>
+      ? <div className="workspace-message" role="alert">Styles could not be loaded. <button type="button" className="secondary-button" onClick={() => void load(null)}>Try again</button></div>
       : !loading && total === 0
         ? <div className="workspace-message" role="status">Nothing matches "{search}". Try another word or clear the search.</div>
         : <GalleryGrid items={items} onUse={onUse} busy={busy} loading={loading} skeletons={8} />}
-    {next && !loading && <div className="gallery-more"><button className="secondary-button" disabled={more} onClick={() => void load(next)}>{more ? "Loading…" : `Show more (${total - items.length} left)`}</button></div>}
-  </section>;
+    {next && !loading && <div className="gallery-more"><button type="button" className="secondary-button" disabled={more} onClick={() => void load(next)}>{more ? "Loading…" : `Show more (${total - items.length} left)`}</button></div>}
+  </>;
+  return embedded ? <div className="chooser-styles-section">{content}</div> : <section className="page-container">{content}</section>;
 }

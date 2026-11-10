@@ -38,6 +38,7 @@ import { mediaToken, signPreviewUrls } from "../media-links.ts";
 import { AudioUnavailable, audioStatus, planAudioDir, producePlanAudio, type AudioPart } from "./audio.ts";
 import { filmFrames } from "./frame-film.ts";
 import { ensureFilmMotion, filmScenes } from "./frame-motion.ts";
+import { setPlateSubtitles } from "../plates/service.ts";
 import { musicPrompt, produceMusic } from "./music.ts";
 import { speakerSettings, takeKey, VOICE_RULES, voiceOneLine, voiceSettings } from "./voice.ts";
 import { director } from "./director.ts";
@@ -2385,6 +2386,9 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           ...(brief ? { request: { ...current.request, format: aspectToFormat(brief.aspect) } } : {})
         };
       });
+      if (updated && typeof patch.captions === "string" && (captionModes as readonly string[]).includes(patch.captions)) {
+        await setPlateSubtitles(project.id, { mode: patch.captions }).catch(() => undefined);
+      }
       return updated ?? reply.code(404).send(notFound);
     } catch (error) {
       if (planProblems) return reply.code(422).send({ error: { code: "plan_problems", message: planProblems[0] }, problems: planProblems });

@@ -236,7 +236,7 @@ export function audioTags(tracks: AudioTrack[]): string {
   return tracks.map((track) => {
     const lane = track.automation ? ` data-automation="${attr(JSON.stringify({ version: 1, lanes: [{ target: "volume", points: track.automation }] }))}"` : "";
     const media = track.mediaStart ? ` data-media-start="${track.mediaStart}"` : "";
-    return `<audio id="${attr(track.id)}" src="${attr(track.src)}" data-start="${track.start}" data-duration="${track.duration}"${media} data-track-index="${track.track}" data-volume="${track.volume}"${lane}></audio>`;
+    return `<audio id="${attr(track.id)}" src="${attr(track.src)}" preload="auto" data-start="${track.start}" data-duration="${track.duration}"${media} data-track-index="${track.track}" data-volume="${track.volume}"${lane}></audio>`;
   }).join("");
 }
 
@@ -246,4 +246,110 @@ export function withSoundtrack(html: string, tracks: AudioTrack[]): string {
   const rootOpen = /<div id="root"[^>]*>/.exec(html);
   if (!rootOpen) throw new Error("The beat-plan template has no #root element for audio.");
   return html.replace(rootOpen[0], () => `${rootOpen[0]}\n    ${audioTags(tracks)}`);
+}
+
+const AUDIO_CONTINUITY_SCRIPT = `<script id="hf-audio-continuity">(function(){
+  if (window.__HF_EXPORT_RENDER_SEEK_CONFIG) return;
+  var proto = typeof HTMLMediaElement !== "undefined" ? Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime") : null;
+  if (!proto || !proto.get || !proto.set) return;
+  var getCt = proto.get, setCt = proto.set;
+  var GuardThreshold = 0.35;
+  var blobCache = {};
+  function toBlobUrl(url) {
+    if (!url || url.indexOf("blob:") === 0 || url.indexOf("data:") === 0) return Promise.resolve(url);
+    if (blobCache[url]) return blobCache[url];
+    blobCache[url] = fetch(url).then(function(r) {
+      if (!r.ok) throw new Error("status " + r.status);
+      return r.blob();
+    }).then(function(b) {
+      return URL.createObjectURL(b);
+    }).catch(function() { return url; });
+    return blobCache[url];
+  }
+  function getTlTime() {
+    if (window.__player && typeof window.__player.getTime === "function") return window.__player.getTime();
+    if (window.__timelines && window.__timelines.main && typeof window.__timelines.main.time === "function") return window.__timelines.main.time();
+    return -1;
+  }
+  function wireAudio(el) {
+    if (el.__hfContinuityWired) return;
+    el.__hfContinuityWired = true;
+    el.preload = "auto";
+    var mediaStart = parseFloat(el.getAttribute("data-media-start") || "0") || 0;
+    var clipStart = parseFloat(el.getAttribute("data-start") || "0") || 0;
+    var clipDur = parseFloat(el.getAttribute("data-duration") || "0") || 0;
+    var origSrc = el.getAttribute("src");
+    if (origSrc) {
+      toBlobUrl(origSrc).then(function(bUrl) {
+        if (bUrl && bUrl !== origSrc) {
+          var wasPlaying = !el.paused && !el.ended;
+          var cur = getCt.call(el);
+          el.setAttribute("src", bUrl);
+          el.load();
+          if (cur > 0) {
+            try { setCt.call(el, cur); } catch (e) {}
+          }
+          if (wasPlaying) {
+            var p = el.play();
+            if (p && typeof p.catch === "function") p.catch(function(){});
+          }
+        }
+      });
+    }
+    Object.defineProperty(el, "currentTime", {
+      configurable: true,
+      get: function() { return getCt.call(el); },
+      set: function(v) {
+        var target = Number(v);
+        if (!Number.isFinite(target)) return;
+        var cur = getCt.call(el);
+        if (!el.paused && !el.ended && Math.abs(target - cur) < GuardThreshold) {
+          return;
+        }
+        setCt.call(el, target);
+      }
+    });
+    var scheduleRewind = function() {
+      setTimeout(function() {
+        if (!el.paused) return;
+        var tlTime = getTlTime();
+        if (tlTime >= 0 && clipDur > 0 && (tlTime < clipStart - 0.02 || tlTime >= clipStart + clipDur)) {
+          if (Math.abs(getCt.call(el) - mediaStart) > 0.02) {
+            try { setCt.call(el, mediaStart); } catch (e) {}
+          }
+        }
+      }, 60);
+    };
+    el.addEventListener("pause", scheduleRewind);
+    el.addEventListener("ended", scheduleRewind);
+  }
+  function initAll() {
+    var list = document.querySelectorAll("audio[data-start]");
+    for (var i = 0; i < list.length; i++) wireAudio(list[i]);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initAll);
+  else initAll();
+  window.addEventListener("message", function(ev) {
+    var d = ev && ev.data;
+    if (d && d.source === "hf-parent" && d.type === "control" && d.action === "seek") {
+      var t = Number(d.timeSeconds);
+      if (!Number.isFinite(t)) return;
+      var els = document.querySelectorAll("audio[data-start]");
+      for (var j = 0; j < els.length; j++) {
+        var a = els[j];
+        var cs = parseFloat(a.getAttribute("data-start") || "0") || 0;
+        var cd = parseFloat(a.getAttribute("data-duration") || "0") || 0;
+        var ms = parseFloat(a.getAttribute("data-media-start") || "0") || 0;
+        if (cd > 0 && (t < cs || t >= cs + cd)) {
+          try { setCt.call(a, ms); } catch (e) {}
+        }
+      }
+    }
+  });
+})();</script>`;
+
+/** Keeps preview audio tracks pre-buffered in memory and rewound at clip boundaries across repeated plays. */
+export function withAudioContinuity(html: string): string {
+  if (!html.includes("<audio ")) return html;
+  return html.replace("</body>", () => `  ${AUDIO_CONTINUITY_SCRIPT}\n</body>`);
 }

@@ -1359,8 +1359,95 @@
     return { pressAt: pressAt };
   }
 
-  // ---------- captions (full): the line as a lower-third overlay, chunked, timed to the voiceover ----------
-  function captions(b, line, s, e) {
+  // ---------- captions (full / key-phrases): the line as a customizable overlay, chunked, timed to the voiceover ----------
+  var SUB = PLAN.subtitles && typeof PLAN.subtitles === "object" ? PLAN.subtitles : null;
+  function styleCaptionEl(el, sp, sceneIdx) {
+    el.setAttribute("data-scene-index", String(sceneIdx));
+    if (!SUB) return;
+    var spMap = SUB.scenePositions && typeof SUB.scenePositions === "object" ? SUB.scenePositions : {};
+    var scPos = spMap[String(sceneIdx)];
+    var pxVal = scPos && typeof scPos.x === "number" ? scPos.x : (typeof SUB.x === "number" ? SUB.x : 50);
+    var pyVal = scPos && typeof scPos.y === "number" ? scPos.y : (typeof SUB.y === "number" ? SUB.y : 70);
+    var subScale = clamp((+SUB.size || 100) / 100, 0.5, 1.6);
+    var subAlpha = clamp((+SUB.opacity || 100) / 100, 0.2, 1);
+    var st = SUB.style || "pill";
+    el.className = "cap cap-" + st;
+    Object.assign(el.style, {
+      left: clamp(pxVal, 8, 92) + "%",
+      top: clamp(pyVal, 8, 92) + "%",
+      bottom: "auto",
+      width: "max-content",
+      maxWidth: "84%"
+    });
+    tl.set(el, { xPercent: -50, yPercent: -50 }, 0);
+    sp.style.fontSize = px(Math.round(LAY.capFs * subScale));
+    sp.style.maxWidth = "100%";
+    sp.style.opacity = String(subAlpha);
+    var col = SUB.color || "";
+    var bg = SUB.bgColor || "";
+    if (st === "cinema") {
+      var shCol = bg || "#090b10";
+      Object.assign(sp.style, {
+        background: "transparent",
+        color: col || "#fef08a",
+        border: "none",
+        boxShadow: "none",
+        textShadow: "0 2px 4px " + shCol + ", -1.5px -1.5px 0 " + shCol + ", 1.5px -1.5px 0 " + shCol + ", -1.5px 1.5px 0 " + shCol + ", 1.5px 1.5px 0 " + shCol
+      });
+    } else if (st === "kinetic") {
+      Object.assign(sp.style, {
+        background: bg || "#facc15",
+        color: col || "#0b0d12",
+        borderRadius: "10px",
+        border: "3px solid #0b0d12",
+        fontWeight: "800",
+        textTransform: "uppercase",
+        letterSpacing: "0.02em",
+        boxShadow: "0 4px 0 #0b0d12"
+      });
+    } else if (st === "paper") {
+      Object.assign(sp.style, {
+        background: bg || "#faf5e8",
+        color: col || "#231f1b",
+        borderRadius: "10px",
+        border: "2px solid #3b3228",
+        fontFamily: "Georgia, 'Times New Roman', serif",
+        fontWeight: "600",
+        boxShadow: "3px 4px 0 rgba(30, 22, 14, 0.32)"
+      });
+    } else if (st === "blueprint") {
+      Object.assign(sp.style, {
+        background: bg || "rgba(12, 42, 74, 0.9)",
+        color: col || "#f0f9ff",
+        borderRadius: "6px",
+        border: "2px solid #7dd3fc",
+        fontFamily: "'SF Mono', Menlo, monospace",
+        fontWeight: "600",
+        letterSpacing: "0.02em",
+        boxShadow: "0 4px 12px rgba(4, 16, 36, 0.45)"
+      });
+    } else {
+      Object.assign(sp.style, {
+        background: bg || "rgba(12, 15, 22, 0.82)",
+        color: col || "#f8fafc",
+        borderRadius: "999px",
+        border: "1px solid rgba(255, 255, 255, 0.14)",
+        boxShadow: "0 4px 14px rgba(0, 0, 0, 0.38)"
+      });
+    }
+  }
+  function keyPhraseCaption(phrase, s, e, sceneIdx) {
+    var txt = String(phrase || "").trim();
+    if (!txt) return;
+    var el = free(mk("div", "cap", capLayer, { bottom: LAY.capBottom }));
+    var sp = mk("span", null, el, { fontSize: LAY.capFs }, txt);
+    styleCaptionEl(el, sp, sceneIdx);
+    var t0 = s + 0.1, t1 = Math.max(s + 0.3, e - 0.15);
+    hide(el); showAt(el, t0);
+    tl.fromTo(el, { y: 12 }, { y: 0, duration: 0.14, ease: "power2.out" }, snap(t0));
+    tl.set(el, { autoAlpha: 0 }, snap(t1));
+  }
+  function captions(b, line, s, e, sceneIdx) {
     var vo = b.vo && typeof b.vo.start === "number" ? b.vo : { start: s + 0.15, end: e - 0.1 };
     var words = line.split(/\s+/).filter(Boolean);
     if (!words.length) return;
@@ -1372,7 +1459,8 @@
       chunks.forEach(function (ch, j) {
         var w0 = heard[j * per], wn = heard[Math.min(heard.length, (j + 1) * per) - 1], next = heard[(j + 1) * per];
         var el = free(mk("div", "cap", capLayer, { bottom: LAY.capBottom }));
-        mk("span", null, el, { fontSize: LAY.capFs }, ch);
+        var sp = mk("span", null, el, { fontSize: LAY.capFs }, ch);
+        styleCaptionEl(el, sp, sceneIdx);
         hide(el); showAt(el, w0.start - 0.04);
         tl.fromTo(el, { y: 12 }, { y: 0, duration: 0.14, ease: "power2.out" }, snap(w0.start - 0.04));
         tl.set(el, { autoAlpha: 0 }, snap(next ? next.start - 0.04 : Math.min(wn.end + 0.2, e + 0.25)));
@@ -1383,7 +1471,8 @@
     chunks.forEach(function (ch, j) {
       var d = span * ch.length / total;
       var el = free(mk("div", "cap", capLayer, { bottom: LAY.capBottom }));
-      mk("span", null, el, { fontSize: LAY.capFs }, ch);
+      var sp = mk("span", null, el, { fontSize: LAY.capFs }, ch);
+      styleCaptionEl(el, sp, sceneIdx);
       hide(el); showAt(el, at);
       tl.fromTo(el, { y: 12 }, { y: 0, duration: 0.14, ease: "power2.out" }, snap(at));
       tl.set(el, { autoAlpha: 0 }, snap(j === chunks.length - 1 ? Math.min(at + d + 0.2, e + 0.25) : at + d));
@@ -1438,7 +1527,9 @@
     if (kind !== "kinetic") lastFlood = false;
     if (successAt !== null) info.successAt = successAt;
     if (!last && b.transition_out && b.transition_out.type === "brand-field-wipe") { CUR_BEAT = b.id + "_wipe"; wipe(sh.vout, e); info.wipe = true; WIPED.push(i, i + 1); }
-    if (PLAN.captions === "full" && line) { CUR_BEAT = b.id; captions(b, line, s, e); }
+    var capMode = (SUB && SUB.mode) || PLAN.captions || "key-phrases";
+    if (capMode === "full" && line) { CUR_BEAT = b.id; captions(b, line, s, e, i); }
+    else if (capMode === "key-phrases" && document.getElementById("frame-film") && (onScreen || kwText)) { CUR_BEAT = b.id; keyPhraseCaption(onScreen || kwText, s, e, i); }
     LOG.beats.push(info);
   });
   CUR_BEAT = "g"; CUR_HINTS = null;

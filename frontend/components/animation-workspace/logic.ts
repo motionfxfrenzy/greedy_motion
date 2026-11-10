@@ -360,11 +360,11 @@ export function hfOptionsConfig(availableAudio: { voice: boolean; music: boolean
   return {
     audioTracks,
     subtitleModes: ["none", "key-phrases", "full"],
-    subtitleStyle: false,
-    subtitleSize: false,
-    subtitleColors: false,
-    subtitleOpacity: false,
-    subtitlePosition: false,
+    subtitleStyle: true,
+    subtitleSize: true,
+    subtitleColors: true,
+    subtitleOpacity: true,
+    subtitlePosition: true,
     previewQuality: false
   };
 }

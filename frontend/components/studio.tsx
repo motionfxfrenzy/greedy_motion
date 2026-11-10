@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { optimisticUpdate } from "../lib/optimistic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { aspectToFormat, beatCountRange, briefAspects, DEFAULT_ANIMATION_TIER, effectiveBriefDurationSeconds, ensureScriptBeatIds, isPaidTier, isScriptLedDuration, PREMIUM_LOCKED_COPY, remapFlagsOnInsert, remapFlagsOnRemove, remapIndicesOnInsert, remapIndicesOnRemove, remapRecordOnInsert, remapRecordOnRemove, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, scriptSeconds, bundledFonts, findGalleryTemplate, isFilmBrief, wordBudget, scriptFrameKey, voiceText, getLook, getStyleFamily, defaultTemplateId, deriveBrandTheme, findTemplate, findTheme, parseScriptBrief, parseScriptStream, templates, themes, type AnimationTier, type Beat, type BeatPlan, type BrandKit, type ScriptBeat, type ScriptNotes, type GalleryCard, type ProjectStudioDraft, type RenderJob, type RenderRequest, type ScriptBrief, type Template, type VideoProject } from "@videosaas/contracts";
-import { GalleryGrid, useGalleryShelf } from "./template-gallery";
+import { GalleryGrid, TemplatesPage, useGalleryShelf } from "./template-gallery";
 import { PlateFinal, PlatePreview } from "./plate-preview";
 import { BrowserAnimationStep } from "./browser-animation-step";
 import { FinalRenderStep } from "./final-render-step";
@@ -321,7 +321,7 @@ export function Studio() {
     try {
       const picked = await getGalleryTemplate(item.id);
       await begin(picked.starterId, picked.brief);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not open that template."); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not open that style."); }
     finally { setGalleryBusy(false); }
   };
   // The landing page sends visitors here as /studio?template=<id> after sign-up; open that template's brief once.
@@ -1621,18 +1621,30 @@ function CreationHeader({ name, state, step, reachable, back, go, openStudio }: 
   return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: 999, background: "var(--d-bg-ffffff)", color: "var(--d-tx-0058bd)" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{flowSteps.map(([id, label], position) => <li key={label}><button className={id === step ? "current" : id <= reachable ? "complete" : ""} disabled={id > reachable} onClick={() => go(id)}><b>{id !== step && id <= reachable ? "✓" : position + 1}</b>{label}</button>{position !== flowSteps.length - 1 && <i />}</li>)}</ol></header>;
 }
 
-/** The first templates, shown under the empty Projects page. Fetched from the backend: one row that fades out, so it feels like a library. */
+/** The first styles, shown under the empty Projects page. Fetched from the backend: one row that fades out, so it feels like a library. */
 function TemplateShelf({ startTemplate, browseTemplates, busy }: { startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; busy: boolean }) {
   const { items, loading } = useGalleryShelf({ limit: 10 });
-  return <div className="gallery-shelf"><div className="gallery-shelf-head"><div><h2>Start from a template</h2><p>Each one fills in the script prompt, structure and style for you. Edit anything before you generate.</p></div><button className="secondary-button" onClick={browseTemplates}>Browse all templates</button></div><GalleryGrid row onMore={browseTemplates} items={items} onUse={startTemplate} busy={busy} loading={loading} skeletons={4} /></div>;
+  return <div className="gallery-shelf"><div className="gallery-shelf-head"><div><h2>Start from a style</h2><p>Each one fills in the script prompt, structure and style for you. Edit anything before you generate.</p></div><button className="secondary-button" onClick={browseTemplates}>Browse all styles</button></div><GalleryGrid row onMore={browseTemplates} items={items} onUse={startTemplate} busy={busy} loading={loading} skeletons={4} /></div>;
 }
 
 function Projects({ brands, projects, loading, loaded, busy, create, startTemplate, browseTemplates, open, openStudio, archive, remove }: { projects: VideoProject[]; loading: boolean; loaded: boolean; busy: boolean; create: () => void; startTemplate: (item: GalleryCard) => void; browseTemplates: () => void; open: (project: VideoProject) => void; openStudio: (project: VideoProject) => void; archive: (project: VideoProject, archived: boolean) => Promise<void>; remove: (project: VideoProject) => Promise<void>; brands: BrandKit[] }) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [filter, setFilter] = useState("All");
+  const [chooserOpen, setChooserOpen] = useState(false);
   const [deletingProject, setDeletingProject] = useState<VideoProject | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!chooserOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setChooserOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [chooserOpen]);
   const activeProjects = projects.filter((item) => !item.archived);
   const archivedProjects = projects.filter((item) => Boolean(item.archived));
   const groups = {
@@ -1656,7 +1668,65 @@ function Projects({ brands, projects, loading, loaded, busy, create, startTempla
       setDeletingBusy(false);
     }
   };
-  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} onClick={create}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} {(loaded || projects.length > 0) && <span>{items?.length ?? 0}</span>}</button>)}</div>{projects.length === 0 && !loaded ? loading ? <ProjectSkeletons /> : <div className="workspace-message" role="status">Projects could not be loaded. Use Try again above.</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a template below.</p><button className="primary-button" onClick={create}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} onArchive={() => void archive(project, !project.archived)} onDelete={() => { setDeleteError(null); setDeletingProject(project); }} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}
+  return <section className="page-container"><div className="page-heading"><div><h1>Projects</h1><p>Turn product updates into customer-ready videos.</p></div><div><button className="primary-button" disabled={busy} aria-haspopup="dialog" onClick={() => setChooserOpen(true)}>{busy ? "Creating…" : "Create a video"}</button></div></div><div className="filter-tabs">{Object.entries(groups).map(([label, items]) => <button key={label} className={filter === label ? "selected" : ""} aria-pressed={filter === label} onClick={() => setFilter(label)}>{label} {(loaded || projects.length > 0) && <span>{items?.length ?? 0}</span>}</button>)}</div>{projects.length === 0 && !loaded ? loading ? <ProjectSkeletons /> : <div className="workspace-message" role="status">Projects could not be loaded. Use Try again above.</div> : projects.length === 0 ? <><div className="empty-workspace"><b>No projects yet.</b><p>Create a video to save a real brief, script, screenshots, and render history, or start from a style below.</p><button className="primary-button" aria-haspopup="dialog" onClick={() => setChooserOpen(true)}>Create a video</button></div><TemplateShelf startTemplate={startTemplate} browseTemplates={browseTemplates} busy={busy} /></> : <div className="project-grid">{visibleProjects.length === 0 && <p role="status">No projects in this view.</p>}{visibleProjects.map((project) => <ProjectCard brands={brands} key={project.id} project={project} open={open} openStudio={openStudio} onArchive={() => void archive(project, !project.archived)} onDelete={() => { setDeleteError(null); setDeletingProject(project); }} menuOpen={openMenuId === project.id} setMenuOpen={(next) => setOpenMenuId(next ? project.id : null)} />)}</div>}
+    {chooserOpen && <div className="sc-modal-backdrop" onClick={() => setChooserOpen(false)}>
+      <div
+        className="sc-modal create-video-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-video-modal-title"
+        style={{ width: "min(1120px, 96vw)", maxHeight: "90vh", overflowY: "auto", padding: "24px 28px" }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
+          <div>
+            <h2 id="create-video-modal-title" style={{ margin: 0 }}>Create a video</h2>
+            <p style={{ margin: "4px 0 0", color: "var(--muted, #535862)", fontSize: 14 }}>Start with a blank project or pick a style below.</p>
+          </div>
+          <button type="button" className="sc-modal-close" aria-label="Close" onClick={() => setChooserOpen(false)}>×</button>
+        </header>
+        <div
+          className="create-blank-row"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 16,
+            padding: "18px 20px",
+            borderRadius: 16,
+            border: "1px solid var(--border, #d6e4f2)",
+            background: "var(--surface, #f8fbff)",
+            marginBottom: 22
+          }}
+        >
+          <div>
+            <strong style={{ display: "block", fontSize: 16, marginBottom: 4 }}>Start from scratch</strong>
+            <span style={{ color: "var(--muted, #535862)", fontSize: 14 }}>Open an empty brief to describe your video, paste your own script, or import a website.</span>
+          </div>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy}
+            onClick={() => {
+              setChooserOpen(false);
+              create();
+            }}
+          >
+            Create a blank project
+          </button>
+        </div>
+        <hr style={{ border: 0, borderTop: "1px solid var(--border, #e2e8f0)", margin: "0 0 18px" }} />
+        <TemplatesPage
+          embedded
+          busy={busy}
+          onUse={(item) => {
+            setChooserOpen(false);
+            startTemplate(item);
+          }}
+        />
+      </div>
+    </div>}
     {deletingProject && <div className="sc-modal-backdrop" onClick={() => { if (!deletingBusy) setDeletingProject(null); }}>
       <div className="sc-modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-title" style={{ width: "min(440px, 100%)" }} onClick={(event) => event.stopPropagation()}>
         <header>
@@ -1685,7 +1755,7 @@ function ProjectCard({ brands, project, open, openStudio, onArchive, onDelete, m
   const image = project.screenshots[0] ? projectScreenshotUrl(project.id, project.screenshots[0].id) : imageFor(template ?? templates[0]);
   const firstBeat = project.beatPlan?.beats[0];
   // A project started from the gallery keeps the default starter in request.template, so name and length come from the brief and plan.
-  const kind = getStyleFamily(project.brief?.styleFamily)?.name ?? template?.name ?? "Template";
+  const kind = getStyleFamily(project.brief?.styleFamily)?.name ?? template?.name ?? "Style";
   // The real length once rendered, else the script's estimate, else the target the brief asked for.
   const seconds = project.filmSeconds ?? (project.brief?.scriptBeats?.length ? scriptSeconds(project.brief.scriptBeats, project.brief.pace) : null) ?? project.beatPlan?.target_duration_s ?? project.brief?.durationSeconds ?? template?.durationSeconds ?? 0;
   const status = project.state === "Approved" ? "approved" : project.state === "Ready for review" ? "review" : "draft";

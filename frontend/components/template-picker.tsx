@@ -26,13 +26,13 @@ export function TemplatePicker({ value, disabled, onChoose }: TemplatePickerProp
 
   return (
     <div className="template-field">
-      <span className="field-label" id="template-label">Template</span>
+      <span className="field-label" id="template-label">Style</span>
       <button type="button" className="theme-current" onClick={open} disabled={disabled} aria-labelledby="template-label template-current-name" aria-haspopup="dialog">
         <img src={templatePreview(selected)} alt="" width={640} height={360} />
         <span className="theme-current-meta">
           <strong id="template-current-name">{selected.name}</strong>
           <span className="template-meta">{selected.durationSeconds} sec · {selected.scenes.length} scenes</span>
-          <span className="theme-change">Browse {templates.length} templates →</span>
+          <span className="theme-change">Browse {templates.length} styles →</span>
         </span>
       </button>
 
@@ -40,11 +40,11 @@ export function TemplatePicker({ value, disabled, onChoose }: TemplatePickerProp
         <div className="theme-dialog-inner">
           <header className="theme-dialog-header">
             <div>
-              <span className="eyebrow">Starter templates</span>
-              <h2 id="template-dialog-title">Start from a template</h2>
+              <span className="eyebrow">Starter styles</span>
+              <h2 id="template-dialog-title">Start from a style</h2>
               <p>Pick a structure, describe your product, and we write the copy for every scene. You can change the theme and every line afterwards.</p>
             </div>
-            <button type="button" className="theme-close" onClick={close} aria-label="Close template gallery">✕</button>
+            <button type="button" className="theme-close" onClick={close} aria-label="Close style gallery">✕</button>
           </header>
 
           <div className="template-list">
@@ -68,7 +68,7 @@ export function TemplatePicker({ value, disabled, onChoose }: TemplatePickerProp
                       {template.scenes.map((scene) => <li key={scene.id}><span>{scene.label}</span><span>{scene.duration}s</span></li>)}
                     </ol>
                     <button type="button" className="template-use" data-template-id={template.id} onClick={() => { onChoose(template); close(); }}>
-                      {current ? "Keep this template" : "Use this template"}
+                      {current ? "Keep this style" : "Use this style"}
                     </button>
                   </div>
                 </article>

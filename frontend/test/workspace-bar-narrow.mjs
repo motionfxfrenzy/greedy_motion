@@ -661,7 +661,7 @@ test(
       await page.evaluate(() => document.fonts.ready);
 
       const hfSubAudit = await auditBarLayout(page, width, `HyperFrames Subtitle tab (${width}px)`);
-      assert.equal(hfSubAudit.controls.length, 4, `HyperFrames Subtitle tab (${width}px) renders 4 controls (3 + the motion-blur checkbox)`);
+      assert.equal(hfSubAudit.controls.length, 10, `HyperFrames Subtitle tab (${width}px) renders all 10 controls (9 subtitle/audio tab controls + the motion-blur checkbox)`);
       await auditPopovers(page, width, hfSubtitlePopovers, `HyperFrames Subtitle popovers (${width}px)`);
 
       await page.locator('.aw-floating-bar button[role="tab"]:has-text("Audio")').click();
@@ -675,7 +675,7 @@ test(
       await page.waitForSelector('.aw-floating-bar button:has-text("Retry")');
       await page.evaluate(() => document.fonts.ready);
       const hfErrAudit = await auditBarLayout(page, width, `HyperFrames g2-preview-error (${width}px)`);
-      assert.equal(hfErrAudit.controls.length, 5, `HyperFrames g2-preview-error (${width}px) renders 5 controls including Retry (and the motion-blur checkbox)`);
+      assert.equal(hfErrAudit.controls.length, 11, `HyperFrames g2-preview-error (${width}px) renders 11 controls including Retry (and the motion-blur checkbox)`);
       assert.ok(hfErrAudit.statusBox, `HyperFrames g2-preview-error (${width}px) shows status chip`);
     }
   } finally {

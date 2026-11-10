@@ -1,4 +1,5 @@
 import { resolveSceneRoute, type SceneRoute, type Aspect, type Beat, type BeatLayoutHint, type BeatPlan, type HyperFramesOverridesMap } from "@videosaas/contracts";
+import type { PlateSubtitles } from "../plates/model.ts";
 import type { PlanTiming } from "./timing.ts";
 
 /**
@@ -58,16 +59,24 @@ export type EnginePlan = {
   canvas: Aspect;
   motion_profile: BeatPlan["brand"]["motion_profile"];
   captions: BeatPlan["audio"]["captions"];
+  subtitles?: PlateSubtitles | null;
   beats: EngineBeat[];
 };
 
 /** The `plan` variable: the beats the engine draws, with their clock from `planTiming`. */
-export function enginePlan(plan: BeatPlan, timing: PlanTiming, screenSizes: Record<string, { width: number; height: number }> = {}, look = "clean"): EnginePlan {
+export function enginePlan(
+  plan: BeatPlan,
+  timing: PlanTiming,
+  screenSizes: Record<string, { width: number; height: number }> = {},
+  look = "clean",
+  subtitles?: PlateSubtitles | null
+): EnginePlan {
   const times = new Map(timing.beats.map((beat) => [beat.id, beat]));
   return {
     canvas: plan.canvas,
     motion_profile: plan.brand.motion_profile,
-    captions: plan.audio.captions,
+    captions: subtitles?.mode ?? plan.audio.captions,
+    ...(subtitles ? { subtitles } : {}),
     beats: plan.beats.map((beat) => {
       const time = times.get(beat.id);
       const size = beat.ui ? screenSizes[beat.ui.screen] : undefined;
@@ -131,12 +140,14 @@ export type EngineInputs = {
   look?: string;
   /** Style family (contracts style-families.ts), e.g. "clean-type"; the engine reads it as the `family` variable. */
   family?: string;
+  /** Saved subtitle customization (mode, style, size, opacity, color, bgColor, x, y, scenePositions). */
+  subtitles?: PlateSubtitles | null;
 };
 
 /** Every variable the engine reads: `plan`, `shot.<id>`, `brandName`, `logo`, `logoWordmark`, `logoBug`, `look`. */
 export function engineVariables(input: EngineInputs): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {
-    plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes, input.look)),
+    plan: JSON.stringify(enginePlan(input.plan, input.timing, input.screenSizes, input.look, input.subtitles)),
     brandName: input.brandName,
     logo: input.logo ?? "",
     logoWordmark: Boolean(input.logo && input.logoWordmark),
@@ -165,6 +176,127 @@ const TEXT_BLOCK = /<script id="hf-variables" type="application\/json">[\s\S]*?<
 export function fillTextBlock(html: string, values: Record<string, unknown>): string {
   if (!TEXT_BLOCK.test(html)) throw new Error("The beat-plan template has no hf-variables block.");
   return html.replace(TEXT_BLOCK, () => `<script id="hf-variables" type="application/json">${scriptJson(values)}</script>`);
+}
+
+const SUBTITLE_STYLING_SCRIPT = `<script id="bp-subtitles">(function(){
+  try {
+    var HF = window.__hyperframes, V = Object.assign({}, window.__hfVariables || {}, HF && HF.getVariables ? HF.getVariables() : {});
+    var plan = V.plan && typeof V.plan === "object" ? V.plan : JSON.parse(V.plan || "{}");
+    var sub = plan && plan.subtitles && typeof plan.subtitles === "object" ? plan.subtitles : null;
+    if (!sub) return;
+    var capLayer = document.getElementById("captions");
+    var root = document.getElementById("root");
+    var tl = window.__timelines && window.__timelines.main;
+    if (!capLayer || !root) return;
+    var W = +root.getAttribute("data-width") || 1920, H = +root.getAttribute("data-height") || 1080;
+    var baseFs = W > H * 1.2 ? 42 : H > W * 1.2 ? 40 : 38;
+    var beats = Array.isArray(plan.beats) ? plan.beats : [];
+    var idxByBeatId = {};
+    for (var i = 0; i < beats.length; i++) idxByBeatId[beats[i].id] = i;
+    var clamp = function(v, a, b) { return Math.min(b, Math.max(a, v)); };
+    var mode = sub.mode || plan.captions || "full";
+    if (mode === "none") {
+      capLayer.innerHTML = "";
+      return;
+    }
+    if (mode === "key-phrases" && capLayer.children.length === 0 && document.getElementById("frame-film") && tl) {
+      for (var k = 0; k < beats.length; k++) {
+        var b = beats[k];
+        var phrase = String(V[b.id + ".on_screen"] || b.on_screen || V[b.id + ".keyword"] || b.keyword || "").trim();
+        if (!phrase) continue;
+        var el = document.createElement("div");
+        el.className = "cap";
+        el.setAttribute("data-el", b.id + ":cap:0");
+        el.setAttribute("data-layout-allow-overlap", "");
+        var sp = document.createElement("span");
+        sp.textContent = phrase;
+        el.appendChild(sp);
+        capLayer.appendChild(el);
+        var s = +b.start || 0, e = +b.end || (s + 2);
+        var t0 = Math.round((s + 0.1) * 30) / 30, t1 = Math.round(Math.max(s + 0.3, e - 0.15) * 30) / 30;
+        tl.set(el, { autoAlpha: 0 }, 0);
+        tl.set(el, { autoAlpha: 1 }, t0);
+        tl.fromTo(el, { y: 12 }, { y: 0, duration: 0.14, ease: "power2.out" }, t0);
+        tl.set(el, { autoAlpha: 0 }, t1);
+      }
+    }
+    var spMap = sub.scenePositions && typeof sub.scenePositions === "object" ? sub.scenePositions : {};
+    var subScale = clamp((+sub.size || 100) / 100, 0.5, 1.6);
+    var subAlpha = clamp((+sub.opacity || 100) / 100, 0.2, 1);
+    var st = sub.style || "pill";
+    var col = sub.color || "";
+    var bg = sub.bgColor || "";
+    var caps = capLayer.querySelectorAll(".cap");
+    for (var j = 0; j < caps.length; j++) {
+      var capEl = caps[j];
+      var elId = capEl.getAttribute("data-el") || "";
+      var beatId = elId.split(":")[0] || "";
+      var scIdx = Object.prototype.hasOwnProperty.call(idxByBeatId, beatId) ? idxByBeatId[beatId] : 0;
+      capEl.setAttribute("data-scene-index", String(scIdx));
+      var scPos = spMap[String(scIdx)];
+      var pxVal = scPos && typeof scPos.x === "number" ? scPos.x : (typeof sub.x === "number" ? sub.x : 50);
+      var pyVal = scPos && typeof scPos.y === "number" ? scPos.y : (typeof sub.y === "number" ? sub.y : 70);
+      capEl.className = "cap cap-" + st;
+      capEl.style.left = clamp(pxVal, 8, 92) + "%";
+      capEl.style.top = clamp(pyVal, 8, 92) + "%";
+      capEl.style.bottom = "auto";
+      capEl.style.width = "max-content";
+      capEl.style.maxWidth = "84%";
+      if (tl) tl.set(capEl, { xPercent: -50, yPercent: -50 }, 0);
+      else capEl.style.transform = "translate(-50%, -50%)";
+      var spanEl = capEl.querySelector("span");
+      if (!spanEl) continue;
+      spanEl.style.fontSize = Math.round(baseFs * subScale) + "px";
+      spanEl.style.maxWidth = "100%";
+      spanEl.style.opacity = String(subAlpha);
+      if (st === "cinema") {
+        var shCol = bg || "#090b10";
+        spanEl.style.background = "transparent";
+        spanEl.style.color = col || "#fef08a";
+        spanEl.style.border = "none";
+        spanEl.style.boxShadow = "none";
+        spanEl.style.textShadow = "0 2px 4px " + shCol + ", -1.5px -1.5px 0 " + shCol + ", 1.5px -1.5px 0 " + shCol + ", -1.5px 1.5px 0 " + shCol + ", 1.5px 1.5px 0 " + shCol;
+      } else if (st === "kinetic") {
+        spanEl.style.background = bg || "#facc15";
+        spanEl.style.color = col || "#0b0d12";
+        spanEl.style.borderRadius = "10px";
+        spanEl.style.border = "3px solid #0b0d12";
+        spanEl.style.fontWeight = "800";
+        spanEl.style.textTransform = "uppercase";
+        spanEl.style.letterSpacing = "0.02em";
+        spanEl.style.boxShadow = "0 4px 0 #0b0d12";
+      } else if (st === "paper") {
+        spanEl.style.background = bg || "#faf5e8";
+        spanEl.style.color = col || "#231f1b";
+        spanEl.style.borderRadius = "10px";
+        spanEl.style.border = "2px solid #3b3228";
+        spanEl.style.fontFamily = "Georgia, 'Times New Roman', serif";
+        spanEl.style.fontWeight = "600";
+        spanEl.style.boxShadow = "3px 4px 0 rgba(30, 22, 14, 0.32)";
+      } else if (st === "blueprint") {
+        spanEl.style.background = bg || "rgba(12, 42, 74, 0.9)";
+        spanEl.style.color = col || "#f0f9ff";
+        spanEl.style.borderRadius = "6px";
+        spanEl.style.border = "2px solid #7dd3fc";
+        spanEl.style.fontFamily = "'SF Mono', Menlo, monospace";
+        spanEl.style.fontWeight = "600";
+        spanEl.style.letterSpacing = "0.02em";
+        spanEl.style.boxShadow = "0 4px 12px rgba(4, 16, 36, 0.45)";
+      } else {
+        spanEl.style.background = bg || "rgba(12, 15, 22, 0.82)";
+        spanEl.style.color = col || "#f8fafc";
+        spanEl.style.borderRadius = "999px";
+        spanEl.style.border = "1px solid rgba(255, 255, 255, 0.14)";
+        spanEl.style.boxShadow = "0 4px 14px rgba(0, 0, 0, 0.38)";
+      }
+    }
+  } catch (e) {}
+})();</script>`;
+
+/** Applies saved PlateSubtitles styling, position, and mode to #captions in preview and final render HTML. */
+export function withSubtitleStyling(html: string, subtitles?: PlateSubtitles | null): string {
+  if (!subtitles) return html;
+  return html.replace("</body>", () => `  ${SUBTITLE_STYLING_SCRIPT}\n</body>`);
 }
 
 const DECLARATIONS = /data-composition-variables='([\s\S]*?)'/;

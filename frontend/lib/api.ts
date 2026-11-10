@@ -20,7 +20,7 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
     throw new Error("We couldn't reach the service. Your changes are still here. Check your connection and try again.");
   }
   if ([502, 503, 504].includes(response.status)) throw new Error("The service is temporarily unavailable. Please try again shortly.");
-  if (response.status === 401 && typeof window !== "undefined") window.location.href = "/auth?next=" + encodeURIComponent(window.location.pathname);
+  if (response.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/dev/")) window.location.href = "/auth?next=" + encodeURIComponent(window.location.pathname);
   if (response.status === 403 && typeof window !== "undefined") {
     const cloned = response.clone();
     void cloned.json().then((body: ApiError) => {

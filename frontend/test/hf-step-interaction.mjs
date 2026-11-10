@@ -390,6 +390,24 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
         return;
       }
 
+      if (/\/projects\/[^/]+\/plates(?:\/subtitles)?$/.test(url.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ available: false, look: "clean", scenes: [], comments: [], running: false })
+        });
+        return;
+      }
+
+      if (url.pathname.startsWith("/api/backend/")) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ error: { code: "not_found", message: "Not found." } })
+        });
+        return;
+      }
+
       if (url.hostname === "127.0.0.1" && url.port === String(port)) {
         await route.continue();
         return;
@@ -642,9 +660,9 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
     const fetchesBeforeSub = previewFetches.length;
     await page.locator('button.aw-pill-item:has-text("Subtitles")').click();
     await page.waitForSelector('[role="dialog"][aria-label="Subtitle mode"]');
-    assert.equal(await page.locator('[aria-label="Subtitle font size"]').count(), 0);
-    assert.equal(await page.locator('[aria-label="Subtitle colors"]').count(), 0);
-    assert.equal(await page.locator('[aria-label="Transparency"]').count(), 0);
+    assert.equal(await page.locator('[aria-label="Subtitle font size"]').count(), 1);
+    assert.equal(await page.locator('[aria-label="Subtitle colors"]').count(), 1);
+    assert.equal(await page.locator('[aria-label="Transparency"]').count(), 1);
 
     await page.locator('button.aw-option-row:has-text("Off")').click();
     await page.waitForTimeout(200);
