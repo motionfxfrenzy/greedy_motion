@@ -218,38 +218,71 @@
     svg.setAttribute("height", "100%");
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     var vb = (svg.getAttribute("viewBox") || "0 0 1280 720").split(/[\s,]+/).map(Number);
-    // Prevent an in-SVG #subtitle or #subtitle-pill (or its pill wrapper) from sitting in the middle character zone (Y > 22% of frame height)
-    // or colliding with the live narration subtitle pill at Y=80%.
+    // 1. Clean single-header & chapter-card normalization:
+    //    - When #title is present on an explainer/story frame, remove redundant #subtitle / #subtitle-pill sub-banners
+    //      (both under the header and in the middle/bottom of the room) so only one clean header appears.
+    //    - Deduplicate repeated title text (e.g. on chapter cards) and center #title inside an empty chapter pill.
     (function () {
-      var maxHeaderY = vb[3] * 0.22;
+      var titleEl = svg.querySelector("#title");
       var subPill = svg.querySelector("#subtitle-pill");
       var subText = svg.querySelector("#subtitle");
       if (subPill) {
-        var pt = parseTransform(subPill.getAttribute("transform"));
-        if (pt.hasTranslate && pt.y > maxHeaderY) {
-          subPill.parentNode && subPill.parentNode.removeChild(subPill);
-        }
-        return;
-      }
-      if (subText && subText.tagName === "text") {
+        subPill.parentNode && subPill.parentNode.removeChild(subPill);
+      } else if (subText && subText.tagName === "text" && titleEl) {
         var parentG = subText.parentElement && subText.parentElement.tagName === "g" ? subText.parentElement : null;
-        var sy = Number(subText.getAttribute("y") || 0);
-        var st = parseTransform(subText.getAttribute("transform"));
-        var gt = parentG ? parseTransform(parentG.getAttribute("transform")) : { hasTranslate: false, y: 0 };
-        var effectiveY = sy + (st.hasTranslate ? st.y : 0) + (gt.hasTranslate ? gt.y : 0);
-        if (effectiveY > maxHeaderY) {
+        var insideBadge = parentG && /badge|counter|clock|bar|curve/i.test(parentG.id || "");
+        if (!insideBadge) {
           if (parentG && parentG.children.length <= 2) {
             parentG.parentNode && parentG.parentNode.removeChild(parentG);
           } else {
             var prevSib = subText.previousElementSibling;
             if (prevSib && prevSib.tagName === "rect") {
+              var sy = Number(subText.getAttribute("y") || 0);
               var ry = Number(prevSib.getAttribute("y") || 0);
               var rh = Number(prevSib.getAttribute("height") || 0);
-              if (Math.abs((ry + rh / 2) - sy) < 40 && rh < 80) {
+              if (Math.abs((ry + rh / 2) - sy) < 45 && rh < 90) {
                 prevSib.parentNode && prevSib.parentNode.removeChild(prevSib);
               }
             }
             subText.parentNode && subText.parentNode.removeChild(subText);
+          }
+        }
+      }
+      if (titleEl && titleEl.textContent) {
+        var titleNorm = titleEl.textContent.trim().toUpperCase();
+        var allTexts = Array.prototype.slice.call(svg.querySelectorAll("text"));
+        allTexts.forEach(function (tx) {
+          if (tx === titleEl) return;
+          if ((tx.textContent || "").trim().toUpperCase() === titleNorm) {
+            var ty = Number(titleEl.getAttribute("y") || 0);
+            var oxy = Number(tx.getAttribute("y") || 0);
+            if (ty < vb[3] * 0.22 && oxy >= vb[3] * 0.22) {
+              titleEl.parentNode && titleEl.parentNode.removeChild(titleEl);
+              tx.id = "title";
+              titleEl = tx;
+            } else {
+              tx.parentNode && tx.parentNode.removeChild(tx);
+            }
+          }
+        });
+        // If this is a chapter card (no character/room, only a centered pill rect in Y=30%..65%) and #title is still at the top edge, move #title inside the pill.
+        if (titleEl && !svg.querySelector("#character, #room-backdrop, #living-room") && allTexts.length === 1) {
+          var tyNow = Number(titleEl.getAttribute("y") || 0);
+          if (tyNow < vb[3] * 0.22) {
+            var rects = Array.prototype.slice.call(svg.querySelectorAll("rect"));
+            var pillRect = rects.find(function (r) {
+              var rw = Number(r.getAttribute("width") || 0);
+              var rh = Number(r.getAttribute("height") || 0);
+              var ry = Number(r.getAttribute("y") || 0);
+              return rw >= 160 && rw <= vb[2] * 0.8 && rh >= 48 && rh <= 180 && ry >= vb[3] * 0.3 && ry <= vb[3] * 0.62;
+            });
+            if (pillRect) {
+              var pry = Number(pillRect.getAttribute("y") || 0);
+              var prh = Number(pillRect.getAttribute("height") || 0);
+              titleEl.setAttribute("x", String(Math.round(vb[2] / 2)));
+              titleEl.setAttribute("y", String(Math.round(pry + prh * 0.62)));
+              titleEl.setAttribute("font-size", "34");
+            }
           }
         }
       }
@@ -780,12 +813,32 @@
     });
     // Everything not carried leaves together; the new scene's own things arrive once it has cleared. With nothing shared
     // this is a clean cut (out, then in); with shared objects they stay put through it. Words never overlap.
-    var out = continuity ? (EXPLAINER ? 0.35 : 0.25) : 0.16;
-    prev.all.forEach(function (a) { if (!left.has(a)) tl.fromTo(a, { opacity: 1 }, { opacity: 0, duration: out, ease: EXPLAINER ? smooth : "power1.out", immediateRender: false }, t); });
+    // World-change cuts (e.g. Wide Room <-> Close-Up, Room <-> B-Roll Graph, Chapter Card <-> Room) clear the outgoing
+    // scene immediately at t so a room never ghosts behind a graph or close-up. Same-world scenes crossfade smoothly.
+    var prevHasRoom = Boolean(prev.svg.querySelector("#room-backdrop, #living-room"));
+    var curHasRoom = Boolean(frame.svg.querySelector("#room-backdrop, #living-room"));
+    var sameWorld = continuity && prevHasRoom === curHasRoom;
+    var out = sameWorld ? (EXPLAINER ? 0.32 : 0.22) : 0.04;
+    prev.all.forEach(function (a) {
+      if (!left.has(a)) {
+        if (sameWorld) tl.fromTo(a, { opacity: 1 }, { opacity: 0, duration: out, ease: EXPLAINER ? smooth : "power1.out", immediateRender: false }, t);
+        else tl.set(a, { opacity: 0 }, t);
+      }
+    });
     var fresh = frame.leaves.filter(function (b) { return !paired.has(b); });
-    var arrive = t + (continuity ? 0.12 : 0.18);
-    var gap2 = stagger(fresh.length, Math.min(room, 0.8));
-    fresh.forEach(function (el, k) { enter(el, isSlot(el) ? t + 0.06 : arrive + k * gap2); });
+    var arrive = t + (sameWorld ? 0.1 : 0.04);
+    var gap2 = stagger(fresh.length, Math.min(room, 0.45));
+    fresh.forEach(function (el, k) {
+      var inBackdrop = Boolean(el.closest && el.closest("#room-backdrop, #living-room"));
+      var inActor = Boolean(el.closest && el.closest("#character, #coworker, #partner"));
+      if (inBackdrop) {
+        tl.set(el, { opacity: 1 }, t);
+      } else if (isSlot(el) || inActor) {
+        enter(el, t + 0.04);
+      } else {
+        enter(el, arrive + k * gap2);
+      }
+    });
   });
   // Geometry (getBBox) was measured above while every layer was laid out; now only the timeline shows them.
   frames.forEach(function (frame) { gsap.set(frame.layer, { display: "none" }); });

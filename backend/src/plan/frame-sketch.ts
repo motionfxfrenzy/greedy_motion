@@ -22,15 +22,15 @@ const SYSTEM = [
   "- Draw the beat's key moment: the objects the VISUAL line names, laid out as the finished frame would show them.",
   "- Compose the primary focal subject, room action, and diagrams in the upper-middle focal band (roughly 18% to 65% of frame height, i.e. Y=130..468 on 1280x720, and 14% to 86% of frame width) with balanced top headroom and bottom ground padding across all aspect ratios (16:9, 9:16, and 1:1) so the bottom 30% (Y>480 on 1280x720) remains a clean floor or dark ground for the player's subtitle overlay. Never make the frame bottom-heavy, keep complete character/prop geometry (such as a balloon and its hanging basket) above the bottom caption safe zone, and draw background hills/landscapes before foreground subjects so hills never occlude the subject.",
   "- Follow the VISUAL line's shot/role tag when present:",
-  "  - [A-ROLL: WIDE SCENE]: Draw a grounded 2D architectural room or street (e.g. window panes with city skyline silhouettes, wall, floor line at Y=468, furniture/door/stage) and the full-body character acting. NEVER draw chart axes, dashboard cards, or decorative flowchart arrows in an A-Roll story scene.",
-  "  - [A-ROLL: CLOSE-UP]: Draw a deep dark radial vignette background and a large centered close-up of the character's head (r=110..135 around Y=290) with expressive eyes, eyebrows, mouth, and rim-light arc. Zero diagrams or boxes.",
-  "  - [B-ROLL: LINE GRAPH]: Draw a clean L-shaped X/Y axis on a dark vignette grid with 1 or 2 bold colored curves (stroke-width 5..6, fill=\"none\") and at most 3 short labels (font-size >= 22).",
-  "  - [B-ROLL: BAR COMPARISON]: Draw 2 clean vertical bars rising from a baseline at Y=445, optionally with the silhouette character standing beside the bar, and at most 3 short labels.",
-  "  - [B-ROLL: DUAL CLOCK]: Draw 1 or 2 bold circular stopwatch dials centered around Y=295 with clear time readouts inside and 1 short label under each.",
-  "  - [B-ROLL: COUNTER HIT]: Draw one giant glowing number (font-size 110..130, id matching the counter in OBJECTS or id=\"counter\") centered around Y=295 with one short uppercase label underneath. No dashboard card boxes.",
-  "  - [B-ROLL: VISUAL METAPHOR]: Draw one clean centered conceptual object (a paper checklist sheet, a 35mm horizontal film strip with faces and red X marks, a 1-2-3 podium with characters, a glowing brain outline, or a horizontal scale line) in Y=140..460.",
-  "  - [CHAPTER CARD]: Draw a centered rounded pill frame on a dark starry vignette with the bold uppercase chapter title inside.",
-  "- TEXT RESTRAINT: Print the beat's KEY PHRASE once at the top center as id=\"title\" (uppercase, bold, font-size 26..30). Inside the scene, use at most 3 short labels (1–3 words each, font-size >= 20). Never draw tiny multi-line sub-labels or SaaS dashboard cards, never print the VISUAL line itself, and never print bracketed tags like [A-ROLL: ...] or [B-ROLL: ...].",
+  "  - [A-ROLL: WIDE SCENE]: Draw a grounded 2D architectural room or street (window panes with city skyline silhouettes, wall, floor line at Y=468 on 1280x720 or Y=830 on 720x1280, furniture/door/stage) and full-body characters scaled to 35%–42% of the stage height (scale(1.22) on 1280x720, scale(1.68) on 720x1280) so their heads cross the lower window sill line with zero dead wall space. NEVER draw chart axes, dashboard cards, decorative flowchart arrows, or floating summary pills in an A-Roll story scene.",
+  "  - [A-ROLL: CLOSE-UP]: Draw a deep dark radial vignette background with a subtle lighter radial back-glow (#1e1b38) behind a centered pitch-black circle head (r=118 on 1280x720, r=138 on 720x1280, fill=\"#09090f\"), a 240-degree warm cream crescent rim-light arc (stroke-width 5..6), large solid white eyes (r=22..26) with dark pupils (r=9..10) and thick floating eyebrows (stroke-width 6..7), and violet shoulders below. NEVER draw stick-arms or hands crossing in front of the head on a close-up.",
+  "  - [B-ROLL: LINE GRAPH]: Draw a clean L-shaped X/Y axis on a dark vignette grid with 1 or 2 bold colored curves (stroke-width 5..6, fill=\"none\"). Wrap each curve and its text label together in the same <g id=\"curve-1\"> / <g id=\"curve-2\"> so a label never appears without its curve.",
+  "  - [B-ROLL: BAR COMPARISON]: Draw 2 clean vertical bars rising from a baseline (Y=445 on 1280x720, Y=760 on 720x1280), optionally with the silhouette character standing beside the bar. Wrap each bar rect and its percentage/name text labels inside the same <g id=\"bar-1\"> / <g id=\"bar-2\"> so a percentage label never floats above an empty bar.",
+  "  - [B-ROLL: DUAL CLOCK]: Draw 1 or 2 bold circular stopwatch dials with clear time readouts inside and 1 short label under each.",
+  "  - [B-ROLL: COUNTER HIT]: Draw one giant glowing number (font-size 110..130, id matching the counter in OBJECTS or id=\"counter\") centered on the dark vignette with one short uppercase label underneath. No dashboard card boxes.",
+  "  - [B-ROLL: VISUAL METAPHOR]: Draw one clean centered conceptual object (a paper checklist sheet, a 35mm horizontal film strip with faces and red X marks, a 1-2-3 podium with characters, a glowing brain outline, or a horizontal scale line).",
+  "  - [CHAPTER CARD]: Do NOT print id=\"title\" at the top of the frame. Draw ONLY a centered rounded rectangle pill in the middle of the dark starry vignette (around Y=320 on 1280x720, Y=540 on 720x1280) with the bold uppercase chapter title (id=\"title\") centered INSIDE that pill.",
+  "- SINGLE HEADER & NO SUMMARY PILLS: On every non-chapter scene, print ONLY the beat's KEY PHRASE once at the top center as id=\"title\" (uppercase, bold, font-size 26..30). NEVER draw a second sub-header pill under the title, and NEVER stamp thematic summary pills (like 'EYES OVER NUMBERS' or 'NO MORE WHITE LIES') over characters or rooms. If a character speaks a short quote or has a floating metric badge, place it strictly in the clear air 45–65px ABOVE that character's head, never across torsos, doors, or feet. Never print bracketed tags like [A-ROLL: ...] or [B-ROLL: ...].",
   "- Respect each object's role (PROP, LIVING OBJECT, or FULL CARTOON CHARACTER): never draw eyes, brows, or a mouth on a plain PROP.",
   "- Plain SVG elements only: rect, circle, ellipse, line, polyline, polygon, path, text, tspan, g, defs, linearGradient, radialGradient, stop, clipPath, marker. No script, no foreignObject, no image, no external links, no animation, no CSS @import.",
   "- Keep it under 6 KB: simple shapes, no long point lists.",
@@ -122,32 +122,36 @@ export function curatedThoughtExperimentGuide(aspect: Aspect = "16:9"): string {
       <stop offset="0%" stop-color="#141629"/>
       <stop offset="100%" stop-color="#070810"/>
     </radialGradient>
+    <radialGradient id="head-backlight" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#2e2452" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#070810" stop-opacity="0"/>
+    </radialGradient>
   </defs>
-  <!-- 1. SHARED DARK VIGNETTE GROUND & TOP HEADER (id="title" at Y=110; keep all focal art in Y=220..820 above the Y>880 subtitle safe zone) -->
+  <!-- 1. SHARED DARK VIGNETTE GROUND & SINGLE TOP HEADER (id="title" at Y=110; NEVER add a second sub-header pill under id="title") -->
   <rect width="720" height="1280" fill="url(#bg-vig)"/>
   <text id="title" x="360" y="110" text-anchor="middle" fill="#fef3c7" font-family="system-ui, -apple-system, sans-serif" font-size="30" font-weight="800" letter-spacing="2">A FULL CUP OF COFFEE</text>
 
-  <!-- 2. ARCHETYPE A — [A-ROLL: WIDE SCENE] Grounded 9:16 architectural room (windows y=170..500 with city skyline, wall y=500..820, floor y=820..1280) -->
+  <!-- 2. ARCHETYPE A — [A-ROLL: WIDE SCENE] Grounded 9:16 architectural room (windows y=180..540 with city skyline, wall y=540..830, floor y=830..1280) -->
   <g id="room-backdrop">
-    <rect x="0" y="170" width="720" height="330" fill="#64748b"/>
-    <rect x="55" y="250" width="95" height="250" fill="#475569"/>
-    <rect x="180" y="200" width="120" height="300" fill="#334155"/>
-    <rect x="440" y="220" width="110" height="280" fill="#334155"/>
-    <rect x="580" y="270" width="90" height="230" fill="#475569"/>
-    <line x1="0" y1="500" x2="720" y2="500" stroke="#0f172a" stroke-width="6"/>
-    <line x1="240" y1="170" x2="240" y2="500" stroke="#0f172a" stroke-width="5"/>
-    <line x1="480" y1="170" x2="480" y2="500" stroke="#0f172a" stroke-width="5"/>
-    <rect x="0" y="500" width="720" height="320" fill="#262338"/>
-    <rect x="0" y="820" width="720" height="460" fill="#12101b"/>
+    <rect x="0" y="180" width="720" height="360" fill="#64748b"/>
+    <rect x="55" y="260" width="95" height="280" fill="#475569"/>
+    <rect x="180" y="210" width="120" height="330" fill="#334155"/>
+    <rect x="440" y="230" width="110" height="310" fill="#334155"/>
+    <rect x="580" y="280" width="90" height="260" fill="#475569"/>
+    <line x1="0" y1="540" x2="720" y2="540" stroke="#0f172a" stroke-width="6"/>
+    <line x1="240" y1="180" x2="240" y2="540" stroke="#0f172a" stroke-width="5"/>
+    <line x1="480" y1="180" x2="480" y2="540" stroke="#0f172a" stroke-width="5"/>
+    <rect x="0" y="540" width="720" height="290" fill="#262338"/>
+    <rect x="0" y="830" width="720" height="450" fill="#12101b"/>
   </g>
   <g id="office-door">
-    <rect x="380" y="340" width="18" height="480" fill="#181524"/>
-    <rect x="398" y="355" width="210" height="465" fill="#5c432d"/>
-    <circle cx="424" cy="600" r="8" fill="#eab308"/>
+    <rect x="400" y="350" width="18" height="480" fill="#181524"/>
+    <rect x="418" y="365" width="210" height="465" fill="#5c432d"/>
+    <circle cx="444" cy="610" r="8" fill="#eab308"/>
   </g>
 
-  <!-- 3. CANONICAL PROTAGONIST RIG (<g id="character">): pitch-dark circle head #0d0d14, warm rim-light arc #fef3c7, white eyes/brows/mouth, #8b5cf6 hoodie profile, dark legs -->
-  <g id="character" transform="translate(245 820) scale(1.25)">
+  <!-- 3. CANONICAL PROTAGONIST RIG (<g id="character">): scale(1.68) in 9:16 so character spans Y=528..830 and head crosses the Y=540 window sill -->
+  <g id="character" transform="translate(230 830) scale(1.68)">
     <line x1="-6" y1="-58" x2="-10" y2="0" stroke="#0d0d14" stroke-width="10" stroke-linecap="round"/>
     <line x1="6" y1="-58" x2="10" y2="0" stroke="#0d0d14" stroke-width="10" stroke-linecap="round"/>
     <line x1="10" y1="-58" x2="14" y2="0" stroke="#fef3c7" stroke-width="2.2" stroke-linecap="round"/>
@@ -164,9 +168,11 @@ export function curatedThoughtExperimentGuide(aspect: Aspect = "16:9"): string {
     <path d="M 4 -112 L 34 -96" stroke="#8b5cf6" stroke-width="12" stroke-linecap="round"/>
   </g>
 
-  <!-- 4. ARCHETYPE B — [A-ROLL: CLOSE-UP] Reaction shot on dark vignette: giant head cx=360 cy=520 r=135 with rim-light & big eyes/brows/mouth -->
-  <!-- 5. ARCHETYPE C — [B-ROLL: LINE GRAPH] Clean L-axis (x=110..610, y=300..740) + 2 bold curves + 2 labels -->
-  <!-- 6. ARCHETYPE D — [B-ROLL: BAR COMPARISON] Two vertical bars rising from y=760 at x=210 and x=480 with character standing beside bar -->
+  <!-- 4. ARCHETYPE B — [A-ROLL: CLOSE-UP] Reaction shot on dark vignette (NO arms crossing face; backlight glow + r=138 pitch-black head + 240-deg rim light + solid r=24 white eyes):
+       <circle cx="360" cy="520" r="220" fill="url(#head-backlight)"/><g id="character"><path d="M 140 830 Q 220 675 360 665 Q 500 675 580 830 Z" fill="#8b5cf6"/><circle cx="360" cy="520" r="138" fill="#09090f"/><path d="M 275 412 A 138 138 0 1 1 275 628" fill="none" stroke="#fef3c7" stroke-width="6" stroke-linecap="round"/><circle cx="312" cy="505" r="24" fill="#ffffff"/><circle cx="312" cy="507" r="10" fill="#09090f"/><circle cx="408" cy="505" r="24" fill="#ffffff"/><circle cx="408" cy="507" r="10" fill="#09090f"/><path d="M 288 462 Q 312 446 336 462" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/><path d="M 384 462 Q 408 446 432 462" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/><circle cx="360" cy="575" r="16" fill="none" stroke="#ffffff" stroke-width="6.5"/></g> -->
+  <!-- 5. ARCHETYPE C — [B-ROLL: LINE GRAPH] Clean L-axis (x=110..610, y=300..740) + each curve & label wrapped together in <g id="curve-1">, <g id="curve-2"> -->
+  <!-- 6. ARCHETYPE D — [B-ROLL: BAR COMPARISON] Each bar rect & percentage/name label wrapped together in <g id="bar-1">, <g id="bar-2"> rising from y=760 -->
+  <!-- 7. ARCHETYPE E — [CHAPTER CARD] NO top title; centered pill <rect x="190" y="490" width="340" height="100" rx="20" fill="#0d0f1a" stroke="#fef3c7" stroke-width="3"/> with <text id="title" x="360" y="552" text-anchor="middle" fill="#fef3c7" font-size="36" font-weight="800" letter-spacing="3">DAY ONE</text> inside -->
 </svg>`;
   }
   return CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE;
