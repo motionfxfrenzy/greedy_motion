@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
-import { editProject, getProject } from "../projects/store.ts";
+import { getProject, updateProjectPlan } from "../projects/store.ts";
 import { desiredVariants, isPlateLook, sceneFrames, wantedAspects } from "./inputs.ts";
 import { estimateFilmWithScenes, estimateScene, type SceneEtaRow } from "./eta.ts";
 import {
@@ -432,10 +432,9 @@ export async function setPlateSubtitles(projectId: string, input: Record<string,
   const next = mergeSubtitles(current, input, project ? primaryAspect(project) : "16:9");
   await writeSubtitles(projectId, next);
   if (project && typeof input.mode === "string" && (project.brief?.captions !== next.mode || (project.beatPlan && project.beatPlan.audio.captions !== next.mode))) {
-    await editProject(projectId, (p) => ({
-      ...p,
-      ...(p.brief ? { brief: { ...p.brief, captions: next.mode } } : {}),
-      ...(p.beatPlan ? { beatPlan: { ...p.beatPlan, audio: { ...p.beatPlan.audio, captions: next.mode } } } : {})
+    await updateProjectPlan(projectId, (p) => ({
+      brief: p.brief ? { ...p.brief, captions: next.mode } : p.brief,
+      beatPlan: p.beatPlan ? { ...p.beatPlan, audio: { ...p.beatPlan.audio, captions: next.mode } } : p.beatPlan
     })).catch(() => undefined);
   }
   return next;
