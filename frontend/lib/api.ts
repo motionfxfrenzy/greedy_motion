@@ -738,7 +738,7 @@ export type AnimateStreamEvent =
  */
 export async function streamScriptAnimate(
   projectId: string,
-  input: { brief: ScriptBrief; beats: ScriptBeat[]; animationTier?: "standard" | "premium"; quoteId?: string },
+  input: { brief: ScriptBrief; beats: ScriptBeat[]; animationTier?: "standard" | "premium"; quoteId?: string; forceIndices?: number[] },
   onEvent: (event: AnimateStreamEvent) => void,
   signal?: AbortSignal
 ): Promise<VideoProject | null> {

@@ -836,7 +836,6 @@ export function BrowserAnimationStep({
             }))
           ]);
           setLocalVersion((v) => v + 1);
-          onRetryAnimate();
         } catch (err) {
           setTimedComments((curr) => [...curr, ...pendingComments]);
           setActionError(err instanceof Error ? err.message : "Could not apply comments.");
@@ -1100,13 +1099,14 @@ export function BrowserAnimationStep({
         } catch (sceneErr) {
           setActionError(sceneErr instanceof Error ? sceneErr.message : "Could not apply scene comments.");
           setLocalVersion((v) => v + 1);
-          onRetryAnimate();
           return;
         }
       }
 
       setLocalVersion((v) => v + 1);
-      onRetryAnimate();
+      if (sceneScopedComments.length === 0) {
+        onRetryAnimate();
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         return;

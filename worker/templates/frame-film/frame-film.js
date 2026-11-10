@@ -296,6 +296,37 @@
           }
         }
       }
+      // 2. Non-headwear prop vs. character head separation guard:
+      //    If a non-headwear prop group (e.g. #bottle, #thermos, #mug, #cup, #laptop) was placed right over #character's head circle,
+      //    shift the prop horizontally into the clear space beside the character so it never covers the face.
+      var charGroup = svg.querySelector("#character");
+      if (charGroup) {
+        var charCircles = Array.prototype.slice.call(charGroup.querySelectorAll("circle"));
+        var headCircle = charCircles.find(function (c) { var r = Number(c.getAttribute("r") || 0); return r >= 20 && r <= 160; });
+        if (headCircle) {
+          var headInfo = baseInfo(headCircle);
+          var hr = Number(headCircle.getAttribute("r") || 30) * (baseInfo(charGroup).parsed.sx || 1);
+          var hx = headInfo.worldCenter.x, hy = headInfo.worldCenter.y;
+          Array.prototype.forEach.call(svg.querySelectorAll(":scope > g[id]"), function (g) {
+            var gid = g.id || "";
+            if (!named(g) || /^(character|coworker|partner|room-backdrop|living-room|table|desk|counter|stage)$/i.test(gid)) return;
+            if (/headphone|earcup|earbud|glasses|spectacle|hat|crown|helmet|hair|eye|brow|mouth|face|badge|halo|thought|speech/i.test(gid)) return;
+            var gInfo = baseInfo(g);
+            var gb = { width: 0, height: 0 };
+            try { gb = g.getBBox(); } catch (e) {}
+            if (!gb.width || !gb.height || gb.width > vb[2] * 0.65) return;
+            var dist = Math.hypot(gInfo.worldCenter.x - hx, gInfo.worldCenter.y - hy);
+            if (dist < hr + Math.min(gb.width, gb.height) * 0.35) {
+              var targetWorldX = hx >= vb[2] * 0.45 ? Math.round(vb[2] * 0.25) : Math.round(vb[2] * 0.72);
+              var shiftX = Math.round(targetWorldX - gInfo.worldCenter.x);
+              var gp = gInfo.parsed;
+              g.setAttribute("transform", "translate(" + Math.round(gp.x + shiftX) + " " + Math.round(gp.y) + ")" + (gp.hasScale ? " scale(" + gp.sx + (gp.sy !== gp.sx ? " " + gp.sy : "") + ")" : "") + (gp.hasRotate ? " rotate(" + gp.rot + ")" : ""));
+              delete g.__ffBase;
+              Array.prototype.forEach.call(g.querySelectorAll("*"), function (ch) { delete ch.__ffBase; });
+            }
+          });
+        }
+      }
     })();
     var leaves = Array.prototype.filter.call(svg.querySelectorAll(LEAVES), function (el) { return !el.closest("defs,clipPath,marker,pattern,mask"); });
     // Pre-cache resting transform and bounding box geometry while all layers are laid out.

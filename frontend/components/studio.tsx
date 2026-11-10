@@ -549,13 +549,19 @@ export function Studio() {
    * Streams a new script, or with `instruction` a changed one; with `only`, just those beats are rewritten. With `draft`
    * (a film's Brief page) it stays on the page and starts nothing else: the storyboard and frames wait for `continueDraft`.
    */
-  const writeScript = async (instruction?: string, override?: Partial<ScriptBrief>, only?: number[], draft = false) => {
+  const writeScript = async (
+    instruction?: string,
+    override?: Partial<ScriptBrief>,
+    only?: number[],
+    draft = false,
+    inPlaceAnimation = false
+  ): Promise<ScriptBeat[] | null> => {
     const checked = parseScriptBrief(filmSafe(override ? { ...brief, ...override } : brief));
-    if ("error" in checked) { setError(checked.error); return; }
+    if ("error" in checked) { setError(checked.error); return null; }
     setError(null);
     setLimit(null);
     const previous = instruction && canvas ? canvas.beats : [];
-    if (!draft) setStep(STORYBOARD);
+    if (!draft && !inPlaceAnimation) setStep(STORYBOARD);
     const scope = instruction && only?.length ? only : undefined;
     const notes = instruction ? canvas?.notes ?? null : null;
     const targetLang = checked.brief.audio.language ?? "en";
@@ -581,7 +587,7 @@ export function Studio() {
         // The plan (IDEA, EXAMPLE) comes before the first beat, so the early frames already share the example.
         if (parsed.notes.example) notesRef.current = parsed.notes;
         // A beat is complete once the next one starts: the first four go to the artist while the rest are still being written.
-        if (!draft && !early && parsed.beats.length > 4) { early = true; drawFrames(active, parsed.beats.slice(0, 4), [0, 1, 2, 3]); }
+        if (!draft && !inPlaceAnimation && !early && parsed.beats.length > 4) { early = true; drawFrames(active, parsed.beats.slice(0, 4), [0, 1, 2, 3]); }
         // A change streams the whole script again: beats not rewritten yet keep showing their current words.
         setCanvas((current) => current && { ...current, beats: [...parsed.beats, ...current.previous.slice(parsed.beats.length)], open: parsed.open, writing: parsed.beats.length ? parsed.beats.length - 1 : null, firstAt: current.firstAt ?? Date.now() });
       }, stop.signal);
@@ -601,15 +607,18 @@ export function Studio() {
         }
         return next;
       });
-      // A draft on the Brief page costs only the script: the storyboard and frames start when the person continues.
-      if (!draft) {
+      // A draft on the Brief page costs only the script; an in-place Animation comment redraw delegates frame/audio/motion to startBrowserAnimation.
+      if (!draft && !inPlaceAnimation) {
         void buildStoryboard(active, finishedBeats, result.notes);
         drawFrames(active, finishedBeats, finishedBeats.map((_, i) => i));
       }
+      return finishedBeats;
     } catch (caught) {
-      if (stop.signal.aborted) { setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: scope ? current.previous : current.beats.length ? current.beats : current.previous }); return; }
+      if (stop.signal.aborted) { setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: scope ? current.previous : current.beats.length ? current.beats : current.previous }); return null; }
       showLimit(caught);
       setCanvas((current) => current && { ...current, streaming: false, open: null, writing: null, beats: current.previous.length ? current.previous : current.beats, error: caught instanceof Error ? caught.message : "Could not write the script." });
+      if (inPlaceAnimation) throw caught;
+      return null;
     }
   };
   /** A film's script drafted on the Brief page goes to the storyboard as written: page 2 shows it and draws it. */
@@ -1272,9 +1281,13 @@ export function Studio() {
   );
 
   const needsSound = voicedBrief || musicBrief;
-  const startBrowserAnimation = async (beatsOverride?: ScriptBeat[]) => {
+  const startBrowserAnimation = async (
+    beatsOverride?: ScriptBeat[],
+    options?: { inPlace?: boolean; forceIndices?: number[] }
+  ) => {
     const activeBeats = beatsOverride ?? canvas?.beats;
     if (!activeBeats?.length || !project) return;
+    const inPlace = Boolean(options?.inPlace);
     const activeTier: AnimationTier =
       (brief.animationTier ?? project.animationTier ?? DEFAULT_ANIMATION_TIER) === "premium" && canUsePremium
         ? "premium"
@@ -1282,21 +1295,33 @@ export function Studio() {
     const checked = parseScriptBrief({ ...brief, animationTier: activeTier });
     if ("error" in checked) {
       setError(checked.error);
+      if (inPlace) throw new Error(checked.error);
       return;
     }
     setError(null);
     setAnimError(null);
     setPlateAutoStart(true);
     setStep(RENDER);
-    setAnimating(true);
-    setAnimProgress(4);
-    setAnimStage("frames");
-    setAnimScenesDone([]);
+    if (!inPlace) {
+      setAnimating(true);
+      setAnimProgress(4);
+      setAnimStage("frames");
+      setAnimScenesDone([]);
+    }
     try {
       const updated = await streamScriptAnimate(
         project.id,
-        { brief: checked.brief, beats: activeBeats, animationTier: activeTier },
+        {
+          brief: checked.brief,
+          beats: activeBeats,
+          animationTier: activeTier,
+          ...(options?.forceIndices?.length ? { forceIndices: options.forceIndices } : {})
+        },
         (ev) => {
+          if (inPlace) {
+            if (ev.type === "done" && ev.project) replaceProject(ev.project);
+            return;
+          }
           if ("progress" in ev && typeof ev.progress === "number") {
             setAnimProgress((curr) => Math.max(curr, ev.progress));
           }
@@ -1315,12 +1340,14 @@ export function Studio() {
         }
       );
       if (updated) replaceProject(updated);
-      setAnimProgress(100);
+      if (!inPlace) setAnimProgress(100);
       setAnimVersion((v) => v + 1);
     } catch (caught) {
-      showLimit(caught); setAnimError(caught instanceof Error ? caught.message : "Could not prepare the browser animation.");
+      showLimit(caught);
+      setAnimError(caught instanceof Error ? caught.message : "Could not prepare the browser animation.");
+      if (inPlace) throw caught;
     } finally {
-      setAnimating(false);
+      if (!inPlace) setAnimating(false);
     }
   };
   const renderFromScript = () => {
@@ -1596,7 +1623,9 @@ export function Studio() {
           if (!canvas || !items.length) return;
           const instruction = items.map((c) => `Scene ${c.line + 1}: ${c.text}`).join("\n");
           const only = [...new Set(items.map((c) => c.line))];
-          await writeScript(instruction, undefined, only);
+          const updatedBeats = await writeScript(instruction, undefined, only, false, true);
+          if (!updatedBeats) throw new Error("Could not rewrite the commented scene.");
+          await startBrowserAnimation(updatedBeats, { inPlace: true, forceIndices: only });
         }}
       />}
       {step === REVIEW && project && isPlateStyle && job?.state === "ready" && job.output && <PlateFinal project={{ ...project, brief: { ...(project.brief ?? brief), aspect: brief.aspect, ...(brief.aspects?.length ? { aspects: brief.aspects } : {}) } }} finalUrl={outputUrl(job.output.url)} onBack={() => setStep(RENDER)} onApprove={approve} approved={project.state === "Approved"} />}

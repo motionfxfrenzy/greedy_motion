@@ -1836,10 +1836,15 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     let motionDelivered = 0;
     let delegatedToPlates = false;
     try {
-      // 1. Check any missing reference frames and draw them in parallel (4 at a time)
+      // 1. Check any missing (or explicitly force-redrawn) reference frames and draw them in parallel (4 at a time)
+      const forceSet = new Set(
+        Array.isArray((request.body as { forceIndices?: unknown })?.forceIndices)
+          ? ((request.body as { forceIndices: unknown[] }).forceIndices.filter((i): i is number => Number.isInteger(i) && Number(i) >= 0 && Number(i) < beats.length))
+          : []
+      );
       const keyFor = (index: number) => scriptFrameKey(beats[index]!, brief);
       const savedFrames = new Map((project.scriptFrames ?? []).map((frame) => [frame.key, frame.svg]));
-      const missingFrames = beats.map((_, i) => i).filter((i) => !savedFrames.has(keyFor(i)));
+      const missingFrames = beats.map((_, i) => i).filter((i) => forceSet.has(i) || !savedFrames.has(keyFor(i)));
       if (missingFrames.length > 0) {
         const template = brief.styleExample ? findGalleryTemplate(brief.styleExample) : undefined;
         const code = template?.reference ? await readGalleryText(template.reference) : null;
