@@ -395,7 +395,7 @@
   }
 
   // The scene's directed motion (frame-motion.ts): the frame is the end state; each entry runs on its words.
-  function play(frame) {
+  function play(frame, prevFrame) {
     var t0 = frame.start;
     var movesById = {};
     frame.motion.forEach(function (m) {
@@ -405,6 +405,16 @@
     });
     Object.keys(movesById).forEach(function (id) {
       movesById[id].sort(function (a, b) { return (a.start || 0) - (b.start || 0); });
+    });
+
+    // Guard against a blank canvas at t0 when every non-title element is in frame.motion and the earliest move starts late (> 0.55s).
+    var nonTitleLeaves = frame.leaves.filter(function (el) { return !isSlot(el); });
+    var earliestMoveId = null, earliestMoveStart = Infinity;
+    frame.motion.forEach(function (m) {
+      if (m.kind === "move" && m.id && !isSlot({ id: m.id }) && (m.start || 0) < earliestMoveStart) {
+        earliestMoveStart = m.start || 0;
+        earliestMoveId = m.id;
+      }
     });
 
     var seenMoveCountById = {};
@@ -418,13 +428,24 @@
         seenMoveCountById[m.id] = seqIdx + 1;
         var isFirstForEl = seqIdx === 0;
         var from = Object.assign({}, m.from);
+        var existedInPrev = Boolean(prevFrame && named(el) && byId(prevFrame, m.id));
         // Explainer: something new (not carried over) is not on screen until its move begins, and fades in as it moves;
-        // new words never start before the old ones have cleared.
+        // new words never start before the old ones have cleared. However, an element carried over from the previous scene
+        // (or the anchor subject of an otherwise empty scene) stays visible at t0 at its starting state rather than leaving the screen blank.
         if (EXPLAINER && frame.index > 0 && isFirstForEl && entrance(m)) {
           if (el.tagName === "text" || el.querySelector && el.querySelector("text")) at = Math.max(at, t0 + 0.45);
-          if (from.opacity === undefined) {
+          if (from.opacity === undefined && !existedInPrev) {
+            var fadeStart = nonTitleLeaves.length === 0 && m.id === earliestMoveId && earliestMoveStart > 0.5 ? t0 + 0.15 : at;
             tl.set(el, { opacity: 0 }, t0);
-            tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: Math.min(0.6, span), ease: smooth, immediateRender: false }, at);
+            tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: Math.min(0.6, span), ease: smooth, immediateRender: false }, fadeStart);
+          } else if (from.opacity === "0" && (existedInPrev || (nonTitleLeaves.length === 0 && m.id === earliestMoveId && earliestMoveStart > 0.55))) {
+            if (existedInPrev) {
+              delete from.opacity;
+            } else {
+              delete from.opacity;
+              tl.set(el, { opacity: 0 }, t0);
+              tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.45, ease: smooth, immediateRender: false }, t0 + 0.15);
+            }
           }
         }
         var rawFromTransform = from.transform;
@@ -599,7 +620,7 @@
       var target = byId(frame, m.id);
       return !target || !carriedEls.some(function (el) { return el === target || target.contains(el); });
     });
-    play(frame);
+    play(frame, prev);
     var paired = new Set(carriedEls), left = new Set(pairs.map(function (p) { return p[0]; }));
     pairs.forEach(function (pair) {
       var a = pair[0], b = pair[1], from = attrsOf(a), to = attrsOf(b), start = {}, end = {};
@@ -632,7 +653,7 @@
     var room = Math.min(F.room, Math.max(0.3, (frame.end - frame.start) * 0.35));
 
     if (i === 0) {
-      play(frame);
+      play(frame, null);
       var gap = stagger(frame.leaves.length, room);
       frame.leaves.forEach(function (el, k) { enter(el, t + 0.15 + k * gap); });
       return;
@@ -651,7 +672,7 @@
       var target = byId(frame, m.id);
       return !target || !carriedEls.some(function (el) { return el === target || target.contains(el); });
     });
-    play(frame);
+    play(frame, prev);
     var paired = new Set(pairs.map(function (p) { return p[1]; }).concat(byIdPairs.groupLeavesB || []));
     var left = new Set(pairs.map(function (p) { return p[0]; }).concat(byIdPairs.groupLeavesA || []));
     var continuity = pairs.some(function (p) { return !isSlot(p[1]); }) || groups.length > 0;

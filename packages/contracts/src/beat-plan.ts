@@ -17,7 +17,7 @@ export const scriptModes = ["problem", "own"] as const;
 export const durationPresets = [5, 15, 30, 45, 60, 90] as const;
 export const durationModes = ["preset", "custom", "script"] as const;
 export const DURATION_MIN = 5;
-export const PROBLEM_TEXT_MAX = 600;
+export const PROBLEM_TEXT_MAX = 4000;
 export const OWN_SCRIPT_MAX = 20000;
 
 export type Aspect = (typeof aspects)[number];
@@ -280,8 +280,46 @@ export function toggleBriefAspect(
   return { aspect: nextPrimary, aspects: nextSelected };
 }
 
-/** Most words a hook line can have and still be said within 3 s at this pace. */
-export function hookWordLimit(pace: Pace): number {
+/** Specialized script writer templates for narrative thought experiments ("what-if") and mechanism deep-dives ("how-does"). */
+export const scriptTemplates = ["what-if", "how-does", "explainer", "story", "product"] as const;
+export type ScriptTemplate = (typeof scriptTemplates)[number];
+
+/**
+ * Resolves which script-writer template best fits the brief:
+ * - "what-if": thought-experiment / speculative story-essay ("What if you could...", "Imagine if...", "What would happen if...")
+ * - "how-does": mechanism / system deep-dive ("How does ... work?", "What happens when...", "Inside a...", "Under the hood...")
+ * - "story": narrative story templates and handmade story styles
+ * - "explainer": math, concept, and educational explainers
+ * - "product": SaaS/product launches, demos, and promos
+ */
+export function inferScriptTemplate(input: {
+  text?: string | null;
+  styleExample?: string | null;
+  videoType?: VideoType | null;
+  look?: string | null;
+  styleFamily?: string | null;
+  hasProduct?: boolean;
+  isStoryFilm?: boolean;
+}): ScriptTemplate {
+  if (input.styleExample === "what-if-story-explainer") return "what-if";
+  if (input.styleExample === "how-does-system-explainer") return "how-does";
+  const text = (input.text ?? "").trim();
+  if (!input.hasProduct && text) {
+    if (/\b(?:what if|imagine if|suppose (?:you|we|every)|if you could|what would happen if|could you survive|rewind time|thought experiment)\b/i.test(text)) {
+      return "what-if";
+    }
+    if (/\b(?:how does|how do|how is|how a\b[^.?!]*\bworks?|how [a-z0-9 -]{2,40} works?\b|inside a|what happens when|under the hood|behind the scenes of how)\b/i.test(text)) {
+      return "how-does";
+    }
+  }
+  if (input.isStoryFilm || input.videoType === "story") return "story";
+  if (input.hasProduct) return "product";
+  return "explainer";
+}
+
+/** Most words a hook line can have and still be said within 3 s at this pace (or a natural 16-word opening sentence for what-if / how-does films). */
+export function hookWordLimit(pace: Pace, scriptTemplate?: ScriptTemplate): number {
+  if (scriptTemplate === "what-if" || scriptTemplate === "how-does") return 16;
   return Math.floor(2.7 * (paceWpm[pace] / 60));
 }
 

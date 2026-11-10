@@ -7,7 +7,7 @@
  * scene, hook in the first seconds, narration that adds to the picture instead of repeating it, real UI rather than invented UI,
  * a recap for anything taught, and a call to action only where a viewer is being asked to do something.
  */
-import type { VideoType } from "@videosaas/contracts";
+import type { ScriptTemplate, VideoType } from "@videosaas/contracts";
 
 export type Playbook = {
   /** One line the director can quote back: what this film is for. */
@@ -34,10 +34,10 @@ export const PLAYBOOKS: Record<VideoType, Playbook> = {
       "recap: the idea restated in one short sentence (about 10 seconds). It ends the film. No product pitch, no 'try', no 'sign up'."
     ],
     rules: [
-      "Teach ONE idea. If the brief holds several, teach the main one and drop the rest.",
-      "Narration adds a layer the picture does not: it names why, not what. If a line only describes what is visible, cut it or rewrite it.",
-      "Pair each spoken idea with its visual in the same beat; where the visual column would be empty, find a visual.",
-      "Use the teaching vocabulary of the subject, defined on first use. Examples are concrete (a real list, real numbers the brief gives), never invented statistics.",
+      "One clear beat per step or moment. When the brief names several stages, tests, studies or turns, unfold each one in order rather than dropping them or cramming them into one summary sentence.",
+      "Narration adds a layer the picture does not: it names why or what happens next. If a line only labels what is static on screen, rewrite it as an active cause-and-effect sentence.",
+      "Pair each spoken idea with its visual in the same beat; alternate lived story scenes (A-roll) with clean data/concept visuals (B-roll) only where a number, comparison, or study needs a visual diagram.",
+      "Use the teaching vocabulary of the subject, defined on first use. Examples are concrete (a real list, real numbers or studies the brief gives), never invented product statistics.",
       "Keep on-screen text to the term or number being taught (one to three words); the voice carries the sentence.",
       "Signal with highlights, labels and motion on the thing being discussed; one element is lit at a time."
     ],
@@ -154,9 +154,52 @@ export const HOOK_RULES = [
   "Ground it in the brief's own audience and facts; never invent a number, a result or a claim to make it punchier."
 ];
 
+export const SPECIALIZED_PLAYBOOKS: Record<"what-if" | "how-does", Playbook> = {
+  "what-if": {
+    purpose: "Take the viewer inside a 'What if...' thought experiment through one relatable protagonist in second person ('You'), escalating from playful wish-fulfillment to the hidden catch, real psychology/science studies, and a human resolution.",
+    cta: "never",
+    shape: [
+      "question: open with the 'What if...' premise and its exact constraint across 1-2 crisp beats ('What if you could rewind time? By exactly 10 seconds.'). Never spoil the trap or ending in the hook.",
+      "setup: 'Day one.' Drop straight into a visceral everyday incident unpacked into 3-5 camera-shot micro-beats (setup action -> physical accident -> close-up shock/wish -> the power triggers -> aftermath realization).",
+      "step: escalate through time jumps ('Week one.', 'Month one.') — testing small slips, winning social moments, hitting an edge limit, and discovering the first hidden cost (e.g. a 5-minute chat taking 1 hour). Weave in real psychology/science studies using the 3-part sandwich: (a) lived symptom in the story -> (b) clean B-roll study/graph card -> (c) personal mirror line.",
+      "turn: 'Year one.' The emotional climax where editing life erases authentic moments, followed by a real-life mistake that happens outside the rule's boundary (e.g. 60 seconds later or over years).",
+      "insight: the deeper truth backed by research (e.g. short-term action regrets vs. lifetime inaction regrets; why mistakes make us human, mark it success=true).",
+      "recap: 'Years later.' Choosing not to use the power during an honest human mistake, a callback to the opening object (letting the coffee spill), and a closing question to the viewer."
+    ],
+    rules: [
+      "Write in present-tense second person ('You') with one physical camera action or one clear thought per beat (4-14 words on action beats). Never cram a whole incident into one summary sentence.",
+      "Show, never summarize: instead of 'You use it to fix coffee spills and bad jokes', write the actual moment beat by beat.",
+      "Alternate A-Roll story scenes ([A-ROLL: WIDE SCENE] and [A-ROLL: CLOSE-UP]) with B-Roll visual inserts ([B-ROLL: LINE GRAPH], [B-ROLL: BAR COMPARISON], [B-ROLL: DUAL CLOCK], [B-ROLL: COUNTER HIT], [B-ROLL: VISUAL METAPHOR], [CHAPTER CARD]). Draw graphs and charts ONLY when a beat states a metric, time comparison, or research study; never draw chart axes or flowchart arrows inside A-Roll story rooms."
+    ],
+    screenshots: "Use drawn scenes and B-roll concept cards unless a screenshot is explicitly supplied.",
+    music: "Curious, cinematic, minimal pulse; 85-100 BPM; room for the voice."
+  },
+  "how-does": {
+    purpose: "Demystify how a system, machine, or phenomenon works under the hood by following one concrete action or packet from trigger to completion.",
+    cta: "never",
+    shape: [
+      "question: contrast a 1-second everyday trigger ('You tap a card', 'You click send') with the surprising scale or speed of what must happen underneath.",
+      "setup: introduce the single concrete unit we will follow (one packet, one sound wave, one transaction) and the system's main stages.",
+      "step: walk the unit through each hop one beat at a time (cause -> mechanism -> effect). Include one beat showing what breaks under the naive approach (bottleneck, collision, spoofing) before showing the clever mechanism that solves it.",
+      "insight: the 'aha' mechanism or fault-recovery test where the whole system locks together (mark it success=true).",
+      "recap: zoom back out to the everyday 1-second action from the opening, now with the invisible machinery understood."
+    ],
+    rules: [
+      "Follow ONE concrete item with real example values from start to finish.",
+      "Show the naive way failing before introducing the technical mechanism, and show the physical move before naming the jargon term.",
+      "Use [A-ROLL: WIDE SCENE] for the human trigger/payoff and [B-ROLL: VISUAL METAPHOR], [B-ROLL: LINE GRAPH], [B-ROLL: BAR COMPARISON], or [B-ROLL: DUAL CLOCK] for the under-the-hood mechanism and rate comparisons."
+    ],
+    screenshots: "Use screenshots only when explaining a specific software UI; otherwise draw the system mechanism.",
+    music: "Steady, inquisitive, modern instrumental; 90-105 BPM."
+  }
+};
+
 /** The playbook as the block of instructions the director reads. */
-export function playbookBlock(type: VideoType): string {
-  const book = PLAYBOOKS[type];
+export function playbookBlock(type: VideoType, scriptTemplate?: ScriptTemplate): string {
+  const book =
+    scriptTemplate === "what-if" || scriptTemplate === "how-does"
+      ? SPECIALIZED_PLAYBOOKS[scriptTemplate]
+      : PLAYBOOKS[type];
   const cta = book.cta === "never" ? "This film does NOT end on a call to action: never use the role 'cta', never write 'try', 'sign up', 'get started' or a product pitch."
     : book.cta === "required" ? "This film ends on one clear call to action (role 'cta')."
     : "A call to action (role 'cta') is allowed only if the brief asks the viewer to do something; otherwise end on the last beat of the shape.";

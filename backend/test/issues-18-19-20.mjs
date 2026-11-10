@@ -119,3 +119,67 @@ test("Issue 20: audioTags sets preload=auto and withAudioContinuity injects blob
   assert.ok(html.includes("GuardThreshold = 0.35"), "withAudioContinuity guards against micro-drift seeks while playing");
   assert.ok(html.includes("scheduleRewind"), "withAudioContinuity rewinds paused clips after their window for repeated continuous playback");
 });
+
+test("What-If and How-Does curated script writer templates, A-Roll/B-Roll visual tags, and curated SVG style guide", async () => {
+  const { findGalleryTemplate, inferScriptTemplate, hookWordLimit } = await import("@videosaas/contracts");
+  const { systemBlocks, WHAT_IF_VOICE, HOW_DOES_VOICE } = await import("../src/plan/script-writer.ts");
+  const { CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE } = await import("../src/plan/frame-sketch.ts");
+
+  assert.equal(inferScriptTemplate({ text: "What if you could rewind time by exactly 10 seconds?" }), "what-if");
+  assert.equal(inferScriptTemplate({ text: "Imagine if gravity turned off for 5 seconds every noon." }), "what-if");
+  assert.equal(inferScriptTemplate({ text: "How does active noise cancellation silence a jet engine?" }), "how-does");
+  assert.equal(inferScriptTemplate({ text: "What happens when you swipe a credit card under the hood?" }), "how-does");
+  assert.equal(hookWordLimit("balanced", "what-if"), 16);
+  assert.equal(hookWordLimit("balanced", "how-does"), 16);
+
+  const whatIfTpl = findGalleryTemplate("what-if-story-explainer");
+  const howDoesTpl = findGalleryTemplate("how-does-system-explainer");
+  assert.ok(whatIfTpl && whatIfTpl.name === "What-If Thought Experiment");
+  assert.ok(howDoesTpl && howDoesTpl.name === "How-Does Mechanism Explainer");
+
+  const whatIfBlocks = systemBlocks({
+    brief: {
+      scriptMode: "problem",
+      text: "What if you could rewind time by 10 seconds?",
+      durationSeconds: 90,
+      durationMode: "script",
+      aspect: "16:9",
+      motionProfile: "smooth",
+      pace: "balanced",
+      audio: { mode: "both", voice: "Kore" },
+      captions: "full",
+      template: null,
+      theme: "bold",
+      look: "clean"
+    },
+    context: { brandName: "", screenshots: [], productNamed: false }
+  });
+  assert.equal(whatIfBlocks[1]?.text, WHAT_IF_VOICE);
+  assert.match(WHAT_IF_VOICE, /\[A-ROLL: WIDE SCENE\]/);
+  assert.match(WHAT_IF_VOICE, /\[A-ROLL: CLOSE-UP\]/);
+  assert.match(WHAT_IF_VOICE, /\[B-ROLL: LINE GRAPH\]/);
+  assert.match(WHAT_IF_VOICE, /\[B-ROLL: BAR COMPARISON\]/);
+  assert.match(WHAT_IF_VOICE, /\[B-ROLL: DUAL CLOCK\]/);
+  assert.match(WHAT_IF_VOICE, /3-Part Science \/ Psychology Sandwiches/);
+
+  const howDoesBlocks = systemBlocks({
+    brief: {
+      scriptMode: "problem",
+      text: "How does a DNS lookup work under the hood?",
+      durationSeconds: 60,
+      durationMode: "script",
+      aspect: "16:9",
+      motionProfile: "smooth",
+      pace: "balanced",
+      audio: { mode: "both", voice: "Kore" },
+      captions: "full",
+      template: null,
+      theme: "cobalt-grid",
+      look: "clean"
+    },
+    context: { brandName: "", screenshots: [], productNamed: false }
+  });
+  assert.equal(howDoesBlocks[1]?.text, HOW_DOES_VOICE);
+  assert.match(CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE, /id="character"/);
+  assert.match(CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE, /id="room-backdrop"/);
+});

@@ -74,7 +74,7 @@ export function parseFrameMotion(input: unknown, svg: string, seconds: number): 
     return Object.keys(out).length ? out : null;
   };
   const motion: FrameMotion[] = [];
-  for (const item of input.slice(0, 8)) {
+  for (const item of input.slice(0, 14)) {
     const entry = (item ?? {}) as Record<string, unknown>;
     const start = fraction(entry.start, 0), end = Math.max(start + 0.2, fraction(entry.end, seconds));
     if (entry.kind === "move" && typeof entry.id === "string" && MOTION_ID.test(entry.id) && ids.has(entry.id)) {

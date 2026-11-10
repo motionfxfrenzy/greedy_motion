@@ -1,7 +1,7 @@
 // The script, written before the storyboard: scene by scene, in words a person can read and edit like a document.
 // It is fast (one short call, no motion direction) so the person sees something to correct within seconds; the
 // storyboard is then built from the script they approved, in their own words (scriptMode "own").
-import { beatCountRange, beatRoles, DURATION_MIN, formatForDuration, isScriptLedDuration, paceWpm, sceneDirection, SCRIPT_BEATS_MAX, wordBudget, type ProjectScript, type ProjectScriptLine, type ScriptBrief, type VideoType } from "@videosaas/contracts";
+import { beatCountRange, beatRoles, DURATION_MIN, filmKind, formatForDuration, inferScriptTemplate, isScriptLedDuration, paceWpm, sceneDirection, SCRIPT_BEATS_MAX, wordBudget, type ProjectScript, type ProjectScriptLine, type ScriptBrief, type VideoType } from "@videosaas/contracts";
 import { callModel } from "../models/providers.ts";
 import { routeFor } from "../models/routes.ts";
 import { PLAYBOOKS, playbookBlock } from "../skills/playbooks.ts";
@@ -85,10 +85,19 @@ function toScript(raw: { title: string; video_type: VideoType; hook_alternatives
 /** Writes the first draft. */
 export async function draftScript(brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal, request?: typeof fetch): Promise<ScriptDraft> {
   const route = modelOf();
+  const scriptTemplate = inferScriptTemplate({
+    text: brief.text,
+    styleExample: brief.styleExample,
+    videoType: brief.videoType,
+    look: brief.look,
+    styleFamily: brief.styleFamily,
+    hasProduct: Boolean(context.brandName && context.productNamed !== false),
+    isStoryFilm: filmKind(brief) === "story"
+  });
   const result = await callModel({
     step: "script",
     route,
-    system: [{ text: `${SYSTEM}\n\n${playbookBlock(resolveVideoType(brief, context))}`, cache: true }],
+    system: [{ text: `${SYSTEM}\n\n${playbookBlock(resolveVideoType(brief, context), scriptTemplate)}`, cache: true }],
     messages: [{ role: "user", content: scriptMessage(brief, context) }],
     schema: SCHEMA as unknown as Record<string, unknown>,
     maxTokens: 16000,
@@ -110,12 +119,21 @@ const REVISE_SYSTEM = [
 /** Applies a person's instruction ("make it shorter", "add a scene on pricing") to the script they have been editing. */
 export async function reviseScript(script: ProjectScript, instruction: string, brief: ScriptBrief, context: DirectorContext, signal?: AbortSignal, request?: typeof fetch): Promise<ScriptDraft> {
   const route = modelOf();
+  const scriptTemplate = inferScriptTemplate({
+    text: brief.text,
+    styleExample: brief.styleExample,
+    videoType: brief.videoType,
+    look: brief.look,
+    styleFamily: brief.styleFamily,
+    hasProduct: Boolean(context.brandName && context.productNamed !== false),
+    isStoryFilm: filmKind(brief) === "story"
+  });
   const current = script.lines.map((line, i) => ({ n: i + 1, role: line.role ?? line.label.toLowerCase(), voiceover: line.voiceover ?? "", on_screen: line.onScreen, visual: line.visual ?? "", screenshot_index: line.screenshotId ? context.screenshots.findIndex((shot) => shot.id === line.screenshotId) : null }));
   const user = [scriptMessage(brief, context), `\nCURRENT SCRIPT (the person's edited version):\n${JSON.stringify({ title: script.title ?? "", caption: script.caption ?? "", hook_alternatives: script.hooks ?? [], scenes: current })}`, `\nTHE PERSON ASKS: ${instruction}`].join("\n");
   const result = await callModel({
     step: "script",
     route,
-    system: [{ text: `${REVISE_SYSTEM}\n\n${playbookBlock(resolveVideoType(brief, context))}`, cache: true }],
+    system: [{ text: `${REVISE_SYSTEM}\n\n${playbookBlock(resolveVideoType(brief, context), scriptTemplate)}`, cache: true }],
     messages: [{ role: "user", content: user }],
     schema: SCHEMA as unknown as Record<string, unknown>,
     maxTokens: 16000,

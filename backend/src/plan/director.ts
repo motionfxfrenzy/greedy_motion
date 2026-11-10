@@ -32,6 +32,7 @@ import {
   type ScriptBrief,
   type Vector,
   findGalleryTemplate,
+  inferScriptTemplate,
   inferVideoType,
   videoTypeLabels,
   findTheme,
@@ -402,6 +403,16 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
   const scriptLed = isScriptLedDuration(brief);
   const range = beatCountRange(brief.durationSeconds, brief.pace, brief.styleFamily);
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+  const scriptTemplate = inferScriptTemplate({
+    text: brief.text,
+    styleExample: brief.styleExample,
+    videoType: brief.videoType,
+    look: brief.look,
+    styleFamily: brief.styleFamily,
+    hasProduct: Boolean(context.brandName && context.productNamed !== false),
+    isStoryFilm: filmKind(brief) === "story"
+  });
+  const hookMax = hookWordLimit(brief.pace, scriptTemplate);
   const actualScriptSec = brief.scriptBeats?.length
     ? Math.max(DURATION_MIN, scriptSeconds(brief.scriptBeats, brief.pace))
     : null;
@@ -412,9 +423,11 @@ export function userMessage(brief: ScriptBrief, context: DirectorContext) {
     : `Duration: ${brief.durationSeconds}s (${formatForDuration(brief.durationSeconds)}); aspect ${brief.aspect}; pace ${brief.pace} (~${paceWpm[brief.pace]} wpm); motion profile ${brief.motionProfile}.`;
   const beatsLine = scriptLed
     ? brief.scriptBeats?.length
-      ? `Beats: ${brief.scriptBeats.length} (from the approved script).${voiced ? ` The hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`
-      : `Beats: 3 or more (choose the natural beat count the idea needs, without an arbitrary cap).${voiced ? ` Voiceover word budget: follows the natural length of the script (at most 24 words per beat); the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`
-    : `Beats: ${range.min}–${range.max}.${voiced ? ` Voiceover word budget: about ${wordBudget(brief.durationSeconds, brief.pace)} words in total; the hook line at most ${hookWordLimit(brief.pace)} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`;
+      ? `Beats: ${brief.scriptBeats.length} (from the approved script).${voiced ? ` The hook line at most ${hookMax} words.` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`
+      : scriptTemplate === "what-if" || scriptTemplate === "how-does"
+        ? `Beats: unpack every incident, test, and study into individual camera-shot micro-beats (typically 18–45+ beats for a full script-led ${scriptTemplate} film; never compress multiple actions into one summary beat).${voiced ? ` Voiceover word budget: 4–16 words on action beats, up to 22 words on study beats; the hook line at most ${hookMax} words.` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`
+        : `Beats: 3 or more (choose the natural beat count the idea needs, without an arbitrary cap).${voiced ? ` Voiceover word budget: follows the natural length of the script (at most 24 words per beat); the hook line at most ${hookMax} words (it must be said within 3s).` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`
+    : `Beats: ${range.min}–${range.max}.${voiced ? ` Voiceover word budget: about ${wordBudget(brief.durationSeconds, brief.pace)} words in total; the hook line at most ${hookMax} words.` : " No voiceover: every line is null; key phrases carry the story; cuts land on the music beat."}`;
   return [
     `Mode: ${brief.scriptMode === "own" ? "OWN SCRIPT (keep the user's words verbatim)" : "PROBLEM ONLY (write the script)"}`,
     productLine(brief, context),
@@ -455,7 +468,16 @@ export function productLine(brief: ScriptBrief, context: DirectorContext): strin
 /** The film's type with its playbook, the template it starts from and the theme, so the director builds for this film and not for a generic ad. */
 export function contextBlocks(brief: ScriptBrief, context: DirectorContext): string[] {
   const type = resolveVideoType(brief, context);
-  const out = [`\n${playbookBlock(type)}`];
+  const scriptTemplate = inferScriptTemplate({
+    text: brief.text,
+    styleExample: brief.styleExample,
+    videoType: brief.videoType,
+    look: brief.look,
+    styleFamily: brief.styleFamily,
+    hasProduct: Boolean(context.brandName && context.productNamed !== false),
+    isStoryFilm: filmKind(brief) === "story"
+  });
+  const out = [`\n${playbookBlock(type, scriptTemplate)}`];
   const template = context.template;
   if (template) out.push(`Starting template: "${template.name}" (${template.group}). ${template.summary} Best for: ${template.bestFor}. Build the film in this template's language: its scene types, rhythm and visual devices. The template's own arc does not override the VIDEO TYPE playbook.`);
   if (brief.styleNote) out.push(`The person describes the look in their own words: "${brief.styleNote}". Treat it as art direction: let it decide the mood, the colour feel, the texture words in each beat's picture and which of the style's scenes you choose. The chosen look still decides what can actually be drawn, so never promise a medium it cannot render; use its closest equivalent.`);

@@ -1,4 +1,4 @@
-import { CHARACTER_RULE, filmKind, formatScript, isScriptLedDuration, parseScriptBeats, parseScriptStream, plainText, type BeatPlan, type ScriptBeat, type ScriptBrief, type ScriptNotes } from "@videosaas/contracts";
+import { CHARACTER_RULE, filmKind, formatScript, inferScriptTemplate, isScriptLedDuration, parseScriptBeats, parseScriptStream, plainText, type BeatPlan, type ScriptBeat, type ScriptBrief, type ScriptNotes, type ScriptTemplate } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { streamModel, callModel } from "../models/providers.ts";
 import { routeFor, routeHasKey } from "../models/routes.ts";
@@ -95,11 +95,118 @@ const STORY_VOICE = [
 ].join("\n");
 
 /**
- * The writer's system prompt: the shared rules plus the film's voice. A story film (story template or story style) is told
- * as a story; any other film without a product is an explainer; a product film gets only the shared rules.
+ * The voice for a "What If" thought-experiment film (e.g. "What if you could rewind time by 10 seconds?"):
+ * second-person camera-shot micro-beats, chronological escalation (Day one -> Week one -> Month one -> Year one -> Years later),
+ * lived symptoms followed by real psychology/science studies, and strict A-Roll (story room / close-up) vs. B-Roll (graph / clock / counter / metaphor) visual tagging.
+ */
+export const WHAT_IF_VOICE = [
+  "VOICE FOR THIS FILM: a 'What If' thought-experiment story-essay (in the narrative style of top thought-experiment channels). You put the viewer inside the premise in present-tense second person ('You'), escalating from playful wish-fulfillment to the hidden catch, real psychology/science studies, and an emotional human payoff.",
+  "",
+  "PLAN FIRST. Before the first BEAT, write these three lines for yourself (never shown; the only lines allowed before the script):",
+  "IDEA: <the premise, the hidden catch, and the human truth at the end, at most 25 words>",
+  "EXAMPLE: <lock the protagonist's exact visual rig (character: dark silhouette circle head #0d0d14 with warm cream crescent rim-light arc, expressive white eyes/brows/mouth, violet hoodie #8b5cf6 in profile, dark legs), recurring cast/props, and the exact numbers and real psychology/science studies used across the film>",
+  "OBJECTS: <ids for recurring characters and props across scenes, e.g. character, coworker, rewind-dial, coffee-cup, office-door. Lowercase, hyphens>",
+  "",
+  "NARRATIVE ARC & FLOW (unpack into camera-shot micro-beats; never compress multiple actions into one summary sentence):",
+  "1. Hook & Constraint (1–2 crisp beats): Open with the 'What if...' question, then narrow the exact rule ('By exactly 10 seconds. Not a day, not an hour — anytime you want.'). NEVER spoil the trap or ending in the hook.",
+  "2. 'Day one.' — Visceral Micro-Story (4–6 camera-shot beats): Drop straight into one everyday accident and unpack it one physical action per beat (6–14 words per beat):",
+  "   - Setup action ([A-ROLL: WIDE SCENE]: e.g. carrying a full cup of coffee toward an office door).",
+  "   - The accident ([A-ROLL: WIDE SCENE]: elbow hits the door, coffee flies everywhere).",
+  "   - Gut reaction ([A-ROLL: CLOSE-UP]: without thinking, you wish it never happened).",
+  "   - The power triggers ([A-ROLL: WIDE SCENE]: the world jerks backwards, coffee flies back up into the cup).",
+  "   - Aftermath & first tests ([A-ROLL: CLOSE-UP] staring at your hands -> [B-ROLL: VISUAL METAPHOR] checklist of small tests -> [A-ROLL: WIDE SCENE] rewinding an awkward line to a coworker until she laughs -> [B-ROLL: COUNTER HIT] end-of-day rewind count with 0 mistakes).",
+  "3. 'Week one.' & 'Month one.' — Gaming the System, Edge Limits & The First Catch (4–6 beats):",
+  "   - Show social wins (jokes landing, pub quiz win, acing a job interview, first date on easy mode) and test an edge limit where the rule fails (e.g. casino roulette bets closing before 10 seconds).",
+  "   - Reveal the First Catch: you cannot stand tiny slips anymore, rewinding a 5-minute conversation 20 times until it takes an hour of your own time ([B-ROLL: DUAL CLOCK]).",
+  "4. The 3-Part Science / Psychology Sandwiches (weave in 2–4 real studies, 3 beats per study):",
+  "   - NEVER lecture out of nowhere. Every scientific or psychological concept MUST follow this 3-beat sandwich:",
+  "     (a) Lived Symptom ([A-ROLL: WIDE SCENE]): show what happens to 'you' first (e.g. rewinding every wrong guitar note so your hands never learn; or friends saying you sound like you're reading a script).",
+  "     (b) The Real Study ([B-ROLL: BAR COMPARISON] / [B-ROLL: VISUAL METAPHOR] / [B-ROLL: LINE GRAPH]): cut to a clean B-Roll visual insert naming the real finding (Maximizers vs. Satisficers; Olympic Bronze vs. Silver medalists on the podium; prediction-error brain learning; the 1960s Pratfall Effect coffee-spill study).",
+  "     (c) Personal Mirror ([A-ROLL: CLOSE-UP] or [A-ROLL: WIDE SCENE]): one punchy sentence tying the study back to you ('It is called the Pratfall effect — and you have erased every single one of yours.').",
+  "5. 'Year one.' — Emotional Climax & The Boundary Failure (4–6 beats):",
+  "   - Show the cost of deleting authentic moments ([B-ROLL: VISUAL METAPHOR] film strip of deleted memories: 'You are not living your life anymore. You are editing it.').",
+  "   - Hit a real-life mistake outside the rule's boundary (e.g. saying no to your little brother's school play call and regretting it 60 seconds later when a 10-second rewind cannot reach it), backed by Regret Research ([B-ROLL: LINE GRAPH] contrasting short-term action regrets with lifetime inaction regrets).",
+  "6. 'Years later.' — Resolution, Callback & Audience Question Outro (3–4 beats):",
+  "   - Show up late, watch an honest mistake happen on stage, and choose NOT to use the power ([A-ROLL: WIDE SCENE]).",
+  "   - Callback to the opening object ('You let jokes fall flat. You let coffee spill.').",
+  "   - Close by asking the viewer a direct question ('If you could..., what would you use it for first?').",
+  "",
+  "MANDATORY A-ROLL vs. B-ROLL VISUAL TAGGING (every beat's VISUAL line MUST start with one of these exact tags):",
+  "- [A-ROLL: WIDE SCENE] : Grounded 2D room or street (window panes with city skyline, wall, floor plane, furniture/stage) + full-body character acting. Use for all lived story actions. NEVER ask for graphs, charts, or flowchart arrows in an A-Roll scene.",
+  "- [A-ROLL: CLOSE-UP] : Dark vignette background + giant centered close-up of character's face (eyes, brows, mouth) for shock, realization, or hesitation.",
+  "- [B-ROLL: LINE GRAPH] : Clean L-shaped X/Y axis on dark grid with 1–2 bold curves (e.g. SHORT TERM vs LIFETIME regret). Use ONLY when the line describes a trend or curve over time.",
+  "- [B-ROLL: BAR COMPARISON] : 2 clean vertical bars comparing two groups (e.g. MAXIMIZER vs SATISFICER) with the character standing beside the bar. Use ONLY when comparing study groups.",
+  "- [B-ROLL: DUAL CLOCK] : 1 or 2 circular stopwatches comparing durations (e.g. 5 MIN THE CHAT vs 1 HOUR YOUR TIME).",
+  "- [B-ROLL: COUNTER HIT] : 1 giant glowing centered number + 2-word label (e.g. 200 REWINDS TODAY).",
+  "- [B-ROLL: VISUAL METAPHOR] : 1 concrete conceptual object: a paper checklist (TEST #1), a 35mm film strip with red X marks over deleted memories, a 1-2-3 Olympic podium with characters, a glowing brain outline, or a horizontal scale line contrasting a tiny 10s circle with multi-year regrets.",
+  "- [CHAPTER CARD] : Centered rounded rectangle pill on dark starry vignette (DAY ONE, WEEK ONE, MONTH ONE, YEAR ONE).",
+  "",
+  "SENTENCE STYLE:",
+  "- Write for the ear in natural spoken phrasing with contractions. One camera shot per beat (4–14 words on action beats; up to 22 words on study beats).",
+  "- Show, never summarize: write 'Your elbow hits the door. The coffee flies everywhere.' instead of 'You accidentally spill coffee on the door.'"
+].join("\n");
+
+/**
+ * The voice for a "How Does" mechanism/system explainer ("How does noise cancellation work?", "How does an API request flow?"):
+ * starts with a 1-second everyday human trigger, zooms under the hood to follow one concrete unit/packet step by step,
+ * tests the naive failure mode, reveals the core mechanism, and zooms back out.
+ */
+export const HOW_DOES_VOICE = [
+  "VOICE FOR THIS FILM: a 'How Does' mechanism and system deep-dive explainer. One curious narrator showing the viewer what happens behind the scenes of an everyday action, following one concrete item from start to finish.",
+  "",
+  "PLAN FIRST. Before the first BEAT, write these three lines for yourself (never shown; the only lines allowed before the script):",
+  "IDEA: <the core mechanism that makes the system work, in one plain sentence of at most 22 words>",
+  "EXAMPLE: <one concrete unit/packet with exact worked values we follow through every stage, plus the recurring protagonist look (character: dark silhouette circle head #0d0d14 with warm cream rim-light, white eyes/brows, violet hoodie #8b5cf6)>",
+  "OBJECTS: <ids for the recurring system components, packet/unit, and character across scenes, e.g. character, packet, gateway, cache, database. Lowercase, hyphens>",
+  "",
+  "ARC (unpack each stage into clear camera-shot beats):",
+  "1. The Everyday Trigger + Hidden Scale Hook (1–2 beats): Start with the 1-second human action in [A-ROLL: WIDE SCENE] ('You tap your card at the terminal', 'You press play'), then cut to [B-ROLL: DUAL CLOCK] or [B-ROLL: COUNTER HIT] contrasting how fast it feels with how much work happens in milliseconds.",
+  "2. Zoom Under the Hood & Meet the Unit (1–2 beats): Introduce the single concrete unit from EXAMPLE (one packet, one sound wave, one transaction) and the path it has to cross ([B-ROLL: VISUAL METAPHOR]).",
+  "3. The Naive Way & Why It Breaks (2–3 beats): Show the obvious approach first, then show it failing under scale, latency, or attack ([B-ROLL: VISUAL METAPHOR] or [B-ROLL: LINE GRAPH]) so the viewer feels why a clever mechanism is needed.",
+  "4. The Core Mechanism Step-by-Step (3–6 beats): Walk the concrete unit through the real mechanism one move per beat, cause then effect. Cut to [B-ROLL: BAR COMPARISON] or [B-ROLL: LINE GRAPH] when contrasting before vs. after performance. Show the physical move before naming the technical term.",
+  "5. Edge-Case / Fault Test (1–2 beats): Show what happens when one part fails or drops, and how the mechanism recovers cleanly.",
+  "6. Zoom-Out Payoff (1–2 beats): Return to [A-ROLL: WIDE SCENE] with the character completing the 1-second everyday action, now with the invisible machinery clear.",
+  "",
+  "MANDATORY A-ROLL vs. B-ROLL VISUAL TAGGING (every beat's VISUAL line MUST start with one of these exact tags):",
+  "- [A-ROLL: WIDE SCENE] : Grounded human scene (character performing the everyday trigger or seeing the final result). No chart axes.",
+  "- [A-ROLL: CLOSE-UP] : Centered close-up reaction of the character or focal device.",
+  "- [B-ROLL: VISUAL METAPHOR] : Under-the-hood system diagram or physical cutaway following the concrete unit across named nodes in OBJECTS.",
+  "- [B-ROLL: LINE GRAPH] : Clean L-shaped X/Y axis on dark grid with 1–2 bold curves (latency, load, signal wave).",
+  "- [B-ROLL: BAR COMPARISON] : 2 clean vertical bars comparing naive vs. optimized performance.",
+  "- [B-ROLL: DUAL CLOCK] : Stopwatch/timer comparison showing millisecond budget.",
+  "- [B-ROLL: COUNTER HIT] : Single giant metric readout on dark ground.",
+  "- [CHAPTER CARD] : Clean structural stage divider pill on dark ground."
+].join("\n");
+
+export function scriptTemplateFor(request: Pick<ScriptRequest, "brief" | "context">): ScriptTemplate {
+  return inferScriptTemplate({
+    text: request.brief.text,
+    styleExample: request.brief.styleExample,
+    videoType: request.brief.videoType,
+    look: request.brief.look,
+    styleFamily: request.brief.styleFamily,
+    hasProduct: Boolean(request.context.brandName && request.context.productNamed !== false),
+    isStoryFilm: filmKind(request.brief) === "story"
+  });
+}
+
+/**
+ * The writer's system prompt: the shared rules plus the film's voice.
+ * Routes "what-if" and "how-does" prompts to their dedicated narrative/B-roll voices, story films to STORY_VOICE,
+ * topic explainers to EXPLAINER_VOICE, and product films to the shared rules.
  */
 export function systemBlocks(request: Pick<ScriptRequest, "brief" | "context">): { type: "text"; text: string; cache_control?: { type: "ephemeral" } }[] {
-  const voice = filmKind(request.brief) === "story" ? STORY_VOICE : request.context.brandName ? null : EXPLAINER_VOICE;
+  const template = scriptTemplateFor(request);
+  const voice =
+    template === "what-if"
+      ? WHAT_IF_VOICE
+      : template === "how-does"
+        ? HOW_DOES_VOICE
+        : template === "story"
+          ? STORY_VOICE
+          : request.context.brandName
+            ? null
+            : EXPLAINER_VOICE;
   const voiced = request.brief.audio?.mode === "voiceover" || request.brief.audio?.mode === "both";
   const langLines = voiced ? languageRule(request.brief) : [];
   const baseSystem = langLines.length > 0 ? `${SYSTEM}\n\n${langLines.join("\n")}` : SYSTEM;
@@ -125,9 +232,24 @@ export type InsertSceneRequest = {
 };
 
 /** The chosen length is a target unless the person locked it: an idea that needs longer gets it, and the canvas says so. */
-export function lengthRule(brief: ScriptBrief): string {
+export function lengthRule(brief: ScriptBrief, context?: DirectorContext): string {
   const voiced = brief.audio.mode === "voiceover" || brief.audio.mode === "both";
+  const template = inferScriptTemplate({
+    text: brief.text,
+    styleExample: brief.styleExample,
+    videoType: brief.videoType,
+    look: brief.look,
+    styleFamily: brief.styleFamily,
+    hasProduct: Boolean(context?.brandName && context?.productNamed !== false),
+    isStoryFilm: filmKind(brief) === "story"
+  });
   if (isScriptLedDuration(brief)) {
+    if (template === "what-if" || template === "how-does") {
+      return [
+        `LENGTH IS SCRIPT-LED (${template.toUpperCase()} TEMPLATE): there is no preset duration cap. Unpack every incident, test, and scientific study into distinct camera-shot micro-beats (aim for 18 to 40+ beats when the brief covers a full multi-stage journey; 1 physical action or 1 thought per beat).`,
+        "Never compress an entire incident or study into one summary sentence: let each step, reaction, and B-roll visual insert breathe on its own beat."
+      ].join(" ");
+    }
     return [
       `LENGTH IS SCRIPT-LED: there is no preset duration target or runtime cap. Let the story or explanation take the natural number of beats${voiced ? " and spoken words" : ""} its idea genuinely needs to land clearly (at least 3 beats, and as many beats as a longer script or multi-step story requires).`,
       "Never pad a short idea to fill time, and never cram or truncate a longer script into an arbitrary short target. The hook word limit still applies."
@@ -141,7 +263,7 @@ export function lengthRule(brief: ScriptBrief): string {
 }
 
 function messages({ brief, context, instruction, previous, notes, only }: ScriptRequest) {
-  const base = `${userMessage({ ...brief, scriptBeats: undefined }, context)}\n\n${lengthRule(brief)}`;
+  const base = `${userMessage({ ...brief, scriptBeats: undefined }, context)}\n\n${lengthRule(brief, context)}`;
   if (!previous || !instruction) return [{ role: "user" as const, content: base }];
   if (only?.length) {
     // A change to picked beats: only those come back, so nothing else is rewritten (or even re-sent) while it streams.

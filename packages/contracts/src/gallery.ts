@@ -298,8 +298,50 @@ export function isFilmTemplate(item: GalleryTemplate): boolean {
   return useCase === "explain" || useCase === "story";
 }
 
+export const scriptWriterTemplates: readonly GalleryTemplate[] = [
+  {
+    id: "what-if-story-explainer",
+    kind: "explainer",
+    name: "What-If Thought Experiment",
+    group: "Flat vector",
+    summary: "A dark-stage flat-vector story essay: one rim-lit silhouette protagonist tests a 'what if' rule from Day 1 to Year 1, weaving lived moments with real psychology and minimal B-roll graphs.",
+    bestFor: "Speculative 'What if...' stories, psychology & science essays, and thought experiments",
+    preview: lookPreview("clean"),
+    skill: null,
+    look: "clean",
+    theme: "bold",
+    aspect: "16:9",
+    durationSeconds: 90,
+    motionProfile: "smooth",
+    pace: "balanced",
+    audio: "both",
+    captions: "full",
+    prompt: "What if you could rewind time by exactly 10 seconds, as many times as you want? Follow one character from Day 1 (spilling coffee on an office door, rewinding -10s, fixing awkward jokes) to Month 1 (a 5-minute chat taking 1 hour, psychology's Maximizer vs Satisficer trap, Olympic Bronze vs Silver medalists, the Pratfall effect) to Year 1 (why life's biggest regrets don't happen in 10 seconds)."
+  },
+  {
+    id: "how-does-system-explainer",
+    kind: "explainer",
+    name: "How-Does Mechanism Explainer",
+    group: "Tech",
+    summary: "Follow one concrete action under the hood, step by step: everyday trigger, system cutaways, naive failure mode, and clean B-roll comparison charts.",
+    bestFor: "'How does X work?' engineering, science, and mechanism deep-dives",
+    preview: lookPreview("clean"),
+    skill: null,
+    look: "clean",
+    theme: "cobalt-grid",
+    aspect: "16:9",
+    durationSeconds: 60,
+    motionProfile: "smooth",
+    pace: "balanced",
+    audio: "both",
+    captions: "full",
+    prompt: "How does active noise cancellation silence a jet engine in milliseconds? Start with a traveller putting on headphones, follow one incoming sound wave into the external microphone, show why simple padding fails on low-frequency rumble, then show the chip generating an inverted anti-phase wave that cancels the noise before it reaches the ear."
+  }
+];
+
 export const galleryIds = galleryTemplates.map((item) => item.id);
-export const findGalleryTemplate = (id: string | null | undefined) => everyGalleryTemplate.find((item) => item.id === id);
+export const findGalleryTemplate = (id: string | null | undefined) =>
+  everyGalleryTemplate.find((item) => item.id === id) ?? scriptWriterTemplates.find((item) => item.id === id);
 
 /**
  * A film (a story or an explainer) rather than a product video: it needs no product site, name, audience, brand kit,
