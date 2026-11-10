@@ -178,16 +178,16 @@ export const SPECIALIZED_PLAYBOOKS: Record<"what-if" | "how-does", Playbook> = {
     purpose: "Demystify how a system, machine, or phenomenon works under the hood by following one concrete action or packet from trigger to completion.",
     cta: "never",
     shape: [
-      "question: Beat 1 states the everyday second-person paradox in plain spoken words ('If you are sitting next to a roaring engine, you only need to push one button on the headphone to make it quiet.'). Beat 2 breaks the obvious assumption ('But thin plastic and foam cannot stop a jet engine.'). Never start with 'For anyone...' and never repeat the trigger across two beats.",
+      "question: Beat 1 ([A-ROLL: HERO MEDIUM SHOT]) states the everyday second-person paradox in plain spoken words ('If you are sitting next to a roaring engine, you only need to push one button on the headphone to make it quiet.') while showing the person chest-up in the proper environment with the Hero Object drawn large and unmistakable on/with them. Beat 2 ([A-ROLL: CUTAWAY / X-RAY]) breaks the obvious assumption ('But thin plastic and foam cannot stop a jet engine.') while slicing open that exact same Hero Object in X-ray view. Never start with 'For anyone...' and never repeat the trigger across two beats.",
       "setup: state the counter-intuitive premise in one plain line ('To make silence, your headphones actually shoot a second sound wave at your ear.') and introduce the single concrete unit we will follow.",
       "step: walk the unit through each hop one beat at a time (cause -> mechanism -> effect). Show what breaks under the naive approach before showing the clever mechanism that solves it, and show the physical move before naming the technical term.",
       "insight: the 'aha' mechanism or fault-recovery test where the whole system locks together (mark it success=true).",
-      "recap: zoom back out to the everyday 1-second action from the opening, now with the invisible machinery understood."
+      "recap: zoom back out to [A-ROLL: HERO MEDIUM SHOT] completing the everyday action in the real environment, now with the invisible machinery understood."
     ],
     rules: [
-      "Follow ONE concrete item with real example values from start to finish.",
+      "Follow ONE concrete item with real example values from start to finish, and decompose the Hero Object into 4-6 recognizable physical sub-parts so it is drawn with iconic clarity in every scene.",
       "Open in direct second person ('If you are..., you only need to...'), never 'For anyone...'. Use plain spoken words ('push one button', 'make it quiet'), never literary filler.",
-      "Rotate A-Roll camera angles ([A-ROLL: POV HANDS], [A-ROLL: OVER-THE-SHOULDER], [A-ROLL: CUTAWAY / X-RAY], [A-ROLL: SPLIT-SCREEN], [A-ROLL: WIDE SCENE], [A-ROLL: CLOSE-UP]) so A-Roll is never just a stick figure standing on a line, and interleave with [B-ROLL: VISUAL METAPHOR], [B-ROLL: LINE GRAPH], [B-ROLL: BAR COMPARISON], or [B-ROLL: DUAL CLOCK]."
+      "Rotate A-Roll camera angles ([A-ROLL: HERO MEDIUM SHOT], [A-ROLL: CUTAWAY / X-RAY], [A-ROLL: OVER-THE-SHOULDER], [A-ROLL: POV HANDS], [A-ROLL: SPLIT-SCREEN], [A-ROLL: WIDE SCENE], [A-ROLL: CLOSE-UP]) so A-Roll is never just a stick figure standing on a line, and interleave with [B-ROLL: VISUAL METAPHOR], [B-ROLL: LINE GRAPH], [B-ROLL: BAR COMPARISON], or [B-ROLL: DUAL CLOCK]."
     ],
     screenshots: "Use screenshots only when explaining a specific software UI; otherwise draw the system mechanism.",
     music: "Steady, inquisitive, modern instrumental; 90-105 BPM."
