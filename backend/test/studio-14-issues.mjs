@@ -25,7 +25,7 @@ const { MAX_PLAN_ATTEMPTS } = await import("../src/plan/routes.ts");
 test("Issue 1: Templates gallery 'All' mode interleaves all 5 categories, randomizes per seed, and paginates deterministically without duplicates", () => {
   const pageA1 = contracts.queryGallery({ plates: true, limit: 24, seed: "seed-alpha" });
   const pageB1 = contracts.queryGallery({ plates: true, limit: 24, seed: "seed-beta" });
-  assert.equal(pageA1.total, 160);
+  assert.equal(pageA1.total, 162);
   assert.equal(pageA1.items.length, 24);
 
   // Every active category (story, saas, explain, brand, colour) must appear in the first 24 items of "All"
@@ -53,8 +53,8 @@ test("Issue 1: Templates gallery 'All' mode interleaves all 5 categories, random
     if (!p.nextCursor) break;
     cursor = p.nextCursor;
   }
-  assert.equal(seen.length, 160);
-  assert.equal(new Set(seen).size, 160, "Pagination with a stable seed yields 160 unique items with zero duplicates");
+  assert.equal(seen.length, 162);
+  assert.equal(new Set(seen).size, 162, "Pagination with a stable seed yields 162 unique items with zero duplicates");
 });
 
 test("Issue 2: User-facing tier specs and UI components expose only Standard and Premium without model version names", () => {

@@ -61,8 +61,8 @@ test("film scope excludes incompatible product/brand-only styles and unshipped g
   const pageAll = c.queryGallery({ scope: "film", plates: true, limit: 48 });
   const page2 = c.queryGallery({ scope: "film", plates: true, cursor: pageAll.nextCursor ?? "48", limit: 48 });
   const combined = [...pageAll.items, ...page2.items];
-  assert.equal(pageAll.total, 68, "37 explain + 31 story = 68 film templates");
-  assert.equal(combined.length, 68);
+  assert.equal(pageAll.total, 70, "39 explain + 31 story = 70 film templates");
+  assert.equal(combined.length, 70);
   for (const item of combined) {
     assert.ok(item.useCase === "explain" || item.useCase === "story", `item ${item.id} has incompatible useCase ${item.useCase}`);
     assert.equal(c.isFilmBrief({ look: c.findGalleryTemplate(item.id)?.look, styleExample: item.id }), true, `${item.id} must be recognized by isFilmBrief`);
@@ -71,19 +71,19 @@ test("film scope excludes incompatible product/brand-only styles and unshipped g
   assert.equal(pageAll.counts.brand, 0);
   assert.equal(pageAll.counts.colour, 0);
   assert.equal(pageAll.counts.threed, 0);
-  assert.equal(pageAll.counts.explain, 37);
+  assert.equal(pageAll.counts.explain, 39);
   assert.equal(pageAll.counts.story, 31);
-  assert.equal(pageAll.counts.all, 68);
+  assert.equal(pageAll.counts.all, 70);
 });
 
 test("mixed-use-case and mixed-family styles expose only their film-compatible examples in film scope", () => {
-  // clean-data has 28 explain + 1 saas in general scope; only 28 explain in film scope
+  // clean-data has 30 explain + 1 saas in general scope; only 30 explain in film scope
   const cleanDataAll = c.queryGallery({ look: "clean-data", plates: true, limit: 48 });
   const cleanDataFilm = c.queryGallery({ look: "clean-data", scope: "film", plates: true, limit: 48 });
-  assert.equal(cleanDataAll.total, 29);
-  assert.equal(cleanDataFilm.total, 28);
+  assert.equal(cleanDataAll.total, 31);
+  assert.equal(cleanDataFilm.total, 30);
   assert.equal(cleanDataFilm.counts.saas, 0);
-  assert.equal(cleanDataFilm.counts.explain, 28);
+  assert.equal(cleanDataFilm.counts.explain, 30);
   assert.ok(cleanDataFilm.items.every((item) => item.useCase === "explain"));
 
   // sketch has 6 saas + 4 explain + 2 brand = 12 in general scope; only 4 explain in film scope
@@ -113,24 +113,24 @@ test("mixed-use-case and mixed-family styles expose only their film-compatible e
 });
 
 test("pagination, search, and capability gating (plates: false vs true) work before slicing", () => {
-  // Pagination across clean-data (28 items, page size 12)
+  // Pagination across clean-data (30 items, page size 12)
   const p1 = c.queryGallery({ look: "clean-data", scope: "film", plates: true, limit: 12 });
   assert.equal(p1.items.length, 12);
-  assert.equal(p1.total, 28);
+  assert.equal(p1.total, 30);
   assert.equal(p1.nextCursor, "12");
 
   const p2 = c.queryGallery({ look: "clean-data", scope: "film", plates: true, cursor: p1.nextCursor, limit: 12 });
   assert.equal(p2.items.length, 12);
-  assert.equal(p2.total, 28);
+  assert.equal(p2.total, 30);
   assert.equal(p2.nextCursor, "24");
 
   const p3 = c.queryGallery({ look: "clean-data", scope: "film", plates: true, cursor: p2.nextCursor, limit: 12 });
-  assert.equal(p3.items.length, 4);
-  assert.equal(p3.total, 28);
+  assert.equal(p3.items.length, 6);
+  assert.equal(p3.total, 30);
   assert.equal(p3.nextCursor, null);
 
   const ids = [...p1.items, ...p2.items, ...p3.items].map((i) => i.id);
-  assert.equal(new Set(ids).size, 28, "all 28 paginated items are unique");
+  assert.equal(new Set(ids).size, 30, "all 30 paginated items are unique");
 
   // Search in film scope finds compatible items and ignores SaaS items
   const searchBayes = c.queryGallery({ look: "clean-data", scope: "film", plates: true, q: "  bayes  " });
@@ -151,9 +151,9 @@ test("pagination, search, and capability gating (plates: false vs true) work bef
   assert.equal(stylesNoPlates.some((s) => s.id.startsWith("illus-")), false);
 
   const templatesNoPlates = c.queryGallery({ scope: "film", plates: false, limit: 48 });
-  assert.equal(templatesNoPlates.total, 37);
+  assert.equal(templatesNoPlates.total, 39);
   assert.equal(templatesNoPlates.counts.story, 0);
-  assert.equal(templatesNoPlates.counts.explain, 37);
+  assert.equal(templatesNoPlates.counts.explain, 39);
 });
 
 test("selecting any film-scoped style (with or without explicit example card) stays isFilmBrief", () => {
@@ -199,9 +199,9 @@ test("general gallery and non-film style picker remain unchanged", () => {
   assert.ok(generalStyles.some((s) => s.id === "clean-ui" && s.examples === 30));
 
   const generalTemplates = c.queryGallery({ plates: true, limit: 24 });
-  assert.equal(generalTemplates.total, 160);
+  assert.equal(generalTemplates.total, 162);
   assert.equal(generalTemplates.counts.saas, 60);
-  assert.equal(generalTemplates.counts.explain, 37);
+  assert.equal(generalTemplates.counts.explain, 39);
   assert.equal(generalTemplates.counts.brand, 16);
   assert.equal(generalTemplates.counts.story, 31);
   assert.equal(generalTemplates.counts.colour, 16);
@@ -218,7 +218,7 @@ test("Fastify /v1/gallery/styles and /v1/gallery/templates routes enforce scope 
   const stylesFilmBody = stylesFilmRes.json();
   assert.ok(Array.isArray(stylesFilmBody.items));
   assert.equal(stylesFilmBody.items.some((s) => s.id === "hairline"), false);
-  assert.equal(stylesFilmBody.items.some((s) => s.id === "clean-data" && s.examples === 28), true);
+  assert.equal(stylesFilmBody.items.some((s) => s.id === "clean-data" && s.examples === 30), true);
 
   const stylesBadScope = await app.inject({ method: "GET", url: "/v1/gallery/styles?scope=invalid" });
   assert.equal(stylesBadScope.statusCode, 400);
