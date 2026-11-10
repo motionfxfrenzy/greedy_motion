@@ -686,6 +686,8 @@ export function BrowserAnimationStep({
       if (typeof d === "number" && d > 0) setDuration(d);
       if (currentTimeRef.current >= 0) {
         player.currentTime = currentTimeRef.current;
+        const seekFn = (player as unknown as { seek?: (t: number) => void }).seek;
+        if (typeof seekFn === "function") seekFn.call(player, currentTimeRef.current);
       }
     };
     const onTime = (ev: Event) => {
