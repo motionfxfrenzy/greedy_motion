@@ -34,7 +34,7 @@ test("shouldShowFinalRatioTabs hides the tab row for a single ratio and shows it
   );
 });
 
-test("finalRatioDownloadName formats <projectId>-<ratio>.mp4 with colons replaced by x", () => {
+test("finalRatioDownloadName formats human-readable project slug or fallback <projectId>-<ratio>.mp4 with colons replaced by x", () => {
   const pid = "00000000-0000-4000-8000-000000000302";
   assert.equal(
     finalRatioDownloadName(pid, "16:9"),
@@ -47,6 +47,18 @@ test("finalRatioDownloadName formats <projectId>-<ratio>.mp4 with colons replace
   assert.equal(
     finalRatioDownloadName(pid, "1:1"),
     "00000000-0000-4000-8000-000000000302-1x1.mp4"
+  );
+  assert.equal(
+    finalRatioDownloadName("62006124-426c-4197-ba2a-47eb81f186a4", "9:16", "Make a 15 second concept reel about overthinking"),
+    "overthinking-9x16.mp4"
+  );
+  assert.equal(
+    finalRatioDownloadName(pid, "16:9", "Relay Launch Reel"),
+    "relay-launch-reel-16x9.mp4"
+  );
+  assert.equal(
+    finalRatioDownloadName(pid, "9:16", "The Fox's Winter Lantern"),
+    "the-foxs-winter-lantern-9x16.mp4"
   );
 });
 

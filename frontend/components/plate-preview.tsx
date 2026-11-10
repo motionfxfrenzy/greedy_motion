@@ -1904,7 +1904,7 @@ const SHAPE: Record<PlateAspect, string> = { "16:9": "16 / 9", "9:16": "9 / 16",
  */
 export function PlateFinal({ project, finalUrl, onBack, onApprove, approved }: { project: VideoProject; finalUrl: string; onBack: () => void; onApprove: () => void | Promise<void>; approved: boolean }) {
   const { primary, ratios, exports } = usePlateRatios(project);
-  const ratioItems = buildPlateFinalRatios(project.id, primary, ratios, finalUrl, exports, (ratio) => plateExportUrl(project.id, ratio, exports[ratio]?.signature));
+  const ratioItems = buildPlateFinalRatios(project.id, primary, ratios, finalUrl, exports, (ratio) => plateExportUrl(project.id, ratio, exports[ratio]?.signature), project.name || project.brief?.productName || project.brief?.text);
   return <FinalView
     title="Your film"
     subtitle="Watch and download every ratio. Each one was drawn for its own frame, not cropped."

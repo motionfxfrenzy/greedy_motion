@@ -471,3 +471,130 @@ test("Issues 16 & 17: frame-film SVG transform preservation on late-reveal eleme
     await browser.close();
   }
 });
+
+test("HyperFrames loop stroke-draw and staggered progressive question scaling across cuts", async () => {
+  const { withFrameFilm } = await import("../src/plan/frame-film.ts");
+  const { parseFrameMotion } = await import("@videosaas/contracts");
+  const { chromium } = await import("../../node_modules/playwright-core/index.mjs");
+
+  const templateHtml = readFileSync(join(repoRoot, "worker/templates/beat-plan/index.html"), "utf8");
+  const runtimeJs = readFileSync(join(repoRoot, "node_modules/hyperframes/dist/hyperframe-runtime.js"), "utf8");
+  const gsapJs = readFileSync(join(repoRoot, "frontend/public/editor/gsap.min.js"), "utf8");
+
+  const s1Svg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">
+    <rect id="m1" width="720" height="1280" fill="#efe9d8"/>
+    <text id="title" x="360" y="130" text-anchor="middle" font-size="38" fill="#1e293b">Start with one word</text>
+    <g id="loop-group" fill="none" stroke="#1d4ed8" stroke-width="4">
+      <ellipse id="loop-1" cx="360" cy="480" rx="140" ry="90"/>
+      <path id="loop-2" d="M 220 480 C 220 360 500 360 500 480 C 500 600 220 600 220 480"/>
+    </g>
+    <text id="q1" x="360" y="490" text-anchor="middle" font-size="28" fill="#1e293b">Wait?</text>
+  </svg>`;
+
+  const s2Svg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">
+    <rect id="m1" width="720" height="1280" fill="#efe9d8"/>
+    <text id="title" x="360" y="130" text-anchor="middle" font-size="38" fill="#1e293b">Four questions branch out</text>
+    <g id="branches" style="fill:none;stroke:#dc2626;stroke-width:4">
+      <path id="b-path-1" d="M 360 540 C 300 440 200 340 220 260 C 240 200 320 240 360 540"/>
+      <path id="b-path-2" d="M 360 540 C 420 440 520 340 500 260 C 480 200 400 240 360 540"/>
+    </g>
+    <text id="q1" x="210" y="250" font-size="24" fill="#1e293b">Wait?</text>
+    <text id="q2" x="480" y="250" font-size="32" fill="#1e293b">What if?</text>
+    <text id="q3" x="180" y="760" font-size="42" fill="#1e293b">Why that?</text>
+    <text id="q4" x="450" y="780" font-size="54" fill="#1e293b">Now what?</text>
+  </svg>`;
+
+  const s2Motion = parseFrameMotion(
+    [
+      { kind: "move", id: "branches", from: { opacity: "0" }, start: 0.4, end: 1.8 },
+      { kind: "move", id: "q1", from: { opacity: "0", transform: "scale(0.5)" }, start: 0.6, end: 1.2 },
+      { kind: "move", id: "q2", from: { opacity: "0", transform: "scale(0.45)" }, start: 1.1, end: 1.8 },
+      { kind: "move", id: "q3", from: { opacity: "0", transform: "scale(0.4)" }, start: 1.7, end: 2.4 },
+      { kind: "move", id: "q4", from: { opacity: "0", transform: "scale(0.35)", "font-size": "24" }, start: 2.3, end: 3.1 }
+    ],
+    s2Svg,
+    4
+  );
+  assert.equal(s2Motion.length, 5, "parseFrameMotion preserves scale and font-size moves");
+
+  const frames = [
+    { start: 0, end: 3, svg: s1Svg, motion: [] },
+    { start: 3, end: 7, svg: s2Svg, motion: s2Motion }
+  ];
+
+  let html = templateHtml.replace(
+    '<script src="vendor/gsap.min.js"></script>',
+    () => `<script>${runtimeJs}</script>\n<script>${gsapJs}</script>`
+  );
+  html = await withFrameFilm(html, frames, "explainer");
+
+  const browser = await chromium.launch({
+    executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    headless: true
+  });
+
+  try {
+    const page = await browser.newPage({ viewport: { width: 720, height: 1280 } });
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
+
+    const check = await page.evaluate(() => {
+      const tl = window.__timelines.main;
+      const l0 = document.querySelectorAll("#frame-film .ff-layer")[0];
+      const l1 = document.querySelectorAll("#frame-film .ff-layer")[1];
+      const loop1 = l0.querySelector("#loop-1");
+      const loop2 = l0.querySelector("#loop-2");
+      const bPath1 = l1.querySelector("#b-path-1");
+      const q1 = l1.querySelector("#q1");
+      const q4 = l1.querySelector("#q4");
+
+      tl.seek(0.4, false);
+      const loop1DashMid = Number(loop1.getAttribute("stroke-dashoffset") || 0);
+      const loop2DashMid = Number(loop2.getAttribute("stroke-dashoffset") || 0);
+
+      tl.seek(2.5, false);
+      const loop1DashEnd = Number(loop1.getAttribute("stroke-dashoffset") || 0);
+      const loop2DashEnd = Number(loop2.getAttribute("stroke-dashoffset") || 0);
+
+      tl.seek(3.8, false);
+      const branchDashMid = Number(bPath1.getAttribute("stroke-dashoffset") || 0);
+      const q1TransformMid = q1.getAttribute("transform") || "";
+
+      tl.seek(4.5, false);
+      const q4OpacityBefore = parseFloat(getComputedStyle(q4).opacity);
+
+      tl.seek(5.6, false);
+      const q4FontMid = Number(q4.getAttribute("font-size") || 0);
+      const q4TransformMid = q4.getAttribute("transform") || "";
+
+      tl.seek(6.5, false);
+      const branchDashEnd = Number(bPath1.getAttribute("stroke-dashoffset") || 0);
+      const q4FontEnd = Number(q4.getAttribute("font-size") || 0);
+
+      return {
+        loop1DashMid,
+        loop2DashMid,
+        loop1DashEnd,
+        loop2DashEnd,
+        branchDashMid,
+        branchDashEnd,
+        q1TransformMid,
+        q4OpacityBefore,
+        q4FontMid,
+        q4TransformMid,
+        q4FontEnd
+      };
+    });
+
+    assert.ok(check.loop1DashMid > 10, `Scene 1 ellipse loop stroke-draws on (mid offset ${check.loop1DashMid})`);
+    assert.ok(check.loop2DashMid > 10, `Scene 1 path loop inside <g fill="none"> stroke-draws on (mid offset ${check.loop2DashMid})`);
+    assert.ok(check.loop1DashEnd < 1 && check.loop2DashEnd < 1, "Scene 1 loops finish drawing by end of beat");
+    assert.ok(check.branchDashMid > 10 && check.branchDashEnd < 1, "Scene 2 branch paths inside move entrance stroke-draw on");
+    assert.ok(check.q1TransformMid.includes("scale("), `Carried text #q1 still runs its explicit scale move (${check.q1TransformMid})`);
+    assert.equal(check.q4OpacityBefore, 0, "Staggered question #q4 is hidden before its word time");
+    assert.ok(check.q4FontMid > 24 && check.q4FontMid < 54, `Question #q4 animates font-size progressively (${check.q4FontMid})`);
+    assert.ok(check.q4TransformMid.includes("scale("), `Question #q4 scales up during its beat (${check.q4TransformMid})`);
+    assert.ok(Math.abs(check.q4FontEnd - 54) < 0.5, "Question #q4 settles at its final 54px size");
+  } finally {
+    await browser.close();
+  }
+});

@@ -287,13 +287,47 @@
     return pairs;
   }
 
+  // Whether an SVG leaf is an unfilled stroke (line, polyline, path, circle or ellipse) that should trace on.
+  function effectiveAttr(el, name) {
+    var cur = el;
+    var svg = el.ownerSVGElement;
+    while (cur && cur !== svg && cur.getAttribute) {
+      var v = cur.getAttribute(name);
+      if (v !== null && v !== "") return v;
+      var st = cur.getAttribute("style");
+      if (st) {
+        var m = new RegExp("(?:^|;)\\s*" + name + "\\s*:\\s*([^;]+)", "i").exec(st);
+        if (m) return m[1].trim();
+      }
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+  function isStroked(el) {
+    if (!el || !el.getTotalLength) return false;
+    var tag = el.tagName;
+    if (tag === "line") return true;
+    if (tag !== "path" && tag !== "polyline" && tag !== "circle" && tag !== "ellipse") return false;
+    var stroke = effectiveAttr(el, "stroke");
+    if (!stroke || stroke === "none" || stroke === "transparent") return false;
+    var fill = effectiveAttr(el, "fill");
+    var fillOp = effectiveAttr(el, "fill-opacity");
+    return !fill || fill === "none" || fill === "transparent" || (fillOp !== null && Number(fillOp) === 0);
+  }
+  function drawStroke(el, t, d, setAt) {
+    var len = 0;
+    try { len = Math.ceil(el.getTotalLength()) || 0; } catch (e) { len = 0; }
+    if (len < 2) return false;
+    if (typeof setAt === "number") tl.set(el, { attr: { "stroke-dasharray": len, "stroke-dashoffset": len } }, setAt);
+    tl.fromTo(el, { attr: { "stroke-dasharray": len, "stroke-dashoffset": len } }, { attr: { "stroke-dashoffset": 0 }, duration: d || F.draw, ease: EXPLAINER ? smooth : "power2.inOut", immediateRender: typeof setAt !== "number" }, t);
+    return true;
+  }
+
   // Draw-on for an element arriving at time t (stagger handled by the caller).
   function enter(el, t) {
     var tag = el.tagName;
-    var stroked = (tag === "line" || tag === "polyline" || tag === "path") && (el.getAttribute("fill") === "none" || tag === "line");
-    if (stroked && el.getTotalLength) {
-      var len = el.getTotalLength() || 1;
-      tl.fromTo(el, { attr: { "stroke-dasharray": len, "stroke-dashoffset": len } }, { attr: { "stroke-dashoffset": 0 }, duration: F.draw, ease: EXPLAINER ? smooth : "power2.inOut", immediateRender: true }, t);
+    if (isStroked(el) && drawStroke(el, t, F.draw)) {
+      return;
     } else if (tag === "text") {
       var infoT = baseInfo(el), baseT = infoT.parsed;
       tweenTransform(el, { x: baseT.x, y: baseT.y + (EXPLAINER ? 10 : 14), rot: baseT.rot, sx: baseT.sx, sy: baseT.sy }, baseT, F.text, F.textEase, t, t);
@@ -395,6 +429,17 @@
         }
         var rawFromTransform = from.transform;
         delete from.transform;
+        var strokedTargets = isFirstForEl && entrance(m) ? leavesOf(el).filter(isStroked) : [];
+        if (strokedTargets.length) {
+          var sGap = strokedTargets.length > 1 ? Math.min(0.12, (span * 0.4) / strokedTargets.length) : 0;
+          var sDur = Math.max(0.25, span - sGap * Math.max(0, strokedTargets.length - 1));
+          strokedTargets.forEach(function (stEl, sIdx) {
+            drawStroke(stEl, at + sIdx * sGap, sDur, t0);
+          });
+          if (strokedTargets.length === leavesOf(el).length && !rawFromTransform && from.opacity === "0") {
+            delete from.opacity;
+          }
+        }
         var to = drawn(el, Object.keys(from));
         Object.keys(to).forEach(function (name) { if (to[name] === null) { delete to[name]; delete from[name]; } });
         var ease = EXPLAINER ? smooth : m.steps ? "steps(" + m.steps + ")" : "power2.inOut";
@@ -538,12 +583,19 @@
     return any ? { pairs: pairs, groups: groups, groupLeavesA: groupLeavesA, groupLeavesB: groupLeavesB } : null;
   }
 
+  function isOpacityOnlyMove(m) {
+    if (m.kind !== "move" || !m.from) return false;
+    var keys = Object.keys(m.from);
+    return keys.length === 1 && keys[0] === "opacity";
+  }
+
   // The older matching (by kind, size and position), for frames drawn before shared ids existed.
   function heuristicCut(prev, frame, t, room) {
-    var pairs = match(prev.all, frame.all);
+    var directedMoveIds = new Set(frame.motion.filter(function (m) { return m.kind === "move" && !isOpacityOnlyMove(m); }).map(function (m) { return m.id; }));
+    var pairs = match(prev.all, frame.all).filter(function (p) { return !isInsideMoving(p[1], frame.svg, directedMoveIds); });
     var carriedEls = pairs.map(function (p) { return p[1]; });
     frame.motion = frame.motion.filter(function (m) {
-      if (m.kind !== "move") return true;
+      if (m.kind !== "move" || !isOpacityOnlyMove(m)) return true;
       var target = byId(frame, m.id);
       return !target || !carriedEls.some(function (el) { return el === target || target.contains(el); });
     });
@@ -589,11 +641,13 @@
     var prev = frames[i - 1];
     var byIdPairs = pairById(prev, frame);
     if (!byIdPairs) return heuristicCut(prev, frame, t, room);
-    var pairs = byIdPairs.pairs, groups = byIdPairs.groups;
-    // What carries over is already on screen: its own "appear" move (or its group's) would hide it.
+    var directedMoveIds = new Set(frame.motion.filter(function (m) { return m.kind === "move" && !isOpacityOnlyMove(m); }).map(function (m) { return m.id; }));
+    var pairs = byIdPairs.pairs.filter(function (p) { return !isInsideMoving(p[1], frame.svg, directedMoveIds); });
+    var groups = byIdPairs.groups.filter(function (g) { return !isInsideMoving(g[1], frame.svg, directedMoveIds); });
+    // What carries over is already on screen: its own "appear"-only move (or its group's) would hide it, while explicit transform/geometry moves still run.
     var carriedEls = pairs.map(function (p) { return p[1]; }).concat(groups.map(function (g) { return g[1]; })).concat(byIdPairs.groupLeavesB || []);
     frame.motion = frame.motion.filter(function (m) {
-      if (m.kind !== "move") return true;
+      if (m.kind !== "move" || !isOpacityOnlyMove(m)) return true;
       var target = byId(frame, m.id);
       return !target || !carriedEls.some(function (el) { return el === target || target.contains(el); });
     });

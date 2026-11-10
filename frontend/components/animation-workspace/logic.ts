@@ -447,9 +447,43 @@ export function finalRatioShape(ratioId: string): string {
   return FINAL_RATIO_SHAPES[ratioId] ?? "16 / 9";
 }
 
-/** Builds the canonical MP4 download filename `<projectId>-<ratio>.mp4` (with `:` replaced by `x`). */
-export function finalRatioDownloadName(projectId: string, ratioId: string): string {
-  return `${projectId}-${ratioId.replace(/:/g, "x")}.mp4`;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PROMPT_PREFIX_RE = /^(?:(?:please\s+)?(?:make|create|build|generate|write|produce|design|render|show|explain)\s+(?:me\s+)?(?:a\s+|an\s+|the\s+)?(?:\d+\s*(?:-|\s)?\s*(?:second|sec|s|minute|min)\s+)?(?:[\w-]+\s+){0,4}?(?:video|reel|film|explainer|animation|short|story|clip|ad|promo)\s+(?:about|on|for|explaining|showing|that\s+explains|of)\s+)/i;
+
+/**
+ * Turns a project name (or brief text) into a clean, human-readable filename stem (e.g. "overthinking" or "relay-launch-reel").
+ * Strips leading prompt boilerplate like "Make a 15 second concept reel about..." when present.
+ */
+export function slugifyProjectDownloadStem(projectName?: string | null, fallbackId?: string | null): string {
+  const raw = typeof projectName === "string" ? projectName.trim() : "";
+  if (raw && !UUID_RE.test(raw) && raw.toLowerCase() !== "untitled video" && raw.toLowerCase() !== "draft product video") {
+    const stripped = raw.replace(PROMPT_PREFIX_RE, "").trim() || raw;
+    const slug = stripped
+      .toLowerCase()
+      .replace(/['’]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60)
+      .replace(/-+$/g, "");
+    if (slug) return slug;
+  }
+  const fb = typeof fallbackId === "string" ? fallbackId.trim() : "";
+  if (fb && !UUID_RE.test(fb)) {
+    const slug = fb
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60)
+      .replace(/-+$/g, "");
+    if (slug) return slug;
+  }
+  return fb || "video";
+}
+
+/** Builds the canonical MP4 download filename `<project-slug>-<ratio>.mp4` (with `:` replaced by `x`). */
+export function finalRatioDownloadName(projectIdOrName: string, ratioId: string, projectName?: string | null): string {
+  const stem = slugifyProjectDownloadStem(projectName ?? projectIdOrName, projectIdOrName);
+  return `${stem}-${ratioId.replace(/:/g, "x")}.mp4`;
 }
 
 /**
@@ -499,7 +533,8 @@ export function buildPlateFinalRatios<R extends string>(
   ratios: readonly R[],
   finalUrl: string,
   exportsMap: Partial<Record<R, { state?: string; progress?: number; error?: string }>>,
-  exportUrlFor: (ratio: R) => string
+  exportUrlFor: (ratio: R) => string,
+  projectName?: string | null
 ): FinalViewRatio[] {
   return ratios.map((ratio) => {
     const exp = exportsMap[ratio];
@@ -517,7 +552,7 @@ export function buildPlateFinalRatios<R extends string>(
       progress: exp?.progress ?? 0,
       url,
       ...(exp?.error ? { error: exp.error } : {}),
-      downloadName: finalRatioDownloadName(projectId, ratio)
+      downloadName: finalRatioDownloadName(projectId, ratio, projectName)
     };
   });
 }
@@ -526,7 +561,8 @@ export function buildPlateFinalRatios<R extends string>(
 export function buildHfFinalRatios(
   projectId: string,
   aspect: string,
-  url: string
+  url: string,
+  projectName?: string | null
 ): FinalViewRatio[] {
   const ratioId = aspect === "9:16" || aspect === "1:1" ? aspect : "16:9";
   return [
@@ -535,7 +571,7 @@ export function buildHfFinalRatios(
       label: ratioId,
       status: "ready",
       url,
-      downloadName: finalRatioDownloadName(projectId, ratioId)
+      downloadName: finalRatioDownloadName(projectId, ratioId, projectName)
     }
   ];
 }

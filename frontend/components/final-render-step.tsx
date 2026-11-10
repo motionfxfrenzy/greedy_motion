@@ -434,7 +434,8 @@ export function FinalRenderStep({
     const ratios = buildHfFinalRatios(
       effectiveProject.id,
       ratioId,
-      outputUrl(job.output.url)
+      outputUrl(job.output.url),
+      effectiveProject.name || effectiveProject.brief?.productName || effectiveProject.brief?.text || job.revision?.title
     );
     const firstReadyFrame = storyboard.items.find((item) => item.src)?.src;
     const poster = effectiveProject.brief?.look?.startsWith("illus-")

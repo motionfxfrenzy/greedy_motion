@@ -43,6 +43,35 @@ export async function uploadDirectory(dir: string, prefix: string): Promise<numb
   return files.length;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PROMPT_PREFIX_RE = /^(?:(?:please\s+)?(?:make|create|build|generate|write|produce|design|render|show|explain)\s+(?:me\s+)?(?:a\s+|an\s+|the\s+)?(?:\d+\s*(?:-|\s)?\s*(?:second|sec|s|minute|min)\s+)?(?:[\w-]+\s+){0,4}?(?:video|reel|film|explainer|animation|short|story|clip|ad|promo)\s+(?:about|on|for|explaining|showing|that\s+explains|of)\s+)/i;
+
+export function slugifyProjectDownloadStem(projectName?: string | null, fallbackId?: string | null): string {
+  const raw = typeof projectName === "string" ? projectName.trim() : "";
+  if (raw && !UUID_RE.test(raw) && raw.toLowerCase() !== "untitled video" && raw.toLowerCase() !== "draft product video") {
+    const stripped = raw.replace(PROMPT_PREFIX_RE, "").trim() || raw;
+    const slug = stripped
+      .toLowerCase()
+      .replace(/['’]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60)
+      .replace(/-+$/g, "");
+    if (slug) return slug;
+  }
+  const fb = typeof fallbackId === "string" ? fallbackId.trim() : "";
+  if (fb && !UUID_RE.test(fb)) {
+    const slug = fb
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60)
+      .replace(/-+$/g, "");
+    if (slug) return slug;
+  }
+  return fb || "video";
+}
+
 /** Sanitizes a requested MP4 download filename into a safe ASCII attachment name. */
 export function safeDownloadFilename(raw: unknown, fallback: string): string {
   const safeFallback = (fallback.replace(/[^\w.\- ]/g, "_").replace(/^\.+/, "") || "video.mp4");

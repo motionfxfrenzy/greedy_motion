@@ -359,7 +359,7 @@ export async function runFinalViewAssertions(origin, port) {
       hfHref?.includes(`/v1/projects/${FIXTURE_HF_PROJECT_ID}/output-16x9.mp4`),
       `Expected HF download href to reference project output, got ${hfHref}`
     );
-    assert.equal(hfDownloadName, `${FIXTURE_HF_PROJECT_ID}-16x9.mp4`);
+    assert.equal(hfDownloadName, "relay-launch-reel-16x9.mp4");
     assert.equal(hfAriaLabel, "Download 16:9");
 
     // Wait for metadata duration > 0
@@ -541,30 +541,30 @@ export async function runFinalViewAssertions(origin, port) {
     assert.ok(Math.abs(f16x9.aspect - 16 / 9) < 0.04, `16:9 aspect mismatch: ${f16x9.aspect}`);
     assert.equal(f16x9.inViewport, true);
     assert.equal(f16x9.dlInTopRight, true);
-    assert.equal(f16x9.dlDownload, `${FIXTURE_PROJECT_ID}-16x9.mp4`);
+    assert.equal(f16x9.dlDownload, "the-foxs-winter-lantern-16x9.mp4");
     assert.equal(f16x9.dlAria, "Download 16:9");
 
     assert.equal(f9x16.ratio, "9:16");
     assert.ok(Math.abs(f9x16.aspect - 9 / 16) < 0.04, `9:16 aspect mismatch: ${f9x16.aspect}`);
     assert.equal(f9x16.inViewport, true);
     assert.equal(f9x16.dlInTopRight, true);
-    assert.equal(f9x16.dlDownload, `${FIXTURE_PROJECT_ID}-9x16.mp4`);
+    assert.equal(f9x16.dlDownload, "the-foxs-winter-lantern-9x16.mp4");
     assert.equal(f9x16.dlAria, "Download 9:16");
 
     assert.equal(f1x1.ratio, "1:1");
     assert.ok(Math.abs(f1x1.aspect - 1) < 0.04, `1:1 aspect mismatch: ${f1x1.aspect}`);
     assert.equal(f1x1.inViewport, true);
     assert.equal(f1x1.dlInTopRight, true);
-    assert.equal(f1x1.dlDownload, `${FIXTURE_PROJECT_ID}-1x1.mp4`);
+    assert.equal(f1x1.dlDownload, "the-foxs-winter-lantern-1x1.mp4");
     assert.equal(f1x1.dlAria, "Download 1:1");
 
     // Verify clicking top-right Download for every ratio (16:9, 9:16, 1:1) triggers a real browser download
     // with the expected filename, valid non-empty MP4 bytes, and no page navigation.
     const urlBeforeDownloads = page.url();
     for (const [ratioId, expectedFilename] of [
-      ["16:9", `${FIXTURE_PROJECT_ID}-16x9.mp4`],
-      ["9:16", `${FIXTURE_PROJECT_ID}-9x16.mp4`],
-      ["1:1", `${FIXTURE_PROJECT_ID}-1x1.mp4`]
+      ["16:9", "the-foxs-winter-lantern-16x9.mp4"],
+      ["9:16", "the-foxs-winter-lantern-9x16.mp4"],
+      ["1:1", "the-foxs-winter-lantern-1x1.mp4"]
     ]) {
       const dlLink = page.locator(`.pf-frame[data-ratio="${ratioId}"] a.pf-download-btn`);
       const hrefVal = await dlLink.getAttribute("href");

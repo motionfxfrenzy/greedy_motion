@@ -55,7 +55,7 @@ export type FrameMotion =
   | { kind: "sweep"; ids: string[]; flash: Record<string, string>; start: number; end: number; stay?: boolean }
   | { kind: "count"; id: string; from: number; start: number; end: number };
 
-const MOTION_ATTRS = new Set(["x", "y", "cx", "cy", "r", "rx", "ry", "width", "height", "x1", "y1", "x2", "y2", "points", "transform", "opacity", "fill", "stroke", "fill-opacity", "stroke-opacity", "stroke-width"]);
+const MOTION_ATTRS = new Set(["x", "y", "cx", "cy", "r", "rx", "ry", "width", "height", "x1", "y1", "x2", "y2", "points", "transform", "opacity", "fill", "stroke", "fill-opacity", "stroke-opacity", "stroke-width", "font-size"]);
 const MOTION_ID = /^[A-Za-z][\w-]{0,40}$/;
 
 /** Motion for a scene, kept only where it is well formed, names elements the SVG really has and fits the scene; at most 8 entries. */

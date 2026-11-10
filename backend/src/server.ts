@@ -60,7 +60,7 @@ import { registerGalleryRoutes } from "./gallery.ts";
 import { registerLibraryRoutes } from "./library.ts";
 import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
-import { presignOutput, safeDownloadFilename } from "./storage.ts";
+import { presignOutput, safeDownloadFilename, slugifyProjectDownloadStem } from "./storage.ts";
 import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, removedVariants, updateBrand, validateBrandInput } from "./brand/store.ts";
 import { allRoutes } from "./models/routes.ts";
 import { genReqId, registerRequestId, upstreamError } from "./http-errors.ts";
@@ -579,7 +579,12 @@ app.get<{ Params: { id: string }; Querystring: { download?: string; filename?: s
   const fnParam = typeof request.query?.filename === "string" ? request.query.filename.trim() : "";
   const wantDownload = Boolean((dlParam && dlParam !== "0" && dlParam !== "false") || fnParam);
   const requestedName = fnParam || (dlParam && dlParam !== "1" && dlParam !== "true" ? dlParam : undefined);
-  const downloadFilename = wantDownload ? safeDownloadFilename(requestedName, `${row?.project_id ?? id}.mp4`) : undefined;
+  let fallbackDownloadName = `${row?.project_id ?? id}.mp4`;
+  if (wantDownload && !requestedName && row?.revision?.title) {
+    const stem = slugifyProjectDownloadStem(row.revision.title, row.project_id ?? id);
+    fallbackDownloadName = `${stem}.mp4`;
+  }
+  const downloadFilename = wantDownload ? safeDownloadFilename(requestedName, fallbackDownloadName) : undefined;
 
   // Object storage: the worker committed an R2 key; hand the player a short-lived signed URL (R2 serves ranges; `filename` sets attachment disposition).
   const key = (row?.output as { key?: unknown } | undefined)?.key;

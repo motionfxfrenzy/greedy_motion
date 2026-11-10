@@ -20,7 +20,7 @@ import { registerRequestId, upstreamError } from "../http-errors.ts";
 import { projectOwner, getProject } from "../projects/store.ts";
 import { PLANS, isAnimationTier } from "../tokens/plan.ts";
 import { InsufficientTokens } from "../tokens/store.ts";
-import { presignKey, safeDownloadFilename, type Bucket } from "../storage.ts";
+import { presignKey, safeDownloadFilename, slugifyProjectDownloadStem, type Bucket } from "../storage.ts";
 import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
 import { desiredVariants, isPlateLook } from "./inputs.ts";
@@ -422,7 +422,14 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     const fnParam = typeof request.query?.filename === "string" ? request.query.filename.trim() : "";
     const wantDownload = Boolean((dlParam && dlParam !== "0" && dlParam !== "false") || fnParam);
     const requestedName = fnParam || (dlParam && dlParam !== "1" && dlParam !== "true" ? dlParam : undefined);
-    const downloadFilename = wantDownload ? safeDownloadFilename(requestedName, `${id}-${aspectSlug(aspect)}.mp4`) : undefined;
+    let fallbackPlateName = `${id}-${aspectSlug(aspect)}.mp4`;
+    if (wantDownload && !requestedName) {
+      const proj = await getProject(id).catch(() => null);
+      if (proj?.name) {
+        fallbackPlateName = `${slugifyProjectDownloadStem(proj.name, id)}-${aspectSlug(aspect)}.mp4`;
+      }
+    }
+    const downloadFilename = wantDownload ? safeDownloadFilename(requestedName, fallbackPlateName) : undefined;
 
     if (config.storageDriver !== "r2" && !options?.presign && /^plates\/[0-9a-f-]{36}\//i.test(row.output_key)) {
       const localFile = join(config.renderOutputDir, row.output_key);
