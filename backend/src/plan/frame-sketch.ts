@@ -202,7 +202,7 @@ function prompt({ beat, index, count, aspect, topic, style, look, notes }: Frame
     `Beat ${index + 1} of ${count}:`,
     `KEY PHRASE: ${beat.keyword}`,
     `VISUAL: ${beat.visual ?? "(none given: show the key phrase with one simple supporting shape)"}`,
-    `ON SCREEN: ${beat.onScreen ?? "-"}`,
+    `ON SCREEN: ${useCuratedThoughtGuide ? "- (print only KEY PHRASE at the top as id=\"title\" and the short labels explicitly named in VISUAL; do NOT draw a separate id=\"subtitle\" banner)" : (beat.onScreen ?? "-")}`,
     `VOICEOVER at this moment: ${beat.line ?? "-"}`,
     "The frame shows what this voiceover line is saying as it is said (if it talks about a million, show the million)."
   ].join("\n");

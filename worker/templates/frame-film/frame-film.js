@@ -218,26 +218,39 @@
     svg.setAttribute("height", "100%");
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     var vb = (svg.getAttribute("viewBox") || "0 0 1280 720").split(/[\s,]+/).map(Number);
-    // Prevent an in-SVG #subtitle or #subtitle-pill from sitting in the middle character zone (Y > 22% of frame height)
-    // or colliding with the live narration subtitle pill at Y=80%. Uses pure SVG viewBox coordinates so it works even before layout.
+    // Prevent an in-SVG #subtitle or #subtitle-pill (or its pill wrapper) from sitting in the middle character zone (Y > 22% of frame height)
+    // or colliding with the live narration subtitle pill at Y=80%.
     (function () {
-      var topSlotY = vb[3] > vb[2] ? 158 : 94;
       var maxHeaderY = vb[3] * 0.22;
       var subPill = svg.querySelector("#subtitle-pill");
       var subText = svg.querySelector("#subtitle");
       if (subPill) {
         var pt = parseTransform(subPill.getAttribute("transform"));
         if (pt.hasTranslate && pt.y > maxHeaderY) {
-          subPill.setAttribute("transform", "translate(" + Math.round(vb[2] / 2) + " " + topSlotY + ")");
+          subPill.parentNode && subPill.parentNode.removeChild(subPill);
         }
-      } else if (subText && subText.tagName === "text") {
+        return;
+      }
+      if (subText && subText.tagName === "text") {
+        var parentG = subText.parentElement && subText.parentElement.tagName === "g" ? subText.parentElement : null;
         var sy = Number(subText.getAttribute("y") || 0);
         var st = parseTransform(subText.getAttribute("transform"));
-        var effectiveY = sy + (st.hasTranslate ? st.y : 0);
+        var gt = parentG ? parseTransform(parentG.getAttribute("transform")) : { hasTranslate: false, y: 0 };
+        var effectiveY = sy + (st.hasTranslate ? st.y : 0) + (gt.hasTranslate ? gt.y : 0);
         if (effectiveY > maxHeaderY) {
-          subText.removeAttribute("transform");
-          subText.setAttribute("x", String(Math.round(vb[2] / 2)));
-          subText.setAttribute("y", String(topSlotY));
+          if (parentG && parentG.children.length <= 2) {
+            parentG.parentNode && parentG.parentNode.removeChild(parentG);
+          } else {
+            var prevSib = subText.previousElementSibling;
+            if (prevSib && prevSib.tagName === "rect") {
+              var ry = Number(prevSib.getAttribute("y") || 0);
+              var rh = Number(prevSib.getAttribute("height") || 0);
+              if (Math.abs((ry + rh / 2) - sy) < 40 && rh < 80) {
+                prevSib.parentNode && prevSib.parentNode.removeChild(prevSib);
+              }
+            }
+            subText.parentNode && subText.parentNode.removeChild(subText);
+          }
         }
       }
     })();
@@ -697,11 +710,11 @@
         leavesOf(g[1]).forEach(function (leaf) { survivingGroupLeavesB.push(leaf); });
       }
     });
-    // Also immediately hide any same-id actor/group in prev that was NOT paired (e.g. because it has a directed move in frame or changed scale between wide/close-up)
-    // so the previous scene's actor never lingers underneath the new scene's actor.
+    // Immediately hide any same-id actor/group or changed text slot (#title, #subtitle, #caption) in prev that was NOT paired
+    // so the previous scene's actor or title never overlaps with the new scene's actor or title at the cut.
     var immediatelyHiddenPrevLeaves = [];
     Array.prototype.forEach.call(frame.svg.querySelectorAll("[id]"), function (b) {
-      if (!named(b) || isSlot(b)) return;
+      if (!named(b)) return;
       var oldEl = byId(prev, b.id);
       if (!oldEl) return;
       var isPairedGroup = groups.some(function (g) { return g[0] === oldEl; });
@@ -767,12 +780,12 @@
     });
     // Everything not carried leaves together; the new scene's own things arrive once it has cleared. With nothing shared
     // this is a clean cut (out, then in); with shared objects they stay put through it. Words never overlap.
-    var out = EXPLAINER ? 0.38 : 0.25;
+    var out = continuity ? (EXPLAINER ? 0.35 : 0.25) : 0.16;
     prev.all.forEach(function (a) { if (!left.has(a)) tl.fromTo(a, { opacity: 1 }, { opacity: 0, duration: out, ease: EXPLAINER ? smooth : "power1.out", immediateRender: false }, t); });
     var fresh = frame.leaves.filter(function (b) { return !paired.has(b); });
-    var arrive = t + (continuity ? 0.12 : 0.22);
-    var gap2 = stagger(fresh.length, Math.min(room, 0.9));
-    fresh.forEach(function (el, k) { enter(el, isSlot(el) ? t + 0.12 : arrive + k * gap2); });
+    var arrive = t + (continuity ? 0.12 : 0.18);
+    var gap2 = stagger(fresh.length, Math.min(room, 0.8));
+    fresh.forEach(function (el, k) { enter(el, isSlot(el) ? t + 0.06 : arrive + k * gap2); });
   });
   // Geometry (getBBox) was measured above while every layer was laid out; now only the timeline shows them.
   frames.forEach(function (frame) { gsap.set(frame.layer, { display: "none" }); });
