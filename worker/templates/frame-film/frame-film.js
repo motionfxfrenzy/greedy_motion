@@ -217,6 +217,38 @@
     svg.setAttribute("width", "100%");
     svg.setAttribute("height", "100%");
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    var vb = (svg.getAttribute("viewBox") || "0 0 1280 720").split(/[\s,]+/).map(Number);
+    // Prevent an in-SVG #subtitle or #subtitle-pill from overlapping characters/badges in the middle of the frame
+    // or colliding with the live narration subtitle pill at Y=80%.
+    (function () {
+      var subTarget = svg.querySelector("#subtitle-pill") || svg.querySelector("#subtitle");
+      var subText = svg.querySelector("#subtitle");
+      if (!subTarget || !subText) return;
+      var actors = svg.querySelectorAll("#character, #coworker, #partner, #honesty-badge");
+      var sr = subTarget.getBoundingClientRect();
+      var svgR = svg.getBoundingClientRect();
+      if (!sr.width || !svgR.height) return;
+      var hitsActor = false;
+      Array.prototype.forEach.call(actors, function (ac) {
+        if (ac.contains(subTarget)) return;
+        var ar = ac.getBoundingClientRect();
+        if (ar.width > 0 && ar.height > 0 && sr.left < ar.right && sr.right > ar.left && sr.top < ar.bottom && sr.bottom > ar.top) {
+          hitsActor = true;
+        }
+      });
+      var relCenterY = ((sr.top + sr.height / 2) - svgR.top) / svgR.height;
+      var inCaptionBand = relCenterY >= 0.74 && relCenterY <= 0.86;
+      if (hitsActor || inCaptionBand) {
+        var topSlotY = vb[3] > vb[2] ? 162 : 94;
+        if (subTarget.id === "subtitle-pill") {
+          subTarget.setAttribute("transform", "translate(" + Math.round(vb[2] / 2) + " " + topSlotY + ")");
+        } else if (subText.tagName === "text") {
+          subText.removeAttribute("transform");
+          subText.setAttribute("x", String(Math.round(vb[2] / 2)));
+          subText.setAttribute("y", String(topSlotY));
+        }
+      }
+    })();
     var leaves = Array.prototype.filter.call(svg.querySelectorAll(LEAVES), function (el) { return !el.closest("defs,clipPath,marker,pattern,mask"); });
     // Pre-cache resting transform and bounding box geometry while all layers are laid out.
     Array.prototype.forEach.call(svg.querySelectorAll("*"), function (el) {
@@ -225,7 +257,6 @@
     // The full-frame background rectangles are the ground, not content: they never animate.
     // Pointers and markers sit on top: a triangle drawn before the range bracket would hide behind it.
     Array.prototype.forEach.call(svg.querySelectorAll(":scope > polygon"), function (el) { svg.appendChild(el); });
-    var vb = (svg.getAttribute("viewBox") || "0 0 1280 720").split(/[\s,]+/).map(Number);
     var isGround = function (el) { return el.tagName === "rect" && Number(el.getAttribute("width")) >= vb[2] * 0.95 && Number(el.getAttribute("height")) >= vb[3] * 0.95; };
     var content = leaves.filter(function (el) { return !isGround(el); });
     // One ground for the whole film (the first frame's): later frames' opaque backgrounds would cover the outgoing scene
@@ -567,13 +598,15 @@
   function pairById(prev, next) {
     var before = {}, any = false;
     Array.prototype.forEach.call(prev.svg.querySelectorAll("[id]"), function (el) { if (named(el)) { before[el.id] = el; any = true; } });
-    var pairs = [], groups = [], used = new Set(), groupLeavesA = [], groupLeavesB = [];
+    var pairs = [], groups = [], used = new Set();
     Array.prototype.forEach.call(next.svg.querySelectorAll("[id]"), function (b) {
       if (!named(b)) return;
       any = true;
       var a = before[b.id];
       if (!a || used.has(a) || a.tagName !== b.tagName) return;
       if (isSlot(b) && a.textContent.trim() !== b.textContent.trim()) return;
+      // Never pair a wide-shot full-body character with a giant close-up head (or vice versa): their areas differ > 3x.
+      if (!isSlot(b) && !alike(a, b)) return;
       used.add(a);
       if (b.tagName === "g") {
         var ia = baseInfo(a), ib = baseInfo(b);
@@ -584,16 +617,15 @@
         if (sameCoordMode) {
           groups.push([a, b, true]);
           lb.forEach(function (leaf) {
-            var match = la.find(function (x) { return !used.has(x) && x.tagName === leaf.tagName; });
+            var match = la.find(function (x) { return !used.has(x) && x.tagName === leaf.tagName && alike(x, leaf); });
             if (match) { used.add(match); pairs.push([match, leaf]); }
           });
         } else if (!wrapsNamed) {
           groups.push([a, b, false]);
-          la.forEach(function (leaf) { used.add(leaf); groupLeavesA.push(leaf); });
-          lb.forEach(function (leaf) { groupLeavesB.push(leaf); });
+          la.forEach(function (leaf) { used.add(leaf); });
         } else if (ia.parsed.hasTranslate && ib.parsed.hasTranslate) {
           lb.forEach(function (leaf) {
-            var match = la.find(function (x) { return !used.has(x) && x.tagName === leaf.tagName; });
+            var match = la.find(function (x) { return !used.has(x) && x.tagName === leaf.tagName && alike(x, leaf); });
             if (match) { used.add(match); pairs.push([match, leaf]); }
           });
         }
@@ -601,7 +633,7 @@
         pairs.push([a, b]);
       }
     });
-    return any ? { pairs: pairs, groups: groups, groupLeavesA: groupLeavesA, groupLeavesB: groupLeavesB } : null;
+    return any ? { pairs: pairs, groups: groups } : null;
   }
 
   function isOpacityOnlyMove(m) {
@@ -665,16 +697,41 @@
     var directedMoveIds = new Set(frame.motion.filter(function (m) { return m.kind === "move" && !isOpacityOnlyMove(m); }).map(function (m) { return m.id; }));
     var pairs = byIdPairs.pairs.filter(function (p) { return !isInsideMoving(p[1], frame.svg, directedMoveIds); });
     var groups = byIdPairs.groups.filter(function (g) { return !isInsideMoving(g[1], frame.svg, directedMoveIds); });
+    // Compute groupLeavesA and groupLeavesB ONLY from groups that survived directedMoveIds filtering!
+    var survivingGroupLeavesA = [], survivingGroupLeavesB = [];
+    groups.forEach(function (g) {
+      if (!g[2]) {
+        leavesOf(g[0]).forEach(function (leaf) { survivingGroupLeavesA.push(leaf); });
+        leavesOf(g[1]).forEach(function (leaf) { survivingGroupLeavesB.push(leaf); });
+      }
+    });
+    // Also immediately hide any same-id actor/group in prev that was NOT paired (e.g. because it has a directed move in frame or changed scale between wide/close-up)
+    // so the previous scene's actor never lingers underneath the new scene's actor.
+    var immediatelyHiddenPrevLeaves = [];
+    Array.prototype.forEach.call(frame.svg.querySelectorAll("[id]"), function (b) {
+      if (!named(b) || isSlot(b)) return;
+      var oldEl = byId(prev, b.id);
+      if (!oldEl) return;
+      var isPairedGroup = groups.some(function (g) { return g[0] === oldEl; });
+      var isPairedLeaf = pairs.some(function (p) { return p[0] === oldEl; });
+      if (!isPairedGroup && !isPairedLeaf) {
+        tl.set(oldEl, { opacity: 0 }, t);
+        leavesOf(oldEl).forEach(function (leaf) {
+          tl.set(leaf, { opacity: 0 }, t);
+          immediatelyHiddenPrevLeaves.push(leaf);
+        });
+      }
+    });
     // What carries over is already on screen: its own "appear"-only move (or its group's) would hide it, while explicit transform/geometry moves still run.
-    var carriedEls = pairs.map(function (p) { return p[1]; }).concat(groups.map(function (g) { return g[1]; })).concat(byIdPairs.groupLeavesB || []);
+    var carriedEls = pairs.map(function (p) { return p[1]; }).concat(groups.map(function (g) { return g[1]; })).concat(survivingGroupLeavesB);
     frame.motion = frame.motion.filter(function (m) {
       if (m.kind !== "move" || !isOpacityOnlyMove(m)) return true;
       var target = byId(frame, m.id);
       return !target || !carriedEls.some(function (el) { return el === target || target.contains(el); });
     });
     play(frame, prev);
-    var paired = new Set(pairs.map(function (p) { return p[1]; }).concat(byIdPairs.groupLeavesB || []));
-    var left = new Set(pairs.map(function (p) { return p[0]; }).concat(byIdPairs.groupLeavesA || []));
+    var paired = new Set(pairs.map(function (p) { return p[1]; }).concat(survivingGroupLeavesB));
+    var left = new Set(pairs.map(function (p) { return p[0]; }).concat(survivingGroupLeavesA).concat(immediatelyHiddenPrevLeaves));
     var continuity = pairs.some(function (p) { return !isSlot(p[1]); }) || groups.length > 0;
     // Shared objects transform into their new state (Manim's Transform); their old copies hand over at the cut.
     groups.forEach(function (g) {

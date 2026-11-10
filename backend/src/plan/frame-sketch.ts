@@ -35,7 +35,7 @@ const SYSTEM = [
   "- Plain SVG elements only: rect, circle, ellipse, line, polyline, polygon, path, text, tspan, g, defs, linearGradient, radialGradient, stop, clipPath, marker. No script, no foreignObject, no image, no external links, no animation, no CSS @import.",
   "- Keep it under 6 KB: simple shapes, no long point lists.",
   "- Ids (the film animates from frame to frame by id, so they must be consistent across all frames):",
-  "  - the key phrase text is id=\"title\"; the on-screen words (when distinct from the title and needed as a short badge) are id=\"subtitle\"; any other line of reading text is id=\"caption\" (a second one \"caption-2\").",
+  "  - the key phrase text is id=\"title\"; the on-screen words (when distinct from the title and needed as a short badge) are id=\"subtitle\" placed directly beneath id=\"title\" near the top of the frame (Y=94 on 1280x720, Y=162 on 720x1280), NEVER floating in the middle of the frame over characters or props; any other line of reading text is id=\"caption\" (a second one \"caption-2\").",
   "  - every object listed in OBJECTS keeps exactly that id in every frame it appears in (e.g. <g id=\"character\">, <g id=\"office-door\">, <g id=\"coffee-cup\">, <g id=\"rewind-dial\">); never reinvent the protagonist's design from scene to scene.",
   "  - anything else gets a short unique id of its own, never one of the OBJECTS ids.",
   "- Draw pointers, arrows and markers last so they sit on top of brackets, boxes and outlines, never hidden behind them.",
