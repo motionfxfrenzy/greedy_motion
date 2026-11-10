@@ -265,7 +265,7 @@
             }
           }
         });
-        // If this is a chapter card (no character/room, only a centered pill rect in Y=30%..65%) and #title is still at the top edge, move #title inside the pill.
+        // If this is a chapter card (no character/room, only 1 text element #title) and #title is at the top edge, place #title inside the chapter pill.
         if (titleEl && !svg.querySelector("#character, #room-backdrop, #living-room") && allTexts.length === 1) {
           var tyNow = Number(titleEl.getAttribute("y") || 0);
           if (tyNow < vb[3] * 0.22) {
@@ -273,15 +273,25 @@
             var pillRect = rects.find(function (r) {
               var rw = Number(r.getAttribute("width") || 0);
               var rh = Number(r.getAttribute("height") || 0);
-              var ry = Number(r.getAttribute("y") || 0);
-              return rw >= 160 && rw <= vb[2] * 0.8 && rh >= 48 && rh <= 180 && ry >= vb[3] * 0.3 && ry <= vb[3] * 0.62;
+              if (rw < 140 || rw > vb[2] * 0.85 || rh < 44 || rh > 200) return false;
+              var infoR = baseInfo(r);
+              return infoR.worldCenter.y >= vb[3] * 0.28 && infoR.worldCenter.y <= vb[3] * 0.68;
             });
             if (pillRect) {
-              var pry = Number(pillRect.getAttribute("y") || 0);
-              var prh = Number(pillRect.getAttribute("height") || 0);
-              titleEl.setAttribute("x", String(Math.round(vb[2] / 2)));
-              titleEl.setAttribute("y", String(Math.round(pry + prh * 0.62)));
-              titleEl.setAttribute("font-size", "34");
+              var pParent = pillRect.parentElement;
+              var pInfo = baseInfo(pillRect);
+              if (pParent && pParent.tagName === "g" && pParent !== svg) {
+                titleEl.removeAttribute("transform");
+                titleEl.setAttribute("x", String(Math.round(pInfo.localCenter.x)));
+                titleEl.setAttribute("y", String(Math.round(pInfo.localCenter.y + 11)));
+                titleEl.setAttribute("font-size", "34");
+                pParent.appendChild(titleEl);
+              } else {
+                titleEl.removeAttribute("transform");
+                titleEl.setAttribute("x", String(Math.round(pInfo.worldCenter.x)));
+                titleEl.setAttribute("y", String(Math.round(pInfo.worldCenter.y + 11)));
+                titleEl.setAttribute("font-size", "34");
+              }
             }
           }
         }
@@ -504,16 +514,16 @@
         if (EXPLAINER && frame.index > 0 && isFirstForEl && entrance(m)) {
           if (el.tagName === "text" || el.querySelector && el.querySelector("text")) at = Math.max(at, t0 + 0.45);
           if (from.opacity === undefined && !existedInPrev) {
-            var fadeStart = nonTitleLeaves.length === 0 && m.id === earliestMoveId && earliestMoveStart > 0.5 ? t0 + 0.15 : at;
+            var fadeStart = nonTitleLeaves.length <= 4 && m.id === earliestMoveId && earliestMoveStart > 0.35 ? t0 + 0.08 : at;
             tl.set(el, { opacity: 0 }, t0);
-            tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: Math.min(0.6, span), ease: smooth, immediateRender: false }, fadeStart);
-          } else if (from.opacity === "0" && (existedInPrev || (nonTitleLeaves.length === 0 && m.id === earliestMoveId && earliestMoveStart > 0.55))) {
+            tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: Math.min(0.45, span), ease: smooth, immediateRender: false }, fadeStart);
+          } else if (from.opacity === "0" && (existedInPrev || (nonTitleLeaves.length <= 4 && m.id === earliestMoveId && earliestMoveStart > 0.35))) {
             if (existedInPrev) {
               delete from.opacity;
             } else {
               delete from.opacity;
               tl.set(el, { opacity: 0 }, t0);
-              tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.45, ease: smooth, immediateRender: false }, t0 + 0.15);
+              tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.35, ease: smooth, immediateRender: false }, t0 + 0.08);
             }
           }
         }
