@@ -114,6 +114,64 @@ export const CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE = `<svg xmlns="http://www.w3
   <!-- <g id="clock-5m"><circle cx="420" cy="285" r="105" fill="#0d131f" stroke="#4ade80" stroke-width="8"/><line x1="420" y1="285" x2="465" y2="205" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/><text x="420" y="325" text-anchor="middle" fill="#ffffff" font-size="34" font-weight="800">5 MIN</text><text x="420" y="445" text-anchor="middle" fill="#4ade80" font-size="24" font-weight="800">THE CHAT</text></g> -->
 </svg>`;
 
+export function curatedThoughtExperimentGuide(aspect: Aspect = "16:9"): string {
+  if (aspect === "9:16") {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">
+  <defs>
+    <radialGradient id="bg-vig" cx="50%" cy="45%" r="65%">
+      <stop offset="0%" stop-color="#141629"/>
+      <stop offset="100%" stop-color="#070810"/>
+    </radialGradient>
+  </defs>
+  <!-- 1. SHARED DARK VIGNETTE GROUND & TOP HEADER (id="title" at Y=110; keep all focal art in Y=220..820 above the Y>880 subtitle safe zone) -->
+  <rect width="720" height="1280" fill="url(#bg-vig)"/>
+  <text id="title" x="360" y="110" text-anchor="middle" fill="#fef3c7" font-family="system-ui, -apple-system, sans-serif" font-size="30" font-weight="800" letter-spacing="2">A FULL CUP OF COFFEE</text>
+
+  <!-- 2. ARCHETYPE A — [A-ROLL: WIDE SCENE] Grounded 9:16 architectural room (windows y=170..500 with city skyline, wall y=500..820, floor y=820..1280) -->
+  <g id="room-backdrop">
+    <rect x="0" y="170" width="720" height="330" fill="#64748b"/>
+    <rect x="55" y="250" width="95" height="250" fill="#475569"/>
+    <rect x="180" y="200" width="120" height="300" fill="#334155"/>
+    <rect x="440" y="220" width="110" height="280" fill="#334155"/>
+    <rect x="580" y="270" width="90" height="230" fill="#475569"/>
+    <line x1="0" y1="500" x2="720" y2="500" stroke="#0f172a" stroke-width="6"/>
+    <line x1="240" y1="170" x2="240" y2="500" stroke="#0f172a" stroke-width="5"/>
+    <line x1="480" y1="170" x2="480" y2="500" stroke="#0f172a" stroke-width="5"/>
+    <rect x="0" y="500" width="720" height="320" fill="#262338"/>
+    <rect x="0" y="820" width="720" height="460" fill="#12101b"/>
+  </g>
+  <g id="office-door">
+    <rect x="380" y="340" width="18" height="480" fill="#181524"/>
+    <rect x="398" y="355" width="210" height="465" fill="#5c432d"/>
+    <circle cx="424" cy="600" r="8" fill="#eab308"/>
+  </g>
+
+  <!-- 3. CANONICAL PROTAGONIST RIG (<g id="character">): pitch-dark circle head #0d0d14, warm rim-light arc #fef3c7, white eyes/brows/mouth, #8b5cf6 hoodie profile, dark legs -->
+  <g id="character" transform="translate(245 820) scale(1.25)">
+    <line x1="-6" y1="-58" x2="-10" y2="0" stroke="#0d0d14" stroke-width="10" stroke-linecap="round"/>
+    <line x1="6" y1="-58" x2="10" y2="0" stroke="#0d0d14" stroke-width="10" stroke-linecap="round"/>
+    <line x1="10" y1="-58" x2="14" y2="0" stroke="#fef3c7" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M -22 -128 Q -32 -122 -24 -110" fill="#6d28d9"/>
+    <path d="M -16 -125 L 14 -125 L 16 -58 L -16 -58 Z" fill="#8b5cf6"/>
+    <line x1="14" y1="-125" x2="16" y2="-58" stroke="#fef3c7" stroke-width="2.5"/>
+    <circle cx="0" cy="-154" r="26" fill="#0d0d14"/>
+    <path d="M 4 -179 A 25 25 0 0 1 4 -129" fill="none" stroke="#fef3c7" stroke-width="3" stroke-linecap="round"/>
+    <path d="M 3 -164 Q 7 -168 11 -164" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M 14 -164 Q 18 -168 22 -164" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="7" cy="-156" r="3.5" fill="#ffffff"/>
+    <circle cx="18" cy="-156" r="3.5" fill="#ffffff"/>
+    <circle cx="13" cy="-144" r="4" fill="none" stroke="#ffffff" stroke-width="2.2"/>
+    <path d="M 4 -112 L 34 -96" stroke="#8b5cf6" stroke-width="12" stroke-linecap="round"/>
+  </g>
+
+  <!-- 4. ARCHETYPE B — [A-ROLL: CLOSE-UP] Reaction shot on dark vignette: giant head cx=360 cy=520 r=135 with rim-light & big eyes/brows/mouth -->
+  <!-- 5. ARCHETYPE C — [B-ROLL: LINE GRAPH] Clean L-axis (x=110..610, y=300..740) + 2 bold curves + 2 labels -->
+  <!-- 6. ARCHETYPE D — [B-ROLL: BAR COMPARISON] Two vertical bars rising from y=760 at x=210 and x=480 with character standing beside bar -->
+</svg>`;
+  }
+  return CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE;
+}
+
 export type FrameRequest = { beat: ScriptBeat; index: number; count: number; aspect: Aspect; topic: string; style: { name: string; code: string } | null; look: string; notes?: ScriptNotes | null };
 
 /** The part every beat shares (style guide, topic, size), cached, then the beat itself. */
@@ -127,7 +185,7 @@ function prompt({ beat, index, count, aspect, topic, style, look, notes }: Frame
   const effectiveStyle = useCuratedThoughtGuide
     ? {
         name: scriptTemplate === "how-does" ? "How-Does Mechanism Explainer" : "What-If Thought Experiment",
-        code: CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE
+        code: curatedThoughtExperimentGuide(aspect)
       }
     : style;
   const shared = [
