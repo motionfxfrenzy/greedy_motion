@@ -230,7 +230,7 @@ export function PlatePreview({
   const [subOpacity, setSubOpacity] = useState<number>(100);
   const [subColor, setSubColor] = useState<string>("");
   const [subBgColor, setSubBgColor] = useState<string>("");
-  const [subPos, setSubPos] = useState<{ x: number; y: number }>({ x: 50, y: 70 });
+  const [subPos, setSubPos] = useState<{ x: number; y: number }>({ x: 50, y: 80 });
   const [scenePositions, setScenePositions] = useState<Record<string, { x: number; y: number }>>({});
   const [voiceOn, setVoiceOn] = useState<boolean>(true);
   const [musicOn, setMusicOn] = useState<boolean>(true);
@@ -1227,9 +1227,9 @@ export function PlatePreview({
     setSubOpacity(100);
     setSubColor("");
     setSubBgColor("");
-    setSubPos({ x: 50, y: 70 });
+    setSubPos({ x: 50, y: 80 });
     setScenePositions({});
-    void savePlateSubtitles(project.id, { size: 100, opacity: 100, color: null, bgColor: null, x: 50, y: 70, scenePositions: null }).catch(() => undefined);
+    void savePlateSubtitles(project.id, { size: 100, opacity: 100, color: null, bgColor: null, x: 50, y: 80, scenePositions: null }).catch(() => undefined);
   };
 
   const subtitleCues = useMemo(() => buildSubtitleCues(subMode, scenes, project.brief?.scriptBeats, starts, durations), [subMode, scenes, project.brief?.scriptBeats, starts, durations]);

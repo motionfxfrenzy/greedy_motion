@@ -544,7 +544,7 @@ export function BrowserAnimationStep({
   const [subOpacity, setSubOpacity] = useState<number>(100);
   const [subColor, setSubColor] = useState<string>("");
   const [subBgColor, setSubBgColor] = useState<string>("");
-  const [subPos, setSubPos] = useState<{ x: number; y: number }>({ x: 50, y: 70 });
+  const [subPos, setSubPos] = useState<{ x: number; y: number }>({ x: 50, y: 80 });
   const [scenePositions, setScenePositions] = useState<Record<string, { x: number; y: number }>>({});
   const subLoaded = useRef(false);
   const subDrag = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
@@ -567,7 +567,7 @@ export function BrowserAnimationStep({
         if (typeof s.subtitles.opacity === "number") setSubOpacity(s.subtitles.opacity);
         setSubColor(s.subtitles.color ?? "");
         setSubBgColor(s.subtitles.bgColor ?? "");
-        setSubPos({ x: s.subtitles.x ?? 50, y: s.subtitles.y ?? 70 });
+        setSubPos({ x: s.subtitles.x ?? 50, y: s.subtitles.y ?? 80 });
         const sp: Record<string, { x: number; y: number }> = {};
         if (s.subtitles.scenePositions) {
           for (const [k, v] of Object.entries(s.subtitles.scenePositions)) {
@@ -1273,7 +1273,7 @@ export function BrowserAnimationStep({
     setSubOpacity(100);
     setSubColor("");
     setSubBgColor("");
-    setSubPos({ x: 50, y: 70 });
+    setSubPos({ x: 50, y: 80 });
     setScenePositions({});
     void savePlateSubtitles(project.id, {
       size: 100,
@@ -1281,7 +1281,7 @@ export function BrowserAnimationStep({
       color: null,
       bgColor: null,
       x: 50,
-      y: 70,
+      y: 80,
       scenePositions: null
     }).catch(() => undefined);
   };

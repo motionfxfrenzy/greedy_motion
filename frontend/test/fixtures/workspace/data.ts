@@ -264,7 +264,7 @@ export function makeOldRubberHose7Status(): PlateStatus {
       color: null,
       bgColor: null,
       x: 50,
-      y: 70,
+      y: 80,
       scenePositions: null,
       voice: true,
       music: true,

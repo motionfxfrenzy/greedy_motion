@@ -82,7 +82,7 @@ test("Issue 18: hfOptionsConfig exposes full subtitle controls (style, size, col
     { start: 0, end: 5, svg: '<svg viewBox="0 0 1080 1920"><rect width="1080" height="1920" fill="#0b0d12"/></svg>', motion: [] }
   ]);
   assert.ok(!filmHtml.includes("bottom: auto !important"), "withFrameFilm must not lock bottom with !important");
-  assert.ok(filmHtml.includes("#captions .cap { top: 70%; bottom: auto; }"), "withFrameFilm keeps 70% as non-!important default");
+  assert.ok(filmHtml.includes("#captions .cap { top: 80%; bottom: auto; }"), "withFrameFilm keeps 80% as non-!important default");
 
   const styledHtml = withSubtitleStyling(filmHtml, customSubtitles);
   assert.ok(styledHtml.includes('id="bp-subtitles"'), "withSubtitleStyling injects bp-subtitles script");

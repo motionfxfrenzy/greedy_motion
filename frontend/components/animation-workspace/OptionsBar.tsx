@@ -163,7 +163,7 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
   const subStyle = subtitles?.style ?? "pill";
   const subSize = subtitles?.size ?? 100;
   const subOpacity = subtitles?.opacity ?? 100;
-  const curScenePos = subtitles?.position ?? { x: 50, y: 70 };
+  const curScenePos = subtitles?.position ?? { x: 50, y: 80 };
   const current = subtitles?.currentSceneIndex ?? 0;
   const effectiveTextColor = subtitles?.effectiveTextColor ?? "#ffffff";
   const effectiveBgColor = subtitles?.effectiveBgColor ?? "#0c0f16";
@@ -575,8 +575,8 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
                             </button>
                             <button
                               type="button"
-                              className={Math.abs(curScenePos.y - 70) <= 6 ? "on" : ""}
-                              onClick={() => subtitles.onChangeScenePosition(current, { x: curScenePos.x, y: 70 })}
+                              className={Math.abs(curScenePos.y - 80) <= 6 ? "on" : ""}
+                              onClick={() => subtitles.onChangeScenePosition(current, { x: curScenePos.x, y: 80 })}
                             >
                               ⬇ Bottom
                             </button>

@@ -235,7 +235,7 @@ const SUBTITLE_STYLING_SCRIPT = `<script id="bp-subtitles">(function(){
       capEl.setAttribute("data-scene-index", String(scIdx));
       var scPos = spMap[String(scIdx)];
       var pxVal = scPos && typeof scPos.x === "number" ? scPos.x : (typeof sub.x === "number" ? sub.x : 50);
-      var pyVal = scPos && typeof scPos.y === "number" ? scPos.y : (typeof sub.y === "number" ? sub.y : 70);
+      var pyVal = scPos && typeof scPos.y === "number" ? scPos.y : (typeof sub.y === "number" ? sub.y : 80);
       capEl.className = "cap cap-" + st;
       capEl.style.left = clamp(pxVal, 8, 92) + "%";
       capEl.style.top = clamp(pyVal, 8, 92) + "%";

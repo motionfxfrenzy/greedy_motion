@@ -307,7 +307,7 @@ export function defaultSubtitlesFor(project?: VideoProject | null): PlateSubtitl
   const primary = primaryAspect(project);
   const briefAspects = (project?.brief?.aspects ?? []).filter(isAspect);
   const aspects: Aspect[] = [primary, ...briefAspects.filter((a) => a !== primary)];
-  return { mode, style, size: 100, opacity: 100, x: 50, y: 70, scenePositions: {}, voice: true, music: true, sfx: true, transitions: false, aspects };
+  return { mode, style, size: 100, opacity: 100, x: 50, y: 80, scenePositions: {}, voice: true, music: true, sfx: true, transitions: false, aspects };
 }
 
 /** Applies an update to the stored settings: unknown or out-of-range values keep the current setting. */
@@ -317,7 +317,7 @@ export function mergeSubtitles(current: PlateSubtitles, input: Record<string, un
   const size = input.size !== undefined ? clampNum(input.size, 50, 160, current.size ?? 100) : (current.size ?? 100);
   const opacity = input.opacity !== undefined ? clampNum(input.opacity, 20, 100, current.opacity ?? 100) : (current.opacity ?? 100);
   const x = input.x !== undefined ? clampNum(input.x, 8, 92, current.x ?? 50) : (current.x ?? 50);
-  const y = input.y !== undefined ? clampNum(input.y, 8, 92, current.y ?? 70) : (current.y ?? 70);
+  const y = input.y !== undefined ? clampNum(input.y, 8, 92, current.y ?? 80) : (current.y ?? 80);
   const color = input.color === null || input.color === "" ? undefined : typeof input.color === "string" && hexColor.test(input.color) ? input.color : current.color;
   const bgColor = input.bgColor === null || input.bgColor === "" ? undefined : typeof input.bgColor === "string" && hexColor.test(input.bgColor) ? input.bgColor : current.bgColor;
   let scenePositions: Record<string, { x: number; y: number }> = { ...(current.scenePositions ?? {}) };

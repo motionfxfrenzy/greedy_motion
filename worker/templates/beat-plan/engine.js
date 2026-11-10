@@ -1367,7 +1367,7 @@
     var spMap = SUB.scenePositions && typeof SUB.scenePositions === "object" ? SUB.scenePositions : {};
     var scPos = spMap[String(sceneIdx)];
     var pxVal = scPos && typeof scPos.x === "number" ? scPos.x : (typeof SUB.x === "number" ? SUB.x : 50);
-    var pyVal = scPos && typeof scPos.y === "number" ? scPos.y : (typeof SUB.y === "number" ? SUB.y : 70);
+    var pyVal = scPos && typeof scPos.y === "number" ? scPos.y : (typeof SUB.y === "number" ? SUB.y : 80);
     var subScale = clamp((+SUB.size || 100) / 100, 0.5, 1.6);
     var subAlpha = clamp((+SUB.opacity || 100) / 100, 0.2, 1);
     var st = SUB.style || "pill";

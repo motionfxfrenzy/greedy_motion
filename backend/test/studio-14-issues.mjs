@@ -189,7 +189,7 @@ test("Observations 3 & 4: Default subtitle mode is 'full' (Subtitles) and defaul
   const def = defaultSubtitlesFor({ brief: { look: "illus-koi", aspect: "9:16" } });
   assert.equal(def.mode, "full", "defaultSubtitlesFor mode is 'full'");
   assert.equal(def.x, 50, "defaultSubtitlesFor x is 50");
-  assert.equal(def.y, 70, "defaultSubtitlesFor y is 70");
+  assert.equal(def.y, 80, "defaultSubtitlesFor y is 80");
 
   // Explicit user choices (none, key-phrases, custom y, per-scene positions) are preserved
   const explicit = defaultSubtitlesFor({ brief: { look: "illus-koi", captions: "none" } });
@@ -200,10 +200,10 @@ test("Observations 3 & 4: Default subtitle mode is 'full' (Subtitles) and defaul
   assert.deepEqual(merged.scenePositions, { "2": { x: 45, y: 64 } });
 
   const workerSrc = readFileSync(join(repoRoot, "worker/src/plates.mjs"), "utf8");
-  assert.match(workerSrc, /sub\.y \?\? 70/, "worker/src/plates.mjs defaults subtitle Y to 70%");
+  assert.match(workerSrc, /sub\.y \?\? 80/, "worker/src/plates.mjs defaults subtitle Y to 80%");
 
   const cssSrc = readFileSync(join(repoRoot, "frontend/app/animation-workspace.css"), "utf8");
-  assert.match(cssSrc, /\.aw-subtitle\{position:absolute;left:50%;top:70%/, "animation-workspace.css defaults .aw-subtitle top to 70%");
+  assert.match(cssSrc, /\.aw-subtitle\{position:absolute;left:50%;top:80%/, "animation-workspace.css defaults .aw-subtitle top to 80%");
   assert.match(cssSrc, /\.aw-bottom-scene-slot\{/, "animation-workspace.css defines dedicated .aw-bottom-scene-slot outside .aw-canvas");
 });
 
@@ -442,10 +442,10 @@ test("Issues 16 & 17: frame-film SVG transform preservation on late-reveal eleme
         { vw, vh }
       );
 
-      // 1. Subtitles visible at Y ≈ 70% during spoken lines in all ratios
+      // 1. Subtitles visible at Y ≈ 80% during spoken lines in all ratios
       for (const snap of [inspect.at2_0, inspect.at9_0, inspect.at14_0]) {
         assert.ok(snap.capText && snap.capText.length > 0, `${aspect}: narration subtitle is visible`);
-        assert.ok(snap.capTopPct >= 68 && snap.capTopPct <= 72, `${aspect}: subtitle sits at Y=70% (got ${snap.capTopPct}%)`);
+        assert.ok(snap.capTopPct >= 78 && snap.capTopPct <= 82, `${aspect}: subtitle sits at Y=80% (got ${snap.capTopPct}%)`);
       }
 
       // 2. Scene 1 #m38 (count badge) stays centered horizontally (~50%) and near lower-middle (~75-80% Y), never at top-left (0,0)
