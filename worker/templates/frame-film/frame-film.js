@@ -218,31 +218,23 @@
     svg.setAttribute("height", "100%");
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     var vb = (svg.getAttribute("viewBox") || "0 0 1280 720").split(/[\s,]+/).map(Number);
-    // Prevent an in-SVG #subtitle or #subtitle-pill from overlapping characters/badges in the middle of the frame
-    // or colliding with the live narration subtitle pill at Y=80%.
+    // Prevent an in-SVG #subtitle or #subtitle-pill from sitting in the middle character zone (Y > 22% of frame height)
+    // or colliding with the live narration subtitle pill at Y=80%. Uses pure SVG viewBox coordinates so it works even before layout.
     (function () {
-      var subTarget = svg.querySelector("#subtitle-pill") || svg.querySelector("#subtitle");
+      var topSlotY = vb[3] > vb[2] ? 158 : 94;
+      var maxHeaderY = vb[3] * 0.22;
+      var subPill = svg.querySelector("#subtitle-pill");
       var subText = svg.querySelector("#subtitle");
-      if (!subTarget || !subText) return;
-      var actors = svg.querySelectorAll("#character, #coworker, #partner, #honesty-badge");
-      var sr = subTarget.getBoundingClientRect();
-      var svgR = svg.getBoundingClientRect();
-      if (!sr.width || !svgR.height) return;
-      var hitsActor = false;
-      Array.prototype.forEach.call(actors, function (ac) {
-        if (ac.contains(subTarget)) return;
-        var ar = ac.getBoundingClientRect();
-        if (ar.width > 0 && ar.height > 0 && sr.left < ar.right && sr.right > ar.left && sr.top < ar.bottom && sr.bottom > ar.top) {
-          hitsActor = true;
+      if (subPill) {
+        var pt = parseTransform(subPill.getAttribute("transform"));
+        if (pt.hasTranslate && pt.y > maxHeaderY) {
+          subPill.setAttribute("transform", "translate(" + Math.round(vb[2] / 2) + " " + topSlotY + ")");
         }
-      });
-      var relCenterY = ((sr.top + sr.height / 2) - svgR.top) / svgR.height;
-      var inCaptionBand = relCenterY >= 0.74 && relCenterY <= 0.86;
-      if (hitsActor || inCaptionBand) {
-        var topSlotY = vb[3] > vb[2] ? 162 : 94;
-        if (subTarget.id === "subtitle-pill") {
-          subTarget.setAttribute("transform", "translate(" + Math.round(vb[2] / 2) + " " + topSlotY + ")");
-        } else if (subText.tagName === "text") {
+      } else if (subText && subText.tagName === "text") {
+        var sy = Number(subText.getAttribute("y") || 0);
+        var st = parseTransform(subText.getAttribute("transform"));
+        var effectiveY = sy + (st.hasTranslate ? st.y : 0);
+        if (effectiveY > maxHeaderY) {
           subText.removeAttribute("transform");
           subText.setAttribute("x", String(Math.round(vb[2] / 2)));
           subText.setAttribute("y", String(topSlotY));
@@ -775,12 +767,12 @@
     });
     // Everything not carried leaves together; the new scene's own things arrive once it has cleared. With nothing shared
     // this is a clean cut (out, then in); with shared objects they stay put through it. Words never overlap.
-    var out = EXPLAINER ? 0.5 : 0.3;
+    var out = EXPLAINER ? 0.38 : 0.25;
     prev.all.forEach(function (a) { if (!left.has(a)) tl.fromTo(a, { opacity: 1 }, { opacity: 0, duration: out, ease: EXPLAINER ? smooth : "power1.out", immediateRender: false }, t); });
     var fresh = frame.leaves.filter(function (b) { return !paired.has(b); });
-    var arrive = t + out + (continuity ? 0.05 : 0.15);
-    var gap2 = stagger(fresh.length, room);
-    fresh.forEach(function (el, k) { enter(el, arrive + k * gap2); });
+    var arrive = t + (continuity ? 0.12 : 0.22);
+    var gap2 = stagger(fresh.length, Math.min(room, 0.9));
+    fresh.forEach(function (el, k) { enter(el, isSlot(el) ? t + 0.12 : arrive + k * gap2); });
   });
   // Geometry (getBBox) was measured above while every layer was laid out; now only the timeline shows them.
   frames.forEach(function (frame) { gsap.set(frame.layer, { display: "none" }); });
