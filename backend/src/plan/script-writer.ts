@@ -94,51 +94,109 @@ const STORY_VOICE = [
   `When you turn the topic into a story, decide who the characters are and at which level each one is (prop, living object or full cartoon character), name them in the cast, and write what they say and do: ${CHARACTER_RULE}`
 ].join("\n");
 
+export type VisualWorldPreset = {
+  id: string;
+  name: string;
+  palette: string;
+  castStyle: string;
+  stagingStyle: string;
+};
+
+export const VISUAL_WORLD_PRESETS: readonly VisualWorldPreset[] = [
+  {
+    id: "cosmic-teal-coral",
+    name: "Cosmic Teal & Coral Studio",
+    palette: "Deep indigo-plum background (#0c1026), warm coral (#fb7185), electric teal (#2dd4bf), and sunlit gold (#fbbf24) accents.",
+    castStyle: "Expressive geometric character in a warm coral jacket (#fb7185) and teal collar, dark head (#0a0d1a) with gold crescent rim-light (#fde68a) and expressive white eyes.",
+    stagingStyle: "Layered parallax foreground props, contoured seats/desks, glowing circular portals, and split-screen panels—never a bare stick figure on a flat line."
+  },
+  {
+    id: "cobalt-amber-cutaway",
+    name: "Engineering Cobalt & Amber Cutaway",
+    palette: "Deep Prussian-cobalt ground (#081426), warm amber (#f59e0b), cyan (#38bdf8), and crisp cream (#fef3c7) highlights.",
+    castStyle: "Character in a sleek amber jacket (#f59e0b) with cyan accent trim, dark silhouette head (#090d16) with cyan rim-light (#67e8f9) and expressive white eyes.",
+    stagingStyle: "X-ray device cutaways, first-person POV hands operating controls, over-the-shoulder depth views, and isometric cross-sections."
+  },
+  {
+    id: "espresso-terracotta-editorial",
+    name: "Warm Espresso & Terracotta Editorial",
+    palette: "Rich dark-espresso vignette (#14100e), terracotta (#ea580c), sage mint (#34d399), and warm cream (#fef3c7) accents.",
+    castStyle: "Stylized character in a sage-emerald jacket (#10b981) with warm cream highlight, dark head (#0d0b0a) with amber rim-light (#fcd34d).",
+    stagingStyle: "Warm café/studio tables in foreground, over-the-shoulder perspectives, split-screen comparisons, and tactile hands-on close-ups."
+  },
+  {
+    id: "emerald-gold-cinema",
+    name: "Deep Forest & Gold Cinema",
+    palette: "Deep pine-slate vignette (#091615), luminous gold (#eab308), sky cyan (#38bdf8), and soft coral (#f87171) accents.",
+    castStyle: "Character in a sunlit gold jacket (#eab308) with dark slate trousers, dark head (#081010) with cream rim-light (#fef3c7).",
+    stagingStyle: "Dramatic spotlight cones, over-the-shoulder window views, POV hands-on shots, and cutaway diagrams."
+  },
+  {
+    id: "midnight-neon-noir",
+    name: "Midnight Neon Noir",
+    palette: "Deep midnight-navy vignette (#090a14), electric violet (#8b5cf6), cyan (#67e8f9), and warm cream (#fef3c7).",
+    castStyle: "Character in an electric violet hoodie (#8b5cf6) with cream front highlight, dark circle head (#0d0d14) with warm rim-light.",
+    stagingStyle: "Cinematic wide dioramas, extreme close-up eye reflections, POV hands, and split-screen contrasts."
+  }
+];
+
+export function selectVisualWorld(text: string): VisualWorldPreset {
+  const s = (text || "").trim();
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const idx = Math.abs(h) % VISUAL_WORLD_PRESETS.length;
+  return VISUAL_WORLD_PRESETS[idx]!;
+}
+
 /**
  * The voice for a "What If" thought-experiment film (e.g. "What if you could rewind time by 10 seconds?"):
  * second-person camera-shot micro-beats, chronological escalation (Day one -> Week one -> Month one -> Year one -> Years later),
- * lived symptoms followed by real psychology/science studies, and strict A-Roll (story room / close-up) vs. B-Roll (graph / clock / counter / metaphor) visual tagging.
+ * lived symptoms followed by real psychology/science studies, and rotating A-Roll camera shots + B-Roll visual inserts.
  */
 export const WHAT_IF_VOICE = [
   "VOICE FOR THIS FILM: a 'What If' thought-experiment story-essay (in the narrative style of top thought-experiment channels). You put the viewer inside the premise in present-tense second person ('You'), escalating from playful wish-fulfillment to the hidden catch, real psychology/science studies, and an emotional human payoff.",
   "",
   "PLAN FIRST. Before the first BEAT, write these three lines for yourself (never shown; the only lines allowed before the script):",
   "IDEA: <the premise, the hidden catch, and the human truth at the end, at most 25 words>",
-  "EXAMPLE: <lock the protagonist's exact visual rig (character: dark silhouette circle head #0d0d14 with warm cream crescent rim-light arc, expressive white eyes/brows/mouth, violet hoodie #8b5cf6 in profile, dark legs), recurring cast/props, and the exact numbers and real psychology/science studies used across the film>",
+  "EXAMPLE: <lock the film's VISUAL WORLD PALETTE and protagonist look from the assigned Visual World Preset (keep that exact jacket colour, rim-light, and palette across every frame of this film), plus the recurring props and the exact numbers and real psychology/science studies used>",
   "OBJECTS: <ids for recurring characters and props across scenes, e.g. character, coworker, rewind-dial, coffee-cup, office-door. Lowercase, hyphens>",
   "",
   "NARRATIVE ARC & FLOW (unpack into camera-shot micro-beats; never compress multiple actions into one summary sentence):",
   "1. Hook & Constraint (1–2 crisp beats): Open with the 'What if...' question, then narrow the exact rule ('By exactly 10 seconds. Not a day, not an hour — anytime you want.'). NEVER spoil the trap or ending in the hook.",
-  "2. 'Day one.' — Visceral Micro-Story (4–6 camera-shot beats): Drop straight into one everyday accident and unpack it one physical action per beat (6–14 words per beat):",
-  "   - Setup action ([A-ROLL: WIDE SCENE]: e.g. carrying a full cup of coffee toward an office door).",
-  "   - The accident ([A-ROLL: WIDE SCENE]: elbow hits the door, coffee flies everywhere).",
-  "   - Gut reaction ([A-ROLL: CLOSE-UP]: without thinking, you wish it never happened).",
-  "   - The power triggers ([A-ROLL: WIDE SCENE]: the world jerks backwards, coffee flies back up into the cup).",
-  "   - Aftermath & first tests ([A-ROLL: CLOSE-UP] staring at your hands -> [B-ROLL: VISUAL METAPHOR] checklist of small tests -> [A-ROLL: WIDE SCENE] rewinding an awkward line to a coworker until she laughs -> [B-ROLL: COUNTER HIT] end-of-day rewind count with 0 mistakes).",
+  "2. 'Day one.' — Visceral Micro-Story (4–6 camera-shot beats): Drop straight into one everyday accident and unpack it one physical action per beat (6–14 words per beat), rotating camera angles:",
+  "   - Setup action ([A-ROLL: OVER-THE-SHOULDER] or [A-ROLL: WIDE SCENE]: e.g. walking with a steaming cup toward a door).",
+  "   - The accident ([A-ROLL: POV HANDS]: close-up on hands/elbow hitting the handle and liquid splashing).",
+  "   - Gut reaction ([A-ROLL: CLOSE-UP]: tight close-up on eyes clenching shut wishing it never happened).",
+  "   - The power triggers ([A-ROLL: CUTAWAY / X-RAY] or [A-ROLL: WIDE SCENE]: time/environment snapping backward).",
+  "   - Aftermath & first tests ([A-ROLL: POV HANDS] staring at your hands -> [B-ROLL: VISUAL METAPHOR] checklist of small tests -> [A-ROLL: SPLIT-SCREEN] contrasting Attempt 1 vs. Attempt 2 -> [B-ROLL: COUNTER HIT] end-of-day tally).",
   "3. 'Week one.' & 'Month one.' — Gaming the System, Edge Limits & The First Catch (4–6 beats):",
-  "   - Show social wins (jokes landing, pub quiz win, acing a job interview, first date on easy mode) and test an edge limit where the rule fails (e.g. casino roulette bets closing before 10 seconds).",
-  "   - Reveal the First Catch: you cannot stand tiny slips anymore, rewinding a 5-minute conversation 20 times until it takes an hour of your own time ([B-ROLL: DUAL CLOCK]).",
+  "   - Show social wins and test an edge limit where the rule fails.",
+  "   - Reveal the First Catch with a [B-ROLL: DUAL CLOCK] comparison.",
   "4. The 3-Part Science / Psychology Sandwiches (weave in 2–4 real studies, 3 beats per study):",
   "   - NEVER lecture out of nowhere. Every scientific or psychological concept MUST follow this 3-beat sandwich:",
-  "     (a) Lived Symptom ([A-ROLL: WIDE SCENE]): show what happens to 'you' first (e.g. rewinding every wrong guitar note so your hands never learn; or friends saying you sound like you're reading a script).",
-  "     (b) The Real Study ([B-ROLL: BAR COMPARISON] / [B-ROLL: VISUAL METAPHOR] / [B-ROLL: LINE GRAPH]): cut to a clean B-Roll visual insert naming the real finding (Maximizers vs. Satisficers; Olympic Bronze vs. Silver medalists on the podium; prediction-error brain learning; the 1960s Pratfall Effect coffee-spill study).",
-  "     (c) Personal Mirror ([A-ROLL: CLOSE-UP] or [A-ROLL: WIDE SCENE]): one punchy sentence tying the study back to you ('It is called the Pratfall effect — and you have erased every single one of yours.').",
+  "     (a) Lived Symptom ([A-ROLL: OVER-THE-SHOULDER] / [A-ROLL: POV HANDS] / [A-ROLL: WIDE SCENE]): show what happens to 'you' first.",
+  "     (b) The Real Study ([B-ROLL: BAR COMPARISON] / [B-ROLL: VISUAL METAPHOR] / [B-ROLL: LINE GRAPH]): cut to a clean B-Roll visual insert naming the real finding.",
+  "     (c) Personal Mirror ([A-ROLL: CLOSE-UP] or [A-ROLL: SPLIT-SCREEN]): one punchy sentence tying the study back to you.",
   "5. 'Year one.' — Emotional Climax & The Boundary Failure (4–6 beats):",
-  "   - Show the cost of deleting authentic moments ([B-ROLL: VISUAL METAPHOR] film strip of deleted memories: 'You are not living your life anymore. You are editing it.').",
-  "   - Hit a real-life mistake outside the rule's boundary (e.g. saying no to your little brother's school play call and regretting it 60 seconds later when a 10-second rewind cannot reach it), backed by Regret Research ([B-ROLL: LINE GRAPH] contrasting short-term action regrets with lifetime inaction regrets).",
+  "   - Show the cost of deleting authentic moments ([B-ROLL: VISUAL METAPHOR]) and hit a real-life mistake outside the rule's boundary, backed by research ([B-ROLL: LINE GRAPH]).",
   "6. 'Years later.' — Resolution, Callback & Audience Question Outro (3–4 beats):",
-  "   - Show up late, watch an honest mistake happen on stage, and choose NOT to use the power ([A-ROLL: WIDE SCENE]).",
-  "   - Callback to the opening object ('You let jokes fall flat. You let coffee spill.').",
-  "   - Close by asking the viewer a direct question ('If you could..., what would you use it for first?').",
+  "   - Choose NOT to use the power during an honest human moment, echo the opening prop, and close by asking the viewer a direct question.",
   "",
-  "MANDATORY A-ROLL vs. B-ROLL VISUAL TAGGING (every beat's VISUAL line MUST start with one of these exact tags):",
-  "- [A-ROLL: WIDE SCENE] : Grounded 2D room or street (window panes with city skyline, wall, floor plane, furniture/stage) + full-body character acting. Use for all lived story actions. NEVER ask for graphs, charts, or flowchart arrows in an A-Roll scene.",
-  "- [A-ROLL: CLOSE-UP] : Dark vignette background + giant centered close-up of character's face (eyes, brows, mouth) for shock, realization, or hesitation.",
-  "- [B-ROLL: LINE GRAPH] : Clean L-shaped X/Y axis on dark grid with 1–2 bold curves (e.g. SHORT TERM vs LIFETIME regret). Use ONLY when the line describes a trend or curve over time.",
-  "- [B-ROLL: BAR COMPARISON] : 2 clean vertical bars comparing two groups (e.g. MAXIMIZER vs SATISFICER) with the character standing beside the bar. Use ONLY when comparing study groups.",
-  "- [B-ROLL: DUAL CLOCK] : 1 or 2 circular stopwatches comparing durations (e.g. 5 MIN THE CHAT vs 1 HOUR YOUR TIME).",
-  "- [B-ROLL: COUNTER HIT] : 1 giant glowing centered number + 2-word label (e.g. 200 REWINDS TODAY).",
-  "- [B-ROLL: VISUAL METAPHOR] : 1 concrete conceptual object: a paper checklist (TEST #1), a 35mm film strip with red X marks over deleted memories, a 1-2-3 Olympic podium with characters, a glowing brain outline, or a horizontal scale line contrasting a tiny 10s circle with multi-year regrets.",
+  "MANDATORY CAMERA VARIETY & A-ROLL / B-ROLL TAGGING (every beat's VISUAL line MUST start with one of these exact tags; NEVER use the same A-Roll camera angle twice in a row, and NEVER draw a plain stick figure standing on a bare line):",
+  "- [A-ROLL: POV HANDS] : First-person / hands-on close-up of expressive hands interacting with a physical object, button, mug, phone, or instrument (no full-body figure or floor line).",
+  "- [A-ROLL: OVER-THE-SHOULDER] : Foreground silhouette of character's head/shoulder on the left or right third looking into a deep background environment (out an airplane window, across a desk, down a city street).",
+  "- [A-ROLL: CUTAWAY / X-RAY] : Outside profile of character/object with a glowing cutaway window revealing the internal mechanism or hidden state simultaneously.",
+  "- [A-ROLL: SPLIT-SCREEN] : Two side-by-side or stacked panels contrasting two simultaneous realities, attempts, or people.",
+  "- [A-ROLL: WIDE SCENE] : Layered environmental diorama (foreground framing props, midground character in a seat/vehicle/room, deep background skyline/nature). Zero charts or flowchart arrows.",
+  "- [A-ROLL: CLOSE-UP] : Dark vignette background + large centered close-up of character's face/eyes for shock, realization, or hesitation.",
+  "- [B-ROLL: LINE GRAPH] : Clean L-shaped X/Y axis on dark grid with 1–2 bold curves. Use ONLY when the line describes a trend or curve over time.",
+  "- [B-ROLL: BAR COMPARISON] : 2 clean vertical bars comparing two groups with the character standing beside the bar. Use ONLY when comparing study groups.",
+  "- [B-ROLL: DUAL CLOCK] : 1 or 2 circular stopwatches comparing durations.",
+  "- [B-ROLL: COUNTER HIT] : 1 giant glowing centered number + 2-word label.",
+  "- [B-ROLL: VISUAL METAPHOR] : 1 concrete conceptual object (checklist, 35mm film strip, 1-2-3 podium, glowing brain, or scale line).",
   "- [CHAPTER CARD] : Centered rounded rectangle pill on dark starry vignette (DAY ONE, WEEK ONE, MONTH ONE, YEAR ONE).",
   "",
   "SENTENCE STYLE:",
@@ -148,7 +206,7 @@ export const WHAT_IF_VOICE = [
 
 /**
  * The voice for a "How Does" mechanism/system explainer ("How does noise cancellation work?", "How does an API request flow?"):
- * starts with a 1-second everyday human trigger, zooms under the hood to follow one concrete unit/packet step by step,
+ * starts with a conversational second-person everyday paradox, zooms under the hood with rotating camera angles and B-roll diagrams,
  * tests the naive failure mode, reveals the core mechanism, and zooms back out.
  */
 export const HOW_DOES_VOICE = [
@@ -156,19 +214,26 @@ export const HOW_DOES_VOICE = [
   "",
   "PLAN FIRST. Before the first BEAT, write these three lines for yourself (never shown; the only lines allowed before the script):",
   "IDEA: <the core mechanism that makes the system work, in one plain sentence of at most 22 words>",
-  "EXAMPLE: <one concrete unit/packet with exact worked values we follow through every stage, plus the recurring protagonist look (character: dark silhouette circle head #0d0d14 with warm cream rim-light, white eyes/brows, violet hoodie #8b5cf6)>",
+  "EXAMPLE: <one concrete unit/packet with exact worked values we follow through every stage, plus the assigned Visual World Preset palette & character look>",
   "OBJECTS: <ids for the recurring system components, packet/unit, and character across scenes, e.g. character, packet, gateway, cache, database. Lowercase, hyphens>",
   "",
   "ARC (unpack each stage into clear camera-shot beats):",
-  "1. The Everyday Trigger + Hidden Scale Hook (1–2 beats): Start with the 1-second human action in [A-ROLL: WIDE SCENE] ('You tap your card at the terminal', 'You press play'), then cut to [B-ROLL: DUAL CLOCK] or [B-ROLL: COUNTER HIT] contrasting how fast it feels with how much work happens in milliseconds.",
-  "2. Zoom Under the Hood & Meet the Unit (1–2 beats): Introduce the single concrete unit from EXAMPLE (one packet, one sound wave, one transaction) and the path it has to cross ([B-ROLL: VISUAL METAPHOR]).",
-  "3. The Naive Way & Why It Breaks (2–3 beats): Show the obvious approach first, then show it failing under scale, latency, or attack ([B-ROLL: VISUAL METAPHOR] or [B-ROLL: LINE GRAPH]) so the viewer feels why a clever mechanism is needed.",
-  "4. The Core Mechanism Step-by-Step (3–6 beats): Walk the concrete unit through the real mechanism one move per beat, cause then effect. Cut to [B-ROLL: BAR COMPARISON] or [B-ROLL: LINE GRAPH] when contrasting before vs. after performance. Show the physical move before naming the technical term.",
-  "5. Edge-Case / Fault Test (1–2 beats): Show what happens when one part fails or drops, and how the mechanism recovers cleanly.",
-  "6. Zoom-Out Payoff (1–2 beats): Return to [A-ROLL: WIDE SCENE] with the character completing the 1-second everyday action, now with the invisible machinery clear.",
+  "1. Conversational Second-Person Hook (Beats 1–3):",
+  "   - Beat 1 ([A-ROLL: OVER-THE-SHOULDER] or [A-ROLL: POV HANDS]): State the everyday situation and tiny action in plain spoken second person: 'If you are sitting next to a roaring engine, you only need to push one button on the headphone to make it quiet.' NEVER start with 'For anyone...' and NEVER repeat the button press in Beat 2.",
+  "   - Beat 2 ([A-ROLL: CUTAWAY / X-RAY] or [A-ROLL: CLOSE-UP]): Break the obvious assumption in one short line ('But thin plastic and foam cannot actually block a jet engine.').",
+  "   - Beat 3 ([B-ROLL: DUAL CLOCK] or [B-ROLL: VISUAL METAPHOR]): State the counter-intuitive premise and millisecond scale ('To make silence, your headphones have to shoot a second sound wave at your ear in milliseconds.').",
+  "2. Zoom Under the Hood & Meet the Unit (1–2 beats): Introduce the single concrete unit from EXAMPLE (one packet, one sound wave, one transaction) and the cutaway path it has to cross ([B-ROLL: VISUAL METAPHOR]).",
+  "3. The Naive Way & Why It Breaks (2–3 beats): Show the obvious approach first, then show it failing ([B-ROLL: VISUAL METAPHOR] / [B-ROLL: BAR COMPARISON]) so the viewer feels why a clever mechanism is needed.",
+  "4. The Core Mechanism Step-by-Step (3–6 beats): Walk the concrete unit through the real mechanism one move per beat, cause then effect. Cut to [B-ROLL: LINE GRAPH], [B-ROLL: BAR COMPARISON], or [A-ROLL: SPLIT-SCREEN] when contrasting waves or states. Always describe the physical move BEFORE naming the technical term.",
+  "5. Edge-Case / Fault Test (1–2 beats): Show what happens when a seal leaks or a part drops ([A-ROLL: CUTAWAY / X-RAY]), and how the feedback loop recovers cleanly ([B-ROLL: LINE GRAPH]).",
+  "6. Zoom-Out Payoff (1–2 beats): Return to [A-ROLL: WIDE SCENE] or [A-ROLL: CLOSE-UP] completing the everyday action in peace, now with the invisible machinery clear.",
   "",
-  "MANDATORY A-ROLL vs. B-ROLL VISUAL TAGGING (every beat's VISUAL line MUST start with one of these exact tags):",
-  "- [A-ROLL: WIDE SCENE] : Grounded human scene (character performing the everyday trigger or seeing the final result). No chart axes.",
+  "MANDATORY CAMERA VARIETY & A-ROLL / B-ROLL TAGGING (every beat's VISUAL line MUST start with one of these exact tags; rotate A-Roll camera shots so no two consecutive A-Roll beats use the same angle):",
+  "- [A-ROLL: POV HANDS] : First-person close-up of a hand pressing a button, tapping a card, or holding a device.",
+  "- [A-ROLL: OVER-THE-SHOULDER] : Foreground head/shoulder silhouette looking at the machine, airplane wing, or screen in depth.",
+  "- [A-ROLL: CUTAWAY / X-RAY] : Profile of the person/device with an X-ray cutaway revealing the inner components working inside.",
+  "- [A-ROLL: SPLIT-SCREEN] : Two panels contrasting outside vs. inside or before vs. after.",
+  "- [A-ROLL: WIDE SCENE] : Grounded human environment diorama (contoured cabin seat, studio desk, street). No chart axes.",
   "- [A-ROLL: CLOSE-UP] : Centered close-up reaction of the character or focal device.",
   "- [B-ROLL: VISUAL METAPHOR] : Under-the-hood system diagram or physical cutaway following the concrete unit across named nodes in OBJECTS.",
   "- [B-ROLL: LINE GRAPH] : Clean L-shaped X/Y axis on dark grid with 1–2 bold curves (latency, load, signal wave).",
@@ -263,7 +328,12 @@ export function lengthRule(brief: ScriptBrief, context?: DirectorContext): strin
 }
 
 function messages({ brief, context, instruction, previous, notes, only }: ScriptRequest) {
-  const base = `${userMessage({ ...brief, scriptBeats: undefined }, context)}\n\n${lengthRule(brief, context)}`;
+  const tpl = scriptTemplateFor({ brief, context });
+  const world = tpl === "what-if" || tpl === "how-does" ? selectVisualWorld(brief.text) : null;
+  const worldBlock = world
+    ? `\nASSIGNED VISUAL WORLD PRESET FOR THIS FILM (use this palette, character wardrobe, and camera variety in EXAMPLE and across all VISUAL lines):\n- World: ${world.name}\n- Palette: ${world.palette}\n- Protagonist look: ${world.castStyle}\n- Camera & staging: ${world.stagingStyle}`
+    : "";
+  const base = `${userMessage({ ...brief, scriptBeats: undefined }, context)}${worldBlock}\n\n${lengthRule(brief, context)}`;
   if (!previous || !instruction) return [{ role: "user" as const, content: base }];
   if (only?.length) {
     // A change to picked beats: only those come back, so nothing else is rewritten (or even re-sent) while it streams.
