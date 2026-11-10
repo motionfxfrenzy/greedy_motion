@@ -1215,11 +1215,11 @@ export function Studio() {
   const plateFallbackNotice = plateLook && plateKnown && plateAnswer?.available === false ? PLATE_FALLBACK_NOTICE : null;
   const [plateTokens, setPlateTokens] = useState<number | null>(null);
   useEffect(() => {
-    if (!isPlateStyle || !project?.id || !project.beatPlan) { setPlateTokens(null); return; }
+    if (!project?.id || !project.beatPlan) { setPlateTokens(null); return; }
     let live = true;
     getRenderQuote(project.id).then((quote) => { if (live) setPlateTokens(quote.tokens); }).catch(() => { if (live) setPlateTokens(null); });
     return () => { live = false; };
-  }, [isPlateStyle, project?.id, project?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPlateStyle, project?.id, project?.updatedAt, step, animating, animVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!project?.id) {
@@ -1567,7 +1567,7 @@ export function Studio() {
         onRender={() => void submit()}
         rendering={busy}
         renderError={error}
-        {...(plateTokens !== null ? { cost: plateTokens } : {})}
+        {...(plateTokens !== null ? { cost: plateTokens } : billingOverview?.steps.renderExport.tokens != null ? { cost: billingOverview.steps.renderExport.tokens } : {})}
       />}
       {step === RENDER && project && !plateChecking && !(isPlateStyle && !animating && project.beatPlan) && <BrowserAnimationStep
         project={{ ...project, brief: { ...(project.brief ?? brief), aspect: brief.aspect, ...(brief.aspects?.length ? { aspects: brief.aspects } : {}), durationSeconds: brief.durationSeconds, ...(brief.durationMode ? { durationMode: brief.durationMode } : {}) } }}
@@ -1583,6 +1583,7 @@ export function Studio() {
         busy={busy}
         motionBlur={motionBlur}
         setMotionBlur={setMotionBlur}
+        {...(plateTokens !== null ? { cost: plateTokens } : billingOverview?.steps.renderExport.tokens != null ? { cost: billingOverview.steps.renderExport.tokens } : {})}
         notice={plateFallbackNotice}
         onRetryAnimate={() => void startBrowserAnimation()}
         onBackToStoryboard={() => setStep(STORYBOARD)}

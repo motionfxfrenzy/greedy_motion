@@ -3,19 +3,24 @@
 import { svgSrc } from "./script-canvas";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HyperframesPlayer } from "@hyperframes/player";
-import { BEAT_LIMITS, beatPlanProblems, renderCostMillitokens, scenesFor, textEffects, transitionTypes, tokensFromMilli, motionBlurCopy, motionBlurProblem, type Beat, type BeatPlan, type VideoProject } from "@videosaas/contracts";
+import { BEAT_LIMITS, beatPlanProblems, renderCostMillitokens, renderExportCostMillitokensV2, scenesFor, textEffects, transitionTypes, tokensFromMilli, motionBlurCopy, motionBlurProblem, type BillingPolicyVersion, type Beat, type BeatPlan, type VideoProject } from "@videosaas/contracts";
 import { useMediaToken } from "../lib/use-media-token";
 import { rewriteFrame, editPlan, ensureMediaToken, generatePlanAudio, getComposition, getMyTokens, PlanProblems, projectScreenshotUrl, startCheckout, type Composition, type PlanAudioStatus, type PlanPatch } from "../lib/api";
 import { MaterialGeneration } from "./material-generation";
 import { plateOptionsConfig, resolveVisibleOptions } from "./animation-workspace/logic";
 
 /** What Submit will charge (the server prices the same length) against the balance, with a way to top up before, not after, a refusal. */
-export function RenderCost({ seconds }: { seconds: number }) {
+export function RenderCost({ seconds, cost: costProp, pricingVersion }: { seconds: number; cost?: number | null; pricingVersion?: BillingPolicyVersion }) {
   const [balance, setBalance] = useState<number | null>(null);
   const [opening, setOpening] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => { getMyTokens().then((summary) => setBalance(summary.remaining)).catch(() => setBalance(null)); }, []);
-  const cost = tokensFromMilli(renderCostMillitokens(seconds));
+  const cost =
+    typeof costProp === "number"
+      ? costProp
+      : pricingVersion === "v2_step_tier"
+        ? tokensFromMilli(renderExportCostMillitokensV2(seconds))
+        : tokensFromMilli(renderCostMillitokens(seconds));
   const short = balance !== null && balance < cost;
   const topUp = async () => {
     setOpening(true);

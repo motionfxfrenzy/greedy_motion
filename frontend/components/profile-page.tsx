@@ -130,6 +130,8 @@ const REASONS: Record<string, string> = {
   plate_draw: "Animated scenes drawn",
   plate_fix: "Scene revision",
   plate_aspect: "Format drawn",
+  element_edit: "Comment edit applied",
+  pro_assist: "Pro editor AI edit",
   material: "Generated scenes",
   revision: "Change to a film",
   grant: "Tokens added",

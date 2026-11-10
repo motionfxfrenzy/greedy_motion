@@ -1295,24 +1295,33 @@ export async function quoteAnimationStep(input: {
       isFrameMotion = true;
       const scenes = filmScenes(projectWithBeats, timing, frames);
       const cached = new Map((input.project.filmMotion ?? []).map((e) => [e.signature, e]));
-      const uncached = scenes.filter((s) => !cached.has(motionSignature(s)));
+      const uncachedVoiceSet = new Set(audioQuote.uncachedVoiceIndices);
+      const uncached = scenes.filter((s) => !cached.has(motionSignature(s)) || uncachedVoiceSet.has(s.index));
       scenesToAuthor = uncached.length;
       scenesReused = scenes.length - uncached.length;
       if (pricingVersion === "v2_step_tier" && scenesToAuthor > 0) {
         perSceneMilli = sched.frameMotionSceneMillitokens[animationTier];
         animCodeMilli = frameMotionCostMillitokensV2(scenesToAuthor, animationTier, now);
       }
-      animSigParts = uncached.map((s) => `${s.index}:${motionSignature(s)}`);
-    } else if (framesQuote.uncachedIndices.length > 0) {
-      // Frames will be sketched during script/animate and then animated via frame-motion
+      animSigParts = uncached.map((s) => `${s.index}:${motionSignature(s)}:${uncachedVoiceSet.has(s.index) ? "vo-new" : "vo-cached"}`);
+    } else if (
+      input.beats.length > 0 &&
+      (framesQuote.uncachedIndices.length > 0 || (input.project.scriptFrames?.length ?? 0) > 0)
+    ) {
+      // Frames are being sketched (or are already sketched while beatPlan is still in flight) and will be animated via frame-motion
       isFrameMotion = true;
-      scenesToAuthor = input.beats.length;
-      scenesReused = 0;
+      const canReuseMotion =
+        framesQuote.uncachedIndices.length === 0 && audioQuote.uncachedVoiceIndices.length === 0;
+      const reusedMotion = canReuseMotion
+        ? Math.min(input.beats.length, input.project.filmMotion?.length ?? 0)
+        : 0;
+      scenesToAuthor = Math.max(0, input.beats.length - reusedMotion);
+      scenesReused = reusedMotion;
       if (pricingVersion === "v2_step_tier" && scenesToAuthor > 0) {
         perSceneMilli = sched.frameMotionSceneMillitokens[animationTier];
         animCodeMilli = frameMotionCostMillitokensV2(scenesToAuthor, animationTier, now);
       }
-      animSigParts = input.beats.map((b, i) => `${i}:${b.keyword}`);
+      animSigParts = input.beats.slice(reusedMotion).map((b, i) => `${reusedMotion + i}:${b.keyword}`);
     }
   }
 
@@ -1678,6 +1687,104 @@ export async function quoteRenderExportStep(input: {
     pricingVersion,
     animationTier
   };
+}
+
+export async function quoteElementEditStep(input: {
+  userId: string;
+  project: VideoProject;
+  modelCommentCount: number;
+  ruleCommentCount?: number;
+  commentFingerprints?: string[];
+  persist?: boolean;
+  now?: Date;
+}): Promise<StepQuoteView> {
+  const now = input.now ?? new Date();
+  const pricingVersion = effectiveBillingPolicyVersion(input.project);
+  const animationTier = resolveProjectAnimationTier(input.project, input.project.brief);
+  const sched = stepTariffsAt(now);
+  const modelCount = Math.max(0, Math.floor(input.modelCommentCount));
+  const ruleCount = Math.max(0, Math.floor(input.ruleCommentCount ?? 0));
+  const milli =
+    pricingVersion === "v2_step_tier" && modelCount > 0
+      ? modelCount * sched.elementEditModelMillitokens
+      : 0;
+  const workFingerprint = sha256Short(
+    "element_edit",
+    pricingVersion,
+    modelCount,
+    input.commentFingerprints ?? [],
+    now.toISOString().slice(0, 16)
+  );
+  return createStepQuote({
+    userId: input.userId,
+    projectId: input.project.id,
+    stage: "element_edit",
+    pricingVersion,
+    animationTier,
+    workFingerprint,
+    milli,
+    unitsTotal: Math.max(1, modelCount),
+    reusedUnits: ruleCount,
+    breakdown: {
+      stage: "element_edit",
+      pricingVersion,
+      animationTier,
+      model: "gemini-4-argon",
+      unitsTotal: modelCount,
+      reusedUnits: ruleCount,
+      setupMilli: 0,
+      perUnitMilli: sched.elementEditModelMillitokens
+    },
+    ...(input.persist !== undefined ? { persist: input.persist } : {}),
+    now
+  });
+}
+
+export async function quoteProAssistStep(input: {
+  userId: string;
+  project: VideoProject;
+  task: string;
+  target: string;
+  stage?: string;
+  persist?: boolean;
+  now?: Date;
+}): Promise<StepQuoteView> {
+  const now = input.now ?? new Date();
+  const pricingVersion = effectiveBillingPolicyVersion(input.project);
+  const animationTier = resolveProjectAnimationTier(input.project, input.project.brief);
+  const sched = stepTariffsAt(now);
+  const milli = pricingVersion === "v2_step_tier" ? sched.proAssistMillitokens : 0;
+  const workFingerprint = sha256Short(
+    "pro_assist",
+    pricingVersion,
+    input.task,
+    input.target,
+    input.stage ?? "design",
+    now.toISOString().slice(0, 16)
+  );
+  return createStepQuote({
+    userId: input.userId,
+    projectId: input.project.id,
+    stage: "pro_assist",
+    pricingVersion,
+    animationTier,
+    workFingerprint,
+    milli,
+    unitsTotal: 1,
+    reusedUnits: 0,
+    breakdown: {
+      stage: "pro_assist",
+      pricingVersion,
+      animationTier,
+      model: "gemini-3.8-flash",
+      unitsTotal: 1,
+      reusedUnits: 0,
+      setupMilli: 0,
+      perUnitMilli: sched.proAssistMillitokens
+    },
+    ...(input.persist !== undefined ? { persist: input.persist } : {}),
+    now
+  });
 }
 
 export type ProjectBillingOverview = {

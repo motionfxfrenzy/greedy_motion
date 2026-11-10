@@ -7,6 +7,7 @@ import {
   hasEditPatchOperations,
   mergeWindowElements,
   renderCostMillitokens,
+  renderExportCostMillitokensV2,
   resolveBeatWindowTimes,
   tokensFromMilli,
   type ActiveElementInfo,
@@ -47,6 +48,7 @@ import {
   ensureMediaToken,
   getComposition,
   getMyTokens,
+  getRenderQuote,
   PlanEditRefusedError,
   projectScreenshotUrl,
   proposePlanCommentEdits,
@@ -442,6 +444,7 @@ export function BrowserAnimationStep({
   motionBlur,
   setMotionBlur,
   durationSeconds,
+  cost: costProp,
   notice,
   onRetryAnimate,
   onBackToStoryboard,
@@ -462,6 +465,7 @@ export function BrowserAnimationStep({
   motionBlur?: boolean;
   setMotionBlur?: (on: boolean) => void;
   durationSeconds?: number;
+  cost?: number;
   notice?: string | null;
   onRetryAnimate: () => void;
   onBackToStoryboard: () => void;
@@ -508,6 +512,7 @@ export function BrowserAnimationStep({
   const [applyingComments, setApplyingComments] = useState(false);
   const [updatingScenes, setUpdatingScenes] = useState<number[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
+  const [serverRenderCost, setServerRenderCost] = useState<number | null>(null);
   const [buyingTokens, setBuyingTokens] = useState(false);
   const [localVersion, setLocalVersion] = useState(0);
   const [localMotionBlur, setLocalMotionBlur] = useState(false);
@@ -559,6 +564,21 @@ export function BrowserAnimationStep({
       live = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (animating || !project.id || !project.beatPlan) return;
+    let live = true;
+    getRenderQuote(project.id)
+      .then((quote) => {
+        if (!live) return;
+        setServerRenderCost(quote.tokens);
+        if (typeof quote.balance === "number") setBalance(quote.balance);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [animating, project.id, project.beatPlan, project.updatedAt, effectiveVersion]);
 
   // If the user jumped to Step 3 (Animation) before beatPlan was built, kick off the parallel animation preparation once
   useEffect(() => {
@@ -704,7 +724,16 @@ export function BrowserAnimationStep({
     [timedComments]
   );
 
-  const cost = tokensFromMilli(renderCostMillitokens(Math.max(5, Math.round(duration))));
+  const fallbackCost =
+    project.billingPolicyVersion === "v2_step_tier"
+      ? tokensFromMilli(renderExportCostMillitokensV2(Math.max(1, Math.ceil(duration))))
+      : tokensFromMilli(renderCostMillitokens(Math.max(1, Math.ceil(duration))));
+  const cost =
+    typeof costProp === "number"
+      ? costProp
+      : serverRenderCost !== null
+        ? serverRenderCost
+        : fallbackCost;
   const shortTokens = balance !== null && balance < cost;
 
   const addComment = () => {

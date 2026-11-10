@@ -131,6 +131,18 @@ export async function refundSpend(userId: string, event: string): Promise<void> 
      on conflict (user_id, ref) where ref is not null do nothing`,
     [userId, `${event}|%`]
   );
+  // Keep app.generation_reservations synchronized whenever a spend event is refunded directly (e.g. failed render jobs).
+  await query(
+    `update app.generation_reservations
+        set status = 'refunded',
+            settled_milli = 0,
+            refunded_milli = reserved_milli,
+            updated_at = now()
+      where user_id = $1
+        and spend_event = $2
+        and status <> 'refunded'`,
+    [userId, event]
+  ).catch(() => undefined);
 }
 
 /**

@@ -16,6 +16,7 @@ import {
   assertAnimationTierEntitled,
   effectiveBillingPolicyVersion,
   quoteAnimationStep,
+  quoteElementEditStep,
   quoteFrameSketchStep,
   quotePlateDrawStep,
   quoteScriptStep,
@@ -252,6 +253,7 @@ export async function reconcileInterruptedPlanning(
     })) ?? project
   );
 }
+type SceneInsertWriter = typeof writeInsertedScene;
 let sceneInsertWriterOverride: SceneInsertWriter | null = null;
 export function setSceneInsertWriterForTest(writer: SceneInsertWriter | null) {
   sceneInsertWriterOverride = writer;
@@ -891,7 +893,6 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const bytes = await readMedia(join(visualDir(id), file));
     return bytes && digest(bytes) === asset.sha256 ? sendMedia(request, reply, bytes, file.endsWith(".mp4") ? "video/mp4" : "image/png") : reply.code(404).send(notFound);
   });
-type SceneInsertWriter = typeof writeInsertedScene;
   const STALE_MS = 4 * 60_000;
   const stale = (planning: { startedAt: string } | undefined) => !planning || Date.now() - Date.parse(planning.startedAt) > STALE_MS;
 
@@ -2634,6 +2635,7 @@ type SceneInsertWriter = typeof writeInsertedScene;
     }
 
     const userId = callerId(request);
+    let elementEditReservationId: string | null = null;
     try {
       const proposed = await proposeHyperFramesCommentEdits(
         project,
@@ -2642,16 +2644,53 @@ type SceneInsertWriter = typeof writeInsertedScene;
           measured: body.measured
         },
         {
-          admitBatch: async () =>
-            stepBillingOnForProject(project)
-              ? null
-              : meteringOn()
-                ? admitPreview(userId, project.id, await tierFor(userId))
-                : null
+          admitBatch: async ({ modelCount, ruleCount, fingerprints }) => {
+            if (stepBillingOnForProject(project)) {
+              const quote = await quoteElementEditStep({
+                userId,
+                project,
+                modelCommentCount: modelCount,
+                ruleCommentCount: ruleCount,
+                commentFingerprints: fingerprints,
+                persist: false
+              });
+              const reservation = await reserveStepTokens({
+                userId,
+                projectId: project.id,
+                quote,
+                ledgerReason: "element_edit"
+              });
+              if (reservation.reservedMilli > 0) {
+                elementEditReservationId = reservation.id;
+              }
+              return null;
+            }
+            return meteringOn() ? admitPreview(userId, project.id, await tierFor(userId)) : null;
+          },
+          finishBatch: async (deliveredModelCount) => {
+            if (elementEditReservationId) {
+              const resId = elementEditReservationId;
+              elementEditReservationId = null;
+              await settlePartialStepReservation(resId, deliveredModelCount, "element-edit-done");
+            }
+          }
         }
       );
       return proposed;
     } catch (error) {
+      if (elementEditReservationId) {
+        await releaseStepReservation(elementEditReservationId).catch(() => undefined);
+      }
+      if (error instanceof InsufficientTokens) {
+        return reply.code(402).send({
+          error: {
+            code: "insufficient_tokens",
+            message: `Applying this comment needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+            needed: error.needed,
+            remaining: error.remaining
+          }
+        });
+      }
       if (error instanceof InvalidSnapshotsError) {
         return reply.code(400).send({
           error: { code: error.code, message: error.message }

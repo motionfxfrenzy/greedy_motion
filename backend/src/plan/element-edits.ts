@@ -516,7 +516,8 @@ export async function proposeHyperFramesCommentEdits(
     translator?: CommentPatchTranslator;
     modelTranslator?: CommentPatchTranslator;
     modelOptions?: ModelTranslatorOptions;
-    admitBatch?: () => Promise<PreviewRefusal | null>;
+    admitBatch?: (info: { modelCount: number; ruleCount: number; fingerprints: string[] }) => Promise<PreviewRefusal | null>;
+    finishBatch?: (deliveredModelCount: number) => Promise<void>;
   }
 ): Promise<ProposeEditResult> {
   if (!project.beatPlan) throw new Error("Generate the plan first.");
@@ -670,7 +671,13 @@ export async function proposeHyperFramesCommentEdits(
 
   // Pass 2: If at least one comment needs the model translator, admit once for the batch, then run the model.
   if (pendingModelItems.length > 0) {
-    const refusal = options?.admitBatch ? await options.admitBatch() : null;
+    const ruleCount = Math.max(0, input.comments.length - pendingModelItems.length);
+    const fingerprints = pendingModelItems.map(
+      (item) => `${item.id}:${item.translateInput.scene}:${item.translateInput.atSeconds}:${item.translateInput.comment}`
+    );
+    const refusal = options?.admitBatch
+      ? await options.admitBatch({ modelCount: pendingModelItems.length, ruleCount, fingerprints })
+      : null;
     if (refusal) {
       for (const item of pendingModelItems) {
         candidates[item.index] = {
@@ -680,21 +687,29 @@ export async function proposeHyperFramesCommentEdits(
         };
       }
     } else {
-      for (const item of pendingModelItems) {
-        try {
-          const translated = await translateCommentModelOnly(item.translateInput, options);
-          candidates[item.index] = {
-            id: item.id,
-            patch: translated.patch,
-            ...(translated.fallbackRewrite ? { fallbackRewrite: true } : {}),
-            source: translated.source
-          };
-        } catch (err) {
-          if (err instanceof EditRefusedError) {
-            candidates[item.index] = { id: item.id, refused: err.message };
-          } else {
-            throw err;
+      let deliveredModelCount = 0;
+      try {
+        for (const item of pendingModelItems) {
+          try {
+            const translated = await translateCommentModelOnly(item.translateInput, options);
+            candidates[item.index] = {
+              id: item.id,
+              patch: translated.patch,
+              ...(translated.fallbackRewrite ? { fallbackRewrite: true } : {}),
+              source: translated.source
+            };
+            deliveredModelCount += 1;
+          } catch (err) {
+            if (err instanceof EditRefusedError) {
+              candidates[item.index] = { id: item.id, refused: err.message };
+            } else {
+              throw err;
+            }
           }
+        }
+      } finally {
+        if (options?.finishBatch) {
+          await options.finishBatch(deliveredModelCount).catch(() => undefined);
         }
       }
     }

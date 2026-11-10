@@ -24,8 +24,10 @@ const {
   canUseAnimationTier,
   grossTokenPriceUsd,
   allocatedOrderFeePerTokenUsd,
+  netTokenRevenueUsd,
   costBudgetPerTokenUsd,
   contributionMarginForCost,
+  millitokensForVariableCost,
   plateAnimationCostMillitokensV2,
   frameMotionCostMillitokensV2,
   renderExportCostMillitokensV2,
@@ -142,10 +144,27 @@ for (const paidTier of ["starter", "pro", "business"]) {
   assert.equal(canUseAnimationTier(paidTier, "premium"), true);
 }
 
-// Exact unrounded Studio Annual token economics at the 30% contribution margin floor after 7% + $0.50 fee
+// Exact unrounded token economics across all monthly, annual, and topup plans after 7% + $0.50 fee
+assert.equal(grossTokenPriceUsd("starter", "month"), 19 / 200);
+assert.equal(grossTokenPriceUsd("starter", "year"), 190 / 2400);
+assert.equal(grossTokenPriceUsd("pro", "month"), 49 / 550);
+assert.equal(grossTokenPriceUsd("pro", "year"), 490 / 6600);
+assert.equal(grossTokenPriceUsd("business", "month"), 99 / 1200);
 assert.equal(grossTokenPriceUsd("business", "year"), 990 / 14400);
+assert.equal(grossTokenPriceUsd("topup", "month"), 12 / 100);
+
+assert.ok(Math.abs(allocatedOrderFeePerTokenUsd("starter", "month") - 1.83 / 200) < 1e-12);
+assert.ok(Math.abs(allocatedOrderFeePerTokenUsd("starter", "year") - 13.8 / 2400) < 1e-12);
+assert.ok(Math.abs(allocatedOrderFeePerTokenUsd("pro", "month") - 3.93 / 550) < 1e-12);
+assert.ok(Math.abs(allocatedOrderFeePerTokenUsd("pro", "year") - 34.8 / 6600) < 1e-12);
+assert.ok(Math.abs(allocatedOrderFeePerTokenUsd("business", "month") - 7.43 / 1200) < 1e-12);
 assert.ok(Math.abs(allocatedOrderFeePerTokenUsd("business", "year") - 69.8 / 14400) < 1e-12);
-assert.ok(Math.abs(costBudgetPerTokenUsd(0.3, "business", "year") - 0.04327777777777778) < 1e-12);
+assert.ok(Math.abs(allocatedOrderFeePerTokenUsd("topup", "month") - 1.34 / 100) < 1e-12);
+
+assert.ok(Math.abs(netTokenRevenueUsd("business", "year") - 920.2 / 14400) < 1e-12);
+assert.ok(Math.abs(costBudgetPerTokenUsd(0.3, "business", "year") - 623.2 / 14400) < 1e-12);
+assert.ok(Math.abs(1 / costBudgetPerTokenUsd(0.3, "business", "year") - 14400 / 623.2) < 1e-9);
+assert.equal(millitokensForVariableCost(0.0288), 700);
 
 // Verify 2026 step tariff schedule and 30% contribution margin on every measured/modeled step at Studio Annual floor
 assert.equal(STEP_TARIFFS_V2_2026.scriptWriteMillitokens, 700);
@@ -161,6 +180,8 @@ assert.deepEqual(STEP_TARIFFS_V2_2026.frameMotionSceneMillitokens, { standard: 2
 assert.equal(STEP_TARIFFS_V2_2026.materialMarkupV2, 2.43);
 assert.equal(STEP_TARIFFS_V2_2026.renderExportStartMillitokens, 600);
 assert.equal(STEP_TARIFFS_V2_2026.renderExportPerSecondMillitokens, 30);
+assert.equal(STEP_TARIFFS_V2_2026.elementEditModelMillitokens, 300);
+assert.equal(STEP_TARIFFS_V2_2026.proAssistMillitokens, 500);
 
 // Cold 1-scene Premium Opus job must cover the $0.3455664 cold-write delta + $0.41914 warm scene cost = $0.7647 at >=30% margin
 const oneScenePremiumTokens = plateAnimationCostMillitokensV2(1, "premium", new Date("2026-11-09T00:00:00Z")) / 1000;
@@ -169,6 +190,63 @@ assert.ok(
   contributionMarginForCost(oneScenePremiumTokens, 0.3455664 + 0.41914, "business", "year") >= 0.3,
   "1 cold Premium scene maintains >=30% contribution margin on Studio Annual"
 );
+
+// 9-scene 66s whole-film estimates across all 4 engine/tier combinations (no whole-token rounding)
+const hfStd9 = estimateWholeFilmQuoteV2({
+  scenes: 9,
+  durationSeconds: 66,
+  voicedScenes: 9,
+  music: true,
+  isPlateStyle: false,
+  isFrameMotionStyle: true,
+  tier: "standard",
+  now: new Date("2026-11-10T00:00:00Z")
+});
+assert.equal(hfStd9.renderExportTokens, 2.58);
+assert.equal(hfStd9.totalTokens, 11.58);
+assert.equal(hfStd9.totalMillitokens, 11580);
+
+const hfPrem9 = estimateWholeFilmQuoteV2({
+  scenes: 9,
+  durationSeconds: 66,
+  voicedScenes: 9,
+  music: true,
+  isPlateStyle: false,
+  isFrameMotionStyle: true,
+  tier: "premium",
+  now: new Date("2026-11-10T00:00:00Z")
+});
+assert.equal(hfPrem9.animationTotalTokens, 7.2);
+assert.equal(hfPrem9.totalTokens, 16.98);
+assert.equal(hfPrem9.totalMillitokens, 16980);
+
+const plateStd9 = estimateWholeFilmQuoteV2({
+  scenes: 9,
+  durationSeconds: 66,
+  voicedScenes: 9,
+  music: true,
+  isPlateStyle: true,
+  tier: "standard",
+  now: new Date("2026-11-10T00:00:00Z")
+});
+assert.equal(plateStd9.animationTotalTokens, 20.7);
+assert.equal(plateStd9.totalTokens, 30.48);
+assert.equal(plateStd9.totalMillitokens, 30480);
+
+const platePrem9 = estimateWholeFilmQuoteV2({
+  scenes: 9,
+  durationSeconds: 66,
+  voicedScenes: 9,
+  music: true,
+  isPlateStyle: true,
+  tier: "premium",
+  now: new Date("2026-11-10T00:00:00Z")
+});
+assert.equal(platePrem9.animationSetupTokens, 8);
+assert.equal(platePrem9.animationSceneTokens, 87.3);
+assert.equal(platePrem9.animationTotalTokens, 95.3);
+assert.equal(platePrem9.totalTokens, 105.08);
+assert.equal(platePrem9.totalMillitokens, 105080);
 
 // 6-scene 30s plate film estimates (2026 schedule)
 const std6 = estimateWholeFilmQuoteV2({

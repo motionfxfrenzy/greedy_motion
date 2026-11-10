@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
-import { ANIMATION_TIER_SPECS, DEFAULT_ANIMATION_TIER, formatDurationSeconds, PLANS, PAID_TIERS, PREMIUM_LOCKED_COPY, PREVIEW_ALLOWANCE, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, remapIndicesOnInsert, remapIndicesOnRemove, type AnimationTier, type BillingInterval, renderCostMillitokens, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
+import { ANIMATION_TIER_SPECS, DEFAULT_ANIMATION_TIER, formatDurationSeconds, PLANS, PAID_TIERS, PREMIUM_LOCKED_COPY, PREVIEW_ALLOWANCE, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, remapIndicesOnInsert, remapIndicesOnRemove, type AnimationTier, type BillingInterval, type BillingPolicyVersion, renderCostMillitokens, renderExportCostMillitokensV2, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
 import Link from "next/link";
 import { getMyTokens, startCheckout, type LimitError, type ScriptFlag } from "../lib/api";
 
@@ -236,11 +236,16 @@ export function PlanLimitModal({ limit, onClose, onBack }: { limit: LimitError; 
 }
 
 /** Render, or (when the balance does not cover the film) Add tokens, which opens the purchase modal. */
-function RenderAction({ seconds, rendering, label, disabled, onRender }: { seconds: number; rendering: boolean; label: string; disabled: boolean; onRender: () => void }) {
+function RenderAction({ seconds, cost: costProp, pricingVersion, rendering, label, disabled, onRender }: { seconds: number; cost?: number | null; pricingVersion?: BillingPolicyVersion; rendering: boolean; label: string; disabled: boolean; onRender: () => void }) {
   const [balance, setBalance] = useState<number | null>(null);
   const [buying, setBuying] = useState(false);
   useEffect(() => { getMyTokens().then((summary) => setBalance(summary.remaining)).catch(() => setBalance(null)); }, []);
-  const cost = tokensFromMilli(renderCostMillitokens(seconds));
+  const cost =
+    typeof costProp === "number"
+      ? costProp
+      : pricingVersion === "v2_step_tier"
+        ? tokensFromMilli(renderExportCostMillitokensV2(seconds))
+        : tokensFromMilli(renderCostMillitokens(seconds));
   const short = balance !== null && balance < cost && !rendering;
   return <div className="sc-render">
     {short

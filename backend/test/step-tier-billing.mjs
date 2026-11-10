@@ -16,7 +16,8 @@ import { assertThrowawayDb } from "./support/throwaway-db.mjs";
 process.env.APP_ENV ??= "local";
 assertThrowawayDb();
 import { migrate, pool, query } from "../src/db/database.ts";
-import { grantTokens, refundPartialSpend, spendTokens, tokenSummary } from "../src/tokens/store.ts";
+import { grantTokens, refundPartialSpend, refundSpend, spendTokens, tokenSummary } from "../src/tokens/store.ts";
+import { scriptFrameKey } from "@videosaas/contracts";
 import {
   PremiumRequiresSubscriptionError,
   QuoteStaleError,
@@ -26,6 +27,9 @@ import {
   createStepQuote,
   effectiveBillingPolicyVersion,
   projectPaidStepMillitokens,
+  quoteAnimationStep,
+  quoteElementEditStep,
+  quoteProAssistStep,
   recordVariantReservationOutcome,
   releaseStepReservation,
   reserveStepTokens,
@@ -342,11 +346,126 @@ await migrate();
     assert.equal(paidOverview.canUsePremium, true);
     assert.equal(paidOverview.animationTier, "premium");
     assert.equal(paidOverview.tiers.premium.available, true);
+
+    // 5. Non-plate frame-film quote when all scriptFrames are already sketched while beatPlan is still in flight
+    const nineBrief = {
+      scriptMode: "problem",
+      text: "create a clear idea how does the HTTP request works and how it take the data securely",
+      durationSeconds: 35,
+      durationMode: "script",
+      aspect: "9:16",
+      motionProfile: "smooth",
+      pace: "fast",
+      audio: { mode: "both", voice: "Kore" },
+      captions: "full",
+      template: null,
+      theme: "blue-professional",
+      look: "clean"
+    };
+    const nineBeats = Array.from({ length: 9 }, (_, i) => ({
+      id: `b${i + 1}`,
+      keyword: `Stop ${i + 1}`,
+      visual: `Diagram ${i + 1}`,
+      onScreen: `Hop ${i + 1}`,
+      line: `Hop ${i + 1} across the network.`
+    }));
+    const sketchedFrames = nineBeats.map((beat) => ({
+      key: scriptFrameKey(beat, nineBrief),
+      svg: `<svg viewBox="0 0 1080 1920"><rect width="1080" height="1920" fill="#0b0d12"/></svg>`
+    }));
+    const projSketchedNoBeatPlan = {
+      ...pPaid,
+      billingPolicyVersion: "v2_step_tier",
+      brief: { ...nineBrief, scriptBeats: nineBeats },
+      scriptFrames: sketchedFrames,
+      beatPlan: undefined,
+      filmMotion: undefined
+    };
+    const animQuoteWhilePlanInFlight = await quoteAnimationStep({
+      userId: paidOwner,
+      project: projSketchedNoBeatPlan,
+      brief: nineBrief,
+      beats: nineBeats,
+      tier: "standard",
+      persist: false
+    });
+    assert.equal(animQuoteWhilePlanInFlight.framesQuote.milli, 0, "All 9 frames are cached -> 0 frame millitokens");
+    assert.equal(animQuoteWhilePlanInFlight.scenesToAuthor, 9, "All 9 frame-motion scenes still need authoring even before beatPlan saves");
+    assert.equal(animQuoteWhilePlanInFlight.animationCodeQuote.milli, 1800, "9 frame-motion scenes * 200 milli = 1800 milli (1.8t)");
+
+    // 6. Element-edit (0 for rule-based, 0.3t per model comment) and Pro Assist (0.5t) quotes
+    const ruleOnlyEditQuote = await quoteElementEditStep({
+      userId: paidOwner,
+      project: projSketchedNoBeatPlan,
+      modelCommentCount: 0,
+      ruleCommentCount: 3,
+      persist: false
+    });
+    assert.equal(ruleOnlyEditQuote.milli, 0, "Rule-based element edits cost 0 tokens");
+    const modelEditQuote = await quoteElementEditStep({
+      userId: paidOwner,
+      project: projSketchedNoBeatPlan,
+      modelCommentCount: 2,
+      ruleCommentCount: 1,
+      persist: false
+    });
+    assert.equal(modelEditQuote.milli, 600, "2 model-translated comments cost 2 * 300 = 600 milli (0.6t)");
+
+    const proAssistQuote = await quoteProAssistStep({
+      userId: paidOwner,
+      project: projSketchedNoBeatPlan,
+      task: "Tighten headline spacing",
+      target: "#headline",
+      persist: false
+    });
+    assert.equal(proAssistQuote.milli, 500, "Pro assist costs 500 milli (0.5t)");
+
+    // 7. Concurrent reservation race deduplication & refundSpend reservation status synchronization
+    await grantTokens(paidOwner, 50, "concurrent test", "test", `conc:${paidOwner}`, "plan");
+    const raceQuote = await createStepQuote({
+      userId: paidOwner,
+      projectId: pPaid.id,
+      stage: "render_export",
+      pricingVersion: "v2_step_tier",
+      animationTier: "standard",
+      workFingerprint: "fp-concurrent-render-67s",
+      milli: 2610,
+      unitsTotal: 67,
+      breakdown: {
+        stage: "render_export",
+        pricingVersion: "v2_step_tier",
+        animationTier: "standard",
+        model: "worker-ffmpeg",
+        unitsTotal: 67,
+        reusedUnits: 0,
+        setupMilli: 600,
+        perUnitMilli: 30
+      }
+    });
+    const beforeRace = (await tokenSummary(paidOwner)).remaining;
+    const [rA, rB] = await Promise.all([
+      reserveStepTokens({ userId: paidOwner, projectId: pPaid.id, quote: raceQuote, ledgerReason: "render_export" }),
+      reserveStepTokens({ userId: paidOwner, projectId: pPaid.id, quote: raceQuote, ledgerReason: "render_export" })
+    ]);
+    assert.equal(rA.id, rB.id, "Concurrent reservations with identical workFingerprint resolve to the same reservation");
+    const afterRace = (await tokenSummary(paidOwner)).remaining;
+    assert.equal(Math.round((beforeRace - afterRace) * 100) / 100, 2.61, "Concurrent reservations debit 2.61 tokens exactly once");
+
+    await settleStepReservation(rA.id);
+    // Simulate a render worker failure calling refundSpend directly: reservation status must synchronize to 'refunded'
+    await refundSpend(paidOwner, rA.spendEvent);
+    const syncedRow = await query("select status, settled_milli, refunded_milli from app.generation_reservations where id = $1", [rA.id]);
+    assert.equal(syncedRow.rows[0]?.status, "refunded", "refundSpend synchronizes reservation status to 'refunded'");
+    assert.equal(Number(syncedRow.rows[0]?.settled_milli), 0);
+    assert.equal(Number(syncedRow.rows[0]?.refunded_milli), 2610);
+    const afterRefundSpend = (await tokenSummary(paidOwner)).remaining;
+    assert.equal(afterRefundSpend, beforeRace, "Full balance restored after refundSpend");
   } finally {
     if (prevEnv === undefined) delete process.env.BILLING_POLICY_VERSION;
     else process.env.BILLING_POLICY_VERSION = prevEnv;
     await deleteProject(pFree.id).catch(() => undefined);
     await deleteProject(pPaid.id).catch(() => undefined);
+    await query("delete from app.generation_reservations where user_id = any($1)", [[freeOwner, paidOwner]]);
     await query("delete from app.generation_quotes where user_id = any($1)", [[freeOwner, paidOwner]]);
     await query("delete from app.subscriptions where user_id = $1", [paidOwner]);
     await query("delete from app.token_ledger where user_id = any($1)", [[freeOwner, paidOwner]]);

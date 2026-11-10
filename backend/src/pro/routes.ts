@@ -20,6 +20,14 @@ import { renderJobRepository } from "../render/repository.ts";
 import { uploadDirectory } from "../storage.ts";
 import { blankComposition } from "./blank.ts";
 import { ProConflict, ProInvalid, MIME, checkWrites, proPath, requireRev, servePath, sha256 } from "./files.ts";
+import {
+  quoteProAssistStep,
+  releaseStepReservation,
+  reserveStepTokens,
+  settleStepReservation,
+  stepBillingOnForProject
+} from "../billing/step-billing.ts";
+import { InsufficientTokens } from "../tokens/store.ts";
 
 /**
  * The Pro Editor's project store. A pro user opens a project: its render folder is snapshotted into an editable HyperFrames
@@ -294,6 +302,7 @@ function registerEditorRoutes(app: FastifyInstance) {
   // Claude proposes exact edits against the browser's current (possibly unsaved) source; the editor shows
   // the diff and its normal revisioned PUT saves only after the user applies it. Spends model calls, so it needs edit access.
   app.post<{ Params: { id: string }; Body: { baseRev?: unknown; task?: unknown; target?: unknown; html?: unknown; stage?: unknown } }>("/v1/projects/:id/pro/assist", { ...EDIT, bodyLimit: 2_200_000 }, async (request, reply) => {
+    let proAssistResId: string | null = null;
     try {
       requireProEdit(request);
       const project = await getProject(request.params.id);
@@ -303,8 +312,38 @@ function registerEditorRoutes(app: FastifyInstance) {
       if (stage !== undefined && !isAuthorStage(stage)) return fail(reply, 400, "invalid_request", "Unknown author stage.");
       if (typeof task !== "string" || typeof target !== "string" || typeof html !== "string" || task.length > 1200 || target.length > 200 || html.length > 2_000_000) return fail(reply, 400, "invalid_request", "Send a task, selected target and current composition HTML.");
       if (!(await ensurePromptAllowed(reply, [task], `project_${project.id}:pro_assist`))) return reply;
-      return await proposeCompositionEdit(task, target, html, fetch, stage);
+      if (stepBillingOnForProject(project)) {
+        const userId = callerId(request);
+        const quote = await quoteProAssistStep({
+          userId,
+          project,
+          task,
+          target,
+          ...(typeof stage === "string" ? { stage } : {}),
+          persist: false
+        });
+        const reservation = await reserveStepTokens({
+          userId,
+          projectId: project.id,
+          quote,
+          ledgerReason: "pro_assist"
+        });
+        if (reservation.reservedMilli > 0) proAssistResId = reservation.id;
+      }
+      const proposed = await proposeCompositionEdit(task, target, html, fetch, stage);
+      if (proAssistResId) await settleStepReservation(proAssistResId).catch(() => undefined);
+      return proposed;
     } catch (error) {
+      if (proAssistResId) await releaseStepReservation(proAssistResId).catch(() => undefined);
+      if (error instanceof InsufficientTokens) {
+        return fail(
+          reply,
+          402,
+          "insufficient_tokens",
+          `Proposing this AI edit needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`,
+          { needed: error.needed, remaining: error.remaining }
+        );
+      }
       if (error instanceof ProConflict || error instanceof ProInvalid || error instanceof NotEntitled) return mapError(reply, error);
       return fail(reply, 422, "author_failed", error instanceof Error ? error.message : "Could not propose an edit.");
     }
