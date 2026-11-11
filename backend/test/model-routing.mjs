@@ -38,7 +38,7 @@ function sseResponse(lines, status = 200) {
     frameSketch: { provider: "anthropic", model: "claude-sonnet-4-6", effort: "low", maxTokens: 6000 },
     motion: { provider: "anthropic", model: "claude-sonnet-4-6", effort: "low", maxTokens: 3000 },
     screenshot: { provider: "anthropic", model: "claude-sonnet-5-5", effort: undefined, maxTokens: 1200 },
-    voiceAlign: { provider: "gemini", model: "gemini-2.5-flash", effort: undefined, maxTokens: 8192 },
+    voiceAlign: { provider: "gemini", model: "gemini-3.8-flash", effort: undefined, maxTokens: 8192 },
     sceneWriter: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 24000 },
     sceneRepair: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 24000 },
     formatFill: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 2000 },
@@ -47,7 +47,7 @@ function sseResponse(lines, status = 200) {
     rewriteBeat: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 600 },
     elementEdits: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 450 },
     planner: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 1024 },
-    siteRead: { provider: "gemini", model: "gemini-2.5-flash", effort: undefined, maxTokens: 8192 }
+    siteRead: { provider: "gemini", model: "gemini-3.8-flash", effort: undefined, maxTokens: 8192 }
   };
 
   assert.deepEqual(Object.keys(STEPS), Object.keys(expectedDefaults));
@@ -146,9 +146,9 @@ function sseResponse(lines, status = 200) {
   assert.equal(routeFor("planner", defEnv).provider, "gemini");
   assert.equal(routeFor("planner", defEnv).model, "gemini-3.8-flash");
   assert.equal(routeFor("planner", defEnv).explicit, true);
-  assert.equal(routeFor("voiceAlign", defEnv).model, "gemini-2.5-flash");
+  assert.equal(routeFor("voiceAlign", defEnv).model, "gemini-3.8-flash");
   assert.equal(routeFor("voiceAlign", defEnv).explicit, false);
-  assert.equal(routeFor("siteRead", defEnv).model, "gemini-2.5-flash");
+  assert.equal(routeFor("siteRead", defEnv).model, "gemini-3.8-flash");
   assert.equal(routeFor("siteRead", defEnv).explicit, false);
 
   // Legacy env beats MODEL_DEFAULT; MODEL_<ENV> beats legacy; parent MODEL_<PARENT_ENV> beats legacy

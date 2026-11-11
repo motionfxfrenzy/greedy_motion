@@ -154,7 +154,7 @@ export const STEPS: Record<StepId, StepDef> = {
     legacyVars: ["VOICE_ALIGN_MODEL"],
     legacy: (env = process.env) => ({
       provider: "gemini",
-      model: env.VOICE_ALIGN_MODEL || "gemini-2.5-flash"
+      model: env.VOICE_ALIGN_MODEL || "gemini-3.8-flash"
     }),
     maxTokens: 8192,
     modality: "audio",
@@ -283,7 +283,7 @@ export const STEPS: Record<StepId, StepDef> = {
     legacyVars: ["SITE_READ_MODEL"],
     legacy: (env = process.env) => ({
       provider: "gemini",
-      model: env.SITE_READ_MODEL || "gemini-2.5-flash"
+      model: env.SITE_READ_MODEL || "gemini-3.8-flash"
     }),
     maxTokens: 8192,
     modality: "text",
