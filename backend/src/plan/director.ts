@@ -112,7 +112,10 @@ export function inventedNumbers(plan: BeatPlan, brief: ScriptBrief, context: Dir
   }
   for (const beat of plan.beats) {
     const copy = normalize(`${beat.line ?? ""} ${beat.keyword} ${beat.on_screen ?? ""}`);
-    const found = new Set([...(copy.match(/\d+(?:\.\d+)?/g) ?? []), ...copy.split(" ").filter((word) => NUMBER_WORDS.includes(word))]);
+    // A scene about editing or timing ("stretch Scene 3 from eight seconds to ten") uses numbers as an example of the feature,
+    // not as a result the product claims; only statistic-shaped numbers are checked there, so nobody has to dismiss a false alarm.
+    const exampleCopy = /\b(?:scenes?|beats?|timeline|storyboard|duration)\b/.test(copy) && !`${beat.line ?? ""} ${beat.keyword} ${beat.on_screen ?? ""}`.match(STATISTIC);
+    const found = exampleCopy ? new Set<string>() : new Set([...(copy.match(/\d+(?:\.\d+)?/g) ?? []), ...copy.split(" ").filter((word) => NUMBER_WORDS.includes(word))]);
     for (const number of found) if (!source.includes(` ${number} `) && !source.includes(number)) problems.push(`${beat.id}: "${number}" is a number the brief doesn't support; remove it or use the brief's wording.`);
     for (const claim of CLAIM_WORDS) if (` ${copy} `.includes(` ${claim} `) && !source.includes(` ${claim} `)) problems.push(`${beat.id}: "${claim}" is a claim the brief doesn't support; remove it.`);
   }

@@ -262,12 +262,37 @@ export function cleanSvg(text: string): string | null {
   return named.length <= 40_000 ? named : null;
 }
 
-/** Draws one frame. Throws on an API error or an answer that is not an SVG. */
+/**
+ * Draws one frame. An answer with no usable SVG (usually a drawing cut off by the token limit, or too big) is retried once
+ * with a larger budget and an instruction to keep it compact, so the person never has to press retry. Throws on an API error
+ * or if the second answer is not an SVG either.
+ */
 export async function sketchFrame(request: FrameRequest, signal: AbortSignal, http: typeof fetch = fetch): Promise<string> {
+  try {
+    return await drawFrame(request, signal, http, 1);
+  } catch (error) {
+    if (signal.aborted || !(error instanceof Error) || !/usable SVG/.test(error.message)) throw error;
+    return drawFrame(request, signal, http, 2);
+  }
+}
+
+/** What a scene shows if both drawing attempts fail: a plain card with its key phrase, so the storyboard never shows a broken image. Never saved, so the next open draws it again. */
+export function placeholderFrame(beat: ScriptBeat, aspect: Aspect): string {
+  const { width, height } = FRAME_SIZE[aspect];
+  const text = (beat.keyword ?? "").slice(0, 60).replace(/[<>&"']/g, " ").trim();
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#10121a"/><rect x="${width * 0.08}" y="${height * 0.42}" width="${width * 0.84}" height="${height * 0.16}" rx="24" fill="#1a1d29" stroke="#2c3142" stroke-width="3"/><text x="${width / 2}" y="${height * 0.5}" fill="#e8ebf5" font-family="sans-serif" font-size="${Math.round(Math.min(width, height) * 0.06)}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${text}</text></svg>`;
+}
+
+const COMPACT_NOTE = "Keep this drawing compact: at most about 40 shapes, simple paths, no long path data, no repeated detail. Answer with only the SVG and always finish with </svg>.";
+
+async function drawFrame(request: FrameRequest, signal: AbortSignal, http: typeof fetch, attempt: 1 | 2): Promise<string> {
   const route = routeFor("frameSketch");
+  const parts = prompt(request);
+  if (attempt === 2) parts.push({ type: "text", text: COMPACT_NOTE });
+  const maxTokens = attempt === 1 ? route.maxTokens : Math.max(route.maxTokens * 2, 12000);
   if (route.provider !== "anthropic") {
     // Another provider (MODEL_FRAME_SKETCH): the shared provider layer.
-    const result = await callModel({ step: "frameSketch", route, system: SYSTEM, messages: [{ role: "user", content: prompt(request).map((part) => ({ type: "text" as const, text: part.text, ...(part.cache_control ? { cache: true } : {}) })) }], maxTokens: 6000, effort: "low", signal, errorPrefix: "Frame request failed", includeErrorDetail: true, ...(http !== fetch ? { request: http } : {}) });
+    const result = await callModel({ step: "frameSketch", route, system: SYSTEM, messages: [{ role: "user", content: parts.map((part) => ({ type: "text" as const, text: part.text, ...(part.cache_control ? { cache: true } : {}) })) }], maxTokens, effort: "low", signal, errorPrefix: "Frame request failed", includeErrorDetail: true, ...(http !== fetch ? { request: http } : {}) });
     const svg = cleanSvg(result.text);
     if (!svg) throw new Error("The frame came back without a usable SVG.");
     return svg;
@@ -277,10 +302,10 @@ export async function sketchFrame(request: FrameRequest, signal: AbortSignal, ht
     headers: { "content-type": "application/json", "x-api-key": config.anthropicApiKey, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({
       model: route.model,
-      max_tokens: route.maxTokens,
+      max_tokens: maxTokens,
       output_config: { effort: route.effort ?? "low" },
       system: SYSTEM,
-      messages: [{ role: "user", content: prompt(request) }]
+      messages: [{ role: "user", content: parts }]
     }),
     signal
   });

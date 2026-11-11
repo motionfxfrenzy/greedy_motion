@@ -45,7 +45,7 @@ import { director } from "./director.ts";
 import { directorContextFor } from "./context.ts";
 import { draftScript, reviseScript } from "./script-draft.ts";
 import { finishInsertedScene, finishScript, writeInsertedScene, writeScript } from "./script-writer.ts";
-import { sketchFrame } from "./frame-sketch.ts";
+import { placeholderFrame, sketchFrame } from "./frame-sketch.ts";
 import { readGalleryText } from "../gallery.ts";
 import { rewriteBeat } from "./rewrite-beat.ts";
 import { SFX } from "./sound.ts";
@@ -1456,7 +1456,9 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         } catch (error) {
           if (controller.signal.aborted) return;
           failed += 1;
-          send(upstreamSseError(request, error, "Could not draw this frame.", { index }));
+          app.log.warn({ err: error, projectId: project.id, index }, "frame could not be drawn after a retry; sent a placeholder");
+          // A card with the key phrase instead of a broken image; it is not saved, so the next open draws the real frame.
+          send({ index, svg: placeholderFrame(beats[index]!, brief.aspect) });
         }
       }
     };
