@@ -245,12 +245,29 @@ function prompt({ beat, index, count, aspect, topic, style, look, notes }: Frame
   return [{ type: "text", text: shared, cache_control: { type: "ephemeral" } }, { type: "text", text: own }];
 }
 
+const HTML_ENTITIES: Record<string, string> = { nbsp: "\u00a0", ldquo: "\u201c", rdquo: "\u201d", lsquo: "\u2018", rsquo: "\u2019", sbquo: "\u201a", bdquo: "\u201e", mdash: "\u2014", ndash: "\u2013", hellip: "\u2026", bull: "\u2022", middot: "\u00b7", rarr: "\u2192", larr: "\u2190", uarr: "\u2191", darr: "\u2193", harr: "\u2194", times: "\u00d7", divide: "\u00f7", minus: "\u2212", plusmn: "\u00b1", deg: "\u00b0", copy: "\u00a9", reg: "\u00ae", trade: "\u2122", euro: "\u20ac", pound: "\u00a3", yen: "\u00a5", cent: "\u00a2", laquo: "\u00ab", raquo: "\u00bb", check: "\u2713", infin: "\u221e", ne: "\u2260", le: "\u2264", ge: "\u2265", approx: "\u2248", frac12: "\u00bd", frac14: "\u00bc", sect: "\u00a7", para: "\u00b6", ensp: "\u2002", emsp: "\u2003", thinsp: "\u2009", zwnj: "\u200c", shy: "\u00ad" };
+
+/**
+ * An SVG shown as an <img> is parsed as strict XML, which knows only five named entities. Models write HTML ones (&ldquo; &mdash; &nbsp;),
+ * and a single one makes the browser drop the whole picture. Named HTML entities become their characters, unknown ones are dropped,
+ * and a bare "&" becomes "&amp;". Saved frames go through this too, so frames drawn before this fix show up as well.
+ */
+export function xmlSafeSvg(svg: string): string {
+  return svg.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);?/g, (match, name: string) => {
+    if (name.startsWith("#")) return match.endsWith(";") ? match : `${match};`;
+    if (["amp", "lt", "gt", "quot", "apos"].includes(name)) return match.endsWith(";") ? match : `&${name};`;
+    const char = HTML_ENTITIES[name];
+    if (char) return char;
+    return match.endsWith(";") ? "" : `&amp;${name}`;
+  }).replace(/&(?![a-zA-Z#][a-zA-Z0-9]*;)/g, "&amp;");
+}
+
 /** Removes anything that could run or load: the frame is shown as an image, and this keeps it inert even if pasted elsewhere. */
 export function cleanSvg(text: string): string | null {
   const start = text.indexOf("<svg");
   const end = text.lastIndexOf("</svg>");
   if (start < 0 || end < start) return null;
-  const svg = text.slice(start, end + 6)
+  const svg = xmlSafeSvg(text.slice(start, end + 6))
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, "")
     .replace(/<(?:image|use|animate\w*|set)\b[^>]*\/?>/gi, "")

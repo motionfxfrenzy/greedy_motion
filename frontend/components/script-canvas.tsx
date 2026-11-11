@@ -70,9 +70,19 @@ function Field({ value, onChange, readOnly, className, placeholder, caret, label
 export const isImageAssetUrl = (value: string) =>
   /^(data:image\/|https?:\/\/|blob:|\/)/i.test(value.trim());
 
+const HTML_ENTITIES: Record<string, string> = { nbsp: "\u00a0", ldquo: "\u201c", rdquo: "\u201d", lsquo: "\u2018", rsquo: "\u2019", mdash: "\u2014", ndash: "\u2013", hellip: "\u2026", bull: "\u2022", middot: "\u00b7", rarr: "\u2192", larr: "\u2190", times: "\u00d7", minus: "\u2212", deg: "\u00b0", copy: "\u00a9", trade: "\u2122", check: "\u2713", infin: "\u221e" };
+
+/** An <img> parses its SVG as strict XML: one HTML entity (&ldquo;) or bare "&" and the whole picture is dropped. Fixes frames saved before the backend did. */
+const xmlSafeSvg = (svg: string) =>
+  svg.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);?/g, (match, name: string) => {
+    if (name.startsWith("#")) return match.endsWith(";") ? match : `${match};`;
+    if (["amp", "lt", "gt", "quot", "apos"].includes(name)) return match.endsWith(";") ? match : `&${name};`;
+    return HTML_ENTITIES[name] ?? (match.endsWith(";") ? "" : `&amp;${name}`);
+  }).replace(/&(?![a-zA-Z#][a-zA-Z0-9]*;)/g, "&amp;");
+
 /** A frame is SVG text from the model (or a data:/static/backend image URL); as an <img> nothing in it can run or load. */
 export const svgSrc = (svg: string) => {
-  const trimmed = svg.trim();
+  const trimmed = isImageAssetUrl(svg.trim()) ? svg.trim() : xmlSafeSvg(svg.trim());
   return isImageAssetUrl(trimmed)
     ? trimmed
     : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(/^<svg[^>]*\sxmlns\s*=/.test(trimmed) ? trimmed : trimmed.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"'))}`;

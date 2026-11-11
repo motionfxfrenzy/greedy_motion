@@ -45,7 +45,7 @@ import { director } from "./director.ts";
 import { directorContextFor } from "./context.ts";
 import { draftScript, reviseScript } from "./script-draft.ts";
 import { finishInsertedScene, finishScript, writeInsertedScene, writeScript } from "./script-writer.ts";
-import { placeholderFrame, sketchFrame } from "./frame-sketch.ts";
+import { placeholderFrame, sketchFrame, xmlSafeSvg } from "./frame-sketch.ts";
 import { readGalleryText } from "../gallery.ts";
 import { rewriteBeat } from "./rewrite-beat.ts";
 import { SFX } from "./sound.ts";
@@ -1439,7 +1439,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     let delivered = 0;
     // Four at a time: each frame takes a few seconds, and the first ones should land while the person is still reading.
     const keyFor = (index: number) => scriptFrameKey(beats[index]!, brief);
-    const saved = new Map((project.scriptFrames ?? []).map((frame) => [frame.key, frame.svg]));
+    const saved = new Map((project.scriptFrames ?? []).map((frame) => [frame.key, xmlSafeSvg(frame.svg)]));
     for (const index of wanted) { const svg = saved.get(keyFor(index)); if (svg) send({ index, svg }); }
     // Frame 1 is the project card's thumbnail, so the card always shows how the film opens.
     if (wanted.includes(0) && saved.get(keyFor(0))) await setCoverFrame(project.id, saved.get(keyFor(0))!).catch(() => undefined);
