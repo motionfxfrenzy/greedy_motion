@@ -2392,7 +2392,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         };
       });
       if (updated && typeof patch.captions === "string" && (captionModes as readonly string[]).includes(patch.captions)) {
-        await setPlateSubtitles(project.id, { mode: patch.captions }).catch(() => undefined);
+        await setPlateSubtitles(request.params.id, { mode: patch.captions }).catch(() => undefined);
       }
       return updated ?? reply.code(404).send(notFound);
     } catch (error) {
