@@ -1183,13 +1183,13 @@ export function BrowserAnimationStep({
     [isPlate, effectiveMotionBlur, busy, effectiveDuration, effectiveSetMotionBlur]
   );
 
-  const optionsConfig = useMemo(
-    () =>
-      isPlate
-        ? { ...hfOptionsConfig(availableAudio), ...plateOptionsConfig(project.brief?.look) }
-        : { ...hfOptionsConfig(availableAudio), motionBlurControls },
-    [availableAudio, isPlate, project.brief?.look, motionBlurControls]
-  );
+  const optionsConfig = useMemo(() => {
+    if (isPlate) return { ...hfOptionsConfig(availableAudio), ...plateOptionsConfig(project.brief?.look) };
+    const base = hfOptionsConfig(availableAudio);
+    // Sound effects belong to any film that has sound at all (the soundtrack builder adds them on key moments).
+    const withSfx = availableAudio.voice || availableAudio.music ? { audioTracks: [...(base.audioTracks ?? []), "sfx" as const] } : {};
+    return { ...base, ...withSfx, motionBlurControls };
+  }, [availableAudio, isPlate, project.brief?.look, motionBlurControls]);
 
   const audioToggles = useMemo(
     () => audioTogglesFromMode(audioModeState, availableAudio),
@@ -1384,6 +1384,19 @@ export function BrowserAnimationStep({
     activeSceneIndex
   ]);
 
+  const [sfxOn, setSfxOn] = useState(() => project.brief?.audio.sfx !== false);
+  const handleToggleSfx = () => {
+    const next = !sfxOn;
+    setSfxOn(next);
+    setPreviewError(null);
+    void editPlan(project.id, { audioSfx: next })
+      .then(() => setLocalVersion((v) => v + 1))
+      .catch((caught) => {
+        setSfxOn(!next);
+        setPreviewError(caught instanceof Error ? caught.message : "Could not update the sound effects.");
+      });
+  };
+
   const handleToggleAudio = (track: "voice" | "music") => {
     if (!availableAudio[track]) return;
     const prevMode = audioModeState;
@@ -1522,11 +1535,11 @@ export function BrowserAnimationStep({
         audioControls={{
           voice: audioToggles.voice,
           music: audioToggles.music,
-          sfx: false,
+          sfx: sfxOn,
           transitions: false,
           onToggleVoice: () => handleToggleAudio("voice"),
           onToggleMusic: () => handleToggleAudio("music"),
-          onToggleSfx: nop,
+          onToggleSfx: handleToggleSfx,
           onToggleTransitions: nop,
           musicBusy,
           musicPicker: {

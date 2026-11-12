@@ -150,6 +150,8 @@ export type SoundInputs = {
   hasShot: (screenId: string) => boolean;
   /** The brief's audio mode; SFX play with any mode except "none". */
   mode: "voiceover" | "music" | "both" | "none";
+  /** False when the person turned the sound effects off (brief.audio.sfx); on when absent. */
+  sfx?: boolean;
 };
 
 /** Every <audio> track for the film; empty when the brief asks for no sound. */
@@ -212,7 +214,7 @@ export function soundTracks(input: SoundInputs): { tracks: AudioTrack[]; cues: S
       }
     }
   }
-  const cues = sfxCues(plan, timing, input.hasShot);
+  const cues = input.sfx === false ? [] : sfxCues(plan, timing, input.hasShot);
   const lanes: number[] = [];
   cues.forEach((cue, i) => {
     const sfx = SFX[cue.name];

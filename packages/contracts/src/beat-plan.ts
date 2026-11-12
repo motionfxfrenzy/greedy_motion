@@ -70,7 +70,7 @@ export type ScriptBrief = {
   motionProfile: MotionProfile;
   pace: Pace;
   audio: {
-    mode: AudioMode; voice?: string; musicMood?: string; /** Language of the VOICE lines (voiceLanguages); English when absent. */ language?: string;
+    mode: AudioMode; voice?: string; musicMood?: string; /** False turns the key-moment sound effects off; on when absent. */ sfx?: boolean; /** Language of the VOICE lines (voiceLanguages); English when absent. */ language?: string;
     /** "characters": the story's characters speak their own lines in their own voices; one narrator when absent. */
     cast?: VoiceCast;
     /** The person's voice pick per character name (voiceIds); characters without a pick get `voiceForSpeaker`'s. */
@@ -469,6 +469,7 @@ export function parseScriptBrief(value: unknown): { brief: ScriptBrief } | { err
       mode: value.audio.mode,
       ...(clean(value.audio.voice, 40) ? { voice: clean(value.audio.voice, 40) } : {}),
       ...(clean(value.audio.musicMood, 120) ? { musicMood: clean(value.audio.musicMood, 120) } : {}),
+      ...(value.audio.sfx === false ? { sfx: false } : {}),
       ...(typeof value.audio.language === "string" && value.audio.language !== "en" && voiceLanguageIds.includes(value.audio.language) ? { language: value.audio.language } : {}),
       ...(value.audio.cast === "characters" ? { cast: "characters" as const } : {}),
       ...(() => {

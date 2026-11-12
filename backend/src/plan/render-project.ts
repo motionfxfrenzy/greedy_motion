@@ -68,7 +68,8 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
     fileUrl: (file) => `audio/${file}`,
     sfxUrl: (name: SfxName) => `sfx/${name}.mp3`,
     hasShot: (id) => Boolean(shots[id]),
-    mode: audioMode(project)
+    mode: audioMode(project),
+    sfx: project.brief?.audio.sfx !== false
   });
   for (const track of tracks) {
     const from = track.src.startsWith("sfx/") ? join(config.templatesDir, ENGINE_TEMPLATE, track.src) : join(planAudioDir(project.id), track.src.slice("audio/".length));

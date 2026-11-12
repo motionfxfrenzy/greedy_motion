@@ -122,7 +122,8 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
     fileUrl: (file) => `${studioAssetBase}/plans/${project.id}/audio/${file}`,
     sfxUrl: (name) => `${studioAssetBase}/plan-sfx/${name}.mp3`,
     hasShot: (id) => screens.has(id),
-    mode: audioMode(project)
+    mode: audioMode(project),
+    sfx: project.brief?.audio.sfx !== false
   });
   html = withSoundtrack(html, tracks);
   html = withAudioContinuity(html);

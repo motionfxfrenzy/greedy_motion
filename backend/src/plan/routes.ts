@@ -731,7 +731,7 @@ const withLook = (brief: ScriptBrief, look: LookId): ScriptBrief => {
   return look === "clean" ? rest : { ...rest, look };
 };
 
-type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown; styleExample?: unknown; captions?: unknown; audioMode?: unknown; aspect?: unknown; aspects?: unknown; overrides?: unknown; animationTier?: unknown };
+type PlanPatch = { beats?: BeatEdit[]; order?: unknown; suggestions?: { index?: unknown; accepted?: unknown }[]; look?: unknown; styleFamily?: unknown; styleExample?: unknown; captions?: unknown; audioMode?: unknown; audioSfx?: unknown; aspect?: unknown; aspects?: unknown; overrides?: unknown; animationTier?: unknown };
 
 /** Applies storyboard edits. Returns the edited plan, or the problems that block it. */
 export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan: BeatPlan } | { problems: string[] } {
@@ -753,6 +753,9 @@ export function applyPlanEdits(project: VideoProject, patch: PlanPatch): { plan:
     if (typeof patch.audioMode !== "string" || !(audioModes as readonly string[]).includes(patch.audioMode)) {
       return { problems: ["Choose voiceover, music, both or none."] };
     }
+  }
+  if (patch.audioSfx !== undefined && typeof patch.audioSfx !== "boolean") {
+    return { problems: ["Turn the sound effects on or off."] };
   }
   if (patch.overrides !== undefined) {
     if (patch.overrides === null) {
@@ -2372,6 +2375,10 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         }
         if (brief && typeof patch.audioMode === "string" && (audioModes as readonly string[]).includes(patch.audioMode)) {
           brief = { ...brief, audio: { ...brief.audio, mode: patch.audioMode as AudioMode } };
+        }
+        if (brief && typeof patch.audioSfx === "boolean") {
+          const { sfx: _was, ...audio } = brief.audio;
+          brief = { ...brief, audio: patch.audioSfx ? audio : { ...audio, sfx: false } };
         }
         if (brief && (patch.aspect !== undefined || patch.aspects !== undefined)) {
           const validAspects = Array.isArray(patch.aspects)

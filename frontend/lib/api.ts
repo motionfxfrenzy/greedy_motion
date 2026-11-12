@@ -450,6 +450,8 @@ export type PlanPatch = {
   captions?: "key-phrases" | "full" | "none";
   /** Film audio mode ("voiceover" | "music" | "both" | "none"). */
   audioMode?: "voiceover" | "music" | "both" | "none";
+  /** Key-moment sound effects on (true) or off (false). */
+  audioSfx?: boolean;
   /** Primary aspect ratio ("16:9" | "9:16" | "1:1"). */
   aspect?: "16:9" | "9:16" | "1:1";
   /** Selected multi-format aspect ratios. */
