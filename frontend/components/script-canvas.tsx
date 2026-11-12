@@ -109,6 +109,37 @@ function Frame({ slot, aspect, index, writing, onRedraw, onPick, picked }: { slo
 
 type Product = "starter" | "pro" | "business" | "topup";
 
+/**
+ * Confirms Recreate animation: the film's current animation (every scene, with its edits and comment-driven redraws, and
+ * any Pro Editor changes made to it) is thrown away and written again from the storyboard. Shared by every series type
+ * and both players, since it lives on the Storyboard header.
+ */
+export function RecreateAnimationModal({ tokens, tierLabel, onCancel, onConfirm }: { tokens: number | null; tierLabel: string; onCancel: () => void; onConfirm: () => void }) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    cancelRef.current?.focus();
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onCancel]);
+  return <div className="sc-modal-backdrop" onClick={onCancel}>
+    <div className="sc-modal" role="alertdialog" aria-modal="true" aria-labelledby="sc-recreate-title" aria-describedby="sc-recreate-body" onClick={(event) => event.stopPropagation()}>
+      <header>
+        <h2 id="sc-recreate-title">Recreate the animation?</h2>
+        <button type="button" className="sc-modal-close" aria-label="Close" onClick={onCancel}>×</button>
+      </header>
+      <div id="sc-recreate-body">
+        <p className="sc-modal-sum">The current animation will be <b>discarded</b> and every scene rewritten from the storyboard. This includes your edits, comment-driven redraws and any changes made in the Pro editor. This can’t be undone.</p>
+        <p className="sc-modal-sum">{tokens !== null && tokens > 0 ? <>Recreating costs <b>{tokens} tokens</b> ({tierLabel} quality).</> : <>Quality: <b>{tierLabel}</b>.</>}</p>
+      </div>
+      <div className="sc-modal-actions">
+        <button ref={cancelRef} type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
+        <button type="button" className="primary-button" onClick={onConfirm}>Recreate</button>
+      </div>
+    </div>
+  </div>;
+}
+
 /** Buying tokens without leaving the film: the shortfall, the one-time pack and the plans, each going to checkout. */
 export function TokenModal({ cost, balance, onClose }: { cost: number; balance: number; onClose: () => void }) {
   const [opening, setOpening] = useState<Product | null>(null);
@@ -280,7 +311,7 @@ function RenderAction({ seconds, cost: costProp, pricingVersion, rendering, labe
  * beside it; a single prompt bar at the bottom asks the AI for changes. Confirming the script voices it; the storyboard is
  * built from it in the background.
  */
-export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing, onInsertScene, onRemoveScene, undoScene, onUndoRemoveScene, onDismissUndoScene, animationTier = DEFAULT_ANIMATION_TIER, canUsePremium = false, onAnimationTierChange, onLockedPremiumClick, animationQuoteTokens, voiceQuoteTokens }: {
+export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing, onInsertScene, onRemoveScene, undoScene, onUndoRemoveScene, onDismissUndoScene, animationTier = DEFAULT_ANIMATION_TIER, canUsePremium = false, onAnimationTierChange, onLockedPremiumClick, animationQuoteTokens, voiceQuoteTokens, animationExists = false, recreateQuoteTokens = null, onRecreate }: {
   /** Identifies the open project so duration acceptance never leaks across projects. */
   projectId?: string;
   /** Durable per-project flag indicating the user already accepted the over-length notice. */
@@ -341,6 +372,12 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
   onUndoRemoveScene?: () => Promise<void> | void;
   /** Dismisses the Undo banner. */
   onDismissUndoScene?: () => void;
+  /** The project already has a generated animation: the primary button becomes "Recreate animation" and asks first. */
+  animationExists?: boolean;
+  /** Tokens Recreate will charge (every scene again), when known. */
+  recreateQuoteTokens?: number | null;
+  /** Discards the current animation and writes every scene again; called after the person confirms. */
+  onRecreate?: () => void;
   /** Selected animation authoring quality tier ("standard" = Gemini 3.8 Flash, "premium" = Claude Opus 5.5). */
   animationTier?: AnimationTier;
   /** Whether the signed-in account has an active paid subscription eligible for Premium animation. */
@@ -386,6 +423,7 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
   const [insertError, setInsertError] = useState<string | null>(null);
   const [removingAt, setRemovingAt] = useState<number | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [confirmRecreate, setConfirmRecreate] = useState(false);
   const insertStopRef = useRef<AbortController | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const docListRef = useRef<HTMLOListElement | null>(null);
@@ -673,6 +711,7 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
       setSavingKeep(false);
     }
   };
+  const recreating = animationExists && Boolean(onRecreate);
   // Nothing renders without its sound: a voiced (or scored) film needs its takes first; a silent one can render at once.
   const confirmed = (!voiced && !music) || voice.state === "ready";
   const soundLabel = voiced && music ? "voiceover and music" : voiced ? "voiceover" : "music";
@@ -805,15 +844,26 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
             type="button"
             className="primary-button"
             disabled={beats.length === 0 || rendering}
-            onClick={onRender}
+            onClick={recreating ? () => setConfirmRecreate(true) : onRender}
           >
             {rendering
               ? "Preparing animation…"
-              : `Create animation${animationQuoteTokens && animationQuoteTokens > 0 ? ` (${animationQuoteTokens} tokens)` : ""} →`}
+              : recreating
+                ? "Recreate animation →"
+                : `Create animation${animationQuoteTokens && animationQuoteTokens > 0 ? ` (${animationQuoteTokens} tokens)` : ""} →`}
           </button>
         )}
       </div>
     </header>
+
+    {confirmRecreate && recreating && (
+      <RecreateAnimationModal
+        tokens={recreateQuoteTokens}
+        tierLabel={ANIMATION_TIER_SPECS[animationTier === "premium" && canUsePremium ? "premium" : "standard"].label}
+        onCancel={() => setConfirmRecreate(false)}
+        onConfirm={() => { setConfirmRecreate(false); onRecreate?.(); }}
+      />
+    )}
 
     {(undoScene || removeError) && (
       <div className="sc-undo-banner" role="status" aria-live="polite">

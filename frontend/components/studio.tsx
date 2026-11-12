@@ -1284,7 +1284,7 @@ export function Studio() {
   const needsSound = voicedBrief || musicBrief;
   const startBrowserAnimation = async (
     beatsOverride?: ScriptBeat[],
-    options?: { inPlace?: boolean; forceIndices?: number[] }
+    options?: { inPlace?: boolean; forceIndices?: number[]; recreate?: boolean }
   ) => {
     const activeBeats = beatsOverride ?? canvas?.beats;
     if (!activeBeats?.length || !project) return;
@@ -1303,6 +1303,11 @@ export function Studio() {
     setAnimError(null);
     setPlateAutoStart(true);
     setStep(RENDER);
+    // Recreate: the server discards the old animation; drop it here too so no stale scene motion or Pro copy shows meanwhile.
+    if (options?.recreate) {
+      const { pro: _discardedPro, ...withoutPro } = project;
+      replaceProject({ ...withoutPro, filmMotion: [] });
+    }
     if (!inPlace) {
       setAnimating(true);
       setAnimProgress(4);
@@ -1316,7 +1321,8 @@ export function Studio() {
           brief: checked.brief,
           beats: activeBeats,
           animationTier: activeTier,
-          ...(options?.forceIndices?.length ? { forceIndices: options.forceIndices } : {})
+          ...(options?.forceIndices?.length ? { forceIndices: options.forceIndices } : {}),
+          ...(options?.recreate ? { recreate: true, recreateId: crypto.randomUUID() } : {})
         },
         (ev) => {
           if (inPlace) {
@@ -1346,6 +1352,8 @@ export function Studio() {
     } catch (caught) {
       showLimit(caught);
       setAnimError(caught instanceof Error ? caught.message : "Could not prepare the browser animation.");
+      // A refused Recreate (e.g. not enough tokens) leaves the server's animation untouched: show it again.
+      if (options?.recreate) void getProject(project.id).then(replaceProject).catch(() => undefined);
       if (inPlace) throw caught;
     } finally {
       if (!inPlace) setAnimating(false);
@@ -1353,6 +1361,11 @@ export function Studio() {
   };
   const renderFromScript = () => {
     void startBrowserAnimation();
+  };
+  // The project already has an animation (its Animation step is reachable): the Storyboard button recreates it after a confirmation.
+  const animationExists = Boolean(project?.beatPlan && statusStep(project) >= RENDER);
+  const recreateAnimation = () => {
+    void startBrowserAnimation(undefined, { recreate: true });
   };
   // The Render or Review step without a job in hand (a reload mid-render, an approved project reopened, or state lost) picks up
   // the project's own render, so an approved film can still be watched.
@@ -1570,6 +1583,8 @@ export function Studio() {
         onAnimationTierChange={handleAnimationTierChange}
         onLockedPremiumClick={openLockedPremiumModal}
         animationQuoteTokens={billingOverview?.pricingVersion === "v2_step_tier" ? billingOverview.steps.animation.tokens : null}
+        animationExists={animationExists} onRecreate={recreateAnimation}
+        recreateQuoteTokens={billingOverview?.pricingVersion === "v2_step_tier" ? billingOverview.steps.animationRecreate?.tokens ?? null : null}
         voiceQuoteTokens={billingOverview?.pricingVersion === "v2_step_tier" ? billingOverview.steps.voiceMusic.tokens : null} />}
       {seePlans && limit && <PlanLimitModal limit={limit} onClose={() => setSeePlans(false)} onBack={step === STORYBOARD ? () => { setSeePlans(false); setStep(SCRIPT_STYLE); } : undefined} />}
       {step === STORYBOARD && !canvas && <div className="flow-page"><div className="flow-title"><h1>No storyboard yet.</h1><p>Describe the film in the brief, then generate the storyboard.</p></div><button className="primary-button" onClick={() => setStep(SCRIPT_STYLE)}>Go to the brief</button></div>}

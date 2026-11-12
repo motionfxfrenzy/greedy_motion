@@ -26,6 +26,7 @@
     "test:resilience-reclaim": "node --env-file-if-exists=.env test/resilience-reclaim.mjs",
     "test:author-chaos": "node --env-file-if-exists=.env test/author-chaos.mjs",
     "test:plate-slow-scene": "node --env-file-if-exists=.env test/plate-slow-scene.mjs",
+    "test:animation-recreate": "node --env-file-if-exists=.env test/animation-recreate.mjs",
     "test:billing-sync": "node --env-file-if-exists=.env test/billing-sync.mjs",
     "test:ownership": "node --env-file-if-exists=.env test/ownership.mjs",
     "import:file-records": "node --env-file=.env scripts/import-file-records.ts",

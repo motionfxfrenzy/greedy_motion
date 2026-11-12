@@ -9,7 +9,8 @@ import { aspects, audioModes, captionModes, BEAT_LIMITS, effectiveBriefDurationS
 import { callerId } from "../auth.ts";
 import { brandLogoPath, brandOwner, getBrand } from "../brand/store.ts";
 import { registerRequestId, requestIdOf, upstreamError, upstreamSseError } from "../http-errors.ts";
-import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan, type PlanMutationPatch } from "../projects/store.ts";
+import { discardPlateVariants } from "../plates/store.ts";
+import { discardProjectAnimation, getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan, type PlanMutationPatch } from "../projects/store.ts";
 import { config } from "../config.ts";
 import {
   PremiumRequiresSubscriptionError,
@@ -1733,7 +1734,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
    * Streams SSE progress (`0% -> 100%`) as missing frames, voiceover/music, and per-scene SVG animations (`ensureFilmMotion`)
    * finish in parallel.
    */
-  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown; animationTier?: unknown; quoteId?: string } }>("/v1/projects/:id/script/animate", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { brief?: unknown; beats?: unknown; animationTier?: unknown; quoteId?: string; recreate?: unknown; recreateId?: unknown } }>("/v1/projects/:id/script/animate", async (request, reply) => {
     let project = await getProject(request.params.id);
     if (!project) return reply.code(404).send(notFound);
 
@@ -1762,6 +1763,12 @@ export async function registerPlanRoutes(app: FastifyInstance) {
 
     const brief: ScriptBrief = { ...rawBrief, scriptBeats: beats, animationTier: requestedTier };
 
+    // Recreate animation: after the tokens are reserved, the generated animation (directed scene motion, drawn plate scenes
+    // and their review comments, the Pro Editor copy) is discarded and every scene is authored again, at the full price.
+    const recreate = request.body?.recreate === true;
+    const recreateId =
+      typeof request.body?.recreateId === "string" && /^[\w-]{8,64}$/.test(request.body.recreateId) ? request.body.recreateId : randomUUID();
+
     let framesReservationId: string | null = null;
     let audioReservationId: string | null = null;
     let animCodeReservationId: string | null = null;
@@ -1773,7 +1780,8 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           brief,
           beats,
           tier: requestedTier,
-          persist: false
+          persist: false,
+          ...(recreate ? { recreate: true, recreateId } : {})
         });
         await verifyStepQuote(request.body?.quoteId, userId, animQuote);
         if (animQuote.milli > 0) {
@@ -1827,6 +1835,18 @@ export async function registerPlanRoutes(app: FastifyInstance) {
             }
           });
         }
+        throw error;
+      }
+    }
+
+    if (recreate) {
+      try {
+        await discardPlateVariants(project.id);
+        project = (await discardProjectAnimation(project.id)) ?? project;
+      } catch (error) {
+        if (framesReservationId) await releaseStepReservation(framesReservationId).catch(() => undefined);
+        if (audioReservationId) await releaseStepReservation(audioReservationId).catch(() => undefined);
+        if (animCodeReservationId) await releaseStepReservation(animCodeReservationId).catch(() => undefined);
         throw error;
       }
     }

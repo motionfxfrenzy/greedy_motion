@@ -1842,6 +1842,32 @@ export async function editComments(projectId: string, change: (comments: PlateCo
   }
 }
 
+/**
+ * Recreate animation: drops every drawn scene of the project (all ratios, every revision) and the review comments that
+ * were answered by redraws, so the next `startPlates` finds nothing to reuse and authors each scene from scratch.
+ * Stored artifacts are swept later (`app.plate_garbage`); an in-flight author or render of a dropped row is fenced out
+ * because its (variant id, gen) no longer exists. Subtitle/ratio settings and the project's live mode are kept.
+ * Returns how many variants were dropped.
+ */
+export async function discardPlateVariants(projectId: string): Promise<number> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plate:${projectId}`]);
+    const { rows } = await client.query<VariantRow>("select * from app.plate_variants where project_id = $1 for update", [projectId]);
+    for (const row of rows) await garbage(client, row, "1 hour");
+    await client.query("delete from app.plate_variants where project_id = $1", [projectId]);
+    await client.query("update app.plate_state set comments = '[]'::jsonb, updated_at = now() where project_id = $1", [projectId]);
+    await client.query("commit");
+    return rows.length;
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export const newOwner = () => randomUUID();
 export type CommitRebundleInput = {
   variantId: string;

@@ -601,6 +601,20 @@ export async function saveFilmMotion(id: string, motion: NonNullable<VideoProjec
   });
 }
 
+/**
+ * Recreate animation: forgets the code-side state generated from the storyboard — the directed scene motion
+ * (`filmMotion`) and the Pro Editor's manifest, which is a copy of that generated film (its edits are discarded too;
+ * opening the Pro Editor again seeds a fresh copy). The storyboard, its reference frames, voiceover and music stay.
+ */
+export async function discardProjectAnimation(id: string) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return null;
+    const { pro: _pro, ...rest } = current;
+    return save({ ...rest, filmMotion: [], updatedAt: new Date().toISOString() });
+  });
+}
+
 /** Saves what was read from the product's website (backend/src/site). */
 export async function updateProjectSite(id: string, site: VideoProject["site"]) {
   return serializeProject(id, async () => {

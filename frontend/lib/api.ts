@@ -246,6 +246,8 @@ export type ProjectBillingOverview = {
     frameSketch: StepQuoteView & { uncachedIndices: number[] };
     voiceMusic: StepQuoteView & { uncachedVoiceIndices: number[]; needsMusic: boolean };
     animation: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
+    /** What Recreate animation costs: every scene authored again, whatever is cached. */
+    animationRecreate?: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
     renderExport: {
       seconds: number | null;
       tokens: number | null;
@@ -759,7 +761,7 @@ export type AnimateStreamEvent =
  */
 export async function streamScriptAnimate(
   projectId: string,
-  input: { brief: ScriptBrief; beats: ScriptBeat[]; animationTier?: "standard" | "premium"; quoteId?: string; forceIndices?: number[] },
+  input: { brief: ScriptBrief; beats: ScriptBeat[]; animationTier?: "standard" | "premium"; quoteId?: string; forceIndices?: number[]; recreate?: boolean; recreateId?: string },
   onEvent: (event: AnimateStreamEvent) => void,
   signal?: AbortSignal
 ): Promise<VideoProject | null> {

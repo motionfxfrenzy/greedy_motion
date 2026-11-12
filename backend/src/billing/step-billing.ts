@@ -1167,7 +1167,8 @@ export async function computeUnauthoredPlateVariants(
   project: VideoProject,
   brief: ScriptBrief,
   beats: ScriptBeat[],
-  extraAspects: Aspect[] = []
+  extraAspects: Aspect[] = [],
+  options: { forceAll?: boolean } = {}
 ): Promise<{
   toAuthor: { index: number; aspect: Aspect; signature: string }[];
   reusedCount: number;
@@ -1194,7 +1195,10 @@ export async function computeUnauthoredPlateVariants(
     ])
   ];
   const desired = await desiredVariants(projectWithBrief, aspects, existingVariants);
-  const { matched } = matchVariantsToDesired(existingVariants, desired);
+  // Recreate: the stored variants are about to be discarded, so nothing matches and every scene is authored again.
+  const { matched } = options.forceAll
+    ? { matched: new Map<string, never>() }
+    : matchVariantsToDesired(existingVariants, desired);
 
   const toAuthor: { index: number; aspect: Aspect; signature: string }[] = [];
   let reusedCount = 0;
@@ -1228,6 +1232,10 @@ export async function quoteAnimationStep(input: {
   tier?: AnimationTier;
   persist?: boolean;
   now?: Date;
+  /** Quote as if no scene code existed: every scene is authored again (the Recreate animation path). */
+  recreate?: boolean;
+  /** Distinguishes one Recreate from the last: without it a repeat with identical scenes would match the earlier settled reservation and charge nothing. */
+  recreateId?: string;
 }): Promise<
   StepQuoteView & {
     framesQuote: StepQuoteView & { uncachedIndices: number[] };
@@ -1274,7 +1282,7 @@ export async function quoteAnimationStep(input: {
   let animSigParts: string[] = [];
 
   if (isPlate) {
-    const platePlan = await computeUnauthoredPlateVariants(input.project, input.brief, input.beats);
+    const platePlan = await computeUnauthoredPlateVariants(input.project, input.brief, input.beats, [], { forceAll: Boolean(input.recreate) });
     scenesToAuthor = platePlan.toAuthor.length;
     scenesReused = platePlan.reusedCount;
     if (pricingVersion === "v2_step_tier" && scenesToAuthor > 0) {
@@ -1287,6 +1295,7 @@ export async function quoteAnimationStep(input: {
     // Non-plate: check if SVG frame-motion will run or if it's a template-only film
     const projectWithBeats: VideoProject = {
       ...input.project,
+      ...(input.recreate ? { filmMotion: [] } : {}),
       brief: { ...input.brief, scriptBeats: input.beats }
     };
     const timing = projectTiming(projectWithBeats);
@@ -1294,7 +1303,7 @@ export async function quoteAnimationStep(input: {
     if (timing && frames) {
       isFrameMotion = true;
       const scenes = filmScenes(projectWithBeats, timing, frames);
-      const cached = new Map((input.project.filmMotion ?? []).map((e) => [e.signature, e]));
+      const cached = new Map((projectWithBeats.filmMotion ?? []).map((e) => [e.signature, e]));
       const uncachedVoiceSet = new Set(audioQuote.uncachedVoiceIndices);
       const uncached = scenes.filter((s) => !cached.has(motionSignature(s)) || uncachedVoiceSet.has(s.index));
       scenesToAuthor = uncached.length;
@@ -1313,7 +1322,7 @@ export async function quoteAnimationStep(input: {
       const canReuseMotion =
         framesQuote.uncachedIndices.length === 0 && audioQuote.uncachedVoiceIndices.length === 0;
       const reusedMotion = canReuseMotion
-        ? Math.min(input.beats.length, input.project.filmMotion?.length ?? 0)
+        ? Math.min(input.beats.length, projectWithBeats.filmMotion?.length ?? 0)
         : 0;
       scenesToAuthor = Math.max(0, input.beats.length - reusedMotion);
       scenesReused = reusedMotion;
@@ -1324,6 +1333,8 @@ export async function quoteAnimationStep(input: {
       animSigParts = input.beats.slice(reusedMotion).map((b, i) => `${reusedMotion + i}:${b.keyword}`);
     }
   }
+
+  if (input.recreate) animSigParts = [...animSigParts, `recreate:${input.recreateId ?? "preview"}`];
 
   const totalMilli =
     pricingVersion === "v2_step_tier" ? framesQuote.milli + audioQuote.milli + animCodeMilli : 0;
@@ -1803,6 +1814,7 @@ export type ProjectBillingOverview = {
     frameSketch: StepQuoteView & { uncachedIndices: number[] };
     voiceMusic: StepQuoteView & { uncachedVoiceIndices: number[]; needsMusic: boolean };
     animation: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
+    animationRecreate: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
     renderExport: {
       seconds: number | null;
       tokens: number | null;
@@ -1885,6 +1897,7 @@ export async function buildProjectBillingOverview(input: {
     voiceMusic,
     animStandard,
     animPremium,
+    animRecreate,
     renderExport
   ] = await Promise.all([
     quoteScriptStep({ userId: input.userId, project: input.project, brief, persist: true, now }),
@@ -1929,6 +1942,16 @@ export async function buildProjectBillingOverview(input: {
       beats,
       tier: "premium",
       persist: effectiveTier === "premium",
+      now
+    }),
+    quoteAnimationStep({
+      userId: input.userId,
+      project: input.project,
+      brief,
+      beats,
+      tier: effectiveTier,
+      persist: false,
+      recreate: true,
       now
     }),
     quoteRenderExportStep({ userId: input.userId, project: input.project, persist: true, now })
@@ -1984,6 +2007,8 @@ export async function buildProjectBillingOverview(input: {
       frameSketch,
       voiceMusic,
       animation: activeAnimQuote,
+      /** What Recreate animation costs: every scene authored again, whatever is cached. */
+      animationRecreate: animRecreate,
       renderExport: {
         seconds: renderExport.seconds,
         tokens: renderExport.totalRenderMilli === null ? null : tokensFromMilli(renderExport.totalRenderMilli),
