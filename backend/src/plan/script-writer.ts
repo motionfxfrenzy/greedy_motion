@@ -1,4 +1,4 @@
-import { CHARACTER_RULE, filmKind, formatScript, inferScriptTemplate, isScriptLedDuration, parseScriptBeats, parseScriptStream, plainText, type BeatPlan, type ScriptBeat, type ScriptBrief, type ScriptNotes, type ScriptTemplate } from "@videosaas/contracts";
+import { CHARACTER_RULE, filmKind, formatScript, inferScriptTemplate, isScriptLedDuration, parseScriptBeats, parseScriptStream, plainText, productFlowFor, type BeatPlan, type ProductFlow, type ScriptBeat, type ScriptBrief, type ScriptNotes, type ScriptTemplate } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { streamModel, callModel } from "../models/providers.ts";
 import { routeFor, routeHasKey } from "../models/routes.ts";
@@ -58,6 +58,49 @@ const EXPLAINER_VOICE = [
   "",
   "NUMBERS (this replaces the numbers rule above): illustrative example values are encouraged (16 boxes, find 37; a million numbers). Work out every number you derive and make sure it is right (halving a million takes about 20 steps). Never state statistics, shares, prices or facts about the world that the brief doesn't give."
 ].join("\n");
+
+
+/**
+ * The flow of a product film. It is the structure of the film, not its look: the look, colours and type come from the style
+ * template, and none of this copies a particular film. Studied from two public product films (a launch-page film and a
+ * UI-demo film), 2026-11-12. What-If and How-Does films never use this: they keep their own voices.
+ * Music and voiceover are the person's choice, so the script reads on its own with sound off.
+ */
+const PRODUCT_COMMON = [
+  "VOICE FOR THIS FILM: a product film. Short, concrete, confident; each beat is one idea and one thing on screen. No hype words (amazing, powerful, unlock, game-changer, seamless, revolutionary), no exclamation marks.",
+  "The film makes sense with the sound off: SCREEN carries the message, VOICE (when there is one) only says it aloud in plain words.",
+  "The product is shown, not described: most beats put a piece of the real product interface on screen (a card, list, control, chart, prompt bar), and VISUAL says what the cursor or the data does there.",
+  "Use only claims, names and numbers from the brief, the brand and the site facts. Never invent a statistic, customer, logo or price; if proof is missing, skip that beat.",
+  "This film may end with a call to action (it is a product film): the product name, one short line and the site address from the brief or the site, when there is one."
+];
+
+const PRODUCT_FLOWS: Record<ProductFlow, string[]> = {
+  "launch-sections": [
+    "FLOW: a launch page set in motion, in sections. Fit it to the beat count; merge sections in a short film, never reorder them.",
+    "1. Hook (first beat, lands in 3 seconds): the viewer's own world or problem in one plain line, with the everyday tools or objects they already juggle on screen.",
+    "2. Brand reveal: the product name and logo, with its one-line promise.",
+    "3. The promise: a headline that says what the product does for the viewer, with the whole product screen shown once.",
+    "4. Feature sections (three or four, one per beat): each has a small label of two or three words (SCREEN starts with it in capitals), a headline of at most eight words in which exactly one word is the highlighted keyword, and one product card showing that feature working, with a cursor or typing doing the action.",
+    "5. A standout moment, only if the brief or site gives one: one big figure or claim filling the frame.",
+    "6. Proof, only if the brief or site gives it: customer names or a few real figures in a row. Skip it otherwise.",
+    "7. End card: the logo, one short line, a button-shaped call to action and the address."
+  ],
+  "ui-moments": [
+    "FLOW: product demo moments, one interface piece at a time, each centred alone on a plain ground, with a cursor doing the work. Fit it to the beat count.",
+    "1. A quick opening: a small loading or first-state piece that wakes up (not a title card).",
+    "2. The thing the product organises or collects: a library, list or inbox view appearing.",
+    "3. A control being set: a slider, a toggle or a segmented switch that the cursor moves, with its value changing.",
+    "4. The result: a dashboard card or chart where one figure counts up (only a figure the brief or site gives; otherwise show the chart rising without numbers).",
+    "5. The ask: a prompt or command bar where a request is typed in plain language.",
+    "6. The approval: a card with its main button ('Approve', 'Launch', 'Publish') that the cursor presses, then the state confirms.",
+    "Each beat shows ONE interface piece; the next beat replaces it. SCREEN is a short label (at most four words) or -."
+  ]
+};
+
+/** The voice block of a product film: the shared rules plus the flow its style template asks for. */
+export function productVoice(styleExample: string | null | undefined): string {
+  return [...PRODUCT_COMMON, "", ...PRODUCT_FLOWS[productFlowFor(styleExample)]].join("\n");
+}
 
 /**
  * The voice for a story film (story templates and code-drawn story styles): a short told tale with characters and a turn,
@@ -272,7 +315,7 @@ export function systemBlocks(request: Pick<ScriptRequest, "brief" | "context">):
         : template === "story"
           ? STORY_VOICE
           : request.context.brandName
-            ? null
+            ? template === "product" ? productVoice(request.brief.styleExample) : null
             : EXPLAINER_VOICE;
   const voiced = request.brief.audio?.mode === "voiceover" || request.brief.audio?.mode === "both";
   const langLines = voiced ? languageRule(request.brief) : [];

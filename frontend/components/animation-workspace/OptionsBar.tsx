@@ -8,6 +8,7 @@ import {
   WORKSPACE_SUBTITLE_STYLES,
   resolveVisibleOptions
 } from "./logic";
+import { MusicPicker } from "./MusicPicker";
 import { StatusLine } from "./StatusLine";
 import type {
   WorkspaceAudioControlState,
@@ -21,7 +22,7 @@ import type {
 const TEXT_SWATCHES = ["#ffffff", "#fef08a", "#facc15", "#7dd3fc", "#fca5a5", "#231f1b", "#0b0d12"];
 const BOX_SWATCHES = ["#0c0f16", "#faf5e8", "#facc15", "#0c2a4a", "#1e293b", "#451a03", "#3b0764"];
 
-type MenuId = "captions" | "style" | "colors" | "opacity" | "position" | "quality";
+type MenuId = "captions" | "style" | "colors" | "opacity" | "position" | "quality" | "music";
 
 export interface OptionsBarProps {
   optionsConfig?: WorkspaceOptionsConfig;
@@ -265,6 +266,36 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
               </button>
             )}
           </div>
+          {audio.musicPicker && visible.audioTracks.includes("music") && (
+            <>
+              <i className="aw-bar-sep" />
+              <div className="aw-menu-wrap">
+                <button
+                  ref={(el) => {
+                    triggerRefs.current.music = el;
+                  }}
+                  type="button"
+                  className={`aw-pill-item${openMenu === "music" ? " active" : ""}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={openMenu === "music"}
+                  title="Choose or describe the music"
+                  onClick={() => setOpenMenu(openMenu === "music" ? null : "music")}
+                >
+                  <span>Choose music</span>
+                  <span className="aw-caret">▾</span>
+                </button>
+                {openMenu === "music" && (
+                  <div ref={dialogRef} className="aw-dialog aw-music-dialog" role="dialog" aria-label="Music">
+                    <div className="aw-dialog-head">
+                      <b>Music</b>
+                      <span>Pick a mood, or describe it and we make it</span>
+                    </div>
+                    <MusicPicker {...audio.musicPicker} />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </>
       )}
 

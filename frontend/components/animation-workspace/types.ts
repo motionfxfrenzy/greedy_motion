@@ -97,6 +97,8 @@ export interface WorkspaceAudioControlState {
   onToggleMusic: () => void;
   onToggleSfx: () => void;
   onToggleTransitions: () => void;
+  /** When set, the Audio tab offers a Music menu: pick a mood or describe the music, suggest one, make it. */
+  musicPicker?: import("./MusicPicker").MusicPickerProps;
 }
 
 export interface WorkspaceSubtitleControlState {

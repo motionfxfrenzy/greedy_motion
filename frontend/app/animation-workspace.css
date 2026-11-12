@@ -441,3 +441,16 @@
 .aw-confirm-list{margin:0;padding-left:18px;display:grid;gap:6px;color:var(--body);font-size:14px;line-height:1.45}
 .aw-confirm-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:4px}
 @media (max-width:440px){.aw-confirm-actions{flex-direction:column;align-items:stretch}.aw-confirm-actions button{width:100%}}
+
+/* Music menu on the Audio tab: moods, a description box, Suggest and Make music. */
+.aw-music-dialog{width:340px}
+.aw-music{display:grid;gap:10px}
+.aw-music-presets{display:flex;flex-wrap:wrap;gap:6px}
+.aw-music-field{display:grid;gap:4px;font-size:12px;color:var(--muted)}
+.aw-music-field textarea{box-sizing:border-box;width:100%;resize:none;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--d-bg-ffffff,#fff);color:var(--ink);font:inherit;font-size:13px;line-height:1.35}
+.aw-music-field textarea:focus{outline:2px solid var(--blue);outline-offset:1px}
+.aw-music-field small{justify-self:end;font-size:11px;color:var(--muted)}
+.aw-music-actions{display:flex;gap:8px;justify-content:flex-end}
+.aw-music-actions .aw-track-chip{height:30px;padding:0 12px;font-size:12px}
+.aw-music-actions .aw-track-chip:disabled,.aw-music-presets .aw-track-chip:disabled{opacity:.55;cursor:not-allowed}
+.aw-music-error{margin:0;color:var(--d-tx-b42318,#b42318);font-size:12px}

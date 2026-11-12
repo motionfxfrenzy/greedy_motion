@@ -15,8 +15,20 @@ import { familiesOfLook } from "./style-families.ts";
 
 export type GalleryKind = "starter" | "explainer" | "skill" | "style";
 
+/**
+ * The shape of a product film, chosen by its template (the visual style comes from the template's look and theme).
+ * - "launch-sections": a launch film in sections (hook in the viewer's world, brand reveal, the one-line promise with the product
+ *   on screen, three or four feature sections each with a small label, a headline with one highlighted word and a product card,
+ *   proof, and an end card), like a product launch page set in motion.
+ * - "ui-moments": wordless-feeling product demos, one interface piece at a time (a list, a control, a tab switch, a figure counting up,
+ *   a prompt bar, an approval), each centred on a plain ground with a cursor doing the work.
+ */
+export type ProductFlow = "launch-sections" | "ui-moments";
+
 export type GalleryTemplate = {
   id: string;
+  /** How a product film from this template is structured; "launch-sections" when absent. */
+  flow?: ProductFlow;
   kind: GalleryKind;
   name: string;
   group: string;
@@ -56,7 +68,7 @@ const lookPreview = (id: LookId) => getLook(id).preview;
 
 const curated: readonly GalleryTemplate[] = [
   {
-    id: "product-launch", kind: "starter", starterId: "product-launch", name: "Product launch", group: "Launch",
+    id: "product-launch", flow: "launch-sections", kind: "starter", starterId: "product-launch", name: "Product launch", group: "Launch",
     summary: "Hook, product reveal, three features, the benefit and a call to action.",
     bestFor: "Announcing a new product or a major relaunch",
     preview: still("/templates/product-launch.jpg", "Rendered still"),
@@ -64,7 +76,7 @@ const curated: readonly GalleryTemplate[] = [
     prompt: "Launch video for Relay, a tool that turns SaaS product updates into short motion videos for marketing teams. Hook with the problem, reveal the product, show three features, end with a call to start free."
   },
   {
-    id: "feature-spotlight", kind: "starter", starterId: "feature-spotlight", name: "Feature spotlight", group: "Feature",
+    id: "feature-spotlight", flow: "ui-moments", kind: "starter", starterId: "feature-spotlight", name: "Feature spotlight", group: "Feature",
     summary: "A headline, your screenshot pushed in, a callout, the benefit and a call to action.",
     bestFor: "Showing one feature with a real product screenshot",
     preview: still("/templates/feature-spotlight.jpg", "Rendered still"),
@@ -72,7 +84,7 @@ const curated: readonly GalleryTemplate[] = [
     prompt: "Spotlight the profit dashboard in Northwind, which shows ecommerce teams their real margin after fees for every order. Show the dashboard, call out the live margin figure, and end with a call to try it free."
   },
   {
-    id: "feature-walkthrough", kind: "skill", name: "Narrated walkthrough", group: "Feature",
+    id: "feature-walkthrough", flow: "ui-moments", kind: "skill", name: "Narrated walkthrough", group: "Feature",
     summary: "A voice names each action and an oversized cursor performs it on your real screens.",
     bestFor: "Explaining how a feature works, step by step",
     preview: still("/previews/looks/clean.png", "Layout draft"),
@@ -88,7 +100,7 @@ const curated: readonly GalleryTemplate[] = [
     prompt: "Highlight that teams using Relay spent 72% less time on launch videos last quarter, from our customer survey. Lead with the number, then say what it means."
   },
   {
-    id: "whats-new", kind: "starter", starterId: "whats-new", name: "What's new", group: "Release",
+    id: "whats-new", flow: "launch-sections", kind: "starter", starterId: "whats-new", name: "What's new", group: "Release",
     summary: "A version badge, the release title, three shipped updates and a closing line.",
     bestFor: "Release notes, monthly updates and changelogs",
     preview: still("/templates/whats-new.jpg", "Rendered still"),
@@ -120,7 +132,7 @@ const curated: readonly GalleryTemplate[] = [
     prompt: "Show new users how Tidyslot works in three steps: pick a meeting type, share your booking link, and watch confirmed bookings land in your calendar. Friendly and simple."
   },
   {
-    id: "narrated-product-minute", kind: "explainer", name: "One-minute narrated explainer", group: "Explainer",
+    id: "narrated-product-minute", flow: "launch-sections", kind: "explainer", name: "One-minute narrated explainer", group: "Explainer",
     summary: "A calm narrated minute written for a first-time visitor to your site.",
     bestFor: "Landing pages and onboarding: what it is, who it helps, what next",
     preview: still("/previews/looks/clean.png", "Layout draft"),
@@ -156,7 +168,7 @@ const curated: readonly GalleryTemplate[] = [
     prompt: "Make a dynamic 15-second motion graphics showreel for Motion Studio, like a resume reel for an incredible motion designer. Open on a tilted wall of condensed uppercase type that slides in alternating rows, then cut hard on the beat between single huge words and simple shapes, flip a grid of small motion ideas, bring the type wall back faster, and close on the studio name with a short line. Every cut lands on the beat. Paper-white, black and one red accent."
   },
   {
-    id: "prompt-to-result-story", kind: "explainer", name: "Product motion-graphics video", group: "Explainer",
+    id: "prompt-to-result-story", flow: "launch-sections", kind: "explainer", name: "Product motion-graphics video", group: "Explainer",
     summary: "Paper shards sweep across a deep gradient panel, then settle around the product name and one line.",
     bestFor: "Launch teasers and product intros that research the product first",
     preview: still("/previews/looks/clean.png", "Layout draft"),
@@ -320,6 +332,9 @@ export const scriptWriterTemplates: readonly GalleryTemplate[] = curated.filter(
 
 export const galleryIds = galleryTemplates.map((item) => item.id);
 export const findGalleryTemplate = (id: string | null | undefined) => everyGalleryTemplate.find((item) => item.id === id);
+
+/** The flow a product film follows: its template's, else the launch-page sections. */
+export const productFlowFor = (styleExample: string | null | undefined): ProductFlow => findGalleryTemplate(styleExample)?.flow ?? "launch-sections";
 
 /**
  * A film (a story or an explainer) rather than a product video: it needs no product site, name, audience, brand kit,

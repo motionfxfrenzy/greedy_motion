@@ -503,6 +503,18 @@ export async function generatePlanAudio(projectId: string, parts?: ("voice" | "m
   return parse<PlanAudioResult>(response, "Could not make the voice and music.");
 }
 
+/** A one-line music description written from this film's idea, pace and scenes. */
+export async function suggestMusic(projectId: string) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/music/suggest", { method: "POST" });
+  return parse<{ prompt: string }>(response, "Could not suggest music.");
+}
+
+/** Saves the person's music description on the film; the music is made by generatePlanAudio(id, ["music"]). */
+export async function saveMusicPrompt(projectId: string, prompt: string) {
+  const response = await apiFetch(apiOrigin + "/v1/projects/" + encodeURIComponent(projectId) + "/music/prompt", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
+  return parse<{ project: VideoProject; prompt: string }>(response, "Could not save the music description.");
+}
+
 /** Runs the script director (30–60 s): saves the brief, beat plan, and a matching script on the project. */
 /** Starts the script director on the server (it keeps running if the page closes); the answer is the project with `planning` set. */
 export async function planProject(projectId: string, brief: ScriptBrief) {

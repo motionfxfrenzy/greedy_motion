@@ -48,6 +48,7 @@ import {
   commitPlanCommentEdits,
   editPlan,
   ensureMediaToken,
+  generatePlanAudio,
   getComposition,
   getMyTokens,
   getPlates,
@@ -55,7 +56,9 @@ import {
   PlanEditRefusedError,
   projectScreenshotUrl,
   proposePlanCommentEdits,
+  saveMusicPrompt,
   savePlateSubtitles,
+  suggestMusic,
   undoPlanElementOverride,
   type PlanAudioStatus
 } from "../lib/api";
@@ -1520,7 +1523,13 @@ export function BrowserAnimationStep({
           onToggleVoice: () => handleToggleAudio("voice"),
           onToggleMusic: () => handleToggleAudio("music"),
           onToggleSfx: nop,
-          onToggleTransitions: nop
+          onToggleTransitions: nop,
+          musicPicker: {
+            current: project.brief?.audio.musicMood ?? project.beatPlan?.audio.music?.prompt ?? "",
+            onSuggest: async () => (await suggestMusic(project.id)).prompt,
+            // The new bed replaces the old one everywhere (preview, comments, render), so the page reloads once it is made.
+            onMake: async (prompt) => { await saveMusicPrompt(project.id, prompt); await generatePlanAudio(project.id, ["music"]); window.location.reload(); }
+          }
         }}
         subtitleControls={{
           mode: subMode,

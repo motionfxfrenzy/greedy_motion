@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scriptFrameKey, voiceText, type VideoProject } from "@videosaas/contracts";
-import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, getPlates, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, retryPlateScene, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
+import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, generatePlanAudio, getPlates, saveMusicPrompt, suggestMusic, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, retryPlateScene, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
 import {
   SfxCueTracker,
   WebAudioFilmTimeline,
@@ -1525,7 +1525,12 @@ export function PlatePreview({
     aspects={aspectOptions}
     onSelectAspect={selectOrDrawAspect}
     errors={errors}
-    audioControls={{ voice: voiceOn, music: musicOn, sfx: sfxOn, transitions: transitionsOn, onToggleVoice: toggleVoice, onToggleMusic: toggleMusic, onToggleSfx: toggleSfx, onToggleTransitions: toggleTransitions }}
+    audioControls={{ voice: voiceOn, music: musicOn, sfx: sfxOn, transitions: transitionsOn, onToggleVoice: toggleVoice, onToggleMusic: toggleMusic, onToggleSfx: toggleSfx, onToggleTransitions: toggleTransitions, musicPicker: {
+      current: project.brief?.audio.musicMood ?? project.beatPlan?.audio.music?.prompt ?? "",
+      onSuggest: async () => (await suggestMusic(project.id)).prompt,
+      // The new bed replaces the old one everywhere (preview, comments, render), so the page reloads once it is made.
+      onMake: async (prompt) => { await saveMusicPrompt(project.id, prompt); await generatePlanAudio(project.id, ["music"]); window.location.reload(); }
+    } }}
     subtitleControls={{ mode: subMode, style: subStyle, size: subSize, opacity: subOpacity, textColor: subColor, bgColor: subBgColor, effectiveTextColor, effectiveBgColor, position: curScenePos, currentSceneIndex: current, onSelectMode: chooseSubMode, onSelectStyle: chooseSubStyle, onStepSize: changeSubSize, onChangeTextColor: changeSubColor, onChangeBgColor: changeSubBgColor, onChangeOpacity: setSubOpacityDirect, onChangeScenePosition: setSceneSubtitlePos, onApplyPositionToAll: applyPosToAllScenes, onResetCustomization: resetSubCustomization }}
     previewQualityControls={{
       quality: previewQuality,

@@ -50,6 +50,7 @@ import { readGalleryText } from "../gallery.ts";
 import { rewriteBeat } from "./rewrite-beat.ts";
 import { SFX } from "./sound.ts";
 import { registerSiteRoutes } from "../site/routes.ts";
+import { cleanMusicPrompt, suggestMusicPrompt } from "./music-suggest.ts";
 import { planReadiness } from "./readiness.ts";
 import { textValues } from "./composition.ts";
 import { planPreviewHtml, projectTiming } from "./preview.ts";
@@ -2487,6 +2488,37 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       if (audioReservationId) await releaseStepReservation(audioReservationId).catch(() => undefined);
       if (error instanceof AudioUnavailable) return reply.code(503).send({ error: { code: "audio_unavailable", message: error.message } });
       return reply.code(502).send(upstreamError(request, error, "audio_failed", "The voiceover failed."));
+    }
+  });
+
+  /** A music description for this film (genre, instruments, how it moves), written from its idea, pace and scenes, for the music box on the Animation step. */
+  app.post<{ Params: { id: string } }>("/v1/projects/:id/music/suggest", async (request, reply) => {
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (!project.beatPlan && !project.brief?.scriptBeats?.length) return reply.code(409).send({ error: { code: "no_plan", message: "Write the script first." } });
+    const timing = projectTiming(project);
+    const seconds = timing?.total ?? (project.brief ? effectiveBriefDurationSeconds(project.brief) : 30);
+    try {
+      return { prompt: await suggestMusicPrompt(project, seconds, AbortSignal.timeout(30_000)) };
+    } catch (error) {
+      return reply.code(502).send(upstreamError(request, error, "music_suggest_failed", "Could not suggest music."));
+    }
+  });
+
+  /** Saves the person's music description on the film (the brief and the plan), so the next "make music" uses it. The music itself is made by /plan/audio. */
+  app.put<{ Params: { id: string }; Body: { prompt?: unknown } }>("/v1/projects/:id/music/prompt", async (request, reply) => {
+    const prompt = typeof request.body?.prompt === "string" ? cleanMusicPrompt(request.body.prompt) : "";
+    if (!prompt) return reply.code(400).send({ error: { code: "invalid_prompt", message: "Describe the music in a few words." } });
+    try {
+      const updated = await updateProjectPlan(request.params.id, (current) => ({
+        brief: current.brief ? { ...current.brief, audio: { ...current.brief.audio, musicMood: prompt } } : current.brief,
+        beatPlan: current.beatPlan?.audio.music ? { ...current.beatPlan, audio: { ...current.beatPlan.audio, music: { ...current.beatPlan.audio.music, prompt } } } : current.beatPlan
+      }));
+      if (!updated) return reply.code(404).send(notFound);
+      return { project: updated, prompt };
+    } catch (error) {
+      if (error instanceof ProjectInvalid) return reply.code(409).send({ error: { code: "project_busy", message: error.message } });
+      throw error;
     }
   });
 
