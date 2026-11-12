@@ -5,7 +5,7 @@ process.env.DATABASE_URL ??= "postgres://unused@localhost/unused";
 process.env.PLANNER ??= "deterministic";
 
 const { STEPS, NOT_ROUTED } = await import("../src/models/steps.ts");
-const { routeFor, allRoutes, validateRoutes, routeWarnings } = await import("../src/models/routes.ts");
+const { routeFor, allRoutes, validateRoutes, routeWarnings, parseModelSpec } = await import("../src/models/routes.ts");
 const { PRICES, MAX_OUTPUT, usdFor, registerPrice, maxOutputFor } = await import("../src/models/prices.ts");
 const { callModel, streamModel, ladder, supportsPromptCacheGate, geminiThinkingLevel } = await import("../src/models/providers.ts");
 
@@ -96,23 +96,29 @@ function sseResponse(lines, status = 200) {
 
   const srOwn = routeFor("sceneRepair", {
     MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash",
-    MODEL_SCENE_REPAIR: "anthropic:claude-opus-5-5"
+    MODEL_SCENE_REPAIR: "anthropic:claude-haiku-5-5"
   });
   assert.equal(srOwn.provider, "anthropic");
-  assert.equal(srOwn.model, "claude-opus-5-5");
+  assert.equal(srOwn.model, "claude-haiku-5-5");
 
   // Parent inheritance for script -> scriptWrite & sceneInsert
-  const swScript = routeFor("scriptWrite", { MODEL_SCRIPT: "gemini:gemini-4-argon" });
-  assert.equal(swScript.provider, "gemini");
-  assert.equal(swScript.model, "gemini-4-argon");
+  const swScript = routeFor("scriptWrite", { MODEL_SCRIPT: "anthropic:claude-haiku-5-5" });
+  assert.equal(swScript.model, "claude-haiku-5-5");
+  assert.equal(swScript.effort, "low");
   // Step-default effort "low" is dropped when provider changed from anthropic to gemini without explicit EFFORT_*
-  assert.equal(swScript.effort, undefined);
+  assert.equal(routeFor("frameSketch", {}, "premium").effort, "low");
+  assert.equal(routeFor("frameSketch", {}).effort, undefined);
+
+  // Outside the tier's allowed models (Argon, OpenAI-compatible, Opus on Standard, plain MODEL_<ENV> on Premium): ignored.
+  assert.equal(routeFor("scriptWrite", { MODEL_SCRIPT: "gemini:gemini-4-argon" }).model, "gemini-3.8-flash");
+  assert.equal(routeFor("script", { MODEL_SCRIPT: "openai:gpt-4.1-mini", BASE_URL_SCRIPT: "https://api.example.com/v1/" }).provider, "gemini");
+  assert.equal(routeFor("script", { MODEL_SCRIPT: "claude-opus-5-5" }).model, "gemini-3.8-flash");
+  assert.equal(routeFor("sceneWriter", { MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash" }, "premium").model, "claude-opus-5-5");
 
   // Per-tier env overrides: MODEL_<ENV>_<TIER> beats MODEL_<ENV> beats the tier table.
   assert.equal(routeFor("sceneWriter", { MODEL_SCENE_WRITER_PREMIUM: "claude-opus-5-5" }, "premium").model, "claude-opus-5-5");
   assert.equal(routeFor("sceneWriter", { MODEL_SCENE_WRITER_PREMIUM: "claude-haiku-5-5" }).model, "gemini-3.8-flash");
   assert.equal(routeFor("sceneWriter", { MODEL_SCENE_WRITER: "claude-haiku-5-5", MODEL_SCENE_WRITER_STANDARD: "gemini-3.8-flash" }).model, "gemini-3.8-flash");
-  assert.equal(routeFor("sceneRepair", { MODEL_SCENE_WRITER_PREMIUM: "claude-haiku-5-5" }, "premium").model, "claude-haiku-5-5");
 
   // EFFORT and MAX_TOKENS parsing & inheritance
   const effRoute = routeFor("sceneRepair", {
@@ -132,22 +138,10 @@ function sseResponse(lines, status = 200) {
   assert.equal(effOwnWins.effort, "low");
   assert.equal(effOwnWins.maxTokens, 12000);
 
-  // Bare claude-* / gemini-* inference & openai alias
-  assert.deepEqual(
-    { p: routeFor("script", { MODEL_SCRIPT: "claude-opus-5-5" }).provider, m: routeFor("script", { MODEL_SCRIPT: "claude-opus-5-5" }).model },
-    { p: "anthropic", m: "claude-opus-5-5" }
-  );
-  assert.deepEqual(
-    { p: routeFor("script", { MODEL_SCRIPT: "gemini-3.8-flash" }).provider, m: routeFor("script", { MODEL_SCRIPT: "gemini-3.8-flash" }).model },
-    { p: "gemini", m: "gemini-3.8-flash" }
-  );
-  const oai = routeFor("script", {
-    MODEL_SCRIPT: "openai:gpt-4.1-mini",
-    BASE_URL_SCRIPT: "https://api.example.com/v1/"
-  });
-  assert.equal(oai.provider, "openai-compatible");
-  assert.equal(oai.model, "gpt-4.1-mini");
-  assert.equal(oai.baseUrl, "https://api.example.com/v1");
+  // Bare claude-* / gemini-* inference & openai alias (parsing only: openai-compatible is outside both tier policies)
+  assert.deepEqual(parseModelSpec("claude-opus-5-5", "X"), { provider: "anthropic", model: "claude-opus-5-5" });
+  assert.deepEqual(parseModelSpec("gemini-3.8-flash", "X"), { provider: "gemini", model: "gemini-3.8-flash" });
+  assert.deepEqual(parseModelSpec("openai:gpt-4.1-mini", "X"), { provider: "openai-compatible", model: "gpt-4.1-mini" });
 }
 
 // ============================================================================
@@ -196,12 +190,8 @@ function sseResponse(lines, status = 200) {
   assert.match(msg, /MODEL_MOTION: cannot infer provider for bare model "llama-3\.3-70b"/);
   assert.match(msg, /EFFORT_FRAME_SKETCH: invalid effort "turbo"/);
   assert.match(msg, /MAX_TOKENS_SCREENSHOT: must be a positive integer/);
-  assert.match(msg, /Step "voiceAlign" \(MODEL_VOICE_ALIGN\) requires provider "gemini", got "anthropic"/);
-  assert.match(msg, /Step "siteRead" \(MODEL_SITE_READ\) requires provider "gemini", got "anthropic"/);
-  assert.match(msg, /Step "formatFill" uses provider "openai-compatible" but neither BASE_URL_FORMAT_FILL nor OPENAI_COMPATIBLE_BASE_URL is set/);
   assert.match(msg, /Missing ANTHROPIC_API_KEY/);
   assert.match(msg, /Missing GEMINI_API_KEY/);
-  assert.match(msg, /Missing OPENAI_COMPATIBLE_API_KEY/);
 
   // Model-less value check
   assert.throws(
@@ -216,12 +206,31 @@ function sseResponse(lines, status = 200) {
     MODEL_PRICE_GPT_4O: "2.5,10,1.25",
     MODEL_SCEEN_WRITER: "gemini:gemini-3.8-flash"
   });
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /MODEL_SCEEN_WRITER/);
+  assert.equal(warnings.filter((w) => /Unknown model routing env/.test(w)).length, 1);
+  assert.ok(warnings.some((w) => /MODEL_SCEEN_WRITER/.test(w)));
+  assert.ok(warnings.some((w) => /MODEL_SCENE_WRITER applies to Standard only/.test(w)));
   // Legacy tier-blind vars are flagged as ignored; an override outside a tier's policy is flagged.
   const legacyWarn = routeWarnings({ PLATE_MODEL: "claude-opus-5-5", MODEL_SCENE_WRITER_STANDARD: "claude-opus-5-5" });
   assert.ok(legacyWarn.some((w) => /PLATE_MODEL is set but ignored/.test(w)));
-  assert.ok(legacyWarn.some((w) => /sceneWriter" on standard resolves to anthropic:claude-opus-5-5/.test(w)));
+  assert.ok(legacyWarn.some((w) => /MODEL_SCENE_WRITER_STANDARD=claude-opus-5-5 is ignored on standard/.test(w)));
+}
+
+// The adapter sections feed the provider layer routes that the tier policy would refuse (OpenAI-compatible, Argon, ...):
+// build them from MODEL_<STEP> directly, bypassing the policy filter in routeFor.
+function adapterRoute(step, env = {}) {
+  const def = STEPS[step];
+  const raw = env[`MODEL_${def.env}`] ?? (def.parent ? env[`MODEL_${STEPS[def.parent].env}`] : undefined);
+  if (!raw) return routeFor(step, env);
+  const base = routeFor(step, {});
+  const { provider, model } = parseModelSpec(raw, "test");
+  const effortEnv = env[`EFFORT_${def.env}`] ?? (def.parent ? env[`EFFORT_${STEPS[def.parent].env}`] : undefined);
+  const maxEnv = env[`MAX_TOKENS_${def.env}`] ?? (def.parent ? env[`MAX_TOKENS_${STEPS[def.parent].env}`] : undefined);
+  const baseUrl = env[`BASE_URL_${def.env}`] ?? (def.parent ? env[`BASE_URL_${STEPS[def.parent].env}`] : undefined) ?? env.OPENAI_COMPATIBLE_BASE_URL;
+  const effort = effortEnv ?? (def.effort && provider === def.legacy({}).provider ? def.effort : undefined);
+  return {
+    step, provider, model, maxTokens: maxEnv ? Number(maxEnv) : base.maxTokens, explicit: true,
+    ...(effort ? { effort } : {}), ...(provider === "openai-compatible" && baseUrl ? { baseUrl: baseUrl.replace(/\/+$/, "") } : {})
+  };
 }
 
 // Section 4 exercises the adapters on Claude/Gemini routes, so pin those steps by env (the tier table would pick Flash).
@@ -230,7 +239,7 @@ Object.assign(process.env, {
   MODEL_SCENE_WRITER: "claude-haiku-5-5",
   MODEL_SCRIPT: "claude-opus-5-5",
   MODEL_SCRIPT_WRITE: "claude-haiku-5-5",
-  MODEL_DIRECTOR: "claude-opus-5-5"
+  MODEL_DIRECTOR: "claude-haiku-5-5"
 });
 
 // ============================================================================
@@ -338,7 +347,7 @@ Object.assign(process.env, {
   let gemBody = null;
   let gemHeaders = null;
   process.env.GEMINI_API_KEY = "test-gemini-key-secret";
-  const gemRoute = routeFor("sceneWriter", {
+  const gemRoute = adapterRoute("sceneWriter", {
     MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash",
     EFFORT_SCENE_WRITER: "xhigh",
     MAX_TOKENS_SCENE_WRITER: "100000" // exceeds 65536 cap
@@ -422,7 +431,7 @@ Object.assign(process.env, {
   // 4d. Gemini MAX_TOKENS with empty parts (thinking ate whole budget) -> returns stopReason: "max_tokens"
   const gemMaxRes = await callModel({
     step: "sceneWriter",
-    route: routeFor("sceneWriter", { MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash" }),
+    route: adapterRoute("sceneWriter", { MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash" }),
     system: "sys",
     messages: [{ role: "user", content: "hi" }],
     log: () => {},
@@ -443,7 +452,7 @@ Object.assign(process.env, {
   ]) {
     const refRes = await callModel({
       step: "script",
-      route: routeFor("script", { MODEL_SCRIPT: "gemini:gemini-3.8-flash" }),
+      route: adapterRoute("script", { MODEL_SCRIPT: "gemini:gemini-3.8-flash" }),
       system: "sys",
       messages: [{ role: "user", content: "hi" }],
       log: () => {},
@@ -456,7 +465,7 @@ Object.assign(process.env, {
   const gemStreamChunks = [];
   const gemStreamRes = await callModel({
     step: "sceneWriter",
-    route: routeFor("sceneWriter", { MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash" }),
+    route: adapterRoute("sceneWriter", { MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash" }),
     stream: true,
     system: "sys",
     messages: [{ role: "user", content: "stream me" }],
@@ -479,7 +488,7 @@ Object.assign(process.env, {
   process.env.OPENAI_COMPATIBLE_API_KEY = "oai-secret-key";
   let oaiBody = null;
   let oaiHeaders = null;
-  const oaiRouteImplicitEffort = routeFor("frameSketch", {
+  const oaiRouteImplicitEffort = adapterRoute("frameSketch", {
     MODEL_FRAME_SKETCH: "openai-compatible:deepseek-chat",
     BASE_URL_FRAME_SKETCH: "https://openrouter.example/v1"
   });
@@ -526,7 +535,7 @@ Object.assign(process.env, {
   assert.equal(oaiRes1.stopReason, "end");
 
   // With explicit EFFORT_FRAME_SKETCH, reasoning_effort IS sent, and length -> max_tokens, content_filter -> refusal
-  const oaiRouteExplicitEffort = routeFor("frameSketch", {
+  const oaiRouteExplicitEffort = adapterRoute("frameSketch", {
     MODEL_FRAME_SKETCH: "openai:o3-mini",
     BASE_URL_FRAME_SKETCH: "https://openrouter.example/v1",
     EFFORT_FRAME_SKETCH: "medium"
@@ -554,7 +563,7 @@ Object.assign(process.env, {
   const gemDelays = [];
   const retryRes = await callModel({
     step: "script",
-    route: routeFor("script", { MODEL_SCRIPT: "gemini:gemini-3.8-flash" }),
+    route: adapterRoute("script", { MODEL_SCRIPT: "gemini:gemini-3.8-flash" }),
     system: "sys",
     messages: [{ role: "user", content: "hi" }],
     sleep: async (ms) => gemDelays.push(ms),
@@ -582,7 +591,7 @@ Object.assign(process.env, {
     () =>
       callModel({
         step: "script",
-        route: routeFor("script", { MODEL_SCRIPT: "gemini:gemini-3.8-flash" }),
+        route: adapterRoute("script", { MODEL_SCRIPT: "gemini:gemini-3.8-flash" }),
         system: "sys",
         messages: [{ role: "user", content: "secret-user-prompt" }],
         errorPrefix: "Script call failed",
@@ -607,19 +616,19 @@ Object.assign(process.env, {
   for (const [provider, route, mockResp, expectedMsg] of [
     [
       "anthropic",
-      routeFor("script", { MODEL_SCRIPT: "claude-opus-5-5" }),
+      adapterRoute("script", { MODEL_SCRIPT: "claude-opus-5-5" }),
       () => Response.json({ content: [], stop_reason: "refusal", usage: {} }),
       "Custom refusal message"
     ],
     [
       "gemini",
-      routeFor("script", { MODEL_SCRIPT: "gemini:gemini-3.8-flash" }),
+      adapterRoute("script", { MODEL_SCRIPT: "gemini:gemini-3.8-flash" }),
       () => Response.json({ candidates: [{ finishReason: "MAX_TOKENS" }], usageMetadata: {} }),
       "Custom max_tokens message"
     ],
     [
       "openai-compatible",
-      routeFor("script", { MODEL_SCRIPT: "openai:gpt-4.1", BASE_URL_SCRIPT: "https://example.com/v1" }),
+      adapterRoute("script", { MODEL_SCRIPT: "openai:gpt-4.1", BASE_URL_SCRIPT: "https://example.com/v1" }),
       () => Response.json({ choices: [{ message: { content: "" }, finish_reason: "content_filter" }] }),
       "Custom refusal message"
     ]
@@ -693,7 +702,7 @@ Object.assign(process.env, {
   assert.equal(antLadder[2].maxTokens, 128000);
   assert.equal(antLadder[2].effort, "high");
 
-  const gemLadder = ladder(routeFor("sceneWriter", { MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash" }));
+  const gemLadder = ladder(adapterRoute("sceneWriter", { MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash" }));
   assert.equal(gemLadder.length, 3);
   assert.equal(gemLadder[0].maxTokens, 24000);
   assert.equal(gemLadder[1].maxTokens, 65536);
@@ -701,7 +710,7 @@ Object.assign(process.env, {
   assert.equal(gemLadder[2].effort, "high");
 
   const oaiLadder = ladder(
-    routeFor("sceneWriter", {
+    adapterRoute("sceneWriter", {
       MODEL_SCENE_WRITER: "openai:gpt-4.1",
       BASE_URL_SCENE_WRITER: "https://example.com/v1"
     })
@@ -714,7 +723,7 @@ Object.assign(process.env, {
 
   // When tier 0 maxTokens equals maxOutputFor, tier 1 is skipped
   const cappedGemLadder = ladder(
-    routeFor("sceneWriter", {
+    adapterRoute("sceneWriter", {
       MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash",
       MAX_TOKENS_SCENE_WRITER: "65536"
     })
@@ -737,7 +746,7 @@ Object.assign(process.env, {
   const lines = [];
   await callModel({
     step: "director",
-    route: routeFor("director", { MODEL_DIRECTOR: "gemini:gemini-3.8-flash" }),
+    route: adapterRoute("director", { MODEL_DIRECTOR: "gemini:gemini-3.8-flash" }),
     system: "sys",
     messages: [{ role: "user", content: "go" }],
     log: (l) => lines.push(JSON.parse(l)),
@@ -784,7 +793,7 @@ Object.assign(process.env, {
   const unknownLines = [];
   await callModel({
     step: "director",
-    route: routeFor("director", {
+    route: adapterRoute("director", {
       MODEL_DIRECTOR: "openai:unpriced-local-model",
       BASE_URL_DIRECTOR: "https://example.com/v1"
     }),
@@ -816,9 +825,9 @@ console.log("model-routing: defaults, parsing, validation, adapters, streaming, 
   assert.equal(maxOutputFor("gemini", "gemini-4-argon", false), 32768);
   assert.equal(maxOutputFor("gemini", "gemini-3.8-flash", false), 65536);
   const empty = (finish) => Response.json({ candidates: [{ content: {}, finishReason: finish }], usageMetadata: { promptTokenCount: 5, thoughtsTokenCount: 100 } });
-  const r = await callModel({ step: "sceneWriter", route: { ...routeFor("sceneWriter", { GEMINI_API_KEY: "k" }), provider: "gemini", model: "gemini-4-argon" }, system: "s", messages: [{ role: "user", content: "u" }], request: async () => empty("STOP"), log: () => {} });
+  const r = await callModel({ step: "sceneWriter", route: { ...adapterRoute("sceneWriter", { GEMINI_API_KEY: "k" }), provider: "gemini", model: "gemini-4-argon" }, system: "s", messages: [{ role: "user", content: "u" }], request: async () => empty("STOP"), log: () => {} });
   assert.equal(r.stopReason, "max_tokens", "an empty STOP answer (thinking used the budget) is a cut-off");
   assert.equal(r.text, "");
-  await assert.rejects(() => callModel({ step: "sceneWriter", route: { ...routeFor("sceneWriter", {}), provider: "gemini", model: "gemini-4-argon" }, system: "s", messages: [{ role: "user", content: "u" }], request: async () => empty("STOP"), log: () => {}, stopErrors: { max_tokens: "CUT OFF: x" } }), /CUT OFF/);
+  await assert.rejects(() => callModel({ step: "sceneWriter", route: { ...adapterRoute("sceneWriter", {}), provider: "gemini", model: "gemini-4-argon" }, system: "s", messages: [{ role: "user", content: "u" }], request: async () => empty("STOP"), log: () => {}, stopErrors: { max_tokens: "CUT OFF: x" } }), /CUT OFF/);
   console.log("model-routing: dated prices, Argon limits, thinking-only cut-off verified");
 }

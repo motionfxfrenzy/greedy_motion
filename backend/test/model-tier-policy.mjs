@@ -28,11 +28,13 @@ const envs = {
   clean: {},
   staging: { MODEL_DEFAULT: "gemini:gemini-3.8-flash", MODEL_MOTION: "gemini:gemini-3.8-flash", ANTHROPIC_MODEL: "claude-opus-5-5" },
   production: { MODEL_DEFAULT: "gemini:gemini-3.8-flash", MODEL_MOTION: "gemini:gemini-3.8-flash", ANTHROPIC_MODEL: "claude-opus-5-5", PLATE_MODEL: "claude-opus-5-5" },
+  // The exact model-selection env found on staging / production on 2026-11-12 (argon values are the staging/prod differences).
+  railwayStaging: { ANTHROPIC_MODEL: "claude-opus-5-5", MODEL_DEFAULT: "gemini:gemini-3.8-flash", MODEL_DIRECTOR: "gemini:gemini-3.8-flash", MODEL_ELEMENT_EDITS: "gemini:gemini-4-argon", MODEL_FORMAT_FILL: "gemini:gemini-3.8-flash", MODEL_FRAME_SKETCH: "gemini:gemini-3.8-flash", MODEL_MOTION: "gemini:gemini-3.8-flash", MODEL_PLANNER_FILL: "gemini:gemini-3.8-flash", MODEL_PRO_ASSISTANT: "gemini:gemini-3.8-flash", MODEL_REWRITE_BEAT: "gemini:gemini-4-argon", MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash", MODEL_SCREENSHOT: "gemini:gemini-3.8-flash", MODEL_SCRIPT: "gemini:gemini-4-argon", MODEL_SKILL_ROUTING: "gemini:gemini-3.8-flash" },
+  railwayProduction: { ANTHROPIC_MODEL: "claude-opus-5-5", PLATE_MODEL: "claude-opus-5-5", MODEL_DEFAULT: "gemini:gemini-3.8-flash", MODEL_DIRECTOR: "gemini:gemini-3.8-flash", MODEL_ELEMENT_EDITS: "gemini:gemini-4-argon", MODEL_FORMAT_FILL: "gemini:gemini-3.8-flash", MODEL_FRAME_SKETCH: "gemini:gemini-3.8-flash", MODEL_MOTION: "gemini:gemini-3.8-flash", MODEL_PLANNER_FILL: "gemini:gemini-3.8-flash", MODEL_PRO_ASSISTANT: "gemini:gemini-3.8-flash", MODEL_REWRITE_BEAT: "gemini:gemini-4-argon", MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash", MODEL_SCREENSHOT: "gemini:gemini-3.8-flash", MODEL_SCRIPT: "gemini:gemini-3.8-flash", MODEL_SKILL_ROUTING: "gemini:gemini-3.8-flash" },
   hostile: { MODEL_DEFAULT: "claude-sonnet-4-6", ANTHROPIC_MODEL: "claude-sonnet-4-6", PLATE_MODEL: "claude-sonnet-4-6", SCRIPT_MODEL: "claude-sonnet-4-6", FRAME_MODEL: "claude-sonnet-4-6", SCREENSHOT_MODEL: "claude-sonnet-4-6", ANTHROPIC_ROUTING_MODEL: "claude-haiku-4-5-20251001", DIRECTOR_MODEL: "claude-sonnet-4-6" }
 };
 for (const [name, env] of Object.entries(envs)) {
-  // Production's MODEL_MOTION=flash is a tier-blind override and would pin Premium motion to Flash: that is what the warning is for.
-  const pinned = new Set(Object.keys(env).filter((k) => k.startsWith("MODEL_") && k !== "MODEL_DEFAULT"));
+  const pinned = new Set();
   for (const tier of MODEL_TIERS) {
     for (const id of stepIds) {
       const r = routeFor(id, env, tier);
@@ -46,11 +48,11 @@ for (const [name, env] of Object.entries(envs)) {
   assert.equal(routeFor("script", env).model, "gemini-3.8-flash", "no tier given = Standard");
 }
 assert.ok(routeWarnings(envs.production).some((w) => /PLATE_MODEL is set but ignored/.test(w)));
-assert.ok(routeWarnings(envs.production).some((w) => /"motion" on premium resolves to gemini:gemini-3.8-flash/.test(w)), "MODEL_MOTION=flash on prod would pin Premium motion to Flash");
+assert.ok(routeWarnings(envs.production).some((w) => /MODEL_MOTION applies to Standard only/.test(w)));
 
 // 3. Env overrides: per-tier beats tier-blind beats the table.
 assert.equal(routeFor("planner", { MODEL_PLANNER_FILL_STANDARD: "gemini:gemini-3.8-flash" }).model, "gemini-3.8-flash");
-assert.equal(routeFor("planner", { MODEL_PLANNER_FILL_PREMIUM: "anthropic:claude-haiku-5-5" }, "premium").model, "claude-haiku-5-5");
+assert.equal(routeFor("planner", { MODEL_PLANNER_FILL_PREMIUM: "anthropic:claude-opus-5-5" }, "premium").model, "claude-opus-5-5");
 assert.equal(routeFor("planner", { MODEL_PLANNER_FILL: "gemini:gemini-3.8-flash", MODEL_PLANNER_FILL_STANDARD: "claude-haiku-5-5" }).model, "claude-haiku-5-5");
 
 // 4. The frozen per-request snapshot (writer, repair, motion) follows the tier.
@@ -126,4 +128,24 @@ import { fileURLToPath } from "node:url";
   }
   assert.deepEqual(hits, [], `Sonnet referenced in: ${hits.join(", ")}`);
 }
+// 7. Railway env fixtures: plain MODEL_<STEP> is Standard-only and must be allowed; Premium stays Opus; argon is ignored with a warning.
+for (const env of [envs.railwayStaging, envs.railwayProduction]) {
+  for (const id of stepIds) {
+    const std = routeFor(id, env, "standard"), prem = routeFor(id, env, "premium");
+    assert.ok(isAllowedModel("standard", std.provider, std.model, id), `std ${id} ${std.model}`);
+    assert.ok(isAllowedModel("premium", prem.provider, prem.model, id), `prem ${id} ${prem.model}`);
+    if (!GEMINI_ONLY_STEPS.includes(id)) assert.equal(prem.model, "claude-opus-5-5", `premium ${id}`);
+  }
+  assert.equal(routeFor("elementEdits", env, "standard").model, "claude-haiku-5-5", "argon override ignored -> table (Haiku)");
+  assert.equal(routeFor("rewriteBeat", env, "standard").model, "gemini-3.8-flash");
+  assert.equal(routeFor("motion", env, "premium").model, "claude-opus-5-5");
+  const w = routeWarnings(env);
+  assert.ok(w.some((x) => /MODEL_ELEMENT_EDITS=gemini:gemini-4-argon is ignored on standard/.test(x)));
+  assert.ok(w.some((x) => /MODEL_REWRITE_BEAT=gemini:gemini-4-argon is ignored on standard/.test(x)));
+}
+assert.equal(routeFor("script", envs.railwayStaging, "standard").model, "gemini-3.8-flash", "staging argon MODEL_SCRIPT ignored");
+// Premium override must itself be an allowed Premium model.
+assert.equal(routeFor("motion", { MODEL_MOTION_PREMIUM: "gemini:gemini-3.8-flash" }, "premium").model, "claude-opus-5-5");
+assert.equal(routeFor("planner", { MODEL_PLANNER_FILL_STANDARD: "claude-opus-5-5" }, "standard").model, "claude-haiku-5-5");
+
 console.log("model tier policy: no Sonnet in defaults, price table, or tracked files");

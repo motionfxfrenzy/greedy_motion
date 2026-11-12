@@ -25,7 +25,7 @@ const { llmJson } = await import("../src/llm.ts");
 const { sketchFrame } = await import("../src/plan/frame-sketch.ts");
 
 const schema = { type: "object", properties: { ok: { type: "boolean" } } };
-for (const [step, model] of [["script", "claude-opus-5-5"], ["director", "claude-opus-5-5"], ["screenshot", "claude-opus-5-5"]]) {
+for (const [step, model] of [["script", "claude-haiku-5-5"], ["director", "claude-haiku-5-5"], ["screenshot", "claude-haiku-5-5"]]) {
   process.env[`MODEL_${step.toUpperCase()}`] = `anthropic:${model}`;
   await llmJson({ step, system: "s", user: "u", schema, maxTokens: 1000 });
   assert.match(last().url, /api\.anthropic\.com\/v1\/messages$/, `${step} pinned to Anthropic`);

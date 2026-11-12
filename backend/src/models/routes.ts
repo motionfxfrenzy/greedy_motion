@@ -14,8 +14,9 @@
  *   higher-precedence setting.
  *
  * Precedence for provider + model (highest first):
- *   1. `MODEL_<ENV>_<TIER>` (`_STANDARD` / `_PREMIUM`), then `MODEL_<ENV>`
- *   2. parent's `MODEL_<PARENT_ENV>_<TIER>`, then `MODEL_<PARENT_ENV>`
+ *   1. Standard: `MODEL_<ENV>_STANDARD`, then plain `MODEL_<ENV>`. Premium: `MODEL_<ENV>_PREMIUM` only (plain is ignored).
+ *      An override outside the tier's allowed models (tiers.ts) is ignored and reported by routeWarnings.
+ *   2. the same for the parent step
  *   3. the per-tier table in `tiers.ts` (Standard: Gemini Flash / Haiku 5.5; Premium: Opus 5.5)
  * `MODEL_DEFAULT`, `ANTHROPIC_MODEL` and the old per-step vars (`SCRIPT_MODEL`, `PLATE_MODEL`, ...) are tier-blind and no
  * longer consulted for `anyProvider` steps; Gemini-only steps still honour `VOICE_ALIGN_MODEL` / `SITE_READ_MODEL`.
@@ -105,6 +106,22 @@ function defaultProviderOf(stepDef: StepDef): Provider {
   return stepDef.legacy({}).provider;
 }
 
+/** Env names that may set a step's model on a tier. Standard: `MODEL_<ENV>_STANDARD`, then plain `MODEL_<ENV>`. Premium: `MODEL_<ENV>_PREMIUM` only. */
+function overrideNames(stepDef: StepDef, tier: ModelTier): string[] {
+  return tier === "standard" ? [`MODEL_${stepDef.env}_STANDARD`, `MODEL_${stepDef.env}`] : [`MODEL_${stepDef.env}_PREMIUM`];
+}
+
+/** First override for the step on this tier that is inside the tier's allowed models; others are ignored (see routeWarnings). */
+function modelOverride(def: StepDef, env: NodeJS.ProcessEnv, tier: ModelTier, forStep: StepId = def.id): { provider: Provider; model: string } | undefined {
+  for (const name of overrideNames(def, tier)) {
+    const raw = env[name]?.trim();
+    if (!raw) continue;
+    const spec = parseModelSpec(raw, name);
+    if (isAllowedModel(tier, spec.provider, spec.model, forStep)) return spec;
+  }
+  return undefined;
+}
+
 export function routeFor(step: StepId, env: NodeJS.ProcessEnv = process.env, tier: ModelTier = "standard"): Route {
   const stepDef = STEPS[step];
   if (!stepDef) throw new Error(`Unknown step "${String(step)}".`);
@@ -114,19 +131,16 @@ export function routeFor(step: StepId, env: NodeJS.ProcessEnv = process.env, tie
   let model: string;
   let explicitModel = false;
 
-  const TIER = tier.toUpperCase();
-  const ownModelEnv = env[`MODEL_${stepDef.env}_${TIER}`]?.trim() || env[`MODEL_${stepDef.env}`]?.trim();
-  const parentModelEnv = parentDef ? env[`MODEL_${parentDef.env}_${TIER}`]?.trim() || env[`MODEL_${parentDef.env}`]?.trim() : undefined;
-
-  if (ownModelEnv) {
-    ({ provider, model } = parseModelSpec(ownModelEnv, `MODEL_${stepDef.env}`));
-    explicitModel = true;
-  } else if (parentModelEnv && parentDef) {
-    ({ provider, model } = parseModelSpec(parentModelEnv, `MODEL_${parentDef.env}`));
+  const found = modelOverride(stepDef, env, tier);
+  const foundParent = !found && parentDef ? modelOverride(parentDef, env, tier, stepDef.id) : undefined;
+  const picked = found ?? foundParent;
+  if (picked) {
+    ({ provider, model } = picked);
     explicitModel = true;
   } else if (!stepDef.anyProvider) {
-    // Gemini-only helpers (voice alignment, URL reader): their own legacy var, else Flash.
-    ({ provider, model } = stepDef.legacy(env));
+    // Gemini-only helpers (voice alignment, URL reader): their own legacy var when allowed, else Flash.
+    const legacy = stepDef.legacy(env);
+    ({ provider, model } = isAllowedModel(tier, legacy.provider, legacy.model, step) ? legacy : stepDef.legacy({}));
   } else {
     // Tier policy (see tiers.ts). The tier-blind legacy vars (MODEL_DEFAULT, ANTHROPIC_MODEL, PLATE_MODEL, ...) are not consulted.
     ({ provider, model } = parseModelSpec(TIER_MODELS[tier][step], `TIER_MODELS.${tier}.${step}`));
@@ -214,11 +228,18 @@ export function routeWarnings(env: NodeJS.ProcessEnv = process.env): string[] {
   }
   for (const tier of ["standard", "premium"] as const) {
     for (const stepDef of Object.values(STEPS)) {
-      try {
-        const r = routeFor(stepDef.id, env, tier);
-        if (!isAllowedModel(tier, r.provider, r.model, stepDef.id)) warnings.push(`Step "${stepDef.id}" on ${tier} resolves to ${r.provider}:${r.model}, outside the ${tier} model policy.`);
-      } catch { /* syntax errors are reported by validateRoutes */ }
+      for (const name of overrideNames(stepDef, tier)) {
+        const raw = env[name]?.trim();
+        if (!raw) continue;
+        try {
+          const spec = parseModelSpec(raw, name);
+          if (!isAllowedModel(tier, spec.provider, spec.model, stepDef.id)) warnings.push(`${name}=${raw} is ignored on ${tier}: outside the ${tier} model policy.`);
+        } catch { /* syntax errors are reported by validateRoutes */ }
+      }
     }
+  }
+  for (const stepDef of Object.values(STEPS)) {
+    if (env[`MODEL_${stepDef.env}`]?.trim()) warnings.push(`MODEL_${stepDef.env} applies to Standard only; set MODEL_${stepDef.env}_PREMIUM to change Premium.`);
   }
   return warnings;
 }
