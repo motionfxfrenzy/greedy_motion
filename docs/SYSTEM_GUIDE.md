@@ -90,7 +90,7 @@ The worker runs in AWS account `369904858685`. Production runs in **us-east-1**;
 
 The task is placed in public subnets in VPC `vpc-0ff8c345ca43833d5`, with a public IP for outbound access and a security group with **no inbound rules**. It needs outbound access to Supabase, R2, ECR, Secrets Manager and logging services. Its local port 8080 provides a container health endpoint; it is not a public application API.
 
-**Region move (2026-11-11).** The production worker used to run in `ap-southeast-1` (Singapore); it now runs in `us-east-1`. The old Singapore production resources (cluster `greedymotion-production`, its `worker` service, task definition revisions 1-7, ECR repository, log group and security group) were removed. The Singapore Secrets Manager entries under `greedymotion/production/worker/` were kept for now. Staging stays in `ap-southeast-1`.
+**Region move (2026-11-11).** The production worker used to run in `ap-southeast-1` (Singapore); it now runs in `us-east-1`. The old Singapore production resources (cluster `greedymotion-production`, its `worker` service, task definition revisions 1-7, ECR repository, log group and security group) were removed. The Singapore Secrets Manager entries under `greedymotion/production/worker/` were scheduled for deletion on 2026-11-12 (7-day recovery window). Staging stays in `ap-southeast-1` with its own `greedymotion/staging/worker/` secrets.
 
 Things to remember in `us-east-1`:
 
