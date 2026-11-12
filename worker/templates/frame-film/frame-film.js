@@ -505,16 +505,14 @@
   }
 
   // The scene's directed motion (frame-motion.ts): the frame is the end state; each entry runs on its words.
-  // The camera: the whole frame is never still. It pushes in a little over one scene and eases back out over the next, so each
-  // cut starts exactly where the last scene ended and the picture keeps drifting. One tween on the paused timeline, so it is
-  // deterministic and seek-safe; amplitudes are small enough that the frame still reads as the approved picture.
+  // The camera: the whole frame is never still. Every scene pushes in a little, from scale 1 to 1 + amp over the scene, and the next
+  // scene starts again from scale 1. The camera only ever moves in (never eases back out, never pans), so there is no zoom-out at
+  // a scene start or between scenes and no pop on the cut. One tween on the paused timeline, so it is deterministic and seek-safe;
+  // the amplitude is small enough that the frame still reads as the approved picture.
   function alive(frame) {
     var dur = Math.max(0.6, frame.end - frame.start) + 0.35;
-    var push = frame.index % 2 === 0;
-    var amp = EXPLAINER ? 0.018 : 0.03;
-    var a = push ? 1 : 1 + amp, b = push ? 1 + amp : 1;
-    var panA = push ? 0 : -6, panB = push ? -6 : 0;
-    tl.fromTo(frame.svg, { scale: a, x: panA, transformOrigin: "50% 50%" }, { scale: b, x: panB, duration: dur, ease: "none", immediateRender: false }, frame.start);
+    var amp = EXPLAINER ? 0.018 : 0.018;
+    tl.fromTo(frame.svg, { scale: 1, x: 0, transformOrigin: "50% 50%" }, { scale: 1 + amp, x: 0, duration: dur, ease: "none", immediateRender: false }, frame.start);
     // The brand logo is an image the frame carries in its logo slot: it arrives once the card around it has, and leaves with the scene.
     var logo = frame.svg.querySelector("#brand-logo");
     if (logo) {
@@ -904,17 +902,9 @@
       }
     });
   });
-  // The beat: on each beat of the music the whole picture pops in a touch and settles, so the motion rides the music. The times come from
-  // the server (it listened to the music bed); one tween pair per beat on the paused timeline, so it is deterministic and seek-safe.
-  var pulses = data.pulses || [];
-  if (pulses.length) {
-    var pop = EXPLAINER ? 0.008 : 0.016;
-    gsap.set(host, { transformOrigin: "50% 50%" });
-    pulses.forEach(function (t) {
-      tl.fromTo(host, { scale: 1 }, { scale: 1 + pop, duration: 0.06, ease: "power2.out", immediateRender: false }, t);
-      tl.to(host, { scale: 1, duration: 0.2, ease: "power2.in", immediateRender: false }, t + 0.06);
-    });
-  }
+  // The music's beat times (data.pulses) are deliberately NOT turned into a scale on the whole picture. A scale pop on every
+  // beat (about 2.4 per second at 143 BPM) made the title, the scene and the subtitles throb together and read as a pulsing
+  // film. Nothing here may loop a scale on the camera, the host or a whole subject; accents are single, small and settle.
   // Geometry (getBBox) was measured above while every layer was laid out; now only the timeline shows them.
   frames.forEach(function (frame) { gsap.set(frame.layer, { display: "none" }); });
 })();
