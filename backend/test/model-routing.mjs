@@ -30,35 +30,36 @@ function sseResponse(lines, status = 200) {
 // ============================================================================
 {
   const clean = {};
+  const FLASH = ["gemini", "gemini-3.8-flash"];
+  const HAIKU = ["anthropic", "claude-haiku-5-5"];
+  // Standard (the default tier, also used by steps that run before a tier is chosen): Gemini Flash or Haiku 5.5 only.
   const expectedDefaults = {
-    script: { provider: "anthropic", model: "claude-sonnet-5-5", effort: undefined, maxTokens: 16000 },
-    scriptWrite: { provider: "anthropic", model: "claude-sonnet-4-6", effort: "low", maxTokens: 16000 },
-    sceneInsert: { provider: "anthropic", model: "claude-sonnet-4-6", effort: "low", maxTokens: 900 },
-    director: { provider: "anthropic", model: "claude-opus-5-5", effort: undefined, maxTokens: 16000 },
-    frameSketch: { provider: "anthropic", model: "claude-sonnet-4-6", effort: "low", maxTokens: 6000 },
-    motion: { provider: "anthropic", model: "claude-sonnet-4-6", effort: "low", maxTokens: 3000 },
-    screenshot: { provider: "anthropic", model: "claude-sonnet-5-5", effort: undefined, maxTokens: 1200 },
-    voiceAlign: { provider: "gemini", model: "gemini-3.8-flash", effort: undefined, maxTokens: 8192 },
-    sceneWriter: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 24000 },
-    sceneRepair: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 24000 },
-    formatFill: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 2000 },
-    proAssistant: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 6500 },
-    skillRouting: { provider: "anthropic", model: "claude-haiku-4-5-20251001", effort: undefined, maxTokens: 128 },
-    rewriteBeat: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 600 },
-    elementEdits: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 450 },
-    planner: { provider: "anthropic", model: "claude-sonnet-4-6", effort: undefined, maxTokens: 1024 },
-    siteRead: { provider: "gemini", model: "gemini-3.8-flash", effort: undefined, maxTokens: 8192 }
+    script: [...FLASH, undefined, 16000],
+    scriptWrite: [...FLASH, undefined, 16000],
+    sceneInsert: [...FLASH, undefined, 900],
+    director: [...FLASH, undefined, 16000],
+    frameSketch: [...FLASH, undefined, 6000],
+    motion: [...FLASH, undefined, 3000],
+    screenshot: [...FLASH, undefined, 1200],
+    voiceAlign: [...FLASH, undefined, 8192],
+    sceneWriter: [...FLASH, undefined, 24000],
+    sceneRepair: [...FLASH, undefined, 24000],
+    formatFill: [...HAIKU, undefined, 2000],
+    proAssistant: [...HAIKU, undefined, 6500],
+    skillRouting: [...HAIKU, undefined, 128],
+    rewriteBeat: [...FLASH, undefined, 600],
+    elementEdits: [...HAIKU, undefined, 450],
+    planner: [...HAIKU, undefined, 1024],
+    siteRead: [...FLASH, undefined, 8192]
   };
 
   assert.deepEqual(Object.keys(STEPS), Object.keys(expectedDefaults));
-  for (const [stepId, exp] of Object.entries(expectedDefaults)) {
+  for (const [stepId, [provider, model, , maxTokens]] of Object.entries(expectedDefaults)) {
     const r = routeFor(stepId, clean);
     assert.equal(r.step, stepId);
-    assert.equal(r.provider, exp.provider, `${stepId} default provider`);
-    assert.equal(r.model, exp.model, `${stepId} default model`);
-    assert.equal(r.effort, exp.effort, `${stepId} default effort`);
-    assert.equal(r.maxTokens, exp.maxTokens, `${stepId} default maxTokens`);
-    assert.equal(r.explicit, false, `${stepId} should not be explicit on clean env`);
+    assert.equal(r.provider, provider, `${stepId} default provider`);
+    assert.equal(r.model, model, `${stepId} default model`);
+    assert.equal(r.maxTokens, maxTokens, `${stepId} default maxTokens`);
   }
 
   const all = allRoutes(clean);
@@ -66,44 +67,14 @@ function sseResponse(lines, status = 200) {
   assert.equal([...all].length, 17);
   assert.equal(NOT_ROUTED.length, 4);
 
-  // SCRIPT_PROVIDER=gemini and SCRIPT_MODEL
-  assert.deepEqual(
-    { provider: routeFor("script", { SCRIPT_PROVIDER: "gemini" }).provider, model: routeFor("script", { SCRIPT_PROVIDER: "gemini" }).model },
-    { provider: "gemini", model: "gemini-3.1-pro-preview" }
-  );
-  assert.deepEqual(
-    { provider: routeFor("script", { SCRIPT_PROVIDER: "gemini", SCRIPT_MODEL: "gemini-3.8-flash" }).provider, model: routeFor("script", { SCRIPT_PROVIDER: "gemini", SCRIPT_MODEL: "gemini-3.8-flash" }).model },
-    { provider: "gemini", model: "gemini-3.8-flash" }
-  );
-  assert.equal(routeFor("scriptWrite", { SCRIPT_MODEL: "claude-opus-5-5" }).model, "claude-opus-5-5");
-  assert.equal(routeFor("sceneInsert", { SCRIPT_MODEL: "claude-opus-5-5" }).model, "claude-opus-5-5");
-
-  // DIRECTOR_PROVIDER / DIRECTOR_MODEL
-  assert.deepEqual(
-    { provider: routeFor("director", { DIRECTOR_PROVIDER: "gemini" }).provider, model: routeFor("director", { DIRECTOR_PROVIDER: "gemini" }).model },
-    { provider: "gemini", model: "gemini-3.1-pro-preview" }
-  );
-  assert.equal(routeFor("director", { DIRECTOR_MODEL: "claude-sonnet-5-5" }).model, "claude-sonnet-5-5");
-
-  // FRAME_MODEL fallbacks: FRAME_MODEL || SCRIPT_MODEL || ANTHROPIC_MODEL || claude-sonnet-4-6
-  assert.equal(routeFor("frameSketch", { ANTHROPIC_MODEL: "claude-sonnet-5-5" }).model, "claude-sonnet-5-5");
-  assert.equal(routeFor("frameSketch", { SCRIPT_MODEL: "claude-opus-5-5", ANTHROPIC_MODEL: "claude-sonnet-5-5" }).model, "claude-opus-5-5");
-  assert.equal(routeFor("frameSketch", { FRAME_MODEL: "claude-haiku-5-5", SCRIPT_MODEL: "claude-opus-5-5" }).model, "claude-haiku-5-5");
-
-  // MOTION_MODEL fallbacks: MOTION_MODEL || FRAME_MODEL || ANTHROPIC_MODEL || claude-sonnet-4-6
-  assert.equal(routeFor("motion", { ANTHROPIC_MODEL: "claude-sonnet-5-5" }).model, "claude-sonnet-5-5");
-  assert.equal(routeFor("motion", { FRAME_MODEL: "claude-opus-5-5", ANTHROPIC_MODEL: "claude-sonnet-5-5" }).model, "claude-opus-5-5");
-  assert.equal(routeFor("motion", { MOTION_MODEL: "claude-haiku-5-5", FRAME_MODEL: "claude-opus-5-5" }).model, "claude-haiku-5-5");
-
-  // PLATE_MODEL chain for sceneWriter and sceneRepair: PLATE_MODEL || ANTHROPIC_MODEL || claude-sonnet-4-6
-  assert.equal(routeFor("sceneWriter", { ANTHROPIC_MODEL: "claude-sonnet-5-5" }).model, "claude-sonnet-5-5");
-  assert.equal(routeFor("sceneWriter", { PLATE_MODEL: "claude-opus-5-5", ANTHROPIC_MODEL: "claude-sonnet-5-5" }).model, "claude-opus-5-5");
-  assert.equal(routeFor("sceneRepair", { PLATE_MODEL: "claude-opus-5-5", ANTHROPIC_MODEL: "claude-sonnet-5-5" }).model, "claude-opus-5-5");
-
-  // Other legacy vars
-  assert.equal(routeFor("screenshot", { SCREENSHOT_MODEL: "claude-opus-5-5" }).model, "claude-opus-5-5");
+  // Tier-blind legacy vars no longer steer anyProvider steps (they would break the Standard/Premium split).
+  const legacy = { MODEL_DEFAULT: "claude-sonnet-4-6", ANTHROPIC_MODEL: "claude-sonnet-4-6", PLATE_MODEL: "claude-opus-5-5", SCRIPT_MODEL: "claude-opus-5-5", FRAME_MODEL: "claude-opus-5-5" };
+  for (const id of Object.keys(STEPS)) {
+    const r = routeFor(id, legacy);
+    assert.equal(`${r.provider}:${r.model}`, `${expectedDefaults[id][0]}:${expectedDefaults[id][1]}`, `${id} ignores legacy vars`);
+  }
+  // Gemini-only steps still honour their own var.
   assert.equal(routeFor("voiceAlign", { VOICE_ALIGN_MODEL: "gemini-3.8-flash" }).model, "gemini-3.8-flash");
-  assert.equal(routeFor("skillRouting", { ANTHROPIC_ROUTING_MODEL: "claude-haiku-5-5" }).model, "claude-haiku-5-5");
   assert.equal(routeFor("siteRead", { SITE_READ_MODEL: "gemini-3.8-flash" }).model, "gemini-3.8-flash");
 }
 
@@ -137,44 +108,11 @@ function sseResponse(lines, status = 200) {
   // Step-default effort "low" is dropped when provider changed from anthropic to gemini without explicit EFFORT_*
   assert.equal(swScript.effort, undefined);
 
-  // MODEL_DEFAULT applies to anyProvider:true (including planner) and skips voiceAlign, siteRead
-  const defEnv = { MODEL_DEFAULT: "gemini:gemini-3.8-flash" };
-  assert.equal(routeFor("script", defEnv).provider, "gemini");
-  assert.equal(routeFor("director", defEnv).provider, "gemini");
-  assert.equal(routeFor("sceneWriter", defEnv).provider, "gemini");
-  assert.equal(routeFor("formatFill", defEnv).provider, "gemini");
-  assert.equal(routeFor("planner", defEnv).provider, "gemini");
-  assert.equal(routeFor("planner", defEnv).model, "gemini-3.8-flash");
-  assert.equal(routeFor("planner", defEnv).explicit, true);
-  assert.equal(routeFor("voiceAlign", defEnv).model, "gemini-3.8-flash");
-  assert.equal(routeFor("voiceAlign", defEnv).explicit, false);
-  assert.equal(routeFor("siteRead", defEnv).model, "gemini-3.8-flash");
-  assert.equal(routeFor("siteRead", defEnv).explicit, false);
-
-  // Legacy env beats MODEL_DEFAULT; MODEL_<ENV> beats legacy; parent MODEL_<PARENT_ENV> beats legacy
-  assert.equal(
-    routeFor("sceneWriter", { MODEL_DEFAULT: "gemini:gemini-3.8-flash", PLATE_MODEL: "claude-opus-5-5" }).provider,
-    "anthropic"
-  );
-  assert.equal(
-    routeFor("sceneWriter", { MODEL_DEFAULT: "gemini:gemini-3.8-flash", PLATE_MODEL: "claude-opus-5-5" }).model,
-    "claude-opus-5-5"
-  );
-  assert.equal(
-    routeFor("sceneWriter", {
-      MODEL_SCENE_WRITER: "gemini:gemini-4-argon",
-      PLATE_MODEL: "claude-opus-5-5",
-      MODEL_DEFAULT: "gemini:gemini-3.8-flash"
-    }).model,
-    "gemini-4-argon"
-  );
-  assert.equal(
-    routeFor("sceneRepair", {
-      MODEL_SCENE_WRITER: "gemini:gemini-4-argon",
-      PLATE_MODEL: "claude-opus-5-5"
-    }).model,
-    "gemini-4-argon"
-  );
+  // Per-tier env overrides: MODEL_<ENV>_<TIER> beats MODEL_<ENV> beats the tier table.
+  assert.equal(routeFor("sceneWriter", { MODEL_SCENE_WRITER_PREMIUM: "claude-opus-5-5" }, "premium").model, "claude-opus-5-5");
+  assert.equal(routeFor("sceneWriter", { MODEL_SCENE_WRITER_PREMIUM: "claude-haiku-5-5" }).model, "gemini-3.8-flash");
+  assert.equal(routeFor("sceneWriter", { MODEL_SCENE_WRITER: "claude-haiku-5-5", MODEL_SCENE_WRITER_STANDARD: "gemini-3.8-flash" }).model, "gemini-3.8-flash");
+  assert.equal(routeFor("sceneRepair", { MODEL_SCENE_WRITER_PREMIUM: "claude-haiku-5-5" }, "premium").model, "claude-haiku-5-5");
 
   // EFFORT and MAX_TOKENS parsing & inheritance
   const effRoute = routeFor("sceneRepair", {
@@ -219,27 +157,19 @@ function sseResponse(lines, status = 200) {
   // Valid default configuration when both Anthropic and Gemini keys are present
   validateRoutes({ ANTHROPIC_API_KEY: "sk-ant-test", GEMINI_API_KEY: "gem-test" });
 
-  // All-Gemini setup (including planner via MODEL_DEFAULT) boots without ANTHROPIC_API_KEY
+  // Standard uses Haiku 5.5 for five small structured steps, so the Anthropic key is needed unless they are routed to Gemini.
+  assert.throws(
+    () => validateRoutes({ GEMINI_API_KEY: "gem-test" }),
+    /Missing ANTHROPIC_API_KEY for anthropic routes \(formatFill, proAssistant, skillRouting, elementEdits, planner\)/
+  );
   validateRoutes({
-    MODEL_DEFAULT: "gemini:gemini-3.8-flash",
-    GEMINI_API_KEY: "gem-test"
-  });
-
-  // Explicit MODEL_PLANNER_FILL=gemini:... works; if planner stays on anthropic while others are gemini, ANTHROPIC_API_KEY is required
-  validateRoutes({
-    MODEL_DEFAULT: "gemini:gemini-3.8-flash",
+    MODEL_FORMAT_FILL_STANDARD: "gemini:gemini-3.8-flash",
+    MODEL_PRO_ASSISTANT: "gemini:gemini-3.8-flash",
+    MODEL_SKILL_ROUTING: "gemini:gemini-3.8-flash",
+    MODEL_ELEMENT_EDITS: "gemini:gemini-3.8-flash",
     MODEL_PLANNER_FILL: "gemini:gemini-3.8-flash",
     GEMINI_API_KEY: "gem-test"
   });
-  assert.throws(
-    () =>
-      validateRoutes({
-        MODEL_DEFAULT: "gemini:gemini-3.8-flash",
-        MODEL_PLANNER_FILL: "anthropic:claude-sonnet-4-6",
-        GEMINI_API_KEY: "gem-test"
-      }),
-    /Missing ANTHROPIC_API_KEY for anthropic routes \(planner\)/
-  );
 
   // Collects ALL problems in one Error message
   let combinedErr = null;
@@ -281,14 +211,27 @@ function sseResponse(lines, status = 200) {
 
   // Warnings for typo MODEL_<X>, ignoring MODEL_DEFAULT and MODEL_PRICE_*
   const warnings = routeWarnings({
-    MODEL_DEFAULT: "gemini:gemini-3.8-flash",
     MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash",
+    MODEL_SCENE_WRITER_PREMIUM: "claude-opus-5-5",
     MODEL_PRICE_GPT_4O: "2.5,10,1.25",
     MODEL_SCEEN_WRITER: "gemini:gemini-3.8-flash"
   });
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /MODEL_SCEEN_WRITER/);
+  // Legacy tier-blind vars are flagged as ignored; an override outside a tier's policy is flagged.
+  const legacyWarn = routeWarnings({ PLATE_MODEL: "claude-opus-5-5", MODEL_SCENE_WRITER_STANDARD: "claude-sonnet-4-6" });
+  assert.ok(legacyWarn.some((w) => /PLATE_MODEL is set but ignored/.test(w)));
+  assert.ok(legacyWarn.some((w) => /sceneWriter" on standard resolves to anthropic:claude-sonnet-4-6/.test(w)));
 }
+
+// Section 4 exercises the adapters on Claude/Gemini routes, so pin those steps by env (the tier table would pick Flash).
+Object.assign(process.env, {
+  MODEL_FRAME_SKETCH: "claude-sonnet-4-6",
+  MODEL_SCENE_WRITER: "claude-sonnet-4-6",
+  MODEL_SCRIPT: "claude-sonnet-5-5",
+  MODEL_SCRIPT_WRITE: "claude-sonnet-4-6",
+  MODEL_DIRECTOR: "claude-opus-5-5"
+});
 
 // ============================================================================
 // 4. Adapters with mocked HTTP (Anthropic, Gemini, OpenAI-compatible)
@@ -664,7 +607,7 @@ function sseResponse(lines, status = 200) {
   for (const [provider, route, mockResp, expectedMsg] of [
     [
       "anthropic",
-      routeFor("script", {}),
+      routeFor("script", { MODEL_SCRIPT: "claude-sonnet-5-5" }),
       () => Response.json({ content: [], stop_reason: "refusal", usage: {} }),
       "Custom refusal message"
     ],
@@ -743,7 +686,7 @@ function sseResponse(lines, status = 200) {
 // 6. ladder() per provider & supportsPromptCacheGate()
 // ============================================================================
 {
-  const antLadder = ladder(routeFor("sceneWriter", {}));
+  const antLadder = ladder(routeFor("sceneWriter", {}, "premium"));
   assert.equal(antLadder.length, 3);
   assert.equal(antLadder[0].maxTokens, 24000);
   assert.equal(antLadder[0].effort, undefined);

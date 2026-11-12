@@ -11,7 +11,7 @@
     "start": "node src/server.ts",
     "typecheck": "tsc --noEmit -p .",
     "test:plate-model": "node test/plate-model.mjs",
-    "test:model-routing": "node test/model-routing.mjs && node --env-file-if-exists=.env test/model-routing-sites.mjs",
+    "test:model-routing": "node test/model-routing.mjs && node --env-file-if-exists=.env test/model-routing-sites.mjs && node test/model-tier-policy.mjs",
     "test:cache-gate": "node test/cache-gate.mjs",
     "test:style-prompts": "node test/style-prompts.mjs",
     "test:plate-progress": "node test/plate-progress.mjs",

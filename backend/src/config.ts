@@ -236,9 +236,10 @@ export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
   // Generated audio per job; shared read-only with the worker at /audio locally.
   audioDir: storagePath(process.env.AUDIO_DIR, "audio"),
-  anthropicModel: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+  // Only a last-resort label for raw anthropic.ts calls that name no model; per-step models come from models/tiers.ts.
+  anthropicModel: process.env.ANTHROPIC_MODEL || "claude-haiku-5-5",
   // Plate scene authoring (same API key, its own model): unset means the app model above.
-  plateModel: process.env.PLATE_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+  plateModel: process.env.PLATE_MODEL || process.env.ANTHROPIC_MODEL || "claude-haiku-5-5",
   // Account emails (mail/): Resend first, Brevo when Resend fails. Either key alone works. The hook secret is the
   // `v1,whsec_...` value Supabase shows when the Send Email hook is created; without it the hook endpoint answers 503.
   mail: {

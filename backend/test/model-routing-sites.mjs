@@ -26,8 +26,9 @@ const { sketchFrame } = await import("../src/plan/frame-sketch.ts");
 
 const schema = { type: "object", properties: { ok: { type: "boolean" } } };
 for (const [step, model] of [["script", "claude-sonnet-5-5"], ["director", "claude-opus-5-5"], ["screenshot", "claude-sonnet-5-5"]]) {
+  process.env[`MODEL_${step.toUpperCase()}`] = `anthropic:${model}`;
   await llmJson({ step, system: "s", user: "u", schema, maxTokens: 1000 });
-  assert.match(last().url, /api\.anthropic\.com\/v1\/messages$/, `${step} default is Anthropic`);
+  assert.match(last().url, /api\.anthropic\.com\/v1\/messages$/, `${step} pinned to Anthropic`);
   assert.equal(last().body.model, model, `${step} default model`);
   assert.equal(last().headers["x-api-key"], "test-anthropic-key");
   process.env[`MODEL_${step.toUpperCase()}`] = "gemini:gemini-3.8-flash";
@@ -42,20 +43,19 @@ for (const [step, model] of [["script", "claude-sonnet-5-5"], ["director", "clau
 // An explicit provider + model (the director A/B test) overrides the route.
 await llmJson({ step: "director", provider: "gemini", model: "gemini-3.1-pro-preview", system: "s", user: "u", schema });
 assert.match(last().url, /gemini-3\.1-pro-preview/);
-// MODEL_DEFAULT reaches every routable step; the old variables still work.
-process.env.MODEL_DEFAULT = "gemini:gemini-3.8-flash";
+// With no override the Standard tier table applies (Gemini Flash); the tier-blind legacy vars are ignored.
 await llmJson({ step: "director", system: "s", user: "u", schema });
 assert.match(last().url, /gemini-3\.8-flash/);
-delete process.env.MODEL_DEFAULT;
-process.env.DIRECTOR_PROVIDER = "gemini"; process.env.DIRECTOR_MODEL = "gemini-3.1-pro-preview";
+process.env.DIRECTOR_PROVIDER = "gemini"; process.env.DIRECTOR_MODEL = "gemini-3.1-pro-preview"; process.env.MODEL_DEFAULT = "claude-opus-5-5";
 await llmJson({ step: "director", system: "s", user: "u", schema });
-assert.match(last().url, /gemini-3\.1-pro-preview/);
-delete process.env.DIRECTOR_PROVIDER; delete process.env.DIRECTOR_MODEL;
+assert.match(last().url, /gemini-3\.8-flash/);
+delete process.env.DIRECTOR_PROVIDER; delete process.env.DIRECTOR_MODEL; delete process.env.MODEL_DEFAULT;
 
 // Frame sketch: Anthropic request keeps the same fields as before; Gemini goes through the provider layer.
 const svgText = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
 globalThis.fetch = async (url, init) => { calls.push({ url: String(url), headers: init?.headers ?? {}, body: init?.body ? JSON.parse(init.body) : null }); return String(url).includes("generativelanguage") ? gemini(svgText) : claude(svgText); };
 const frame = { beat: { id: "b1", keyword: "Hi", kind: "kinetic", on_screen: null, line: null, visual: "a box" }, index: 0, count: 1, aspect: "16:9", topic: "t", style: null, look: "clean" };
+process.env.MODEL_FRAME_SKETCH = "anthropic:claude-sonnet-4-6";
 await sketchFrame(frame, new AbortController().signal);
 assert.match(last().url, /api\.anthropic\.com/);
 assert.equal(last().body.model, "claude-sonnet-4-6"); assert.equal(last().body.max_tokens, 6000); assert.deepEqual(last().body.output_config, { effort: "low" });
@@ -102,7 +102,7 @@ delete process.env.MODEL_FRAME_SKETCH;
       usage: { input_tokens: 25, output_tokens: 40 }
     });
   });
-  assert.deepEqual(antPlanner.info, { provider: "anthropic", model: "claude-sonnet-4-6" });
+  assert.deepEqual(antPlanner.info, { provider: "anthropic", model: "claude-haiku-5-5" });
   const antPlan = await antPlanner.plan(renderReq);
   assert.equal(antAttempt, 2);
   assert.match(last().url, /api\.anthropic\.com\/v1\/messages$/);
@@ -113,7 +113,7 @@ delete process.env.MODEL_FRAME_SKETCH;
   assert.equal(antPlan.musicPrompt, "Upbeat modern synth instrumental");
 
   // 2. Gemini route (structured JSON via MODEL_PLANNER_FILL or MODEL_DEFAULT)
-  process.env.MODEL_DEFAULT = "gemini:gemini-3.8-flash";
+  process.env.MODEL_PLANNER_FILL = "gemini:gemini-3.8-flash";
   let gemCalls = 0;
   const gemPlanner = new AnthropicPromptPlanner(async (url, init) => {
     gemCalls++;
@@ -188,7 +188,7 @@ delete process.env.MODEL_FRAME_SKETCH;
   );
   await assert.rejects(() => alwaysEmptyPlanner.plan(renderReq), /Gemini did not fill the template \(stop reason: max_tokens\)/);
 
-  delete process.env.MODEL_DEFAULT;
+  delete process.env.MODEL_PLANNER_FILL;
 }
 
 console.info = quiet; globalThis.fetch = realFetch;

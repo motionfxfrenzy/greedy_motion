@@ -285,6 +285,25 @@ function wrapFetchForAnthropicOnText(
   return { request: wrapped, didEmit: () => emitted };
 }
 
+const isClaude5 = (model: string) => /^claude-(opus|haiku)-5/.test(model);
+const MIN_THINKING_HEADROOM = 4096;
+
+/**
+ * Request-shape rules for Claude Opus 5.5 / Haiku 5.5 (see the Claude API docs):
+ * - Never send `budget_tokens`, `temperature`/`top_p`/`top_k`, a forced `tool_choice` (any/tool) or an assistant prefill: all return 400.
+ * - Opus 5.5 always thinks (adaptive; `thinking: disabled` is a 400), so thinking is omitted and depth is set with `output_config.effort`.
+ * - Haiku 5.5 thinks adaptively by default. `disabled` is only accepted at effort <= high, so tiny structured calls
+ *   (<= 2000 output tokens) turn it off; larger calls keep the default.
+ * - Thinking tokens count toward `max_tokens`, so the cap is raised to a floor of 4096 whenever thinking can run.
+ */
+export function anthropicRequestShape(model: string, maxTokens: number, effort: Effort | undefined): { maxTokens: number; thinking?: { type: "disabled" } } {
+  if (!isClaude5(model)) return { maxTokens };
+  if (model.startsWith("claude-haiku-5") && maxTokens <= 2000 && effort !== "xhigh" && effort !== "max") {
+    return { maxTokens, thinking: { type: "disabled" } };
+  }
+  return { maxTokens: Math.max(maxTokens, MIN_THINKING_HEADROOM) };
+}
+
 async function callAnthropic(
   call: ModelCall,
   route: Route,
@@ -330,9 +349,14 @@ async function callAnthropic(
   if (effort) outputConfig.effort = effort;
   if (call.schema) outputConfig.format = { type: "json_schema", schema: call.schema };
 
+  if (messages[messages.length - 1]?.role === "assistant" && isClaude5(route.model)) {
+    throw new Error(`${route.model} does not support assistant prefill; end the conversation with a user message.`);
+  }
+  const shape = anthropicRequestShape(route.model, maxTokens, effort);
   const body: Record<string, unknown> = {
     model: route.model,
-    max_tokens: maxTokens,
+    max_tokens: shape.maxTokens,
+    ...(shape.thinking ? { thinking: shape.thinking } : {}),
     system,
     messages,
     ...(Object.keys(outputConfig).length > 0 ? { output_config: outputConfig } : {})

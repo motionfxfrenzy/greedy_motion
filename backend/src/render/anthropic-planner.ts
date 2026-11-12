@@ -115,7 +115,7 @@ export class AnthropicPromptPlanner implements PromptPlanner {
       (this.explicitOptions.provider && this.explicitOptions.provider !== base.provider
         ? this.explicitOptions.provider === "gemini"
           ? "gemini-3.8-flash"
-          : config.anthropicModel
+          : "claude-haiku-5-5"
         : base.model);
     return {
       ...base,

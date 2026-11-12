@@ -32,7 +32,7 @@ import {
 import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
 import { pool, query, withTransaction } from "../db/database.ts";
-import type { Route } from "../models/routes.ts";
+import { routeFor, type Route } from "../models/routes.ts";
 import { filmFrames } from "../plan/frame-film.ts";
 import { filmScenes, motionSignature } from "../plan/frame-motion.ts";
 import { projectTiming } from "../plan/preview.ts";
@@ -173,32 +173,11 @@ export function resolveProjectAnimationTier(
  * `premium` = `claude-opus-5-5`). Never mutates `process.env`, so concurrent requests are isolated.
  */
 export function authorRouteForTier(tier: AnimationTier): AnimationRouteSnapshot {
-  const spec = ANIMATION_TIER_SPECS[tier] ?? ANIMATION_TIER_SPECS.standard;
-  return {
-    tier: spec.id,
-    writer: {
-      step: "sceneWriter",
-      provider: spec.provider,
-      model: spec.model,
-      maxTokens: 24000,
-      explicit: true
-    },
-    repair: {
-      step: "sceneRepair",
-      provider: spec.provider,
-      model: spec.model,
-      maxTokens: 24000,
-      explicit: true
-    },
-    motion: {
-      step: "motion",
-      provider: spec.provider,
-      model: spec.model,
-      effort: "low",
-      maxTokens: 3000,
-      explicit: true
-    }
-  };
+  const resolved: AnimationTier = ANIMATION_TIER_SPECS[tier] ? tier : "standard";
+  // Models come from the per-tier policy table (models/tiers.ts): Standard = Gemini Flash / Haiku 5.5, Premium = Opus 5.5.
+  // MODEL_<STEP>_STANDARD / MODEL_<STEP>_PREMIUM can override; the snapshot is frozen per request, process.env is never mutated.
+  const pick = (step: "sceneWriter" | "sceneRepair" | "motion"): Route => ({ ...routeFor(step, process.env, resolved), explicit: true });
+  return { tier: resolved, writer: pick("sceneWriter"), repair: pick("sceneRepair"), motion: pick("motion") };
 }
 
 /**

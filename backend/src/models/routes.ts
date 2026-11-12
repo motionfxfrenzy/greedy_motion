@@ -14,11 +14,12 @@
  *   higher-precedence setting.
  *
  * Precedence for provider + model (highest first):
- *   1. `MODEL_<ENV>`
- *   2. parent's `MODEL_<PARENT_ENV>`
- *   3. step-specific legacy env (`SCRIPT_MODEL`, `PLATE_MODEL`, `FRAME_MODEL`, ...)
- *   4. `MODEL_DEFAULT` (only when `anyProvider: true`)
- *   5. code default (including `ANTHROPIC_MODEL` fallback where applicable)
+ *   1. `MODEL_<ENV>_<TIER>` (`_STANDARD` / `_PREMIUM`), then `MODEL_<ENV>`
+ *   2. parent's `MODEL_<PARENT_ENV>_<TIER>`, then `MODEL_<PARENT_ENV>`
+ *   3. the per-tier table in `tiers.ts` (Standard: Gemini Flash / Haiku 5.5; Premium: Opus 5.5)
+ * `MODEL_DEFAULT`, `ANTHROPIC_MODEL` and the old per-step vars (`SCRIPT_MODEL`, `PLATE_MODEL`, ...) are tier-blind and no
+ * longer consulted for `anyProvider` steps; Gemini-only steps still honour `VOICE_ALIGN_MODEL` / `SITE_READ_MODEL`.
+ * `tier` defaults to `"standard"`, which is also what steps that run before a tier is chosen use.
  *
  * Precedence for `EFFORT` and `MAX_TOKENS`:
  *   own env (`EFFORT_<ENV>` / `MAX_TOKENS_<ENV>`) > parent env > step default.
@@ -26,6 +27,7 @@
  *   is dropped unless effort was explicitly set via `EFFORT_<ENV>` or `EFFORT_<PARENT_ENV>`.
  */
 import { STEPS, type Effort, type Provider, type StepDef, type StepId } from "./steps.ts";
+import { IGNORED_LEGACY_VARS, TIER_MODELS, isAllowedModel, type ModelTier } from "./tiers.ts";
 
 export type { Effort, Provider, StepId };
 
@@ -103,7 +105,7 @@ function defaultProviderOf(stepDef: StepDef): Provider {
   return stepDef.legacy({}).provider;
 }
 
-export function routeFor(step: StepId, env: NodeJS.ProcessEnv = process.env): Route {
+export function routeFor(step: StepId, env: NodeJS.ProcessEnv = process.env, tier: ModelTier = "standard"): Route {
   const stepDef = STEPS[step];
   if (!stepDef) throw new Error(`Unknown step "${String(step)}".`);
   const parentDef = stepDef.parent ? STEPS[stepDef.parent] : undefined;
@@ -112,9 +114,9 @@ export function routeFor(step: StepId, env: NodeJS.ProcessEnv = process.env): Ro
   let model: string;
   let explicitModel = false;
 
-  const ownModelEnv = env[`MODEL_${stepDef.env}`]?.trim();
-  const parentModelEnv = parentDef ? env[`MODEL_${parentDef.env}`]?.trim() : undefined;
-  const defaultModelEnv = env.MODEL_DEFAULT?.trim();
+  const TIER = tier.toUpperCase();
+  const ownModelEnv = env[`MODEL_${stepDef.env}_${TIER}`]?.trim() || env[`MODEL_${stepDef.env}`]?.trim();
+  const parentModelEnv = parentDef ? env[`MODEL_${parentDef.env}_${TIER}`]?.trim() || env[`MODEL_${parentDef.env}`]?.trim() : undefined;
 
   if (ownModelEnv) {
     ({ provider, model } = parseModelSpec(ownModelEnv, `MODEL_${stepDef.env}`));
@@ -122,17 +124,13 @@ export function routeFor(step: StepId, env: NodeJS.ProcessEnv = process.env): Ro
   } else if (parentModelEnv && parentDef) {
     ({ provider, model } = parseModelSpec(parentModelEnv, `MODEL_${parentDef.env}`));
     explicitModel = true;
-  } else if (hasStepLegacyEnv(stepDef, env)) {
+  } else if (!stepDef.anyProvider) {
+    // Gemini-only helpers (voice alignment, URL reader): their own legacy var, else Flash.
     ({ provider, model } = stepDef.legacy(env));
-    explicitModel = true;
-  } else if (stepDef.anyProvider && defaultModelEnv) {
-    ({ provider, model } = parseModelSpec(defaultModelEnv, "MODEL_DEFAULT"));
-    explicitModel = true;
   } else {
-    ({ provider, model } = stepDef.legacy(env));
-    if (stepDef.usesAnthropicModel && env.ANTHROPIC_MODEL?.trim()) {
-      explicitModel = true;
-    }
+    // Tier policy (see tiers.ts). The tier-blind legacy vars (MODEL_DEFAULT, ANTHROPIC_MODEL, PLATE_MODEL, ...) are not consulted.
+    ({ provider, model } = parseModelSpec(TIER_MODELS[tier][step], `TIER_MODELS.${tier}.${step}`));
+    explicitModel = true;
   }
 
   // EFFORT resolution: own env > parent env > step default (only when provider matches step default provider).
@@ -205,10 +203,21 @@ export function routeWarnings(env: NodeJS.ProcessEnv = process.env): string[] {
     if (!value?.trim()) continue;
     if (key.startsWith("MODEL_")) {
       if (key === "MODEL_DEFAULT" || key.startsWith("MODEL_PRICE_")) continue;
-      const suffix = key.slice("MODEL_".length);
+      const suffix = key.slice("MODEL_".length).replace(/_(STANDARD|PREMIUM)$/, "");
       if (!KNOWN_STEP_ENVS.has(suffix)) {
         warnings.push(`Unknown model routing env "${key}" (not a known step MODEL_<ENV>).`);
       }
+    }
+  }
+  for (const name of IGNORED_LEGACY_VARS) {
+    if (env[name]?.trim()) warnings.push(`${name} is set but ignored: models are chosen per tier (see models/tiers.ts); use MODEL_<STEP>_STANDARD / MODEL_<STEP>_PREMIUM to override.`);
+  }
+  for (const tier of ["standard", "premium"] as const) {
+    for (const stepDef of Object.values(STEPS)) {
+      try {
+        const r = routeFor(stepDef.id, env, tier);
+        if (!isAllowedModel(tier, r.provider, r.model, stepDef.id)) warnings.push(`Step "${stepDef.id}" on ${tier} resolves to ${r.provider}:${r.model}, outside the ${tier} model policy.`);
+      } catch { /* syntax errors are reported by validateRoutes */ }
     }
   }
   return warnings;
