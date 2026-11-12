@@ -8,6 +8,7 @@ import { GalleryGrid, TemplatesPage, useGalleryShelf } from "./template-gallery"
 import { PlateFinal, PlatePreview } from "./plate-preview";
 import { BrowserAnimationStep } from "./browser-animation-step";
 import { FinalRenderStep } from "./final-render-step";
+import { AccountMenu } from "./account-menu";
 import { AppHeader } from "./app-shell";
 import { StudioEditor, type StudioDraftInput } from "./studio-editor";
 import { defaultBrief, ScriptStyleStep, type SiteState } from "./script-style";
@@ -1651,7 +1652,7 @@ export function Studio() {
 }
 
 function CreationHeader({ name, state, step, reachable, back, go, openStudio }: { name: string; state: string; step: Step; reachable: number; back: () => void; go: (step: number) => void; openStudio?: () => void }) {
-  return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: 999, background: "var(--d-bg-ffffff)", color: "var(--d-tx-0058bd)" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{flowSteps.map(([id, label], position) => <li key={label}><button className={id === step ? "current" : id <= reachable ? "complete" : ""} disabled={id > reachable} onClick={() => go(id)}><b>{id !== step && id <= reachable ? "✓" : position + 1}</b>{label}</button>{position !== flowSteps.length - 1 && <i />}</li>)}</ol></header>;
+  return <header className="creation-header"><div className="creation-project"><button onClick={back}>← Projects</button><i /><strong>{name}</strong><span>{state}</span>{openStudio && <button className="creation-studio" style={{ marginLeft: "auto", padding: "6px 10px", border: "1px solid var(--d-bd-d6e4f2)", borderRadius: 999, background: "var(--d-bg-ffffff)", color: "var(--d-tx-0058bd)" }} onClick={openStudio}>Open Studio</button>}</div><ol className="flow-steps">{flowSteps.map(([id, label], position) => <li key={label}><button className={id === step ? "current" : id <= reachable ? "complete" : ""} disabled={id > reachable} onClick={() => go(id)}><b>{id !== step && id <= reachable ? "✓" : position + 1}</b>{label}</button>{position !== flowSteps.length - 1 && <i />}</li>)}</ol><div className="creation-account"><AccountMenu /></div></header>;
 }
 
 /** The first styles, shown under the empty Projects page. Fetched from the backend: one row that fades out, so it feels like a library. */

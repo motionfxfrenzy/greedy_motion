@@ -497,11 +497,12 @@ dialog[open] { overscroll-behavior: contain; }
 .render-card .render-error p { color:var(--d-tx-535862); }
 
 /* "Open in editor" sits at the far right of the project header, in the brand blue. */
-.creation-project > .creation-editor { position:absolute; right:24px; top:50%; transform:translateY(-50%); margin:0; padding:8px 16px; border:0; border-radius:999px; background:linear-gradient(135deg,#0a5fe0,#168bff); color:#fff; font:inherit; font-size:13px; font-weight:600; cursor:pointer; box-shadow:0 6px 16px rgba(10,108,255,.28); }
+.creation-project > .creation-editor { position:absolute; right:78px; top:50%; transform:translateY(-50%); margin:0; padding:8px 16px; border:0; border-radius:999px; background:linear-gradient(135deg,#0a5fe0,#168bff); color:#fff; font:inherit; font-size:13px; font-weight:600; cursor:pointer; box-shadow:0 6px 16px rgba(10,108,255,.28); }
 .creation-project > .creation-editor:hover { filter:brightness(1.08); }
 .creation-project > .creation-editor:disabled { opacity:.55; cursor:not-allowed; box-shadow:none; }
 .creation-project > .creation-editor ~ .creation-studio { margin-left:8px !important; }
-.creation-header:has(.creation-editor) { padding-right:190px; }
+.creation-header:has(.creation-editor) { padding-right:244px; }
+.creation-account { display:flex; align-items:center; margin-left:auto; }
 .creation-project > .creation-editor ~ .creation-studio { margin-left:auto !important; }
 
 /* The stand-in preview wears the project's colours. */
