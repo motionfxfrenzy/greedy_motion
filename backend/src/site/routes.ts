@@ -14,10 +14,10 @@ import { readSite, SITE_RULES, SiteUnavailable } from "./capture.ts";
 
 const host = (value: string | undefined) => { try { return value ? new URL(/^https?:/i.test(value) ? value : `https://${value}`).hostname.replace(/^www\./, "").toLowerCase() : ""; } catch { return ""; } };
 
-/** A brand kit the user already saved for this site (same host), newest first. */
-async function savedKitFor(url: string): Promise<BrandKit | null> {
+/** A brand kit this user already saved for this site (same host), newest first. Only their own kits: another account's kit for the same site must never be offered (its logo is not theirs to read either). */
+async function savedKitFor(url: string, ownerId: string): Promise<BrandKit | null> {
   const target = host(url);
-  const kits = (await listBrands().catch(() => [])).filter((kit) => host(kit.url) === target);
+  const kits = (await listBrands(ownerId).catch(() => [])).filter((kit) => host(kit.url) === target);
   return kits.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
 }
 
@@ -51,7 +51,7 @@ export async function registerSiteRoutes(app: FastifyInstance) {
         const [read, brand, savedBrand] = await Promise.all([
           readSite(full),
           extractBrand(full, callerId(request)).then((value): BrandExtraction | null => value, () => null),
-          savedKitFor(full)
+          savedKitFor(full, callerId(request))
         ]);
         // The rendered page's own colours (CTA fills, logo, accents) beat CSS-frequency guesses: they lead the
         // candidates, and replace a pale or unused primary. The user still reviews the kit before saving.
