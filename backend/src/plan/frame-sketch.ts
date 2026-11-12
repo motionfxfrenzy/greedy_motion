@@ -208,14 +208,31 @@ export function curatedThoughtExperimentGuide(aspect: Aspect = "16:9", topic = "
   return CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE;
 }
 
-export type FrameRequest = { beat: ScriptBeat; index: number; count: number; aspect: Aspect; topic: string; style: { name: string; code: string } | null; look: string; notes?: ScriptNotes | null; brand?: { name: string; colors: BrandColors } | null };
+export type FrameBrand = { name: string; colors: BrandColors; mode?: "light" | "dark" | undefined; /** The kit's logo as a small PNG data URI; placed on the frame by us, never drawn by the model. */ logoDataUri?: string | undefined };
+
+export type FrameRequest = { beat: ScriptBeat; index: number; count: number; aspect: Aspect; topic: string; style: { name: string; code: string } | null; look: string; notes?: ScriptNotes | null; brand?: FrameBrand | null };
 
 const HEX = /^#[0-9a-f]{6}$/i;
+
+/** Relative luminance (0 black .. 1 white) of a #rrggbb colour. */
+const lightness = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/** Whether the brand's frames sit on a light or a dark ground: its background colour, else the opposite of its text colour, else its mode; null when unknown. */
+export function brandGround(brand: FrameBrand): "light" | "dark" | null {
+  const { background, text } = brand.colors;
+  if (background && HEX.test(background)) return lightness(background) > 0.45 ? "light" : "dark";
+  if (text && HEX.test(text)) return lightness(text) < 0.4 ? "light" : "dark";
+  return brand.mode ?? null;
+}
 
 /** The brand kit's colours as a prompt block: the brand overrides the style's palette; the style keeps its layout, shapes and motion. */
 export function brandColorBlock(brand: FrameRequest["brand"]): string | null {
   const colors = brand?.colors;
   if (!brand || !colors || !HEX.test(colors.primary ?? "")) return null;
+  const ground = brandGround(brand);
   const roles = [
     ["primary (main accent: headline word, key shapes, active states)", colors.primary],
     ["accent (second highlight: callouts, a cursor, one small detail)", colors.accent],
@@ -225,8 +242,23 @@ export function brandColorBlock(brand: FrameRequest["brand"]): string | null {
   return [
     `BRAND COLOURS for ${brand.name || "this brand"} (these REPLACE the style guide's palette and any colour named in the reference code or the VISUAL line; keep the style's layout, shapes and motion):`,
     ...roles.map(([role, hex]) => `- ${role}: ${hex}`),
-    "Use only these colours plus tints and shades of them, white or near-black for contrast, and keep text readable on its ground. Never use another hue (no neon green, pink or purple unless it is a listed colour)."
-  ].join("\n");
+    ground === "light"
+      ? "GROUND: this brand is LIGHT. Draw every frame on a light ground (the background colour above, else white or a very pale tint of the primary) with dark type. Never a black or dark-navy background, even if the style guide's reference is dark."
+      : ground === "dark"
+        ? "GROUND: this brand is DARK. Draw every frame on a dark ground with light type."
+        : "",
+    "Use only these colours plus tints and shades of them, white or near-black for contrast, and keep text readable on its ground. Never use another hue (no neon green, pink or purple unless it is a listed colour).",
+    brand.logoDataUri ? "The brand's logo is added to the bottom-right corner afterwards: keep that corner (the last 16% of the width and 12% of the height) empty, and never draw a logo or brand mark yourself." : ""
+  ].filter(Boolean).join("\n");
+}
+
+/** Puts the brand's logo in the bottom-right corner of a drawn frame. The model never draws the logo (it cannot embed images); this is ours. */
+export function withBrandLogo(svg: string, logoDataUri: string, aspect: Aspect): string {
+  const { width, height } = FRAME_SIZE[aspect];
+  const boxW = Math.round(width * 0.13), boxH = Math.round(height * 0.085);
+  const margin = Math.round(Math.min(width, height) * 0.035);
+  const image = `<image id="brand-logo" href="${logoDataUri}" x="${width - boxW - margin}" y="${height - boxH - margin}" width="${boxW}" height="${boxH}" preserveAspectRatio="xMaxYMax meet"/>`;
+  return svg.replace(/<\/svg>\s*$/i, `${image}</svg>`);
 }
 
 /** The part every beat shares (style guide, topic, size), cached, then the beat itself. */
@@ -305,12 +337,14 @@ export function cleanSvg(text: string): string | null {
  * or if the second answer is not an SVG either.
  */
 export async function sketchFrame(request: FrameRequest, signal: AbortSignal, http: typeof fetch = fetch): Promise<string> {
+  let svg: string;
   try {
-    return await drawFrame(request, signal, http, 1);
+    svg = await drawFrame(request, signal, http, 1);
   } catch (error) {
     if (signal.aborted || !(error instanceof Error) || !/usable SVG/.test(error.message)) throw error;
-    return drawFrame(request, signal, http, 2);
+    svg = await drawFrame(request, signal, http, 2);
   }
+  return request.brand?.logoDataUri ? withBrandLogo(svg, request.brand.logoDataUri, request.aspect) : svg;
 }
 
 /** What a scene shows if both drawing attempts fail: a plain card with its key phrase, so the storyboard never shows a broken image. Never saved, so the next open draws it again. */

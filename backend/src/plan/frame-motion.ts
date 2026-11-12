@@ -58,14 +58,17 @@ function uncovered(motion: FrameMotion[], scene: SceneInput): number {
   return Math.max(0, to - from - covered);
 }
 
+/** Embedded pictures (the brand logo) are base64: thousands of tokens the motion model cannot use. */
+const withoutImages = (svg: string) => svg.replace(/<image\b[^>]*>/gi, "");
+
 async function ask(scene: SceneInput, feedback: string | null, signal: AbortSignal, routeOverride?: Route): Promise<FrameMotion[]> {
   const words = scene.words.map((word) => `${word.text}@${word.start.toFixed(2)}`).join(" ");
   const content = [
     `Scene ${scene.index + 1}, ${scene.seconds.toFixed(2)} s long.`,
     `Voiceover: ${scene.line ?? "(none: a silent scene; pace the motion across it)"}`,
     words ? `Word times (seconds from the scene start): ${words}` : "",
-    `Final frame (END state):\n${scene.svg}`,
-    scene.previous ? `Previous frame (already on screen when this scene starts):\n${scene.previous.slice(0, 9000)}` : "This is the first scene.",
+    `Final frame (END state):\n${withoutImages(scene.svg)}`,
+    scene.previous ? `Previous frame (already on screen when this scene starts):\n${withoutImages(scene.previous).slice(0, 9000)}` : "This is the first scene.",
     feedback ?? ""
   ].filter(Boolean).join("\n\n");
   const route = routeOverride ?? routeFor("motion");

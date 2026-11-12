@@ -1,12 +1,13 @@
 import { enqueueVisuals, visualStatus, VisualWorkerBusy } from "./visuals.ts";
 import { materialBillingOn, visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import sharp from "sharp";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { aspects, audioModes, captionModes, BEAT_LIMITS, effectiveBriefDurationSeconds, ensureScriptBeatIds, findGalleryTemplate, formatForDuration, inferVideoType, isAnimationTier, isPaidTier, isScriptLedDuration, materialCostMillitokens, materialCostMillitokensV2, parseScriptNotes, resolvePrimaryAspect, scriptFrameKey, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voices, voiceIds, voiceText, validateBeatLayoutHint, validateHyperFramesOverrides, type Aspect, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type EditPatch, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type ScriptNotes, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
-import { brandOwner, getBrand } from "../brand/store.ts";
+import { brandLogoPath, brandOwner, getBrand } from "../brand/store.ts";
 import { registerRequestId, requestIdOf, upstreamError, upstreamSseError } from "../http-errors.ts";
 import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan, type PlanMutationPatch } from "../projects/store.ts";
 import { config } from "../config.ts";
@@ -70,12 +71,32 @@ import { admitPreview, meteringOn } from "./preview-meter.ts";
 import { tierFor } from "../billing/service.ts";
 import { isPlateLook, startPlates } from "../plates/service.ts";
 
-/** The brand kit a film uses, for drawing its frames in the brand's colours; only the caller's own kit. */
-async function frameBrand(brandId: string | undefined, userId: string): Promise<{ name: string; colors: import("@videosaas/contracts").BrandColors } | null> {
+const frameLogos = new Map<string, string>();
+
+/** The kit's logo as a small PNG data URI for the corner of each frame (cached per kit and file size). */
+async function frameLogo(brandId: string): Promise<string | undefined> {
+  try {
+    const path = await brandLogoPath(brandId);
+    if (!path) return undefined;
+    const size = (await stat(path)).size;
+    const key = `${brandId}:${size}`;
+    const hit = frameLogos.get(key);
+    if (hit) return hit;
+    const png = await sharp(path, { limitInputPixels: 40_000_000 }).resize({ width: 320, height: 160, fit: "inside", withoutEnlargement: true }).png({ compressionLevel: 9 }).toBuffer();
+    const uri = `data:image/png;base64,${png.toString("base64")}`;
+    if (frameLogos.size > 200) frameLogos.clear();
+    frameLogos.set(key, uri);
+    return uri;
+  } catch { return undefined; }
+}
+
+/** The brand kit a film uses, for drawing its frames in the brand's colours and logo; only the caller's own kit. */
+async function frameBrand(brandId: string | undefined, userId: string): Promise<import("./frame-sketch.ts").FrameBrand | null> {
   if (!brandId) return null;
   const kit = await getBrand(brandId).catch(() => null);
   if (!kit || brandOwner(kit) !== userId) return null;
-  return { name: kit.name, colors: kit.colors };
+  const logoDataUri = kit.hasLogo ? await frameLogo(brandId) : undefined;
+  return { name: kit.name, colors: kit.colors, mode: kit.mode, logoDataUri };
 }
 
 const notFound = { error: { code: "not_found", message: "Project not found." } };
