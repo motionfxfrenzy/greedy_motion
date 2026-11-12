@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { appHref } from "../lib/hosts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   FREE_REVISIONS,
   MILLITOKENS_PER_SECOND,
@@ -25,7 +25,7 @@ import {
   tokensFromMilli,
   type PlanTier
 } from "@videosaas/contracts";
-import { startCheckout } from "../lib/api";
+import { getMySubscription, startCheckout } from "../lib/api";
 import { useSignedIn } from "./site-nav";
 
 const LENGTHS = [15, 30, 60] as const;
@@ -75,6 +75,14 @@ export function TokenCosts() {
   const signedIn = useSignedIn();
   const [buying, setBuying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Token packs are for people on a paid plan; everyone else is pointed to the plans instead.
+  const [subscribed, setSubscribed] = useState(false);
+  useEffect(() => {
+    if (!signedIn) { setSubscribed(false); return; }
+    let live = true;
+    getMySubscription().then((sub) => { if (live) setSubscribed(sub.tier !== "free"); }).catch(() => { if (live) setSubscribed(false); });
+    return () => { live = false; };
+  }, [signedIn]);
   const film = (seconds: number) => plain(tokensFromMilli(renderCostMillitokens(seconds)));
   const usd = (tokens: number) => `$${(Math.round(tokens * TOKEN_USD * 100) / 100).toFixed(2)}`;
   const scene = tokensFromMilli(materialCostMillitokens(0.87));
@@ -100,7 +108,7 @@ export function TokenCosts() {
           </tbody>
         </table>
       </div>
-      <div className="token-pack-callout">
+      {subscribed ? <div className="token-pack-callout">
         <div>
           <b>Need more? {TOP_UP.tokens} tokens for ${TOP_UP.priceUsd}, once.</b>
           <p>They never expire. A render uses your monthly plan tokens first and keeps your pack for whenever you need extra.</p>
@@ -110,7 +118,13 @@ export function TokenCosts() {
         ) : (
           <Link className="secondary-button" href={appHref("/auth?next=/pricing")}>Buy {TOP_UP.tokens} tokens · ${TOP_UP.priceUsd}</Link>
         )}
-      </div>
+      </div> : <div className="token-pack-callout">
+        <div>
+          <b>Need more tokens?</b>
+          <p>Subscribe to a plan: every plan comes with tokens each month, and subscribers can add a {TOP_UP.tokens}-token pack for ${TOP_UP.priceUsd} when they need extra.</p>
+        </div>
+        <button type="button" className="primary-button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>See plans</button>
+      </div>}
       {error && <p className="profile-note bad" role="alert">{error}</p>}
     </section>
   );
@@ -182,7 +196,7 @@ const faq: { q: string; a: string }[] = [
   { q: "What if I change my mind after the first version?", a: `The first ${FREE_REVISIONS} changes to a film are included: rebuilding it after an edit, or applying comments in the preview. Each one after that takes ${REVISION_TOKENS} tokens, and a change that does not happen is never charged.` },
   { q: "What do custom visual style plates cost?", a: `Premium visual styles with custom 3D and crafted motion plates (clay, paper, studio) are for paid plans and cost ${sceneTokens} tokens a scene, shown before you render them. They are billed per scene on top of the film.` },
   { q: "Do tokens expire?", a: "Your plan's tokens renew every month. Each renewal starts you again with the full amount, and what you did not use last month does not carry over. On an annual plan, your monthly tokens are granted on the same date each month through the year. Token packs and your free allowance never expire, and a render uses your plan tokens first." },
-  { q: "What happens when I run out?", a: `Render tells you how many tokens the film needs and how many you have. Nothing is charged automatically: add a ${TOP_UP.tokens}-token pack for $${TOP_UP.priceUsd} or move to a bigger plan.` },
+  { q: "What happens when I run out?", a: `Render tells you how many tokens the film needs and how many you have. Nothing is charged automatically. On a plan you can add a ${TOP_UP.tokens}-token pack for $${TOP_UP.priceUsd} or move to a bigger plan; on Free, choose a plan to keep going.` },
   { q: "Is it for teams?", a: "Each account is for one person: one token balance, one brand library, no seats. Plans differ by how many films you make a month." },
   { q: "Can I cancel or change my plan?", a: "Yes, any time from billing. A cancelled plan keeps working until the end of the period you paid for, and the tokens you already have stay yours." },
   { q: "Can I get a refund?", a: "Unused prepaid tokens can be refunded within 30 days, under the refund policy. A film that has been delivered is normally not refundable for a change of mind. If a film cannot be started, its tokens are returned automatically." },

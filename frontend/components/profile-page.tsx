@@ -105,10 +105,17 @@ export function ProfilePage() {
           {tokens.status === "loading" && <p className="profile-note">Reading your tokens…</p>}
           {tokens.status === "error" && <div className="profile-row"><div><b>Tokens unavailable</b><p>We could not read your balance just now.</p></div><button className="secondary-button" onClick={loadTokens}>Try again</button></div>}
           {tokens.status === "ready" && <TokenMeter value={tokens.value} renewsAt={sub.status === "ready" ? (sub.value.tokensResetAt ?? sub.value.renewsAt) : null} />}
-          <div className="profile-row topup">
-            <div><b>Need more?</b><p>{TOP_UP.tokens} tokens for ${TOP_UP.priceUsd}. They never expire.</p></div>
-            <button className="secondary-button" disabled={buying !== null} onClick={() => void buy("topup")}>{buying === "topup" ? "Opening…" : "Buy tokens"}</button>
-          </div>
+          {sub.status === "ready" && (sub.value.tier === "free" ? (
+            <div className="profile-row topup">
+              <div><b>Need more?</b><p>Subscribe to a plan: every plan comes with tokens each month.</p></div>
+              <Link className="primary-button" href="/pricing">Subscribe</Link>
+            </div>
+          ) : (
+            <div className="profile-row topup">
+              <div><b>Need more?</b><p>{TOP_UP.tokens} tokens for ${TOP_UP.priceUsd}. They never expire.</p></div>
+              <button className="secondary-button" disabled={buying !== null} onClick={() => void buy("topup")}>{buying === "topup" ? "Opening…" : "Buy tokens"}</button>
+            </div>
+          ))}
           {buyError && <p className="profile-note bad" role="alert">{buyError}</p>}
         </article>
       </section>

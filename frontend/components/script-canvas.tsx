@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import { ANIMATION_TIER_SPECS, DEFAULT_ANIMATION_TIER, formatDurationSeconds, PLANS, PAID_TIERS, PREMIUM_LOCKED_COPY, PREVIEW_ALLOWANCE, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, remapIndicesOnInsert, remapIndicesOnRemove, type AnimationTier, type BillingInterval, type BillingPolicyVersion, renderCostMillitokens, renderExportCostMillitokensV2, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
 import Link from "next/link";
-import { getMyTokens, startCheckout, type LimitError, type ScriptFlag } from "../lib/api";
+import { getMySubscription, getMyTokens, startCheckout, type LimitError, type ScriptFlag } from "../lib/api";
 
 export type UndoSceneBanner = {
   index: number;
@@ -167,7 +167,15 @@ export function PlanLimitOptions({ limit }: { limit: LimitError }) {
   const [opening, setOpening] = useState<Product | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [interval, setInterval] = useState<BillingInterval>("month");
-  const copy = limitCopy(limit);
+  // A token pack is for people who already have a plan: someone with none is pointed to the plans, and only a subscriber who runs out of tokens is offered the pack (first).
+  const [subscribed, setSubscribed] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    getMySubscription().then((sub) => { if (live) setSubscribed(sub.tier !== "free"); }).catch(() => { if (live) setSubscribed(false); });
+    return () => { live = false; };
+  }, []);
+  const base = limitCopy(limit);
+  const copy = { ...base, pack: base.pack && subscribed === true };
   const have = limit.limit ?? 0;
   const tokens = limit.code === "insufficient_tokens";
   // Plans that raise what is short: more films a month, or (for tokens) a bigger monthly grant than the current plan's.
@@ -185,6 +193,7 @@ export function PlanLimitOptions({ limit }: { limit: LimitError }) {
   const money = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
   return <div className="lim">
     {need !== null && <p className="lim-need">This needs <b>{limit.needed} tokens</b>. You have <b>{limit.remaining}</b>, so you need <b>{need} more</b>.</p>}
+    {tokens && subscribed === false && <p className="lim-note">Choose a plan to keep making films: every plan comes with tokens each month.</p>}
     {options.length > 0 && <div className="billing-toggle" role="radiogroup" aria-label="Billing period">
       <button type="button" role="radio" aria-checked={interval === "month"} className={interval === "month" ? "on" : ""} onClick={() => setInterval("month")}>Monthly</button>
       <button type="button" role="radio" aria-checked={interval === "year"} className={interval === "year" ? "on" : ""} onClick={() => setInterval("year")}>Annual<span className="billing-save-pill">Save 17%</span></button>

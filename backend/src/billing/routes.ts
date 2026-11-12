@@ -52,6 +52,11 @@ export async function registerBillingRoutes(app: FastifyInstance) {
     if (!checkoutConfigured(product === "topup" ? "month" : interval)) return reply.code(501).send(unavailable);
     if (product !== "topup" && !isPaidTier(product)) return reply.code(400).send({ error: { code: "invalid_product", message: "Choose a plan or a token pack." } });
     const userId = callerId(request);
+    if (product === "topup") {
+      // A token pack tops up a plan; someone with no plan is sent to choose one first.
+      const current = await subscriptionFor(userId);
+      if (current.tier === "free") return reply.code(403).send({ error: { code: "subscription_required", message: "Token packs are for subscribers. Choose a plan first." } });
+    }
     if (isPaidTier(product)) {
       const current = await subscriptionFor(userId);
       if (current.tier !== "free") return reply.code(409).send({ error: { code: "already_subscribed", message: "You already have a plan. Change or cancel it from billing.", portalUrl: current.portalUrl } });
