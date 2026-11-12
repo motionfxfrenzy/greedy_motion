@@ -62,6 +62,9 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
     shots[id] = `shots/${name}`;
   }
 
+  const bedMode = audioMode(project);
+  // The music's beat: the bed ends on one, and the film pops on them.
+  const musicGrid = (bedMode === "music" || bedMode === "both") && project.planAudio?.music?.file ? await musicBeatGrid(project.id, project.planAudio.music.file) : null;
   const { tracks } = soundTracks({
     plan,
     timing,
@@ -70,7 +73,8 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
     sfxUrl: (name: SfxName) => `sfx/${name}.mp3`,
     hasShot: (id) => Boolean(shots[id]),
     mode: audioMode(project),
-    sfx: project.brief?.audio.sfx !== false
+    sfx: project.brief?.audio.sfx !== false,
+    beatGrid: musicGrid
   });
   for (const track of tracks) {
     const from = track.src.startsWith("sfx/") ? join(config.templatesDir, ENGINE_TEMPLATE, track.src) : join(planAudioDir(project.id), track.src.slice("audio/".length));
@@ -109,7 +113,7 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   html = withSoundtrack(html, tracks);
   // A film written in the script canvas animates its approved frames instead of the engine's own scenes.
   const frames = filmFrames(project, timing);
-  if (frames) html = await withFrameFilm(html, frames, filmFeel(project), beatTimes(tracks, tracks.some((track) => track.id.startsWith("music-bed")) ? await musicBeatGrid(project.id, project.planAudio?.music?.file) : null));
+  if (frames) html = await withFrameFilm(html, frames, filmFeel(project), beatTimes(tracks, musicGrid));
   html = withSubtitleStyling(html, subtitles);
   if (watermark) html = withWatermark(html);
   html = withVisuals(html, project, timing, file => `visuals/${file}`);

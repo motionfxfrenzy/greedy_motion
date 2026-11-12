@@ -121,13 +121,17 @@ export async function musicBeatGrid(projectId: string, file: string | undefined)
  * The beat times on the film clock: for each copy of the music bed in the soundtrack (a short bed loops), the grid starting at that
  * copy's start. Fast music pulses on every other beat. Beats too close together (where two copies overlap) count once.
  */
-export function beatTimes(tracks: Pick<AudioTrack, "id" | "start" | "duration">[], grid: BeatGrid | null): number[] {
+export function beatTimes(tracks: Pick<AudioTrack, "id" | "start" | "duration" | "mediaStart">[], grid: BeatGrid | null): number[] {
   if (!grid) return [];
   const period = 60 / grid.bpm;
   const every = grid.bpm > 150 ? 2 : 1;
   const times: number[] = [];
   for (const track of tracks.filter((item) => item.id.startsWith("music-bed"))) {
-    for (let k = 0, t = track.start + grid.offset; t < track.start + track.duration - 0.05; k++, t += period) {
+    // A bed whose start is trimmed (mediaStart) or delayed (start) shifts every beat with it.
+    const skip = Math.max(0, Math.ceil(((track.mediaStart ?? 0) - grid.offset) / period - 1e-6));
+    for (let k = skip; ; k++) {
+      const t = track.start + grid.offset + k * period - (track.mediaStart ?? 0);
+      if (t >= track.start + track.duration - 0.05) break;
       if (k % every === 0) times.push(+t.toFixed(3));
     }
   }

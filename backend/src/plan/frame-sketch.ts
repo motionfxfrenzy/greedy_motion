@@ -208,7 +208,7 @@ export function curatedThoughtExperimentGuide(aspect: Aspect = "16:9", topic = "
   return CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE;
 }
 
-export type FrameBrand = { name: string; colors: BrandColors; mode?: "light" | "dark" | undefined; /** The kit's logo as a small PNG data URI; placed on the frame by us, never drawn by the model. */ logoDataUri?: string | undefined };
+export type FrameBrand = { name: string; /** The brand's website, for the closing frame's address. */ url?: string | undefined; colors: BrandColors; mode?: "light" | "dark" | undefined; /** The kit's logo as a small PNG data URI; placed on the frame by us, never drawn by the model. */ logoDataUri?: string | undefined };
 
 export type FrameRequest = { beat: ScriptBeat; index: number; count: number; aspect: Aspect; topic: string; style: { name: string; code: string } | null; look: string; notes?: ScriptNotes | null; brand?: FrameBrand | null };
 
@@ -255,7 +255,7 @@ export function logoPlacement(request: Pick<FrameRequest, "beat" | "index" | "co
 const SLOT_RULE = 'an EMPTY rectangle <rect id="logo-slot" x=".." y=".." width=".." height=".." fill="none"/> (exactly one on this frame, nothing drawn in or over it, no stroke). The real logo is placed exactly inside that rectangle afterwards, so never draw a logo, symbol, icon or letters of your own in its place.';
 
 const LOGO_RULES: Record<Exclude<LogoPlacement, "none">, string> = {
-  focus: `LOGO: this is the closing frame and the brand's logo is its centrepiece. Draw ${SLOT_RULE} Make it large (about 30% of the frame's width and half as tall) and centre it horizontally inside the main card or active zone of the picture (not above it, not outside it), with the call to action and the address below it.`,
+  focus: `LOGO: this is the closing frame and the brand's logo is its centrepiece. Draw ${SLOT_RULE} Make it large (about 30% of the frame's width and half as tall) and centre it horizontally inside the main card or active zone of the picture (not above it, not outside it). CLOSING FRAME LAYOUT, one centred column from top to bottom: the logo slot, then a one-line tagline, then the call-to-action button with its words, then the web address written out as readable text under the button. All of it sits inside the same card or zone, with even spacing and nothing cut off.`,
   inline: `LOGO: the VISUAL shows the logo as one element of the picture (an "extracted logo" box, a logo preview, a brand card). Draw the box or card that holds it as part of the layout, and put ${SLOT_RULE} Size the slot to the inside of that box with some padding.`,
   side: `LOGO: this frame names the brand, so show its logo the way a real web page does: in the page's header or nav bar at the left, the centre or the right, whichever suits the layout (inside the page mock when there is one). Draw ${SLOT_RULE} Keep it small (about 10% to 14% of the frame's width, about twice as wide as tall).`
 };
@@ -278,7 +278,8 @@ export function brandColorBlock(brand: FrameRequest["brand"], placement: LogoPla
       ? "GROUND: this brand is LIGHT. Draw every frame on a light ground (the background colour above, else white or a very pale tint of the primary) with dark type. Never a black or dark-navy background, even if the style guide's reference is dark."
       : "GROUND: this brand is DARK. Draw every frame on a dark ground with light type.",
     "Use only these colours plus tints and shades of them, white or near-black for contrast, and keep text readable on its ground. Never use another hue (no neon green, pink or purple unless it is a listed colour).",
-    placement === "none" ? "Do not draw a logo or brand mark on this frame." : LOGO_RULES[placement]
+    placement === "none" ? "Do not draw a logo or brand mark on this frame." : LOGO_RULES[placement],
+    placement === "focus" && brandAddress(brand) ? `The web address to show as text under the button: ${brandAddress(brand)}` : ""
   ].filter(Boolean).join("\n");
 }
 
@@ -306,6 +307,15 @@ export function fillLogoSlot(svg: string, logoDataUri: string): string {
 
 /** A frame saved before logos were placed in slots carries the logo pasted at a fixed spot; that picture is dropped. */
 export const withoutLegacyLogo = (svg: string) => svg.replace(/<image id="brand-logo"(?![^>]*data-slot="1")[^>]*\/>/g, "");
+
+/** The brand's web address as people write it: no scheme, no www, no trailing slash. */
+export function brandAddress(brand: FrameRequest["brand"]): string {
+  if (!brand?.url) return "";
+  try { return new URL(/^https?:/i.test(brand.url) ? brand.url : `https://${brand.url}`).hostname.replace(/^www\./, ""); } catch { return ""; }
+}
+
+/** Whether a drawn frame shows the address as text. */
+export const showsAddress = (svg: string, address: string) => !address || svg.replace(/<[^>]+>/g, "").replace(/\s+/g, "").toLowerCase().includes(address.toLowerCase());
 
 /** The part every beat shares (style guide, topic, size), cached, then the beat itself. */
 function prompt(request: FrameRequest) {
@@ -400,6 +410,12 @@ export async function sketchFrame(request: FrameRequest, signal: AbortSignal, ht
     svg = await drawFrame(request, signal, http, 2);
   }
   const placement = logoPlacement(request);
+  // The closing frame is the call to action: it must say where to go. A drawing that left the address out is drawn once more with that said plainly.
+  const address = placement === "focus" ? brandAddress(request.brand) : "";
+  if (address && !showsAddress(svg, address)) {
+    const again = await drawFrame(request, signal, http, 1, `The closing frame MUST show the web address "${address}" as readable text under the call-to-action button. The previous drawing left it out.`).catch(() => null);
+    if (again && showsAddress(again, address)) svg = again;
+  }
   if (request.brand?.logoDataUri && placement !== "none") return fillLogoSlot(svg, request.brand.logoDataUri);
   return svg.replace(SLOT_TAG, "");
 }
@@ -413,10 +429,11 @@ export function placeholderFrame(beat: ScriptBeat, aspect: Aspect): string {
 
 const COMPACT_NOTE = "Keep this drawing compact: at most about 40 shapes, simple paths, no long path data, no repeated detail. Answer with only the SVG and always finish with </svg>.";
 
-async function drawFrame(request: FrameRequest, signal: AbortSignal, http: typeof fetch, attempt: 1 | 2): Promise<string> {
+async function drawFrame(request: FrameRequest, signal: AbortSignal, http: typeof fetch, attempt: 1 | 2, extraNote?: string): Promise<string> {
   const route = routeFor("frameSketch");
   const parts = prompt(request);
   if (attempt === 2) parts.push({ type: "text", text: COMPACT_NOTE });
+  if (extraNote) parts.push({ type: "text", text: extraNote });
   const maxTokens = attempt === 1 ? route.maxTokens : Math.max(route.maxTokens * 2, 12000);
   if (route.provider !== "anthropic") {
     // Another provider (MODEL_FRAME_SKETCH): the shared provider layer.

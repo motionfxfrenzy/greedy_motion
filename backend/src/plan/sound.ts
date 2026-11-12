@@ -101,6 +101,33 @@ export function sfxCues(plan: BeatPlan, timing: PlanTiming, hasShot: (screenId: 
   return cues.sort((a, b) => a.at - b.at);
 }
 
+/** Where the single music bed sits on the film clock so that its last beat is the film's last beat. */
+export type BedPlacement = { start: number; mediaStart: number; duration: number; hit: number | null };
+
+/**
+ * A bed that is longer than the film is cut at the film's end, which is usually mid-phrase, and the volume fades out behind the last
+ * scene. When the music has a steady beat the bed is instead shifted (by at most half a beat: its start is delayed or trimmed) so one
+ * beat lands a third of a second before the film ends; that beat is the last thing heard, with a short ring-out to the end.
+ */
+export function alignBedEnd(total: number, bedSeconds: number, grid: { bpm: number; offset: number } | null | undefined): BedPlacement {
+  const plain: BedPlacement = { start: 0, mediaStart: 0, duration: round(total), hit: null };
+  if (!grid || total < 4) return plain;
+  const hit = total - 0.35;
+  const period = 60 / grid.bpm;
+  const beat = grid.offset + Math.round((hit - grid.offset) / period) * period;
+  const shift = hit - beat;
+  const start = Math.max(0, shift), mediaStart = Math.max(0, -shift);
+  const duration = total - start;
+  if (mediaStart + duration > bedSeconds + 1e-6) return plain;
+  return { start: round(start), mediaStart: round(mediaStart), duration: round(duration), hit: round(hit) };
+}
+
+/** The bed's volume lane for an aligned end: as before until the last beat, held through it, then a short decay to silence at the film's end. */
+export function endOnBeat(lane: { t: number; v: number }[], hit: number, total: number): { t: number; v: number }[] {
+  const level = levelAt(lane, hit);
+  return [...lane.filter((point) => point.t < hit - 0.05), { t: round(hit - 0.03), v: level }, { t: round(hit + 0.06), v: level }, { t: round(total), v: 0 }];
+}
+
 /** A lane's level at `t` (linear between points, as HyperFrames plays it). */
 export function levelAt(lane: { t: number; v: number }[], t: number): number {
   if (!lane.length) return 0;
@@ -152,6 +179,8 @@ export type SoundInputs = {
   mode: "voiceover" | "music" | "both" | "none";
   /** False when the person turned the sound effects off (brief.audio.sfx); on when absent. */
   sfx?: boolean;
+  /** The beat of the music bed (backend/src/plan/beat-grid.ts), when it has a steady one: the bed then ends on a beat. */
+  beatGrid?: { bpm: number; offset: number } | null;
 };
 
 /** Every <audio> track for the film; empty when the brief asks for no sound. */
@@ -177,7 +206,15 @@ export function soundTracks(input: SoundInputs): { tracks: AudioTrack[]; cues: S
   if (music && music.seconds > 1) {
     const lane = duckLane(total, speech);
     if (music.seconds >= total) {
-      tracks.push({ id: "music-bed", src: input.fileUrl(music.file), start: 0, duration: round(total), track: SOUND_RULES.tracks.music, volume: 1, automation: lane });
+      const bed = alignBedEnd(total, music.seconds, input.beatGrid);
+      // On the film clock the lane runs 0..total; the track's own clock starts at `bed.start`.
+      const clock = bed.hit === null ? lane : endOnBeat(lane, bed.hit, total);
+      const own = bed.start > 0 ? [{ t: 0, v: 0 }, ...clock.filter((point) => point.t > bed.start + 0.02).map((point) => ({ t: round(point.t - bed.start), v: point.v }))] : clock;
+      tracks.push({
+        id: "music-bed", src: input.fileUrl(music.file), start: bed.start, duration: bed.duration, track: SOUND_RULES.tracks.music, volume: 1,
+        ...(bed.mediaStart > 0 ? { mediaStart: bed.mediaStart } : {}),
+        automation: own
+      });
     } else {
       // A bed shorter than the film loops with crossfades across as many copies as needed to span the full runtime.
       const x = Math.min(SOUND_RULES.music.loopCrossfade, music.seconds / 4);

@@ -116,6 +116,9 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
   html = fillTextBlock(withRuntime, hfBlockValues(plan.beats, plan.overrides));
   html = html.replace(/(<script id="hf-variables" type="application\/json">[\s\S]*?<\/script>)/, (block) => `${block}\n  ${merge}`);
   // The soundtrack: voiceover takes, the ducked bed and the SFX, as <audio> tracks the player plays in sync.
+  const bedMode = audioMode(project);
+  // The music's beat: the bed ends on one, and the film pops on them.
+  const musicGrid = (bedMode === "music" || bedMode === "both") && project.planAudio?.music?.file ? await musicBeatGrid(project.id, project.planAudio.music.file) : null;
   const { tracks } = soundTracks({
     plan,
     timing,
@@ -124,13 +127,14 @@ export async function planPreviewHtml(project: VideoProject): Promise<string> {
     sfxUrl: (name) => `${studioAssetBase}/plan-sfx/${name}.mp3`,
     hasShot: (id) => screens.has(id),
     mode: audioMode(project),
-    sfx: project.brief?.audio.sfx !== false
+    sfx: project.brief?.audio.sfx !== false,
+    beatGrid: musicGrid
   });
   html = withSoundtrack(html, tracks);
   html = withAudioContinuity(html);
   // A film written in the script canvas animates its approved SVG reference frames directly in the browser player.
   const frames = filmFrames(project, timing);
-  if (frames) html = await withFrameFilm(html, frames, filmFeel(project), beatTimes(tracks, tracks.some((track) => track.id.startsWith("music-bed")) ? await musicBeatGrid(project.id, project.planAudio?.music?.file) : null));
+  if (frames) html = await withFrameFilm(html, frames, filmFeel(project), beatTimes(tracks, musicGrid));
   html = withSubtitleStyling(html, subtitles);
   html = withVisuals(html, project, timing, file => `${studioAssetBase}/plans/${project.id}/visuals/${file}`);
   const fontCss = rewriteFontUrls(bundledFonts, "fonts", `${studioAssetBase}/fonts`);
