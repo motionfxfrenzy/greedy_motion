@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { aspects, audioModes, captionModes, BEAT_LIMITS, effectiveBriefDurationSeconds, ensureScriptBeatIds, findGalleryTemplate, formatForDuration, inferVideoType, isAnimationTier, isPaidTier, isScriptLedDuration, materialCostMillitokens, materialCostMillitokensV2, parseScriptNotes, resolvePrimaryAspect, scriptFrameKey, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voices, voiceIds, voiceText, validateBeatLayoutHint, validateHyperFramesOverrides, type Aspect, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type EditPatch, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type ScriptNotes, type VideoProject } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
-import { getBrand } from "../brand/store.ts";
+import { brandOwner, getBrand } from "../brand/store.ts";
 import { registerRequestId, requestIdOf, upstreamError, upstreamSseError } from "../http-errors.ts";
 import { getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan, type PlanMutationPatch } from "../projects/store.ts";
 import { config } from "../config.ts";
@@ -69,6 +69,14 @@ import { ensurePromptAllowed } from "../moderation/creem.ts";
 import { admitPreview, meteringOn } from "./preview-meter.ts";
 import { tierFor } from "../billing/service.ts";
 import { isPlateLook, startPlates } from "../plates/service.ts";
+
+/** The brand kit a film uses, for drawing its frames in the brand's colours; only the caller's own kit. */
+async function frameBrand(brandId: string | undefined, userId: string): Promise<{ name: string; colors: import("@videosaas/contracts").BrandColors } | null> {
+  if (!brandId) return null;
+  const kit = await getBrand(brandId).catch(() => null);
+  if (!kit || brandOwner(kit) !== userId) return null;
+  return { name: kit.name, colors: kit.colors };
+}
 
 const notFound = { error: { code: "not_found", message: "Project not found." } };
 
@@ -1393,6 +1401,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const notes = parseScriptNotes(request.body?.notes) ?? brief.scriptNotes ?? null;
 
     const userId = callerId(request);
+    const brand = await frameBrand(brief.brandId, userId);
     let framesReservationId: string | null = null;
     if (stepBillingOnForProject(project)) {
       try {
@@ -1449,7 +1458,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const draw = async () => {
       for (let index = queue.shift(); index !== undefined && !controller.signal.aborted; index = queue.shift()) {
         try {
-          const svg = await sketchFrame({ beat: beats[index]!, index, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes }, controller.signal);
+          const svg = await sketchFrame({ beat: beats[index]!, index, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes, brand }, controller.signal);
           send({ index, svg });
           await saveScriptFrame(project.id, { key: keyFor(index), svg }).catch((error) => app.log.warn({ err: error, projectId: project.id }, "frame not saved"));
           if (index === 0) await setCoverFrame(project.id, svg).catch(() => undefined);
@@ -1861,7 +1870,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
             for (let idx = frameQueue.shift(); idx !== undefined && !controller.signal.aborted; idx = frameQueue.shift()) {
               try {
                 const svg = await sketchFrame(
-                  { beat: beats[idx]!, index: idx, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes },
+                  { beat: beats[idx]!, index: idx, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes, brand: await frameBrand(brief.brandId, callerId(request)) },
                   controller.signal
                 );
                 await saveScriptFrame(project!.id, { key: keyFor(idx), svg });

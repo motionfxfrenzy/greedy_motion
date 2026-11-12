@@ -95,8 +95,9 @@ export function parseFrameMotion(input: unknown, svg: string, seconds: number): 
 }
 /** Frames kept per project, newest first: enough for a full script plus a few rounds of changes. */
 export const SCRIPT_FRAMES_KEPT = 160;
-export const scriptFrameKey = (beat: ScriptBeat, style: { styleExample?: string | undefined; look?: string | undefined; aspect: string }) =>
-  ["v2", style.styleExample ?? "", style.look ?? "", style.aspect, beat.keyword, beat.visual ?? "", beat.onScreen ?? ""].join("\u0001");
+export const scriptFrameKey = (beat: ScriptBeat, style: { styleExample?: string | undefined; look?: string | undefined; aspect: string; brandId?: string | undefined }) =>
+  // A frame is drawn in the brand kit's colours, so a different kit is a different frame; films with no kit keep their old keys.
+  ["v2", style.styleExample ?? "", style.look ?? "", style.aspect, beat.keyword, beat.visual ?? "", beat.onScreen ?? "", ...(style.brandId ? [`brand:${style.brandId}`] : [])].join("\u0001");
 
 const value = (rest: string) => rest.trim().replace(/\s+/g, " ");
 

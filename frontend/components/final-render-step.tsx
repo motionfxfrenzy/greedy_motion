@@ -88,7 +88,8 @@ function matchSavedScriptFrame(
       const exactKey = scriptFrameKey(beat, {
         styleExample: project.brief.styleExample,
         look: project.brief.look,
-        aspect
+        aspect,
+        brandId: project.brief.brandId
       });
       const exact = saved.find((f) => f.key === exactKey)?.svg;
       if (exact) return exact;

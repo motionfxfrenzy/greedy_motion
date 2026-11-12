@@ -1,4 +1,4 @@
-import { inferScriptTemplate, type Aspect, type ScriptBeat, type ScriptNotes } from "@videosaas/contracts";
+import { inferScriptTemplate, type Aspect, type BrandColors, type ScriptBeat, type ScriptNotes } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { callModel } from "../models/providers.ts";
 import { routeFor } from "../models/routes.ts";
@@ -208,10 +208,29 @@ export function curatedThoughtExperimentGuide(aspect: Aspect = "16:9", topic = "
   return CURATED_THOUGHT_EXPERIMENT_STYLE_GUIDE;
 }
 
-export type FrameRequest = { beat: ScriptBeat; index: number; count: number; aspect: Aspect; topic: string; style: { name: string; code: string } | null; look: string; notes?: ScriptNotes | null };
+export type FrameRequest = { beat: ScriptBeat; index: number; count: number; aspect: Aspect; topic: string; style: { name: string; code: string } | null; look: string; notes?: ScriptNotes | null; brand?: { name: string; colors: BrandColors } | null };
+
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** The brand kit's colours as a prompt block: the brand overrides the style's palette; the style keeps its layout, shapes and motion. */
+export function brandColorBlock(brand: FrameRequest["brand"]): string | null {
+  const colors = brand?.colors;
+  if (!brand || !colors || !HEX.test(colors.primary ?? "")) return null;
+  const roles = [
+    ["primary (main accent: headline word, key shapes, active states)", colors.primary],
+    ["accent (second highlight: callouts, a cursor, one small detail)", colors.accent],
+    ["background (the frame's ground)", colors.background],
+    ["text (all type)", colors.text]
+  ].filter((entry): entry is [string, string] => HEX.test(entry[1] ?? ""));
+  return [
+    `BRAND COLOURS for ${brand.name || "this brand"} (these REPLACE the style guide's palette and any colour named in the reference code or the VISUAL line; keep the style's layout, shapes and motion):`,
+    ...roles.map(([role, hex]) => `- ${role}: ${hex}`),
+    "Use only these colours plus tints and shades of them, white or near-black for contrast, and keep text readable on its ground. Never use another hue (no neon green, pink or purple unless it is a listed colour)."
+  ].join("\n");
+}
 
 /** The part every beat shares (style guide, topic, size), cached, then the beat itself. */
-function prompt({ beat, index, count, aspect, topic, style, look, notes }: FrameRequest) {
+function prompt({ beat, index, count, aspect, topic, style, look, notes, brand }: FrameRequest) {
   const { width, height } = FRAME_SIZE[aspect];
   const scriptTemplate = inferScriptTemplate({ text: topic, look });
   const hasARollBRollTag = /^\s*\[(?:A-ROLL|B-ROLL|CHAPTER CARD)/i.test(beat.visual ?? "");
@@ -228,6 +247,7 @@ function prompt({ beat, index, count, aspect, topic, style, look, notes }: Frame
     effectiveStyle
       ? `Style guide: the template "${effectiveStyle.name}". Its reference code (an animated HyperFrames composition; draw in its visual language, character rig, and shot archetypes, not its literal words):\n<reference>\n${effectiveStyle.code.slice(0, STYLE_LIMIT)}\n</reference>`
       : `Style guide: a clean, modern "${look}" motion-graphics look: one flat background, one accent colour, a geometric sans-serif.`,
+    ...(brandColorBlock(brand) ? [brandColorBlock(brand)!] : []),
     `What the film is about: ${topic.slice(0, 600)}`,
     ...(notes?.idea ? [`The film's one idea: ${notes.idea}`] : []),
     ...(notes?.objects ? [`OBJECTS (the film's recurring objects; use these exact ids on <g> or leaf elements every time they appear): ${notes.objects}`] : []),

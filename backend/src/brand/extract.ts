@@ -1,7 +1,8 @@
 // Reads a product website and suggests a brand kit: name, description, colors, fonts, and logo.
 // Everything here is a suggestion for the user to review; nothing is saved until they confirm.
 import { bundledFonts, parseColor, saturation, type BrandExtraction, type BrandFont } from "@videosaas/contracts";
-import { stageLogo } from "./assets.ts";
+import { readStaged, stageLogo } from "./assets.ts";
+import { hueDistance, logoColors } from "./logo-colors.ts";
 import { isGoogleFont } from "./fonts.ts";
 import { askGemini, askGeminiBrand, type GeminiBrand } from "../site/gemini.ts";
 import { FetchRefused, safeFetch, validateUrl } from "./safe-fetch.ts";
@@ -274,7 +275,7 @@ async function brandFromFallback(input: string, ownerId?: string): Promise<Brand
  * Suggests a brand kit for a site. The page's own CSS and markup come first (precise); when this server cannot read the
  * page, or the read found no colour or no logo, the fallback reader fills the gap and the kit says so.
  */
-export async function extractBrand(input: string, ownerId?: string): Promise<BrandExtraction> {
+async function extractBrandRaw(input: string, ownerId?: string): Promise<BrandExtraction> {
   let direct: BrandExtraction | null = null;
   let failure: unknown;
   try { direct = await extractBrandDirect(input, ownerId); } catch (error) { if (error instanceof FetchRefused) throw error; failure = error; }
@@ -294,4 +295,30 @@ export async function extractBrand(input: string, ownerId?: string): Promise<Bra
     direct.notes.push("The logo was found by a fallback reader (lower confidence): check it before saving.");
   }
   return direct;
+}
+
+/**
+ * A site's page colours often miss the colour its logo is built around (a small orange mark on a blue site, say). When the logo
+ * has a colour that is clearly a different hue from the primary, it becomes the accent if there is none, or if the accent is the
+ * same hue as the primary; the logo's colours also join the candidates. The person still reviews the kit before saving.
+ */
+export async function extractBrand(input: string, ownerId?: string): Promise<BrandExtraction> {
+  const brand = await extractBrandRaw(input, ownerId);
+  if (!brand.logo) return brand;
+  try {
+    const { data } = await readStaged(brand.logo.assetId, "logo", ownerId);
+    const found = await logoColors(data);
+    if (found.length === 0) return brand;
+    let { primary, accent } = brand.colors;
+    const notes: string[] = [];
+    if (!primary || saturation(primary) <= 0.25) { primary = found[0]!; notes.push("The primary colour was taken from the logo."); }
+    if (!accent || saturation(accent) <= 0.25 || hueDistance(accent, primary) < 25) {
+      const other = found.find((color) => hueDistance(color, primary) >= 25);
+      if (other) { accent = other; notes.push("The accent colour was taken from the logo."); }
+    }
+    if (notes.length === 0) return { ...brand, colors: { ...brand.colors, candidates: [...new Set([...brand.colors.candidates, ...found])].slice(0, 10) } };
+    return { ...brand, colors: { ...brand.colors, primary, ...(accent ? { accent } : {}), candidates: [...new Set([primary, ...(accent ? [accent] : []), ...brand.colors.candidates, ...found])].slice(0, 10) }, notes: [...brand.notes, ...notes] };
+  } catch {
+    return brand;
+  }
 }
