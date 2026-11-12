@@ -6,7 +6,7 @@ import { rowFromSubscription } from "../entitlements/lifecycle.ts";
 import { listEntitlements, upsertEntitlement } from "../entitlements/store.ts";
 import { addUtcMonths, expirePlanTokens, grantDueAnnualTokens, grantTokens } from "../tokens/store.ts";
 import { ANNUAL_MONTHS_GRANTED, PLANS, TOP_UP, isPaidTier, type BillingInterval, type PaidTier, type PlanTier } from "../tokens/plan.ts";
-import { snapshotFromSubscription, variantOf, type WebhookBody } from "./lemonsqueezy.ts";
+import { latestPaidInvoice, listSubscriptionsByEmail, snapshotFromSubscription, variantOf, type WebhookBody } from "./lemonsqueezy.ts";
 
 export { addUtcMonths, grantDueAnnualTokens };
 
@@ -199,4 +199,31 @@ async function applyOrderRefund(orderId: string, a: Record<string, unknown>, cus
     [userId, -variant.tokens * 1000, `refund-order:${orderId}`]
   );
   return "applied";
+}
+
+export type SyncResult = { synced: boolean; applied: Outcome[] };
+
+/**
+ * Pulls the buyer's purchase from Lemon Squeezy without waiting for the webhook. It feeds the API's own subscription and
+ * latest paid invoice through applyWebhook as webhook-shaped events, so the grant is the same code, the same event
+ * dedupe and the same ledger key (invoice:<id>) as the real delivery: whichever arrives second changes nothing.
+ * Ownership: the subscription's email must be the signed-in user's, and a subscription already stored for someone else is skipped.
+ */
+export async function syncPurchase(userId: string, email: string | undefined, fetcher: typeof fetch = fetch, now = new Date()): Promise<SyncResult> {
+  if (!email) return { synced: false, applied: [] };
+  const applied: Outcome[] = [];
+  for (const resource of await listSubscriptionsByEmail(email, fetcher)) {
+    const ref = text(resource.id);
+    const attributes = resource.attributes ?? {};
+    if (!ref || text(attributes.user_email).toLowerCase() !== email.toLowerCase()) continue;
+    if (variantOf(text(attributes.variant_id))?.kind !== "subscription") continue;
+    const owner = await query<{ user_id: string }>("select user_id from app.subscriptions where provider = 'lemonsqueezy' and provider_ref = $1", [ref]);
+    if (owner.rows[0] && owner.rows[0].user_id.toLowerCase() !== userId.toLowerCase()) continue;
+    const meta = { event_name: "subscription_updated", custom_data: { user_id: userId } };
+    applied.push(await applyWebhook({ meta, data: { id: ref, type: "subscriptions", attributes } }, now));
+    const invoice = await latestPaidInvoice(ref, fetcher);
+    if (invoice?.id) applied.push(await applyWebhook({ meta: { ...meta, event_name: "subscription_payment_success" }, data: { id: text(invoice.id), type: "subscription-invoices", attributes: invoice.attributes } }, now));
+  }
+  const view = await subscriptionFor(userId, now);
+  return { synced: view.tier !== "free", applied };
 }

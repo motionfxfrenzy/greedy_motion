@@ -45,8 +45,17 @@ export const annualCheckoutConfigured = () => checkoutConfigured("year");
 
 export class CheckoutError extends Error {}
 
+/** Where the buyer lands afterwards: the profile tokens section, flagged so the page syncs the purchase at once instead of waiting for the webhook. */
+export function returnUrlFor(item: "plan" | "pack", base: string = config.billing.returnUrl): string {
+  const url = new URL(base);
+  url.searchParams.set("checkout", "success");
+  url.searchParams.set("item", item);
+  url.hash = "tokens";
+  return url.toString();
+}
+
 /** A hosted checkout for one variant. The buyer's user id rides in custom data and comes back on every webhook. */
-export async function createCheckout(input: { userId: string; email?: string; variantId: string }, fetcher: typeof fetch = fetch): Promise<string> {
+export async function createCheckout(input: { userId: string; email?: string; variantId: string; item?: "plan" | "pack" }, fetcher: typeof fetch = fetch): Promise<string> {
   const response = await fetcher(`${API}/checkouts`, {
     method: "POST",
     headers: { Accept: "application/vnd.api+json", "Content-Type": "application/vnd.api+json", Authorization: `Bearer ${config.billing.apiKey}` },
@@ -55,7 +64,7 @@ export async function createCheckout(input: { userId: string; email?: string; va
         type: "checkouts",
         attributes: {
           checkout_data: { ...(input.email ? { email: input.email } : {}), custom: { user_id: input.userId } },
-          product_options: { redirect_url: config.billing.returnUrl },
+          product_options: { redirect_url: returnUrlFor(input.item ?? "plan") },
           test_mode: config.billing.testMode
         },
         relationships: {
@@ -71,6 +80,25 @@ export async function createCheckout(input: { userId: string; email?: string; va
   if (typeof url !== "string" || !url.startsWith("https://")) throw new CheckoutError("Lemon Squeezy returned no checkout link.");
   return url;
 }
+
+export type ApiResource = { id?: string; type?: string; attributes?: Record<string, unknown> };
+
+async function apiGet(path: string, fetcher: typeof fetch): Promise<ApiResource[]> {
+  const response = await fetcher(`${API}${path}`, { headers: { Accept: "application/vnd.api+json", Authorization: `Bearer ${config.billing.apiKey}` } });
+  if (!response.ok) throw new CheckoutError(`Lemon Squeezy lookup failed (${response.status}).`);
+  const body = await response.json() as { data?: ApiResource[] };
+  return Array.isArray(body.data) ? body.data : [];
+}
+
+/** The subscriptions Lemon Squeezy holds for a buyer's email in this store, newest first. */
+export const listSubscriptionsByEmail = (email: string, fetcher: typeof fetch = fetch) =>
+  apiGet(`/subscriptions?filter[store_id]=${encodeURIComponent(config.billing.storeId)}&filter[user_email]=${encodeURIComponent(email)}&page[size]=10`, fetcher)
+    .then((rows) => rows.sort((a, b) => Date.parse(String(b.attributes?.created_at ?? "")) - Date.parse(String(a.attributes?.created_at ?? ""))));
+
+/** The newest paid invoice of one subscription. */
+export const latestPaidInvoice = (subscriptionId: string, fetcher: typeof fetch = fetch) =>
+  apiGet(`/subscription-invoices?filter[subscription_id]=${encodeURIComponent(subscriptionId)}&filter[status]=paid&page[size]=5`, fetcher)
+    .then((rows) => rows.sort((a, b) => Date.parse(String(b.attributes?.created_at ?? "")) - Date.parse(String(a.attributes?.created_at ?? "")))[0] ?? null);
 
 /** The webhook body, as much of it as we read. */
 export type WebhookBody = {

@@ -320,6 +320,13 @@ export async function getMySubscription(): Promise<Subscription> {
   return response.json() as Promise<Subscription>;
 }
 
+/** Applies the buyer's purchase right now instead of waiting for the billing webhook. `synced` is true once a paid plan is active. */
+export async function syncPurchase(): Promise<{ synced: boolean }> {
+  const response = await apiFetch(apiOrigin + "/v1/billing/sync", { method: "POST", cache: "no-store" });
+  if (!response.ok) throw new Error(`Could not check your payment (${response.status}).`);
+  return response.json() as Promise<{ synced: boolean }>;
+}
+
 /** A hosted checkout for a plan (monthly or annual) or the token pack. The caller sends the browser to the returned link. */
 export async function startCheckout(product: "starter" | "pro" | "business" | "topup", interval: "month" | "year" = "month"): Promise<string> {
   const payload = product === "topup" || interval === "month" ? { product } : { product, interval };

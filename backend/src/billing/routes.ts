@@ -3,7 +3,7 @@ import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
 import { isBillingInterval, isPaidTier, type BillingInterval } from "../tokens/plan.ts";
 import { annualCheckoutConfigured, checkoutConfigured, CheckoutError, createCheckout, validSignature, variantIdFor, type WebhookBody } from "./lemonsqueezy.ts";
-import { applyWebhook, RetryLater, subscriptionFor } from "./service.ts";
+import { applyWebhook, RetryLater, subscriptionFor, syncPurchase } from "./service.ts";
 
 const unavailable = { error: { code: "billing_unavailable", message: "Paid plans are not open yet." } };
 
@@ -40,6 +40,23 @@ export async function registerBillingRoutes(app: FastifyInstance) {
     }
   });
 
+  // Called by the profile page when the buyer returns from checkout: applies the purchase now, ahead of the webhook.
+  const lastSync = new Map<string, number>();
+  app.post("/v1/billing/sync", async (request, reply) => {
+    if (!checkoutConfigured("month")) return reply.code(501).send(unavailable);
+    const userId = callerId(request);
+    const last = lastSync.get(userId) ?? 0;
+    if (Date.now() - last < 1500) return reply.code(429).header("Retry-After", "2").send({ error: { code: "slow_down", message: "Try again in a moment." } });
+    lastSync.set(userId, Date.now());
+    try {
+      return reply.header("Cache-Control", "no-store").send(await syncPurchase(userId, request.user?.email));
+    } catch (error) {
+      if (error instanceof RetryLater) return reply.header("Cache-Control", "no-store").send({ synced: false, applied: [] });
+      request.log.error({ err: error }, "billing sync failed");
+      return reply.code(502).send({ error: { code: "sync_failed", message: "Could not check your payment yet." } });
+    }
+  });
+
   app.post<{ Body: { product?: unknown; interval?: unknown } | undefined }>("/v1/billing/checkout", async (request, reply) => {
     const rawProduct = typeof request.body?.product === "string" ? request.body.product : "";
     const rawInterval = request.body?.interval;
@@ -62,7 +79,7 @@ export async function registerBillingRoutes(app: FastifyInstance) {
       if (current.tier !== "free") return reply.code(409).send({ error: { code: "already_subscribed", message: "You already have a plan. Change or cancel it from billing.", portalUrl: current.portalUrl } });
     }
     try {
-      const url = await createCheckout({ userId, email: request.user?.email, variantId: variantIdFor(product, interval) });
+      const url = await createCheckout({ userId, email: request.user?.email, variantId: variantIdFor(product, interval), item: product === "topup" ? "pack" : "plan" });
       return reply.send({ url });
     } catch (error) {
       if (!(error instanceof CheckoutError)) throw error;

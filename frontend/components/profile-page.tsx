@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "../utils/supabase/client";
 import { PLANS, PREVIEW_ALLOWANCE, TOP_UP, annualMonthlyUsd, filmsFromTokens, isPaidTier, validateEmailAddress } from "@videosaas/contracts";
-import { getMyPreviews, getMySubscription, getMyTokens, startCheckout, type PreviewUsage, type Subscription, type TokenSummary } from "../lib/api";
+import { getMyPreviews, getMySubscription, getMyTokens, startCheckout, syncPurchase, type PreviewUsage, type Subscription, type TokenSummary } from "../lib/api";
 import { AppShell } from "./app-shell";
 import { useAccount } from "./account-menu";
 import { filmsFrom } from "./plan-cards";
@@ -21,7 +21,6 @@ export function ProfilePage() {
 
   const [sub, setSub] = useState<{ status: "loading" } | { status: "error" } | { status: "ready"; value: Subscription }>({ status: "loading" });
   const loadSub = () => { setSub({ status: "loading" }); getMySubscription().then((value) => setSub({ status: "ready", value }), () => setSub({ status: "error" })); };
-  useEffect(loadSub, []);
   const [buying, setBuying] = useState<string | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
   const buy = async (product: "topup") => {
@@ -32,7 +31,33 @@ export function ProfilePage() {
 
   const [tokens, setTokens] = useState<{ status: "loading" } | { status: "error" } | { status: "ready"; value: TokenSummary }>({ status: "loading" });
   const loadTokens = () => { setTokens({ status: "loading" }); getMyTokens().then((value) => setTokens({ status: "ready", value }), () => setTokens({ status: "error" })); };
-  useEffect(loadTokens, []);
+
+  // Back from checkout (?checkout=success): apply the purchase now rather than waiting for the webhook, then show the new plan and balance.
+  const [activating, setActivating] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "success") { loadSub(); loadTokens(); return; }
+    const pack = params.get("item") === "pack";
+    // Clean the URL at once so a refresh does not run this again; keep the tokens anchor.
+    window.history.replaceState(null, "", `${window.location.pathname}#tokens`);
+    let cancelled = false;
+    setActivating(true);
+    (async () => {
+      const startBalance = pack ? await getMyTokens().then((t) => t.remaining, () => null) : null;
+      for (let attempt = 0; attempt < 10 && !cancelled; attempt += 1) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 2000));
+        try {
+          if (pack) { if (startBalance !== null && (await getMyTokens()).remaining > startBalance) break; }
+          else if ((await syncPurchase()).synced) break;
+        } catch { /* try again; the webhook may still land first */ }
+      }
+      if (cancelled) return;
+      // No cache: read the plan and the balance fresh, whatever the outcome.
+      loadSub(); loadTokens(); setActivating(false);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const saveName = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -56,6 +81,8 @@ export function ProfilePage() {
     <AppShell active="profile">
       <section className="page-container profile-page">
         <div className="page-heading"><div><h1>Profile</h1><p>Your account, how the site looks, your plan and your tokens.</p></div></div>
+
+        {activating && <p className="profile-note" role="status">Activating your plan… this takes a few seconds.</p>}
 
         <article className="profile-card" id="account">
           <h2>Account</h2>
