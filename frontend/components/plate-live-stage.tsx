@@ -308,7 +308,15 @@ export function PlateLiveStage({
   const onSetTimeRef = useRef(onSetTime);
   const onAdvanceSceneRef = useRef(onAdvanceScene);
   const lastCheckedFrameRef = useRef<number>(-1);
-  clockTimeRef.current = time;
+  // Times the playback loop itself reported through onSetTime. React renders them later (batched), so by the time
+  // `time` reflects one of them the loop has usually moved on; adopting it would pull the clock back a frame and
+  // the scene motion would step back and forth. Only a time the loop did not emit (a seek or a scene change) is adopted.
+  const emittedTimesRef = useRef<number[]>([]);
+  const adoptPropTime = (value: number) => {
+    if (emittedTimesRef.current.includes(value)) return;
+    clockTimeRef.current = value;
+  };
+  adoptPropTime(time);
   playingRef.current = playing;
   currentRef.current = current;
   audioTimelinePropRef.current = audioTimeline;
@@ -1165,7 +1173,7 @@ export function PlateLiveStage({
 
   // Synchronize FilmPlayer before paint whenever `time` or `current` changes so scene-boundary switches never flash.
   useIsomorphicLayoutEffect(() => {
-    clockTimeRef.current = time;
+    adoptPropTime(time);
     const fp = filmPlayerRef.current;
     if (fp && !liveOptions?.forceBuffering) {
       const localSec = Math.max(0, time - (starts[current] ?? 0));
@@ -1368,6 +1376,11 @@ export function PlateLiveStage({
         if (!useWebAudio && curVo && !curVo.paused && !curVo.ended && curVo.currentTime > 0) {
           localSec = curVo.currentTime;
           wallAnchorMs = now - localSec * 1000;
+        } else if (!useWebAudio && curVo && !curVo.paused && !curVo.ended && curVo.currentTime <= 0 && startLocal <= 0.05) {
+          // The voice was asked to play at the scene start but has not produced audio yet (still loading). Hold the
+          // clock at the scene start instead of racing ahead and then seeking the voice past its first words.
+          localSec = startLocal;
+          wallAnchorMs = now - startLocal * 1000;
         } else {
           localSec = Math.max(0, (now - wallAnchorMs) / 1000);
           if (!useWebAudio && curVo && !curVo.paused && !curVo.ended && Math.abs(curVo.currentTime - localSec) > 1 / 30) {
@@ -1388,6 +1401,8 @@ export function PlateLiveStage({
           ? (starts[current] ?? 0) + Math.max(0, sceneDur - 1 / 60)
           : nextGlobalTime;
       clockTimeRef.current = inSceneGlobalTime;
+      emittedTimesRef.current.push(nextGlobalTime);
+      if (emittedTimesRef.current.length > 16) emittedTimesRef.current.shift();
       onSetTimeRef.current(nextGlobalTime);
 
       if (fp && activeSceneIsLive) {

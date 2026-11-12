@@ -288,6 +288,9 @@ export class WebAudioFilmTimeline<Name extends string = string> implements TimeS
   private wantPlayFlag = false;
   private pausedForBuffer = false;
   private pausedForHidden = false;
+  /** True while the clock waits for the active scene's voice take to finish decoding (so its first words are not skipped). */
+  private pausedForVoice = false;
+  private readonly pendingVoices = new Set<number>();
   private userGestureUnlocked = false;
   private destroyed = false;
 
@@ -418,9 +421,34 @@ export class WebAudioFilmTimeline<Name extends string = string> implements TimeS
     }
     this.voiceBuffers.set(sceneIndex, buffer);
     this.onVoiceDurationDecodedCb?.(sceneIndex, buffer.duration);
+    if (this.pausedForVoice && sceneIndex === this.activeScene) {
+      this.resumeFromVoiceHold();
+      return;
+    }
     if (this.playing() && sceneIndex === this.activeScene && !this.hasActiveSource("voice", sceneIndex)) {
       this.scheduleVoiceForScene(sceneIndex, this.currentTime());
     }
+  }
+
+  /** Leaves the voice hold: the clock restarts from where it stopped, with the voice take starting at that same instant. */
+  private resumeFromVoiceHold(): void {
+    if (!this.pausedForVoice) return;
+    this.pausedForVoice = false;
+    if (this.wantPlayFlag && !this.pausedForBuffer && !this.pausedForHidden) {
+      this.anchorClockAt(this.pausedFilmTime);
+      this.rescheduleAllFrom(this.pausedFilmTime);
+    }
+  }
+
+  /**
+   * The active scene's voice take is still downloading or decoding. Starting the scene without it would run the clock
+   * ahead of the voice and the take would join mid-sentence, so hold the clock at this instant until it arrives.
+   */
+  private holdForVoice(filmTime: number): void {
+    this.pausedFilmTime = filmTime;
+    this.lastTickFilmTime = filmTime;
+    this.pausedForVoice = true;
+    this.stopAllSources();
   }
 
   setMusicBuffer(buffer: AudioBufferLike | null): void {
@@ -474,9 +502,18 @@ export class WebAudioFilmTimeline<Name extends string = string> implements TimeS
       this.voiceBuffers.delete(sceneIndex);
       return null;
     }
-    const buf = await this.decodeUrlOnce(url);
+    this.pendingVoices.add(sceneIndex);
+    let buf: AudioBufferLike | null = null;
+    try {
+      buf = await this.decodeUrlOnce(url);
+    } finally {
+      this.pendingVoices.delete(sceneIndex);
+    }
     if (buf && !this.destroyed) {
       this.setVoiceBuffer(sceneIndex, buf);
+    } else if (this.pausedForVoice && sceneIndex === this.activeScene) {
+      // The take failed to load: play the scene without it rather than hold forever.
+      this.resumeFromVoiceHold();
     }
     return buf;
   }
@@ -527,7 +564,7 @@ export class WebAudioFilmTimeline<Name extends string = string> implements TimeS
   }
 
   playing(): boolean {
-    return this.wantPlayFlag && !this.pausedForBuffer && !this.pausedForHidden && !this.destroyed;
+    return this.wantPlayFlag && !this.pausedForBuffer && !this.pausedForHidden && !this.pausedForVoice && !this.destroyed;
   }
 
   sceneLocalTime(sceneIdx = Math.max(0, sceneAt(this.spans, this.currentTime())), globalTime = this.currentTime()): number {
@@ -581,6 +618,7 @@ export class WebAudioFilmTimeline<Name extends string = string> implements TimeS
 
     this.wantPlayFlag = true;
     if (!this.pausedForBuffer && !this.pausedForHidden) {
+      this.pausedForVoice = false;
       this.anchorClockAt(this.pausedFilmTime);
       this.rescheduleAllFrom(this.pausedFilmTime);
     }
@@ -668,6 +706,7 @@ export class WebAudioFilmTimeline<Name extends string = string> implements TimeS
     const maxEnd = this.spans.length > 0 ? this.spans[this.spans.length - 1]!.end : Number.POSITIVE_INFINITY;
     const clamped = Math.max(0, Math.min(maxEnd, Number.isFinite(globalSeconds) ? globalSeconds : 0));
     this.stopAllSources();
+    this.pausedForVoice = false;
     this.anchorClockAt(clamped);
     const nextScene = Math.max(0, sceneAt(this.spans, clamped));
     this.activeScene = nextScene;
@@ -726,6 +765,10 @@ export class WebAudioFilmTimeline<Name extends string = string> implements TimeS
       this.activeScene = nextScene;
       const localStart = this.sceneLocalTime(nextScene, filmTime);
       this.loadSceneCues(nextScene, localStart);
+      if (this.voiceEnabled && !this.voiceBuffers.has(nextScene) && this.pendingVoices.has(nextScene)) {
+        this.holdForVoice(filmTime);
+        return { filmTime, sceneIndex: nextScene, localTime: localStart, crossedCues: [] };
+      }
       this.scheduleVoiceForScene(nextScene, filmTime);
       this.scheduleActiveMidCues(nextScene, localStart, filmTime);
     }
@@ -823,6 +866,10 @@ export class WebAudioFilmTimeline<Name extends string = string> implements TimeS
     if (!this.playing()) return;
     const sc = Math.max(0, sceneAt(this.spans, filmTime));
     this.activeScene = sc;
+    if (this.voiceEnabled && !this.voiceBuffers.has(sc) && this.pendingVoices.has(sc)) {
+      this.holdForVoice(filmTime);
+      return;
+    }
     const localSec = this.sceneLocalTime(sc, filmTime);
     this.scheduleVoiceForScene(sc, filmTime);
     this.scheduleMusic(filmTime);

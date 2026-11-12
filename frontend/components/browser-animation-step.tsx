@@ -641,6 +641,26 @@ export function BrowserAnimationStep({
     }
   }, [project.beatPlan, beats.length, animating, animError, onRetryAnimate]);
 
+  const playingRef = useRef(false);
+  const startingRef = useRef(false);
+  const audioWarmRef = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * Downloads every voiceover/music file of the page before it plays. The player mounts each <audio> when the page is
+   * ready and its timeline then runs on its own clock; a take still downloading when its scene starts joins late and its
+   * first words are lost. The files are content-addressed and cached immutably, so the player's own elements are served
+   * from the cache once this has finished.
+   */
+  const warmAudio = (html: string) => {
+    const urls = new Set<string>();
+    for (const tag of html.match(/<audio\b[^>]*>/gi) ?? []) {
+      const src = /\bsrc="([^"]+)"/i.exec(tag)?.[1];
+      if (src) urls.add(new URL(src.replace(/&amp;/g, "&"), window.location.href).href);
+    }
+    audioWarmRef.current = Promise.all(
+      [...urls].map((url) => fetch(url).then((res) => res.arrayBuffer()).then(() => undefined, () => undefined))
+    ).then(() => undefined);
+  };
+
   // Load the live HyperFrames composition HTML (/api/preview/plans/:id) once animation preparation finishes or version bumps
   useEffect(() => {
     if (animating || !project.beatPlan) return;
@@ -672,7 +692,10 @@ export function BrowserAnimationStep({
           nextDur
         );
         setBeatSpans(spans);
-        setPreviewHtml(html);
+        // A refresh that returns the same page (the project object was re-fetched, not edited) must not reset the player's
+        // srcdoc: that reloads the composition mid-play and its timeline restarts, which looks like the motion jumping back.
+        setPreviewHtml((prev) => (prev === html ? prev : html));
+        warmAudio(html);
       } catch (caught) {
         if (!live || controller.signal.aborted) return;
         setPreviewError(caught instanceof Error ? caught.message : "Could not load the browser animation.");
@@ -696,6 +719,8 @@ export function BrowserAnimationStep({
         const seekFn = (player as unknown as { seek?: (t: number) => void }).seek;
         if (typeof seekFn === "function") seekFn.call(player, currentTimeRef.current);
       }
+      // The page was replaced while playing (an edit landed): carry on from the same moment instead of freezing.
+      if (playingRef.current) void player.play();
     };
     const onTime = (ev: Event) => {
       const t = (ev as CustomEvent<{ currentTime: number }>).detail?.currentTime;
@@ -704,9 +729,9 @@ export function BrowserAnimationStep({
         setCurrentTime(t);
       }
     };
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    const onEnded = () => setPlaying(false);
+    const onPlay = () => { playingRef.current = true; setPlaying(true); };
+    const onPause = () => { playingRef.current = false; setPlaying(false); };
+    const onEnded = () => { playingRef.current = false; setPlaying(false); };
     player.addEventListener("ready", onReady);
     player.addEventListener("timeupdate", onTime);
     player.addEventListener("play", onPlay);
@@ -736,12 +761,20 @@ export function BrowserAnimationStep({
     if (!player) return;
     if (playing) {
       player.pause();
+      playingRef.current = false;
       setPlaying(false);
     } else {
       player.muted = muted;
       player.volume = volume;
-      player.play();
-      setPlaying(true);
+      // Start only once every audio file is downloaded (bounded wait), so no scene's voice joins late.
+      if (startingRef.current) return;
+      startingRef.current = true;
+      void Promise.race([audioWarmRef.current, new Promise<void>((resolve) => window.setTimeout(resolve, 8000))]).then(() => {
+        startingRef.current = false;
+        player.play();
+        playingRef.current = true;
+        setPlaying(true);
+      });
     }
   };
 
@@ -752,6 +785,7 @@ export function BrowserAnimationStep({
     const player = playerRef.current;
     if (player) {
       player.pause();
+      playingRef.current = false;
       setPlaying(false);
       player.currentTime = clamped;
     }
