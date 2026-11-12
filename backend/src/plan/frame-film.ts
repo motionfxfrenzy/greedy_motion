@@ -33,7 +33,34 @@ export function filmFrames(project: VideoProject, timing: PlanTiming): FilmFrame
     frames[i]!.svg = scene.svg;
     frames[i]!.motion = directed.get(motionSignature(scene))?.motion ?? [];
   });
+  // After the motion lookup (its signature is of the unscoped svg): each frame gets its own gradients, filters and clips.
+  frames.forEach((frame, i) => { frame.svg = scopeDefs(frame.svg, `f${i + 1}`); });
   return frames;
+}
+
+
+/**
+ * The film puts every frame's SVG into one page, so an id used in two frames (bg-grad, card-shadow: models reuse the same names in
+ * every frame) points at the FIRST frame's definition. When that frame is hidden, the gradient or filter it defines does not render, and
+ * a fill or filter that resolves to it paints nothing: cards and panels go blank. Ids that are only the target of a url(#id) or
+ * href="#id" reference (gradients, filters, clips, masks) are renamed per frame, with their references, so each frame uses its own.
+ * Ids that elements are animated by (title, m1, cursor) are left alone: the directed motion names them.
+ */
+export function scopeDefs(svg: string, scope: string): string {
+  const targets = new Set<string>();
+  for (const m of svg.matchAll(/url\(\s*['"]?#([A-Za-z0-9_.:-]+)['"]?\s*\)/g)) targets.add(m[1]!);
+  for (const m of svg.matchAll(/\b(?:xlink:)?href\s*=\s*["']#([A-Za-z0-9_.:-]+)["']/g)) targets.add(m[1]!);
+  if (targets.size === 0) return svg;
+  let out = svg;
+  for (const id of targets) {
+    const renamed = `${id}-${scope}`;
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out
+      .replace(new RegExp(`(\\sid\\s*=\\s*)(["'])${escaped}\\2`, "g"), `$1$2${renamed}$2`)
+      .replace(new RegExp(`url\\(\\s*(['"]?)#${escaped}\\1\\s*\\)`, "g"), `url(#${renamed})`)
+      .replace(new RegExp(`((?:xlink:)?href\\s*=\\s*)(["'])#${escaped}\\2`, "g"), `$1$2#${renamed}$2`);
+  }
+  return out;
 }
 
 /** A film about a topic (no product, site or brand kit) moves like a 3Blue1Brown explainer: unhurried, smooth, no hard cuts. */

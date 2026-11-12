@@ -344,7 +344,13 @@ export function xmlSafeSvg(svg: string): string {
 }
 
 /** Removes anything that could run or load: the frame is shown as an image, and this keeps it inert even if pasted elsewhere. */
-export function cleanSvg(text: string): string | null {
+/** The one picture a frame may carry: the brand logo we place ourselves (withBrandLogo), a PNG data URI and nothing else. */
+const BRAND_LOGO_TAG = /<image id="brand-logo" href="data:image\/png;base64,[A-Za-z0-9+/=]+" x="\d+" y="\d+" width="\d+" height="\d+" preserveAspectRatio="[A-Za-z ]+"\/>/;
+
+export function cleanSvg(input: string): string | null {
+  // Set aside first so it is neither stripped as an image nor counted against the size cap.
+  const logo = BRAND_LOGO_TAG.exec(input)?.[0] ?? null;
+  const text = logo ? input.replace(BRAND_LOGO_TAG, "") : input;
   const start = text.indexOf("<svg");
   const end = text.lastIndexOf("</svg>");
   if (start < 0 || end < start) return null;
@@ -357,7 +363,8 @@ export function cleanSvg(text: string): string | null {
     .replace(/url\(\s*['"]?(?!#)[^)]*\)/gi, "none");
   // An SVG shown as an <img> renders only with its namespace; models sometimes leave it out.
   const named = /^<svg[^>]*\sxmlns\s*=/.test(svg) ? svg : svg.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
-  return named.length <= 40_000 ? named : null;
+  if (named.length > 40_000) return null;
+  return logo ? named.replace(/<\/svg>\s*$/i, `${logo}</svg>`) : named;
 }
 
 /**
