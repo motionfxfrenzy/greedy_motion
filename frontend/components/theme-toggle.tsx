@@ -5,8 +5,8 @@ import { setSiteTheme, siteTheme, type SiteTheme as Theme } from "../lib/site-th
 
 const KEY = "gm-theme";
 
-// Runs before first paint so a saved choice never flashes the other theme. With no saved choice the system setting decides (theme.css).
-export const themeBootScript = `try{var t=localStorage.getItem("${KEY}");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}`;
+// Runs before first paint so a saved choice never flashes the other theme. With no saved choice the site is light; only someone who picked "System" (saved as "system") follows the system setting (theme.css).
+export const themeBootScript = `try{var t=localStorage.getItem("${KEY}");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;else if(t!=="system")document.documentElement.dataset.theme="light"}catch(e){document.documentElement.dataset.theme="light"}`;
 
 export function ThemeToggle({ className = "theme-toggle" }: { className?: string }) {
   const [theme, setTheme] = useState<Theme | null>(null);

@@ -76,19 +76,28 @@ The worker pulls work from Postgres. The API does not call a public worker HTTP 
 | Database connectivity | Supabase session pooler, `aws-0-ap-southeast-1.pooler.supabase.com:5432` | Same host, separate project credentials/database connection |
 | R2 uploads bucket | `greedymotion-production-uploads` | `greedymotion-staging-uploads` |
 | R2 outputs bucket | `greedymotion-production-outputs` | `greedymotion-staging-outputs` |
-| AWS region | `ap-southeast-1` | `ap-southeast-1` |
+| AWS region | `us-east-1` (moved from `ap-southeast-1` on 2026-11-11) | `ap-southeast-1` |
 | ECS cluster/service | `greedymotion-production` / `worker` | `greedymotion-staging` / `worker` |
 | ECR repository | `greedymotion-production-worker` | `greedymotion-staging-worker` |
-| Recorded task definition | `greedymotion-production-worker:1` | `greedymotion-staging-worker:2` |
+| Recorded task definition | `greedymotion-production-worker:3` (us-east-1; the backend's `ECS_WORKER_TASK_DEFINITION`) | `greedymotion-staging-worker:2` |
 | Worker CloudWatch log group | `/ecs/greedymotion-production-worker` | `/ecs/greedymotion-staging-worker` |
 
 The Railway project ID is `5298f20e-3531-44a5-a32e-7b99b0cb5b09`; the backend service ID is `df6c5746-6c6e-4275-897d-75bb0cd6370b`. Environment IDs are `2f57bf5f-a2db-4b65-98bc-c8d12d120149` for production and `07084322-b9de-41c1-8bd0-225ffa063faf` for staging. Always scope operations to the environment as well as the service.
 
 ### Production AWS layout
 
-The worker runs in AWS account `369904858685`. Its image registry is `369904858685.dkr.ecr.ap-southeast-1.amazonaws.com`. At release, the service had one healthy ARM64 Linux Fargate task, 2 vCPU, 4 GB RAM and `RENDER_CONCURRENCY=2`.
+The worker runs in AWS account `369904858685`. Production runs in **us-east-1**; its image registry is `369904858685.dkr.ecr.us-east-1.amazonaws.com`. Workers are started on demand by the backend (`RunTask`, Spot first, On-Demand when Spot has no capacity) and exit when idle, so the cluster normally shows 0 services and 0 tasks. The task definition (`greedymotion-production-worker`) is ARM64 Linux Fargate, 8 vCPU, 16 GB RAM.
 
-The task is placed in public subnets in VPC `vpc-0219d4dcb5841cbf4`, with a public IP for outbound access and a security group with **no inbound rules**. It needs outbound access to Supabase, R2, ECR, Secrets Manager and logging services. Its local port 8080 provides a container health endpoint; it is not a public application API.
+The task is placed in public subnets in VPC `vpc-0ff8c345ca43833d5`, with a public IP for outbound access and a security group with **no inbound rules**. It needs outbound access to Supabase, R2, ECR, Secrets Manager and logging services. Its local port 8080 provides a container health endpoint; it is not a public application API.
+
+**Region move (2026-11-11).** The production worker used to run in `ap-southeast-1` (Singapore); it now runs in `us-east-1`. The old Singapore production resources (cluster `greedymotion-production`, its `worker` service, task definition revisions 1-7, ECR repository, log group and security group) were removed. The Singapore Secrets Manager entries under `greedymotion/production/worker/` were kept for now. Staging stays in `ap-southeast-1`.
+
+Things to remember in `us-east-1`:
+
+- Deploy with `REGION=us-east-1 ENV=production ./infra/aws/deploy-worker.sh ondemand`. `deploy-worker.sh` now defaults to `us-east-1` for production and `ap-southeast-1` for staging.
+- Secrets Manager (per region): `greedymotion/production/worker/control-token`, `.../r2-access-key-id` and `.../r2-secret-access-key`. The control token must equal `WORKER_CONTROL_TOKEN` on the Railway production backend.
+- IAM is global but its policies name a region: the role `greedymotion-production-worker-exec` (inline policy `inject-worker-secrets`) must allow `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:us-east-1:369904858685:secret:greedymotion/production/worker/*`, and the backend launcher policy must allow `ecs:RunTask` on the `us-east-1` cluster and task definitions. A missing permission shows up as a task that stops right after starting with `ResourceInitializationError`.
+- After registering a new task definition, set `ECS_WORKER_TASK_DEFINITION` on Railway production to the new revision, in the same region as `ECS_REGION`, `ECS_CLUSTER`, `ECS_SUBNETS` and `ECS_SECURITY_GROUPS`. A revision that exists only in another region makes every launch fail with `TaskDefinition not found`.
 
 The identities have different jobs:
 

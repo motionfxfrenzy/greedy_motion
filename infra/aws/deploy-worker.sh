@@ -20,7 +20,7 @@ fi
 set +a
 export AWS_PAGER=""
 # Staging runs in ap-southeast-1 with its Supabase project. Production runs in us-east-1, beside its Supabase project: REGION=us-east-1 ENV=production ./deploy-worker.sh …
-PROJECT=greedymotion REGION="${REGION:-ap-southeast-1}"
+PROJECT=greedymotion REGION="${REGION:-$([ "$ENV" = production ] && echo us-east-1 || echo ap-southeast-1)}"
 UPPER="$(printf %s "$ENV" | tr '[:lower:]' '[:upper:]')"
 from_env() { local name="${1/@/$UPPER}"; printf %s "${!name:-}"; }  # from_env SUPABASE_@_DATABASE_URL
 N="$PROJECT-$ENV"

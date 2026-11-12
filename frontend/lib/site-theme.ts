@@ -17,14 +17,14 @@ export function setSiteTheme(theme: SiteTheme) {
 
 export type ThemeChoice = SiteTheme | "system";
 
-/** What the viewer picked: light, dark, or "system" when they never chose (the system setting decides). */
+/** What the viewer picked: light, dark, or "system" when they chose to follow the system setting. */
 export function themeChoice(): ThemeChoice {
   const set = document.documentElement.dataset.theme;
   return set === "light" || set === "dark" ? set : "system";
 }
 
-/** Follow the system setting again. */
+/** Follow the system setting: saved as "system", because with nothing saved the site is light. */
 export function followSystemTheme() {
   delete document.documentElement.dataset.theme;
-  try { localStorage.removeItem(KEY); } catch {}
+  try { localStorage.setItem(KEY, "system"); } catch {}
 }
