@@ -96,7 +96,7 @@ async function frameBrand(brandId: string | undefined, userId: string): Promise<
   const kit = await getBrand(brandId).catch(() => null);
   if (!kit || brandOwner(kit) !== userId) return null;
   const logoDataUri = kit.hasLogo ? await frameLogo(brandId) : undefined;
-  return { name: kit.name, ...(kit.url ? { url: kit.url } : {}), colors: kit.colors, mode: kit.mode, logoDataUri };
+  return { name: kit.name, colors: kit.colors, mode: kit.mode, logoDataUri };
 }
 
 const notFound = { error: { code: "not_found", message: "Project not found." } };

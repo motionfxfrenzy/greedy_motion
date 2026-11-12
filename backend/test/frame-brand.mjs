@@ -68,9 +68,12 @@ test("the prompt asks for an empty logo slot where a real page would keep the lo
     assert.match(block, /id="logo-slot"/);
     assert.match(block, /never draw a logo, symbol, icon or letters of your own/);
   }
-  assert.match(brandColorBlock(brand, "focus"), /centre it horizontally inside the main card or active zone/);
+  assert.match(brandColorBlock(brand, "focus"), /vertical middle sits at the middle of the frame/);
+  assert.match(brandColorBlock(brand, "focus"), /Do not add a web address unless the on-screen words contain one/);
+  assert.doesNotMatch(brandColorBlock(brand, "focus"), /must show the web address/i);
   assert.match(brandColorBlock(brand, "inline"), /extracted logo/);
-  assert.match(brandColorBlock(brand, "side"), /header or nav bar at the left, the centre or the right/);
+  assert.match(brandColorBlock(brand, "side"), /page hierarchy: the logo sits in the page's header or nav bar/);
+  assert.match(brandColorBlock(brand, "side"), /never over the browser chrome/);
   assert.match(brandColorBlock(brand, "none"), /Do not draw a logo/);
   assert.doesNotMatch(brandColorBlock(brand, "none"), /logo-slot/);
 });

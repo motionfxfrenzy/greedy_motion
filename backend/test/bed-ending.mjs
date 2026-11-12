@@ -8,7 +8,6 @@ process.env.GEMINI_API_KEY ??= "test";
 
 const { alignBedEnd, endOnBeat, soundTracks, levelAt } = await import("../src/plan/sound.ts");
 const { beatTimes } = await import("../src/plan/beat-grid.ts");
-const { brandAddress, showsAddress } = await import("../src/plan/frame-sketch.ts");
 
 const nearBeat = (t, grid, tolerance = 0.012) => {
   const period = 60 / grid.bpm;
@@ -74,14 +73,4 @@ test("beat times follow a bed's trimmed or delayed start", () => {
   assert.ok(Math.abs(trimmed[0] - 0.3) < 0.001, `first beat after the trim: ${trimmed[0]}`);
   const delayed = beatTimes([{ id: "music-bed", start: 0.2, duration: 5 }], grid);
   assert.ok(Math.abs(delayed[0] - 0.3) < 0.001, `first beat after the delay: ${delayed[0]}`);
-});
-
-test("the closing frame's address: from the brand's url, and checked in the drawing", () => {
-  assert.equal(brandAddress({ name: "x", url: "https://www.greedymotion.com/", colors: { primary: "#000000" } }), "greedymotion.com");
-  assert.equal(brandAddress({ name: "x", url: "greedymotion.com", colors: { primary: "#000000" } }), "greedymotion.com");
-  assert.equal(brandAddress({ name: "x", colors: { primary: "#000000" } }), "");
-  assert.equal(brandAddress(null), "");
-  assert.ok(showsAddress('<svg><text>Try free now</text><text> greedy<tspan>motion.com </tspan></text></svg>', "greedymotion.com"));
-  assert.ok(!showsAddress('<svg><text>Try free now</text></svg>', "greedymotion.com"));
-  assert.ok(showsAddress("<svg/>", ""), "no address to show");
 });
