@@ -22,7 +22,7 @@ import type {
 const TEXT_SWATCHES = ["#ffffff", "#fef08a", "#facc15", "#7dd3fc", "#fca5a5", "#231f1b", "#0b0d12"];
 const BOX_SWATCHES = ["#0c0f16", "#faf5e8", "#facc15", "#0c2a4a", "#1e293b", "#451a03", "#3b0764"];
 
-type MenuId = "captions" | "style" | "colors" | "opacity" | "position" | "quality" | "music";
+type MenuId = "captions" | "style" | "colors" | "opacity" | "position" | "quality" | "sound";
 
 export interface OptionsBarProps {
   optionsConfig?: WorkspaceOptionsConfig;
@@ -182,6 +182,18 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
 
   const availableSubtitleModes = WORKSPACE_SUBTITLE_MODES.filter((m) => visible.subtitleModes.includes(m.id));
 
+  const [musicOpen, setMusicOpen] = useState(false);
+  const soundRows = audio
+    ? ([
+        { id: "voice", label: "Voiceover", hint: "The narrator reading the script", missing: "This film has no voiceover", on: audio.voice, toggle: audio.onToggleVoice },
+        { id: "music", label: "Music", hint: "A music bed under the film", missing: "This film has no music", on: audio.music, toggle: audio.onToggleMusic },
+        { id: "sfx", label: "Sound effects", hint: "Small sounds on key moments", missing: "Not available for this film", on: audio.sfx, toggle: audio.onToggleSfx },
+        { id: "transitions", label: "Transition whooshes", hint: "A whoosh between scenes", missing: "Not available for this film", on: audio.transitions, toggle: audio.onToggleTransitions }
+      ] as const).map((row) => ({ ...row, available: visible.audioTracks.includes(row.id) }))
+    : [];
+  const soundOn = soundRows.filter((row) => row.available && row.on).map((row) => (row.id === "voice" ? "Voice" : row.id === "music" ? "Music" : row.id === "sfx" ? "Effects" : "Whooshes"));
+  const soundSummary = `Sound · ${soundOn.length > 0 ? soundOn.join(", ") : "off"}`;
+
   return (
     <div className="aw-floating-bar" ref={headBarRef} role="toolbar" aria-label="Canvas options">
       <div className="aw-mode-tabs" role="tablist" aria-label="Toolbar mode">
@@ -220,83 +232,59 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
       {barMode === "audio" && visible.showAudioTab && audio && (
         <>
           <i className="aw-bar-sep" />
-          <div className="aw-inline-group" role="group" aria-label="Audio tracks">
-            {visible.audioTracks.includes("voice") && (
-              <button
-                type="button"
-                className={`aw-track-chip${audio.voice ? " on" : ""}`}
-                aria-pressed={audio.voice}
-                onClick={audio.onToggleVoice}
-                title="Toggle voiceover narration"
-              >
-                Voice
-              </button>
-            )}
-            {visible.audioTracks.includes("music") && (
-              <button
-                type="button"
-                className={`aw-track-chip${audio.music ? " on" : ""}`}
-                aria-pressed={audio.music}
-                onClick={audio.onToggleMusic}
-                title="Toggle background music"
-              >
-                Music
-              </button>
-            )}
-            {visible.audioTracks.includes("sfx") && (
-              <button
-                type="button"
-                className={`aw-track-chip${audio.sfx ? " on" : ""}`}
-                aria-pressed={audio.sfx}
-                onClick={audio.onToggleSfx}
-                title="Toggle key-moment sound effects"
-              >
-                SFX
-              </button>
-            )}
-            {visible.audioTracks.includes("transitions") && (
-              <button
-                type="button"
-                className={`aw-track-chip${audio.transitions ? " on" : ""}`}
-                aria-pressed={audio.transitions}
-                onClick={audio.onToggleTransitions}
-                title="Toggle transition whoosh sounds"
-              >
-                Transitions
-              </button>
+          <div className="aw-menu-wrap">
+            <button
+              ref={(el) => {
+                triggerRefs.current.sound = el;
+              }}
+              type="button"
+              className={`aw-pill-item${openMenu === "sound" ? " active" : ""}`}
+              aria-haspopup="dialog"
+              aria-expanded={openMenu === "sound"}
+              title="Choose which sounds the film has"
+              onClick={() => setOpenMenu(openMenu === "sound" ? null : "sound")}
+            >
+              <span>{soundSummary}</span>
+              <span className="aw-caret">▾</span>
+            </button>
+            {openMenu === "sound" && (
+              <div ref={dialogRef} className="aw-dialog aw-sound-dialog" role="dialog" aria-label="Sound">
+                <div className="aw-dialog-head">
+                  <b>Sound</b>
+                  <span>Turn each part on or off</span>
+                </div>
+                <ul className="aw-sound-list">
+                  {soundRows.map((row) => (
+                    <li key={row.id} className={row.available ? "" : "off"}>
+                      <label className="aw-sound-row">
+                        <span>
+                          <b>{row.label}</b>
+                          <small>{row.available ? row.hint : row.missing}</small>
+                        </span>
+                        <input type="checkbox" role="switch" checked={row.on && row.available} disabled={!row.available} onChange={row.toggle} aria-label={row.label} />
+                      </label>
+                      {row.id === "music" && row.available && audio.musicPicker && (
+                        <>
+                          <button type="button" className="aw-sound-more" aria-expanded={musicOpen} onClick={() => setMusicOpen((v) => !v)}>
+                            {musicOpen ? "Hide music options" : "Choose or describe the music"}
+                          </button>
+                          {musicOpen && <MusicPicker {...audio.musicPicker} />}
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
-          {audio.musicPicker && visible.audioTracks.includes("music") && (
-            <>
-              <i className="aw-bar-sep" />
-              <div className="aw-menu-wrap">
-                <button
-                  ref={(el) => {
-                    triggerRefs.current.music = el;
-                  }}
-                  type="button"
-                  className={`aw-pill-item${openMenu === "music" ? " active" : ""}`}
-                  aria-haspopup="dialog"
-                  aria-expanded={openMenu === "music"}
-                  title="Choose or describe the music"
-                  onClick={() => setOpenMenu(openMenu === "music" ? null : "music")}
-                >
-                  <span>Choose music</span>
-                  <span className="aw-caret">▾</span>
-                </button>
-                {openMenu === "music" && (
-                  <div ref={dialogRef} className="aw-dialog aw-music-dialog" role="dialog" aria-label="Music">
-                    <div className="aw-dialog-head">
-                      <b>Music</b>
-                      <span>Pick a mood, or describe it and we make it</span>
-                    </div>
-                    <MusicPicker {...audio.musicPicker} />
-                  </div>
-                )}
-              </div>
-            </>
-          )}
         </>
+      )}
+
+      {audio?.musicBusy && (
+        <span className="aw-music-status" role="status" aria-live="polite">
+          <i aria-hidden="true" />
+          Making your music… keep working, it plays when ready
+        </span>
       )}
 
       {barMode === "subtitles" && visible.showSubtitleTab && subtitles && (

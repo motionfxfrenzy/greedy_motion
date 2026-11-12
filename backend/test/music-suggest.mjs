@@ -25,9 +25,11 @@ test("the context describes the film: idea, pace, narrator and scenes", () => {
   };
   const text = musicContext(project, 32.4);
   assert.match(text, /Launch video for Relay/);
-  assert.match(text, /Pace: fast\. Length: about 32 seconds/);
+  assert.match(text, /Pace: fast\. Motion feel: smooth\. Length: about 32 seconds/);
   assert.match(text, /A narrator speaks/);
   assert.match(text, /Scenes in order: Hook, Meet Relay\./);
+  assert.match(text, /Motion feel: smooth/);
+  assert.match(text, /Tone cues[^\n]*\n- Still animating by hand\?/);
   const silent = musicContext({ brief: { text: "x", audio: { mode: "music" }, scriptBeats: [{ keyword: "A" }] }, beatPlan: null }, 10);
   assert.match(silent, /No narrator/);
 });

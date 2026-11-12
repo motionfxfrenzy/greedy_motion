@@ -1595,6 +1595,7 @@ export function Studio() {
         }}
         autoStart={plateAutoStart}
         onBeforeDraw={syncCurrentBriefToProject}
+        onProjectUpdate={(saved) => setProject((current) => current?.id === saved.id ? saved : current)}
         onBack={() => { setPlateAutoStart(false); setStep(STORYBOARD); }}
         onRender={() => void submit()}
         rendering={busy}
@@ -1620,6 +1621,7 @@ export function Studio() {
         onRetryAnimate={() => void startBrowserAnimation()}
         onBackToStoryboard={() => setStep(STORYBOARD)}
         onStartFinalRender={() => void submit()}
+        onProjectUpdate={(saved) => setProject((current) => current?.id === saved.id ? saved : current)}
         onApplySceneComments={async (items) => {
           if (!canvas || !items.length) return;
           const instruction = items.map((c) => `Scene ${c.line + 1}: ${c.text}`).join("\n");

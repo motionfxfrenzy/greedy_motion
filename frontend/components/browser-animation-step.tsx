@@ -456,7 +456,8 @@ export function BrowserAnimationStep({
   onRetryAnimate,
   onBackToStoryboard,
   onStartFinalRender,
-  onApplySceneComments
+  onApplySceneComments,
+  onProjectUpdate
 }: {
   project: VideoProject;
   beats: ScriptBeat[];
@@ -478,7 +479,10 @@ export function BrowserAnimationStep({
   onBackToStoryboard: () => void;
   onStartFinalRender: () => void;
   onApplySceneComments: (items: { line: number; text: string }[]) => Promise<void>;
+  /** The project with its new music, so the page shows it without a reload. */
+  onProjectUpdate?: (project: VideoProject) => void;
 }) {
+  const [musicBusy, setMusicBusy] = useState(false);
   const playerRef = useRef<HyperframesPlayer | null>(null);
   const autoTriggered = useRef(false);
   const currentTimeRef = useRef(0);
@@ -1524,11 +1528,21 @@ export function BrowserAnimationStep({
           onToggleMusic: () => handleToggleAudio("music"),
           onToggleSfx: nop,
           onToggleTransitions: nop,
+          musicBusy,
           musicPicker: {
             current: project.brief?.audio.musicMood ?? project.beatPlan?.audio.music?.prompt ?? "",
             onSuggest: async () => (await suggestMusic(project.id)).prompt,
-            // The new bed replaces the old one everywhere (preview, comments, render), so the page reloads once it is made.
-            onMake: async (prompt) => { await saveMusicPrompt(project.id, prompt); await generatePlanAudio(project.id, ["music"]); window.location.reload(); }
+            // New music replaces the old bed in place while the person keeps working (musicBusy shows the status).
+            onMake: async (prompt) => {
+              setMusicBusy(true);
+              try {
+                await saveMusicPrompt(project.id, prompt);
+                const made = await generatePlanAudio(project.id, ["music"]);
+                // The new bed replaces the old one in place: no reload, the person stays where they are.
+                onProjectUpdate?.(made.project);
+                setLocalVersion((v) => v + 1);
+              } finally { setMusicBusy(false); }
+            }
           }
         }}
         subtitleControls={{

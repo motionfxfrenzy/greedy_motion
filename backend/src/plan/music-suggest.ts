@@ -6,7 +6,12 @@ export const MUSIC_PROMPT_MAX = 120;
 
 const SYSTEM = [
   "You write a one-line description of background music for a short video, for a music generator.",
-  "Describe genre, instruments, energy and how it moves over the film (for example: where it lifts, where it settles), matched to the film you are given: its subject, pace, mood and length.",
+  "First read the film's TONE from its own words (the voiceover lines and key phrases), its pace and its motion feel. Then describe music with that same mood:",
+  "- cheerful, playful, energetic films: bright, bouncy, major key, light percussion, quick tempo;",
+  "- calm, reflective, educational films: soft, spacious, warm pads or piano, gentle pulse, slow tempo;",
+  "- serious, dramatic or high-stakes films: low, cinematic, building strings and deep drums;",
+  "- confident product films: modern, clean, steady electronic groove with crisp percussion.",
+  "Match the energy to the pace (calm, balanced, fast) and say how the music moves over the film (for example where it lifts or settles).",
   "Instrumental only: never lyrics or vocals. Plain words, no artist or song names, no quotes, no markdown.",
   `Answer with the description only, one sentence of at most ${MUSIC_PROMPT_MAX} characters.`
 ].join("\n");
@@ -15,13 +20,15 @@ const SYSTEM = [
 export function musicContext(project: Pick<VideoProject, "brief" | "beatPlan">, seconds: number): string {
   const brief = project.brief;
   const beats = (project.beatPlan?.beats.map((beat) => beat.keyword) ?? brief?.scriptBeats?.map((beat) => beat.keyword) ?? []).filter(Boolean);
+  const lines = (project.beatPlan?.beats.map((beat) => beat.line) ?? brief?.scriptBeats?.map((beat) => beat.line) ?? []).map((line) => plainText(line ?? "").slice(0, 120)).filter(Boolean);
   const voiced = project.beatPlan ? project.beatPlan.beats.some((beat) => beat.line?.trim()) : brief?.audio?.mode === "voiceover" || brief?.audio?.mode === "both";
   return [
     `Film idea: ${plainText(brief?.text ?? "").slice(0, 500)}`,
     brief?.look ? `Visual look: ${brief.look}` : "",
-    `Pace: ${brief?.pace ?? "balanced"}. Length: about ${Math.round(seconds)} seconds.`,
+    `Pace: ${brief?.pace ?? "balanced"}. Motion feel: ${brief?.motionProfile ?? "smooth"}. Length: about ${Math.round(seconds)} seconds.`,
     voiced ? "A narrator speaks over the music, so keep it under the voice." : "No narrator: the music carries the film.",
-    beats.length ? `Scenes in order: ${beats.slice(0, 14).join(", ")}.` : ""
+    beats.length ? `Scenes in order: ${beats.slice(0, 14).join(", ")}.` : "",
+    lines.length ? `Tone cues (what the film says):\n${lines.slice(0, 10).map((line) => `- ${line}`).join("\n")}` : ""
   ].filter(Boolean).join("\n");
 }
 

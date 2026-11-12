@@ -197,7 +197,8 @@ export function PlatePreview({
   liveOptions,
   renderError,
   autoStart = false,
-  onBeforeDraw
+  onBeforeDraw,
+  onProjectUpdate
 }: {
   project: VideoProject;
   onBack: () => void;
@@ -209,7 +210,10 @@ export function PlatePreview({
   renderError?: string | null;
   autoStart?: boolean;
   onBeforeDraw?: () => Promise<void> | void;
+  /** The project with its new music, so the page shows it without a reload. */
+  onProjectUpdate?: (project: VideoProject) => void;
 }) {
+  const [musicBusy, setMusicBusy] = useState(false);
   useMediaToken();
   const [rawStatus, setRawStatus] = useState<PlateStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1525,11 +1529,20 @@ export function PlatePreview({
     aspects={aspectOptions}
     onSelectAspect={selectOrDrawAspect}
     errors={errors}
-    audioControls={{ voice: voiceOn, music: musicOn, sfx: sfxOn, transitions: transitionsOn, onToggleVoice: toggleVoice, onToggleMusic: toggleMusic, onToggleSfx: toggleSfx, onToggleTransitions: toggleTransitions, musicPicker: {
+    audioControls={{ voice: voiceOn, music: musicOn, sfx: sfxOn, transitions: transitionsOn, onToggleVoice: toggleVoice, onToggleMusic: toggleMusic, onToggleSfx: toggleSfx, onToggleTransitions: toggleTransitions, musicBusy,
+    musicPicker: {
       current: project.brief?.audio.musicMood ?? project.beatPlan?.audio.music?.prompt ?? "",
       onSuggest: async () => (await suggestMusic(project.id)).prompt,
-      // The new bed replaces the old one everywhere (preview, comments, render), so the page reloads once it is made.
-      onMake: async (prompt) => { await saveMusicPrompt(project.id, prompt); await generatePlanAudio(project.id, ["music"]); window.location.reload(); }
+      // New music replaces the old bed in place while the person keeps working (musicBusy shows the status).
+      onMake: async (prompt) => {
+              setMusicBusy(true);
+              try {
+                await saveMusicPrompt(project.id, prompt);
+                const made = await generatePlanAudio(project.id, ["music"]);
+                // The new bed replaces the old one in place: no reload, the person stays where they are.
+                onProjectUpdate?.(made.project);
+              } finally { setMusicBusy(false); }
+            }
     } }}
     subtitleControls={{ mode: subMode, style: subStyle, size: subSize, opacity: subOpacity, textColor: subColor, bgColor: subBgColor, effectiveTextColor, effectiveBgColor, position: curScenePos, currentSceneIndex: current, onSelectMode: chooseSubMode, onSelectStyle: chooseSubStyle, onStepSize: changeSubSize, onChangeTextColor: changeSubColor, onChangeBgColor: changeSubBgColor, onChangeOpacity: setSubOpacityDirect, onChangeScenePosition: setSceneSubtitlePos, onApplyPositionToAll: applyPosToAllScenes, onResetCustomization: resetSubCustomization }}
     previewQualityControls={{

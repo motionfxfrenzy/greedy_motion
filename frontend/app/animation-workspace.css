@@ -454,3 +454,26 @@
 .aw-music-actions .aw-track-chip{height:30px;padding:0 12px;font-size:12px}
 .aw-music-actions .aw-track-chip:disabled,.aw-music-presets .aw-track-chip:disabled{opacity:.55;cursor:not-allowed}
 .aw-music-error{margin:0;color:var(--d-tx-b42318,#b42318);font-size:12px}
+
+/* Sound menu on the Audio tab: a switch per track, with the music options under Music. */
+.aw-sound-dialog{width:340px;max-height:min(70vh,520px);overflow:auto}
+.aw-sound-list{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.aw-sound-list li{display:grid;gap:8px;padding:8px 6px;border-radius:10px}
+.aw-sound-list li+li{border-top:1px solid var(--line)}
+.aw-sound-list li.off{opacity:.6}
+.aw-sound-row{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}
+.aw-sound-list li.off .aw-sound-row{cursor:not-allowed}
+.aw-sound-row span{display:grid;gap:1px}
+.aw-sound-row b{font-size:13px;color:var(--ink)}
+.aw-sound-row small{font-size:11.5px;color:var(--muted)}
+.aw-sound-row input[type=checkbox]{appearance:none;flex:0 0 auto;position:relative;width:34px;height:20px;margin:0;border-radius:999px;background:var(--line);cursor:inherit;transition:background .15s}
+.aw-sound-row input[type=checkbox]::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.aw-sound-row input[type=checkbox]:checked{background:var(--blue)}
+.aw-sound-row input[type=checkbox]:checked::after{transform:translateX(14px)}
+.aw-sound-row input[type=checkbox]:disabled{opacity:.5}
+.aw-sound-row input[type=checkbox]:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.aw-sound-more{justify-self:start;padding:0;border:0;background:transparent;color:var(--blue);font-size:12px;font-weight:600;cursor:pointer}
+.aw-music-status{display:inline-flex;align-items:center;gap:6px;margin-left:8px;color:var(--blue);font-size:12px;font-weight:600;white-space:nowrap}
+.aw-music-status i{width:8px;height:8px;border-radius:50%;background:var(--blue);animation:aw-music-pulse 1s ease-in-out infinite}
+@keyframes aw-music-pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.1)}}
+@media (prefers-reduced-motion:reduce){.aw-music-status i{animation:none}}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Music moods to pick from; each fills the description, which the person can still edit. */
 export const MUSIC_PRESETS: readonly { label: string; prompt: string }[] = [
@@ -29,6 +29,14 @@ export function MusicPicker({ current, onSuggest, onMake }: MusicPickerProps) {
   const [error, setError] = useState<string | null>(null);
   const trimmed = text.trim();
   const changed = trimmed !== current.trim();
+  // With no description yet, offer one that fits the film's tone right away; the person can edit it or pick a mood instead.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (asked.current || current.trim()) return;
+    asked.current = true;
+    setBusy("suggest");
+    onSuggest().then((prompt) => setText((now) => (now.trim() ? now : prompt))).catch(() => undefined).finally(() => setBusy(null));
+  }, [current, onSuggest]);
 
   const run = async (kind: "suggest" | "make", job: () => Promise<void>) => {
     setBusy(kind);
@@ -52,10 +60,10 @@ export function MusicPicker({ current, onSuggest, onMake }: MusicPickerProps) {
       </label>
       <div className="aw-music-actions">
         <button type="button" className="aw-track-chip" disabled={busy !== null} onClick={() => void run("suggest", async () => setText(await onSuggest()))} title="Write a description that fits this video">
-          {busy === "suggest" ? "Suggesting…" : "✦ Suggest"}
+          {busy === "suggest" ? "Matching the film\u2019s tone…" : "✦ Suggest from the film"}
         </button>
         <button type="button" className="aw-track-chip on" disabled={busy !== null || !trimmed || !changed} onClick={() => void run("make", () => onMake(trimmed))} title="Make new music from this description">
-          {busy === "make" ? "Making music…" : "Make music"}
+          {busy === "make" ? "Making music…" : changed || !current.trim() ? "Make music" : "Music is ready"}
         </button>
       </div>
       {error && <p className="aw-music-error" role="alert">{error}</p>}
