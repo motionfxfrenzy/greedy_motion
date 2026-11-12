@@ -49,16 +49,33 @@ export type ScriptFrame = { key: string; svg: string };
  *  - move:  one element animates from `from` (attributes) to how it is drawn, optionally in `steps` (a pointer hopping box to box)
  *  - sweep: several elements flash `flash` one after another (or keep it, with `stay`), like boxes checked in turn
  *  - count: a text element counts up from `from` to the number it shows
+ *  - vibrate: elements keep moving while the line describes it (a crowd jostling, a signal passing along a row):
+ *             "jiggle" shakes every element in place, fast and chaotic, from start to end; "wave" passes a burst of vibration
+ *             along `ids` in order (a domino chain), so each element starts shaking when its neighbour does. `amp` is the
+ *             shake in drawing units, `freq` the shakes per second. Elements settle where they are drawn.
+ *  - grow:    shapes (bars, panels, fills, bands) grow from zero size out of the edge `from` to how they are drawn, one after another
+ *  - draw:    strokes (lines, arrows, connectors, outlines, axes) draw on along their path, one after another
+ *  - travel:  elements move along another drawn path (`path`, an id): "loop" circulates them round it over and over (`period`
+ *             seconds a lap) and they end where they are drawn; "once" carries them from the path's start to the place they
+ *             are drawn at its end (a character walking a route, a parcel following a line). Optional `colors` shifts their
+ *             fill along the path (start to end), e.g. warming or cooling as they pass.
+ *  - drift:   elements keep drifting by (dx, dy) over and over (`period` seconds a pass), fading out at the end of each pass and
+ *             back in at the start: mist, rising shimmer, falling snow, a flowing arrow, sparks.
  */
 export type FrameMotion =
   | { kind: "move"; id: string; from: Record<string, string>; start: number; end: number; steps?: number }
   | { kind: "sweep"; ids: string[]; flash: Record<string, string>; start: number; end: number; stay?: boolean }
-  | { kind: "count"; id: string; from: number; start: number; end: number };
+  | { kind: "count"; id: string; from: number; start: number; end: number }
+  | { kind: "vibrate"; ids: string[]; mode: "jiggle" | "wave"; amp: number; freq: number; start: number; end: number }
+  | { kind: "grow"; ids: string[]; from: "bottom" | "top" | "left" | "right" | "center"; start: number; end: number }
+  | { kind: "draw"; ids: string[]; start: number; end: number }
+  | { kind: "travel"; ids: string[]; path: string; mode: "loop" | "once"; period: number; colors?: string[]; start: number; end: number }
+  | { kind: "drift"; ids: string[]; dx: number; dy: number; period: number; start: number; end: number };
 
 const MOTION_ATTRS = new Set(["x", "y", "cx", "cy", "r", "rx", "ry", "width", "height", "x1", "y1", "x2", "y2", "points", "transform", "opacity", "fill", "stroke", "fill-opacity", "stroke-opacity", "stroke-width", "font-size"]);
 const MOTION_ID = /^[A-Za-z][\w-]{0,40}$/;
 
-/** Motion for a scene, kept only where it is well formed, names elements the SVG really has and fits the scene; at most 24 entries. */
+/** Motion for a scene, kept only where it is well formed, names elements the SVG really has and fits the scene; at most 24 entries (vibrate entries may carry many ids). */
 export function parseFrameMotion(input: unknown, svg: string, seconds: number): FrameMotion[] {
   if (!Array.isArray(input)) return [];
   const ids = new Set([...svg.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]!));
@@ -89,6 +106,26 @@ export function parseFrameMotion(input: unknown, svg: string, seconds: number): 
       if (list.length && flash && Object.keys(flash).length) motion.push({ kind: "sweep", ids: list, flash, start, end, ...(entry.stay === true ? { stay: true } : {}) });
     } else if (entry.kind === "count" && typeof entry.id === "string" && MOTION_ID.test(entry.id) && ids.has(entry.id) && typeof entry.from === "number" && Number.isFinite(entry.from)) {
       motion.push({ kind: "count", id: entry.id, from: entry.from, start, end });
+    } else if (entry.kind === "vibrate" && Array.isArray(entry.ids)) {
+      const list = entry.ids.filter((id): id is string => typeof id === "string" && MOTION_ID.test(id) && ids.has(id)).slice(0, 60);
+      const num = (raw: unknown, min: number, max: number, fallback: number) => typeof raw === "number" && Number.isFinite(raw) ? Math.min(max, Math.max(min, raw)) : fallback;
+      if (list.length) motion.push({ kind: "vibrate", ids: list, mode: entry.mode === "wave" ? "wave" : "jiggle", amp: num(entry.amp, 0.5, 8, 3), freq: num(entry.freq, 2, 14, 8), start, end });
+    } else if (entry.kind === "grow" || entry.kind === "draw") {
+      const list = (Array.isArray(entry.ids) ? entry.ids : []).filter((id): id is string => typeof id === "string" && MOTION_ID.test(id) && ids.has(id)).slice(0, 60);
+      if (list.length) {
+        if (entry.kind === "draw") motion.push({ kind: "draw", ids: list, start, end });
+        else motion.push({ kind: "grow", ids: list, from: (["bottom", "top", "left", "right", "center"] as const).find((side) => side === entry.from) ?? "bottom", start, end });
+      }
+    } else if (entry.kind === "travel" && typeof entry.path === "string" && MOTION_ID.test(entry.path) && ids.has(entry.path) && Array.isArray(entry.ids)) {
+      const list = entry.ids.filter((id): id is string => typeof id === "string" && MOTION_ID.test(id) && ids.has(id) && id !== entry.path).slice(0, 60);
+      const colors = (Array.isArray(entry.colors) ? entry.colors : []).filter((c): c is string => typeof c === "string" && /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(c)).slice(0, 6);
+      const period = typeof entry.period === "number" && Number.isFinite(entry.period) ? Math.min(12, Math.max(0.8, entry.period)) : 3;
+      if (list.length) motion.push({ kind: "travel", ids: list, path: entry.path, mode: entry.mode === "once" ? "once" : "loop", period, ...(colors.length >= 2 ? { colors } : {}), start, end });
+    } else if (entry.kind === "drift" && Array.isArray(entry.ids)) {
+      const list = entry.ids.filter((id): id is string => typeof id === "string" && MOTION_ID.test(id) && ids.has(id)).slice(0, 60);
+      const range = (raw: unknown) => typeof raw === "number" && Number.isFinite(raw) ? Math.min(160, Math.max(-160, raw)) : 0;
+      const period = typeof entry.period === "number" && Number.isFinite(entry.period) ? Math.min(8, Math.max(0.6, entry.period)) : 2;
+      if (list.length && (range(entry.dx) !== 0 || range(entry.dy) !== 0)) motion.push({ kind: "drift", ids: list, dx: range(entry.dx), dy: range(entry.dy), period, start, end });
     }
   }
   return motion;

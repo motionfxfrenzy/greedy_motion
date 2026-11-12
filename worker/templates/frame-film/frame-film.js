@@ -343,6 +343,8 @@
     if (i > 0) leaves.filter(isGround).forEach(function (el) { gsap.set(el, { opacity: 0 }); });
     // Elements the scene's motion moves arrive by that motion, not by the cut's glide or draw-on.
     var moving = new Set((beat.motion || []).filter(entrance).map(function (m) { return m.id; }));
+    // Shapes grown or strokes drawn by a directed entry arrive by that entry, not by the generic fade-in.
+    (beat.motion || []).forEach(function (m) { if (m.kind === "grow" || m.kind === "draw") m.ids.forEach(function (id) { moving.add(id); }); });
     var own = content.filter(function (el) { return !isInsideMoving(el, svg, moving); });
     return { layer: layer, svg: svg, leaves: own, all: content, motion: beat.motion || [], start: beat.start, end: beat.end, index: i };
   });
@@ -523,6 +525,179 @@
     }
   }
 
+  // Continuous, purposeful motion for what the line describes (a crowd jostling, a signal passing along a row). Deterministic:
+  // the shake of each element is derived from its id, and every shake is a tween on the paused timeline, so it is seek-safe.
+  // The element is wrapped in a plain group that carries the shake, so its own transform (and any move on it) is untouched.
+  function seeded(text) {
+    var h = 2166136261;
+    for (var i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return function () { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 10000) / 10000; };
+  }
+  // Each kind of continuous motion sits on its own plain wrapper group around the element (outermost last), so the element's own
+  // transform, and any move directed on it, is untouched and kinds can combine on one element.
+  function wrap(el, key) {
+    el.__wraps = el.__wraps || {};
+    if (el.__wraps[key]) return el.__wraps[key];
+    var outer = el.__outer || el;
+    var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    outer.parentNode.insertBefore(g, outer);
+    g.appendChild(outer);
+    gsap.set(g, { x: 0, y: 0 });
+    el.__outer = g;
+    el.__wraps[key] = g;
+    return g;
+  }
+  function shaker(el) { return wrap(el, "shake"); }
+  // The element's drawn box in its parent's coordinate space (what a wrapper around it works in).
+  function parentBox(el) {
+    var bb;
+    try { bb = el.getBBox(); } catch (e) { return null; }
+    var m = null;
+    try { m = el.transform && el.transform.baseVal.numberOfItems ? el.transform.baseVal.consolidate().matrix : null; } catch (e2) { m = null; }
+    var pt = function (x, y) { return m ? { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f } : { x: x, y: y }; };
+    var c = [pt(bb.x, bb.y), pt(bb.x + bb.width, bb.y), pt(bb.x, bb.y + bb.height), pt(bb.x + bb.width, bb.y + bb.height)];
+    var xs = c.map(function (q) { return q.x; }), ys = c.map(function (q) { return q.y; });
+    return { x0: Math.min.apply(null, xs), x1: Math.max.apply(null, xs), y0: Math.min.apply(null, ys), y1: Math.max.apply(null, ys) };
+  }
+  function listOf(frame, ids) { return ids.map(function (id) { return byId(frame, id); }).filter(Boolean); }
+  // Several items one after another across `len` seconds: each takes `each`, the next starts `gap` later.
+  function spread(n, len, cap) {
+    var gap = n > 1 ? Math.min(cap, (len * 0.6) / (n - 1)) : 0;
+    return { gap: gap, each: Math.max(0.35, len - gap * (n - 1)) };
+  }
+  var GROW_EASE = EXPLAINER ? smooth : "power2.out";
+
+  // Shapes grow from zero size out of one edge to how they are drawn (bars from the baseline, fills, bands, panels).
+  function grow(frame, m) {
+    var t0 = frame.start + m.start, len = Math.max(0.3, m.end - m.start);
+    var els = listOf(frame, m.ids), sp = spread(els.length, len, 0.35);
+    els.forEach(function (el, k) {
+      var box = parentBox(el);
+      if (!box) return;
+      var g = wrap(el, "grow"), side = m.from;
+      var ox = side === "left" ? box.x0 : side === "right" ? box.x1 : (box.x0 + box.x1) / 2;
+      var oy = side === "top" ? box.y0 : side === "bottom" ? box.y1 : (box.y0 + box.y1) / 2;
+      var vertical = side === "bottom" || side === "top", horizontal = side === "left" || side === "right";
+      var from = { scaleX: vertical ? 1 : 0.001, scaleY: horizontal ? 1 : 0.001, svgOrigin: ox + " " + oy };
+      var to = { scaleX: 1, scaleY: 1, svgOrigin: ox + " " + oy, duration: sp.each, ease: GROW_EASE, immediateRender: true };
+      tl.fromTo(g, from, to, t0 + k * sp.gap);
+    });
+  }
+
+  // Strokes draw on along their path, one after another (axes, connectors, arrows, outlines, routes); other shapes fade in.
+  function draw(frame, m) {
+    var t0 = frame.start + m.start, len = Math.max(0.3, m.end - m.start);
+    var leaves = [];
+    listOf(frame, m.ids).forEach(function (el) { leavesOf(el).forEach(function (leaf) { if (leaves.indexOf(leaf) < 0) leaves.push(leaf); }); });
+    var sp = spread(leaves.length, len, 0.3);
+    leaves.forEach(function (leaf, k) {
+      var at = t0 + k * sp.gap;
+      if (isStroked(leaf) && drawStroke(leaf, at, sp.each)) return;
+      tl.fromTo(leaf, { opacity: 0 }, { opacity: 1, duration: Math.min(0.5, sp.each), ease: GROW_EASE, immediateRender: true }, at);
+    });
+  }
+
+  function hexRgb(hex) {
+    var h = hex.replace("#", "");
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  function mix(colors, u) {
+    var x = Math.min(0.9999, Math.max(0, u)) * (colors.length - 1), i = Math.floor(x), f = x - i;
+    var a = hexRgb(colors[i]), b = hexRgb(colors[i + 1]);
+    return "rgb(" + [0, 1, 2].map(function (c) { return Math.round(a[c] + (b[c] - a[c]) * f); }).join(",") + ")";
+  }
+
+  // Elements move along another drawn path: "loop" circulates them over and over, ending where they are drawn; "once" carries them
+  // from the path's start to where they are drawn at its end. Sampled into short straight tweens (no callbacks), so it is seek-safe.
+  function travel(frame, m) {
+    var path = byId(frame, m.path);
+    if (!path || !path.getTotalLength) return;
+    var total = 0;
+    try { total = path.getTotalLength(); } catch (e) { total = 0; }
+    if (total < 4) return;
+    var t0 = frame.start + m.start, len = Math.max(0.5, m.end - m.start), loop = m.mode !== "once";
+    var laps = loop ? Math.max(1, Math.round(len / m.period)) : 1;
+    var els = listOf(frame, m.ids).filter(function (el) { return el !== path; });
+    var perLap = 48, segs = laps * perLap, dur = len / segs;
+    // Path points in a wrapper's (the element's parent) space.
+    var toSpace = function (parent) {
+      var pc = path.getCTM(), qc = parent.getCTM();
+      if (!pc || !qc) return null;
+      var m2 = qc.inverse().multiply(pc);
+      return function (frac) { var p = path.getPointAtLength(((frac % 1) + 1) % 1 * total - (frac === 1 ? 0 : 0)); return { x: m2.a * p.x + m2.c * p.y + m2.e, y: m2.b * p.x + m2.d * p.y + m2.f }; };
+    };
+    els.forEach(function (el, k) {
+      var box = parentBox(el), at = toSpace(el.parentNode);
+      if (!box || !at) return;
+      var cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2;
+      var phase = 1, best = Infinity;
+      if (loop) {
+        for (var i = 0; i < 200; i++) { var p = at(i / 200), d = Math.hypot(p.x - cx, p.y - cy); if (d < best) { best = d; phase = i / 200; } }
+      }
+      var base = at(loop ? phase : 0.99999), g = wrap(el, "travel");
+      var posAt = function (u) { var p = at(loop ? phase + u : u * 0.99999); return { x: p.x - base.x, y: p.y - base.y }; };
+      var start0 = loop ? { x: 0, y: 0 } : posAt(0);
+      gsap.set(g, { x: start0.x, y: start0.y });
+      var leafSet = m.colors && m.colors.length >= 2 ? leavesOf(el) : [];
+      for (var s = 0; s < segs; s++) {
+        var u0 = loop ? (s % perLap) / perLap : s / segs, u1 = loop ? ((s % perLap) + 1) / perLap : (s + 1) / segs;
+        var lapBase = loop ? Math.floor(s / perLap) : 0;
+        var from = posAt(loop ? u0 : u0), to = posAt(loop ? u1 : u1);
+        var when = t0 + s * dur;
+        tl.fromTo(g, { x: from.x, y: from.y }, { x: to.x, y: to.y, duration: dur, ease: "none", immediateRender: s === 0 && !loop ? true : false }, when);
+        if (leafSet.length) {
+          var col = mix(m.colors, ((phase + (loop ? u1 : u1)) % 1 + 1) % 1);
+          leafSet.forEach(function (leaf) { tl.to(leaf, { attr: { fill: col }, duration: dur, ease: "none", immediateRender: false }, when); });
+        }
+      }
+      // Back to rest exactly where it is drawn.
+      tl.set(g, { x: 0, y: 0 }, t0 + len);
+    });
+  }
+
+  // Elements keep drifting by (dx, dy) pass after pass, fading out at the end of a pass and in at the start; they end at rest.
+  function drift(frame, m) {
+    var t0 = frame.start + m.start, len = Math.max(0.5, m.end - m.start);
+    var els = listOf(frame, m.ids), n = els.length;
+    var passes = Math.max(1, Math.round(len / m.period)), pass = len / passes;
+    els.forEach(function (el, k) {
+      var g = wrap(el, "drift");
+      var lead = n > 1 ? (k / n) * Math.min(m.period, pass) * 0.6 : 0;
+      for (var i = 0; i < passes; i++) {
+        var at = t0 + lead + i * pass, room = Math.max(0.3, pass - lead / passes);
+        var move = room * 0.88, fade = room * 0.3;
+        tl.fromTo(g, { x: 0, y: 0 }, { x: m.dx, y: m.dy, duration: move, ease: "none", immediateRender: false }, at);
+        tl.fromTo(g, { opacity: 1 }, { opacity: 0, duration: fade, ease: "none", immediateRender: false }, at + move - fade);
+        tl.set(g, { x: 0, y: 0, opacity: 0 }, at + move);
+        tl.to(g, { opacity: 1, duration: room - move, ease: "none", immediateRender: false }, at + move);
+      }
+      tl.set(g, { x: 0, y: 0, opacity: 1 }, t0 + len);
+    });
+  }
+
+  function vibrate(frame, m) {
+    var t0 = frame.start + m.start, len = Math.max(0.3, m.end - m.start);
+    var amp = m.amp, step = 1 / m.freq;
+    var targets = m.ids.map(function (id) { return byId(frame, id); }).filter(Boolean);
+    var n = targets.length;
+    if (!n) return;
+    var burst = m.mode === "wave" ? Math.min(Math.max(0.5, len * 0.4), len) : len;
+    targets.forEach(function (el, k) {
+      var rnd = seeded((el.id || "") + ":" + k);
+      var begin = m.mode === "wave" && n > 1 ? t0 + (len - burst) * (k / (n - 1)) : t0;
+      var steps = Math.max(2, Math.round(burst / step));
+      var g = shaker(el);
+      for (var i = 0; i < steps; i++) {
+        // Shakes swell in and fade out so an element eases into and out of its vibration instead of snapping.
+        var env = Math.sin(Math.PI * (i + 0.5) / steps);
+        var level = m.mode === "wave" ? env : Math.min(1, env * 2.5);
+        tl.to(g, { x: (rnd() * 2 - 1) * amp * level, y: (rnd() * 2 - 1) * amp * level, duration: step, ease: "sine.inOut", immediateRender: false }, begin + i * step);
+      }
+      tl.to(g, { x: 0, y: 0, duration: Math.min(0.2, step), ease: "sine.out", immediateRender: false }, begin + steps * step);
+    });
+  }
+
   function play(frame, prevFrame) {
     var t0 = frame.start;
     var movesById = {};
@@ -647,6 +822,16 @@
             if (Object.keys(back).length) tl.fromTo(el, { attr: flashAttrs }, { immediateRender: false, attr: back, duration: EXPLAINER ? swell : Math.min(0.25, gap * 0.6), ease: EXPLAINER ? smooth : "power1.inOut" }, when + Math.max(EXPLAINER ? swell : gap * 0.6, 0.12));
           }
         });
+      } else if (m.kind === "vibrate") {
+        vibrate(frame, m);
+      } else if (m.kind === "grow") {
+        grow(frame, m);
+      } else if (m.kind === "draw") {
+        draw(frame, m);
+      } else if (m.kind === "travel") {
+        travel(frame, m);
+      } else if (m.kind === "drift") {
+        drift(frame, m);
       } else if (m.kind === "count") {
         var node = byId(frame, m.id);
         if (!node) return;
@@ -733,6 +918,11 @@
     return any ? { pairs: pairs, groups: groups } : null;
   }
 
+  function directedIds(frame) {
+    var set = new Set(frame.motion.filter(function (m) { return m.kind === "move" && !isOpacityOnlyMove(m); }).map(function (m) { return m.id; }));
+    frame.motion.forEach(function (m) { if (m.kind === "grow" || m.kind === "draw") m.ids.forEach(function (id) { set.add(id); }); });
+    return set;
+  }
   function isOpacityOnlyMove(m) {
     if (m.kind !== "move" || !m.from) return false;
     var keys = Object.keys(m.from);
@@ -741,7 +931,7 @@
 
   // The older matching (by kind, size and position), for frames drawn before shared ids existed.
   function heuristicCut(prev, frame, t, room) {
-    var directedMoveIds = new Set(frame.motion.filter(function (m) { return m.kind === "move" && !isOpacityOnlyMove(m); }).map(function (m) { return m.id; }));
+    var directedMoveIds = directedIds(frame);
     var pairs = match(prev.all, frame.all).filter(function (p) { return !isInsideMoving(p[1], frame.svg, directedMoveIds); });
     var carriedEls = pairs.map(function (p) { return p[1]; });
     frame.motion = frame.motion.filter(function (m) {
@@ -793,7 +983,7 @@
     var prev = frames[i - 1];
     var byIdPairs = pairById(prev, frame);
     if (!byIdPairs) return heuristicCut(prev, frame, t, room);
-    var directedMoveIds = new Set(frame.motion.filter(function (m) { return m.kind === "move" && !isOpacityOnlyMove(m); }).map(function (m) { return m.id; }));
+    var directedMoveIds = directedIds(frame);
     var pairs = byIdPairs.pairs.filter(function (p) { return !isInsideMoving(p[1], frame.svg, directedMoveIds); });
     var groups = byIdPairs.groups.filter(function (g) { return !isInsideMoving(g[1], frame.svg, directedMoveIds); });
     // Compute groupLeavesA and groupLeavesB ONLY from groups that survived directedMoveIds filtering!

@@ -84,7 +84,7 @@ export function enrichMotion(svg: string, previous: string | null, motion: Frame
   const body = (text: string) => text.replace(/<defs[\s\S]*?<\/defs>/gi, "");
   const named = (text: string) => [...body(text).matchAll(/<(?:g|rect|path|circle|ellipse|line|polyline|polygon|text)\b[^>]*?\sid="([^"]+)"/g)].map((m) => m[1]!).filter((id) => !PLAIN_ID.test(id) && !DEF_ID.test(id));
   const touched = new Set<string>();
-  for (const entry of motion) { if (entry.kind === "sweep") entry.ids.forEach((id) => touched.add(id)); else touched.add(entry.id); }
+  for (const entry of motion) { if ("ids" in entry) { entry.ids.forEach((id) => touched.add(id)); if (entry.kind === "travel") touched.add(entry.path); } else touched.add(entry.id); }
   const before = new Set(previous ? [...previous.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]!) : []);
   const fresh = [...new Set(named(svg))].filter((id) => !touched.has(id) && !before.has(id)).slice(0, Math.min(10, 20 - motion.length));
   if (fresh.length === 0) return motion;
