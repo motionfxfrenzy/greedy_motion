@@ -7,7 +7,7 @@ process.env.DATABASE_URL ??= "postgres://unused@localhost/unused";
 process.env.PLANNER ??= "deterministic";
 
 const { STEPS } = await import("../src/models/steps.ts");
-const { routeFor, routeWarnings } = await import("../src/models/routes.ts");
+const { routeFor, routeWarnings, ignoredOverrides } = await import("../src/models/routes.ts");
 const { ALLOWED_MODELS, TIER_MODELS, GEMINI_ONLY_STEPS, MODEL_TIERS, isAllowedModel } = await import("../src/models/tiers.ts");
 const { callModel, anthropicRequestShape } = await import("../src/models/providers.ts");
 const { authorRouteForTier } = await import("../src/billing/step-billing.ts");
@@ -147,5 +147,31 @@ assert.equal(routeFor("script", envs.railwayStaging, "standard").model, "gemini-
 // Premium override must itself be an allowed Premium model.
 assert.equal(routeFor("motion", { MODEL_MOTION_PREMIUM: "gemini:gemini-3.8-flash" }, "premium").model, "claude-opus-5-5");
 assert.equal(routeFor("planner", { MODEL_PLANNER_FILL_STANDARD: "claude-opus-5-5" }, "standard").model, "claude-haiku-5-5");
+
+// 8. Startup "model override ignored" list for the exact staging / production env.
+{
+  const fmt = (list) => list.map((o) => `${o.name}=${o.value} [${o.tier}] ${o.reason}`);
+  const common = [
+    "ANTHROPIC_MODEL=claude-opus-5-5 [all] legacy var, ignored (models are chosen per tier)",
+    "MODEL_DEFAULT=gemini:gemini-3.8-flash [all] legacy var, ignored (models are chosen per tier)"
+  ];
+  const st = fmt(ignoredOverrides(envs.railwayStaging));
+  const pr = fmt(ignoredOverrides(envs.railwayProduction));
+  for (const l of common) { assert.ok(st.includes(l), l); assert.ok(pr.includes(l), l); }
+  assert.ok(pr.includes("PLATE_MODEL=claude-opus-5-5 [all] legacy var, ignored (models are chosen per tier)"));
+  assert.ok(!st.some((l) => l.startsWith("PLATE_MODEL")));
+  for (const name of ["ELEMENT_EDITS", "REWRITE_BEAT"]) {
+    const l = `MODEL_${name}=gemini:gemini-4-argon [standard] not in the Standard allowed set`;
+    assert.ok(st.includes(l) && pr.includes(l), l);
+  }
+  assert.ok(st.includes("MODEL_SCRIPT=gemini:gemini-4-argon [standard] not in the Standard allowed set"));
+  assert.ok(!pr.some((l) => l.startsWith("MODEL_SCRIPT=") && l.includes("[standard]")));
+  // Every set plain MODEL_<STEP> is reported as Standard-only for Premium: 12 on staging, 12 on production.
+  assert.equal(st.filter((l) => l.includes("[premium] plain MODEL_<STEP>")).length, 12);
+  assert.equal(pr.filter((l) => l.includes("[premium] plain MODEL_<STEP>")).length, 12);
+  assert.deepEqual(ignoredOverrides({ MODEL_SCRIPT_STANDARD: "gemini:gemini-3.8-flash" }), []);
+  // No values other than model ids are ever reported.
+  assert.deepEqual(ignoredOverrides({ ANTHROPIC_API_KEY: "sk-secret", DATABASE_URL: "postgres://x" }), []);
+}
 
 console.log("model tier policy: no Sonnet in defaults, price table, or tracked files");

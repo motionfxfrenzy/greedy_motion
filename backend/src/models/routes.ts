@@ -244,6 +244,32 @@ export function routeWarnings(env: NodeJS.ProcessEnv = process.env): string[] {
   return warnings;
 }
 
+export type IgnoredOverride = { name: string; value: string; tier: ModelTier | "all"; reason: string };
+
+/** Model-selection env vars that have no effect, for the startup log. Only model ids are reported, never other variables. */
+export function ignoredOverrides(env: NodeJS.ProcessEnv = process.env): IgnoredOverride[] {
+  const out: IgnoredOverride[] = [];
+  for (const name of IGNORED_LEGACY_VARS) {
+    const value = env[name]?.trim();
+    if (value) out.push({ name, value, tier: "all", reason: "legacy var, ignored (models are chosen per tier)" });
+  }
+  for (const stepDef of Object.values(STEPS)) {
+    const plain = env[`MODEL_${stepDef.env}`]?.trim();
+    if (plain) out.push({ name: `MODEL_${stepDef.env}`, value: plain, tier: "premium", reason: "plain MODEL_<STEP> is Standard-only; use MODEL_<STEP>_PREMIUM" });
+    for (const tier of ["standard", "premium"] as const) {
+      for (const name of overrideNames(stepDef, tier)) {
+        const value = env[name]?.trim();
+        if (!value) continue;
+        try {
+          const spec = parseModelSpec(value, name);
+          if (!isAllowedModel(tier, spec.provider, spec.model, stepDef.id)) out.push({ name, value, tier, reason: `not in the ${tier === "standard" ? "Standard" : "Premium"} allowed set` });
+        } catch { /* syntax errors are reported by validateRoutes */ }
+      }
+    }
+  }
+  return out;
+}
+
 export function validateRoutes(
   env: NodeJS.ProcessEnv = process.env,
   keys?: { anthropic?: string; gemini?: string; openaiCompatible?: string }

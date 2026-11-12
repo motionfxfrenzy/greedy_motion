@@ -62,7 +62,7 @@ import { registerProRoutes } from "./pro/routes.ts";
 import { FetchRefused } from "./brand/safe-fetch.ts";
 import { getObject, presignOutput, safeDownloadFilename, slugifyProjectDownloadStem } from "./storage.ts";
 import { BrandInvalid, brandLogoPath, createBrand, getBrand, listBrands, removedVariants, updateBrand, validateBrandInput } from "./brand/store.ts";
-import { allRoutes } from "./models/routes.ts";
+import { allRoutes, ignoredOverrides } from "./models/routes.ts";
 import { genReqId, registerRequestId, upstreamError } from "./http-errors.ts";
 import { addReviewComment, addScreenshot, applyReviewComments, createProject, deleteProject, getProject, listProjects, projectByRenderJob, ProjectInvalid, removeReviewComment, removeScreenshot, screenshotFile, setProjectPlanning, updateProject, updateProjectStudio } from "./projects/store.ts";
 
@@ -727,4 +727,7 @@ startSweep(async () => {
 }, 60_000, 300_000);
 await app.listen({ port: config.port, host: config.host });
 app.log.info({ ...config.environmentSummary, planner: config.planner, modelRoutes: Object.fromEntries(Object.entries(allRoutes()).map(([step, route]) => [step, `${route.provider}:${route.model}`])), planConcurrency: config.planConcurrency }, "backend ready");
+const ignored = ignoredOverrides();
+if (ignored.length === 0) app.log.info("model overrides: none ignored");
+for (const o of ignored) app.log.warn({ var: o.name, value: o.value, tier: o.tier, reason: o.reason }, "model override ignored");
 if (config.environmentSummary.note) app.log.warn(config.environmentSummary.note);
