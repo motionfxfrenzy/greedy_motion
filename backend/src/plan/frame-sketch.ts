@@ -220,16 +220,36 @@ const lightness = (hex: string) => {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
 
-/** Whether the brand's frames sit on a light or a dark ground: its background colour, else the opposite of its text colour, else its mode; null when unknown. */
-export function brandGround(brand: FrameBrand): "light" | "dark" | null {
+/** Whether the brand's frames sit on a light or a dark ground: its background colour, else the opposite of its text colour, else its mode; light when nothing says (the site is light by default). */
+export function brandGround(brand: FrameBrand): "light" | "dark" {
   const { background, text } = brand.colors;
   if (background && HEX.test(background)) return lightness(background) > 0.45 ? "light" : "dark";
   if (text && HEX.test(text)) return lightness(text) < 0.4 ? "light" : "dark";
-  return brand.mode ?? null;
+  return brand.mode ?? "light";
+}
+
+/**
+ * Where the brand's logo goes on a frame. Not on every frame: large and centred ("focus") on the closing call-to-action frame
+ * and on a frame whose VISUAL is about the logo itself; small at the side ("side") on a frame that names the brand; otherwise none.
+ */
+export type LogoPlacement = "focus" | "side" | "none";
+
+export function logoPlacement(request: Pick<FrameRequest, "beat" | "index" | "count" | "brand">): LogoPlacement {
+  const brand = request.brand;
+  if (!brand?.logoDataUri) return "none";
+  const { beat, index, count } = request;
+  const visual = beat.visual ?? "";
+  if (/\blogo\b/i.test(visual) || (count > 1 && index === count - 1)) return "focus";
+  const name = brand.name.trim().toLowerCase();
+  const words = name.length >= 3 ? name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "";
+  const squashed = name.replace(/\s+/g, "");
+  const text = `${beat.keyword} ${beat.onScreen ?? ""} ${beat.visual ?? ""} ${beat.line ?? ""}`.toLowerCase();
+  if (words && (new RegExp(`\\b${words}\\b`).test(text) || (squashed.length >= 4 && text.replace(/\s+/g, "").includes(squashed)))) return "side";
+  return "none";
 }
 
 /** The brand kit's colours as a prompt block: the brand overrides the style's palette; the style keeps its layout, shapes and motion. */
-export function brandColorBlock(brand: FrameRequest["brand"]): string | null {
+export function brandColorBlock(brand: FrameRequest["brand"], placement: LogoPlacement = "none"): string | null {
   const colors = brand?.colors;
   if (!brand || !colors || !HEX.test(colors.primary ?? "")) return null;
   const ground = brandGround(brand);
@@ -244,25 +264,34 @@ export function brandColorBlock(brand: FrameRequest["brand"]): string | null {
     ...roles.map(([role, hex]) => `- ${role}: ${hex}`),
     ground === "light"
       ? "GROUND: this brand is LIGHT. Draw every frame on a light ground (the background colour above, else white or a very pale tint of the primary) with dark type. Never a black or dark-navy background, even if the style guide's reference is dark."
-      : ground === "dark"
-        ? "GROUND: this brand is DARK. Draw every frame on a dark ground with light type."
-        : "",
+      : "GROUND: this brand is DARK. Draw every frame on a dark ground with light type.",
     "Use only these colours plus tints and shades of them, white or near-black for contrast, and keep text readable on its ground. Never use another hue (no neon green, pink or purple unless it is a listed colour).",
-    brand.logoDataUri ? "The brand's logo is added to the bottom-right corner afterwards: keep that corner (the last 16% of the width and 12% of the height) empty, and never draw a logo or brand mark yourself." : ""
+    placement === "focus"
+      ? "LOGO: the brand's logo is added afterwards, large and centred in the upper middle (the zone from 34% to 66% of the width and 12% to 42% of the height). Keep that zone empty, compose the rest of the frame (the call to action, the address) below it, and never draw a logo or brand mark yourself."
+      : placement === "side"
+        ? "LOGO: the brand's logo is added afterwards in the bottom-right corner (the last 16% of the width and 12% of the height). Keep that corner empty and never draw a logo or brand mark yourself."
+        : "Do not draw a logo or brand mark on this frame."
   ].filter(Boolean).join("\n");
 }
 
-/** Puts the brand's logo in the bottom-right corner of a drawn frame. The model never draws the logo (it cannot embed images); this is ours. */
-export function withBrandLogo(svg: string, logoDataUri: string, aspect: Aspect): string {
+/** Puts the brand's logo on a drawn frame: large and centred for "focus", small in the bottom-right corner for "side". The model never draws the logo (it cannot embed images); this is ours. */
+export function withBrandLogo(svg: string, logoDataUri: string, aspect: Aspect, placement: Exclude<LogoPlacement, "none"> = "side"): string {
   const { width, height } = FRAME_SIZE[aspect];
-  const boxW = Math.round(width * 0.13), boxH = Math.round(height * 0.085);
   const margin = Math.round(Math.min(width, height) * 0.035);
-  const image = `<image id="brand-logo" href="${logoDataUri}" x="${width - boxW - margin}" y="${height - boxH - margin}" width="${boxW}" height="${boxH}" preserveAspectRatio="xMaxYMax meet"/>`;
+  const box = placement === "focus"
+    ? { w: Math.round(width * 0.3), h: Math.round(height * 0.28) }
+    : { w: Math.round(width * 0.13), h: Math.round(height * 0.085) };
+  const x = placement === "focus" ? Math.round((width - box.w) / 2) : width - box.w - margin;
+  const y = placement === "focus" ? Math.round(height * 0.13) : height - box.h - margin;
+  const fit = placement === "focus" ? "xMidYMid meet" : "xMaxYMax meet";
+  const image = `<image id="brand-logo" href="${logoDataUri}" x="${x}" y="${y}" width="${box.w}" height="${box.h}" preserveAspectRatio="${fit}"/>`;
   return svg.replace(/<\/svg>\s*$/i, `${image}</svg>`);
 }
 
 /** The part every beat shares (style guide, topic, size), cached, then the beat itself. */
-function prompt({ beat, index, count, aspect, topic, style, look, notes, brand }: FrameRequest) {
+function prompt(request: FrameRequest) {
+  const { beat, index, count, aspect, topic, style, look, notes, brand } = request;
+  const placement = logoPlacement(request);
   const { width, height } = FRAME_SIZE[aspect];
   const scriptTemplate = inferScriptTemplate({ text: topic, look });
   const hasARollBRollTag = /^\s*\[(?:A-ROLL|B-ROLL|CHAPTER CARD)/i.test(beat.visual ?? "");
@@ -279,7 +308,7 @@ function prompt({ beat, index, count, aspect, topic, style, look, notes, brand }
     effectiveStyle
       ? `Style guide: the template "${effectiveStyle.name}". Its reference code (an animated HyperFrames composition; draw in its visual language, character rig, and shot archetypes, not its literal words):\n<reference>\n${effectiveStyle.code.slice(0, STYLE_LIMIT)}\n</reference>`
       : `Style guide: a clean, modern "${look}" motion-graphics look: one flat background, one accent colour, a geometric sans-serif.`,
-    ...(brandColorBlock(brand) ? [brandColorBlock(brand)!] : []),
+    ...(brandColorBlock(brand, placement) ? [brandColorBlock(brand, placement)!] : []),
     `What the film is about: ${topic.slice(0, 600)}`,
     ...(notes?.idea ? [`The film's one idea: ${notes.idea}`] : []),
     ...(notes?.objects ? [`OBJECTS (the film's recurring objects; use these exact ids on <g> or leaf elements every time they appear): ${notes.objects}`] : []),
@@ -344,7 +373,8 @@ export async function sketchFrame(request: FrameRequest, signal: AbortSignal, ht
     if (signal.aborted || !(error instanceof Error) || !/usable SVG/.test(error.message)) throw error;
     svg = await drawFrame(request, signal, http, 2);
   }
-  return request.brand?.logoDataUri ? withBrandLogo(svg, request.brand.logoDataUri, request.aspect) : svg;
+  const placement = logoPlacement(request);
+  return request.brand?.logoDataUri && placement !== "none" ? withBrandLogo(svg, request.brand.logoDataUri, request.aspect, placement) : svg;
 }
 
 /** What a scene shows if both drawing attempts fail: a plain card with its key phrase, so the storyboard never shows a broken image. Never saved, so the next open draws it again. */
