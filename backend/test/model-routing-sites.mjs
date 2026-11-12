@@ -8,7 +8,7 @@ process.env.PLANNER ??= "deterministic";
 for (const key of Object.keys(process.env)) if (/^(MODEL_|EFFORT_|MAX_TOKENS_|BASE_URL_)/.test(key) || ["SCRIPT_MODEL", "SCRIPT_PROVIDER", "FRAME_MODEL", "MOTION_MODEL", "DIRECTOR_MODEL", "DIRECTOR_PROVIDER", "PLATE_MODEL"].includes(key)) delete process.env[key];
 process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
 process.env.GEMINI_API_KEY = "test-gemini-key";
-process.env.ANTHROPIC_MODEL = "claude-sonnet-4-6";
+process.env.ANTHROPIC_MODEL = "claude-haiku-5-5";
 
 const calls = [];
 const realFetch = globalThis.fetch;
@@ -25,7 +25,7 @@ const { llmJson } = await import("../src/llm.ts");
 const { sketchFrame } = await import("../src/plan/frame-sketch.ts");
 
 const schema = { type: "object", properties: { ok: { type: "boolean" } } };
-for (const [step, model] of [["script", "claude-sonnet-5-5"], ["director", "claude-opus-5-5"], ["screenshot", "claude-sonnet-5-5"]]) {
+for (const [step, model] of [["script", "claude-opus-5-5"], ["director", "claude-opus-5-5"], ["screenshot", "claude-opus-5-5"]]) {
   process.env[`MODEL_${step.toUpperCase()}`] = `anthropic:${model}`;
   await llmJson({ step, system: "s", user: "u", schema, maxTokens: 1000 });
   assert.match(last().url, /api\.anthropic\.com\/v1\/messages$/, `${step} pinned to Anthropic`);
@@ -55,10 +55,10 @@ delete process.env.DIRECTOR_PROVIDER; delete process.env.DIRECTOR_MODEL; delete 
 const svgText = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
 globalThis.fetch = async (url, init) => { calls.push({ url: String(url), headers: init?.headers ?? {}, body: init?.body ? JSON.parse(init.body) : null }); return String(url).includes("generativelanguage") ? gemini(svgText) : claude(svgText); };
 const frame = { beat: { id: "b1", keyword: "Hi", kind: "kinetic", on_screen: null, line: null, visual: "a box" }, index: 0, count: 1, aspect: "16:9", topic: "t", style: null, look: "clean" };
-process.env.MODEL_FRAME_SKETCH = "anthropic:claude-sonnet-4-6";
+process.env.MODEL_FRAME_SKETCH = "anthropic:claude-haiku-5-5";
 await sketchFrame(frame, new AbortController().signal);
 assert.match(last().url, /api\.anthropic\.com/);
-assert.equal(last().body.model, "claude-sonnet-4-6"); assert.equal(last().body.max_tokens, 6000); assert.deepEqual(last().body.output_config, { effort: "low" });
+assert.equal(last().body.model, "claude-haiku-5-5"); assert.equal(last().body.max_tokens, 6000); assert.deepEqual(last().body.output_config, { effort: "low" });
 process.env.MODEL_FRAME_SKETCH = "gemini:gemini-3.8-flash";
 const svg = await sketchFrame(frame, new AbortController().signal);
 assert.match(last().url, /gemini-3\.8-flash/); assert.ok(svg.startsWith("<svg"));

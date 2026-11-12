@@ -5,7 +5,7 @@
  *   Premium:  ONLY `anthropic:claude-opus-5-5` (plus the two Gemini-only helpers below, which cannot run on Claude).
  *
  * `routeFor(step, env, tier)` resolves the model from this table unless a `MODEL_<ENV>` override is set, so no step on
- * either tier can silently fall back to a code default such as `claude-sonnet-4-6`, to `ANTHROPIC_MODEL`, or to a
+ * either tier can silently fall back to a code default, to `ANTHROPIC_MODEL`, or to a
  * tier-blind `MODEL_DEFAULT`. Steps that run before a tier is chosen (script, storyboard, frames) resolve as Standard.
  *
  * Env overrides, highest first: `MODEL_<ENV>_<TIER>` (e.g. `MODEL_MOTION_PREMIUM`) > `MODEL_<ENV>` > parent step's

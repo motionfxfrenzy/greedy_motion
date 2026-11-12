@@ -68,7 +68,7 @@ function sseResponse(lines, status = 200) {
   assert.equal(NOT_ROUTED.length, 4);
 
   // Tier-blind legacy vars no longer steer anyProvider steps (they would break the Standard/Premium split).
-  const legacy = { MODEL_DEFAULT: "claude-sonnet-4-6", ANTHROPIC_MODEL: "claude-sonnet-4-6", PLATE_MODEL: "claude-opus-5-5", SCRIPT_MODEL: "claude-opus-5-5", FRAME_MODEL: "claude-opus-5-5" };
+  const legacy = { MODEL_DEFAULT: "claude-haiku-5-5", ANTHROPIC_MODEL: "claude-haiku-5-5", PLATE_MODEL: "claude-opus-5-5", SCRIPT_MODEL: "claude-opus-5-5", FRAME_MODEL: "claude-opus-5-5" };
   for (const id of Object.keys(STEPS)) {
     const r = routeFor(id, legacy);
     assert.equal(`${r.provider}:${r.model}`, `${expectedDefaults[id][0]}:${expectedDefaults[id][1]}`, `${id} ignores legacy vars`);
@@ -180,8 +180,8 @@ function sseResponse(lines, status = 200) {
       MODEL_MOTION: "llama-3.3-70b",
       EFFORT_FRAME_SKETCH: "turbo",
       MAX_TOKENS_SCREENSHOT: "-50",
-      MODEL_VOICE_ALIGN: "anthropic:claude-sonnet-5-5",
-      MODEL_SITE_READ: "anthropic:claude-sonnet-5-5",
+      MODEL_VOICE_ALIGN: "anthropic:claude-opus-5-5",
+      MODEL_SITE_READ: "anthropic:claude-opus-5-5",
       MODEL_SCENE_WRITER: "gemini:gemini-3.8-flash",
       MODEL_FORMAT_FILL: "openai-compatible:qwen-coder"
       // Missing ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_COMPATIBLE_API_KEY, and BASE_URL_FORMAT_FILL
@@ -219,17 +219,17 @@ function sseResponse(lines, status = 200) {
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /MODEL_SCEEN_WRITER/);
   // Legacy tier-blind vars are flagged as ignored; an override outside a tier's policy is flagged.
-  const legacyWarn = routeWarnings({ PLATE_MODEL: "claude-opus-5-5", MODEL_SCENE_WRITER_STANDARD: "claude-sonnet-4-6" });
+  const legacyWarn = routeWarnings({ PLATE_MODEL: "claude-opus-5-5", MODEL_SCENE_WRITER_STANDARD: "claude-opus-5-5" });
   assert.ok(legacyWarn.some((w) => /PLATE_MODEL is set but ignored/.test(w)));
-  assert.ok(legacyWarn.some((w) => /sceneWriter" on standard resolves to anthropic:claude-sonnet-4-6/.test(w)));
+  assert.ok(legacyWarn.some((w) => /sceneWriter" on standard resolves to anthropic:claude-opus-5-5/.test(w)));
 }
 
 // Section 4 exercises the adapters on Claude/Gemini routes, so pin those steps by env (the tier table would pick Flash).
 Object.assign(process.env, {
-  MODEL_FRAME_SKETCH: "claude-sonnet-4-6",
-  MODEL_SCENE_WRITER: "claude-sonnet-4-6",
-  MODEL_SCRIPT: "claude-sonnet-5-5",
-  MODEL_SCRIPT_WRITE: "claude-sonnet-4-6",
+  MODEL_FRAME_SKETCH: "claude-haiku-5-5",
+  MODEL_SCENE_WRITER: "claude-haiku-5-5",
+  MODEL_SCRIPT: "claude-opus-5-5",
+  MODEL_SCRIPT_WRITE: "claude-haiku-5-5",
   MODEL_DIRECTOR: "claude-opus-5-5"
 });
 
@@ -276,7 +276,7 @@ Object.assign(process.env, {
   });
 
   assert.match(capturedUrl, /\/v1\/messages$/);
-  assert.equal(capturedBody.model, "claude-sonnet-4-6");
+  assert.equal(capturedBody.model, "claude-haiku-5-5");
   assert.equal(capturedBody.max_tokens, 6000);
   assert.deepEqual(capturedBody.system, [
     { type: "text", text: "Cached system instructions", cache_control: { type: "ephemeral" } },
@@ -607,7 +607,7 @@ Object.assign(process.env, {
   for (const [provider, route, mockResp, expectedMsg] of [
     [
       "anthropic",
-      routeFor("script", { MODEL_SCRIPT: "claude-sonnet-5-5" }),
+      routeFor("script", { MODEL_SCRIPT: "claude-opus-5-5" }),
       () => Response.json({ content: [], stop_reason: "refusal", usage: {} }),
       "Custom refusal message"
     ],
@@ -650,9 +650,7 @@ Object.assign(process.env, {
 {
   const usage = { input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000, cacheWrite: 1_000_000 };
   assert.equal(usdFor("claude-opus-5-5", usage), 29.2);
-  assert.equal(usdFor("claude-sonnet-5-5", usage), 14.7);
   assert.equal(usdFor("claude-haiku-5-5", usage), 0.735);
-  assert.equal(usdFor("claude-sonnet-4-6", usage), 22.05);
   assert.equal(usdFor("claude-haiku-4-5-20251001", usage), 7.35);
   assert.equal(usdFor("gemini-3.8-flash", usage), 4.575);
   assert.equal(usdFor("gemini-4-argon", usage), 12.1);
@@ -675,7 +673,7 @@ Object.assign(process.env, {
   assert.equal(usdFor("custom-registered-model", { input: 1_000_000, output: 500_000, cacheRead: 0, cacheWrite: 0 }), 2);
 
   // maxOutputFor
-  assert.equal(maxOutputFor("anthropic", "claude-sonnet-4-6"), 128000);
+  assert.equal(maxOutputFor("anthropic", "claude-haiku-5-5"), 128000);
   assert.equal(maxOutputFor("gemini", "gemini-3.8-flash"), 65536);
   assert.equal(maxOutputFor("openai-compatible", "any-compat-model"), 32000);
   assert.ok(MAX_OUTPUT["claude-opus-5-5"] === 128000);

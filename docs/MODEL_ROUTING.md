@@ -36,15 +36,15 @@ provider it cannot use, and a missing key for any provider a step actually uses.
 
 | step (`<STEP>`) | what it does | default today | other providers |
 |---|---|---|---|
-| `script` (SCRIPT) | brief to script (JSON) | anthropic `claude-sonnet-5-5` (old: `SCRIPT_PROVIDER`, `SCRIPT_MODEL`) | yes |
-| `scriptWrite` (SCRIPT_WRITE, parent script) | canvas script writer and revisions, streamed, effort low | `SCRIPT_MODEL` or `ANTHROPIC_MODEL` | yes |
+| `script` (SCRIPT) | brief to script (JSON) | tier table (Standard `gemini-3.8-flash`, Premium `claude-opus-5-5`) | yes |
+| `scriptWrite` (SCRIPT_WRITE, parent script) | canvas script writer and revisions, streamed, effort low | tier table | yes |
 | `sceneInsert` (SCENE_INSERT, parent script) | write one inserted scene | same | yes |
 | `director` (DIRECTOR) | storyboard / plan | anthropic `claude-opus-5-5` (old: `DIRECTOR_PROVIDER`, `DIRECTOR_MODEL`) | yes |
-| `frameSketch` (FRAME_SKETCH) | SVG frame sketch | `FRAME_MODEL`, `SCRIPT_MODEL`, `ANTHROPIC_MODEL` | yes |
-| `motion` (MOTION) | motion direction per frame | `MOTION_MODEL`, `FRAME_MODEL`, `ANTHROPIC_MODEL` | yes |
-| `screenshot` (SCREENSHOT) | reads uploaded screenshots (images) | anthropic `claude-sonnet-5-5` | yes (needs vision) |
+| `frameSketch` (FRAME_SKETCH) | SVG frame sketch | tier table | yes |
+| `motion` (MOTION) | motion direction per frame | tier table | yes |
+| `screenshot` (SCREENSHOT) | reads uploaded screenshots (images) | tier table (Standard `gemini-3.8-flash`) | yes (needs vision) |
 | `voiceAlign` (VOICE_ALIGN) | word times from audio | gemini `gemini-2.5-flash` | Gemini only (audio input) |
-| `sceneWriter` (SCENE_WRITER) | plate scene canvas code | `PLATE_MODEL`, `ANTHROPIC_MODEL`, `claude-sonnet-4-6` | yes |
+| `sceneWriter` (SCENE_WRITER) | plate scene canvas code | tier table | yes |
 | `sceneRepair` (SCENE_REPAIR, parent sceneWriter) | repair rounds (policy, bundling, cut-off) | same as sceneWriter | yes |
 | `formatFill` (FORMAT_FILL) | template slot fill (JSON) | `ANTHROPIC_MODEL` | yes |
 | `proAssistant` (PRO_ASSISTANT) | Pro editor source edits (JSON) | `ANTHROPIC_MODEL` | yes |
@@ -124,11 +124,15 @@ Every call logs one line: `{"event":"model_usage","step","provider","model","inp
 | model | in | out | cache read | cache write |
 |---|---|---|---|---|
 | claude-opus-5-5 | 4 | 20 | 0.2 | 5 |
-| claude-sonnet-5-5 | 2 | 10 | 0.2 | 2.5 |
 | claude-haiku-5-5 | 0.1 | 0.5 | 0.01 | 0.125 (assumed) |
 | gemini-3.8-flash | 0.75 | 3.75 (incl. thinking) | 0.075 | 0; from 2027-01-01: 1.5 / 7.5 / 0.15 |
 | gemini-4-argon | 2 | 10 | 0.1 | 0; from 2026-12-01: 4 / 20 / 0.2 |
 | gemini-3.5-flash-lite | 0.3 | 2.5 | 0.03 | 0; no change listed |
 
 Dated changes live in `PRICE_CHANGES` and apply by date automatically.
-| claude-sonnet-4-6, claude-haiku-4-5-20251001, gemini-2.5-flash, gemini-3.1-pro-preview | see file | | | **not verified against the providers' pages** |
+| claude-haiku-4-5-20251001, gemini-2.5-flash, gemini-3.1-pro-preview | see file | | | **not verified against the providers' pages** |
+
+
+## Tier policy (overrides the defaults above)
+
+Models come from `backend/src/models/tiers.ts`. Standard (and every step that runs before a tier is chosen) uses `gemini-3.8-flash`, or `claude-haiku-5-5` for formatFill, proAssistant, planner, elementEdits and skillRouting. Premium uses `claude-opus-5-5` (voiceAlign and siteRead stay on Gemini). No other Claude model is used (a test enforces this). Override with `MODEL_<STEP>_STANDARD` / `MODEL_<STEP>_PREMIUM` (or tier-blind `MODEL_<STEP>`). `MODEL_DEFAULT`, `ANTHROPIC_MODEL`, `PLATE_MODEL`, `SCRIPT_MODEL`, `FRAME_MODEL` and the other legacy variables are ignored. Rows above that still name those variables are historical.

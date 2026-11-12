@@ -445,7 +445,7 @@ function makeSseResponse(chunks, status = 200) {
   const eventsOrder = [];
 
   const reply = await anthropicStream(
-    { model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: "draw" }] },
+    { model: "claude-haiku-5-5", max_tokens: 1000, messages: [{ role: "user", content: "draw" }] },
     {
       errorPrefix: "Scene authoring failed",
       sleep: async () => {},
@@ -486,7 +486,7 @@ function makeSseResponse(chunks, status = 200) {
   let jsonOnStartCalls = 0;
   const jsonOrder = [];
   const jsonReply = await anthropicStream(
-    { model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: "draw" }] },
+    { model: "claude-haiku-5-5", max_tokens: 1000, messages: [{ role: "user", content: "draw" }] },
     {
       errorPrefix: "Scene authoring failed",
       log: () => { jsonOrder.push("log"); },

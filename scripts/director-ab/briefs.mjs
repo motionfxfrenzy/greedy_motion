@@ -14,7 +14,6 @@ export const briefs = [
 ];
 export const models = [
   { id: "claude-opus-5-5", provider: "anthropic", model: "claude-opus-5-5" },
-  { id: "claude-sonnet-5-5", provider: "anthropic", model: "claude-sonnet-5-5" },
   { id: "gemini-3.1-pro", provider: "gemini", model: "gemini-3.1-pro-preview" },
   { id: "gemini-3.8-flash", provider: "gemini", model: "gemini-3.8-flash" }
 ];

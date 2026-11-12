@@ -436,7 +436,7 @@ Run `npm run skills:build` after editing those sources. The verified Markdown sh
 
 Third-party creative packs live under `third_party/creative-packs/`; provenance and notices are in that directory and `third_party/creative-libraries-NOTICE.md`. Main also contains library experiments under `validation/creative-libraries/` and dependency mapping in `scripts/creative-vendor.mjs`. GSAP is part of the established rendering path; main adds Sketch/Rough.js integration and other creative-library experiments. The additional main code and velocity-sting tooling were not in production `c71ef78`.
 
-The backend's current source default is `ANTHROPIC_MODEL=claude-sonnet-4-6`, overridable by environment configuration. The release tests reported `claude-opus-5-5` on staging and `claude-sonnet-4-6` on production. Source defaults do not guarantee that environments use the same model. Gemini TTS and Lyria model identifiers likewise live in their backend integration files and should be checked there when changing providers.
+Models are chosen per animation tier in `backend/src/models/tiers.ts` (Standard: `gemini-3.8-flash` or `claude-haiku-5-5`; Premium: `claude-opus-5-5`), overridable with `MODEL_<STEP>_STANDARD` / `MODEL_<STEP>_PREMIUM`. See `docs/MODEL_ROUTING.md`. Gemini TTS and Lyria model identifiers likewise live in their backend integration files and should be checked there when changing providers.
 
 ## 9. Rendering, queues and recovery
 

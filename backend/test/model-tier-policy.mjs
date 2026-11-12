@@ -94,3 +94,36 @@ assert.deepEqual((await body("claude-haiku-5-5", 600, "low")).thinking, { type: 
 await assert.rejects(() => callModel({ step: "planner", route: { step: "planner", provider: "anthropic", model: "claude-opus-5-5", maxTokens: 600, explicit: true }, system: "s", messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "{" }], log: () => {}, request: async () => Response.json({}) }), /prefill/);
 
 console.log("model tier policy: every step resolves inside the Standard / Premium model sets; 5.5 request shape verified offline");
+
+// 6. No Sonnet anywhere: no step, tier, fallback or default resolves to it, and no tracked source file names it.
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+{
+  for (const tier of MODEL_TIERS) {
+    for (const id of stepIds) {
+      for (const env of [{}, ...Object.values(envs)]) {
+        const r = routeFor(id, env, tier);
+        assert.ok(!/sonnet/i.test(r.model), `${tier}/${id} resolved to ${r.model}`);
+      }
+      assert.ok(!/sonnet/i.test(STEPS[id].legacy({}).model), `${id} code default is Sonnet`);
+    }
+  }
+  const { config } = await import("../src/config.ts");
+  assert.ok(!/sonnet/i.test(config.anthropicModel) && !/sonnet/i.test(config.plateModel));
+  const { PRICES } = await import("../src/models/prices.ts");
+  assert.ok(!Object.keys(PRICES).some((k) => /sonnet/i.test(k)), "price table has no Sonnet");
+
+  // Whole-repo grep over tracked files; dated records, agent notes and env-override parsing fixtures are excluded.
+  const root = fileURLToPath(new URL("../..", import.meta.url));
+  const files = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 }).split("\0").filter(Boolean);
+  const skip = /^(docs\/(qa|phase3|handoff)\/|docs\/(HANDOFF|LIVE_PLAYBACK|DIRECTOR_AB|PRICING|STACK_DECISIONS)|scripts\/director-ab\/results\/|tools\/|\.claude\/|backend\/test\/(model-tier-policy|pricing-lock)\.mjs$|package-lock\.json$)/;
+  const { readFileSync } = await import("node:fs");
+  const hits = [];
+  for (const f of files) {
+    if (skip.test(f) || /\.(png|jpe?g|webp|gif|mp4|woff2?|ttf|pdf|ico|zip|bin|mov|mp3|wav)$/i.test(f)) continue;
+    let text; try { text = readFileSync(`${root}/${f}`, "utf8"); } catch { continue; }
+    if (/sonnet/i.test(text)) hits.push(f);
+  }
+  assert.deepEqual(hits, [], `Sonnet referenced in: ${hits.join(", ")}`);
+}
+console.log("model tier policy: no Sonnet in defaults, price table, or tracked files");

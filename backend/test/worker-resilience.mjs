@@ -117,7 +117,7 @@ const { decideRevisionApply, mergeRevisionNotes, REVISE_COALESCE_SECONDS, revisi
   const progressLog = [];
 
   const reply = await anthropicStream(
-    { model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: "draw" }] },
+    { model: "claude-haiku-5-5", max_tokens: 1000, messages: [{ role: "user", content: "draw" }] },
     {
       errorPrefix: "Scene authoring failed",
       sleep: async () => {},

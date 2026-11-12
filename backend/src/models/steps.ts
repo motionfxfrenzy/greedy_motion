@@ -40,7 +40,7 @@ export type StepDef = {
 };
 
 const anthropicModel = (env: NodeJS.ProcessEnv = process.env): string =>
-  env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+  "claude-haiku-5-5";
 
 export const STEPS: Record<StepId, StepDef> = {
   script: {
@@ -50,7 +50,7 @@ export const STEPS: Record<StepId, StepDef> = {
     legacyVars: ["SCRIPT_PROVIDER", "SCRIPT_MODEL"],
     legacy: (env = process.env) => {
       const provider: Provider = env.SCRIPT_PROVIDER === "gemini" ? "gemini" : "anthropic";
-      const model = env.SCRIPT_MODEL || (provider === "gemini" ? "gemini-3.1-pro-preview" : "claude-sonnet-5-5");
+      const model = env.SCRIPT_MODEL || (provider === "gemini" ? "gemini-3.1-pro-preview" : "claude-haiku-5-5");
       return { provider, model };
     },
     maxTokens: 16000,
@@ -140,7 +140,7 @@ export const STEPS: Record<StepId, StepDef> = {
     legacyVars: ["SCREENSHOT_MODEL"],
     legacy: (env = process.env) => ({
       provider: "anthropic",
-      model: env.SCREENSHOT_MODEL || "claude-sonnet-5-5"
+      model: env.SCREENSHOT_MODEL || "claude-haiku-5-5"
     }),
     maxTokens: 1200,
     modality: "text",
@@ -227,7 +227,7 @@ export const STEPS: Record<StepId, StepDef> = {
     legacyVars: ["ANTHROPIC_ROUTING_MODEL"],
     legacy: (env = process.env) => ({
       provider: "anthropic",
-      model: env.ANTHROPIC_ROUTING_MODEL || "claude-haiku-4-5-20251001"
+      model: env.ANTHROPIC_ROUTING_MODEL || "claude-haiku-5-5"
     }),
     maxTokens: 128,
     modality: "text",

@@ -20,10 +20,8 @@ export type UsageCounts = {
  */
 export const PRICES: Record<string, ModelPrice> = {
   "claude-opus-5-5": { in: 4, out: 20, cacheRead: 0.2, cacheWrite: 5 },
-  "claude-sonnet-5-5": { in: 2, out: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   // cache write/read assumed
   "claude-haiku-5-5": { in: 0.1, out: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
-  "claude-sonnet-4-6": { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   "claude-haiku-4-5-20251001": { in: 1, out: 5, cacheRead: 0.1, cacheWrite: 1.25 },
   // paid tier through 2026-12-31, doubles 2027-01-01
   "gemini-3.8-flash": { in: 0.75, out: 3.75, cacheRead: 0.075, cacheWrite: 0 },
@@ -39,9 +37,7 @@ export const PRICES: Record<string, ModelPrice> = {
 /** Maximum output tokens per model (falls back to provider default in maxOutputFor). */
 export const MAX_OUTPUT: Record<string, number> = {
   "claude-opus-5-5": 128000,
-  "claude-sonnet-5-5": 128000,
   "claude-haiku-5-5": 128000,
-  "claude-sonnet-4-6": 128000,
   "claude-haiku-4-5-20251001": 128000,
   "gemini-3.8-flash": 65536,
   "gemini-4-argon": 65536,
