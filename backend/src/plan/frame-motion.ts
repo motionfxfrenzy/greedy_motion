@@ -79,6 +79,26 @@ function uncovered(motion: FrameMotion[], scene: SceneInput): number {
 /** Embedded pictures (the brand logo) are base64: thousands of tokens the motion model cannot use. */
 const withoutImages = (svg: string) => svg.replace(/<image\b[^>]*>/gi, "");
 
+/** Models sometimes wrap the array in prose or code fences, or leave trailing commas, comments or single quotes; fix those before giving up. */
+export function parseMotionText(text: string): unknown {
+  const body = text.slice(text.indexOf("["), text.lastIndexOf("]") + 1) || "[]";
+  try { return JSON.parse(body); } catch { /* repair below */ }
+  const repaired = body
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/,\s*([}\]])/g, "$1")
+    .replace(/([{,]\s*)([A-Za-z_][\w-]*)\s*:/g, '$1"$2":')
+    .replace(/'([^'\n]*)'/g, '"$1"');
+  return JSON.parse(repaired);
+}
+
+/** How many entries of each kind a scene got (and how many the model wrote that did not survive validation), for the logs. */
+function kindCounts(motion: FrameMotion[]) {
+  const counts: Record<string, number> = {};
+  for (const entry of motion) counts[entry.kind] = (counts[entry.kind] ?? 0) + 1;
+  return counts;
+}
+
 async function ask(scene: SceneInput, feedback: string | null, signal: AbortSignal, routeOverride?: Route): Promise<FrameMotion[]> {
   const words = scene.words.map((word) => `${word.text}@${word.start.toFixed(2)}`).join(" ");
   const content = [
@@ -94,8 +114,7 @@ async function ask(scene: SceneInput, feedback: string | null, signal: AbortSign
   if (route.provider !== "anthropic" || routeOverride) {
     // Another provider (MODEL_MOTION) or explicit tier route snapshot: the shared provider layer.
     const result = await callModel({ step: "motion", route, system, messages: [{ role: "user", content }], maxTokens: Math.max(route.maxTokens, 6000), effort: "low", signal, errorPrefix: "Motion request failed", includeErrorDetail: true });
-    const json = result.text.slice(result.text.indexOf("["), result.text.lastIndexOf("]") + 1);
-    return parseFrameMotion(JSON.parse(json || "[]"), scene.svg, scene.seconds);
+    return finish(scene, result.text);
   }
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -106,8 +125,17 @@ async function ask(scene: SceneInput, feedback: string | null, signal: AbortSign
   const payload = await response.json().catch(() => ({})) as { content?: { type: string; text?: string }[]; error?: { message?: string } };
   if (!response.ok) throw new Error(`Motion request failed (${response.status})${payload.error?.message ? `: ${payload.error.message}` : "."}`);
   const text = (payload.content ?? []).filter((block) => block.type === "text").map((block) => block.text ?? "").join("");
-  const json = text.slice(text.indexOf("["), text.lastIndexOf("]") + 1);
-  return parseFrameMotion(JSON.parse(json || "[]"), scene.svg, scene.seconds);
+  return finish(scene, text);
+}
+
+/** Parses the model's answer into validated motion and logs what it contained, so a scene with only plain moves can be told from a scene the model never moved. */
+function finish(scene: SceneInput, text: string): FrameMotion[] {
+  const raw = parseMotionText(text);
+  const motion = parseFrameMotion(raw, scene.svg, scene.seconds);
+  const asked: Record<string, number> = {};
+  for (const item of Array.isArray(raw) ? raw : []) { const kind = String((item as { kind?: unknown })?.kind ?? "?"); asked[kind] = (asked[kind] ?? 0) + 1; }
+  console.log(JSON.stringify({ level: "info", event: "motion_directed", scene: scene.index + 1, wrote: asked, kept: kindCounts(motion) }));
+  return motion;
 }
 
 /** Directs one scene in a single fast pass so all scenes run in parallel without sequential retry latency. */
@@ -116,9 +144,10 @@ async function direct(scene: SceneInput, signal: AbortSignal, routeOverride?: Ro
 }
 
 /** The scenes of a frame film, with ids added and word times relative to each scene. */
-export function filmScenes(project: VideoProject, timing: PlanTiming, frames: { svg: string }[]): SceneInput[] {
+export function filmScenes(project: VideoProject, timing: PlanTiming, frames: { svg: string; raw?: string }[]): SceneInput[] {
   const plan = project.beatPlan!;
-  const ided = frames.map((frame) => withIds(frame.svg));
+  // The unscoped picture when there is one (see FilmFrame.raw), so authoring and the preview share one signature.
+  const ided = frames.map((frame) => withIds(frame.raw ?? frame.svg));
   return plan.beats.map((beat, index) => {
     const slot = timing.beats[index]!;
     const take = currentTake(project.planAudio, beat);

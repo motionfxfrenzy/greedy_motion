@@ -6,7 +6,12 @@ import { config } from "../config.ts";
 import { cleanSvg } from "./frame-sketch.ts";
 import type { PlanTiming } from "./timing.ts";
 
-export type FilmFrame = { start: number; end: number; svg: string; motion: FrameMotion[] };
+/**
+ * `raw` is the frame before its definitions were scoped per frame (scopeDefs). Motion is directed against, and looked up by the
+ * signature of, that unscoped picture: handing the scoped `svg` to filmScenes gives another signature, and the directed motion is
+ * saved under one signature and then never found by the preview or render.
+ */
+export type FilmFrame = { start: number; end: number; svg: string; motion: FrameMotion[]; raw?: string };
 
 /**
  * The approved reference frames for a film written in the script canvas, one per beat on the film clock, or null when
@@ -34,7 +39,7 @@ export function filmFrames(project: VideoProject, timing: PlanTiming): FilmFrame
     frames[i]!.motion = enrichMotion(scene.svg, scene.previous, directed.get(motionSignature(scene))?.motion ?? [], scene.seconds);
   });
   // After the motion lookup (its signature is of the unscoped svg): each frame gets its own gradients, filters and clips.
-  frames.forEach((frame, i) => { frame.svg = scopeDefs(frame.svg, `f${i + 1}`); });
+  frames.forEach((frame, i) => { frame.raw = frame.svg; frame.svg = scopeDefs(frame.svg, `f${i + 1}`); });
   return frames;
 }
 
