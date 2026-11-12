@@ -9,6 +9,7 @@ import { config } from "../config.ts";
 import { ensureMedia } from "../media.ts";
 import { screenshotFile } from "../projects/store.ts";
 import { audioMode, planAudioDir } from "./audio.ts";
+import { beatTimes, musicBeatGrid } from "./beat-grid.ts";
 import { filmFeel, filmFrames, withFrameFilm } from "./frame-film.ts";
 import { declareVariables, ENGINE_TEMPLATE, engineVariables, fillTextBlock, stampCanvas, textValues, withSubtitleStyling } from "./composition.ts";
 import { brandNameFor, projectLook, projectTiming } from "./preview.ts";
@@ -108,7 +109,7 @@ export async function buildPlanRenderProject(project: VideoProject, dir: string,
   html = withSoundtrack(html, tracks);
   // A film written in the script canvas animates its approved frames instead of the engine's own scenes.
   const frames = filmFrames(project, timing);
-  if (frames) html = await withFrameFilm(html, frames, filmFeel(project));
+  if (frames) html = await withFrameFilm(html, frames, filmFeel(project), beatTimes(tracks, tracks.some((track) => track.id.startsWith("music-bed")) ? await musicBeatGrid(project.id, project.planAudio?.music?.file) : null));
   html = withSubtitleStyling(html, subtitles);
   if (watermark) html = withWatermark(html);
   html = withVisuals(html, project, timing, file => `visuals/${file}`);

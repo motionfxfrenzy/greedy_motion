@@ -229,17 +229,21 @@ export function brandGround(brand: FrameBrand): "light" | "dark" {
 }
 
 /**
- * Where the brand's logo goes on a frame. Not on every frame: large and centred ("focus") on the closing call-to-action frame
- * and on a frame whose VISUAL is about the logo itself; small at the side ("side") on a frame that names the brand; otherwise none.
+ * How the brand's logo appears on a frame. Not on every frame, and never stuck on top of the picture: the frame itself draws an empty
+ * "logo slot" where the logo belongs in the layout (like the logo of a real page: a header's left, centre or right; the box of an
+ * "extracted logo"; the middle of an end card), and the server places the real logo inside that slot.
+ *  - "focus": the closing call-to-action frame: a large slot, centred in the main card or active zone.
+ *  - "inline": a frame whose VISUAL shows the logo as an element (an extracted-logo box, a brand card): a slot inside that element.
+ *  - "side": a frame that names the brand: a small slot where a page keeps its logo.
  */
-export type LogoPlacement = "focus" | "side" | "none";
+export type LogoPlacement = "focus" | "inline" | "side" | "none";
 
 export function logoPlacement(request: Pick<FrameRequest, "beat" | "index" | "count" | "brand">): LogoPlacement {
   const brand = request.brand;
   if (!brand?.logoDataUri) return "none";
   const { beat, index, count } = request;
-  const visual = beat.visual ?? "";
-  if (/\blogo\b/i.test(visual) || (count > 1 && index === count - 1)) return "focus";
+  if (count > 1 && index === count - 1) return "focus";
+  if (/\blogo\b/i.test(beat.visual ?? "")) return "inline";
   const name = brand.name.trim().toLowerCase();
   const words = name.length >= 3 ? name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "";
   const squashed = name.replace(/\s+/g, "");
@@ -247,6 +251,14 @@ export function logoPlacement(request: Pick<FrameRequest, "beat" | "index" | "co
   if (words && (new RegExp(`\\b${words}\\b`).test(text) || (squashed.length >= 4 && text.replace(/\s+/g, "").includes(squashed)))) return "side";
   return "none";
 }
+
+const SLOT_RULE = 'an EMPTY rectangle <rect id="logo-slot" x=".." y=".." width=".." height=".." fill="none"/> (exactly one on this frame, nothing drawn in or over it, no stroke). The real logo is placed exactly inside that rectangle afterwards, so never draw a logo, symbol, icon or letters of your own in its place.';
+
+const LOGO_RULES: Record<Exclude<LogoPlacement, "none">, string> = {
+  focus: `LOGO: this is the closing frame and the brand's logo is its centrepiece. Draw ${SLOT_RULE} Make it large (about 30% of the frame's width and half as tall) and centre it horizontally inside the main card or active zone of the picture (not above it, not outside it), with the call to action and the address below it.`,
+  inline: `LOGO: the VISUAL shows the logo as one element of the picture (an "extracted logo" box, a logo preview, a brand card). Draw the box or card that holds it as part of the layout, and put ${SLOT_RULE} Size the slot to the inside of that box with some padding.`,
+  side: `LOGO: this frame names the brand, so show its logo the way a real web page does: in the page's header or nav bar at the left, the centre or the right, whichever suits the layout (inside the page mock when there is one). Draw ${SLOT_RULE} Keep it small (about 10% to 14% of the frame's width, about twice as wide as tall).`
+};
 
 /** The brand kit's colours as a prompt block: the brand overrides the style's palette; the style keeps its layout, shapes and motion. */
 export function brandColorBlock(brand: FrameRequest["brand"], placement: LogoPlacement = "none"): string | null {
@@ -266,27 +278,34 @@ export function brandColorBlock(brand: FrameRequest["brand"], placement: LogoPla
       ? "GROUND: this brand is LIGHT. Draw every frame on a light ground (the background colour above, else white or a very pale tint of the primary) with dark type. Never a black or dark-navy background, even if the style guide's reference is dark."
       : "GROUND: this brand is DARK. Draw every frame on a dark ground with light type.",
     "Use only these colours plus tints and shades of them, white or near-black for contrast, and keep text readable on its ground. Never use another hue (no neon green, pink or purple unless it is a listed colour).",
-    placement === "focus"
-      ? "LOGO: the brand's logo is added afterwards, large and centred in the upper middle (the zone from 34% to 66% of the width and 12% to 42% of the height). Keep that zone empty, compose the rest of the frame (the call to action, the address) below it, and never draw a logo or brand mark yourself."
-      : placement === "side"
-        ? "LOGO: the brand's logo is added afterwards in the bottom-right corner (the last 16% of the width and 12% of the height). Keep that corner empty and never draw a logo or brand mark yourself."
-        : "Do not draw a logo or brand mark on this frame."
+    placement === "none" ? "Do not draw a logo or brand mark on this frame." : LOGO_RULES[placement]
   ].filter(Boolean).join("\n");
 }
 
-/** Puts the brand's logo on a drawn frame: large and centred for "focus", small in the bottom-right corner for "side". The model never draws the logo (it cannot embed images); this is ours. */
-export function withBrandLogo(svg: string, logoDataUri: string, aspect: Aspect, placement: Exclude<LogoPlacement, "none"> = "side"): string {
-  const { width, height } = FRAME_SIZE[aspect];
-  const margin = Math.round(Math.min(width, height) * 0.035);
-  const box = placement === "focus"
-    ? { w: Math.round(width * 0.3), h: Math.round(height * 0.28) }
-    : { w: Math.round(width * 0.13), h: Math.round(height * 0.085) };
-  const x = placement === "focus" ? Math.round((width - box.w) / 2) : width - box.w - margin;
-  const y = placement === "focus" ? Math.round(height * 0.13) : height - box.h - margin;
-  const fit = placement === "focus" ? "xMidYMid meet" : "xMaxYMax meet";
-  const image = `<image id="brand-logo" href="${logoDataUri}" x="${x}" y="${y}" width="${box.w}" height="${box.h}" preserveAspectRatio="${fit}"/>`;
-  return svg.replace(/<\/svg>\s*$/i, `${image}</svg>`);
+const SLOT_TAG = /<rect\b[^>]*\bid=["']logo-slot["'][^>]*?(?:\/>|>\s*<\/rect>)/i;
+
+/** A number attribute of an element's opening tag. */
+const numAttr = (tag: string, name: string) => {
+  const found = new RegExp(`\\s${name}=["']\\s*(-?\\d+(?:\\.\\d+)?)\\s*(?:px)?["']`, "i").exec(tag);
+  return found ? Number(found[1]) : null;
+};
+
+/**
+ * Puts the brand's logo into the frame's own "logo-slot" rectangle, fitted inside it (centred, never stretched). The model decides where
+ * the logo belongs in the layout; the real logo is ours, because a model cannot embed an image. A frame with no usable slot gets no
+ * logo: it is never pasted over the picture. The slot is always removed.
+ */
+export function fillLogoSlot(svg: string, logoDataUri: string): string {
+  const tag = SLOT_TAG.exec(svg)?.[0];
+  if (!tag) return svg;
+  const x = numAttr(tag, "x"), y = numAttr(tag, "y"), w = numAttr(tag, "width"), h = numAttr(tag, "height");
+  if (x === null || y === null || w === null || h === null || w < 16 || h < 16) return svg.replace(SLOT_TAG, "");
+  const image = `<image id="brand-logo" href="${logoDataUri}" x="${+x.toFixed(1)}" y="${+y.toFixed(1)}" width="${+w.toFixed(1)}" height="${+h.toFixed(1)}" preserveAspectRatio="xMidYMid meet" data-slot="1"/>`;
+  return svg.replace(SLOT_TAG, () => image);
 }
+
+/** A frame saved before logos were placed in slots carries the logo pasted at a fixed spot; that picture is dropped. */
+export const withoutLegacyLogo = (svg: string) => svg.replace(/<image id="brand-logo"(?![^>]*data-slot="1")[^>]*\/>/g, "");
 
 /** The part every beat shares (style guide, topic, size), cached, then the beat itself. */
 function prompt(request: FrameRequest) {
@@ -345,7 +364,7 @@ export function xmlSafeSvg(svg: string): string {
 
 /** Removes anything that could run or load: the frame is shown as an image, and this keeps it inert even if pasted elsewhere. */
 /** The one picture a frame may carry: the brand logo we place ourselves (withBrandLogo), a PNG data URI and nothing else. */
-const BRAND_LOGO_TAG = /<image id="brand-logo" href="data:image\/png;base64,[A-Za-z0-9+/=]+" x="\d+" y="\d+" width="\d+" height="\d+" preserveAspectRatio="[A-Za-z ]+"\/>/;
+const BRAND_LOGO_TAG = /<image id="brand-logo" href="data:image\/png;base64,[A-Za-z0-9+/=]+" x="-?[\d.]+" y="-?[\d.]+" width="[\d.]+" height="[\d.]+" preserveAspectRatio="xMidYMid meet" data-slot="1"\/>/;
 
 export function cleanSvg(input: string): string | null {
   // Set aside first so it is neither stripped as an image nor counted against the size cap.
@@ -381,7 +400,8 @@ export async function sketchFrame(request: FrameRequest, signal: AbortSignal, ht
     svg = await drawFrame(request, signal, http, 2);
   }
   const placement = logoPlacement(request);
-  return request.brand?.logoDataUri && placement !== "none" ? withBrandLogo(svg, request.brand.logoDataUri, request.aspect, placement) : svg;
+  if (request.brand?.logoDataUri && placement !== "none") return fillLogoSlot(svg, request.brand.logoDataUri);
+  return svg.replace(SLOT_TAG, "");
 }
 
 /** What a scene shows if both drawing attempts fail: a plain card with its key phrase, so the storyboard never shows a broken image. Never saved, so the next open draws it again. */

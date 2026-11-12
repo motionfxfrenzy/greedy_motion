@@ -7,7 +7,7 @@ process.env.ANTHROPIC_API_KEY ??= "test";
 process.env.GEMINI_API_KEY ??= "test";
 
 const { scopeDefs } = await import("../src/plan/frame-film.ts");
-const { cleanSvg, withBrandLogo } = await import("../src/plan/frame-sketch.ts");
+const { cleanSvg, fillLogoSlot } = await import("../src/plan/frame-sketch.ts");
 
 const frame = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720">
 <defs><linearGradient id="bg-grad"><stop offset="0" stop-color="#fff"/></linearGradient><filter id="card-shadow"><feGaussianBlur stdDeviation="4"/></filter><clipPath id="swatch-clip"><rect width="10" height="10"/></clipPath><g id="icon"><circle r="4"/></g></defs>
@@ -43,16 +43,17 @@ test("a frame with no references is returned unchanged", () => {
   assert.equal(scopeDefs(plain, "f1"), plain);
 });
 
-test("the brand logo survives the render cleanup, other images do not, and it does not count against the size cap", () => {
+test("the slot-placed brand logo survives the render cleanup, other images and old pasted logos do not, and it does not count against the size cap", () => {
   const uri = "data:image/png;base64," + "A".repeat(60000);
-  const base = '<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="10" height="10"/><image href="https://evil.example/x.png"/></svg>';
-  const withLogo = withBrandLogo(base, uri, "16:9", "focus");
-  const cleaned = cleanSvg(withLogo);
+  const base = '<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="10" height="10"/><rect id="logo-slot" x="448" y="94" width="384" height="202" fill="none"/><image href="https://evil.example/x.png"/></svg>';
+  const cleaned = cleanSvg(fillLogoSlot(base, uri));
   assert.ok(cleaned, "not rejected for size");
   assert.ok(cleaned.includes('<image id="brand-logo"'), "logo kept");
   assert.ok(!cleaned.includes("evil.example"), "other images stripped");
   assert.ok(cleaned.endsWith("</svg>"));
-  const forged = '<svg xmlns="http://www.w3.org/2000/svg"><image id="brand-logo" href="javascript:alert(1)" x="1" y="1" width="1" height="1" preserveAspectRatio="none"/></svg>';
+  const oldPaste = `<svg xmlns="http://www.w3.org/2000/svg"><image id="brand-logo" href="${uri}" x="1" y="1" width="1" height="1" preserveAspectRatio="xMidYMid meet"/></svg>`;
+  assert.ok(!cleanSvg(oldPaste).includes("<image"), "an old fixed-position logo is dropped");
+  const forged = '<svg xmlns="http://www.w3.org/2000/svg"><image id="brand-logo" href="javascript:alert(1)" x="1" y="1" width="1" height="1" preserveAspectRatio="xMidYMid meet" data-slot="1"/></svg>';
   assert.ok(!cleanSvg(forged).includes("javascript"));
   assert.ok(!cleanSvg(forged).includes("<image"));
 });

@@ -6,7 +6,7 @@ process.env.PLANNER ??= "deterministic";
 process.env.ANTHROPIC_API_KEY ??= "test";
 process.env.GEMINI_API_KEY ??= "test";
 
-const { brandColorBlock, brandGround, logoPlacement, withBrandLogo } = await import("../src/plan/frame-sketch.ts");
+const { brandColorBlock, brandGround, logoPlacement, fillLogoSlot, withoutLegacyLogo } = await import("../src/plan/frame-sketch.ts");
 const { scriptFrameKey } = await import("@videosaas/contracts");
 
 test("the brand's colours go into the frame prompt, and the style keeps its layout", () => {
@@ -50,28 +50,46 @@ const uri = "data:image/png;base64,AAAA";
 const brand = { name: "Greedy Motion", colors: { primary: "#168bff" }, logoDataUri: uri };
 const beat = (over = {}) => ({ keyword: "Hook", visual: "A cluttered timeline collapses into a prompt bar.", onScreen: "Build videos from a brief", line: null, ...over });
 
-test("the logo is not on every frame: focus on the closing frame, side where the brand is named, none elsewhere", () => {
+test("the logo is not on every frame: focus on the closing frame, inline where the picture shows a logo, side where the brand is named, none elsewhere", () => {
   assert.equal(logoPlacement({ beat: beat(), index: 0, count: 13, brand }), "none");
   assert.equal(logoPlacement({ beat: beat({ keyword: "Skip the timeline" }), index: 4, count: 13, brand }), "none");
   assert.equal(logoPlacement({ beat: beat(), index: 12, count: 13, brand }), "focus");
-  assert.equal(logoPlacement({ beat: beat({ visual: "The Greedy Motion logo sits in the centre." }), index: 2, count: 13, brand }), "focus");
+  assert.equal(logoPlacement({ beat: beat({ visual: "A brand card populates a logo and a hex swatch." }), index: 5, count: 13, brand }), "inline");
+  assert.equal(logoPlacement({ beat: beat({ visual: "The logo and an Open Studio button sit in the centre." }), index: 12, count: 13, brand }), "focus", "the closing frame stays focus");
   assert.equal(logoPlacement({ beat: beat({ onScreen: "Greedy Motion turns briefs into MP4s" }), index: 3, count: 13, brand }), "side");
   assert.equal(logoPlacement({ beat: beat({ line: "Meet GreedyMotion." }), index: 1, count: 13, brand }), "side");
   assert.equal(logoPlacement({ beat: beat(), index: 12, count: 13, brand: { ...brand, logoDataUri: undefined } }), "none");
   assert.equal(logoPlacement({ beat: beat(), index: 0, count: 1, brand }), "none");
 });
 
-test("the prompt tells the model where the logo goes, or that there is none", () => {
-  assert.match(brandColorBlock(brand, "focus"), /large and centred in the upper middle/);
-  assert.match(brandColorBlock(brand, "side"), /bottom-right corner/);
+test("the prompt asks for an empty logo slot where a real page would keep the logo, never a drawn logo", () => {
+  for (const placement of ["focus", "inline", "side"]) {
+    const block = brandColorBlock(brand, placement);
+    assert.match(block, /id="logo-slot"/);
+    assert.match(block, /never draw a logo, symbol, icon or letters of your own/);
+  }
+  assert.match(brandColorBlock(brand, "focus"), /centre it horizontally inside the main card or active zone/);
+  assert.match(brandColorBlock(brand, "inline"), /extracted logo/);
+  assert.match(brandColorBlock(brand, "side"), /header or nav bar at the left, the centre or the right/);
   assert.match(brandColorBlock(brand, "none"), /Do not draw a logo/);
+  assert.doesNotMatch(brandColorBlock(brand, "none"), /logo-slot/);
 });
 
-test("the logo is placed by us: centred and large for focus, in the corner for side", () => {
-  const base = '<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect/></svg>\n';
-  const side = withBrandLogo(base, uri, "16:9", "side");
-  assert.match(side, /<image id="brand-logo" href="data:image\/png;base64,AAAA" x="1\d{3}" y="6\d\d" width="166" height="61"/);
-  const focus = withBrandLogo(base, uri, "16:9", "focus");
-  assert.match(focus, /x="448" y="94" width="384" height="202" preserveAspectRatio="xMidYMid meet"/);
-  assert.ok(focus.endsWith("</svg>") && side.endsWith("</svg>"));
+test("the real logo goes exactly inside the slot, and a frame with no usable slot gets none", () => {
+  const frame = '<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><g transform="translate(10 20)"><rect width="400" height="200" fill="#fff"/><rect id="logo-slot" x="120.5" y="40" width="160" height="80" fill="none"/></g></svg>';
+  const out = fillLogoSlot(frame, uri);
+  assert.match(out, /<image id="brand-logo" href="data:image\/png;base64,AAAA" x="120.5" y="40" width="160" height="80" preserveAspectRatio="xMidYMid meet" data-slot="1"\/>/);
+  assert.ok(!out.includes("logo-slot"), "slot removed");
+  assert.ok(out.indexOf("translate(10 20)") < out.indexOf("<image"), "stays inside its group, so it moves with the card");
+  assert.equal(fillLogoSlot('<svg><rect id="logo-slot" x="1" y="1" width="4" height="4"/></svg>', uri), "<svg></svg>", "too small: removed, no logo");
+  assert.equal(fillLogoSlot('<svg><rect id="logo-slot" fill="none"/></svg>', uri), "<svg></svg>", "no size: removed, no logo");
+  const none = '<svg><rect id="card" width="5" height="5"/></svg>';
+  assert.equal(fillLogoSlot(none, uri), none, "no slot: unchanged, never pasted over the picture");
+});
+
+test("a logo pasted at a fixed spot by an earlier version is dropped; one placed in a slot is kept", () => {
+  const legacy = '<svg><rect/><image id="brand-logo" href="data:image/png;base64,AAAA" x="448" y="94" width="384" height="202" preserveAspectRatio="xMidYMid meet"/></svg>';
+  assert.ok(!withoutLegacyLogo(legacy).includes("<image"));
+  const placed = fillLogoSlot('<svg><rect id="logo-slot" x="1" y="1" width="40" height="20"/></svg>', uri);
+  assert.equal(withoutLegacyLogo(placed), placed);
 });

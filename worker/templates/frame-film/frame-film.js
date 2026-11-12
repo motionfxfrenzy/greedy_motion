@@ -515,6 +515,14 @@
     var a = push ? 1 : 1 + amp, b = push ? 1 + amp : 1;
     var panA = push ? 0 : -6, panB = push ? -6 : 0;
     tl.fromTo(frame.svg, { scale: a, x: panA, transformOrigin: "50% 50%" }, { scale: b, x: panB, duration: dur, ease: "none", immediateRender: false }, frame.start);
+    // The brand logo is an image the frame carries in its logo slot: it arrives once the card around it has, and leaves with the scene.
+    var logo = frame.svg.querySelector("#brand-logo");
+    if (logo) {
+      tl.set(logo, { opacity: 0 }, frame.start);
+      tl.fromTo(logo, { opacity: 0, scale: 0.82, transformOrigin: "50% 50%" }, { opacity: 1, scale: 1, duration: 0.5, ease: EXPLAINER ? smooth : "back.out(1.6)", immediateRender: false }, frame.start + 0.55);
+      var next = frames[frame.index + 1];
+      if (next) tl.to(logo, { opacity: 0, duration: 0.25, ease: "power1.out", immediateRender: false }, next.start);
+    }
   }
 
   function play(frame, prevFrame) {
@@ -896,6 +904,17 @@
       }
     });
   });
+  // The beat: on each beat of the music the whole picture pops in a touch and settles, so the motion rides the music. The times come from
+  // the server (it listened to the music bed); one tween pair per beat on the paused timeline, so it is deterministic and seek-safe.
+  var pulses = data.pulses || [];
+  if (pulses.length) {
+    var pop = EXPLAINER ? 0.008 : 0.016;
+    gsap.set(host, { transformOrigin: "50% 50%" });
+    pulses.forEach(function (t) {
+      tl.fromTo(host, { scale: 1 }, { scale: 1 + pop, duration: 0.06, ease: "power2.out", immediateRender: false }, t);
+      tl.to(host, { scale: 1, duration: 0.2, ease: "power2.in", immediateRender: false }, t + 0.06);
+    });
+  }
   // Geometry (getBBox) was measured above while every layer was laid out; now only the timeline shows them.
   frames.forEach(function (frame) { gsap.set(frame.layer, { display: "none" }); });
 })();

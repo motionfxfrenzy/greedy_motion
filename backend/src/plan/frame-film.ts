@@ -102,11 +102,11 @@ export const filmFeel = (project: VideoProject): "explainer" | "default" =>
   !project.brief?.productName && !project.brief?.productUrl && !(project.brief?.brandId ?? project.request.brandId) ? "explainer" : "default";
 
 /** Puts the frames and their animation into the engine page: same clock, voiceover and music; the frames replace its scenes. */
-export async function withFrameFilm(html: string, frames: FilmFrame[], feel: "explainer" | "default" = "default"): Promise<string> {
+export async function withFrameFilm(html: string, frames: FilmFrame[], feel: "explainer" | "default" = "default", pulses: number[] = []): Promise<string> {
   // Inlined in a <script> tag, so a "</script" anywhere in it (even a comment) would end the tag early.
   const script = (await readFile(join(config.templatesDir, "frame-film", "frame-film.js"), "utf8")).replace(/<\/script/gi, "<\\/script");
   const ground = /<rect[^>]*width="(?:100%|\d{3,})"[^>]*fill="(#[0-9a-fA-F]{3,8})"/.exec(frames[0]!.svg)?.[1] ?? "#0b0d12";
-  const data = JSON.stringify({ feel, beats: frames }).replace(/</g, "\\u003c");
+  const data = JSON.stringify({ feel, beats: frames, pulses }).replace(/</g, "\\u003c");
   return html
     .replace("</head>", () => `  <style id="frame-film-css">#stage { display: none !important; } #frame-film { position: absolute; inset: 0; background: ${ground}; } #captions { z-index: 20; pointer-events: none; } #captions .cap { top: 80%; bottom: auto; } #captions .cap span { background: rgba(12, 15, 22, 0.86); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.38); } .ff-layer { position: absolute; inset: 0; } .ff-layer svg { display: block; width: 100%; height: 100%; }</style>\n</head>`)
     .replace('<div id="captions" data-layout-allow-overlap></div>', (tag) => `<div id="frame-film" data-layout-allow-overflow></div>\n    ${tag}`)
