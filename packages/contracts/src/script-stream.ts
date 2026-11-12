@@ -58,7 +58,7 @@ export type FrameMotion =
 const MOTION_ATTRS = new Set(["x", "y", "cx", "cy", "r", "rx", "ry", "width", "height", "x1", "y1", "x2", "y2", "points", "transform", "opacity", "fill", "stroke", "fill-opacity", "stroke-opacity", "stroke-width", "font-size"]);
 const MOTION_ID = /^[A-Za-z][\w-]{0,40}$/;
 
-/** Motion for a scene, kept only where it is well formed, names elements the SVG really has and fits the scene; at most 8 entries. */
+/** Motion for a scene, kept only where it is well formed, names elements the SVG really has and fits the scene; at most 24 entries. */
 export function parseFrameMotion(input: unknown, svg: string, seconds: number): FrameMotion[] {
   if (!Array.isArray(input)) return [];
   const ids = new Set([...svg.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]!));
@@ -74,7 +74,7 @@ export function parseFrameMotion(input: unknown, svg: string, seconds: number): 
     return Object.keys(out).length ? out : null;
   };
   const motion: FrameMotion[] = [];
-  for (const item of input.slice(0, 14)) {
+  for (const item of input.slice(0, 24)) {
     const entry = (item ?? {}) as Record<string, unknown>;
     const start = fraction(entry.start, 0), end = Math.max(start + 0.2, fraction(entry.end, seconds));
     if (entry.kind === "move" && typeof entry.id === "string" && MOTION_ID.test(entry.id) && ids.has(entry.id)) {

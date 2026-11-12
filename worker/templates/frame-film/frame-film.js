@@ -505,6 +505,18 @@
   }
 
   // The scene's directed motion (frame-motion.ts): the frame is the end state; each entry runs on its words.
+  // The camera: the whole frame is never still. It pushes in a little over one scene and eases back out over the next, so each
+  // cut starts exactly where the last scene ended and the picture keeps drifting. One tween on the paused timeline, so it is
+  // deterministic and seek-safe; amplitudes are small enough that the frame still reads as the approved picture.
+  function alive(frame) {
+    var dur = Math.max(0.6, frame.end - frame.start) + 0.35;
+    var push = frame.index % 2 === 0;
+    var amp = EXPLAINER ? 0.018 : 0.03;
+    var a = push ? 1 : 1 + amp, b = push ? 1 + amp : 1;
+    var panA = push ? 0 : -6, panB = push ? -6 : 0;
+    tl.fromTo(frame.svg, { scale: a, x: panA, transformOrigin: "50% 50%" }, { scale: b, x: panB, duration: dur, ease: "none", immediateRender: false }, frame.start);
+  }
+
   function play(frame, prevFrame) {
     var t0 = frame.start;
     var movesById = {};
@@ -732,6 +744,7 @@
       return !target || !carriedEls.some(function (el) { return el === target || target.contains(el); });
     });
     play(frame, prev);
+    alive(frame);
     var paired = new Set(carriedEls), left = new Set(pairs.map(function (p) { return p[0]; }));
     pairs.forEach(function (pair) {
       var a = pair[0], b = pair[1], from = attrsOf(a), to = attrsOf(b), start = {}, end = {};
@@ -765,6 +778,7 @@
 
     if (i === 0) {
       play(frame, null);
+      alive(frame);
       var gap = stagger(frame.leaves.length, room);
       frame.leaves.forEach(function (el, k) { enter(el, t + 0.15 + k * gap); });
       return;
@@ -809,6 +823,7 @@
       return !target || !carriedEls.some(function (el) { return el === target || target.contains(el); });
     });
     play(frame, prev);
+    alive(frame);
     var paired = new Set(pairs.map(function (p) { return p[1]; }).concat(survivingGroupLeavesB));
     var left = new Set(pairs.map(function (p) { return p[0]; }).concat(survivingGroupLeavesA).concat(immediatelyHiddenPrevLeaves));
     var continuity = pairs.some(function (p) { return !isSlot(p[1]); }) || groups.length > 0;

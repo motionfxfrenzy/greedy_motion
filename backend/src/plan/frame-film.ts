@@ -31,7 +31,7 @@ export function filmFrames(project: VideoProject, timing: PlanTiming): FilmFrame
   const directed = new Map((project.filmMotion ?? []).map((entry) => [entry.signature, entry]));
   filmScenes(project, timing, frames).forEach((scene, i) => {
     frames[i]!.svg = scene.svg;
-    frames[i]!.motion = directed.get(motionSignature(scene))?.motion ?? [];
+    frames[i]!.motion = enrichMotion(scene.svg, scene.previous, directed.get(motionSignature(scene))?.motion ?? [], scene.seconds);
   });
   // After the motion lookup (its signature is of the unscoped svg): each frame gets its own gradients, filters and clips.
   frames.forEach((frame, i) => { frame.svg = scopeDefs(frame.svg, `f${i + 1}`); });
@@ -61,6 +61,40 @@ export function scopeDefs(svg: string, scope: string): string {
       .replace(new RegExp(`((?:xlink:)?href\\s*=\\s*)(["'])#${escaped}\\2`, "g"), `$1$2#${renamed}$2`);
   }
   return out;
+}
+
+
+const PLAIN_ID = /^(m\d+|bg|background|ground|backdrop|title|subtitle|caption(-\d+)?|cursor)$/i;
+const DEF_ID = /(clip|grad|gradient|shadow|glow|filter|mask|pattern)(-f\d+)?$/i;
+const ENTRANCES: Record<string, string>[] = [
+  { opacity: "0", transform: "translate(0 18)" },
+  { opacity: "0", transform: "translate(-30 0)" },
+  { opacity: "0", transform: "translate(30 0)" },
+  { opacity: "0", transform: "translate(0 22) scale(0.92)" }
+];
+
+/**
+ * A safety net under the directed motion: pieces the director left out (named groups and shapes the frame has but no entry moves)
+ * still arrive, one after another, sliding or popping in from varying directions instead of sitting there from the first frame.
+ * Pieces that were already on screen in the previous scene are left alone (they are carried over, not new). Only data: the same
+ * validated "move" entries the director writes, so the runtime plays them like any other.
+ */
+export function enrichMotion(svg: string, previous: string | null, motion: FrameMotion[], seconds: number): FrameMotion[] {
+  if (motion.length >= 16 || seconds < 1.4) return motion;
+  const body = (text: string) => text.replace(/<defs[\s\S]*?<\/defs>/gi, "");
+  const named = (text: string) => [...body(text).matchAll(/<(?:g|rect|path|circle|ellipse|line|polyline|polygon|text)\b[^>]*?\sid="([^"]+)"/g)].map((m) => m[1]!).filter((id) => !PLAIN_ID.test(id) && !DEF_ID.test(id));
+  const touched = new Set<string>();
+  for (const entry of motion) { if (entry.kind === "sweep") entry.ids.forEach((id) => touched.add(id)); else touched.add(entry.id); }
+  const before = new Set(previous ? [...previous.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]!) : []);
+  const fresh = [...new Set(named(svg))].filter((id) => !touched.has(id) && !before.has(id)).slice(0, Math.min(10, 20 - motion.length));
+  if (fresh.length === 0) return motion;
+  const window = Math.min(seconds * 0.5, 2);
+  const step = Math.max(0.07, window / fresh.length);
+  const extra: FrameMotion[] = fresh.map((id, k) => {
+    const start = Math.min(seconds - 0.7, 0.15 + k * step);
+    return { kind: "move", id, from: ENTRANCES[k % ENTRANCES.length]!, start: +start.toFixed(2), end: +Math.min(seconds - 0.2, start + 0.45).toFixed(2) };
+  });
+  return [...motion, ...extra];
 }
 
 /** A film about a topic (no product, site or brand kit) moves like a 3Blue1Brown explainer: unhurried, smooth, no hard cuts. */

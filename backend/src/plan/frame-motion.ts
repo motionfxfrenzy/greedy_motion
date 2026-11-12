@@ -26,7 +26,16 @@ const SYSTEM = [
   "- Animate what the voiceover describes: characters walking and reacting, coffee spilling or reversing, loops or branches drawing out, a pointer travelling and searching, boxes checked or dimmed in turn, a range closing, bars growing, line-graph curves tracing, counters ticking, a result lighting up. When ideas or questions branch, multiply, or grow louder/bigger in turn, stagger their arrivals and scale (e.g. from smaller scale or font-size) on the words that name them. Never add idle wobble, bobbing, pulsing or decoration.",
   "- A pointer that searches walks from where the search starts to where it ends, with steps for each box it checks, and a sweep can flash the boxes it passes.",
   "- Elements that also appear in the previous frame are already on screen: NEVER set \"opacity\":\"0\" on an element that existed in the previous frame; animate only how it moves or changes.",
-  "- Use only ids that exist in the SVG. Times are between 0 and the scene length. At most 12 entries."
+  "- Use only ids that exist in the SVG. Times are between 0 and the scene length. At most 22 entries.",
+  "",
+  "MAKE IT ALIVE (this is what separates a film from slides that fade in and then sit still):",
+  "- Use 12 to 20 entries for a scene of 3 s or more (fewer only for a very short scene). Direct the groups and the individual pieces inside them, not just the frame as a whole.",
+  "- Entrances are never opacity alone. Combine opacity 0 with a move or a scale, and vary them: some pieces slide in from the left, some from the right or below (\"translate(-60 0)\", \"translate(0 40)\"), cards pop from \"scale(0.88)\", bars and lines grow from width 0 or height 0, text rises a few pixels. Stagger them: a row of cards or items arrives one after another about 0.1 to 0.18 s apart.",
+  "- Order the build like a story: the setting and the title first, then the main object, then its details one by one, and last the small accents (badges, dots, labels).",
+  "- After the build, keep going until the scene ends. Do a second layer of action on pieces that are already on screen: a cursor travelling to a button and the button pressing (a quick \"scale(0.94)\" that settles), a toggle flipping, a progress bar filling (width), a number counting up (\"count\"), a highlight sweeping across rows (\"sweep\"), a ring or dial turning (\"transform\":\"rotate(-40)\" into place), a badge popping in late.",
+  "- Between actions let a piece breathe: a slow float (\"translate(0 -8)\" settling) or a gentle pulse (\"scale(1.05)\" settling) on the hero object or its accent, timed to land after the build, so the last second still has something moving.",
+  "- Never leave more than 0.7 s with nothing moving, and never put every entrance at the same time.",
+  "- Match the film's motion feel (given in the request): snappy = short, crisp moves of 0.25 to 0.4 s with a little overshoot; smooth = longer glides of 0.6 to 1.0 s; springy = bouncy pops with overshoot. Distances stay modest (20 to 80 px) so the frame still reads as the approved picture, and every piece ends exactly where the SVG draws it."
 ].join("\n");
 
 const LEAF = /<(rect|circle|ellipse|line|polyline|polygon|path|text|g)\b(?![^>]*\sid=)/g;
@@ -37,7 +46,7 @@ export function withIds(svg: string): string {
   return svg.replace(LEAF, (_match, tag: string) => `<${tag} id="m${++n}"`);
 }
 
-export type SceneInput = { index: number; svg: string; previous: string | null; line: string | null; words: { text: string; start: number; end: number }[]; seconds: number; feel: "explainer" | "default" };
+export type SceneInput = { profile?: string | undefined; index: number; svg: string; previous: string | null; line: string | null; words: { text: string; start: number; end: number }[]; seconds: number; feel: "explainer" | "default" };
 
 /** Pacing for an explainer: the unhurried rhythm of 3Blue1Brown, where each change is given time to be understood. */
 const EXPLAINER_PACE = [
@@ -47,7 +56,7 @@ const EXPLAINER_PACE = [
 ].join("\n");
 
 export const motionSignature = (scene: SceneInput) =>
-  createHash("sha256").update(JSON.stringify([scene.feel, scene.svg, scene.previous ? createHash("sha256").update(scene.previous).digest("hex") : null, scene.line, scene.words, Math.round(scene.seconds * 10)])).digest("hex").slice(0, 24);
+  createHash("sha256").update(JSON.stringify(["m2", scene.profile ?? null, scene.feel, scene.svg, scene.previous ? createHash("sha256").update(scene.previous).digest("hex") : null, scene.line, scene.words, Math.round(scene.seconds * 10)])).digest("hex").slice(0, 24);
 
 /** Seconds of the spoken line (first word to last) that no motion covers; the director is asked again when this is large. */
 function uncovered(motion: FrameMotion[], scene: SceneInput): number {
@@ -64,7 +73,7 @@ const withoutImages = (svg: string) => svg.replace(/<image\b[^>]*>/gi, "");
 async function ask(scene: SceneInput, feedback: string | null, signal: AbortSignal, routeOverride?: Route): Promise<FrameMotion[]> {
   const words = scene.words.map((word) => `${word.text}@${word.start.toFixed(2)}`).join(" ");
   const content = [
-    `Scene ${scene.index + 1}, ${scene.seconds.toFixed(2)} s long.`,
+    `Scene ${scene.index + 1}, ${scene.seconds.toFixed(2)} s long.${scene.profile ? ` Motion feel: ${scene.profile}.` : ""}`,
     `Voiceover: ${scene.line ?? "(none: a silent scene; pace the motion across it)"}`,
     words ? `Word times (seconds from the scene start): ${words}` : "",
     `Final frame (END state):\n${withoutImages(scene.svg)}`,
@@ -75,14 +84,14 @@ async function ask(scene: SceneInput, feedback: string | null, signal: AbortSign
   const system = scene.feel === "explainer" ? `${SYSTEM}\n${EXPLAINER_PACE}` : SYSTEM;
   if (route.provider !== "anthropic" || routeOverride) {
     // Another provider (MODEL_MOTION) or explicit tier route snapshot: the shared provider layer.
-    const result = await callModel({ step: "motion", route, system, messages: [{ role: "user", content }], maxTokens: 3000, effort: "low", signal, errorPrefix: "Motion request failed", includeErrorDetail: true });
+    const result = await callModel({ step: "motion", route, system, messages: [{ role: "user", content }], maxTokens: Math.max(route.maxTokens, 6000), effort: "low", signal, errorPrefix: "Motion request failed", includeErrorDetail: true });
     const json = result.text.slice(result.text.indexOf("["), result.text.lastIndexOf("]") + 1);
     return parseFrameMotion(JSON.parse(json || "[]"), scene.svg, scene.seconds);
   }
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": config.anthropicApiKey, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: route.model, max_tokens: route.maxTokens, output_config: { effort: route.effort ?? "low" }, system, messages: [{ role: "user", content }] }),
+    body: JSON.stringify({ model: route.model, max_tokens: Math.max(route.maxTokens, 6000), output_config: { effort: route.effort ?? "low" }, system, messages: [{ role: "user", content }] }),
     signal
   });
   const payload = await response.json().catch(() => ({})) as { content?: { type: string; text?: string }[]; error?: { message?: string } };
@@ -106,7 +115,7 @@ export function filmScenes(project: VideoProject, timing: PlanTiming, frames: { 
     const take = currentTake(project.planAudio, beat);
     const offset = (slot.vo?.start ?? slot.start) - slot.start;
     const words = (take?.words ?? []).map((word) => ({ text: word.text, start: +(offset + word.start).toFixed(2), end: +(offset + word.end).toFixed(2) }));
-    return { index, svg: ided[index]!, previous: index > 0 ? ided[index - 1]! : null, line: beat.line ?? null, words, seconds: slot.end - slot.start, feel: filmFeel(project) };
+    return { index, svg: ided[index]!, previous: index > 0 ? ided[index - 1]! : null, line: beat.line ?? null, words, seconds: slot.end - slot.start, feel: filmFeel(project), profile: project.brief?.motionProfile };
   });
 }
 
