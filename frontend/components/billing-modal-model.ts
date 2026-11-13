@@ -35,7 +35,7 @@ export const cancelConfirmText = (sub: Sub, locale?: string) => {
 export const cardLine = (sub: Sub) => (sub.paymentMethod ? `${sub.paymentMethod.brand.charAt(0).toUpperCase()}${sub.paymentMethod.brand.slice(1)} ending ${sub.paymentMethod.last4}` : "No card on file shown");
 
 export const invoiceRows = (invoices: BillingInvoice[], locale?: string) =>
-  invoices.map((i) => ({ id: i.id, date: formatDate(i.date, locale), amount: i.amount, status: i.refunded ? "Refunded" : i.status === "paid" ? "Paid" : i.status.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()), url: i.url }));
+  invoices.map((i) => ({ id: i.id, date: formatDate(i.date, locale), amount: i.discounted ? `${i.amount} · Discount applied` : i.amount, status: i.refunded ? "Refunded" : i.status === "paid" ? "Paid" : i.status.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()), url: i.url }));
 
 export const tokenLine = (tokens: NonNullable<BillingOverview["tokens"]>) =>
   `${tokens.used.toLocaleString(undefined, { maximumFractionDigits: 2 })} plan tokens used, ${tokens.remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })} left. Plan tokens don't roll over to the next period.`;
@@ -64,15 +64,14 @@ export function changeConfirm(current: PaidTier, target: PaidTier, interval: "mo
   const diff = interval === "year" ? PLANS[target].annualPriceUsd - PLANS[current].annualPriceUsd : PLANS[target].priceUsd - PLANS[current].priceUsd;
   const money = `$${Math.abs(diff)} a ${interval === "year" ? "year" : "month"}`;
   const extra = PLANS[target].tokens - PLANS[current].tokens;
-  const lost = PLANS[current].proEditor && !PLANS[target].proEditor ? "You lose the Pro editor immediately" : `You lose the features ${PLANS[current].name} has that ${PLANS[target].name} does not, immediately`;
-  return upgrade
+    return upgrade
     ? { title: `Upgrade to ${PLANS[target].name}?`, confirmLabel: `Upgrade to ${PLANS[target].name}`, lines: [
         `${PLANS[target].name} costs ${priceText(target, interval)}, which is ${money} more than ${PLANS[current].name}.`,
         "The change applies now and you are charged the prorated difference for the rest of this period today.",
         `You get ${extra.toLocaleString()} more plan tokens now. From ${renews} the full ${PLANS[target].name} price renews.`] }
     : { title: `Downgrade to ${PLANS[target].name}?`, confirmLabel: `Downgrade to ${PLANS[target].name}`, lines: [
         `${PLANS[target].name} costs ${priceText(target, interval)}, which is ${money} less than ${PLANS[current].name}.`,
-        `This takes effect now. ${lost}, and there's no refund for the rest of this period. Nothing is charged today; the lower price starts at your next renewal on ${renews}.`,
+        `You keep ${PLANS[current].name} and its features until ${renews}. From then the price is ${priceText(target, interval)}. Nothing is charged or refunded today.`,
         tokens
           ? `You keep your remaining ${tokens.remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })} plan tokens until ${formatDate(tokens.resetsAt ?? renewsAt, locale) || "your next renewal"}. From ${renews} you'll get ${PLANS[target].tokens.toLocaleString()} tokens a month.`
           : `You keep this period's plan tokens until your next renewal. From ${renews} you'll get ${PLANS[target].tokens.toLocaleString()} tokens a month.`] };
@@ -87,3 +86,6 @@ export function limitedNotice(sub: Sub): string | null {
   if (sub.providerMissing) return "We couldn't find this subscription at our payment provider. Your plan, dates and tokens below are what we have on record. Contact support and we'll sort it out.";
   return null;
 }
+
+/** "Changes to Starter on December 12, 2026": a downgrade waiting for the period to end. */
+export const pendingLine = (sub: Sub, locale?: string) => (sub.pendingChange ? `Changes to ${sub.pendingChange.planName}${sub.pendingChange.at ? ` on ${formatDate(sub.pendingChange.at, locale)}` : " at the end of this period"}` : null);

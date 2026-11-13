@@ -208,7 +208,8 @@ const planLine = (s: Subscription) => {
     ? `$${plan.annualPriceUsd} a year ($${annualMonthlyUsd(s.tier).toFixed(2)} a month)`
     : `$${plan.priceUsd} a month`;
   if (s.cancelAtPeriodEnd && s.endsAt) return `${priceText}. Cancels on ${date(s.endsAt)}: you keep this plan until then.`;
-  return `${priceText} · ${plan.tokens.toLocaleString()} tokens each month.${s.renewsAt ? ` Renews ${date(s.renewsAt)}.` : ""}`;
+  const pending = s.pendingTier && s.changesAt ? ` Changes to ${PLANS[s.pendingTier].name} on ${date(s.changesAt)}.` : "";
+  return `${priceText} · ${plan.tokens.toLocaleString()} tokens each month.${s.renewsAt ? ` Renews ${date(s.renewsAt)}.` : ""}${pending}`;
 };
 
 /** Films worked on this period against the plan's allowance: storyboards, voice and motion are free to try, up to this many films. */

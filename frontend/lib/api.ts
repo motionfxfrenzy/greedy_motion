@@ -311,6 +311,9 @@ export type Subscription = {
   cancelAtPeriodEnd: boolean;
   portalUrl: string | null;
   updatePaymentUrl: string | null;
+  /** A downgrade in waiting: `tier` stays the higher plan until `changesAt`. */
+  pendingTier?: "starter" | "pro" | "business" | null;
+  changesAt?: string | null;
   /** False until the billing provider is configured: buy buttons then say paid plans are not open. */
   checkoutAvailable: boolean;
   annualCheckoutAvailable?: boolean;
@@ -329,11 +332,12 @@ export async function syncPurchase(): Promise<{ synced: boolean }> {
   return response.json() as Promise<{ synced: boolean }>;
 }
 
-export type BillingInvoice = { id: string; date: string | null; amount: string; status: string; refunded: boolean; url: string | null };
+export type BillingInvoice = { id: string; date: string | null; amount: string; status: string; refunded: boolean; discounted?: boolean; url: string | null };
 export type BillingOverview = {
   invoicesAvailable?: boolean;
   subscription: null | {
     source: "lemonsqueezy" | "manual"; providerMissing: boolean;
+    pendingChange: { tier: "starter" | "pro" | "business"; planName: string; at: string | null } | null;
     tier: "starter" | "pro" | "business"; planName: string; interval: "month" | "year"; status: string; cancelAtPeriodEnd: boolean;
     renewsAt: string | null; endsAt: string | null; paymentMethod: { brand: string; last4: string } | null;
     updatePaymentUrl: string | null;

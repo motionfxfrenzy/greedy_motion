@@ -10,6 +10,7 @@ const { migrate, pool } = await import("../src/db/database.ts");
 const { applyWebhook, subscriptionFor } = await import("../src/billing/service.ts");
 const { spendTokens, tokenSummary } = await import("../src/tokens/store.ts");
 const { PLANS } = await import("../src/tokens/plan.ts");
+const { listEntitlements } = await import("../src/entitlements/store.ts");
 const { billingOverview, cancelPlan, changePlan, ChangeRefused, invoiceDocument, resumePlan, NotSubscribed } = await import("../src/billing/manage.ts");
 const { registerBillingRoutes } = await import("../src/billing/routes.ts");
 const { default: Fastify } = await import("fastify");
@@ -43,7 +44,7 @@ const fakeApi = async (url, init = {}) => {
   const json = (data, status = 200) => new Response(JSON.stringify({ data }), { status });
   if (path.startsWith("/subscription-invoices")) return json([
     { id: "8002", type: "subscription-invoices", attributes: { status: "paid", total_formatted: "$19.00", refunded: false, created_at: iso(now - 1000), urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8002" } } },
-    { id: "8001", type: "subscription-invoices", attributes: { status: "paid", total_formatted: "$19.00", refunded: false, created_at: iso(now - 31 * day), urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8001" } } }
+    { id: "8001", type: "subscription-invoices", attributes: { status: "paid", total_formatted: "$19.00", discount_total: 1900, refunded: false, created_at: iso(now - 31 * day), urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8001" } } }
   ]);
   if (path === "/subscriptions/7701" && method === "DELETE") {
     if (refuseDelete) return new Response("{}", { status: 422 });
@@ -79,7 +80,7 @@ try {
   assert.deepEqual(overview.subscription.paymentMethod, { brand: "visa", last4: "4242" });
   assert.equal(overview.subscription.updatePaymentUrl, "https://pay.example/update");
   assert.equal("portalUrl" in overview.subscription, false, "no link to Lemon Squeezy's portal");
-  assert.deepEqual(overview.invoices.map((i) => [i.id, i.amount, i.status, i.url]), [["8002", "$19.00", "paid", "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8002"], ["8001", "$19.00", "paid", "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8001"]]);
+  assert.deepEqual(overview.invoices.map((i) => [i.id, i.amount, i.status, i.discounted, i.url]), [["8002", "$19.00", "paid", false, "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8002"], ["8001", "$19.00", "paid", true, "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8001"]]);
   assert.deepEqual([overview.tokens.granted, overview.tokens.used, overview.tokens.remaining], [200, 0, 200]);
   assert.deepEqual(await billingOverview(V, fakeApi), { subscription: null, invoices: [], tokens: null });
 
@@ -131,13 +132,27 @@ try {
   await changePlan(U, "pro", fakeApi);
   assert.equal(changes.length, 1, "asking for the plan you are on does not call Lemon Squeezy");
   assert.equal(await planGrantsTotal(), 550_000, "the webhook and a repeat add nothing");
-  // Downgrade: applied now with no proration; no tokens change.
+  // Downgrade: Lemon Squeezy moves it now with proration off (nothing charged or credited); we keep Pro until the paid
+  // period ends, read lazily at the boundary, and no tokens change.
+  const periodEnd = new Date(remote.renews_at).getTime();
   const down = await changePlan(U, "starter", fakeApi);
-  assert.equal(down.tier, "starter");
-  assert.deepEqual(changes[1], { variant_id: 101, product_id: 9, invoice_immediately: false, disable_prorations: true });
+  assert.deepEqual(changes[1], { variant_id: 101, product_id: 9, invoice_immediately: false, disable_prorations: true }, "no proration charge now");
+  assert.deepEqual([down.tier, down.pendingTier, down.changesAt], ["pro", "starter", new Date(periodEnd).toISOString()], "still Pro until the period end, then Starter");
   assert.equal(await planGrantsTotal(), 550_000, "a downgrade keeps this period's tokens and adds none");
-  await changePlan(U, "pro", fakeApi);
-  assert.equal(await planGrantsTotal(), 550_000, "going back up in the same period adds nothing more");
+  const editor = (await listEntitlements(U)).find((r) => r.sourceRef === "7701");
+  assert.deepEqual([editor?.status === "canceled", editor?.meta.tier, editor?.expiresAt && new Date(editor.expiresAt).getTime() >= periodEnd], [false, "pro", true], "the Pro editor entitlement stays until the period ends (plus the usual renewal slack, cancelled sooner by the renewal webhook)");
+  assert.equal((await subscriptionFor(U, new Date(periodEnd - day))).tier, "pro", "features are Pro before the boundary");
+  const after = await subscriptionFor(U, new Date(periodEnd + day));
+  assert.deepEqual([after.tier, after.pendingTier], ["starter", null], "and Starter after it, with nothing run at the boundary");
+  const waiting = await billingOverview(U, fakeApi);
+  assert.deepEqual([waiting.subscription.planName, waiting.subscription.pendingChange.planName, waiting.subscription.pendingChange.at], ["Pro", "Starter", new Date(periodEnd).toISOString()]);
+  await changePlan(U, "starter", fakeApi);
+  assert.equal(changes.length, 2, "asking again for the plan it moves to does not call Lemon Squeezy");
+  // Undo: asking for the plan still in force moves Lemon Squeezy back, again with no proration, and clears the wait.
+  const undone = await changePlan(U, "pro", fakeApi);
+  assert.deepEqual(changes[2], { variant_id: 102, product_id: 9, invoice_immediately: false, disable_prorations: true }, "undoing charges nothing (that period is paid)");
+  assert.deepEqual([undone.tier, undone.pendingTier], ["pro", null]);
+  assert.equal(await planGrantsTotal(), 550_000, "undoing adds no tokens");
   await changePlan(U, "starter", fakeApi);
   // Refused: not a plan, no plan, a cancelled plan.
   await assert.rejects(changePlan(U, "gold", fakeApi), ChangeRefused);
@@ -170,6 +185,9 @@ try {
   assert.equal(top.plan.remaining, PLANS.business.tokens);
   await changePlan(U, "starter", fakeApi);
   assert.equal((await tokenSummary(U)).plan.remaining, PLANS.business.tokens, "and dropping back keeps them");
+  // Back to a plain Starter plan for the scenarios below.
+  remote.variantId = 101;
+  await pool.query("update app.subscriptions set tier = 'starter', variant_id = '101', entitled_tier = null, entitled_until = null where provider_ref = '7701'");
 
   // Invoices: the document is fetched by our server, only for the caller's own invoice, only from Lemon Squeezy.
   const pdf = await invoiceDocument(U, "8002", fakeApi);

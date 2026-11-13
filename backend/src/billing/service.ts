@@ -23,9 +23,13 @@ export type SubscriptionView = {
   cancelAtPeriodEnd: boolean;
   portalUrl: string | null;
   updatePaymentUrl: string | null;
+  /** A downgrade in waiting: the plan the subscription moves to, and when. Until then `tier` stays the higher plan. */
+  pendingTier?: PlanTier | null;
+  changesAt?: string | null;
 };
 
 export type SubRow = {
+  entitled_tier?: string | null; entitled_until?: Date | null;
   user_id: string; provider?: string; provider_ref: string; variant_id: string; tier: string; billing_interval: BillingInterval; status: string; renews_at: Date | null; ends_at: Date | null;
   cancel_at_period_end: boolean; customer_portal_url: string | null; update_payment_url: string | null; provider_updated_at: Date | null;
   cycle_anchor_at: Date | null; cycle_months_granted: number; created_at: Date;
@@ -55,13 +59,24 @@ export async function servingSubscription(userId: string, now = new Date()): Pro
   return rows.find((r) => isPaidTier(r.tier) && serving(r, now));
 }
 
+const RANK_OF = (tier: string): number => (tier === "starter" ? 1 : tier === "pro" ? 2 : tier === "business" ? 3 : 0);
+
+/** The plan whose features apply now: the higher of the current plan and an earlier one kept until its period ends. Read lazily, no job needed. */
+export function effectiveTier(row: SubRow, now: Date): PlanTier {
+  const kept = row.entitled_tier && row.entitled_until && row.entitled_until.getTime() > now.getTime() && RANK_OF(row.entitled_tier) > RANK_OF(row.tier) ? row.entitled_tier : null;
+  return (kept ?? row.tier) as PlanTier;
+}
+
 export async function subscriptionFor(userId: string, now = new Date()): Promise<SubscriptionView> {
   await grantDueAnnualTokens(now, userId);
   const { rows } = await query<SubRow>("select * from app.subscriptions where user_id = $1 order by updated_at desc", [userId]);
   const row = rows.find((r) => isPaidTier(r.tier) && serving(r, now));
   if (!row) return { tier: "free", interval: null, status: null, renewsAt: null, tokensResetAt: null, endsAt: null, cancelAtPeriodEnd: false, portalUrl: rows[0]?.customer_portal_url ?? null, updatePaymentUrl: null };
+  const effective = effectiveTier(row, now);
   return {
-    tier: row.tier as PlanTier,
+    tier: effective,
+    pendingTier: effective !== row.tier ? (row.tier as PlanTier) : null,
+    changesAt: effective !== row.tier ? (row.entitled_until?.toISOString() ?? null) : null,
     interval: row.billing_interval ?? "month",
     status: row.status,
     renewsAt: row.renews_at?.toISOString() ?? null,
@@ -129,7 +144,8 @@ async function applySubscription(event: string, ref: string, a: Record<string, u
   const providerUpdated = Number.isNaN(updatedAt) ? null : new Date(updatedAt);
   const date = (v: unknown) => (typeof v === "string" && !Number.isNaN(Date.parse(v)) ? new Date(v) : null);
 
-  const previous = (await query<{ tier: string }>("select tier from app.subscriptions where provider = 'lemonsqueezy' and provider_ref = $1", [ref])).rows[0]?.tier ?? null;
+  const previousRow = (await query<{ tier: string; entitled_tier: string | null; entitled_until: Date | null }>("select tier, entitled_tier, entitled_until from app.subscriptions where provider = 'lemonsqueezy' and provider_ref = $1", [ref])).rows[0] ?? null;
+  const previous = previousRow?.tier ?? null;
   const newer = await query(
     `insert into app.subscriptions (user_id, provider_ref, variant_id, tier, billing_interval, status, renews_at, ends_at, cancel_at_period_end, customer_portal_url, update_payment_url, provider_updated_at)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -143,6 +159,20 @@ async function applySubscription(event: string, ref: string, a: Record<string, u
   );
   if (newer.rowCount === 0) return "ignored"; // an older event than the row already holds
 
+  // A downgrade keeps the higher plan's features until the paid period ends (nothing runs at the boundary: the plan in
+  // force is read lazily, see effectiveTier). Moving back up to that plan, or past it, ends the wait.
+  let kept: PaidTier | null = null;
+  if (previousRow && isPaidTier(previousRow.tier)) {
+    const waiting = previousRow.entitled_tier && isPaidTier(previousRow.entitled_tier) && previousRow.entitled_until && previousRow.entitled_until.getTime() > now.getTime() ? (previousRow.entitled_tier as PaidTier) : null;
+    kept = waiting;
+    if (text(a.status) === "active" && TIER_RANK[variant.tier] < TIER_RANK[previousRow.tier as PaidTier]) kept = waiting && TIER_RANK[waiting] > TIER_RANK[previousRow.tier as PaidTier] ? waiting : (previousRow.tier as PaidTier);
+    if (kept && TIER_RANK[variant.tier] >= TIER_RANK[kept]) kept = null;
+    const until = kept ? (kept === waiting ? previousRow.entitled_until : (date(a.renews_at) ?? date(a.ends_at))) : null;
+    if (!until) kept = null;
+    await query("update app.subscriptions set entitled_tier = $1, entitled_until = $2 where provider = 'lemonsqueezy' and provider_ref = $3", [kept, kept ? until : null, ref]);
+  }
+  const entitlementTier: PaidTier = kept && TIER_RANK[kept] > TIER_RANK[variant.tier] ? kept : variant.tier;
+
   // Pro-editor access follows the subscription. A tier without the editor (Starter) ends any editor row this subscription had.
   const snapshot = snapshotFromSubscription(a, now);
   if (!snapshot) return "applied";
@@ -154,12 +184,12 @@ async function applySubscription(event: string, ref: string, a: Record<string, u
   // The subscription has ended: the rest of its monthly tokens ends with it. (Packs and the free allowance stay.)
   if (snapshot.status === "canceled") await expirePlanTokens(userId, `expiry:end:${ref}`, "Plan ended");
   const existing = (await listEntitlements(userId)).find((row) => row.source === "lemonsqueezy" && row.sourceRef === ref) ?? null;
-  const fields = PLANS[variant.tier].proEditor
+  const fields = PLANS[entitlementTier].proEditor
     ? rowFromSubscription(snapshot, existing ? { status: existing.status, meta: existing.meta } : null, now)
     : { status: "canceled" as const, expiresAt: now, cancelAtPeriodEnd: false, meta: {} };
   if (!existing && fields.status === "canceled") return "applied"; // nothing to end
   await upsertEntitlement(
-    { userId, plan: "pro", status: fields.status, source: "lemonsqueezy", sourceRef: ref, expiresAt: fields.expiresAt, cancelAtPeriodEnd: fields.cancelAtPeriodEnd, sourceUpdatedAt: providerUpdated, meta: { ...fields.meta, tier: variant.tier } },
+    { userId, plan: "pro", status: fields.status, source: "lemonsqueezy", sourceRef: ref, expiresAt: fields.expiresAt, cancelAtPeriodEnd: fields.cancelAtPeriodEnd, sourceUpdatedAt: providerUpdated, meta: { ...fields.meta, tier: entitlementTier } },
     { actor: "lemonsqueezy", action: event, eventId: ref }
   );
   return "applied";

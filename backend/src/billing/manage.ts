@@ -5,20 +5,22 @@ import { query } from "../db/database.ts";
 import { PLANS, isPaidTier, type BillingInterval, type PlanTier } from "../tokens/plan.ts";
 import { tokenSummary } from "../tokens/store.ts";
 import { CheckoutError, cancelSubscriptionAtPeriodEnd, changeSubscriptionVariant, getSubscription, getVariant, listInvoices, resumeSubscriptionRemote, variantIdFor, type ApiResource } from "./lemonsqueezy.ts";
-import { applyWebhook, servingSubscription, subscriptionFor, type SubscriptionView } from "./service.ts";
+import { applyWebhook, effectiveTier, servingSubscription, subscriptionFor, type SubscriptionView } from "./service.ts";
 import type { PaidTier } from "../tokens/plan.ts";
 
 export class NotSubscribed extends Error {}
 /** The request is understood but cannot be done (an unknown plan, a cancelled plan). Its message is safe to show. */
 export class ChangeRefused extends Error {}
 
-export type Invoice = { id: string; date: string | null; amount: string; status: string; refunded: boolean; url: string | null };
+export type Invoice = { id: string; date: string | null; amount: string; status: string; refunded: boolean; discounted: boolean; url: string | null };
 export type BillingOverview = {
   /** False when Lemon Squeezy would not list the invoices; the rest of the overview is still shown. */
   invoicesAvailable?: boolean;
   subscription: null | {
     /** "manual": a plan set up by our team, with no subscription at Lemon Squeezy. `providerMissing`: we hold a Lemon Squeezy id it does not know. Either way the details come from our own records. */
     source: "lemonsqueezy" | "manual"; providerMissing: boolean;
+    /** A downgrade in waiting: `tier` stays the higher plan until `at`. */
+    pendingChange: { tier: PlanTier; planName: string; at: string | null } | null;
     tier: PlanTier; planName: string; interval: BillingInterval; status: string; cancelAtPeriodEnd: boolean;
     renewsAt: string | null; endsAt: string | null;
     paymentMethod: { brand: string; last4: string } | null;
@@ -37,7 +39,7 @@ function invoiceOf(row: ApiResource): Invoice {
   const urls = (a.urls ?? {}) as { invoice_url?: unknown };
   const total = typeof a.total === "number" ? a.total : null;
   const amount = text(a.total_formatted) || (total !== null ? `${(total / 100).toFixed(2)} ${text(a.currency)}`.trim() : "");
-  return { id: text(row.id), date: iso(a.created_at), amount, status: text(a.status), refunded: a.refunded === true, url: typeof urls.invoice_url === "string" && urls.invoice_url.startsWith("https://") ? urls.invoice_url : null };
+  return { id: text(row.id), date: iso(a.created_at), amount, status: text(a.status), refunded: a.refunded === true, discounted: typeof a.discount_total === "number" && a.discount_total > 0, url: typeof urls.invoice_url === "string" && urls.invoice_url.startsWith("https://") ? urls.invoice_url : null };
 }
 
 function urlOf(a: Record<string, unknown>, key: string): string | null {
@@ -76,7 +78,8 @@ export async function billingOverview(userId: string, fetcher: typeof fetch = fe
     invoicesAvailable: manual || invoices !== null,
     subscription: {
       source: manual ? "manual" : "lemonsqueezy", providerMissing: !manual && remote === null,
-      tier: row.tier as PlanTier, planName: PLANS[row.tier as PlanTier].name, interval: row.billing_interval ?? "month",
+      tier: effectiveTier(row, now), planName: PLANS[effectiveTier(row, now)].name, interval: row.billing_interval ?? "month",
+      pendingChange: effectiveTier(row, now) !== row.tier ? { tier: row.tier as PlanTier, planName: PLANS[row.tier as PlanTier].name, at: row.entitled_until?.toISOString() ?? null } : null,
       status: text(a.status) || row.status, cancelAtPeriodEnd: cancelled,
       renewsAt: cancelled ? null : remote ? iso(a.renews_at) : (row.renews_at?.toISOString() ?? null), endsAt: remote ? iso(a.ends_at) : (row.ends_at?.toISOString() ?? null),
       paymentMethod: brand && last4 ? { brand, last4 } : null,
@@ -129,22 +132,28 @@ export async function resumePlan(userId: string, fetcher: typeof fetch = fetch, 
 const RANK: Record<PaidTier, number> = { starter: 1, pro: 2, business: 3 };
 
 /**
- * Moves the caller's plan to `product` at the same billing interval. Upgrades are applied now and the prorated
- * difference is invoiced now. Lemon Squeezy cannot schedule a change for the period end, so a downgrade is also applied
- * now but with proration off: nothing is charged or credited, and the lower price starts at the next renewal. Tokens
- * already granted this period stay; an upgrade adds the difference (once, see grantUpgradeDifference).
- * Idempotent: asking for the plan you are already on changes nothing.
+ * Moves the caller's plan to `product` at the same billing interval.
+ * - Upgrade (above the plan in force): applied now, the prorated difference invoiced now.
+ * - Downgrade: Lemon Squeezy moves the subscription now but with proration off, so nothing is charged or credited and the
+ *   lower price starts at the next renewal. Our side keeps the higher plan's features until the paid period ends (the
+ *   plan in force is read lazily from `entitled_tier` / `entitled_until`, so no job runs at the boundary).
+ * - Undo: asking for the plan still in force while a downgrade is waiting moves Lemon Squeezy back, again with proration
+ *   off (that period is already paid), and clears the wait.
+ * Tokens already granted this period stay; an upgrade adds the difference (once, see grantUpgradeDifference); the
+ * renewal grants the plan then in force. Idempotent: asking for the plan you are already on changes nothing.
  */
 export async function changePlan(userId: string, product: string, fetcher: typeof fetch = fetch, now = new Date()): Promise<SubscriptionView> {
   const row = await servingSubscription(userId, now);
   if (!row) throw new NotSubscribed("No active plan to change.");
   if (!isPaidTier(product)) throw new ChangeRefused("Choose one of the paid plans.");
-  if (row.tier === product) return subscriptionFor(userId, now);
   if (isManual(row)) throw new ChangeRefused(MANUAL_REFUSAL);
+  if (row.tier === product) return subscriptionFor(userId, now);
   if (alreadyCancelled(row)) throw new ChangeRefused("Resume your subscription before changing plans.");
   const variantId = variantIdFor(product, row.billing_interval ?? "month");
   if (!variantId) throw new ChangeRefused("That plan is not available at your billing interval.");
-  const upgrade = RANK[product] > RANK[row.tier as PaidTier];
+  const inForce = effectiveTier(row, now) as PaidTier;
+  const undo = product === inForce && inForce !== row.tier;
+  const upgrade = !undo && RANK[product] > RANK[inForce];
   const productId = text((await getVariant(variantId, fetcher).catch(refuseMissing)).attributes?.product_id);
   if (!productId) throw new ChangeRefused("That plan is not available right now.");
   const remote = await changeSubscriptionVariant(row.provider_ref, { variantId, productId, invoiceImmediately: upgrade, disableProrations: !upgrade }, fetcher).catch(refuseMissing);

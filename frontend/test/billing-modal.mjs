@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, invoiceRows, limitedNotice, modalStateFor, planChoices, tokenLine } from "../components/billing-modal-model.ts";
+import { pendingLine, cancelConfirmText, cardLine, changeConfirm, describeSubscription, invoiceRows, limitedNotice, modalStateFor, planChoices, tokenLine } from "../components/billing-modal-model.ts";
 import { embedUrl } from "../lib/lemon.ts";
 
-const sub = (over = {}) => ({ source: "lemonsqueezy", providerMissing: false, tier: "starter", planName: "Starter", interval: "month", status: "active", cancelAtPeriodEnd: false, renewsAt: "2026-12-12T00:00:00Z", endsAt: null, paymentMethod: { brand: "visa", last4: "4242" }, updatePaymentUrl: "https://pay.example/u", ...over });
+const sub = (over = {}) => ({ source: "lemonsqueezy", providerMissing: false, pendingChange: null, tier: "starter", planName: "Starter", interval: "month", status: "active", cancelAtPeriodEnd: false, renewsAt: "2026-12-12T00:00:00Z", endsAt: null, paymentMethod: { brand: "visa", last4: "4242" }, updatePaymentUrl: "https://pay.example/u", ...over });
 
 test("active: renews on a date, can be cancelled, update is secondary", () => {
   const view = describeSubscription(sub(), "en-US");
@@ -67,12 +67,19 @@ test("an upgrade says what is charged now and how many tokens it adds", () => {
   assert.match(confirm.lines[2], /You get 350 more plan tokens now\. From December 12, 2026/);
 });
 
-test("a downgrade says nothing is charged or refunded and that this period's tokens stay", () => {
+test("a downgrade keeps the higher plan until the period end, and says what happens to price and tokens", () => {
   const confirm = changeConfirm("pro", "starter", "month", "2026-12-12T00:00:00Z", "en-US", { remaining: 412.5, resetsAt: "2026-12-12T00:00:00Z" });
   assert.equal(confirm.confirmLabel, "Downgrade to Starter");
   assert.match(confirm.lines[0], /\$30 a month less than Pro/);
-  assert.match(confirm.lines[1], /^This takes effect now\. You lose the Pro editor immediately, and there's no refund for the rest of this period\. Nothing is charged today; the lower price starts at your next renewal on December 12, 2026\.$/);
-  assert.match(confirm.lines[2], /^You keep your remaining 412\.5 plan tokens until December 12, 2026\. From December 12, 2026 you'll get 200 tokens a month\.$/);
+  assert.equal(confirm.lines[1], "You keep Pro and its features until December 12, 2026. From then the price is $19 a month. Nothing is charged or refunded today.");
+  assert.equal(confirm.lines[2], "You keep your remaining 412.5 plan tokens until December 12, 2026. From December 12, 2026 you'll get 200 tokens a month.");
+});
+
+test("a waiting downgrade is named with its date; a discounted invoice says so", () => {
+  assert.equal(pendingLine(sub()), null);
+  assert.equal(pendingLine(sub({ pendingChange: { tier: "starter", planName: "Starter", at: "2026-12-12T00:00:00Z" } }), "en-US"), "Changes to Starter on December 12, 2026");
+  const [row] = invoiceRows([{ id: "1", date: "2026-11-13T00:00:00Z", amount: "$0.00", status: "paid", refunded: false, discounted: true, url: null }], "en-US");
+  assert.equal(row.amount, "$0.00 · Discount applied");
 });
 
 test("overlay links carry embed=1 and keep their signature", () => {

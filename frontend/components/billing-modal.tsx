@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PaidTier } from "@videosaas/contracts";
 import { cancelSubscription, changePlan, downloadInvoice, getBillingOverview, resumeSubscription } from "../lib/api";
 import { closeOverlay, openOverlayOrPage } from "../lib/lemon";
-import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, formatDate, invoiceRows, limitedNotice, modalStateFor, planChoices, tokenLine, type ModalState } from "./billing-modal-model";
+import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, formatDate, invoiceRows, limitedNotice, modalStateFor, pendingLine, planChoices, tokenLine, type ModalState } from "./billing-modal-model";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const message = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
@@ -61,7 +61,9 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
       else if (kind === "resume") await resumeSubscription();
       else if (target) await changePlan(target);
       setReason("");
-      await refresh(kind === "cancel" ? "Your subscription is cancelled. You can resume it until the period ends." : kind === "resume" ? "Your subscription is back on." : "Your plan is changed.");
+      const undoing = kind === "change" && state.overview.subscription.pendingChange !== null && target === state.overview.subscription.tier;
+      const pendingDowngrade = kind === "change" && !undoing && target !== undefined && planChoices(state.overview.subscription.tier, state.overview.subscription.interval).find((c) => c.tier === target)?.kind === "downgrade";
+      await refresh(kind === "cancel" ? "Your subscription is cancelled. You can resume it until the period ends." : kind === "resume" ? "Your subscription is back on." : undoing ? "Your plan change is undone." : pendingDowngrade ? "Your plan will change at the end of this period." : "Your plan is changed.");
     } catch (error) {
       setState({ ...state, busy: null, confirming: kind === "cancel", changing: kind === "change" ? (target ?? null) : null, notice: message(error, "Something went wrong. Try again.") });
     }
@@ -127,6 +129,7 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
             <section className="billing-section" aria-labelledby="billing-plan">
               <b id="billing-plan">{sub.planName} plan{sub.interval === "year" ? " (Annual)" : ""}</b>
               <p><span className={`billing-status ${view.tone}`}>{view.statusLabel}</span> {view.dateLine}</p>
+              {pendingLine(sub) && !limited && <div className="profile-row"><p><b>{pendingLine(sub)}</b>. You keep {sub.planName} until then.</p><button className="secondary-button" disabled={state.busy !== null} onClick={() => void act("change", sub.tier)}>{state.busy === "change" ? "Undoing…" : "Undo"}</button></div>}
               {view.prominentUpdate && sub.updatePaymentUrl && <p className="profile-note bad" role="alert">Your last payment failed. <button className="primary-button" disabled={state.busy !== null} onClick={() => void updateCard(sub.updatePaymentUrl!)}>Update payment method</button></p>}
             </section>
 
@@ -148,6 +151,7 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
                 {planChoices(sub.tier, sub.interval).map((choice) => <li key={choice.tier}>
                   <div><b>{choice.name}</b><p>{choice.priceText}</p></div>
                   {choice.kind === "current" ? <span className="billing-status ok">Current plan</span>
+                    : sub.pendingChange?.tier === choice.tier ? <span className="billing-status warn">{sub.pendingChange.at ? `Starts ${formatDate(sub.pendingChange.at)}` : "Starts at period end"}</span>
                     : <button className="secondary-button" disabled={state.busy !== null || sub.cancelAtPeriodEnd || !["active", "on_trial"].includes(sub.status)} onClick={() => setState({ ...state, changing: choice.tier, confirming: false, notice: null })}>{choice.kind === "upgrade" ? "Upgrade" : "Downgrade"}</button>}
                 </li>)}
               </ul>
