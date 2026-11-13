@@ -3,7 +3,7 @@ import { callerId } from "../auth.ts";
 import { config } from "../config.ts";
 import { isBillingInterval, isPaidTier, type BillingInterval } from "../tokens/plan.ts";
 import { annualCheckoutConfigured, checkoutConfigured, CheckoutError, createCheckout, validSignature, variantIdFor, type WebhookBody } from "./lemonsqueezy.ts";
-import { billingOverview, cancelPlan, NotSubscribed, resumePlan } from "./manage.ts";
+import { billingOverview, cancelPlan, changePlan, ChangeRefused, invoiceDocument, NotSubscribed, resumePlan } from "./manage.ts";
 import { applyWebhook, RetryLater, subscriptionFor, syncPurchase } from "./service.ts";
 
 const unavailable = { error: { code: "billing_unavailable", message: "Paid plans are not open yet." } };
@@ -61,9 +61,9 @@ export async function registerBillingRoutes(app: FastifyInstance) {
   // The billing modal. The subscription is always the caller's own (looked up by user id), never one named in the request.
   const billingFailure = async (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply, error: unknown) => {
     if (error instanceof NotSubscribed) return reply.code(404).send({ error: { code: "no_subscription", message: "You have no active plan." } });
+    if (error instanceof ChangeRefused) return reply.code(409).send({ error: { code: "change_refused", message: error.message } });
     request.log.error({ err: error }, "billing request failed");
-    const current = await subscriptionFor(callerId(request)).catch(() => null);
-    return reply.code(502).send({ error: { code: "billing_unavailable_now", message: "Could not reach billing just now. Try again in a moment.", portalUrl: current?.portalUrl ?? null } });
+    return reply.code(502).send({ error: { code: "billing_unavailable_now", message: "Could not reach billing just now. Try again in a moment." } });
   };
   app.get("/v1/billing/overview", async (request, reply) => {
     if (!checkoutConfigured("month")) return reply.code(501).send(unavailable);
@@ -72,6 +72,21 @@ export async function registerBillingRoutes(app: FastifyInstance) {
   app.post<{ Body: { reason?: unknown } | undefined }>("/v1/billing/cancel", async (request, reply) => {
     if (!checkoutConfigured("month")) return reply.code(501).send(unavailable);
     try { return reply.header("Cache-Control", "no-store").send({ subscription: await cancelPlan(callerId(request), typeof request.body?.reason === "string" ? request.body.reason : undefined) }); } catch (error) { return billingFailure(request, reply, error); }
+  });
+  app.post<{ Body: { product?: unknown } | undefined }>("/v1/billing/change-plan", async (request, reply) => {
+    if (!checkoutConfigured("month")) return reply.code(501).send(unavailable);
+    try { return reply.header("Cache-Control", "no-store").send({ subscription: await changePlan(callerId(request), typeof request.body?.product === "string" ? request.body.product : "") }); } catch (error) { return billingFailure(request, reply, error); }
+  });
+  app.get<{ Params: { id: string } }>("/v1/billing/invoices/:id/pdf", async (request, reply) => {
+    if (!checkoutConfigured("month")) return reply.code(501).send(unavailable);
+    if (!/^[0-9]{1,20}$/.test(request.params.id)) return reply.code(404).send({ error: { code: "not_found", message: "Invoice not found." } });
+    try {
+      const doc = await invoiceDocument(callerId(request), request.params.id);
+      return reply.header("Cache-Control", "private, no-store").header("Content-Type", doc.contentType).header("Content-Disposition", `attachment; filename="${doc.filename}"`).send(doc.body);
+    } catch (error) {
+      if (error instanceof NotSubscribed) return reply.code(404).send({ error: { code: "not_found", message: "Invoice not found." } });
+      return billingFailure(request, reply, error);
+    }
   });
   app.post("/v1/billing/resume", async (request, reply) => {
     if (!checkoutConfigured("month")) return reply.code(501).send(unavailable);

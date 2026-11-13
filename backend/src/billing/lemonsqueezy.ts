@@ -109,6 +109,17 @@ export const cancelSubscriptionAtPeriodEnd = (id: string, fetcher: typeof fetch 
 /** Undoes a cancellation while the paid period has not ended. */
 export const resumeSubscriptionRemote = (id: string, fetcher: typeof fetch = fetch) =>
   apiOne("PATCH", `/subscriptions/${encodeURIComponent(id)}`, fetcher, { data: { type: "subscriptions", id, attributes: { cancelled: false } } });
+/** A variant, to learn which product it belongs to (a plan change names both). */
+export const getVariant = (id: string, fetcher: typeof fetch = fetch) => apiOne("GET", `/variants/${encodeURIComponent(id)}`, fetcher);
+/**
+ * Moves a subscription to another variant. Lemon Squeezy applies it immediately; it has no "at period end" option.
+ * `invoiceImmediately` charges the prorated difference now (upgrades); `disableProrations` charges and credits nothing
+ * now and the new price starts at the next renewal (downgrades).
+ */
+export const changeSubscriptionVariant = (id: string, input: { variantId: string; productId: string; invoiceImmediately: boolean; disableProrations: boolean }, fetcher: typeof fetch = fetch) =>
+  apiOne("PATCH", `/subscriptions/${encodeURIComponent(id)}`, fetcher, {
+    data: { type: "subscriptions", id, attributes: { variant_id: Number(input.variantId), product_id: Number(input.productId), invoice_immediately: input.invoiceImmediately, disable_prorations: input.disableProrations } }
+  });
 /** Recent invoices of one subscription, newest first. */
 export const listInvoices = (subscriptionId: string, fetcher: typeof fetch = fetch) =>
   apiGet(`/subscription-invoices?filter[subscription_id]=${encodeURIComponent(subscriptionId)}&page[size]=10`, fetcher)

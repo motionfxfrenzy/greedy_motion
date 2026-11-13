@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "../utils/supabase/client";
 import { PLANS, PREVIEW_ALLOWANCE, TOP_UP, annualMonthlyUsd, filmsFromTokens, isPaidTier, validateEmailAddress } from "@videosaas/contracts";
 import { getMyPreviews, getMySubscription, getMyTokens, startCheckout, syncPurchase, type PreviewUsage, type Subscription, type TokenSummary } from "../lib/api";
 import { AppShell } from "./app-shell";
 import { BillingModal } from "./billing-modal";
+import { closeOverlay, openOverlay } from "../lib/lemon";
 import { useAccount } from "./account-menu";
 import { filmsFrom } from "./plan-cards";
 import { ThemeChoicePicker } from "./theme-choice";
@@ -27,42 +28,53 @@ export function ProfilePage() {
   const [buyError, setBuyError] = useState<string | null>(null);
   const buy = async (product: "topup") => {
     setBuying(product); setBuyError(null);
-    try { window.location.assign(await startCheckout(product)); }
-    catch (caught) { setBuyError(caught instanceof Error ? caught.message : "Could not open checkout."); setBuying(null); }
+    try {
+      const url = await startCheckout(product);
+      const before = tokens.status === "ready" ? tokens.value.remaining : null;
+      // Checkout opens over this page (Lemon.js); on success the overlay closes and the purchase is applied here, with no redirect.
+      await openOverlay(url, (event) => {
+        if (event.event === "Checkout.Success") { closeOverlay(); void activate(true, before); }
+        if (event.event === "Checkout.Closed") setBuying(null);
+      });
+    } catch (caught) { setBuyError(caught instanceof Error ? caught.message : "Could not open checkout."); setBuying(null); }
   };
 
   const [tokens, setTokens] = useState<{ status: "loading" } | { status: "error" } | { status: "ready"; value: TokenSummary }>({ status: "loading" });
   const loadTokens = () => { setTokens({ status: "loading" }); getMyTokens().then((value) => setTokens({ status: "ready", value }), () => setTokens({ status: "error" })); };
 
-  // Back from checkout (?checkout=success): apply the purchase now rather than waiting for the webhook, then show the new plan and balance.
+  // After a purchase (the checkout overlay's success event, or a return with ?checkout=success): apply it now rather than
+  // waiting for the webhook, then show the new plan and balance. Lemon Squeezy can take a couple of minutes to confirm a
+  // payment, so look again with a growing pause for up to about 3 minutes.
   const [activating, setActivating] = useState(false);
   const [slow, setSlow] = useState(false);
+  const stopped = useRef(false);
+  const activate = async (pack: boolean, startBalance: number | null) => {
+    setActivating(true); setBuying(null);
+    const started = Date.now();
+    for (let attempt = 0; !stopped.current && Date.now() - started < 180_000; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(2000 + attempt * 1500, 10_000)));
+      if (stopped.current) return;
+      if (attempt === 5) setSlow(true);
+      try {
+        if (pack) { if (startBalance !== null && (await getMyTokens()).remaining > startBalance) break; }
+        else if ((await syncPurchase()).synced) { const view = await getMyTokens().catch(() => null); if (view?.plan && view.plan.granted > 0) break; }
+      } catch { /* try again; the webhook may still land first */ }
+    }
+    if (stopped.current) return;
+    // No cache: read the plan and the balance fresh, whatever the outcome.
+    loadSub(); loadTokens(); setActivating(false); setSlow(false);
+  };
   useEffect(() => {
+    stopped.current = false;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("checkout") !== "success") { loadSub(); loadTokens(); return; }
-    const pack = params.get("item") === "pack";
-    // Clean the URL at once so a refresh does not run this again; keep the tokens anchor.
-    window.history.replaceState(null, "", `${window.location.pathname}#tokens`);
-    let cancelled = false;
-    setActivating(true);
-    (async () => {
-      const startBalance = pack ? await getMyTokens().then((t) => t.remaining, () => null) : null;
-      // Lemon Squeezy can take a couple of minutes to confirm a payment: look again with a growing pause, up to about 3 minutes.
-      const started = Date.now();
-      for (let attempt = 0; !cancelled && Date.now() - started < 180_000; attempt += 1) {
-        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(2000 + attempt * 1500, 10_000)));
-        if (cancelled) return;
-        if (attempt === 5) setSlow(true);
-        try {
-          if (pack) { if (startBalance !== null && (await getMyTokens()).remaining > startBalance) break; }
-          else if ((await syncPurchase()).synced) { loadTokens(); const view = await getMyTokens().catch(() => null); if (view?.plan && view.plan.granted > 0) break; }
-        } catch { /* try again; the webhook may still land first */ }
-      }
-      if (cancelled) return;
-      // No cache: read the plan and the balance fresh, whatever the outcome.
-      loadSub(); loadTokens(); setActivating(false); setSlow(false);
-    })();
-    return () => { cancelled = true; };
+    if (params.get("checkout") !== "success") { loadSub(); loadTokens(); }
+    else {
+      // A return by redirect (the overlay could not open): clean the URL at once so a refresh does not run this again.
+      window.history.replaceState(null, "", `${window.location.pathname}#tokens`);
+      const pack = params.get("item") === "pack";
+      void (pack ? getMyTokens().then((t) => t.remaining, () => null) : Promise.resolve(null)).then((balance) => activate(pack, balance));
+    }
+    return () => { stopped.current = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -130,11 +142,11 @@ export function ProfilePage() {
                 <Link className={sub.value.tier === "free" ? "primary-button" : "secondary-button"} href="/pricing">{sub.value.tier === "free" ? "Upgrade plan" : "View plans"}</Link>
               </div>
             </div>
-            {sub.value.status === "past_due" && sub.value.updatePaymentUrl && <p className="profile-note bad" role="alert">Your last payment failed. <a href={sub.value.updatePaymentUrl} target="_blank" rel="noreferrer">Update your payment method</a> to keep your plan.</p>}
+            {sub.value.status === "past_due" && <p className="profile-note bad" role="alert">Your last payment failed. <button className="text-button" type="button" onClick={() => setBillingOpen(true)}>Update your payment method</button> to keep your plan.</p>}
           </>}
         </article>
 
-        {billingOpen && <BillingModal portalUrl={sub.status === "ready" ? sub.value.portalUrl : null} onClose={() => setBillingOpen(false)} onChanged={() => {
+        {billingOpen && <BillingModal onClose={() => setBillingOpen(false)} onChanged={() => {
           // Refresh the cards behind the modal without unmounting it (a loading state would close it and lose its notice).
           getMySubscription().then((value) => setSub({ status: "ready", value }), () => undefined);
           getMyTokens().then((value) => setTokens({ status: "ready", value }), () => undefined);

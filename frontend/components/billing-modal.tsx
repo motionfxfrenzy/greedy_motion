@@ -2,49 +2,100 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { BillingError, cancelSubscription, getBillingOverview, resumeSubscription } from "../lib/api";
-import { cancelConfirmText, cardLine, describeSubscription, formatDate, invoiceRows, modalStateFor, tokenLine, type ModalState } from "./billing-modal-model";
+import type { PaidTier } from "@videosaas/contracts";
+import { cancelSubscription, changePlan, downloadInvoice, getBillingOverview, resumeSubscription } from "../lib/api";
+import { closeOverlay, openOverlay } from "../lib/lemon";
+import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, formatDate, invoiceRows, modalStateFor, planChoices, tokenLine, type ModalState } from "./billing-modal-model";
 
-/** In-app billing: plan, payment method, invoices and tokens, with cancel and resume. Card details are only ever entered on Lemon Squeezy's own page. */
-export function BillingModal({ portalUrl, onClose, onChanged }: { portalUrl: string | null; onClose: () => void; onChanged: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const message = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
+
+/**
+ * Everything about the plan, inside the app: plan, payment method, plan changes, invoices, tokens, cancel and resume.
+ * Card details are only typed into Lemon Squeezy's secure form, opened as an overlay with Lemon.js on this page.
+ */
+export function BillingModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+  const panel = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<ModalState>({ kind: "loading" });
   const [reason, setReason] = useState("");
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  const overlayRef = useRef(false);
 
-  // A native modal dialog: focus is trapped inside, Escape closes it, and focus returns to the button that opened it.
+  // Modal behaviour: focus moves in, Tab stays inside, Escape closes, and focus goes back to the button that opened it.
   useEffect(() => {
-    const element = dialog.current;
-    element?.showModal();
-    return () => { if (element?.open) element.close(); };
+    const opener = document.activeElement as HTMLElement | null;
+    panel.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; opener?.focus?.(); closeOverlay(); };
   }, []);
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (overlayRef.current) return; // Lemon Squeezy's overlay has the keyboard while it is open
+    if (event.key === "Escape") { event.stopPropagation(); onClose(); return; }
+    if (event.key !== "Tab" || !panel.current) return;
+    const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (items.length === 0) return;
+    const first = items[0], last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+
   const load = () => {
     setState({ kind: "loading" });
-    getBillingOverview().then((overview) => setState(modalStateFor(overview)), (error: unknown) => setState({ kind: "error", message: error instanceof Error ? error.message : "Could not reach billing just now.", portalUrl: error instanceof BillingError ? error.portalUrl : null }));
+    getBillingOverview().then((overview) => setState(modalStateFor(overview)), (error: unknown) => setState({ kind: "error", message: message(error, "Could not reach billing just now.") }));
   };
   useEffect(load, []);
 
-  const act = async (kind: "cancel" | "resume") => {
+  /** Re-reads the overview after a change, keeping the modal open and saying what happened. */
+  const refresh = async (notice: string) => {
+    const next = modalStateFor(await getBillingOverview());
+    setState(next.kind === "ready" ? { ...next, notice } : next);
+    onChanged();
+  };
+
+  const act = async (kind: "cancel" | "resume" | "change", target?: PaidTier) => {
     if (state.kind !== "ready") return;
     setState({ ...state, busy: kind });
     try {
-      if (kind === "cancel") await cancelSubscription(reason); else await resumeSubscription();
-      const overview = await getBillingOverview();
-      const next = modalStateFor(overview);
-      setState(next.kind === "ready" ? { ...next, notice: kind === "cancel" ? "Your subscription is cancelled. You can resume it until the period ends." : "Your subscription is back on." } : next);
+      if (kind === "cancel") await cancelSubscription(reason);
+      else if (kind === "resume") await resumeSubscription();
+      else if (target) await changePlan(target);
       setReason("");
-      onChanged();
+      await refresh(kind === "cancel" ? "Your subscription is cancelled. You can resume it until the period ends." : kind === "resume" ? "Your subscription is back on." : "Your plan is changed.");
     } catch (error) {
-      setState({ ...state, busy: null, confirming: kind === "cancel", notice: error instanceof Error ? error.message : "Something went wrong. Try again." });
+      setState({ ...state, busy: null, confirming: kind === "cancel", changing: kind === "change" ? (target ?? null) : null, notice: message(error, "Something went wrong. Try again.") });
     }
   };
 
-  const portal = state.kind === "error" ? (state.portalUrl ?? portalUrl) : portalUrl;
+  const updateCard = async (url: string) => {
+    if (state.kind !== "ready") return;
+    setState({ ...state, busy: "update", notice: null });
+    try {
+      overlayRef.current = true; setOverlayOpen(true);
+      await openOverlay(url, (event) => {
+        if (event.event === "PaymentMethodUpdate.Updated") void refresh("Your payment method is updated.").catch(() => undefined);
+        if (event.event === "PaymentMethodUpdate.Closed") { overlayRef.current = false; setOverlayOpen(false); setState((current) => (current.kind === "ready" ? { ...current, busy: null } : current)); }
+      });
+    } catch (error) {
+      overlayRef.current = false; setOverlayOpen(false);
+      setState((current) => (current.kind === "ready" ? { ...current, busy: null, notice: message(error, "Could not open the secure payment window.") } : current));
+    }
+  };
+
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const download = async (id: string) => {
+    setDownloading(id); setDownloadError(null);
+    try { await downloadInvoice(id); } catch (error) { setDownloadError(message(error, "Could not download that invoice right now.")); }
+    setDownloading(null);
+  };
+
   return (
-    <dialog ref={dialog} className="theme-dialog billing-dialog" aria-labelledby="billing-title" onClose={onClose} onClick={(event) => { if (event.target === dialog.current) dialog.current?.close(); }}>
-      <div className="theme-dialog-inner">
+    <div className="billing-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !overlayOpen) onClose(); }}>
+      <div ref={panel} className="billing-dialog" role="dialog" aria-modal="true" aria-labelledby="billing-title" onKeyDown={onKeyDown}>
         <div className="theme-dialog-header">
           <div><h2 id="billing-title">Billing</h2></div>
-          <button className="theme-close" type="button" aria-label="Close billing" onClick={() => dialog.current?.close()}>×</button>
+          <button className="theme-close" type="button" aria-label="Close billing" onClick={onClose}>×</button>
         </div>
 
         {state.kind === "loading" && <p className="profile-note" role="status">Loading your billing…</p>}
@@ -64,32 +115,50 @@ export function BillingModal({ portalUrl, onClose, onChanged }: { portalUrl: str
         {state.kind === "ready" && (() => {
           const { subscription: sub, invoices, tokens } = state.overview;
           const view = describeSubscription(sub);
+          const confirm = state.changing ? changeConfirm(sub.tier, state.changing, sub.interval, sub.renewsAt ?? sub.endsAt) : null;
           return <>
-            {state.notice && <p className="profile-note ok" role="status">{state.notice}</p>}
+            {state.notice && <p className={`profile-note ${/^(Could not|Something|Resume|Choose|That )/.test(state.notice) ? "bad" : "ok"}`} role="status">{state.notice}</p>}
 
             <section className="billing-section" aria-labelledby="billing-plan">
-              <div className="profile-row">
-                <div>
-                  <b id="billing-plan">{sub.planName} plan{sub.interval === "year" ? " (Annual)" : ""}</b>
-                  <p><span className={`billing-status ${view.tone}`}>{view.statusLabel}</span> {view.dateLine}</p>
-                </div>
-              </div>
-              {view.prominentUpdate && sub.updatePaymentUrl && <p className="profile-note bad" role="alert">Your last payment failed. <a className="primary-button" href={sub.updatePaymentUrl} target="_blank" rel="noreferrer">Update payment method</a></p>}
+              <b id="billing-plan">{sub.planName} plan{sub.interval === "year" ? " (Annual)" : ""}</b>
+              <p><span className={`billing-status ${view.tone}`}>{view.statusLabel}</span> {view.dateLine}</p>
+              {view.prominentUpdate && sub.updatePaymentUrl && <p className="profile-note bad" role="alert">Your last payment failed. <button className="primary-button" disabled={state.busy !== null} onClick={() => void updateCard(sub.updatePaymentUrl!)}>Update payment method</button></p>}
             </section>
 
             <section className="billing-section" aria-labelledby="billing-card">
               <div className="profile-row">
                 <div><b id="billing-card">Payment method</b><p>{cardLine(sub)}</p></div>
-                {view.showUpdate && !view.prominentUpdate && sub.updatePaymentUrl && <a className="secondary-button" href={sub.updatePaymentUrl} target="_blank" rel="noreferrer">Update payment method</a>}
+                {view.showUpdate && !view.prominentUpdate && sub.updatePaymentUrl && <button className="secondary-button" disabled={state.busy !== null} onClick={() => void updateCard(sub.updatePaymentUrl!)}>{state.busy === "update" ? "Opening…" : "Update payment method"}</button>}
               </div>
             </section>
 
             {tokens && <section className="billing-section" aria-labelledby="billing-tokens"><b id="billing-tokens">Plan tokens this period</b><p>{tokenLine(tokens)}{tokens.resetsAt ? ` Resets ${formatDate(tokens.resetsAt)}.` : ""}</p></section>}
 
+            <section className="billing-section" aria-labelledby="billing-plans">
+              <b id="billing-plans">Change plan</b>
+              {sub.cancelAtPeriodEnd && <p>Resume your subscription to change plans.</p>}
+              <ul className="billing-plans">
+                {planChoices(sub.tier, sub.interval).map((choice) => <li key={choice.tier}>
+                  <div><b>{choice.name}</b><p>{choice.priceText}</p></div>
+                  {choice.kind === "current" ? <span className="billing-status ok">Current plan</span>
+                    : <button className="secondary-button" disabled={state.busy !== null || sub.cancelAtPeriodEnd || !["active", "on_trial"].includes(sub.status)} onClick={() => setState({ ...state, changing: choice.tier, confirming: false, notice: null })}>{choice.kind === "upgrade" ? "Upgrade" : "Downgrade"}</button>}
+                </li>)}
+              </ul>
+              {confirm && state.changing && <div className="billing-confirm" role="group" aria-labelledby="billing-change-title">
+                <b id="billing-change-title">{confirm.title}</b>
+                {confirm.lines.map((line) => <p key={line}>{line}</p>)}
+                <div className="profile-actions">
+                  <button className="primary-button" disabled={state.busy !== null} onClick={() => void act("change", state.changing!)}>{state.busy === "change" ? "Changing…" : confirm.confirmLabel}</button>
+                  <button className="secondary-button" disabled={state.busy !== null} onClick={() => setState({ ...state, changing: null })}>Keep {sub.planName}</button>
+                </div>
+              </div>}
+            </section>
+
             <section className="billing-section" aria-labelledby="billing-invoices">
               <b id="billing-invoices">Recent invoices</b>
-              {invoices.length === 0 ? <p>No invoices yet.</p> : <table className="billing-invoices"><thead><tr><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Receipt</span></th></tr></thead>
-                <tbody>{invoiceRows(invoices).map((row) => <tr key={row.id}><td>{row.date}</td><td>{row.amount}</td><td>{row.status}</td><td>{row.url ? <a href={row.url} target="_blank" rel="noreferrer">Receipt</a> : null}</td></tr>)}</tbody></table>}
+              {invoices.length === 0 ? <p>No invoices yet.</p> : <table className="billing-invoices"><thead><tr><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Download</span></th></tr></thead>
+                <tbody>{invoiceRows(invoices).map((row) => <tr key={row.id}><td>{row.date}</td><td>{row.amount}</td><td>{row.status}</td><td>{row.url ? <button className="text-button" disabled={downloading !== null} onClick={() => void download(row.id)} aria-label={`Download invoice from ${row.date}`}>{downloading === row.id ? "Preparing…" : "Download"}</button> : null}</td></tr>)}</tbody></table>}
+              {downloadError && <p className="profile-note bad" role="alert">{downloadError}</p>}
             </section>
 
             {view.canResume && <section className="billing-section">
@@ -102,7 +171,7 @@ export function BillingModal({ portalUrl, onClose, onChanged }: { portalUrl: str
             {view.canCancel && !state.confirming && <section className="billing-section">
               <div className="profile-row">
                 <div><b>Cancel subscription</b><p>Stop future charges. Your plan stays until the end of the period.</p></div>
-                <button className="secondary-button billing-danger" onClick={() => setState({ ...state, confirming: true, notice: null })}>Cancel subscription</button>
+                <button className="secondary-button billing-danger" onClick={() => setState({ ...state, confirming: true, changing: null, notice: null })}>Cancel subscription</button>
               </div>
             </section>}
 
@@ -117,9 +186,7 @@ export function BillingModal({ portalUrl, onClose, onChanged }: { portalUrl: str
             </section>}
           </>;
         })()}
-
-        {portal && <p className="billing-portal"><a href={portal} target="_blank" rel="noreferrer">Open full billing portal</a></p>}
       </div>
-    </dialog>
+    </div>
   );
 }

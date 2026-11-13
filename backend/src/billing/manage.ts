@@ -4,10 +4,13 @@
 import { query } from "../db/database.ts";
 import { PLANS, isPaidTier, type BillingInterval, type PlanTier } from "../tokens/plan.ts";
 import { tokenSummary } from "../tokens/store.ts";
-import { cancelSubscriptionAtPeriodEnd, getSubscription, listInvoices, resumeSubscriptionRemote, type ApiResource } from "./lemonsqueezy.ts";
+import { cancelSubscriptionAtPeriodEnd, changeSubscriptionVariant, getSubscription, getVariant, listInvoices, resumeSubscriptionRemote, variantIdFor, type ApiResource } from "./lemonsqueezy.ts";
 import { applyWebhook, servingSubscription, subscriptionFor, type SubscriptionView } from "./service.ts";
+import type { PaidTier } from "../tokens/plan.ts";
 
 export class NotSubscribed extends Error {}
+/** The request is understood but cannot be done (an unknown plan, a cancelled plan). Its message is safe to show. */
+export class ChangeRefused extends Error {}
 
 export type Invoice = { id: string; date: string | null; amount: string; status: string; refunded: boolean; url: string | null };
 export type BillingOverview = {
@@ -15,7 +18,7 @@ export type BillingOverview = {
     tier: PlanTier; planName: string; interval: BillingInterval; status: string; cancelAtPeriodEnd: boolean;
     renewsAt: string | null; endsAt: string | null;
     paymentMethod: { brand: string; last4: string } | null;
-    updatePaymentUrl: string | null; portalUrl: string | null;
+    updatePaymentUrl: string | null;
   };
   invoices: Invoice[];
   /** Plan tokens this period; null without a paid plan. They do not roll over. */
@@ -51,7 +54,7 @@ export async function billingOverview(userId: string, fetcher: typeof fetch = fe
       status: text(a.status) || row.status, cancelAtPeriodEnd: cancelled,
       renewsAt: cancelled ? null : iso(a.renews_at), endsAt: iso(a.ends_at),
       paymentMethod: brand && last4 ? { brand, last4 } : null,
-      updatePaymentUrl: urlOf(a, "update_payment_method") ?? row.update_payment_url, portalUrl: urlOf(a, "customer_portal") ?? row.customer_portal_url
+      updatePaymentUrl: urlOf(a, "update_payment_method") ?? row.update_payment_url
     },
     invoices: invoices.slice(0, 6).map(invoiceOf),
     tokens: tokens.plan ? { granted: tokens.plan.granted, used: tokens.plan.used, remaining: tokens.plan.remaining, resetsAt: view.tokensResetAt } : null
@@ -92,6 +95,54 @@ export async function resumePlan(userId: string, fetcher: typeof fetch = fetch, 
   const remote = await resumeSubscriptionRemote(row.provider_ref, fetcher);
   await adopt(userId, "subscription_resumed", remote, now);
   return subscriptionFor(userId, now);
+}
+
+const RANK: Record<PaidTier, number> = { starter: 1, pro: 2, business: 3 };
+
+/**
+ * Moves the caller's plan to `product` at the same billing interval. Upgrades are applied now and the prorated
+ * difference is invoiced now. Lemon Squeezy cannot schedule a change for the period end, so a downgrade is also applied
+ * now but with proration off: nothing is charged or credited, and the lower price starts at the next renewal. Tokens
+ * already granted this period stay; an upgrade adds the difference (once, see grantUpgradeDifference).
+ * Idempotent: asking for the plan you are already on changes nothing.
+ */
+export async function changePlan(userId: string, product: string, fetcher: typeof fetch = fetch, now = new Date()): Promise<SubscriptionView> {
+  const row = await servingSubscription(userId, now);
+  if (!row) throw new NotSubscribed("No active plan to change.");
+  if (!isPaidTier(product)) throw new ChangeRefused("Choose one of the paid plans.");
+  if (row.tier === product) return subscriptionFor(userId, now);
+  if (alreadyCancelled(row)) throw new ChangeRefused("Resume your subscription before changing plans.");
+  const variantId = variantIdFor(product, row.billing_interval ?? "month");
+  if (!variantId) throw new ChangeRefused("That plan is not available at your billing interval.");
+  const upgrade = RANK[product] > RANK[row.tier as PaidTier];
+  const productId = text((await getVariant(variantId, fetcher)).attributes?.product_id);
+  if (!productId) throw new ChangeRefused("That plan is not available right now.");
+  const remote = await changeSubscriptionVariant(row.provider_ref, { variantId, productId, invoiceImmediately: upgrade, disableProrations: !upgrade }, fetcher);
+  await adopt(userId, "subscription_updated", remote, now);
+  return subscriptionFor(userId, now);
+}
+
+const LEMON_HOST = /(^|\.)lemonsqueezy\.com$/;
+
+/**
+ * An invoice of the caller's own subscription, fetched server-side so the browser never visits Lemon Squeezy. The id must
+ * be one Lemon Squeezy lists for the caller's subscription, and the document must be on a lemonsqueezy.com host.
+ */
+export async function invoiceDocument(userId: string, invoiceId: string, fetcher: typeof fetch = fetch, now = new Date()): Promise<{ body: Buffer; contentType: string; filename: string }> {
+  const row = (await servingSubscription(userId, now)) ?? (await query<{ provider_ref: string }>("select provider_ref from app.subscriptions where user_id = $1 order by updated_at desc limit 1", [userId])).rows[0];
+  if (!row) throw new NotSubscribed("No invoices.");
+  const ref = "provider_ref" in row ? row.provider_ref : "";
+  const found = (await listInvoices(ref, fetcher)).find((invoice) => text(invoice.id) === invoiceId);
+  const url = found ? urlOf(found.attributes ?? {}, "invoice_url") : null;
+  if (!url) throw new NotSubscribed("Invoice not found.");
+  if (!LEMON_HOST.test(new URL(url).hostname)) throw new ChangeRefused("That invoice cannot be downloaded here.");
+  const response = await fetcher(url, { headers: { Accept: "application/pdf,text/html" } });
+  if (!response.ok) throw new Error(`Invoice fetch failed (${response.status}).`);
+  const contentType = (response.headers.get("content-type") ?? "application/pdf").split(";")[0].trim();
+  if (contentType !== "application/pdf" && contentType !== "text/html") throw new ChangeRefused("That invoice cannot be downloaded here.");
+  const body = Buffer.from(await response.arrayBuffer());
+  if (body.length > 10_000_000) throw new ChangeRefused("That invoice is too large to download here.");
+  return { body, contentType, filename: `invoice-${invoiceId}.${contentType === "application/pdf" ? "pdf" : "html"}` };
 }
 
 export { isPaidTier };

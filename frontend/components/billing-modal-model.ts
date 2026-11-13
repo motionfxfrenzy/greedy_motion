@@ -1,4 +1,5 @@
 // What the billing modal says, as plain functions so the wording and the states are testable without a browser.
+import { PLANS, annualMonthlyUsd, type PaidTier } from "@videosaas/contracts";
 import type { BillingInvoice, BillingOverview } from "../lib/api";
 
 type Sub = NonNullable<BillingOverview["subscription"]>;
@@ -41,9 +42,35 @@ export const tokenLine = (tokens: NonNullable<BillingOverview["tokens"]>) =>
 
 export type ModalState =
   | { kind: "loading" }
-  | { kind: "error"; message: string; portalUrl: string | null }
+  | { kind: "error"; message: string }
   | { kind: "none" }
-  | { kind: "ready"; overview: BillingOverview & { subscription: Sub }; confirming: boolean; busy: "cancel" | "resume" | null; notice: string | null };
+  | { kind: "ready"; overview: BillingOverview & { subscription: Sub }; confirming: boolean; changing: PaidTier | null; busy: "cancel" | "resume" | "change" | "update" | null; notice: string | null };
 
 export const modalStateFor = (result: BillingOverview): ModalState =>
-  result.subscription ? { kind: "ready", overview: result as BillingOverview & { subscription: Sub }, confirming: false, busy: null, notice: null } : { kind: "none" };
+  result.subscription ? { kind: "ready", overview: result as BillingOverview & { subscription: Sub }, confirming: false, changing: null, busy: null, notice: null } : { kind: "none" };
+
+export type PlanChoice = { tier: PaidTier; name: string; priceText: string; kind: "current" | "upgrade" | "downgrade" };
+const ORDER: PaidTier[] = ["starter", "pro", "business"];
+const priceText = (tier: PaidTier, interval: "month" | "year") => (interval === "year" ? `$${PLANS[tier].annualPriceUsd} a year ($${annualMonthlyUsd(tier).toFixed(2)} a month)` : `$${PLANS[tier].priceUsd} a month`);
+
+/** The paid plans at the buyer's own billing interval, each marked as the current one, an upgrade or a downgrade. */
+export const planChoices = (current: PaidTier, interval: "month" | "year"): PlanChoice[] =>
+  ORDER.map((tier) => ({ tier, name: PLANS[tier].name, priceText: priceText(tier, interval), kind: tier === current ? "current" : ORDER.indexOf(tier) > ORDER.indexOf(current) ? "upgrade" : "downgrade" }));
+
+/** The confirm step before a plan change: the price difference and exactly what happens to charges and tokens. */
+export function changeConfirm(current: PaidTier, target: PaidTier, interval: "month" | "year", renewsAt: string | null, locale?: string) {
+  const upgrade = ORDER.indexOf(target) > ORDER.indexOf(current);
+  const renews = formatDate(renewsAt, locale) || "your next renewal";
+  const diff = interval === "year" ? PLANS[target].annualPriceUsd - PLANS[current].annualPriceUsd : PLANS[target].priceUsd - PLANS[current].priceUsd;
+  const money = `$${Math.abs(diff)} a ${interval === "year" ? "year" : "month"}`;
+  const tokens = PLANS[target].tokens - PLANS[current].tokens;
+  return upgrade
+    ? { title: `Upgrade to ${PLANS[target].name}?`, confirmLabel: `Upgrade to ${PLANS[target].name}`, lines: [
+        `${PLANS[target].name} costs ${priceText(target, interval)}, which is ${money} more than ${PLANS[current].name}.`,
+        "The change applies now and you are charged the prorated difference for the rest of this period today.",
+        `You get ${tokens.toLocaleString()} more plan tokens now. From ${renews} the full ${PLANS[target].name} price renews.`] }
+    : { title: `Downgrade to ${PLANS[target].name}?`, confirmLabel: `Downgrade to ${PLANS[target].name}`, lines: [
+        `${PLANS[target].name} costs ${priceText(target, interval)}, which is ${money} less than ${PLANS[current].name}.`,
+        `The change applies now. Nothing is charged or refunded today; the lower price starts at your next renewal on ${renews}.`,
+        `You keep this period's plan tokens. Features that belong to ${PLANS[current].name} end now.`] };
+}

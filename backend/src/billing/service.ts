@@ -4,7 +4,7 @@
 import { query, withTransaction } from "../db/database.ts";
 import { rowFromSubscription } from "../entitlements/lifecycle.ts";
 import { listEntitlements, upsertEntitlement } from "../entitlements/store.ts";
-import { addUtcMonths, expirePlanTokens, grantDueAnnualTokens, grantTokens } from "../tokens/store.ts";
+import { addUtcMonths, expirePlanTokens, grantDueAnnualTokens, grantTokens, tokenSummary } from "../tokens/store.ts";
 import { ANNUAL_MONTHS_GRANTED, PLANS, TOP_UP, isPaidTier, type BillingInterval, type PaidTier, type PlanTier } from "../tokens/plan.ts";
 import { latestPaidInvoice, listSubscriptionsByEmail, snapshotFromSubscription, variantOf, type WebhookBody } from "./lemonsqueezy.ts";
 
@@ -129,6 +129,7 @@ async function applySubscription(event: string, ref: string, a: Record<string, u
   const providerUpdated = Number.isNaN(updatedAt) ? null : new Date(updatedAt);
   const date = (v: unknown) => (typeof v === "string" && !Number.isNaN(Date.parse(v)) ? new Date(v) : null);
 
+  const previous = (await query<{ tier: string }>("select tier from app.subscriptions where provider = 'lemonsqueezy' and provider_ref = $1", [ref])).rows[0]?.tier ?? null;
   const newer = await query(
     `insert into app.subscriptions (user_id, provider_ref, variant_id, tier, billing_interval, status, renews_at, ends_at, cancel_at_period_end, customer_portal_url, update_payment_url, provider_updated_at)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -148,6 +149,8 @@ async function applySubscription(event: string, ref: string, a: Record<string, u
   // Paid and active: the plan's tokens are granted now, not when the first invoice event arrives (Lemon Squeezy can send
   // that a couple of minutes later). A trial, past_due or unpaid subscription is not paid and grants nothing here.
   if (text(a.status) === "active") await grantInitialPlan(userId, ref, variant.tier, variant.interval, date(a.created_at), now);
+  // Moving up a plan mid-period: the tokens the bigger plan has beyond what was already granted this period, once.
+  if (text(a.status) === "active" && previous && isPaidTier(previous) && TIER_RANK[variant.tier] > TIER_RANK[previous as PaidTier]) await grantUpgradeDifference(userId, ref, variant.tier, date(a.renews_at) ?? date(a.ends_at) ?? now);
   // The subscription has ended: the rest of its monthly tokens ends with it. (Packs and the free allowance stay.)
   if (snapshot.status === "canceled") await expirePlanTokens(userId, `expiry:end:${ref}`, "Plan ended");
   const existing = (await listEntitlements(userId)).find((row) => row.source === "lemonsqueezy" && row.sourceRef === ref) ?? null;
@@ -160,6 +163,22 @@ async function applySubscription(event: string, ref: string, a: Record<string, u
     { actor: "lemonsqueezy", action: event, eventId: ref }
   );
   return "applied";
+}
+
+const TIER_RANK: Record<PaidTier, number> = { starter: 1, pro: 2, business: 3 };
+
+/**
+ * An upgrade mid-period credits the new plan's allowance minus what this period already granted, once per
+ * (subscription, plan, period): Lemon Squeezy's update webhook and the in-app change both land here with the same key.
+ */
+async function grantUpgradeDifference(userId: string, ref: string, tier: PaidTier, periodEnd: Date): Promise<boolean> {
+  await lockPlan(ref);
+  const key = `plan-upgrade:${ref}:${tier}:${periodEnd.toISOString().slice(0, 10)}`;
+  if ((await query("select 1 from app.token_ledger where user_id = $1 and ref = $2", [userId, key])).rows[0]) return false;
+  const summary = await tokenSummary(userId);
+  const difference = PLANS[tier].tokens - (summary.plan?.granted ?? 0);
+  if (difference <= 0) return false;
+  return grantTokens(userId, difference, `${PLANS[tier].name} plan upgrade`, "lemonsqueezy", key, "plan");
 }
 
 const lockPlan = (ref: string) => query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plan:${ref}`]);

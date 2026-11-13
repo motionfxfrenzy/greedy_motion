@@ -8,7 +8,7 @@ process.env.LEMONSQUEEZY_API_KEY = "k"; process.env.LEMONSQUEEZY_STORE_ID = "1";
 process.env.LEMONSQUEEZY_VARIANT_STARTER = "101"; process.env.LEMONSQUEEZY_VARIANT_PRO = "102"; process.env.LEMONSQUEEZY_VARIANT_BUSINESS = "103"; process.env.LEMONSQUEEZY_VARIANT_TOPUP = "104";
 const { migrate, pool } = await import("../src/db/database.ts");
 const { applyWebhook, subscriptionFor } = await import("../src/billing/service.ts");
-const { billingOverview, cancelPlan, resumePlan, NotSubscribed } = await import("../src/billing/manage.ts");
+const { billingOverview, cancelPlan, changePlan, ChangeRefused, invoiceDocument, resumePlan, NotSubscribed } = await import("../src/billing/manage.ts");
 const { registerBillingRoutes } = await import("../src/billing/routes.ts");
 const { default: Fastify } = await import("fastify");
 await migrate();
@@ -21,11 +21,11 @@ const clean = async () => {
 await clean();
 
 const day = 86_400_000, now = Date.now(), iso = (ms) => new Date(ms).toISOString();
-const remote = { status: "active", cancelled: false, ends_at: null, renews_at: iso(now + 30 * day), updated_at: iso(now), clock: 0 };
-const calls = [];
+const remote = { variantId: 101, status: "active", cancelled: false, ends_at: null, renews_at: iso(now + 30 * day), updated_at: iso(now), clock: 0 };
+const calls = [], changes = [];
 let failing = false, refuseDelete = false;
 const attrs = () => ({
-  variant_id: 101, status: remote.status, cancelled: remote.cancelled, ends_at: remote.ends_at, renews_at: remote.renews_at, created_at: iso(now), updated_at: iso(now + (remote.clock += 1000)),
+  variant_id: remote.variantId, status: remote.status, cancelled: remote.cancelled, ends_at: remote.ends_at, renews_at: remote.renews_at, created_at: iso(now), updated_at: iso(now + (remote.clock += 1000)),
   card_brand: "visa", card_last_four: "4242", user_email: "buyer@example.com",
   urls: { update_payment_method: "https://pay.example/update", customer_portal: "https://portal.example/p" }
 });
@@ -35,14 +35,21 @@ const fakeApi = async (url, init = {}) => {
   if (failing) return new Response("{}", { status: 500 });
   const json = (data, status = 200) => new Response(JSON.stringify({ data }), { status });
   if (path.startsWith("/subscription-invoices")) return json([
-    { id: "8002", type: "subscription-invoices", attributes: { status: "paid", total_formatted: "$19.00", refunded: false, created_at: iso(now - 1000), urls: { invoice_url: "https://receipts.example/8002" } } },
-    { id: "8001", type: "subscription-invoices", attributes: { status: "paid", total_formatted: "$19.00", refunded: false, created_at: iso(now - 31 * day), urls: { invoice_url: "https://receipts.example/8001" } } }
+    { id: "8002", type: "subscription-invoices", attributes: { status: "paid", total_formatted: "$19.00", refunded: false, created_at: iso(now - 1000), urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8002" } } },
+    { id: "8001", type: "subscription-invoices", attributes: { status: "paid", total_formatted: "$19.00", refunded: false, created_at: iso(now - 31 * day), urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8001" } } }
   ]);
   if (path === "/subscriptions/7701" && method === "DELETE") {
     if (refuseDelete) return new Response("{}", { status: 422 });
     remote.status = "cancelled"; remote.cancelled = true; remote.ends_at = remote.renews_at;
     return json({ id: "7701", type: "subscriptions", attributes: attrs() });
   }
+  if (path.startsWith("/variants/")) return json({ id: path.split("/")[2], type: "variants", attributes: { product_id: 9 } });
+  if (path === "/subscriptions/7701" && method === "PATCH" && "variant_id" in JSON.parse(init.body).data.attributes) {
+    changes.push(JSON.parse(init.body).data.attributes);
+    remote.variantId = JSON.parse(init.body).data.attributes.variant_id;
+    return json({ id: "7701", type: "subscriptions", attributes: attrs() });
+  }
+  if (url === "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8002") return new Response(Buffer.from("%PDF-1.4 fake"), { status: 200, headers: { "content-type": "application/pdf" } });
   if (path === "/subscriptions/7701" && method === "PATCH") {
     assert.equal(JSON.parse(init.body).data.attributes.cancelled, false);
     remote.status = "active"; remote.cancelled = false; remote.ends_at = null;
@@ -64,8 +71,8 @@ try {
   assert.equal(overview.subscription.status, "active");
   assert.deepEqual(overview.subscription.paymentMethod, { brand: "visa", last4: "4242" });
   assert.equal(overview.subscription.updatePaymentUrl, "https://pay.example/update");
-  assert.equal(overview.subscription.portalUrl, "https://portal.example/p");
-  assert.deepEqual(overview.invoices.map((i) => [i.id, i.amount, i.status, i.url]), [["8002", "$19.00", "paid", "https://receipts.example/8002"], ["8001", "$19.00", "paid", "https://receipts.example/8001"]]);
+  assert.equal("portalUrl" in overview.subscription, false, "no link to Lemon Squeezy's portal");
+  assert.deepEqual(overview.invoices.map((i) => [i.id, i.amount, i.status, i.url]), [["8002", "$19.00", "paid", "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8002"], ["8001", "$19.00", "paid", "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8001"]]);
   assert.deepEqual([overview.tokens.granted, overview.tokens.used, overview.tokens.remaining], [200, 0, 200]);
   assert.deepEqual(await billingOverview(V, fakeApi), { subscription: null, invoices: [], tokens: null });
 
@@ -106,6 +113,40 @@ try {
   refuseDelete = false;
   await resumePlan(U, fakeApi);
 
+  // Plan changes. Upgrade: applied now with proration; the token difference is credited once, however often the events repeat.
+  const planGrantsTotal = async () => Number((await pool.query("select coalesce(sum(amount),0) s from app.token_ledger where user_id = $1 and pool = 'plan'", [U])).rows[0].s);
+  assert.equal(await planGrantsTotal(), 200_000);
+  const up = await changePlan(U, "pro", fakeApi);
+  assert.equal(up.tier, "pro");
+  assert.deepEqual(changes[0], { variant_id: 102, product_id: 9, invoice_immediately: true, disable_prorations: false });
+  assert.equal(await planGrantsTotal(), 550_000, "Pro's 550 minus the 200 already granted this period is added: 350");
+  await applyWebhook({ meta: { event_name: "subscription_updated", custom_data: { user_id: U } }, data: { id: "7701", type: "subscriptions", attributes: attrs() } });
+  await changePlan(U, "pro", fakeApi);
+  assert.equal(changes.length, 1, "asking for the plan you are on does not call Lemon Squeezy");
+  assert.equal(await planGrantsTotal(), 550_000, "the webhook and a repeat add nothing");
+  // Downgrade: applied now with no proration; no tokens change.
+  const down = await changePlan(U, "starter", fakeApi);
+  assert.equal(down.tier, "starter");
+  assert.deepEqual(changes[1], { variant_id: 101, product_id: 9, invoice_immediately: false, disable_prorations: true });
+  assert.equal(await planGrantsTotal(), 550_000, "a downgrade keeps this period's tokens and adds none");
+  await changePlan(U, "pro", fakeApi);
+  assert.equal(await planGrantsTotal(), 550_000, "going back up in the same period adds nothing more");
+  await changePlan(U, "starter", fakeApi);
+  // Refused: not a plan, no plan, a cancelled plan.
+  await assert.rejects(changePlan(U, "gold", fakeApi), ChangeRefused);
+  await assert.rejects(changePlan(V, "pro", fakeApi), NotSubscribed);
+  await cancelPlan(U, undefined, fakeApi);
+  await assert.rejects(changePlan(U, "pro", fakeApi), ChangeRefused);
+  await resumePlan(U, fakeApi);
+
+  // Invoices: the document is fetched by our server, only for the caller's own invoice, only from Lemon Squeezy.
+  const pdf = await invoiceDocument(U, "8002", fakeApi);
+  assert.equal(pdf.contentType, "application/pdf");
+  assert.equal(pdf.filename, "invoice-8002.pdf");
+  assert.equal(pdf.body.toString().startsWith("%PDF"), true);
+  await assert.rejects(invoiceDocument(U, "9999", fakeApi), NotSubscribed, "an invoice that is not the caller's");
+  await assert.rejects(invoiceDocument(V, "8002", fakeApi), NotSubscribed, "another user's");
+
   // Failures: the API down leaves our state alone and surfaces an error that carries the portal link (over HTTP).
   failing = true;
   await assert.rejects(cancelPlan(U, undefined, fakeApi));
@@ -119,13 +160,20 @@ try {
   try {
     const down = await app.inject({ method: "GET", url: "/v1/billing/overview" });
     assert.equal(down.statusCode, 502);
-    assert.equal(down.json().error.portalUrl, "https://portal.example/p", "an error always carries the portal link");
+    assert.equal("portalUrl" in down.json().error, false, "an error never sends the user to Lemon Squeezy");
     failing = false;
     assert.equal((await app.inject({ method: "GET", url: "/v1/billing/overview" })).json().subscription.planName, "Starter");
     caller = V;
     assert.equal((await app.inject({ method: "GET", url: "/v1/billing/overview" })).json().subscription, null);
     assert.equal((await app.inject({ method: "POST", url: "/v1/billing/cancel", headers: { "content-type": "application/json" }, payload: '{"subscription":"7701"}' })).statusCode, 404, "another user cannot cancel it by naming it");
+    assert.equal((await app.inject({ method: "POST", url: "/v1/billing/change-plan", headers: { "content-type": "application/json" }, payload: '{"product":"pro"}' })).statusCode, 404, "no plan, no change");
+    assert.equal((await app.inject({ method: "GET", url: "/v1/billing/invoices/8002/pdf" })).statusCode, 404, "no plan, no invoice");
     caller = U;
+    const file = await app.inject({ method: "GET", url: "/v1/billing/invoices/8002/pdf" });
+    assert.equal(file.statusCode, 200);
+    assert.equal(file.headers["content-type"], "application/pdf");
+    assert.match(file.headers["content-disposition"], /attachment; filename="invoice-8002\.pdf"/);
+    assert.equal((await app.inject({ method: "GET", url: "/v1/billing/invoices/abc/pdf" })).statusCode, 404);
     const viaHttp = await app.inject({ method: "POST", url: "/v1/billing/cancel", headers: { "content-type": "application/json" }, payload: '{"reason":"testing"}' });
     assert.equal(viaHttp.statusCode, 200);
     assert.equal(viaHttp.json().subscription.cancelAtPeriodEnd, true);

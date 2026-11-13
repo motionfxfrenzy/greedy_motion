@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cancelConfirmText, cardLine, describeSubscription, invoiceRows, modalStateFor, tokenLine } from "../components/billing-modal-model.ts";
+import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, invoiceRows, modalStateFor, planChoices, tokenLine } from "../components/billing-modal-model.ts";
+import { embedUrl } from "../lib/lemon.ts";
 
-const sub = (over = {}) => ({ tier: "starter", planName: "Starter", interval: "month", status: "active", cancelAtPeriodEnd: false, renewsAt: "2026-12-12T00:00:00Z", endsAt: null, paymentMethod: { brand: "visa", last4: "4242" }, updatePaymentUrl: "https://pay.example/u", portalUrl: "https://portal.example/p", ...over });
+const sub = (over = {}) => ({ tier: "starter", planName: "Starter", interval: "month", status: "active", cancelAtPeriodEnd: false, renewsAt: "2026-12-12T00:00:00Z", endsAt: null, paymentMethod: { brand: "visa", last4: "4242" }, updatePaymentUrl: "https://pay.example/u", ...over });
 
 test("active: renews on a date, can be cancelled, update is secondary", () => {
   const view = describeSubscription(sub(), "en-US");
@@ -50,4 +51,31 @@ test("no subscription shows the plans prompt; a subscription shows the details",
   const ready = modalStateFor({ subscription: sub(), invoices: [], tokens: null });
   assert.equal(ready.kind, "ready");
   assert.deepEqual([ready.confirming, ready.busy], [false, null]);
+});
+
+test("plan choices mark the current plan and the direction of each other plan", () => {
+  assert.deepEqual(planChoices("pro", "month").map((c) => [c.tier, c.kind]), [["starter", "downgrade"], ["pro", "current"], ["business", "upgrade"]]);
+  assert.equal(planChoices("starter", "month")[1].priceText, "$49 a month");
+  assert.match(planChoices("starter", "year")[0].priceText, /a year \(\$[\d.]+ a month\)$/);
+});
+
+test("an upgrade says what is charged now and how many tokens it adds", () => {
+  const confirm = changeConfirm("starter", "pro", "month", "2026-12-12T00:00:00Z", "en-US");
+  assert.equal(confirm.confirmLabel, "Upgrade to Pro");
+  assert.equal(confirm.lines[0], "Pro costs $49 a month, which is $30 a month more than Starter.");
+  assert.match(confirm.lines[1], /charged the prorated difference/);
+  assert.match(confirm.lines[2], /You get 350 more plan tokens now\. From December 12, 2026/);
+});
+
+test("a downgrade says nothing is charged or refunded and that this period's tokens stay", () => {
+  const confirm = changeConfirm("pro", "starter", "month", "2026-12-12T00:00:00Z", "en-US");
+  assert.equal(confirm.confirmLabel, "Downgrade to Starter");
+  assert.match(confirm.lines[0], /\$30 a month less than Pro/);
+  assert.match(confirm.lines[1], /Nothing is charged or refunded today; the lower price starts at your next renewal on December 12, 2026/);
+  assert.match(confirm.lines[2], /keep this period's plan tokens/);
+});
+
+test("overlay links carry embed=1 and keep their signature", () => {
+  assert.equal(embedUrl("https://store.lemonsqueezy.com/checkout/custom/abc?signature=s1"), "https://store.lemonsqueezy.com/checkout/custom/abc?signature=s1&embed=1");
+  assert.equal(embedUrl("https://x.lemonsqueezy.com/u?embed=1"), "https://x.lemonsqueezy.com/u?embed=1");
 });

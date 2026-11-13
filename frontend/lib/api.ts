@@ -334,23 +334,39 @@ export type BillingOverview = {
   subscription: null | {
     tier: "starter" | "pro" | "business"; planName: string; interval: "month" | "year"; status: string; cancelAtPeriodEnd: boolean;
     renewsAt: string | null; endsAt: string | null; paymentMethod: { brand: string; last4: string } | null;
-    updatePaymentUrl: string | null; portalUrl: string | null;
+    updatePaymentUrl: string | null;
   };
   invoices: BillingInvoice[];
   tokens: { granted: number; used: number; remaining: number; resetsAt: string | null } | null;
 };
-/** Thrown by the billing calls; `portalUrl` lets the modal still offer the full billing portal when Lemon Squeezy cannot be reached. */
-export class BillingError extends Error { constructor(message: string, readonly portalUrl: string | null = null) { super(message); } }
+export class BillingError extends Error {}
 
 async function billingCall<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await apiFetch(apiOrigin + path, { cache: "no-store", ...init });
-  const body = (await response.json().catch(() => ({}))) as { error?: { message?: string; portalUrl?: string | null } } & Record<string, unknown>;
-  if (!response.ok) throw new BillingError(body.error?.message ?? "Could not reach billing just now.", body.error?.portalUrl ?? null);
+  const body = (await response.json().catch(() => ({}))) as { error?: { message?: string } } & Record<string, unknown>;
+  if (!response.ok) throw new BillingError(body.error?.message ?? "Could not reach billing just now.");
   return body as T;
 }
 export const getBillingOverview = () => billingCall<BillingOverview>("/v1/billing/overview");
 export const cancelSubscription = (reason?: string) => billingCall<{ subscription: Subscription }>("/v1/billing/cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reason?.trim() ? { reason: reason.trim() } : {}) });
-export const resumeSubscription = () => billingCall<{ subscription: Subscription }>("/v1/billing/resume", { method: "POST" });
+export const changePlan = (product: "starter" | "pro" | "business") => billingCall<{ subscription: Subscription }>("/v1/billing/change-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product }) });
+
+/** The invoice document, fetched through our backend and saved from here: the buyer never visits Lemon Squeezy. */
+export async function downloadInvoice(id: string): Promise<void> {
+  const response = await apiFetch(apiOrigin + "/v1/billing/invoices/" + encodeURIComponent(id) + "/pdf", { cache: "no-store" });
+  if (!response.ok) throw new BillingError("Could not download that invoice right now.");
+  const type = response.headers.get("content-type") ?? "";
+  const href = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = `invoice-${id}.${type.includes("pdf") ? "pdf" : "html"}`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  setTimeout(() => URL.revokeObjectURL(href), 10_000);
+}
+
+export const resumeSubscription =() => billingCall<{ subscription: Subscription }>("/v1/billing/resume", { method: "POST" });
 
 /** A hosted checkout for a plan (monthly or annual) or the token pack. The caller sends the browser to the returned link. */
 export async function startCheckout(product: "starter" | "pro" | "business" | "topup", interval: "month" | "year" = "month"): Promise<string> {
