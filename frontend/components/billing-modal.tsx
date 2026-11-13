@@ -117,7 +117,7 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
         {state.kind === "ready" && (() => {
           const { subscription: sub, invoices, tokens } = state.overview;
           const view = describeSubscription(sub);
-          const confirm = state.changing ? changeConfirm(sub.tier, state.changing, sub.interval, sub.renewsAt ?? sub.endsAt) : null;
+          const confirm = state.changing ? changeConfirm(sub.tier, state.changing, sub.interval, sub.renewsAt ?? sub.endsAt, undefined, tokens) : null;
           return <>
             {state.notice && <p className={`profile-note ${/^(Could not|Something|Resume|Choose|That )/.test(state.notice) ? "bad" : "ok"}`} role="status">{state.notice}</p>}
 

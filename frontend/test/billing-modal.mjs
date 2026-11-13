@@ -68,11 +68,11 @@ test("an upgrade says what is charged now and how many tokens it adds", () => {
 });
 
 test("a downgrade says nothing is charged or refunded and that this period's tokens stay", () => {
-  const confirm = changeConfirm("pro", "starter", "month", "2026-12-12T00:00:00Z", "en-US");
+  const confirm = changeConfirm("pro", "starter", "month", "2026-12-12T00:00:00Z", "en-US", { remaining: 412.5, resetsAt: "2026-12-12T00:00:00Z" });
   assert.equal(confirm.confirmLabel, "Downgrade to Starter");
   assert.match(confirm.lines[0], /\$30 a month less than Pro/);
   assert.match(confirm.lines[1], /^This takes effect now\. You lose the Pro editor immediately, and there's no refund for the rest of this period\. Nothing is charged today; the lower price starts at your next renewal on December 12, 2026\.$/);
-  assert.match(confirm.lines[2], /you keep what is left of this period's 550, and from December 12, 2026 you get 200 a month/);
+  assert.match(confirm.lines[2], /^You keep your remaining 412\.5 plan tokens until December 12, 2026\. From December 12, 2026 you'll get 200 tokens a month\.$/);
 });
 
 test("overlay links carry embed=1 and keep their signature", () => {

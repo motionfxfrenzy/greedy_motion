@@ -315,12 +315,14 @@ export async function tokenSummary(userId: string, recentLimit = 20, now = new D
     [userId]
   );
   // The plan meter covers the current month only: from the latest plan grant on. A new renewal moves that line forward, so usage starts at zero.
-  const latest = await query<{ amount: number; created_at: Date; id: string }>("select id, amount, created_at from app.token_ledger where user_id = $1 and pool = 'plan' and kind = 'grant' order by created_at desc, id desc limit 1", [userId]);
+  // An upgrade's top-up (plan-upgrade:*) belongs to the same month: it adds to that month's allowance and never starts a new one.
+  const latest = await query<{ amount: number; created_at: Date; id: string }>("select id, amount, created_at from app.token_ledger where user_id = $1 and pool = 'plan' and kind = 'grant' and (ref is null or ref not like 'plan-upgrade:%') order by created_at desc, id desc limit 1", [userId]);
   let plan: TokenSummary["plan"] = null;
   if (latest.rows[0]) {
     const since = latest.rows[0];
     const used = await query<{ used: string }>("select coalesce(-sum(amount), 0) as used from app.token_ledger where user_id = $1 and pool = 'plan' and kind in ('spend', 'refund') and id > $2", [userId, since.id]);
-    const granted = Number(since.amount);
+    const topUps = await query<{ added: string }>("select coalesce(sum(amount), 0) as added from app.token_ledger where user_id = $1 and pool = 'plan' and kind = 'grant' and ref like 'plan-upgrade:%' and id > $2", [userId, since.id]);
+    const granted = Number(since.amount) + Number(topUps.rows[0]?.added ?? 0);
     const usedMilli = Math.min(granted, Number(used.rows[0]?.used ?? 0));
     plan = { granted: tokensFromMilli(granted), used: tokensFromMilli(usedMilli), remaining: tokensFromMilli(have.plan), since: since.created_at.toISOString() };
   }

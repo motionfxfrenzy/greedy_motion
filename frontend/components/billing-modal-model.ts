@@ -58,20 +58,22 @@ export const planChoices = (current: PaidTier, interval: "month" | "year"): Plan
   ORDER.map((tier) => ({ tier, name: PLANS[tier].name, priceText: priceText(tier, interval), kind: tier === current ? "current" : ORDER.indexOf(tier) > ORDER.indexOf(current) ? "upgrade" : "downgrade" }));
 
 /** The confirm step before a plan change: the price difference and exactly what happens to charges and tokens. */
-export function changeConfirm(current: PaidTier, target: PaidTier, interval: "month" | "year", renewsAt: string | null, locale?: string) {
+export function changeConfirm(current: PaidTier, target: PaidTier, interval: "month" | "year", renewsAt: string | null, locale?: string, tokens?: { remaining: number; resetsAt: string | null } | null) {
   const upgrade = ORDER.indexOf(target) > ORDER.indexOf(current);
   const renews = formatDate(renewsAt, locale) || "your next renewal";
   const diff = interval === "year" ? PLANS[target].annualPriceUsd - PLANS[current].annualPriceUsd : PLANS[target].priceUsd - PLANS[current].priceUsd;
   const money = `$${Math.abs(diff)} a ${interval === "year" ? "year" : "month"}`;
-  const tokens = PLANS[target].tokens - PLANS[current].tokens;
+  const extra = PLANS[target].tokens - PLANS[current].tokens;
   const lost = PLANS[current].proEditor && !PLANS[target].proEditor ? "You lose the Pro editor immediately" : `You lose the features ${PLANS[current].name} has that ${PLANS[target].name} does not, immediately`;
   return upgrade
     ? { title: `Upgrade to ${PLANS[target].name}?`, confirmLabel: `Upgrade to ${PLANS[target].name}`, lines: [
         `${PLANS[target].name} costs ${priceText(target, interval)}, which is ${money} more than ${PLANS[current].name}.`,
         "The change applies now and you are charged the prorated difference for the rest of this period today.",
-        `You get ${tokens.toLocaleString()} more plan tokens now. From ${renews} the full ${PLANS[target].name} price renews.`] }
+        `You get ${extra.toLocaleString()} more plan tokens now. From ${renews} the full ${PLANS[target].name} price renews.`] }
     : { title: `Downgrade to ${PLANS[target].name}?`, confirmLabel: `Downgrade to ${PLANS[target].name}`, lines: [
         `${PLANS[target].name} costs ${priceText(target, interval)}, which is ${money} less than ${PLANS[current].name}.`,
         `This takes effect now. ${lost}, and there's no refund for the rest of this period. Nothing is charged today; the lower price starts at your next renewal on ${renews}.`,
-        `Your plan tokens: you keep what is left of this period's ${PLANS[current].tokens.toLocaleString()}, and from ${renews} you get ${PLANS[target].tokens.toLocaleString()} a month.`] };
+        tokens
+          ? `You keep your remaining ${tokens.remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })} plan tokens until ${formatDate(tokens.resetsAt ?? renewsAt, locale) || "your next renewal"}. From ${renews} you'll get ${PLANS[target].tokens.toLocaleString()} tokens a month.`
+          : `You keep this period's plan tokens until your next renewal. From ${renews} you'll get ${PLANS[target].tokens.toLocaleString()} tokens a month.`] };
 }

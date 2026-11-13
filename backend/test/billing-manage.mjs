@@ -8,6 +8,8 @@ process.env.LEMONSQUEEZY_API_KEY = "k"; process.env.LEMONSQUEEZY_STORE_ID = "1";
 process.env.LEMONSQUEEZY_VARIANT_STARTER = "101"; process.env.LEMONSQUEEZY_VARIANT_PRO = "102"; process.env.LEMONSQUEEZY_VARIANT_BUSINESS = "103"; process.env.LEMONSQUEEZY_VARIANT_TOPUP = "104";
 const { migrate, pool } = await import("../src/db/database.ts");
 const { applyWebhook, subscriptionFor } = await import("../src/billing/service.ts");
+const { spendTokens, tokenSummary } = await import("../src/tokens/store.ts");
+const { PLANS } = await import("../src/tokens/plan.ts");
 const { billingOverview, cancelPlan, changePlan, ChangeRefused, invoiceDocument, resumePlan, NotSubscribed } = await import("../src/billing/manage.ts");
 const { registerBillingRoutes } = await import("../src/billing/routes.ts");
 const { default: Fastify } = await import("fastify");
@@ -138,6 +140,31 @@ try {
   await cancelPlan(U, undefined, fakeApi);
   await assert.rejects(changePlan(U, "pro", fakeApi), ChangeRefused);
   await resumePlan(U, fakeApi);
+
+  // Downgrade never touches the tokens already granted: they stay usable until the normal reset, nothing extra is granted,
+  // and the next renewal grants the lower plan's amount once. (Plan is Starter here with 550 granted this period.)
+  await spendTokens(U, 50_000, "test render", "downgrade-spend-1");
+  const beforeDown = await tokenSummary(U);
+  assert.deepEqual([beforeDown.plan.granted, beforeDown.plan.used, beforeDown.plan.remaining], [550, 50, 500], "the meter counts the upgrade's top-up in the same month");
+  await changePlan(U, "pro", fakeApi);
+  await changePlan(U, "starter", fakeApi);
+  const afterDown = await tokenSummary(U);
+  assert.deepEqual([afterDown.plan.granted, afterDown.plan.used, afterDown.plan.remaining], [550, 50, 500], "a downgrade leaves the period's tokens exactly as they were");
+  assert.equal(Number((await pool.query("select count(*) from app.token_ledger where user_id = $1 and kind = 'expiry'", [U])).rows[0].count), 0, "and expires nothing");
+  const renewalAt = iso(now + 30 * day);
+  const renewalInvoice = { meta: { event_name: "subscription_payment_success", custom_data: { user_id: U } }, data: { id: "8101", type: "subscription-invoices", attributes: { subscription_id: 7701, billing_reason: "renewal", status: "paid", created_at: renewalAt, updated_at: renewalAt } } };
+  await applyWebhook(renewalInvoice);
+  await applyWebhook(renewalInvoice);
+  assert.equal((await tokenSummary(U)).plan.remaining, PLANS.starter.tokens, "the renewal grants the lower plan's amount, once");
+  assert.equal(Number((await pool.query("select count(*) from app.token_ledger where user_id = $1 and ref = 'invoice:8101'", [U])).rows[0].count), 1);
+  // Climbing two steps in one month credits the top plan's allowance in total, no more.
+  await changePlan(U, "pro", fakeApi);
+  await changePlan(U, "business", fakeApi);
+  const top = await tokenSummary(U);
+  assert.equal(top.plan.granted, PLANS.business.tokens, "Starter to Pro to Business in one month adds up to Business's allowance, not more");
+  assert.equal(top.plan.remaining, PLANS.business.tokens);
+  await changePlan(U, "starter", fakeApi);
+  assert.equal((await tokenSummary(U)).plan.remaining, PLANS.business.tokens, "and dropping back keeps them");
 
   // Invoices: the document is fetched by our server, only for the caller's own invoice, only from Lemon Squeezy.
   const pdf = await invoiceDocument(U, "8002", fakeApi);
