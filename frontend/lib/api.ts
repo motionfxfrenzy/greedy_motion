@@ -329,6 +329,29 @@ export async function syncPurchase(): Promise<{ synced: boolean }> {
   return response.json() as Promise<{ synced: boolean }>;
 }
 
+export type BillingInvoice = { id: string; date: string | null; amount: string; status: string; refunded: boolean; url: string | null };
+export type BillingOverview = {
+  subscription: null | {
+    tier: "starter" | "pro" | "business"; planName: string; interval: "month" | "year"; status: string; cancelAtPeriodEnd: boolean;
+    renewsAt: string | null; endsAt: string | null; paymentMethod: { brand: string; last4: string } | null;
+    updatePaymentUrl: string | null; portalUrl: string | null;
+  };
+  invoices: BillingInvoice[];
+  tokens: { granted: number; used: number; remaining: number; resetsAt: string | null } | null;
+};
+/** Thrown by the billing calls; `portalUrl` lets the modal still offer the full billing portal when Lemon Squeezy cannot be reached. */
+export class BillingError extends Error { constructor(message: string, readonly portalUrl: string | null = null) { super(message); } }
+
+async function billingCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await apiFetch(apiOrigin + path, { cache: "no-store", ...init });
+  const body = (await response.json().catch(() => ({}))) as { error?: { message?: string; portalUrl?: string | null } } & Record<string, unknown>;
+  if (!response.ok) throw new BillingError(body.error?.message ?? "Could not reach billing just now.", body.error?.portalUrl ?? null);
+  return body as T;
+}
+export const getBillingOverview = () => billingCall<BillingOverview>("/v1/billing/overview");
+export const cancelSubscription = (reason?: string) => billingCall<{ subscription: Subscription }>("/v1/billing/cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reason?.trim() ? { reason: reason.trim() } : {}) });
+export const resumeSubscription = () => billingCall<{ subscription: Subscription }>("/v1/billing/resume", { method: "POST" });
+
 /** A hosted checkout for a plan (monthly or annual) or the token pack. The caller sends the browser to the returned link. */
 export async function startCheckout(product: "starter" | "pro" | "business" | "topup", interval: "month" | "year" = "month"): Promise<string> {
   const payload = product === "topup" || interval === "month" ? { product } : { product, interval };

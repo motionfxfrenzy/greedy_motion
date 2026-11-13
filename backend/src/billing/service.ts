@@ -25,7 +25,7 @@ export type SubscriptionView = {
   updatePaymentUrl: string | null;
 };
 
-type SubRow = {
+export type SubRow = {
   user_id: string; provider_ref: string; variant_id: string; tier: string; billing_interval: BillingInterval; status: string; renews_at: Date | null; ends_at: Date | null;
   cancel_at_period_end: boolean; customer_portal_url: string | null; update_payment_url: string | null; provider_updated_at: Date | null;
   cycle_anchor_at: Date | null; cycle_months_granted: number; created_at: Date;
@@ -47,6 +47,12 @@ function nextTokenReset(row: SubRow): string | null {
     return cancelled ? null : (row.renews_at?.toISOString() ?? null);
   }
   return cancelled ? null : (row.renews_at?.toISOString() ?? null);
+}
+
+/** The subscription row that serves this user now, if any. */
+export async function servingSubscription(userId: string, now = new Date()): Promise<SubRow | undefined> {
+  const { rows } = await query<SubRow>("select * from app.subscriptions where user_id = $1 order by updated_at desc", [userId]);
+  return rows.find((r) => isPaidTier(r.tier) && serving(r, now));
 }
 
 export async function subscriptionFor(userId: string, now = new Date()): Promise<SubscriptionView> {

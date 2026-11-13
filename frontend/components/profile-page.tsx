@@ -6,6 +6,7 @@ import { createClient } from "../utils/supabase/client";
 import { PLANS, PREVIEW_ALLOWANCE, TOP_UP, annualMonthlyUsd, filmsFromTokens, isPaidTier, validateEmailAddress } from "@videosaas/contracts";
 import { getMyPreviews, getMySubscription, getMyTokens, startCheckout, syncPurchase, type PreviewUsage, type Subscription, type TokenSummary } from "../lib/api";
 import { AppShell } from "./app-shell";
+import { BillingModal } from "./billing-modal";
 import { useAccount } from "./account-menu";
 import { filmsFrom } from "./plan-cards";
 import { ThemeChoicePicker } from "./theme-choice";
@@ -21,6 +22,7 @@ export function ProfilePage() {
 
   const [sub, setSub] = useState<{ status: "loading" } | { status: "error" } | { status: "ready"; value: Subscription }>({ status: "loading" });
   const loadSub = () => { setSub({ status: "loading" }); getMySubscription().then((value) => setSub({ status: "ready", value }), () => setSub({ status: "error" })); };
+  const [billingOpen, setBillingOpen] = useState(false);
   const [buying, setBuying] = useState<string | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
   const buy = async (product: "topup") => {
@@ -124,13 +126,19 @@ export function ProfilePage() {
                 <p>{planLine(sub.value)}</p>
               </div>
               <div className="profile-actions">
-                {sub.value.portalUrl && <a className="secondary-button" href={sub.value.portalUrl} target="_blank" rel="noreferrer">Manage billing</a>}
+                {sub.value.tier !== "free" && <button className="secondary-button" type="button" onClick={() => setBillingOpen(true)}>Manage billing</button>}
                 <Link className={sub.value.tier === "free" ? "primary-button" : "secondary-button"} href="/pricing">{sub.value.tier === "free" ? "Upgrade plan" : "View plans"}</Link>
               </div>
             </div>
             {sub.value.status === "past_due" && sub.value.updatePaymentUrl && <p className="profile-note bad" role="alert">Your last payment failed. <a href={sub.value.updatePaymentUrl} target="_blank" rel="noreferrer">Update your payment method</a> to keep your plan.</p>}
           </>}
         </article>
+
+        {billingOpen && <BillingModal portalUrl={sub.status === "ready" ? sub.value.portalUrl : null} onClose={() => setBillingOpen(false)} onChanged={() => {
+          // Refresh the cards behind the modal without unmounting it (a loading state would close it and lose its notice).
+          getMySubscription().then((value) => setSub({ status: "ready", value }), () => undefined);
+          getMyTokens().then((value) => setTokens({ status: "ready", value }), () => undefined);
+        }} />}
 
         <article className="profile-card" id="tokens">
           <h2>Tokens</h2>
@@ -187,7 +195,7 @@ const planLine = (s: Subscription) => {
   const priceText = s.interval === "year" && isPaidTier(s.tier)
     ? `$${plan.annualPriceUsd} a year ($${annualMonthlyUsd(s.tier).toFixed(2)} a month)`
     : `$${plan.priceUsd} a month`;
-  if (s.cancelAtPeriodEnd && s.endsAt) return `${priceText}. Cancelled: you keep this plan until ${date(s.endsAt)}.`;
+  if (s.cancelAtPeriodEnd && s.endsAt) return `${priceText}. Cancels on ${date(s.endsAt)}: you keep this plan until then.`;
   return `${priceText} · ${plan.tokens.toLocaleString()} tokens each month.${s.renewsAt ? ` Renews ${date(s.renewsAt)}.` : ""}`;
 };
 

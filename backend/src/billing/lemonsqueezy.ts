@@ -90,6 +90,30 @@ async function apiGet(path: string, fetcher: typeof fetch): Promise<ApiResource[
   return Array.isArray(body.data) ? body.data : [];
 }
 
+async function apiOne(method: "GET" | "DELETE" | "PATCH", path: string, fetcher: typeof fetch, payload?: unknown): Promise<ApiResource> {
+  const response = await fetcher(`${API}${path}`, {
+    method,
+    headers: { Accept: "application/vnd.api+json", Authorization: `Bearer ${config.billing.apiKey}`, ...(payload ? { "Content-Type": "application/vnd.api+json" } : {}) },
+    ...(payload ? { body: JSON.stringify(payload) } : {})
+  });
+  if (!response.ok) throw new CheckoutError(`Lemon Squeezy ${method} failed (${response.status}).`);
+  const body = await response.json() as { data?: ApiResource };
+  if (!body.data?.id) throw new CheckoutError("Lemon Squeezy returned no subscription.");
+  return body.data;
+}
+
+/** One subscription, as Lemon Squeezy holds it (card, urls, status, dates). */
+export const getSubscription = (id: string, fetcher: typeof fetch = fetch) => apiOne("GET", `/subscriptions/${encodeURIComponent(id)}`, fetcher);
+/** Cancels at the end of the paid period (Lemon Squeezy's DELETE does not end it now). */
+export const cancelSubscriptionAtPeriodEnd = (id: string, fetcher: typeof fetch = fetch) => apiOne("DELETE", `/subscriptions/${encodeURIComponent(id)}`, fetcher);
+/** Undoes a cancellation while the paid period has not ended. */
+export const resumeSubscriptionRemote = (id: string, fetcher: typeof fetch = fetch) =>
+  apiOne("PATCH", `/subscriptions/${encodeURIComponent(id)}`, fetcher, { data: { type: "subscriptions", id, attributes: { cancelled: false } } });
+/** Recent invoices of one subscription, newest first. */
+export const listInvoices = (subscriptionId: string, fetcher: typeof fetch = fetch) =>
+  apiGet(`/subscription-invoices?filter[subscription_id]=${encodeURIComponent(subscriptionId)}&page[size]=10`, fetcher)
+    .then((rows) => rows.sort((a, b) => Date.parse(String(b.attributes?.created_at ?? "")) - Date.parse(String(a.attributes?.created_at ?? ""))));
+
 /** The subscriptions Lemon Squeezy holds for a buyer's email in this store, newest first. */
 export const listSubscriptionsByEmail = (email: string, fetcher: typeof fetch = fetch) =>
   apiGet(`/subscriptions?filter[store_id]=${encodeURIComponent(config.billing.storeId)}&filter[user_email]=${encodeURIComponent(email)}&page[size]=10`, fetcher)
