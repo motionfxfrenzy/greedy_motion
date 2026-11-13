@@ -127,6 +127,19 @@ export function sortWorkspaceComments<T extends Pick<WorkspaceComment, "at">>(co
   return [...comments].sort((a, b) => a.at - b.at);
 }
 
+/**
+ * Splits comments into the open ones (still to be applied by a redraw) and the applied ones (answered by a redraw).
+ * Only open comments count toward the Comments badge, the list and the "Redraw with comments" button; applied ones are history.
+ */
+export function splitCommentsByStatus<T extends Pick<WorkspaceComment, "appliedLabel">>(
+  comments: readonly T[]
+): { pending: T[]; applied: T[] } {
+  const pending: T[] = [];
+  const applied: T[] = [];
+  for (const comment of comments) (comment.appliedLabel ? applied : pending).push(comment);
+  return { pending, applied };
+}
+
 /** Computes the unique 1-based scene numbers targeted by comments and the apply button copy. */
 export function affectedScenesSummary(
   comments: readonly Pick<WorkspaceComment, "scene" | "appliedLabel">[],

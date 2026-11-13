@@ -387,6 +387,7 @@
 
 .aw-time{padding:2px 8px;border:0;border-radius:6px;background:var(--d-bg-eef6ff);color:var(--d-tx-0058bd);font-family:DMMono,monospace;font-size:12px}
 
+.aw-applied{border-top:1px solid var(--line);padding-top:8px}.aw-applied summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:600;list-style-position:inside}.aw-applied .aw-comments{margin-top:6px}.aw-comment-applied{opacity:.7}
 .aw-x{width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:18px}
 
 .aw-apply{justify-self:stretch}

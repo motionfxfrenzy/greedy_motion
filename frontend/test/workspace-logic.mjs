@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   activeSubtitleCueAt,
   affectedScenesSummary,
+  splitCommentsByStatus,
   anchorCommentAtTime,
   buildSubtitleCues,
   formatClock,
@@ -303,4 +304,22 @@ test("nextPlateAnswer and resolvePlateRouting: errors keep unknown, available:tr
     PLATE_FALLBACK_NOTICE,
     "This is a quick preview. Your styled scenes aren't drawn in this setup."
   );
+});
+
+test("splitCommentsByStatus: applied comments leave the open list, the count and the redraw button", () => {
+  const all = [
+    { id: "a", at: 5, scene: 1, body: "show the logo in the box", appliedLabel: "re-laid out the scene", appliedScope: "scene" },
+    { id: "b", at: 43, scene: 12, body: "show the logo here", appliedLabel: "re-laid out the scene", appliedScope: "scene" },
+    { id: "c", at: 50, scene: 13, body: "bigger", refusedReason: "Can't do that" }
+  ];
+  const { pending, applied } = splitCommentsByStatus(all);
+  assert.deepEqual(pending.map((c) => c.id), ["c"], "a refused comment stays open");
+  assert.deepEqual(applied.map((c) => c.id), ["a", "b"]);
+  // After a redraw answered every comment nothing is open: empty list, no pending scenes, button idle.
+  const afterRedraw = splitCommentsByStatus(all.slice(0, 2));
+  assert.equal(afterRedraw.pending.length, 0);
+  assert.equal(afterRedraw.applied.length, 2);
+  assert.deepEqual(affectedScenesSummary(all.slice(0, 2)).scenes, [], "no pending scenes");
+  assert.equal(affectedScenesSummary(all.slice(0, 2)).label, "Redraw with comments");
+  assert.deepEqual(splitCommentsByStatus([]), { pending: [], applied: [] });
 });

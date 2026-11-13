@@ -417,6 +417,11 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
     });
 
     const page = await context.newPage();
+    // Applied comments live in a collapsed "Applied (N)" history; keep it open so the steps below can reach their undo/remove buttons.
+    await page.addInitScript(() => {
+      const open = () => document.querySelectorAll("details.aw-applied:not([open])").forEach((d) => { d.open = true; });
+      document.addEventListener("DOMContentLoaded", () => new MutationObserver(open).observe(document.body, { childList: true, subtree: true }));
+    });
     await page.goto(`${origin}/dev/hf-step-fixture?state=c-ready&theme=dark`, { waitUntil: "networkidle" });
     await page.waitForSelector("hyperframes-player");
     await page.waitForFunction(() => {
@@ -489,6 +494,11 @@ test("BrowserAnimationStep headless Chrome interaction: two-step propose/commit 
       commentLabels.map((t) => t.trim()),
       ["Scene 1 · re-laid out the scene", "Scene 3 · re-laid out the scene"]
     );
+    // Applied comments are history, not open comments: the badge counts none, the list shows its empty hint, and the history says how many.
+    assert.equal((await page.locator(".aw-side > header span").textContent())?.trim(), "", "badge counts only open comments");
+    assert.equal(await page.locator("ul.aw-comments:not(details *) li:not(.empty)").count(), 0, "no applied comment is listed as open");
+    assert.equal((await page.locator("details.aw-applied summary").textContent())?.trim(), "Applied (2)");
+    assert.equal(await page.locator("button.aw-apply").isDisabled(), true, "nothing pending: Redraw with comments is disabled");
     // Scene/fallback comments without appliedEl must say "Remove comment", NOT claim to undo
     const sceneRemoveAria = await page.locator('.aw-comments li:has-text("Make the launch title bolder") button.aw-x').getAttribute("aria-label");
     assert.match(sceneRemoveAria ?? "", /^Remove comment/);

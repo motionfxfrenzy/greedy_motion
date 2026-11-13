@@ -1,6 +1,6 @@
 "use client";
 import { useId, type RefObject } from "react";
-import { affectedScenesSummary, formatClock } from "./logic";
+import { affectedScenesSummary, formatClock, splitCommentsByStatus } from "./logic";
 import { ProgressButton } from "./ProgressButton";
 import type { WorkspaceComment } from "./types";
 
@@ -75,6 +75,53 @@ export function CommentsPanel({
     actionVerb: applyPrefix
   });
 
+  const { pending, applied } = splitCommentsByStatus(comments);
+
+  const renderComment = (comment: WorkspaceComment) => {
+    const canUndo = Boolean(comment.appliedLabel && comment.appliedEl);
+    const timeLabel = formatClock(comment.at);
+    return (
+      <li key={comment.id} className={comment.appliedLabel ? "aw-comment-applied" : undefined}>
+        <button
+          type="button"
+          className="aw-time"
+          onClick={() => onSeekToComment(comment.at)}
+          title="Go to this moment"
+        >
+          {timeLabel}
+        </button>
+        <p>
+          {comment.body}
+          <small
+            role="status"
+            className={comment.refusedReason && !comment.appliedLabel ? "aw-comment-refused" : undefined}
+          >
+            Scene {comment.scene + 1}
+            {comment.appliedLabel
+              ? ` · ${comment.appliedLabel}`
+              : comment.refusedReason
+              ? ` · ${comment.refusedReason}`
+              : ""}
+          </small>
+        </p>
+        <button
+          type="button"
+          className="aw-x"
+          disabled={applying}
+          aria-label={
+            canUndo
+              ? `Undo comment edit (${timeLabel}: ${comment.body})`
+              : `Remove comment (${timeLabel}: ${comment.body})`
+          }
+          title={canUndo ? "Undo this change" : "Remove comment"}
+          onClick={() => void onRemoveComment(comment.id)}
+        >
+          ×
+        </button>
+      </li>
+    );
+  };
+
   return (
     <div className="aw-right-col">
       {onRender && (
@@ -99,7 +146,7 @@ export function CommentsPanel({
       <aside className="aw-side" aria-label="Comments">
         <header>
           <b>Comments</b>
-          <span>{comments.length ? `${comments.length}` : ""}</span>
+          <span>{pending.length ? `${pending.length}` : ""}</span>
         </header>
         <div className="aw-at">
           <span>At {formatClock(currentTime)}</span>
@@ -133,54 +180,17 @@ export function CommentsPanel({
           </button>
         </div>
         <ul className="aw-comments">
-          {comments.length === 0 && (
+          {pending.length === 0 && (
             <li className="empty">Comments you add are pinned to this moment of the film.</li>
           )}
-          {comments.map((comment) => {
-            const canUndo = Boolean(comment.appliedLabel && comment.appliedEl);
-            const timeLabel = formatClock(comment.at);
-            return (
-              <li key={comment.id}>
-                <button
-                  type="button"
-                  className="aw-time"
-                  onClick={() => onSeekToComment(comment.at)}
-                  title="Go to this moment"
-                >
-                  {timeLabel}
-                </button>
-                <p>
-                  {comment.body}
-                  <small
-                    role="status"
-                    className={comment.refusedReason && !comment.appliedLabel ? "aw-comment-refused" : undefined}
-                  >
-                    Scene {comment.scene + 1}
-                    {comment.appliedLabel
-                      ? ` · ${comment.appliedLabel}`
-                      : comment.refusedReason
-                      ? ` · ${comment.refusedReason}`
-                      : ""}
-                  </small>
-                </p>
-                <button
-                  type="button"
-                  className="aw-x"
-                  disabled={applying}
-                  aria-label={
-                    canUndo
-                      ? `Undo comment edit (${timeLabel}: ${comment.body})`
-                      : `Remove comment (${timeLabel}: ${comment.body})`
-                  }
-                  title={canUndo ? "Undo this change" : "Remove comment"}
-                  onClick={() => void onRemoveComment(comment.id)}
-                >
-                  ×
-                </button>
-              </li>
-            );
-          })}
+          {pending.map(renderComment)}
         </ul>
+        {applied.length > 0 && (
+          <details className="aw-applied">
+            <summary>Applied ({applied.length})</summary>
+            <ul className="aw-comments">{applied.map(renderComment)}</ul>
+          </details>
+        )}
         <ProgressButton
           className="primary-button aw-apply"
           disabled={!applySummary.scenes.length || applying}
