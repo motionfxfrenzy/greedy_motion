@@ -139,6 +139,9 @@ async function applySubscription(event: string, ref: string, a: Record<string, u
   // Pro-editor access follows the subscription. A tier without the editor (Starter) ends any editor row this subscription had.
   const snapshot = snapshotFromSubscription(a, now);
   if (!snapshot) return "applied";
+  // Paid and active: the plan's tokens are granted now, not when the first invoice event arrives (Lemon Squeezy can send
+  // that a couple of minutes later). A trial, past_due or unpaid subscription is not paid and grants nothing here.
+  if (text(a.status) === "active") await grantInitialPlan(userId, ref, variant.tier, variant.interval, date(a.created_at), now);
   // The subscription has ended: the rest of its monthly tokens ends with it. (Packs and the free allowance stay.)
   if (snapshot.status === "canceled") await expirePlanTokens(userId, `expiry:end:${ref}`, "Plan ended");
   const existing = (await listEntitlements(userId)).find((row) => row.source === "lemonsqueezy" && row.sourceRef === ref) ?? null;
@@ -151,6 +154,29 @@ async function applySubscription(event: string, ref: string, a: Record<string, u
     { actor: "lemonsqueezy", action: event, eventId: ref }
   );
   return "applied";
+}
+
+const lockPlan = (ref: string) => query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`plan:${ref}`]);
+
+/**
+ * The first month's plan tokens, granted once per subscription at the first signal that it is paid and active: its
+ * subscription event, or the checkout-return sync. Idempotent on the ledger key plan-initial:<subscription>. The first
+ * invoice (billing_reason initial) that follows finds that key and grants nothing; renewals still grant per invoice.
+ * A subscription that already has a plan grant since it was created (every subscription made before this existed does,
+ * under invoice:<id>) is left alone, so an update event never grants a second time. Webhook and sync both hold the
+ * same per-subscription lock, so two deliveries at once cannot both pass the checks.
+ */
+async function grantInitialPlan(userId: string, ref: string, tier: PaidTier, interval: BillingInterval, createdAt: Date | null, now: Date): Promise<boolean> {
+  await lockPlan(ref);
+  if ((await query("select 1 from app.token_ledger where user_id = $1 and ref = $2", [userId, `plan-initial:${ref}`])).rows[0]) return false;
+  const since = new Date((createdAt ?? now).getTime() - 10 * 60_000);
+  if ((await query("select 1 from app.token_ledger where user_id = $1 and pool = 'plan' and kind = 'grant' and created_at >= $2", [userId, since])).rows[0]) return false;
+  await expirePlanTokens(userId, `expiry:initial:${ref}`);
+  await grantTokens(userId, PLANS[tier].tokens, `${PLANS[tier].name} plan tokens`, "lemonsqueezy", `plan-initial:${ref}`, "plan");
+  if (interval === "year") {
+    await query("update app.subscriptions set cycle_anchor_at = $1, cycle_months_granted = 1, updated_at = now() where provider = 'lemonsqueezy' and provider_ref = $2", [createdAt ?? now, ref]);
+  }
+  return true;
 }
 
 /** A paid first or renewal invoice gives the plan's tokens, once per invoice. Plan changes and proration do not. */
@@ -168,6 +194,9 @@ async function applyInvoice(invoiceId: string, a: Record<string, unknown>, custo
     throw new RetryLater("Invoice arrived before its subscription.");
   }
   if (!isPaidTier(sub.tier)) return "ignored";
+  await lockPlan(subscriptionRef);
+  // The first invoice of a subscription whose first month was already granted when it became active adds nothing.
+  if (reason === "initial" && (await query("select 1 from app.token_ledger where user_id = $1 and ref = $2", [sub.user_id, `plan-initial:${subscriptionRef}`])).rows[0]) return "ignored";
   // A delivery of an invoice we already applied must not expire the month's tokens again.
   const done = await query("select 1 from app.token_ledger where user_id = $1 and ref = $2", [sub.user_id, `invoice:${invoiceId}`]);
   if (done.rows[0]) return "ignored";

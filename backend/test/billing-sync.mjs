@@ -16,7 +16,7 @@ const clean = async () => {
   for (const t of ["token_ledger", "subscriptions", "entitlements", "entitlement_events"]) await pool.query(`delete from app.${t} where user_id = any($1)`, [[U, V]]);
   await pool.query("delete from app.billing_events where payload::text like '%0000000c000%' or event_key like '%:8001:%' or event_key like '%:7001:%'");
 };
-const planGrants = async (user) => Number((await pool.query("select count(*) from app.token_ledger where user_id = $1 and ref like 'invoice:%'", [user])).rows[0].count);
+const planGrants = async (user) => Number((await pool.query("select count(*) from app.token_ledger where user_id = $1 and pool = 'plan' and kind = 'grant'", [user])).rows[0].count);
 await clean();
 
 const day = 86_400_000, now = Date.now(), iso = (ms) => new Date(ms).toISOString();
@@ -79,9 +79,9 @@ try {
   await assert.rejects(applyWebhook(bareInvoice), RetryLater, "an invoice before its subscription asks to be sent again");
   assert.equal(Number((await pool.query("select count(*) from app.billing_events where name = 'subscription_payment_success' and payload::text like '%8001%'")).rows[0].count), 0, "and is not recorded as handled");
   assert.equal(await applyWebhook(subscriptionEvent), "applied");
-  assert.equal(await planGrants(U), 0, "the subscription event alone grants nothing");
+  assert.equal(await planGrants(U), 1, "the subscription event, once active, grants the first month");
   await syncPurchase(U, "buyer@example.com", fakeApi);
-  assert.equal(await planGrants(U), 1, "the sync credits the first invoice");
+  assert.equal(await planGrants(U), 1, "the sync after it adds nothing");
   assert.equal(await applyWebhook(bareInvoice), "ignored", "the redelivered invoice does not credit again");
   await applyWebhook(subscriptionEvent);
   assert.equal(await planGrants(U), 1);
@@ -96,6 +96,45 @@ try {
   assert.equal(await planGrants(U), 1, "a recorded-but-unapplied webhook does not shadow the sync");
   await syncPurchase(U, "buyer@example.com", fakeApi);
   assert.equal(await planGrants(U), 1);
+  // 10. The production timeline: checkout, subscription_created (active), subscription_updated, the sync (no paid invoice
+  //     exists yet), the order, and the first invoice two minutes later. The tokens arrive at the first paid signal, once.
+  await clean();
+  const planBalance = async () => Number((await pool.query("select coalesce(sum(amount),0) s from app.token_ledger where user_id = $1 and pool = 'plan'", [U])).rows[0].s);
+  const noInvoiceYet = (async (url) => new Response(JSON.stringify({ data: String(url).includes("/subscription-invoices") ? [] : [{ id: "7001", type: "subscriptions", attributes: subAttrs }] }), { status: 200 }));
+  await applyWebhook({ meta: { event_name: "order_created", custom_data: { user_id: U } }, data: { id: "5551", type: "orders", attributes: { status: "paid", first_order_item: { variant_id: 101 }, created_at: iso(now), updated_at: iso(now) } } });
+  assert.equal(await planBalance(), 0, "an order for a plan alone grants nothing");
+  await applyWebhook({ meta: { event_name: "subscription_created", custom_data: { user_id: U } }, data: { id: "7001", type: "subscriptions", attributes: { ...subAttrs, updated_at: iso(now + 1000) } } });
+  assert.equal(await planBalance(), 200_000, "granted the moment the subscription is active");
+  await applyWebhook({ meta: { event_name: "subscription_updated", custom_data: { user_id: U } }, data: { id: "7001", type: "subscriptions", attributes: { ...subAttrs, updated_at: iso(now + 2000) } } });
+  await syncPurchase(U, "buyer@example.com", noInvoiceYet);
+  assert.equal(await planBalance(), 200_000, "the update and the sync do not grant again");
+  await applyWebhook({ meta: { event_name: "subscription_payment_success", custom_data: { user_id: U } }, data: { id: "8001", type: "subscription-invoices", attributes: { ...invAttrs, created_at: iso(now + 120_000), updated_at: iso(now + 120_000) } } });
+  assert.equal(await planBalance(), 200_000, "the first invoice, two minutes later, does not grant again");
+  assert.equal(await planGrants(U), 1);
+
+  // 11. Not paid, no tokens: trial, past_due and unpaid subscriptions grant nothing.
+  for (const [status, id] of [["on_trial", "7101"], ["past_due", "7102"], ["unpaid", "7103"]]) {
+    await applyWebhook({ meta: { event_name: "subscription_created", custom_data: { user_id: V } }, data: { id, type: "subscriptions", attributes: { ...subAttrs, status, trial_ends_at: iso(now + 7 * day), updated_at: iso(now + 3000) } } });
+  }
+  assert.equal(await planGrants(V), 0, "only an active subscription grants at once");
+
+  // 12. Renewal: next month's invoice credits the new allowance once; a replay does nothing; unused tokens expire.
+  const renewal = (id, at) => ({ meta: { event_name: "subscription_payment_success", custom_data: { user_id: U } }, data: { id, type: "subscription-invoices", attributes: { ...invAttrs, billing_reason: "renewal", created_at: iso(at), updated_at: iso(at) } } });
+  await applyWebhook(renewal("8002", now + 30 * day));
+  await applyWebhook(renewal("8002", now + 30 * day));
+  assert.equal(await planGrants(U), 2, "one more grant for the renewal");
+  assert.equal(await planBalance(), 200_000, "last month's unused tokens expired, the new 200 granted");
+  await applyWebhook(renewal("8003", now + 60 * day));
+  assert.equal(await planGrants(U), 3);
+  assert.equal(await planBalance(), 200_000);
+
+  // 13. A subscription from before this change (its first invoice already granted under invoice:<id>) gets no second grant from an update.
+  await clean();
+  await applyWebhook({ meta: { event_name: "subscription_created", custom_data: { user_id: U } }, data: { id: "7001", type: "subscriptions", attributes: { ...subAttrs, status: "past_due", updated_at: iso(now + 1000) } } });
+  await applyWebhook(webhooks()[1]);
+  assert.equal(await planGrants(U), 1, "invoice grants when the subscription was not yet active");
+  await applyWebhook({ meta: { event_name: "subscription_updated", custom_data: { user_id: U } }, data: { id: "7001", type: "subscriptions", attributes: { ...subAttrs, updated_at: iso(now + 5000) } } });
+  assert.equal(await planGrants(U), 1, "becoming active afterwards does not grant again");
   console.log("billing-sync ok");
 } finally {
   await clean();

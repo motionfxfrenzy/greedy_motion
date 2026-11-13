@@ -75,11 +75,11 @@ try {
   // An invoice that beats its subscription asks to be sent again.
   await assert.rejects(() => applyWebhook(invoice("5001", "initial", U)), RetryLater);
 
-  // Pro subscription: plan, editor access, then the invoice gives the tokens.
+  // Pro subscription: plan, editor access and the first month's tokens as soon as it is active; the first invoice then adds nothing.
   assert.equal(await applyWebhook(sub("subscription_created", U)), "applied");
   assert.equal((await subscriptionFor(U)).tier, "pro");
   assert.equal((await entitlementsFor(U, { fresh: true })).features.proEditor, "edit");
-  assert.equal(await applyWebhook(invoice("5001", "initial", U)), "applied");
+  assert.equal(await applyWebhook(invoice("5001", "initial", U)), "ignored", "the first month was granted when the subscription became active");
   let t = await tokenSummary(U);
   assert.deepEqual([t.plan.granted, t.plan.used, t.plan.remaining, t.remaining], [550, 0, 550, 583], "the Pro plan's 550 tokens, plus the free allowance");
   const delivered = invoice("5001", "initial", U);
@@ -148,13 +148,13 @@ try {
     data: { id, type: "subscription-invoices", attributes: { subscription_id: 9010, billing_reason: reason, status: "paid", created_at: atIso, updated_at: iso(now + (tick += 1000)) } }
   });
   assert.equal(await applyWebhook(annualSub("subscription_created"), anchor), "applied");
-  assert.equal(await applyWebhook(annualInvoice("6001", "initial"), anchor), "applied");
+  assert.equal(await applyWebhook(annualInvoice("6001", "initial"), anchor), "ignored", "month 1 was granted when the subscription became active");
   const wSub1 = await subscriptionFor(W, anchor);
   assert.equal(wSub1.tier, "pro");
   assert.equal(wSub1.interval, "year");
   assert.equal(wSub1.tokensResetAt, addUtcMonths(anchor, 1).toISOString(), "tokens reset next month, not next year");
   let wt = await tokenSummary(W, 20, anchor);
-  assert.deepEqual([wt.plan.granted, wt.plan.used, wt.plan.remaining], [550, 0, 550], "month 1 granted by the annual invoice");
+  assert.deepEqual([wt.plan.granted, wt.plan.used, wt.plan.remaining], [550, 0, 550], "month 1 granted when the annual subscription became active");
 
   // Spend 150 tokens in month 1; mid-month nothing new is granted.
   await spendTokens(W, 150_000, "render", "ann-m1", undefined, new Date(now + 10 * day));

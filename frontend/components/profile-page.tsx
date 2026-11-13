@@ -34,6 +34,7 @@ export function ProfilePage() {
 
   // Back from checkout (?checkout=success): apply the purchase now rather than waiting for the webhook, then show the new plan and balance.
   const [activating, setActivating] = useState(false);
+  const [slow, setSlow] = useState(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") !== "success") { loadSub(); loadTokens(); return; }
@@ -44,16 +45,20 @@ export function ProfilePage() {
     setActivating(true);
     (async () => {
       const startBalance = pack ? await getMyTokens().then((t) => t.remaining, () => null) : null;
-      for (let attempt = 0; attempt < 10 && !cancelled; attempt += 1) {
-        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Lemon Squeezy can take a couple of minutes to confirm a payment: look again with a growing pause, up to about 3 minutes.
+      const started = Date.now();
+      for (let attempt = 0; !cancelled && Date.now() - started < 180_000; attempt += 1) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(2000 + attempt * 1500, 10_000)));
+        if (cancelled) return;
+        if (attempt === 5) setSlow(true);
         try {
           if (pack) { if (startBalance !== null && (await getMyTokens()).remaining > startBalance) break; }
-          else if ((await syncPurchase()).synced) break;
+          else if ((await syncPurchase()).synced) { loadTokens(); const view = await getMyTokens().catch(() => null); if (view?.plan && view.plan.granted > 0) break; }
         } catch { /* try again; the webhook may still land first */ }
       }
       if (cancelled) return;
       // No cache: read the plan and the balance fresh, whatever the outcome.
-      loadSub(); loadTokens(); setActivating(false);
+      loadSub(); loadTokens(); setActivating(false); setSlow(false);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -82,7 +87,7 @@ export function ProfilePage() {
       <section className="page-container profile-page">
         <div className="page-heading"><div><h1>Profile</h1><p>Your account, how the site looks, your plan and your tokens.</p></div></div>
 
-        {activating && <p className="profile-note" role="status">Activating your plan… this takes a few seconds.</p>}
+        {activating && <p className="profile-note" role="status">{slow ? "Payment confirming… this can take a couple of minutes. You can stay on this page; your tokens will appear here." : "Activating your plan… this takes a few seconds."}</p>}
 
         <article className="profile-card" id="account">
           <h2>Account</h2>
