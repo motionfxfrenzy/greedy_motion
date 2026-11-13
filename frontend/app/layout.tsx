@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { themeBootScript } from "../components/theme-toggle";
+import { themeBootScript } from "../lib/site-theme";
 import "./theme.css";
 import "./styles.css";
 import "./animation-workspace.css";

@@ -1,5 +1,5 @@
 /* Site theme tokens. Generated from the light palette: every colour that has to change in dark mode is a variable here.
-   Dark applies when the viewer chose it (data-theme="dark") or, with no choice made, when the system prefers it. */
+   Light is the default. Dark applies only when the viewer chose it (data-theme="dark") or chose "System" (data-system, set by the boot script) and the device prefers it. With no choice, or no script, the site is light. */
 :root {
   color-scheme: light;
   --d-btn-ink:#ffffff;
@@ -194,7 +194,7 @@
   --d-tx-c2410c:#c2410c;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root[data-system]:not([data-theme]) {
     color-scheme: dark;
     --d-btn-ink:#0a0d12;
   --d-bd-9ecbff:#375980;
