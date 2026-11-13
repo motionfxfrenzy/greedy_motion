@@ -96,7 +96,7 @@ test("mapSceneTabState normalizes engine and workspace states into ready, updati
   assert.deepEqual(mapSceneTabState("drawn"), {
     visualState: "ready",
     cssClass: "drawn",
-    label: "Drawn"
+    label: "Rendered"
   });
   assert.deepEqual(mapSceneTabState("ready"), {
     visualState: "ready",
@@ -106,7 +106,7 @@ test("mapSceneTabState normalizes engine and workspace states into ready, updati
   assert.deepEqual(mapSceneTabState("checked"), {
     visualState: "ready",
     cssClass: "ready",
-    label: "Ready"
+    label: "Drawn"
   });
   assert.deepEqual(mapSceneTabState("queued"), {
     visualState: "updating",

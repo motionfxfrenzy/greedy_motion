@@ -346,7 +346,7 @@ test("decideSceneMode: a drawing scene shows 'Drawing scene 2… 42 %', stays pl
   // a scene whose worker became unhealthy falls back to the clip
   const fallen = decideSceneMode({ ...base, variant: { ...variant, hasClip: true }, playerDecision: { mode: "clip", reason: "worker-unhealthy" } });
   assert.equal(fallen.mode, "clip");
-  assert.equal(fallen.tabLabel, "Drawn");
+  assert.equal(fallen.tabLabel, "Rendered");
   assert.equal(fallen.reason, "worker-unhealthy");
 
   // a scene marked playback: "clip" and drawMsPerFrame: 185 by the server (while bundled or rendering)

@@ -419,7 +419,7 @@ const CLIP_LABELS: Record<LivePlateVariantState, string> = {
   bundled: "Checking",
   checked: "Ready",
   rendering: "Drawing",
-  drawn: "Drawn",
+  drawn: "Rendered",
   failed: "Failed"
 };
 
@@ -556,7 +556,7 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
           isReady: true,
           isPlayable: true,
           tabState: "drawn",
-          tabLabel: hasComment ? "Needs update" : "Drawn",
+          tabLabel: hasComment ? "Needs update" : "Rendered",
           tabClassName: hasComment ? "needs-update" : "drawn",
           stageWait: null
         };
@@ -606,7 +606,7 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
         isReady: true,
         isPlayable: true,
         tabState: "drawn",
-        tabLabel: hasComment ? "Needs update" : "Drawn",
+        tabLabel: hasComment ? "Needs update" : "Rendered",
         tabClassName: hasComment ? "needs-update" : "drawn",
         stageWait: null
       };
@@ -712,7 +712,7 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
       isReady,
       isPlayable: false,
       tabState: isReady ? (v.hasClip && !hasBrowserVerdictOk ? "drawn" : "checked") : "bundled",
-      tabLabel: isReady ? (hasComment ? "Needs update" : "Ready") : "Checking",
+      tabLabel: isReady ? (hasComment ? "Needs update" : "Drawn") : "Checking",
       tabClassName: isReady ? (hasComment ? "needs-update" : "ready") : "updating",
       stageWait: v.hasClip ? null : { failed: false, title: "Checking…" }
     };
@@ -769,7 +769,7 @@ export function decideSceneMode(input: SceneModeInput): SceneModeResolution {
     isReady: true,
     isPlayable,
     tabState: "checked",
-    tabLabel: hasComment ? "Needs update" : "Ready",
+    tabLabel: hasComment ? "Needs update" : "Drawn",
     tabClassName: hasComment ? "needs-update" : "ready",
     stageWait: buffering ? { failed: false, title: "Buffering…" } : null,
     playerState: buffering ? "buffering" : (input.playerDecision?.state ?? "ready"),

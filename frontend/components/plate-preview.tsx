@@ -139,7 +139,7 @@ function sceneTransitionCues(duration: number, index: number, totalScenes: numbe
   ];
 }
 
-const LABEL: Record<string, string> = { queued: "Waiting", authoring: "Writing the scene", bundled: "Checking", checked: "Ready", rendering: "Drawing", drawn: "Drawn", failed: "Failed", stale: "Needs update" };
+const LABEL: Record<string, string> = { queued: "Waiting", authoring: "Writing the scene", bundled: "Checking", checked: "Drawn", rendering: "Drawing", drawn: "Rendered", failed: "Failed", stale: "Needs update" };
 const isDemotedClipWorking = (item?: { state?: string; playback?: unknown; v?: string | null }) => {
   if (!item) return false;
   const isClip =
