@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { PaidTier } from "@videosaas/contracts";
 import { cancelSubscription, changePlan, downloadInvoice, getBillingOverview, resumeSubscription } from "../lib/api";
-import { closeOverlay, openOverlay } from "../lib/lemon";
+import { closeOverlay, openOverlayOrPage } from "../lib/lemon";
 import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, formatDate, invoiceRows, modalStateFor, planChoices, tokenLine, type ModalState } from "./billing-modal-model";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -72,10 +72,12 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
     setState({ ...state, busy: "update", notice: null });
     try {
       overlayRef.current = true; setOverlayOpen(true);
-      await openOverlay(url, (event) => {
+      const how = await openOverlayOrPage(url, (event) => {
         if (event.event === "PaymentMethodUpdate.Updated") void refresh("Your payment method is updated.").catch(() => undefined);
         if (event.event === "PaymentMethodUpdate.Closed") { overlayRef.current = false; setOverlayOpen(false); setState((current) => (current.kind === "ready" ? { ...current, busy: null } : current)); }
-      });
+      }, "tab");
+      // Lemon.js could not open: card entry is the one step that may leave the app, so its secure page is in a new tab.
+      if (how === "page") { overlayRef.current = false; setOverlayOpen(false); setState((current) => (current.kind === "ready" ? { ...current, busy: null, notice: "Lemon Squeezy's secure card page opened in a new tab. Close this window and open Manage billing again when you are done." } : current)); }
     } catch (error) {
       overlayRef.current = false; setOverlayOpen(false);
       setState((current) => (current.kind === "ready" ? { ...current, busy: null, notice: message(error, "Could not open the secure payment window.") } : current));

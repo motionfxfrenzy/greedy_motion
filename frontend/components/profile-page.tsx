@@ -7,7 +7,7 @@ import { PLANS, PREVIEW_ALLOWANCE, TOP_UP, annualMonthlyUsd, filmsFromTokens, is
 import { getMyPreviews, getMySubscription, getMyTokens, startCheckout, syncPurchase, type PreviewUsage, type Subscription, type TokenSummary } from "../lib/api";
 import { AppShell } from "./app-shell";
 import { BillingModal } from "./billing-modal";
-import { closeOverlay, openOverlay } from "../lib/lemon";
+import { closeOverlay, openOverlayOrPage } from "../lib/lemon";
 import { useAccount } from "./account-menu";
 import { filmsFrom } from "./plan-cards";
 import { ThemeChoicePicker } from "./theme-choice";
@@ -32,10 +32,10 @@ export function ProfilePage() {
       const url = await startCheckout(product);
       const before = tokens.status === "ready" ? tokens.value.remaining : null;
       // Checkout opens over this page (Lemon.js); on success the overlay closes and the purchase is applied here, with no redirect.
-      await openOverlay(url, (event) => {
+      await openOverlayOrPage(url, (event) => {
         if (event.event === "Checkout.Success") { closeOverlay(); void activate(true, before); }
         if (event.event === "Checkout.Closed") setBuying(null);
-      });
+      }, "redirect");
     } catch (caught) { setBuyError(caught instanceof Error ? caught.message : "Could not open checkout."); setBuying(null); }
   };
 

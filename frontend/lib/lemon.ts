@@ -49,3 +49,16 @@ export async function openOverlay(url: string, onEvent: (event: LemonEvent) => v
 export const closeOverlay = () => {
   try { window.LemonSqueezy?.Url.Close(); } catch { /* already closed */ }
 };
+
+/**
+ * Overlay first. Card entry is the one thing that may leave the app, so when Lemon.js cannot load (an ad blocker, a
+ * network error) the secure page is opened plainly: a checkout in this tab (it returns to the profile page, which then
+ * applies the purchase), the update-card page in a new tab. Resolves to which one happened.
+ */
+export async function openOverlayOrPage(url: string, onEvent: (event: LemonEvent) => void, fallback: "redirect" | "tab"): Promise<"overlay" | "page"> {
+  try { await openOverlay(url, onEvent); return "overlay"; }
+  catch {
+    if (fallback === "redirect") window.location.assign(url); else window.open(url, "_blank", "noopener");
+    return "page";
+  }
+}

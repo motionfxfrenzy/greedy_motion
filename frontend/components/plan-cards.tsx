@@ -14,7 +14,7 @@ import {
 } from "@videosaas/contracts";
 import Link from "next/link";
 import { appHref } from "../lib/hosts";
-import { closeOverlay, openOverlay } from "../lib/lemon";
+import { closeOverlay, openOverlayOrPage } from "../lib/lemon";
 import { useEffect, useState, type ReactNode } from "react";
 import { getMySubscription, getMyTokens, startCheckout, type Subscription, type TokenSummary } from "../lib/api";
 import { useSignedIn } from "./site-nav";
@@ -110,10 +110,10 @@ export function PricingPlans() {
     try {
       const url = await startCheckout(tier, interval);
       // Checkout opens over this page (Lemon.js). On success the profile page applies the purchase and shows "Activating your plan…".
-      await openOverlay(url, (event) => {
+      await openOverlayOrPage(url, (event) => {
         if (event.event === "Checkout.Success") { closeOverlay(); window.location.assign(appHref("/profile?checkout=success&item=plan#tokens")); }
         if (event.event === "Checkout.Closed") setBuying(null);
-      });
+      }, "redirect");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not open checkout."); setBuying(null); }
   };
 
