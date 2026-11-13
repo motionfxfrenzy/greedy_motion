@@ -89,3 +89,6 @@ export function limitedNotice(sub: Sub): string | null {
 
 /** "Changes to Starter on December 12, 2026": a downgrade waiting for the period to end. */
 export const pendingLine = (sub: Sub, locale?: string) => (sub.pendingChange ? `Changes to ${sub.pendingChange.planName}${sub.pendingChange.at ? ` on ${formatDate(sub.pendingChange.at, locale)}` : " at the end of this period"}` : null);
+
+/** The card window ended (closed, failed or finished): nothing is in progress any more, whatever else the state holds. */
+export const settleBusy = (state: ModalState): ModalState => (state.kind === "ready" && state.busy !== null ? { ...state, busy: null } : state);

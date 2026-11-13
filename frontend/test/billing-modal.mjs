@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pendingLine, cancelConfirmText, cardLine, changeConfirm, describeSubscription, invoiceRows, limitedNotice, modalStateFor, planChoices, tokenLine } from "../components/billing-modal-model.ts";
-import { embedUrl } from "../lib/lemon.ts";
+import { pendingLine, cancelConfirmText, cardLine, changeConfirm, describeSubscription, invoiceRows, limitedNotice, modalStateFor, planChoices, settleBusy, tokenLine } from "../components/billing-modal-model.ts";
+import { embedUrl, watchUntilGone } from "../lib/lemon.ts";
 
 const sub = (over = {}) => ({ source: "lemonsqueezy", providerMissing: false, pendingChange: null, tier: "starter", planName: "Starter", interval: "month", status: "active", cancelAtPeriodEnd: false, renewsAt: "2026-12-12T00:00:00Z", endsAt: null, paymentMethod: { brand: "visa", last4: "4242" }, updatePaymentUrl: "https://pay.example/u", ...over });
 
@@ -91,4 +91,27 @@ test("a manual plan or a subscription the provider does not know is explained, w
   assert.equal(limitedNotice(sub()), null);
   assert.match(limitedNotice(sub({ source: "manual" })), /^This plan was set up by our team, so it can't be changed here\. Contact support/);
   assert.match(limitedNotice(sub({ providerMissing: true })), /^We couldn't find this subscription at our payment provider\./);
+});
+
+const instant = async () => undefined;
+
+test("closing the card window without changing anything is noticed, so the button recovers", async () => {
+  let polls = 0;
+  const open = () => ++polls <= 4; // the overlay iframe is there for a while, then the buyer closes it
+  assert.equal(await watchUntilGone(open, { sleep: instant }), "closed");
+});
+
+test("an overlay that never opens ends the wait instead of leaving the button on Opening…", async () => {
+  assert.equal(await watchUntilGone(() => false, { sleep: instant, pollMs: 400, appearMs: 10_000 }), "never-opened");
+});
+
+test("an overlay left open still ends the wait eventually", async () => {
+  assert.equal(await watchUntilGone(() => true, { sleep: instant, pollMs: 1000, maxMs: 5000 }), "timeout");
+});
+
+test("when the card window ends, nothing is busy any more and the rest of the modal is kept", () => {
+  const ready = { ...modalStateFor({ subscription: sub(), invoices: [], tokens: null }), busy: "update", notice: "kept" };
+  const settled = settleBusy(ready);
+  assert.deepEqual([settled.busy, settled.notice, settled.kind], [null, "kept", "ready"]);
+  assert.deepEqual(settleBusy({ kind: "loading" }), { kind: "loading" });
 });

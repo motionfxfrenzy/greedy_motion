@@ -34,8 +34,7 @@ export function ProfilePage() {
       // Checkout opens over this page (Lemon.js); on success the overlay closes and the purchase is applied here, with no redirect.
       await openOverlayOrPage(url, (event) => {
         if (event.event === "Checkout.Success") { closeOverlay(); void activate(true, before); }
-        if (event.event === "Checkout.Closed") setBuying(null);
-      }, "redirect");
+      }, "redirect").then(({ closed }) => closed.then(() => setBuying(null)));
     } catch (caught) { setBuyError(caught instanceof Error ? caught.message : "Could not open checkout."); setBuying(null); }
   };
 

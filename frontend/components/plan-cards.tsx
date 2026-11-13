@@ -112,8 +112,7 @@ export function PricingPlans() {
       // Checkout opens over this page (Lemon.js). On success the profile page applies the purchase and shows "Activating your plan…".
       await openOverlayOrPage(url, (event) => {
         if (event.event === "Checkout.Success") { closeOverlay(); window.location.assign(appHref("/profile?checkout=success&item=plan#tokens")); }
-        if (event.event === "Checkout.Closed") setBuying(null);
-      }, "redirect");
+      }, "redirect").then(({ closed }) => closed.then(() => setBuying(null)));
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not open checkout."); setBuying(null); }
   };
 

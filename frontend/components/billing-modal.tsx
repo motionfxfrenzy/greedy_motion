@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PaidTier } from "@videosaas/contracts";
 import { cancelSubscription, changePlan, downloadInvoice, getBillingOverview, resumeSubscription } from "../lib/api";
 import { closeOverlay, openOverlayOrPage } from "../lib/lemon";
-import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, formatDate, invoiceRows, limitedNotice, modalStateFor, pendingLine, planChoices, tokenLine, type ModalState } from "./billing-modal-model";
+import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, formatDate, invoiceRows, limitedNotice, modalStateFor, pendingLine, planChoices, settleBusy, tokenLine, type ModalState } from "./billing-modal-model";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const message = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
@@ -72,17 +72,25 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
   const updateCard = async (url: string) => {
     if (state.kind !== "ready") return;
     setState({ ...state, busy: "update", notice: null });
+    // Every way the card window can end clears the busy state: updated, closed (Lemon.js's own event, our Close button, or the
+    // overlay simply disappearing), failed to open, or a plain page. Then the overview is read again so a changed card shows.
+    const settle = () => { overlayRef.current = false; setOverlayOpen(false); setState((current) => settleBusy(current)); };
     try {
       overlayRef.current = true; setOverlayOpen(true);
-      const how = await openOverlayOrPage(url, (event) => {
+      const { how, closed } = await openOverlayOrPage(url, (event) => {
         if (event.event === "PaymentMethodUpdate.Updated") void refresh("Your payment method is updated.").catch(() => undefined);
-        if (event.event === "PaymentMethodUpdate.Closed") { overlayRef.current = false; setOverlayOpen(false); setState((current) => (current.kind === "ready" ? { ...current, busy: null } : current)); }
+        if (event.event === "PaymentMethodUpdate.Closed") settle();
       }, "tab");
-      // Lemon.js could not open: card entry is the one step that may leave the app, so its secure page is in a new tab.
-      if (how === "page") { overlayRef.current = false; setOverlayOpen(false); setState((current) => (current.kind === "ready" ? { ...current, busy: null, notice: "Lemon Squeezy's secure card page opened in a new tab. Close this window and open Manage billing again when you are done." } : current)); }
+      if (how === "page") {
+        // Lemon.js could not open: card entry is the one step that may leave the app, so its secure page is in a new tab.
+        settle();
+        setState((current) => (current.kind === "ready" ? { ...current, notice: "Lemon Squeezy's secure card page opened in a new tab. Close this window and open Manage billing again when you are done." } : current));
+        return;
+      }
+      void closed.then(() => { settle(); return getBillingOverview().then((overview) => { const next = modalStateFor(overview); setState((current) => (current.kind === "ready" && next.kind === "ready" ? { ...next, notice: current.notice } : current)); onChanged(); }); }).catch(() => undefined);
     } catch (error) {
-      overlayRef.current = false; setOverlayOpen(false);
-      setState((current) => (current.kind === "ready" ? { ...current, busy: null, notice: message(error, "Could not open the secure payment window.") } : current));
+      settle();
+      setState((current) => (current.kind === "ready" ? { ...current, notice: message(error, "Could not open the secure payment window.") } : current));
     }
   };
 
