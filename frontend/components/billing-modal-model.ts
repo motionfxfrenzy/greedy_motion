@@ -77,3 +77,13 @@ export function changeConfirm(current: PaidTier, target: PaidTier, interval: "mo
           ? `You keep your remaining ${tokens.remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })} plan tokens until ${formatDate(tokens.resetsAt ?? renewsAt, locale) || "your next renewal"}. From ${renews} you'll get ${PLANS[target].tokens.toLocaleString()} tokens a month.`
           : `You keep this period's plan tokens until your next renewal. From ${renews} you'll get ${PLANS[target].tokens.toLocaleString()} tokens a month.`] };
 }
+
+/**
+ * Why the modal can only show what we hold ourselves: a plan set up by our team has no subscription at the payment
+ * provider, and a subscription the provider does not know cannot be read or changed. Null when everything works.
+ */
+export function limitedNotice(sub: Sub): string | null {
+  if (sub.source === "manual") return "This plan was set up by our team, so it can't be changed here. Contact support to change or cancel it.";
+  if (sub.providerMissing) return "We couldn't find this subscription at our payment provider. Your plan, dates and tokens below are what we have on record. Contact support and we'll sort it out.";
+  return null;
+}

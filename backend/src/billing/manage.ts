@@ -4,7 +4,7 @@
 import { query } from "../db/database.ts";
 import { PLANS, isPaidTier, type BillingInterval, type PlanTier } from "../tokens/plan.ts";
 import { tokenSummary } from "../tokens/store.ts";
-import { cancelSubscriptionAtPeriodEnd, changeSubscriptionVariant, getSubscription, getVariant, listInvoices, resumeSubscriptionRemote, variantIdFor, type ApiResource } from "./lemonsqueezy.ts";
+import { CheckoutError, cancelSubscriptionAtPeriodEnd, changeSubscriptionVariant, getSubscription, getVariant, listInvoices, resumeSubscriptionRemote, variantIdFor, type ApiResource } from "./lemonsqueezy.ts";
 import { applyWebhook, servingSubscription, subscriptionFor, type SubscriptionView } from "./service.ts";
 import type { PaidTier } from "../tokens/plan.ts";
 
@@ -14,7 +14,11 @@ export class ChangeRefused extends Error {}
 
 export type Invoice = { id: string; date: string | null; amount: string; status: string; refunded: boolean; url: string | null };
 export type BillingOverview = {
+  /** False when Lemon Squeezy would not list the invoices; the rest of the overview is still shown. */
+  invoicesAvailable?: boolean;
   subscription: null | {
+    /** "manual": a plan set up by our team, with no subscription at Lemon Squeezy. `providerMissing`: we hold a Lemon Squeezy id it does not know. Either way the details come from our own records. */
+    source: "lemonsqueezy" | "manual"; providerMissing: boolean;
     tier: PlanTier; planName: string; interval: BillingInterval; status: string; cancelAtPeriodEnd: boolean;
     renewsAt: string | null; endsAt: string | null;
     paymentMethod: { brand: string; last4: string } | null;
@@ -41,22 +45,44 @@ function urlOf(a: Record<string, unknown>, key: string): string | null {
   return typeof urls[key] === "string" && String(urls[key]).startsWith("https://") ? String(urls[key]) : null;
 }
 
-export async function billingOverview(userId: string, fetcher: typeof fetch = fetch, now = new Date()): Promise<BillingOverview> {
+/** Plans given by hand (scripts/plan.ts) carry a `manual:<user>` reference: there is no Lemon Squeezy subscription behind them. */
+const isManual = (row: { provider?: string; provider_ref: string }) => (row.provider !== undefined && row.provider !== "lemonsqueezy") || !/^[0-9]+$/.test(row.provider_ref);
+const notFound = (error: unknown) => error instanceof CheckoutError && error.status === 404;
+const MANUAL_REFUSAL = "This plan was set up by our team, so it can't be changed here. Contact support to change or cancel it.";
+const MISSING_REFUSAL = "We couldn't find this subscription at our payment provider. Contact support and we'll sort it out.";
+/** A Lemon Squeezy 404 on a write means the subscription is not there; say so plainly instead of "unavailable". */
+const refuseMissing = (error: unknown): never => { throw notFound(error) ? new ChangeRefused(MISSING_REFUSAL) : error; };
+
+export async function billingOverview(userId: string, fetcher: typeof fetch = fetch, now = new Date(), log: (details: Record<string, unknown>) => void = () => undefined): Promise<BillingOverview> {
   const row = await servingSubscription(userId, now);
   if (!row) return { subscription: null, invoices: [], tokens: null };
-  const [remote, invoices, tokens, view] = await Promise.all([getSubscription(row.provider_ref, fetcher), listInvoices(row.provider_ref, fetcher), tokenSummary(userId), subscriptionFor(userId, now)]);
-  const a = remote.attributes ?? {};
+  const manual = isManual(row);
+  // One missing or failing piece must not blank the modal: what we hold ourselves (plan, status, dates, tokens) always shows.
+  const piece = async <T>(resource: string, load: () => Promise<T>, hard: boolean): Promise<T | null> => {
+    try { return await load(); } catch (error) {
+      if (notFound(error) || !hard) { log({ resource, subscription: row.provider_ref, status: error instanceof CheckoutError ? error.status : undefined, message: error instanceof Error ? error.message : String(error) }); return null; }
+      throw error;
+    }
+  };
+  const [remote, invoices, tokens, view] = await Promise.all([
+    manual ? null : piece("subscription", () => getSubscription(row.provider_ref, fetcher), true),
+    manual ? [] : piece("invoices", () => listInvoices(row.provider_ref, fetcher), false),
+    tokenSummary(userId), subscriptionFor(userId, now)
+  ]);
+  const a = remote?.attributes ?? {};
   const brand = text(a.card_brand), last4 = text(a.card_last_four);
-  const cancelled = a.cancelled === true || text(a.status) === "cancelled";
+  const cancelled = remote ? a.cancelled === true || text(a.status) === "cancelled" : row.cancel_at_period_end || row.status === "cancelled";
   return {
+    invoicesAvailable: manual || invoices !== null,
     subscription: {
+      source: manual ? "manual" : "lemonsqueezy", providerMissing: !manual && remote === null,
       tier: row.tier as PlanTier, planName: PLANS[row.tier as PlanTier].name, interval: row.billing_interval ?? "month",
       status: text(a.status) || row.status, cancelAtPeriodEnd: cancelled,
-      renewsAt: cancelled ? null : iso(a.renews_at), endsAt: iso(a.ends_at),
+      renewsAt: cancelled ? null : remote ? iso(a.renews_at) : (row.renews_at?.toISOString() ?? null), endsAt: remote ? iso(a.ends_at) : (row.ends_at?.toISOString() ?? null),
       paymentMethod: brand && last4 ? { brand, last4 } : null,
-      updatePaymentUrl: urlOf(a, "update_payment_method") ?? row.update_payment_url
+      updatePaymentUrl: remote ? (urlOf(a, "update_payment_method") ?? row.update_payment_url) : null
     },
-    invoices: invoices.slice(0, 6).map(invoiceOf),
+    invoices: (invoices ?? []).slice(0, 6).map(invoiceOf),
     tokens: tokens.plan ? { granted: tokens.plan.granted, used: tokens.plan.used, remaining: tokens.plan.remaining, resetsAt: view.tokensResetAt } : null
   };
 }
@@ -73,10 +99,12 @@ export async function cancelPlan(userId: string, reason: string | undefined, fet
   const row = await servingSubscription(userId, now);
   if (!row) throw new NotSubscribed("No active plan to cancel.");
   if (alreadyCancelled(row)) return subscriptionFor(userId, now);
+  if (isManual(row)) throw new ChangeRefused(MANUAL_REFUSAL);
   let remote: ApiResource;
   try {
     remote = await cancelSubscriptionAtPeriodEnd(row.provider_ref, fetcher);
   } catch (error) {
+    if (notFound(error)) throw new ChangeRefused(MISSING_REFUSAL);
     // A concurrent cancel can make Lemon Squeezy refuse the second; if it is cancelled there, that is the outcome we wanted.
     remote = await getSubscription(row.provider_ref, fetcher).catch(() => { throw error; });
     if (remote.attributes?.cancelled !== true) throw error;
@@ -92,7 +120,8 @@ export async function resumePlan(userId: string, fetcher: typeof fetch = fetch, 
   const row = await servingSubscription(userId, now);
   if (!row) throw new NotSubscribed("No plan to resume.");
   if (!alreadyCancelled(row)) return subscriptionFor(userId, now);
-  const remote = await resumeSubscriptionRemote(row.provider_ref, fetcher);
+  if (isManual(row)) throw new ChangeRefused(MANUAL_REFUSAL);
+  const remote = await resumeSubscriptionRemote(row.provider_ref, fetcher).catch(refuseMissing);
   await adopt(userId, "subscription_resumed", remote, now);
   return subscriptionFor(userId, now);
 }
@@ -111,13 +140,14 @@ export async function changePlan(userId: string, product: string, fetcher: typeo
   if (!row) throw new NotSubscribed("No active plan to change.");
   if (!isPaidTier(product)) throw new ChangeRefused("Choose one of the paid plans.");
   if (row.tier === product) return subscriptionFor(userId, now);
+  if (isManual(row)) throw new ChangeRefused(MANUAL_REFUSAL);
   if (alreadyCancelled(row)) throw new ChangeRefused("Resume your subscription before changing plans.");
   const variantId = variantIdFor(product, row.billing_interval ?? "month");
   if (!variantId) throw new ChangeRefused("That plan is not available at your billing interval.");
   const upgrade = RANK[product] > RANK[row.tier as PaidTier];
-  const productId = text((await getVariant(variantId, fetcher)).attributes?.product_id);
+  const productId = text((await getVariant(variantId, fetcher).catch(refuseMissing)).attributes?.product_id);
   if (!productId) throw new ChangeRefused("That plan is not available right now.");
-  const remote = await changeSubscriptionVariant(row.provider_ref, { variantId, productId, invoiceImmediately: upgrade, disableProrations: !upgrade }, fetcher);
+  const remote = await changeSubscriptionVariant(row.provider_ref, { variantId, productId, invoiceImmediately: upgrade, disableProrations: !upgrade }, fetcher).catch(refuseMissing);
   await adopt(userId, "subscription_updated", remote, now);
   return subscriptionFor(userId, now);
 }
@@ -132,7 +162,8 @@ export async function invoiceDocument(userId: string, invoiceId: string, fetcher
   const row = (await servingSubscription(userId, now)) ?? (await query<{ provider_ref: string }>("select provider_ref from app.subscriptions where user_id = $1 order by updated_at desc limit 1", [userId])).rows[0];
   if (!row) throw new NotSubscribed("No invoices.");
   const ref = "provider_ref" in row ? row.provider_ref : "";
-  const found = (await listInvoices(ref, fetcher)).find((invoice) => text(invoice.id) === invoiceId);
+  if (isManual({ provider_ref: ref })) throw new NotSubscribed("Invoice not found.");
+  const found = (await listInvoices(ref, fetcher).catch((error) => (notFound(error) ? [] : Promise.reject(error)))).find((invoice) => text(invoice.id) === invoiceId);
   const url = found ? urlOf(found.attributes ?? {}, "invoice_url") : null;
   if (!url) throw new NotSubscribed("Invoice not found.");
   if (!LEMON_HOST.test(new URL(url).hostname)) throw new ChangeRefused("That invoice cannot be downloaded here.");

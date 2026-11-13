@@ -26,7 +26,7 @@ export type SubscriptionView = {
 };
 
 export type SubRow = {
-  user_id: string; provider_ref: string; variant_id: string; tier: string; billing_interval: BillingInterval; status: string; renews_at: Date | null; ends_at: Date | null;
+  user_id: string; provider?: string; provider_ref: string; variant_id: string; tier: string; billing_interval: BillingInterval; status: string; renews_at: Date | null; ends_at: Date | null;
   cancel_at_period_end: boolean; customer_portal_url: string | null; update_payment_url: string | null; provider_updated_at: Date | null;
   cycle_anchor_at: Date | null; cycle_months_granted: number; created_at: Date;
 };

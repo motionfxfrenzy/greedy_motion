@@ -15,9 +15,9 @@ const { registerBillingRoutes } = await import("../src/billing/routes.ts");
 const { default: Fastify } = await import("fastify");
 await migrate();
 
-const U = "00000000-0000-4000-8000-0000000d0001", V = "00000000-0000-4000-8000-0000000d0002";
+const U = "00000000-0000-4000-8000-0000000d0001", V = "00000000-0000-4000-8000-0000000d0002", M = "00000000-0000-4000-8000-0000000d0003";
 const clean = async () => {
-  for (const t of ["token_ledger", "subscriptions", "entitlements", "entitlement_events"]) await pool.query(`delete from app.${t} where user_id = any($1)`, [[U, V]]);
+  for (const t of ["token_ledger", "subscriptions", "entitlements", "entitlement_events"]) await pool.query(`delete from app.${t} where user_id = any($1)`, [[U, V, M]]);
   await pool.query("delete from app.billing_events where payload::text like '%0000000d000%' or event_key like '%:7701:%' or event_key like 'cancel-reason:7701:%'");
 };
 await clean();
@@ -26,6 +26,7 @@ const day = 86_400_000, now = Date.now(), iso = (ms) => new Date(ms).toISOString
 const remote = { variantId: 101, status: "active", cancelled: false, ends_at: null, renews_at: iso(now + 30 * day), updated_at: iso(now), clock: 0 };
 const calls = [], changes = [];
 let failing = false, refuseDelete = false;
+const missing = new Set();
 const attrs = () => ({
   variant_id: remote.variantId, status: remote.status, cancelled: remote.cancelled, ends_at: remote.ends_at, renews_at: remote.renews_at, created_at: iso(now), updated_at: iso(now + (remote.clock += 1000)),
   card_brand: "visa", card_last_four: "4242", user_email: "buyer@example.com",
@@ -35,6 +36,10 @@ const fakeApi = async (url, init = {}) => {
   const method = init.method ?? "GET", path = String(url).replace("https://api.lemonsqueezy.com/v1", "");
   calls.push(`${method} ${path.split("?")[0]}`);
   if (failing) return new Response("{}", { status: 500 });
+  const gone = (kind) => missing.has(kind) && new Response("{}", { status: 404 });
+  if (path.startsWith("/subscription-invoices") && gone("invoices")) return gone("invoices");
+  if (path.startsWith("/variants/") && gone("variant")) return gone("variant");
+  if (path === "/subscriptions/7701" && gone("subscription")) return gone("subscription");
   const json = (data, status = 200) => new Response(JSON.stringify({ data }), { status });
   if (path.startsWith("/subscription-invoices")) return json([
     { id: "8002", type: "subscription-invoices", attributes: { status: "paid", total_formatted: "$19.00", refunded: false, created_at: iso(now - 1000), urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/x/subscription-invoice/8002" } } },
@@ -173,6 +178,41 @@ try {
   assert.equal(pdf.body.toString().startsWith("%PDF"), true);
   await assert.rejects(invoiceDocument(U, "9999", fakeApi), NotSubscribed, "an invoice that is not the caller's");
   await assert.rejects(invoiceDocument(V, "8002", fakeApi), NotSubscribed, "another user's");
+
+  // A 404 from Lemon Squeezy on one piece never blanks the modal: our own records fill in, and the piece is marked.
+  const logged = [];
+  const log = (details) => logged.push(details);
+  missing.add("invoices");
+  const noInvoices = await billingOverview(U, fakeApi, new Date(), log);
+  assert.equal(noInvoices.invoicesAvailable, false);
+  assert.deepEqual(noInvoices.invoices, []);
+  assert.equal(noInvoices.subscription.planName, "Starter");
+  assert.deepEqual(noInvoices.subscription.paymentMethod, { brand: "visa", last4: "4242" }, "the card still shows");
+  assert.equal(noInvoices.tokens.remaining > 0, true);
+  assert.equal(logged.at(-1).resource, "invoices", "the failing resource is logged");
+  missing.clear();
+  missing.add("subscription");
+  const noSub = await billingOverview(U, fakeApi, new Date(), log);
+  assert.equal(noSub.subscription.providerMissing, true);
+  assert.equal(noSub.subscription.source, "lemonsqueezy");
+  assert.deepEqual([noSub.subscription.planName, noSub.subscription.status, noSub.subscription.paymentMethod, noSub.subscription.updatePaymentUrl], ["Starter", "active", null, null], "plan and status come from our own record");
+  assert.ok(noSub.subscription.renewsAt, "and so does the renewal date");
+  assert.equal(noSub.tokens.remaining > 0, true);
+  assert.equal(logged.at(-1).resource, "subscription");
+  await assert.rejects(cancelPlan(U, undefined, fakeApi), (e) => e instanceof ChangeRefused && /couldn't find this subscription/.test(e.message), "a cancel of a subscription the provider does not know says so");
+  missing.clear();
+  missing.add("variant");
+  await assert.rejects(changePlan(U, "pro", fakeApi), (e) => e instanceof ChangeRefused && /couldn't find/.test(e.message));
+  missing.clear();
+  // A plan set up by hand (manual:<user>) has no Lemon Squeezy subscription: no calls are made, and changes are refused kindly.
+  await pool.query("insert into app.subscriptions (user_id, provider, provider_ref, variant_id, tier, billing_interval, status, renews_at, cancel_at_period_end) values ($1, 'manual', $2, 'manual', 'pro', 'month', 'active', $3, false)", [M, `manual:${M}`, iso(now + 30 * day)]);
+  const callsBefore = calls.length;
+  const manual = await billingOverview(M, fakeApi, new Date(), log);
+  assert.equal(calls.length, callsBefore, "no Lemon Squeezy call for a manual plan");
+  assert.deepEqual([manual.subscription.source, manual.subscription.providerMissing, manual.subscription.planName, manual.invoicesAvailable], ["manual", false, "Pro", true]);
+  for (const action of [() => cancelPlan(M, undefined, fakeApi), () => changePlan(M, "starter", fakeApi)]) await assert.rejects(action(), (e) => e instanceof ChangeRefused && /set up by our team/.test(e.message));
+  await assert.rejects(invoiceDocument(M, "8002", fakeApi), NotSubscribed);
+  assert.equal(calls.length, callsBefore, "and none for those either");
 
   // Failures: the API down leaves our state alone and surfaces an error that carries the portal link (over HTTP).
   failing = true;

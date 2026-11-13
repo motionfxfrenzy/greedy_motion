@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PaidTier } from "@videosaas/contracts";
 import { cancelSubscription, changePlan, downloadInvoice, getBillingOverview, resumeSubscription } from "../lib/api";
 import { closeOverlay, openOverlayOrPage } from "../lib/lemon";
-import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, formatDate, invoiceRows, modalStateFor, planChoices, tokenLine, type ModalState } from "./billing-modal-model";
+import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, formatDate, invoiceRows, limitedNotice, modalStateFor, planChoices, tokenLine, type ModalState } from "./billing-modal-model";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const message = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
@@ -116,10 +116,13 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
 
         {state.kind === "ready" && (() => {
           const { subscription: sub, invoices, tokens } = state.overview;
-          const view = describeSubscription(sub);
+          const limited = limitedNotice(sub);
+          const base = describeSubscription(sub);
+          // With nothing to act on at the provider, no change, cancel, resume or card button is offered.
+          const view = limited ? { ...base, canCancel: false, canResume: false, showUpdate: false, prominentUpdate: false } : base;
           const confirm = state.changing ? changeConfirm(sub.tier, state.changing, sub.interval, sub.renewsAt ?? sub.endsAt, undefined, tokens) : null;
           return <>
-            {state.notice && <p className={`profile-note ${/^(Could not|Something|Resume|Choose|That )/.test(state.notice) ? "bad" : "ok"}`} role="status">{state.notice}</p>}
+            {state.notice && <p className={`profile-note ${/^(Could not|Something|Resume|Choose|That |We couldn.t|This plan)/.test(state.notice) ? "bad" : "ok"}`} role="status">{state.notice}</p>}
 
             <section className="billing-section" aria-labelledby="billing-plan">
               <b id="billing-plan">{sub.planName} plan{sub.interval === "year" ? " (Annual)" : ""}</b>
@@ -127,16 +130,18 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
               {view.prominentUpdate && sub.updatePaymentUrl && <p className="profile-note bad" role="alert">Your last payment failed. <button className="primary-button" disabled={state.busy !== null} onClick={() => void updateCard(sub.updatePaymentUrl!)}>Update payment method</button></p>}
             </section>
 
-            <section className="billing-section" aria-labelledby="billing-card">
+            {limited && <section className="billing-section" role="alert"><p>{limited}</p><div className="profile-actions"><Link className="secondary-button" href="/contact">Contact support</Link></div></section>}
+
+            {!limited && <section className="billing-section" aria-labelledby="billing-card">
               <div className="profile-row">
                 <div><b id="billing-card">Payment method</b><p>{cardLine(sub)}</p></div>
                 {view.showUpdate && !view.prominentUpdate && sub.updatePaymentUrl && <button className="secondary-button" disabled={state.busy !== null} onClick={() => void updateCard(sub.updatePaymentUrl!)}>{state.busy === "update" ? "Opening…" : "Update payment method"}</button>}
               </div>
-            </section>
+            </section>}
 
             {tokens && <section className="billing-section" aria-labelledby="billing-tokens"><b id="billing-tokens">Plan tokens this period</b><p>{tokenLine(tokens)}{tokens.resetsAt ? ` Resets ${formatDate(tokens.resetsAt)}.` : ""}</p></section>}
 
-            <section className="billing-section" aria-labelledby="billing-plans">
+            {!limited && <section className="billing-section" aria-labelledby="billing-plans">
               <b id="billing-plans">Change plan</b>
               {sub.cancelAtPeriodEnd && <p>Resume your subscription to change plans.</p>}
               <ul className="billing-plans">
@@ -154,11 +159,11 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
                   <button className="secondary-button" disabled={state.busy !== null} onClick={() => setState({ ...state, changing: null })}>Keep {sub.planName}</button>
                 </div>
               </div>}
-            </section>
+            </section>}
 
             <section className="billing-section" aria-labelledby="billing-invoices">
               <b id="billing-invoices">Recent invoices</b>
-              {invoices.length === 0 ? <p>No invoices yet.</p> : <table className="billing-invoices"><thead><tr><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Download</span></th></tr></thead>
+              {state.overview.invoicesAvailable === false ? <p>Invoices are unavailable right now. Try again later.</p> : invoices.length === 0 ? <p>{sub.source === "manual" ? "A plan set up by our team has no invoices." : "No invoices yet."}</p> : <table className="billing-invoices"><thead><tr><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Download</span></th></tr></thead>
                 <tbody>{invoiceRows(invoices).map((row) => <tr key={row.id}><td>{row.date}</td><td>{row.amount}</td><td>{row.status}</td><td>{row.url ? <button className="text-button" disabled={downloading !== null} onClick={() => void download(row.id)} aria-label={`Download invoice from ${row.date}`}>{downloading === row.id ? "Preparing…" : "Download"}</button> : null}</td></tr>)}</tbody></table>}
               {downloadError && <p className="profile-note bad" role="alert">{downloadError}</p>}
             </section>

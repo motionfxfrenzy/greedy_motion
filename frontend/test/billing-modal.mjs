@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, invoiceRows, modalStateFor, planChoices, tokenLine } from "../components/billing-modal-model.ts";
+import { cancelConfirmText, cardLine, changeConfirm, describeSubscription, invoiceRows, limitedNotice, modalStateFor, planChoices, tokenLine } from "../components/billing-modal-model.ts";
 import { embedUrl } from "../lib/lemon.ts";
 
-const sub = (over = {}) => ({ tier: "starter", planName: "Starter", interval: "month", status: "active", cancelAtPeriodEnd: false, renewsAt: "2026-12-12T00:00:00Z", endsAt: null, paymentMethod: { brand: "visa", last4: "4242" }, updatePaymentUrl: "https://pay.example/u", ...over });
+const sub = (over = {}) => ({ source: "lemonsqueezy", providerMissing: false, tier: "starter", planName: "Starter", interval: "month", status: "active", cancelAtPeriodEnd: false, renewsAt: "2026-12-12T00:00:00Z", endsAt: null, paymentMethod: { brand: "visa", last4: "4242" }, updatePaymentUrl: "https://pay.example/u", ...over });
 
 test("active: renews on a date, can be cancelled, update is secondary", () => {
   const view = describeSubscription(sub(), "en-US");
@@ -78,4 +78,10 @@ test("a downgrade says nothing is charged or refunded and that this period's tok
 test("overlay links carry embed=1 and keep their signature", () => {
   assert.equal(embedUrl("https://store.lemonsqueezy.com/checkout/custom/abc?signature=s1"), "https://store.lemonsqueezy.com/checkout/custom/abc?signature=s1&embed=1");
   assert.equal(embedUrl("https://x.lemonsqueezy.com/u?embed=1"), "https://x.lemonsqueezy.com/u?embed=1");
+});
+
+test("a manual plan or a subscription the provider does not know is explained, with a way to ask for help", () => {
+  assert.equal(limitedNotice(sub()), null);
+  assert.match(limitedNotice(sub({ source: "manual" })), /^This plan was set up by our team, so it can't be changed here\. Contact support/);
+  assert.match(limitedNotice(sub({ providerMissing: true })), /^We couldn't find this subscription at our payment provider\./);
 });

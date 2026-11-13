@@ -43,7 +43,10 @@ export const checkoutConfigured = (interval: BillingInterval = "month"): boolean
 
 export const annualCheckoutConfigured = () => checkoutConfigured("year");
 
-export class CheckoutError extends Error {}
+export class CheckoutError extends Error {
+  status: number | undefined;
+  constructor(message: string, status?: number) { super(message); this.status = status; }
+}
 
 /** Where the buyer lands afterwards: the profile tokens section, flagged so the page syncs the purchase at once instead of waiting for the webhook. */
 export function returnUrlFor(item: "plan" | "pack", base: string = config.billing.returnUrl): string {
@@ -85,7 +88,7 @@ export type ApiResource = { id?: string; type?: string; attributes?: Record<stri
 
 async function apiGet(path: string, fetcher: typeof fetch): Promise<ApiResource[]> {
   const response = await fetcher(`${API}${path}`, { headers: { Accept: "application/vnd.api+json", Authorization: `Bearer ${config.billing.apiKey}` } });
-  if (!response.ok) throw new CheckoutError(`Lemon Squeezy lookup failed (${response.status}).`);
+  if (!response.ok) throw new CheckoutError(`Lemon Squeezy lookup failed (${response.status}).`, response.status);
   const body = await response.json() as { data?: ApiResource[] };
   return Array.isArray(body.data) ? body.data : [];
 }
@@ -96,7 +99,7 @@ async function apiOne(method: "GET" | "DELETE" | "PATCH", path: string, fetcher:
     headers: { Accept: "application/vnd.api+json", Authorization: `Bearer ${config.billing.apiKey}`, ...(payload ? { "Content-Type": "application/vnd.api+json" } : {}) },
     ...(payload ? { body: JSON.stringify(payload) } : {})
   });
-  if (!response.ok) throw new CheckoutError(`Lemon Squeezy ${method} failed (${response.status}).`);
+  if (!response.ok) throw new CheckoutError(`Lemon Squeezy ${method} failed (${response.status}).`, response.status);
   const body = await response.json() as { data?: ApiResource };
   if (!body.data?.id) throw new CheckoutError("Lemon Squeezy returned no subscription.");
   return body.data;

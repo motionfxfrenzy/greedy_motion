@@ -331,7 +331,9 @@ export async function syncPurchase(): Promise<{ synced: boolean }> {
 
 export type BillingInvoice = { id: string; date: string | null; amount: string; status: string; refunded: boolean; url: string | null };
 export type BillingOverview = {
+  invoicesAvailable?: boolean;
   subscription: null | {
+    source: "lemonsqueezy" | "manual"; providerMissing: boolean;
     tier: "starter" | "pro" | "business"; planName: string; interval: "month" | "year"; status: string; cancelAtPeriodEnd: boolean;
     renewsAt: string | null; endsAt: string | null; paymentMethod: { brand: string; last4: string } | null;
     updatePaymentUrl: string | null;

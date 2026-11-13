@@ -67,7 +67,7 @@ export async function registerBillingRoutes(app: FastifyInstance) {
   };
   app.get("/v1/billing/overview", async (request, reply) => {
     if (!checkoutConfigured("month")) return reply.code(501).send(unavailable);
-    try { return reply.header("Cache-Control", "no-store").send(await billingOverview(callerId(request))); } catch (error) { return billingFailure(request, reply, error); }
+    try { return reply.header("Cache-Control", "no-store").send(await billingOverview(callerId(request), fetch, new Date(), (details) => request.log.warn(details, "billing overview piece unavailable"))); } catch (error) { return billingFailure(request, reply, error); }
   });
   app.post<{ Body: { reason?: unknown } | undefined }>("/v1/billing/cancel", async (request, reply) => {
     if (!checkoutConfigured("month")) return reply.code(501).send(unavailable);
