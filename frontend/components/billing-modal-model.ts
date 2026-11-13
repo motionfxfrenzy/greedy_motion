@@ -64,6 +64,7 @@ export function changeConfirm(current: PaidTier, target: PaidTier, interval: "mo
   const diff = interval === "year" ? PLANS[target].annualPriceUsd - PLANS[current].annualPriceUsd : PLANS[target].priceUsd - PLANS[current].priceUsd;
   const money = `$${Math.abs(diff)} a ${interval === "year" ? "year" : "month"}`;
   const tokens = PLANS[target].tokens - PLANS[current].tokens;
+  const lost = PLANS[current].proEditor && !PLANS[target].proEditor ? "You lose the Pro editor immediately" : `You lose the features ${PLANS[current].name} has that ${PLANS[target].name} does not, immediately`;
   return upgrade
     ? { title: `Upgrade to ${PLANS[target].name}?`, confirmLabel: `Upgrade to ${PLANS[target].name}`, lines: [
         `${PLANS[target].name} costs ${priceText(target, interval)}, which is ${money} more than ${PLANS[current].name}.`,
@@ -71,6 +72,6 @@ export function changeConfirm(current: PaidTier, target: PaidTier, interval: "mo
         `You get ${tokens.toLocaleString()} more plan tokens now. From ${renews} the full ${PLANS[target].name} price renews.`] }
     : { title: `Downgrade to ${PLANS[target].name}?`, confirmLabel: `Downgrade to ${PLANS[target].name}`, lines: [
         `${PLANS[target].name} costs ${priceText(target, interval)}, which is ${money} less than ${PLANS[current].name}.`,
-        `The change applies now. Nothing is charged or refunded today; the lower price starts at your next renewal on ${renews}.`,
-        `You keep this period's plan tokens. Features that belong to ${PLANS[current].name} end now.`] };
+        `This takes effect now. ${lost}, and there's no refund for the rest of this period. Nothing is charged today; the lower price starts at your next renewal on ${renews}.`,
+        `Your plan tokens: you keep what is left of this period's ${PLANS[current].tokens.toLocaleString()}, and from ${renews} you get ${PLANS[target].tokens.toLocaleString()} a month.`] };
 }

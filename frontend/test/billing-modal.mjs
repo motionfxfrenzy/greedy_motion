@@ -71,8 +71,8 @@ test("a downgrade says nothing is charged or refunded and that this period's tok
   const confirm = changeConfirm("pro", "starter", "month", "2026-12-12T00:00:00Z", "en-US");
   assert.equal(confirm.confirmLabel, "Downgrade to Starter");
   assert.match(confirm.lines[0], /\$30 a month less than Pro/);
-  assert.match(confirm.lines[1], /Nothing is charged or refunded today; the lower price starts at your next renewal on December 12, 2026/);
-  assert.match(confirm.lines[2], /keep this period's plan tokens/);
+  assert.match(confirm.lines[1], /^This takes effect now\. You lose the Pro editor immediately, and there's no refund for the rest of this period\. Nothing is charged today; the lower price starts at your next renewal on December 12, 2026\.$/);
+  assert.match(confirm.lines[2], /you keep what is left of this period's 550, and from December 12, 2026 you get 200 a month/);
 });
 
 test("overlay links carry embed=1 and keep their signature", () => {
