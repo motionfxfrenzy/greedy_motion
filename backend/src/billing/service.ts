@@ -79,14 +79,20 @@ export type Outcome = "applied" | "duplicate" | "ignored";
 
 const text = (value: unknown) => (typeof value === "string" || typeof value === "number" ? String(value) : "");
 
-export async function applyWebhook(body: WebhookBody, now = new Date()): Promise<Outcome> {
+/**
+ * `source` keeps a pulled event (the checkout-return sync) from sharing a dedupe key with the same event delivered by
+ * webhook. Without it, a webhook that was recorded but could not act (an invoice that raced its subscription) would make
+ * the sync's identical invoice a "duplicate" and nothing would ever credit the tokens. Grants stay idempotent on the
+ * ledger key (invoice:<id>), so the two paths still never credit twice.
+ */
+export async function applyWebhook(body: WebhookBody, now = new Date(), source: "webhook" | "sync" = "webhook"): Promise<Outcome> {
   const name = body.meta?.event_name ?? "";
   const data = body.data;
   const attributes = data?.attributes ?? {};
   const object = text(data?.id);
   if (!name || !object) return "ignored";
   const customUser = body.meta?.custom_data?.user_id;
-  const key = `${name}:${object}:${text(attributes.updated_at) || text(attributes.created_at)}`;
+  const key = `${source === "sync" ? "sync:" : ""}${name}:${object}:${text(attributes.updated_at) || text(attributes.created_at)}`;
 
   return withTransaction(async () => {
     const stored = await query("insert into app.billing_events (event_key, name, user_id, payload) values ($1, $2, $3, $4) on conflict (event_key) do nothing", [key, name, typeof customUser === "string" && UUID.test(customUser) ? customUser : null, JSON.stringify(body)]);
@@ -156,9 +162,10 @@ async function applyInvoice(invoiceId: string, a: Record<string, unknown>, custo
   const { rows } = await query<{ user_id: string; tier: string; billing_interval: BillingInterval; created_at: Date }>("select user_id, tier, billing_interval, created_at from app.subscriptions where provider = 'lemonsqueezy' and provider_ref = $1", [subscriptionRef]);
   const sub = rows[0];
   if (!sub) {
-    // The subscription event has not arrived yet; the provider redelivers until it has.
-    if (typeof custom === "string") throw new RetryLater("Invoice arrived before its subscription.");
-    return "ignored";
+    // The subscription event has not arrived yet (Lemon Squeezy sends it and the first invoice within milliseconds, so
+    // they race). Never record this as handled: answer "retry" so the provider redelivers once the subscription exists.
+    // This used to answer "ignored" whenever the invoice carried no custom data, which recorded the event and lost the grant.
+    throw new RetryLater("Invoice arrived before its subscription.");
   }
   if (!isPaidTier(sub.tier)) return "ignored";
   // A delivery of an invoice we already applied must not expire the month's tokens again.
@@ -220,9 +227,9 @@ export async function syncPurchase(userId: string, email: string | undefined, fe
     const owner = await query<{ user_id: string }>("select user_id from app.subscriptions where provider = 'lemonsqueezy' and provider_ref = $1", [ref]);
     if (owner.rows[0] && owner.rows[0].user_id.toLowerCase() !== userId.toLowerCase()) continue;
     const meta = { event_name: "subscription_updated", custom_data: { user_id: userId } };
-    applied.push(await applyWebhook({ meta, data: { id: ref, type: "subscriptions", attributes } }, now));
+    applied.push(await applyWebhook({ meta, data: { id: ref, type: "subscriptions", attributes } }, now, "sync"));
     const invoice = await latestPaidInvoice(ref, fetcher);
-    if (invoice?.id) applied.push(await applyWebhook({ meta: { ...meta, event_name: "subscription_payment_success" }, data: { id: text(invoice.id), type: "subscription-invoices", attributes: invoice.attributes } }, now));
+    if (invoice?.id) applied.push(await applyWebhook({ meta: { ...meta, event_name: "subscription_payment_success" }, data: { id: text(invoice.id), type: "subscription-invoices", attributes: invoice.attributes } }, now, "sync"));
   }
   const view = await subscriptionFor(userId, now);
   return { synced: view.tier !== "free", applied };

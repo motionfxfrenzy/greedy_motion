@@ -7,14 +7,14 @@ if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required (a loca
 process.env.LEMONSQUEEZY_API_KEY = "k"; process.env.LEMONSQUEEZY_STORE_ID = "1";
 process.env.LEMONSQUEEZY_VARIANT_STARTER = "101"; process.env.LEMONSQUEEZY_VARIANT_PRO = "102"; process.env.LEMONSQUEEZY_VARIANT_BUSINESS = "103"; process.env.LEMONSQUEEZY_VARIANT_TOPUP = "104";
 const { migrate, pool } = await import("../src/db/database.ts");
-const { applyWebhook, syncPurchase, subscriptionFor } = await import("../src/billing/service.ts");
+const { applyWebhook, syncPurchase, subscriptionFor, RetryLater } = await import("../src/billing/service.ts");
 const { returnUrlFor } = await import("../src/billing/lemonsqueezy.ts");
 await migrate();
 
 const U = "00000000-0000-4000-8000-0000000c0001", V = "00000000-0000-4000-8000-0000000c0002";
 const clean = async () => {
   for (const t of ["token_ledger", "subscriptions", "entitlements", "entitlement_events"]) await pool.query(`delete from app.${t} where user_id = any($1)`, [[U, V]]);
-  await pool.query("delete from app.billing_events where payload::text like '%0000000c000%'");
+  await pool.query("delete from app.billing_events where payload::text like '%0000000c000%' or event_key like '%:8001:%' or event_key like '%:7001:%'");
 };
 const planGrants = async (user) => Number((await pool.query("select count(*) from app.token_ledger where user_id = $1 and ref like 'invoice:%'", [user])).rows[0].count);
 await clean();
@@ -70,6 +70,32 @@ try {
   // 7. Nothing paid yet: free, and no grant.
   const empty = await syncPurchase(V, "none@example.com", async () => new Response(JSON.stringify({ data: [] }), { status: 200 }));
   assert.equal(empty.synced, false);
+  // 8. The production sequence: checkout, then the subscription and its first invoice arrive together, the invoice first
+  //    and without custom data, then the sync, then a webhook again. The invoice must never be recorded as handled
+  //    before its subscription exists, and the Starter allowance must be credited exactly once.
+  await clean();
+  const [subscriptionEvent, invoiceEvent] = webhooks();
+  const bareInvoice = { meta: { event_name: "subscription_payment_success" }, data: invoiceEvent.data };
+  await assert.rejects(applyWebhook(bareInvoice), RetryLater, "an invoice before its subscription asks to be sent again");
+  assert.equal(Number((await pool.query("select count(*) from app.billing_events where name = 'subscription_payment_success' and payload::text like '%8001%'")).rows[0].count), 0, "and is not recorded as handled");
+  assert.equal(await applyWebhook(subscriptionEvent), "applied");
+  assert.equal(await planGrants(U), 0, "the subscription event alone grants nothing");
+  await syncPurchase(U, "buyer@example.com", fakeApi);
+  assert.equal(await planGrants(U), 1, "the sync credits the first invoice");
+  assert.equal(await applyWebhook(bareInvoice), "ignored", "the redelivered invoice does not credit again");
+  await applyWebhook(subscriptionEvent);
+  assert.equal(await planGrants(U), 1);
+  assert.equal(Number((await pool.query("select coalesce(sum(amount),0) s from app.token_ledger where user_id = $1", [U])).rows[0].s), 200_000);
+
+  // 9. A webhook already recorded for the invoice (as production did before this fix, when it could not act) must not
+  //    block the sync from crediting it.
+  await clean();
+  await applyWebhook(subscriptionEvent);
+  await pool.query("insert into app.billing_events (event_key, name, payload) values ($1, 'subscription_payment_success', '{\"x\":\"0000000c0001\"}')", [`subscription_payment_success:8001:${invAttrs.updated_at}`]);
+  await syncPurchase(U, "buyer@example.com", fakeApi);
+  assert.equal(await planGrants(U), 1, "a recorded-but-unapplied webhook does not shadow the sync");
+  await syncPurchase(U, "buyer@example.com", fakeApi);
+  assert.equal(await planGrants(U), 1);
   console.log("billing-sync ok");
 } finally {
   await clean();
