@@ -86,19 +86,26 @@ export async function createCheckout(input: { userId: string; email?: string; va
 
 export type ApiResource = { id?: string; type?: string; attributes?: Record<string, unknown> };
 
+/** Every Lemon Squeezy call is bounded, so a hung provider turns into a quick, handled error and never a stalled request. */
+export const timeouts = { read: 6000, write: 10_000 };
+const wrap = async (call: () => Promise<Response>): Promise<Response> => {
+  try { return await call(); } catch (error) { throw new CheckoutError(`Lemon Squeezy did not answer (${error instanceof Error ? error.name : "error"}).`); }
+};
+
 async function apiGet(path: string, fetcher: typeof fetch): Promise<ApiResource[]> {
-  const response = await fetcher(`${API}${path}`, { headers: { Accept: "application/vnd.api+json", Authorization: `Bearer ${config.billing.apiKey}` } });
+  const response = await wrap(() => fetcher(`${API}${path}`, { signal: AbortSignal.timeout(timeouts.read), headers: { Accept: "application/vnd.api+json", Authorization: `Bearer ${config.billing.apiKey}` } }));
   if (!response.ok) throw new CheckoutError(`Lemon Squeezy lookup failed (${response.status}).`, response.status);
   const body = await response.json() as { data?: ApiResource[] };
   return Array.isArray(body.data) ? body.data : [];
 }
 
 async function apiOne(method: "GET" | "DELETE" | "PATCH", path: string, fetcher: typeof fetch, payload?: unknown): Promise<ApiResource> {
-  const response = await fetcher(`${API}${path}`, {
+  const response = await wrap(() => fetcher(`${API}${path}`, {
     method,
+    signal: AbortSignal.timeout(method === "GET" ? timeouts.read : timeouts.write),
     headers: { Accept: "application/vnd.api+json", Authorization: `Bearer ${config.billing.apiKey}`, ...(payload ? { "Content-Type": "application/vnd.api+json" } : {}) },
     ...(payload ? { body: JSON.stringify(payload) } : {})
-  });
+  }));
   if (!response.ok) throw new CheckoutError(`Lemon Squeezy ${method} failed (${response.status}).`, response.status);
   const body = await response.json() as { data?: ApiResource };
   if (!body.data?.id) throw new CheckoutError("Lemon Squeezy returned no subscription.");

@@ -19,6 +19,8 @@ export type BillingOverview = {
   subscription: null | {
     /** "manual": a plan set up by our team, with no subscription at Lemon Squeezy. `providerMissing`: we hold a Lemon Squeezy id it does not know. Either way the details come from our own records. */
     source: "lemonsqueezy" | "manual"; providerMissing: boolean;
+    /** The provider did not answer in time or errored: what we hold ourselves is shown, and the rest can be retried. */
+    providerUnavailable: boolean;
     /** A downgrade in waiting: `tier` stays the higher plan until `at`. */
     pendingChange: { tier: PlanTier; planName: string; at: string | null } | null;
     tier: PlanTier; planName: string; interval: BillingInterval; status: string; cancelAtPeriodEnd: boolean;
@@ -60,15 +62,17 @@ export async function billingOverview(userId: string, fetcher: typeof fetch = fe
   if (!row) return { subscription: null, invoices: [], tokens: null };
   const manual = isManual(row);
   // One missing or failing piece must not blank the modal: what we hold ourselves (plan, status, dates, tokens) always shows.
-  const piece = async <T>(resource: string, load: () => Promise<T>, hard: boolean): Promise<T | null> => {
+  let unavailable = false;
+  const piece = async <T>(resource: string, load: () => Promise<T>): Promise<T | null> => {
     try { return await load(); } catch (error) {
-      if (notFound(error) || !hard) { log({ resource, subscription: row.provider_ref, status: error instanceof CheckoutError ? error.status : undefined, message: error instanceof Error ? error.message : String(error) }); return null; }
-      throw error;
+      if (!notFound(error) && resource === "subscription") unavailable = true;
+      log({ resource, subscription: row.provider_ref, status: error instanceof CheckoutError ? error.status : undefined, message: error instanceof Error ? error.message : String(error) });
+      return null;
     }
   };
   const [remote, invoices, tokens, view] = await Promise.all([
-    manual ? null : piece("subscription", () => getSubscription(row.provider_ref, fetcher), true),
-    manual ? [] : piece("invoices", () => listInvoices(row.provider_ref, fetcher), false),
+    manual ? null : piece("subscription", () => getSubscription(row.provider_ref, fetcher)),
+    manual ? [] : piece("invoices", () => listInvoices(row.provider_ref, fetcher)),
     tokenSummary(userId), subscriptionFor(userId, now)
   ]);
   const a = remote?.attributes ?? {};
@@ -77,7 +81,7 @@ export async function billingOverview(userId: string, fetcher: typeof fetch = fe
   return {
     invoicesAvailable: manual || invoices !== null,
     subscription: {
-      source: manual ? "manual" : "lemonsqueezy", providerMissing: !manual && remote === null,
+      source: manual ? "manual" : "lemonsqueezy", providerMissing: !manual && remote === null && !unavailable, providerUnavailable: !manual && unavailable,
       tier: effectiveTier(row, now), planName: PLANS[effectiveTier(row, now)].name, interval: row.billing_interval ?? "month",
       pendingChange: effectiveTier(row, now) !== row.tier ? { tier: row.tier as PlanTier, planName: PLANS[row.tier as PlanTier].name, at: row.entitled_until?.toISOString() ?? null } : null,
       status: text(a.status) || row.status, cancelAtPeriodEnd: cancelled,
@@ -176,7 +180,7 @@ export async function invoiceDocument(userId: string, invoiceId: string, fetcher
   const url = found ? urlOf(found.attributes ?? {}, "invoice_url") : null;
   if (!url) throw new NotSubscribed("Invoice not found.");
   if (!LEMON_HOST.test(new URL(url).hostname)) throw new ChangeRefused("That invoice cannot be downloaded here.");
-  const response = await fetcher(url, { headers: { Accept: "application/pdf,text/html" } });
+  const response = await fetcher(url, { signal: AbortSignal.timeout(15_000), headers: { Accept: "application/pdf,text/html" } });
   if (!response.ok) throw new Error(`Invoice fetch failed (${response.status}).`);
   const contentType = (response.headers.get("content-type") ?? "application/pdf").split(";")[0].trim();
   if (contentType !== "application/pdf" && contentType !== "text/html") throw new ChangeRefused("That invoice cannot be downloaded here.");

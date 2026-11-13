@@ -83,6 +83,7 @@ export function changeConfirm(current: PaidTier, target: PaidTier, interval: "mo
  */
 export function limitedNotice(sub: Sub): string | null {
   if (sub.source === "manual") return "This plan was set up by our team, so it can't be changed here. Contact support to change or cancel it.";
+  if (sub.providerUnavailable) return "We couldn't reach our payment provider just now, so card details and invoices aren't shown. Your plan, dates and tokens below are from our records. Try again in a moment.";
   if (sub.providerMissing) return "We couldn't find this subscription at our payment provider. Your plan, dates and tokens below are what we have on record. Contact support and we'll sort it out.";
   return null;
 }

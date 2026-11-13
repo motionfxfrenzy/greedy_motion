@@ -91,6 +91,7 @@ test("a manual plan or a subscription the provider does not know is explained, w
   assert.equal(limitedNotice(sub()), null);
   assert.match(limitedNotice(sub({ source: "manual" })), /^This plan was set up by our team, so it can't be changed here\. Contact support/);
   assert.match(limitedNotice(sub({ providerMissing: true })), /^We couldn't find this subscription at our payment provider\./);
+  assert.match(limitedNotice(sub({ providerUnavailable: true })), /^We couldn't reach our payment provider just now.* Try again in a moment\.$/);
 });
 
 const instant = async () => undefined;

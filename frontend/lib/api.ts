@@ -336,7 +336,7 @@ export type BillingInvoice = { id: string; date: string | null; amount: string; 
 export type BillingOverview = {
   invoicesAvailable?: boolean;
   subscription: null | {
-    source: "lemonsqueezy" | "manual"; providerMissing: boolean;
+    source: "lemonsqueezy" | "manual"; providerMissing: boolean; providerUnavailable?: boolean;
     pendingChange: { tier: "starter" | "pro" | "business"; planName: string; at: string | null } | null;
     tier: "starter" | "pro" | "business"; planName: string; interval: "month" | "year"; status: string; cancelAtPeriodEnd: boolean;
     renewsAt: string | null; endsAt: string | null; paymentMethod: { brand: string; last4: string } | null;

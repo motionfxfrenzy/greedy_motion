@@ -141,7 +141,7 @@ export function BillingModal({ onClose, onChanged }: { onClose: () => void; onCh
               {view.prominentUpdate && sub.updatePaymentUrl && <p className="profile-note bad" role="alert">Your last payment failed. <button className="primary-button" disabled={state.busy !== null} onClick={() => void updateCard(sub.updatePaymentUrl!)}>Update payment method</button></p>}
             </section>
 
-            {limited && <section className="billing-section" role="alert"><p>{limited}</p><div className="profile-actions"><Link className="secondary-button" href="/contact">Contact support</Link></div></section>}
+            {limited && <section className="billing-section" role="alert"><p>{limited}</p><div className="profile-actions">{sub.providerUnavailable ? <button className="secondary-button" onClick={load}>Try again</button> : <Link className="secondary-button" href="/contact">Contact support</Link>}</div></section>}
 
             {!limited && <section className="billing-section" aria-labelledby="billing-card">
               <div className="profile-row">
