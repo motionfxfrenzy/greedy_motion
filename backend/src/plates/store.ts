@@ -1555,10 +1555,18 @@ export type ClipRequestOutcome =
   | { status: "clip_cap" }
   | { status: "ok"; duplicate: boolean; body: { state: "rendering" } };
 
+/** `force`: the user pressed Retry, so draw again even over an old clip. `reason` is kept on the sticky playback marker. */
+export type ClipRequestOptions = { force?: boolean; reason?: string };
+
+/** Sticky marker: once a scene needed a server clip, later loads play that clip until the scene's code changes (digest or gen). */
+const clipPlaybackMarker = (row: Pick<VariantRow, "gen" | "bundle_digest">, reason: string) =>
+  row.bundle_digest ? { mode: "clip", reason, medianMs: 0, p90Ms: 0, gen: row.gen, digest: row.bundle_digest } : null;
+
 async function enqueueVariantClipWithClient(
   client: SendClient,
   row: VariantRow,
-  cap: number | null
+  cap: number | null,
+  options: ClipRequestOptions = {}
 ): Promise<ClipRequestOutcome> {
   const alreadyJob = await client.query<{ n: string }>(
     `select count(*) as n from pgboss.job
@@ -1571,7 +1579,8 @@ async function enqueueVariantClipWithClient(
     return { status: "ok", duplicate: true, body: { state: "rendering" } };
   }
 
-  if (row.state !== "bundled" && row.state !== "checked") {
+  const forcedRedraw = Boolean(options.force) && row.state === "drawn" && Boolean(row.bundle_digest);
+  if (row.state !== "bundled" && row.state !== "checked" && !forcedRedraw) {
     return { status: "invalid_state", state: row.state };
   }
 
@@ -1604,9 +1613,17 @@ async function enqueueVariantClipWithClient(
     }
   }
 
+  const marker = clipPlaybackMarker(row, options.reason ?? (options.force ? "retry" : "fallback"));
   await client.query(
-    "update app.plate_variants set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(), updated_at = now() where id = $1",
-    [row.id]
+    `update app.plate_variants
+        set state = 'bundled', stage = 'queued for rendering', enqueued_at = now(),
+            timings = (coalesce(timings, '{}'::jsonb) - 'retrying') || $2::jsonb,
+            clip_key = case when $3::boolean then null else clip_key end,
+            still_key = case when $3::boolean then null else still_key end,
+            clip_meta = case when $3::boolean then null else clip_meta end,
+            updated_at = now()
+      where id = $1`,
+    [row.id, JSON.stringify(marker ? { playback: marker } : {}), Boolean(options.force)]
   );
   await sendOnce(client, QUEUES.plateRender, { variantId: row.id, gen: row.gen }, `${row.id}:${row.gen}`);
   return { status: "ok", duplicate: false, body: { state: "rendering" } };
@@ -1663,7 +1680,7 @@ export async function fallbackCheckVariantClipWithClient(
         set state = 'bundled',
             stage = 'queued for rendering',
             enqueued_at = now(),
-            timings = coalesce(v.timings, '{}'::jsonb) || jsonb_build_object('retrying', $4::jsonb),
+            timings = coalesce(v.timings, '{}'::jsonb) || jsonb_build_object('retrying', $4::jsonb, 'playback', $5::jsonb),
             updated_at = now()
       where v.id = $1
         and v.gen = $2
@@ -1681,7 +1698,7 @@ export async function fallbackCheckVariantClipWithClient(
                and coalesce(r.report->'results'->>'error', r.report->'results'->>'message', '') ~* '(watchdog|init-timeout|frame-timeout|check-watchdog|heartbeat-timeout)'
              )
         )`,
-    [row.id, row.gen, row.bundle_digest, JSON.stringify(retrying)]
+    [row.id, row.gen, row.bundle_digest, JSON.stringify(retrying), JSON.stringify(clipPlaybackMarker({ gen: row.gen, bundle_digest: row.bundle_digest }, "check-timeout"))]
   );
   if (updated.rowCount !== 1) return { status: "fenced" };
   await sendOnce(client, QUEUES.plateRender, { variantId: row.id, gen: row.gen }, `${row.id}:${row.gen}`);
@@ -1693,7 +1710,7 @@ export async function fallbackCheckVariantClipWithClient(
  * (`PLATE_PROJECT_CLIP_CAP`, default 4). Keeps DB `state = 'bundled'` with `stage = 'queued for rendering'` so the worker's
  * `claimVariant` can claim it immediately, while returning `{ state: "rendering" }` to the caller.
  */
-export async function requestVariantClip(projectId: string, variantId: string, cap: number = config.plates.projectClipCap): Promise<ClipRequestOutcome> {
+export async function requestVariantClip(projectId: string, variantId: string, cap: number = config.plates.projectClipCap, options: ClipRequestOptions = {}): Promise<ClipRequestOutcome> {
   const client = await pool.connect();
   let shouldKick = false;
   try {
@@ -1706,7 +1723,7 @@ export async function requestVariantClip(projectId: string, variantId: string, c
       return { status: "not_found" };
     }
 
-    const outcome = await enqueueVariantClipWithClient(client, row, cap);
+    const outcome = await enqueueVariantClipWithClient(client, row, cap, options);
     if (outcome.status !== "ok") {
       await client.query("rollback");
       return outcome;

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scriptFrameKey, voiceText, type VideoProject } from "@videosaas/contracts";
-import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, generatePlanAudio, getPlates, saveMusicPrompt, suggestMusic, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateExport, retryPlateScene, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
+import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, generatePlanAudio, getPlates, saveMusicPrompt, suggestMusic, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateClip, requestPlateExport, retryPlateScene, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
 import {
   SfxCueTracker,
   WebAudioFilmTimeline,
@@ -1110,9 +1110,17 @@ export function PlatePreview({
       setError(null);
       try {
         await ensureMediaToken();
-        const target = scenes[sceneIndex]?.variants?.[viewAspect]?.variantId ?? scenes[sceneIndex]?.variantId ?? sceneIndex;
-        const next = await retryPlateScene(project.id, target, { aspect: viewAspect });
-        applyStatus(next);
+        const variant = scenes[sceneIndex]?.variants?.[viewAspect];
+        const target = variant?.variantId ?? scenes[sceneIndex]?.variantId ?? sceneIndex;
+        const state = variant?.state ?? scenes[sceneIndex]?.state;
+        if (state !== "failed" && typeof target === "string") {
+          // Not failed but stuck on its preview check: draw it on the server from the code it already has (no model call).
+          await requestPlateClip(project.id, target, { force: true });
+          applyStatus(await getPlates(project.id));
+        } else {
+          const next = await retryPlateScene(project.id, target, { aspect: viewAspect });
+          applyStatus(next);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not retry this scene.");
       } finally {
@@ -1826,6 +1834,7 @@ export function PlatePreview({
         stateClassName: res?.tabClassName ?? scene.state,
         progressLabel: liveLabel,
         progressFraction: res?.preparingProgress ?? sp?.fraction ?? null,
+        stuck: sp?.phase === "checking" && sp.takingLongerThanUsual === true,
         thumbnail: thumb,
         error: scene.error
       };

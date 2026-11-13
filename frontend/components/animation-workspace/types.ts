@@ -30,6 +30,8 @@ export interface WorkspaceSceneTab {
   progressLabel?: string;
   /** Optional 0..1 progress fraction for the per-segment mini bar. */
   progressFraction?: number | null;
+  /** True when the scene has sat on its preview check longer than usual: shows a Retry that draws it on the server. */
+  stuck?: boolean;
   /** Optional sketch/reference frame URL shown as a faint background thumbnail until drawn. */
   thumbnail?: string | null;
   error?: string;

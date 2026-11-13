@@ -1231,6 +1231,17 @@ export async function fixPlates(projectId: string, options?: { animationTier?: "
     "Could not redraw the scenes."
   );
 }
+/** Draws a scene on the server from its saved code (`force` redraws over an old clip). Used by Retry on a scene stuck on its check. */
+export async function requestPlateClip(projectId: string, variantId: string, options?: { force?: boolean }): Promise<void> {
+  const res = await apiFetch(
+    `${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/plates/${encodeURIComponent(variantId)}/clip-request`,
+    options
+      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(options) }
+      : { method: "POST" }
+  );
+  if (res.status === 202 || res.status === 429) return;
+  await parse(res, "Could not draw this scene on the server.");
+}
 export async function retryPlateScene(
   projectId: string,
   variantOrScene: string | number,

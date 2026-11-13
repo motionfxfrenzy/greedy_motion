@@ -323,10 +323,12 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
   );
 
   /** Fallback clip request: enqueues `plate-render` once for a `bundled` or `checked` variant, capped per project. */
-  app.post<{ Params: { id: string; variantId: string } }>("/v1/projects/:id/plates/:variantId/clip-request", async (request, reply) => {
+  app.post<{ Params: { id: string; variantId: string }; Body: { force?: unknown } | undefined }>("/v1/projects/:id/plates/:variantId/clip-request", async (request, reply) => {
     const { id, variantId } = request.params;
     if (!uuid.test(id) || !uuid.test(variantId)) return reply.code(404).send(notFound);
-    const outcome = await requestVariantClip(id, variantId);
+    // `force` is the user's Retry on a stuck scene: draw it again on the server even over an old clip.
+    const force = request.body?.force === true;
+    const outcome = await requestVariantClip(id, variantId, undefined, { force });
     if (outcome.status === "not_found") return reply.code(404).send(notFound);
     if (outcome.status === "invalid_state") {
       return reply.code(409).send({ code: "invalid_state", error: { code: "invalid_state", message: "Scene is not in bundled or checked state." } });

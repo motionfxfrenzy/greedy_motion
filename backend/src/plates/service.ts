@@ -23,7 +23,7 @@ const clipVersion = (v: VariantRow) => (v.clip_key ? createHash("md5").update(v.
 /** timings.playback = { mode: "clip", reason: "slow", medianMs, gen, digest } is written by submitCheckReport; honoured only for the same bundle. */
 const playbackOf = (v: VariantRow): { playback: "clip"; drawMsPerFrame: number } | undefined => {
   const p = (v.timings as Record<string, any> | undefined)?.playback;
-  return p && p.mode === "clip" && p.digest && p.digest === v.bundle_digest && p.gen === v.gen ? { playback: "clip", drawMsPerFrame: Math.round(Number(p.medianMs) * 10) / 10 } : undefined;
+  return p && p.mode === "clip" && p.digest && p.digest === v.bundle_digest && p.gen === v.gen ? { playback: "clip", drawMsPerFrame: Number.isFinite(Number(p.medianMs)) ? Math.round(Number(p.medianMs) * 10) / 10 : 0 } : undefined;
 };
 // A live scene that already passed its browser check (`checked_at != null`) and was NOT demoted to slow-draw clip mode stays
 // live-playable (`"checked"`) even if a background export worker (`plate.enqueueMisses` / `plate.claim`) is currently rendering its MP4 clip.

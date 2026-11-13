@@ -105,11 +105,12 @@ export function SceneTabs({
               )}
               <div className="aw-seg-head">
                 <small>{String(scene.index + 1).padStart(2, "0")}</small>
-                {scene.state === "failed" && onRetryScene ? (
+                {(scene.state === "failed" || scene.stuck) && onRetryScene ? (
                   <button
                     type="button"
                     className="aw-seg-retry"
                     aria-label={`Retry Scene ${scene.index + 1}`}
+                    title={scene.stuck ? "This scene is taking too long to check. Draw it on the server instead." : undefined}
                     disabled={retryingSceneIndex === scene.index}
                     aria-busy={retryingSceneIndex === scene.index}
                     onPointerDown={(e) => e.stopPropagation()}
