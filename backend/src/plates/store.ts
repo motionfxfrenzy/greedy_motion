@@ -811,6 +811,7 @@ export async function reviseScene(
         `update app.plate_variants set gen = gen + 1, rev = rev + 1, state = 'queued', stage = null, frames_done = null, author_owner = null, author_until = null,
            authored = 0, repairs = 0, repair = null, revise = $2::jsonb, draft_source = null, render_attempt = 0,
            bundle_key = null, bundle_manifest = null, bundle_digest = null, checked_at = null, check_report = null, host = null,
+           still_key = null, clip_key = null, clip_meta = null,
            timings = (coalesce(timings, '{}'::jsonb) - 'retrying' - 'restartsDuringWrite' - 'modelStarts' - 'authorInFlight') || $3::jsonb,
            error = null, drawn_at = null, updated_at = now()
          where id = $1 returning *`,
