@@ -1463,7 +1463,15 @@ export function Studio() {
     setStep(REVIEW);
     try {
       if (project.script && !project.script.confirmed) replaceProject(await updateProject(project.id, { script: { ...project.script, confirmed: true, updatedAt: new Date().toISOString() } }));
-      const started = await renderProject(project.id, { motionBlur });
+      let started: Awaited<ReturnType<typeof renderProject>>;
+      try {
+        started = await renderProject(project.id, { motionBlur });
+      } catch (first) {
+        // Music is switched on but was never made: make it now (what the Music control does), then render. Not an error for the person.
+        if (!(first instanceof Error) || !/music hasn.t been generated yet/i.test(first.message)) throw first;
+        replaceProject((await generatePlanAudio(project.id, ["music"])).project);
+        started = await renderProject(project.id, { motionBlur });
+      }
       setJob(started);
       // The server has marked the project as rendering this job; mirror it here instead of reading the project back.
       const rendering = (item: VideoProject) => item.id === project.id ? { ...item, state: "Rendering draft" as const, renderJobId: started.id } : item;
