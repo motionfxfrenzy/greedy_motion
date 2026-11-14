@@ -1381,12 +1381,19 @@ export function Studio() {
     return frameAt[i] !== undefined ? { state: "stale", svg: frameAt[i] } : undefined;
   });
   // A project reopened after its script was written opens on its script.
+  const scriptProjectId = useRef<string | null>(null);
   useEffect(() => {
-    if (!canvas && project?.brief?.scriptBeats?.length) notesRef.current = project.brief?.scriptNotes ?? null;
+    // Opening another project must not keep the previous project's script on screen: it would be saved over this project's own.
+    const switched = scriptProjectId.current !== null && Boolean(project?.id) && scriptProjectId.current !== project?.id;
+    if (switched) canvasStop.current?.abort();
+    const current = switched ? null : canvas;
+    if (switched) setCanvas(null);
+    scriptProjectId.current = project?.id ?? null;
+    if (!current && project?.brief?.scriptBeats?.length) notesRef.current = project.brief?.scriptNotes ?? null;
     // Older projects have a plan but no script beats: their script page is built from the plan's own words.
     const planned = project?.beatPlan && !project.brief?.scriptBeats?.length ? ensureScriptBeatIds(project.beatPlan.beats.map((beat) => ({ keyword: beat.keyword, visual: null, onScreen: beat.on_screen ?? null, line: beat.line ?? null }))) : null;
-    if (!canvas && planned) setCanvas({ beats: planned, notes: null, previous: [], open: null, writing: null, streaming: false, startedAt: Date.now(), flags: [], error: null });
-    if (!canvas && project?.brief?.scriptBeats?.length) setCanvas({ beats: ensureScriptBeatIds(project.brief.scriptBeats), notes: project.brief.scriptNotes ?? null, previous: [], open: null, writing: null, streaming: false, startedAt: Date.now(), flags: [], error: null });
+    if (!current && planned) setCanvas({ beats: planned, notes: null, previous: [], open: null, writing: null, streaming: false, startedAt: Date.now(), flags: [], error: null });
+    if (!current && project?.brief?.scriptBeats?.length) setCanvas({ beats: ensureScriptBeatIds(project.brief.scriptBeats), notes: project.brief.scriptNotes ?? null, previous: [], open: null, writing: null, streaming: false, startedAt: Date.now(), flags: [], error: null });
     if (!project) { canvasStop.current?.abort(); setCanvas(null); }
     frameCache.current = {}; setFrameAt({}); setVoiceRun({ state: "idle" }); setVersions({}); setUndoSceneState(null);
   }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
