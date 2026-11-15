@@ -52,7 +52,8 @@ export const WORKSPACE_SUBTITLE_STYLES: readonly { id: WorkspaceSubtitleStyle; l
   { id: "cinema", label: "Cinema" },
   { id: "kinetic", label: "Kinetic" },
   { id: "paper", label: "Storybook" },
-  { id: "blueprint", label: "Blueprint" }
+  { id: "blueprint", label: "Blueprint" },
+  { id: "shadow", label: "Shadow" }
 ];
 
 export const DEFAULT_AUDIO_TRACKS: readonly WorkspaceAudioTrackId[] = ["voice", "music", "sfx", "transitions"];
@@ -228,13 +229,51 @@ export interface SubtitleCue {
   text: string;
 }
 
-/** Builds timed subtitle cues across scenes for `"key-phrases"` or `"full"` mode. */
+export type SubtitleCueWord = { text: string; start: number; end: number };
+
+/**
+ * Cues of `perCue` spoken words for one scene's line (the same rule as backend/src/plates/model.ts wordSubtitleCues, which
+ * the export uses). Word times are seconds into the scene from the voiceover take, else spread evenly; the cues are back to
+ * back: the first opens with the scene, each holds until the next one's first word, the last until just before the cut.
+ */
+export function wordSubtitleCues(scene: number, line: string, start: number, dur: number, perCue: number, spoken?: readonly SubtitleCueWord[]): SubtitleCue[] {
+  const lineWords = line.split(/\s+/).filter(Boolean);
+  const timed = (spoken ?? []).filter((w) => w && typeof w.text === "string" && w.text.trim() && Number.isFinite(w.start));
+  const end = start + dur - 0.05;
+  let words: { text: string; at: number }[];
+  if (timed.length) {
+    const texts = timed.length === lineWords.length ? lineWords : timed.map((w) => w.text.trim());
+    words = timed.map((w, k) => ({ text: texts[k]!, at: Math.min(Math.max(0, w.start), Math.max(0, dur - 0.1)) }));
+  } else {
+    const usable = Math.max(0.4, dur - 0.2);
+    words = lineWords.map((text, k) => ({ text, at: 0.08 + (k / Math.max(1, lineWords.length)) * usable }));
+  }
+  if (!words.length) return [];
+  const n = Math.max(1, Math.floor(perCue));
+  const cues: SubtitleCue[] = [];
+  let last = start - 1;
+  for (let k = 0; k < words.length; k += n) {
+    const group = words.slice(k, k + n);
+    const at = k === 0 ? start : Math.max(start + group[0]!.at, last + 0.04);
+    if (at >= end) { if (cues.length) cues[cues.length - 1]!.text += ` ${group.map((w) => w.text).join(" ")}`; continue; }
+    if (cues.length) cues[cues.length - 1]!.end = at;
+    cues.push({ scene, start: at, end, text: group.map((w) => w.text).join(" ") });
+    last = at;
+  }
+  return cues;
+}
+
+/**
+ * Builds timed subtitle cues across scenes for `"key-phrases"` or `"full"` mode. With `wordsPerCue` (a template's one-word
+ * captions), "full" cues are that many spoken words each, timed from `words` (the voiceover's word times per scene).
+ */
 export function buildSubtitleCues(
   mode: WorkspaceSubtitleMode,
   scenes: readonly { seconds: number; keyword?: string }[],
   beats: readonly { line?: string | null; onScreen?: string | null; keyword?: string }[] | undefined,
   starts: readonly number[],
-  durations: readonly number[]
+  durations: readonly number[],
+  options: { wordsPerCue?: number; words?: readonly (readonly SubtitleCueWord[] | undefined)[] } = {}
 ): SubtitleCue[] {
   if (mode === "none" || !scenes.length) return [];
   const beatList = beats ?? [];
@@ -250,6 +289,10 @@ export function buildSubtitleCues(
     }
     const line = (beat?.line || beat?.onScreen || beat?.keyword || scene.keyword || "").trim();
     if (!line) return;
+    if (options.wordsPerCue && options.wordsPerCue >= 1) {
+      cues.push(...wordSubtitleCues(i, line, start, dur, options.wordsPerCue, options.words?.[i]));
+      return;
+    }
     const words = line.split(/\s+/).filter(Boolean);
     const maxWords = 6;
     const chunks: string[] = [];

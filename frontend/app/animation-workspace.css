@@ -314,6 +314,10 @@
 
 .aw-sub-blueprint>span{border-radius:4px;background:rgba(12,42,74,.9);color:#f0f9ff;border:1.5px solid #7dd3fc;font-family:DMMono,'SF Mono',Menlo,monospace;font-weight:600;letter-spacing:.02em;box-shadow:0 4px 12px rgba(4,16,36,.45)}
 
+.aw-sub-shadow>span{background:transparent;color:#fff;font-weight:800;padding:.08em .2em;font-size:calc(2 * var(--sub-scale,1) * clamp(9px,2.1cqw,16px));text-shadow:0 .06em .22em rgba(0,0,0,.85),0 .03em .06em rgba(0,0,0,.6)}
+
+.animation-workspace[data-aspect="9:16"] .aw-sub-shadow>span{font-size:calc(2 * var(--sub-scale,1) * clamp(8.5px,3.3cqw,13.5px));padding:.08em .2em}
+
 .aw-scene{margin-left:auto;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .aw-track{position:relative;height:46px;border-radius:12px;cursor:pointer;touch-action:none;user-select:none;outline-offset:3px}

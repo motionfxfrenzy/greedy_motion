@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { voiceText, type ScriptBeat, type VideoProject } from "@videosaas/contracts";
+import { SCENE_SOUND_KINDS, templatePack, type SceneSoundKind } from "../plan/template-packs.ts";
 
 /**
  * Plate scenes, pure part: types, subtitle settings, sound-effect cues, the timeline and the cache signatures. Nothing here
@@ -79,6 +80,8 @@ export type PlateVariantView = {
   stale?: boolean;
   /** True when the variant needs reconciliation (either stale or shifted/reordered index). */
   needsReconcile?: boolean;
+  /** A template pack's scene sounds (`export const sounds` in this variant's module), when the pack has sceneSounds. */
+  sounds?: SceneSound[];
 };
 export type PlateScene = {
   index: number;
@@ -113,13 +116,15 @@ export type PlateScene = {
   stale?: boolean;
   /** True when the scene needs reconciliation (either stale or shifted/reordered index). */
   needsReconcile?: boolean;
+  /** A template pack's scene sounds of the primary-ratio variant (see PlateVariantView.sounds). */
+  sounds?: SceneSound[];
   /** Per aspect ratio: each ratio is authored, verified and drawn on its own. */
   variants?: Partial<Record<Aspect, PlateVariantView>>;
 };
 /** A comment on the film: `at` is film time in seconds, `scene`/`sceneAt` where that falls (the scene is what gets redrawn). */
 export type PlateComment = { id: string; at: number; scene: number; sceneAt: number; body: string };
 export type SubtitleMode = "none" | "key-phrases" | "full";
-export type SubtitleStyle = "pill" | "cinema" | "kinetic" | "paper" | "blueprint";
+export type SubtitleStyle = "pill" | "cinema" | "kinetic" | "paper" | "blueprint" | "shadow";
 export type PlateSubtitles = {
   mode: SubtitleMode;
   style: SubtitleStyle;
@@ -137,6 +142,8 @@ export type PlateSubtitles = {
   y?: number;
   /** Per-scene subtitle position overrides keyed by scene index ("0", "1", ...). */
   scenePositions?: Record<string, { x: number; y: number }>;
+  /** Spoken words per cue in "full" mode, timed from the voiceover's word times (1 = one word at a time). Absent = 6-word chunks. */
+  wordsPerCue?: number;
   /** Whether voiceover narration is enabled (default true). */
   voice?: boolean;
   /** Whether background music is enabled (default true). */
@@ -168,8 +175,54 @@ export type PlateStatus = {
   drawingAspects?: ("16:9" | "9:16" | "1:1")[];
 };
 
-export type PlateSfxName = "whoosh-short" | "click" | "pop" | "chime" | "typing" | "impact-bass-1";
+export type PlateSfxName = "whoosh-short" | "click" | "pop" | "chime" | "typing" | "impact-bass-1" | `foley-${SceneSoundKind}`;
 export type PlateSfxCue = { name: PlateSfxName; offset: number; volume: number; mediaStart?: number };
+
+/** One sound a template pack's scene places itself: `kind` (SCENE_SOUND_KINDS) on `frame` (scene frame at FPS). */
+export type SceneSound = { kind: SceneSoundKind; frame: number };
+const SCENE_SOUND_MAX = 16;
+const SCENE_SOUND_VOLUME = 0.9;
+const soundKinds = new Set<string>(SCENE_SOUND_KINDS);
+
+/**
+ * Reads `export const sounds = [{ kind: "mark", frame: 53 }, ...]` from a scene module AS DATA (never evaluated): the array
+ * literal is cut out, comments, `as const` and trailing commas dropped, keys and single quotes made JSON, then JSON.parse.
+ * Keeps known kinds on whole frames inside the scene (0 <= frame < frames), sorted, at most 16. Returns null when the module
+ * exports no readable list (the scene then gets the keyword sounds); an exported list with nothing usable is [] (silence).
+ */
+export function parseSceneSounds(code: string, frames: number): SceneSound[] | null {
+  const match = /export\s+const\s+sounds\b[^=]*=\s*(\[[\s\S]*?\])\s*(?:as\s+const\b|satisfies\b|;|\n|$)/.exec(code ?? "");
+  if (!match || match[1]!.length > 8000) return null;
+  let list: unknown;
+  try {
+    list = JSON.parse(
+      match[1]!
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/[^\n]*/g, "")
+        .replace(/\bas const\b/g, "")
+        .replace(/'/g, "\"")
+        .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
+        .replace(/,\s*([\]}])/g, "$1")
+    );
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(list)) return null;
+  const sounds: SceneSound[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const { kind, frame } = item as { kind?: unknown; frame?: unknown };
+    const f = typeof frame === "number" ? Math.round(frame) : NaN;
+    if (typeof kind !== "string" || !soundKinds.has(kind) || !Number.isFinite(f) || f < 0 || !(f < frames)) continue;
+    sounds.push({ kind: kind as SceneSoundKind, frame: f });
+  }
+  return sounds.sort((a, b) => a.frame - b.frame).slice(0, SCENE_SOUND_MAX);
+}
+
+/** A pack scene's own sounds as cues: `foley-<kind>` at frame / FPS (the files start on the hit). */
+export function sceneSoundCues(sounds: readonly SceneSound[]): PlateSfxCue[] {
+  return sounds.map((s) => ({ name: `foley-${s.kind}` as PlateSfxName, offset: Math.round((s.frame / FPS) * 1000) / 1000, volume: SCENE_SOUND_VOLUME }));
+}
 
 export function selectSceneSfx(beat: { role?: string; sfx?: string | null; keyword?: string; visual?: string | null; transition_out?: { type?: string } } | undefined, index: number): PlateSfxCue {
   const text = `${beat?.sfx ?? ""} ${beat?.keyword ?? ""} ${beat?.visual ?? ""}`.toLowerCase();
@@ -256,8 +309,45 @@ export function sceneTransitionCues(duration: number, index: number, totalScenes
 }
 
 export type SubtitleCue = { scene: number; start: number; end: number; text: string };
+export type CueWord = { text: string; start: number; end: number };
 
-export function buildSubtitleCues(scenes: PlateScene[], beats: ScriptBeat[], durations: number[], starts: number[], mode: SubtitleMode): SubtitleCue[] {
+/**
+ * Cues of `perCue` spoken words for one scene's line. Word times come from the voiceover take (seconds into the scene) when it
+ * has them, else the words are spread evenly over the scene. The cues are back to back: the first opens with the scene, each
+ * holds until the next one's first word, the last until just before the cut, so the caption never blinks off mid-line.
+ */
+export function wordSubtitleCues(scene: number, line: string, start: number, dur: number, perCue: number, spoken?: readonly CueWord[]): SubtitleCue[] {
+  const lineWords = line.split(/\s+/).filter(Boolean);
+  const timed = (spoken ?? []).filter((w) => w && typeof w.text === "string" && w.text.trim() && Number.isFinite(w.start));
+  const end = start + dur - 0.05;
+  let words: { text: string; at: number }[];
+  if (timed.length) {
+    // The script's own words (with their punctuation) when the take has one time per word, else the take's words.
+    const texts = timed.length === lineWords.length ? lineWords : timed.map((w) => w.text.trim());
+    words = timed.map((w, k) => ({ text: texts[k]!, at: Math.min(Math.max(0, w.start), Math.max(0, dur - 0.1)) }));
+  } else {
+    const usable = Math.max(0.4, dur - 0.2);
+    words = lineWords.map((text, k) => ({ text, at: 0.08 + (k / Math.max(1, lineWords.length)) * usable }));
+  }
+  if (!words.length) return [];
+  const n = Math.max(1, Math.floor(perCue));
+  const cues: SubtitleCue[] = [];
+  let last = start - 1;
+  for (let k = 0; k < words.length; k += n) {
+    const group = words.slice(k, k + n);
+    const at = k === 0 ? start : Math.max(start + group[0]!.at, last + 0.04);
+    if (at >= end) { if (cues.length) cues[cues.length - 1]!.text += ` ${group.map((w) => w.text).join(" ")}`; continue; }
+    if (cues.length) cues[cues.length - 1]!.end = at;
+    cues.push({ scene, start: at, end, text: group.map((w) => w.text).join(" ") });
+    last = at;
+  }
+  return cues;
+}
+
+export function buildSubtitleCues(
+  scenes: PlateScene[], beats: ScriptBeat[], durations: number[], starts: number[], mode: SubtitleMode,
+  options: { wordsPerCue?: number; words?: (readonly CueWord[] | undefined)[] } = {}
+): SubtitleCue[] {
   if (mode === "none") return [];
   const cues: SubtitleCue[] = [];
   scenes.forEach((scene, i) => {
@@ -271,6 +361,10 @@ export function buildSubtitleCues(scenes: PlateScene[], beats: ScriptBeat[], dur
     }
     const line = (beat?.line || beat?.onScreen || beat?.keyword || scene.keyword || "").trim();
     if (!line) return;
+    if (options.wordsPerCue && options.wordsPerCue >= 1) {
+      cues.push(...wordSubtitleCues(i, line, start, dur, options.wordsPerCue, options.words?.[i]));
+      return;
+    }
     const words = line.split(/\s+/).filter(Boolean);
     const maxWords = 6;
     const chunks: string[] = [];
@@ -293,7 +387,13 @@ export function buildSubtitleCues(scenes: PlateScene[], beats: ScriptBeat[], dur
 
 // ---------------------------------------------------------------- subtitle settings
 const subtitleModes = new Set<SubtitleMode>(["none", "key-phrases", "full"]);
-const subtitleStyles = new Set<SubtitleStyle>(["pill", "cinema", "kinetic", "paper", "blueprint"]);
+const subtitleStyles = new Set<SubtitleStyle>(["pill", "cinema", "kinetic", "paper", "blueprint", "shadow"]);
+/**
+ * The "shadow" style's text is twice the boxed styles' base (6.6% of a portrait frame's width: 71 px on 1080). A pack gives its
+ * caption size in pixels on a 1080-wide frame; this is that size as the size setting (percent of the style's base).
+ */
+export const SHADOW_BASE_PX = 1080 * 0.066;
+export const captionSizePercent = (px: number) => Math.min(160, Math.max(50, Math.round((px / SHADOW_BASE_PX) * 100)));
 const hexColor = /^#[0-9a-f]{6}$/i;
 const clampNum = (v: unknown, min: number, max: number, fallback: number) => {
   const n = Number(v);
@@ -307,6 +407,11 @@ export function defaultSubtitlesFor(project?: VideoProject | null): PlateSubtitl
   const primary = primaryAspect(project);
   const briefAspects = (project?.brief?.aspects ?? []).filter(isAspect);
   const aspects: Aspect[] = [primary, ...briefAspects.filter((a) => a !== primary)];
+  // A template pack's captions (template-packs.ts): its style, size, height and words per cue, e.g. one word at a time.
+  const pack = templatePack(project?.brief?.styleExample)?.captions;
+  if (pack) {
+    return { mode, style: pack.style, size: captionSizePercent(pack.size), opacity: 100, x: 50, y: Math.min(92, Math.max(8, pack.y)), wordsPerCue: pack.wordsPerCue, scenePositions: {}, voice: true, music: true, sfx: true, transitions: false, aspects };
+  }
   return { mode, style, size: 100, opacity: 100, x: 50, y: 80, scenePositions: {}, voice: true, music: true, sfx: true, transitions: false, aspects };
 }
 
@@ -335,8 +440,9 @@ export function mergeSubtitles(current: PlateSubtitles, input: Record<string, un
   }
   const flag = (value: unknown, now: boolean | undefined, fallback: boolean) => typeof value === "boolean" ? value : (now ?? fallback);
   const aspects = Array.isArray(input.aspects) ? input.aspects.filter(isAspect) : (current.aspects ?? [fallbackAspect]);
+  const wordsPerCue = input.wordsPerCue === null || input.wordsPerCue === 0 ? undefined : input.wordsPerCue !== undefined && Number.isFinite(Number(input.wordsPerCue)) ? Math.min(12, Math.max(1, Math.round(Number(input.wordsPerCue)))) : current.wordsPerCue;
   return {
-    mode, style, size, opacity, x, y, scenePositions,
+    mode, style, size, opacity, x, y, scenePositions, ...(wordsPerCue ? { wordsPerCue } : {}),
     voice: flag(input.voice, current.voice, true), music: flag(input.music, current.music, true), sfx: flag(input.sfx, current.sfx, true), transitions: flag(input.transitions, current.transitions, false),
     aspects: aspects.length ? aspects : ["16:9"], ...(color ? { color } : {}), ...(bgColor ? { bgColor } : {})
   };

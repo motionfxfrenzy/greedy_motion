@@ -7,6 +7,7 @@ if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required (a loca
 process.env.LEMONSQUEEZY_API_KEY = "k"; process.env.LEMONSQUEEZY_STORE_ID = "1";
 process.env.LEMONSQUEEZY_VARIANT_STARTER = "101"; process.env.LEMONSQUEEZY_VARIANT_PRO = "102"; process.env.LEMONSQUEEZY_VARIANT_BUSINESS = "103"; process.env.LEMONSQUEEZY_VARIANT_TOPUP = "104";
 const { migrate, pool } = await import("../src/db/database.ts");
+const { timeouts } = await import("../src/billing/lemonsqueezy.ts");
 const { applyWebhook, subscriptionFor } = await import("../src/billing/service.ts");
 const { spendTokens, tokenSummary } = await import("../src/tokens/store.ts");
 const { PLANS } = await import("../src/tokens/plan.ts");
@@ -243,10 +244,24 @@ try {
   const realFetch = globalThis.fetch;
   globalThis.fetch = fakeApi;
   try {
-    const down = await app.inject({ method: "GET", url: "/v1/billing/overview" });
-    assert.equal(down.statusCode, 502);
-    assert.equal("portalUrl" in down.json().error, false, "an error never sends the user to Lemon Squeezy");
+    // Lemon Squeezy erroring: the modal still loads from our own records, marked unavailable (not "not found").
+    const degraded = await app.inject({ method: "GET", url: "/v1/billing/overview" });
+    assert.equal(degraded.statusCode, 200);
+    assert.deepEqual([degraded.json().subscription.providerUnavailable, degraded.json().subscription.providerMissing, degraded.json().subscription.planName], [true, false, "Starter"]);
+    assert.equal("portalUrl" in degraded.json().subscription, false, "never sends the user to Lemon Squeezy");
+    // Lemon Squeezy hanging: each call is bounded, so the answer is quick instead of a stalled request.
+    timeouts.read = 150;
     failing = false;
+    const hang = (_url, init = {}) => new Promise((_resolve, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("timed out", "TimeoutError"))));
+    globalThis.fetch = hang;
+    const started = Date.now();
+    const slow = await app.inject({ method: "GET", url: "/v1/billing/overview" });
+    assert.equal(slow.statusCode, 200);
+    assert.equal(slow.json().subscription.providerUnavailable, true);
+    assert.equal(slow.json().invoicesAvailable, false);
+    assert.ok(Date.now() - started < 3000, "answered within the timeout, not after a stall");
+    globalThis.fetch = fakeApi;
+    timeouts.read = 6000;
     assert.equal((await app.inject({ method: "GET", url: "/v1/billing/overview" })).json().subscription.planName, "Starter");
     caller = V;
     assert.equal((await app.inject({ method: "GET", url: "/v1/billing/overview" })).json().subscription, null);

@@ -1,3 +1,4 @@
+import { templatePack, withPackKit } from "../plan/template-packs.ts";
 import type { Job } from "pg-boss";
 import { bundleScene, plateNameOf } from "@videosaas/plate-engine";
 import { callModel, ladder, supportsPromptCacheGate, type ModelMessage } from "../models/providers.ts";
@@ -7,7 +8,7 @@ import { QUEUES, sendOnce } from "../jobs/queues.ts";
 import { getProject } from "../projects/store.ts";
 import { getObject, putObject, type Bucket } from "../storage.ts";
 import { desiredVariants, isPlateLook } from "./inputs.ts";
-import { isComputedVariantSignature, primaryAspect } from "./model.ts";
+import { isComputedVariantSignature, primaryAspect, takeFor } from "./model.ts";
 import { plateCacheGate } from "./cache-gate.ts";
 import { POLICY_REPAIR_MAX, buildAuthorMessages, checkScene, moduleFrom } from "./prompt.ts";
 import { bundleKeyFor, claimAuthor, commitBundle, failVariant, getVariant, isVariantCompatibleWithDesired, manifestKeyFor, newOwner, noteAuthorCall, noteAuthorProgress, noteModelStart, primarySource, releaseAuthor, renewAuthor, saveDraft, sourceKeyFor, type AuthorProgressPatch } from "./store.ts";
@@ -280,6 +281,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
             frames: row.frames,
             ...(project.brief?.styleExample ? { styleExample: project.brief.styleExample } : {}),
             ...(project.brief?.scriptNotes ? { scriptNotes: project.brief.scriptNotes } : {}),
+            ...(templatePack(project.brief?.styleExample)?.sceneSounds ? { words: (takeFor(project, row.scene_index)?.words ?? []).map((w) => ({ text: w.text, start: w.start })) } : {}),
             ...(routeSnap ? { modelKey: `${tierRoute.provider}:${tierRoute.model}` } : {}),
             ...(reference ? { reference } : {}),
             ...(revise && !lastError ? { revise } : {}),
@@ -297,7 +299,8 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
           try {
             const tier = cutOffs === 0 ? "normal" : cutOffs === 1 ? "max-tokens-128k" : "effort-high";
             if (cutOffs > 0) log("info", "plate_author_cutoff_retry", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, gen: row.gen, path: tier, cutOffs, provider: tierRoute.provider, model: tierRoute.model, maxTokens: tierRoute.maxTokens });
-            const messages: ModelMessage[] = request.messages.map((m: { role: string; content: unknown }) => ({ role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant", content: typeof m.content === "string" ? m.content : (m.content as { type: string; text: string; cache_control?: unknown }[]).map((part) => ({ type: "text" as const, text: part.text, ...(part.cache_control ? { cache: true } : {}) })) }));
+            // Text parts keep their cache mark; image parts (a template pack's pictures) pass through as images.
+            const messages: ModelMessage[] = request.messages.map((m: { role: string; content: unknown }) => ({ role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant", content: typeof m.content === "string" ? m.content : (m.content as { type: string; text?: string; mime?: string; base64?: string; cache_control?: unknown }[]).map((part) => part.type === "image" ? { type: "image" as const, mime: part.mime ?? "image/png", base64: part.base64 ?? "" } : ({ type: "text" as const, text: part.text ?? "", ...(part.cache_control ? { cache: true } : {}) })) }));
             reply = await callModel({ step, route: tierRoute, system: request.system, messages, stream: true, errorPrefix: "Scene authoring failed", includeErrorDetail: true, timeoutMs: cutOffs === 0 ? 300_000 : 900_000, signal, onStart: () => gate?.started(), onProgress: (p) => throttle.onProgress(p), stopErrors: { max_tokens: CUT_OFF_MESSAGE } });
           } finally {
             gate?.done();
@@ -339,7 +342,18 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
         used += 1;
         await noteAuthorCall(row.id, row.gen, owner, { authorMs: Date.now() - t0 });
       }
-      const policyCheck = checkScene(plateName, code);
+      // A template drawn from its cast kit (template-packs.ts) does not use the plate's kit helpers: only the no-text rule applies,
+      // and the module must not declare K itself (the kit is added at bundling).
+      const pack = templatePack(project.brief?.styleExample);
+      const packed = Boolean(pack?.scenes);
+      const fullCheck = checkScene(plateName, code);
+      const declaresKit = packed && /\b(?:const|let|var)\s+K\s*=/.test(code);
+      const policyCheck = !packed ? fullCheck : {
+        ...fullCheck,
+        ok: fullCheck.noText.ok && !declaresKit,
+        issues: fullCheck.issues.filter((issue) => issue.kind !== "kit-use"),
+        message: [declaresKit ? "Do not declare K: the cast kit is already in scope." : "", fullCheck.noText.message ?? ""].filter(Boolean).join("\n")
+      };
       if (!policyCheck.ok) {
         if (policyRepairs < POLICY_REPAIR_MAX && used < config.plates.maxAuthorCalls) {
           policyRepairs += 1;
@@ -360,7 +374,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       }
       let bundle: Awaited<ReturnType<typeof bundleScene>>;
       try {
-        bundle = await bundleScene({ look, code, frames: row.frames, aspect: row.aspect });
+        bundle = await bundleScene({ look, code: withPackKit(code, pack), frames: row.frames, aspect: row.aspect });
       } catch (error) {
         if (!(error as { repairable?: boolean }).repairable) throw error;
         await saveDraft(row.id, row.gen, owner, null).catch(() => undefined);

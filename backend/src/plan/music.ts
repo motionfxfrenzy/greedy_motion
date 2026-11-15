@@ -1,3 +1,4 @@
+import { templatePack } from "./template-packs.ts";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -29,7 +30,10 @@ const PROFILE_FEEL: Record<MotionProfile, string> = {
 const PACE_BPM: Record<Pace, number> = { calm: 96, balanced: 112, fast: 124 };
 
 /** The Lyria prompt: the director's (or the user's) mood plus the hard constraints every bed needs. */
-export function musicPrompt(plan: BeatPlan | null | undefined, brief: Pick<ScriptBrief, "pace" | "audio" | "motionProfile"> | undefined, seconds: number): string {
+export function musicPrompt(plan: BeatPlan | null | undefined, brief: Pick<ScriptBrief, "pace" | "audio" | "motionProfile" | "styleExample"> | undefined, seconds: number): string {
+  // A template pack's music is its whole prompt (written against its reference film): no product-video wrapper, BPM or final hit.
+  const pack = templatePack(brief?.styleExample);
+  if (pack && !brief?.audio.musicMood?.trim()) return `${pack.music} About ${Math.round(seconds)} seconds long. Instrumental, no vocals.`.slice(0, 600);
   const profile = plan?.brand.motion_profile ?? brief?.motionProfile ?? "smooth";
   const mood = plan?.audio.music?.prompt?.trim() || brief?.audio.musicMood?.trim() || PROFILE_FEEL[profile];
   const bpm = plan?.audio.music?.bpm ?? PACE_BPM[brief?.pace ?? "balanced"];

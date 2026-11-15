@@ -1,3 +1,4 @@
+import { templatePack } from "./template-packs.ts";
 import { CHARACTER_RULE, filmKind, formatScript, inferScriptTemplate, isScriptLedDuration, parseScriptBeats, parseScriptStream, plainText, productFlowFor, type BeatPlan, type ProductFlow, type ScriptBeat, type ScriptBrief, type ScriptNotes, type ScriptTemplate } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { streamModel, callModel } from "../models/providers.ts";
@@ -307,7 +308,9 @@ export function scriptTemplateFor(request: Pick<ScriptRequest, "brief" | "contex
  */
 export function systemBlocks(request: Pick<ScriptRequest, "brief" | "context">): { type: "text"; text: string; cache_control?: { type: "ephemeral" } }[] {
   const template = scriptTemplateFor(request);
-  const voice =
+  // A template with its own pack (template-packs.ts) brings its own voice, used only when the person started from it.
+  const packVoice = templatePack(request.brief.styleExample)?.scriptVoice;
+  const voice = packVoice ? packVoice :
     template === "what-if"
       ? WHAT_IF_VOICE
       : template === "how-does"
@@ -467,7 +470,7 @@ export function finishScript(text: string, brief: ScriptBrief, context: Director
   const parsed = parseScriptStream(text);
   const written = parsed.beats;
   // A full rewrite brings its own plan; a scoped change keeps the film's (or updates it if the writer restated it).
-  const notes = parsed.notes.idea || parsed.notes.example || parsed.notes.objects ? parsed.notes : scope?.notes ?? null;
+  const notes = parsed.notes.idea || parsed.notes.example || parsed.notes.objects || parsed.notes.fable || parsed.notes.mapping ? parsed.notes : scope?.notes ?? null;
   // A scoped change: its beats go back into their places, and every other beat is the previous one, word for word.
   if (scope && written.length !== scope.only.length) throw new Error("The change came back incomplete. Try again.");
   const beats = scope ? scope.previous.map((beat, i) => scope.only.includes(i) ? written[scope.only.indexOf(i)]! : beat) : written;

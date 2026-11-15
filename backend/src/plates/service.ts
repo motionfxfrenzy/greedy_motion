@@ -7,6 +7,7 @@ import { estimateFilmWithScenes, estimateScene, type SceneEtaRow } from "./eta.t
 import {
   ASPECTS, FPS, defaultSubtitlesFor, isAspect, isComputedVariantSignature, mergeSubtitles, plateRevisionDigest, primaryAspect, type Aspect, type LiveMode, type PlateComment, type PlateScene, type PlateState, type PlateStatus, type SceneProgress, type VariantState, type PlateSubtitles, type PlateVariantView
 } from "./model.ts";
+import { sceneSoundsByRow } from "./scene-sounds.ts";
 import { decideLiveMode, editComments, listVariants, matchVariantsToDesired, readProjectState, recentAuthorMedians, reconcileVariants, retryVariant, reviseScene, writeSubtitles, type VariantRow } from "./store.ts";
 import { authorRouteForTier, resolveProjectAnimationTier, type AnimationRouteSnapshot } from "../billing/step-billing.ts";
 
@@ -160,6 +161,9 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
     const { matched, claimedRowIds } = matchVariantsToDesired(variants, desiredAll, { allowSyntheticSignature: true });
     const sceneCount = beats.length;
     const allDisplayAspects = [...new Set<Aspect>([...mergedAspects, ...variants.map((v) => v.aspect)])];
+    // A template pack's scene sounds (scene-sounds.ts; read once per stored module), so the preview mixes what the export mixes.
+    const soundsByRow = await sceneSoundsByRow(project, [...matched.values()].map((m) => m.row));
+    const soundsOf = (row: VariantRow) => (soundsByRow.has(row.id) ? { sounds: soundsByRow.get(row.id)! } : {});
 
     const primaryEtaRows: SceneEtaRow[] = Array.from({ length: sceneCount }, (_, index) => {
       const dPrimary = desiredByKey.get(`${index}:${primary}`)!;
@@ -220,7 +224,8 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
             sig: isComputedVariantSignature(row.signature) ? dAsp.signature : row.signature,
             frames: dAsp.frames,
             stale: false,
-            ...(needsRec ? { needsReconcile: true } : {})
+            ...(needsRec ? { needsReconcile: true } : {}),
+            ...soundsOf(row)
           };
         } else if (mergedAspects.includes(a)) {
           variantViews[a] = {
@@ -276,6 +281,7 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
           ...(v.stage && OPEN.includes(v.state) ? { stage: v.stage } : {}),
           ...(v.state === "failed" && v.error ? { error: v.error.message } : {}),
           ...(v.authored ? { attempts: v.authored } : {}),
+          ...soundsOf(v),
           variants: variantViews
         };
       }

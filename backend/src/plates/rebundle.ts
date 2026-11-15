@@ -1,3 +1,4 @@
+import { templatePack, withPackKit } from "../plan/template-packs.ts";
 import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -494,7 +495,7 @@ export async function rebundleVariant(
   try {
     bundle = await bundleScene({
       look,
-      code,
+      code: withPackKit(code, templatePack(project?.brief?.styleExample)),
       frames: snapshot.frames,
       aspect: snapshot.aspect
     });

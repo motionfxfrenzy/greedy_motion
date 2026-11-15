@@ -1,3 +1,4 @@
+import { templatePack } from "./template-packs.ts";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -7,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { defaultVoice, isNarrator, paceWpm, voiceForSpeaker, voiceIds, voiceText, type Pace, type VoiceCast, type PlanVoiceLine, type PlanVoiceWord, type VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { synthesizeVoiceover, TTS_MODEL } from "../audio/gemini-tts.ts";
-import { joinWithGaps, pcmSeconds, readWav, trimSilence, writeWav, type Pcm } from "./pcm.ts";
+import { joinWithGaps, pcmSeconds, readWav, tightenPauses, trimSilence, writeWav, type Pcm } from "./pcm.ts";
 import { estimateLineSeconds } from "./timing.ts";
 import { routeFor } from "../models/routes.ts";
 import { readMedia, saveMedia } from "../media.ts";
@@ -42,15 +43,18 @@ export type VoiceSettings = {
   cast?: VoiceCast;
   /** The person's voice picks per character name. */
   voices?: Record<string, string>;
+  /** Long pauses inside a take are cut (the template pack asks for it). */
+  tighten?: boolean;
 };
 
 /** The narrator for a project: the brief's voice, else the plan's, else the request's, else the default. */
 export function voiceSettings(project: Pick<VideoProject, "brief" | "beatPlan" | "request">): VoiceSettings {
   const candidates = [project.brief?.audio.voice, project.beatPlan?.audio.voice?.voice, project.request.audio?.voice];
   const voice = candidates.find((id): id is string => typeof id === "string" && voiceIds.includes(id)) ?? defaultVoice;
-  const direction = project.beatPlan?.audio.voice?.direction?.trim() || "clear, confident product narration";
+  const direction = project.beatPlan?.audio.voice?.direction?.trim() || templatePack(project.brief?.styleExample)?.voice.direction || "clear, confident product narration";
   const cast = project.brief?.audio.cast === "characters" ? { cast: "characters" as const, ...(project.brief.audio.voices ? { voices: project.brief.audio.voices } : {}) } : {};
-  return { voice, direction: direction.slice(0, 200), pace: project.brief?.pace ?? "balanced", language: project.brief?.audio.language ?? "en", ...cast };
+  const tighten = templatePack(project.brief?.styleExample)?.voice.tighten ? { tighten: true } : {};
+  return { voice, direction: direction.slice(0, 200), pace: project.brief?.pace ?? "balanced", language: project.brief?.audio.language ?? "en", ...cast, ...tighten };
 }
 
 /**
@@ -116,7 +120,8 @@ export async function voiceOneLine(
   }
   const read = async (extra = "") => {
     const take = await synthesizeVoiceover(apiKey, { text, voice: settings.voice, style: style + extra });
-    return { pcm: trimSilence(readWav(take.wav)), billed: take.seconds };
+    const trimmed = trimSilence(readWav(take.wav));
+      return { pcm: settings.tighten ? tightenPauses(trimmed) : trimmed, billed: take.seconds };
   };
   let take = await read();
   let spent = take.billed;
@@ -149,7 +154,8 @@ async function voiceTakes(apiKey: string, dir: string, filmSettings: VoiceSettin
     }
     const read = async (extra = "") => {
       const take = await synthesizeVoiceover(apiKey, { text, voice: settings.voice, style: style + extra });
-      return { pcm: trimSilence(readWav(take.wav)), billed: take.seconds };
+      const trimmed = trimSilence(readWav(take.wav));
+      return { pcm: settings.tighten ? tightenPauses(trimmed) : trimmed, billed: take.seconds };
     };
     let take = await read();
     let spent = take.billed;

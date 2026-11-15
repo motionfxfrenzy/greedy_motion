@@ -60,7 +60,8 @@
     "plan": "node --env-file-if-exists=.env scripts/plan.ts",
     "tokens": "node --env-file-if-exists=.env scripts/tokens.ts",
     "grant:pro": "node --env-file-if-exists=.env scripts/entitlements.ts grant",
-    "revoke:pro": "node --env-file-if-exists=.env scripts/entitlements.ts revoke"
+    "revoke:pro": "node --env-file-if-exists=.env scripts/entitlements.ts revoke",
+    "test:dark-fable": "node test/dark-fable-pack.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-ecs": "^3.1149.0",

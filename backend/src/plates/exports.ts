@@ -12,9 +12,10 @@ import { objectSize, putObject } from "../storage.ts";
 import { bundleDigest, canonicalJson, fontSetDigest, paramsDigest } from "./digest.ts";
 import { desiredVariants } from "./inputs.ts";
 import {
-  ASSEMBLER_VERSION, FPS, buildSubtitleCues, buildTimeline, defaultSubtitlesFor, exportSignature, isComputedVariantSignature, sceneSfxCues, sceneTransitionCues, sizeForAspect, takeFor,
+  ASSEMBLER_VERSION, FPS, buildSubtitleCues, buildTimeline, defaultSubtitlesFor, exportSignature, isComputedVariantSignature, sceneSfxCues, sceneSoundCues, sceneTransitionCues, sizeForAspect, takeFor,
   type Aspect, type PlateSfxCue, type PlateSubtitles
 } from "./model.ts";
+import { sceneSoundsByRow } from "./scene-sounds.ts";
 import { getRevision, listVariants, matchVariantsToDesired, readProjectState, type VariantRow } from "./store.ts";
 
 /**
@@ -231,14 +232,18 @@ export async function buildExport(
     beats,
     durSec,
     startsSec,
-    subtitles.mode
+    subtitles.mode,
+    { wordsPerCue: subtitles.wordsPerCue, words: takes.map((t) => t?.words) }
   );
   const planBeats = project.beatPlan?.beats ?? [];
+  // A template pack's scenes place their own foley (scene-sounds.ts); a scene that exports no list keeps the keyword sounds.
+  const packSounds = subtitles.sfx !== false ? await sceneSoundsByRow(project, ordered.map((v) => v!)) : new Map();
   const sfx: ExportManifest["sfx"] = [];
   beats.forEach((beat, i) => {
     const plan = planBeats[i];
     const sceneCues = [
-      ...(subtitles.sfx !== false ? sceneSfxCues({ role: plan?.role, sfx: plan?.sfx, keyword: beat.keyword ?? plan?.keyword, visual: beat.visual, line: beat.line ?? plan?.line, transition_out: plan?.transition_out }, takes[i]?.words, durSec[i]!, i) : []),
+      ...(subtitles.sfx !== false && packSounds.has(ordered[i]!.id) ? sceneSoundCues(packSounds.get(ordered[i]!.id)!) : []),
+      ...(subtitles.sfx !== false && !packSounds.has(ordered[i]!.id) ? sceneSfxCues({ role: plan?.role, sfx: plan?.sfx, keyword: beat.keyword ?? plan?.keyword, visual: beat.visual, line: beat.line ?? plan?.line, transition_out: plan?.transition_out }, takes[i]?.words, durSec[i]!, i) : []),
       ...(subtitles.transitions === true ? sceneTransitionCues(durSec[i]!, i, beats.length) : [])
     ];
     for (const cue of sceneCues) sfx.push({ scene: i, name: cue.name, offset: cue.offset, volume: cue.volume, ...(cue.mediaStart ? { mediaStart: cue.mediaStart } : {}) });

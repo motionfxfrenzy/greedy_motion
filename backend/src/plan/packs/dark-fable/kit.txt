@@ -1,0 +1,391 @@
+// Dark Fable cast kit. One drawing per character, shared by every scene, so the film looks like one hand drew it.
+// Inlined into each scene module before bundling (scenes call K.*; they never redraw the cast themselves).
+// Pure: everything from arguments, frame time and seeds. Units: 1080x1920 portrait.
+
+const K = (() => {
+  const W = 1080, H = 1920, TAU = Math.PI * 2;
+  const C = {
+    night: "#1b1c20", nightSky: "#24262c", sky: "#3e4452", dawn: "#5a6272",
+    ground: "#24262c", groundDark: "#1d1e22",
+    sil: "#121316", silLine: "#3a3c44",
+    moon: "#e9e4d4",
+    wool: "#d9cdb0", woolShade: "#b9ad90", skin: "#cbbf9f",
+    leg: "#8f8a80", eye: "#1b1c20",
+    coat: "#2d2f36", coatDark: "#232429", glove: "#3a3c43", head: "#0d0e10",
+    line: "#ece6d6", lineDim: "rgba(236,230,214,0.55)",
+    marker: "#8d8f95", red: "#d0262b", redDark: "#9e1a1e", cuff: "#d9d6cc"
+  };
+  const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+  const ease = (t: number) => { t = clamp(t); return t * t * (3 - 2 * t); };
+  const easeOut = (t: number) => 1 - Math.pow(1 - clamp(t), 3);
+  /** progress of frame f through [a, b] frames, eased */
+  const span = (f: number, a: number, b: number) => ease((f - a) / Math.max(1, b - a));
+  const rng = (seed: number) => { let s = (seed >>> 0) || 1; return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+  const stroke = (ctx: any, w: number, col = C.line) => { ctx.lineWidth = w; ctx.strokeStyle = col; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke(); };
+  const fill = (ctx: any, col: string) => { ctx.fillStyle = col; ctx.fill(); };
+  const lw = (s: number, base = 3.2) => Math.max(2.2, base * Math.sqrt(s));
+  const capsule = (ctx: any, x1: number, y1: number, x2: number, y2: number, r: number) => {
+    const a = Math.atan2(y2 - y1, x2 - x1);
+    ctx.beginPath(); ctx.arc(x1, y1, r, a + Math.PI / 2, a - Math.PI / 2); ctx.arc(x2, y2, r, a - Math.PI / 2, a + Math.PI / 2); ctx.closePath();
+  };
+  const rrect = (ctx: any, x: number, y: number, w: number, h: number, r: number) => {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  };
+
+  // ---------- setting ----------
+  /** Sky above the horizon, flat ground below. mode: "night" (dark), "dusk" (grey-blue), "dawn" (lighter). */
+  function backdrop(ctx: any, horizonY: number, mode: "night" | "dusk" | "dawn" = "dusk") {
+    ctx.fillStyle = mode === "night" ? C.night : mode === "dawn" ? C.dawn : C.sky; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = mode === "night" ? C.groundDark : C.ground; ctx.fillRect(0, horizonY, W, H - horizonY);
+  }
+  function moon(ctx: any, x: number, y: number, r = 34, glow = 1) {
+    for (const [k, a] of [[3.2, 0.06], [2.2, 0.1]] as [number, number][]) { ctx.beginPath(); ctx.arc(x, y, r * k, 0, TAU); fill(ctx, `rgba(233,228,212,${a * glow})`); }
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); fill(ctx, C.moon);
+  }
+  /** Slatted wooden fence standing on groundY, height h, across the frame. */
+  function fence(ctx: any, groundY: number, h = 90, x0 = -20, x1 = W + 20) {
+    const top = groundY - h;
+    ctx.fillStyle = C.sil; ctx.fillRect(x0, top + h * 0.42, x1 - x0, h * 0.58);
+    ctx.strokeStyle = C.silLine; ctx.lineWidth = Math.max(1.2, h / 70);
+    const step = Math.max(9, h * 0.13);
+    for (let x = x0; x < x1; x += step) { ctx.beginPath(); ctx.moveTo(x, top + h * 0.45); ctx.lineTo(x, groundY); ctx.stroke(); }
+    for (const ry of [0.06, 0.42]) { ctx.fillStyle = C.sil; ctx.fillRect(x0, top + h * ry, x1 - x0, h * 0.09); ctx.strokeRect(x0, top + h * ry, x1 - x0, h * 0.09); }
+    const post = Math.max(60, h * 1.5);
+    for (let x = x0 + post * 0.3; x < x1; x += post) { ctx.fillStyle = C.sil; ctx.fillRect(x, top - h * 0.08, h * 0.1, h * 1.08); ctx.strokeRect(x, top - h * 0.08, h * 0.1, h * 1.08); }
+  }
+  /** Big near fence: a few tall posts and rails, for close shots. */
+  function fenceNear(ctx: any, groundY: number, h = 520) {
+    const top = groundY - h; ctx.lineWidth = 3;
+    for (let x = -40; x < W + 40; x += 34) { ctx.fillStyle = C.sil; ctx.fillRect(x, top + h * 0.35, 30, h * 0.65); ctx.strokeStyle = "rgba(236,230,214,0.35)"; ctx.strokeRect(x, top + h * 0.35, 30, h * 0.65); }
+    for (const ry of [0.18, 0.5]) { ctx.fillStyle = C.sil; ctx.fillRect(-20, top + h * ry, W + 40, h * 0.07); ctx.strokeStyle = C.lineDim; ctx.strokeRect(-20, top + h * ry, W + 40, h * 0.07); }
+    for (const px of [140, 620]) { ctx.fillStyle = C.sil; ctx.fillRect(px, top, 44, h); ctx.strokeStyle = C.lineDim; ctx.strokeRect(px, top, 44, h); }
+  }
+  function barn(ctx: any, x: number, groundY: number, s = 1) {
+    const w = 190 * s, h = 120 * s;
+    ctx.beginPath(); ctx.moveTo(x, groundY); ctx.lineTo(x, groundY - h); ctx.lineTo(x + w / 2, groundY - h - 70 * s); ctx.lineTo(x + w, groundY - h); ctx.lineTo(x + w, groundY); ctx.closePath();
+    fill(ctx, C.sil); stroke(ctx, 1.5, C.silLine);
+  }
+  /** Rows of dark tower blocks standing on groundY (the people half). */
+  function city(ctx: any, groundY: number, seed = 7, tall = 900) {
+    const r = rng(seed);
+    for (const [shade, line, hk] of [["#1f2024", "#2c2e35", 1], ["#16171a", "#2a2c33", 0.75]] as [string, string, number][]) {
+      for (let x = -30; x < W + 30;) {
+        const w = 90 + r() * 120, h = tall * hk * (0.45 + r() * 0.55);
+        ctx.fillStyle = shade; ctx.fillRect(x, groundY - h, w, h); ctx.strokeStyle = line; ctx.lineWidth = 2; ctx.strokeRect(x, groundY - h, w, h);
+        x += w + 4;
+      }
+    }
+  }
+  /** Perspective helper: figure scale for a ground point at y, given the horizon. Near the bottom ≈ near. */
+  const depth = (y: number, horizonY: number, near = 1.6) => clamp((y - horizonY) / (H - horizonY), 0.05, 1.5) * near;
+
+  // ---------- the mark ----------
+  function dot(ctx: any, x: number, y: number, r = 9, grow = 1) {
+    if (grow <= 0) return;
+    ctx.beginPath(); ctx.arc(x, y, r * grow * 1.9, 0, TAU); fill(ctx, "rgba(208,38,43,0.18)");
+    ctx.beginPath(); ctx.arc(x, y, r * grow, 0, TAU); fill(ctx, C.red);
+    ctx.beginPath(); ctx.arc(x - r * 0.3 * grow, y - r * 0.3 * grow, r * 0.28 * grow, 0, TAU); fill(ctx, "rgba(255,190,190,0.6)");
+  }
+
+  // ---------- animals ----------
+  type AnimalOpts = { face?: 1 | -1; t?: number; walk?: number; pose?: "stand" | "down" | "look" | "graze" | "flinch"; mark?: number; dim?: number; head?: number };
+  /**
+   * Sheep in side profile standing with its feet on (x, y). s=1 is about 240 px long. face 1 = looking right.
+   * t: time in seconds (for idle motion). walk: 0..1 walking amount. pose "down" = lying fallen on its side.
+   * mark: 0..1 red dot on the flank (grows in). dim: 0..1 darkens it (title beat, background crowd). head: -1..1 extra head turn/raise.
+   */
+  function sheep(ctx: any, x: number, y: number, s = 1, o: AnimalOpts = {}) {
+    const face = o.face ?? 1, t = o.t ?? 0, walk = o.walk ?? 0, pose = o.pose ?? "stand";
+    const S = s * 1.5; ctx.save(); ctx.translate(x, y); ctx.scale(S * face, S);
+    const wl = (w: number) => Math.max(2.2, w * Math.sqrt(S)) / S;
+    const down = pose === "down";
+    const bob = down ? Math.sin(t * 2.4 + x) * 1.5 : Math.sin(t * 2.2 + x * 0.01) * 4 + walk * Math.abs(Math.sin(t * 7)) * -6;
+    const by = down ? -62 : -125;
+    // legs
+    const legs: [number, number][] = [[-62, 1], [-38, -1], [40, 1], [62, -1]];
+    for (const [lx, ph] of legs) {
+      let x1 = lx, y1 = by + 45 + bob, fx: number, fy: number;
+      if (down) { x1 = lx * 0.8; y1 = by + 30; fx = x1 + 70 + ph * 8; fy = y1 + 40; }
+      else { const sw = walk * Math.sin(t * 7 + ph * 1.6) * 0.45; fx = lx + Math.sin(sw) * 80; fy = y1 + Math.cos(sw) * 80; }
+      capsule(ctx, x1, y1, fx, fy, 6.5); fill(ctx, C.leg); stroke(ctx, wl(2.4));
+      ctx.beginPath(); ctx.ellipse(fx + 3, fy - 2, 9, 5, down ? -1 : 0, 0, TAU); fill(ctx, C.coatDark); stroke(ctx, wl(2));
+    }
+    ctx.save(); ctx.translate(0, bob);
+    // body: woolly scalloped cloud
+    const rx = 105, ry = down ? 56 : 62, n = 13;
+    ctx.beginPath();
+    for (let i = 0; i <= 160; i++) { const a = (i / 160) * TAU; const r = 1 + 0.075 * Math.abs(Math.sin(a * n / 2)); const px = Math.cos(a) * rx * r, py = by + Math.sin(a) * ry * r; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+    ctx.closePath(); fill(ctx, C.wool); stroke(ctx, wl(3));
+    ctx.beginPath(); ctx.ellipse(-8, by + 14, 62, 26, -0.08, 0, TAU); fill(ctx, C.woolShade); stroke(ctx, wl(1.8), "rgba(236,230,214,0.6)");
+    for (const [cx, cy] of [[-60, -25], [-20, -35], [25, -33], [55, -10]]) { ctx.beginPath(); ctx.arc(cx, by + cy, 9, Math.PI * 0.9, Math.PI * 2.1); stroke(ctx, wl(1.6), "rgba(185,173,144,0.9)"); }
+    ctx.beginPath(); ctx.arc(-108, by - 13, 13, 0, TAU); fill(ctx, C.wool); stroke(ctx, wl(2.2)); // tail
+    // neck (behind body) + head
+    const hl = pose === "graze" ? 0.85 : pose === "look" ? -0.3 : pose === "flinch" ? -0.45 : 0;
+    // idle life: the head keeps looking around a little, the ear flicks now and then
+    const hr = down ? 0.25 : hl + (o.head ?? 0) * 0.4 + Math.sin(t * 1.3 + x) * 0.07 + Math.sin(t * 0.47 + x * 0.3) * 0.06;
+    const flick = Math.max(0, Math.sin(t * 1.9 + x * 0.7)) ** 12 * 0.6;
+    const hx = down ? 140 : 128, hy = down ? -46 : -176;
+    ctx.save(); ctx.translate(hx, hy); ctx.rotate(hr);
+    ctx.beginPath(); ctx.ellipse(-30, 18, 34, 30, 0, 0, TAU); fill(ctx, C.wool); stroke(ctx, wl(2.6)); // neck wool
+    ctx.beginPath(); ctx.ellipse(18, 22, 44, 25, 0.42, 0, TAU); fill(ctx, C.skin); stroke(ctx, wl(2.6)); // face
+    ctx.beginPath(); ctx.ellipse(-16, 6, 24, 9, 2.6 + flick, 0, TAU); fill(ctx, C.woolShade); stroke(ctx, wl(2)); // ear
+    ctx.beginPath(); ctx.arc(-4, -6, 21, 0, TAU); fill(ctx, C.wool); stroke(ctx, wl(2.2)); // wool cap
+    ctx.beginPath(); ctx.ellipse(52, 40, 4, 3, 0.4, 0, TAU); fill(ctx, "#8a7f68"); // nostril
+    if (down) { ctx.beginPath(); ctx.moveTo(14, 12); ctx.lineTo(28, 16); stroke(ctx, wl(2.6), C.eye); }
+    else if ((t * 0.7 + x * 0.013) % 3.1 > 0.12) { ctx.beginPath(); ctx.arc(20, 12, 5, 0, TAU); fill(ctx, C.eye); }
+    else { ctx.beginPath(); ctx.moveTo(15, 12); ctx.lineTo(25, 12); stroke(ctx, wl(2.4), C.eye); } // blink
+    ctx.restore();
+    if ((o.mark ?? 0) > 0) dot(ctx, -16, by - 8, 14, ease(o.mark ?? 0));
+    ctx.restore(); ctx.restore();
+  }
+  /** A sheep seen from behind/front (used big in the foreground, like the reference's back-view hens). */
+  function sheepFront(ctx: any, x: number, y: number, s = 1, o: { t?: number; back?: boolean } = {}) {
+    const t = o.t ?? 0; ctx.save(); ctx.translate(x, y + Math.sin(t * 2 + x) * 2); ctx.scale(s, s);
+    for (const lx of [-34, 34]) { capsule(ctx, lx, -70, lx, 0, 7); fill(ctx, C.leg); stroke(ctx, 2.4, C.line); }
+    ctx.beginPath(); for (let i = 0; i <= 120; i++) { const a = (i / 120) * TAU, r = 1 + 0.07 * Math.abs(Math.sin(a * 6)); const px = Math.cos(a) * 82 * r, py = -130 + Math.sin(a) * 78 * r; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+    ctx.closePath(); fill(ctx, C.wool); stroke(ctx, 3, C.line);
+    if (!o.back) { ctx.beginPath(); ctx.ellipse(0, -205, 30, 42, 0, 0, TAU); fill(ctx, C.skin); stroke(ctx, 2.8, C.line); for (const ex of [-12, 12]) { ctx.beginPath(); ctx.arc(ex, -212, 4.4, 0, TAU); fill(ctx, C.eye); } }
+    else { ctx.beginPath(); ctx.arc(0, -205, 30, 0, TAU); fill(ctx, C.wool); stroke(ctx, 2.8, C.line); }
+    for (const ex of [-1, 1]) { ctx.beginPath(); ctx.ellipse(ex * 38, -222, 20, 8, ex * 0.4, 0, TAU); fill(ctx, C.woolShade); stroke(ctx, 2.2, C.line); }
+    ctx.restore();
+  }
+  /**
+   * Seeded crowd positions on the ground between yTop and yBottom, laid out in loose rows so figures overlap only a little
+   * (far→near order: draw in this order). Every figure's scale comes from depth(), so sizes agree with distance.
+   * Returns [{x, y, s, face, phase}]. kind "sheep" (wide bodies) or "people" (narrow). Use for flocks and mannequin crowds.
+   */
+  function crowd(seed: number, n: number, x0: number, x1: number, yTop: number, yBottom: number, horizonY: number, near = 1.2, kind: "sheep" | "people" = "sheep") {
+    const r = rng(seed), out: { x: number; y: number; s: number; face: 1 | -1; phase: number }[] = [];
+    const unit = kind === "sheep" ? 300 : 150; // body width at s=1
+    const rows: { y: number; s: number; cap: number }[] = [];
+    for (let y = yTop; y <= yBottom && rows.length < 12;) { const s = depth(y, horizonY, near); const cap = Math.max(1, Math.floor((x1 - x0) / (unit * s * 0.85))); rows.push({ y, s, cap }); y += Math.max(30, (kind === "sheep" ? 170 : 330) * s * 0.55); }
+    let left = n;
+    for (let ri = 0; ri < rows.length && left > 0; ri++) {
+      const row = rows[ri], k = Math.min(row.cap, Math.max(1, Math.ceil(left / (rows.length - ri))));
+      const gap = (x1 - x0) / k, off = (ri % 2) * gap * 0.5;
+      for (let j = 0; j < k && left > 0; j++, left--) {
+        const x = x0 + ((j * gap + off + gap * 0.5 + (r() - 0.5) * gap * 0.3) % (x1 - x0)), y = row.y + (r() - 0.5) * 24;
+        out.push({ x, y, s: depth(y, horizonY, near) * (0.95 + r() * 0.1), face: r() < 0.5 ? -1 : 1, phase: r() * TAU });
+      }
+    }
+    return out.sort((a, b) => a.y - b.y);
+  }
+  /** Wool tufts drifting down after a scuffle (deterministic from t and seed). */
+  function tufts(ctx: any, cx: number, cy: number, t: number, seed = 3, n = 8, spread = 260) {
+    const r = rng(seed);
+    for (let i = 0; i < n; i++) {
+      const x0 = cx + (r() - 0.5) * spread, y0 = cy - r() * spread * 0.6, sp = 30 + r() * 40, ph = r() * TAU;
+      const y = y0 + ((t * sp + r() * 200) % (spread * 1.6)), x = x0 + Math.sin(t * 1.4 + ph) * 18;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(t * 2 + ph) * 0.8);
+      ctx.beginPath(); ctx.ellipse(0, 0, 11, 5, 0, 0, TAU); fill(ctx, C.wool); stroke(ctx, 1.6, C.line); ctx.restore();
+    }
+  }
+
+  /**
+   * A whole flock in one call: places n sheep in spaced rows between yTop and yBottom (no two closer than one body, never stacked),
+   * gives them idle life, and draws them far-to-near together with `extra` figures (the marked one, the narrator...).
+   * opts: seed, n (at most 14), x0/x1 (default the frame width), near (scale at the bottom of the frame), face ("in" = all look at
+   * the centre x, "out", "left", "right", "mixed"), pose for the crowd, walk 0..1, dx (shift every sheep by px, e.g. stepping back
+   * with K.span), clear: {x, y, r} keeps a gap around the marked one, dim 0..1.
+   */
+  function flock(ctx: any, t: number, horizonY: number, yTop: number, yBottom: number, o: { seed?: number; n?: number; x0?: number; x1?: number; near?: number; face?: "in" | "out" | "left" | "right" | "mixed"; centre?: number; pose?: AnimalOpts["pose"]; walk?: number; dx?: number; clear?: { x: number; y: number; r: number }; extra?: Fig[] } = {}) {
+    const n = Math.min(14, o.n ?? 9), c = o.centre ?? W / 2;
+    let pts = crowd(o.seed ?? 4, n + 4, o.x0 ?? 40, o.x1 ?? W - 40, yTop, yBottom, horizonY, o.near ?? 1.2, "sheep");
+    if (o.clear) pts = pts.filter((p) => Math.hypot((p.x - o.clear!.x) / 1.4, p.y - o.clear!.y) > o.clear!.r);
+    const kept: typeof pts = [];
+    for (const p of pts) if (kept.length < n && kept.every((q) => Math.abs(q.y - p.y) > 70 * p.s || Math.abs(q.x - p.x) > 250 * Math.max(p.s, q.s))) kept.push(p);
+    const faceOf = (x: number, f: 1 | -1): 1 | -1 => o.face === "in" ? (x < c ? 1 : -1) : o.face === "out" ? (x < c ? -1 : 1) : o.face === "left" ? -1 : o.face === "right" ? 1 : f;
+    figures(ctx, [...kept.map((p) => ({ kind: "sheep" as const, x: p.x + (o.dx ?? 0) * (p.x < c ? -1 : 1), y: p.y, s: p.s, o: { face: faceOf(p.x, p.face), t: t + p.phase, pose: o.pose, walk: o.walk } })), ...(o.extra ?? [])]);
+  }
+
+  // ---------- people ----------
+  type ManOpts = { t?: number; walk?: number; mark?: number; turn?: number; armUp?: number; down?: boolean; point?: number; face?: 1 | -1 };
+  /**
+   * Faceless wooden mannequin standing with its feet on (x, y), seen from the front. s=1 is about 430 px tall.
+   * walk: 0..1. mark: 0..1 red dot on the chest. turn: -1..1 head turn (a small shift). point: 0..1 raises one arm to point.
+   * down: lying fallen on the ground.
+   */
+  function mannequin(ctx: any, x: number, y: number, s = 1, o: ManOpts = {}) {
+    const t = o.t ?? 0, walk = o.walk ?? 0, w = (v: number) => v / Math.max(0.4, s) * Math.min(1, s * 1.2);
+    ctx.save(); ctx.translate(x, y); ctx.scale(s * (o.face ?? 1), s);
+    if (o.down) { ctx.translate(0, -30); ctx.rotate(-Math.PI / 2); ctx.translate(0, 210); }
+    const sw = walk * Math.sin(t * 6), bob = walk * Math.abs(Math.sin(t * 6)) * -5 + Math.sin(t * 1.6 + x * 0.02) * 3;
+    if (!o.down) ctx.rotate(Math.sin(t * 0.9 + x * 0.05) * 0.012); // idle sway
+    const seg = (x1: number, y1: number, x2: number, y2: number, r: number) => { capsule(ctx, x1, y1, x2, y2, r); fill(ctx, C.coat); stroke(ctx, w(2.6), C.line); };
+    const joint = (jx: number, jy: number, r: number) => { ctx.beginPath(); ctx.arc(jx, jy, r, 0, TAU); fill(ctx, C.coat); stroke(ctx, w(2.4), C.line); };
+    // legs
+    for (const side of [-1, 1]) { const a = sw * side * 0.35, hx = side * 24, hy = -205 + bob, kx = hx + Math.sin(a) * 100, ky = hy + 100, fx = kx + Math.sin(a) * 100, fy = 0;
+      seg(hx, hy, kx, ky, 15); seg(kx, ky, fx, fy - 6, 13); joint(kx, ky, 12); ctx.beginPath(); ctx.ellipse(fx + side * 4, -4, 20, 9, 0, 0, TAU); fill(ctx, C.coat); stroke(ctx, w(2.4), C.line); }
+    // torso
+    rrect(ctx, -52, -370 + bob, 104, 170, 26); fill(ctx, C.coat); stroke(ctx, w(3), C.line);
+    ctx.beginPath(); ctx.moveTo(0, -350 + bob); ctx.lineTo(0, -230 + bob); stroke(ctx, w(1.6), "rgba(236,230,214,0.35)");
+    // arms
+    for (const side of [-1, 1]) {
+      const raise = side === 1 ? (o.point ?? 0) : 0, a = -sw * side * 0.3 - raise * 2.1 * side * -1;
+      const sx = side * 62, sy = -355 + bob, ex = sx + Math.sin(a * side) * 90 * side, ey = sy + Math.cos(a) * 90, hx = ex + Math.sin(a * side) * 85 * side, hy = ey + Math.cos(a) * 85;
+      seg(sx, sy, ex, ey, 12); seg(ex, ey, hx, hy, 11); joint(sx, sy, 15); joint(ex, ey, 10); ctx.beginPath(); ctx.arc(hx, hy, 12, 0, TAU); fill(ctx, C.coat); stroke(ctx, w(2.2), C.line);
+    }
+    // neck + head
+    seg(0, -372 + bob, 0, -392 + bob, 9);
+    ctx.beginPath(); ctx.arc((o.turn ?? 0) * 8, -425 + bob, 36, 0, TAU); fill(ctx, C.coat); stroke(ctx, w(3), C.line);
+    if ((o.mark ?? 0) > 0) dot(ctx, 0, -300 + bob, 13, ease(o.mark ?? 0));
+    ctx.restore();
+  }
+
+  // ---------- the narrator ----------
+  /**
+   * The narrator full-length, seen from the side/back: long dark coat, gloves, wide-brim hat, a head that is a black disc (no face, ever).
+   * Feet on (x, y); s=1 is about 1500 px tall, so at s=1 it fills the frame (crop it: only legs and coat in the frame is the classic shot).
+   * walk: 0..1 slow stride. face: 1 walks right. armOut: 0..1 lifts the near hand forward.
+   */
+  function narrator(ctx: any, x: number, y: number, s = 1, o: { t?: number; walk?: number; face?: 1 | -1; armOut?: number; hat?: boolean } = {}) {
+    const t = o.t ?? 0, walk = o.walk ?? 0, sw = walk * Math.sin(t * 3.2) + Math.sin(t * 1.1) * 0.08, bob = walk * Math.abs(Math.sin(t * 3.2)) * -10 + Math.sin(t * 1.7) * 4;
+    ctx.save(); ctx.translate(x, y); ctx.scale(s * (o.face ?? 1), s); const L = Math.max(2.4, 3 * Math.sqrt(s)) / s;
+    // legs (far leg darker), trousers + boots
+    for (const side of [-1, 1]) { const a = sw * side * 0.26, hx = side * 30, hy = -640 + bob, kx = hx + Math.sin(a) * 320, fx = kx + Math.sin(a * 0.6) * 300;
+      ctx.beginPath(); ctx.moveTo(hx - 52, hy); ctx.lineTo(hx + 52, hy); ctx.lineTo(kx + 46, hy + 320); ctx.lineTo(fx + 40, -40); ctx.lineTo(fx - 40, -40); ctx.lineTo(kx - 46, hy + 320); ctx.closePath();
+      fill(ctx, side < 0 ? "#18191d" : "#202126"); stroke(ctx, L);
+      ctx.beginPath(); ctx.moveTo(fx - 46, -46); ctx.lineTo(fx + 30, -46); ctx.quadraticCurveTo(fx + 100, -40, fx + 100, 0); ctx.lineTo(fx - 46, 0); ctx.closePath(); fill(ctx, C.head); stroke(ctx, L); }
+    // long coat: rounded shoulders, A-line to below the knee, a back seam and a hem flap that swings
+    const hem = -520 + bob, sh = -1300 + bob, flap = sw * 40;
+    ctx.beginPath(); ctx.moveTo(-60, sh - 30); ctx.quadraticCurveTo(-150, sh - 20, -150, sh + 80); ctx.lineTo(-185 + flap, hem); ctx.lineTo(175 + flap, hem); ctx.lineTo(140, sh + 80); ctx.quadraticCurveTo(140, sh - 20, 60, sh - 30); ctx.closePath();
+    fill(ctx, C.coat); stroke(ctx, L);
+    ctx.beginPath(); ctx.moveTo(-40, sh + 120); ctx.lineTo(-30 + flap, hem); stroke(ctx, L * 0.8, "rgba(236,230,214,0.4)");
+    ctx.beginPath(); ctx.moveTo(-148, sh + 520); ctx.lineTo(138, sh + 520); stroke(ctx, L * 0.8, "rgba(236,230,214,0.3)"); // belt line
+    // near arm hanging at the side (swings with the stride or lifts forward)
+    const ao = o.armOut ?? 0, ang = -sw * 0.3 - ao * 1.2, sx = 70, sy = sh + 60;
+    const ex = sx + Math.sin(-ang) * 330, ey = sy + Math.cos(ang) * 330, hx2 = ex + Math.sin(-ang - ao * 0.5) * 300, hy2 = ey + Math.cos(ang + ao * 0.5) * 300;
+    capsule(ctx, sx, sy, ex, ey, 54); fill(ctx, "#33353d"); stroke(ctx, L); capsule(ctx, ex, ey, hx2, hy2, 48); fill(ctx, "#33353d"); stroke(ctx, L);
+    ctx.beginPath(); ctx.ellipse(hx2, hy2 + 50, 56, 74, ang, 0, TAU); fill(ctx, C.glove); stroke(ctx, L);
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(hx2 - 30 + i * 22, hy2 + 70); ctx.lineTo(hx2 - 28 + i * 22, hy2 + 112); stroke(ctx, L * 0.7, "rgba(236,230,214,0.4)"); }
+    // collar, head (a black disc: never a face) and hat
+    ctx.beginPath(); ctx.moveTo(-70, sh - 30); ctx.lineTo(-40, sh - 110); ctx.lineTo(60, sh - 110); ctx.lineTo(80, sh - 30); ctx.closePath(); fill(ctx, C.coatDark); stroke(ctx, L);
+    ctx.beginPath(); ctx.arc(12, sh - 190, 100, 0, TAU); fill(ctx, C.head); stroke(ctx, L);
+    if (o.hat !== false) { ctx.beginPath(); ctx.ellipse(12, sh - 240, 270, 44, -0.04, 0, TAU); fill(ctx, "#2a2a27"); stroke(ctx, L);
+      ctx.beginPath(); ctx.moveTo(-95, sh - 248); ctx.quadraticCurveTo(-85, sh - 375, 12, sh - 380); ctx.quadraticCurveTo(110, sh - 375, 118, sh - 248); ctx.closePath(); fill(ctx, "#2a2a27"); stroke(ctx, L); }
+    ctx.restore();
+  }
+  /**
+   * The narrator's gloved hand holding the marker, reaching in from a frame edge.
+   * from = where the sleeve enters (usually off-frame), tip = where the red marker tip is. s≈1 at medium shots.
+   * press 0..1 = how far the tip has touched down (the hand dips by a few px). cuff: show a pale shirt cuff.
+   */
+  function hand(ctx: any, from: [number, number], tip: [number, number], s = 1, o: { press?: number; cuff?: boolean } = {}) {
+    const [fx, fy] = from; let [tx, ty] = tip; ty += (o.press ?? 0) * 8 * s;
+    const a = Math.atan2(ty - fy, tx - fx), ux = Math.cos(a), uy = Math.sin(a);
+    const ML = 210 * s, gx = tx - ux * ML * 0.62, gy = ty - uy * ML * 0.62, wx = gx - ux * 62 * s, wy = gy - uy * 62 * s;
+    const L = Math.max(2.4, 3 * Math.sqrt(s));
+    capsule(ctx, fx, fy, wx, wy, 40 * s); fill(ctx, "#1e2a44"); stroke(ctx, L); // sleeve
+    if (o.cuff !== false) { capsule(ctx, wx - ux * 14 * s, wy - uy * 14 * s, wx + ux * 8 * s, wy + uy * 8 * s, 36 * s); fill(ctx, C.cuff); stroke(ctx, L); }
+    ctx.save(); ctx.translate(gx, gy); ctx.rotate(a);
+    // marker: barrel from inside the fist to the red tip
+    rrect(ctx, -40 * s, -17 * s, ML * 0.62 + 40 * s - 34 * s, 34 * s, 10 * s); fill(ctx, C.marker); stroke(ctx, L);
+    ctx.beginPath(); ctx.moveTo(ML * 0.62 - 34 * s, -15 * s); ctx.lineTo(ML * 0.62, -4 * s); ctx.lineTo(ML * 0.62, 4 * s); ctx.lineTo(ML * 0.62 - 34 * s, 15 * s); ctx.closePath(); fill(ctx, C.red); stroke(ctx, L * 0.8);
+    // glove: back of the hand, four curled fingers over the barrel, thumb on top
+    ctx.beginPath(); ctx.ellipse(-30 * s, 6 * s, 62 * s, 54 * s, 0, 0, TAU); fill(ctx, C.glove); stroke(ctx, L);
+    for (let i = 0; i < 4; i++) { rrect(ctx, (-62 + i * 26) * s, 4 * s, 24 * s, 52 * s, 11 * s); fill(ctx, C.glove); stroke(ctx, L * 0.85); }
+    ctx.beginPath(); ctx.ellipse(6 * s, -30 * s, 40 * s, 17 * s, 0.25, 0, TAU); fill(ctx, C.glove); stroke(ctx, L * 0.85);
+    ctx.beginPath(); ctx.moveTo(-70 * s, -20 * s); ctx.lineTo(-20 * s, -26 * s); stroke(ctx, L * 0.6, "rgba(236,230,214,0.35)");
+    ctx.restore();
+  }
+
+  // ---------- staging ----------
+  type Fig = { kind: "sheep" | "sheepFront" | "mannequin" | "narrator"; x: number; y: number; s: number; o?: any };
+  /**
+   * Draw every figure of a shot through this: it sorts them far-to-near by their feet (y), so a figure further back is
+   * always drawn first and never appears to stand on top of a nearer one. y is where the feet touch the ground
+   * (for a fallen figure, where its body lies).
+   */
+  function figures(ctx: any, list: Fig[]) {
+    for (const f of [...list].sort((a, b) => a.y - b.y)) {
+      if (f.kind === "sheep") sheep(ctx, f.x, f.y, f.s, f.o); else if (f.kind === "sheepFront") sheepFront(ctx, f.x, f.y, f.s, f.o);
+      else if (f.kind === "mannequin") mannequin(ctx, f.x, f.y, f.s, f.o); else narrator(ctx, f.x, f.y, f.s, f.o);
+    }
+  }
+
+  // ---------- camera ----------
+  type CamKey = { f: number; z?: number; x?: number; y?: number; ease?: "snap" | "smooth" | "slow" };
+  const easeSnap = (t: number) => 1 - Math.pow(1 - clamp(t), 4);
+  /**
+   * The shot's camera. Use: ctx.setTransform(env.scale,0,0,env.scale,0,0); ctx.save(); K.camera(ctx, frame, keys); ...draw the
+   * whole 1080x1920 shot as usual...; ctx.restore(); K.vignette(ctx).
+   * keys (in frame order): { f: frame, z: zoom (1 = the whole frame, 2.5 = two and a half times closer), x, y: the point of the
+   * drawing at the centre of the view, ease: how the move INTO this key runs }. Before the first key the camera holds the first
+   * key; after the last it holds the last.
+   * ease "snap": fast start, soft landing (a reveal: 0.4-0.8 s). "smooth": ease in and out (a tilt, 0.8-1.5 s).
+   * "slow": a gentle push that keeps settling (1-2.5 s).
+   * The view never leaves the drawing: z is at least 1 and the centre is kept inside the frame, so no edge ever shows.
+   * Every shot also drifts slowly closer (about 1.4% a second, at most 4.5%) so the picture is always alive; pass drift 0 to stop it
+   * (the title beat, the frozen-onlookers beat). Call it on EVERY shot, even a hold: K.camera(ctx, frame, []).
+   */
+  function camera(ctx: any, frame: number, keys: CamKey[], drift = 1) {
+    if (!keys.length) keys = [{ f: 0 }];
+    const k0 = { z: 1, x: W / 2, y: H / 2, ...keys[0] };
+    let z = k0.z!, x = k0.x!, y = k0.y!;
+    for (let i = 1; i < keys.length; i++) {
+      const a = { z, x, y, f: keys[i - 1].f }, b = keys[i], bz = b.z ?? a.z, bx = b.x ?? a.x, by = b.y ?? a.y;
+      if (frame <= a.f) break;
+      const raw = (frame - a.f) / Math.max(1, b.f - a.f), e = b.ease === "smooth" ? ease(raw) : b.ease === "slow" ? easeOut(raw) : easeSnap(raw);
+      // zoom moves in log space so a reveal feels even
+      z = Math.exp(lerp(Math.log(a.z), Math.log(bz), e)); x = lerp(a.x, bx, e); y = lerp(a.y, by, e);
+      if (frame < b.f) break;
+    }
+    // a slow living drift on every shot (the references never sit perfectly still); drift 0 turns it off (title beat)
+    z = Math.max(1, z) * (1 + Math.min(0.045, 0.014 * (frame / 30)) * drift);
+    const hw = W / 2 / z, hh = H / 2 / z;
+    x = clamp(x, hw, W - hw); y = clamp(y, hh, H - hh);
+    ctx.translate(W / 2, H / 2); ctx.scale(z, z); ctx.translate(-x, -y);
+  }
+  /** A point moving from p0 to p1 between frames a and b (fast start, soft landing): hands reaching in, things sliding. */
+  function move(frame: number, a: number, b: number, p0: [number, number], p1: [number, number]): [number, number] {
+    const e = easeSnap((frame - a) / Math.max(1, b - a)); return [lerp(p0[0], p1[0], e), lerp(p0[1], p1[1], e)];
+  }
+  /** Fear tremble: a small fast [dx, dy] offset to add to a figure's position. amount 1 ≈ 5 px. */
+  function shake(t: number, amount = 1, seed = 1): [number, number] {
+    return [Math.sin(t * 61 + seed * 3.1) * 3.2 * amount + Math.sin(t * 97 + seed) * 1.8 * amount, Math.sin(t * 73 + seed * 1.7) * 1.6 * amount];
+  }
+  /**
+   * A burst of wool tufts (or grains) thrown up at frame `at` from (x, y): they fly, tumble, fall and settle on the ground at groundY,
+   * where they stay. Use it on the frame a scuffle or attack lands. kind "tuft" (cream wool) or "grain" (small dark bits).
+   */
+  function burst(ctx: any, frame: number, at: number, x: number, y: number, groundY: number, o: { n?: number; seed?: number; power?: number; kind?: "tuft" | "grain"; s?: number } = {}) {
+    if (frame < at) return;
+    const r = rng(o.seed ?? 5), n = o.n ?? 16, P = o.power ?? 1, s = o.s ?? 1.8, dt = (frame - at) / 30;
+    for (let i = 0; i < n; i++) {
+      const ang = -Math.PI / 2 + (r() - 0.5) * 2.4, sp = (420 + r() * 700) * P, vx = Math.cos(ang) * sp, vy = Math.sin(ang) * sp, drag = 1.6 + r() * 1.2, spin = (r() - 0.5) * 9;
+      // drag-limited flight, then a slow drift down like a feather
+      const k = (1 - Math.exp(-drag * dt)) / drag;
+      let px = x + vx * k + Math.sin(dt * 2 + i) * 14 * Math.min(1, dt), py = y + vy * k + 90 * dt * dt + 60 * dt;
+      const rest = r() * 10, rot = r() * 3, landed = py >= groundY - 4; if (landed) py = groundY - 4 - rest;
+      ctx.save(); ctx.translate(px, py); ctx.rotate(landed ? rot : spin * dt); ctx.scale(s, s);
+      if (o.kind === "grain") { ctx.beginPath(); ctx.ellipse(0, 0, 4, 3, 0, 0, TAU); fill(ctx, C.leg); }
+      else { ctx.beginPath(); ctx.ellipse(0, 0, 12, 5.5, 0, 0, TAU); fill(ctx, C.wool); stroke(ctx, 1.5, C.line); }
+      ctx.restore();
+    }
+  }
+  /** A low mound of wool tufts on the ground, centred on (x, groundY), width w; amount 0..1 grows it (the aftermath image). */
+  function pile(ctx: any, x: number, groundY: number, w = 300, amount = 1, seed = 11) {
+    const r = rng(seed), n = Math.round(60 * clamp(amount));
+    for (let i = 0; i < n; i++) {
+      const u = r() * 2 - 1, h = (1 - u * u) * w * 0.32 * clamp(amount) * (0.4 + r() * 0.6);
+      ctx.save(); ctx.translate(x + u * w / 2, groundY - h); ctx.rotate(r() * 3);
+      ctx.beginPath(); ctx.ellipse(0, 0, 13, 6, 0, 0, TAU); fill(ctx, i % 4 ? C.wool : C.woolShade); stroke(ctx, 1.5, C.line); ctx.restore();
+    }
+  }
+  /** A soft glow around the meaning object (the red mark): draw just before K.dot; pulse 0..1 breathes it. */
+  function glow(ctx: any, x: number, y: number, r = 40, pulse = 0) {
+    const k = 1 + 0.15 * Math.sin(pulse * TAU);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r * 2.4 * k); g.addColorStop(0, "rgba(208,38,43,0.45)"); g.addColorStop(1, "rgba(208,38,43,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.4 * k, 0, TAU); ctx.fill();
+  }
+
+  // ---------- grading ----------
+  /** Darken everything drawn so far (title beat: amount 0.6). */
+  function dim(ctx: any, amount = 0.6) { ctx.fillStyle = `rgba(10,10,12,${amount})`; ctx.fillRect(0, 0, W, H); }
+  /** Soft vignette, last thing drawn. */
+  function vignette(ctx: any, k = 0.45) { const g = ctx.createRadialGradient(W / 2, H * 0.5, H * 0.25, W / 2, H * 0.5, H * 0.75); g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, `rgba(0,0,0,${k})`); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+
+  return { W, H, C, clamp, ease, easeOut, span, rng, lerp, depth, camera, move, shake, burst, pile, glow, backdrop, moon, fence, fenceNear, barn, city, dot, sheep, sheepFront, crowd, flock, tufts, mannequin, narrator, hand, figures, dim, vignette };
+})();

@@ -246,7 +246,7 @@ const SUBTITLE_STYLING_SCRIPT = `<script id="bp-subtitles">(function(){
       else capEl.style.transform = "translate(-50%, -50%)";
       var spanEl = capEl.querySelector("span");
       if (!spanEl) continue;
-      spanEl.style.fontSize = Math.round(baseFs * subScale) + "px";
+      spanEl.style.fontSize = Math.round(baseFs * subScale * (st === "shadow" ? 2 : 1)) + "px";
       spanEl.style.maxWidth = "100%";
       spanEl.style.opacity = String(subAlpha);
       if (st === "cinema") {
@@ -273,6 +273,13 @@ const SUBTITLE_STYLING_SCRIPT = `<script id="bp-subtitles">(function(){
         spanEl.style.fontFamily = "Georgia, 'Times New Roman', serif";
         spanEl.style.fontWeight = "600";
         spanEl.style.boxShadow = "3px 4px 0 rgba(30, 22, 14, 0.32)";
+      } else if (st === "shadow") {
+        spanEl.style.background = "transparent";
+        spanEl.style.color = col || "#ffffff";
+        spanEl.style.border = "none";
+        spanEl.style.boxShadow = "none";
+        spanEl.style.fontWeight = "800";
+        spanEl.style.textShadow = "0 4px 14px " + (bg || "rgba(0, 0, 0, 0.85)") + ", 0 2px 4px rgba(0, 0, 0, 0.6)";
       } else if (st === "blueprint") {
         spanEl.style.background = bg || "rgba(12, 42, 74, 0.9)";
         spanEl.style.color = col || "#f0f9ff";

@@ -323,3 +323,13 @@ test("splitCommentsByStatus: applied comments leave the open list, the count and
   assert.equal(affectedScenesSummary(all.slice(0, 2)).label, "Redraw with comments");
   assert.deepEqual(splitCommentsByStatus([]), { pending: [], applied: [] });
 });
+
+test("buildSubtitleCues with wordsPerCue: one spoken word per cue from the voiceover's word times, back to back (the export's rule)", () => {
+  const words = [{ text: "yesterday", start: 0.1, end: 0.6 }, { text: "i", start: 0.7, end: 0.8 }, { text: "put", start: 0.8, end: 1 }, { text: "a", start: 1.1, end: 1.2 }, { text: "dot", start: 1.3, end: 1.7 }];
+  const cues = buildSubtitleCues("full", [{ seconds: 3 }, { seconds: 2 }], [{ line: "Yesterday, I put a dot." }, { line: "The bystander effect." }], [0, 3], [3, 2], { wordsPerCue: 1, words: [words, undefined] });
+  assert.deepEqual(cues.filter((c) => c.scene === 0).map((c) => [c.text, c.start]), [["Yesterday,", 0], ["I", 0.7], ["put", 0.8], ["a", 1.1], ["dot.", 1.3]]);
+  assert.deepEqual(cues.filter((c) => c.scene === 1).map((c) => c.text), ["The", "bystander", "effect."]);
+  for (let k = 0; k < cues.length - 1; k++) if (cues[k].scene === cues[k + 1].scene) assert.equal(cues[k].end, cues[k + 1].start);
+  assert.equal(activeSubtitleCueAt("full", cues, 0.75, 0)?.text, "I");
+  assert.equal(buildSubtitleCues("full", [{ seconds: 3 }], [{ line: "Yesterday, I put a dot." }], [0], [3]).length, 1, "without wordsPerCue: the 6-word chunks");
+});
