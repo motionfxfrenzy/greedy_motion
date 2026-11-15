@@ -151,7 +151,7 @@ const curated: readonly GalleryTemplate[] = [
     summary: "A calm narrator tells a short fable about animals that turns out to be about people, names the idea, and ends on a question.",
     bestFor: "Explaining one idea from psychology, society or behaviour in a story people remember",
     preview: { src: "/templates/dark-fable.jpg", kind: "video", label: "Example film", video: "/templates/dark-fable-5s.mp4", film: "/templates/dark-fable.mp4", wide: true },
-    skill: null, look: "illus-flat-vector", theme: "neutral", aspect: "9:16", durationSeconds: 90, motionProfile: "smooth", pace: "calm", audio: "both", captions: "full", voice: "Charon",
+    skill: null, look: "illus-flat-vector", theme: "neutral", aspect: "9:16", durationSeconds: 90, motionProfile: "smooth", pace: "fast", audio: "both", captions: "full", voice: "Algenib",
     prompt: "Explain the bystander effect: why the more people watch someone in trouble, the less likely anyone helps."
   },
   {

@@ -586,10 +586,28 @@ function escapeXml(str) {
 
 /** One subtitle cue as a full-frame transparent PNG (the same drawing rules the preview's styles describe). */
 export async function renderSubtitlePng(text, sub, w, h) {
+  return sharp(Buffer.from(subtitleSvg(text, sub, w, h).svg)).png().toBuffer();
+}
+
+/**
+ * One subtitle cue as a PNG of just its box (plus room for a shadow) and where it goes, for films with many cues (one word at a
+ * time): a full-frame overlay per cue would hold hundreds of full frames in the filter graph. Offsets are even (4:2:0 chroma).
+ */
+export async function renderSubtitleOverlay(text, sub, w, h) {
+  const { svg, box } = subtitleSvg(text, sub, w, h);
+  const pad = Math.round(box.pad);
+  const left = Math.max(0, Math.floor((box.x - pad) / 2) * 2), top = Math.max(0, Math.floor((box.y - pad) / 2) * 2);
+  const width = Math.min(w - left, Math.ceil((box.x + box.w + pad - left) / 2) * 2), height = Math.min(h - top, Math.ceil((box.y + box.h + pad - top) / 2) * 2);
+  const png = await sharp(Buffer.from(svg)).extract({ left, top, width, height }).png().toBuffer();
+  return { png, x: left, y: top };
+}
+
+function subtitleSvg(text, sub, w, h) {
   const style = sub.style;
   const scale = (sub.size ?? 100) / 100;
   const isPortrait = h > w;
-  const baseFont = isPortrait ? w * 0.033 : h * 0.036;
+  // "shadow" (one bold word at a time, no box) is twice the boxed styles' base: 6.6% of a portrait frame's width.
+  const baseFont = (isPortrait ? w * 0.033 : h * 0.036) * (style === "shadow" ? 2 : 1);
   const fontSize = Math.max(16, Math.round(baseFont * scale));
   const display = style === "kinetic" ? text.toUpperCase() : text;
   const maxChars = Math.max(14, Math.round((isPortrait ? 28 : 44) / Math.max(0.75, scale * 0.9)));
@@ -614,8 +632,8 @@ export async function renderSubtitlePng(text, sub, w, h) {
   const boxY = Math.max(20, Math.min(h - boxH - 20, Math.round(centerY - boxH / 2)));
   const textX = Math.round(boxX + boxW / 2);
   const fontStack = style === "blueprint" ? "'SF Mono', 'Menlo', 'Courier New', monospace" : style === "paper" ? "'Georgia', 'Times New Roman', serif" : "'Plus Jakarta Sans', 'Helvetica Neue', Arial, sans-serif";
-  const fontWeight = style === "kinetic" ? 800 : style === "paper" ? 600 : 700;
-  let bgSvg = "", textColor = sub.color || "#ffffff", strokeAttr = "";
+  const fontWeight = style === "kinetic" || style === "shadow" ? 800 : style === "paper" ? 600 : 700;
+  let bgSvg = "", textColor = sub.color || "#ffffff", strokeAttr = "", defs = "";
   if (style === "pill") {
     bgSvg = `<rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" rx="${Math.round(boxH / 2)}" fill="${sub.bgColor || "rgba(12,15,22,0.82)"}" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>`;
     if (!sub.color) textColor = "#f8fafc";
@@ -631,11 +649,22 @@ export async function renderSubtitlePng(text, sub, w, h) {
   } else if (style === "blueprint") {
     bgSvg = `<rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" rx="6" fill="${sub.bgColor || "rgba(12,42,74,0.9)"}" stroke="#7dd3fc" stroke-width="2"/>`;
     if (!sub.color) textColor = "#f0f9ff";
+  } else if (style === "shadow") {
+    // White bold sans, no box: a soft dark drop shadow (bgColor tints it).
+    const blur = Math.max(2, Math.round(fontSize * 0.09)), dy = Math.max(2, Math.round(fontSize * 0.06));
+    defs = `<defs><filter id="sh" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur in="SourceAlpha" stdDeviation="${blur}"/><feOffset dy="${dy}" result="b"/><feFlood flood-color="${sub.bgColor || "#000000"}" flood-opacity="0.85"/><feComposite in2="b" operator="in"/><feMerge><feMergeNode/><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+    strokeAttr = `filter="url(#sh)"`;
   }
   const textEls = lines.map((line, idx) => `<text x="${textX}" y="${boxY + padY + Math.round((idx + 0.8) * lineHeight)}" text-anchor="middle" font-family="${fontStack}" font-size="${fontSize}" font-weight="${fontWeight}" fill="${textColor}" ${strokeAttr}>${escapeXml(line)}</text>`).join("");
   const alpha = Math.min(1, Math.max(0.2, (sub.opacity ?? 100) / 100));
-  return sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><g opacity="${alpha.toFixed(2)}">${bgSvg}${textEls}</g></svg>`)).png().toBuffer();
+  return {
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${defs}<g opacity="${alpha.toFixed(2)}">${bgSvg}${textEls}</g></svg>`,
+    box: { x: boxX, y: boxY, w: boxW, h: boxH, pad: Math.max(12, fontSize * 0.6) }
+  };
 }
+
+/** Up to this many subtitle cues are full-frame overlays (the graph the legacy parity test pins); more are cropped to their box. */
+export const FULL_FRAME_SUBTITLES_MAX = 40;
 
 export const WATERMARK_INTERVAL_SECONDS = 4;
 const GM_MARK_SVG_PATHS = `<g fill="#168BFF"><rect x="18" y="55" width="42" height="12" rx="6"/><rect x="8" y="74" width="58" height="12" rx="6"/><rect x="20" y="93" width="34" height="12" rx="6"/><path d="M76 49C76 31 96 20 114 28c26 12 46 32 64 52-18 20-38 40-64 52-18 8-38-3-38-21V49Z"/></g><path fill="#FF5A1F" d="M192 54c0-9 10-14 18-9l31 20c8 5 8 16 0 21l-31 20c-8 5-18 0-18-9V54Z"/>`;
@@ -744,12 +773,21 @@ export async function assemble(manifest, { clipFiles, scratch, output, signal, o
     filters.push(`${clipFiles.map((_, i) => `[v${i}]`).join("")}concat=n=${clipFiles.length}:v=1:a=0${needsOverlay ? "[vbase0]" : "[vout]"}`);
     next = clipFiles.length;
     const overlayFiles = [];
+    // Many cues (one word at a time): each overlay is only its caption's box, so the graph never holds hundreds of full frames.
+    const cropped = manifest.cues.length > FULL_FRAME_SUBTITLES_MAX;
     for (const [i, cue] of manifest.cues.entries()) {
       const pos = manifest.subtitles.scenePositions?.[String(cue.scene)];
       const sub = pos ? { ...manifest.subtitles, x: pos.x, y: pos.y } : manifest.subtitles;
       const png = join(scratch, `sub-${i}.png`);
-      await writeFile(png, await renderSubtitlePng(cue.text, sub, W, H));
-      overlayFiles.push({ png, enable: `between(t,${cue.start.toFixed(3)},${cue.end.toFixed(3)})` });
+      const enable = `between(t,${cue.start.toFixed(3)},${cue.end.toFixed(3)})`;
+      if (cropped) {
+        const o = await renderSubtitleOverlay(cue.text, sub, W, H);
+        await writeFile(png, o.png);
+        overlayFiles.push({ png, enable, x: o.x, y: o.y });
+      } else {
+        await writeFile(png, await renderSubtitlePng(cue.text, sub, W, H));
+        overlayFiles.push({ png, enable });
+      }
     }
     if (manifest.watermark) {
       const leftPng = join(scratch, "watermark-left.png");
@@ -763,7 +801,7 @@ export async function assemble(manifest, { clipFiles, scratch, output, signal, o
     }
     overlayFiles.forEach((o, i) => {
       inputs.push("-i", o.png);
-      filters.push(`[vbase${i}][${next}:v]overlay=0:0${o.enable ? `:enable='${o.enable}'` : ""}[${i === overlayFiles.length - 1 ? "vout" : `vbase${i + 1}`}]`);
+      filters.push(`[vbase${i}][${next}:v]overlay=${o.x ?? 0}:${o.y ?? 0}${o.enable ? `:enable='${o.enable}'` : ""}[${i === overlayFiles.length - 1 ? "vout" : `vbase${i + 1}`}]`);
       next += 1;
     });
   }

@@ -34,6 +34,45 @@ export const writeWav = (pcm: Pcm) => pcmToWav(pcm.data, pcm.sampleRate, pcm.cha
  * 40 dB of the take's loudest peak (and above -50 dBFS); a little room is kept either side so
  * soft onsets and fricative tails ("s", "f") are not clipped.
  */
+/**
+ * Shortens every silence inside a take that runs longer than `maxGap` seconds to `keep` seconds (half kept on each side), so a
+ * line read with a long pause at a comma sounds edited tight. Used by templates whose narrator must not drag (TemplatePack.voice.tighten).
+ */
+export function tightenPauses(pcm: Pcm, { maxGap = 0.28, keep = 0.2, floorDb = -38 } = {}): Pcm {
+  const frameBytes = 2 * pcm.channels;
+  const frames = pcm.data.length / frameBytes;
+  const window = Math.max(1, Math.round(pcm.sampleRate * 0.01));
+  const peaks: number[] = [];
+  let loudest = 0;
+  for (let start = 0; start < frames; start += window) {
+    let peak = 0;
+    for (let f = start; f < Math.min(frames, start + window); f++) {
+      for (let c = 0; c < pcm.channels; c++) peak = Math.max(peak, Math.abs(pcm.data.readInt16LE(f * frameBytes + c * 2)));
+    }
+    peaks.push(peak);
+    loudest = Math.max(loudest, peak);
+  }
+  if (loudest === 0) return pcm;
+  const threshold = loudest * 10 ** (floorDb / 20);
+  const half = Math.round((keep / 2) * pcm.sampleRate / window);
+  const chunks: Buffer[] = [];
+  let from = 0;
+  for (let i = 0; i < peaks.length;) {
+    if (peaks[i]! >= threshold) { i++; continue; }
+    let j = i;
+    while (j < peaks.length && peaks[j]! < threshold) j++;
+    // only pauses between sounds: a run touching either end is trimSilence's job
+    if (i > 0 && j < peaks.length && (j - i) * window / pcm.sampleRate > maxGap) {
+      chunks.push(pcm.data.subarray(from * window * frameBytes, (i + half) * window * frameBytes));
+      from = j - half;
+    }
+    i = j;
+  }
+  if (!chunks.length) return pcm;
+  chunks.push(pcm.data.subarray(Math.min(from * window, frames) * frameBytes));
+  return { ...pcm, data: Buffer.concat(chunks) };
+}
+
 export function trimSilence(pcm: Pcm, { headPad = 0.06, tailPad = 0.09 } = {}): Pcm {
   const frameBytes = 2 * pcm.channels;
   const frames = pcm.data.length / frameBytes;

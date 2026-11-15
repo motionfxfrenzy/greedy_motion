@@ -8,7 +8,7 @@ import { QUEUES, sendOnce } from "../jobs/queues.ts";
 import { getProject } from "../projects/store.ts";
 import { getObject, putObject, type Bucket } from "../storage.ts";
 import { desiredVariants, isPlateLook } from "./inputs.ts";
-import { isComputedVariantSignature, primaryAspect } from "./model.ts";
+import { isComputedVariantSignature, primaryAspect, takeFor } from "./model.ts";
 import { plateCacheGate } from "./cache-gate.ts";
 import { POLICY_REPAIR_MAX, buildAuthorMessages, checkScene, moduleFrom } from "./prompt.ts";
 import { bundleKeyFor, claimAuthor, commitBundle, failVariant, getVariant, isVariantCompatibleWithDesired, manifestKeyFor, newOwner, noteAuthorCall, noteAuthorProgress, noteModelStart, primarySource, releaseAuthor, renewAuthor, saveDraft, sourceKeyFor, type AuthorProgressPatch } from "./store.ts";
@@ -281,6 +281,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
             frames: row.frames,
             ...(project.brief?.styleExample ? { styleExample: project.brief.styleExample } : {}),
             ...(project.brief?.scriptNotes ? { scriptNotes: project.brief.scriptNotes } : {}),
+            ...(templatePack(project.brief?.styleExample)?.sceneSounds ? { words: (takeFor(project, row.scene_index)?.words ?? []).map((w) => ({ text: w.text, start: w.start })) } : {}),
             ...(routeSnap ? { modelKey: `${tierRoute.provider}:${tierRoute.model}` } : {}),
             ...(reference ? { reference } : {}),
             ...(revise && !lastError ? { revise } : {}),

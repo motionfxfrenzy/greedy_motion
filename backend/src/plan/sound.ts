@@ -22,7 +22,17 @@ export const SFX = {
   pop: { duration: 0.72, sync: 0.094, volume: 0.3 },
   chime: { duration: 2.5, sync: 0.407, volume: 0.32 },
   typing: { duration: 1.5, sync: 0.443, volume: 0.26 },
-  "impact-bass-1": { duration: 2.12, sync: 0.024, volume: 0.3 }
+  "impact-bass-1": { duration: 2.12, sync: 0.024, volume: 0.3 },
+  // Our own foley (scripts/foley/build-sfx.mjs): a template pack's scenes place these on the frame their action lands.
+  "foley-mark": { duration: 0.28, sync: 0, volume: 0.9 },
+  "foley-tuft": { duration: 0.6, sync: 0, volume: 0.9 },
+  "foley-thud": { duration: 0.4, sync: 0, volume: 0.9 },
+  "foley-step": { duration: 0.34, sync: 0, volume: 0.9 },
+  "foley-shuffle": { duration: 0.75, sync: 0, volume: 0.9 },
+  "foley-bleat": { duration: 0.62, sync: 0, volume: 0.9 },
+  "foley-whoosh": { duration: 0.44, sync: 0, volume: 0.9 },
+  "foley-hit": { duration: 1.33, sync: 0, volume: 0.9 },
+  "foley-drop": { duration: 0.39, sync: 0, volume: 0.9 }
 } as const;
 export type SfxName = keyof typeof SFX;
 

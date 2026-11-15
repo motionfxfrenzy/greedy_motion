@@ -16,9 +16,29 @@ export const castKeywords = (beats: ScriptBeat[]) => beats.map((b) => b.keyword)
 /** The scenes' lengths in whole frames (voiceover-driven when a take exists), the same for every ratio. */
 export function sceneFrames(project: VideoProject): { seconds: number; frames: number }[] {
   const follow = followsAudio(project);
-  return (project.brief?.scriptBeats ?? []).map((beat, i) => {
+  const beats = project.brief?.scriptBeats ?? [];
+  const pacing = templatePack(project.brief?.styleExample)?.pacing;
+  if (pacing) return packSceneSeconds(beats, (i) => takeFor(project, i)?.seconds, pacing, follow).map((seconds) => ({ seconds, frames: framesForSeconds(seconds) }));
+  return beats.map((beat, i) => {
     const seconds = secondsFor(beat, takeFor(project, i)?.seconds, follow);
     return { seconds, frames: framesForSeconds(seconds) };
+  });
+}
+
+/**
+ * A template's own scene pacing (TemplatePack.pacing): a voiced scene lasts its line plus a short gap, whole frames, never rounded
+ * up to the half second and never held to the usual 3 s floor, so short lines ("It cried.") cut on like the reference films.
+ * Longer gaps only around the title beat (its keyword is the term in capitals) and before the last line; the last scene lands with `tail`.
+ * A scene without a measured take keeps the usual estimate.
+ */
+export function packSceneSeconds(beats: ScriptBeat[], take: (index: number) => number | undefined, pacing: NonNullable<ReturnType<typeof templatePack>>["pacing"] & object, follow = false): number[] {
+  const last = beats.length - 1;
+  const title = beats.findIndex((beat) => /^[A-Z0-9][A-Z0-9' -]*[A-Z]$/.test(beat.keyword.trim()));
+  return beats.map((beat, i) => {
+    const voiced = take(i);
+    if (!(voiced && voiced > 0)) return secondsFor(beat, voiced, follow);
+    const gap = i === last ? pacing.tail : i === title || i === title - 1 ? pacing.long : i === last - 1 ? pacing.beforeLast : pacing.gap;
+    return Math.max(i === title ? pacing.titleMin : pacing.min, Math.round((voiced + gap) * FPS) / FPS);
   });
 }
 

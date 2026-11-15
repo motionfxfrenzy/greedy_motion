@@ -1,3 +1,4 @@
+import { packScriptIssues, templatePack } from "./template-packs.ts";
 import { enqueueVisuals, visualStatus, VisualWorkerBusy } from "./visuals.ts";
 import { materialBillingOn, visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
 import { randomUUID } from "node:crypto";
@@ -1009,8 +1010,25 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         text += chunk;
         send({ t: chunk });
       }
-      const { beats, notes: plan, flags } = finishScript(text, parsed.brief, context, only.length && previous ? { previous, only, notes } : undefined);
+      let { beats, notes: plan, flags } = finishScript(text, parsed.brief, context, only.length && previous ? { previous, only, notes } : undefined);
       if (beats.length === 0) throw new Error("The script came back empty. Try again.");
+      // A template with script rules (TemplatePack.scriptRules): lines that break them are rewritten once, before the person sees the script.
+      const pack = templatePack(parsed.brief.styleExample);
+      const issues = !instruction ? packScriptIssues(pack, beats) : [];
+      if (issues.length) {
+        try {
+          const fixOnly = issues.map((issue) => issue.index);
+          const fixInstruction = `Rewrite only the beats listed, keeping the story, the plan and every other beat as it is:\n${issues.map((issue) => `- beat ${issue.index + 1}: ${issue.message}`).join("\n")}`;
+          let fixText = "";
+          for await (const chunk of writeScript({ brief: parsed.brief, context, instruction: fixInstruction, previous: beats, notes: plan, only: fixOnly }, controller.signal)) fixText += chunk;
+          const fixed = finishScript(fixText, parsed.brief, context, { previous: beats, only: fixOnly, notes: plan });
+          if (fixed.beats.length === beats.length) ({ beats, notes: plan, flags } = { beats: fixed.beats, notes: fixed.notes ?? plan, flags: fixed.flags });
+          app.log.info({ event: "script_pack_fix", projectId: project.id, pack: pack?.id, fixed: fixOnly.length, left: packScriptIssues(pack, beats).length }, "script pack rules fixed");
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
+          app.log.warn({ event: "script_pack_fix_failed", projectId: project.id, err: error instanceof Error ? error.message : String(error) }, "script pack fix failed; keeping the first draft");
+        }
+      }
       if (reservationId) {
         await settleStepReservation(reservationId).catch(() => undefined);
         settled = true;
@@ -2588,7 +2606,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     return sendMedia(request, reply, bytes, audioType(file));
   });
 
-  /** The shipped SFX library (worker/templates/beat-plan/sfx, Pixabay Content License). */
+  /** The shipped SFX library (worker/templates/beat-plan/sfx: Pixabay Content License, plus our own generated `foley-*` sounds). Serves every name in SFX. */
   app.get<{ Params: { file: string } }>("/v1/preview/plan-sfx/:file", async (request, reply) => {
     const name = request.params.file.replace(/\.mp3$/, "");
     if (!Object.hasOwn(SFX, name) || !request.params.file.endsWith(".mp3")) return reply.code(404).send({ error: { code: "not_found", message: "Sound not found." } });

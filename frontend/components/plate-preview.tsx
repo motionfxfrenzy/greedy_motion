@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scriptFrameKey, voiceText, type VideoProject } from "@videosaas/contracts";
-import { addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, generatePlanAudio, getPlates, saveMusicPrompt, suggestMusic, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateClip, requestPlateExport, retryPlateScene, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SubtitleMode, type SubtitleStyle } from "../lib/api";
+import { SCENE_SOUND_KINDS, addPlateComment, drawPlateAspect, drawPlates, ensureMediaToken, fixPlates, generatePlanAudio, getPlates, saveMusicPrompt, suggestMusic, planSfxUrl, planVoiceUrl, plateClipUrl, plateExportUrl, removePlateComment, requestPlateClip, requestPlateExport, retryPlateScene, savePlateSubtitles, type PlateAspect, type PlateExportState, type PlateScene, type PlateSfxName, type PlateStatus, type SceneSound, type SubtitleMode, type SubtitleStyle } from "../lib/api";
 import {
   SfxCueTracker,
   WebAudioFilmTimeline,
@@ -54,8 +54,25 @@ import { shouldSeekClip } from "./animation-workspace/clip-seek";
 import { PlateLiveStage, type PlateLiveOptions } from "./plate-live-stage";
 import { svgSrc } from "./script-canvas";
 
-const SFX_NAMES: PlateSfxName[] = ["whoosh-short", "click", "pop", "chime", "typing", "impact-bass-1"];
+const SFX_NAMES: PlateSfxName[] = [
+  "whoosh-short", "click", "pop", "chime", "typing", "impact-bass-1",
+  ...SCENE_SOUND_KINDS.map((kind) => `foley-${kind}` as const)
+];
 type PlateSfxCue = { name: PlateSfxName; offset: number; volume: number; mediaStart?: number };
+
+/** A template pack's scene sounds (sent with the scene by the plate status): `foley-<kind>` at frame / 30, as the export mixes them. */
+function sceneSoundCues(sounds: readonly SceneSound[]): PlateSfxCue[] {
+  return sounds.map((s) => ({ name: `foley-${s.kind}` as PlateSfxName, offset: Math.round((s.frame / 30) * 1000) / 1000, volume: 0.9 }));
+}
+
+/**
+ * Caption defaults of a gallery template with its own pack (backend/src/plan/template-packs.ts `captions`; the plate status
+ * sends the same values once loaded). `size` is pixels on a 1080-wide frame; the shadow style's base is 6.6% of the width.
+ */
+const PACK_CAPTIONS: Record<string, { wordsPerCue: number; style: SubtitleStyle; size: number; y: number }> = {
+  "dark-fable": { wordsPerCue: 1, style: "shadow", size: 72, y: 46 }
+};
+const captionSizePercent = (px: number) => Math.min(160, Math.max(50, Math.round((px / (1080 * 0.066)) * 100)));
 
 function selectSceneSfx(beat: { role?: string; sfx?: string | null; keyword?: string; visual?: string | null; transition_out?: { type?: string } } | undefined, index: number): PlateSfxCue {
   const text = `${beat?.sfx ?? ""} ${beat?.keyword ?? ""} ${beat?.visual ?? ""}`.toLowerCase();
@@ -227,14 +244,18 @@ export function PlatePreview({
   const [applyingFix, setApplyingFix] = useState(false);
   const [retryingSceneIdx, setRetryingSceneIdx] = useState<number | null>(null);
   const [voiceDurations, setVoiceDurations] = useState<Record<number, number>>({});
-  const defaultStyle: SubtitleStyle = project.brief?.look === "illus-blueprint" ? "blueprint" : /^illus-(balloon|fox|folk-tale|gouache|watercolour)/.test(project.brief?.look ?? "") ? "paper" : "pill";
+  const packCaptions = PACK_CAPTIONS[project.brief?.styleExample ?? ""];
+  const defaultStyle: SubtitleStyle = packCaptions?.style ?? (project.brief?.look === "illus-blueprint" ? "blueprint" : /^illus-(balloon|fox|folk-tale|gouache|watercolour)/.test(project.brief?.look ?? "") ? "paper" : "pill");
+  const defaultSize = packCaptions ? captionSizePercent(packCaptions.size) : 100;
+  const defaultPos = { x: 50, y: packCaptions?.y ?? 80 };
   const [subMode, setSubMode] = useState<SubtitleMode>(() => (project.brief?.captions as SubtitleMode) ?? "full");
   const [subStyle, setSubStyle] = useState<SubtitleStyle>(defaultStyle);
-  const [subSize, setSubSize] = useState<number>(100);
+  const [subWordsPerCue, setSubWordsPerCue] = useState<number | undefined>(packCaptions?.wordsPerCue);
+  const [subSize, setSubSize] = useState<number>(defaultSize);
   const [subOpacity, setSubOpacity] = useState<number>(100);
   const [subColor, setSubColor] = useState<string>("");
   const [subBgColor, setSubBgColor] = useState<string>("");
-  const [subPos, setSubPos] = useState<{ x: number; y: number }>({ x: 50, y: 80 });
+  const [subPos, setSubPos] = useState<{ x: number; y: number }>(defaultPos);
   const [scenePositions, setScenePositions] = useState<Record<string, { x: number; y: number }>>({});
   const [voiceOn, setVoiceOn] = useState<boolean>(true);
   const [musicOn, setMusicOn] = useState<boolean>(true);
@@ -448,6 +469,7 @@ export function PlatePreview({
           setSubMode(next.subtitles.mode);
           setSubStyle(next.subtitles.style);
           if (typeof next.subtitles.size === "number") setSubSize(next.subtitles.size);
+          setSubWordsPerCue(typeof next.subtitles.wordsPerCue === "number" && next.subtitles.wordsPerCue >= 1 ? next.subtitles.wordsPerCue : undefined);
           if (typeof next.subtitles.opacity === "number") setSubOpacity(next.subtitles.opacity);
           if (next.subtitles.color) setSubColor(next.subtitles.color);
           if (next.subtitles.bgColor) setSubBgColor(next.subtitles.bgColor);
@@ -575,7 +597,9 @@ export function PlatePreview({
       const scriptBeat = project.brief?.scriptBeats?.[index];
       const sceneDur = durations[index] ?? scenes[index]?.seconds ?? 4;
       return [
-        ...(useSfx
+        ...(useSfx && scenes[index]?.sounds
+          ? sceneSoundCues(scenes[index]!.sounds!)
+          : useSfx
           ? sceneSfxCues(
               {
                 role: planBeat?.role,
@@ -1235,20 +1259,23 @@ export function PlatePreview({
   };
   const resetSubCustomization = () => {
     subLoaded.current = true;
-    setSubSize(100);
+    setSubSize(defaultSize);
     setSubOpacity(100);
     setSubColor("");
     setSubBgColor("");
-    setSubPos({ x: 50, y: 80 });
+    setSubPos(defaultPos);
     setScenePositions({});
-    void savePlateSubtitles(project.id, { size: 100, opacity: 100, color: null, bgColor: null, x: 50, y: 80, scenePositions: null }).catch(() => undefined);
+    void savePlateSubtitles(project.id, { size: defaultSize, opacity: 100, color: null, bgColor: null, x: defaultPos.x, y: defaultPos.y, scenePositions: null }).catch(() => undefined);
   };
 
-  const subtitleCues = useMemo(() => buildSubtitleCues(subMode, scenes, project.brief?.scriptBeats, starts, durations), [subMode, scenes, project.brief?.scriptBeats, starts, durations]);
+  const subtitleCues = useMemo(
+    () => buildSubtitleCues(subMode, scenes, project.brief?.scriptBeats, starts, durations, { wordsPerCue: subWordsPerCue, words: voiceTakes.map((take) => take?.words) }),
+    [subMode, scenes, project.brief?.scriptBeats, starts, durations, subWordsPerCue, voiceTakes]
+  );
   const activeCue = useMemo(() => activeSubtitleCueAt(subMode, subtitleCues, time, current), [subMode, subtitleCues, time, current]);
   const curScenePos = scenePositions[String(current)] ?? subPos;
   const effectiveTextColor = subColor || (subStyle === "cinema" ? "#fef08a" : subStyle === "kinetic" || subStyle === "paper" ? "#1e1b18" : "#ffffff");
-  const effectiveBgColor = subBgColor || (subStyle === "kinetic" ? "#facc15" : subStyle === "paper" ? "#faf5e8" : subStyle === "blueprint" ? "#0c2a4a" : "#0c0f16");
+  const effectiveBgColor = subBgColor || (subStyle === "kinetic" ? "#facc15" : subStyle === "paper" ? "#faf5e8" : subStyle === "blueprint" ? "#0c2a4a" : subStyle === "shadow" ? "#000000" : "#0c0f16");
 
   const selectOrDrawAspect = (asp: "16:9" | "9:16" | "1:1") => {
     wantPlay.current = false;
@@ -1756,7 +1783,7 @@ export function PlatePreview({
       >
         <span style={{
           ...(subColor ? { color: subColor } : {}),
-          ...(subBgColor ? (subStyle === "cinema" ? { textShadow: `0 2px 4px ${subBgColor}, -1.5px -1.5px 0 ${subBgColor}, 1.5px -1.5px 0 ${subBgColor}, -1.5px 1.5px 0 ${subBgColor}, 1.5px 1.5px 0 ${subBgColor}` } : { backgroundColor: subBgColor }) : {})
+          ...(subBgColor ? (subStyle === "cinema" ? { textShadow: `0 2px 4px ${subBgColor}, -1.5px -1.5px 0 ${subBgColor}, 1.5px -1.5px 0 ${subBgColor}, -1.5px 1.5px 0 ${subBgColor}, 1.5px 1.5px 0 ${subBgColor}` } : subStyle === "shadow" ? { textShadow: `0 .06em .22em ${subBgColor}, 0 .03em .06em ${subBgColor}` } : { backgroundColor: subBgColor }) : {})
         }}>{activeCue.text}</span>
       </div>}
     </>}

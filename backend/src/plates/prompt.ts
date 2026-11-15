@@ -261,6 +261,8 @@ export type AuthorRequest = {
   scriptNotes?: { idea?: string | null; example?: string | null; objects?: string | null; fable?: string | null; mapping?: string | null } | null;
   error?: string; previous?: string; revise?: { notes: string; code: string }; reference?: string;
   modelKey?: string;
+  /** The scene's spoken words with their start (seconds from the scene start), so a pack scene can time each action to its word. */
+  words?: { text: string; start: number }[];
 };
 
 export const cacheKeyFor = (sharedText: string, modelKey?: string): string =>
@@ -277,20 +279,21 @@ const packContractFor = (size: { w: number; h: number; label: string }) => [
   "Imports: exactly `import type { Ctx, Env } from \"./core\";` and `import type { Film } from \"./film\";` and nothing else.",
   "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then K.backdrop(...); then the scene; last K.vignette(ctx). Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
   `Export exactly: \`export const film: Film = { meta: { title, W: ${size.w}, H: ${size.h}, fps: 30, bpm: 120, durationFrames }, assets: { images: {} }, shots: [{ id: "scene", start: 0, end: durationFrames, draw }] }\` with const durationFrames = <given>.`,
-  "No words in the picture: captions are laid on by the editor. Keep it short: 40 to 110 lines. Reply with the complete module inside one ```ts fence and nothing else."
+  "No words in the picture: captions are laid on by the editor. Keep it short: 40 to 120 lines. Reply with the complete module inside one ```ts fence and nothing else."
 ].join("\n");
+const packSoundsRule = `SOUNDS: also export \`export const sounds: { kind: string; frame: number }[] = [...]\`: one entry on the exact frame each visible action lands (kinds: mark = the marker touches; tuft = wool torn or tufts burst; thud = a body drops or falls; step = a hoof or boot steps (one per footfall of the power figure, every 2-3 steps for animals); shuffle = a flock shifts or steps back; bleat = one frightened sheep; whoosh = a camera snap reveal starts; hit = the title word lands; drop = something small falls). Only actions that happen on screen; none on the frozen onlookers beat. Usually 1 to 4 per scene.`;
 
 /** A scene of a template with a cast kit: the kit source and scene direction (system), its pictures, the plan and every beat, then this beat. */
 function packAuthorMessages(args: AuthorRequest, pack: TemplatePack, scenes: PackScenes) {
   const beat = args.beats[args.index]!;
   const size = sizeForAspect(args.aspect);
-  const system = [packContractFor(size), "", "SCENE DIRECTION:", pack.sceneDirection, "", "THE KIT SOURCE (read the doc comments for each function's arguments and sizes):", "```ts", scenes.kit, "```"].join("\n");
+  const system = [packContractFor(size), ...(pack.sceneSounds ? [packSoundsRule] : []), "", "SCENE DIRECTION:", pack.sceneDirection, "", "THE KIT SOURCE (read the doc comments for each function's arguments and sizes):", "```ts", scenes.kit, "```"].join("\n");
   const notes = args.scriptNotes;
   const plan = [notes?.idea && `IDEA: ${notes.idea}`, notes?.fable && `FABLE: ${notes.fable}`, notes?.mapping && `MAPPING: ${notes.mapping}`, notes?.objects && `OBJECTS: ${notes.objects}`].filter(Boolean).join("\n");
   const all = args.beats.map((b, i) => `${i + 1}. ${b.line ?? b.keyword}\n   VISUAL: ${b.visual ?? ""}`).join("\n");
   const shared = `${plan ? `THE FILM PLAN:\n${plan}\n` : ""}THE MARK: wherever the plan or a VISUAL says rope, loop or tag, draw the red dot mark instead (mark option or K.dot).\nTHE FILM: ${args.film}\nALL SCENES (for continuity):\n${all}`;
   const scene = [
-    `WRITE SCENE ${args.index + 1} OF ${args.beats.length}. durationFrames = ${args.frames} (${(args.frames / FPS).toFixed(1)} s).\nLINE (spoken, not drawn): ${beat.line ?? ""}\nVISUAL: ${beat.visual ?? beat.keyword}${/^[A-Z][A-Z ]+$/.test(beat.keyword) ? "\nTHIS IS THE TITLE BEAT: use the title-beat rule." : ""}${args.index === args.beats.length - 1 ? "\nThis is the LAST beat: a close shot." : ""}`,
+    `WRITE SCENE ${args.index + 1} OF ${args.beats.length}. durationFrames = ${args.frames} (${(args.frames / FPS).toFixed(1)} s).\nLINE (spoken, not drawn): ${beat.line ?? ""}${args.words?.length ? `\nWORD START FRAMES (time each action to its word): ${args.words.map((w) => `${w.text}@${Math.round(w.start * FPS)}`).join(" ")}` : ""}\nVISUAL: ${beat.visual ?? beat.keyword}${/^[A-Z][A-Z ]+$/.test(beat.keyword) ? "\nTHIS IS THE TITLE BEAT: use the title-beat rule." : ""}${args.index === args.beats.length - 1 ? "\nThis is the LAST beat: a close shot." : ""}`,
     ...(args.reference ? [`THE SAME SCENE WAS ALREADY WRITTEN FOR ANOTHER FRAME SHAPE. Keep its shot, cast and action; recompose it natively for ${size.w}x${size.h}.\nREFERENCE MODULE:\n${args.reference.slice(0, 10_000)}`] : []),
     ...(args.revise ? [args.revise.code
       ? `THIS SCENE WAS ALREADY DRAWN. The person watched it and left notes with the time in the scene (seconds from the scene start). REVISE the module below to answer the notes; keep everything the notes do not mention as it is, and return the whole revised module.\nNOTES:\n${args.revise.notes}\nCURRENT MODULE:\n${args.revise.code.slice(0, 16_000)}`

@@ -1082,6 +1082,8 @@ export type PlateVariant = {
   retrying?: PlateRetrying;
   stale?: boolean;
   needsReconcile?: boolean;
+  /** A template pack's own scene sounds (`export const sounds` in the module), mixed instead of the keyword sounds. */
+  sounds?: SceneSound[];
 };
 export type PlateScene = {
   index: number;
@@ -1108,11 +1110,13 @@ export type PlateScene = {
   retrying?: PlateRetrying;
   stale?: boolean;
   needsReconcile?: boolean;
+  /** The primary-ratio variant's own scene sounds (see PlateVariant.sounds). */
+  sounds?: SceneSound[];
   variants?: Partial<Record<PlateAspect, PlateVariant>>;
 };
 export type PlateComment = { id: string; at: number; scene: number; sceneAt: number; body: string };
 export type SubtitleMode = "none" | "key-phrases" | "full";
-export type SubtitleStyle = "pill" | "cinema" | "kinetic" | "paper" | "blueprint";
+export type SubtitleStyle = "pill" | "cinema" | "kinetic" | "paper" | "blueprint" | "shadow";
 export type PlateSubtitles = {
   mode: SubtitleMode;
   style: SubtitleStyle;
@@ -1123,13 +1127,20 @@ export type PlateSubtitles = {
   x?: number;
   y?: number;
   scenePositions?: Record<string, { x: number; y: number } | null> | null;
+  /** Spoken words per caption in "full" mode, timed from the voiceover (1 = one word at a time); absent = 6-word chunks. */
+  wordsPerCue?: number | null;
   voice?: boolean;
   music?: boolean;
   sfx?: boolean;
   transitions?: boolean;
   aspects?: ("16:9" | "9:16" | "1:1")[];
 };
-export type PlateSfxName = "whoosh-short" | "click" | "pop" | "chime" | "typing" | "impact-bass-1";
+/** Sounds a template pack's scene places itself (backend SCENE_SOUND_KINDS), played as `foley-<kind>`. */
+export const SCENE_SOUND_KINDS = ["mark", "tuft", "thud", "step", "shuffle", "bleat", "whoosh", "hit", "drop"] as const;
+export type SceneSoundKind = (typeof SCENE_SOUND_KINDS)[number];
+/** One such sound: `kind` on `frame` of the scene (30 fps). Sent with a scene / variant when its template has scene sounds. */
+export type SceneSound = { kind: SceneSoundKind; frame: number };
+export type PlateSfxName = "whoosh-short" | "click" | "pop" | "chime" | "typing" | "impact-bass-1" | `foley-${SceneSoundKind}`;
 export const planSfxUrl = (name: PlateSfxName) => `${apiOrigin}/v1/preview/plan-sfx/${encodeURIComponent(name)}.mp3`;
 export type PlateStatus = {
   available: boolean;
