@@ -908,7 +908,9 @@ export async function runCheck(
     if (shouldMeasureSlowDraw) {
       const previewScale =
         typeof options?.previewScale === "number" && options.previewScale > 0 ? options.previewScale : 1;
-      const sampleFrames = buildCheckSampleFrames(totalFrames, 8);
+      // 16 samples, not 8: after the ignored first draw, 7 samples made the p90 the single slowest frame, so one GC pause
+      // (a 96 ms frame in a scene drawing at 17 ms) sent a smooth scene to the slow AWS clip path. With 15 it is the second-slowest.
+      const sampleFrames = buildCheckSampleFrames(totalFrames, 16);
       const rawAlone: number[] = [];
       const rawContended: number[] = [];
 

@@ -859,8 +859,10 @@ export function PlateLiveStage({
         ...(forceClipReason ? { forceClipReason } : {})
       };
 
+      // The key changes only when the check's RESULT changes (pending -> passed), never when a check starts: keying on
+      // `needsCheck` flipped the key as soon as a check began, remounted the scene, superseded that check, and looped forever.
       const key = canMountLive
-        ? `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:live:${needsCheck ? "check" : "ok"}:${spec.frames}:${durSec}:${sceneLook ?? ""}`
+        ? `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:live:${checkOutcome?.ok === true || v.state !== "bundled" ? "ok" : "pending"}:${spec.frames}:${durSec}:${sceneLook ?? ""}`
         : `${idx}:r${v.rev}:g${effectiveGen}:${spec.bundleDigest}:${forceClipReason ?? "clip"}:${v.state}:${v.hasClip ? "clip-ready" : "clip-wait"}:${v.clipVersion ?? ""}:${spec.frames}:${durSec}:${sceneLook ?? ""}`;
       return { spec, key };
     };
