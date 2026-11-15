@@ -1483,7 +1483,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const draw = async () => {
       for (let index = queue.shift(); index !== undefined && !controller.signal.aborted; index = queue.shift()) {
         try {
-          const svg = await sketchFrame({ beat: beats[index]!, index, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes, brand }, controller.signal);
+          const svg = await sketchFrame({ beat: beats[index]!, index, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes, brand, styleExample: brief.styleExample }, controller.signal);
           send({ index, svg });
           await saveScriptFrame(project.id, { key: keyFor(index), svg }).catch((error) => app.log.warn({ err: error, projectId: project.id }, "frame not saved"));
           if (index === 0) await setCoverFrame(project.id, svg).catch(() => undefined);
@@ -1914,7 +1914,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
             for (let idx = frameQueue.shift(); idx !== undefined && !controller.signal.aborted; idx = frameQueue.shift()) {
               try {
                 const svg = await sketchFrame(
-                  { beat: beats[idx]!, index: idx, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes, brand: await frameBrand(brief.brandId, callerId(request)) },
+                  { beat: beats[idx]!, index: idx, count: beats.length, aspect: brief.aspect, topic: brief.text, style, look: brief.look ?? "clean", notes, brand: await frameBrand(brief.brandId, callerId(request)), styleExample: brief.styleExample },
                   controller.signal
                 );
                 await saveScriptFrame(project!.id, { key: keyFor(idx), svg });

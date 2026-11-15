@@ -38,9 +38,10 @@ function Preview({ item, onOpen }: { item: GalleryCard; onOpen: () => void }) {
   const [playing, setPlaying] = useState(false);
   const play = () => { void video.current?.play().catch(() => undefined); };
   const stop = () => { const node = video.current; if (!node) return; node.pause(); node.currentTime = 0; };
-  const square = item.aspect === "1:1" || item.preview.src.includes("/illus-");
-  // A vertical film gets a taller frame and is shown whole on a dark ground, never cropped.
-  const tall = item.aspect === "9:16";
+  const square = !item.preview.wide && (item.aspect === "1:1" || item.preview.src.includes("/illus-"));
+  // A vertical film gets a taller frame and is shown whole on a dark ground, never cropped (unless its preview is a
+  // wide card made for it: the film over a blurred, zoomed copy of itself).
+  const tall = item.aspect === "9:16" && !item.preview.wide;
   return <span ref={box} className={square ? "gallery-media has-still square" : tall ? "gallery-media has-still tall" : "gallery-media has-still"} role="button" tabIndex={0} aria-label={`Open the ${item.name} preview`} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }} onMouseEnter={play} onMouseLeave={stop} onFocus={play} onBlur={stop}>
     <img className="gallery-still" src={poster.src} alt={src ? "" : `${item.name}: ${item.preview.label.toLowerCase()}`} loading="lazy" decoding="async" width={480} height={270} onError={poster.failed} />
     {src && <video ref={video} className={playing ? "is-playing" : undefined} src={clip.src} muted loop playsInline preload="none" aria-label={`${item.name}: ${item.preview.label.toLowerCase()}`} onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} onError={clip.failed} />}
@@ -84,14 +85,18 @@ export function GalleryCardView({ item, onUse, href, action = "Use this", busy }
  *  Closes with the button, a click outside, or Escape. */
 function PreviewDialog({ item, onClose, children }: { item: GalleryCard; onClose: () => void; children: React.ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const video = item.preview.video;
-  const shape = item.aspect === "9:16" ? "tall" : item.aspect === "1:1" || item.preview.src.includes("/illus-") ? "square" : "wide";
+  // The whole example film (voice and music) when there is one: it plays with sound, since the dialog opens on a click.
+  const film = item.preview.film;
+  const video = film ?? item.preview.video;
+  const shape = item.preview.wide ? "wide" : item.aspect === "9:16" ? "tall" : item.aspect === "1:1" || item.preview.src.includes("/illus-") ? "square" : "wide";
   useEffect(() => { const node = dialog.current; if (node && !node.open) node.showModal(); }, []);
   return <dialog ref={dialog} className="gallery-dialog" aria-label={`${item.name} preview`} onClose={onClose} onClick={(event) => { if (event.target === dialog.current) dialog.current?.close(); }}>
     <button type="button" className="gallery-dialog-close" aria-label="Close preview" onClick={() => dialog.current?.close()}><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" /></svg></button>
     <div className={`gallery-dialog-media ${shape}`}>
       {video
-        ? <video src={galleryMediaUrl(video)} poster={galleryMediaUrl(item.preview.src)} controls autoPlay loop muted playsInline aria-label={`${item.name}: ${item.preview.label.toLowerCase()}`} />
+        ? film
+          ? <video src={galleryMediaUrl(film)} poster={galleryMediaUrl(item.preview.src)} controls autoPlay playsInline aria-label={`${item.name}: ${item.preview.label.toLowerCase()}, with sound`} />
+          : <video src={galleryMediaUrl(video)} poster={galleryMediaUrl(item.preview.src)} controls autoPlay loop muted playsInline aria-label={`${item.name}: ${item.preview.label.toLowerCase()}`} />
         : <img src={galleryMediaUrl(item.preview.src)} alt={`${item.name}: ${item.preview.label.toLowerCase()}`} />}
     </div>
     <div className="gallery-dialog-body">

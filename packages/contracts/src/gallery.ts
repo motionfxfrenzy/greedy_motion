@@ -37,7 +37,11 @@ export type GalleryTemplate = {
   /** Who it is for and what it shows. */
   bestFor: string;
   /** `src` is the poster still; `video` is the muted 5-second preview rendered by our engine, when there is one. */
-  preview: { src: string; kind: "image" | "video"; label: string; video?: string };
+  /**
+   * `film` is the whole example film with voice and music, played (with sound) in the preview dialog.
+   * `wide` shows a vertical film on a wide card (the film sharp in the middle over a blurred, zoomed copy of itself).
+   */
+  preview: { src: string; kind: "image" | "video"; label: string; video?: string; film?: string; wide?: boolean };
   /** The public prompt this template remakes, credited. We rebuild the idea with our own engine; no media is copied. */
   source?: { label: string; url: string };
   /** File name of the hand-built clip's source (index.html), published by scripts/publish-gallery.mjs. Served at /v1/gallery/<name> as plain text. */
@@ -54,6 +58,8 @@ export type GalleryTemplate = {
   pace: Pace;
   audio: AudioMode;
   captions: CaptionMode;
+  /** The narrator the template starts with (a voice id); Kore when not set. The person can pick another. */
+  voice?: string;
   /** The example brief the script field starts with; the person replaces the product details. */
   prompt: string;
 };
@@ -139,6 +145,14 @@ const curated: readonly GalleryTemplate[] = [
     source: { label: "Remade from @1stnoel_ and @AmitSingha89", url: "https://x.com/1stnoel_/status/2103247530259603851" },
     skill: null, look: "clean", theme: "neutral", aspect: "16:9", durationSeconds: 60, motionProfile: "smooth", pace: "calm", audio: "voiceover", captions: "key-phrases",
     prompt: "A one-minute narrated explainer of Sotto, a reading app, written for a first-time visitor to the website: what it is, who it helps, how it works, and what to do next. Calm, clear and educational."
+  },
+  {
+    id: "dark-fable", kind: "explainer", name: "Dark fable", group: "Explainer",
+    summary: "A calm narrator tells a short fable about animals that turns out to be about people, names the idea, and ends on a question.",
+    bestFor: "Explaining one idea from psychology, society or behaviour in a story people remember",
+    preview: { src: "/templates/dark-fable.jpg", kind: "video", label: "Example film", video: "/templates/dark-fable-5s.mp4", film: "/templates/dark-fable.mp4", wide: true },
+    skill: null, look: "illus-flat-vector", theme: "neutral", aspect: "9:16", durationSeconds: 90, motionProfile: "smooth", pace: "calm", audio: "both", captions: "full", voice: "Charon",
+    prompt: "Explain the bystander effect: why the more people watch someone in trouble, the less likely anyone helps."
   },
   {
     id: "about-us-story", kind: "explainer", name: "About-us story", group: "Story",
@@ -294,7 +308,10 @@ export const heldForV2 = (look: string) => HOLD_GENERATED_STYLES && getLook(look
 /** The Story & film plates of the illustration styles: each is code-drawn (anidoodle), so they stay in the gallery while the generated looks are held. */
 export const isStylePlate = (item: GalleryTemplate) => item.id.startsWith("story-illus-");
 export const isStylePlateLook = (look: string) => everyGalleryTemplate.some((item) => item.look === look && isStylePlate(item));
-export const galleryTemplates: readonly GalleryTemplate[] = everyGalleryTemplate.filter((item) => !heldForV2(item.look) || isStylePlate(item));
+/** Templates drawn in code by the plate engine from a shared cast kit (backend template-packs.ts): like the style plates, shown while generated looks are held, and only where plates are on. */
+const codeDrawnTemplates = new Set(["dark-fable"]);
+export const isCodeDrawn = (item: GalleryTemplate) => isStylePlate(item) || codeDrawnTemplates.has(item.id);
+export const galleryTemplates: readonly GalleryTemplate[] = everyGalleryTemplate.filter((item) => !heldForV2(item.look) || isCodeDrawn(item));
 
 import { galleryUseCases, normalizeSearch, type GalleryUseCase } from "./gallery-use-cases.ts";
 export { galleryUseCases, type GalleryUseCase };
@@ -315,6 +332,8 @@ export function useCaseOf(item: GalleryTemplate): GalleryUseCase {
   if (item.group === "Paper" || item.group === "Clay") return "story";
   // The editorial collage is drawn by the engine from a script, with product screens on top: it is a product look, not a film.
   if (item.id === "story-vox-collage") return "saas";
+  // A fable that explains one idea: an educational film (the film brief, the explainer kind), though drawn in a story look.
+  if (item.id === "dark-fable") return "explain";
   if (item.kind === "style" && item.group === "Story") return "story";
   if (brandGroups.has(item.group)) return "brand";
   return "saas";
@@ -388,7 +407,7 @@ export function galleryBrief(item: GalleryTemplate): Pick<ScriptBrief, "scriptMo
     aspect: item.aspect,
     motionProfile: item.motionProfile,
     pace: item.pace,
-    audio: { mode: "both", voice: "Kore" },
+    audio: { mode: "both", voice: item.voice ?? "Kore" },
     captions: "full",
     template: item.skill,
     theme: item.theme,
@@ -410,7 +429,7 @@ export type GalleryPage = { items: GalleryCard[]; total: number; nextCursor: str
 
 export const galleryCard = (item: GalleryTemplate): GalleryCard => ({
   id: item.id, name: item.name, group: item.group, summary: item.summary, preview: item.preview, aspect: item.aspect,
-  ...(item.source ? { source: item.source } : {}), generated: needsGeneration(item) && !isStylePlate(item), useCase: useCaseOf(item)
+  ...(item.source ? { source: item.source } : {}), generated: needsGeneration(item) && !isCodeDrawn(item), useCase: useCaseOf(item)
 });
 
 /** The templates shown on the landing page, in order. */
@@ -511,7 +530,7 @@ export function queryGallery(options: { useCase?: string; q?: string; cursor?: s
   const scoped = options.scope === "film" ? base.filter(isFilmTemplate) : base;
   const matches = needle ? scoped.filter((item) => `${item.name} ${item.summary} ${item.bestFor} ${item.group} ${item.look}`.toLowerCase().includes(needle)) : scoped;
   // Hidden groups stay out of browsing and counts (so their tab disappears); a template asked for by id still resolves.
-  const shown = matches.filter((item) => !hiddenUseCases.includes(useCaseOf(item)) && (options.plates || !isStylePlate(item)));
+  const shown = matches.filter((item) => !hiddenUseCases.includes(useCaseOf(item)) && (options.plates || !isCodeDrawn(item)));
   const counts = { all: shown.length } as Record<GalleryUseCase | "all", number>;
   for (const entry of galleryUseCases) counts[entry.id] = 0;
   for (const item of shown) counts[useCaseOf(item)]++;
@@ -550,7 +569,7 @@ export const styleExamples = (id: string, options: { scope?: GalleryScope; plate
   return galleryTemplates.filter((item) =>
     item.group !== "Colour" &&
     (item.look === id || familyOf(item) === id) &&
-    (plates || !isStylePlate(item)) &&
+    (plates || !isCodeDrawn(item)) &&
     (options.scope === "film" ? isFilmTemplate(item) && !hiddenUseCases.includes(useCaseOf(item)) : true)
   );
 };

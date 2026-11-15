@@ -1,3 +1,4 @@
+import { templatePack } from "./template-packs.ts";
 import { inferScriptTemplate, type Aspect, type BrandColors, type ScriptBeat, type ScriptNotes } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { callModel } from "../models/providers.ts";
@@ -210,7 +211,10 @@ export function curatedThoughtExperimentGuide(aspect: Aspect = "16:9", topic = "
 
 export type FrameBrand = { name: string; colors: BrandColors; mode?: "light" | "dark" | undefined; /** The kit's logo as a small PNG data URI; placed on the frame by us, never drawn by the model. */ logoDataUri?: string | undefined };
 
-export type FrameRequest = { beat: ScriptBeat; index: number; count: number; aspect: Aspect; topic: string; style: { name: string; code: string } | null; look: string; notes?: ScriptNotes | null; brand?: FrameBrand | null };
+export type FrameRequest = { beat: ScriptBeat; index: number; count: number; aspect: Aspect; topic: string; style: { name: string; code: string } | null; look: string; notes?: ScriptNotes | null; brand?: FrameBrand | null; /** The gallery template the person started from: a template pack (template-packs.ts) draws its frames in its own look. */ styleExample?: string | null };
+
+/** A prompt part: text (optionally cached) or a PNG picture. */
+type SketchPart = { type: "text"; text: string; cache_control?: { type: "ephemeral" } } | { type: "image"; mime: string; base64: string };
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -308,7 +312,9 @@ export function fillLogoSlot(svg: string, logoDataUri: string): string {
 export const withoutLegacyLogo = (svg: string) => svg.replace(/<image id="brand-logo"(?![^>]*data-slot="1")[^>]*\/>/g, "");
 
 /** The part every beat shares (style guide, topic, size), cached, then the beat itself. */
-function prompt(request: FrameRequest) {
+function prompt(request: FrameRequest): SketchPart[] {
+  const pack = templatePack(request.styleExample);
+  if (pack?.sketchDirection) return packPrompt(request, pack.sketchDirection, pack.scenes?.().images ?? []);
   const { beat, index, count, aspect, topic, style, look, notes, brand } = request;
   const placement = logoPlacement(request);
   const { width, height } = FRAME_SIZE[aspect];
@@ -343,6 +349,24 @@ function prompt(request: FrameRequest) {
     "The frame shows what this voiceover line is saying as it is said (if it talks about a million, show the million)."
   ].join("\n");
   return [{ type: "text", text: shared, cache_control: { type: "ephemeral" } }, { type: "text", text: own }];
+}
+
+/** A frame for a template with its own pack: its pictures and sketch direction stand in for the style guide, and no words are drawn. */
+function packPrompt(request: FrameRequest, direction: string, images: { label: string; data: Buffer }[]): SketchPart[] {
+  const { beat, index, count, aspect, topic, notes } = request;
+  const { width, height } = FRAME_SIZE[aspect];
+  const pictures: SketchPart[] = images.flatMap((image) => [{ type: "text" as const, text: image.label.replace(/made only with K/, "made by the template's cast kit").replace(/Your scene must look like these:/, "Your frame must look like these:") }, { type: "image" as const, mime: "image/png", base64: image.data.toString("base64") }]);
+  const shared = [
+    direction,
+    `What the film is about: ${topic.slice(0, 600)}`,
+    ...(notes?.idea ? [`The film's one idea: ${notes.idea}`] : []),
+    ...(notes?.fable ? [`The fable: ${notes.fable}`] : []),
+    ...(notes?.mapping ? [`How it maps onto people: ${notes.mapping}`] : []),
+    ...(notes?.objects ? [`OBJECTS (the film's recurring objects; use these exact ids on <g> elements every time they appear): ${notes.objects}`] : []),
+    `Frame size: width="${width}" height="${height}" viewBox="0 0 ${width} ${height}".`
+  ].join("\n\n");
+  const own = [`Beat ${index + 1} of ${count}:`, `VISUAL: ${beat.visual ?? beat.keyword}`, `VOICEOVER at this moment: ${beat.line ?? "-"}`, "The frame shows what this voiceover line is saying as it is said. Draw no text at all."].join("\n");
+  return [...pictures, { type: "text", text: shared, cache_control: { type: "ephemeral" } }, { type: "text", text: own }];
 }
 
 const HTML_ENTITIES: Record<string, string> = { nbsp: "\u00a0", ldquo: "\u201c", rdquo: "\u201d", lsquo: "\u2018", rsquo: "\u2019", sbquo: "\u201a", bdquo: "\u201e", mdash: "\u2014", ndash: "\u2013", hellip: "\u2026", bull: "\u2022", middot: "\u00b7", rarr: "\u2192", larr: "\u2190", uarr: "\u2191", darr: "\u2193", harr: "\u2194", times: "\u00d7", divide: "\u00f7", minus: "\u2212", plusmn: "\u00b1", deg: "\u00b0", copy: "\u00a9", reg: "\u00ae", trade: "\u2122", euro: "\u20ac", pound: "\u00a3", yen: "\u00a5", cent: "\u00a2", laquo: "\u00ab", raquo: "\u00bb", check: "\u2713", infin: "\u221e", ne: "\u2260", le: "\u2264", ge: "\u2265", approx: "\u2248", frac12: "\u00bd", frac14: "\u00bc", sect: "\u00a7", para: "\u00b6", ensp: "\u2002", emsp: "\u2003", thinsp: "\u2009", zwnj: "\u200c", shy: "\u00ad" };
@@ -420,7 +444,7 @@ async function drawFrame(request: FrameRequest, signal: AbortSignal, http: typeo
   const maxTokens = attempt === 1 ? route.maxTokens : Math.max(route.maxTokens * 2, 12000);
   if (route.provider !== "anthropic") {
     // Another provider (MODEL_FRAME_SKETCH): the shared provider layer.
-    const result = await callModel({ step: "frameSketch", route, system: SYSTEM, messages: [{ role: "user", content: parts.map((part) => ({ type: "text" as const, text: part.text, ...(part.cache_control ? { cache: true } : {}) })) }], maxTokens, effort: "low", signal, errorPrefix: "Frame request failed", includeErrorDetail: true, ...(http !== fetch ? { request: http } : {}) });
+    const result = await callModel({ step: "frameSketch", route, system: SYSTEM, messages: [{ role: "user", content: parts.map((part) => part.type === "image" ? { type: "image" as const, mime: part.mime, base64: part.base64 } : { type: "text" as const, text: part.text, ...(part.cache_control ? { cache: true } : {}) }) }], maxTokens, effort: "low", signal, errorPrefix: "Frame request failed", includeErrorDetail: true, ...(http !== fetch ? { request: http } : {}) });
     const svg = cleanSvg(result.text);
     if (!svg) throw new Error("The frame came back without a usable SVG.");
     return svg;
@@ -433,7 +457,7 @@ async function drawFrame(request: FrameRequest, signal: AbortSignal, http: typeo
       max_tokens: maxTokens,
       output_config: { effort: route.effort ?? "low" },
       system: SYSTEM,
-      messages: [{ role: "user", content: parts }]
+      messages: [{ role: "user", content: parts.map((part) => part.type === "image" ? { type: "image", source: { type: "base64", media_type: part.mime, data: part.base64 } } : part) }]
     }),
     signal
   });

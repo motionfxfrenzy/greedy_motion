@@ -1,3 +1,4 @@
+import { templatePack, type PackScenes, type TemplatePack } from "../plan/template-packs.ts";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -257,7 +258,7 @@ export async function promptDigest(
 export type AuthorRequest = {
   look: string; plateName: string; film: string; beats: ScriptBeat[]; aspect: string; index: number; frames: number;
   styleExample?: string | null; storyWorld?: string; guidesDir?: string; kitModules?: readonly KitModule[];
-  scriptNotes?: { idea?: string | null; example?: string | null; objects?: string | null } | null;
+  scriptNotes?: { idea?: string | null; example?: string | null; objects?: string | null; fable?: string | null; mapping?: string | null } | null;
   error?: string; previous?: string; revise?: { notes: string; code: string }; reference?: string;
   modelKey?: string;
 };
@@ -268,8 +269,48 @@ export const cacheKeyFor = (sharedText: string, modelKey?: string): string =>
     .digest("hex")
     .slice(0, 16);
 
+/** The contract for a template whose scenes are composed from its cast kit (template-packs.ts) instead of a plate's recipe. */
+const packContractFor = (size: { w: number; h: number; label: string }) => [
+  `You write ONE scene of a short narrated film as a TypeScript module for the anidoodle engine, drawn in code on a ${size.w}x${size.h} canvas (${size.label}) at 30 fps.`,
+  "THE CONTRACT (absolute): the module is a pure function of (ctx, frame, env). No Math.random, Date, clock, fetch, images, fonts, ctx.filter, window or document. Randomness only through K.rng(seed).",
+  "THE KIT: a global object K (the template's cast kit, source below) is already in scope. Do NOT import, declare or copy it. Draw the cast and the setting ONLY with K's functions: you choose the shot, place the pieces and animate their arguments over time. Never draw your own animals, people, hands, fences, barns, cities or moons.",
+  "Imports: exactly `import type { Ctx, Env } from \"./core\";` and `import type { Film } from \"./film\";` and nothing else.",
+  "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then K.backdrop(...); then the scene; last K.vignette(ctx). Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
+  `Export exactly: \`export const film: Film = { meta: { title, W: ${size.w}, H: ${size.h}, fps: 30, bpm: 120, durationFrames }, assets: { images: {} }, shots: [{ id: "scene", start: 0, end: durationFrames, draw }] }\` with const durationFrames = <given>.`,
+  "No words in the picture: captions are laid on by the editor. Keep it short: 40 to 110 lines. Reply with the complete module inside one ```ts fence and nothing else."
+].join("\n");
+
+/** A scene of a template with a cast kit: the kit source and scene direction (system), its pictures, the plan and every beat, then this beat. */
+function packAuthorMessages(args: AuthorRequest, pack: TemplatePack, scenes: PackScenes) {
+  const beat = args.beats[args.index]!;
+  const size = sizeForAspect(args.aspect);
+  const system = [packContractFor(size), "", "SCENE DIRECTION:", pack.sceneDirection, "", "THE KIT SOURCE (read the doc comments for each function's arguments and sizes):", "```ts", scenes.kit, "```"].join("\n");
+  const notes = args.scriptNotes;
+  const plan = [notes?.idea && `IDEA: ${notes.idea}`, notes?.fable && `FABLE: ${notes.fable}`, notes?.mapping && `MAPPING: ${notes.mapping}`, notes?.objects && `OBJECTS: ${notes.objects}`].filter(Boolean).join("\n");
+  const all = args.beats.map((b, i) => `${i + 1}. ${b.line ?? b.keyword}\n   VISUAL: ${b.visual ?? ""}`).join("\n");
+  const shared = `${plan ? `THE FILM PLAN:\n${plan}\n` : ""}THE MARK: wherever the plan or a VISUAL says rope, loop or tag, draw the red dot mark instead (mark option or K.dot).\nTHE FILM: ${args.film}\nALL SCENES (for continuity):\n${all}`;
+  const scene = [
+    `WRITE SCENE ${args.index + 1} OF ${args.beats.length}. durationFrames = ${args.frames} (${(args.frames / FPS).toFixed(1)} s).\nLINE (spoken, not drawn): ${beat.line ?? ""}\nVISUAL: ${beat.visual ?? beat.keyword}${/^[A-Z][A-Z ]+$/.test(beat.keyword) ? "\nTHIS IS THE TITLE BEAT: use the title-beat rule." : ""}${args.index === args.beats.length - 1 ? "\nThis is the LAST beat: a close shot." : ""}`,
+    ...(args.reference ? [`THE SAME SCENE WAS ALREADY WRITTEN FOR ANOTHER FRAME SHAPE. Keep its shot, cast and action; recompose it natively for ${size.w}x${size.h}.\nREFERENCE MODULE:\n${args.reference.slice(0, 10_000)}`] : []),
+    ...(args.revise ? [args.revise.code
+      ? `THIS SCENE WAS ALREADY DRAWN. The person watched it and left notes with the time in the scene (seconds from the scene start). REVISE the module below to answer the notes; keep everything the notes do not mention as it is, and return the whole revised module.\nNOTES:\n${args.revise.notes}\nCURRENT MODULE:\n${args.revise.code.slice(0, 16_000)}`
+      : `THE PERSON LEFT NOTES FOR THIS SCENE (seconds from the scene start). Answer them in the scene you write:\nNOTES:\n${args.revise.notes}`] : []),
+    ...(args.error ? [`YOUR PREVIOUS MODULE FAILED. Fix it and return the whole corrected module.\nERROR:\n${args.error.slice(0, 2500)}\nPREVIOUS MODULE:\n${args.previous?.slice(0, 10_000) ?? ""}`] : [])
+  ].join("\n\n");
+  const pictures = scenes.images.flatMap((image) => [{ type: "text" as const, text: image.label }, { type: "image" as const, mime: "image/png", base64: image.data.toString("base64") }]);
+  return {
+    system,
+    messages: [{ role: "user", content: [...pictures, { type: "text" as const, text: shared, cache_control: { type: "ephemeral" } }, { type: "text" as const, text: scene }] }],
+    cacheKey: cacheKeyFor(`${pack.id}:${scenes.hash}\0${shared}`, args.modelKey)
+  };
+}
+
 /** The model request (system + messages) for one scene; the large shared context is cached across scenes. */
 export async function buildAuthorMessages(args: AuthorRequest) {
+  // A template with a cast kit (template-packs.ts) is drawn from its kit, for that template only.
+  const pack = templatePack(args.styleExample);
+  const packScenes = pack?.scenes?.();
+  if (pack && packScenes) return packAuthorMessages(args, pack, packScenes);
   const guidesOn = styleGuidesEnabled();
   const beat = args.beats[args.index]!;
   const size = sizeForAspect(args.aspect);

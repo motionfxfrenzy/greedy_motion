@@ -1,3 +1,4 @@
+import { templatePack } from "./template-packs.ts";
 import { callModel, type ModelMessage } from "../models/providers.ts";
 import { routeFor, type Provider, type Route } from "../models/routes.ts";
 import {
@@ -144,6 +145,13 @@ function audioPlan(brief: ScriptBrief): BeatPlan["audio"] {
   const music = brief.audio.mode === "music" || brief.audio.mode === "both";
   const tone = { snappy: "brisk, confident, technical", smooth: "calm, assured, warm", springy: "bright, playful, upbeat" }[brief.motionProfile];
   const bpm = { calm: 100, balanced: 118, fast: 128 }[brief.pace];
+  // A template pack owns its narrator and music unless the person chose their own.
+  const pack = templatePack(brief.styleExample);
+  if (pack) return {
+    voice: voiced ? { engine: "gemini-tts", voice: brief.audio.voice && voiceIds.includes(brief.audio.voice) ? brief.audio.voice : pack.voice.id, speed: 1.0, direction: pack.voice.direction } : null,
+    music: music ? { source: "lyria", prompt: brief.audio.musicMood ?? pack.music, bpm } : null,
+    captions: brief.captions
+  };
   return {
     voice: voiced ? { engine: "gemini-tts", voice: brief.audio.voice && voiceIds.includes(brief.audio.voice) ? brief.audio.voice : defaultVoice, speed: brief.pace === "fast" ? 1.15 : brief.pace === "calm" ? 1.0 : 1.1, direction: tone } : null,
     music: music ? { source: "lyria", prompt: brief.audio.musicMood ?? `Instrumental, ${tone}, modern electronic, light percussion, rises toward a payoff, clean ending`, bpm } : null,
@@ -581,8 +589,9 @@ export function toPlan(output: ModelOutput, brief: ScriptBrief, context: Directo
     };
   });
   const audio = audioPlan(brief);
-  if (audio.music && output.music_prompt) audio.music.prompt = output.music_prompt.slice(0, 200);
-  if (audio.voice && output.voice_direction) audio.voice.direction = output.voice_direction.slice(0, 200);
+  const packed = !!templatePack(brief.styleExample); // a template pack's sound is not re-chosen by the director
+  if (audio.music && output.music_prompt && !packed) audio.music.prompt = output.music_prompt.slice(0, 200);
+  if (audio.voice && output.voice_direction && !packed) audio.voice.direction = output.voice_direction.slice(0, 200);
   const generatedShots = beats.filter((beat) => beat.kind === "3d" || beat.kind === "footage").length;
   const effectiveSec = effectiveBriefDurationSeconds(brief, beats);
   return {

@@ -1,3 +1,4 @@
+import { templatePack } from "../plan/template-packs.ts";
 import { engineDigest, isSupportedStyle, plateNameOf, styleDigest } from "@videosaas/plate-engine";
 import type { ScriptBeat, VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
@@ -41,7 +42,9 @@ export async function desiredVariants(
   const styleExample = project.brief?.styleExample ?? null;
   const beats = project.brief?.scriptBeats ?? [];
   const film = filmBrief(project), keywords = castKeywords(beats);
-  const digests = { engineDigest: engineDigest(), styleDigest: styleDigest(look), promptDigest: await promptDigest(plateNameOf(look)) };
+  // A template's cast kit, scene direction and pictures are part of the prompt: a change to them redraws that template's scenes only.
+  const packScenes = templatePack(styleExample)?.scenes?.();
+  const digests = { engineDigest: engineDigest(), styleDigest: styleDigest(look), promptDigest: `${await promptDigest(plateNameOf(look))}${packScenes ? `:${packScenes.hash}` : ""}` };
   const frames = sceneFrames(project);
 
   const oldKeywordsByIdx = new Map<number, string>();

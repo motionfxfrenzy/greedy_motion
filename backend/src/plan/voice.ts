@@ -1,3 +1,4 @@
+import { templatePack } from "./template-packs.ts";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -48,7 +49,7 @@ export type VoiceSettings = {
 export function voiceSettings(project: Pick<VideoProject, "brief" | "beatPlan" | "request">): VoiceSettings {
   const candidates = [project.brief?.audio.voice, project.beatPlan?.audio.voice?.voice, project.request.audio?.voice];
   const voice = candidates.find((id): id is string => typeof id === "string" && voiceIds.includes(id)) ?? defaultVoice;
-  const direction = project.beatPlan?.audio.voice?.direction?.trim() || "clear, confident product narration";
+  const direction = project.beatPlan?.audio.voice?.direction?.trim() || templatePack(project.brief?.styleExample)?.voice.direction || "clear, confident product narration";
   const cast = project.brief?.audio.cast === "characters" ? { cast: "characters" as const, ...(project.brief.audio.voices ? { voices: project.brief.audio.voices } : {}) } : {};
   return { voice, direction: direction.slice(0, 200), pace: project.brief?.pace ?? "balanced", language: project.brief?.audio.language ?? "en", ...cast };
 }
