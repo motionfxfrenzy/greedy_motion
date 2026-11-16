@@ -34,7 +34,7 @@ const SPEAKER_CHARS = 24;
  * The writer's plan for an explainer, written before the first beat: the one idea, and the worked example's data with
  * every step's result. Kept with the script so every frame, change and storyboard uses the same example.
  */
-export type ScriptNotes = { idea: string | null; example: string | null; /** Ids of the objects that recur across scenes ("box-1..box-16, pointer, bracket"), shared by every frame. */ objects?: string | null; /** A fable template's story (animals, the mark, who does it) and how it maps onto people. */ fable?: string | null; mapping?: string | null };
+export type ScriptNotes = { idea: string | null; example: string | null; /** Ids of the objects that recur across scenes ("box-1..box-16, pointer, bracket"), shared by every frame. */ objects?: string | null; /** A fable template's story (animals, the mark, who does it) and how it maps onto people. */ fable?: string | null; mapping?: string | null; /** A history template's painted sets: `gorge = <empty set>; fort = <...>`. */ places?: string | null };
 
 /**
  * A reference frame saved with the project (`VideoProject.scriptFrames`), keyed by everything it was drawn from: the
@@ -146,8 +146,8 @@ export function parseScriptStream(text: string): { beats: ScriptBeat[]; open: ke
   const lines = text.split("\n");
   lines.forEach((raw, index) => {
     const last = index === lines.length - 1 && !text.endsWith("\n");
-    const note = beats.length === 0 ? /^\s*(IDEA|EXAMPLE|OBJECTS|FABLE|MAPPING)\s*:(.*)$/i.exec(raw) : null;
-    if (note) { notes[({ IDEA: "idea", EXAMPLE: "example", OBJECTS: "objects", FABLE: "fable", MAPPING: "mapping" } as const)[note[1]!.toUpperCase() as "IDEA"]] = value(note[2]!) || null; return; }
+    const note = beats.length === 0 ? /^\s*(IDEA|EXAMPLE|OBJECTS|FABLE|MAPPING|PLACES)\s*:(.*)$/i.exec(raw) : null;
+    if (note) { notes[({ IDEA: "idea", EXAMPLE: "example", OBJECTS: "objects", FABLE: "fable", MAPPING: "mapping", PLACES: "places" } as const)[note[1]!.toUpperCase() as "IDEA"]] = value(note[2]!) || null; return; }
     const match = /^\s*(BEAT|VISUAL|SCREEN|SPEAKER|VOICE)\s*:(.*)$/i.exec(raw);
     if (!match) return;
     const tag = match[1]!.toUpperCase();
@@ -170,7 +170,7 @@ export function parseScriptStream(text: string): { beats: ScriptBeat[]; open: ke
 
 /** The script back in the stream format: what the model is shown when it is asked to change it. */
 export function formatScript(beats: readonly ScriptBeat[], notes?: ScriptNotes | null): string {
-  const head = [notes?.idea ? `IDEA: ${notes.idea}` : "", notes?.fable ? `FABLE: ${notes.fable}` : "", notes?.mapping ? `MAPPING: ${notes.mapping}` : "", notes?.example ? `EXAMPLE: ${notes.example}` : "", notes?.objects ? `OBJECTS: ${notes.objects}` : ""].filter(Boolean).join("\n");
+  const head = [notes?.idea ? `IDEA: ${notes.idea}` : "", notes?.fable ? `FABLE: ${notes.fable}` : "", notes?.mapping ? `MAPPING: ${notes.mapping}` : "", notes?.example ? `EXAMPLE: ${notes.example}` : "", notes?.places ? `PLACES: ${notes.places}` : "", notes?.objects ? `OBJECTS: ${notes.objects}` : ""].filter(Boolean).join("\n");
   return (head ? `${head}\n\n` : "") + beats.map((beat) => `BEAT: ${beat.keyword}\nVISUAL: ${beat.visual ?? "-"}\nSCREEN: ${beat.onScreen ?? "-"}${beat.speaker ? `\nSPEAKER: ${beat.speaker}` : ""}\nVOICE: ${beat.line ?? "-"}`).join("\n\n");
 }
 
@@ -281,6 +281,6 @@ export function remapFlagsOnRemove<F extends { beat: number }>(
 /** Notes sent back by the page: cleaned and bounded, or null when there are none. */
 export function parseScriptNotes(input: unknown): ScriptNotes | null {
   const record = (input ?? {}) as Record<string, unknown>;
-  const notes = { idea: clip(record.idea, 200) || null, example: clip(record.example, 1200) || null, objects: clip(record.objects, 400) || null, fable: clip(record.fable, 600) || null, mapping: clip(record.mapping, 600) || null };
-  return notes.idea || notes.example || notes.objects || notes.fable || notes.mapping ? notes : null;
+  const notes = { idea: clip(record.idea, 200) || null, example: clip(record.example, 1200) || null, objects: clip(record.objects, 400) || null, fable: clip(record.fable, 600) || null, mapping: clip(record.mapping, 600) || null, places: clip(record.places, 1400) || null };
+  return notes.idea || notes.example || notes.objects || notes.fable || notes.mapping || notes.places ? notes : null;
 }

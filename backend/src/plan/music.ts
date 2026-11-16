@@ -33,7 +33,11 @@ const PACE_BPM: Record<Pace, number> = { calm: 96, balanced: 112, fast: 124 };
 export function musicPrompt(plan: BeatPlan | null | undefined, brief: Pick<ScriptBrief, "pace" | "audio" | "motionProfile" | "styleExample"> | undefined, seconds: number): string {
   // A template pack's music is its whole prompt (written against its reference film): no product-video wrapper, BPM or final hit.
   const pack = templatePack(brief?.styleExample);
-  if (pack && !brief?.audio.musicMood?.trim()) return `${pack.music} About ${Math.round(seconds)} seconds long. Instrumental, no vocals.`.slice(0, 600);
+  if (pack && !brief?.audio.musicMood?.trim()) {
+    const notes = (brief as { scriptNotes?: unknown } | undefined)?.scriptNotes ?? (plan as { scriptNotes?: unknown } | null | undefined)?.scriptNotes;
+    const own = pack.musicFor?.(notes as Parameters<NonNullable<typeof pack.musicFor>>[0]);
+    return `${own || pack.music} About ${Math.round(seconds)} seconds long. Instrumental, no vocals.`.slice(0, 600);
+  }
   const profile = plan?.brand.motion_profile ?? brief?.motionProfile ?? "smooth";
   const mood = plan?.audio.music?.prompt?.trim() || brief?.audio.musicMood?.trim() || PROFILE_FEEL[profile];
   const bpm = plan?.audio.music?.bpm ?? PACE_BPM[brief?.pace ?? "balanced"];

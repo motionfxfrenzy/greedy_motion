@@ -17,7 +17,7 @@ assert.ok(pack.voice.direction.length <= 200, "voice direction fits 200 characte
 assert.equal(pack.sceneSounds, true);
 assert.deepEqual(pack.captions, { wordsPerCue: 2, style: "shadow", size: 84, y: 70 });
 assert.match(pack.scriptVoice, /You see/);
-assert.match(pack.scriptVoice, /EXAMPLE: PLACES:/);
+assert.match(pack.scriptVoice, /\nPLACES: gorge =/);
 assert.match(pack.sceneDirection, /K\.set\(ctx, env, cam/);
 
 // ---- places: from the EXAMPLE note (OBJECTS is clipped to 400 characters), the [place] tags, and the fallback
@@ -78,5 +78,17 @@ assert.deepEqual(packScriptIssues(pack, bad).map((x) => x.index), [3, 15]);
   assert.ok(sceneShotIssues(scene(1.4, 900), { visual: "[gorge] wide, x" }).length >= 1, "a wide with a huge puppet is rejected");
   assert.equal(sceneShotIssues(scene(1.4, 300), { visual: "[gorge] wide, x" }).length, 0);
   assert.equal(sceneShotIssues(scene(3.2, 900), { visual: "[gorge] close, x" }).length, 0, "a close-up may zoom in");
+}
+{
+  // its own PLACES note, per-pack prompt rules, era music
+  const { parseScriptStream } = await import("@videosaas/contracts");
+  const parsed = parseScriptStream("IDEA: x in 1859\nPLACES: gorge = a gorge; fort = a fort\nOBJECTS: CAST: a = b\nBEAT: k\nVISUAL: [gorge] wide\nSCREEN: -\nVOICE: Hi.");
+  assert.match(parsed.notes.places ?? "", /^gorge = a gorge; fort = a fort$/);
+  assert.deepEqual(placesFrom({ scriptNotes: { places: parsed.notes.places } }).map((p) => p.id), ["gorge", "fort"]);
+  assert.match(pack.drawRule, /no K\.backdrop/);
+  assert.doesNotMatch(pack.soundsRule, /bleat|tuft/);
+  assert.match(pack.musicFor({ idea: "A rope walk in 1859" }), /banjo/);
+  assert.match(pack.musicFor({ idea: "Rome, 44 BC" }), /lyre/);
+  assert.equal(pack.musicFor({ idea: "a story" }), null);
 }
 console.log("history-reel pack: places, pictures, kit, author prompt and script rules: ok");

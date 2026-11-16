@@ -275,14 +275,14 @@ export const cacheKeyFor = (sharedText: string, modelKey?: string): string =>
     .slice(0, 16);
 
 /** The contract for a template whose scenes are composed from its cast kit (template-packs.ts) instead of a plate's recipe. */
-const packContractFor = (size: { w: number; h: number; label: string }, pictures = false) => [
+const packContractFor = (size: { w: number; h: number; label: string }, pictures = false, drawRule?: string) => [
   `You write ONE scene of a short narrated film as a TypeScript module for the anidoodle engine, drawn in code on a ${size.w}x${size.h} canvas (${size.label}) at 30 fps.`,
   pictures
     ? "THE CONTRACT (absolute): the module is a pure function of (ctx, frame, env). No Math.random, Date, clock, fetch, fonts, ctx.filter, window or document, and no images except the PICTURES listed below through env.image(name). Randomness only through K.rng(seed)."
     : "THE CONTRACT (absolute): the module is a pure function of (ctx, frame, env). No Math.random, Date, clock, fetch, images, fonts, ctx.filter, window or document. Randomness only through K.rng(seed).",
   "THE KIT: a global object K (the template's cast kit, source below) is already in scope. Do NOT import, declare or copy it. Draw the cast and the setting ONLY with K's functions: you choose the shot, place the pieces and animate their arguments over time. Never draw your own animals, people, hands, fences, barns, cities or moons.",
   "Imports: exactly `import type { Ctx, Env } from \"./core\";` and `import type { Film } from \"./film\";` and nothing else.",
-  "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then K.backdrop(...); then the scene; last K.vignette(ctx). Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
+  drawRule ?? "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then K.backdrop(...); then the scene; last K.vignette(ctx). Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
   `Export exactly: \`export const film: Film = { meta: { title, W: ${size.w}, H: ${size.h}, fps: 30, bpm: 120, durationFrames }, assets: { images: {} }, shots: [{ id: "scene", start: 0, end: durationFrames, draw }] }\` with const durationFrames = <given>.`,
   "No words in the picture: captions are laid on by the editor. Keep it short: 40 to 120 lines. Reply with the complete module inside one ```ts fence and nothing else."
 ].join("\n");
@@ -294,7 +294,7 @@ function packAuthorMessages(args: AuthorRequest, pack: TemplatePack, scenes: Pac
   const size = sizeForAspect(args.aspect);
   // The picture names differ per scene, so they go in the scene's own message (the system prompt stays shared and cached).
   const pictureRule = sceneAssetsRule(args.assetNames ?? []);
-  const system = [packContractFor(size, Boolean(pack.assets)), ...(pack.sceneSounds ? [packSoundsRule] : []), "", "SCENE DIRECTION:", pack.sceneDirection, "", "THE KIT SOURCE (read the doc comments for each function's arguments and sizes):", "```ts", scenes.kit, "```"].join("\n");
+  const system = [packContractFor(size, Boolean(pack.assets), pack.drawRule), ...(pack.sceneSounds ? [pack.soundsRule ?? packSoundsRule] : []), "", "SCENE DIRECTION:", pack.sceneDirection, "", "THE KIT SOURCE (read the doc comments for each function's arguments and sizes):", "```ts", scenes.kit, "```"].join("\n");
   const notes = args.scriptNotes;
   const plan = [notes?.idea && `IDEA: ${notes.idea}`, notes?.fable && `FABLE: ${notes.fable}`, notes?.mapping && `MAPPING: ${notes.mapping}`, notes?.objects && `OBJECTS: ${notes.objects}`].filter(Boolean).join("\n");
   const all = args.beats.map((b, i) => `${i + 1}. ${b.line ?? b.keyword}\n   VISUAL: ${b.visual ?? ""}`).join("\n");

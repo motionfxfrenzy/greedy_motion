@@ -74,6 +74,8 @@ export type TemplatePack = {
   voice: { id: string; direction: string; /** Cut long pauses inside each take (pcm.tightenPauses): the narrator never drags. */ tighten?: boolean };
   /** The whole Lyria prompt, used as written: no product-video wrapper, no BPM, no final hit. */
   music: string;
+  /** A music prompt written for THIS film (its era and place from the script notes); falls back to `music` when it returns nothing. */
+  musicFor?: (notes: { idea?: string | null; places?: string | null; objects?: string | null } | null | undefined) => string | null;
   /** Scene direction for the storyboard and scene authoring. */
   sceneDirection: string;
   /** How a storyboard reference frame (one SVG still per beat) of this template looks: the same camera, cast and palette as its scenes. */
@@ -86,6 +88,10 @@ export type TemplatePack = {
   scenes?: () => PackScenes;
   /** Each scene module exports `sounds: { kind, frame }[]` (kinds in SCENE_SOUND_KINDS), mixed on the frame its action lands. */
   sceneSounds?: boolean;
+  /** The sentence that says how `draw` is built (default: the Dark Fable cast-kit rule with K.backdrop and K.vignette). */
+  drawRule?: string;
+  /** The SOUNDS rule shown to the scene writer (default: Dark Fable's kinds); a pack lists only the kinds that fit its scenes. */
+  soundsRule?: string;
   /** Caption defaults for plate films of this template (the person can still change them). wordsPerCue 1 = one spoken word at a time. */
   captions?: { wordsPerCue: number; style: "shadow"; size: number; y: number };
   /** Scene pacing for plate films: a voiced scene is its line plus `gap` (seconds), longer around the title beat and before the last line, never rounded up, at least `min`. */

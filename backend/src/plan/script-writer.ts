@@ -470,7 +470,7 @@ export function finishScript(text: string, brief: ScriptBrief, context: Director
   const parsed = parseScriptStream(text);
   const written = parsed.beats;
   // A full rewrite brings its own plan; a scoped change keeps the film's (or updates it if the writer restated it).
-  const notes = parsed.notes.idea || parsed.notes.example || parsed.notes.objects || parsed.notes.fable || parsed.notes.mapping ? parsed.notes : scope?.notes ?? null;
+  const notes = parsed.notes.idea || parsed.notes.example || parsed.notes.objects || parsed.notes.fable || parsed.notes.mapping || parsed.notes.places ? parsed.notes : scope?.notes ?? null;
   // A scoped change: its beats go back into their places, and every other beat is the previous one, word for word.
   if (scope && written.length !== scope.only.length) throw new Error("The change came back incomplete. Try again.");
   const beats = scope ? scope.previous.map((beat, i) => scope.only.includes(i) ? written[scope.only.indexOf(i)]! : beat) : written;

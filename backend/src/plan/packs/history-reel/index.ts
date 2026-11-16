@@ -58,6 +58,8 @@ export function placesFrom(input: unknown): HistoryPlace[] {
   const obj = (input ?? {}) as { places?: unknown; beats?: ScriptBeat[]; scriptBeats?: ScriptBeat[]; notes?: unknown; scriptNotes?: unknown; brief?: { scriptBeats?: ScriptBeat[]; scriptNotes?: unknown } };
   let places: HistoryPlace[] = [];
   if (Array.isArray(obj.places)) places = obj.places.flatMap((p: { id?: string; description?: string }) => (p?.id && p.description ? [{ id: placeId(p.id), description: p.description }] : []));
+  const own = (obj.scriptNotes ?? obj.brief?.scriptNotes) as { places?: unknown } | undefined;
+  if (!places.length && typeof own?.places === "string") places = parsePlaces(`PLACES: ${own.places}`);
   if (!places.length) for (const text of strings([obj.notes, obj.scriptNotes, obj.brief?.scriptNotes, obj.places])) { places = parsePlaces(text); if (places.length) break; }
   const beats = obj.beats ?? obj.scriptBeats ?? obj.brief?.scriptBeats ?? [];
   for (const beat of beats) {
@@ -83,6 +85,21 @@ const SET_LOOK = "Look: bright, colourful and clear like the best frames of a mo
 const setPrompt = (p: HistoryPlace) =>
   `${SET_STYLE}\n\n${p.description}\n${SET_LOOK}\nThe bottom 35% of the frame is flat open ground with lots of empty space in the centre for people to stand on. An empty set: no people, no characters, no animals, no vehicles or objects that would move, no text.`;
 
+/** Underscore matched to the film's era (the year in its IDEA, else its place words); one fixed banjo score never fits a Roman film. */
+export function historyMusic(text: string): string | null {
+  const bc = /\b(\d{1,4})\s*(?:BC|BCE)\b/i.exec(text);
+  const year = bc ? -Number(bc[1]) : Number(/\b(1[0-9]{3}|20[0-9]{2}|[1-9][0-9]{2})\b/.exec(text)?.[1] ?? NaN);
+  const tail = "about 120 BPM, a mischievous minor turn. Loud and busy, building section by section. Two sudden full stops to near silence for reveals, each followed by a hard comeback, and one big final hit at the end. No vocals.";
+  const lead = "Comedy underscore for a fast true-history storytime narrated over it: ";
+  if (!Number.isFinite(year)) return null;
+  if (year < 500) return `${lead}frame drums, hand percussion, reed flute, plucked lyre and low brass stabs, ${tail}`;
+  if (year < 1500) return `${lead}lute, hand drums, fiddle, recorder and a droning hurdy-gurdy, ${tail}`;
+  if (year < 1900) return `${lead}plucked banjo, pizzicato strings, upright saloon piano and light hand percussion, ${tail}`;
+  if (year < 1950) return `${lead}ragtime piano, muted trumpet, clarinet, brushed snare and walking upright bass, ${tail}`;
+  if (year < 1990) return `${lead}twangy guitar, electric organ, tight funk drums and a bouncy bass, ${tail}`;
+  return `${lead}bright synth plucks, a clean drum machine, handclaps and a bouncy bass, ${tail}`;
+}
+
 // ---------------------------------------------------------------- the writer's voice
 const scriptVoice = `VOICE FOR THIS FILM: a cartoon history reel. ONE true, strange story from history, told fast and deadpan by a young storyteller, acted by cut-out cartoon puppets in a painted 3D world. Two reference reels of this kind ("How Mine Salting Worked", "How One Cart Stopped an Entire Army") were measured; this is their shape.
 
@@ -90,9 +107,9 @@ USE THIS ONLY WHEN WE WRITE THE SCRIPT. When the person gave their own script, k
 
 PLAN FIRST. Before the first BEAT, write these three lines for yourself (never shown; the only lines allowed before the script; each on ONE line):
 IDEA: <the true story in under 200 characters: who, what, where, the year, and the ironic ending. Only facts you are sure of.>
-EXAMPLE: PLACES: gorge = Niagara Gorge in 1859, seen from the top of the American cliff. Foreground (bottom 35%): a flat grassy cliff-top with a few rocks and wildflowers and a wooden post-and-rail fence at the left edge, lots of empty flat ground in the centre. Middle: the cliff edge drops into a deep green gorge with the river far below and white mist rising. Background: the great horseshoe waterfall in the distance on the right, the far cliff with trees across the gorge, a bright blue sky with soft clouds, afternoon sun from the left. No rope, no people, no animals.; <place-id> = <...>
+PLACES: gorge = Niagara Gorge in 1859, seen from the top of the American cliff. Foreground (bottom 35%): a flat grassy cliff-top with a few rocks and wildflowers and a wooden post-and-rail fence at the left edge, lots of empty flat ground in the centre. Middle: the cliff edge drops into a deep green gorge with the river far below and white mist rising. Background: the great horseshoe waterfall in the distance on the right, the far cliff with trees across the gorge, a bright blue sky with soft clouds, afternoon sun from the left. No rope, no people, no animals.; <place-id> = <...>
 OBJECTS: CAST: <cast-id> = <look>; <cast-id> = <look> PROPS: <prop ids>
-- PLACES (the EXAMPLE line, under 1100 characters): 1 or 2 places, 3 at most (fewer is better: the camera travels inside one set). The id is one lowercase word or two with a hyphen (gorge, fort, mine-shaft). The description is a painter's brief of the EMPTY set in 350 to 450 characters, written like the example above (foreground ground, middle, background, a bright sky with soft clouds, the sun side): the era and the real location, the time of day and where the sun comes from, what fills the middle and the background, and flat open ground in the bottom third where people stand. No people, no animals, no text, no signs with words. Things that move in the story (a cart, a rope, a door, a cannon that fires) are NOT in the set; they are drawn in code.
+- PLACES (its own line before the first BEAT, under 1300 characters): 1 or 2 places, 3 at most (fewer is better: the camera travels inside one set). The id is one lowercase word or two with a hyphen (gorge, fort, mine-shaft). The description is a painter's brief of the EMPTY set in 350 to 450 characters, written like the example above (foreground ground, middle, background, a bright sky with soft clouds, the sun side): the era and the real location, the time of day and where the sun comes from, what fills the middle and the background, and flat open ground in the bottom third where people stand. No people, no animals, no text, no signs with words. Things that move in the story (a cart, a rope, a door, a cannon that fires) are NOT in the set; they are drawn in code.
 - CAST (the OBJECTS line, under 380 characters in all): our own cartoon characters, 1 to 4, each in a few words: era clothes in one clear shirt colour, hat or hair, moustache or beard, build (thin, stout). Teams by shirt colour. Never a known cartoon or channel character. PROPS: the things that move or get used (rope, wheelbarrow, pan, crate, pickaxe, cart).
 
 THE SHAPE (fit it to the beat count):
@@ -281,6 +298,9 @@ export const historyReel: TemplatePack = {
   // the beat's place: its set and depth map (the engine adds depth-<place> too; listing it is harmless)
   sceneAssets: (beatIndex, beats) => { const id = placeOfBeat(beatIndex, beats); return [`set-${id}`, `depth-${id}`]; },
   sceneSounds: true,
+  drawRule: "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then `const cam = K.camera(frame, KEYS)` and `K.set(ctx, env, cam, place)` (the set picture is the backdrop; there is no K.backdrop and no K.vignette); then the cast and props; nothing after them fills the frame. Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
+  soundsRule: "SOUNDS: also export `export const sounds: { kind: string; frame: number }[] = [...]`: one entry on the exact frame each visible action lands (kinds: step = a boot or shoe lands (one per footfall of the main figure, every 2-3 steps for a crowd); thud = a body or heavy thing drops or hits the ground; whoosh = a camera snap, whip or reveal starts; hit = a key word or a strike lands; drop = something small falls; shuffle = a crowd shifts). Only actions that happen on screen. Usually 1 to 4 per scene.",
+  musicFor: (notes) => historyMusic(`${notes?.idea ?? ""} ${notes?.places ?? ""}`),
   captions: { wordsPerCue: 2, style: "shadow", size: 84, y: 70 },
   // tight: the line plus one frame or so, no long gaps anywhere (no title beat in this template); the last scene holds the payoff
   pacing: { gap: 0.04, long: 0.04, beforeLast: 0.08, tail: 1.0, min: 0.5, titleMin: 0.5 },
