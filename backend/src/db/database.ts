@@ -15,7 +15,7 @@ pool.on("error", (error) => console.error(JSON.stringify({ level: "error", event
 // ---------- Diagnostics: who holds the pool, and who waits on a lock while holding a connection ----------
 const dbLog = (level: string, event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 /** The first stack frame outside this file, so a log line says which function asked for the connection. */
-const callerOf = (): string => (new Error().stack ?? "").split("\n").slice(2).map((l) => l.trim()).find((l) => !l.includes("db/database.ts") && !l.includes("node:internal")) ?? "unknown";
+const callerOf = (): string => (new Error().stack ?? "").split("\n").slice(2).map((l) => l.trim()).find((l) => !l.includes("db/database.ts") && !l.includes("node:internal") && !l.includes("node_modules")) ?? "unknown";
 type Held = { caller: string; since: number; locks: string[] };
 const held = new Set<Held>();
 export function poolStats() {
