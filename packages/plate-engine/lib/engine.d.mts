@@ -17,5 +17,5 @@ export function styleDigest(look: string): string;
 export function allowedImports(name: string): Set<string>;
 export function validateSceneSource(code: string, look: string): { code: string; message: string } | null;
 export function prepareSceneSource(code: string, options: { frames: number; aspect: string }): string;
-export type BundleManifest = { schema: 1; kind: "anidoodle"; engineVersion: string; engineDigest: string; styleDigest: string; width: number; height: number; fps: number; frames: number; aspect: string; sourceSha: string; bundleSha: string; imports: string[] };
+export type BundleManifest = { schema: 1; kind: "anidoodle"; engineVersion: string; engineDigest: string; styleDigest: string; width: number; height: number; fps: number; frames: number; aspect: string; sourceSha: string; bundleSha: string; imports: string[]; /** Template-pack scenes: the picture names the scene reads (added by the backend after bundling; resolved to files at load). */ assetNames?: string[] };
 export function bundleScene(input: { look: string; code: string; frames: number; aspect: string }): Promise<{ html: string; manifest: BundleManifest }>;

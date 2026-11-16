@@ -11,6 +11,9 @@ import { desiredVariants, isPlateLook } from "./inputs.ts";
 import { isComputedVariantSignature, primaryAspect, takeFor } from "./model.ts";
 import { plateCacheGate } from "./cache-gate.ts";
 import { POLICY_REPAIR_MAX, buildAuthorMessages, checkScene, moduleFrom } from "./prompt.ts";
+import { ASSET_WAIT_MS, ensurePackAssets, packAssetsInput, sceneAssetState, scenePictures, wireSceneAssets } from "./pack-assets.ts";
+import { objectSize } from "../storage.ts";
+import { FPS } from "./model.ts";
 import { bundleKeyFor, claimAuthor, commitBundle, failVariant, getVariant, isVariantCompatibleWithDesired, manifestKeyFor, newOwner, noteAuthorCall, noteAuthorProgress, noteModelStart, primarySource, releaseAuthor, renewAuthor, saveDraft, sourceKeyFor, type AuthorProgressPatch } from "./store.ts";
 
 /**
@@ -147,7 +150,27 @@ export function createProgressThrottle(options: {
   };
 }
 
-export type AuthorMessage = { variantId: string; gen: number };
+/**
+ * The scene module a template writes itself (TemplatePack.sceneCode) for one beat, or undefined when the template's scenes are
+ * written by the model. Authoring uses it in place of a model call (no model start, no author call counted).
+ */
+export function packSceneModule(project: Parameters<typeof packAssetsInput>[0], pack: ReturnType<typeof templatePack>, sceneIndex: number, frames: number, assetNames: string[]): string | undefined {
+  if (!pack?.sceneCode) return undefined;
+  return pack.sceneCode({
+    ...packAssetsInput(project),
+    beatIndex: sceneIndex,
+    frames,
+    fps: FPS,
+    beatWords: (takeFor(project, sceneIndex)?.words ?? []).map((w) => ({ text: w.text, start: w.start, end: w.end })),
+    assetNames
+  });
+}
+
+export type AuthorMessage = { variantId: string; gen: number; /** How many times this scene has waited for its template pictures. */ pictureWaits?: number };
+
+/** Seconds between looks while a scene waits for its template's pictures (pack-assets.ts). */
+export const PICTURE_WAIT_SECONDS = 5;
+const failedPicturesGraceMs = 3 * 60 * 1000;
 
 export async function handleAuthor(job: Job<AuthorMessage>) {
   const { variantId, gen } = job.data ?? ({} as AuthorMessage);
@@ -192,6 +215,33 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       }
     }
 
+    // A template with pictures (TemplatePack.assets): the scene is bundled once its pictures exist (never waiting for depth maps).
+    const pack = templatePack(project.brief?.styleExample);
+    const pictures = scenePictures(project, pack, row.scene_index);
+    if (pictures.names.length) {
+      const state = await sceneAssetState(row.project_id, pictures.names, { getObject, putObject, objectSize });
+      const waits = Number(job.data?.pictureWaits ?? 0);
+      if (state.state === "failed") {
+        const index = await getObject("uploads", `plates/${row.project_id}/assets/index.json`).then((b) => (b ? JSON.parse(b.toString("utf8")) as { updatedAt?: string } : null)).catch(() => null);
+        if (!index?.updatedAt || Date.now() - Date.parse(index.updatedAt) > failedPicturesGraceMs || waits * PICTURE_WAIT_SECONDS * 1000 > ASSET_WAIT_MS) {
+          await failVariant(row.id, row.gen, owner, { code: "assets_failed", message: "The pictures for this scene could not be made. Press Draw to try again.", detail: state.message.slice(0, 800) });
+          return;
+        }
+      }
+      if (state.state === "wait" || state.state === "failed") {
+        if (waits * PICTURE_WAIT_SECONDS * 1000 > ASSET_WAIT_MS) {
+          await failVariant(row.id, row.gen, owner, { code: "assets_timeout", message: "The pictures for this scene took too long. Press Draw to try again.", detail: state.state === "wait" ? state.reason : state.message });
+          return;
+        }
+        if (waits === 0) await ensurePackAssets(project, { retryFailed: false }).catch((error) => log("warn", "pack_assets_enqueue_failed", { projectId: row.project_id, message: message(error).slice(0, 200) }));
+        await releaseAuthor(row.id, row.gen, owner, "waiting for pictures");
+        setTimeout(() => {
+          void sendOnce(null, QUEUES.plateAuthor, { variantId, gen, pictureWaits: waits + 1 }, `${variantId}:${gen}`, { startAfter: PICTURE_WAIT_SECONDS }).catch(() => undefined);
+        }, 600).unref?.();
+        return;
+      }
+    }
+
     // Other ratios follow the primary one's authored scene (same characters and palette), so they wait for it.
     const primary = primaryAspect(project);
     let reference: string | undefined;
@@ -216,6 +266,9 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
     let modelStarts = Number(row.timings?.modelStarts ?? 0);
     const maxStarts = config.plates.maxModelStartsPerGen;
     let draft = row.draft_source ?? undefined;
+    // A pack that writes its own scene module (TemplatePack.sceneCode): no model call for this beat.
+    const packCode = packSceneModule(project, pack, row.scene_index, row.frames, pictures.names);
+    if (packCode) draft = packCode;
     let recordStartOnCall = !(typeof row.timings?.authorStartedAt === "number" && row.timings.authorStartedAt > 0);
     const plateName = plateNameOf(look)!;
     // Scene policy (style kit helpers, no letters drawn): one repair round per row at most, then the scene is accepted as written.
@@ -281,6 +334,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
             frames: row.frames,
             ...(project.brief?.styleExample ? { styleExample: project.brief.styleExample } : {}),
             ...(project.brief?.scriptNotes ? { scriptNotes: project.brief.scriptNotes } : {}),
+            ...(pictures.names.length ? { assetNames: pictures.names } : {}),
             ...(templatePack(project.brief?.styleExample)?.sceneSounds ? { words: (takeFor(project, row.scene_index)?.words ?? []).map((w) => ({ text: w.text, start: w.start })) } : {}),
             ...(routeSnap ? { modelKey: `${tierRoute.provider}:${tierRoute.model}` } : {}),
             ...(reference ? { reference } : {}),
@@ -334,6 +388,10 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
           code = moduleFrom(code);
         } catch (error) {
           if (!(error as { repairable?: boolean }).repairable) throw error;
+          if (packCode) {
+            await failVariant(row.id, row.gen, owner, { code: "pack_scene_invalid", message: "This template's scene could not be built. Press Draw to try again.", detail: message(error).slice(0, 800) });
+            return;
+          }
           await saveDraft(row.id, row.gen, owner, null).catch(() => undefined);
           lastError = message(error);
           continue;
@@ -344,8 +402,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       }
       // A template drawn from its cast kit (template-packs.ts) does not use the plate's kit helpers: only the no-text rule applies,
       // and the module must not declare K itself (the kit is added at bundling).
-      const pack = templatePack(project.brief?.styleExample);
-      const packed = Boolean(pack?.scenes);
+      const packed = Boolean(pack?.scenes || pack?.sceneCode);
       const fullCheck = checkScene(plateName, code);
       const declaresKit = packed && /\b(?:const|let|var)\s+K\s*=/.test(code);
       const policyCheck = !packed ? fullCheck : {
@@ -354,7 +411,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
         issues: fullCheck.issues.filter((issue) => issue.kind !== "kit-use"),
         message: [declaresKit ? "Do not declare K: the cast kit is already in scope." : "", fullCheck.noText.message ?? ""].filter(Boolean).join("\n")
       };
-      if (!policyCheck.ok) {
+      if (!policyCheck.ok && !(packCode && code === packCode)) {
         if (policyRepairs < POLICY_REPAIR_MAX && used < config.plates.maxAuthorCalls) {
           policyRepairs += 1;
           // Drop the stored module so a reused draft that fails the check is never reused again.
@@ -374,9 +431,17 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       }
       let bundle: Awaited<ReturnType<typeof bundleScene>>;
       try {
-        bundle = await bundleScene({ look, code: withPackKit(code, pack), frames: row.frames, aspect: row.aspect });
+        bundle = await bundleScene({ look, code: wireSceneAssets(withPackKit(code, pack), pictures.names, pictures.all), frames: row.frames, aspect: row.aspect });
+        // The picture NAMES this scene reads (resolved to files whenever it is loaded, never baked into the bundle).
+        if (pictures.names.length) bundle.manifest = { ...bundle.manifest, assetNames: pictures.names } as typeof bundle.manifest;
       } catch (error) {
         if (!(error as { repairable?: boolean }).repairable) throw error;
+        if (packCode && code === packCode) {
+          // The template's own scene code does not build: a model cannot repair it, so the scene fails with the reason.
+          await failVariant(row.id, row.gen, owner, { code: "pack_scene_invalid", message: "This template's scene could not be built. Press Draw to try again.", detail: message(error).slice(0, 800) });
+          log("warn", "plate_pack_scene_invalid", { variantId, projectId: row.project_id, scene: row.scene_index, message: message(error).slice(0, 300) });
+          return;
+        }
         await saveDraft(row.id, row.gen, owner, null).catch(() => undefined);
         lastError = message(error);
         previous = code;

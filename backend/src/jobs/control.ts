@@ -27,7 +27,8 @@ const FETCH_BACKSTOP_MS = 3000;
 export const LEASE_SECONDS = 30;
 export const LEASE_EXPIRY_SECONDS = Number.parseInt(process.env.WORKER_LEASE_EXPIRY_SECONDS ?? "45", 10);
 const LEASE_SWEEP_MS = 5000;
-const QUEUE_NAMES: readonly string[] = [QUEUES.video, QUEUES.plateRender, QUEUES.plateExport, QUEUES.plateRebundle];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const QUEUE_NAMES: readonly string[] = [QUEUES.video, QUEUES.plateRender, QUEUES.plateExport, QUEUES.plateRebundle, QUEUES.plateDepth];
 
 const FPS = 30;
 export const PROJECT_CAP = Number.parseInt(process.env.PLATE_PROJECT_CAP ?? "16", 10);
@@ -362,7 +363,7 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
     const r = await pool.query(plateFence("stage = $4, frames_done = $5"), [id, gen, renderAttempt, stage, framesDone]);
     return { ok: r.rowCount === 1 };
   },
-  async "plate.drawn"({ id, gen, renderAttempt, clipKey, stillKey, clipMeta, timings, engineDigest, fontSetDigest: fDigest }) {
+  async "plate.drawn"({ id, gen, renderAttempt, clipKey, stillKey, clipMeta, timings, engineDigest, fontSetDigest: fDigest, cacheDigest }) {
     return tx(async (client) => {
       const r = await client.query(
         `${plateFence("state = 'drawn', stage = null, frames_done = frames, clip_key = $4, still_key = $5, clip_meta = $6::jsonb, error = null, drawn_at = now(), timings = (timings - 'retrying') || $7::jsonb")} returning *`,
@@ -370,7 +371,8 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
       );
       if (r.rowCount === 1) {
         const updated = r.rows[0]!;
-        const bDigest = updated.bundle_digest;
+        // A scene with template pictures is cached under its bundle + pictures digest (worker pack-assets.mjs clipCacheDigest).
+        const bDigest = typeof cacheDigest === "string" && cacheDigest ? cacheDigest : updated.bundle_digest;
         if (typeof bDigest === "string" && bDigest) {
           const eDigest =
             typeof engineDigest === "string" && engineDigest
@@ -727,6 +729,19 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
       void kickPlateWorkers(true).catch(() => undefined);
     }
     return result;
+  },
+
+  // ---- template-pack pictures a scene reads (plates/pack-assets.ts), resolved by name now: depth maps that landed later are included
+  async "assets.resolve"(args) {
+    const variantId = String(args.variantId ?? "");
+    if (!UUID_RE.test(variantId)) return { assets: {}, assetsDigest: null };
+    const { rows } = await pool.query<{ project_id: string; bundle_manifest: Record<string, unknown> | null }>("select project_id, bundle_manifest from app.plate_variants where id = $1", [variantId]);
+    const row = rows[0];
+    const names = Array.isArray(row?.bundle_manifest?.assetNames) ? (row!.bundle_manifest!.assetNames as unknown[]).filter((n): n is string => typeof n === "string") : [];
+    if (!row || !names.length) return { assets: {}, assetsDigest: null };
+    const [{ resolveSceneAssets }, { getObject, objectSize }] = await Promise.all([import("../plates/pack-assets.ts"), import("../storage.ts")]);
+    const resolved = await resolveSceneAssets(row.project_id, names, { getObject, putObject: async () => undefined, objectSize });
+    return { assets: resolved.refs, assetsDigest: resolved.digest };
   },
 
   // ---- plate-rebundle (phase 2: worker verification + atomic cutover)

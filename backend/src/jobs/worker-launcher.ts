@@ -494,7 +494,7 @@ async function ensure() {
 }
 
 /**
- * Plate variants waiting for or in the worker, exports not finished, plus runnable re-bundle jobs: what needs worker capacity right now.
+ * Plate variants waiting for or in the worker, exports not finished, plus runnable re-bundle and depth-map jobs: what needs worker capacity right now.
  * Browser-first rule: in `live` mode, variants in `state = 'bundled'` with `stage = 'checking'` are checked and played in the user's
  * browser first and do NOT count as AWS worker demand unless they fell back to clip rendering (`stage in ('queued for rendering', 'retrying')`).
  */
@@ -520,9 +520,9 @@ async function plateDemand(): Promise<number> {
        ) + (
          select count(*) from app.plate_exports where state in ('queued', 'assembling')
        ) + (
-         select count(*) from ${PGBOSS_SCHEMA}.job where name = $1 and ((state in ('created', 'retry') and start_after <= now()) or state = 'active')
+         select count(*) from ${PGBOSS_SCHEMA}.job where name = any($1::text[]) and ((state in ('created', 'retry') and start_after <= now()) or state = 'active')
        ) as n`,
-      [QUEUES.plateRebundle]
+      [[QUEUES.plateRebundle, QUEUES.plateDepth]]
     );
     return Math.max(Number(rows[0]?.n ?? 0), pinged);
   } catch {

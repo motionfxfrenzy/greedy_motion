@@ -1,0 +1,715 @@
+// History reel kit. Flat cut-out puppets (two-bone IK rig, three views, a pose library) acting on a painted set image
+// drawn with depth parallax, under a camera that never stops. Ported from experiments/history-reels/template/kit
+// (core.js, puppets.js, poses.js, props.js, engine.js), whose rig rules (reference/POSE_RULES.md) are owner-approved.
+// Inlined into each scene module before bundling: scenes call K.*, they never redraw the cast, the rig or the set.
+// Pure: everything comes from arguments, the frame and seeds (K.rng). No clock, no Math.random. Captions are NOT drawn here.
+//
+// Spaces:
+// - PLATE space: the set image is 1080 units wide (PW) and PH = 1080 * imageHeight / imageWidth tall (about 1935 for a 9:16
+//   set). Camera keys, K.puppet, K.at and K.toScreen take plate coordinates. A depth d (0 = far, 1 = near) comes from the
+//   set's depth map (depth-<place>, near = white); without a depth map every point has the same depth (a flat zoom).
+// - SCREEN space: the scene's own W x H (env.W x env.H), what ctx draws in after ctx.setTransform(env.scale,0,0,env.scale,0,0).
+// - PUPPET space: feet on y = 0, up is negative y, facing +x. A pose's `face` (1 / -1) mirrors the whole puppet.
+
+const K = (() => {
+  // ================================================================ core maths
+  const clamp = (x: number, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+  const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+  const deg = Math.PI / 180;
+  /** Easing curves: lin, smooth (in-out), snap (fast start, long settle: reveals and whips landing), whip (very fast middle), out, in, hold. */
+  const E: Record<string, (k: number) => number> = {
+    lin: (k) => k,
+    smooth: (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2),
+    snap: (k) => (k === 1 ? 1 : 1 - Math.pow(2, -10 * k)),
+    whip: (k) => (k < 0.5 ? 16 * k ** 5 : 1 - Math.pow(-2 * k + 2, 5) / 2),
+    out: (k) => 1 - (1 - k) ** 3,
+    in: (k) => k * k * k,
+    hold: (k) => (k < 1 ? 0 : 1),
+  };
+  /** Seeded random: const r = K.rng(7); r() -> 0..1, the same every frame. */
+  const rng = (seed: number) => { let a = seed >>> 0 || 1; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  const rot = (x: number, y: number, a: number): [number, number] => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)];
+  /** Keyframed value. keys: [[time, value, ease?]]; value is a number or an object (numbers interpolate, anything else switches at the midpoint). */
+  function track(keys: any[], t: number): any {
+    if (t <= keys[0][0]) return typeof keys[0][1] === "number" ? keys[0][1] : { ...keys[0][1] };
+    for (let i = 1; i < keys.length; i++) {
+      const [t1, v1, ease = "smooth"] = keys[i], [t0, v0] = keys[i - 1];
+      if (t < t1) {
+        const k = (E[ease] ?? E.smooth)(clamp((t - t0) / (t1 - t0)));
+        if (typeof v0 === "number") return lerp(v0, v1, k);
+        const o: any = { ...v0 };
+        for (const key in v1) o[key] = typeof v1[key] === "number" && typeof v0[key] === "number" ? lerp(v0[key], v1[key], k) : (k < 0.5 && key in v0 ? v0[key] : v1[key]);
+        return o;
+      }
+    }
+    const last = keys[keys.length - 1][1];
+    return typeof last === "number" ? last : { ...last };
+  }
+  /** 0 before a, 1 after b, eased between (any unit: frames or seconds). */
+  const span = (t: number, a: number, b: number, ease = "smooth") => (E[ease] ?? E.smooth)(clamp((t - a) / Math.max(1e-6, b - a)));
+  /** True for a 4-frame blink starting at any of the given frames. */
+  const blink = (frame: number, at: number[]) => at.some((b) => frame >= b && frame < b + 4);
+
+  // ================================================================ puppets (the cast, the rig, faces)
+  const INK = "#26180f";
+  const OW = 7;
+  let LIGHT = 1; // which side the shade falls on, in puppet space (flips with the puppet so shade stays on screen-right)
+
+  const DEFAULTS = {
+    skin: "#e7b48c", skinShade: "#c98f6b", shirt: "#3f6fa8", shirtShade: "#2f5482", vest: null, vestShade: null,
+    pants: "#b59a6e", pantsShade: "#93794f", boot: "#3b2618", hat: null, hatColor: "#8a5a34", hatShade: "#6b4224", band: "#3a2416",
+    hair: null, moustache: null, beard: null, scarf: null, braces: null, glasses: false, buttons: true, collar: true, belt: true, dots: null, wrinkles: false,
+    leg: 86, torso: 150, armU: 78, armF: 74, headR: 86, width: 86,
+  };
+  /**
+   * A cast member from a few numbers (anything left out keeps the default):
+   * colours skin/skinShade, shirt/shirtShade, vest/vestShade, pants/pantsShade, boot; hat: null | "wide" | "bowler" | "top" | "nightcap"
+   * with hatColor/hatShade/band; hair, moustache, beard, scarf, braces (colours or null); glasses, buttons, collar, belt, wrinkles (booleans);
+   * dots (spangle colour); sizes leg (86), torso (150), armU (78), armF (74), headR (86), width (86: body width). Teams by shirt colour.
+   */
+  const makeCast = (def: any) => ({ ...DEFAULTS, ...def });
+  /** Standing height in puppet units (soles to hat top). K.puppet sizes a puppet by this. */
+  const castHeight = (c: any) => c.leg * 2 * 0.97 + 6 + c.torso + c.headR * 1.85 + (c.hat === "top" ? c.headR * 0.7 : c.hat ? c.headR * 0.35 : 0);
+
+  function limb(ctx: any, pts: number[][], w: number, fill: string) {
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
+    ctx.strokeStyle = INK; ctx.lineWidth = w + OW * 2; ctx.stroke(); ctx.strokeStyle = fill; ctx.lineWidth = w; ctx.stroke();
+  }
+  /** Fill a path, shade the side away from the light (shade = colour, sx = where the shade starts), then ink it. */
+  function shape(ctx: any, path: () => void, fill: string, shade?: string | null, sx = 0) {
+    ctx.save(); path(); ctx.fillStyle = fill; ctx.fill();
+    if (shade) { ctx.clip(); ctx.fillStyle = shade; ctx.beginPath(); if (LIGHT > 0) ctx.rect(sx, -3000, 3000, 6000); else ctx.rect(-sx - 3000, -3000, 3000, 6000); ctx.fill(); }
+    ctx.restore(); path(); ctx.lineJoin = "round"; ctx.strokeStyle = INK; ctx.lineWidth = OW; ctx.stroke();
+  }
+
+  /** Two-bone IK from a (shoulder or hip) to target t with bone lengths l1, l2. mode picks the elbow/knee side: "down" | "back" | "up" | "knee". */
+  function ik(a: number[], t: number[], l1: number, l2: number, mode: string) {
+    let dx = t[0] - a[0], dy = t[1] - a[1], d = Math.hypot(dx, dy);
+    if (d < 1e-6) { dx = 0; dy = 1; d = 1; }
+    const dm = clamp(d, Math.abs(l1 - l2) + 2, l1 + l2 - 0.5), ux = dx / d, uy = dy / d;
+    const x = (dm * dm + l1 * l1 - l2 * l2) / (2 * dm), h = Math.sqrt(Math.max(0, l1 * l1 - x * x));
+    const e1 = [a[0] + ux * x - uy * h, a[1] + uy * x + ux * h], e2 = [a[0] + ux * x + uy * h, a[1] + uy * x - ux * h];
+    const e = mode === "down" ? (e1[1] >= e2[1] ? e1 : e2) : mode === "back" ? (e1[0] <= e2[0] ? e1 : e2) : mode === "up" ? (e1[1] <= e2[1] ? e1 : e2) : (e1[0] >= e2[0] ? e1 : e2);
+    return [a, e, [a[0] + ux * dm, a[1] + uy * dm]];
+  }
+  const inBody = (o: number[], a: number, v: number[]) => { const [x, y] = rot(v[0], v[1], a); return [o[0] + x, o[1] + y]; };
+  /**
+   * Where joints sit in each view, as fractions of the character's own body width (measured from the owner-approved pose sheet):
+   * side: the near shoulder at the front-middle of the torso, hips overlapping, the far arm hidden BEHIND the body;
+   * three (default): the far arm hangs along the back edge, half visible, behind the body; front: shoulders at the top corners, both arms in front.
+   * footF/footB: feet at rest (an A-stance side-on and three-quarter). hangF/hangB: relaxed hands, outside the body's edges, never in front of the crotch.
+   */
+  const VIEWS: Record<string, any> = {
+    side: { shF: 0.08, shB: -0.02, hipF: 0.06, hipB: -0.06, torso: 0.95, feat: 16, front: 0.32, footF: 0.26, footB: -0.2, hangF: -0.04, hangB: 0.04 },
+    three: { shF: 0.22, shB: -0.42, hipF: 0.15, hipB: -0.15, torso: 0.95, feat: 8, front: 0.12, footF: 0.3, footB: -0.18, hangF: 0.3, hangB: -0.1 },
+    front: { shF: 0.46, shB: -0.46, hipF: 0.22, hipB: -0.22, torso: 1, feat: 0, front: 0, footF: 0.26, footB: -0.26, hangF: 0.08, hangB: -0.08 },
+  };
+  /**
+   * Solve a pose into joints. Pose fields (all optional):
+   * - view "side" | "three" | "front"; face 1 | -1 (mirror); lean (deg), head (deg), look (-1..1 eye direction), bob (px down);
+   * - hFx/hFy, hBx/hBy: front/back hand target relative to its shoulder in the body frame (+x forward, +y down); eF/eB elbow mode;
+   *   hFabs/hBabs: a hand target in puppet space (to grip something whose position is known);
+   * - hipY (default standing); fFx/fFy, fBx/fBy foot targets; stepF/stepB foot offsets for walking; armsFront: true draws the far arm in front;
+   * - face2: the expression (see K.FACE).
+   */
+  function rig(c: any, p: any) {
+    const view = p.view ?? "three", V = VIEWS[view], stand = -(c.leg * 2 * 0.995) - 6; // standing legs are nearly straight
+    const hipY = (p.hipY ?? stand) + (p.bob ?? 0), a = (p.lean ?? 0) * deg, w = c.width;
+    // knees bend forward; seen from the front, any bend goes outward on each side (never both one way)
+    const legB = ik([V.hipB * w, hipY], [p.fBx ?? V.footB * w + (p.stepB ?? 0), p.fBy ?? -6], c.leg, c.leg, view === "front" ? "back" : "knee");
+    const legF = ik([V.hipF * w, hipY], [p.fFx ?? V.footF * w + (p.stepF ?? 0), p.fFy ?? -6], c.leg, c.leg, "knee");
+    const neck = inBody([0, hipY], a, [0, -c.torso]);
+    const shB = inBody(neck, a, [V.shB * w, 24]), shF = inBody(neck, a, [V.shF * w, 24]);
+    // relaxed arms hang down the side (elbow at the waist, wrist at the belt), nearly straight
+    const reach = (c.armU + c.armF) * 0.96;
+    const armB = ik(shB, p.hBabs ?? inBody(shB, a, [p.hBx ?? V.hangB * w, p.hBy ?? reach]), c.armU, c.armF, p.eB ?? "back");
+    const armF = ik(shF, p.hFabs ?? inBody(shF, a, [p.hFx ?? V.hangF * w, p.hFy ?? reach]), c.armU, c.armF, p.eF ?? (view === "front" ? "knee" : "back"));
+    const backBehind = !(p.armsFront || view === "front");
+    const headC = [neck[0], neck[1] - c.headR * 0.78];
+    return { hipY, a, legB, legF, neck, armB, armF, backBehind, headC, V };
+  }
+
+  /** The face. f: { eyes (openness 0..1.4), blink, brow, browTilt, mouth, blindfold, sweat, closed }. Mouths: line smile smug frown wobble o open wide mid teeth. */
+  function face(ctx: any, c: any, f: any, look: number, R: number) {
+    const ex = 26, ey = -6, lx = look * 7;
+    ctx.fillStyle = INK; ctx.strokeStyle = INK; ctx.lineCap = "round";
+    const eye = (x: number, open: number) => {
+      ctx.beginPath();
+      if (f.closed) { ctx.lineWidth = 5; ctx.arc(x + lx, ey - 2, 10, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke(); return; }
+      if (open > 0.25) ctx.ellipse(x + lx, ey, 9, 14 * open, 0, 0, 7);
+      else { ctx.lineWidth = 5; ctx.moveTo(x - 10 + lx, ey); ctx.lineTo(x + 10 + lx, ey); ctx.stroke(); return; }
+      ctx.fill(); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x + lx - 3, ey - 5 * open, 3.2, 0, 7); ctx.fill(); ctx.fillStyle = INK;
+    };
+    const brow = (x: number, dy: number, tilt: number) => { ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(x - 15, ey - 30 + dy + tilt); ctx.lineTo(x + 15, ey - 30 + dy - tilt); ctx.stroke(); };
+    if (!f.blindfold) { const open = f.blink ? 0.1 : f.eyes ?? 1; eye(-ex, open); eye(ex, open); }
+    ctx.strokeStyle = c.hair && !c.hat ? c.hair : INK;
+    brow(-ex, f.brow ?? 0, -(f.browTilt ?? 0)); brow(ex, f.brow ?? 0, f.browTilt ?? 0); ctx.strokeStyle = INK;
+    // nose: a small rounded bump toward the facing side
+    ctx.fillStyle = c.skinShade; ctx.beginPath(); ctx.ellipse(14, 14, 13, 11, 0, 0, 7); ctx.fill(); ctx.lineWidth = 4; ctx.stroke();
+    if (f.blindfold) { // a red cloth band over the eyes, knot at the back
+      shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-R * 0.95, -26); ctx.quadraticCurveTo(0, -34, R * 0.95, -24); ctx.lineTo(R * 0.92, 6); ctx.quadraticCurveTo(0, -2, -R * 0.93, 8); ctx.closePath(); }, "#c0392b", "#9c2a1f", R * 0.4);
+      shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-R * 0.9, -14); ctx.lineTo(-R * 1.25, -30); ctx.lineTo(-R * 1.2, 2); ctx.closePath(); }, "#c0392b");
+    }
+    // mouth (under a moustache if there is one)
+    const my = 46, m = f.mouth ?? "line";
+    ctx.lineWidth = 6; ctx.fillStyle = "#5a1f1a"; ctx.beginPath();
+    if (m === "line") { ctx.moveTo(-14, my); ctx.lineTo(14, my); ctx.stroke(); }
+    else if (m === "smile") { ctx.arc(0, my - 14, 20, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke(); }
+    else if (m === "smug") { ctx.moveTo(-16, my + 2); ctx.quadraticCurveTo(4, my + 6, 20, my - 8); ctx.stroke(); }
+    else if (m === "frown") { ctx.arc(0, my + 14, 18, 1.2 * Math.PI, 1.8 * Math.PI); ctx.stroke(); }
+    else if (m === "wobble") { ctx.moveTo(-18, my); for (let i = 1; i <= 6; i++) ctx.lineTo(-18 + i * 6, my + (i % 2 ? -4 : 4)); ctx.stroke(); }
+    else if (m === "o") { ctx.ellipse(0, my, 8, 11, 0, 0, 7); ctx.fill(); ctx.stroke(); }
+    else if (m === "open") { ctx.ellipse(0, my, 15, 13, 0, 0, 7); ctx.fill(); ctx.stroke(); }
+    else if (m === "wide") { ctx.moveTo(-18, my - 6); ctx.lineTo(18, my - 6); ctx.quadraticCurveTo(14, my + 18, 0, my + 18); ctx.quadraticCurveTo(-14, my + 18, -18, my - 6); ctx.fill(); ctx.stroke(); }
+    else if (m === "mid") { ctx.ellipse(0, my, 13, 7, 0, 0, 7); ctx.fill(); ctx.stroke(); }
+    else if (m === "teeth") { ctx.rect(-20, my - 8, 40, 18); ctx.fillStyle = "#fff"; ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-20, my + 1); ctx.lineTo(20, my + 1); ctx.lineWidth = 3; ctx.stroke(); }
+    if (c.beard) shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-R * 0.5, 52); ctx.quadraticCurveTo(-R * 0.4, R * 1.02, 6, R * 1.08); ctx.quadraticCurveTo(R * 0.45, R * 1.0, R * 0.55, 50); ctx.quadraticCurveTo(10, 74, -R * 0.5, 52); ctx.closePath(); }, c.beard);
+    if (c.moustache) shape(ctx, () => { ctx.beginPath(); ctx.moveTo(6, 30); ctx.bezierCurveTo(-20, 22, -46, 30, -50, 44); ctx.bezierCurveTo(-30, 40, -10, 42, 6, 38); ctx.bezierCurveTo(22, 42, 44, 40, 58, 44); ctx.bezierCurveTo(52, 30, 30, 22, 6, 30); ctx.closePath(); }, c.moustache);
+    if (f.sweat) { // two drops sliding off the brow, on the far side
+      for (const [x, y] of [[-R * 0.62, -R * 0.2], [-R * 0.78, R * 0.18]]) shape(ctx, () => { ctx.beginPath(); ctx.moveTo(x, y - 18); ctx.quadraticCurveTo(x + 12, y, x, y + 8); ctx.quadraticCurveTo(x - 12, y, x, y - 18); ctx.closePath(); }, "#bfe6ff");
+    }
+  }
+  /** The head alone, origin = head centre (also for a head on a pillow or peeking out of something). f = expression. */
+  function drawHead(ctx: any, c: any, f: any, look = 0, shadowOnly = false, feat = 8) {
+    const R = c.headR;
+    if (c.scarf) shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-36, R * 0.6); ctx.lineTo(36, R * 0.6); ctx.lineTo(20, R * 0.96); ctx.lineTo(4, R * 1.18); ctx.lineTo(-6, R * 0.94); ctx.lineTo(-22, R * 0.92); ctx.closePath(); }, c.scarf);
+    const head = () => { ctx.beginPath(); ctx.ellipse(0, 0, R * 0.92, R, 0, 0, 7); };
+    shape(ctx, () => { ctx.beginPath(); ctx.ellipse(-R * 0.86, 4, 13, 18, 0, 0, 7); }, c.skinShade); // ear
+    if (c.hair && c.hat !== "top" && c.hat !== "nightcap") shape(ctx, () => { ctx.beginPath(); ctx.ellipse(-6, -R * 0.2, R * 0.98, R * 0.92, 0, Math.PI * 0.95, Math.PI * 2.05); ctx.closePath(); }, c.hair);
+    shape(ctx, head, c.skin, c.skinShade, R * 0.45);
+    ctx.save(); head(); ctx.clip(); ctx.strokeStyle = "rgba(255,214,150,0.85)"; ctx.lineWidth = 10; ctx.beginPath(); ctx.ellipse(4 * LIGHT, 0, R * 0.92, R, 0, LIGHT > 0 ? 2.2 : -0.76, LIGHT > 0 ? 3.9 : 0.94); ctx.stroke();
+    if (c.hair && !c.hat) { ctx.fillStyle = c.hair; ctx.beginPath(); ctx.ellipse(-4, -R * 0.82, R * 0.95, R * 0.42, 0.08, 0, 7); ctx.fill(); }
+    ctx.restore(); head(); ctx.strokeStyle = INK; ctx.lineWidth = OW; ctx.stroke();
+    if (c.wrinkles) { ctx.strokeStyle = c.skinShade; ctx.lineWidth = 4; for (const y of [-44, -36]) { ctx.beginPath(); ctx.moveTo(-26, y); ctx.quadraticCurveTo(0, y - 5, 26, y); ctx.stroke(); } }
+    if (!shadowOnly) { ctx.save(); ctx.translate(feat - 8, 0); face(ctx, c, f, look, R); ctx.restore(); }
+    if (c.glasses) { ctx.strokeStyle = INK; ctx.lineWidth = 5; for (const x of [-26, 26]) { ctx.beginPath(); ctx.arc(x + look * 4, -6, 21, 0, 7); ctx.stroke(); } ctx.beginPath(); ctx.moveTo(-5, -8); ctx.lineTo(5, -8); ctx.stroke(); }
+    const hs = R * 0.3;
+    if (c.hat === "wide") { shape(ctx, () => { ctx.beginPath(); ctx.ellipse(0, -R * 0.62, R * 1.45, R * 0.22, -0.04, 0, 7); ctx.moveTo(-R * 0.62, -R * 0.66); ctx.bezierCurveTo(-R * 0.7, -R * 1.5, R * 0.7, -R * 1.5, R * 0.62, -R * 0.66); ctx.closePath(); }, c.hatColor, c.hatShade, hs);
+      ctx.fillStyle = c.band; ctx.beginPath(); ctx.moveTo(-R * 0.63, -R * 0.7); ctx.lineTo(R * 0.63, -R * 0.7); ctx.lineTo(R * 0.62, -R * 0.84); ctx.lineTo(-R * 0.62, -R * 0.84); ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-R * 0.2, -R * 1.26); ctx.quadraticCurveTo(0, -R * 1.12, R * 0.2, -R * 1.26); ctx.stroke(); }
+    else if (c.hat === "bowler") { shape(ctx, () => { ctx.beginPath(); ctx.ellipse(0, -R * 0.66, R * 0.98, R * 0.16, 0, 0, 7); ctx.moveTo(-R * 0.66, -R * 0.68); ctx.bezierCurveTo(-R * 0.72, -R * 1.42, R * 0.72, -R * 1.42, R * 0.66, -R * 0.68); ctx.closePath(); }, c.hatColor, c.hatShade, hs);
+      ctx.fillStyle = c.band; ctx.fillRect(-R * 0.66, -R * 0.86, R * 1.32, R * 0.14); }
+    else if (c.hat === "top") { shape(ctx, () => { ctx.beginPath(); ctx.ellipse(0, -R * 0.66, R * 1.05, R * 0.16, 0, 0, 7); ctx.moveTo(-R * 0.6, -R * 0.68); ctx.lineTo(-R * 0.66, -R * 1.85); ctx.quadraticCurveTo(0, -R * 1.95, R * 0.66, -R * 1.85); ctx.lineTo(R * 0.6, -R * 0.68); ctx.closePath(); }, c.hatColor, c.hatShade, hs);
+      ctx.fillStyle = c.band; ctx.fillRect(-R * 0.61, -R * 0.92, R * 1.22, R * 0.18); }
+    else if (c.hat === "nightcap") shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-R * 0.9, -R * 0.3); ctx.quadraticCurveTo(-R * 0.8, -R * 1.2, R * 0.2, -R * 1.25); ctx.quadraticCurveTo(R * 1.3, -R * 1.2, R * 1.5, -R * 0.2); ctx.lineTo(R * 1.25, -R * 0.1); ctx.quadraticCurveTo(R * 0.9, -R * 0.75, R * 0.6, -R * 0.62); ctx.quadraticCurveTo(0, -R * 0.5, -R * 0.9, -R * 0.3); ctx.closePath(); }, c.hatColor, c.hatShade, hs);
+    if (c.hat === "nightcap") shape(ctx, () => { ctx.beginPath(); ctx.arc(R * 1.42, -R * 0.12, 16, 0, 7); }, "#f4efe4");
+  }
+
+  /**
+   * The whole puppet in puppet space (feet on y = 0). Draw order keeps the far arm BEHIND the body (side and three views).
+   * opts.behind(ctx, R) / opts.front(ctx, R) / opts.top(ctx, R): props drawn behind the body, between the body and the front arm,
+   * or over everything (R = the solved rig: R.armF[2] is the front hand, R.armB[2] the back hand, R.headC the head centre).
+   */
+  function drawPuppet(ctx: any, c: any, p: any, opts: any = {}) {
+    const R = rig(c, p), { hipY, a: torsoA } = R;
+    ctx.save(); ctx.scale(p.face ?? 1, 1); LIGHT = p.face ?? 1;
+    // a shoe whose opening is as wide as the leg (42), so the leg goes into it; the sole sits on the ground line
+    const boot = (fill: string) => { shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-23, -36); ctx.lineTo(21, -36); ctx.quadraticCurveTo(23, -16, 42, -12); ctx.quadraticCurveTo(66, -8, 64, 6); ctx.lineTo(-25, 6); ctx.quadraticCurveTo(-28, -14, -23, -36); ctx.closePath(); }, fill); ctx.fillStyle = INK; ctx.fillRect(-25, 1, 26, 6); };
+    const hand = (L: number[][], fill: string) => { const [e, w] = [L[1], L[2]], ang = Math.atan2(w[1] - e[1], w[0] - e[0]); ctx.save(); ctx.translate(w[0], w[1]); ctx.rotate(ang); shape(ctx, () => { ctx.beginPath(); ctx.ellipse(-4, -14, 9, 13, -0.5, 0, 7); }, fill); shape(ctx, () => { ctx.beginPath(); ctx.ellipse(8, 0, 21, 18, 0, 0, 7); }, fill); ctx.restore(); };
+    const arm = (L: number[][], fill: string, skin: string) => { limb(ctx, L, 32, fill); const [e, w] = [L[1], L[2]], k = 0.78; ctx.strokeStyle = INK; ctx.lineWidth = 5; const cx = lerp(e[0], w[0], k), cy = lerp(e[1], w[1], k), an = Math.atan2(w[1] - e[1], w[0] - e[0]) + Math.PI / 2; ctx.beginPath(); ctx.moveTo(cx + Math.cos(an) * 17, cy + Math.sin(an) * 17); ctx.lineTo(cx - Math.cos(an) * 17, cy - Math.sin(an) * 17); ctx.stroke(); hand(L, skin); };
+    const cap = (s: number[], fill: string) => { ctx.beginPath(); ctx.arc(s[0], s[1], 19, 0, 7); ctx.fillStyle = fill; ctx.fill(); };
+    // a leg stops short of the ankle (its round end would poke out under the sole), so the shoe is always the lowest part;
+    // the shoe pivots at its opening (where the foot goes in, 30 units up the shin) and turns with the shin's angle
+    const leg = (L: number[][], fill: string) => { const [k, an] = [L[1], L[2]], d = Math.hypot(an[0] - k[0], an[1] - k[1]) || 1, ux = (an[0] - k[0]) / d, uy = (an[1] - k[1]) / d, cut = Math.min(22, d * 0.3);
+      limb(ctx, [L[0], k, [an[0] - ux * cut, an[1] - uy * cut]], 40, fill);
+      const piv = [an[0] - ux * 30, an[1] - uy * 30];
+      ctx.save(); ctx.translate(piv[0], piv[1]); ctx.rotate(-Math.atan2(ux, uy)); ctx.translate(0, 30); boot(c.boot); ctx.restore(); };
+    // one part alone, drawn over something else (the rider's near leg over the carrier, the carrier's gripping arm over it)
+    if (opts.only === "frontLeg") { leg(R.legF, c.pants); ctx.restore(); return R; }
+    if (opts.only === "frontArm") { cap(R.armF[0], c.shirt); arm(R.armF, c.shirt, c.skin); ctx.restore(); return R; }
+    if (opts.only === "frontArmNoCap") { arm(R.armF, c.shirt, c.skin); ctx.restore(); return R; }
+    if (opts.behind) opts.behind(ctx, R);
+    leg(R.legB, c.pantsShade);
+    if (R.backBehind) arm(R.armB, c.shirtShade, c.skinShade);
+    leg(R.legF, c.pants);
+    // torso: a tapered bean from hip to neck, cel-shaded away from the light
+    ctx.save(); ctx.translate(0, hipY); ctx.rotate(torsoA);
+    const tw = c.width * R.V.torso, tl = c.torso + 8, fx = R.V.front;
+    shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-tw * 0.5, 8); ctx.bezierCurveTo(-tw * 0.62, -tl * 0.45, -tw * 0.56, -tl, 0, -tl); ctx.bezierCurveTo(tw * 0.56, -tl, tw * 0.62, -tl * 0.45, tw * 0.5, 8); ctx.closePath(); }, c.shirt, c.shirtShade, tw * 0.14);
+    if (c.dots) { ctx.fillStyle = c.dots; const r = (k: number) => ((Math.sin(k * 91.7) * 43758.5) % 1 + 1) % 1; for (let i = 0; i < 14; i++) { ctx.beginPath(); ctx.arc((r(i) - 0.5) * tw * 0.8, -tl * (0.1 + 0.8 * r(i + 30)), 5, 0, 7); ctx.fill(); } }
+    if (c.collar) shape(ctx, () => { ctx.beginPath(); ctx.moveTo(tw * (fx - 0.28), -tl + 4); ctx.lineTo(tw * (fx - 0.04), -tl + 30); ctx.lineTo(tw * fx, -tl + 4); ctx.closePath(); ctx.moveTo(tw * (fx + 0.04), -tl + 4); ctx.lineTo(tw * (fx + 0.02), -tl + 30); ctx.lineTo(tw * (fx + 0.26), -tl + 6); ctx.closePath(); }, c.shirt);
+    if (c.buttons) { ctx.fillStyle = INK; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(tw * fx, -tl + 46 + i * 28, 4.5, 0, 7); ctx.fill(); } }
+    if (c.vest) { shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-tw * 0.5, 4); ctx.bezierCurveTo(-tw * 0.6, -tl * 0.45, -tw * 0.5, -tl * 0.95, -tw * 0.14, -tl * 0.97); ctx.lineTo(-tw * 0.02, -tl * 0.32); ctx.lineTo(-tw * 0.12, 4); ctx.closePath(); ctx.moveTo(tw * 0.5, 4); ctx.bezierCurveTo(tw * 0.6, -tl * 0.45, tw * 0.52, -tl * 0.95, tw * 0.3, -tl * 0.97); ctx.lineTo(tw * 0.2, -tl * 0.32); ctx.lineTo(tw * 0.26, 4); ctx.closePath(); }, c.vest, c.vestShade, tw * 0.14);
+      ctx.strokeStyle = INK; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-tw * 0.42, -tl * 0.42); ctx.lineTo(-tw * 0.2, -tl * 0.42); ctx.stroke();
+      ctx.strokeStyle = "#d9b45a"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-tw * 0.3, -tl * 0.42); ctx.quadraticCurveTo(-tw * 0.1, -tl * 0.3, tw * 0.06, -tl * 0.36); ctx.stroke(); }
+    if (c.braces) { for (const [col, w] of [[INK, 15], [c.braces, 9]]) { ctx.strokeStyle = col; ctx.lineWidth = w; for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(s * tw * 0.26, 2); ctx.lineTo(s * tw * 0.2, -tl * 0.95); ctx.stroke(); } } }
+    if (c.belt) { ctx.fillStyle = INK; ctx.fillRect(-tw * 0.53, -12, tw * 1.06, 14); ctx.fillStyle = "#d9b45a"; ctx.fillRect(tw * fx - 9, -11, 18, 12); ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.strokeRect(tw * fx - 9, -11, 18, 12); }
+    ctx.restore();
+    cap(R.armB[0], R.backBehind ? c.shirtShade : c.shirt);
+    ctx.save(); ctx.translate(R.headC[0], R.headC[1]); ctx.rotate((p.head ?? 0) * deg); drawHead(ctx, c, p.face2 ?? {}, p.look ?? 0, opts.shadowOnly, R.V.feat); ctx.restore();
+    if (!R.backBehind) arm(R.armB, c.shirtShade, c.skinShade);
+    if (opts.front) opts.front(ctx, R);
+    cap(R.armF[0], c.shirt);
+    arm(R.armF, c.shirt, c.skin);
+    if (opts.top) opts.top(ctx, R);
+    ctx.restore();
+    return R;
+  }
+
+  /**
+   * Piggyback: the rider sits on the carrier's back with the near leg wrapped round the carrier's front, and the carrier's near
+   * hand grips that knee. riderPose = K.pose.ride(rider, K.rig(carrier, carrierPose), carrier); carrierPose from K.pose.carry.
+   * Order: rider (behind) -> carrier -> rider's near leg -> carrier's gripping arm -> rider's near arm. Both share the carrier's feet origin.
+   */
+  function drawPiggyback(ctx: any, carrier: any, rider: any, carrierPose: any, riderPose: any, opts: any = {}) {
+    const off = -0.55 * carrier.width * (carrierPose.face ?? 1);
+    const rR = rig(rider, riderPose), [hp, knee] = [rR.legF[0], rR.legF[1]];
+    const grip = [off * (carrierPose.face ?? 1) + lerp(hp[0], knee[0], 0.55), lerp(hp[1], knee[1], 0.55) + 0.1 * rider.leg];
+    const cp = { ...carrierPose, hFabs: grip, eF: "back" };
+    const cR = rig(carrier, cp), cs = cR.armF[0], unoff = off * (carrierPose.face ?? 1);
+    const rp = { ...riderPose, hFabs: [cs[0] + 0.22 * carrier.width - unoff, cs[1] + 0.32 * (carrier.armU + carrier.armF)], eF: "up" };
+    ctx.save(); ctx.translate(off, 0); drawPuppet(ctx, rider, rp, opts.rider ?? {}); ctx.restore();
+    const R = drawPuppet(ctx, carrier, cp, opts.carrier ?? {});
+    ctx.save(); ctx.translate(off, 0); drawPuppet(ctx, rider, rp, { only: "frontLeg" }); ctx.restore();
+    drawPuppet(ctx, carrier, cp, { only: "frontArm" });
+    ctx.save(); ctx.translate(off, 0); drawPuppet(ctx, rider, rp, { only: "frontArmNoCap" }); ctx.restore();
+    return R;
+  }
+
+  /** Expression presets for a pose's face2 (spread and add blink: K.blink(frame, [..]), blindfold, sweat). */
+  const FACE: Record<string, any> = {
+    calm: { brow: 0, mouth: "smile", eyes: 0.8 },
+    focus: { brow: 6, browTilt: 4, mouth: "line", eyes: 0.7 },
+    smug: { eyes: 0.55, brow: -4, browTilt: 4, mouth: "smug" },
+    wow: { eyes: 1.25, brow: -16, mouth: "o" },
+    grin: { eyes: 1.1, brow: -10, mouth: "teeth" },
+    scared: { eyes: 1.3, brow: -18, browTilt: -6, mouth: "wobble", sweat: true },
+    terror: { eyes: 1.4, brow: -20, browTilt: -8, mouth: "teeth", sweat: true },
+    shut: { closed: true, brow: 8, browTilt: -6, mouth: "teeth", sweat: true },
+    happy: { eyes: 0.9, mouth: "smile" },
+    asleep: { closed: true, mouth: "smile", brow: 2 },
+    angry: { eyes: 0.8, brow: 10, browTilt: 8, mouth: "frown" },
+    doubt: { eyes: 0.6, brow: -6, browTilt: -6, mouth: "mid" },
+    shout: { eyes: 1.1, brow: 8, browTilt: 6, mouth: "wide" },
+    sad: { eyes: 0.7, brow: -8, browTilt: -8, mouth: "frown" },
+  };
+  /** Mouth for speech: a mouth shape that changes on twos while `talking` (frame-driven, deterministic). */
+  const talk = (frame: number, talking = true, rest = "line") => (talking ? ["open", "mid", "o", "wide", "mid", "line"][Math.floor(frame / 2) % 6] : rest);
+
+  // ================================================================ poses (fit ANY cast: fractions of its own width, arm and leg)
+  const dims = (c: any) => ({ w: c.width, arm: c.armU + c.armF, L: c.leg });
+  const pose = {
+    /** Relaxed standing: A-stance, hands hanging outside the body edges. */
+    stand: (c: any, view = "three") => ({ view }),
+    /** Walking on the spot: feet swing, the body bobs and the arms swing opposite to the legs. t in seconds; speed = steps per second. */
+    walk(c: any, t: number, view = "side", speed = 2) {
+      const { w, arm, L } = dims(c), V = VIEWS[view], ph = t * speed * Math.PI, s = Math.sin(ph), stride = 0.34 * L;
+      return { view, stepF: s * stride - V.footF * w * 0.4, stepB: -s * stride - V.footB * w * 0.4, fFy: -6 - Math.max(0, Math.cos(ph)) * 0.14 * L, fBy: -6 - Math.max(0, -Math.cos(ph)) * 0.14 * L,
+        bob: -Math.abs(Math.cos(ph)) * 0.06 * L + 0.03 * L, hFx: -s * 0.3 * arm, hFy: 0.86 * arm, hBx: s * 0.3 * arm, hBy: 0.86 * arm, lean: 3 };
+    },
+    /** Running: a longer stride, higher feet, a stronger lean and pumping arms. */
+    run(c: any, t: number, view = "side", speed = 3.2) {
+      const { w, arm, L } = dims(c), V = VIEWS[view], ph = t * speed * Math.PI, s = Math.sin(ph), stride = 0.55 * L;
+      return { view, stepF: s * stride - V.footF * w * 0.4, stepB: -s * stride - V.footB * w * 0.4, fFy: -6 - Math.max(0, Math.cos(ph)) * 0.32 * L, fBy: -6 - Math.max(0, -Math.cos(ph)) * 0.32 * L,
+        bob: -Math.abs(Math.cos(ph)) * 0.1 * L + 0.06 * L, hFx: -s * 0.45 * arm, hFy: 0.55 * arm, eF: "down", hBx: s * 0.45 * arm, hBy: 0.55 * arm, eB: "down", lean: 12 };
+    },
+    /** Holding a long pole across the chest with the near hand: elbow down by the side, forearm forward, knees a little bent, feet apart. */
+    holdPole: (c: any, view = "side") => { const { w, arm, L } = dims(c); return { view, hFx: 0.38 * arm, hFy: 0.4 * arm, eF: "down", hBx: 0.5 * arm, hBy: 0.44 * arm, eB: "down", stepF: 0.12 * w, stepB: -0.1 * w, hipY: -(L * 2 * 0.95) - 6, lean: 3 }; },
+    /** Pushing something low in front (a wheelbarrow, a cart): leaning in, arms forward and down, back leg pushing. */
+    push: (c: any, view = "side") => { const { w, arm } = dims(c); return { view, lean: 16, hFx: 0.68 * arm, hFy: 0.74 * arm, eF: "down", hBx: 0.64 * arm, hBy: 0.76 * arm, eB: "down", stepB: -0.42 * w, stepF: 0.1 * w }; },
+    /** Holding something out in front with the near hand (a pan, a lamp, a coin); the far hand hangs at the back hip. */
+    holdOut: (c: any, view = "three") => { const { arm } = dims(c); return { view, hFx: 0.74 * arm, hFy: 0.38 * arm, eF: "down" }; },
+    /** Hands on hips, elbows out (front view). */
+    handsOnHips: (c: any) => { const { w, arm } = dims(c); return { view: "front", hFx: 0.04 * w, hFy: 0.66 * arm, eF: "knee", hBx: -0.04 * w, hBy: 0.66 * arm, eB: "back" }; },
+    /** Arms out to the sides (front view): balance, shock, "ta-da". */
+    armsOut: (c: any) => { const { arm } = dims(c); return { view: "front", hFx: 0.98 * arm, hFy: 0.03 * arm, eF: "down", hBx: -0.98 * arm, hBy: 0.03 * arm, eB: "down" }; },
+    /** Pointing up with the near arm (front view); the other hangs. */
+    pointUp: (c: any) => { const { arm } = dims(c); return { view: "front", hFx: 0.55 * arm, hFy: -0.92 * arm, eF: "knee" }; },
+    /** Pointing forward at something (three view): the near arm straight out at shoulder height. */
+    point: (c: any, view = "three") => { const { arm } = dims(c); return { view, hFx: 0.95 * arm, hFy: 0.05 * arm, eF: "down" }; },
+    /** Both arms raised high (front view): a cheer, panic, surrender. */
+    armsUp: (c: any) => { const { arm } = dims(c); return { view: "front", hFx: 0.35 * arm, hFy: -0.9 * arm, eF: "knee", hBx: -0.35 * arm, hBy: -0.9 * arm, eB: "back" }; },
+    /** Sitting on something at puppet height `seat` (0 = the ground line the puppet stands on): thigh level, shin straight down, hands on the seat. */
+    sit(c: any, seat = 0, view = "side") { const { arm, L } = dims(c), V = VIEWS[view], w = c.width; const hip = seat - 0.06 * L;
+      return { view, hipY: hip, fFx: V.hipF * w + L, fFy: hip + L, fBx: V.hipB * w + L * 0.9, fBy: hip + L * 1.05, hFx: 0.2 * arm, hFy: 0.62 * arm, eF: "back", hBx: -0.1 * arm, hBy: 0.62 * arm, lean: -4 }; },
+    /** Carrying someone piggyback (draw with K.drawPiggyback): leaning forward; the near hand is set by drawPiggyback to grip the rider's knee. */
+    carry: (c: any) => { const { arm } = dims(c); return { view: "side", lean: 10, hBx: -0.42 * arm, hBy: 0.7 * arm, eB: "down" }; },
+    /** The rider on someone's back (draw with K.drawPiggyback). carrierRig = K.rig(carrier, carrierPose). */
+    ride: (c: any, carrierRig: any, carrier: any) => { const { arm, L } = dims(c), cw = carrier.width, hipY = carrierRig.hipY - 0.45 * L;
+      const front = 0.55 * cw + 0.47 * cw;
+      return { view: "side", hipY, fFx: front + 0.1 * L, fFy: hipY + 1.0 * L, fBx: front - 0.2 * cw, fBy: hipY + 1.05 * L, hFx: 0.72 * arm, hFy: 0.3 * arm, eF: "down", hBx: 0.78 * arm, hBy: 0.36 * arm, eB: "down", lean: 12 }; },
+    /** Nervous fidget (hands up near the chest), for scared bystanders. t in seconds. */
+    fidget: (c: any, t: number) => { const { arm } = dims(c), f = Math.sin(t * 7) * 0.04 * arm; return { view: "three", hFx: 0.3 * arm + f, hFy: 0.2 * arm, eF: "down", hBx: 0.44 * arm - f, hBy: 0.22 * arm, eB: "down", lean: -3 }; },
+    /** Swinging a tool overhead (axe, pickaxe, hammer) with both hands: k 0 = raised behind the head, 1 = struck down in front. */
+    swing: (c: any, k: number, view = "side") => { const { arm } = dims(c), a = lerp(-2.3, 0.5, k), x = Math.cos(a) * 0.9 * arm, y = Math.sin(a) * 0.9 * arm;
+      return { view, hFx: x, hFy: y, eF: k < 0.5 ? "up" : "down", hBx: x * 0.92, hBy: y * 0.92 + 8, eB: k < 0.5 ? "up" : "down", lean: lerp(-6, 14, k), stepF: 0.2 * c.width, stepB: -0.25 * c.width }; },
+  };
+
+  // ================================================================ props (ink and flat colour, like the puppets)
+  /** A rope across a gap: a, b plate points {x, y, d}. Returns point(u) -> {x, y, d} along it (dipAt/dip: a weight pulls it down). */
+  function ropeCurve(a: any, b: any, sag = 40, dipAt = -1, dip = 0) {
+    return (u: number) => ({ x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u) + sag * 4 * u * (1 - u) + (dipAt >= 0 ? dip * Math.exp(-(((u - dipAt) / 0.06) ** 2)) : 0), d: lerp(a.d, b.d, u) });
+  }
+  /** Draw a rope (from ropeCurve) through the camera, thinner where it is far. */
+  function drawRope(ctx: any, cam: any, point: (u: number) => any, width = 10, from = 0, to = 1) {
+    const pts: number[][] = []; for (let i = 0; i <= 80; i++) { const u = lerp(from, to, i / 80), p = point(u); pts.push(toScreen(cam, p.x, p.y, p.d)); }
+    for (const [col, extra] of [[INK, 6], ["#b08a52", 0]] as [string, number][]) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.2, (width + extra) * pts[pts.length >> 1][2] * 0.5); ctx.stroke(); }
+  }
+  /** A thick rope close to camera (screen space), with twist marks: for shots right beside a walker. */
+  function ropeNear(ctx: any, x0: number, y0: number, x1: number, y1: number, w: number) {
+    ctx.save(); ctx.lineCap = "round";
+    ctx.strokeStyle = INK; ctx.lineWidth = w + 10; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    const g = ctx.createLinearGradient(0, y0 - w / 2, 0, y0 + w / 2); g.addColorStop(0, "#d8b37a"); g.addColorStop(1, "#8f6a3a");
+    ctx.strokeStyle = g; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    const n = Math.hypot(x1 - x0, y1 - y0) / (w * 0.7), ang = Math.atan2(y1 - y0, x1 - x0);
+    ctx.strokeStyle = "rgba(60,40,20,0.55)"; ctx.lineWidth = Math.max(2, w * 0.12);
+    for (let i = 0; i < n; i++) { const k = i / n, cx = lerp(x0, x1, k), cy = lerp(y0, y1, k); ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang); ctx.beginPath(); ctx.moveTo(-w * 0.3, -w * 0.45); ctx.lineTo(w * 0.3, w * 0.45); ctx.stroke(); ctx.restore(); }
+    ctx.restore();
+  }
+  /** Puppet-space prop (pass as opts.front): a long balancing pole across both hands, tipping by `tilt` degrees. */
+  function pole(ctx: any, R: any, tilt = 0, len = 520) {
+    const [a, b] = [R.armB[2], R.armF[2]], cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(tilt * deg); ctx.lineCap = "round";
+    ctx.strokeStyle = INK; ctx.lineWidth = 20; ctx.beginPath(); ctx.moveTo(-len / 2, 0); ctx.lineTo(len / 2, 0); ctx.stroke();
+    ctx.strokeStyle = "#e8d29a"; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(-len / 2, 0); ctx.lineTo(len / 2, 0); ctx.stroke();
+    for (const s of [-1, 1]) { ctx.fillStyle = "#c0392b"; ctx.strokeStyle = INK; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(s * len / 2, 0, 13, 0, 7); ctx.fill(); ctx.stroke(); }
+    ctx.restore();
+  }
+  /** Puppet-space prop (opts.front, with K.pose.push): a wooden wheelbarrow ahead of the walker, handles in his hands; spin turns the wheel. */
+  function wheelbarrow(ctx: any, R: any, spin = 0) {
+    const hx = Math.max(R.armF[2][0], R.armB[2][0]), hy = (R.armF[2][1] + R.armB[2][1]) / 2, wx = hx + 230, wy = -34;
+    ctx.save(); ctx.lineJoin = "round";
+    for (const off of [-10, 10]) { ctx.strokeStyle = INK; ctx.lineWidth = 16; ctx.beginPath(); ctx.moveTo(hx - 6, hy + off * 0.3); ctx.lineTo(wx - 30, wy - 40 + off * 0.3); ctx.stroke(); ctx.strokeStyle = "#9a6b3d"; ctx.lineWidth = 8; ctx.stroke(); }
+    shape(ctx, () => { ctx.beginPath(); ctx.moveTo(hx + 50, hy - 26); ctx.lineTo(wx + 26, hy - 40); ctx.lineTo(wx, wy - 22); ctx.lineTo(hx + 90, wy - 10); ctx.closePath(); }, "#b9834d", "#946338", hx + 140);
+    ctx.strokeStyle = INK; ctx.lineWidth = 4; for (const k of [0.33, 0.66]) { ctx.beginPath(); ctx.moveTo(lerp(hx + 50, wx + 26, k), lerp(hy - 26, hy - 40, k)); ctx.lineTo(lerp(hx + 90, wx, k), lerp(wy - 10, wy - 22, k)); ctx.stroke(); }
+    ctx.translate(wx, wy); ctx.rotate(spin);
+    shape(ctx, () => { ctx.beginPath(); ctx.arc(0, 0, 34, 0, 7); }, "#6b4a2b");
+    ctx.strokeStyle = INK; ctx.lineWidth = 5; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-30 * Math.cos(i * 1.05), -30 * Math.sin(i * 1.05)); ctx.lineTo(30 * Math.cos(i * 1.05), 30 * Math.sin(i * 1.05)); ctx.stroke(); }
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(0, 0, 7, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+  /** Puppet-space prop (opts.front, with K.pose.holdOut): a frying pan in the front hand, an egg that sets as cook 0 -> 1, a flame (t seconds). */
+  function pan(ctx: any, R: any, cook = 0, t = 0, flame = 1) {
+    const [x, y] = R.armF[2];
+    ctx.save(); ctx.translate(x, y);
+    ctx.strokeStyle = INK; ctx.lineWidth = 16; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(70, 6); ctx.stroke(); ctx.strokeStyle = "#3d3d44"; ctx.lineWidth = 8; ctx.stroke();
+    ctx.translate(140, 14);
+    if (flame > 0) { const f = Math.floor(t * 12); for (let i = 0; i < 3; i++) { const hh = (46 + ((f * 7 + i * 13) % 5) * 7) * flame, xx = (i - 1) * 26;
+      shape(ctx, () => { ctx.beginPath(); ctx.moveTo(xx, 20); ctx.quadraticCurveTo(xx + 24, 20 + hh * 0.65, xx, 20 + hh); ctx.quadraticCurveTo(xx - 24, 20 + hh * 0.65, xx, 20); ctx.closePath(); }, i === 1 ? "#ffb02e" : "#ff7a1a"); } }
+    shape(ctx, () => { ctx.beginPath(); ctx.ellipse(0, 0, 74, 22, 0, 0, 7); }, "#3d3d44", "#2a2a30", 20);
+    shape(ctx, () => { ctx.beginPath(); ctx.ellipse(0, -4, 60, 15, 0, 0, 7); }, "#55555e");
+    if (cook > 0) { const s = 0.6 + 0.4 * cook; ctx.save(); ctx.scale(s, s);
+      shape(ctx, () => { ctx.beginPath(); ctx.ellipse(-4, -6, 46, 12, 0.05, 0, 7); }, cook > 0.5 ? "#fffaf0" : "rgba(255,255,255,0.75)");
+      shape(ctx, () => { ctx.beginPath(); ctx.ellipse(4, -10, 15, 9, 0, 0, 7); }, "#ffc21a"); ctx.restore(); }
+    ctx.restore();
+  }
+  /** Puppet-space prop (opts.front): a held tool along the front forearm, e.g. an axe/pickaxe/hammer with pose.swing. kind "axe" | "pick" | "hammer". */
+  function tool(ctx: any, R: any, kind = "pick", len = 200) {
+    const [e, w] = [R.armF[1], R.armF[2]], a = Math.atan2(w[1] - e[1], w[0] - e[0]);
+    ctx.save(); ctx.translate(w[0], w[1]); ctx.rotate(a - Math.PI / 2); ctx.lineCap = "round";
+    ctx.strokeStyle = INK; ctx.lineWidth = 18; ctx.beginPath(); ctx.moveTo(0, 40); ctx.lineTo(0, -len); ctx.stroke(); ctx.strokeStyle = "#9a6b3d"; ctx.lineWidth = 8; ctx.stroke();
+    ctx.translate(0, -len);
+    if (kind === "pick") shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-90, 18); ctx.quadraticCurveTo(0, -30, 90, 18); ctx.quadraticCurveTo(0, -8, -90, 18); ctx.closePath(); }, "#8a8d94", "#6b6e75", 0);
+    else if (kind === "axe") shape(ctx, () => { ctx.beginPath(); ctx.moveTo(-6, -14); ctx.lineTo(56, -40); ctx.quadraticCurveTo(70, 0, 56, 40); ctx.lineTo(-6, 14); ctx.closePath(); }, "#9ea2a9", "#7b7f86", 30);
+    else shape(ctx, () => { ctx.beginPath(); ctx.rect(-36, -20, 72, 40); }, "#6b6e75", "#55585e", 10);
+    ctx.restore();
+  }
+  /** A box, crate or chest at a puppet hand or anywhere in screen space: x, y = bottom centre. */
+  function crate(ctx: any, x: number, y: number, w = 160, h = 120, color = "#b9834d") {
+    shape(ctx, () => { ctx.beginPath(); ctx.rect(x - w / 2, y - h, w, h); }, color, "#946338", x + w * 0.2);
+    ctx.strokeStyle = INK; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x - w / 2, y - h / 2); ctx.lineTo(x + w / 2, y - h / 2); ctx.moveTo(x - w / 2, y - h); ctx.lineTo(x + w / 2, y); ctx.stroke();
+  }
+
+  const SKINS = [["#f1c7a3", "#d6a684"], ["#e7b48c", "#c98f6b"], ["#c98e62", "#a87049"], ["#8d5a3b", "#6f4329"], ["#f4d2b5", "#d9b092"]];
+  const CLOTH = [["#3f6fa8", "#2f5482"], ["#a83f3f", "#822f2f"], ["#5f8d4e", "#47703a"], ["#8a6aa8", "#6a4f84"], ["#c79a3a", "#a07a26"], ["#4a4a55", "#35353e"], ["#2f7f7a", "#225f5b"]];
+  const HATS = [null, "bowler", "top", "wide", null, "bowler"];
+  /** n deterministic crowd members, each a full cast (varied skin, clothes, hats, builds). over: fields forced on every member (e.g. a team's shirt). */
+  function crowdCast(n: number, seed = 1, over: any = {}) {
+    const r = rng(seed); return Array.from({ length: n }, () => { const [skin, skinShade] = SKINS[Math.floor(r() * SKINS.length)], [shirt, shirtShade] = CLOTH[Math.floor(r() * CLOTH.length)], hat = HATS[Math.floor(r() * HATS.length)];
+      return makeCast({ skin, skinShade, shirt, shirtShade, hat, hatColor: ["#3a2f2a", "#5b4636", "#2a2a33", "#7a5a3a"][Math.floor(r() * 4)], hatShade: "#221a16", band: "#6b2a22", hair: hat ? null : ["#3b2618", "#7a4a22", "#c9a35a", "#222"][Math.floor(r() * 4)], width: 104 + r() * 30, torso: 136 + r() * 24, leg: 74 + r() * 16, headR: 82 + r() * 8, moustache: r() < 0.25 ? "#3b2618" : null, buttons: r() < 0.6, vest: r() < 0.3 ? "#6b4a2b" : null, vestShade: "#523720", ...over }); });
+  }
+  /**
+   * A crowd standing in rows in the set (far rows first). rows: [[plateY, heightPx, count], ...] from far to near; x0..x1 the plate span.
+   * mood "watch" | "eager" | "scared"; frame drives the idle motion. Every 5th member points. Uses K.puppet, so each has its shadow.
+   */
+  function crowd(ctx: any, cam: any, members: any[], rows: number[][], frame: number, mood = "watch", x0 = 120, x1 = 1000) {
+    const t = frame / 30; let n = 0;
+    for (const [y, h, count] of rows) for (let i = 0; i < count; i++, n++) {
+      const cc = members[n % members.length], x = x0 + (i + (y % 3) * 0.33) * ((x1 - x0) / count) + Math.sin(n * 7.1) * 30;
+      const lean = mood === "eager" ? 8 + Math.sin(t * 3 + n) * 3 : mood === "scared" ? -4 + Math.sin(t * 9 + n) * 2 : 2 + Math.sin(t * 1.3 + n) * 1.5;
+      const point = n % 5 === 2, f = mood === "eager" ? (n % 2 ? FACE.grin : FACE.wow) : mood === "scared" ? FACE.scared : FACE.wow;
+      const arm = cc.armU + cc.armF;
+      puppet(ctx, cam, cc, x, y + Math.sin(n * 3.3) * 14, h, { face: x < 540 ? 1 : -1, lean, head: -10, look: 0.6, bob: Math.sin(t * 2.2 + n) * 3, face2: { ...f, blink: blink(frame, [(n % 7) * 9 + 3]) },
+        ...pose.stand(cc, "three"), ...(point ? { hFx: 0.7 * arm, hFy: -0.3 * arm, eF: "down" } : {}) }, { sun: "left", shadowAlpha: 0.3 });
+    }
+  }
+  /** Sunlit dust motes in front of everything (strong parallax). Draw last inside K.layer. t in seconds. */
+  function motes(ctx: any, cam: any, t: number, seed = 11, n = 40, color = "255,226,170") {
+    const r = rng(seed); ctx.save(); ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < n; i++) { const m = { x: r() * 1080, y: 500 + r() * 1400, d: 0.78 + r() * 0.25, s: 1.5 + r() * 4, v: 8 + r() * 18, ph: r() * 6.28 };
+      const x = (m.x + t * m.v) % 1080, y = m.y - t * m.v * 0.4 + Math.sin(t + m.ph) * 8, [sx, sy, k] = toScreen(cam, x, y, m.d);
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, m.s * k * 2.2); g.addColorStop(0, `rgba(${color},0.5)`); g.addColorStop(1, `rgba(${color},0)`); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, m.s * k * 2.2, 0, 7); ctx.fill(); }
+    ctx.restore();
+  }
+  /** Soft mist puffs drifting up from a plate region (waterfalls, gorges, battlefields, steam rooms). t in seconds. */
+  function mist(ctx: any, cam: any, t: number, x0: number, x1: number, y: number, d = 0.2, n = 18, seed = 3) {
+    const r = rng(seed); ctx.save();
+    for (let i = 0; i < n; i++) { const ph = (t * 0.12 + r()) % 1, x = lerp(x0, x1, r()) + Math.sin(t * 0.5 + i) * 20, yy = y - ph * 260, [sx, sy, k] = toScreen(cam, x, yy, d), rad = (60 + r() * 80) * k * (0.6 + ph);
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, rad); g.addColorStop(0, `rgba(255,255,255,${0.22 * Math.sin(ph * Math.PI)})`); g.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, rad, 0, 7); ctx.fill(); }
+    ctx.restore();
+  }
+  /** Steam curls rising from a screen point (t seconds). */
+  function steam(ctx: any, x: number, y: number, t: number, scale = 1) {
+    ctx.save(); ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 6 * scale; ctx.lineCap = "round";
+    for (let i = 0; i < 3; i++) { const ph = (t * 0.8 + i / 3) % 1; ctx.globalAlpha = Math.sin(ph * Math.PI) * 0.8; ctx.beginPath(); for (let k = 0; k <= 10; k++) { const yy = y - (ph * 120 + k * 9) * scale, xx = x + (i - 1) * 26 * scale + Math.sin(k * 0.7 + t * 4 + i) * 10 * scale; k ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); } ctx.stroke(); }
+    ctx.restore();
+  }
+  /** Cartoon "pop" lines around a screen point (an accent on a word): k goes 0 -> 1 over about 10 frames (K.span). */
+  function popLines(ctx: any, x: number, y: number, r: number, k: number, n = 8) {
+    if (k <= 0 || k >= 1) return; ctx.save(); ctx.strokeStyle = "#fff8e0"; ctx.lineCap = "round"; ctx.lineWidth = 8 * (1 - k) + 2; ctx.globalAlpha = 1 - k;
+    for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2, r0 = r * (0.7 + k * 0.6), r1 = r0 + r * 0.35; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0); ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1); ctx.stroke(); }
+    ctx.restore();
+  }
+  /** A burst of dust or debris from a screen point on an impact (k 0 -> 1 over ~15 frames from the hit). color "dust" | "sparks" | "water". */
+  function burst(ctx: any, x: number, y: number, k: number, size = 120, color = "dust", seed = 5) {
+    if (k <= 0 || k >= 1) return; const r = rng(seed), col = color === "sparks" ? "255,200,90" : color === "water" ? "220,240,255" : "200,170,130";
+    ctx.save(); if (color === "sparks") ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 16; i++) { const a = -Math.PI * (0.1 + r() * 0.8), v = size * (0.5 + r()), px = x + Math.cos(a) * v * k, py = y + Math.sin(a) * v * k + 300 * k * k * (color === "sparks" ? 0.6 : 0.3), rad = (color === "sparks" ? 4 : 10 + r() * 16) * (1 - k * 0.5);
+      ctx.fillStyle = `rgba(${col},${0.8 * (1 - k)})`; ctx.beginPath(); ctx.arc(px, py, rad, 0, 7); ctx.fill(); }
+    ctx.restore();
+  }
+  /** A flickering fire or torch flame at a screen point (t seconds, scale ~1 = 120 px tall). */
+  function flame(ctx: any, x: number, y: number, t: number, scale = 1) {
+    const f = Math.floor(t * 12); ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale);
+    const glow = ctx.createRadialGradient(0, -50, 0, 0, -50, 160); glow.addColorStop(0, "rgba(255,170,60,0.35)"); glow.addColorStop(1, "rgba(255,170,60,0)"); ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, -50, 160, 0, 7); ctx.fill();
+    for (let i = 0; i < 3; i++) { const hh = 90 + ((f * 7 + i * 13) % 5) * 12, xx = (i - 1) * 22;
+      shape(ctx, () => { ctx.beginPath(); ctx.moveTo(xx - 24, 0); ctx.quadraticCurveTo(xx - 22, -hh * 0.6, xx, -hh); ctx.quadraticCurveTo(xx + 22, -hh * 0.6, xx + 24, 0); ctx.closePath(); }, i === 1 ? "#ffcf3a" : "#ff7a1a"); }
+    ctx.restore();
+  }
+  /** Rain streaks over the frame (screen space; t seconds; amount 0..1). */
+  function rain(ctx: any, W: number, H: number, t: number, amount = 1, seed = 9) {
+    const r = rng(seed); ctx.save(); ctx.strokeStyle = "rgba(210,225,255,0.45)"; ctx.lineWidth = 3; ctx.lineCap = "round";
+    for (let i = 0; i < 140 * amount; i++) { const x = r() * W, v = 1800 + r() * 900, y = (r() * H + t * v) % (H + 100) - 50; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 10, y + 46); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  // ================================================================ the camera and the set (depth parallax)
+  const A = 0.55; // depth parallax strength: a point at depth d scales by zoom^(1 + A*par*(d - dRef))
+  const PW = 1080;
+  const CAM0 = { x: 540, y: 968, z: 1, px: 0, py: 0, roll: 0, par: 1, dof: 0, focus: -1 };
+  /**
+   * The shot's camera at a frame. keys: [[frame, { x, y, z, px?, py?, roll?, par? }, ease?], ...] in scene frames (frame 0 = the scene's
+   * first frame), in plate coordinates: x, y = the set point at the frame's centre, z = zoom (1 = the whole set width), px/py = a
+   * parallax slide (near things move further than far ones), roll in degrees, dof = depth-of-field blur in px at 1080 wide (0 = sharp; 10-16 on close and medium shots, wides stay 0),
+   * focus = the depth kept sharp (0 far .. 1 near; -1 = the reference depth, the subject), par = parallax strength (0 = a flat zoom, used for
+   * "look down" into a far background). A field left out of a key keeps the previous key's value. ease = how the move INTO the key
+   * runs: "snap" (whip or reveal landing), "smooth", "lin", "out", "whip".
+   * Every shot creeps in about 0.12% a frame on its own (opts.push false turns it off), so no frame is dead still.
+   * opts.tint [r, g, b] multiplies the set (warm by default); opts.grade [leftColour, rightColour] tints the puppet layer.
+   */
+  function camera(frame: number, keys: any[] = [], opts: any = {}) {
+    const norm: any[] = []; let prev = { ...CAM0 };
+    for (const k of keys.length ? keys : [[0, {}]]) { prev = { ...prev, ...k[1] }; norm.push([k[0], prev, k[2] ?? "smooth"]); }
+    const at = (f: number) => { const c = track(norm, f); if (opts.push !== false) c.z *= 1 + 0.0012 * Math.max(0, f); return c; };
+    const c = at(frame);
+    c.prev = at(Math.max(norm[0][0], frame - 0.5)); // half a frame earlier: the motion-blur shutter
+    c.frame = frame; c.tint = opts.tint ?? [1.03, 1.0, 0.96]; c.grade = opts.grade ?? ["rgba(255,190,110,0.18)", "rgba(120,70,40,0.14)"];
+    return c;
+  }
+  // per set: { d (Uint8Array depth), dw, dh } read once from the depth image
+  function depthData(env: any, place: string, dep: any) {
+    const key = `hr:depth:${place}`, hit = env.cache.get(key); if (hit !== undefined) return hit;
+    let data = null;
+    try {
+      const dw = 384, dh = Math.round(384 * (dep.height || 1) / (dep.width || 1)), L = env.canvas(dw, dh); L.ctx.drawImage(dep, 0, 0, dw, dh);
+      const raw = L.ctx.getImageData(0, 0, dw, dh).data, d = new Uint8Array(dw * dh); for (let i = 0; i < d.length; i++) d[i] = raw[i * 4];
+      data = { d, dw, dh };
+    } catch { data = null; }
+    env.cache.set(key, data); return data;
+  }
+  /** The set's depth (0 far .. 1 near) at plate point (x, y); 0.5 when the set has no depth map. Valid after K.set. */
+  function depthAt(cam: any, x: number, y: number) {
+    const s = cam.depth; if (!s) return 0.5;
+    const ix = clamp(Math.round(x / PW * (s.dw - 1)), 0, s.dw - 1), iy = clamp(Math.round(y / cam.PH * (s.dh - 1)), 0, s.dh - 1); return s.d[iy * s.dw + ix] / 255;
+  }
+  const kOf = (c: any, d: number) => Math.pow(c.z, 1 + A * (c.flat ? 0 : c.par) * (d - c.dRef));
+  /** Plate point (x, y) at depth d -> [screenX, screenY, scale] in the scene's W x H. Valid after K.set. */
+  function toScreen(c: any, x: number, y: number, d: number): [number, number, number] {
+    if (c.flat) d = c.dRef;
+    const k = kOf(c, d); let sx = (x - c.x + c.px * (d - c.dRef)) * k, sy = (y - c.y + c.py * (d - c.dRef)) * k;
+    if (c.roll) [sx, sy] = rot(sx, sy, c.roll * deg);
+    return [c.W / 2 + sx, c.H / 2 + sy, k];
+  }
+  // keep the view inside the set: a minimum zoom that covers the frame (more when rolled), and the centre clamped
+  function fit(c: any, W: number, H: number, PH: number) {
+    const extra = 1 + Math.abs(Math.sin(c.roll * deg)) * 0.9;
+    c.z = Math.max(c.z, (W / 2) * extra / (PW / 2), (H / 2) * extra / (PH / 2));
+    const halfW = (W / 2 / c.z) * extra, halfH = (H / 2 / c.z) * extra;
+    c.x = clamp(c.x, Math.min(halfW, PW / 2), Math.max(PW - halfW, PW / 2)); c.y = clamp(c.y, Math.min(halfH, PH / 2), Math.max(PH - halfH, PH / 2));
+  }
+
+  // ---- WebGL: one OffscreenCanvas context per page or worker, made on first use; null when WebGL is not available
+  const VS = "attribute vec2 p; varying vec2 v; void main(){ v = p*0.5+0.5; v.y = 1.0-v.y; gl_Position = vec4(p,0.,1.); }";
+  const FS = `precision highp float; varying vec2 v; uniform sampler2D img, dep; uniform vec2 F, P, frame, plate; uniform float z, dRef, A, roll, dofR, focus; uniform vec3 tint;
+  void main(){
+    vec2 S0 = v*frame - frame*0.5; float cr = cos(-roll), sr = sin(-roll); vec2 S = vec2(S0.x*cr - S0.y*sr, S0.x*sr + S0.y*cr);
+    float d = dRef; vec2 X = F;
+    for (int i=0;i<6;i++){ float k = pow(z, 1.0 + A*(d-dRef)); X = F + S/k - P*(d-dRef); d = texture2D(dep, clamp(X/plate, 0.0, 1.0)).r; }
+    vec3 col = texture2D(img, clamp(X/plate, 0.001, 0.999)).rgb;
+    float kk = pow(z, 1.0 + A*(d-dRef));
+    float rad = dofR * clamp(abs(d-focus)*2.5, 0.0, 1.0) / kk;
+    if (rad > 0.4) {
+      vec3 acc = col; float wsum = 1.0;
+      for (int i=0;i<12;i++){ float fi = float(i)+0.5; float r = sqrt(fi/12.0)*rad; float a = fi*2.39996; vec2 o = vec2(cos(a), sin(a))*r; acc += texture2D(img, clamp((X+o)/plate, 0.001, 0.999)).rgb; wsum += 1.0; }
+      col = acc/wsum;
+    }
+    col = pow(col, vec3(1.06)) * tint;
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+  let G: any = undefined; // { canvas, gl, U, tex: Map }
+  function glFor(w: number, h: number) {
+    if (G === null) return null;
+    if (G === undefined) {
+      G = null;
+      try {
+        if ((globalThis as any).__HR_NO_GL__ || typeof OffscreenCanvas === "undefined") return null;
+        const canvas = new OffscreenCanvas(w, h), gl: any = canvas.getContext("webgl", { preserveDrawingBuffer: true, antialias: false, premultipliedAlpha: false });
+        if (!gl) return null;
+        const sh = (type: number, src: string) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+        const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+        gl.useProgram(prog);
+        gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+        const at = gl.getAttribLocation(prog, "p"); gl.enableVertexAttribArray(at); gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
+        const U: any = {}; for (const n of ["img", "dep", "F", "P", "frame", "plate", "z", "dRef", "A", "roll", "tint", "dofR", "focus"]) U[n] = gl.getUniformLocation(prog, n);
+        G = { canvas, gl, U, tex: new Map() };
+      } catch { G = null; return null; }
+    }
+    if (G.canvas.width !== w || G.canvas.height !== h) { G.canvas.width = w; G.canvas.height = h; }
+    return G;
+  }
+  function texFor(g: any, image: any) {
+    let t = g.tex.get(image); if (t) return t;
+    const gl = g.gl; t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image); g.tex.set(image, t); return t;
+  }
+  // a flat grey-white depth texture for sets without a depth map
+  function flatDepth(env: any) {
+    const key = "hr:flatdepth", hit = env.cache.get(key); if (hit) return hit;
+    const L = env.canvas(4, 4); L.ctx.fillStyle = "#808080"; L.ctx.fillRect(0, 0, 4, 4); env.cache.set(key, L.canvas); return L.canvas;
+  }
+  // the set's near part (alpha from depth) for the 2D fallback's second parallax layer
+  function nearLayer(env: any, place: string, img: any, dep: any) {
+    const key = `hr:near:${place}`, hit = env.cache.get(key); if (hit !== undefined) return hit;
+    let out = null;
+    try {
+      const iw = img.width, ih = img.height, s = Math.min(1, 1200 / iw), w = Math.round(iw * s), h = Math.round(ih * s);
+      const L = env.canvas(w, h), D = env.canvas(w, h); L.ctx.drawImage(img, 0, 0, w, h); D.ctx.drawImage(dep, 0, 0, w, h);
+      const px = L.ctx.getImageData(0, 0, w, h), dp = D.ctx.getImageData(0, 0, w, h).data;
+      for (let i = 0; i < dp.length; i += 4) { const d = dp[i] / 255, a = clamp((d - 0.55) / 0.2); px.data[i + 3] = Math.round(a * a * (3 - 2 * a) * 255); }
+      L.ctx.putImageData(px, 0, 0); out = L.canvas;
+    } catch { out = null; }
+    env.cache.set(key, out); return out;
+  }
+  const mix = (a: any, b: any, k: number) => ({ ...b, x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), k)), px: lerp(a.px, b.px, k), py: lerp(a.py, b.py, k), roll: lerp(a.roll, b.roll, k), par: lerp(a.par, b.par, k) });
+
+  /**
+   * Draw the set `set-<place>` filling the frame through the camera, with depth parallax from `depth-<place>` (WebGL), and finish the
+   * camera (cam gains W, H, PH, dRef, depth, so K.puppet / K.at / K.toScreen / K.depthAt work after this). Motion blur on fast moves.
+   * Falls back to a 2D draw (two parallax layers, or a flat zoom without a depth map) when WebGL is not available. Call FIRST, after
+   * ctx.setTransform(env.scale,0,0,env.scale,0,0).
+   */
+  function set(ctx: any, env: any, cam: any, place: string) {
+    // the host's picture check (wireSceneAssets) looks at the scene's own env-dot-image calls; the kit reads its two pictures by name
+    // through the destructured function, and the host only ever preloads the beat's allowed pictures anyway
+    const { image: picture } = env, read = (name: string) => (picture ? picture(name) : undefined), W = env.W, H = env.H, img = read("set-" + place), dep = read("depth-" + place);
+    const PH = img ? PW * (img.height || 1) / (img.width || 1) : PW * H / W;
+    const depth = img && dep ? depthData(env, place, dep) : null;
+    for (const c of [cam, cam.prev]) { if (!c) continue; c.W = W; c.H = H; c.PH = PH; c.depth = depth; c.flat = !depth; c.place = place; c.env = env; fit(c, W, H, PH); }
+    if (cam.dRef === undefined) cam.dRef = depth ? depthAt(cam, cam.x, cam.y + 120 / cam.z) : 0.5;
+    if (cam.prev) cam.prev.dRef = cam.dRef;
+    if (!img) { const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#8fb6d8"); g.addColorStop(0.55, "#d9c8a0"); g.addColorStop(1, "#7a6a48"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); return cam; }
+    // motion blur: how far the frame moves in half a frame (screen px), and how many shutter samples that needs
+    const a = cam, b = cam.prev ?? cam, speed = Math.hypot((a.x - b.x) * a.z, (a.y - b.y) * a.z) + Math.abs(Math.log(a.z / b.z)) * 900 + Math.abs(a.roll - b.roll) * 20;
+    const full = !env.quality || env.quality.mode === "full";
+    // the browser preview keeps up to 6 shutter samples; the film export (capture page marks itself __PLATE_EXPORT) uses at most 2 to keep software-GL frames short
+    const cap = (globalThis as any).__PLATE_EXPORT ? 2 : 6;
+    let n = !full ? 1 : Math.min(cap, speed > 14 ? 6 : speed > 5 ? 3 : 1);
+    const s = env.scale || 1, gw = Math.max(2, Math.min(2160, Math.round(W * s))), gh = Math.max(2, Math.min(3840, Math.round(H * s)));
+    const g = glFor(gw, gh);
+    if (g) {
+      try {
+        const gl = g.gl;
+        gl.viewport(0, 0, gw, gh); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texFor(g, img)); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texFor(g, dep && depth ? dep : flatDepth(env)));
+        gl.uniform1i(g.U.img, 0); gl.uniform1i(g.U.dep, 1); gl.uniform2f(g.U.frame, W, H); gl.uniform2f(g.U.plate, PW, PH); gl.uniform1f(g.U.dRef, cam.dRef); gl.uniform3f(g.U.tint, cam.tint[0], cam.tint[1], cam.tint[2]); gl.uniform1f(g.U.dofR, depth ? Math.max(0, cam.dof || 0) * W / 1080 : 0); gl.uniform1f(g.U.focus, cam.focus >= 0 ? cam.focus : cam.dRef);
+        gl.enable(gl.BLEND); gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA);
+        for (let i = 0; i < n; i++) {
+          const c = n === 1 ? a : mix(b, a, 1 - i / n); // newest sample first, then back toward the shutter's start
+          gl.blendColor(0, 0, 0, 1 / (i + 1));
+          gl.uniform2f(g.U.F, c.x, c.y); gl.uniform2f(g.U.P, c.px, c.py); gl.uniform1f(g.U.z, c.z); gl.uniform1f(g.U.A, depth ? A * c.par : 0); gl.uniform1f(g.U.roll, c.roll * deg);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        }
+        gl.disable(gl.BLEND);
+        ctx.drawImage(g.canvas, 0, 0, W, H);
+        return cam;
+      } catch { G = null; }
+    }
+    // 2D fallback: the whole set at the reference depth, then (with a depth map) its near part again at a near depth
+    const near = depth ? nearLayer(env, place, img, dep) : null;
+    n = Math.min(n, 3);
+    const plateAt = (c: any, source: any, d: number) => { const k = kOf(c, d); ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(c.roll * deg); ctx.scale(k, k); ctx.translate(-c.x + c.px * (d - c.dRef), -c.y + c.py * (d - c.dRef)); ctx.drawImage(source, 0, 0, PW, PH); ctx.restore(); };
+    ctx.save(); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i < n; i++) {
+      const c = n === 1 ? a : mix(b, a, 1 - i / n); ctx.globalAlpha = 1 / (i + 1);
+      plateAt(c, img, c.dRef);
+      if (near) plateAt(c, near, Math.min(1, c.dRef + 0.35));
+    }
+    ctx.restore();
+    return cam;
+  }
+
+  // ================================================================ placing things in the set
+  /** Draw fn(ctx) in plate space at (x, y), depth d (default: the set's depth there), at `scale` units per plate px. Returns { sx, sy, k, d }. */
+  function at(ctx: any, c: any, x: number, y: number, scale: number, fn: (ctx: any) => void, d?: number) {
+    const dd = d ?? depthAt(c, x, y - 10), [sx, sy, k] = toScreen(c, x, y, dd);
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate((c.roll ?? 0) * deg); ctx.scale(k * scale, k * scale); fn(ctx); ctx.restore();
+    return { sx, sy, k, d: dd };
+  }
+  function layer(env: any, key: string, w: number, h: number) {
+    const k = `hr:layer:${key}:${w}x${h}`; let L = env.cache.get(k); if (!L) { L = env.canvas(w, h); env.cache.set(k, L); } return L;
+  }
+  /**
+   * A puppet standing at plate (x, y) (its feet), `h` plate px tall, in pose `pose` (see rig: view, face, lean, head, face2 ...).
+   * It gets a cast shadow on the ground and a soft contact shadow under its feet. opts: d (depth override), shadow (default true),
+   * sun ("left" | "right" | "top"), shadowAlpha, shadowColor, behind/front/top (props: (ctx, R) => ...).
+   * Returns { R (the rig), s (puppet units -> plate px), toPlate([px, py]) -> plate point of a puppet-space point }.
+   */
+  function puppet(ctx: any, c: any, cast: any, x: number, y: number, h: number, p: any, opts: any = {}) {
+    const s = h / castHeight(cast);
+    if (opts.shadow !== false && c.env) {
+      // the silhouette at a third of its size, stretched back up on the ground: the upscale softens it like a blur
+      const S = layer(c.env, "sil", 512, 512), q = 0.32; S.ctx.setTransform(1, 0, 0, 1, 0, 0); S.ctx.clearRect(0, 0, 512, 512); S.ctx.globalCompositeOperation = "source-over"; S.ctx.setTransform(q, 0, 0, q, 256, 448);
+      drawPuppet(S.ctx, cast, p, { ...opts, front: undefined, top: undefined, behind: undefined, shadowOnly: true });
+      S.ctx.setTransform(1, 0, 0, 1, 0, 0); S.ctx.globalCompositeOperation = "source-in"; S.ctx.fillStyle = opts.shadowColor ?? "#3a2410"; S.ctx.fillRect(0, 0, 512, 512); S.ctx.globalCompositeOperation = "source-over";
+      const skew = opts.sun === "right" ? 1.25 : opts.sun === "top" ? 0 : -1.25, squash = opts.sun === "top" ? -0.12 : -0.22;
+      at(ctx, c, x, y, s, (g) => { g.globalAlpha = opts.shadowAlpha ?? 0.42; g.transform(1, 0, skew, squash, 0, 0); g.drawImage(S.canvas, -256 / q, -448 / q, 512 / q, 512 / q); }, opts.d);
+      at(ctx, c, x, y, s, (g) => { const r = g.createRadialGradient(10, 6, 0, 10, 6, 115); r.addColorStop(0, "rgba(40,22,8,0.55)"); r.addColorStop(1, "rgba(40,22,8,0)"); g.fillStyle = r; g.scale(1, 0.2); g.beginPath(); g.arc(10, 30, 115, 0, 7); g.fill(); }, opts.d);
+    }
+    let R: any; at(ctx, c, x, y, s, (g) => { R = drawPuppet(g, cast, p, opts); }, opts.d);
+    return { R, s, toPlate: (pt: number[]) => [x + pt[0] * (p.face ?? 1) * s, y + pt[1] * s] };
+  }
+  /**
+   * Draw the actors and props in their own layer, then grade it with the set's light (cam.grade, a warm left-to-right wash), so flat
+   * colours sit in the painted world. fn(g) draws with g exactly like ctx (same W x H coordinates). Call after K.set.
+   */
+  function actors(ctx: any, env: any, cam: any, fn: (g: any) => void) {
+    const W = env.W, H = env.H, s = env.scale || 1, w = Math.max(2, Math.round(W * s)), h = Math.max(2, Math.round(H * s));
+    const L = layer(env, "actors", w, h), g = L.ctx;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, w, h); g.setTransform(s, 0, 0, s, 0, 0);
+    g.save(); fn(g); g.restore();
+    if (cam.grade) { g.save(); g.globalCompositeOperation = "source-atop"; const gr = g.createLinearGradient(0, 0, W, 0); gr.addColorStop(0, cam.grade[0]); gr.addColorStop(1, cam.grade[1]); g.fillStyle = gr; g.fillRect(0, 0, W, H); g.restore(); }
+    ctx.drawImage(L.canvas, 0, 0, W, H);
+  }
+  /** A fade from or to black over the frame (amount 0..1), e.g. the last beat's fade-in: K.fade(ctx, env, 1 - K.span(frame, 0, 4)). */
+  function fade(ctx: any, env: any, amount: number) { if (amount <= 0) return; ctx.fillStyle = `rgba(0,0,0,${clamp(amount)})`; ctx.fillRect(0, 0, env.W, env.H); }
+
+  return {
+    PW, clamp, lerp, deg, E, rng, rot, track, span, blink,
+    INK, VIEWS, FACE, makeCast, castHeight, rig, ik, shape, face, drawHead, drawPuppet, drawPiggyback, talk, pose,
+    ropeCurve, drawRope, ropeNear, pole, wheelbarrow, pan, tool, crate, crowdCast, crowd, motes, mist, steam, popLines, burst, flame, rain,
+    camera, set, depthAt, toScreen, at, puppet, actors, fade,
+  };
+})();

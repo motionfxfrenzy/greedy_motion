@@ -1,0 +1,2 @@
+# Baked into the image at build time (Dockerfile); downloaded locally only for manual checks.
+*.onnx

@@ -6,6 +6,9 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import type { ScriptBeat, VideoProject } from "@videosaas/contracts";
+import { pictureFilm } from "./packs/picture-film/index.ts";
+import { historyReel } from "./packs/history-reel/index.ts";
 
 /** Scene drawing owned by a pack: a shared cast kit inlined into every scene module, and pictures the scene writer sees. */
 export type PackScenes = {
@@ -15,6 +18,49 @@ export type PackScenes = {
   images: { label: string; data: Buffer }[];
   /** Changes when the kit, the direction or the pictures change, so drawn scenes are redrawn. */
   hash: string;
+};
+
+/**
+ * One picture a pack asks for (generated with Gemini, stored with the project, read by scenes with `env.image(name)`).
+ * Names: sets are `set-<place>` (their depth map is `depth-<place>`); stills are whatever the pack names them.
+ */
+export type AssetSpec = {
+  name: string;
+  prompt: string;
+  /** Names of EARLIER assets in the list passed as reference images (generated first, so they resolve). */
+  refs?: string[];
+  aspect: "9:16" | "16:9";
+  size?: "1K" | "2K";
+  /** Also produce `depth-<place>` (for `set-<place>`, else `depth-<name>`): 8-bit greyscale, near = white, same size. */
+  depth?: boolean;
+  /** Checked once for stray words with a cheap vision call, and redrawn at most once. */
+  noText?: boolean;
+  /** Words that MAY appear (hand-lettered labels): the word check runs too and only words outside this list count as stray. */
+  allowedText?: string[];
+};
+
+/** A beat's spoken words, start/end in seconds from the start of that beat's scene. */
+export type PackWord = { text: string; start: number; end: number };
+
+/** What a pack's `assets` step sees: the brief, the beats (with any per-beat fields a pack adds) and the voice word times when known. */
+export type PackAssetsInput = {
+  projectId: string;
+  brief: NonNullable<VideoProject["brief"]>;
+  beats: (ScriptBeat & Record<string, unknown>)[];
+  /** Per beat, its words with times (undefined until the voice exists). */
+  words: (PackWord[] | undefined)[];
+  aspect: "9:16" | "16:9" | "1:1";
+};
+
+/** What a pack's `sceneCode` sees: one beat, its length, its word times and the asset names it may use. */
+export type PackSceneCodeInput = PackAssetsInput & {
+  beatIndex: number;
+  frames: number;
+  fps: number;
+  /** This beat's words, start in seconds relative to the scene. */
+  beatWords: PackWord[];
+  /** Asset names this beat's scene may read with env.image(name) (depth names included). */
+  assetNames: string[];
 };
 
 export type TemplatePack = {
@@ -40,6 +86,12 @@ export type TemplatePack = {
   pacing?: { gap: number; long: number; beforeLast: number; tail: number; min: number; titleMin: number };
   /** Script rules checked after writing; lines that break them are rewritten once (packScriptIssues). */
   scriptRules?: { maxWords: number; lastMaxWords: number; shortShare: number; forbidden: RegExp };
+  /** Pictures generated for the project once the beats exist (plates/pack-assets.ts), in order so `refs` resolve. */
+  assets?: (input: PackAssetsInput) => AssetSpec[];
+  /** A complete scene module for a beat: authoring skips the model call for it. */
+  sceneCode?: (input: PackSceneCodeInput) => string;
+  /** Asset names a beat's scene may use (`depth-<place>` is added for a `set-<place>` with depth). */
+  sceneAssets?: (beatIndex: number, beats: (ScriptBeat & Record<string, unknown>)[]) => string[];
 };
 
 /** Sounds a pack scene may export (`export const sounds = [{ kind, frame }]`): our own generated foley in the SFX library as `foley-<kind>`. */
@@ -80,7 +132,14 @@ const darkFable: TemplatePack = {
   scriptRules: { maxWords: 16, lastMaxWords: 14, shortShare: 0.25, forbidden: /\b(rope|loop|noose|collar|leash|hang(?:ed|s|ing)?)\b/i }
 };
 
-const packs: Record<string, TemplatePack> = { [darkFable.id]: darkFable };
+const packs: Record<string, TemplatePack> = { [darkFable.id]: darkFable, "picture-film": pictureFilm, "history-reel": historyReel };
+
+/** Adds (or replaces) a pack by id: for packs defined in their own folders, and for tests. Returns a function that removes it again. */
+export function registerTemplatePack(pack: TemplatePack): () => void {
+  const previous = packs[pack.id];
+  packs[pack.id] = pack;
+  return () => { if (previous) packs[pack.id] = previous; else delete packs[pack.id]; };
+}
 
 /**
  * Lines of a written script that break the pack's rules (TemplatePack.scriptRules), as beat indices with what to fix. The script route

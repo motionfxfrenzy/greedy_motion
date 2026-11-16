@@ -11,6 +11,7 @@ import { QUEUES, claim, finish, noteRetry, progress } from "./jobs.mjs";
 import { consume, createControl, runLeased } from "./control.mjs";
 import { renderWithMotionBlur, wantsMotionBlur } from "./motion-blur.mjs";
 import { PLATE_EXPORT_QUEUE, PLATE_REBUNDLE_QUEUE, PLATE_RENDER_QUEUE, handlePlateExport, handlePlateRebundle, handlePlateRender, plateCapability, renderPlateFilmJob } from "./plates.mjs";
+import { PLATE_DEPTH_QUEUE, depthCapable, handlePlateDepth } from "./depth.mjs";
 import { handBackInFlight, installProcessSafety, installStdioSafety, writeFatalLine } from "./safety.mjs";
 
 export { handBackInFlight, installProcessSafety, installStdioSafety, writeFatalLine };
@@ -359,12 +360,15 @@ const stop = new AbortController();
 const jobShutdown = new AbortController();
 const activeLeases = new Set();
 let activeExports = 0;
-const leased = { [QUEUES.video]: 0, [PLATE_RENDER_QUEUE]: 0, [PLATE_EXPORT_QUEUE]: 0, [PLATE_REBUNDLE_QUEUE]: 0 };
+const leased = { [QUEUES.video]: 0, [PLATE_RENDER_QUEUE]: 0, [PLATE_EXPORT_QUEUE]: 0, [PLATE_REBUNDLE_QUEUE]: 0, [PLATE_DEPTH_QUEUE]: 0 };
 let drawsPlates = false;
+let drawsDepth = false;
 
 async function startConsuming() {
   const capability = QUEUE === QUEUES.video && plateConcurrency > 0 ? await plateCapability() : null;
   drawsPlates = Boolean(capability);
+  // Depth maps for template sets: any plate worker whose image carries the ONNX model (worker/Dockerfile bakes it in).
+  drawsDepth = drawsPlates && depthCapable();
   const handlers = {
     [QUEUES.video]: async (job) => { await handle(job); },
     [PLATE_RENDER_QUEUE]: async (job) => {
@@ -378,10 +382,14 @@ async function startConsuming() {
     [PLATE_REBUNDLE_QUEUE]: async (job) => {
       activePlates += 1; lastBusy = Date.now();
       try { await handlePlateRebundle(job, { control }); } finally { activePlates -= 1; lastBusy = Date.now(); }
+    },
+    [PLATE_DEPTH_QUEUE]: async (job) => {
+      activePlates += 1; lastBusy = Date.now();
+      try { await handlePlateDepth(job); } finally { activePlates -= 1; lastBusy = Date.now(); }
     }
   };
   ready = true;
-  log("info", "worker_consuming", { queue: QUEUE, concurrency, plateConcurrency: drawsPlates ? plateConcurrency : 0, idleExitSeconds, workerId: control.workerId });
+  log("info", "worker_consuming", { queue: QUEUE, concurrency, plateConcurrency: drawsPlates ? plateConcurrency : 0, depth: drawsDepth, idleExitSeconds, workerId: control.workerId });
   if (idleExitSeconds > 0) watchIdle();
   const inFlight = new Set();
   await consume(control, {
@@ -391,7 +399,8 @@ async function startConsuming() {
       [QUEUES.video]: Math.max(0, concurrency - leased[QUEUES.video]),
       [PLATE_RENDER_QUEUE]: drawsPlates ? Math.max(0, plateConcurrency - leased[PLATE_RENDER_QUEUE]) : 0,
       [PLATE_EXPORT_QUEUE]: drawsPlates ? Math.max(0, 1 - leased[PLATE_EXPORT_QUEUE]) : 0,
-      [PLATE_REBUNDLE_QUEUE]: drawsPlates ? Math.max(0, 1 - leased[PLATE_REBUNDLE_QUEUE]) : 0
+      [PLATE_REBUNDLE_QUEUE]: drawsPlates ? Math.max(0, 1 - leased[PLATE_REBUNDLE_QUEUE]) : 0,
+      [PLATE_DEPTH_QUEUE]: drawsDepth ? Math.max(0, 1 - leased[PLATE_DEPTH_QUEUE]) : 0
     },
     onJob: (lease) => {
       const handler = handlers[lease.queue];

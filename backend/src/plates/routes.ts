@@ -20,7 +20,8 @@ import { registerRequestId, upstreamError } from "../http-errors.ts";
 import { projectOwner, getProject } from "../projects/store.ts";
 import { PLANS, isAnimationTier } from "../tokens/plan.ts";
 import { InsufficientTokens } from "../tokens/store.ts";
-import { presignKey, safeDownloadFilename, slugifyProjectDownloadStem, type Bucket } from "../storage.ts";
+import { getObject, objectSize, presignKey, safeDownloadFilename, slugifyProjectDownloadStem, type Bucket } from "../storage.ts";
+import { parseAssetRef, resolveSceneAssets } from "./pack-assets.ts";
 import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
 import { desiredVariants, isPlateLook } from "./inputs.ts";
@@ -260,10 +261,24 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     const seconds = 900;
     const expiresAt = new Date(Date.now() + seconds * 1000).toISOString();
     const url = await signKey("uploads", row.bundle_key, { seconds, contentType: "text/html" });
+    // A template with pictures: the scene's picture names (manifest.assetNames) resolved to the current files, as short-lived links,
+    // plus their digest. A depth map that does not exist yet is left out (the scene draws flat) and is picked up on the next load;
+    // the page reads the links as data: URLs (frontend/lib/live/api.ts), which adds `assetsDigest` to its frame-cache identity.
+    const assets: Record<string, string> = {};
+    let assetsDigest: string | null = null;
+    const assetNames = Array.isArray(row.bundle_manifest?.assetNames) ? (row.bundle_manifest.assetNames as unknown[]).filter((n): n is string => typeof n === "string") : [];
+    if (assetNames.length) {
+      const resolved = await resolveSceneAssets(id, assetNames, { getObject, putObject: async () => undefined, objectSize });
+      assetsDigest = resolved.digest;
+      await Promise.all(Object.entries(resolved.refs).map(async ([name, ref]) => {
+        const parsed = parseAssetRef(ref);
+        if (parsed && parsed.key.startsWith(`plates/${id}/assets/`)) assets[name] = await signKey(parsed.bucket, parsed.key, { seconds });
+      }));
+    }
     return reply
       .header("Cache-Control", "no-store")
       .code(200)
-      .send({ url, expiresAt, bundleDigest: digest, gen: row.gen, rev: row.rev, manifest: row.bundle_manifest ?? {}, params });
+      .send({ url, expiresAt, bundleDigest: digest, gen: row.gen, rev: row.rev, manifest: row.bundle_manifest ?? {}, params, ...(assetsDigest ? { assets, assetsDigest } : {}) });
   });
 
   /** Fenced, idempotent browser check report for a live variant. */
@@ -360,7 +375,8 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     if (!uuid.test(id) || !/^\d{1,2}$/.test(index)) return reply.code(404).send(notFound);
     const row = await resolveCompatibleVariant(id, Number(index), request.query.aspect);
     let clipKey = row?.clip_key ?? null;
-    if (!clipKey && row?.bundle_digest) {
+    // The shared clip cache is keyed by bundle digest alone: a scene with template pictures never borrows from it (its pictures are its own).
+    if (!clipKey && row?.bundle_digest && !Array.isArray(row.bundle_manifest?.assetNames)) {
       const cached = await getCachedClip(row.bundle_digest, row.width, row.height);
       clipKey = cached?.clip_key ?? null;
     }
@@ -374,7 +390,8 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     if (!uuid.test(id) || !/^\d{1,2}$/.test(index)) return reply.code(404).send(notFound);
     const row = await resolveCompatibleVariant(id, Number(index), request.query.aspect);
     let stillKey = row?.still_key ?? null;
-    if (!stillKey && row?.bundle_digest) {
+    // The shared clip cache is keyed by bundle digest alone: a scene with template pictures never borrows from it (its pictures are its own).
+    if (!stillKey && row?.bundle_digest && !Array.isArray(row.bundle_manifest?.assetNames)) {
       const cached = await getCachedClip(row.bundle_digest, row.width, row.height);
       stillKey = cached?.still_key ?? null;
     }

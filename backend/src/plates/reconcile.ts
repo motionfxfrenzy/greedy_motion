@@ -5,6 +5,7 @@ import { kickPlateWorkers } from "../jobs/worker-launcher.ts";
 import { config } from "../config.ts";
 import { deletePrefix } from "../storage.ts";
 import { handleAuthor, handleAuthorDead, type AuthorMessage } from "./author.ts";
+import { handlePackAssets, type AssetsMessage } from "./pack-assets.ts";
 import { failVariant, fallbackCheckVariantClipWithClient, type VariantRetrying } from "./store.ts";
 
 /**
@@ -395,6 +396,7 @@ export async function sweepGarbage(
 export async function startPlates(): Promise<() => void> {
   if (!config.plates.enabled) return () => undefined;
   await boss.work<AuthorMessage>(QUEUES.plateAuthor, { localConcurrency: config.plates.authorConcurrency, pollingIntervalSeconds: POLL.live }, async ([job]) => handleAuthor(job!));
+  await boss.work<AssetsMessage>(QUEUES.plateAssets, { localConcurrency: 2, pollingIntervalSeconds: POLL.live }, async ([job]) => handlePackAssets(job!));
   await boss.work<AuthorMessage>(QUEUES.plateAuthorDead, { pollingIntervalSeconds: POLL.dead }, async ([job]) => handleAuthorDead(job!));
   await boss.work<AuthorMessage>(QUEUES.plateRenderDead, { pollingIntervalSeconds: POLL.dead }, async ([job]) => {
     const { variantId, gen } = job!.data;

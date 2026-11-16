@@ -9,6 +9,7 @@ import { readMedia } from "../media.ts";
 import { planAudioDir } from "../plan/audio.ts";
 import { getProject } from "../projects/store.ts";
 import { objectSize, putObject } from "../storage.ts";
+import { resolveSceneAssets } from "./pack-assets.ts";
 import { bundleDigest, canonicalJson, fontSetDigest, paramsDigest } from "./digest.ts";
 import { desiredVariants } from "./inputs.ts";
 import {
@@ -46,6 +47,9 @@ export type FrozenSceneEntry = {
   startFrame: number;
   clipKey: string | null;
   voice: { key: string; digest: string; seconds: number } | null;
+  /** Template-pack pictures this scene reads, resolved now (name -> "u:<key>" | "o:<key>"), and their digest (part of the clip's cache identity). */
+  assets?: Record<string, string>;
+  assetsDigest?: string;
 };
 
 /**
@@ -258,6 +262,16 @@ export async function buildExport(
   const firstManifestEngine = ordered.map((v) => (typeof v!.bundle_manifest?.engineDigest === "string" ? v!.bundle_manifest.engineDigest : null)).find(Boolean);
   const resolvedEngineDigest = firstManifestEngine ?? computeEngineDigest();
 
+  // Template pictures are resolved by name when the export is frozen, so a depth map or a redrawn picture that landed after the scene
+  // was written is in the film, and only scenes whose pictures changed miss the clip cache.
+  const pictures = await Promise.all(ordered.map(async (v) => {
+    const names = Array.isArray(v!.bundle_manifest?.assetNames) ? (v!.bundle_manifest!.assetNames as unknown[]).filter((n): n is string => typeof n === "string") : [];
+    if (!names.length) return null;
+    const { getObject } = await import("../storage.ts");
+    const resolved = await resolveSceneAssets(project.id, names, { getObject, putObject: async () => undefined, objectSize: storage.objectSize });
+    return resolved.digest ? { assets: resolved.refs as Record<string, string>, assetsDigest: resolved.digest } : null;
+  }));
+
   const scenes: FrozenSceneEntry[] = ordered.map((v, i) => {
     const row = v!;
     const revRow = revisions[i];
@@ -290,13 +304,14 @@ export async function buildExport(
       bundleFrames,
       startFrame: timeline.starts[i]!,
       clipKey: row.clip_key ?? null,
-      voice
+      voice,
+      ...(pictures[i] ?? {})
     };
   });
 
   const signature = exportSignature({
     aspect,
-    clips: scenes.map((s) => ({ sig: s.sig, clipKey: `${s.bundleDigest}:${s.paramsDigest}` })),
+    clips: scenes.map((s) => ({ sig: s.sig, clipKey: `${s.bundleDigest}:${s.paramsDigest}${s.assetsDigest ? `:${s.assetsDigest}` : ""}` })),
     timelineFrames: timeline.frames,
     subtitles,
     audio: {

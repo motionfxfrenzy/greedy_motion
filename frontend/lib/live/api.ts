@@ -243,7 +243,61 @@ export function withBackendAuth(
   }) as typeof fetch;
 }
 
+const ASSET_NAME = /^[a-z0-9][a-z0-9-]{0,80}$/;
+const PICTURES_SUFFIX = /~a[0-9a-f]{1,32}$/;
+
+/**
+ * The digest a scene with template pictures is cached and played under in this browser: the bundle digest plus the pictures' digest,
+ * so a depth map that landed or a redrawn picture gives fresh frames on the next load while the scene code (and its bundle) is
+ * unchanged. Scenes without pictures keep the plain bundle digest.
+ */
+export const pictureBundleDigest = (bundleDigest: string, assetsDigest?: string | null): string =>
+  assetsDigest && /^[0-9a-f]{1,32}$/.test(assetsDigest) ? `${bundleDigest}~a${assetsDigest}` : bundleDigest;
+/** The server's bundle digest (what check reports are fenced on), without the pictures' suffix. */
+export const serverBundleDigest = (digest: string): string => (typeof digest === "string" ? digest.replace(PICTURES_SUFFIX, "") : digest);
+
+/** Writes name -> data: URL into a bundle page's `window.__ASSETS__={}` (the scene's preloaded pictures). Pages without the slot are unchanged. */
+export function injectAssetDataUrls(html: string, dataUrls: Record<string, string>): string {
+  const entries = Object.entries(dataUrls).filter(([name, url]) => ASSET_NAME.test(name) && /^data:image\/(png|jpeg|webp);base64,/.test(url));
+  if (!entries.length) return html;
+  const json = JSON.stringify(Object.fromEntries(entries)).replace(/</g, "\\u003c");
+  return html.replace("window.__ASSETS__={};", () => `window.__ASSETS__=${json};`);
+}
+
+const toBase64 = (bytes: Uint8Array): string => {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+
+/**
+ * A template's pictures (TemplatePack.assets) for one scene: downloads each linked picture and inlines it as a data: URL, because the
+ * scene runs in a sandbox with no network (worker-host.ts preloads data: URLs). A picture that fails to download is left out: the
+ * scene's env.image(name) returns undefined and it draws without it (a depth map, for example, draws flat).
+ */
+export async function inlineBundleAssets(html: string, links: Record<string, string> | undefined, fetchImpl: typeof fetch = globalThis.fetch, baseUrl?: string): Promise<string> {
+  const entries = Object.entries(links ?? {}).filter(([name, url]) => ASSET_NAME.test(name) && typeof url === "string" && url);
+  if (!entries.length) return html;
+  const data: Record<string, string> = {};
+  await Promise.all(entries.map(async ([name, url]) => {
+    try {
+      const res = await fetchImpl(resolveApiUrl(url, baseUrl), { method: "GET" });
+      if (!res.ok) return;
+      const type = (res.headers.get("content-type") ?? "").split(";")[0]!.trim();
+      const mime = /^image\/(png|jpeg|webp)$/.test(type) ? type : /\.png(\?|$)/i.test(url) ? "image/png" : "image/jpeg";
+      data[name] = `data:${mime};base64,${toBase64(new Uint8Array(await res.arrayBuffer()))}`;
+    } catch {
+      /* left out: the scene draws without it */
+    }
+  }));
+  return injectAssetDataUrls(html, data);
+}
+
 type BundleRouteResponse = {
+  /** A template with pictures: name -> short-lived link to the current file (a depth map that has not landed is left out). */
+  assets?: Record<string, string>;
+  /** Digest of exactly those pictures. */
+  assetsDigest?: string;
   url: string;
   expiresAt: string;
   bundleDigest: string;
@@ -317,6 +371,8 @@ export async function fetchBundle(
     );
   }
 
+  const withPictures = await inlineBundleAssets(html, meta.assets, fetchImpl, options?.baseUrl);
+
   const matchedUrlGen = BUNDLE_URL_GEN_REGEX.exec(meta.url ?? "");
   const resolvedGen =
     typeof meta.gen === "number" && Number.isInteger(meta.gen) && meta.gen >= 1
@@ -326,8 +382,8 @@ export async function fetchBundle(
         : undefined;
 
   return {
-    html,
-    bundleDigest: meta.bundleDigest,
+    html: withPictures,
+    bundleDigest: pictureBundleDigest(meta.bundleDigest, meta.assetsDigest),
     manifest,
     params: meta.params ?? {},
     expiresAt: meta.expiresAt,
@@ -361,7 +417,7 @@ export async function reportCheck(
       },
       body: JSON.stringify({
         gen: payload.gen,
-        bundleDigest: payload.bundleDigest,
+        bundleDigest: serverBundleDigest(payload.bundleDigest),
         host: "worker",
         ...(payload.device ? { device: payload.device } : {}),
         results: payload.results

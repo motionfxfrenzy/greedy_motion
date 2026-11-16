@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { ensurePackAssets, noteScenePictures } from "./pack-assets.ts";
+import { templatePack } from "../plan/template-packs.ts";
 import type { VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
 import { getProject, updateProjectPlan } from "../projects/store.ts";
@@ -463,6 +465,8 @@ export async function startPlates(
   const [stored, existingVariants] = await Promise.all([readProjectState(projectId), listVariants(projectId)]);
   const aspects = [...new Set([...wantedAspects(project, [...(project.brief?.aspects ?? []), ...(stored.subtitles?.aspects ?? []), ...extraAspects])])];
   const desired = await desiredVariants(project, aspects, existingVariants);
+  // A template with pictures (TemplatePack.assets): start making them now; each scene waits only for its own.
+  await ensurePackAssets(project).catch((error) => console.log(JSON.stringify({ level: "warn", event: "pack_assets_enqueue_failed", projectId, message: String((error as Error)?.message ?? error).slice(0, 300) })));
   const routeSnapshot = options?.routeSnapshot ?? authorRouteForTier(resolveProjectAnimationTier(project, project.brief));
   await reconcileVariants(projectId, desired, {
     scenes: beats.length,
@@ -526,8 +530,15 @@ export async function fixPlates(
   }
   const targets = [...new Set(comments.map((c) => c.scene))].filter((i) => variants.some((v) => v.scene_index === i));
   const noted = new Set<number>();
+  const pictureOnly = Boolean(templatePack(project.brief?.styleExample)?.sceneCode);
+  const redrawn = new Set<number>();
   for (const i of targets) {
     const notes = comments.filter((c) => c.scene === i).map((c) => `- at ${c.sceneAt.toFixed(1)} s: ${c.body}`).join("\n");
+    // A template that writes its own scene code: the comment redraws that scene's pictures only (no scene model call, other scenes untouched).
+    if (pictureOnly) {
+      const names = await noteScenePictures(project, i, comments.filter((c) => c.scene === i).map((c) => c.body).join("; "));
+      if (names.length) { redrawn.add(i); continue; }
+    }
     if (
       await reviseScene(projectId, i, notes, {
         routeSnapshot,
@@ -537,7 +548,9 @@ export async function fixPlates(
       noted.add(i);
     }
   }
-  if (!noted.size) throw new Error("Wait for the scenes that are being drawn.");
+  if (redrawn.size) await editComments(projectId, (all) => (all as (PlateComment & { fixing?: number })[]).filter((c) => !redrawn.has(c.scene)));
+  if (!noted.size && !redrawn.size) throw new Error("Wait for the scenes that are being drawn.");
+  if (!noted.size) return plateStatus(projectId);
   const after = await listVariants(projectId);
   const revOf = (scene: number) => Math.max(1, ...after.filter((v) => v.scene_index === scene).map((v) => v.rev));
   await editComments(projectId, (all) => (all as (PlateComment & { fixing?: number })[]).map((c) => noted.has(c.scene) ? { ...c, fixing: revOf(c.scene) } : c));

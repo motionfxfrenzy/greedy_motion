@@ -167,7 +167,7 @@ const curated: readonly GalleryTemplate[] = [
     summary: "Hand-drawn picture after picture, cut on every phrase, while a fast narrator walks through one strange fact.",
     bestFor: "'What happens if…' facts from science, nature and the body",
     preview: { src: "/templates/picture-film.jpg", kind: "video", label: "Example film", video: "/templates/picture-film-5s.mp4", film: "/templates/picture-film.mp4" },
-    skill: null, look: "illus-flat-vector", theme: "neutral", aspect: "9:16", durationSeconds: 60, motionProfile: "smooth", pace: "fast", audio: "voiceover", captions: "full", voice: "Charon",
+    skill: null, look: "illus-flat-vector", theme: "neutral", aspect: "9:16", durationSeconds: 60, motionProfile: "smooth", pace: "fast", audio: "voiceover", captions: "none", voice: "Charon",
     prompt: "What happens if you swallow your chewing gum?"
   },
   {

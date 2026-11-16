@@ -27,7 +27,10 @@ export const QUEUES = {
   plateRender: "plate-render",
   plateRenderDead: "plate-render-dead",
   plateExport: "plate-export",
-  plateRebundle: "plate-rebundle"
+  plateRebundle: "plate-rebundle",
+  // Pack-declared pictures (plates/pack-assets.ts): generated in the backend; depth maps for sets on the worker (onnxruntime).
+  plateAssets: "plate-assets",
+  plateDepth: "plate-depth"
 } as const;
 
 export type RenderMessage = { jobId: string };
@@ -57,7 +60,11 @@ const queueOptions: Array<Omit<Queue, "name"> & { name: string }> = [
   { name: QUEUES.plateRenderDead, notify: true, retryLimit: 0 },
   { name: QUEUES.plateRender, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 1200, heartbeatSeconds: 30, deadLetter: QUEUES.plateRenderDead },
   { name: QUEUES.plateExport, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 1800, heartbeatSeconds: 30 },
-  { name: QUEUES.plateRebundle, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 600, heartbeatSeconds: 30 }
+  { name: QUEUES.plateRebundle, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 600, heartbeatSeconds: 30 },
+  // Picture generation: a stored picture is never paid for twice (content hash), so a retry only pays for what is missing.
+  { name: QUEUES.plateAssets, notify: true, retryLimit: 2, retryDelay: 30, retryBackoff: true, retryDelayMax: 120, expireInSeconds: 1800, heartbeatSeconds: 30 },
+  // One depth map per set (1-3 s on CPU, plus a cold worker start). A failure writes a marker and the scene draws flat.
+  { name: QUEUES.plateDepth, notify: true, retryLimit: 2, retryDelay: 10, retryBackoff: true, retryDelayMax: 60, expireInSeconds: 600, heartbeatSeconds: 30 }
 ];
 
 /**

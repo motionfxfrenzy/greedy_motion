@@ -11,6 +11,7 @@ import { getProject } from "../projects/store.ts";
 import { getObject, objectSize, putObject, type Bucket } from "../storage.ts";
 import { putContentAddressedObject, type ContentAddressedStorage } from "./author.ts";
 import { bundleDigest, canonicalJson } from "./digest.ts";
+import { scenePictures, wireSceneAssets } from "./pack-assets.ts";
 import type { Aspect, VariantState } from "./model.ts";
 import {
   bundleKeyFor,
@@ -493,12 +494,17 @@ export async function rebundleVariant(
   // Step 3: Compile new bundle in memory (zero model calls)
   let bundle: Awaited<ReturnType<typeof bundleScene>>;
   try {
+    // A template with pictures: wired the same way as at authoring, and the picture names carried over.
+    const pack = templatePack(project?.brief?.styleExample);
+    const pictures = project ? scenePictures(project, pack, snapshot.scene_index) : { names: [], all: [] };
     bundle = await bundleScene({
       look,
-      code: withPackKit(code, templatePack(project?.brief?.styleExample)),
+      code: wireSceneAssets(withPackKit(code, pack), pictures.names, pictures.all),
       frames: snapshot.frames,
       aspect: snapshot.aspect
     });
+    const assetNames = Array.isArray(snapshot.bundle_manifest?.assetNames) ? (snapshot.bundle_manifest.assetNames as string[]) : pictures.names;
+    if (assetNames.length) bundle.manifest = { ...bundle.manifest, assetNames };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     log("warn", "plate_rebundle_failed", { variantId, projectId: snapshot.project_id, reason: `bundle_failed:${msg.slice(0, 200)}` });

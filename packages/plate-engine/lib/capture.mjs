@@ -71,6 +71,8 @@ export async function openScene(pagePath, { executablePath = process.env.PLATE_B
     for (let i = 0; i < pages; i++) {
       const page = await context.newPage();
       const errors = [];
+      // Marks this page as the film export / verification capture (never the browser preview): a kit may spend fewer samples per frame (history-reel K.set shutter).
+      await page.addInitScript(() => { globalThis.__PLATE_EXPORT = true; });
       page.on("pageerror", (e) => errors.push(e.message));
       await page.goto(target, { timeout: 30_000 });
       try {

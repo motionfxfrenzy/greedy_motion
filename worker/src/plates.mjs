@@ -13,6 +13,7 @@ import { hostname } from "node:os";
 import { join, dirname } from "node:path";
 import sharp from "sharp";
 import { run } from "./compose.mjs";
+import { clipCacheDigest, injectPackAssets } from "./pack-assets.mjs";
 import { DISK_FULL_CODE, DISK_FULL_MESSAGE, cleanTempScratchDirs, deleteOutputs, downloadPlateInput, downloadPlateOutput, isDiskFullError, plateKeyOk, uploadPlateOutput, wrapDiskFull } from "./storage.mjs";
 
 export const PLATE_RENDER_QUEUE = "plate-render";
@@ -352,6 +353,15 @@ export function bakeSceneParams(html, params) {
   return html.replace("<script>", `<script>${script}`);
 }
 
+/** Inlines a template pack's pictures into a downloaded scene page (no-op for pages without pictures); rewrites the file in place. */
+async function withPagePictures(pagePath, html, projectId, refs, storageImpl, scratch) {
+  if (!refs || !Object.keys(refs).length) return html;
+  const storage = { downloadPlateInput: storageImpl?.downloadPlateInput ?? downloadPlateInput, downloadPlateOutput: storageImpl?.downloadPlateOutput ?? downloadPlateOutput };
+  const out = await injectPackAssets(html, projectId, refs, storage, scratch, log);
+  if (out !== html) await writeFile(pagePath, out, "utf8");
+  return out;
+}
+
 let enginePromise;
 /** The capture adapter ships in the image next to the worker (plate-engine/), or from the repository when run from a checkout. */
 function engine() {
@@ -437,6 +447,9 @@ export async function handlePlateRender(job, {
     await mkdir(scratch, { recursive: true });
     const page = join(scratch, "scene.html");
     await downloadInput(row.bundle_key, page);
+    // A template scene with pictures: resolved by name now, so a depth map that landed since the scene was written is drawn too.
+    const pictures = Array.isArray(row.bundle_manifest?.assetNames) ? await control.op("assets.resolve", { variantId: row.id }).catch(() => null) : null;
+    await withPagePictures(page, await readFile(page, "utf8"), row.project_id, pictures?.assets, storageImpl, scratch);
     lastActivityAt = Date.now();
     const [w, h] = DIM[row.aspect] ?? [];
     if (row.width !== w || row.height !== h || row.fps !== FPS) throw new InputError("The scene's size does not match its ratio.");
@@ -520,6 +533,7 @@ export async function handlePlateRender(job, {
 
     // 3. publish: only the attempt that still owns the row can put its key there (also writes to app.plate_clips)
     const published = await fenceDrawn(control, row, {
+      ...(pictures?.assetsDigest ? { cacheDigest: clipCacheDigest({ bundleDigest: row.bundle_digest, assetsDigest: pictures.assetsDigest }) } : {}),
       clipKey,
       stillKey,
       clipMeta: { ...facts, renderer, worker: hostname(), attempt: row.render_attempt },
@@ -1007,9 +1021,10 @@ export async function prepareManifestClips(
   }));
 
   // ---- 1. Look up clip cache FIRST by (bundleDigest, engineDigest, fontSetDigest, size)
+  // A scene with template pictures is cached under its bundle digest plus its pictures' digest (pack-assets.mjs clipCacheDigest).
   const lookupRes = await control.op("clip.lookup", {
     keys: sceneEntries.map(({ scene }) => ({
-      bundleDigest: scene.bundleDigest,
+      bundleDigest: clipCacheDigest(scene),
       engineDigest: manifest.engineDigest,
       fontSetDigest: manifest.fontSetDigest,
       size,
@@ -1085,12 +1100,13 @@ export async function prepareManifestClips(
 
   for (const item of sceneEntries) {
     if (signal?.aborted) throw signal.reason ?? new Error("Aborted.");
-    const cached = cachedByDigest.get(item.scene.bundleDigest);
+    const cached = cachedByDigest.get(clipCacheDigest(item.scene));
     if (cached && cached.clip_key && (await tryUseCachedClip(item, cached.clip_key, cached))) {
       cacheHits += 1;
       continue;
     }
-    if (item.scene.clipKey && item.scene.clipKey !== cached?.clip_key && (await tryUseCachedClip(item, item.scene.clipKey, null))) {
+    // The scene's own preview clip may predate its pictures (a depth map that landed later): never reused for a scene with pictures.
+    if (!item.scene.assetsDigest && item.scene.clipKey && item.scene.clipKey !== cached?.clip_key && (await tryUseCachedClip(item, item.scene.clipKey, null))) {
       cacheHits += 1;
       continue;
     }
@@ -1126,6 +1142,11 @@ export async function prepareManifestClips(
       } catch (error) {
         throw wrapDiskFull(error);
       }
+    }
+    try {
+      await withPagePictures(pagePath, bakedHtml, manifest.projectId, scene.assets, storageImpl, scratch);
+    } catch (error) {
+      throw wrapDiskFull(error);
     }
     let verified;
     try {
@@ -1168,6 +1189,7 @@ export async function prepareManifestClips(
             if (repairedBakedHtml !== repairedRawHtml) {
               await writeFile(pagePath, repairedBakedHtml, "utf8");
             }
+            await withPagePictures(pagePath, repairedBakedHtml, manifest.projectId, scene.assets, storageImpl, scratch);
             try {
               verified = await withWatchdog(
                 (wdSignal) => verifyScene(pagePath, { frames: sceneFrames, signal: wdSignal }),
@@ -1235,7 +1257,7 @@ export async function prepareManifestClips(
       try {
         const pollRes = await control.op("clip.lookup", {
           keys: unresolved.map(({ scene }) => ({
-            bundleDigest: scene.bundleDigest,
+            bundleDigest: clipCacheDigest(scene),
             engineDigest: manifest.engineDigest,
             fontSetDigest: manifest.fontSetDigest,
             size,
@@ -1249,7 +1271,7 @@ export async function prepareManifestClips(
         }
         for (const m of unresolved) {
           if (clipFiles[m.slot]) continue;
-          const hit = pollMap.get(m.scene.bundleDigest);
+          const hit = pollMap.get(clipCacheDigest(m.scene));
           if (!hit?.clip_key) continue;
           // Download to a fleet-staging path first so we don't collide with an active local ffmpeg write
           const fleetClipPath = join(scratch, `clip-fleet-${m.sceneIndex}.mp4`);
@@ -1383,7 +1405,7 @@ export async function prepareManifestClips(
 
           const clipKey = clipCacheKey(
             manifest.projectId,
-            scene.bundleDigest,
+            clipCacheDigest(scene),
             manifest.engineDigest,
             manifest.fontSetDigest,
             manifest.width,
@@ -1391,7 +1413,7 @@ export async function prepareManifestClips(
           );
           const stillKey = stillCacheKey(
             manifest.projectId,
-            scene.bundleDigest,
+            clipCacheDigest(scene),
             manifest.engineDigest,
             manifest.fontSetDigest,
             manifest.width,
@@ -1411,7 +1433,7 @@ export async function prepareManifestClips(
             ...fence,
             variantId: scene.variantId,
             gen: scene.gen,
-            bundleDigest: scene.bundleDigest,
+            bundleDigest: clipCacheDigest(scene),
             engineDigest: manifest.engineDigest,
             fontSetDigest: manifest.fontSetDigest,
             size,
