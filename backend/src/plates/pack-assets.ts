@@ -556,6 +556,62 @@ export async function ensurePackAssets(project: VideoProject, options: { retryFa
   return digest;
 }
 
+/** What waitForPackAssets needs; every part is injectable so a test runs it with no clock, storage or queue. */
+export type PackAssetWaitDeps = {
+  /** Queues the asset step when this project's current specs have no index yet (ensurePackAssets); returns the specs digest, or null when the template has no pictures. */
+  ensure: () => Promise<string | null>;
+  readIndex: () => Promise<AssetIndex | null>;
+  /** Whether the depth map (or its failure mark) of a record exists. */
+  depthSettled: (record: AssetRecord) => Promise<boolean>;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+};
+
+/**
+ * The export's pictures are frozen from the asset index when it is built, so a picture still being redrawn at that moment is paid for and
+ * then left out of the film (the old picture is in it, its clip comes from the cache). Wait for the asset step of the CURRENT specs to be
+ * ready first: then the scenes that use a redrawn set read the new picture, their clip cache identity changes (resolveSceneAssets digest) and
+ * they redraw, and a project whose pictures are all current waits for nothing and is charged nothing. A failed step stops the render
+ * (it is refunded by the caller); a depth map still being made after `depthMs` is left out (those scenes draw flat, as before).
+ */
+export async function waitForAssetsReady(d: PackAssetWaitDeps, options: { timeoutMs: number; depthMs?: number; pollMs?: number }): Promise<void> {
+  const digest = await d.ensure();
+  if (!digest) return;
+  const poll = options.pollMs ?? 2000;
+  const deadline = d.now() + options.timeoutMs;
+  for (;;) {
+    const index = await d.readIndex();
+    if (index?.digest === digest) {
+      if (index.status === "failed") throw Object.assign(new Error(index.error ?? "The pictures for this film could not be made."), { code: "pictures_failed" });
+      if (index.status === "ready") break;
+    }
+    if (d.now() >= deadline) throw Object.assign(new Error("The pictures for this film are still being drawn. Try again in a minute."), { code: "pictures_pending" });
+    await d.sleep(poll);
+  }
+  const depthDeadline = d.now() + (options.depthMs ?? 90_000);
+  for (;;) {
+    const index = await d.readIndex();
+    const records = Object.values(index?.assets ?? {}).filter((r) => r.depth);
+    const settled = await Promise.all(records.map((r) => d.depthSettled(r).catch(() => false)));
+    if (settled.every(Boolean) || d.now() >= depthDeadline) return;
+    await d.sleep(poll);
+  }
+}
+
+/** waitForAssetsReady with the live storage, queue and clock. */
+export async function waitForPackAssets(project: VideoProject, options: { timeoutMs?: number; depthMs?: number } = {}): Promise<void> {
+  if (!templatePack(project.brief?.styleExample)?.assets) return;
+  const { getObject, objectSize } = await import("../storage.ts");
+  const storage: AssetStorage = { getObject, putObject: async () => undefined, objectSize };
+  await waitForAssetsReady({
+    ensure: () => ensurePackAssets(project, { retryFailed: false }),
+    readIndex: () => readAssetIndex(project.id, storage),
+    depthSettled: async (r) => (await objectSize("outputs", r.depth!.key)) !== null || (await objectSize("outputs", r.depth!.failedKey)) !== null,
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    now: () => Date.now()
+  }, { timeoutMs: options.timeoutMs ?? 5 * 60_000, ...(options.depthMs !== undefined ? { depthMs: options.depthMs } : {}) });
+}
+
 export async function handlePackAssets(job: Job<AssetsMessage>): Promise<void> {
   const { projectId } = job.data ?? ({} as AssetsMessage);
   if (typeof projectId !== "string") return;

@@ -4,6 +4,7 @@ import type { Job } from "pg-boss";
 import { config } from "../config.ts";
 import { buildExport, requestExport, waitForAuthoring, type ExportRow } from "../plates/exports.ts";
 import { wantedAspects } from "../plates/inputs.ts";
+import { waitForPackAssets } from "../plates/pack-assets.ts";
 import { primaryAspect, type Aspect, type PlateComment } from "../plates/model.ts";
 import { fixPlates, isPlateLook, startPlates } from "../plates/service.ts";
 import { readProjectState } from "../plates/store.ts";
@@ -39,6 +40,7 @@ export type PrepareFilmDeps = {
   readProjectState?: typeof readProjectState;
   fixPlates?: typeof fixPlates;
   waitForAuthoring?: typeof waitForAuthoring;
+  waitForPackAssets?: (project: VideoProject) => Promise<void>;
   buildExport?: typeof buildExport;
   requestExport?: typeof requestExport;
   prepareBeatPlanRender?: typeof prepareBeatPlanRender;
@@ -65,6 +67,7 @@ const defaultPrepareFilmDeps: ResolvedPrepareFilmDeps = {
   readProjectState,
   fixPlates,
   waitForAuthoring,
+  waitForPackAssets: (project) => waitForPackAssets(project),
   buildExport,
   requestExport,
   prepareBeatPlanRender,
@@ -175,6 +178,8 @@ export class RenderService {
               progress: 25 + Math.round((done / Math.max(1, total)) * 15)
             })
         });
+        // Pictures redrawn since the scenes were written (a rule change, a comment on a set) must be in the frozen export, not paid for and left out.
+        await d.waitForPackAssets(project);
         const built = await d.buildExport(project, aspect, prep.watermark);
 
         for (const ratio of aspects) {
