@@ -83,7 +83,7 @@ export function placeOfBeat(beatIndex: number, beats: readonly Pick<ScriptBeat, 
 /** What made the reference Niagara set look right (experiments/history-reels, films/niagara/sets.json), asked of every set: bright daylight, visible sky, clear air. */
 const SET_LOOK = "Look: bright, colourful and clear like the best frames of a modern animated feature. A visible sky in the top quarter (soft clouds or a clear colour gradient), one clear light direction with soft shadows, sharp detailed middle ground, clean air: no fog, haze, murk or heavy mist covering the scene (a thin mist rising in the distance is fine). Rich saturated greens, blues and warm earth tones; never grey, brown or dull. A night or interior set stays warm and readable: a glowing lamp, moonlight on the floor, colour in the shadows.";
 const setPrompt = (p: HistoryPlace) =>
-  `${SET_STYLE}\n\n${p.description}\n${SET_LOOK}\nThe bottom 35% of the frame is flat open ground with lots of empty space in the centre for people to stand on. An empty set: no people, no characters, no animals, no vehicles or objects that would move, no text.`;
+  `${SET_STYLE}\n\n${p.description}\n${SET_LOOK}\nThe bottom 35% of the frame is flat open ground with lots of empty space in the centre for people to stand on. An empty set: no people, no characters, no figures of any kind (not even small or far away), no animals, no vehicles, no rope, wire or bridge strung across, no objects that would move, no text. Anything the story moves or puts on screen is drawn later by code.`;
 
 /** Underscore matched to the film's era (the year in its IDEA, else its place words); one fixed banjo score never fits a Roman film. */
 export function historyMusic(text: string): string | null {
@@ -294,7 +294,7 @@ export const historyReel: TemplatePack = {
     return { kit, images, hash: hash.digest("hex").slice(0, 12) };
   }),
   // one empty set per place, each with a depth map (made on the render worker; a set without one draws flat)
-  assets: (input) => placesFrom(input).map((place): AssetSpec => ({ name: `set-${place.id}`, prompt: setPrompt(place), aspect: "9:16", size: "2K", depth: true, noText: true })),
+  assets: (input) => placesFrom(input).map((place): AssetSpec => ({ name: `set-${place.id}`, prompt: setPrompt(place), aspect: "9:16", size: "2K", depth: true, noText: true, noFigures: true })),
   // the beat's place: its set and depth map (the engine adds depth-<place> too; listing it is harmless)
   sceneAssets: (beatIndex, beats) => { const id = placeOfBeat(beatIndex, beats); return [`set-${id}`, `depth-${id}`]; },
   sceneSounds: true,

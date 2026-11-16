@@ -34,20 +34,21 @@ export async function toJpeg(image: GeneratedImage): Promise<{ data: Buffer; mim
 }
 
 /** Reads every word in a picture; any word at all is "extra" for a noText picture. */
-export async function geminiTextCheck(image: Buffer, mime: string): Promise<{ extra: string[]; usd: number | null }> {
+export async function geminiTextCheck(image: Buffer, mime: string): Promise<{ extra: string[]; figures?: string[]; usd: number | null }> {
   const reply = await callModel({
     step: "screenshot",
     route: { step: "screenshot", provider: "gemini", model: TEXT_CHECK_MODEL, maxTokens: 2000, explicit: false },
     system: "You read pictures for stray writing.",
     messages: [{ role: "user", content: [
       { type: "image", mime, base64: image.toString("base64") },
-      { type: "text", text: "List every word, number or letter written anywhere in this picture (tiny unreadable scribbles that are clearly not words do not count). Reply JSON only: {\"words\":[...]}" }
+      { type: "text", text: "List every word, number or letter written anywhere in this picture (tiny unreadable scribbles that are clearly not words do not count). Reply JSON only: {\"words\":[...],\"figures\":[...]} where figures lists every person, character, animal, vehicle, or object that is clearly a story prop placed in the scene (a person on a rope, a rope or wire strung across, a cart, a boat), each as a short phrase; plain scenery (trees, rocks, buildings, fences) does not count." }
     ] }],
     errorPrefix: "Picture word check failed"
   });
-  const parsed = JSON.parse(/\{[\s\S]*\}/.exec(reply.text)?.[0] ?? "{}") as { words?: unknown };
+  const parsed = JSON.parse(/\{[\s\S]*\}/.exec(reply.text)?.[0] ?? "{}") as { words?: unknown; figures?: unknown };
   const words = Array.isArray(parsed.words) ? parsed.words.map(String).filter((w) => w.trim()) : [];
-  return { extra: words, usd: reply.usd ?? null };
+  const figures = Array.isArray(parsed.figures) ? parsed.figures.map(String).filter((w) => w.trim()) : [];
+  return { extra: words, figures, usd: reply.usd ?? null };
 }
 
 /** One cheap call for a pack's shot plan (TemplatePack.shotList): the reply text and its cost. */

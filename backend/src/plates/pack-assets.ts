@@ -54,7 +54,7 @@ export const parseAssetRef = (ref: string): { bucket: "uploads" | "outputs"; key
 /** Content hash of a spec: model, prompt, shape and its references' own hashes, so the same request is never paid for twice. */
 export function assetHash(spec: AssetSpec, refHashes: string[], model = config.visualImageModel): string {
   return createHash("sha256")
-    .update(JSON.stringify([PACK_ASSET_VERSION, model, spec.prompt, spec.aspect, spec.size ?? "1K", Boolean(spec.noText), refHashes]))
+    .update(JSON.stringify([PACK_ASSET_VERSION, model, spec.prompt, spec.aspect, spec.size ?? "1K", Boolean(spec.noText), ...(spec.noFigures ? ["nofig"] : []), refHashes]))
     .digest("hex")
     .slice(0, 32);
 }
@@ -70,7 +70,7 @@ export function specsDigest(specs: AssetSpec[], names?: string[]): string {
     for (const r of spec.refs ?? []) visit(r);
   };
   for (const name of names ?? specs.map((s) => s.name)) visit(name);
-  const list = specs.filter((s) => wanted.has(s.name)).map((s) => [s.name, s.prompt, s.refs ?? [], s.aspect, s.size ?? "1K", Boolean(s.depth), Boolean(s.noText)]);
+  const list = specs.filter((s) => wanted.has(s.name)).map((s) => [s.name, s.prompt, s.refs ?? [], s.aspect, s.size ?? "1K", Boolean(s.depth), Boolean(s.noText), ...(s.noFigures ? ["nofig"] : [])]);
   return createHash("sha256").update(JSON.stringify([PACK_ASSET_VERSION, list])).digest("hex").slice(0, 16);
 }
 
@@ -175,7 +175,7 @@ export type PackAssetDeps = AssetStorage & {
   /** One picture from the image model; refs are earlier assets' bytes. */
   image: (prompt: string, refs: { name: string; data: Buffer; mime: string }[], spec: AssetSpec) => Promise<GeneratedImage>;
   /** Words written in the picture that are not allowed (none allowed for noText specs), and the call's cost. */
-  checkText: (image: Buffer, mime: string) => Promise<{ extra: string[]; usd: number | null }>;
+  checkText: (image: Buffer, mime: string) => Promise<{ extra: string[]; figures?: string[]; usd: number | null }>;
   /** Queue the depth job for one stored set picture. */
   enqueueDepth: (job: DepthJob) => Promise<void>;
   /** Charge `usd` of provider cost as material (v2 step billing only); `ref` is unique per picture. */
@@ -261,14 +261,15 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
         }));
         let redrawn = false;
         let picture = await drawOnce(projectId, spec, refBytes, deps, index);
-        if (spec.noText || spec.allowedText?.length) {
-          const check = await deps.checkText(picture.data, picture.mime).catch((error) => { log("warn", "pack_asset_check_failed", { projectId, name: spec.name, message: String((error as Error)?.message ?? error).slice(0, 200) }); return { extra: [] as string[], usd: null }; });
+        if (spec.noText || spec.allowedText?.length || spec.noFigures) {
+          const check = await deps.checkText(picture.data, picture.mime).catch((error) => { log("warn", "pack_asset_check_failed", { projectId, name: spec.name, message: String((error as Error)?.message ?? error).slice(0, 200) }); return { extra: [] as string[], figures: [] as string[], usd: null }; });
           index.usd += check.usd ?? 0;
           const allowedWords = new Set((spec.allowedText ?? []).flatMap((t) => t.toLowerCase().split(/[^a-z0-9]+/)).filter(Boolean));
           const stray = check.extra.filter((w) => !w.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).every((part) => allowedWords.has(part)));
-          if (stray.length) {
+          const figures = spec.noFigures ? (check.figures ?? []).slice(0, 6) : [];
+          if (stray.length || figures.length) {
             log("info", "pack_asset_redraw", { projectId, name: spec.name, extra: stray.slice(0, 8) });
-            picture = await drawOnce(projectId, spec, refBytes, deps, index, `\n\nABSOLUTELY NO ${allowedWords.size ? "OTHER " : ""}WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. ${allowedWords.size ? `Only these words may appear: ${(spec.allowedText ?? []).join(", ")}.` : "No letters, numbers, labels, signs or captions anywhere."}`);
+            picture = await drawOnce(projectId, spec, refBytes, deps, index, (stray.length ? `\n\nABSOLUTELY NO ${allowedWords.size ? "OTHER " : ""}WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. ${allowedWords.size ? `Only these words may appear: ${(spec.allowedText ?? []).join(", ")}.` : "No letters, numbers, labels, signs or captions anywhere."}` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS, ANIMALS, VEHICLES OR STORY PROPS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Draw only the empty place: scenery and ground, nothing that moves, no rope or wire strung across.` : ""));
             redrawn = true;
           }
         }

@@ -35,6 +35,8 @@ export type AssetSpec = {
   depth?: boolean;
   /** Checked once for stray words with a cheap vision call, and redrawn at most once. */
   noText?: boolean;
+  /** Checked with the same vision call: no person, character, animal, vehicle or story prop (a rope, a wire) in the picture; redrawn at most once. */
+  noFigures?: boolean;
   /** Words that MAY appear (hand-lettered labels): the word check runs too and only words outside this list count as stray. */
   allowedText?: string[];
 };

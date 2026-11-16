@@ -32,4 +32,14 @@ const idx = await pa.generatePackAssets("11111111-2222-3333-4444-555555555555", 
 assert.equal(idx.assets.label.redrawn, true, "stray word oops triggers one redraw");
 const ok = await pa.generatePackAssets("11111111-2222-3333-4444-555555555556", [{ name: "label", prompt: "p", aspect: "9:16", allowedText: ["MINT GUM"] }], { ...deps, checkText: async () => ({ extra: ["MINT", "GUM"], usd: 0 }) });
 assert.ok(!ok.assets.label.redrawn, "only the allowed label words: no redraw");
+// a set that must be empty: a figure the vision check finds (a person on a rope) triggers one redraw with the figure named
+{
+  const prompts = [];
+  const fdeps = { ...deps, image: async (prompt) => { prompts.push(prompt); return { data: Buffer.from(prompts.length === 1 ? "dirty" : "clean"), mime: "image/jpeg" }; }, checkText: async (data) => ({ extra: [], figures: data.toString() === "dirty" ? ["a person walking on a rope"] : [], usd: 0 }) };
+  const set = await pa.generatePackAssets("11111111-2222-3333-4444-555555555557", [{ name: "set-gorge", prompt: "gorge", aspect: "9:16", noText: true, noFigures: true }], fdeps);
+  assert.equal(set.assets["set-gorge"].redrawn, true, "a figure in an empty set triggers one redraw");
+  assert.match(prompts[1], /NO PEOPLE.*a person walking on a rope/s);
+  assert.equal(prompts.length, 2, "at most one redraw");
+  assert.notEqual(pa.assetHash({ name: "a", prompt: "p", aspect: "9:16", noText: true, noFigures: true }, []), pa.assetHash({ name: "a", prompt: "p", aspect: "9:16", noText: true }, []), "the flag is part of the hash");
+}
 console.log("pack-notes: ok");
