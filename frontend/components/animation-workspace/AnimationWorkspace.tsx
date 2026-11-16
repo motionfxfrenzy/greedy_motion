@@ -100,6 +100,7 @@ export function AnimationWorkspace({
   rendering = false,
   renderDisabled = false,
   renderTitle,
+  renderNote,
   cost,
   renderButtonRef
 }: AnimationWorkspaceProps & { renderButtonRef?: import("react").RefObject<HTMLButtonElement | null> }) {
@@ -338,6 +339,7 @@ export function AnimationWorkspace({
         rendering={rendering}
         renderDisabled={renderDisabled}
         renderTitle={renderTitle}
+        renderNote={renderNote}
         cost={cost}
         renderButtonRef={renderButtonRef}
       />

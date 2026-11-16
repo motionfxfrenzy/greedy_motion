@@ -233,3 +233,11 @@ assert.doesNotMatch(JSON.stringify(fable.messages), /PICTURES:/);
 unregister();
 assert.equal(templatePack("test-pictures"), undefined, "unregistering removes the test pack");
 console.log("pack-assets: ok");
+
+// the export's clip cache identity (backend) equals the worker's, with and without pictures (fast export + pictures share it)
+{
+  const { clipCacheDigest } = await import("../src/plates/exports.ts");
+  const { clipCacheDigest: workerDigest } = await import("../../worker/src/pack-assets.mjs");
+  for (const scene of [{ bundleDigest: "a".repeat(64) }, { bundleDigest: "a".repeat(64), assetsDigest: "1f2e3d" }]) assert.equal(clipCacheDigest(scene), workerDigest(scene));
+  console.log("pack-assets: clip cache identity ok");
+}

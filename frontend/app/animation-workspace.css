@@ -366,6 +366,7 @@
 .aw-render-top{width:100%;flex:none;display:inline-flex;align-items:baseline;justify-content:center;gap:7px;padding:10px 16px;font-size:14px;font-weight:700}
 
 .aw-render-top small{font-size:11px;font-weight:600;opacity:.75}
+.aw-render-note{display:block;margin:-4px 0 8px;text-align:center;font-size:11px;color:var(--muted,#888)}
 
 .aw-side>header{display:flex;justify-content:space-between;align-items:baseline}
 .aw-side>header b{font-size:15px}

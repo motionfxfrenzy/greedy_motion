@@ -268,6 +268,8 @@ export interface AnimationWorkspaceProps {
   rendering?: boolean;
   renderDisabled?: boolean;
   renderTitle?: string;
+  /** Small line under the Render button (fast export: "Preparing export… 2/5 scenes", "Export ready"). */
+  renderNote?: string;
   cost?: number;
   renderButtonRef?: RefObject<HTMLButtonElement | null>;
 }

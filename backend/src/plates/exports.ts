@@ -188,17 +188,28 @@ export async function waitForAuthoring(
   }
 }
 
+export type ExportSceneDigest = {
+  index: number;
+  variantId: string;
+  gen: number;
+  rev: number;
+  bundleDigest: string;
+  bundleKey: string;
+  bundleSha: string;
+  paramsDigest: string;
+  params: Record<string, unknown>;
+  bundleFrames: number;
+  /** Template-pack pictures this scene reads (name -> "u:<key>" | "o:<key>") and their digest; absent for scenes without pictures. */
+  assets?: Record<string, string>;
+  assetsDigest?: string;
+};
+
 /**
- * Freezes and stores the schema 2 export manifest for one ratio under a content-addressed key.
- * Never mutates an already-stored manifest.
+ * The scene half of an export: the variants of `aspect` in storyboard order (throws `NotDrawn` while any is missing, failed
+ * or still drawing) and each one's frozen digests. Shared by `buildExport` and `exportSceneTargets`, so the clip a browser
+ * draws ahead is addressed exactly as the worker will look it up.
  */
-export async function buildExport(
-  project: VideoProject,
-  aspect: Aspect,
-  watermark: boolean,
-  options: { pending?: boolean; storage?: ExportStorage } = {}
-): Promise<{ manifest: ExportManifest; manifestKey: string; manifestDigest: string; signature: string; durationSeconds: number }> {
-  const storage = options.storage ?? defaultStorage;
+async function resolveExportScenes(project: VideoProject, aspect: Aspect) {
   const beats = project.brief?.scriptBeats ?? [];
   const allVariants = await listVariants(project.id);
   const variants = allVariants.filter((v) => v.aspect === aspect);
@@ -224,6 +235,88 @@ export async function buildExport(
   if (ordered.some((v) => v!.state === "queued" || v!.state === "authoring" || !v!.bundle_key)) {
     throw new NotDrawn("This ratio is still being drawn.", "drawing");
   }
+  const rows = ordered as VariantRow[];
+  const revisions = await Promise.all(rows.map((v) => getRevision(v.id, v.rev)));
+  const resolvedFontSetDigest = fontSetDigest();
+  const firstManifestEngine = rows.map((v) => (typeof v.bundle_manifest?.engineDigest === "string" ? v.bundle_manifest.engineDigest : null)).find(Boolean);
+  const resolvedEngineDigest = firstManifestEngine ?? computeEngineDigest();
+  // Template pictures are resolved by name when the export is frozen, so a depth map or a redrawn picture that landed after the scene
+  // was written is in the film, and only scenes whose pictures changed miss the clip cache.
+  const pictures = await Promise.all(rows.map(async (v) => {
+    const names = Array.isArray(v.bundle_manifest?.assetNames) ? (v.bundle_manifest!.assetNames as unknown[]).filter((n): n is string => typeof n === "string") : [];
+    if (!names.length) return null;
+    const { getObject } = await import("../storage.ts");
+    const resolved = await resolveSceneAssets(project.id, names, { getObject, putObject: async () => undefined, objectSize });
+    return resolved.digest ? { assets: resolved.refs as Record<string, string>, assetsDigest: resolved.digest } : null;
+  }));
+  const scenes: ExportSceneDigest[] = rows.map((row, i) => {
+    const revRow = revisions[i];
+    const params = revRow?.params ?? (row.repairs > 0 ? { __repair: row.repairs } : {});
+    const bundleSha = typeof row.bundle_manifest?.bundleSha === "string" ? row.bundle_manifest.bundleSha : "";
+    const rowEngineDigest = typeof row.bundle_manifest?.engineDigest === "string" ? row.bundle_manifest.engineDigest : resolvedEngineDigest;
+    return {
+      index: i,
+      variantId: row.id,
+      gen: row.gen,
+      rev: row.rev,
+      bundleDigest:
+        row.bundle_digest ??
+        revRow?.bundle_digest ??
+        bundleDigest({ manifest: row.bundle_manifest, bundleSha, params, engineDigest: rowEngineDigest, fontSetDigest: resolvedFontSetDigest }),
+      bundleKey: revRow?.bundle_key ?? row.bundle_key!,
+      bundleSha,
+      paramsDigest: revRow?.params_digest ?? paramsDigest(params),
+      params,
+      bundleFrames: typeof row.bundle_manifest?.frames === "number" ? Number(row.bundle_manifest.frames) : row.frames,
+      ...(pictures[i] ?? {})
+    };
+  });
+  return { beats, ordered: rows, desiredSigs, engineDigest: resolvedEngineDigest, fontSetDigest: resolvedFontSetDigest, scenes };
+}
+
+/** Same identity as worker/src/pack-assets.mjs clipCacheDigest (a test keeps them equal). */
+export const clipCacheDigest = (scene: { bundleDigest: string; assetsDigest?: string | null }): string =>
+  scene.assetsDigest ? createHash("sha256").update(`${scene.bundleDigest}|assets|${scene.assetsDigest}`).digest("hex") : scene.bundleDigest;
+
+export type ExportSceneTarget = ExportSceneDigest & {
+  engineDigest: string;
+  fontSetDigest: string;
+  width: number;
+  height: number;
+  /** `app.plate_clips.size`, as the worker's `clip.lookup` writes it. */
+  size: string;
+  /** The clip cache's identity for this scene: the bundle digest, plus the pictures' digest for a scene with template pictures (worker clipCacheDigest). */
+  cacheDigest: string;
+  /** A clip for this exact (cacheDigest, engineDigest, fontSetDigest, size) is already cached. */
+  hasClip: boolean;
+};
+
+/** Every scene clip the export of `aspect` needs, keyed as the worker's clip cache keys it, and whether it is cached. */
+export async function exportSceneTargets(project: VideoProject, aspect: Aspect): Promise<ExportSceneTarget[]> {
+  const resolved = await resolveExportScenes(project, aspect);
+  const { w, h } = sizeForAspect(aspect);
+  const size = `${w}x${h}`;
+  const withCache = resolved.scenes.map((s) => ({ ...s, cacheDigest: clipCacheDigest(s) }));
+  const { rows } = await pool.query<{ bundle_digest: string }>(
+    `select bundle_digest from app.plate_clips where bundle_digest = any($1::text[]) and engine_digest = $2 and font_set_digest = $3 and size = $4`,
+    [withCache.map((s) => s.cacheDigest), resolved.engineDigest, resolved.fontSetDigest, size]
+  );
+  const cached = new Set(rows.map((r) => r.bundle_digest));
+  return withCache.map((s) => ({ ...s, engineDigest: resolved.engineDigest, fontSetDigest: resolved.fontSetDigest, width: w, height: h, size, hasClip: cached.has(s.cacheDigest) }));
+}
+
+/**
+ * Freezes and stores the schema 2 export manifest for one ratio under a content-addressed key.
+ * Never mutates an already-stored manifest.
+ */
+export async function buildExport(
+  project: VideoProject,
+  aspect: Aspect,
+  watermark: boolean,
+  options: { pending?: boolean; storage?: ExportStorage } = {}
+): Promise<{ manifest: ExportManifest; manifestKey: string; manifestDigest: string; signature: string; durationSeconds: number }> {
+  const storage = options.storage ?? defaultStorage;
+  const { beats, ordered, desiredSigs, engineDigest: resolvedEngineDigest, fontSetDigest: resolvedFontSetDigest, scenes: sceneDigests } = await resolveExportScenes(project, aspect);
 
   const state = await readProjectState(project.id);
   const subtitles = { ...defaultSubtitlesFor(project), ...(state.subtitles ?? {}) };
@@ -261,55 +354,29 @@ export async function buildExport(
   const stagedVoices = subtitles.voice !== false ? await Promise.all(takes.map((t) => stageAudio(project.id, t?.file, storage))) : takes.map(() => null);
   const stagedMusic = subtitles.music !== false ? await stageAudio(project.id, project.planAudio?.music?.file, storage) : null;
 
-  const revisions = await Promise.all(ordered.map((v) => getRevision(v!.id, v!.rev)));
-  const resolvedFontSetDigest = fontSetDigest();
-  const firstManifestEngine = ordered.map((v) => (typeof v!.bundle_manifest?.engineDigest === "string" ? v!.bundle_manifest.engineDigest : null)).find(Boolean);
-  const resolvedEngineDigest = firstManifestEngine ?? computeEngineDigest();
-
-  // Template pictures are resolved by name when the export is frozen, so a depth map or a redrawn picture that landed after the scene
-  // was written is in the film, and only scenes whose pictures changed miss the clip cache.
-  const pictures = await Promise.all(ordered.map(async (v) => {
-    const names = Array.isArray(v!.bundle_manifest?.assetNames) ? (v!.bundle_manifest!.assetNames as unknown[]).filter((n): n is string => typeof n === "string") : [];
-    if (!names.length) return null;
-    const { getObject } = await import("../storage.ts");
-    const resolved = await resolveSceneAssets(project.id, names, { getObject, putObject: async () => undefined, objectSize: storage.objectSize });
-    return resolved.digest ? { assets: resolved.refs as Record<string, string>, assetsDigest: resolved.digest } : null;
-  }));
-
-  const scenes: FrozenSceneEntry[] = ordered.map((v, i) => {
-    const row = v!;
-    const revRow = revisions[i];
-    const params = revRow?.params ?? (row.repairs > 0 ? { __repair: row.repairs } : {});
-    const pDigest = revRow?.params_digest ?? paramsDigest(params);
-    const bKey = revRow?.bundle_key ?? row.bundle_key!;
-    const bundleSha = typeof row.bundle_manifest?.bundleSha === "string" ? row.bundle_manifest.bundleSha : "";
-    const rowEngineDigest = typeof row.bundle_manifest?.engineDigest === "string" ? row.bundle_manifest.engineDigest : resolvedEngineDigest;
-    const bDigest =
-      row.bundle_digest ??
-      revRow?.bundle_digest ??
-      bundleDigest({ manifest: row.bundle_manifest, bundleSha, params, engineDigest: rowEngineDigest, fontSetDigest: resolvedFontSetDigest });
-    const bundleFrames = typeof row.bundle_manifest?.frames === "number" ? Number(row.bundle_manifest.frames) : row.frames;
+  const scenes: FrozenSceneEntry[] = sceneDigests.map((d, i) => {
+    const row = ordered[i]!;
     const voice = stagedVoices[i]
       ? { key: stagedVoices[i]!.key, digest: stagedVoices[i]!.digest, seconds: takes[i]!.seconds ?? 0 }
       : null;
 
     return {
       index: i,
-      variantId: row.id,
-      gen: row.gen,
-      rev: row.rev,
+      variantId: d.variantId,
+      gen: d.gen,
+      rev: d.rev,
       sig: effectiveSigAt(row, i),
-      bundleDigest: bDigest,
-      bundleKey: bKey,
-      bundleSha,
-      paramsDigest: pDigest,
-      params,
+      bundleDigest: d.bundleDigest,
+      bundleKey: d.bundleKey,
+      bundleSha: d.bundleSha,
+      paramsDigest: d.paramsDigest,
+      params: d.params,
       frames: timeline.frames[i]!,
-      bundleFrames,
+      bundleFrames: d.bundleFrames,
       startFrame: timeline.starts[i]!,
       clipKey: row.clip_key ?? null,
       voice,
-      ...(pictures[i] ?? {})
+      ...(d.assets && d.assetsDigest ? { assets: d.assets, assetsDigest: d.assetsDigest } : {})
     };
   });
 

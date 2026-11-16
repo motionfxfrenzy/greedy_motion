@@ -29,6 +29,7 @@ export interface CommentsPanelProps {
   rendering?: boolean;
   renderDisabled?: boolean;
   renderTitle?: string;
+  renderNote?: string;
   cost?: number;
   renderButtonRef?: RefObject<HTMLButtonElement | null>;
 }
@@ -64,6 +65,7 @@ export function CommentsPanel({
   rendering = false,
   renderDisabled = false,
   renderTitle,
+  renderNote,
   cost,
   renderButtonRef
 }: CommentsPanelProps) {
@@ -138,6 +140,7 @@ export function CommentsPanel({
             <span>{rendering ? "Rendering…" : "Render"}</span>
             {cost != null && !rendering && <small>{cost} tokens</small>}
           </button>
+          {renderNote && !rendering && <small className="aw-render-note" aria-live="polite">{renderNote}</small>}
           <span id={renderDescId} className="sr-only">
             If scenes are still being built or you haven&apos;t watched the preview through, you&apos;ll be asked to confirm before making the video.
           </span>

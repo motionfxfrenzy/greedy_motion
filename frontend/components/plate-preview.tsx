@@ -52,6 +52,7 @@ import {
 } from "./animation-workspace";
 import { shouldSeekClip } from "./animation-workspace/clip-seek";
 import { PlateLiveStage, type PlateLiveOptions } from "./plate-live-stage";
+import { useBrowserClips } from "./use-browser-clips";
 import { svgSrc } from "./script-canvas";
 
 const SFX_NAMES: PlateSfxName[] = [
@@ -1396,6 +1397,8 @@ export function PlatePreview({
   const filmProg = useMemo(() => filmProgress(effectiveScenesForProgress, progressCtx), [effectiveScenesForProgress, progressCtx]);
 
   const filmVersionKey = useMemo(() => computeFilmVersionKey(scenes), [scenes]);
+  // Fast export: draw the Render clips in this browser while Preview is idle (use-browser-clips.ts).
+  const exportNote = useBrowserClips({ projectId: project.id, aspect: defaultAspect, enabled: isLiveMode && Boolean(onRender), playing, time, refreshKey: filmVersionKey });
 
   useEffect(() => {
     const isSeeking = seekingFlagRef.current;
@@ -1898,6 +1901,7 @@ export function PlatePreview({
     rendering={rendering}
     renderDisabled={staleCount > 0}
     renderTitle={staleCount > 0 ? "Update the animation for your changed storyboard before rendering the final video" : undefined}
+    renderNote={exportNote}
     cost={cost}
     renderButtonRef={renderBtnRef}
   />

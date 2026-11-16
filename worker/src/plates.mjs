@@ -1052,7 +1052,8 @@ export async function prepareManifestClips(
 
   const tryUseCachedClip = async (item, candidateKey, cachedRow = null) => {
     if (!candidateKey || !plateKeyOk(candidateKey, manifest.projectId)) return false;
-    const rowHasMetadata = Boolean(cachedRow && Number(cachedRow.frames) > 0);
+    // A clip the browser uploaded (backend/src/plates/browser-clips.ts) is probed again here before it is trusted.
+    const rowHasMetadata = Boolean(cachedRow && Number(cachedRow.frames) > 0) && cachedRow?.clip_meta?.source !== "browser";
     if (cachedRow) {
       if (cachedRow.width && Number(cachedRow.width) !== manifest.width) return false;
       if (cachedRow.height && Number(cachedRow.height) !== manifest.height) return false;
