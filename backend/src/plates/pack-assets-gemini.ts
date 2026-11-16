@@ -61,3 +61,8 @@ export async function geminiShotPlan(request: { system: string; user: string; ma
   });
   return { text: reply.text, usd: reply.usd ?? null };
 }
+
+/** The preview copy: 720 px wide JPEG (about a tenth of the stored picture), enough for the browser preview's frame. */
+export async function toPreviewJpeg(data: Buffer): Promise<Buffer> {
+  return sharp(data).resize({ width: 720, withoutEnlargement: true }).jpeg({ quality: 78, mozjpeg: true }).toBuffer();
+}

@@ -21,7 +21,7 @@ import { projectOwner, getProject } from "../projects/store.ts";
 import { PLANS, isAnimationTier } from "../tokens/plan.ts";
 import { InsufficientTokens } from "../tokens/store.ts";
 import { getObject, objectSize, presignKey, safeDownloadFilename, slugifyProjectDownloadStem, type Bucket } from "../storage.ts";
-import { parseAssetRef, resolveSceneAssets, staleClip } from "./pack-assets.ts";
+import { parseAssetRef, previewKeyFor, resolveSceneAssets, staleClip } from "./pack-assets.ts";
 import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
 import { desiredVariants, isPlateLook } from "./inputs.ts";
@@ -272,7 +272,12 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
       assetsDigest = resolved.digest;
       await Promise.all(Object.entries(resolved.refs).map(async ([name, ref]) => {
         const parsed = parseAssetRef(ref);
-        if (parsed && parsed.key.startsWith(`plates/${id}/assets/`)) assets[name] = await signKey(parsed.bucket, parsed.key, { seconds });
+        if (parsed && parsed.key.startsWith(`plates/${id}/assets/`)) {
+          // The browser preview reads a smaller copy of each picture when there is one (the export reads the full picture).
+          const small = parsed.bucket === "uploads" && parsed.key.endsWith(".jpg") ? previewKeyFor(id, parsed.key.slice(parsed.key.lastIndexOf("/") + 1, -4)) : null;
+          const useSmall = small !== null && (await objectSize("uploads", small).catch(() => null)) !== null;
+          assets[name] = await signKey(parsed.bucket, useSmall ? small! : parsed.key, { seconds });
+        }
       }));
     }
     return reply

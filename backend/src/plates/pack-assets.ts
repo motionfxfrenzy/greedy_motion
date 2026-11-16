@@ -39,6 +39,8 @@ export const depthNameOf = (name: string) => (name.startsWith("set-") ? `depth-$
 export const assetPrefix = (projectId: string) => `plates/${projectId}/assets/`;
 export const assetIndexKey = (projectId: string) => `${assetPrefix(projectId)}index.json`;
 export const assetKeyFor = (projectId: string, hash: string) => `${assetPrefix(projectId)}${hash}.jpg`;
+/** A smaller copy of a stored picture for the browser preview (the export always reads the full one). */
+export const previewKeyFor = (projectId: string, hash: string) => `${assetPrefix(projectId)}${hash}.preview.jpg`;
 export const depthKeyFor = (projectId: string, hash: string) => `${assetPrefix(projectId)}${hash}.depth.png`;
 export const depthFailedKeyFor = (projectId: string, hash: string) => `${assetPrefix(projectId)}${hash}.depth.failed`;
 
@@ -180,6 +182,8 @@ export type PackAssetDeps = AssetStorage & {
   charge?: (usd: number, ref: string) => Promise<void>;
   /** Normalises the picture for storage (JPEG); identity in tests. */
   normalise?: (image: GeneratedImage) => Promise<{ data: Buffer; mime: string }>;
+  /** Makes the smaller preview copy of a stored picture (JPEG bytes). */
+  preview?: (data: Buffer) => Promise<Buffer>;
   parallel?: number;
   now?: () => Date;
 };
@@ -228,6 +232,10 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
       const prev = prevByHash.get(hash);
       record = { name: spec.name, hash, key, mime: prev?.mime ?? "image/jpeg", size, storedAt: prev?.storedAt ?? now().toISOString(), ...(prev?.redrawn ? { redrawn: true } : {}) };
       log("info", "pack_asset_cached", { projectId, name: spec.name, hash });
+      if (deps.preview && (await deps.objectSize("uploads", previewKeyFor(projectId, hash))) === null) {
+        const full = await deps.getObject("uploads", key).catch(() => null);
+        if (full) await deps.putObject("uploads", previewKeyFor(projectId, hash), await deps.preview(full), "image/jpeg").catch(() => undefined);
+      }
     } else {
       await slot();
       try {
@@ -251,6 +259,7 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
         }
         const stored = deps.normalise ? await deps.normalise(picture) : { data: picture.data, mime: picture.mime };
         await deps.putObject("uploads", key, stored.data, stored.mime);
+        if (deps.preview) await deps.putObject("uploads", previewKeyFor(projectId, hash), await deps.preview(stored.data), "image/jpeg").catch(() => undefined);
         bytes.set(spec.name, stored);
         record = { name: spec.name, hash, key, mime: stored.mime, size, storedAt: now().toISOString(), ...(redrawn ? { redrawn: true } : {}) };
       } finally {
@@ -393,13 +402,14 @@ export type AssetsMessage = { projectId: string; digest: string };
 /** Production dependencies: Gemini, object storage, the depth queue, and material billing on v2 step billing. */
 export async function liveDeps(project: VideoProject): Promise<PackAssetDeps> {
   const [{ getObject, putObject, objectSize }, { sendOnce }, { kickPlateWorkers }] = await Promise.all([import("../storage.ts"), import("../jobs/queues.ts"), import("../jobs/worker-launcher.ts")]);
-  const { geminiImage, geminiTextCheck, toJpeg } = await import("./pack-assets-gemini.ts");
+  const { geminiImage, geminiTextCheck, toJpeg, toPreviewJpeg } = await import("./pack-assets-gemini.ts");
   const charge = await materialCharge(project);
   return {
     getObject, putObject, objectSize,
     image: (prompt, refs, spec) => geminiImage(prompt, refs, spec),
     checkText: (image, mime) => geminiTextCheck(image, mime),
     normalise: toJpeg,
+    preview: toPreviewJpeg,
     enqueueDepth: async (job) => {
       await sendOnce(null, PLATE_DEPTH_QUEUE, job, job.depthKey);
       void kickPlateWorkers(true).catch(() => undefined);
