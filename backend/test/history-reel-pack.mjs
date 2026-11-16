@@ -91,4 +91,6 @@ assert.deepEqual(packScriptIssues(pack, bad).map((x) => x.index), [3, 15]);
   assert.match(pack.musicFor({ idea: "Rome, 44 BC" }), /lyre/);
   assert.equal(pack.musicFor({ idea: "a story" }), null);
 }
+assert.equal(pack.noSketches, true, "no storyboard reference-sketch step for this template");
+assert.ok(pack.assets({ beats: [{ visual: "[gorge] wide, x", line: "x" }], brief: { scriptNotes: { places: "gorge = a gorge" } }, aspect: "9:16" }).every((s) => s.noFigures), "every set is checked for figures");
 console.log("history-reel pack: places, pictures, kit, author prompt and script rules: ok");

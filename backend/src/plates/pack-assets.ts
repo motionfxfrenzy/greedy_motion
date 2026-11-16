@@ -261,7 +261,29 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
         }));
         let redrawn = false;
         let picture = await drawOnce(projectId, spec, refBytes, deps, index);
-        if (spec.noText || spec.allowedText?.length || spec.noFigures) {
+        if (spec.noFigures) {
+          // The rule for an empty set: the image model never puts a character into the film. Up to MAX_FIGURE_REDRAWS redraws with the
+          // detected figure named; a picture the check does not pass is never stored. A check that cannot run counts as a failure too.
+          const allowedWords = new Set((spec.allowedText ?? []).flatMap((t) => t.toLowerCase().split(/[^a-z0-9]+/)).filter(Boolean));
+          const strayOf = (words: string[]) => words.filter((w) => !w.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).every((part) => allowedWords.has(part)));
+          for (let redraws = 0; ; redraws++) {
+            let check: Awaited<ReturnType<typeof deps.checkText>> | null = null;
+            for (let tries = 0; tries < 2 && !check; tries++) {
+              check = await deps.checkText(picture.data, picture.mime).catch((error) => { log("warn", "pack_asset_check_failed", { projectId, name: spec.name, message: String((error as Error)?.message ?? error).slice(0, 200) }); return null; });
+            }
+            if (!check) throw new Error(`The picture "${spec.name}" could not be checked for people and props, so it was not used.`);
+            index.usd += check.usd ?? 0;
+            const figures = (check.figures ?? []).slice(0, 6), stray = spec.noText || allowedWords.size ? strayOf(check.extra) : [];
+            if (!figures.length && !stray.length) break;
+            if (redraws >= MAX_FIGURE_REDRAWS) {
+              if (figures.length) throw new Error(`The picture "${spec.name}" kept coming back with ${figures.map((f) => `"${f}"`).join(", ")} in it after ${MAX_FIGURE_REDRAWS} redraws, so it was not used.`);
+              break; // stray writing only: accepted, as for any picture
+            }
+            log("info", "pack_asset_redraw", { projectId, name: spec.name, extra: stray.slice(0, 8), figures });
+            picture = await drawOnce(projectId, spec, refBytes, deps, index, (stray.length ? `\n\nABSOLUTELY NO WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. No letters, numbers, labels, signs or captions anywhere.` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS, ANIMALS, VEHICLES OR STORY PROPS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Draw only the empty place: scenery and ground, nothing that moves, no rope or wire strung across.` : ""));
+            redrawn = true;
+          }
+        } else if (spec.noText || spec.allowedText?.length) {
           const check = await deps.checkText(picture.data, picture.mime).catch((error) => { log("warn", "pack_asset_check_failed", { projectId, name: spec.name, message: String((error as Error)?.message ?? error).slice(0, 200) }); return { extra: [] as string[], figures: [] as string[], usd: null }; });
           index.usd += check.usd ?? 0;
           const allowedWords = new Set((spec.allowedText ?? []).flatMap((t) => t.toLowerCase().split(/[^a-z0-9]+/)).filter(Boolean));
@@ -314,6 +336,9 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
     throw error;
   }
 }
+
+/** Redraws of an empty set whose picture had a person, animal or story prop in it (pack-assets noFigures). */
+export const MAX_FIGURE_REDRAWS = 2;
 
 async function drawOnce(projectId: string, spec: AssetSpec, refs: { name: string; data: Buffer; mime: string }[], deps: PackAssetDeps, index: AssetIndex, extra = ""): Promise<GeneratedImage> {
   const started = Date.now();

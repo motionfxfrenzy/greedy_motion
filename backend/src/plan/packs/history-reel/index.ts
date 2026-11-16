@@ -298,6 +298,8 @@ export const historyReel: TemplatePack = {
   // the beat's place: its set and depth map (the engine adds depth-<place> too; listing it is harmless)
   sceneAssets: (beatIndex, beats) => { const id = placeOfBeat(beatIndex, beats); return [`set-${id}`, `depth-${id}`]; },
   sceneSounds: true,
+  // owner decision: no reference-sketch step for this template (no frameSketch model calls, no sketch charge); the storyboard shows plain key-phrase cards
+  noSketches: true,
   drawRule: "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then `const cam = K.camera(frame, KEYS)` and `K.set(ctx, env, cam, place)` (the set picture is the backdrop; there is no K.backdrop and no K.vignette); then the cast and props; nothing after them fills the frame. Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
   soundsRule: "SOUNDS: also export `export const sounds: { kind: string; frame: number }[] = [...]`: one entry on the exact frame each visible action lands (kinds: step = a boot or shoe lands (one per footfall of the main figure, every 2-3 steps for a crowd); thud = a body or heavy thing drops or hits the ground; whoosh = a camera snap, whip or reveal starts; hit = a key word or a strike lands; drop = something small falls; shuffle = a crowd shifts). Only actions that happen on screen. Usually 1 to 4 per scene.",
   musicFor: (notes) => historyMusic(`${notes?.idea ?? ""} ${notes?.places ?? ""}`),
