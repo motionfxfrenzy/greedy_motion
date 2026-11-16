@@ -51,4 +51,9 @@ assert.ok(pstore.get(pa.previewKeyFor(PID2, rec.hash)).toString().startsWith("sm
 pstore.delete(pa.previewKeyFor(PID2, rec.hash));
 await pa.generatePackAssets(PID2, [{ name: "set-a", prompt: "a", aspect: "9:16", noText: true }], pdeps);
 assert.ok(pstore.has(pa.previewKeyFor(PID2, rec.hash)), "a cached picture gets its preview copy");
+// charges never overlap (a small database pool must not be filled by parallel spenders)
+let running = 0, peak = 0;
+const charge = pa.serialCharge(async () => { running += 1; peak = Math.max(peak, running); await new Promise((r) => setTimeout(r, 5)); running -= 1; });
+await Promise.all([1, 2, 3, 4, 5].map((i) => charge(0.01, "r" + i)));
+assert.equal(peak, 1, "charges run one at a time");
 console.log("pack-reopen: ok");

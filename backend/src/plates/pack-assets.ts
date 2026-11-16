@@ -195,8 +195,23 @@ export type DepthJob = { projectId: string; name: string; imageKey: string; dept
  * already stored under its hash is reused (free). noText pictures are read once by a cheap vision call and redrawn at most once.
  * Writes the index after every picture, so authoring sees each scene's pictures as soon as they exist.
  */
-export async function generatePackAssets(projectId: string, specs: AssetSpec[], deps: PackAssetDeps): Promise<AssetIndex> {
+/**
+ * Runs the charges one at a time. Pictures are drawn in parallel, but every charge takes the same per-user advisory lock and a database
+ * connection; several at once can hold every connection of a small pool (staging runs 3) while the lock holder waits for one, which
+ * hangs the whole backend. One at a time never does.
+ */
+export function serialCharge(charge: (usd: number, ref: string) => Promise<void>): (usd: number, ref: string) => Promise<void> {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (usd, ref) => {
+    const run = tail.catch(() => undefined).then(() => charge(usd, ref));
+    tail = run;
+    return run;
+  };
+}
+
+export async function generatePackAssets(projectId: string, specs: AssetSpec[], rawDeps: PackAssetDeps): Promise<AssetIndex> {
   validateSpecs(specs);
+  const deps: PackAssetDeps = rawDeps.charge ? { ...rawDeps, charge: serialCharge(rawDeps.charge) } : rawDeps;
   const now = deps.now ?? (() => new Date());
   const digest = specsDigest(specs);
   const previous = await readAssetIndex(projectId, deps);
