@@ -89,4 +89,14 @@ assert.equal(peak, 1, "charges run one at a time");
   assert.equal(n, 1, "one planning call for two simultaneous askers");
   assert.deepEqual(a, b, "both askers see the same plan");
 }
+// the ledger itself refuses a second charge for the same picture: a unique index on the spend ref (migration 034) and an insert that ignores the repeat
+{
+  const { readFileSync } = await import("node:fs");
+  const migration = readFileSync(new URL("../src/db/migrations/034_pack_asset_charge_once.sql", import.meta.url), "utf8");
+  assert.match(migration, /create unique index[\s\S]*token_ledger \(user_id, ref\)[\s\S]*material:pack-asset:/, "the ledger has a unique index on pack-asset spend refs");
+  const store = readFileSync(new URL("../src/tokens/store.ts", import.meta.url), "utf8");
+  assert.match(store, /values \(\$1, \$2, 'spend'[^\n]*on conflict do nothing/, "a repeated spend insert is ignored by the database");
+  const src = readFileSync(new URL("../src/plates/pack-assets.ts", import.meta.url), "utf8");
+  assert.match(src, /\$\{projectId\}:\$\{spec\.name\}:\$\{createHash\("sha256"\)\.update\(spec\.prompt \+ extra\)/, "the charge ref is project + picture key + prompt (an attempt with a redraw note is its own attempt)");
+}
 console.log("pack-reopen: ok");

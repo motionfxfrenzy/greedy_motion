@@ -91,7 +91,7 @@ export async function spendTokens(userId: string, milli: number, reason: string,
     for (const pool of SPEND_ORDER) {
       const take = Math.min(left, have[pool]);
       if (take <= 0) continue;
-      await query("insert into app.token_ledger (user_id, amount, kind, reason, project_id, ref, pool) values ($1, $2, 'spend', $3, $4, $5, $6)", [userId, -take, reason, projectId ?? null, `${event}|${pool}`, pool]);
+      await query("insert into app.token_ledger (user_id, amount, kind, reason, project_id, ref, pool) values ($1, $2, 'spend', $3, $4, $5, $6) on conflict do nothing", [userId, -take, reason, projectId ?? null, `${event}|${pool}`, pool]);
       left -= take;
     }
     return { charged: true, event };
