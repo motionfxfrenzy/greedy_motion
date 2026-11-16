@@ -95,8 +95,9 @@ export function packWords(project: VideoProject): (PackWord[] | undefined)[] {
   });
 }
 
-export function packAssetsInput(project: VideoProject): PackAssetsInput {
+export function packAssetsInput(project: VideoProject, plan?: unknown): PackAssetsInput {
   return {
+    ...(plan ? { plan } : {}),
     projectId: project.id,
     brief: project.brief!,
     beats: (project.brief?.scriptBeats ?? []) as PackAssetsInput["beats"],
@@ -106,9 +107,9 @@ export function packAssetsInput(project: VideoProject): PackAssetsInput {
 }
 
 /** The pack's asset specs for a project (validated), or [] when its template declares none. */
-export function packSpecs(project: VideoProject, pack: TemplatePack | undefined = templatePack(project.brief?.styleExample)): AssetSpec[] {
+export function packSpecs(project: VideoProject, pack: TemplatePack | undefined = templatePack(project.brief?.styleExample), plan?: unknown): AssetSpec[] {
   if (!pack?.assets || !project.brief) return [];
-  const specs = pack.assets(packAssetsInput(project));
+  const specs = pack.assets(packAssetsInput(project, plan));
   validateSpecs(specs);
   return specs;
 }
@@ -417,6 +418,34 @@ async function materialCharge(project: VideoProject): Promise<PackAssetDeps["cha
   return async (usd, ref) => { await spendTokens(owner, materialCostMillitokensV2(usd), "material", `pack-asset:${ref}`, project.id); };
 }
 
+// ------------------------------------------------------------------ a pack's own shot plan
+
+export const shotPlanKey = (projectId: string) => `${assetPrefix(projectId)}shot-plan.json`;
+const planHash = (project: VideoProject) => createHash("sha256").update(JSON.stringify([(project.brief?.scriptBeats ?? []).map((b) => [b.line, b.visual]), project.brief?.scriptNotes ?? null])).digest("hex").slice(0, 16);
+
+/**
+ * The plan of a pack that plans its pictures with one cheap model call (TemplatePack.shotPlan), stored with the project and reused until the
+ * script changes. Anything that goes wrong falls back to the script's own VISUAL lines (the pack's planFromScript), so the film never waits on it.
+ */
+export async function loadShotPlan(project: VideoProject, pack: TemplatePack | undefined, deps: Pick<AssetStorage, "getObject" | "putObject"> & { call?: (request: { system: string; user: string; maxTokens: number }) => Promise<{ text: string; usd: number | null }> }): Promise<unknown | undefined> {
+  if (!pack?.shotPlan || !project.brief?.scriptBeats?.length) return undefined;
+  const hash = planHash(project);
+  const stored = await deps.getObject("uploads", shotPlanKey(project.id)).catch(() => null);
+  if (stored) { try { const v = JSON.parse(stored.toString("utf8")) as { hash?: string; plan?: unknown }; if (v.hash === hash && v.plan) return v.plan; } catch { /* planned again */ } }
+  try {
+    const call = deps.call ?? (await import("./pack-assets-gemini.ts")).geminiShotPlan;
+    const beats = project.brief.scriptBeats, notes = project.brief.scriptNotes ?? null;
+    const reply = await call(pack.shotPlan.request(beats, notes));
+    const plan = pack.shotPlan.parse(reply.text, beats, notes);
+    await deps.putObject("uploads", shotPlanKey(project.id), JSON.stringify({ hash, plan }), "application/json");
+    log("info", "pack_shot_plan", { projectId: project.id, usd: reply.usd });
+    return plan;
+  } catch (error) {
+    log("warn", "pack_shot_plan_failed", { projectId: project.id, message: String((error as Error)?.message ?? error).slice(0, 200) });
+    return undefined;
+  }
+}
+
 // ------------------------------------------------------------------ comments on template-written scenes
 
 export const assetNotesKey = (projectId: string) => `${assetPrefix(projectId)}notes.json`;
@@ -450,8 +479,9 @@ export async function noteScenePictures(project: VideoProject, beatIndex: number
 export async function ensurePackAssets(project: VideoProject, options: { retryFailed?: boolean } = {}): Promise<string | null> {
   const pack = templatePack(project.brief?.styleExample);
   if (!pack?.assets) return null;
-  const { getObject } = await import("../storage.ts");
-  const specs = applyAssetNotes(packSpecs(project, pack), await readAssetNotes(project.id, { getObject }));
+  const { getObject, putObject } = await import("../storage.ts");
+  const plan = await loadShotPlan(project, pack, { getObject, putObject });
+  const specs = applyAssetNotes(packSpecs(project, pack, plan), await readAssetNotes(project.id, { getObject }));
   if (!specs.length) return null;
   const digest = specsDigest(specs);
   const index = await readAssetIndex(project.id, { getObject, putObject: async () => undefined, objectSize: async () => null });
@@ -467,8 +497,9 @@ export async function handlePackAssets(job: Job<AssetsMessage>): Promise<void> {
   const { getProject } = await import("../projects/store.ts");
   const project = await getProject(projectId);
   if (!project?.brief) return;
-  const { getObject } = await import("../storage.ts");
-  const specs = applyAssetNotes(packSpecs(project), await readAssetNotes(project.id, { getObject }));
+  const { getObject, putObject } = await import("../storage.ts");
+  const plan = await loadShotPlan(project, templatePack(project.brief?.styleExample), { getObject, putObject });
+  const specs = applyAssetNotes(packSpecs(project, undefined, plan), await readAssetNotes(project.id, { getObject }));
   if (!specs.length) return;
   if (specsDigest(specs) !== job.data.digest) return; // the beats changed since: a newer message carries the new digest
   try {
@@ -479,3 +510,11 @@ export async function handlePackAssets(job: Job<AssetsMessage>): Promise<void> {
     throw error;
   }
 }
+
+/**
+ * A clip or still drawn before its template pictures were injected (a worker without the picture code, or a clip made while a picture was
+ * missing) shows an empty frame. The worker marks a picture clip with `timings.picturesClip` (control op plate.drawn, when it sent a
+ * pictures cache digest); a scene with pictures and no mark has no usable clip, so the preview plays it live and an export redraws it.
+ */
+export const staleClip = (row: { bundle_manifest?: Record<string, unknown> | null; timings?: Record<string, unknown> | null }): boolean =>
+  Array.isArray(row.bundle_manifest?.assetNames) && (row.bundle_manifest!.assetNames as unknown[]).length > 0 && row.timings?.picturesClip !== true;

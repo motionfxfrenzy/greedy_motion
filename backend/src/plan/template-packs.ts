@@ -50,6 +50,8 @@ export type PackAssetsInput = {
   /** Per beat, its words with times (undefined until the voice exists). */
   words: (PackWord[] | undefined)[];
   aspect: "9:16" | "16:9" | "1:1";
+  /** A pack's own shot plan when it asked for one (TemplatePack.shotPlan): read by its assets step. */
+  plan?: unknown;
 };
 
 /** What a pack's `sceneCode` sees: one beat, its length, its word times and the asset names it may use. */
@@ -78,6 +80,8 @@ export type TemplatePack = {
   sketchDirection?: string;
   /** The scenes are the pictures themselves, so the storyboard shows a plain key-phrase card per beat and makes no sketch model call (and no sketch charge). */
   noSketches?: boolean;
+  /** One cheap model call after the script that plans every picture (request -> reply -> parse). The parsed plan reaches `assets` as `input.plan`. */
+  shotPlan?: { request: (beats: readonly ScriptBeat[], notes: unknown) => { system: string; user: string; maxTokens: number }; parse: (reply: string, beats: readonly ScriptBeat[], notes: unknown) => unknown };
   /** The cast kit and pictures for code-drawn scenes (read on first use). */
   scenes?: () => PackScenes;
   /** Each scene module exports `sounds: { kind, frame }[]` (kinds in SCENE_SOUND_KINDS), mixed on the frame its action lands. */

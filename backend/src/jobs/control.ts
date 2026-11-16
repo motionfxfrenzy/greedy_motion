@@ -367,7 +367,7 @@ export const operations: Record<string, (a: Args) => Promise<unknown>> = {
     return tx(async (client) => {
       const r = await client.query(
         `${plateFence("state = 'drawn', stage = null, frames_done = frames, clip_key = $4, still_key = $5, clip_meta = $6::jsonb, error = null, drawn_at = now(), timings = (timings - 'retrying') || $7::jsonb")} returning *`,
-        [id, gen, renderAttempt, clipKey, stillKey, JSON.stringify(clipMeta ?? {}), JSON.stringify(timings ?? {})]
+        [id, gen, renderAttempt, clipKey, stillKey, JSON.stringify(clipMeta ?? {}), JSON.stringify({ ...(timings ?? {}), ...(typeof cacheDigest === "string" && cacheDigest ? { picturesClip: true } : {}) })]
       );
       if (r.rowCount === 1) {
         const updated = r.rows[0]!;

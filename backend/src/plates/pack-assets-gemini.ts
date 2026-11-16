@@ -49,3 +49,15 @@ export async function geminiTextCheck(image: Buffer, mime: string): Promise<{ ex
   const words = Array.isArray(parsed.words) ? parsed.words.map(String).filter((w) => w.trim()) : [];
   return { extra: words, usd: reply.usd ?? null };
 }
+
+/** One cheap call for a pack's shot plan (TemplatePack.shotList): the reply text and its cost. */
+export async function geminiShotPlan(request: { system: string; user: string; maxTokens: number }): Promise<{ text: string; usd: number | null }> {
+  const reply = await callModel({
+    step: "director",
+    route: { step: "director", provider: "gemini", model: TEXT_CHECK_MODEL, maxTokens: request.maxTokens, explicit: false },
+    system: request.system,
+    messages: [{ role: "user", content: request.user }],
+    errorPrefix: "Shot plan failed"
+  });
+  return { text: reply.text, usd: reply.usd ?? null };
+}

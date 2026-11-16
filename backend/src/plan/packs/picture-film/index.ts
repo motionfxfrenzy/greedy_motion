@@ -49,7 +49,7 @@ THE STRUCTURE, in this order (fit it to the length):
 REAL FACTS ONLY: every number, place, year and finding must be true and widely documented. Name a real researcher or institution only when you are certain they exist and did that work; otherwise say "doctors", "researchers" or "studies". Never invent a name, number, date or study. If you are unsure of a number, leave it out.
 
 RHYTHM:
-- LENGTH: about 185 spoken words a minute of film (60 s = about 185 words, 14 to 20 beats). The narrator reads briskly with no long pauses.
+- LENGTH: unless the person asks for another length, write a 60-second film: 175 to 200 spoken words in 14 to 20 beats (185 words a minute; never under 150 words). A film of N seconds has about N x 3 words. The narrator reads briskly with no long pauses. Count your words before you answer and keep writing until you reach the length.
 - One sentence per beat, 6 to 15 words, one new fact per sentence. Plain spoken words, contractions. No "let's dive in", no "in this video", no hype, no exclamation marks, no jokes that need a laugh track.
 - Every sentence must be drawable as simple pictures (a person, an object, a cross-section, a map, a number).
 
@@ -88,12 +88,13 @@ export const pictureFilm: TemplatePack & {
   sketchDirection: "Style guide: the template \"Illustrated facts\". A hand-drawn cartoon explainer still: clean dark outlines, flat warm fills (grass green, sky blue, tan, cream), stick figures with a big round white head, lots of empty space, eye level. One idea per picture. Red arrows and green checks only as annotations. At most one 1-3 word hand-lettered capital label that is spoken in the line; no other words.",
   sceneSounds: false,
   noSketches: true,
+  shotPlan: { request: (beats, notes) => shotListRequest(beats, notes as never), parse: (reply, beats, notes) => parseShotList(reply, beats, notes as never) },
   // The reference has no captions: its only words are the labels drawn in the pictures. Smallest product setting, low in the frame.
   captions: { wordsPerCue: 3, style: "shadow", size: 48, y: 88 },
   // Tight like the reference: sentence gaps ~0.2 s, no title beat (BEAT keys are never all capitals), a short tail.
   pacing: { gap: 0.12, long: 0.3, beforeLast: 0.3, tail: 0.8, min: 0.6, titleMin: 0.9 },
   shotList: { fromScript: planFromScript, request: shotListRequest, parse: parseShotList },
-  assets: (input) => pictureFilmAssets(input),
+  assets: (input) => pictureFilmAssets(input as Parameters<typeof pictureFilmAssets>[0]),
   sceneAssets: (beatIndex, beats) => shotNames(beatIndex, beats[beatIndex]?.line),
   sceneCode: (input) => pictureFilmScene(input)
 };

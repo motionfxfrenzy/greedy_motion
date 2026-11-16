@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ensurePackAssets, noteScenePictures } from "./pack-assets.ts";
+import { ensurePackAssets, noteScenePictures, staleClip } from "./pack-assets.ts";
 import { templatePack } from "../plan/template-packs.ts";
 import type { VideoProject } from "@videosaas/contracts";
 import { config } from "../config.ts";
@@ -22,9 +22,10 @@ async function plateProject(projectId: string) {
   return project;
 }
 
-const clipVersion = (v: VariantRow) => (v.clip_key ? createHash("md5").update(v.clip_key).digest("hex").slice(0, 10) : null);
+const clipVersion = (v: VariantRow) => (v.clip_key && !staleClip(v) ? createHash("md5").update(v.clip_key).digest("hex").slice(0, 10) : null);
 /** timings.playback = { mode: "clip", reason: "slow", medianMs, gen, digest } is written by submitCheckReport; honoured only for the same bundle. */
 const playbackOf = (v: VariantRow): { playback: "clip"; drawMsPerFrame: number } | undefined => {
+  if (staleClip(v)) return undefined;
   const p = (v.timings as Record<string, any> | undefined)?.playback;
   return p && p.mode === "clip" && p.digest && p.digest === v.bundle_digest && p.gen === v.gen ? { playback: "clip", drawMsPerFrame: Number.isFinite(Number(p.medianMs)) ? Math.round(Number(p.medianMs) * 10) / 10 : 0 } : undefined;
 };
@@ -165,7 +166,9 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
     const allDisplayAspects = [...new Set<Aspect>([...mergedAspects, ...variants.map((v) => v.aspect)])];
     // A template pack's scene sounds (scene-sounds.ts; read once per stored module), so the preview mixes what the export mixes.
     const soundsByRow = await sceneSoundsByRow(project, [...matched.values()].map((m) => m.row));
-    const soundsOf = (row: VariantRow) => (soundsByRow.has(row.id) ? { sounds: soundsByRow.get(row.id)! } : {});
+    // A template that declares no sounds (picture-film) plays none in the preview either: an empty list stops the keyword sounds.
+    const silentPack = templatePack(project.brief?.styleExample)?.sceneSounds === false;
+    const soundsOf = (row: VariantRow) => (silentPack ? { sounds: [] as never[] } : soundsByRow.has(row.id) ? { sounds: soundsByRow.get(row.id)! } : {});
 
     const primaryEtaRows: SceneEtaRow[] = Array.from({ length: sceneCount }, (_, index) => {
       const dPrimary = desiredByKey.get(`${index}:${primary}`)!;

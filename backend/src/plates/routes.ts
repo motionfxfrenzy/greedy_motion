@@ -21,7 +21,7 @@ import { projectOwner, getProject } from "../projects/store.ts";
 import { PLANS, isAnimationTier } from "../tokens/plan.ts";
 import { InsufficientTokens } from "../tokens/store.ts";
 import { getObject, objectSize, presignKey, safeDownloadFilename, slugifyProjectDownloadStem, type Bucket } from "../storage.ts";
-import { parseAssetRef, resolveSceneAssets } from "./pack-assets.ts";
+import { parseAssetRef, resolveSceneAssets, staleClip } from "./pack-assets.ts";
 import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
 import { desiredVariants, isPlateLook } from "./inputs.ts";
@@ -374,7 +374,7 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     const { id, index } = request.params;
     if (!uuid.test(id) || !/^\d{1,2}$/.test(index)) return reply.code(404).send(notFound);
     const row = await resolveCompatibleVariant(id, Number(index), request.query.aspect);
-    let clipKey = row?.clip_key ?? null;
+    let clipKey = row && !staleClip(row) ? row.clip_key ?? null : null;
     // The shared clip cache is keyed by bundle digest alone: a scene with template pictures never borrows from it (its pictures are its own).
     if (!clipKey && row?.bundle_digest && !Array.isArray(row.bundle_manifest?.assetNames)) {
       const cached = await getCachedClip(row.bundle_digest, row.width, row.height);
@@ -389,7 +389,7 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
     const { id, index } = request.params;
     if (!uuid.test(id) || !/^\d{1,2}$/.test(index)) return reply.code(404).send(notFound);
     const row = await resolveCompatibleVariant(id, Number(index), request.query.aspect);
-    let stillKey = row?.still_key ?? null;
+    let stillKey = row && !staleClip(row) ? row.still_key ?? null : null;
     // The shared clip cache is keyed by bundle digest alone: a scene with template pictures never borrows from it (its pictures are its own).
     if (!stillKey && row?.bundle_digest && !Array.isArray(row.bundle_manifest?.assetNames)) {
       const cached = await getCachedClip(row.bundle_digest, row.width, row.height);
