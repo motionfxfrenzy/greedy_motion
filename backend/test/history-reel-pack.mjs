@@ -92,5 +92,11 @@ assert.deepEqual(packScriptIssues(pack, bad).map((x) => x.index), [3, 15]);
   assert.equal(pack.musicFor({ idea: "a story" }), null);
 }
 assert.equal(pack.noSketches, true, "no storyboard reference-sketch step for this template");
+// The animate route must honour it too: it used to sketch every beat (placeholders are never saved), so the "no sketches" template still paid for ten Gemini frame calls.
+{
+  const { readFileSync } = await import("node:fs");
+  const routes = readFileSync(new URL("../src/plan/routes.ts", import.meta.url), "utf8");
+  assert.match(routes, /const missingFrames = noSketches \? \[\]/, "animate draws no reference sketches for a noSketches template");
+}
 assert.ok(pack.assets({ beats: [{ visual: "[gorge] wide, x", line: "x" }], brief: { scriptNotes: { places: "gorge = a gorge" } }, aspect: "9:16" }).every((s) => s.noFigures), "every set is checked for figures");
 console.log("history-reel pack: places, pictures, kit, author prompt and script rules: ok");

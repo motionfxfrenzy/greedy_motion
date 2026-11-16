@@ -1926,7 +1926,9 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       );
       const keyFor = (index: number) => scriptFrameKey(beats[index]!, brief);
       const savedFrames = new Map((project.scriptFrames ?? []).map((frame) => [frame.key, frame.svg]));
-      const missingFrames = beats.map((_, i) => i).filter((i) => forceSet.has(i) || !savedFrames.has(keyFor(i)));
+      // A template whose scenes are its own pictures draws no reference sketches here either (the storyboard already shows plain key-phrase cards).
+      const noSketches = Boolean(templatePack(brief.styleExample)?.noSketches);
+      const missingFrames = noSketches ? [] : beats.map((_, i) => i).filter((i) => forceSet.has(i) || !savedFrames.has(keyFor(i)));
       if (missingFrames.length > 0) {
         const template = brief.styleExample ? findGalleryTemplate(brief.styleExample) : undefined;
         const code = template?.reference ? await readGalleryText(template.reference) : null;
