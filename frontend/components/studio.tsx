@@ -1569,7 +1569,7 @@ export function Studio() {
       onRender={async () => { if (await submit()) setView("create"); }}
       onBack={() => setView("create")}
       screenshotUrl={projectScreenshotUrl}
-    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, statusStep(project), project.beatPlan || (canvas && (!isFilmBrief(brief) || step !== SCRIPT_STYLE)) ? STORYBOARD : SCRIPT_STYLE, project.renderJobId && (project.state === "Ready for review" || project.state === "Revisions needed") ? REVIEW : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} />
+    /> : null : view === "create" ? <><CreationHeader name={project?.name ?? "Untitled video"} state={project?.state ?? "Ready to create"} step={step} back={() => setView("projects")} reachable={project ? Math.max(step, animating ? RENDER : SCRIPT_STYLE, statusStep(project), project.beatPlan || (canvas && (!isFilmBrief(brief) || step !== SCRIPT_STYLE)) ? STORYBOARD : SCRIPT_STYLE, project.renderJobId && (project.state === "Ready for review" || project.state === "Revisions needed") ? REVIEW : SCRIPT_STYLE) : step} go={(target) => setStep(target as Step)} openStudio={project?.script && !project.beatPlan ? openStudio : undefined} />
       {error && step !== SCRIPT_STYLE && !(step === STORYBOARD && canvas) && step !== RENDER && step !== REVIEW && <p className="workspace-error">{error}</p>}
       {step === STORYBOARD && canvas && <ScriptCanvas
         projectId={project?.id ?? draftId ?? undefined}
