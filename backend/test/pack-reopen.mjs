@@ -56,4 +56,37 @@ let running = 0, peak = 0;
 const charge = pa.serialCharge(async () => { running += 1; peak = Math.max(peak, running); await new Promise((r) => setTimeout(r, 5)); running -= 1; });
 await Promise.all([1, 2, 3, 4, 5].map((i) => charge(0.01, "r" + i)));
 assert.equal(peak, 1, "charges run one at a time");
+// a restart part way through never draws a stored picture again and never charges one twice
+{
+  const store2 = new Map(), ledger = new Map(); // ledger: ref -> times charged (the real ledger refuses a repeated ref)
+  let draws = 0, crashAfter = 3, calls = 0;
+  const mk = () => ({
+    getObject: async (_b, k) => store2.get(k) ?? null, putObject: async (_b, k, v) => { store2.set(k, Buffer.from(v)); }, objectSize: async (_b, k) => store2.get(k)?.length ?? null,
+    image: async (p) => { calls += 1; if (crashAfter && calls > crashAfter) throw new Error("process died"); draws += 1; return { data: Buffer.from("img:" + p), mime: "image/jpeg" }; },
+    checkText: async () => ({ extra: [], usd: 0 }), enqueueDepth: async () => {},
+    charge: async (usd, ref) => { ledger.set(ref, (ledger.get(ref) ?? 0) + 1); }, parallel: 1
+  });
+  const specs2 = [{ name: "style", prompt: "s", aspect: "9:16", noText: true }, ...[1, 2, 3, 4, 5, 6].map((n) => ({ name: "shot-" + n, prompt: "p" + n, aspect: "9:16", refs: ["style"], noText: true }))];
+  const PID3 = "11111111-2222-3333-4444-555555555557";
+  await assert.rejects(pa.generatePackAssets(PID3, specs2, mk()), /process died/);
+  const drawnBefore = draws;
+  crashAfter = 0; calls = 0;
+  await pa.generatePackAssets(PID3, specs2, mk()); // the restarted job
+  assert.equal(draws, specs2.length, "every picture is drawn exactly once across both runs (" + draws + " draws for " + specs2.length + " pictures; " + drawnBefore + " before the crash)");
+  assert.ok([...ledger.values()].every((n) => n === 1), "no picture is charged twice");
+  assert.equal(ledger.size, specs2.length, "every picture is charged once");
+  // and a third run (another restart after success) changes nothing
+  const draws3 = draws; await pa.generatePackAssets(PID3, specs2, mk());
+  assert.equal(draws, draws3, "a finished film is never drawn again");
+}
+// the shot plan is asked for once even when two steps ask at the same time (two answers = two sets of prompts = every picture twice)
+{
+  const store3 = new Map();
+  const dd = { getObject: async (_b, k) => store3.get(k) ?? null, putObject: async (_b, k, v) => { store3.set(k, Buffer.from(v)); } };
+  let n = 0; const slow = async () => { n += 1; await new Promise((r) => setTimeout(r, 20)); return { text: JSON.stringify({ characters: [], sets: [{ id: "x" + n, look: "l" }], shots: [] }), usd: 0 }; };
+  const proj = { id: "11111111-2222-3333-4444-555555555558", brief: { scriptBeats: [{ keyword: "k", line: "one two three four five six seven", visual: "wide x: y", onScreen: null }], scriptNotes: null } };
+  const [a, b] = await Promise.all([pa.loadShotPlan(proj, templatePack("picture-film"), { ...dd, call: slow }), pa.loadShotPlan(proj, templatePack("picture-film"), { ...dd, call: slow })]);
+  assert.equal(n, 1, "one planning call for two simultaneous askers");
+  assert.deepEqual(a, b, "both askers see the same plan");
+}
 console.log("pack-reopen: ok");

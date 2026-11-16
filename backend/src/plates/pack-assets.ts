@@ -452,7 +452,18 @@ const planHash = (project: VideoProject) => createHash("sha256").update(JSON.str
  * The plan of a pack that plans its pictures with one cheap model call (TemplatePack.shotPlan), stored with the project and reused until the
  * script changes. Anything that goes wrong falls back to the script's own VISUAL lines (the pack's planFromScript), so the film never waits on it.
  */
-export async function loadShotPlan(project: VideoProject, pack: TemplatePack | undefined, deps: Pick<AssetStorage, "getObject" | "putObject"> & { call?: (request: { system: string; user: string; maxTokens: number }) => Promise<{ text: string; usd: number | null }> }): Promise<unknown | undefined> {
+const planFlights = new Map<string, Promise<unknown | undefined>>();
+export function loadShotPlan(project: VideoProject, pack: TemplatePack | undefined, deps: Pick<AssetStorage, "getObject" | "putObject"> & { call?: (request: { system: string; user: string; maxTokens: number }) => Promise<{ text: string; usd: number | null }> }): Promise<unknown | undefined> {
+  // One planning call per project and script at a time: the enqueue step and the asset job both ask for the plan right after the script,
+  // and two model calls give two different plans, which gives two different sets of picture prompts (every picture drawn and charged twice).
+  const key = `${project.id}:${planHash(project)}`;
+  const running = planFlights.get(key);
+  if (running) return running;
+  const flight = loadShotPlanOnce(project, pack, deps).finally(() => planFlights.delete(key));
+  planFlights.set(key, flight);
+  return flight;
+}
+async function loadShotPlanOnce(project: VideoProject, pack: TemplatePack | undefined, deps: Pick<AssetStorage, "getObject" | "putObject"> & { call?: (request: { system: string; user: string; maxTokens: number }) => Promise<{ text: string; usd: number | null }> }): Promise<unknown | undefined> {
   if (!pack?.shotPlan || !project.brief?.scriptBeats?.length) return undefined;
   const hash = planHash(project);
   const stored = await deps.getObject("uploads", shotPlanKey(project.id)).catch(() => null);
@@ -462,6 +473,9 @@ export async function loadShotPlan(project: VideoProject, pack: TemplatePack | u
     const beats = project.brief.scriptBeats, notes = project.brief.scriptNotes ?? null;
     const reply = await call(pack.shotPlan.request(beats, notes));
     const plan = pack.shotPlan.parse(reply.text, beats, notes);
+    // another process may have stored the plan for this script while the call ran: theirs wins, so every reader sees the same one
+    const winner = await deps.getObject("uploads", shotPlanKey(project.id)).catch(() => null);
+    if (winner) { try { const w = JSON.parse(winner.toString("utf8")) as { hash?: string; plan?: unknown }; if (w.hash === hash && w.plan) return w.plan; } catch { /* ours */ } }
     await deps.putObject("uploads", shotPlanKey(project.id), JSON.stringify({ hash, plan }), "application/json");
     log("info", "pack_shot_plan", { projectId: project.id, usd: reply.usd });
     return plan;

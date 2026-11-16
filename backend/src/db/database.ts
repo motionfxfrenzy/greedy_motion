@@ -7,8 +7,66 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { config } from "../config.ts";
 
-export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: config.databasePoolSize });
+/** A request must never wait forever for a connection: acquiring one times out and the error names who asked (see instrumentPool). */
+export const POOL_ACQUIRE_TIMEOUT_MS = Number.parseInt(process.env.DATABASE_ACQUIRE_TIMEOUT_MS ?? "10000", 10) || 10_000;
+export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: config.databasePoolSize, connectionTimeoutMillis: POOL_ACQUIRE_TIMEOUT_MS });
 pool.on("error", (error) => console.error(JSON.stringify({ level: "error", event: "postgres_pool_error", message: error.message })));
+
+// ---------- Diagnostics: who holds the pool, and who waits on a lock while holding a connection ----------
+const dbLog = (level: string, event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ level, event, ...fields }));
+/** The first stack frame outside this file, so a log line says which function asked for the connection. */
+const callerOf = (): string => (new Error().stack ?? "").split("\n").slice(2).map((l) => l.trim()).find((l) => !l.includes("db/database.ts") && !l.includes("node:internal")) ?? "unknown";
+type Held = { caller: string; since: number; locks: string[] };
+const held = new Set<Held>();
+export function poolStats() {
+  return {
+    total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount, max: config.databasePoolSize,
+    holders: [...held].map((h) => ({ caller: h.caller, heldMs: Date.now() - h.since, locks: h.locks })).sort((a, b) => b.heldMs - a.heldMs).slice(0, 12)
+  };
+}
+const LOCK_SQL = /pg_advisory(?:_xact)?_lock/;
+function instrumentClient(client: pg.PoolClient, caller: string): void {
+  const entry: Held = { caller, since: Date.now(), locks: [] };
+  held.add(entry);
+  const query = client.query.bind(client) as (...args: unknown[]) => unknown;
+  (client as unknown as { query: (...args: unknown[]) => unknown }).query = (...args: unknown[]) => {
+    const text = typeof args[0] === "string" ? args[0] : (args[0] as { text?: string } | undefined)?.text ?? "";
+    if (!LOCK_SQL.test(text)) return query(...args);
+    const key = String(Array.isArray(args[1]) ? args[1][0] : text.slice(0, 60));
+    const started = Date.now();
+    entry.locks.push(key + " (waiting)");
+    const result = query(...args) as Promise<unknown>;
+    return result.finally(() => {
+      const waited = Date.now() - started;
+      entry.locks[entry.locks.length - 1] = key;
+      if (waited > 200) dbLog("warn", "db_lock_wait", { key, waitedMs: waited, caller, heldByOthers: [...held].filter((h) => h !== entry && h.locks.includes(key)).slice(0, 4).map((h) => ({ caller: h.caller, heldMs: Date.now() - h.since })) });
+    });
+  };
+  const release = client.release.bind(client);
+  client.release = (err?: Error | boolean) => {
+    held.delete(entry);
+    const heldMs = Date.now() - entry.since;
+    if (entry.locks.length && heldMs > 500) dbLog("warn", "db_lock_held", { locks: entry.locks, heldMs, caller });
+    return release(err);
+  };
+}
+const rawConnect = pool.connect.bind(pool) as (cb?: unknown) => unknown;
+(pool as unknown as { connect: (cb?: unknown) => unknown }).connect = (cb?: unknown) => {
+  const caller = callerOf();
+  const requested = Date.now();
+  const noteTimeout = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/timeout exceeded when trying to connect/i.test(message)) dbLog("error", "db_acquire_timeout", { caller, waitedMs: Date.now() - requested, ...poolStats() });
+  };
+  if (typeof cb === "function") {
+    return rawConnect((err: Error | undefined, client: pg.PoolClient | undefined, done: () => void) => {
+      if (err) noteTimeout(err); else if (client) instrumentClient(client, caller);
+      (cb as (e: Error | undefined, c: pg.PoolClient | undefined, d: () => void) => void)(err, client, done);
+    });
+  }
+  return (rawConnect() as Promise<pg.PoolClient>).then((client) => { instrumentClient(client, caller); return client; }, (error) => { noteTimeout(error); throw error; });
+};
+setInterval(() => { dbLog("info", "pool_stats", poolStats()); }, 10_000).unref();
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "migrations");
 // Any constant shared by every backend replica; serializes concurrent startups.
@@ -43,12 +101,27 @@ export async function migrate() {
   }
 }
 
-export async function databaseReady() {
+// The readiness probe uses its own single connection, so it never queues behind work in the pool (the pool being starved is exactly
+// what it must report, with the pool's numbers, not hang on).
+let probe: pg.Client | null = null;
+async function probeClient(): Promise<pg.Client> {
+  if (probe) return probe;
+  const client = new pg.Client({ connectionString: config.databaseUrl, connectionTimeoutMillis: 5000, query_timeout: 4000 });
+  client.on("error", () => { if (probe === client) probe = null; });
+  await client.connect();
+  probe = client;
+  return client;
+}
+export async function databaseReady(): Promise<{ ok: boolean; pool: ReturnType<typeof poolStats> }> {
   try {
-    await pool.query("select 1");
-    return true;
-  } catch {
-    return false;
+    await (await probeClient()).query("select 1");
+    const stats = poolStats();
+    return { ok: true, pool: stats };
+  } catch (error) {
+    const old = probe; probe = null; void old?.end().catch(() => undefined);
+    const stats = poolStats();
+    dbLog("error", "readyz_timeout", { message: error instanceof Error ? error.message : String(error), ...stats });
+    return { ok: false, pool: stats };
   }
 }
 

@@ -81,8 +81,9 @@ app.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLi
 
 app.get("/healthz", async () => ({ status: "ok", service: "backend" }));
 app.get("/readyz", async (_request, reply) => {
-  const ready = await databaseReady();
-  return reply.code(ready ? 200 : 503).send({ ready, database: ready });
+  const { ok, pool: stats } = await databaseReady();
+  // pool: connections in use / idle / waiting for one: a pool that is full with waiters is the hang this probe exists to show
+  return reply.code(ok ? 200 : 503).send({ ready: ok, database: ok, pool: { total: stats.total, idle: stats.idle, waiting: stats.waiting, max: stats.max } });
 });
 
 const projectError = (request: import("fastify").FastifyRequest, reply: { code: (n: number) => { send: (b: unknown) => unknown } }, error: unknown) => {
