@@ -91,7 +91,7 @@ export type TemplatePack = {
   /** Scene pacing for plate films: a voiced scene is its line plus `gap` (seconds), longer around the title beat and before the last line, never rounded up, at least `min`. */
   pacing?: { gap: number; long: number; beforeLast: number; tail: number; min: number; titleMin: number };
   /** Script rules checked after writing; lines that break them are rewritten once (packScriptIssues). */
-  scriptRules?: { maxWords: number; lastMaxWords: number; shortShare: number; forbidden: RegExp; /** Shot sizes named in each VISUAL (`[place] wide|medium|close`): at least `wideShare` wide or medium, at most `closeShare` close. */ shotMix?: { wideShare: number; closeShare: number } };
+  scriptRules?: { maxWords: number; lastMaxWords: number; shortShare: number; forbidden: RegExp; /** The film must have at least this many spoken words (a script that lets the story decide its length); a fixed length asks for 2.7 words a second. */ minWords?: number; /** Shot sizes named in each VISUAL (`[place] wide|medium|close`): at least `wideShare` wide or medium, at most `closeShare` close. */ shotMix?: { wideShare: number; closeShare: number } };
   /** Problems in an authored scene module (null/empty = fine), checked before bundling; a scene that breaks them is repaired once with these messages. */
   sceneIssues?: (code: string, beat: ScriptBeat | undefined) => string[];
   /** Pictures generated for the project once the beats exist (plates/pack-assets.ts), in order so `refs` resolve. */
@@ -154,7 +154,7 @@ export function registerTemplatePack(pack: TemplatePack): () => void {
  * rewrites just these beats once, before the person sees the finished script. Short-line share: when fewer than `shortShare` of the lines
  * are four words or fewer, the longest non-title lines are asked to become short ones.
  */
-export function packScriptIssues(pack: TemplatePack | undefined, beats: { keyword: string; line?: string | null; visual?: string | null }[]): { index: number; message: string }[] {
+export function packScriptIssues(pack: TemplatePack | undefined, beats: { keyword: string; line?: string | null; visual?: string | null }[], target?: { seconds: number | null }): { index: number; message: string }[] {
   const rules = pack?.scriptRules;
   if (!rules || !beats.length) return [];
   const words = (text: string | null | undefined) => (text ?? "").trim().split(/\s+/).filter(Boolean).length;
@@ -168,6 +168,17 @@ export function packScriptIssues(pack: TemplatePack | undefined, beats: { keywor
     else if (count > rules.maxWords) out.set(index, `This line has ${count} words; keep it to ${rules.maxWords} or fewer.`);
     if (isTitle(beat.keyword) && /\b(empty|blank|text|title|words?|letters?)\b/i.test(beat.visual ?? "")) out.set(index, "The title beat's VISUAL must be the opening fable shot redrawn and dimmed (the flock and the marked one), not an empty or text frame.");
   });
+  if (rules.minWords) {
+    const need = target?.seconds ? Math.round(target.seconds * 2.7) : rules.minWords;
+    const total = beats.reduce((n, beat) => n + words(beat.line), 0);
+    let deficit = need - total;
+    // too short: lengthen the shortest beats (never the first or the last), each by about eight words, until the film is long enough
+    for (const x of beats.map((beat, index) => ({ index, count: words(beat.line) })).filter((x) => x.index !== 0 && x.index !== last && !out.has(x.index)).sort((a, b) => a.count - b.count)) {
+      if (deficit <= 0) break;
+      out.set(x.index, `The film has ${total} words and needs ${need}: write this line about ${x.count + 8} words, adding one concrete fact (a number, a place or a year). Keep its idea and its place in the story.`);
+      deficit -= 8;
+    }
+  }
   if (rules.shotMix) {
     const size = (beat: { visual?: string | null }) => /^\s*\[[^\]]*\]\s*(wide|medium|close)/i.exec(beat.visual ?? "")?.[1]?.toLowerCase() ?? null;
     const sizes = beats.map(size);

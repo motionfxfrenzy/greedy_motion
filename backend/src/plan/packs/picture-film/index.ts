@@ -55,7 +55,7 @@ RHYTHM:
 
 PER BEAT:
 - BEAT: the line's key words in normal case, at most 4 words (never all capitals).
-- VISUAL: the beat's pictures, one per ~6 spoken words (round(words / 6), 1 to 4), separated by " / ", in order, each "<framing> <set>: <what is drawn> [LABEL]":
+- VISUAL: the beat's pictures, one per ~6 spoken words (round(words / 6), 1 to 6), separated by " / ", in order, each "<framing> <set>: <what is drawn> [LABEL]":
   framing is wide (whole set), close (a tighter redrawn view of the same set, reads as a zoom-in), cutaway (side-on cross-section) or insert (a number, map, calendar or bar on the card set);
   "pop: <what is added>" instead means the picture before it with one thing added or changed (a label, an arrow, a prop or a pose), about 1 picture in 6;
   [LABEL] is optional: 1 to 3 capital words copied from the words spoken during that picture (a spoken number may be digits), on about 60% of pictures; never a word that is not spoken then.
@@ -90,8 +90,10 @@ export const pictureFilm: TemplatePack & {
   noSketches: true,
   shotPlan: { request: (beats, notes) => shotListRequest(beats, notes as never), parse: (reply, beats, notes) => parseShotList(reply, beats, notes as never) },
   // The reference has no captions: its only words are the labels drawn in the pictures. Smallest product setting, low in the frame.
-  captions: { wordsPerCue: 3, style: "shadow", size: 48, y: 88 },
+  captions: { wordsPerCue: 3, style: "shadow", size: 76, y: 86 },
   // Tight like the reference: sentence gaps ~0.2 s, no title beat (BEAT keys are never all capitals), a short tail.
+  // the film must be long enough (a script that lets the story decide holds at least 160 words; a fixed length asks 2.7 words a second): short drafts are lengthened once
+  scriptRules: { maxWords: 34, lastMaxWords: 34, shortShare: 0, forbidden: /(?!)/, minWords: 160 },
   pacing: { gap: 0.12, long: 0.3, beforeLast: 0.3, tail: 0.8, min: 0.6, titleMin: 0.9 },
   shotList: { fromScript: planFromScript, request: shotListRequest, parse: parseShotList },
   assets: (input) => pictureFilmAssets(input as Parameters<typeof pictureFilmAssets>[0]),

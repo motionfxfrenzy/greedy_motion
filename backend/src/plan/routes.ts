@@ -1014,7 +1014,8 @@ export async function registerPlanRoutes(app: FastifyInstance) {
       if (beats.length === 0) throw new Error("The script came back empty. Try again.");
       // A template with script rules (TemplatePack.scriptRules): lines that break them are rewritten once, before the person sees the script.
       const pack = templatePack(parsed.brief.styleExample);
-      const issues = !instruction ? packScriptIssues(pack, beats) : [];
+      const target = { seconds: parsed.brief.durationMode === "script" ? null : parsed.brief.durationSeconds };
+      const issues = !instruction ? packScriptIssues(pack, beats, target) : [];
       if (issues.length) {
         try {
           const fixOnly = issues.map((issue) => issue.index);
@@ -1023,7 +1024,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           for await (const chunk of writeScript({ brief: parsed.brief, context, instruction: fixInstruction, previous: beats, notes: plan, only: fixOnly }, controller.signal)) fixText += chunk;
           const fixed = finishScript(fixText, parsed.brief, context, { previous: beats, only: fixOnly, notes: plan });
           if (fixed.beats.length === beats.length) ({ beats, notes: plan, flags } = { beats: fixed.beats, notes: fixed.notes ?? plan, flags: fixed.flags });
-          app.log.info({ event: "script_pack_fix", projectId: project.id, pack: pack?.id, fixed: fixOnly.length, left: packScriptIssues(pack, beats).length }, "script pack rules fixed");
+          app.log.info({ event: "script_pack_fix", projectId: project.id, pack: pack?.id, fixed: fixOnly.length, left: packScriptIssues(pack, beats, target).length }, "script pack rules fixed");
         } catch (error) {
           if (controller.signal.aborted) throw error;
           app.log.warn({ event: "script_pack_fix_failed", projectId: project.id, err: error instanceof Error ? error.message : String(error) }, "script pack fix failed; keeping the first draft");

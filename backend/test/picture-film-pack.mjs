@@ -19,6 +19,8 @@ assert.ok(pack.voice.direction.length <= 200, "voice direction fits the 200-char
 assert.equal(pack.music, "", "no music, as in the reference");
 assert.equal(pack.noSketches, true, "scenes are the pictures: no storyboard sketch calls");
 assert.equal(pack.sceneSounds, false);
+assert.ok(pack.scriptRules.minWords >= 150, "a short script is lengthened");
+assert.ok(pack.captions.size >= 70, "readable captions");
 assert.ok(pack.pacing.gap <= 0.15 && pack.pacing.min <= 0.6, "tight pacing");
 for (const part of ["PLAN FIRST", "OBJECTS: cast:", "| sets:", "REAL FACTS ONLY", "three possible outcomes", "round(words / 6)", "pop:", "[LABEL]", "SCREEN: -"]) assert.ok(pack.scriptVoice.includes(part), `script voice has ${part}`);
 assert.equal(typeof pack.assets, "function");
@@ -29,7 +31,7 @@ assert.equal(typeof pack.sceneCode, "function");
 assert.equal(pf.shotNames(0, "").length, 1);
 assert.equal(pf.shotNames(0, "It cried.").length, 1);
 assert.equal(pf.shotNames(2, "You are walking down the street, chewing a fresh piece of mint gum.").join(), "shot-03-1,shot-03-2");
-assert.equal(pf.shotNames(0, Array(60).fill("w").join(" ")).length, 4, "at most 4 stills a beat");
+assert.equal(pf.shotNames(0, Array(60).fill("w").join(" ")).length, 6, "at most 6 stills a beat (a long line never stays on one picture for more than ~3.5 s)");
 const gum = pf.shotSlots(0, "You are walking down the street, chewing a fresh piece of mint gum.");
 assert.deepEqual(gum.map((s) => s.text), ["You are walking down the street,", "chewing a fresh piece of mint gum."], "split after the comma (as the test's shots 1 and 2)");
 const three = "Does it dissolve in stomach acid, stick for seven years, or block your gut?".split(" ");
@@ -158,5 +160,15 @@ for (const aspect of ["9:16", "16:9"]) {
   assert.ok(html.length > 1000 && /shot-01-2/.test(html), `the ${aspect} module bundles`);
   assert.equal(manifest.frames, 109);
   assert.equal(manifest.width, aspect === "9:16" ? 1080 : 1920);
+}
+// a short script is sent back for lengthening: the shortest middle lines grow until the film reaches its minimum
+{
+  const { packScriptIssues } = await import("../src/plan/template-packs.ts");
+  const short = Array.from({ length: 11 }, (_, i) => ({ keyword: "k" + i, line: Array(10 + (i % 3)).fill("w").join(" "), visual: "wide street: x" }));
+  const issues = packScriptIssues(pack, short);
+  assert.ok(issues.length >= 3 && issues.every((x) => x.index !== 0 && x.index !== 10 && /needs 160/.test(x.message)), "about 24 missing words: three or more middle lines are lengthened");
+  assert.equal(packScriptIssues(pack, short, { seconds: 20 }).length, 0, "a 20 s film needs only 54 words");
+  const long = Array.from({ length: 14 }, () => ({ keyword: "k", line: Array(13).fill("w").join(" "), visual: "wide street: x" }));
+  assert.equal(packScriptIssues(pack, long).length, 0, "a long enough script passes");
 }
 console.log("picture-film pack: ok");

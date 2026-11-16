@@ -18,7 +18,7 @@ import { ScriptCanvas, PlanLimitModal, svgSrc, type FrameSlot, type StoryboardSt
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
 import { PLATE_CONFIRM_FALSE_DELAY_MS, PLATE_FALLBACK_NOTICE, nextPlateAnswer, plateRetryDelayMs, resolvePlateRouting, type PlateAnswerState } from "../lib/plate-availability";
-import { LimitError, getMySubscription, getPlates, getProjectBillingQuote, getRenderQuote, cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, insertScriptScene, planVoiceUrl, removeScriptScene, restoreScriptScene, streamFrames, streamScript, streamScriptAnimate, streamScriptVoice, type ProjectBillingOverview, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
+import { LimitError, getMySubscription, getPlates, getProjectBillingQuote, getRenderQuote, cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, insertScriptScene, planVoiceUrl, removeScriptScene, restoreScriptScene, streamFrames, streamScript, streamScriptAnimate, StreamDropped, streamScriptVoice, type ProjectBillingOverview, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 
 type View = "projects" | "create" | "studio";
 type Step = 0 | 1 | 2 | 3;
@@ -1315,14 +1315,21 @@ export function Studio() {
       setAnimScenesDone([]);
     }
     try {
-      const updated = await streamScriptAnimate(
+      // A cut connection (backend restart, network blip) resumes: the server only does what is still missing and charges nothing twice
+      // (a quote id and the ledger keep every step once), so the page asks again after a short wait instead of calling it done.
+      const recreateId = options?.recreate ? crypto.randomUUID() : null;
+      let attempt = 0;
+      let updated: Awaited<ReturnType<typeof streamScriptAnimate>> = null;
+      for (;;) {
+        try {
+          updated = await streamScriptAnimate(
         project.id,
         {
           brief: checked.brief,
           beats: activeBeats,
           animationTier: activeTier,
           ...(options?.forceIndices?.length ? { forceIndices: options.forceIndices } : {}),
-          ...(options?.recreate ? { recreate: true, recreateId: crypto.randomUUID() } : {})
+          ...(recreateId ? { recreate: true, recreateId } : {})
         },
         (ev) => {
           if (inPlace) {
@@ -1345,7 +1352,13 @@ export function Studio() {
             replaceProject(ev.project);
           }
         }
-      );
+          );
+          break;
+        } catch (dropped) {
+          if (!(dropped instanceof StreamDropped) || (attempt += 1) > 4) throw dropped;
+          await new Promise((resolve) => setTimeout(resolve, 3000 * attempt));
+        }
+      }
       if (updated) replaceProject(updated);
       if (!inPlace) setAnimProgress(100);
       setAnimVersion((v) => v + 1);

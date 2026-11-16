@@ -823,9 +823,17 @@ export async function streamScriptAnimate(
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffered = "";
   let finalProject: VideoProject | null = null;
+  let sawDone = false;
   for (;;) {
-    const { value, done } = await reader.read();
-    if (done) return finalProject;
+    let chunk: ReadableStreamReadResult<string>;
+    try { chunk = await reader.read(); } catch { throw new StreamDropped(); }
+    const { value, done } = chunk;
+    if (done) {
+      // The server always ends with a "done" event. A stream that ends without one was cut (a backend restart or a lost connection):
+      // that is not success, the caller resumes (the server only does what is still missing).
+      if (!sawDone) throw new StreamDropped();
+      return finalProject;
+    }
     buffered += value;
     let end: number;
     while ((end = buffered.indexOf("\n\n")) >= 0) {
@@ -833,9 +841,14 @@ export async function streamScriptAnimate(
       buffered = buffered.slice(end + 2);
       onEvent(event);
       if (event.type === "error") throw new Error(event.error);
-      if (event.type === "done") finalProject = event.project ?? null;
+      if (event.type === "done") { sawDone = true; finalProject = event.project ?? null; }
     }
   }
+}
+
+/** The progress stream ended before its final event: the connection was cut part way. Safe to ask again. */
+export class StreamDropped extends Error {
+  constructor() { super("The connection dropped before the animation was ready."); this.name = "StreamDropped"; }
 }
 
 export async function cancelPlanJob(projectId: string) {

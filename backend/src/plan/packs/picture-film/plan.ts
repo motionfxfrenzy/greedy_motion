@@ -40,8 +40,9 @@ export type PictureFilmPlan = { characters: Look[]; sets: Look[]; shots: PlanSho
 export type AssetSpec = PackAssetSpec & { allowedText?: string[] };
 export type ImageAspect = PackAssetSpec["aspect"];
 
+// one picture per ~6 spoken words (about 2 s at 177 words a minute), up to 6 a beat: a long line is never held on one picture for more than ~3.5 s
 export const WORDS_PER_SHOT = 6;
-export const MAX_SHOTS_PER_BEAT = 4;
+export const MAX_SHOTS_PER_BEAT = 6;
 export const MAX_CHARACTERS = 4;
 export const MAX_SETS = 5;
 
@@ -49,7 +50,7 @@ const words = (line: string | null | undefined) => (line ?? "").trim().split(/\s
 export const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "x";
 
-/** Stills for a line: one per ~6 spoken words, 1 to 4. A beat without a line gets one still. */
+/** Stills for a line: one per ~6 spoken words, 1 to 6. A beat without a line gets one still. */
 export const shotCount = (line: string | null | undefined) => Math.max(1, Math.min(MAX_SHOTS_PER_BEAT, Math.round(words(line).length / WORDS_PER_SHOT)));
 
 /**

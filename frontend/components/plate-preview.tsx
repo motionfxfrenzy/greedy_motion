@@ -449,6 +449,7 @@ export function PlatePreview({
     let live = true, timer: ReturnType<typeof setTimeout>;
     let hadActiveWork = false;
     let trailingPollPending = false;
+    let failedPolls = 0;
     const epoch = ++pollEpochRef.current;
     const schedulePoll = (delayMs: number) => {
       clearTimeout(timer);
@@ -461,6 +462,7 @@ export function PlatePreview({
         await ensureMediaToken();
         const rawNext = await getPlates(project.id);
         if (!live || pollEpochRef.current !== epoch) return;
+        failedPolls = 0;
         const next = reconcilePlateStatusWithProject(rawNext, project, knownBeatKeyBySigRef.current) ?? rawNext;
         applyStatus(rawNext);
         setError(null);
@@ -543,11 +545,18 @@ export function PlatePreview({
           hadActiveWork = false;
           trailingPollPending = false;
           schedulePoll(pollIntervalMs);
+        } else {
+          // Nothing reports work, but the film is not settled (no scenes yet, or a scene neither drawn nor failed): a backend blip or a
+          // restart can leave the status between two steps, and the page must find its scenes again by itself, never wait for a reload.
+          const settled = next.scenes.length > 0 && next.scenes.every((s) => s.state === "drawn" || s.state === "checked" || s.state === "failed" || isSceneStaleState(s));
+          if (!settled) schedulePoll(8000);
         }
       } catch (e) {
         if (live && pollEpochRef.current === epoch) {
           setError(e instanceof Error ? e.message : "Could not load the scenes.");
-          schedulePoll(3000);
+          // keep trying, a little slower each time (3 s, 4.5 s ... 15 s), until the backend answers again
+          failedPolls += 1;
+          schedulePoll(Math.min(15000, 3000 * Math.pow(1.5, Math.min(failedPolls - 1, 6))));
         }
       }
     };
@@ -561,9 +570,15 @@ export function PlatePreview({
       }
     };
     void poll();
+    // coming back online or back to the tab: ask again at once
+    const wake = () => { if (live && pollEpochRef.current === epoch && !document.hidden) { clearTimeout(timer); void poll(); } };
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
     return () => {
       live = false;
       clearTimeout(timer);
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
       if (pollNowRef.current) {
         pollNowRef.current = null;
       }
