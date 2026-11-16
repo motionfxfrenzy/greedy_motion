@@ -87,6 +87,7 @@ export const pictureFilm: TemplatePack & {
   sceneDirection: "# Picture film: scene direction\n\nScenes are not authored: each beat's module is written by the pack (sceneCode) from its stills and word times. A beat is 1-4 hand-drawn stills shown full-frame, each cut in hard 2 frames before the first word it shows, with a 1.5% push-in. No motion inside a picture, no transitions, no sounds.",
   sketchDirection: "Style guide: the template \"Illustrated facts\". A hand-drawn cartoon explainer still: clean dark outlines, flat warm fills (grass green, sky blue, tan, cream), stick figures with a big round white head, lots of empty space, eye level. One idea per picture. Red arrows and green checks only as annotations. At most one 1-3 word hand-lettered capital label that is spoken in the line; no other words.",
   sceneSounds: false,
+  noSketches: true,
   // The reference has no captions: its only words are the labels drawn in the pictures. Smallest product setting, low in the frame.
   captions: { wordsPerCue: 3, style: "shadow", size: 48, y: 88 },
   // Tight like the reference: sentence gaps ~0.2 s, no title beat (BEAT keys are never all capitals), a short tail.

@@ -17,6 +17,7 @@ assert.equal(pack.voice.id, "Charon");
 assert.equal(pack.voice.tighten, true);
 assert.ok(pack.voice.direction.length <= 200, "voice direction fits the 200-character limit");
 assert.equal(pack.music, "", "no music, as in the reference");
+assert.equal(pack.noSketches, true, "scenes are the pictures: no storyboard sketch calls");
 assert.equal(pack.sceneSounds, false);
 assert.ok(pack.pacing.gap <= 0.15 && pack.pacing.min <= 0.6, "tight pacing");
 for (const part of ["PLAN FIRST", "OBJECTS: cast:", "| sets:", "REAL FACTS ONLY", "three possible outcomes", "round(words / 6)", "pop:", "[LABEL]", "SCREEN: -"]) assert.ok(pack.scriptVoice.includes(part), `script voice has ${part}`);

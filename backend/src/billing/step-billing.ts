@@ -1,3 +1,4 @@
+import { templatePack } from "../plan/template-packs.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
@@ -1005,9 +1006,13 @@ export async function quoteFrameSketchStep(input: {
   const sched = stepTariffsAt(now);
   const wanted = input.wantedIndices ?? input.beats.map((_, i) => i);
   const savedKeys = new Set((input.project.scriptFrames ?? []).map((f) => f.key));
-  const uncachedIndices = input.force
-    ? wanted
-    : wanted.filter((idx) => input.beats[idx] && !savedKeys.has(scriptFrameKey(input.beats[idx]!, input.brief)));
+  // A template whose scenes are its own pictures makes no sketch call (plan/routes.ts), so there is nothing to charge.
+  const noSketches = Boolean(templatePack(input.brief.styleExample)?.noSketches);
+  const uncachedIndices = noSketches
+    ? []
+    : input.force
+      ? wanted
+      : wanted.filter((idx) => input.beats[idx] && !savedKeys.has(scriptFrameKey(input.beats[idx]!, input.brief)));
   const reusedUnits = Math.max(0, wanted.length - uncachedIndices.length);
   const milli =
     pricingVersion === "v2_step_tier" ? uncachedIndices.length * sched.frameSketchPerBeatMillitokens : 0;

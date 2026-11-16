@@ -1496,6 +1496,13 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     for (const index of wanted) { const svg = saved.get(keyFor(index)); if (svg) send({ index, svg }); }
     // Frame 1 is the project card's thumbnail, so the card always shows how the film opens.
     if (wanted.includes(0) && saved.get(keyFor(0))) await setCoverFrame(project.id, saved.get(keyFor(0))!).catch(() => undefined);
+    // A template whose scenes are its own pictures: plain key-phrase cards, no sketch model call.
+    if (templatePack(brief.styleExample)?.noSketches) {
+      for (const index of wanted) send({ index, svg: placeholderFrame(beats[index]!, brief.aspect) });
+      send({ done: true, ms: Date.now() - started });
+      reply.raw.end();
+      return;
+    }
     const queue = wanted.filter((index) => !saved.has(keyFor(index)));
     const drawnCount = queue.length;
     const draw = async () => {

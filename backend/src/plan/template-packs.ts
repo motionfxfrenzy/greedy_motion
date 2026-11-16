@@ -76,6 +76,8 @@ export type TemplatePack = {
   sceneDirection: string;
   /** How a storyboard reference frame (one SVG still per beat) of this template looks: the same camera, cast and palette as its scenes. */
   sketchDirection?: string;
+  /** The scenes are the pictures themselves, so the storyboard shows a plain key-phrase card per beat and makes no sketch model call (and no sketch charge). */
+  noSketches?: boolean;
   /** The cast kit and pictures for code-drawn scenes (read on first use). */
   scenes?: () => PackScenes;
   /** Each scene module exports `sounds: { kind, frame }[]` (kinds in SCENE_SOUND_KINDS), mixed on the frame its action lands. */

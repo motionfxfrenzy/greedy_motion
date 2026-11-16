@@ -149,7 +149,8 @@ function audioPlan(brief: ScriptBrief): BeatPlan["audio"] {
   const pack = templatePack(brief.styleExample);
   if (pack) return {
     voice: voiced ? { engine: "gemini-tts", voice: brief.audio.voice && voiceIds.includes(brief.audio.voice) ? brief.audio.voice : pack.voice.id, speed: 1.0, direction: pack.voice.direction } : null,
-    music: music ? { source: "lyria", prompt: brief.audio.musicMood ?? pack.music, bpm } : null,
+    // a pack with an empty music prompt (picture-film: voice only, like its reference) never makes a bed
+    music: music && (pack.music || brief.audio.musicMood) ? { source: "lyria", prompt: brief.audio.musicMood ?? pack.music, bpm } : null,
     captions: brief.captions
   };
   return {
