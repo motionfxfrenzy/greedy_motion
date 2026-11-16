@@ -1594,7 +1594,7 @@ export async function quoteRenderExportStep(input: {
   const seconds = readiness.durationSeconds === null ? null : Math.max(1, Math.ceil(readiness.durationSeconds));
 
   if (pricingVersion !== "v2_step_tier") {
-    const v1Milli = seconds === null ? null : renderCostMillitokens(seconds);
+    const v1Milli = seconds === null ? null : renderCostMillitokens(seconds, input.project.brief?.styleExample);
     return {
       quote: null,
       seconds,

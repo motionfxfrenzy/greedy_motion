@@ -138,8 +138,23 @@ export const tokenPriceUsd = (tier: PaidTier, interval: BillingInterval = "month
 /** A one-time pack, $0.12 a token: dearer than every plan ($0.083 to $0.095), so regular buyers have a reason to subscribe. */
 export const TOP_UP = { priceUsd: 12, tokens: 100 } as const;
 
-/** What a finished film of this length costs, in millitokens: the start fee plus each started second. */
-export const renderCostMillitokens = (seconds: number) => START_FEE_MILLITOKENS + Math.max(1, Math.ceil(seconds)) * MILLITOKENS_PER_SECOND;
+/**
+ * Templates whose films cost us more than the standard rate covers, priced at the 30% contribution margin floor
+ * ($1 of variable cost = ~23.1 tokens at the cheapest token, costBudgetPerTokenUsd). Measured 2026-11-16
+ * (docs/TRENDING_TEMPLATES_PLAN.md):
+ * - history-reel (Cartoon history): ~$0.55 a film (script, about 3 painted sets, music) + ~$0.018 a second (about 25
+ *   code-drawn scenes a minute with redraws) -> 13 tokens + 0.45 a second (a 60 s film: 40 tokens for ~$1.65 of cost).
+ * - picture-film (Illustrated facts): ~$0.45 a film (script, shot list, ~7 anchor sheets) + ~$0.030 a second (one still
+ *   every 2 s with 25% redraws and the word check) -> 11 tokens + 0.75 a second (a 60 s film: 56 tokens for ~$2.25).
+ * Every other template uses START_FEE_MILLITOKENS + MILLITOKENS_PER_SECOND.
+ */
+export const TEMPLATE_RENDER_RATES: Readonly<Record<string, { startMillitokens: number; perSecondMillitokens: number }>> = {
+  "history-reel": { startMillitokens: 13000, perSecondMillitokens: 450 },
+  "picture-film": { startMillitokens: 11000, perSecondMillitokens: 750 }
+};
+export const renderRateFor = (template?: string | null) => TEMPLATE_RENDER_RATES[template ?? ""] ?? { startMillitokens: START_FEE_MILLITOKENS, perSecondMillitokens: MILLITOKENS_PER_SECOND };
+/** What a finished film of this length costs, in millitokens: the start fee plus each started second (at the template's rate when it has one). */
+export const renderCostMillitokens = (seconds: number, template?: string | null) => { const r = renderRateFor(template); return r.startMillitokens + Math.max(1, Math.ceil(seconds)) * r.perSecondMillitokens; };
 /** What generated material costs us `usd` in provider fees, in millitokens charged. */
 export const materialCostMillitokens = (usd: number) => Math.ceil((usd * MATERIAL_MARKUP / TOKEN_USD) * MILLITOKENS_PER_TOKEN);
 export const tokensFromMilli = (milli: number) => Math.round(milli) / MILLITOKENS_PER_TOKEN;

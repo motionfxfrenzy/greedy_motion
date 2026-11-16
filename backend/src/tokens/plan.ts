@@ -46,6 +46,8 @@ export {
   materialCostMillitokensV2,
   estimateWholeFilmQuoteV2,
   renderCostMillitokens,
+  renderRateFor,
+  TEMPLATE_RENDER_RATES,
   materialCostMillitokens,
   tokensFromMilli,
   type PlanTier,

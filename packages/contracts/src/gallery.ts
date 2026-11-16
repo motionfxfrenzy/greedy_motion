@@ -155,6 +155,22 @@ const curated: readonly GalleryTemplate[] = [
     prompt: "Explain the bystander effect: why the more people watch someone in trouble, the less likely anyone helps."
   },
   {
+    id: "history-reel", kind: "explainer", name: "Cartoon history", group: "Explainer",
+    summary: "A surprising true story told fast by cartoon characters acting in a painted 3D world, with a camera that never stops.",
+    bestFor: "True stories from history and science that end on a twist, in under a minute",
+    preview: { src: "/templates/history-reel.jpg", kind: "video", label: "Example film", video: "/templates/history-reel-5s.mp4", film: "/templates/history-reel.mp4", wide: true },
+    skill: null, look: "illus-flat-vector", theme: "neutral", aspect: "9:16", durationSeconds: 45, motionProfile: "smooth", pace: "fast", audio: "both", captions: "full", voice: "Puck",
+    prompt: "How Charles Blondin walked across Niagara Falls on a tightrope in 1859, and the stunts that followed."
+  },
+  {
+    id: "picture-film", kind: "explainer", name: "Illustrated facts", group: "Explainer",
+    summary: "Hand-drawn picture after picture, cut on every phrase, while a fast narrator walks through one strange fact.",
+    bestFor: "'What happens if…' facts from science, nature and the body",
+    preview: { src: "/templates/picture-film.jpg", kind: "video", label: "Example film", video: "/templates/picture-film-5s.mp4", film: "/templates/picture-film.mp4" },
+    skill: null, look: "illus-flat-vector", theme: "neutral", aspect: "9:16", durationSeconds: 60, motionProfile: "smooth", pace: "fast", audio: "voiceover", captions: "full", voice: "Charon",
+    prompt: "What happens if you swallow your chewing gum?"
+  },
+  {
     id: "about-us-story", kind: "explainer", name: "About-us story", group: "Story",
     summary: "A paper-collage timeline: tape-label years, sticky notes, cut-out people, stamps and torn caption strips.",
     bestFor: "Founder stories, about-us pages and company origin films",
@@ -309,12 +325,12 @@ export const heldForV2 = (look: string) => HOLD_GENERATED_STYLES && getLook(look
 export const isStylePlate = (item: GalleryTemplate) => item.id.startsWith("story-illus-");
 export const isStylePlateLook = (look: string) => everyGalleryTemplate.some((item) => item.look === look && isStylePlate(item));
 /** Templates drawn in code by the plate engine from a shared cast kit (backend template-packs.ts): like the style plates, shown while generated looks are held, and only where plates are on. */
-const codeDrawnTemplates = new Set(["dark-fable"]);
+const codeDrawnTemplates = new Set(["dark-fable", "history-reel", "picture-film"]);
 export const isCodeDrawn = (item: GalleryTemplate) => isStylePlate(item) || codeDrawnTemplates.has(item.id);
 export const galleryTemplates: readonly GalleryTemplate[] = everyGalleryTemplate.filter((item) => !heldForV2(item.look) || isCodeDrawn(item));
 
-import { galleryUseCases, normalizeSearch, type GalleryUseCase } from "./gallery-use-cases.ts";
-export { galleryUseCases, type GalleryUseCase };
+import { galleryUseCases, normalizeSearch, trendingGalleryIds, type GalleryUseCase } from "./gallery-use-cases.ts";
+export { galleryUseCases, trendingGalleryIds, type GalleryUseCase };
 
 export type GalleryScope = "all" | "film";
 export const isGalleryScope = (value: unknown): value is GalleryScope => value === "all" || value === "film";
@@ -333,7 +349,7 @@ export function useCaseOf(item: GalleryTemplate): GalleryUseCase {
   // The editorial collage is drawn by the engine from a script, with product screens on top: it is a product look, not a film.
   if (item.id === "story-vox-collage") return "saas";
   // A fable that explains one idea: an educational film (the film brief, the explainer kind), though drawn in a story look.
-  if (item.id === "dark-fable") return "explain";
+  if (item.id === "dark-fable" || item.id === "history-reel" || item.id === "picture-film") return "explain";
   if (item.kind === "style" && item.group === "Story") return "story";
   if (brandGroups.has(item.group)) return "brand";
   return "saas";
@@ -534,10 +550,15 @@ export function queryGallery(options: { useCase?: string; q?: string; cursor?: s
   const counts = { all: shown.length } as Record<GalleryUseCase | "all", number>;
   for (const entry of galleryUseCases) counts[entry.id] = 0;
   for (const item of shown) counts[useCaseOf(item)]++;
+  // Trending is a curated list (its templates keep their own tab too), in the list's order.
+  const trending = trendingGalleryIds.flatMap((id) => shown.filter((item) => item.id === id));
+  counts.trending = trending.length;
   const isSpecificUseCase = Boolean(options.useCase && galleryUseCases.some((entry) => entry.id === options.useCase));
   const pool = options.ids
     ? options.ids.flatMap((id) => (options.scope === "film" ? shown : matches).filter((item) => item.id === id))
-    : isSpecificUseCase
+    : options.useCase === "trending"
+      ? trending
+      : isSpecificUseCase
       ? shown.filter((item) => useCaseOf(item) === options.useCase)
       : options.look
         ? shown

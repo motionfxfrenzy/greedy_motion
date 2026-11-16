@@ -7,6 +7,7 @@ import {
   MILLITOKENS_PER_SECOND,
   START_FEE_MILLITOKENS,
   renderCostMillitokens,
+  renderRateFor,
   renderExportCostMillitokensV2,
   stepTariffsAt,
   tokensFromMilli,
@@ -53,6 +54,8 @@ export function quoteFrom(
     alreadyPaidMilli?: number;
     quoteId?: string | null;
     now?: Date;
+    /** The project's template (brief.styleExample): some templates have their own render rate (TEMPLATE_RENDER_RATES). */
+    template?: string | null;
   }
 ): RenderQuote {
   const seconds = readiness.durationSeconds === null ? null : Math.max(1, Math.ceil(readiness.durationSeconds));
@@ -84,11 +87,12 @@ export function quoteFrom(
       quoteId: options?.quoteId ?? null
     };
   }
-  const tokens = seconds === null ? null : tokensFromMilli(renderCostMillitokens(seconds));
+  const tokens = seconds === null ? null : tokensFromMilli(renderCostMillitokens(seconds, options?.template));
+  const rate = renderRateFor(options?.template);
   return {
     seconds,
     tokens,
-    parts: { start: START_FEE_MILLITOKENS / 1000, perSecond: MILLITOKENS_PER_SECOND / 1000, seconds },
+    parts: { start: rate.startMillitokens / 1000, perSecond: rate.perSecondMillitokens / 1000, seconds },
     ready: readiness.ok,
     material,
     balance,
@@ -155,7 +159,7 @@ export function registerRenderQuote(app: FastifyInstance) {
         }
       );
     }
-    return quoteFrom(planReadiness(project), { required: visuals.required, owedTokens: visuals.priceTokens }, balance);
+    return quoteFrom(planReadiness(project), { required: visuals.required, owedTokens: visuals.priceTokens }, balance, { template: project.brief?.styleExample });
   });
 
   app.addHook("preHandler", async (request, reply) => {

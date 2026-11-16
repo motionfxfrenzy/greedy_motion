@@ -376,7 +376,7 @@ app.post<{ Params: { id: string }; Body: { motionBlur?: unknown; quoteId?: strin
           }
         } else {
           try {
-            spend = await spendTokens(owner, renderCostMillitokens(seconds), "render", jobId, project.id);
+            spend = await spendTokens(owner, renderCostMillitokens(seconds, project.brief?.styleExample), "render", jobId, project.id);
           } catch (error) {
             if (error instanceof InsufficientTokens) return reply.code(402).send({ error: { code: "insufficient_tokens", message: `This film needs ${error.needed} tokens and you have ${error.remaining}. Add tokens or choose a plan.`, needed: error.needed, remaining: error.remaining } });
             throw error;

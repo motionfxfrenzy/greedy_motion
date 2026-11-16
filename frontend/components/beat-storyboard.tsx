@@ -10,7 +10,7 @@ import { MaterialGeneration } from "./material-generation";
 import { plateOptionsConfig, resolveVisibleOptions } from "./animation-workspace/logic";
 
 /** What Submit will charge (the server prices the same length) against the balance, with a way to top up before, not after, a refusal. */
-export function RenderCost({ seconds, cost: costProp, pricingVersion }: { seconds: number; cost?: number | null; pricingVersion?: BillingPolicyVersion }) {
+export function RenderCost({ seconds, cost: costProp, pricingVersion, template }: { seconds: number; cost?: number | null; pricingVersion?: BillingPolicyVersion; template?: string | null }) {
   const [balance, setBalance] = useState<number | null>(null);
   const [opening, setOpening] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -20,7 +20,7 @@ export function RenderCost({ seconds, cost: costProp, pricingVersion }: { second
       ? costProp
       : pricingVersion === "v2_step_tier"
         ? tokensFromMilli(renderExportCostMillitokensV2(seconds))
-        : tokensFromMilli(renderCostMillitokens(seconds));
+        : tokensFromMilli(renderCostMillitokens(seconds, template));
   const short = balance !== null && balance < cost;
   const topUp = async () => {
     setOpening(true);
@@ -402,7 +402,7 @@ export function BeatStoryboardStep({ approvedFrames, project, look, warnings, bu
           {visibleOptions.motionBlur && (() => { const tooLong = motionBlurProblem(lengthSeconds); return (
             <label className="bs-blur"><input type="checkbox" checked={motionBlur && !tooLong} disabled={busy || Boolean(tooLong)} onChange={(event) => setMotionBlur(event.target.checked)} /><span><b>{motionBlurCopy.label}</b><small>{tooLong ?? motionBlurCopy.help}</small></span></label>
           ); })()}
-          <RenderCost seconds={lengthSeconds} />
+          <RenderCost seconds={lengthSeconds} template={project.brief?.styleExample} />
           <div><button className="secondary-button" onClick={back}>Back</button>{regenerate ? <button className="secondary-button" onClick={regenerate}>Regenerate script</button> : null}{openStudio ? <button className="secondary-button" onClick={openStudio}>Open Studio</button> : null}<button className="primary-button" disabled={busy || blockingCount > 0 || saveState === "saving"} onClick={() => { flush(); submit(); }}>{busy ? "Starting render…" : "Submit video"}</button></div>
           <small>Submitting locks the script and storyboard. Rendering continues if you leave the page.</small>
         </div>

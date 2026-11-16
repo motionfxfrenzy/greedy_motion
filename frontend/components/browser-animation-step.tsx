@@ -816,7 +816,7 @@ export function BrowserAnimationStep({
   const fallbackCost =
     project.billingPolicyVersion === "v2_step_tier"
       ? tokensFromMilli(renderExportCostMillitokensV2(Math.max(1, Math.ceil(duration))))
-      : tokensFromMilli(renderCostMillitokens(Math.max(1, Math.ceil(duration))));
+      : tokensFromMilli(renderCostMillitokens(Math.max(1, Math.ceil(duration)), project.brief?.styleExample));
   const cost =
     typeof costProp === "number"
       ? costProp

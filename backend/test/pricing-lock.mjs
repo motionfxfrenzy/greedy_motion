@@ -73,6 +73,18 @@ assert.equal(renderCostMillitokens(15), 10500);
 assert.equal(renderCostMillitokens(30), 15000);
 assert.equal(renderCostMillitokens(60), 24000);
 assert.equal(renderCostMillitokens(0.2), 6300, "a started second counts whole");
+// Templates with their own render rate (TEMPLATE_RENDER_RATES, 2026-11-16): priced at the 30% margin floor from measured costs.
+assert.equal(renderCostMillitokens(60, "history-reel"), 13000 + 60 * 450, "Cartoon history: 13 tokens + 0.45 a second");
+assert.equal(renderCostMillitokens(60, "picture-film"), 11000 + 60 * 750, "Illustrated facts: 11 tokens + 0.75 a second");
+assert.equal(renderCostMillitokens(60, "dark-fable"), 24000, "Dark Fable keeps the standard rate");
+assert.equal(renderCostMillitokens(60, null), 24000);
+{ // each template keeps at least a 30% contribution margin at the cheapest token for its measured cost
+  const { contributionMarginForCost } = await import("../../packages/contracts/src/pricing.ts");
+  for (const [template, fixed, perSecond] of [["history-reel", 0.55, 0.018], ["picture-film", 0.45, 0.03]]) for (const s of [20, 45, 60, 90]) {
+    const m = contributionMarginForCost(renderCostMillitokens(s, template) / 1000, fixed + perSecond * s);
+    assert.ok(m >= 0.3, `${template} ${s} s keeps a 30% margin (${(m * 100).toFixed(1)}%)`);
+  }
+}
 assert.equal(filmsFromTokens(PLANS.free.tokens, 90), 1, "Free makes one film of up to 90 s");
 assert.equal(filmsFromTokens(PLANS.free.tokens, 91), 0);
 assert.equal(materialCostMillitokens(1), 30000, "$1 of generation costs 30 tokens");
