@@ -119,6 +119,26 @@ PER BEAT:
 - SCREEN: - (always; the words are the captions).
 - VOICE: the line.`;
 
+// ---------------------------------------------------------------- shot size enforced in the scene code (not only asked for in the prompt)
+/** How big the hero may be on screen, as a share of the frame height (1920), by the shot size the beat's VISUAL names. */
+const HERO_SCREEN_CAP: Record<string, number> = { wide: 0.34, medium: 0.58 };
+const Z_CAP: Record<string, number> = { wide: 1.6, medium: 2.1 };
+export const shotSizeOf = (visual: string | null | undefined): "wide" | "medium" | "close" | null => (/^\s*\[[^\]]*\]\s*(wide|medium|close)/i.exec(visual ?? "")?.[1]?.toLowerCase() as "wide" | "medium" | "close" | undefined) ?? null;
+/** Camera zooms and puppet heights in a scene module -> messages when a wide or medium shot is really a close-up. */
+export function sceneShotIssues(code: string, beat: { visual?: string | null } | undefined): string[] {
+  const size = shotSizeOf(beat?.visual);
+  if (!size || size === "close") return [];
+  const keys = /const KEYS\s*=\s*\[([\s\S]*?)\];/.exec(code)?.[1] ?? "";
+  const zs = [...keys.matchAll(/\bz:\s*(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
+  const zMax = zs.length ? Math.max(...zs) : 1;
+  const out: string[] = [];
+  if (zMax > Z_CAP[size]!) out.push(`This is a ${size} shot but the camera zooms to z ${zMax}; keep every key at z ${Z_CAP[size]} or below so the set stays in view.`);
+  const heights = [...code.matchAll(/K\.puppet\(\s*g\s*,\s*cam\s*,\s*\w+\s*,[^,]+,[^,]+,\s*(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
+  const biggest = heights.length ? Math.max(...heights) * zMax / 1920 : 0;
+  if (biggest > HERO_SCREEN_CAP[size]!) out.push(`This is a ${size} shot but a puppet fills ${(biggest * 100).toFixed(0)}% of the frame height (limit ${(HERO_SCREEN_CAP[size]! * 100).toFixed(0)}%): draw the puppets smaller (a wide hero is 150-350 tall) or lower the camera zoom.`);
+  return out;
+}
+
 // ---------------------------------------------------------------- the scene writer's direction
 const EXAMPLE_SCENE = `import type { Ctx, Env } from "./core";
 import type { Film } from "./film";
@@ -129,8 +149,8 @@ const harry = K.makeCast({ shirt: "#4a4a58", shirtShade: "#363642", pants: "#3c3
 const crowd = K.crowdCast(10, 7);
 const rope = K.ropeCurve({ x: 150, y: 1095, d: 0.62 }, { x: 960, y: 770, d: 0.12 }, 70);
 // LINE: "...a man walked across Niagara Falls on a rope." WORD START FRAMES: ... walked@32 across@44 ...
-// wide on the gorge with a slow creep, then a snap push in to the walker landing on "across"
-const KEYS = [[0, { x: 540, y: 1250, z: 1.05 }], [40, { x: 540, y: 1240, z: 1.1 }, "lin"], [52, { x: 470, y: 980, z: 2.2, px: -20 }, "snap"], [89, { x: 480, y: 975, z: 2.35 }, "lin"]];
+// a MEDIUM shot ([gorge] medium, ...): the gorge stays in view, a slow creep, then a snap push in to the walker landing on "across" (z stays at or below 2.0; a wide stays at or below 1.5)
+const KEYS = [[0, { x: 540, y: 1250, z: 1.05 }], [40, { x: 540, y: 1240, z: 1.1 }, "lin"], [52, { x: 470, y: 980, z: 1.85, px: -20 }, "snap"], [89, { x: 480, y: 975, z: 2.0 }, "lin"]];
 function draw(ctx: Ctx, frame: number, env: Env) {
   ctx.setTransform(env.scale, 0, 0, env.scale, 0, 0);
   const t = frame / 30, tp = (frame - (frame % 2)) / 30; // puppets move on twos (tp); the camera and the air stay smooth (t)
@@ -205,7 +225,8 @@ KEYS are \`[[frame, { x, y, z, px?, py?, roll?, par?, dof?, focus? }, ease?], ..
 
 About 15 moves a minute: every shot has at least one timed move besides the creep. Never two snap reveals in a row; vary whip, push and reveal.
 
-## The shot mix (what makes the reel look like the reference, not a string of close-ups)
+## The shot mix (what makes the reel look like the reference, not a string of close-ups). This is CHECKED in code: the size word in the VISUAL (\`[place] wide|medium|close\`) must match the scene.
+- Limits the check enforces: a WIDE keeps every camera key at z 1.6 or below and no puppet over 34% of the frame height (hero 150-350 tall); a MEDIUM keeps z at 2.1 or below and no puppet over 58% of the frame height. Only a shot the VISUAL calls close may zoom further.
 - In every film, at least half of the shots are WIDE or MEDIUM-WIDE: camera z 1.0-1.5, the set clearly visible (sky, gorge, buildings, the whole room), the hero 150-350 tall, with a crowd (\`K.crowd\`, 2-3 rows), props or a second character in the frame. At most a third of the shots are close-ups (z over 2), and never two close-ups in a row.
 - A close-up still shows the set behind the puppet (do not push in so far that only the face and a blur remain): z 2.0-2.8, never above 3 except a "look down" move.
 - Every scene has life in the air and the background besides the hero: mist, motes, a crowd reacting, a prop in use, a second figure. A shot with one puppet and nothing else is a failure.
@@ -264,5 +285,6 @@ export const historyReel: TemplatePack = {
   // tight: the line plus one frame or so, no long gaps anywhere (no title beat in this template); the last scene holds the payoff
   pacing: { gap: 0.04, long: 0.04, beforeLast: 0.08, tail: 1.0, min: 0.5, titleMin: 0.5 },
   // sentences swing from 2 to 27 words; the payoff is one plain line; nothing is forbidden by word (forbidden never matches)
-  scriptRules: { maxWords: 28, lastMaxWords: 16, shortShare: 0.1, forbidden: /(?!)/ }
+  scriptRules: { maxWords: 28, lastMaxWords: 16, shortShare: 0.1, forbidden: /(?!)/, shotMix: { wideShare: 0.5, closeShare: 0.34 } },
+  sceneIssues: (code, beat) => sceneShotIssues(code, beat)
 };

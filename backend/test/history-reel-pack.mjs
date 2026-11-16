@@ -63,4 +63,20 @@ const ok = Array.from({ length: 16 }, (_, i) => ({ keyword: `b${i}`, line: line(
 assert.deepEqual(packScriptIssues(pack, ok), []);
 const bad = ok.map((b) => ({ ...b })); bad[3].line = line(30); bad[15].line = line(20); bad[5].visual = "[gorge] the rope and a hanging lamp";
 assert.deepEqual(packScriptIssues(pack, bad).map((x) => x.index), [3, 15]);
+// the shot mix is enforced in code: script rules and the scene module
+{
+  const { sceneShotIssues } = await import("../src/plan/packs/history-reel/index.ts");
+  const { packScriptIssues } = await import("../src/plan/template-packs.ts");
+  const hr = templatePack("history-reel");
+  const mk = (sizes) => sizes.map((z, i) => ({ keyword: "k" + i, line: "line " + i, visual: `[gorge] ${z}, he walks` }));
+  const bad = packScriptIssues(hr, mk(["close", "close", "close", "close", "wide", "close", "close", "medium", "close", "close"]));
+  assert.ok(bad.length >= 2 && bad.every((x) => /close-up/.test(x.message)), "too many close-ups are sent back for rewriting");
+  assert.ok(!bad.some((x) => x.index === 0 || x.index === 9), "the opening and closing shots are left alone");
+  assert.equal(packScriptIssues(hr, mk(["wide", "medium", "close", "wide", "medium", "close", "wide", "medium", "wide", "close"])).filter((x) => /close-up/.test(x.message)).length, 0, "a good mix passes");
+  const scene = (z, h) => `const KEYS = [[0, { x: 540, y: 1250, z: 1.1 }], [40, { x: 470, y: 980, z: ${z} }, "snap"]];\nK.puppet(g, cam, hero, 300, 1640, ${h}, {});`;
+  assert.ok(sceneShotIssues(scene(2.6, 300), { visual: "[gorge] wide, x" }).length >= 1, "a wide that zooms past 1.6 is rejected");
+  assert.ok(sceneShotIssues(scene(1.4, 900), { visual: "[gorge] wide, x" }).length >= 1, "a wide with a huge puppet is rejected");
+  assert.equal(sceneShotIssues(scene(1.4, 300), { visual: "[gorge] wide, x" }).length, 0);
+  assert.equal(sceneShotIssues(scene(3.2, 900), { visual: "[gorge] close, x" }).length, 0, "a close-up may zoom in");
+}
 console.log("history-reel pack: places, pictures, kit, author prompt and script rules: ok");

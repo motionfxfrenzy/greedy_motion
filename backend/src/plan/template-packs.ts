@@ -91,7 +91,9 @@ export type TemplatePack = {
   /** Scene pacing for plate films: a voiced scene is its line plus `gap` (seconds), longer around the title beat and before the last line, never rounded up, at least `min`. */
   pacing?: { gap: number; long: number; beforeLast: number; tail: number; min: number; titleMin: number };
   /** Script rules checked after writing; lines that break them are rewritten once (packScriptIssues). */
-  scriptRules?: { maxWords: number; lastMaxWords: number; shortShare: number; forbidden: RegExp };
+  scriptRules?: { maxWords: number; lastMaxWords: number; shortShare: number; forbidden: RegExp; /** Shot sizes named in each VISUAL (`[place] wide|medium|close`): at least `wideShare` wide or medium, at most `closeShare` close. */ shotMix?: { wideShare: number; closeShare: number } };
+  /** Problems in an authored scene module (null/empty = fine), checked before bundling; a scene that breaks them is repaired once with these messages. */
+  sceneIssues?: (code: string, beat: ScriptBeat | undefined) => string[];
   /** Pictures generated for the project once the beats exist (plates/pack-assets.ts), in order so `refs` resolve. */
   assets?: (input: PackAssetsInput) => AssetSpec[];
   /** A complete scene module for a beat: authoring skips the model call for it. */
@@ -166,6 +168,18 @@ export function packScriptIssues(pack: TemplatePack | undefined, beats: { keywor
     else if (count > rules.maxWords) out.set(index, `This line has ${count} words; keep it to ${rules.maxWords} or fewer.`);
     if (isTitle(beat.keyword) && /\b(empty|blank|text|title|words?|letters?)\b/i.test(beat.visual ?? "")) out.set(index, "The title beat's VISUAL must be the opening fable shot redrawn and dimmed (the flock and the marked one), not an empty or text frame.");
   });
+  if (rules.shotMix) {
+    const size = (beat: { visual?: string | null }) => /^\s*\[[^\]]*\]\s*(wide|medium|close)/i.exec(beat.visual ?? "")?.[1]?.toLowerCase() ?? null;
+    const sizes = beats.map(size);
+    const close = sizes.flatMap((x, i) => (x === "close" ? [i] : []));
+    const maxClose = Math.floor(beats.length * rules.shotMix.closeShare);
+    const wideCount = sizes.filter((x) => x === "wide" || x === "medium").length;
+    const minWide = Math.ceil(beats.length * rules.shotMix.wideShare);
+    // keep the close-ups that fall on a reaction or detail (the middle ones), turn the rest into wides; never the first or last shot
+    const turn = Math.max(close.length - maxClose, minWide - wideCount);
+    const candidates = close.filter((i) => i !== 0 && i !== last && !out.has(i));
+    for (const i of candidates.slice(0, Math.max(0, turn))) out.set(i, `This shot is a close-up and the film has too many: make it a wide or medium shot of the set (the hero 150-350 tall, a crowd, props or a second figure in frame). Keep the same action and word.`);
+  }
   const short = beats.filter((beat) => words(beat.line) <= 4).length;
   const need = Math.ceil(beats.length * rules.shortShare) - short;
   if (need > 0) {

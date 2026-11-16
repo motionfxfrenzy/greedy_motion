@@ -405,11 +405,13 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       const packed = Boolean(pack?.scenes || pack?.sceneCode);
       const fullCheck = checkScene(plateName, code);
       const declaresKit = packed && /\b(?:const|let|var)\s+K\s*=/.test(code);
+      // A pack's own scene rules (history-reel: the shot size named in the VISUAL must match the camera and the puppet size).
+      const packIssues = packed && !(packCode && code === packCode) ? pack?.sceneIssues?.(code, project.brief?.scriptBeats?.[row.scene_index]) ?? [] : [];
       const policyCheck = !packed ? fullCheck : {
         ...fullCheck,
-        ok: fullCheck.noText.ok && !declaresKit,
+        ok: fullCheck.noText.ok && !declaresKit && packIssues.length === 0,
         issues: fullCheck.issues.filter((issue) => issue.kind !== "kit-use"),
-        message: [declaresKit ? "Do not declare K: the cast kit is already in scope." : "", fullCheck.noText.message ?? ""].filter(Boolean).join("\n")
+        message: [declaresKit ? "Do not declare K: the cast kit is already in scope." : "", ...packIssues, fullCheck.noText.message ?? ""].filter(Boolean).join("\n")
       };
       if (!policyCheck.ok && !(packCode && code === packCode)) {
         if (policyRepairs < POLICY_REPAIR_MAX && used < config.plates.maxAuthorCalls) {
