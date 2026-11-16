@@ -22,3 +22,8 @@ test("the scene poll never gives up: backoff after errors, a slow poll while not
   assert.match(preview, /addEventListener\("online", wake\)/);
   assert.match(preview, /addEventListener\("visibilitychange", wake\)/);
 });
+
+test("the workspace load retries by itself after a failed load (backend restarting), and on online / visible", () => {
+  assert.match(studio, /reloadAttempts/);
+  assert.match(studio, /window\.addEventListener\("online", wake\)/);
+});

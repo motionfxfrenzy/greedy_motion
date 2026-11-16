@@ -149,6 +149,18 @@ export function Studio() {
     setLoadingProjects(false);
   }, []);
   useEffect(() => { void refresh().catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load the workspace.")); }, [refresh]);
+  // The workspace loaded while the backend was restarting (a blip, a deploy): keep asking, a little slower each time, until it answers,
+  // and ask at once when the browser comes back online or the tab is shown again. Nobody should have to press Try again.
+  const reloadAttempts = useRef(0);
+  useEffect(() => {
+    if (!loadError) { reloadAttempts.current = 0; return; }
+    const delay = Math.min(15000, 2000 * Math.pow(1.5, Math.min(reloadAttempts.current, 6)));
+    const timer = window.setTimeout(() => { reloadAttempts.current += 1; void refresh().catch(() => undefined); }, delay);
+    const wake = () => { if (!document.hidden) { window.clearTimeout(timer); void refresh().catch(() => undefined); } };
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => { window.clearTimeout(timer); window.removeEventListener("online", wake); document.removeEventListener("visibilitychange", wake); };
+  }, [loadError, refresh]);
   // Polling while a script is written or a video renders reads only the open project, not every project and brand kit.
   const refreshOpen = useCallback(async (id: string) => {
     const epoch = mutationEpoch.current;
