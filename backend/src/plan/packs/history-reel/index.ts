@@ -78,8 +78,10 @@ export function placeOfBeat(beatIndex: number, beats: readonly Pick<ScriptBeat, 
   return places?.[0]?.id ?? "main";
 }
 
+/** What made the reference Niagara set look right (experiments/history-reels, films/niagara/sets.json), asked of every set: bright daylight, visible sky, clear air. */
+const SET_LOOK = "Look: bright, colourful and clear like the best frames of a modern animated feature. A visible sky in the top quarter (soft clouds or a clear colour gradient), one clear light direction with soft shadows, sharp detailed middle ground, clean air: no fog, haze, murk or heavy mist covering the scene (a thin mist rising in the distance is fine). Rich saturated greens, blues and warm earth tones; never grey, brown or dull. A night or interior set stays warm and readable: a glowing lamp, moonlight on the floor, colour in the shadows.";
 const setPrompt = (p: HistoryPlace) =>
-  `${SET_STYLE}\n\n${p.description}\nThe bottom 35% of the frame is flat open ground with lots of empty space in the centre for people to stand on. An empty set: no people, no characters, no animals, no vehicles or objects that would move, no text.`;
+  `${SET_STYLE}\n\n${p.description}\n${SET_LOOK}\nThe bottom 35% of the frame is flat open ground with lots of empty space in the centre for people to stand on. An empty set: no people, no characters, no animals, no vehicles or objects that would move, no text.`;
 
 // ---------------------------------------------------------------- the writer's voice
 const scriptVoice = `VOICE FOR THIS FILM: a cartoon history reel. ONE true, strange story from history, told fast and deadpan by a young storyteller, acted by cut-out cartoon puppets in a painted 3D world. Two reference reels of this kind ("How Mine Salting Worked", "How One Cart Stopped an Entire Army") were measured; this is their shape.
@@ -88,9 +90,9 @@ USE THIS ONLY WHEN WE WRITE THE SCRIPT. When the person gave their own script, k
 
 PLAN FIRST. Before the first BEAT, write these three lines for yourself (never shown; the only lines allowed before the script; each on ONE line):
 IDEA: <the true story in under 200 characters: who, what, where, the year, and the ironic ending. Only facts you are sure of.>
-EXAMPLE: PLACES: <place-id> = <the place as an EMPTY film set>; <place-id> = <...>
+EXAMPLE: PLACES: gorge = Niagara Gorge in 1859, seen from the top of the American cliff. Foreground (bottom 35%): a flat grassy cliff-top with a few rocks and wildflowers and a wooden post-and-rail fence at the left edge, lots of empty flat ground in the centre. Middle: the cliff edge drops into a deep green gorge with the river far below and white mist rising. Background: the great horseshoe waterfall in the distance on the right, the far cliff with trees across the gorge, a bright blue sky with soft clouds, afternoon sun from the left. No rope, no people, no animals.; <place-id> = <...>
 OBJECTS: CAST: <cast-id> = <look>; <cast-id> = <look> PROPS: <prop ids>
-- PLACES (the EXAMPLE line, under 1100 characters): 1 to 3 places (fewer is better: the camera travels inside one set). The id is one lowercase word or two with a hyphen (gorge, fort, mine-shaft). The description is a painter's brief of the EMPTY set in about 300 characters: the era and the real location, the time of day and where the sun comes from, what fills the middle and the background, and flat open ground in the bottom third where people stand. No people, no animals, no text, no signs with words. Things that move in the story (a cart, a rope, a door, a cannon that fires) are NOT in the set; they are drawn in code.
+- PLACES (the EXAMPLE line, under 1100 characters): 1 or 2 places, 3 at most (fewer is better: the camera travels inside one set). The id is one lowercase word or two with a hyphen (gorge, fort, mine-shaft). The description is a painter's brief of the EMPTY set in 350 to 450 characters, written like the example above (foreground ground, middle, background, a bright sky with soft clouds, the sun side): the era and the real location, the time of day and where the sun comes from, what fills the middle and the background, and flat open ground in the bottom third where people stand. No people, no animals, no text, no signs with words. Things that move in the story (a cart, a rope, a door, a cannon that fires) are NOT in the set; they are drawn in code.
 - CAST (the OBJECTS line, under 380 characters in all): our own cartoon characters, 1 to 4, each in a few words: era clothes in one clear shirt colour, hat or hair, moustache or beard, build (thin, stout). Teams by shirt colour. Never a known cartoon or channel character. PROPS: the things that move or get used (rope, wheelbarrow, pan, crate, pickaxe, cart).
 
 THE SHAPE (fit it to the beat count):
@@ -199,9 +201,15 @@ KEYS are \`[[frame, { x, y, z, px?, py?, roll?, par?, dof?, focus? }, ease?], ..
 | **Parallax slide** | a wide shot that needs depth | px or py 20-60 over the line: near things slide more than far ones |
 | **Look down** | "don't look down", a drop, a fall, the river below | \`par: 0\` (a flat zoom), z 2.5-3, y toward the far bottom of the set, "smooth" over 8-12 frames, then \`"snap"\` back with par 1 |
 | **Roll** | tension, danger, a crazy moment | roll ±3-7° held through the move |
-**Depth of field** (lens blur by depth; the owner's reference uses it on about a third of the screen time): on CLOSE and MEDIUM shots put \`dof: 10-16\` (blur in px at 1080 wide) in the key where the camera settles, so the background and foreground go soft behind the subject, which stays sharp (focus defaults to the subject's depth; \`focus: 0..1\` pulls it elsewhere). Wides stay \`dof: 0\`. A \`dof\` lerps between keys, so a rack focus is two keys. It needs the set's depth map and is skipped without it.
+**Depth of field** (lens blur by depth; use it sparingly: a sharp frame is the default and the set is the star of the picture): \`dof\` is 0 on almost every shot. Give 2 or 3 deliberate CLOSE shots in the whole film \`dof: 8-12\` (blur in px at 1080 wide) in the key where the camera settles, on a face or a single detail, so the background goes soft behind the subject, which stays sharp (focus defaults to the subject's depth; \`focus: 0..1\` pulls it elsewhere). Never on wides, mediums, crowds or the opening and closing shots. A \`dof\` lerps between keys, so a rack focus is two keys. It needs the set's depth map and is skipped without it.
 
 About 15 moves a minute: every shot has at least one timed move besides the creep. Never two snap reveals in a row; vary whip, push and reveal.
+
+## The shot mix (what makes the reel look like the reference, not a string of close-ups)
+- In every film, at least half of the shots are WIDE or MEDIUM-WIDE: camera z 1.0-1.5, the set clearly visible (sky, gorge, buildings, the whole room), the hero 150-350 tall, with a crowd (\`K.crowd\`, 2-3 rows), props or a second character in the frame. At most a third of the shots are close-ups (z over 2), and never two close-ups in a row.
+- A close-up still shows the set behind the puppet (do not push in so far that only the face and a blur remain): z 2.0-2.8, never above 3 except a "look down" move.
+- Every scene has life in the air and the background besides the hero: mist, motes, a crowd reacting, a prop in use, a second figure. A shot with one puppet and nothing else is a failure.
+- Alternate: wide (the place), medium (the action), close (the reaction), and open on a wide that shows where we are.
 
 ## Timing: actions land on their words
 The request gives WORD START FRAMES (word@frame). An action starts 2-4 frames BEFORE its verb and lands ON it: \`K.span(frame, w - 3, w + 3, "snap")\` for a hit, \`K.span(frame, w, w + 12, "out")\` for a move. A pose change is a K.span-driven lerp of the pose numbers or a switch at the word frame. Puppets move ON TWOS (\`tp\`, stepped like stop-motion); the camera, mist, motes and flames stay smooth (\`t\`). After the action, keep small life: a walk, a fidget, a blink, a breathing \`bob\`, mist and motes.
