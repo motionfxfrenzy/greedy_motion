@@ -55,5 +55,12 @@ try {
   const vd = Number(dur.find((s) => s.codec_type === "video").duration), ad = Number(dur.find((s) => s.codec_type === "audio").duration);
   assert.ok(Math.abs(vd - ad) < 0.06, `audio (${ad}) ends with the picture (${vd})`);
   assert.ok(Math.abs(vd - 5) < 0.04, "150 frames at 30 fps");
+  // clips stretched into longer slots (voice longer than the scene): the film keeps every frame of the timeline (the stretch used to lose one frame per clip)
+  out = join(dir, "stretch.mp4");
+  const stretched = manifest({ totalFrames: 186, scenes: [{ index: 0, startFrame: 0, frames: 93, voice: null }, { index: 1, startFrame: 93, frames: 93, voice: null }] });
+  // browser-made clips (WebCodecs + mp4-muxer) carry a 1/30 timescale: that is the case that lost frames
+  const mk30 = (name, frames) => { const f = join(dir, name); ff("-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=30", "-frames:v", String(frames), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "28", "-preset", "ultrafast", "-video_track_timescale", "30", f); return f; };
+  r = await assemble(stretched, { clipFiles: [mk30("a30.mp4", 90), mk30("b30.mp4", 90)], scratch: dir, output: out });
+  assert.equal(r.frames, 186, "stretched clips do not shorten the film");
   console.log("plate assemble: ok");
 } finally { rmSync(dir, { recursive: true, force: true }); }

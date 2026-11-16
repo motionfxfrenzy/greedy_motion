@@ -781,7 +781,7 @@ export async function assemble(manifest, { clipFiles, scratch, output, signal, o
     clipFiles.forEach((file, i) => {
       inputs.push("-i", file);
       const retime = probes[i].frames && probes[i].frames !== frames[i] ? `setpts=${(frames[i] / probes[i].frames).toFixed(6)}*PTS,` : "";
-      filters.push(`[${i}:v]${retime}fps=${FPS},scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,trim=duration=${(frames[i] / FPS).toFixed(6)},setpts=PTS-STARTPTS[v${i}]`);
+      filters.push(`[${i}:v]${retime}fps=${FPS},scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,tpad=stop_mode=clone:stop=4,trim=duration=${(frames[i] / FPS).toFixed(6)},setpts=PTS-STARTPTS[v${i}]`);
     });
     const needsOverlay = overlays > 0;
     filters.push(`${clipFiles.map((_, i) => `[v${i}]`).join("")}concat=n=${clipFiles.length}:v=1:a=0${needsOverlay ? "[vbase0]" : "[vout]"}`);
