@@ -155,7 +155,7 @@ const curated: readonly GalleryTemplate[] = [
     prompt: "Explain the bystander effect: why the more people watch someone in trouble, the less likely anyone helps."
   },
   {
-    id: "history-reel", kind: "explainer", name: "Cartoon history", group: "Explainer",
+    id: "history-reel", kind: "explainer", name: "Cartoon history", group: "Story",
     summary: "A surprising true story told fast by cartoon characters acting in a painted 3D world, with a camera that never stops.",
     bestFor: "True stories from history and science that end on a twist, in under a minute",
     preview: { src: "/templates/history-reel.jpg", kind: "video", label: "Example film", video: "/templates/history-reel-5s.mp4", film: "/templates/history-reel.mp4", wide: true },
@@ -349,7 +349,9 @@ export function useCaseOf(item: GalleryTemplate): GalleryUseCase {
   // The editorial collage is drawn by the engine from a script, with product screens on top: it is a product look, not a film.
   if (item.id === "story-vox-collage") return "saas";
   // A fable that explains one idea: an educational film (the film brief, the explainer kind), though drawn in a story look.
-  if (item.id === "dark-fable" || item.id === "history-reel" || item.id === "picture-film") return "explain";
+  if (item.id === "dark-fable" || item.id === "picture-film") return "explain";
+  // A true story told by painted puppets is a story film.
+  if (item.id === "history-reel") return "story";
   if (item.kind === "style" && item.group === "Story") return "story";
   if (brandGroups.has(item.group)) return "brand";
   return "saas";
@@ -540,7 +542,7 @@ export function interleaveGalleryPool(
   return out;
 }
 
-export function queryGallery(options: { useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[]; look?: string /* a look id or a family id */; /** Include the code-drawn plate templates (only where the backend has the plate pipeline on). */ plates?: boolean; /** Restrict to templates compatible with a specific brief flow ("film" = educational explainers and story/illustrated films). */ scope?: GalleryScope; /** Deterministic shuffle seed for balanced category interleaving in "all" mode. */ seed?: string | number } = {}): GalleryPage {
+export function queryGallery(options: { /** Template ids shown on the Trending tab, in order (default: trendingGalleryIds). The tab is a curated pick from the other tabs. */ trending?: readonly string[]; useCase?: string; q?: string; cursor?: string; limit?: number; ids?: readonly string[]; look?: string /* a look id or a family id */; /** Include the code-drawn plate templates (only where the backend has the plate pipeline on). */ plates?: boolean; /** Restrict to templates compatible with a specific brief flow ("film" = educational explainers and story/illustrated films). */ scope?: GalleryScope; /** Deterministic shuffle seed for balanced category interleaving in "all" mode. */ seed?: string | number } = {}): GalleryPage {
   const needle = normalizeSearch(options.q).toLowerCase();
   const base = options.look ? styleExamples(options.look) : galleryTemplates;
   const scoped = options.scope === "film" ? base.filter(isFilmTemplate) : base;
@@ -551,7 +553,7 @@ export function queryGallery(options: { useCase?: string; q?: string; cursor?: s
   for (const entry of galleryUseCases) counts[entry.id] = 0;
   for (const item of shown) counts[useCaseOf(item)]++;
   // Trending is a curated list (its templates keep their own tab too), in the list's order.
-  const trending = trendingGalleryIds.flatMap((id) => shown.filter((item) => item.id === id));
+  const trending = (options.trending ?? trendingGalleryIds).flatMap((id) => shown.filter((item) => item.id === id));
   counts.trending = trending.length;
   const isSpecificUseCase = Boolean(options.useCase && galleryUseCases.some((entry) => entry.id === options.useCase));
   const pool = options.ids

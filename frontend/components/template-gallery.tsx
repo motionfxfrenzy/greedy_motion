@@ -42,7 +42,11 @@ function Preview({ item, onOpen }: { item: GalleryCard; onOpen: () => void }) {
   // A vertical film gets a taller frame and is shown whole on a dark ground, never cropped (unless its preview is a
   // wide card made for it: the film over a blurred, zoomed copy of itself).
   const tall = item.aspect === "9:16" && !item.preview.wide;
-  return <span ref={box} className={square ? "gallery-media has-still square" : tall ? "gallery-media has-still tall" : "gallery-media has-still"} role="button" tabIndex={0} aria-label={`Open the ${item.name} preview`} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }} onMouseEnter={play} onMouseLeave={stop} onFocus={play} onBlur={stop}>
+  // Every card is 16:9. A vertical or square preview is shown whole, centred over a blurred, zoomed copy of itself (the same look the wide
+  // cards of Dark fable and Cartoon history are made with), so no card is taller than the others.
+  const letterbox = square || tall;
+  return <span ref={box} className={letterbox ? "gallery-media has-still letterbox" : "gallery-media has-still"} role="button" tabIndex={0} aria-label={`Open the ${item.name} preview`} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }} onMouseEnter={play} onMouseLeave={stop} onFocus={play} onBlur={stop}>
+    {letterbox && <img className="gallery-backdrop" src={poster.src} alt="" aria-hidden="true" loading="lazy" decoding="async" />}
     <img className="gallery-still" src={poster.src} alt={src ? "" : `${item.name}: ${item.preview.label.toLowerCase()}`} loading="lazy" decoding="async" width={480} height={270} onError={poster.failed} />
     {src && <video ref={video} className={playing ? "is-playing" : undefined} src={clip.src} muted loop playsInline preload="none" aria-label={`${item.name}: ${item.preview.label.toLowerCase()}`} onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} onError={clip.failed} />}
     <span className="gallery-group">{item.group}</span>
@@ -163,7 +167,8 @@ export function TemplatesPage({ onUse, busy, embedded = false }: { onUse: (item:
   // The tab and the search live in the URL (/templates?use=saas&q=...) when standalone, so a reload or a shared link opens the same view.
   const params = useSearchParams();
   const asked = embedded ? null : params.get("use");
-  const [useCase, setUseCase] = useState<GalleryUseCase | "all">(galleryUseCases.some((entry) => entry.id === asked) ? (asked as GalleryUseCase) : "all");
+  // Trending opens first (it is a curated pick from the other tabs, not a category of its own); ?use=all and ?use=<tab> open those instead.
+  const [useCase, setUseCase] = useState<GalleryUseCase | "all">(asked === "all" ? "all" : galleryUseCases.some((entry) => entry.id === asked) ? (asked as GalleryUseCase) : "trending");
   const [seed, setSeed] = useState<string>(() => makeVisitSeed());
   const [query, setQuery] = useState(embedded ? "" : normalizeSearch(params.get("q")));
   const [search, setSearch] = useState(embedded ? "" : normalizeSearch(params.get("q")));
@@ -179,7 +184,7 @@ export function TemplatesPage({ onUse, busy, embedded = false }: { onUse: (item:
   useEffect(() => {
     if (embedded) return;
     const next = new URLSearchParams(window.location.search);
-    if (useCase === "all") next.delete("use"); else next.set("use", useCase);
+    if (useCase === "trending") next.delete("use"); else next.set("use", useCase);
     if (search) next.set("q", search); else next.delete("q");
     const text = next.toString();
     if (text !== window.location.search.replace(/^\?/, "")) window.history.replaceState(window.history.state, "", `${window.location.pathname}${text ? `?${text}` : ""}`);
@@ -200,6 +205,8 @@ export function TemplatesPage({ onUse, busy, embedded = false }: { onUse: (item:
     finally { if (request === latest.current) { setLoading(false); setMore(false); } }
   }, [useCase, search, seed]);
   useEffect(() => { void load(null); }, [load]);
+  // No trending picks right now (the list is empty): open on All instead of an empty tab.
+  useEffect(() => { if (counts && counts.trending === 0 && useCase === "trending" && asked !== "trending") setUseCase("all"); }, [counts, useCase, asked]);
 
   const selectAllTab = () => {
     setSeed(makeVisitSeed());
@@ -216,8 +223,9 @@ export function TemplatesPage({ onUse, busy, embedded = false }: { onUse: (item:
     </div>
     <div className="gallery-tools">
       <div className="filter-tabs" role="group" aria-label="What the video is for">
+        {(!counts || counts.trending > 0 || useCase === "trending") && <button type="button" className={useCase === "trending" ? "selected" : ""} aria-pressed={useCase === "trending"} onClick={() => setUseCase("trending")}>Trending {counts && <span>{counts.trending}</span>}</button>}
         <button type="button" className={useCase === "all" ? "selected" : ""} aria-pressed={useCase === "all"} onClick={selectAllTab}>All {counts && <span>{counts.all}</span>}</button>
-        {galleryUseCases.filter((entry) => !counts || counts[entry.id] > 0 || useCase === entry.id).map((entry) => <button type="button" key={entry.id} className={useCase === entry.id ? "selected" : ""} aria-pressed={useCase === entry.id} onClick={() => setUseCase(entry.id)}>{entry.label} {counts && <span>{counts[entry.id]}</span>}</button>)}
+        {galleryUseCases.filter((entry) => entry.id !== "trending" && (!counts || counts[entry.id] > 0 || useCase === entry.id)).map((entry) => <button type="button" key={entry.id} className={useCase === entry.id ? "selected" : ""} aria-pressed={useCase === entry.id} onClick={() => setUseCase(entry.id)}>{entry.label} {counts && <span>{counts[entry.id]}</span>}</button>)}
       </div>
       <input className="gallery-search" type="search" value={query} placeholder="Search styles" aria-label="Search styles" onChange={(event) => setQuery(event.target.value)} />
     </div>

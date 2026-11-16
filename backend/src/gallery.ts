@@ -5,6 +5,7 @@ import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { FastifyInstance } from "fastify";
 import { featuredGalleryIds, findGalleryTemplate, galleryBrief, galleryStyles, isGalleryScope, queryGallery } from "@videosaas/contracts";
 import { config } from "./config.ts";
+import { getGalleryTrendingIds, setGalleryTrendingLog } from "./gallery-trending.ts";
 
 /**
  * Template previews (5-second clips and their posters). They are public marketing media with no user data, so the route
@@ -33,7 +34,10 @@ export async function registerGalleryRoutes(app: FastifyInstance) {
     if (cursor !== undefined && !/^\d{1,6}$/.test(cursor)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown cursor." } });
     if (limit !== undefined && !/^\d{1,3}$/.test(limit)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown limit." } });
     if (seed !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(seed)) return reply.code(400).send({ error: { code: "invalid_request", message: "Unknown seed." } });
-    const page = queryGallery({ plates: config.plates.enabled, useCase: use_case, q, look, scope, cursor, seed, limit: limit === undefined ? undefined : Number(limit), ...(featured === "1" ? { ids: featuredGalleryIds } : {}) });
+    // The Trending tab is a pick from the other tabs, in the order stored in app.gallery_trending (cached; falls back to the default list).
+    setGalleryTrendingLog(request.log);
+    const trendingIds = await getGalleryTrendingIds();
+    const page = queryGallery({ trending: trendingIds, plates: config.plates.enabled, useCase: use_case, q, look, scope, cursor, seed, limit: limit === undefined ? undefined : Number(limit), ...(featured === "1" ? { ids: featuredGalleryIds } : {}) });
     return reply.header("Cache-Control", seed ? "no-store" : cache).send(page);
   });
 
