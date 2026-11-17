@@ -21,7 +21,7 @@ import { projectOwner, getProject } from "../projects/store.ts";
 import { PLANS, isAnimationTier } from "../tokens/plan.ts";
 import { InsufficientTokens } from "../tokens/store.ts";
 import { getObject, objectSize, presignKey, safeDownloadFilename, slugifyProjectDownloadStem, type Bucket } from "../storage.ts";
-import { parseAssetRef, previewKeyFor, resolveSceneAssets, staleClip } from "./pack-assets.ts";
+import { ensurePackAssets, parseAssetRef, previewKeyFor, resolveSceneAssets, staleClip } from "./pack-assets.ts";
 import { bundleDigest } from "./digest.ts";
 import { NotDrawn, currentExport, requestExport } from "./exports.ts";
 import { desiredVariants, isPlateLook } from "./inputs.ts";
@@ -159,6 +159,7 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
         });
         if (reservation.reservedMilli > 0) reservationId = reservation.id;
       }
+      await ensurePackAssets(project, { retryFailed: true }).catch((error) => request.log.warn({ err: error, projectId: project.id }, "pack assets retry could not be queued"));
       return reply.code(202).send(await fixPlates(request.params.id, { routeSnapshot, ...(reservationId ? { reservationId } : {}) }));
     } catch (error) {
       if (reservationId) await releaseStepReservation(reservationId).catch(() => undefined);
@@ -236,6 +237,8 @@ export async function registerPlateRoutes(app: FastifyInstance, options?: { pres
       const requestedTier = resolveProjectAnimationTier(project, project.brief, request.body?.animationTier);
       try {
         const { routeSnapshot } = await assertAnimationTierEntitled(userId, requestedTier);
+        // Retry also means "try the pictures again": a template whose set failed would otherwise fail the scene again at once.
+        await ensurePackAssets(project, { retryFailed: true }).catch((error) => request.log.warn({ err: error, projectId: id }, "pack assets retry could not be queued"));
         return reply.code(202).send(await retryPlateScene(id, variantId, { ...(aspect ? { aspect } : {}), routeSnapshot }));
       } catch (error) {
         if (error instanceof PremiumRequiresSubscriptionError) {
