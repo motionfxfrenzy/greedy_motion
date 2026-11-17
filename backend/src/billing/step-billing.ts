@@ -43,6 +43,7 @@ import { speakerSettings, takeKey, voiceSettings } from "../plan/voice.ts";
 import { desiredVariants, isPlateLook, wantedAspects } from "../plates/inputs.ts";
 import { isAspect, primaryAspect, type Aspect, type PlateComment } from "../plates/model.ts";
 import { quoteStoryboardPreviews, type PreviewQuote } from "../plates/storyboard-previews.ts";
+import { filmPropsMilli, filmPropsPending } from "../plates/film-props.ts";
 import { decideRevisionApply, listVariants, matchVariantsToDesired, readProjectState } from "../plates/store.ts";
 import { getProject, updateProject } from "../projects/store.ts";
 import { InsufficientTokens, refundPartialSpend, refundSpend, spendTokens, tokenSummary } from "../tokens/store.ts";
@@ -1274,6 +1275,11 @@ export async function quoteAnimationStep(input: {
       setupMilli = sched.plateAnimationBatchSetupMillitokens[animationTier];
       perSceneMilli = sched.plateAnimationSceneMillitokens[animationTier];
       animCodeMilli = plateAnimationCostMillitokensV2(scenesToAuthor, animationTier, now);
+    }
+    // A template with recurring props (history-reel) makes them ONCE per film before its first scene is written: one plan call and one drawing call, quoted as part of the batch setup.
+    if (pricingVersion === "v2_step_tier" && scenesToAuthor > 0) {
+      const pending = await filmPropsPending(input.project, { scriptBeats: input.beats, scriptNotes: input.brief.scriptNotes }, templatePack(input.brief.styleExample)).catch(() => false);
+      if (pending) { const propsMilli = await filmPropsMilli(); setupMilli += propsMilli; animCodeMilli += propsMilli; }
     }
     animSigParts = platePlan.toAuthor.map((v) => `${v.index}:${v.aspect}:${v.signature}`);
   } else {

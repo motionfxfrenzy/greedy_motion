@@ -158,15 +158,45 @@ async function make(projectId: string, beats: ScriptBeat[], notes: any, hash: st
   return null;
 }
 
-/** The film's props with the live model calls and storage (production). */
+/**
+ * What the film's shared props cost to make, in provider USD, as quoted before the first scene of a history film is written (one plan call and one drawing call
+ * per film, never per scene). The real cost of each film is logged as `film_props_cost` next to this estimate, so the figure can be calibrated.
+ */
+export const FILM_PROPS_USD_ESTIMATE = 0.03;
+/** The film's props quote in millitokens (v2 step billing, the 30% margin rule of generated material). */
+export async function filmPropsMilli(): Promise<number> {
+  const { materialCostMillitokensV2 } = await import("@videosaas/contracts");
+  return materialCostMillitokensV2(FILM_PROPS_USD_ESTIMATE);
+}
+
+/** True when this film's props are not made yet (so the next scene authoring pays for them once); false when stored, or when the template has none. */
+export async function filmPropsPending(project: Pick<VideoProject, "id">, brief: { scriptBeats?: ScriptBeat[] | undefined; scriptNotes?: unknown }, pack: { filmProps?: boolean; scenes?: () => { hash: string } } | undefined): Promise<boolean> {
+  const scenes = pack?.filmProps ? pack.scenes?.() : undefined;
+  const beats = brief.scriptBeats ?? [];
+  if (!scenes || beats.length < 2) return false;
+  const { getObject } = await import("../storage.ts");
+  const stored = await getObject("uploads", filmPropsKey(project.id)).catch(() => null);
+  if (stored) { try { if ((JSON.parse(stored.toString("utf8")) as { hash?: string }).hash === filmPropsHash(beats, brief.scriptNotes ?? null, scenes.hash)) return false; } catch { /* made again */ } }
+  return true;
+}
+
+/** The film's props with the live model calls and storage (production). Their real cost is logged; the film is charged the quoted share inside its Animation quote. */
 export async function filmPropsFor(project: Pick<VideoProject, "id" | "brief">, pack: { id: string; scenes?: () => { kit: string; hash: string } }): Promise<FilmProps | null> {
   const scenes = pack.scenes?.();
   if (!scenes) return null;
   const [{ getObject, putObject }, { callModel }, { routeFor }, { probePropsModule }] = await Promise.all([import("../storage.ts"), import("../models/providers.ts"), import("../models/routes.ts"), import("../plan/packs/history-reel/prop-check.ts")]);
-  return loadFilmProps(project, {
+  let spent = 0, calls = 0;
+  const run = async (step: "director" | "sceneWriter", request: { system: string; user: string; maxTokens: number }, errorPrefix: string) => {
+    const reply = await callModel({ step, route: { ...routeFor(step), maxTokens: request.maxTokens }, system: request.system, messages: [{ role: "user", content: request.user }], errorPrefix });
+    spent += reply.usd ?? 0; calls += 1;
+    return reply.text;
+  };
+  const made = await loadFilmProps(project, {
     getObject, putObject, kitHash: scenes.hash,
-    plan: async (request) => (await callModel({ step: "director", route: { ...routeFor("director"), maxTokens: request.maxTokens }, system: request.system, messages: [{ role: "user", content: request.user }], errorPrefix: "Film props plan failed" })).text,
-    code: async (request) => (await callModel({ step: "sceneWriter", route: { ...routeFor("sceneWriter"), maxTokens: request.maxTokens }, system: request.system, messages: [{ role: "user", content: request.user }], errorPrefix: "Film props drawing failed" })).text,
+    plan: (request) => run("director", request, "Film props plan failed"),
+    code: (request) => run("sceneWriter", request, "Film props drawing failed"),
     validate: (code, plan) => probePropsModule(code, scenes.kit, plan)
   });
+  if (calls) console.info(JSON.stringify({ event: "film_props_cost", project: project.id, calls, usd: Math.round(spent * 10000) / 10000, quotedUsd: FILM_PROPS_USD_ESTIMATE, props: made?.plan.props.length ?? 0 }));
+  return made;
 }

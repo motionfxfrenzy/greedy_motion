@@ -145,4 +145,15 @@ assert.equal(pack.filmProps, true); assert.equal(templatePack("dark-fable").film
 // the shared drawing is the kit's, so a recurring prop is anchored in the set like any prop (K.prop with `use`)
 assert.match(kit, /const defineProp = \(id: string/); assert.match(kit, /spec\.use as string \| undefined/);
 
+// ---- the cost: one shared share per film, quoted inside the Animation batch setup (30% margin), the real cost logged
+assert.equal(await fp.filmPropsMilli(), 729, "0.03 USD of provider cost at the 30% material margin (2.43x, 0.1 USD per token)");
+assert.equal(await fp.filmPropsPending({ id: "99999999-2222-3333-4444-555555555555" }, { scriptBeats: beats, scriptNotes: null }, templatePack("dark-fable")), false, "a template without recurring props pays nothing");
+assert.equal(await fp.filmPropsPending({ id: "99999999-2222-3333-4444-555555555555" }, { scriptBeats: beats, scriptNotes: null }, pack), true, "a history film whose props are not made yet");
+assert.equal(await fp.filmPropsPending({ id: "99999999-2222-3333-4444-555555555555" }, { scriptBeats: beats.slice(0, 1), scriptNotes: null }, pack), false, "one scene cannot have a recurring prop");
+const billing = readFileSync(join(here, "../src/billing/step-billing.ts"), "utf8");
+assert.match(billing, /const pending = await filmPropsPending\(input\.project[\s\S]*?setupMilli \+= propsMilli; animCodeMilli \+= propsMilli;/, "the quote adds the props once to the batch setup, only while they are not made");
+const live = readFileSync(join(here, "../src/plates/film-props.ts"), "utf8");
+assert.match(live, /event: "film_props_cost", project: project\.id, calls, usd: .*quotedUsd: FILM_PROPS_USD_ESTIMATE/, "the real cost of each film is logged next to the quote");
+assert.match(live, /spent \+= reply\.usd \?\? 0/);
+
 console.log("film-props: a recurring prop is planned and drawn once, shared by every scene, new only where the script says so: ok");
