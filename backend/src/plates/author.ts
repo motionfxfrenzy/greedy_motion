@@ -38,6 +38,9 @@ export const sceneCallCap = () => Math.min(config.plates.maxAuthorCalls, 1 + SCE
 export type SoftAttempt = { code: string; issues: number; list: string };
 export const bestSoftAttempt = (attempts: readonly SoftAttempt[]): SoftAttempt | undefined => attempts.reduce<SoftAttempt | undefined>((best, a) => (!best || a.issues < best.issues ? a : best), undefined);
 
+/** Model calls that began but never finished (a restart, a dropped stream). Calls that finished (the draft and its repairs) are NOT interruptions and never count against the start limit. */
+export const interruptedStarts = (modelStarts: number, finishedCalls: number) => Math.max(0, modelStarts - finishedCalls);
+
 export const MAX_AUTHOR_MODEL_STARTS = config.plates.maxModelStartsPerGen;
 const log = (level: string, event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 
@@ -322,11 +325,13 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
         draft = undefined;
         reusedDraft = true;
       } else {
-        if (modelStarts >= maxStarts) {
+        if (interruptedStarts(modelStarts, used) >= maxStarts) {
+          const earlier = fellBack ? undefined : bestSoftAttempt(softAttempts);
+          if (earlier) { fellBack = true; draft = earlier.code; log("warn", "scene_soft_issues", { variantId, projectId: row.project_id, scene: row.scene_index, gen: row.gen, issues: earlier.issues, list: earlier.list.slice(0, 1500), fellBack: true, interrupted: true }); continue; }
           await failVariant(row.id, row.gen, owner, {
             code: "author_max_starts",
             message: "Writing this scene was interrupted too many times. Press Draw to try again.",
-            detail: `Model starts reached limit (${maxStarts}).`
+            detail: `Interrupted ${interruptedStarts(modelStarts, used)} times (limit ${maxStarts}); ${used} model calls had finished.`
           });
           log("warn", "plate_author_max_starts_reached", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, gen: row.gen, modelStarts });
           return;
@@ -334,11 +339,11 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
         try {
           const startedInfo = await noteModelStart(row.id, row.gen, owner);
           modelStarts = startedInfo.modelStarts;
-          if (modelStarts > maxStarts) {
+          if (interruptedStarts(modelStarts, used) > maxStarts) {
             await failVariant(row.id, row.gen, owner, {
               code: "author_max_starts",
               message: "Writing this scene was interrupted too many times. Press Draw to try again.",
-              detail: `Model starts reached limit (${maxStarts}).`
+              detail: `Interrupted ${interruptedStarts(modelStarts, used)} times (limit ${maxStarts}); ${used} model calls had finished.`
             });
             return;
           }

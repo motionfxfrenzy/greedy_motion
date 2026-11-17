@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 process.env.APP_ENV ??= "local";
 process.env.DATABASE_URL ??= "postgres://unused@localhost/unused";
 process.env.PLANNER ??= "deterministic";
-const { SCENE_REPAIR_MAX, sceneCallCap, bestSoftAttempt } = await import("../src/plates/author.ts");
+const { SCENE_REPAIR_MAX, sceneCallCap, bestSoftAttempt, interruptedStarts } = await import("../src/plates/author.ts");
 const { fixingOf, REPAIR_ROUNDS_MAX } = await import("../src/plates/service.ts");
 
 assert.equal(SCENE_REPAIR_MAX, 2);
@@ -33,4 +33,11 @@ assert.match(src, /bestSoftAttempt\(softAttempts\)/, "the best soft attempt is k
 assert.match(src, /"scene_soft_issues"/, "leftover issues are logged for the owner");
 assert.match(src, /noteFixing\(/, "the page is told a repair is running");
 assert.doesNotMatch(src, /policyRepairs/, "no per-check repair counter is left");
+// the start limit counts interruptions only: the draft and its 2 repairs (3 finished calls, 3 starts) can never trip it
+const maxStarts = 3;
+assert.equal(interruptedStarts(3, 3), 0);
+assert.ok(interruptedStarts(3, 3) < maxStarts, "draft + 2 repairs fit under the start limit");
+assert.equal(interruptedStarts(5, 3), 2, "two calls that never finished are interruptions");
+assert.ok(interruptedStarts(6, 3) >= maxStarts, "three real interruptions do hit the limit");
+assert.match(src, /interruptedStarts\(modelStarts, used\)/, "the loop uses it");
 console.log("scene-repair-cap: ok");
