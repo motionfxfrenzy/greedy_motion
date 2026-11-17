@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { FILM_END_GRACE_MS, filmClockAtEnd, filmEndGuardDue } from "../lib/live/film-end.ts";
+import { FILM_END_GRACE_MS, VOICE_TAIL_GRACE_S, filmClockAtEnd, filmEndGuardDue, voiceHoldsSceneEnd, voiceStallLimitMs } from "../lib/live/film-end.ts";
 
 test("the clock is at the end only for a scene nothing can follow", () => {
   assert.equal(filmClockAtEnd({ localSec: 4.2, sceneDur: 4.17, hasPlayableAfter: false }), true);
@@ -40,5 +40,30 @@ test("the preview's end branch stops on the last frame and Play restarts from th
   const src = readFileSync(new URL("../components/plate-preview.tsx", import.meta.url), "utf8");
   const end = src.slice(src.indexOf("const endVerKey = computeFilmVersionKey(scenes)"));
   assert.match(end.slice(0, 1200), /setPlaying\(false\)[\s\S]*setTime\(total\)/);
-  assert.match(src, /if \(time >= total - 0\.1\) seek\(0\)/);
+  assert.match(src, /if \(atEnd\) seek\(0\)/);
+});
+
+test("a voice holds the end of its scene only while it really has words left", () => {
+  assert.equal(voiceHoldsSceneEnd(null), false);
+  assert.equal(voiceHoldsSceneEnd({ paused: true, ended: false, duration: 4, currentTime: 1 }), false, "paused");
+  assert.equal(voiceHoldsSceneEnd({ paused: false, ended: true, duration: 4, currentTime: 4 }), false, "ended");
+  assert.equal(voiceHoldsSceneEnd({ paused: false, ended: false, duration: 4, currentTime: 1 }), true, "still speaking");
+  assert.equal(voiceHoldsSceneEnd({ paused: false, ended: false, duration: 4.04, currentTime: 3.99 }), false, "stopped just short of its end (the preview seeks voices to duration - 0.05)");
+  assert.equal(voiceHoldsSceneEnd({ paused: false, ended: false, duration: 4, currentTime: 4 - VOICE_TAIL_GRACE_S - 0.01 }), true);
+  assert.equal(voiceHoldsSceneEnd({ paused: false, ended: false, duration: NaN, currentTime: 0 }), false, "unknown length never holds");
+});
+
+test("a voice that can never end is waited for only its remaining time plus a margin", () => {
+  assert.equal(voiceStallLimitMs({ duration: 3, currentTime: 0.2 }), 4300);
+  assert.equal(voiceStallLimitMs({ duration: NaN, currentTime: 0 }), 1500);
+  assert.equal(voiceStallLimitMs({ duration: 1, currentTime: 5 }), 1500);
+});
+
+test("the preview wires the stall limit, rewinds nothing at the end, and restarts from the first scene", () => {
+  const src = readFileSync(new URL("../components/plate-preview.tsx", import.meta.url), "utf8");
+  assert.match(src, /voiceHoldsSceneEnd\(vo\)/);
+  assert.match(src, /voiceStallLimitMs\(vo\)/);
+  assert.match(src, /const sceneDone = el\.ended && /);
+  assert.match(src, /const atEnd = !playing && \(filmEndedRef\.current \|\| time >= total - 0\.1\)/);
+  assert.match(src, /const at = atEnd \? 0 : current/);
 });
