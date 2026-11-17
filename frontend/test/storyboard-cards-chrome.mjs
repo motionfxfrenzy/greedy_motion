@@ -16,11 +16,14 @@ const REPO_ROOT = resolve(FRONTEND_DIR, "..");
 const CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const beats = [
-  { keyword: "One spark", line: "Thomas Farriner forgot to bank his oven.", visual: "[bakery] medium: farriner yawns and shrugs, a spark floats from the oven" },
-  { keyword: "Out of the oven", line: "A spark landed in the straw.", visual: "[bakery] wide: the spark drops on the straw and flames burst up" },
-  { keyword: "He ran", line: "Farriner ran for the street.", visual: "[street] wide: Farriner runs along the street, neighbours point at the smoke" },
-  { keyword: "The mayor", line: "The Lord Mayor looked at the fire and laughed.", visual: "[street] medium: the Lord Mayor stands and laughs at the fire" },
-  { keyword: "Carry", line: "Neighbours carried buckets.", visual: "[street] wide: the crowd of neighbours carry buckets of water" }
+  { keyword: "He forgot", line: "He forgot to put out his oven.", visual: "[bakery] medium: Thomas Farriner yawns and drops his bread-shovel on the flour sacks, a spark floats out of the oven" },
+  { keyword: "The embers", line: '"The embers will die down by morning."', visual: "[bakery] wide: farriner shrugs at the glowing oven and walks to bed" },
+  { keyword: "Midnight on Pudding Lane", line: "By midnight, the straw floor was blazing.", visual: "[street] wide: a spark drops into a straw basket on the floorboards and flames burst upward" },
+  { keyword: "The Lord Mayor", line: "The Lord Mayor rushed over, looked at the fire, and laughed.", visual: "[street] medium: the Lord Mayor points at the fire and laughs" },
+  { keyword: "London was tinder", line: "London was pure tinder.", visual: "[street] wide: the narrow street of wooden houses, flames leaping from roof to roof" },
+  { keyword: "Burning for four days", line: "It raged for four straight days.", visual: "[street] wide: smoke over the burning rooftops of the city" },
+  { keyword: "Run", line: "Thousands fled.", visual: "[street] wide: a crowd of residents with bundles runs through the smoke, Farriner among them" },
+  { keyword: "Gone", line: "Then the town was gone.", visual: "[street] wide: the townsfolk watch the glow from the hill" }
 ];
 const notes = { idea: "In 1666 a baker named Thomas Farriner went to bed after banking his oven, and a spark started the Great Fire of London.", places: "bakery = a bakery; street = a street" };
 
@@ -31,7 +34,7 @@ test("cards: the film's kit draws our puppets on a fixture set, deterministicall
     bundle: true, format: "iife", target: "es2022", write: false
   });
   const names = namesFrom(beats, notes);
-  assert.deepEqual(names, ["Thomas Farriner", "Lord Mayor"], "the people of the film, found from the script (the idea's \"Great Fire\" is a thing, not a person)");
+  assert.deepEqual([...names].sort(), ["Lord Mayor", "Thomas Farriner"], "the people of the film, found from the script");
   const plans = beats.map((_, i) => planCard(i, beats, names, ["set-bakery", "set-street"]));
 
   const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
@@ -59,9 +62,11 @@ test("cards: the film's kit draws our puppets on a fixture set, deterministicall
       return plans.map((plan, i) => window.__cards.drawCard({ kit: K, setImage: sets[plan.set], place: plan.set.slice(4), aspect: "9:16", plan, caption: beats[i].keyword }));
     }, { kitJs, plans, beats, real });
     assert.deepEqual(pageErrors, []);
-    assert.equal(cards.length, 5);
+    assert.equal(cards.length, 8);
     for (const c of cards) { assert.match(c, /^data:image\/jpeg;base64,/); assert.ok(c.length < 120_000, `a card stays small, about 70 KB with a painted set (${c.length} chars)`); }
-    assert.equal(new Set(cards).size, 5, "each beat's card is its own picture (a different set, pose or crowd)");
+    // beat 3, 5 and 6 name nobody and show no crowd: the empty set (plus its key phrase); beats 0, 1, 3 draw one named person; 6 and 7 draw a crowd
+    assert.deepEqual(plans.map((p) => [p.figures.length, p.crowd]), [[1, 0], [1, 0], [0, 0], [1, 0], [0, 0], [0, 0], [1, 2], [0, 3]]);
+    assert.equal(new Set(cards).size, 8, "each beat's card is its own picture");
 
     // deterministic: the same plan gives the same card
     const again = await page.evaluate(async ({ kitJs, plan, caption }) => {
@@ -70,13 +75,23 @@ test("cards: the film's kit draws our puppets on a fixture set, deterministicall
       const img = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = c.toDataURL("image/png"); });
       const a = window.__cards.drawCard({ kit: K, setImage: img, place: "bakery", aspect: "9:16", plan, caption });
       const b = window.__cards.drawCard({ kit: K, setImage: img, place: "bakery", aspect: "9:16", plan, caption });
-      const other = window.__cards.drawCard({ kit: K, setImage: img, place: "bakery", aspect: "9:16", plan: { ...plan, figure: { name: "Other Person", seed: 12345 } }, caption });
+      const other = window.__cards.drawCard({ kit: K, setImage: img, place: "bakery", aspect: "9:16", plan: { ...plan, figures: [{ name: "Other Person", seed: 12345 }] }, caption });
       return [a, b, other];
     }, { kitJs, plan: plans[0], caption: "x" });
     assert.ok(LAYOUT.heroHeight >= 0.35 && LAYOUT.heroHeight <= 0.55, "the hero fills 35-55% of the frame height (the kit's size rule)");
     assert.ok(LAYOUT.feetAt >= 0.7 && LAYOUT.feetAt <= 0.9, "feet on the ground, in the lower third");
     assert.equal(again[0], again[1], "the same plan draws the same card");
     assert.notEqual(again[0], again[2], "a different person looks different");
+    // nobody named, no crowd: nothing is drawn but the set (two such beats on the same set and caption are the same picture)
+    const empty = await page.evaluate(async ({ kitJs, plan }) => {
+      const K = window.__cards.loadKit(kitJs);
+      const c = document.createElement("canvas"); c.width = 540; c.height = 960; const g = c.getContext("2d"); g.fillStyle = "#789"; g.fillRect(0, 0, 540, 960);
+      const img = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = c.toDataURL("image/png"); });
+      const draw = (p) => window.__cards.drawCard({ kit: K, setImage: img, place: "street", aspect: "9:16", plan: p, caption: "k" });
+      return [draw({ ...plan, figures: [], crowd: 0, pose: "walk" }), draw({ ...plan, figures: [], crowd: 0, pose: "sit", mood: "scared" }), draw({ ...plan, figures: [], crowd: 3 })];
+    }, { kitJs, plan: plans[2] });
+    assert.equal(empty[0], empty[1], "no figure: the pose and mood change nothing");
+    assert.notEqual(empty[0], empty[2], "a crowd adds figures");
 
     // the other frame shapes draw too (a 16:9 film crops the 9:16 set; the ground stays in view)
     const shapes = await page.evaluate(async ({ kitJs, plan }) => {

@@ -24,7 +24,7 @@ export function setOfBeat(index: number, beats: readonly CardBeat[], knownSets: 
 // ------------------------------------------------------------------ names
 const NOT_NAMES = new Set(["the", "a", "an", "he", "she", "it", "they", "we", "i", "his", "her", "their", "but", "and", "then", "when", "while", "after", "before", "this", "that", "there", "what", "who", "why", "how", "in", "on", "at", "by", "for", "with", "from", "to", "of", "as", "so", "yet", "once", "now", "next", "one", "two", "three", "wide", "medium", "close", "hold", "push", "pull", "tilt", "reveal", "zoom", "cut", "snap", "slow", "fast", "narrator"]);
 /** Last words that make a capitalised phrase an event or a place, not a person ("Great Fire", "Niagara Falls", "London Bridge"). */
-const NON_PERSON_TAIL = new Set(["fire", "war", "battle", "plague", "flood", "storm", "revolution", "empire", "kingdom", "republic", "river", "bridge", "falls", "gorge", "street", "road", "city", "town", "village", "castle", "tower", "mountain", "lake", "sea", "ocean", "island", "square", "market", "church", "cathedral", "palace", "hall", "house", "park", "station", "company", "party", "act", "day", "night", "age", "ages", "years", "year", "times", "wall", "gate", "canal", "valley", "desert", "forest"]);
+const NON_PERSON_TAIL = new Set(["fire", "war", "battle", "plague", "flood", "storm", "revolution", "empire", "kingdom", "republic", "river", "bridge", "falls", "gorge", "street", "road", "city", "town", "village", "castle", "tower", "mountain", "lake", "sea", "ocean", "island", "square", "market", "church", "cathedral", "palace", "hall", "house", "park", "station", "company", "party", "act", "day", "night", "age", "ages", "years", "year", "times", "wall", "gate", "canal", "valley", "desert", "forest", "lane", "alley", "avenue", "court", "yard", "bay", "hill", "harbour", "harbor", "port", "farm", "inn", "tavern", "shop", "oven"]);
 const words = (text: string) => text.match(/[A-Za-z][A-Za-z'-]*/g) ?? [];
 
 /**
@@ -63,7 +63,7 @@ function mentions(text: string, name: string): boolean {
   return name.split(" ").some((part) => part.length >= 4 && lower.includes(` ${part.toLowerCase()} `));
 }
 
-export type Figure = { /** The person's name, or null for the generic figure. */ name: string | null; /** Seed for the kit's seeded cast: the same person gets the same look on every card. */ seed: number };
+export type Figure = { /** The person's name. */ name: string; /** Seed for the kit's seeded cast: the same person gets the same look on every card. */ seed: number };
 
 /** FNV-1a over the name: a stable seed (never zero). */
 export const seedOf = (text: string): number => {
@@ -72,18 +72,13 @@ export const seedOf = (text: string): number => {
   return h || 1;
 };
 
-/** The one generic figure of a film with no names. */
-export const GENERIC_FIGURE: Figure = { name: null, seed: seedOf("a person from history") };
-
 /**
- * The main figure of a beat: the person it names (its line or visual), else the person of the nearest earlier beat that names one (the story goes on
- * about the same person), else the film's most mentioned person, else the generic figure.
+ * The characters a beat's VISUAL names, and only those: the film's named cast matched case-insensitively, also by a part of the name ("farriner" is Thomas
+ * Farriner). A beat that names nobody has no figure: never a stand-in, never a person carried over from an earlier beat.
  */
-export function figureForBeat(index: number, beats: readonly CardBeat[], names: readonly string[]): Figure {
-  const named = (i: number) => names.find((n) => mentions(`${beats[i]?.line ?? ""} ${(beats[i]?.visual ?? "").replace(TAG, "")}`, n));
-  for (let i = index; i >= 0; i--) { const n = named(i); if (n) return { name: n, seed: seedOf(n) }; }
-  const main = names[0];
-  return main ? { name: main, seed: seedOf(main) } : GENERIC_FIGURE;
+export function figuresForBeat(beat: CardBeat | undefined, names: readonly string[]): Figure[] {
+  const action = (beat?.visual ?? "").replace(TAG, "");
+  return names.filter((n) => mentions(action, n)).slice(0, 2).map((name) => ({ name, seed: seedOf(name) }));
 }
 
 // ------------------------------------------------------------------ poses
@@ -106,7 +101,7 @@ export const poseFor = (visual: string | null | undefined): PoseName => {
 
 /** A beat that shows a crowd gets two or three figures (the main one in front, the rest smaller and behind). */
 export const isCrowdBeat = (visual: string | null | undefined): boolean =>
-  /\b(crowd|people|townspeople|villagers|neighbou?rs|everyone|soldiers|workers|citizens|men|women|children|kids|guards|mob|onlookers|spectators|audience|passers-?by|family|team)\b/i.test((visual ?? "").replace(TAG, ""));
+  /\b(crowd|crowds|people|townsfolk|townspeople|villagers|residents|inhabitants|locals|neighbou?rs|everyone|everybody|soldiers|workers|citizens|families|men|women|children|kids|guards|mob|onlookers|spectators|audience|passers-?by|bystanders)\b/i.test((visual ?? "").replace(TAG, ""));
 
 export type Mood = "calm" | "grin" | "scared" | "angry" | "wow";
 /** The face of the main figure from the visual: a few keywords, calm otherwise. */
@@ -120,14 +115,26 @@ export const moodFor = (visual: string | null | undefined): Mood => {
 };
 
 /** Everything a card needs about its beat, from the script alone. */
-export type CardPlan = { set: string | null; figure: Figure; pose: PoseName; mood: Mood; crowd: boolean; extras: number };
+export type CardPlan = {
+  set: string | null;
+  /** The characters the VISUAL names (none = no named figure). */
+  figures: Figure[];
+  pose: PoseName;
+  mood: Mood;
+  /** Generic crowd figures (smaller, further back): 2-3 when the VISUAL describes a crowd or people, otherwise 0. */
+  crowd: number;
+  /** Seed of the generic crowd (from the place, so the crowd of a set looks the same on every card). */
+  crowdSeed: number;
+};
 
 export function planCard(index: number, beats: readonly CardBeat[], names: readonly string[], knownSets: readonly string[]): CardPlan {
   const visual = beats[index]?.visual ?? null;
-  const crowd = isCrowdBeat(visual);
-  return { set: setOfBeat(index, beats, knownSets), figure: figureForBeat(index, beats, names), pose: poseFor(visual), mood: moodFor(visual), crowd, extras: crowd ? 2 : 0 };
+  const figures = figuresForBeat(beats[index], names);
+  // a crowd beat shows 3 generic figures when nobody is named, 2 behind the named ones
+  const crowd = isCrowdBeat(visual) ? (figures.length ? 2 : 3) : 0;
+  return { set: setOfBeat(index, beats, knownSets), figures, pose: poseFor(visual), mood: moodFor(visual), crowd, crowdSeed: seedOf(`${setOfBeat(index, beats, knownSets) ?? ""} crowd`) };
 }
 
 /** What a card is drawn from: when none of this changes, the card is the same (so an unchanged beat is never redrawn). */
 export const cardSignature = (plan: CardPlan, aspect: string, setHash: string): string =>
-  JSON.stringify([plan.set, setHash, plan.figure.seed, plan.pose, plan.mood, plan.extras, aspect]);
+  JSON.stringify([plan.set, setHash, plan.figures.map((f) => f.seed), plan.pose, plan.mood, plan.crowd, aspect]);

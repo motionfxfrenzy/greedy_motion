@@ -59,20 +59,24 @@ export function drawCard(input: CardInput): string {
   const cam = K.camera(0, [[0, { x: K.PW / 2, y: feetY - 0.3 * H }]], { push: false });
   K.set(ctx, env, cam, place);
 
-  const hero = K.crowdCast(1, plan.figure.seed)[0];
-  const extras = plan.extras ? K.crowdCast(plan.extras, plan.figure.seed + 7) : [];
-  const viewH = H / (cam.z || 1);
+  const viewH = H / (cam.z || 1), viewW = W / (cam.z || 1);
+  // each named person has one seeded look for the whole film; the crowd is generic (seeded by the place, so it is stable too) and stays smaller and behind
+  const named = plan.figures.map((f) => K.crowdCast(1, f.seed)[0]);
+  const crowd = plan.crowd ? K.crowdCast(plan.crowd, plan.crowdSeed) : [];
   K.actors(ctx, env, cam, (g: any) => {
-    // the extras stand behind and smaller, facing the hero; far ones are drawn first
-    extras.forEach((cast: any, i: number) => {
-      const left = i % 2 === 0;
-      const x = cam.x + (left ? -0.3 : 0.3) * (W / (cam.z || 1)) * (1 - 0.12 * Math.floor(i / 2));
-      K.puppet(g, cam, cast, x, LAYOUT.extraFeetAt * PH, LAYOUT.extraHeight * viewH, { ...K.pose.stand(cast, "three"), face: left ? 1 : -1, face2: K.FACE.wow }, { shadow: true, sun: "left" });
+    // far ones first: the crowd, then the named figures in front
+    const crowdXs = plan.figures.length ? [-0.31, 0.31] : [-0.27, 0.02, 0.29];
+    crowd.forEach((cast: any, i: number) => {
+      const x = cam.x + (crowdXs[i % crowdXs.length] ?? 0) * viewW, h = (plan.figures.length ? LAYOUT.extraHeight : LAYOUT.extraHeight + 0.04 * (i % 2)) * viewH;
+      K.puppet(g, cam, cast, x, LAYOUT.extraFeetAt * PH + (i % 2) * 0.01 * PH, h, { ...K.pose.stand(cast, "three"), face: x < cam.x ? 1 : -1, face2: K.FACE[plan.figures.length ? "wow" : "calm"] }, { shadow: true, sun: "left" });
     });
-    const p = pose(K, plan.pose, hero, plan.mood);
-    const opts: any = { shadow: true, sun: "left" };
-    if (plan.pose === "sit") opts.behind = (c2: any) => K.crate(c2, 24, 0, 170, 64);
-    K.puppet(g, cam, hero, cam.x, feetY, LAYOUT.heroHeight * viewH, p, opts);
+    named.forEach((cast: any, i: number) => {
+      const spread = named.length === 2 ? (i === 0 ? -0.16 : 0.16) : 0;
+      const p = i === 0 ? pose(K, plan.pose, cast, plan.mood) : { ...K.pose.stand(cast, "three"), face: -1, face2: K.FACE.calm };
+      const opts: any = { shadow: true, sun: "left" };
+      if (i === 0 && plan.pose === "sit") opts.behind = (c2: any) => K.crate(c2, 24, 0, 170, 64);
+      K.puppet(g, cam, cast, cam.x + spread * viewW, feetY, LAYOUT.heroHeight * viewH, p, opts);
+    });
   });
 
   if (input.caption) {
