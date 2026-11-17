@@ -45,6 +45,7 @@ import {
 
 export { CLIP_AFTER_UNPLAYABLE_MS };
 import { createClient } from "../utils/supabase/client";
+import { filmClockAtEnd, filmEndGuardDue } from "../lib/live/film-end";
 import {
   AnimationPrep,
   BUFFERING_SHOW_DELAY_MS,
@@ -1332,6 +1333,30 @@ export function PlateLiveStage({
     let raf = 0;
     let fallbackTimer = 0;
 
+    // A scene is the film's last when no scene after it can play (live, clip, or a sketch stand-in).
+    const hasPlayableAfterCurrent = () =>
+      resolvedVariants.some(
+        (v, i) =>
+          i > current &&
+          Boolean(
+            resolutions[i]?.isPlayable ||
+              (!v.stale && v.state !== "failed" && Boolean(referenceFrames?.[i]))
+          )
+      );
+    // The film must stop at its end whatever the last scene's player is doing. The tick below holds the clock while the player says it is
+    // buffering or preparing, and the last frame can leave it there for good: then nothing ever reached the end check, `playing` stayed
+    // true and the last frames kept repeating. This timer does not depend on the tick: once the clock has reached the end of the last
+    // scene, a short grace later the film is finished exactly as the tick's own end check would finish it.
+    let endReachedAtMs: number | null = null;
+    const endGuard = window.setInterval(() => {
+      if (!filmEndGuardDue(endReachedAtMs, performance.now())) return;
+      window.clearInterval(endGuard);
+      telemetryRef.current.naturalEndCleanupTriggered = true;
+      filmPlayerRef.current?.completeFilmCleanup();
+      bump();
+      onAdvanceSceneRef.current(current);
+    }, 200);
+
     const scheduleNextTick = () => {
       let fired = false;
       raf = requestAnimationFrame((now) => {
@@ -1406,6 +1431,7 @@ export function PlateLiveStage({
       emittedTimesRef.current.push(nextGlobalTime);
       if (emittedTimesRef.current.length > 16) emittedTimesRef.current.shift();
       onSetTimeRef.current(nextGlobalTime);
+      if (endReachedAtMs === null && filmClockAtEnd({ localSec, sceneDur, hasPlayableAfter: hasPlayableAfterCurrent() })) endReachedAtMs = performance.now();
 
       if (fp && activeSceneIsLive) {
         const targetFrame = fp.clock.frame();
@@ -1452,15 +1478,8 @@ export function PlateLiveStage({
           );
 
       if (localSec >= sceneDur && !voStillRunning) {
-        const hasPlayableAfter = resolvedVariants.some(
-          (v, i) =>
-            i > current &&
-            Boolean(
-              resolutions[i]?.isPlayable ||
-                (!v.stale && v.state !== "failed" && Boolean(referenceFrames?.[i]))
-            )
-        );
-        if (!hasPlayableAfter) {
+        window.clearInterval(endGuard);
+        if (!hasPlayableAfterCurrent()) {
           telemetryRef.current.naturalEndCleanupTriggered = true;
           filmPlayerRef.current?.completeFilmCleanup();
           bump();
@@ -1476,6 +1495,7 @@ export function PlateLiveStage({
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(fallbackTimer);
+      window.clearInterval(endGuard);
       if (telemetryRef.current.playStartMs !== null) {
         telemetryRef.current.accumulatedPlayMs += performance.now() - telemetryRef.current.playStartMs;
         telemetryRef.current.playStartMs = null;
