@@ -128,6 +128,30 @@ function runWorld({ failSets = false, poorAfter = Infinity, store = storeFake() 
   assert.ok(stats.drawn <= 1);
 }
 
+// a short balance: nothing is painted (nothing half-paid) and the page is told why, with the numbers
+{
+  const w = runWorld(); let sets = 0;
+  w.deps.afford = async (needed) => ({ ok: false, remainingMilli: 350 });
+  const real = w.deps.sets; w.deps.sets = async (specs) => { sets += 1; return real(specs); };
+  const stats = await sp.runStoryboardSets(PID, plan, w.deps, w.send);
+  assert.equal(sets, 0, "no set is painted when the balance cannot pay for them"); assert.equal(w.log.images.length, 0); assert.equal(w.log.charges.size, 0);
+  assert.equal(stats.stopped, "tokens");
+  const notice = w.log.events.find((e) => e.notice).notice;
+  assert.deepEqual([notice.code, notice.needed, notice.remaining], ["insufficient_tokens", 4.887, 0.35], "3 sets at 1.629 tokens, a balance of 0.35");
+  assert.match(notice.message, /Sets need 4\.887 tokens and you have 0\.35\. Add tokens to paint the real sets; until then the cards show their key phrase\./);
+  assert.ok(w.log.events[0].plan && w.log.events.filter((e) => e.set || e.image).length === 0, "the plan went out; no card was filled with anything that looks real");
+  // enough balance: the sets are painted as before (and the gate asks for exactly the sets still missing)
+  const ok = runWorld(); const asked = []; ok.deps.afford = async (needed) => { asked.push(needed); return { ok: true, remainingMilli: 99_000 }; };
+  const s2 = await sp.runStoryboardSets(PID, plan, ok.deps, ok.send); assert.equal(s2.drawn, 3); assert.deepEqual(asked, [3 * sp.setMilli()]);
+  assert.ok(!ok.log.events.some((e) => e.notice));
+  // sets already stored need no balance at all
+  const stored = runWorld({ store: ok.store }); stored.deps.afford = async () => { throw new Error("must not be asked"); };
+  const s3 = await sp.runStoryboardSets(PID, plan, stored.deps, stored.send); assert.equal(s3.cached, 3);
+  // the balance ran out between the gate and the charge (another spend): the same notice
+  const race = runWorld({ poorAfter: 1 }); race.deps.afford = async () => ({ ok: true, remainingMilli: 99_000 });
+  const s4 = await sp.runStoryboardSets(PID, plan, race.deps, race.send); assert.equal(s4.stopped, "tokens"); assert.ok(race.log.events.some((e) => e.notice), "a mid-run shortfall is told too");
+}
+
 // ---- the route: key-phrase cards first, then the plan and the sets; no reservation; the kit is served for the page
 {
   const src = readFileSync(new URL("../src/plan/routes.ts", import.meta.url), "utf8");
@@ -136,6 +160,7 @@ function runWorld({ failSets = false, poorAfter = Infinity, store = storeFake() 
   const run = src.indexOf("runStoryboardSets(", quiet);
   assert.ok(quiet > 0 && cards > quiet && run > cards, "key-phrase cards go out first, then the sets stream in");
   assert.match(src.slice(quiet, run), /storyboardPreviews === "cast"/, "only a pack that opts in");
+  assert.match(src, /livePreviewDeps\(projectForPreviews\(project, brief, beats, notes\), userId\)/, "the gate knows who pays");
   assert.ok(!/runStoryboardPreviews|previewCast|image:\s*event\.image/.test(src), "no per-scene picture code is left in the route");
   assert.match(src, /"\/v1\/storyboard-kit\/:packId"/);
 }

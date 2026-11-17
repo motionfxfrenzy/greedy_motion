@@ -524,6 +524,8 @@ export function Studio() {
   const cardSignatures = useRef<Record<string, string>>({});
   const askedSets = useRef<Set<string>>(new Set());
   const castPreviews = () => CAST_PREVIEW_TEMPLATES.has(brief.styleExample ?? "");
+  // Why the real sets are not on the cards (a short balance): shown as a message with the top-up path, never a silent fallback that looks finished.
+  const [setsNotice, setSetsNotice] = useState<{ message: string; needed: number; remaining: number } | null>(null);
   const castMaker = (projectId: string) => {
     if (!cardMakerRef.current || cardMakerRef.current.project !== projectId) { cardMakerRef.current = { project: projectId, maker: new CardMaker(brief.styleExample ?? "") }; cardSignatures.current = {}; askedSets.current = new Set(); }
     return cardMakerRef.current.maker;
@@ -552,9 +554,11 @@ export function Studio() {
     const maker = castPreviews() ? castMaker(active.id) : null;
     void streamFrames(active.id, { brief: checked.brief, beats: withIds, indices: todo, ...(notesRef.current ? { notes: notesRef.current } : {}) }, (event) => {
       // Cast-preview templates: each set picture arrives once (the only paid part); the page draws the cast on every card of that place with the film's kit.
+      if (event.notice) { setSetsNotice({ message: event.notice.message, needed: event.notice.needed, remaining: event.notice.remaining }); return; }
       if (event.plan) { for (const entry of event.plan) askedSets.current.add(entry.set); return; } // these sets are on their way: the edit effect must not ask for them again
       if (event.set && event.image && maker) {
         const placeName = event.set;
+        setSetsNotice(null);
         void maker.addSet(placeName, event.image).then(() => maker.ready()).then((ok) => {
           if (!ok) return;
           for (const i of todo) {
@@ -1455,7 +1459,8 @@ export function Studio() {
   }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // The project list leaves the frames out, so only a fuller copy adds to the cache; nothing here removes from it.
   useEffect(() => {
-    const saved = (project?.scriptFrames ?? []).filter((frame) => frameCache.current[frame.key]?.state !== "ready");
+    // A cast-preview template draws its cards from the real sets: sketches saved before it did (a 2D backdrop with a figure) must not stand in for them.
+    const saved = castPreviews() ? [] : (project?.scriptFrames ?? []).filter((frame) => frameCache.current[frame.key]?.state !== "ready");
     if (saved.length) putFrames(saved.map((frame) => [frame.key, { state: "ready", svg: frame.svg }]));
   }, [project?.id, project?.scriptFrames]); // eslint-disable-line react-hooks/exhaustive-deps
   // Frames for a script that was never drawn here (a reopened project): drawn once, not after every edit.
@@ -1664,7 +1669,7 @@ export function Studio() {
         onEdit={editScriptBeat} onAsk={(instruction, only) => void writeScript(instruction, undefined, only)} writing={canvas.writing} scoped={Boolean(canvas.scoped)}
         versions={canvas.beats.map((_, i) => versions[i] ? { count: versions[i]!.list.length, at: versions[i]!.at } : null)}
         onReimagine={reimagineBeat} onVersion={showVersion} onCancel={() => canvasStop.current?.abort()}
-        frames={frameSlots} aspect={brief.aspect} styleName={findGalleryTemplate(brief.styleExample)?.name} {...(castPreviews() ? { previewTokens: billingOverview?.steps.storyboardPreviews?.tokens ?? 0 } : {})}
+        frames={frameSlots} aspect={brief.aspect} styleName={findGalleryTemplate(brief.styleExample)?.name} {...(castPreviews() ? { previewTokens: billingOverview?.steps.storyboardPreviews?.tokens ?? 0 } : {})} {...(castPreviews() && setsNotice ? { setsNotice: { message: setsNotice.message, onAddTokens: () => showLimit(new LimitError(setsNotice.message, "insufficient_tokens", null, null, null, setsNotice.needed, setsNotice.remaining)) } } : {})}
         onRedraw={(index) => { if (project) drawFrames(project, canvas.beats, [index], true); }}
         voice={voice} onConfirm={confirmScript} onRetryVoice={retryVoice} music={musicBrief}
         onRender={renderFromScript} rendering={busy || animating}

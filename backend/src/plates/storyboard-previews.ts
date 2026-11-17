@@ -61,6 +61,8 @@ export type PreviewDeps = AssetStorage & {
   small: (data: Buffer) => Promise<Buffer>;
   /** Draws or reuses the sets (the pack's real asset step, with its material charge). */
   sets: (specs: AssetSpec[]) => Promise<AssetIndex>;
+  /** Whether the person can pay `neededMilli` for the sets (null = no gate: not on step billing). Checked once before any set is painted, so nothing is half-paid. */
+  afford?: (neededMilli: number) => Promise<{ ok: boolean; remainingMilli: number }>;
   /** Poll interval while waiting for a set that is still being drawn. */
   pollMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -72,7 +74,14 @@ export type PreviewEvent =
   /** A set picture is ready: `image` is a data URL. Every card of that place can now be drawn. */
   | { set: string; image: string; cached: boolean }
   /** A set could not be made or paid for: its cards keep their key phrase. */
-  | { setError: string; set: string };
+  | { setError: string; set: string }
+  /** The sets cannot be painted because the balance is short: the page says so (and offers the top-up) instead of leaving cards that look unfinished without a reason. Tokens, not millitokens. */
+  | { notice: { code: "insufficient_tokens"; message: string; needed: number; remaining: number } };
+
+export const noTokensNotice = (neededMilli: number, remainingMilli: number): Extract<PreviewEvent, { notice: unknown }> => {
+  const needed = Math.round(neededMilli) / 1000, remaining = Math.round(Math.max(0, remainingMilli)) / 1000;
+  return { notice: { code: "insufficient_tokens", needed, remaining, message: `Sets need ${needed} tokens and you have ${remaining}. Add tokens to paint the real sets; until then the cards show their key phrase.` } };
+};
 
 export type PreviewStats = { cached: number; drawn: number; failed: number; setsFailed: string | null; stopped: "tokens" | null };
 
@@ -110,6 +119,12 @@ export async function runStoryboardSets(
   }
   if (sent.size === wanted.size) return stats;
 
+  // 1b. the rest cost tokens: with a short balance nothing is painted (and nothing half-paid); the page is told why
+  if (deps.afford) {
+    const needed = (wanted.size - sent.size) * setMilli(), balance = await deps.afford(needed).catch(() => null);
+    if (balance && !balance.ok) { stats.stopped = "tokens"; send(noTokensNotice(needed, balance.remainingMilli)); return stats; }
+  }
+
   // 2. the rest through the pack's real asset step; each set is sent as its record lands in the index
   let done = false, error: string | null = null;
   const run = deps.sets(plan.specs).then(() => undefined, (e) => { error = String((e as Error)?.message ?? e).slice(0, 300); stats.setsFailed = error; if (isInsufficient(e)) stats.stopped = "tokens"; }).finally(() => { done = true; });
@@ -126,18 +141,21 @@ export async function runStoryboardSets(
   }
   await run;
   // a set that never landed (the step failed or stopped): its cards keep their key phrase
+  if (stats.stopped === "tokens" && sent.size < wanted.size) send(noTokensNotice((wanted.size - sent.size) * setMilli(), 0));
   for (const name of wanted.keys()) if (!sent.has(name)) { stats.failed += 1; send({ setError: error ?? "The set picture is not ready.", set: name }); }
   return stats;
 }
 
 /** Production dependencies: object storage and the pack's asset step with its material charge. */
-export async function livePreviewDeps(project: VideoProject): Promise<PreviewDeps> {
+export async function livePreviewDeps(project: VideoProject, userId?: string | null): Promise<PreviewDeps> {
   const { liveDeps } = await import("./pack-assets.ts");
   const assetDeps: PackAssetDeps = await liveDeps(project);
   const sharp = (await import("sharp")).default;
+  const stepBilling = (await import("../billing/step-billing.ts")).stepBillingOnForProject(project);
   return {
     getObject: assetDeps.getObject, putObject: assetDeps.putObject, objectSize: assetDeps.objectSize,
     small: (data) => sharp(data).resize({ width: PREVIEW_SET_WIDTH, withoutEnlargement: true }).jpeg({ quality: 76, mozjpeg: true }).toBuffer(),
+    ...(userId && stepBilling ? { afford: async (neededMilli: number) => { const { tokenSummary } = await import("../tokens/store.ts"); const remainingMilli = Math.round((await tokenSummary(userId, 0)).remaining * 1000); return { ok: remainingMilli >= neededMilli, remainingMilli }; } } : {}),
     sets: (specs) => generatePackAssets(project.id, specs, assetDeps)
   };
 }

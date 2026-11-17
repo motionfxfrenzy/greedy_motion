@@ -1529,7 +1529,7 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           const { livePreviewDeps, planPreviews, runStoryboardSets } = await import("../plates/storyboard-previews.ts");
           const plan = await planPreviews(project, quietPack, brief, beats, notes, wanted, { getObject, putObject });
           // the plan (which set each beat stands in) goes out at once; each set follows as it is stored; the page draws the cast on it
-          const stats = await runStoryboardSets(project.id, plan, await livePreviewDeps(projectForPreviews(project, brief, beats, notes)), (event) => {
+          const stats = await runStoryboardSets(project.id, plan, await livePreviewDeps(projectForPreviews(project, brief, beats, notes), userId), (event) => {
             if ("setError" in event) app.log.warn({ projectId: project.id, set: event.set, reason: event.setError }, "storyboard set not shown");
             else send(event);
           }, controller.signal);

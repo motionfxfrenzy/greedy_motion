@@ -311,7 +311,7 @@ function RenderAction({ seconds, cost: costProp, pricingVersion, rendering, labe
  * beside it; a single prompt bar at the bottom asks the AI for changes. Confirming the script voices it; the storyboard is
  * built from it in the background.
  */
-export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, previewTokens, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing, onInsertScene, onRemoveScene, undoScene, onUndoRemoveScene, onDismissUndoScene, animationTier = DEFAULT_ANIMATION_TIER, canUsePremium = false, onAnimationTierChange, onLockedPremiumClick, animationQuoteTokens, voiceQuoteTokens, animationExists = false, recreateQuoteTokens = null, onRecreate }: {
+export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, previewTokens, setsNotice, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing, onInsertScene, onRemoveScene, undoScene, onUndoRemoveScene, onDismissUndoScene, animationTier = DEFAULT_ANIMATION_TIER, canUsePremium = false, onAnimationTierChange, onLockedPremiumClick, animationQuoteTokens, voiceQuoteTokens, animationExists = false, recreateQuoteTokens = null, onRecreate }: {
   /** Identifies the open project so duration acceptance never leaks across projects. */
   projectId?: string;
   /** Durable per-project flag indicating the user already accepted the over-length notice. */
@@ -352,6 +352,8 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
   styleName?: string;
   /** Set for a template whose storyboard shows one picture per scene (the pack's storyboardPreviews): the heading says so, with the extra cost when there is one. */
   previewTokens?: number | null;
+  /** A short balance stops the real sets: the message and the top-up action, shown above the cards. */
+  setsNotice?: { message: string; onAddTokens: () => void };
   onRedraw: (index: number) => void;
   voice: VoiceState;
   onConfirm: () => void;
@@ -916,6 +918,7 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
         <div className="sc-length-actions"><button type="button" className="secondary-button" disabled={savingKeep} onClick={() => void handleKeepOverLength()}>{savingKeep ? "Saving…" : `Keep ${runs}s`}</button><button type="button" className="primary-button" disabled={busyVoice || savingKeep} onClick={onFit}>Fit to {length.seconds}s</button></div>
       </div>}
       <div className="sc-doc-head" aria-hidden="true" style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col }}><span>Script</span><span>{previewTokens !== undefined ? `Preview · real set and cast; the action and camera are written in Animation${previewTokens ? ` · sets ${previewTokens}t` : ""}` : `Reference frames${styleName ? ` · ${styleName} style` : ""}`}</span></div>
+      {setsNotice && <div className="sc-sets-notice" role="status" style={{ margin: "8px 0", padding: "10px 12px", borderRadius: 10, border: "1px solid #e0b34a", background: "rgba(224,179,74,0.14)", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}><span>{setsNotice.message}</span><button type="button" onClick={setsNotice.onAddTokens} style={{ fontWeight: 700 }}>Add tokens</button></div>}
       <ol className="sc-doc" ref={docListRef}>
         {beats.length > 0 && renderBoundary(0)}
         {beats.map((beat, index) => {

@@ -724,6 +724,8 @@ export type FrameEvent = {
   index?: number; svg?: string; error?: string;
   /** Cast-preview templates (storyboardPreviews): which set each beat stands in (sent first), then each set picture as a data URL when it is stored. */
   plan?: { index: number; set: string }[]; set?: string; image?: string; cached?: boolean;
+  /** The sets cannot be painted because the balance is short (needed and remaining are tokens). */
+  notice?: { code: "insufficient_tokens"; message: string; needed: number; remaining: number };
 };
 
 /** The pack's puppet kit as JavaScript (GET /v1/storyboard-kit/<pack>), for the storyboard cards the page draws itself. */
