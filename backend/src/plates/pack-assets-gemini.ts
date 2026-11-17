@@ -37,7 +37,7 @@ export async function toJpeg(image: GeneratedImage): Promise<{ data: Buffer; mim
 export async function geminiTextCheck(image: Buffer, mime: string): Promise<{ extra: string[]; figures?: string[]; usd: number | null }> {
   const reply = await callModel({
     step: "screenshot",
-    route: { step: "screenshot", provider: "gemini", model: TEXT_CHECK_MODEL, maxTokens: 2000, explicit: false },
+    route: { step: "screenshot", provider: "gemini", model: TEXT_CHECK_MODEL, maxTokens: 4000, effort: "low", explicit: false },
     system: "You read pictures for stray writing.",
     messages: [{ role: "user", content: [
       { type: "image", mime, base64: image.toString("base64") },

@@ -28,9 +28,12 @@ export const PACK_ASSET_VERSION = 1;
 export const ASSET_PARALLEL = Math.max(1, Number.parseInt(process.env.PACK_ASSET_PARALLEL ?? "4", 10) || 4);
 /** List-price estimates per generated picture (gemini-3.1-flash-image); the real usage tokens are logged next to them. */
 export const IMAGE_USD: Record<"1K" | "2K", number> = { "1K": 0.039, "2K": 0.067 };
-export const TEXT_CHECK_MODEL = "gemini-2.5-flash";
+// gemini-2.5-flash is closed to newer API keys (404 "no longer available to new users"): production's key failed every picture check.
+export const TEXT_CHECK_MODEL = "gemini-3.8-flash";
 /** How long a scene waits for its pictures at all before it fails with a message. */
 export const ASSET_WAIT_MS = 20 * 60 * 1000;
+/** An index still "generating" this long after its last write belongs to a run that is gone. */
+export const GENERATING_STALE_MS = 10 * 60 * 1000;
 
 // ------------------------------------------------------------------ names and keys
 
@@ -550,7 +553,9 @@ export async function ensurePackAssets(project: VideoProject, options: { retryFa
   if (!specs.length) return null;
   const digest = specsDigest(specs);
   const index = await readAssetIndex(project.id, { getObject, putObject: async () => undefined, objectSize: async () => null });
-  if (index?.digest === digest && (index.status !== "failed" || options.retryFailed === false)) return digest;
+  // A run that died mid-way (a restart) leaves "generating" for ever; one not touched for a while is run again (stored pictures are reused).
+  const abandoned = index?.status === "generating" && Date.now() - Date.parse(index.updatedAt) > GENERATING_STALE_MS;
+  if (index?.digest === digest && !abandoned && (index.status !== "failed" || options.retryFailed === false)) return digest;
   const { sendOnce } = await import("../jobs/queues.ts");
   await sendOnce(null, PLATE_ASSETS_QUEUE, { projectId: project.id, digest } satisfies AssetsMessage, `${project.id}:${digest}`);
   return digest;
