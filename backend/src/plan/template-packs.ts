@@ -85,15 +85,11 @@ export type TemplatePack = {
   /** The scenes are the pictures themselves, so the storyboard shows a plain key-phrase card per beat and makes no sketch model call (and no sketch charge). */
   noSketches?: boolean;
   /**
-   * "image": while the storyboard builds, each beat gets one preview picture from the image model instead of a key-phrase card
-   * (plates/storyboard-previews.ts): the pack's real sets are painted first, then one still per beat from the beat's set and `previewCast`.
-   * Needs `assets` (the sets), `previewCast` and `noSketches`; a pack without the flag shows what it showed before.
+   * "cast": while the storyboard builds, only the pack's real sets are painted by the image model (plates/storyboard-previews.ts, the same specs Animation
+   * computes, so Animation reuses them); each card is that set with the pack's own kit puppets drawn on top in the browser (no model call, no charge).
+   * Needs `assets` (the sets), `scenes` (the kit) and `noSketches`; a pack without the flag shows what it showed before.
    */
-  storyboardPreviews?: "image";
-  /** The cast reference sheet (PNG) every storyboard preview is drawn from, with the beat's set: our own cartoon puppets, made from the kit. */
-  previewCast?: () => Buffer;
-  /** How the characters in a storyboard preview look (the pack's cast and size rules); the picture itself carries no words. */
-  previewDirection?: string;
+  storyboardPreviews?: "cast";
   /** One cheap model call after the script that plans every picture (request -> reply -> parse). The parsed plan reaches `assets` as `input.plan`. */
   shotPlan?: { request: (beats: readonly ScriptBeat[], notes: unknown) => { system: string; user: string; maxTokens: number }; parse: (reply: string, beats: readonly ScriptBeat[], notes: unknown) => unknown };
   /** The cast kit and pictures for code-drawn scenes (read on first use). */

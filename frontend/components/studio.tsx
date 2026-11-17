@@ -18,6 +18,8 @@ import { ScriptCanvas, PlanLimitModal, svgSrc, type FrameSlot, type StoryboardSt
 import { createClient } from "../utils/supabase/client";
 import { useMediaToken } from "../lib/use-media-token";
 import { PLATE_CONFIRM_FALSE_DELAY_MS, PLATE_FALLBACK_NOTICE, nextPlateAnswer, plateRetryDelayMs, resolvePlateRouting, type PlateAnswerState } from "../lib/plate-availability";
+import { CAST_PREVIEW_TEMPLATES, CardMaker } from "../lib/storyboard-preview";
+import type { CardAspect } from "../lib/storyboard-preview/draw";
 import { LimitError, getMySubscription, getPlates, getProjectBillingQuote, getRenderQuote, cancelPlanJob, deleteProject, generatePlanAudio, getGalleryTemplate, getProject, insertScriptScene, planVoiceUrl, removeScriptScene, restoreScriptScene, streamFrames, streamScript, streamScriptAnimate, StreamDropped, streamScriptVoice, type ProjectBillingOverview, type ScriptFlag, addProjectReviewComment, applyProjectReviewComments, approveProject, createProject, editPlan, getRenderJob, listBrandKits, listProjects, outputUrl, projectScreenshotUrl, removeProjectReviewComment, planProject, readProductSite, removeProjectScreenshot, renderProject, saveBrandKit, saveProjectStudio, updateProject, uploadProjectScreenshot, watchRenderJob } from "../lib/api";
 
 type View = "projects" | "create" | "studio";
@@ -516,6 +518,16 @@ export function Studio() {
   const [, setFrameTick] = useState(0);
   const frameKey = (beat: ScriptBeat) => scriptFrameKey(beat, brief);
   const putFrames = (entries: [string, FrameSlot][]) => { for (const [key, slot] of entries) frameCache.current[key] = slot; setFrameTick((tick) => tick + 1); };
+  // Templates whose storyboard cards are the set with the film's puppets drawn on it (backend pack flag storyboardPreviews = "cast"): the set pictures come from
+  // the server (the only paid part), the cards are drawn here, so an edited beat is re-posed at once and costs nothing.
+  const cardMakerRef = useRef<{ project: string; maker: CardMaker } | null>(null);
+  const cardSignatures = useRef<Record<string, string>>({});
+  const askedSets = useRef<Set<string>>(new Set());
+  const castPreviews = () => CAST_PREVIEW_TEMPLATES.has(brief.styleExample ?? "");
+  const castMaker = (projectId: string) => {
+    if (!cardMakerRef.current || cardMakerRef.current.project !== projectId) { cardMakerRef.current = { project: projectId, maker: new CardMaker(brief.styleExample ?? "") }; cardSignatures.current = {}; askedSets.current = new Set(); }
+    return cardMakerRef.current.maker;
+  };
   /** Draws the frames for `indices` (skipping ones drawn or drawing unless `force`), streaming each in as it lands. */
   const notesRef = useRef<ScriptNotes | null>(null);
   const drawFrames = (active: VideoProject, beats: ScriptBeat[], indices: number[], force = false) => {
@@ -526,21 +538,40 @@ export function Studio() {
     if (todo.length === 0) return;
     const identityByIndex = new Map(todo.map((i) => [i, { id: withIds[i]!.id, key: frameKey(withIds[i]!), beat: withIds[i]! }]));
     putFrames(todo.map((i) => [frameKey(withIds[i]!), { state: "drawing", ...(frameCache.current[frameKey(withIds[i]!)]?.svg ? { svg: frameCache.current[frameKey(withIds[i]!)]!.svg } : {}) }]));
-    void streamFrames(active.id, { brief: checked.brief, beats: withIds, indices: todo, ...(notesRef.current ? { notes: notesRef.current } : {}) }, ({ index, svg, error }) => {
+    /** One drawn card or sketch landing on its beat (the live position of the beat is found by id, as the page may have changed since). */
+    const landFrame = (info: { id: string | undefined; key: string; beat: ScriptBeat }, index: number, svg: string) => {
+      putFrames([[info.key, { state: "ready", svg }]]);
+      const liveBeats = canvasRef.current?.beats ?? [];
+      const liveIdx = info.id
+        ? liveBeats.findIndex((b) => b.id === info.id)
+        : liveBeats[index] && frameKey(liveBeats[index]!) === info.key
+          ? index
+          : -1;
+      if (liveIdx >= 0) setFrameAt((current) => ({ ...current, [liveIdx]: svg }));
+    };
+    const maker = castPreviews() ? castMaker(active.id) : null;
+    void streamFrames(active.id, { brief: checked.brief, beats: withIds, indices: todo, ...(notesRef.current ? { notes: notesRef.current } : {}) }, (event) => {
+      // Cast-preview templates: each set picture arrives once (the only paid part); the page draws the cast on every card of that place with the film's kit.
+      if (event.plan) { for (const entry of event.plan) askedSets.current.add(entry.set); return; } // these sets are on their way: the edit effect must not ask for them again
+      if (event.set && event.image && maker) {
+        const placeName = event.set;
+        void maker.addSet(placeName, event.image).then(() => maker.ready()).then((ok) => {
+          if (!ok) return;
+          for (const i of todo) {
+            const info = identityByIndex.get(i);
+            if (!info) continue;
+            const made = maker.card(i, withIds, brief.aspect as CardAspect, notesRef.current);
+            if (made && made.plan.set === placeName) { cardSignatures.current[info.key] = made.signature; landFrame(info, i, made.url); }
+          }
+        }).catch(() => undefined);
+        return;
+      }
+      const { index, svg, error } = event;
+      if (index === undefined) return;
       const info = identityByIndex.get(index);
       if (!info) return;
-      putFrames([[info.key, svg ? { state: "ready", svg } : { state: "failed", error: error ?? "Could not draw this frame." }]]);
-      if (svg) {
-        const liveBeats = canvasRef.current?.beats ?? [];
-        const liveIdx = info.id
-          ? liveBeats.findIndex((b) => b.id === info.id)
-          : liveBeats[index] && frameKey(liveBeats[index]!) === info.key
-            ? index
-            : -1;
-        if (liveIdx >= 0) {
-          setFrameAt((current) => ({ ...current, [liveIdx]: svg }));
-        }
-      }
+      if (svg) landFrame(info, index, svg);
+      else putFrames([[info.key, { state: "failed", error: error ?? "Could not draw this frame." }]]);
     }).catch((caught) => {
       showLimit(caught); const message = caught instanceof Error ? caught.message : "Could not draw the frames.";
       putFrames(todo.map((i) => frameKey(withIds[i]!)).filter((key) => frameCache.current[key]?.state === "drawing").map((key) => [key, { state: "failed", error: message }]));
@@ -1433,6 +1464,31 @@ export function Studio() {
     const missing = canvas.beats.map((_, i) => i).filter((i) => frameAt[i] === undefined && !frameCache.current[frameKey(canvas.beats[i]!)]);
     if (missing.length) drawFrames(project, canvas.beats, missing);
   }, [step, project?.id, canvas?.streaming, canvas?.beats.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // An edited beat re-poses at once: its card is drawn again from the set already on the page (no server call, no charge). Only a beat that moved to a place
+  // with no set yet asks the server, which paints that one set.
+  useEffect(() => {
+    if (step !== STORYBOARD || !canvas || canvas.streaming || !project || !castPreviews()) return;
+    const made = cardMakerRef.current;
+    if (!made || made.project !== project.id) return;
+    const maker = made.maker, beats = canvas.beats, aspect = brief.aspect as CardAspect;
+    let cancelled = false;
+    void maker.ready().then((ok) => {
+      if (!ok || cancelled) return;
+      const missingSet: number[] = [];
+      beats.forEach((beat, i) => {
+        const key = frameKey(beat), signature = maker.signature(i, beats, aspect, notesRef.current);
+        if (!signature) { const place = maker.setOf(i, beats, notesRef.current); if (place && maker.knownSets().length > 0 && !askedSets.current.has(place)) { askedSets.current.add(place); missingSet.push(i); } return; }
+        if (cardSignatures.current[key] === signature) return;
+        const card = maker.card(i, beats, aspect, notesRef.current);
+        if (!card) return;
+        cardSignatures.current[key] = card.signature;
+        putFrames([[key, { state: "ready", svg: card.url }]]);
+        setFrameAt((current) => ({ ...current, [i]: card.url }));
+      });
+      if (missingSet.length) drawFrames(project, beats, missingSet, true);
+    });
+    return () => { cancelled = true; };
+  }, [canvas?.beats, step, project?.id, canvas?.streaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Stops the director on the server; the brief stays as it is. */
   const cancelPlan = async () => {
@@ -1608,7 +1664,7 @@ export function Studio() {
         onEdit={editScriptBeat} onAsk={(instruction, only) => void writeScript(instruction, undefined, only)} writing={canvas.writing} scoped={Boolean(canvas.scoped)}
         versions={canvas.beats.map((_, i) => versions[i] ? { count: versions[i]!.list.length, at: versions[i]!.at } : null)}
         onReimagine={reimagineBeat} onVersion={showVersion} onCancel={() => canvasStop.current?.abort()}
-        frames={frameSlots} aspect={brief.aspect} styleName={findGalleryTemplate(brief.styleExample)?.name} {...(billingOverview?.steps.storyboardPreviews ? { previewTokens: billingOverview.steps.storyboardPreviews.tokens } : {})}
+        frames={frameSlots} aspect={brief.aspect} styleName={findGalleryTemplate(brief.styleExample)?.name} {...(castPreviews() ? { previewTokens: billingOverview?.steps.storyboardPreviews?.tokens ?? 0 } : {})}
         onRedraw={(index) => { if (project) drawFrames(project, canvas.beats, [index], true); }}
         voice={voice} onConfirm={confirmScript} onRetryVoice={retryVoice} music={musicBrief}
         onRender={renderFromScript} rendering={busy || animating}

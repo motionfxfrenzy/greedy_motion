@@ -244,8 +244,8 @@ export type ProjectBillingOverview = {
     scriptEditBeat: StepQuoteView;
     storyboardPlan: StepQuoteView;
     frameSketch: StepQuoteView & { uncachedIndices: number[] };
-    /** The extra cost of the storyboard's picture previews (only pictures not stored yet); null for templates without them. */
-    storyboardPreviews?: { previews: number; sets: number; previewMilli: number; setMilli: number; milli: number; tokens: number } | null;
+    /** The storyboard step's cost for a cast-preview template: only the sets not stored yet (Animation would draw them anyway); the cast on the cards is free. Null for other templates. */
+    storyboardPreviews?: { sets: number; setMilli: number; milli: number; tokens: number } | null;
     voiceMusic: StepQuoteView & { uncachedVoiceIndices: number[]; needsMusic: boolean };
     animation: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
     /** What Recreate animation costs: every scene authored again, whatever is cached. */
@@ -720,7 +720,18 @@ export function planVoiceUrl(projectId: string, file: string) {
   return withMediaToken(`${apiOrigin}/v1/preview/plans/${encodeURIComponent(projectId)}/audio/${file.split("/").map(encodeURIComponent).join("/")}`);
 }
 
-export type FrameEvent = { index: number; svg?: string; error?: string };
+export type FrameEvent = {
+  index?: number; svg?: string; error?: string;
+  /** Cast-preview templates (storyboardPreviews): which set each beat stands in (sent first), then each set picture as a data URL when it is stored. */
+  plan?: { index: number; set: string }[]; set?: string; image?: string; cached?: boolean;
+};
+
+/** The pack's puppet kit as JavaScript (GET /v1/storyboard-kit/<pack>), for the storyboard cards the page draws itself. */
+export async function getStoryboardKit(packId: string): Promise<string> {
+  const response = await apiFetch(apiOrigin + "/v1/storyboard-kit/" + encodeURIComponent(packId));
+  if (!response.ok) throw new Error("The storyboard kit could not be loaded.");
+  return response.text();
+}
 
 /**
  * Draws a reference frame (SVG text) per beat in the template's style; `onFrame` gets each one as it lands, in any order.

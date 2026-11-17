@@ -915,7 +915,7 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
         </div>
         <div className="sc-length-actions"><button type="button" className="secondary-button" disabled={savingKeep} onClick={() => void handleKeepOverLength()}>{savingKeep ? "Saving…" : `Keep ${runs}s`}</button><button type="button" className="primary-button" disabled={busyVoice || savingKeep} onClick={onFit}>Fit to {length.seconds}s</button></div>
       </div>}
-      <div className="sc-doc-head" aria-hidden="true" style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col }}><span>Script</span><span>{previewTokens !== undefined ? `Preview · characters and camera are finalised in Animation${previewTokens ? ` · ${previewTokens}t` : ""}` : `Reference frames${styleName ? ` · ${styleName} style` : ""}`}</span></div>
+      <div className="sc-doc-head" aria-hidden="true" style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col }}><span>Script</span><span>{previewTokens !== undefined ? `Preview · real set and cast; the action and camera are written in Animation${previewTokens ? ` · sets ${previewTokens}t` : ""}` : `Reference frames${styleName ? ` · ${styleName} style` : ""}`}</span></div>
       <ol className="sc-doc" ref={docListRef}>
         {beats.length > 0 && renderBoundary(0)}
         {beats.map((beat, index) => {
