@@ -36,7 +36,10 @@ const rawBox = issues(withProps(`g.fillStyle = "#22252e"; g.fillRect(440, 1040, 
 assert.ok(has(rawBox, /Frame 0: the scene paints straight onto the screen \(fillRect x1, fill x1\)/), `a box painted on the screen: ${rawBox[0]?.slice(0, 120)}`);
 assert.ok(has(rawBox, /K\.prop\(g, cam/), "the message says what to do instead");
 assert.ok(has(issues(withProps(`ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, 1080, 1920);`)), /straight onto the screen/), "a full-screen fill by the scene is flagged too (use K.fade)");
-assert.ok(has(issues(withProps(`K.at(g, cam, 700, 1500, 1, (c) => { c.fillRect(0, 0, 10, 10); });`)), /Do not call K\.at yourself/), "K.at is not for scenes");
+assert.deepEqual(issues(withProps(`K.at(g, cam, 700, 1500, 1, (c) => { c.fillStyle = "#222"; c.fillRect(-40, -60, 80, 60); });`)), [], "K.at is an anchored placement too: painting inside its callback is fine");
+const crate = issues(withProps(`K.crate(g, 710, 1690, 220, 340, "#5a646c");`));
+assert.ok(has(crate, /K\.crate\(\.\.\.\) straight on the screen/), "a kit crate called on the screen floats like a hand-painted box");
+assert.deepEqual(issues(withProps(`K.prop(g, cam, { name: "c", x: 710, y: 1600, draw: (c) => K.crate(c, 0, 0, 220, 340, "#5a646c") });`)), [], "the same crate inside K.prop is fine");
 const hover = issues(withProps(`K.prop(g, cam, { name: "oven", x: 700, y: 900, draw: (c) => { c.fillRect(-60, -100, 120, 100); } });`));
 assert.ok(has(hover, /Prop "oven" stands at floor y 900.*mid-air/), "a resting prop whose floor is above the floor of the set hangs in mid-air");
 assert.ok(900 / 1935 < FLOOR_FROM);
@@ -63,15 +66,16 @@ assert.match(direction, /ALWAYS \\`K\.prop\\`/, "the author prompt says every st
 assert.match(direction, /NEVER paint a prop straight on \\`g\\`/);
 assert.match(pack.drawRule, /K\.prop\(g, cam, \{ name, x, y: floorY, on, draw \}\)/);
 
-// owner scenes (if present): 0ea430cc scenes 5 and 9 float, the ones the owner calls fine do not. Files: PROP_SCENES=<dir> with scene-<n>.ts and fine-<n>.ts
+// owner scenes (if present): PROP_SCENES=<dir> with scene-1.ts .. scene-9.ts of production film 0ea430cc. The owner reported scenes 5 and 9 (a prop floating above the
+// bench); the others are not individually confirmed, so what the check says about them is printed as a finding, not asserted.
 const dir = process.env.PROP_SCENES;
 if (dir && existsSync(dir)) {
-  const { readdirSync } = await import("node:fs");
-  for (const f of readdirSync(dir).sort()) {
-    const m = /^(scene|fine)-.*\.ts$/.exec(f); if (!m) continue;
-    const found = issues(readFileSync(join(dir, f), "utf8"));
-    if (m[1] === "scene") assert.ok(found.length > 0, `${f}: the check flags it`); else assert.deepEqual(found, [], `${f}: the check passes it`);
-    console.log(`  ${f}: ${found.length ? "flagged: " + found[0].slice(0, 110) : "passes"}`);
+  for (let n = 1; n <= 9; n++) {
+    const file = join(dir, `scene-${n}.ts`);
+    if (!existsSync(file)) continue;
+    const found = issues(readFileSync(file, "utf8"));
+    if (n === 5 || n === 9) assert.ok(found.length > 0, `scene ${n} (reported by the owner): the check flags it`);
+    console.log(`  scene ${n}${n === 5 || n === 9 ? " (reported)" : ""}: ${found.length ? "flagged: " + found.map((m) => m.slice(0, 90)).join(" | ") : "passes"}`);
   }
 }
 console.log("prop-check: standing props stay in the set; floating ones go back to the author: ok");
