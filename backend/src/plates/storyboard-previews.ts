@@ -181,6 +181,8 @@ export async function runStoryboardPreviews(
           { name: "cast sheet (the characters)", data: await castRef, mime: "image/jpeg" }
         ];
         const picture = await deps.image(item.prompt, refs, { name: `preview-${item.index}`, prompt: item.prompt, aspect: plan.aspect as "9:16", size: "1K", noText: true } as AssetSpec);
+        // The same line shape as every other model call (pack-assets drawOnce), so cost dashboards and this film's real cost can be read from the logs.
+        console.info(JSON.stringify({ event: "model_usage", step: "storyboardPreview", provider: "gemini", model: config.visualImageModel, usage: picture.usage ?? null, usd: IMAGE_USD["1K"], project: projectId, beat: item.index }));
         const stored = await deps.normalise(picture);
         const small = await deps.small(stored.data);
         await deps.putObject("uploads", item.key, stored.data, stored.mime);
