@@ -1017,6 +1017,9 @@ button.sc-num[aria-pressed="true"]{border-color:var(--blue);background:var(--blu
 .relay-shell.relay-shell--film-brief>.film-brief.flow-page{flex:1 1 0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .relay-shell.relay-shell--film-brief .fb-layout{flex:1 1 0;min-height:0;height:100%;overflow:hidden}
 .relay-shell.relay-shell--film-brief .fb-script,.relay-shell.relay-shell--film-brief .fb-panel{height:100%}
+/* The settings grow with the template (pace, quality, music mood...): the panel scrolls and the build button stays pinned in view. */
+.relay-shell.relay-shell--film-brief .fb-panel{overflow-y:auto;overscroll-behavior:contain;justify-content:flex-start;padding-bottom:0}
+.relay-shell.relay-shell--film-brief .fb-cta{position:sticky;bottom:0;z-index:2;margin-top:auto;background:var(--d-bg-ffffff);padding-bottom:clamp(14px,2vh,20px)}
 }
 .fb-script-head{display:flex;align-items:baseline;justify-content:space-between;gap:6px 14px;flex-wrap:wrap;flex:0 0 auto;padding-bottom:8px;border-bottom:1px solid var(--line)}
 .fb-script-head>div{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
