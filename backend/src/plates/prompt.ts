@@ -266,6 +266,8 @@ export type AuthorRequest = {
   words?: { text: string; start: number }[];
   /** A template with pictures (TemplatePack.assets): the exact picture names this scene may read with env.image(name). */
   assetNames?: string[];
+  /** The film's recurring props (plates/film-props.ts): drawn once for the whole film, used by id in every scene. */
+  filmProps?: { plan: { props: { id: string; name: string; aliases: string[]; description: string; versions: { version: string; from: number; description: string }[] }[] }; code: string } | null;
 };
 
 export const cacheKeyFor = (sharedText: string, modelKey?: string): string =>
@@ -289,6 +291,27 @@ const packContractFor = (size: { w: number; h: number; label: string }, pictures
 const packSoundsRule = `SOUNDS: also export \`export const sounds: { kind: string; frame: number }[] = [...]\`: one entry on the exact frame each visible action lands (kinds: mark = the marker touches; tuft = wool torn or tufts burst; thud = a body drops or falls; step = a hoof or boot steps (one per footfall of the power figure, every 2-3 steps for animals); shuffle = a flock shifts or steps back; bleat = one frightened sheep; whoosh = a camera snap reveal starts; hit = the title word lands; drop = something small falls). Only actions that happen on screen; none on the frozen onlookers beat. Usually 1 to 4 per scene.`;
 
 /** A scene of a template with a cast kit: the kit source and scene direction (system), its pictures, the plan and every beat, then this beat. */
+/**
+ * The film's recurring props, for the scene writer: which exist, which version this scene shows, and how to use them. They are drawn once for the whole film
+ * (plates/film-props.ts) and are ALREADY in scope: the scene calls them by id and never draws them itself.
+ */
+function filmPropsRule(args: AuthorRequest): string {
+  const plan = args.filmProps?.plan;
+  if (!plan?.props.length) return "";
+  const beat = args.beats[args.index];
+  const text = `${(beat?.visual ?? "").replace(/^\s*\[[^\]]*\]\s*/, "")} ${beat?.line ?? ""}`.toLowerCase();
+  const named = plan.props.filter((p) => p.aliases.some((a) => new RegExp(`\\b${a.replace(/[^a-z'-]/g, "")}(?:e?s)?\\b`).test(text)));
+  const version = (p: (typeof plan.props)[number]) => { let v = p.versions[0]!.version; for (const x of p.versions) if (x.from <= args.index) v = x.version; return v; };
+  const all = plan.props.map((p) => `- "${p.id}" (${p.name}): ${p.versions.map((v) => `version "${v.version}"${v.from > 0 ? ` from scene ${v.from + 1}` : ""}: ${v.description}`).join(" | ")}`).join("\n");
+  return [
+    "THE FILM'S RECURRING PROPS (drawn ONCE for the whole film and already in scope: every scene shows each of them identically):",
+    all,
+    named.length
+      ? `THIS SCENE SHOWS: ${named.map((p) => `"${p.id}" version "${version(p)}"`).join(", ")}. Draw them ONLY with K.prop(g, cam, { use: "<id>", version: "<version>", x, y: <floor y under it>, on: "ground" | "bench" | "table" | ..., state: { t, active } }) (state.t = seconds for steam or glow, state.active = 0 or 1 for a light or a door). NEVER draw these objects with your own code, never call K.defineProp, never invent another look for them: a scene that does is rejected.`
+      : "THIS SCENE SHOWS NONE of them, so do not draw any of these objects. Anything else you draw by hand follows the prop rules (K.prop with a draw callback)."
+  ].join("\n");
+}
+
 function packAuthorMessages(args: AuthorRequest, pack: TemplatePack, scenes: PackScenes) {
   const beat = args.beats[args.index]!;
   const size = sizeForAspect(args.aspect);
@@ -299,9 +322,11 @@ function packAuthorMessages(args: AuthorRequest, pack: TemplatePack, scenes: Pac
   const plan = [notes?.idea && `IDEA: ${notes.idea}`, notes?.fable && `FABLE: ${notes.fable}`, notes?.mapping && `MAPPING: ${notes.mapping}`, notes?.objects && `OBJECTS: ${notes.objects}`].filter(Boolean).join("\n");
   const all = args.beats.map((b, i) => `${i + 1}. ${b.line ?? b.keyword}\n   VISUAL: ${b.visual ?? ""}`).join("\n");
   const shared = `${plan ? `THE FILM PLAN:\n${plan}\n` : ""}THE MARK: wherever the plan or a VISUAL says rope, loop or tag, draw the red dot mark instead (mark option or K.dot).\nTHE FILM: ${args.film}\nALL SCENES (for continuity):\n${all}`;
+  const propsRule = filmPropsRule(args);
   const scene = [
     `WRITE SCENE ${args.index + 1} OF ${args.beats.length}. durationFrames = ${args.frames} (${(args.frames / FPS).toFixed(1)} s).\nLINE (spoken, not drawn): ${beat.line ?? ""}${args.words?.length ? `\nWORD START FRAMES (time each action to its word): ${args.words.map((w) => `${w.text}@${Math.round(w.start * FPS)}`).join(" ")}` : ""}\nVISUAL: ${beat.visual ?? beat.keyword}${/^[A-Z][A-Z ]+$/.test(beat.keyword) ? "\nTHIS IS THE TITLE BEAT: use the title-beat rule." : ""}${args.index === args.beats.length - 1 ? "\nThis is the LAST beat: a close shot." : ""}`,
     ...(pictureRule ? [pictureRule] : []),
+    ...(propsRule ? [propsRule] : []),
     ...(args.reference ? [`THE SAME SCENE WAS ALREADY WRITTEN FOR ANOTHER FRAME SHAPE. Keep its shot, cast and action; recompose it natively for ${size.w}x${size.h}.\nREFERENCE MODULE:\n${args.reference.slice(0, 10_000)}`] : []),
     ...(args.revise ? [args.revise.code
       ? `THIS SCENE WAS ALREADY DRAWN. The person watched it and left notes with the time in the scene (seconds from the scene start). REVISE the module below to answer the notes; keep everything the notes do not mention as it is, and return the whole revised module.\nNOTES:\n${args.revise.notes}\nCURRENT MODULE:\n${args.revise.code.slice(0, 16_000)}`

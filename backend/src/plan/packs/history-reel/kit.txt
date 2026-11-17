@@ -707,18 +707,30 @@ const K = (() => {
   /**
    * Put a prop IN the set. spec: { name, x, y (the FLOOR under it, plate px: the same y a puppet standing there would use), on: "ground" | "bench" | "table" | ... | a height,
    * draw: (c) => ..., scale?, w? (shadow width), d? (depth override), airborne?: height in plate px above the surface, moving?: true }.
+   * A recurring prop of the film is NEVER drawn here: pass `use: "<id>", version, state` and the film's shared drawing is used (same look in every scene).
    * draw(c) paints with the prop's bottom centre at (0, 0) in prop units (so K.crate(c, 0, 0, 140, 110) is a box standing on the line). The prop is fixed to
    * the set exactly like K.puppet (the same parallax and depth), so it stays put under the camera, and it gets a contact shadow on its surface.
    * A resting prop must not move: a prop that is carried, pushed or dragged says `moving: true`; one that is thrown, falling or flying says `airborne`
    * (the lift above the surface, plate px; its shadow stays on the surface below). Everything else rests on the ground or on a named surface.
    */
+  /** The film's recurring props, drawn ONCE (K.defineProp, in the film-level props module that every scene of the film includes) and used by id: K.prop(g, cam, { use: "magnetron", version: 2, state: { active: 1, t } ... }). */
+  const PROP_DEFS: Record<string, { w: number; h: number; versions: Record<string, (c: any, s: any) => void> }> = {};
+  const defineProp = (id: string, def: { w?: number; h?: number; versions: Record<string, (c: any, s: any) => void> }) => { PROP_DEFS[id] = { w: def.w ?? 140, h: def.h ?? 120, versions: def.versions }; };
   function prop(ctx: any, cam: any, spec: any) {
-    const { name, x, y, on = "ground", scale = 1, draw, airborne = 0, moving = false, shadow = true, w = 140, d } = spec;
+    let { name, x, y, on = "ground", scale = 1, draw, airborne = 0, moving = false, shadow = true, w = 140, d } = spec;
+    const use = spec.use as string | undefined, version = String(spec.version ?? "1");
+    if (use !== undefined) {
+      const def = PROP_DEFS[use];
+      if (!def) throw new Error(`K.prop: "${use}" is not a recurring prop of this film (known: ${Object.keys(PROP_DEFS).join(", ") || "none"})`);
+      const drawVersion = def.versions[version];
+      if (!drawVersion) throw new Error(`K.prop "${use}": no version "${version}" (known: ${Object.keys(def.versions).join(", ")})`);
+      name = name ?? use; w = spec.w ?? def.w; draw = (c: any) => drawVersion(c, { version, t: 0, active: 0, ...(spec.state ?? {}) });
+    }
     const surface = typeof on === "number" ? on : SURFACES[on];
     if (surface === undefined) throw new Error(`K.prop "${name}": unknown surface "${on}" (use ${Object.keys(SURFACES).join(", ")} or a height in plate px)`);
     if (typeof draw !== "function") throw new Error(`K.prop "${name}": draw(c) is required`);
     const lift = airborne > 0 ? airborne : 0, onSurface = y - surface;
-    if (cam.env) propLog(cam.env).push({ name, x, y, on: typeof on === "number" ? on : String(on), surface, airborne: lift, moving: Boolean(moving), frame: cam.frame, PH: cam.PH, place: cam.place });
+    if (cam.env) propLog(cam.env).push({ name, use: use ?? null, version: use !== undefined ? version : null, x, y, on: typeof on === "number" ? on : String(on), surface, airborne: lift, moving: Boolean(moving), frame: cam.frame, PH: cam.PH, place: cam.place });
     const dd = d ?? depthAt(cam, x, y - 10);
     if (shadow) at(ctx, cam, x, onSurface, 1, (g) => {
       const r = g.createRadialGradient(0, 2, 0, 0, 2, w * 0.62); r.addColorStop(0, "rgba(40,22,8,0.5)"); r.addColorStop(1, "rgba(40,22,8,0)");
@@ -746,6 +758,6 @@ const K = (() => {
     PW, clamp, lerp, deg, E, rng, rot, track, span, blink,
     INK, VIEWS, FACE, makeCast, castHeight, rig, ik, shape, face, drawHead, drawPuppet, drawPiggyback, talk, pose,
     ropeCurve, drawRope, ropeNear, pole, wheelbarrow, pan, tool, crate, crowdCast, crowd, motes, mist, steam, popLines, burst, flame, rain,
-    camera, set, depthAt, toScreen, at, puppet, actors, fade, SURFACES, prop, propLog, anchored,
+    camera, set, depthAt, toScreen, at, puppet, actors, fade, SURFACES, prop, propLog, anchored, defineProp, PROP_DEFS,
   };
 })();

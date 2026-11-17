@@ -7,6 +7,7 @@
 // A flagged scene goes back to the author for the one repair round every pack check gets (plates/author.ts). The probe never throws: when it cannot run a
 // scene it reports nothing (the bundle build and the browser check still guard the scene).
 import { transformSync } from "esbuild";
+import { type FilmProps, type PropPlan, propVersionForBeat, propsNamedBy } from "../../../plates/film-props.ts";
 
 const PAINT = new Set(["fill", "stroke", "fillRect", "strokeRect", "fillText", "strokeText", "drawImage"]);
 const GRADIENT = () => ({ addColorStop() {} });
@@ -50,10 +51,11 @@ export type PropProbe = { raw: { frame: number; ops: Record<string, number> }[];
 const KIT_PAINTERS = ["crate", "pole", "pan", "tool", "wheelbarrow", "drawPuppet", "drawPiggyback", "drawHead", "shape"] as const;
 
 /** Runs the scene at a few frames against the recording canvas and returns what it did. Null when the scene cannot be run here. */
-export function probeScene(code: string, kitSource: string, options: { frames?: number[]; width?: number; height?: number } = {}): PropProbe | null {
+export function probeScene(code: string, kitSource: string, options: { frames?: number[]; width?: number; height?: number; propsCode?: string } = {}): PropProbe | null {
   try {
     const kit = kitJs(kitSource);
-    const K = new Function(`${kit}\n;return K;\n//# sourceURL=hr-kit.js`)();
+    const propsJs = options.propsCode ? transformSync(options.propsCode, { loader: "ts", target: "es2020" }).code : "";
+    const K = new Function(`${kit}\n;${propsJs}\n;return K;\n//# sourceURL=hr-kit.js`)();
     const sceneJs = transformSync(code, { loader: "ts", format: "cjs", target: "es2020" }).code;
     const mod: { exports: any } = { exports: {} };
     const kitRaw: Record<string, number> = {};
@@ -93,8 +95,8 @@ export const FLOOR_FROM = 0.58;
 const MOVE_TOLERANCE = 3;
 
 /** The messages for the author (empty = the scene is fine). */
-export function scenePropIssues(code: string, kitSource: string): string[] {
-  const probe = probeScene(code, kitSource);
+export function scenePropIssues(code: string, kitSource: string, film: { filmProps?: Pick<FilmProps, "plan" | "code"> | null; beat?: { line?: string | null; visual?: string | null; keyword?: string | null }; beatIndex?: number } = {}): string[] {
+  const probe = probeScene(code, kitSource, film.filmProps?.code ? { propsCode: film.filmProps.code } : {});
   if (!probe) return [];
   const out: string[] = [...probe.errors];
   if (probe.raw.length) {
@@ -104,6 +106,20 @@ export function scenePropIssues(code: string, kitSource: string): string[] {
   }
   const kitNames = Object.entries(probe.kitRaw);
   if (kitNames.length) out.push(`The scene calls ${kitNames.map(([n]) => `K.${n}(...)`).join(", ")} straight on the screen (outside K.prop, K.at and a puppet's front/behind callbacks): that picture does not move with the set under the camera, so it floats and drifts. Stand it in the set with K.prop(g, cam, { name, x, y: <floor y under it>, on, draw: (c) => ${kitNames[0]![0] === "crate" ? "K.crate(c, 0, 0, w, h)" : "..."} }).`);
+  // recurring props of the film: one object in every scene (plates/film-props.ts)
+  if (film.filmProps) {
+    if (/\bK\.defineProp\b/.test(code)) out.push("Do not define props in the scene: K.defineProp belongs to the film's shared props module. Call the shared prop by id: K.prop(g, cam, { use: \"<id>\", version, x, y, on }).");
+    const named = propsNamedBy(film.beat, film.filmProps.plan);
+    const index = film.beatIndex ?? 0;
+    for (const prop of named) {
+      const version = propVersionForBeat(prop, index);
+      const used = probe.props.filter((r) => r.use === prop.id);
+      const own = probe.props.filter((r) => r.use === null && (r.name === prop.id || prop.aliases.includes(String(r.name).toLowerCase())));
+      if (!used.length) out.push(`This scene shows the film's recurring prop "${prop.id}" (${prop.name}) but does not use the shared drawing${own.length ? " (it draws its own)" : ""}. A recurring object must look identical in every scene: remove your own drawing and call K.prop(g, cam, { use: "${prop.id}", version: "${version}", x, y: <floor y>, on: "ground" | "bench" | ... }).`);
+      else if (used.some((r) => String(r.version) !== version)) out.push(`The scene uses version "${used.find((r) => String(r.version) !== version)!.version}" of "${prop.id}" but the script shows version "${version}" here (${prop.versions.find((v) => v.version === version)?.description.slice(0, 80)}). Use version: "${version}".`);
+    }
+    for (const r of probe.props) if (r.use === null && film.filmProps.plan.props.some((p) => p.id === r.name || p.aliases.includes(String(r.name).toLowerCase())) && !named.some((p) => p.id === r.name || p.aliases.includes(String(r.name).toLowerCase()))) out.push(`Prop "${r.name}" is a recurring prop of the film: use the shared drawing (K.prop with use: "${film.filmProps.plan.props.find((p) => p.id === r.name || p.aliases.includes(String(r.name).toLowerCase()))!.id}"), never your own.`);
+  }
   const byName = new Map<string, any[]>();
   for (const r of probe.props) byName.set(r.name, [...(byName.get(r.name) ?? []), r]);
   for (const [name, records] of byName) {
@@ -117,6 +133,37 @@ export function scenePropIssues(code: string, kitSource: string): string[] {
       const dx = Math.max(...still.map((r) => r.x)) - Math.min(...still.map((r) => r.x)), dy = Math.max(...still.map((r) => r.y + (r.surface ?? 0) * 0)) - Math.min(...still.map((r) => r.y));
       if (dx > MOVE_TOLERANCE || dy > MOVE_TOLERANCE) out.push(`Prop "${name}" rests in the set but moves (x ${Math.round(dx)}, y ${Math.round(dy)} plate px between frames). A resting prop stays where it is put: use \`moving: true\` if it is carried, pushed or dragged, or \`airborne: <lift>\` if it is thrown, falling or flying.`);
     }
+  }
+  return out;
+}
+
+/**
+ * The film's shared props module must run: every planned prop is defined with every version, and each drawing paints something without throwing. Returns the
+ * problems for the model's one repair round (empty = fine).
+ */
+export function probePropsModule(code: string, kitSource: string, plan: PropPlan): string[] {
+  const out: string[] = [];
+  try {
+    const kit = kitJs(kitSource);
+    const js = transformSync(code, { loader: "ts", target: "es2020" }).code;
+    let ops = 0;
+    const K = new Function(`${kit}\n;${js}\n;return K;\n//# sourceURL=hr-kit.js`)();
+    const ctx = fakeCtx(() => { ops += 1; });
+    for (const prop of plan.props) {
+      const def = K.PROP_DEFS[prop.id];
+      if (!def) { out.push(`K.defineProp("${prop.id}", ...) is missing.`); continue; }
+      for (const v of prop.versions) {
+        const draw = def.versions?.[v.version];
+        if (typeof draw !== "function") { out.push(`Prop "${prop.id}" has no version "${v.version}" (${v.description.slice(0, 60)}).`); continue; }
+        for (const s of [{ version: v.version, t: 0, active: 0 }, { version: v.version, t: 1.3, active: 1 }]) {
+          ops = 0;
+          try { draw(ctx, s); } catch (error) { out.push(`Prop "${prop.id}" version "${v.version}" throws: ${String((error as Error)?.message ?? error).slice(0, 160)}`); break; }
+          if (ops < 2) { out.push(`Prop "${prop.id}" version "${v.version}" paints almost nothing (${ops} fills/strokes): draw the whole object.`); break; }
+        }
+      }
+    }
+  } catch (error) {
+    out.push(`The props module does not run: ${String((error as Error)?.message ?? error).slice(0, 200)}`);
   }
   return out;
 }

@@ -313,5 +313,7 @@ export const historyReel: TemplatePack = {
   // sentences swing from 2 to 27 words; the payoff is one plain line; nothing is forbidden by word (forbidden never matches)
   scriptRules: { maxWords: 28, lastMaxWords: 16, shortShare: 0.1, forbidden: /(?!)/, shotMix: { wideShare: 0.5, closeShare: 0.34 } },
   // the shot size matches the camera and the puppet size; every prop rests in the set (prop-check.ts: no drawing outside the set's anchored calls, no hovering or drifting prop)
-  sceneIssues: (code, beat) => [...sceneShotIssues(code, beat), ...scenePropIssues(code, file("kit.txt").toString("utf8"))]
+  sceneIssues: (code, beat, film) => [...sceneShotIssues(code, beat), ...scenePropIssues(code, file("kit.txt").toString("utf8"), { ...(film ?? {}), ...(beat ? { beat } : {}) })],
+  // recurring props (the microwave, the lantern ...) are one drawing for the whole film (plates/film-props.ts)
+  filmProps: true
 };

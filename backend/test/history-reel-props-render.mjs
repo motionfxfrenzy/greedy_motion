@@ -65,8 +65,8 @@ const AFTER = scene(`    K.prop(g, cam, { name: "magnetron", x: 520, y: 1560, on
 
 const dataUrl = (file) => `data:${file.endsWith(".png") ? "image/png" : "image/jpeg"};base64,${readFileSync(file).toString("base64")}`;
 const ASSETS = { "set-gorge": dataUrl(join(imgDir, "set-gorge.jpg")), "depth-gorge": dataUrl(join(imgDir, "depth-gorge.png")) };
-async function render(name, code, frames) {
-  const wired = wireSceneAssets(withPackKit(code, pack), ["set-gorge", "depth-gorge"], ["set-gorge", "depth-gorge"]);
+async function render(name, code, frames, propsCode) {
+  const wired = wireSceneAssets(withPackKit(code, pack, propsCode), ["set-gorge", "depth-gorge"], ["set-gorge", "depth-gorge"]);
   const refs = Object.fromEntries(["set-gorge", "depth-gorge"].map((n) => [n, `u:plates/00000000-0000-0000-0000-000000000000/assets/${n}.png`]));
   const bundle = await bundleScene({ look: "illus-flat-vector", code: wired, frames: 90, aspect: "9:16", assets: refs });
   const file = join(OUT, `${name}.html`); writeFileSync(file, withAssetData(bundle.html, ASSETS));
@@ -97,5 +97,28 @@ assert.ok(drift(ap) > 60, `AFTER: the prop moves with the set (${drift(ap).toFix
 const shadowBelow = async (png, p) => { const { data, info } = await sharp(png).extract({ left: Math.max(0, Math.round(p.x) - 30), top: Math.round(p.y) + 80, width: 60, height: 20 }).raw().toBuffer({ resolveWithObject: true }); let s = 0; for (let i = 0; i < data.length; i += info.channels) s += data[i] + data[i + 1] + data[i + 2]; return s / (data.length / info.channels); };
 void shadowBelow; // the shadow is checked by eye in the saved frames; the position checks above are the contract
 
+
+// ---- one shared drawing, two scenes (different camera, different spot): the same object. The film's props module defines the magnetron once; each scene only says
+// K.prop(..., { use: "magnetron", version: "1" }). The window colour is a cyan the set never has, so it can be measured.
+const SHARED = `K.defineProp("magnetron", { w: 190, h: 160, versions: { "1": (c, s) => {
+  K.shape(c, () => { c.beginPath(); c.rect(-85, -120, 170, 120); }, "#22252e", "#15171c", 30);
+  c.fillStyle = "#00ffd0"; c.beginPath(); c.arc(-25, -62, 28, 0, 7); c.fill(); c.strokeStyle = K.INK; c.lineWidth = 7; c.stroke();
+} } });`;
+const sceneKeys = (keys, x, call) => scene(`    K.prop(g, cam, { use: "magnetron", version: "1", x: ${x}, y: 1560, on: "bench", w: 220 });`).replace(/const KEYS = .*\n/, `const KEYS = ${keys};\n`);
+const A = sceneKeys("[[0, { x: 540, y: 1250, z: 1.05 }], [89, { x: 540, y: 1250, z: 1.05 }, \"lin\"]]", 330);
+const B = sceneKeys("[[0, { x: 600, y: 1330, z: 1.6 }], [89, { x: 600, y: 1330, z: 1.6 }, \"lin\"]]", 700);
+assert.deepEqual(scenePropIssues(A, kit, { filmProps: { plan: { props: [{ id: "magnetron", name: "m", aliases: ["magnetron"], description: "d", versions: [{ version: "1", from: 0, description: "d" }] }] }, code: SHARED }, beat: { visual: "[gorge] the magnetron", line: "" }, beatIndex: 0 }), [], "the scene uses the shared drawing: fine");
+const sa = await render("shared-a", A, [0], SHARED), sb = await render("shared-b", B, [0], SHARED);
+async function cyan(png) {
+  const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+  let n = 0, x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1;
+  for (let i = 0; i < data.length; i += info.channels) { const p = i / info.channels, y = Math.floor(p / info.width), x = p % info.width; if (data[i + 1] > 190 && data[i + 2] > 140 && data[i] < 110) { n++; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } }
+  return n > 50 ? { n, w: x1 - x0 + 1, h: y1 - y0 + 1 } : null;
+}
+const ca = await cyan(sa[0]), cb = await cyan(sb[0]);
+assert.ok(ca && cb, `the shared magnetron's window is in both scenes (${JSON.stringify(ca)} ${JSON.stringify(cb)})`);
+assert.ok(Math.abs(ca.w / ca.h - 1) < 0.15 && Math.abs(cb.w / cb.h - 1) < 0.15, "the window is the same round window in both scenes");
+assert.ok(cb.w > ca.w * 1.2, `scene B is closer (zoom 1.6 vs 1.05): the same object is bigger (${ca.w} px -> ${cb.w} px)`);
+execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-i", join(OUT, "shared-a-00.png"), "-i", join(OUT, "shared-b-00.png"), "-filter_complex", "[0][1]hstack=inputs=2,scale=1000:-1", "-frames:v", "1", join(OUT, "shared-prop-two-scenes.jpg")]);
 execFileSync("ffmpeg", ["-loglevel", "error", "-y", ...["before", "after"].flatMap((n) => [0, 89].flatMap((f) => ["-i", join(OUT, `${n}-${String(f).padStart(2, "0")}.png`)])), "-filter_complex", "[0][1][2][3]hstack=inputs=4,scale=1600:-1", "-frames:v", "1", join(OUT, "before-after.jpg")]);
 console.log(`history-reel props render: ok. indicator light moved BEFORE ${drift(bp).toFixed(1)} px (floats), AFTER ${drift(ap).toFixed(1)} px (in the set). Frames in ${OUT}`);

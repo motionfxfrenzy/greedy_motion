@@ -67,6 +67,8 @@ export type PackSceneCodeInput = PackAssetsInput & {
   assetNames: string[];
 };
 
+type PropPlanLike = { props: { id: string; name: string; aliases: string[]; description: string; versions: { version: string; from: number; description: string }[] }[] };
+
 export type TemplatePack = {
   /** Gallery template id (GalleryTemplate.id) that switches the pack on. */
   id: string;
@@ -107,7 +109,9 @@ export type TemplatePack = {
   /** Script rules checked after writing; lines that break them are rewritten once (packScriptIssues). */
   scriptRules?: { maxWords: number; lastMaxWords: number; shortShare: number; forbidden: RegExp; /** The film must have at least this many spoken words (a script that lets the story decide its length); a fixed length asks for 2.7 words a second. */ minWords?: number; /** Shot sizes named in each VISUAL (`[place] wide|medium|close`): at least `wideShare` wide or medium, at most `closeShare` close. */ shotMix?: { wideShare: number; closeShare: number } };
   /** Problems in an authored scene module (null/empty = fine), checked before bundling; a scene that breaks them is repaired once with these messages. */
-  sceneIssues?: (code: string, beat: ScriptBeat | undefined) => string[];
+  sceneIssues?: (code: string, beat: ScriptBeat | undefined, film?: { filmProps?: { plan: PropPlanLike; code: string } | null; beatIndex?: number }) => string[];
+  /** Recurring props are drawn once per film and shared by every scene (plates/film-props.ts): the plan and the module are made after the script and included in every scene. */
+  filmProps?: boolean;
   /** Pictures generated for the project once the beats exist (plates/pack-assets.ts), in order so `refs` resolve. */
   assets?: (input: PackAssetsInput) => AssetSpec[];
   /** A complete scene module for a beat: authoring skips the model call for it. */
@@ -218,10 +222,11 @@ export function packScriptIssues(pack: TemplatePack | undefined, beats: { keywor
 export const templatePack = (styleExample: string | null | undefined): TemplatePack | undefined => (styleExample ? packs[styleExample] : undefined);
 
 /** A scene module ready to bundle: a pack's cast kit goes in right after the module's imports (the kit declares the global K). */
-export function withPackKit(code: string, pack: TemplatePack | undefined): string {
+export function withPackKit(code: string, pack: TemplatePack | undefined, filmPropsCode?: string | null): string {
   const scenes = pack?.scenes?.();
   if (!scenes) return code;
   let end = 0;
   for (const match of code.matchAll(/^import[^\n]*\n/gm)) end = match.index + match[0].length;
-  return `${code.slice(0, end)}\n${scenes.kit}\n${code.slice(end)}`;
+  // the film's shared props module goes right after the kit (it calls K.defineProp), so every scene of the film draws a recurring prop the same way
+  return `${code.slice(0, end)}\n${scenes.kit}\n${filmPropsCode ? `${filmPropsCode}\n` : ""}${code.slice(end)}`;
 }

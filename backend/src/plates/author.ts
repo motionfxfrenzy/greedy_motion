@@ -1,4 +1,5 @@
 import { templatePack, withPackKit } from "../plan/template-packs.ts";
+import { filmPropsFor } from "./film-props.ts";
 import type { Job } from "pg-boss";
 import { bundleScene, plateNameOf } from "@videosaas/plate-engine";
 import { callModel, ladder, supportsPromptCacheGate, type ModelMessage } from "../models/providers.ts";
@@ -270,6 +271,8 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       revise = { notes: row.revise.notes, code: code ?? "" };
     }
 
+    // The film's recurring props: planned and drawn once for the whole film (plates/film-props.ts), read by every scene; null when none recur.
+    const filmProps = pack?.filmProps ? await filmPropsFor(project, pack).catch((error) => { log("warn", "film_props_failed", { projectId: row.project_id, message: message(error).slice(0, 300) }); return null; }) : null;
     let lastError = row.repair?.error;
     let previous = row.repair?.previousKey ? (await getObject("uploads", row.repair.previousKey))?.toString("utf8") : undefined;
     let used = row.authored;
@@ -345,6 +348,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
             ...(project.brief?.styleExample ? { styleExample: project.brief.styleExample } : {}),
             ...(project.brief?.scriptNotes ? { scriptNotes: project.brief.scriptNotes } : {}),
             ...(pictures.names.length ? { assetNames: pictures.names } : {}),
+            ...(filmProps ? { filmProps } : {}),
             ...(templatePack(project.brief?.styleExample)?.sceneSounds ? { words: (takeFor(project, row.scene_index)?.words ?? []).map((w) => ({ text: w.text, start: w.start })) } : {}),
             ...(routeSnap ? { modelKey: `${tierRoute.provider}:${tierRoute.model}` } : {}),
             ...(reference ? { reference } : {}),
@@ -416,7 +420,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       const fullCheck = checkScene(plateName, code);
       const declaresKit = packed && /\b(?:const|let|var)\s+K\s*=/.test(code);
       // A pack's own scene rules (history-reel: the shot size named in the VISUAL must match the camera and the puppet size).
-      const packIssues = packed && !(packCode && code === packCode) ? pack?.sceneIssues?.(code, project.brief?.scriptBeats?.[row.scene_index]) ?? [] : [];
+      const packIssues = packed && !(packCode && code === packCode) ? pack?.sceneIssues?.(code, project.brief?.scriptBeats?.[row.scene_index], { filmProps, beatIndex: row.scene_index }) ?? [] : [];
       const policyCheck = !packed ? fullCheck : {
         ...fullCheck,
         ok: fullCheck.noText.ok && !declaresKit && packIssues.length === 0,
@@ -443,7 +447,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       }
       let bundle: Awaited<ReturnType<typeof bundleScene>>;
       try {
-        bundle = await bundleScene({ look, code: wireSceneAssets(withPackKit(code, pack), pictures.names, pictures.all), frames: row.frames, aspect: row.aspect });
+        bundle = await bundleScene({ look, code: wireSceneAssets(withPackKit(code, pack, filmProps?.code), pictures.names, pictures.all), frames: row.frames, aspect: row.aspect });
         // The picture NAMES this scene reads (resolved to files whenever it is loaded, never baked into the bundle).
         if (pictures.names.length) bundle.manifest = { ...bundle.manifest, assetNames: pictures.names } as typeof bundle.manifest;
       } catch (error) {
