@@ -726,6 +726,8 @@ export type FrameEvent = {
   plan?: { index: number; set: string }[]; set?: string; image?: string; cached?: boolean;
   /** The sets cannot be painted because the balance is short (needed and remaining are tokens). */
   notice?: { code: "insufficient_tokens"; message: string; needed: number; remaining: number };
+  /** A set could not be painted (or checked): its cards say so and offer a retry. */
+  setFailed?: { set: string; message: string };
 };
 
 /** The pack's puppet kit as JavaScript (GET /v1/storyboard-kit/<pack>), for the storyboard cards the page draws itself. */

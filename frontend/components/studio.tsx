@@ -525,6 +525,7 @@ export function Studio() {
   const askedSets = useRef<Set<string>>(new Set());
   const castPreviews = () => CAST_PREVIEW_TEMPLATES.has(brief.styleExample ?? "");
   // Why the real sets are not on the cards (a short balance): shown as a message with the top-up path, never a silent fallback that looks finished.
+  const [paintingSets, setPaintingSets] = useState(false);
   const [setsNotice, setSetsNotice] = useState<{ message: string; needed: number; remaining: number } | null>(null);
   const castMaker = (projectId: string) => {
     if (!cardMakerRef.current || cardMakerRef.current.project !== projectId) { cardMakerRef.current = { project: projectId, maker: new CardMaker(brief.styleExample ?? "") }; cardSignatures.current = {}; askedSets.current = new Set(); }
@@ -541,8 +542,8 @@ export function Studio() {
     const identityByIndex = new Map(todo.map((i) => [i, { id: withIds[i]!.id, key: frameKey(withIds[i]!), beat: withIds[i]! }]));
     putFrames(todo.map((i) => [frameKey(withIds[i]!), { state: "drawing", ...(frameCache.current[frameKey(withIds[i]!)]?.svg ? { svg: frameCache.current[frameKey(withIds[i]!)]!.svg } : {}) }]));
     /** One drawn card or sketch landing on its beat (the live position of the beat is found by id, as the page may have changed since). */
-    const landFrame = (info: { id: string | undefined; key: string; beat: ScriptBeat }, index: number, svg: string) => {
-      putFrames([[info.key, { state: "ready", svg }]]);
+    const landFrame = (info: { id: string | undefined; key: string; beat: ScriptBeat }, index: number, svg: string, phase?: FrameSlot["phase"]) => {
+      putFrames([[info.key, { state: "ready", svg, ...(phase ? { phase } : {}) }]]);
       const liveBeats = canvasRef.current?.beats ?? [];
       const liveIdx = info.id
         ? liveBeats.findIndex((b) => b.id === info.id)
@@ -552,10 +553,15 @@ export function Studio() {
       if (liveIdx >= 0) setFrameAt((current) => ({ ...current, [liveIdx]: svg }));
     };
     const maker = castPreviews() ? castMaker(active.id) : null;
+    // cast-preview cards: painting (its set is on its way) -> drawn (the set landed, the cast is on it) | plain (no set will come: the notice says why) | failed (the set failed: Retry)
+    const planSet = new Map<number, string>();
+    const settle = (info: { key: string }, phase: "plain" | "failed", error?: string) => { const slot = frameCache.current[info.key]; if (slot?.phase === "painting") putFrames([[info.key, { ...slot, phase, ...(error ? { error } : {}) }]]); };
+    if (maker) setPaintingSets(true);
     void streamFrames(active.id, { brief: checked.brief, beats: withIds, indices: todo, ...(notesRef.current ? { notes: notesRef.current } : {}) }, (event) => {
       // Cast-preview templates: each set picture arrives once (the only paid part); the page draws the cast on every card of that place with the film's kit.
-      if (event.notice) { setSetsNotice({ message: event.notice.message, needed: event.notice.needed, remaining: event.notice.remaining }); return; }
-      if (event.plan) { for (const entry of event.plan) askedSets.current.add(entry.set); return; } // these sets are on their way: the edit effect must not ask for them again
+      if (event.notice) { setSetsNotice({ message: event.notice.message, needed: event.notice.needed, remaining: event.notice.remaining }); for (const i of todo) { const info = identityByIndex.get(i); if (info) settle(info, "plain"); } return; }
+      if (event.setFailed) { for (const i of todo) { const info = identityByIndex.get(i); if (info && planSet.get(i) === event.setFailed.set) settle(info, "failed", event.setFailed.message); } return; }
+      if (event.plan) { for (const entry of event.plan) { askedSets.current.add(entry.set); planSet.set(entry.index, entry.set); } return; } // these sets are on their way: the edit effect must not ask for them again
       if (event.set && event.image && maker) {
         const placeName = event.set;
         setSetsNotice(null);
@@ -574,12 +580,12 @@ export function Studio() {
       if (index === undefined) return;
       const info = identityByIndex.get(index);
       if (!info) return;
-      if (svg) landFrame(info, index, svg);
+      if (svg) landFrame(info, index, svg, maker ? "painting" : undefined);
       else putFrames([[info.key, { state: "failed", error: error ?? "Could not draw this frame." }]]);
     }).catch((caught) => {
       showLimit(caught); const message = caught instanceof Error ? caught.message : "Could not draw the frames.";
       putFrames(todo.map((i) => frameKey(withIds[i]!)).filter((key) => frameCache.current[key]?.state === "drawing").map((key) => [key, { state: "failed", error: message }]));
-    });
+    }).finally(() => { if (maker) { setPaintingSets(false); for (const i of todo) { const info = identityByIndex.get(i); if (info) settle(info, "failed", "The set could not be painted."); } } });
   };
   /** Builds the storyboard from the script (its words fixed) as a server job; the page stays on the script. */
   const buildStoryboard = async (active: VideoProject, beats: ScriptBeat[], notes: ScriptNotes | null = notesRef.current) => {
@@ -1669,7 +1675,7 @@ export function Studio() {
         onEdit={editScriptBeat} onAsk={(instruction, only) => void writeScript(instruction, undefined, only)} writing={canvas.writing} scoped={Boolean(canvas.scoped)}
         versions={canvas.beats.map((_, i) => versions[i] ? { count: versions[i]!.list.length, at: versions[i]!.at } : null)}
         onReimagine={reimagineBeat} onVersion={showVersion} onCancel={() => canvasStop.current?.abort()}
-        frames={frameSlots} aspect={brief.aspect} styleName={findGalleryTemplate(brief.styleExample)?.name} {...(castPreviews() ? { previewTokens: billingOverview?.steps.storyboardPreviews?.tokens ?? 0 } : {})} {...(castPreviews() && setsNotice ? { setsNotice: { message: setsNotice.message, onAddTokens: () => showLimit(new LimitError(setsNotice.message, "insufficient_tokens", null, null, null, setsNotice.needed, setsNotice.remaining)) } } : {})}
+        frames={frameSlots} aspect={brief.aspect} styleName={findGalleryTemplate(brief.styleExample)?.name} {...(castPreviews() ? { previewTokens: billingOverview?.steps.storyboardPreviews?.tokens ?? 0, paintingSets } : {})} {...(castPreviews() && setsNotice ? { setsNotice: { message: setsNotice.message, onAddTokens: () => showLimit(new LimitError(setsNotice.message, "insufficient_tokens", null, null, null, setsNotice.needed, setsNotice.remaining)) } } : {})}
         onRedraw={(index) => { if (project) drawFrames(project, canvas.beats, [index], true); }}
         voice={voice} onConfirm={confirmScript} onRetryVoice={retryVoice} music={musicBrief}
         onRender={renderFromScript} rendering={busy || animating}
