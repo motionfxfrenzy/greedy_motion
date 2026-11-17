@@ -11,7 +11,7 @@ import { desiredVariants, isPlateLook } from "./inputs.ts";
 import { isComputedVariantSignature, primaryAspect, takeFor } from "./model.ts";
 import { plateCacheGate } from "./cache-gate.ts";
 import { POLICY_REPAIR_MAX, buildAuthorMessages, checkScene, moduleFrom } from "./prompt.ts";
-import { ASSET_WAIT_MS, ensurePackAssets, packAssetsInput, sceneAssetState, scenePictures, wireSceneAssets } from "./pack-assets.ts";
+import { ASSET_WAIT_MS, MAX_CHECK_RETRIES, checkFailureRetryable, ensurePackAssets, packAssetsInput, readAssetIndex, sceneAssetState, scenePictures, wireSceneAssets } from "./pack-assets.ts";
 import { objectSize } from "../storage.ts";
 import { FPS } from "./model.ts";
 import { bundleKeyFor, claimAuthor, commitBundle, failVariant, getVariant, isVariantCompatibleWithDesired, manifestKeyFor, newOwner, noteAuthorCall, noteAuthorProgress, noteModelStart, primarySource, releaseAuthor, renewAuthor, saveDraft, sourceKeyFor, type AuthorProgressPatch } from "./store.ts";
@@ -222,6 +222,16 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       const state = await sceneAssetState(row.project_id, pictures.names, { getObject, putObject, objectSize });
       const waits = Number(job.data?.pictureWaits ?? 0);
       if (state.state === "failed") {
+        // A step that failed only because the picture check could not run is run again (capped); wait for it instead of failing the scene.
+        const failedIndex = await readAssetIndex(row.project_id, { getObject, putObject, objectSize }).catch(() => null);
+        if (checkFailureRetryable(failedIndex) || (failedIndex?.checkFailures && Date.now() - Date.parse(failedIndex.updatedAt) <= 60_000 && failedIndex.checkFailures <= MAX_CHECK_RETRIES)) {
+          if (checkFailureRetryable(failedIndex)) await ensurePackAssets(project, { retryFailed: false }).catch(() => undefined);
+          await releaseAuthor(row.id, row.gen, owner, "waiting for pictures");
+          setTimeout(() => {
+            void sendOnce(null, QUEUES.plateAuthor, { variantId, gen, pictureWaits: waits + 1 }, `${variantId}:${gen}`, { startAfter: PICTURE_WAIT_SECONDS }).catch(() => undefined);
+          }, 600).unref?.();
+          return;
+        }
         const index = await getObject("uploads", `plates/${row.project_id}/assets/index.json`).then((b) => (b ? JSON.parse(b.toString("utf8")) as { updatedAt?: string } : null)).catch(() => null);
         if (!index?.updatedAt || Date.now() - Date.parse(index.updatedAt) > failedPicturesGraceMs || waits * PICTURE_WAIT_SECONDS * 1000 > ASSET_WAIT_MS) {
           await failVariant(row.id, row.gen, owner, { code: "assets_failed", message: "The pictures for this scene could not be made. Press Draw to try again.", detail: state.message.slice(0, 800) });
