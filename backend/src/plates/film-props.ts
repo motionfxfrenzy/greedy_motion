@@ -16,7 +16,10 @@ export const MAX_FILM_PROPS = 4;
 export type PropVersion = { version: string; /** First beat (0-based) that shows this version. */ from: number; description: string };
 export type PropPlanItem = { id: string; name: string; /** Words a VISUAL uses for it (lower case, 3+ letters). */ aliases: string[]; description: string; versions: PropVersion[] };
 export type PropPlan = { props: PropPlanItem[] };
-export type FilmProps = { plan: PropPlan; code: string; hash: string };
+export type FilmProps = { plan: PropPlan; code: string; hash: string; /** 2 = `hash` follows the script only. A file without it was made when the hash also carried the kit; it is kept as it is (adopted) rather than made again. */ format?: number };
+export const FILM_PROPS_FORMAT = 2;
+/** Whether a stored file is still this film's props: same script, or a file from before the hash stopped carrying the kit. */
+export const filmPropsStillValid = (stored: { hash?: string; format?: number } | null, hash: string) => Boolean(stored) && (stored!.format === FILM_PROPS_FORMAT ? stored!.hash === hash : true);
 
 const TAG = /^\s*\[[^\]]*\]\s*/;
 /** Words too general to name one object: "the metal box" must not claim every box of the film. */
@@ -103,8 +106,9 @@ export const stripFence = (text: string) => text.replace(/^```[a-z]*\n?/i, "").r
 
 // ------------------------------------------------------------------ keys and cache
 export const filmPropsKey = (projectId: string) => `plates/${projectId}/assets/film-props.json`;
-export const filmPropsHash = (beats: readonly Pick<ScriptBeat, "line" | "visual">[], notes: unknown, kitHash: string) =>
-  createHash("sha256").update(JSON.stringify([FILM_PROPS_VERSION, kitHash, beats.map((b) => [b.line ?? "", b.visual ?? ""]), notes ?? null])).digest("hex").slice(0, 16);
+/** The film's props follow the script only: a new kit or props version never makes a film's earlier props "old" (no second plan or drawing call, no charge). */
+export const filmPropsHash = (beats: readonly Pick<ScriptBeat, "line" | "visual">[], notes: unknown, _kitHash?: string) =>
+  createHash("sha256").update(JSON.stringify([beats.map((b) => [b.line ?? "", b.visual ?? ""]), notes ?? null])).digest("hex").slice(0, 16);
 
 export type FilmPropsDeps = Pick<AssetStorage, "getObject" | "putObject"> & {
   plan: (request: ReturnType<typeof propsPlanRequest>) => Promise<string>;
@@ -137,8 +141,8 @@ export function loadFilmProps(project: Pick<VideoProject, "id" | "brief">, deps:
 async function make(projectId: string, beats: ScriptBeat[], notes: any, hash: string, deps: FilmPropsDeps): Promise<FilmProps | null> {
   const stored = await deps.getObject("uploads", filmPropsKey(projectId)).catch(() => null);
   let old: FilmProps | null = null;
-  if (stored) { try { old = JSON.parse(stored.toString("utf8")) as FilmProps; if (old.hash === hash) return old.plan.props.length ? old : null; } catch { old = null; } }
-  const save = async (value: FilmProps | { hash: string; plan: PropPlan; code: string }) => { await deps.putObject("uploads", filmPropsKey(projectId), JSON.stringify(value), "application/json").catch(() => undefined); };
+  if (stored) { try { old = JSON.parse(stored.toString("utf8")) as FilmProps; if (filmPropsStillValid(old, hash)) { const adopted = { ...old, hash, format: FILM_PROPS_FORMAT }; if (old.format !== FILM_PROPS_FORMAT) await deps.putObject("uploads", filmPropsKey(projectId), JSON.stringify(adopted), "application/json").catch(() => undefined); return adopted.plan.props.length ? adopted : null; } } catch { old = null; } }
+  const save = async (value: FilmProps | { hash: string; plan: PropPlan; code: string }) => { await deps.putObject("uploads", filmPropsKey(projectId), JSON.stringify({ ...value, format: FILM_PROPS_FORMAT }), "application/json").catch(() => undefined); };
   let plan: PropPlan;
   try { plan = parsePropsPlan(await deps.plan(propsPlanRequest(beats, notes)), beats.length); } catch { return null; }
   if (!plan.props.length) { await save({ hash, plan, code: "" }); return null; }
@@ -176,7 +180,7 @@ export async function filmPropsPending(project: Pick<VideoProject, "id">, brief:
   if (!scenes || beats.length < 2) return false;
   const { getObject } = await import("../storage.ts");
   const stored = await getObject("uploads", filmPropsKey(project.id)).catch(() => null);
-  if (stored) { try { if ((JSON.parse(stored.toString("utf8")) as { hash?: string }).hash === filmPropsHash(beats, brief.scriptNotes ?? null, scenes.hash)) return false; } catch { /* made again */ } }
+  if (stored) { try { if (filmPropsStillValid(JSON.parse(stored.toString("utf8")) as { hash?: string; format?: number }, filmPropsHash(beats, brief.scriptNotes ?? null))) return false; } catch { /* made again */ } }
   return true;
 }
 
