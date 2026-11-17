@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { config } from "../config.ts";
 import { callModel } from "../models/providers.ts";
 import type { AssetSpec } from "../plan/template-packs.ts";
+import type { PlaceExpect } from "../plan/packs/history-reel/set-brief.ts";
 import { TEXT_CHECK_MODEL, type GeneratedImage } from "./pack-assets.ts";
 
 let ai: GoogleGenAI | null = null;
@@ -39,7 +40,12 @@ const CHECK_PROMPT = "List every word, number or letter written anywhere in this
 /** The picture check's backup when Gemini fails (a retired model, an outage): Claude Haiku reads the same picture with the same question. */
 export const CHECK_FALLBACK_MODEL = "claude-haiku-5-5";
 
-async function checkWith(provider: "gemini" | "anthropic", image: Buffer, mime: string): Promise<{ extra: string[]; figures?: string[]; usd: number | null }> {
+/** The one extra question of the set check (same request, no extra call): does the picture show the REAL place in its era, with its landmarks? */
+export function placeQuestion(expect: PlaceExpect): string {
+  return ` Also decide whether the picture shows ${expect.location} in ${expect.era}${expect.landmarks.length ? `, with its recognisable landmarks (${expect.landmarks.join("; ")})` : ""}. Add the key "place": {"match": true or false, "reason": "one short sentence"}. match is false when the picture shows a different place, a different era or style, or a generic European town, castle, palace or fantasy setting instead; true only when this real place and its main landmarks are plainly recognisable.`;
+}
+
+async function checkWith(provider: "gemini" | "anthropic", image: Buffer, mime: string, expect?: PlaceExpect): Promise<{ extra: string[]; figures?: string[]; place?: { match: boolean; reason: string }; usd: number | null }> {
   const model = provider === "gemini" ? TEXT_CHECK_MODEL : CHECK_FALLBACK_MODEL;
   const reply = await callModel({
     step: "screenshot",
@@ -47,24 +53,26 @@ async function checkWith(provider: "gemini" | "anthropic", image: Buffer, mime: 
       ? { step: "screenshot", provider, model, maxTokens: 4000, effort: "low", explicit: false }
       : { step: "screenshot", provider, model, maxTokens: 2000, explicit: false },
     system: "You read pictures for stray writing.",
-    messages: [{ role: "user", content: [{ type: "image", mime, base64: image.toString("base64") }, { type: "text", text: CHECK_PROMPT }] }],
+    messages: [{ role: "user", content: [{ type: "image", mime, base64: image.toString("base64") }, { type: "text", text: expect ? CHECK_PROMPT + placeQuestion(expect) : CHECK_PROMPT }] }],
     errorPrefix: `Picture word check failed (${provider})`
   });
-  const parsed = JSON.parse(/\{[\s\S]*\}/.exec(reply.text)?.[0] ?? "{}") as { words?: unknown; figures?: unknown };
+  const parsed = JSON.parse(/\{[\s\S]*\}/.exec(reply.text)?.[0] ?? "{}") as { words?: unknown; figures?: unknown; place?: { match?: unknown; reason?: unknown } };
   if (!Array.isArray(parsed.words) && !Array.isArray(parsed.figures)) throw new Error(`Picture word check (${provider}) gave no list.`);
   const words = Array.isArray(parsed.words) ? parsed.words.map(String).filter((w) => w.trim()) : [];
   const figures = Array.isArray(parsed.figures) ? parsed.figures.map(String).filter((w) => w.trim()) : [];
-  return { extra: words, figures, usd: reply.usd ?? null };
+  // the place answer: only a plain `false` is a mismatch (a missing or unreadable answer never fails a picture, which already passed the people and props check)
+  const place = parsed.place && typeof parsed.place === "object" && typeof parsed.place.match === "boolean" ? { match: parsed.place.match, reason: String(parsed.place.reason ?? "").slice(0, 300) } : undefined;
+  return { extra: words, figures, ...(place ? { place } : {}), usd: reply.usd ?? null };
 }
 
 /** Reads every word in a picture; any word at all is "extra" for a noText picture. Gemini first, then Claude Haiku as the backup. */
-export async function geminiTextCheck(image: Buffer, mime: string): Promise<{ extra: string[]; figures?: string[]; usd: number | null }> {
+export async function geminiTextCheck(image: Buffer, mime: string, expect?: PlaceExpect): Promise<{ extra: string[]; figures?: string[]; place?: { match: boolean; reason: string }; usd: number | null }> {
   try {
-    return await checkWith("gemini", image, mime);
+    return await checkWith("gemini", image, mime, expect);
   } catch (first) {
     if (!config.anthropicApiKey) throw first;
     try {
-      return await checkWith("anthropic", image, mime);
+      return await checkWith("anthropic", image, mime, expect);
     } catch (second) {
       throw new Error(`${(first as Error)?.message ?? first} / backup: ${(second as Error)?.message ?? second}`);
     }

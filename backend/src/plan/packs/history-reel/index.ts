@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import type { ScriptBeat } from "@videosaas/contracts";
 import type { AssetSpec, TemplatePack } from "../../template-packs.ts";
 import { scenePropIssues } from "./prop-check.ts";
+import { type SetBrief, composeSetPrompt, parseSetBriefs, placeExpectOf, resolveSetBrief, setBriefRequest } from "./set-brief.ts";
 
 /** A place of the story: an empty set the cast acts in. */
 export type HistoryPlace = { id: string; description: string };
@@ -83,8 +84,17 @@ export function placeOfBeat(beatIndex: number, beats: readonly Pick<ScriptBeat, 
 
 /** What made the reference Niagara set look right (experiments/history-reels, films/niagara/sets.json), asked of every set: bright daylight, visible sky, clear air. */
 const SET_LOOK = "Look: bright, colourful and clear like the best frames of a modern animated feature. A visible sky in the top quarter (soft clouds or a clear colour gradient), one clear light direction with soft shadows, sharp detailed middle ground, clean air: no fog, haze, murk or heavy mist covering the scene (a thin mist rising in the distance is fine). Rich saturated greens, blues and warm earth tones; never grey, brown or dull. A night or interior set stays warm and readable: a glowing lamp, moonlight on the floor, colour in the shadows.";
-const setPrompt = (p: HistoryPlace) =>
-  `${SET_STYLE}\n\n${p.description}\n${SET_LOOK}\nThe bottom 35% of the frame is flat open ground with lots of empty space in the centre for people to stand on. An empty set: no people, no characters, no figures of any kind (not even small or far away), no animals, no vehicles, no rope, wire or bridge strung across, no objects that would move, no text. Anything the story moves or puts on screen is drawn later by code.`;
+const SET_EMPTY = "An empty set: no people, no characters, no figures of any kind (not even small or far away), no animals, no vehicles, no rope, wire or bridge strung across, no objects that would move, no text. Anything the story moves or puts on screen is drawn later by code.";
+/** The set prompt, always the full brief in a fixed order (set-brief.ts): real location and era, landmarks, camera, ground and standing area, light, then the look and the empty-set rules. */
+export const setPrompt = (p: HistoryPlace, brief: SetBrief) => composeSetPrompt(brief, { style: SET_STYLE, look: SET_LOOK, empty: SET_EMPTY });
+/** What the film is about, for the place facts (its year and place names): the brief text and the idea. */
+const topicOf = (input: { brief?: { text?: string | null; scriptNotes?: { idea?: string | null } | null } | null }) => [input.brief?.text, input.brief?.scriptNotes?.idea].filter(Boolean).join(" ");
+/** One place's full set brief: the plan's facts, the place note, the topic (never a bare description of a beat's action). */
+export function setBriefFor(place: HistoryPlace, input: { plan?: unknown; beats?: readonly { visual?: string | null; line?: string | null }[]; brief?: { text?: string | null; scriptNotes?: { idea?: string | null } | null } | null }): SetBrief {
+  const planned = (input.plan as { sets?: Record<string, Partial<SetBrief>> } | undefined)?.sets?.[place.id];
+  const beatText = (input.beats ?? []).filter((b) => beatPlace(b as never) === place.id).map((b) => `${b.visual ?? ""} ${b.line ?? ""}`).join(" ");
+  return resolveSetBrief(place, topicOf(input), planned, beatText);
+}
 
 /** Underscore matched to the film's era (the year in its IDEA, else its place words); one fixed banjo score never fits a Roman film. */
 export function historyMusic(text: string): string | null {
@@ -297,7 +307,9 @@ export const historyReel: TemplatePack = {
     return { kit, images, hash: hash.digest("hex").slice(0, 12) };
   }),
   // one empty set per place, each with a depth map (made on the render worker; a set without one draws flat)
-  assets: (input) => placesFrom(input).map((place): AssetSpec => ({ name: `set-${place.id}`, prompt: setPrompt(place), aspect: "9:16", size: "2K", depth: true, noText: true, noFigures: true })),
+  assets: (input) => placesFrom(input).map((place): AssetSpec => { const brief = setBriefFor(place, input); return { name: `set-${place.id}`, prompt: setPrompt(place, brief), expect: placeExpectOf(brief), aspect: "9:16", size: "2K", depth: true, noText: true, noFigures: true }; }),
+  // one cheap call after the script writes each place's set brief (real location, era, landmarks, light); the plan reaches `assets` as input.plan
+  shotPlan: { request: (beats, notes, topic) => setBriefRequest(placesFrom({ beats, scriptNotes: notes }), beats, notes as never, topic), parse: (reply) => parseSetBriefs(reply) },
   // the beat's place: its set and depth map (the engine adds depth-<place> too; listing it is harmless)
   sceneAssets: (beatIndex, beats) => { const id = placeOfBeat(beatIndex, beats); return [`set-${id}`, `depth-${id}`]; },
   sceneSounds: true,

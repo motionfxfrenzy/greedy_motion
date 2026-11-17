@@ -198,7 +198,7 @@ export type PackAssetDeps = AssetStorage & {
   /** One picture from the image model; refs are earlier assets' bytes. */
   image: (prompt: string, refs: { name: string; data: Buffer; mime: string }[], spec: AssetSpec) => Promise<GeneratedImage>;
   /** Words written in the picture that are not allowed (none allowed for noText specs), and the call's cost. */
-  checkText: (image: Buffer, mime: string) => Promise<{ extra: string[]; figures?: string[]; usd: number | null }>;
+  checkText: (image: Buffer, mime: string, expect?: { location: string; era: string; landmarks: string[] }) => Promise<{ extra: string[]; figures?: string[]; /** The place answer of the same check call: match false = another place or era. */ place?: { match: boolean; reason: string }; usd: number | null }>;
   /** Queue the depth job for one stored set picture. */
   enqueueDepth: (job: DepthJob) => Promise<void>;
   /** Charge `usd` of provider cost as material (v2 step billing only); `ref` is unique per picture. */
@@ -305,10 +305,10 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
         for (const c of [...candidates].reverse().slice(0, MAX_CANDIDATES)) {
           const data = await deps.getObject("uploads", c.key).catch(() => null);
           if (!data) continue;
-          const check = await deps.checkText(data, c.mime).catch(() => null);
+          const check = await deps.checkText(data, c.mime, spec.expect).catch(() => null);
           if (!check) continue;
           index.usd += check.usd ?? 0;
-          if (!(check.figures ?? []).length && !(spec.noText ? check.extra : []).length) {
+          if (!(check.figures ?? []).length && !(spec.noText ? check.extra : []).length && check.place?.match !== false) {
             reused = { data, mime: c.mime, usage: null };
             log("info", "pack_asset_candidate_reused", { projectId, name: spec.name, hash, key: c.key });
             break;
@@ -323,18 +323,21 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
           for (let redraws = 0; ; redraws++) {
             let check: Awaited<ReturnType<typeof deps.checkText>> | null = null;
             for (let tries = 0; tries < 2 && !check; tries++) {
-              check = await deps.checkText(picture.data, picture.mime).catch((error) => { log("warn", "pack_asset_check_failed", { projectId, name: spec.name, message: String((error as Error)?.message ?? error).slice(0, 200) }); return null; });
+              check = await deps.checkText(picture.data, picture.mime, spec.expect).catch((error) => { log("warn", "pack_asset_check_failed", { projectId, name: spec.name, message: String((error as Error)?.message ?? error).slice(0, 200) }); return null; });
             }
             if (!check) throw new Error(`The picture "${spec.name}" could not be checked for people and props, so it was not used.`);
             index.usd += check.usd ?? 0;
             const figures = (check.figures ?? []).slice(0, 6), stray = spec.noText || allowedWords.size ? strayOf(check.extra) : [];
-            if (!figures.length && !stray.length) break;
+            // the place answer of the same call: a picture of ANOTHER place or era (a castle town for Niagara) is redrawn with the reason, within the same cap
+            const wrongPlace = check.place && check.place.match === false ? (check.place.reason || "it does not show the expected place") : null;
+            if (!figures.length && !stray.length && !wrongPlace) break;
             if (redraws >= MAX_FIGURE_REDRAWS) {
+              if (!figures.length && !stray.length && wrongPlace) { log("warn", "pack_asset_place_unmet", { projectId, name: spec.name, reason: wrongPlace.slice(0, 200) }); break; } // the best of the capped tries is used; every try is kept as a candidate
               if (figures.length) throw new Error(`The picture "${spec.name}" kept coming back with ${figures.map((f) => `"${f}"`).join(", ")} in it after ${MAX_FIGURE_REDRAWS} redraws, so it was not used.`);
               break; // stray writing only: accepted, as for any picture
             }
-            log("info", "pack_asset_redraw", { projectId, name: spec.name, extra: stray.slice(0, 8), figures });
-            picture = await draw((stray.length ? `\n\nABSOLUTELY NO WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. No letters, numbers, labels, signs or captions anywhere.` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS OR ANIMALS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Leave them out and keep the place itself (its furniture and scenery); no rope or cable stretched across open space.` : ""));
+            log("info", "pack_asset_redraw", { projectId, name: spec.name, extra: stray.slice(0, 8), figures, ...(wrongPlace ? { wrongPlace: wrongPlace.slice(0, 200) } : {}) });
+            picture = await draw(((stray.length ? `\n\nABSOLUTELY NO WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. No letters, numbers, labels, signs or captions anywhere.` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS OR ANIMALS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Leave them out and keep the place itself (its furniture and scenery); no rope or cable stretched across open space.` : "")) + (wrongPlace && spec.expect ? `\n\nWRONG PLACE: ${wrongPlace}. This MUST be ${spec.expect.location} in ${spec.expect.era}${spec.expect.landmarks.length ? `, showing ${spec.expect.landmarks.join("; ")}` : ""}: draw the real place, not a generic or European town.` : ""));
             redrawn = true;
           }
         } else if (spec.noText || spec.allowedText?.length) {
@@ -503,7 +506,7 @@ export async function liveDeps(project: VideoProject): Promise<PackAssetDeps> {
   return {
     getObject, putObject, objectSize,
     image: (prompt, refs, spec) => geminiImage(prompt, refs, spec),
-    checkText: (image, mime) => geminiTextCheck(image, mime),
+    checkText: (image, mime, expect) => geminiTextCheck(image, mime, expect),
     normalise: toJpeg,
     preview: toPreviewJpeg,
     enqueueDepth: async (job) => {
@@ -527,7 +530,7 @@ async function materialCharge(project: VideoProject): Promise<PackAssetDeps["cha
 // ------------------------------------------------------------------ a pack's own shot plan
 
 export const shotPlanKey = (projectId: string) => `${assetPrefix(projectId)}shot-plan.json`;
-const planHash = (project: VideoProject) => createHash("sha256").update(JSON.stringify([(project.brief?.scriptBeats ?? []).map((b) => [b.line, b.visual]), project.brief?.scriptNotes ?? null])).digest("hex").slice(0, 16);
+const planHash = (project: VideoProject) => createHash("sha256").update(JSON.stringify([(project.brief?.scriptBeats ?? []).map((b) => [b.line, b.visual]), project.brief?.scriptNotes ?? null, project.brief?.text ?? null])).digest("hex").slice(0, 16);
 
 /**
  * The plan of a pack that plans its pictures with one cheap model call (TemplatePack.shotPlan), stored with the project and reused until the
@@ -552,8 +555,8 @@ async function loadShotPlanOnce(project: VideoProject, pack: TemplatePack | unde
   try {
     const call = deps.call ?? (await import("./pack-assets-gemini.ts")).geminiShotPlan;
     const beats = project.brief.scriptBeats, notes = project.brief.scriptNotes ?? null;
-    const reply = await call(pack.shotPlan.request(beats, notes));
-    const plan = pack.shotPlan.parse(reply.text, beats, notes);
+    const reply = await call(pack.shotPlan.request(beats, notes, project.brief.text ?? null));
+    const plan = pack.shotPlan.parse(reply.text, beats, notes, project.brief.text ?? null);
     // another process may have stored the plan for this script while the call ran: theirs wins, so every reader sees the same one
     const winner = await deps.getObject("uploads", shotPlanKey(project.id)).catch(() => null);
     if (winner) { try { const w = JSON.parse(winner.toString("utf8")) as { hash?: string; plan?: unknown }; if (w.hash === hash && w.plan) return w.plan; } catch { /* ours */ } }

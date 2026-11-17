@@ -39,6 +39,8 @@ export type AssetSpec = {
   noFigures?: boolean;
   /** Words that MAY appear (hand-lettered labels): the word check runs too and only words outside this list count as stray. */
   allowedText?: string[];
+  /** The REAL place the picture must show (location, era, landmarks): asked in the same check call; a picture of another place is redrawn with the reason, within the redraw cap. */
+  expect?: { location: string; era: string; landmarks: string[] };
 };
 
 /** A beat's spoken words, start/end in seconds from the start of that beat's scene. */
@@ -93,7 +95,7 @@ export type TemplatePack = {
    */
   storyboardPreviews?: "cast";
   /** One cheap model call after the script that plans every picture (request -> reply -> parse). The parsed plan reaches `assets` as `input.plan`. */
-  shotPlan?: { request: (beats: readonly ScriptBeat[], notes: unknown) => { system: string; user: string; maxTokens: number }; parse: (reply: string, beats: readonly ScriptBeat[], notes: unknown) => unknown };
+  shotPlan?: { request: (beats: readonly ScriptBeat[], notes: unknown, topic?: string | null) => { system: string; user: string; maxTokens: number }; parse: (reply: string, beats: readonly ScriptBeat[], notes: unknown, topic?: string | null) => unknown };
   /** The cast kit and pictures for code-drawn scenes (read on first use). */
   scenes?: () => PackScenes;
   /** Each scene module exports `sounds: { kind, frame }[]` (kinds in SCENE_SOUND_KINDS), mixed on the frame its action lands. */
