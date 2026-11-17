@@ -297,7 +297,7 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
               break; // stray writing only: accepted, as for any picture
             }
             log("info", "pack_asset_redraw", { projectId, name: spec.name, extra: stray.slice(0, 8), figures });
-            picture = await drawOnce(projectId, spec, refBytes, deps, index, (stray.length ? `\n\nABSOLUTELY NO WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. No letters, numbers, labels, signs or captions anywhere.` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS, ANIMALS, VEHICLES OR STORY PROPS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Draw only the empty place: scenery and ground, nothing that moves, no rope or wire strung across.` : ""));
+            picture = await drawOnce(projectId, spec, refBytes, deps, index, (stray.length ? `\n\nABSOLUTELY NO WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. No letters, numbers, labels, signs or captions anywhere.` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS OR ANIMALS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Leave them out and keep the place itself (its furniture and scenery); no rope or cable stretched across open space.` : ""));
             redrawn = true;
           }
         } else if (spec.noText || spec.allowedText?.length) {
@@ -308,7 +308,7 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
           const figures = spec.noFigures ? (check.figures ?? []).slice(0, 6) : [];
           if (stray.length || figures.length) {
             log("info", "pack_asset_redraw", { projectId, name: spec.name, extra: stray.slice(0, 8) });
-            picture = await drawOnce(projectId, spec, refBytes, deps, index, (stray.length ? `\n\nABSOLUTELY NO ${allowedWords.size ? "OTHER " : ""}WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. ${allowedWords.size ? `Only these words may appear: ${(spec.allowedText ?? []).join(", ")}.` : "No letters, numbers, labels, signs or captions anywhere."}` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS, ANIMALS, VEHICLES OR STORY PROPS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Draw only the empty place: scenery and ground, nothing that moves, no rope or wire strung across.` : ""));
+            picture = await drawOnce(projectId, spec, refBytes, deps, index, (stray.length ? `\n\nABSOLUTELY NO ${allowedWords.size ? "OTHER " : ""}WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. ${allowedWords.size ? `Only these words may appear: ${(spec.allowedText ?? []).join(", ")}.` : "No letters, numbers, labels, signs or captions anywhere."}` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS OR ANIMALS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Leave them out and keep the place itself (its furniture and scenery); no rope or cable stretched across open space.` : ""));
             redrawn = true;
           }
         }

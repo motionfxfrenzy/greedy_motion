@@ -33,7 +33,8 @@ export async function toJpeg(image: GeneratedImage): Promise<{ data: Buffer; mim
   return { data: await sharp(image.data).flatten({ background: "#000000" }).jpeg({ quality: 90, mozjpeg: true }).toBuffer(), mime: "image/jpeg" };
 }
 
-const CHECK_PROMPT = "List every word, number or letter written anywhere in this picture (tiny unreadable scribbles that are clearly not words do not count). Reply JSON only: {\"words\":[...],\"figures\":[...]} where figures lists every person, character, animal, vehicle, or object that is clearly a story prop placed in the scene (a person on a rope, a rope or wire strung across, a cart, a boat), each as a short phrase; plain scenery (trees, rocks, buildings, fences) does not count.";
+/** figures = only what the code draws on top of an empty set: people, characters, animals, and a rope or cable across open space (the man on a rope). */
+const CHECK_PROMPT = "List every word, number or letter written anywhere in this picture (tiny unreadable scribbles that are clearly not words do not count). Reply JSON only: {\"words\":[...],\"figures\":[...]} where figures lists, each as a short phrase, every person, character or animal (also a statue-like, silhouetted or partly hidden one) and any rope or cable stretched across open space between two far points (across a gap, river, street or sky, the kind a person could walk or hang on). Everything else is the place itself and does NOT count: furniture, machines, equipment, cables and wiring on machines, walls or benches, tools, vehicles parked as scenery, buildings, plants and landscape.";
 
 /** The picture check's backup when Gemini fails (a retired model, an outage): Claude Haiku reads the same picture with the same question. */
 export const CHECK_FALLBACK_MODEL = "claude-haiku-5-5";
