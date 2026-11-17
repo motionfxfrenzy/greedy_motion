@@ -36,12 +36,13 @@ const RESULTS: Result[] = [
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** A lazy loop: the source is attached only near the viewport and the clip plays only while mostly visible. */
-function LoopVideo({ src, title, aspect, fit = "cover", eager = false }: { src: string; title: string; aspect: string; fit?: "cover" | "contain"; eager?: boolean }) {
+function LoopVideo({ src, title, aspect, fit = "cover", eager = false, threshold = 0.6 }: { src: string; title: string; aspect: string; fit?: "cover" | "contain"; eager?: boolean; threshold?: number }) {
   const wrap = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const [near, setNear] = useState(eager);
   const [still, setStill] = useState(false);
   const [paused, setPaused] = useState(true);
+  const visible = useRef(false);
 
   useEffect(() => {
     const el = wrap.current;
@@ -51,13 +52,14 @@ function LoopVideo({ src, title, aspect, fit = "cover", eager = false }: { src: 
     load.observe(el);
     const play = new IntersectionObserver(([e]) => {
       const v = video.current;
+      visible.current = e.isIntersecting;
       if (!v || reducedMotion()) return;
       if (e.isIntersecting) v.play().catch(() => {});
       else v.pause();
-    }, { threshold: 0.6 });
+    }, { threshold });
     play.observe(el);
     return () => { load.disconnect(); play.disconnect(); };
-  }, []);
+  }, [threshold]);
 
   const toggle = () => {
     const v = video.current;
@@ -72,9 +74,10 @@ function LoopVideo({ src, title, aspect, fit = "cover", eager = false }: { src: 
         muted
         loop
         playsInline
-        preload="none"
+        preload={eager ? "auto" : "none"}
         poster={`${src}.jpg`}
         aria-label={title}
+        onLoadedData={() => { if (visible.current && !reducedMotion()) video.current?.play().catch(() => {}); }}
         onPlay={() => setPaused(false)}
         onPause={() => setPaused(true)}
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: fit, display: "block" }}
@@ -194,7 +197,7 @@ export function ResultsGallery({ signedIn }: { signedIn: boolean | null }) {
 export function HeroVideo() {
   return (
     <div style={{ width: "100%", maxWidth: 880, marginTop: 44, borderRadius: 28, overflow: "hidden", border: "1px solid var(--d-bd-e1eaf4)", boxShadow: "0 24px 48px var(--d-sh-rgba46914408)" }}>
-      <LoopVideo src="/showcase/hero/brand-showreel" title="A Greedy Motion showreel made from a single brief" aspect="16 / 9" eager />
+      <LoopVideo src="/showcase/hero/brand-showreel" title="A Greedy Motion showreel made from a single brief" aspect="16 / 9" eager threshold={0.2} />
     </div>
   );
 }
