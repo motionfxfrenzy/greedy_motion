@@ -29,6 +29,7 @@ import {
   formatEtaBrief,
   formatEtaCompact,
   formatFilmButtonProgress,
+  formatFixingText,
   formatRetryingSceneText,
   formatSceneStatusText,
   isSceneWorkingState,
@@ -1803,3 +1804,21 @@ test("buildStagePrepProps picture-visible variants: sketch present (writing/chec
   assert.ok(!stuckToast.secondLine.includes("under a minute"), "toast second line must not promise under a minute when checking is overdue");
 });
 
+
+test("a scene being fixed says 'Fixing the scene (repair N of 2)…' on the chip, the status line and the banner, with no frozen percentage", () => {
+  const now = Date.parse("2026-11-17T12:01:00.000Z");
+  const scene = makeScene({ state: "authoring", updatedAt: "2026-11-17T11:50:00.000Z", fixing: { round: 1, of: 2 } });
+  const writing = sceneProgress(makeScene({ state: "authoring", updatedAt: "2026-11-17T11:50:00.000Z" }), null, { nowClient: now });
+  assert.match(writing.chipLabel, /^Writing \d+%$/, "without a repair it is the usual writing percentage");
+  const fixing = sceneProgress(scene, null, { nowClient: now });
+  assert.equal(fixing.chipLabel, "Fixing the scene (repair 1 of 2)…");
+  assert.equal(fixing.label, "Fixing the scene (repair 1 of 2)…");
+  assert.equal(fixing.fraction, null);
+  assert.equal(formatSceneStatusText(10, fixing), "Fixing the scene (repair 1 of 2)…");
+  assert.equal(formatFixingText({ round: 2, of: 2 }), "Fixing the scene (repair 2 of 2)…");
+  // a scene that is already drawn or failed never shows it
+  assert.equal(sceneProgress(makeScene({ state: "drawn", fixing: { round: 1, of: 2 } }), null, { nowClient: now }).fixing ?? null, null);
+  const banner = buildUnreadySceneBanner({ scenes: [scene], perSceneProgress: [fixing], currentSceneIndex: 0, stagePrepSceneIndex: null });
+  assert.ok(banner);
+  assert.equal(banner.text, "Fixing the scene (repair 1 of 2)…");
+});

@@ -10,7 +10,7 @@
     "dev": "node --watch --env-file-if-exists=.env src/server.ts",
     "start": "node src/server.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test:packs": "node test/pricing-lock.mjs && node test/deploy-not-stale.mjs && node test/dark-fable-pack.mjs && node test/history-reel-pack.mjs && node test/history-reel-render.mjs && node test/history-reel-props-render.mjs && node test/prop-check.mjs && node test/film-props.mjs && node test/set-brief.mjs && node test/figure-check.mjs && node test/picture-film-pack.mjs && node test/picture-film-render.mjs && node test/pack-assets.mjs && node test/pack-assets-wait.mjs && node test/pack-check-retry.mjs && node test/storyboard-previews.mjs && node test/pack-notes.mjs && node test/pack-reopen.mjs",
+    "test:packs": "node test/pricing-lock.mjs && node test/deploy-not-stale.mjs && node test/scene-repair-cap.mjs && node test/dark-fable-pack.mjs && node test/history-reel-pack.mjs && node test/history-reel-render.mjs && node test/history-reel-props-render.mjs && node test/prop-check.mjs && node test/film-props.mjs && node test/set-brief.mjs && node test/figure-check.mjs && node test/picture-film-pack.mjs && node test/picture-film-render.mjs && node test/pack-assets.mjs && node test/pack-assets-wait.mjs && node test/pack-check-retry.mjs && node test/storyboard-previews.mjs && node test/pack-notes.mjs && node test/pack-reopen.mjs",
     "test:plate-model": "node test/plate-model.mjs",
     "test:model-routing": "node test/model-routing.mjs && node --env-file-if-exists=.env test/model-routing-sites.mjs && node test/model-tier-policy.mjs",
     "test:cache-gate": "node test/cache-gate.mjs",

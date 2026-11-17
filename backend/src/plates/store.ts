@@ -1011,6 +1011,14 @@ export async function noteAuthorCall(variantId: string, gen: number, owner: stri
   );
 }
 
+/** A repair of the scene's own checks is about to start: `repairs` is the number of model calls made so far, so the next call is repair number `repairs` (1 or 2). The page shows "Fixing the scene (repair N of 2)". */
+export async function noteFixing(variantId: string, gen: number, owner: string, calls: number): Promise<void> {
+  await pool.query(
+    "update app.plate_variants set timings = timings || jsonb_build_object('fixing', jsonb_build_object('round', $4::int)), updated_at = now() where id = $1 and gen = $2 and author_owner = $3",
+    [variantId, gen, owner, Math.max(1, calls)]
+  );
+}
+
 /**
  * Records the start of a model call on `(variantId, gen)`.
  * If an earlier process started a model write on this `(variantId, gen)` and restarted mid-stream (`authorInFlight === 1`),

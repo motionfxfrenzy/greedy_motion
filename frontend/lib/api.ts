@@ -1089,6 +1089,8 @@ export async function generatePlanVisuals(projectId: string, budgetUsd: number):
 export type PlateAspect = "16:9" | "9:16" | "1:1";
 export type PlateVariantState = "queued" | "authoring" | "bundled" | "checked" | "rendering" | "drawn" | "failed";
 export type PlateRetrying = { attempt: number; reason: string };
+/** The scene is being fixed after its own checks: repair `round` of `of`. */
+export type PlateFixing = { round: number; of: number };
 /** One ratio of one scene: `v` changes whenever its stored clip changes, so the player fetches the new one. */
 export type PlateVariant = {
   state: PlateVariantState;
@@ -1110,6 +1112,7 @@ export type PlateVariant = {
   authorMs?: number;
   drawnAt?: string | null;
   retrying?: PlateRetrying;
+  fixing?: PlateFixing;
   stale?: boolean;
   needsReconcile?: boolean;
   /** A template pack's own scene sounds (`export const sounds` in the module), mixed instead of the keyword sounds. */
@@ -1138,6 +1141,7 @@ export type PlateScene = {
   authorMs?: number;
   drawnAt?: string | null;
   retrying?: PlateRetrying;
+  fixing?: PlateFixing;
   stale?: boolean;
   needsReconcile?: boolean;
   /** The primary-ratio variant's own scene sounds (see PlateVariant.sounds). */

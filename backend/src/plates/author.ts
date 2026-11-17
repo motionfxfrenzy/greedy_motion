@@ -11,11 +11,11 @@ import { getObject, putObject, type Bucket } from "../storage.ts";
 import { desiredVariants, isPlateLook } from "./inputs.ts";
 import { isComputedVariantSignature, primaryAspect, takeFor } from "./model.ts";
 import { plateCacheGate } from "./cache-gate.ts";
-import { POLICY_REPAIR_MAX, buildAuthorMessages, checkScene, moduleFrom } from "./prompt.ts";
+import { buildAuthorMessages, checkScene, moduleFrom } from "./prompt.ts";
 import { ASSET_WAIT_MS, MAX_CHECK_RETRIES, checkFailureRetryable, ensurePackAssets, packAssetsInput, readAssetIndex, sceneAssetState, scenePictures, wireSceneAssets } from "./pack-assets.ts";
 import { objectSize } from "../storage.ts";
 import { FPS } from "./model.ts";
-import { bundleKeyFor, claimAuthor, commitBundle, failVariant, getVariant, isVariantCompatibleWithDesired, manifestKeyFor, newOwner, noteAuthorCall, noteAuthorProgress, noteModelStart, primarySource, releaseAuthor, renewAuthor, saveDraft, sourceKeyFor, type AuthorProgressPatch } from "./store.ts";
+import { noteFixing, bundleKeyFor, claimAuthor, commitBundle, failVariant, getVariant, isVariantCompatibleWithDesired, manifestKeyFor, newOwner, noteAuthorCall, noteAuthorProgress, noteModelStart, primarySource, releaseAuthor, renewAuthor, saveDraft, sourceKeyFor, type AuthorProgressPatch } from "./store.ts";
 
 /**
  * Authoring consumer (`plate-author`): turns one variant into an immutable source + self-contained bundle in object storage and
@@ -27,6 +27,17 @@ import { bundleKeyFor, claimAuthor, commitBundle, failVariant, getVariant, isVar
  *  - the budget is used up                              -> the variant fails with the last error in words.
  */
 export const LEASE_SECONDS = 60;
+/** A scene gets its first draft and at most this many repair rounds in total, across ALL of its checks together (never per check). */
+export const SCENE_REPAIR_MAX = 2;
+/** The most model calls one scene may use: the draft plus its repairs. */
+export const sceneCallCap = () => Math.min(config.plates.maxAuthorCalls, 1 + SCENE_REPAIR_MAX);
+/**
+ * After the last repair a scene that still fails only SOFT checks (layout and staging rules: support, overlap, caption band, frame fill, prop anchoring,
+ * shared props) is shown as drawn, using the attempt with the fewest issues. Hard failures (the code does not run or bundle, drawn words) never are.
+ */
+export type SoftAttempt = { code: string; issues: number; list: string };
+export const bestSoftAttempt = (attempts: readonly SoftAttempt[]): SoftAttempt | undefined => attempts.reduce<SoftAttempt | undefined>((best, a) => (!best || a.issues < best.issues ? a : best), undefined);
+
 export const MAX_AUTHOR_MODEL_STARTS = config.plates.maxModelStartsPerGen;
 const log = (level: string, event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ level, event, ...fields }));
 
@@ -285,13 +296,19 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
     let recordStartOnCall = !(typeof row.timings?.authorStartedAt === "number" && row.timings.authorStartedAt > 0);
     const plateName = plateNameOf(look)!;
     // Scene policy (style kit helpers, no letters drawn): one repair round per row at most, then the scene is accepted as written.
-    let policyRepairs = 0;
+    const softAttempts: SoftAttempt[] = [];
+    let fellBack = false;
     // Cut-off ladder (output limit hit): 0 = normal call; 1 = same model at the biggest limit; 2 = effort "high" at the biggest limit. Other errors keep the single repair.
     let cutOffs = 0;
     let cutOffLimit = 2;
     for (;;) {
       if (signal.aborted) throw signal.reason ?? new Error("aborted");
-      if (!draft && used >= config.plates.maxAuthorCalls) {
+      if (!draft && used >= sceneCallCap() && !fellBack) {
+        // the last attempt did not even build: show the best earlier attempt that did pass the hard checks, rather than failing the scene
+        const earlier = bestSoftAttempt(softAttempts);
+        if (earlier) { fellBack = true; draft = earlier.code; log("warn", "scene_soft_issues", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, gen: row.gen, repairs: Math.max(0, used - 1), issues: earlier.issues, attempts: softAttempts.length, list: earlier.list.slice(0, 1500), fellBack: true }); continue; }
+      }
+      if (!draft && used >= sceneCallCap()) {
         await failVariant(row.id, row.gen, owner, { code: "author_exhausted", message: `This scene could not be drawn after ${used} attempts. Press Draw to try again.`, detail: String(lastError ?? "").slice(0, 800) });
         log("warn", "plate_author_exhausted", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, calls: used });
         return;
@@ -428,22 +445,34 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
         message: [declaresKit ? "Do not declare K: the cast kit is already in scope." : "", ...packIssues, fullCheck.noText.message ?? ""].filter(Boolean).join("\n")
       };
       if (!policyCheck.ok && !(packCode && code === packCode)) {
-        if (policyRepairs < POLICY_REPAIR_MAX && used < config.plates.maxAuthorCalls) {
-          policyRepairs += 1;
+        const hardNow = !policyCheck.noText.ok || declaresKit;
+        const issueCount = Math.max(1, policyCheck.issues.filter((i) => i.kind !== "kit-use").length + packIssues.length + (declaresKit ? 1 : 0));
+        // an attempt with only soft problems is kept as a candidate to show if the repairs do not clear them
+        if (!hardNow) softAttempts.push({ code, issues: issueCount, list: policyCheck.message ?? "" });
+        if (used < sceneCallCap()) {
           // Drop the stored module so a reused draft that fails the check is never reused again.
           await saveDraft(row.id, row.gen, owner, null).catch(() => undefined);
           lastError = policyCheck.message;
           previous = code;
+          await noteFixing(row.id, row.gen, owner ?? "", used).catch(() => undefined); // the page says "Fixing the scene (repair N of 2)"
           continue;
         }
-        if (!policyCheck.noText.ok) {
-          // The engine draws no text: words still drawn after the one repair are never accepted.
-          const names = policyCheck.issues.filter((i) => i.kind !== "kit-use").map((i) => `${i.kind}${"name" in i && i.name ? `:${i.name}` : ""}`).join(", ");
-          await failVariant(row.id, row.gen, owner, { code: "author_text_drawn", message: "This scene drew words into the picture, which the editor does not allow. Press Draw to try again.", detail: names.slice(0, 800) });
-          log("warn", "plate_text_drawn", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, gen: row.gen, plateName, issues: names });
-          return;
+        const best = bestSoftAttempt(softAttempts);
+        if (hardNow && !best) {
+          if (!policyCheck.noText.ok) {
+            // The engine draws no text: words still drawn after the repairs are never accepted.
+            const names = policyCheck.issues.filter((i) => i.kind !== "kit-use").map((i) => `${i.kind}${"name" in i && i.name ? `:${i.name}` : ""}`).join(", ");
+            await failVariant(row.id, row.gen, owner, { code: "author_text_drawn", message: "This scene drew words into the picture, which the editor does not allow. Press Draw to try again.", detail: names.slice(0, 800) });
+            log("warn", "plate_text_drawn", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, gen: row.gen, plateName, issues: names });
+            return;
+          }
         }
-        log("info", "plate_policy_unmet", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, gen: row.gen, plateName, issues: policyCheck.issues });
+        if (best) {
+          if (best.code !== code) code = best.code;
+          log("warn", "scene_soft_issues", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, gen: row.gen, repairs: Math.max(0, used - 1), issues: best.issues, attempts: softAttempts.length, list: best.list.slice(0, 1500) });
+        } else {
+          log("info", "plate_policy_unmet", { variantId, projectId: row.project_id, scene: row.scene_index, aspect: row.aspect, gen: row.gen, plateName, issues: policyCheck.issues });
+        }
       }
       let bundle: Awaited<ReturnType<typeof bundleScene>>;
       try {
