@@ -250,3 +250,32 @@ export function Walkthrough() {
     </section>
   );
 }
+
+type Clip = { template: string; src: string; title: string; ratio: string };
+const COLLAGE: Clip[] = [
+  ...REELS.map((r) => ({ template: r.template, src: r.src, title: r.title, ratio: "4 / 5" })),
+  ...RESULTS.map((r) => ({ template: r.id, src: r.src, title: r.title, ratio: "16 / 10" }))
+];
+const COLLAGE_ORDER = ["story-illus-balloon", "product-spin-ad", "story-illus-fox", "stat-highlight", "story-illus-blueprint", "whats-new", "story-illus-embroidery"];
+
+/** Sign-in side panel: a staggered collage of real renders. A template the visitor picked on the homepage leads, and is larger. */
+export function AuthCollage({ featured }: { featured?: string }) {
+  const byId = new Map(COLLAGE.map((c) => [c.template, c]));
+  const lead = featured ? byId.get(featured) : undefined;
+  const clips = [lead, ...COLLAGE_ORDER.filter((id) => id !== lead?.template).map((id) => byId.get(id))].filter((c): c is Clip => !!c).slice(0, 7);
+  const cols: Clip[][] = [[], []];
+  clips.forEach((c, i) => cols[i % 2].push(c));
+  return (
+    <div className="gm-collage" style={{ position: "relative", width: "100%", flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignContent: "center", transform: "rotate(-3deg) scale(1.04)" }}>
+      {cols.map((col, ci) => (
+        <div key={ci} style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: ci ? 36 : 0 }}>
+          {col.map((c, i) => (
+            <div key={c.template} title={c.title} style={{ borderRadius: 20, overflow: "hidden", boxShadow: "0 18px 36px rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.1)" }}>
+              <LoopVideo src={c.src} title={c.title} aspect={c === lead ? "1 / 1" : c.ratio} eager={ci === 0 && i === 0} />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}

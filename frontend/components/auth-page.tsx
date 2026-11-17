@@ -1,23 +1,15 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { PasswordInput } from "./password-input";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 import { sendWelcomeEmail } from "../lib/api";
 import { ThemeToggle } from "./theme-toggle";
-import { SceneFrame, type SceneItem } from "./scene-frame";
+import { AuthCollage } from "./home-showcase";
 import { PasswordRules } from "./password-rules";
 import { EMAIL_CODE_MINUTES, MIN_PASSWORD_LENGTH, passwordProblem } from "../lib/password";
-
-const SCENES: SceneItem[] = [
-  { kind: "hook", headline: "Finally see what every sale is really worth.", copy: "" },
-  { kind: "problem", headline: "Fees, refunds, and shipping hide your actual margin.", copy: "Most dashboards stop at revenue." },
-  { kind: "product", headline: "Smart Profit Dashboard", copy: "", shot: "profit-dashboard.png" },
-  { kind: "benefit", headline: "See real profitability at a glance.", copy: "Tracks fees, refunds, shipping, and margin in one dashboard." },
-  { kind: "cta", headline: "See your real margins", copy: "acme.com/profit" }
-];
 
 export function AuthPage() {
   const searchParams = useSearchParams();
@@ -35,21 +27,12 @@ export function AuthPage() {
     searchParams.get("error") === "reset" ? "That reset link expired, or was opened in a different browser from the one you asked in. Choose Forgot password to get a new one."
       : searchParams.get("error") ? "Sign-in failed. Please try again." : ""
   );
-  const [sceneIdx, setSceneIdx] = useState(0);
   const router = useRouter();
   // Only same-origin relative paths are honoured, so ?next= can't redirect off-site.
   const requestedNext = searchParams.get("next") ?? "";
   const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/studio";
   const hasTemplate = next.startsWith("/studio?template=");
   const callbackUrl = () => `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSceneIdx((s) => (s + 1) % SCENES.length);
-      // Long enough for each scene's entrance motion (scene-frame.tsx) to finish and be read.
-    }, 3600);
-    return () => clearInterval(timer);
-  }, []);
 
   const isValidEmail = /.+@.+\..+/.test(email);
   const emailError = tried && !isValidEmail;
@@ -563,6 +546,7 @@ export function AuthPage() {
               display: "flex",
               flexDirection: "column",
               justifyContent: "space-between",
+              gap: "28px",
               padding: "44px"
             }}
           >
@@ -588,49 +572,11 @@ export function AuthPage() {
               Product motion, without the production maze
             </span>
 
-            <div
-              style={{
-                position: "relative",
-                width: "100%",
-                maxWidth: "520px",
-                alignSelf: "center",
-                display: "flex",
-                flexDirection: "column",
-                gap: "14px"
-              }}
-            >
-              <div style={{ padding: "10px", borderRadius: "24px", background: "rgba(255,255,255,.06)" }}>
-                <SceneFrame
-                  scene={SCENES[sceneIdx]}
-                  branded={true}
-                  logoPlace="open-end"
-                  radius="16px"
-                />
-              </div>
-
-              {/* Progress dots */}
-              <div style={{ display: "flex", gap: "6px" }}>
-                {SCENES.map((_, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      flex: 1,
-                      height: "4px",
-                      borderRadius: "4px",
-                      background: i === sceneIdx ? "#168BFF" : "rgba(255,255,255,.15)",
-                      transition: "background 400ms ease"
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
+            <AuthCollage featured={hasTemplate ? next.slice("/studio?template=".length).split("&")[0] : undefined} />
 
             <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: "10px", maxWidth: "460px" }}>
               <span style={{ fontSize: "19px", lineHeight: 1.45, fontWeight: 500, letterSpacing: "-.02em" }}>
-                Plan your story. Review the motion. Refine the result.
-              </span>
-              <span style={{ fontSize: "14px", color: "var(--d-tx-93979f)" }}>
-                Illustrative product demo · Not a customer endorsement
+                Made with Greedy Motion: motion graphics with code, from one brief each.
               </span>
             </div>
           </div>
