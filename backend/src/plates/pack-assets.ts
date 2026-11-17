@@ -157,7 +157,19 @@ export type AssetIndex = {
   error?: string;
   usd: number;
   updatedAt: string;
+  /** Runs of this digest that failed only because the picture check could not run (a model outage); retried up to MAX_CHECK_RETRIES. */
+  checkFailures?: number;
 };
+
+/** Automatic reruns of an asset step that failed only because the picture check could not run (not because a picture was bad). */
+export const MAX_CHECK_RETRIES = 2;
+const CHECK_RETRY_AFTER_MS = 60_000;
+const CHECK_FAILURE = "could not be checked";
+/** A failed step worth running again by itself: the check could not run, it has not been retried too often, and a minute has passed. */
+export function checkFailureRetryable(index: AssetIndex | null, nowMs = Date.now()): boolean {
+  return Boolean(index && index.status === "failed" && index.error?.includes(CHECK_FAILURE)
+    && (index.checkFailures ?? 1) <= MAX_CHECK_RETRIES && nowMs - Date.parse(index.updatedAt) > CHECK_RETRY_AFTER_MS);
+}
 
 export type AssetStorage = {
   getObject: (bucket: "uploads" | "outputs", key: string) => Promise<Buffer | null>;
@@ -222,6 +234,8 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
   const names = new Set(specs.map((spec) => spec.name));
   const kept = Object.fromEntries(Object.entries(previous?.assets ?? {}).filter(([name]) => names.has(name)));
   const index: AssetIndex = { version: 1, digest, status: "generating", assets: kept, usd: 0, updatedAt: now().toISOString() };
+  const priorCheckFailures = previous?.digest === digest && previous.status === "failed" && previous.error?.includes(CHECK_FAILURE) ? (previous.checkFailures ?? 1) : 0;
+  if (priorCheckFailures) index.checkFailures = priorCheckFailures;
   // Keep records whose hash still matches (written by an earlier run of this digest or another one).
   const prevByHash = new Map(Object.values(previous?.assets ?? {}).map((r) => [r.hash, r]));
   let writing = Promise.resolve();
@@ -334,6 +348,7 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
   } catch (error) {
     index.status = "failed";
     index.error = String((error as Error)?.message ?? error).slice(0, 500);
+    if (index.error.includes(CHECK_FAILURE)) index.checkFailures = priorCheckFailures + 1;
     await save().catch(() => undefined);
     log("warn", "pack_assets_failed", { projectId, message: index.error });
     throw error;
@@ -555,7 +570,8 @@ export async function ensurePackAssets(project: VideoProject, options: { retryFa
   const index = await readAssetIndex(project.id, { getObject, putObject: async () => undefined, objectSize: async () => null });
   // A run that died mid-way (a restart) leaves "generating" for ever; one not touched for a while is run again (stored pictures are reused).
   const abandoned = index?.status === "generating" && Date.now() - Date.parse(index.updatedAt) > GENERATING_STALE_MS;
-  if (index?.digest === digest && !abandoned && (index.status !== "failed" || options.retryFailed === false)) return digest;
+  const checkRetry = index?.digest === digest && checkFailureRetryable(index);
+  if (index?.digest === digest && !abandoned && !checkRetry && (index.status !== "failed" || options.retryFailed === false)) return digest;
   const { sendOnce } = await import("../jobs/queues.ts");
   await sendOnce(null, PLATE_ASSETS_QUEUE, { projectId: project.id, digest } satisfies AssetsMessage, `${project.id}:${digest}`);
   return digest;

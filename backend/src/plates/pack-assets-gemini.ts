@@ -33,22 +33,41 @@ export async function toJpeg(image: GeneratedImage): Promise<{ data: Buffer; mim
   return { data: await sharp(image.data).flatten({ background: "#000000" }).jpeg({ quality: 90, mozjpeg: true }).toBuffer(), mime: "image/jpeg" };
 }
 
-/** Reads every word in a picture; any word at all is "extra" for a noText picture. */
-export async function geminiTextCheck(image: Buffer, mime: string): Promise<{ extra: string[]; figures?: string[]; usd: number | null }> {
+const CHECK_PROMPT = "List every word, number or letter written anywhere in this picture (tiny unreadable scribbles that are clearly not words do not count). Reply JSON only: {\"words\":[...],\"figures\":[...]} where figures lists every person, character, animal, vehicle, or object that is clearly a story prop placed in the scene (a person on a rope, a rope or wire strung across, a cart, a boat), each as a short phrase; plain scenery (trees, rocks, buildings, fences) does not count.";
+
+/** The picture check's backup when Gemini fails (a retired model, an outage): Claude Haiku reads the same picture with the same question. */
+export const CHECK_FALLBACK_MODEL = "claude-haiku-5-5";
+
+async function checkWith(provider: "gemini" | "anthropic", image: Buffer, mime: string): Promise<{ extra: string[]; figures?: string[]; usd: number | null }> {
+  const model = provider === "gemini" ? TEXT_CHECK_MODEL : CHECK_FALLBACK_MODEL;
   const reply = await callModel({
     step: "screenshot",
-    route: { step: "screenshot", provider: "gemini", model: TEXT_CHECK_MODEL, maxTokens: 4000, effort: "low", explicit: false },
+    route: provider === "gemini"
+      ? { step: "screenshot", provider, model, maxTokens: 4000, effort: "low", explicit: false }
+      : { step: "screenshot", provider, model, maxTokens: 2000, explicit: false },
     system: "You read pictures for stray writing.",
-    messages: [{ role: "user", content: [
-      { type: "image", mime, base64: image.toString("base64") },
-      { type: "text", text: "List every word, number or letter written anywhere in this picture (tiny unreadable scribbles that are clearly not words do not count). Reply JSON only: {\"words\":[...],\"figures\":[...]} where figures lists every person, character, animal, vehicle, or object that is clearly a story prop placed in the scene (a person on a rope, a rope or wire strung across, a cart, a boat), each as a short phrase; plain scenery (trees, rocks, buildings, fences) does not count." }
-    ] }],
-    errorPrefix: "Picture word check failed"
+    messages: [{ role: "user", content: [{ type: "image", mime, base64: image.toString("base64") }, { type: "text", text: CHECK_PROMPT }] }],
+    errorPrefix: `Picture word check failed (${provider})`
   });
   const parsed = JSON.parse(/\{[\s\S]*\}/.exec(reply.text)?.[0] ?? "{}") as { words?: unknown; figures?: unknown };
+  if (!Array.isArray(parsed.words) && !Array.isArray(parsed.figures)) throw new Error(`Picture word check (${provider}) gave no list.`);
   const words = Array.isArray(parsed.words) ? parsed.words.map(String).filter((w) => w.trim()) : [];
   const figures = Array.isArray(parsed.figures) ? parsed.figures.map(String).filter((w) => w.trim()) : [];
   return { extra: words, figures, usd: reply.usd ?? null };
+}
+
+/** Reads every word in a picture; any word at all is "extra" for a noText picture. Gemini first, then Claude Haiku as the backup. */
+export async function geminiTextCheck(image: Buffer, mime: string): Promise<{ extra: string[]; figures?: string[]; usd: number | null }> {
+  try {
+    return await checkWith("gemini", image, mime);
+  } catch (first) {
+    if (!config.anthropicApiKey) throw first;
+    try {
+      return await checkWith("anthropic", image, mime);
+    } catch (second) {
+      throw new Error(`${(first as Error)?.message ?? first} / backup: ${(second as Error)?.message ?? second}`);
+    }
+  }
 }
 
 /** One cheap call for a pack's shot plan (TemplatePack.shotList): the reply text and its cost. */
