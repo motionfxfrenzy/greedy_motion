@@ -30,7 +30,12 @@ export type PlaceLike = { id: string; description: string };
 /** Position, height, angle and lens of the camera every set is painted from (the cast is drawn on it in code, so the camera never changes). */
 export const SET_CAMERA = "CAMERA: an eye-level camera about 1.6 metres above the ground, held level (no tilt, no dutch angle), looking straight ahead; the horizon sits about 40% down from the top of the frame; a 35 mm lens look with natural perspective (no fisheye, no extreme wide angle), deep focus with the far distance slightly soft.";
 /** Where the ground plane is and where the characters will stand: open ground above the bottom quarter, which holds the subtitles. */
-export const SET_GROUND = "GROUND AND STANDING AREA: a flat, open, walkable ground plane fills the lower 60% of the frame. The cast will be drawn standing on it with their feet at about 70% of the frame height, so keep the band between 55% and 75% of the frame height completely open, flat and empty (nothing tall, no clutter, no steps, no fences or furniture in it). The bottom quarter of the frame (below 75%) is the same plain ground continuing towards the camera, calm and uncluttered: subtitles sit over it.";
+export const SET_GROUND = "GROUND AND STANDING AREA: a flat, open, walkable ground plane of REAL ground fills the lower 60% of the frame, with the natural texture of the place (grass, packed earth, cobbles, boards, sand). The cast will be drawn standing on it with their feet at about 70% of the frame height, so keep the band between 55% and 75% of the frame height completely open, flat and empty (nothing tall, no clutter, no steps, no fences or furniture in it). The bottom quarter of the frame (below 75%) is that same ground simply continuing towards the camera, calm and quiet (subtitles sit over it): the same material and texture, never a blank band, a smooth gradient or a different surface.";
+
+/** Words that make a "landmark" a story object, not scenery: those are drawn later by code and are forbidden in an empty set. */
+const NOT_SCENERY = /\b(ropes?|cables?|wires?|winch(?:es)?|rigging|pulleys?|machines?|tools?|equipment|vehicles?|carts?|wagons?|boats?|ships?|flags?|banners?|furniture|animals?|horses?|people|crowds?|men|women|persons?|figures?)\b/i;
+/** A view or summary that puts the camera or the set in the air or on a line, where nobody could stand. */
+const NOT_GROUND = /\b(mid-?air|floating|hovering|suspended|aerial|bird'?s?-?eye|on the (?:rope|cable|wire)|above the (?:river|water|rapids))\b/i;
 
 // ------------------------------------------------------------------ the topic: year and place names
 const MONTH_OR_DAY = new Set(["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
@@ -80,10 +85,13 @@ export function resolveSetBrief(place: PlaceLike, topic: string, planned?: Parti
   const own = looksLikeAction(place.description) ? "" : clean(place.description, 600);
   const location = clean(planned?.location, 160) || locationFrom(`${own} ${topic}`, place.id) || locationFrom(topic, "") || place.id.replace(/-/g, " ");
   const era = clean(planned?.era, 60) || eraFrom(`${own} ${topic}`) || "the period of the story";
-  const landmarks = (planned?.landmarks ?? []).map((l) => clean(l, 80)).filter(Boolean).slice(0, 6);
-  const summary = clean(planned?.summary, 400) || own || `the ${place.id.replace(/-/g, " ")} of ${location}`;
+  // a stored plan is cleaned again here: story objects are not scenery, and nothing is set in the air or on a rope
+  const landmarks = (planned?.landmarks ?? []).map((l) => clean(l, 80)).filter((l) => l && !NOT_SCENERY.test(l)).slice(0, 6);
+  const plannedSummary = NOT_GROUND.test(clean(planned?.summary, 400)) ? "" : clean(planned?.summary, 400);
+  const plannedView = NOT_GROUND.test(clean(planned?.view, 240)) ? "" : clean(planned?.view, 240);
+  const summary = plannedSummary || own || `the ${place.id.replace(/-/g, " ")} of ${location}`;
   const light = clean(planned?.light, 240) || lightFrom(`${own} ${beatText}`);
-  const view = clean(planned?.view, 240) || `looking at ${location} from the ground, the most recognisable part of it filling the middle distance`;
+  const view = plannedView || `looking at ${location} from the ground, the most recognisable part of it filling the middle distance`;
   return { location, era, landmarks, summary, view, light };
 }
 
@@ -120,8 +128,8 @@ export function setBriefRequest(places: readonly PlaceLike[], beats: readonly Pi
       "Rules:",
       "- location: the real, specific place from the film's topic or the beats (name it, add its country, region or famous feature). Never invent a fantasy or generic place; if the story names a place, use it.",
       "- era: the year or period from the topic (\"1859\", \"79 AD\", \"the 1960s\").",
-      "- landmarks: 3-6 short phrases naming what makes the place unmistakable and period-correct (landscape, buildings, water, vegetation). Concrete and visual.",
-      "- summary: one sentence on the part of the location this set shows and its open ground (where people can stand). view: where the camera stands and what it looks toward. light: time of day, sun direction and mood that fit the story at that place (a night fire, a bright noon).",
+      "- landmarks: 3-6 short phrases naming what makes the place unmistakable and period-correct: PERMANENT SCENERY and architecture only (landforms, cliffs, waterfalls, rivers, mist, trees, buildings, streets). NEVER ropes, cables, winches, machines, tools, vehicles, boats, flags, furniture, animals or people: the story's objects are drawn later by code.",
+      "- summary: one sentence on the part of the location this set shows and its open ground (where people can stand). view: where the camera stands: ALWAYS on open ground a person could stand on (a cliff top, a street, a courtyard, a field), never in the air, on water or on a rope; when the story crosses a gap or something above the ground (a rope over a gorge), the set is the open ground at the edge looking out over it. light: time of day, sun direction and mood that fit the story at that place (a night fire, a bright noon).",
       "- One entry for every place id given, same ids. No people, animals or vehicles in any of it."
     ].join("\n"),
     user: `TOPIC: ${topic ?? ""}\n${notes?.idea ? `IDEA: ${notes.idea}\n` : ""}PLACES:\n${list}\nSCENES (what the film says, for the place facts):\n${beats.map((b, i) => `${i + 1}. ${(b.line ?? b.keyword ?? "")} / ${(b.visual ?? "").replace(TAG, "").slice(0, 140)}`).join("\n")}`,
@@ -139,8 +147,10 @@ export function parseSetBriefs(reply: string): SetBriefPlan {
     const id = String(p?.id ?? "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
     if (!id) continue;
     sets[id] = {
-      location: clean(p.location, 160), era: clean(p.era, 60), summary: clean(p.summary, 400), view: clean(p.view, 240), light: clean(p.light, 240),
-      landmarks: (Array.isArray(p.landmarks) ? p.landmarks : []).map((l: unknown) => clean(l, 80)).filter(Boolean).slice(0, 6)
+      location: clean(p.location, 160), era: clean(p.era, 60), light: clean(p.light, 240),
+      // a summary or a view that is in the air or on a rope is dropped (the brief then falls back to open ground at the place); landmarks that are story objects are dropped
+      summary: NOT_GROUND.test(clean(p.summary, 400)) ? "" : clean(p.summary, 400), view: NOT_GROUND.test(clean(p.view, 240)) ? "" : clean(p.view, 240),
+      landmarks: (Array.isArray(p.landmarks) ? p.landmarks : []).map((l: unknown) => clean(l, 80)).filter((l: string) => l && !NOT_SCENERY.test(l)).slice(0, 6)
     };
   }
   return { sets };

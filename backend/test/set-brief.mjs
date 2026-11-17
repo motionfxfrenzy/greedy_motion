@@ -53,7 +53,7 @@ assert.match(gorge.prompt, /35 mm lens/);
 assert.match(gorge.prompt, /lower 60% of the frame/);
 assert.match(gorge.prompt, /feet at about 70% of the frame height/);
 assert.match(gorge.prompt, /band between 55% and 75% of the frame height completely open, flat and empty/);
-assert.match(gorge.prompt, /bottom quarter of the frame \(below 75%\) is the same plain ground.*subtitles sit over it/);
+assert.match(gorge.prompt, /bottom quarter of the frame \(below 75%\) is that same ground simply continuing towards the camera.*never a blank band, a smooth gradient or a different surface/);
 assert.match(gorge.prompt, /LIGHT: bright natural daylight: the sun high and to the upper left/);
 assert.match(gorge.prompt, /no people, no characters/i); assert.match(gorge.prompt, /no rope, wire or bridge strung across/);
 assert.notEqual(gorge.prompt, rope.prompt);
@@ -77,6 +77,20 @@ assert.notEqual(planned.prompt, gorge.prompt, "the planned brief is a different 
 const thin = pa.packSpecs(project, pack, sb.parseSetBriefs('{"places":[{"id":"gorge","landmarks":["the falls"]}]}')).find((s) => s.name === "set-gorge");
 assert.match(thin.prompt, /LOCATION AND ERA: Niagara Gorge, in 1859/); assert.match(thin.prompt, /landmarks, all recognisable: the falls/);
 assert.deepEqual(sb.parseSetBriefs("not json"), { sets: {} });
+
+// the planning call's mistakes seen on staging (winches and a hemp cable as landmarks, a camera floating in mid-air over the gorge) are removed before they reach the prompt
+const sloppy = sb.parseSetBriefs(JSON.stringify({ places: [
+  { id: "gorge", location: "Niagara Gorge", era: "1859", landmarks: ["steep layered limestone canyon walls", "massive wooden winches and heavy timber anchoring posts", "churning turquoise water of the Niagara River far below", "a two-inch braided hemp cable spanning the void"], summary: "a flat cliff plateau where the main cable is anchored", view: "standing on the rim looking across the chasm" },
+  { id: "rope", location: "Niagara Gorge", era: "1859", landmarks: ["sheer vertical rock cliffs flanking the chasm"], summary: "the narrow hemp tightrope suspended mid-air over the chasm", view: "floating in mid-air looking along the rope" }
+] }));
+assert.deepEqual(sloppy.sets.gorge.landmarks, ["steep layered limestone canyon walls", "churning turquoise water of the Niagara River far below"], "story objects are not scenery");
+assert.equal(sloppy.sets.rope.summary, ""); assert.equal(sloppy.sets.rope.view, "", "a camera in the air or a set on a rope is dropped");
+const stored = { sets: { rope: { location: "Niagara Gorge", era: "1859", landmarks: ["thin diagonal guy ropes anchoring the cable"], summary: "the hemp tightrope suspended mid-air", view: "floating in mid-air" } } };
+const ground = pa.packSpecs(project, pack, stored).find((s) => s.name === "set-rope"); // a plan stored before the filters existed is cleaned when it is read
+assert.match(ground.prompt, /THE SET SHOWS: the rope of Niagara Gorge/); assert.match(ground.prompt, /VIEW: looking at Niagara Gorge from the ground/, "the fallback view is from the ground");
+assert.doesNotMatch(ground.prompt, /mid-air|floating|suspended/);
+const planReq = sb.setBriefRequest([{ id: "gorge", description: "" }], beats, null, TOPIC);
+assert.match(planReq.system, /PERMANENT SCENERY and architecture only/); assert.match(planReq.system, /NEVER ropes, cables, winches, machines/); assert.match(planReq.system, /ALWAYS on open ground a person could stand on/); assert.match(planReq.system, /the set is the open ground at the edge looking out over it/);
 
 // ---- 4. the script's own PLACES note (a painter's brief) is kept as the summary; an action line never is
 const withNotes = { ...project, brief: { ...project.brief, scriptNotes: { idea: TOPIC, places: "gorge = Niagara Gorge in 1859, seen from the top of the American cliff. Foreground: a flat grassy cliff-top with a few rocks. Background: the great horseshoe waterfall in the distance." } } };
@@ -108,7 +122,7 @@ assert.match(seenUser, /TOPIC: In 1859 Charles Blondin/); assert.deepEqual(Objec
 
 // ---- 7. the check: the same request carries the place question; a wrong place is redrawn with the reason, within the cap, every try kept as a candidate
 const q = gem.placeQuestion({ location: "Niagara Gorge", era: "1859", landmarks: ["the Horseshoe Falls", "limestone cliffs"] });
-assert.match(q, /Niagara Gorge in 1859, with its recognisable landmarks \(the Horseshoe Falls; limestone cliffs\)/); assert.match(q, /"place": \{"match": true or false, "reason":/); assert.match(q, /generic European town, castle, palace or fantasy/);
+assert.match(q, /Niagara Gorge in 1859, recognisable from its main scenery \(the Horseshoe Falls; limestone cliffs\)/); assert.match(q, /judge the scenery, not small props, equipment or minor details, and do not demand every landmark/); assert.match(q, /"place": \{"match": true or false, "reason":/); assert.match(q, /generic European town, castle, palace or fantasy/);
 const gsrc = readFileSync(join(here, "../src/plates/pack-assets-gemini.ts"), "utf8");
 assert.match(gsrc, /text: expect \? CHECK_PROMPT \+ placeQuestion\(expect\) : CHECK_PROMPT/, "ONE request: the place question is appended to the existing check prompt");
 const checkBody = gsrc.slice(gsrc.indexOf("async function checkWith"), gsrc.indexOf("export async function geminiTextCheck"));

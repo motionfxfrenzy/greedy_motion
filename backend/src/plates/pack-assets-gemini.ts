@@ -42,7 +42,7 @@ export const CHECK_FALLBACK_MODEL = "claude-haiku-5-5";
 
 /** The one extra question of the set check (same request, no extra call): does the picture show the REAL place in its era, with its landmarks? */
 export function placeQuestion(expect: PlaceExpect): string {
-  return ` Also decide whether the picture shows ${expect.location} in ${expect.era}${expect.landmarks.length ? `, with its recognisable landmarks (${expect.landmarks.join("; ")})` : ""}. Add the key "place": {"match": true or false, "reason": "one short sentence"}. match is false when the picture shows a different place, a different era or style, or a generic European town, castle, palace or fantasy setting instead; true only when this real place and its main landmarks are plainly recognisable.`;
+  return ` Also decide whether the picture shows ${expect.location} in ${expect.era}${expect.landmarks.length ? `, recognisable from its main scenery (${expect.landmarks.join("; ")})` : ""}. Add the key "place": {"match": true or false, "reason": "one short sentence"}. match is TRUE when the place is plainly recognisable as ${expect.location} from its main landscape or architecture in that era: judge the scenery, not small props, equipment or minor details, and do not demand every landmark listed. match is false when the picture shows a different place, a different era or style, or a generic European town, castle, palace or fantasy or sci-fi setting instead.`;
 }
 
 async function checkWith(provider: "gemini" | "anthropic", image: Buffer, mime: string, expect?: PlaceExpect): Promise<{ extra: string[]; figures?: string[]; place?: { match: boolean; reason: string }; usd: number | null }> {
