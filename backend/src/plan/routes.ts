@@ -49,6 +49,7 @@ import { directorContextFor } from "./context.ts";
 import { draftScript, reviseScript } from "./script-draft.ts";
 import { finishInsertedScene, finishScript, writeInsertedScene, writeScript } from "./script-writer.ts";
 import { placeholderFrame, sketchFrame, withoutLegacyLogo, xmlSafeSvg } from "./frame-sketch.ts";
+import { projectForPreviews } from "../plates/storyboard-previews.ts";
 import { readGalleryText } from "../gallery.ts";
 import { rewriteBeat } from "./rewrite-beat.ts";
 import { SFX } from "./sound.ts";
@@ -1498,8 +1499,27 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     // Frame 1 is the project card's thumbnail, so the card always shows how the film opens.
     if (wanted.includes(0) && saved.get(keyFor(0))) await setCoverFrame(project.id, saved.get(keyFor(0))!).catch(() => undefined);
     // A template whose scenes are its own pictures: plain key-phrase cards, no sketch model call.
-    if (templatePack(brief.styleExample)?.noSketches) {
+    const quietPack = templatePack(brief.styleExample);
+    if (quietPack?.noSketches) {
+      // The storyboard text and these cards come first; a pack with previews then paints its pictures over the cards as they land.
       for (const index of wanted) send({ index, svg: placeholderFrame(beats[index]!, brief.aspect) });
+      if (quietPack.storyboardPreviews === "image" && quietPack.assets && quietPack.previewCast) {
+        try {
+          const { getObject, putObject } = await import("../storage.ts");
+          const { livePreviewDeps, planPreviews, runStoryboardPreviews } = await import("../plates/storyboard-previews.ts");
+          const plan = await planPreviews(project, quietPack, brief, beats, notes, wanted, { getObject, putObject });
+          const stats = await runStoryboardPreviews(project.id, quietPack, plan, await livePreviewDeps(projectForPreviews(project, brief, beats, notes), userId), (event) => {
+            // a picture that could not be made or paid for keeps its key-phrase card (already sent above)
+            if ("image" in event) {
+              send({ index: event.index, svg: event.image });
+              if (event.index === 0) void setCoverFrame(project.id, event.image).catch(() => undefined);
+            } else app.log.warn({ projectId: project.id, index: event.index, reason: event.error }, "storyboard preview not shown");
+          }, controller.signal);
+          app.log.info({ event: "storyboard_previews", projectId: project.id, ...stats, ms: Date.now() - started }, "storyboard previews");
+        } catch (error) {
+          app.log.warn({ err: error, projectId: project.id }, "storyboard previews could not run; the cards keep their key phrase");
+        }
+      }
       send({ done: true, ms: Date.now() - started });
       reply.raw.end();
       return;

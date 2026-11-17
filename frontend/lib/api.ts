@@ -244,6 +244,8 @@ export type ProjectBillingOverview = {
     scriptEditBeat: StepQuoteView;
     storyboardPlan: StepQuoteView;
     frameSketch: StepQuoteView & { uncachedIndices: number[] };
+    /** The extra cost of the storyboard's picture previews (only pictures not stored yet); null for templates without them. */
+    storyboardPreviews?: { previews: number; sets: number; previewMilli: number; setMilli: number; milli: number; tokens: number } | null;
     voiceMusic: StepQuoteView & { uncachedVoiceIndices: number[]; needsMusic: boolean };
     animation: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
     /** What Recreate animation costs: every scene authored again, whatever is cached. */

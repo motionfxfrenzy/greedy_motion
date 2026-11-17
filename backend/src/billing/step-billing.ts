@@ -42,6 +42,7 @@ import { materialOwedUsd, visualStatus } from "../plan/visual-state.ts";
 import { speakerSettings, takeKey, voiceSettings } from "../plan/voice.ts";
 import { desiredVariants, isPlateLook, wantedAspects } from "../plates/inputs.ts";
 import { isAspect, primaryAspect, type Aspect, type PlateComment } from "../plates/model.ts";
+import { quoteStoryboardPreviews, type PreviewQuote } from "../plates/storyboard-previews.ts";
 import { decideRevisionApply, listVariants, matchVariantsToDesired, readProjectState } from "../plates/store.ts";
 import { getProject, updateProject } from "../projects/store.ts";
 import { InsufficientTokens, refundPartialSpend, refundSpend, spendTokens, tokenSummary } from "../tokens/store.ts";
@@ -1796,6 +1797,7 @@ export type ProjectBillingOverview = {
     scriptEditBeat: StepQuoteView;
     storyboardPlan: StepQuoteView;
     frameSketch: StepQuoteView & { uncachedIndices: number[] };
+    storyboardPreviews: PreviewQuote | null;
     voiceMusic: StepQuoteView & { uncachedVoiceIndices: number[]; needsMusic: boolean };
     animation: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
     animationRecreate: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
@@ -1989,6 +1991,8 @@ export async function buildProjectBillingOverview(input: {
       scriptEditBeat,
       storyboardPlan,
       frameSketch,
+      /** The extra cost of the picture previews on the storyboard (packs with storyboardPreviews), counting only pictures not stored yet; null for other templates. */
+      storyboardPreviews: await quoteStoryboardPreviews(input.project, brief, beats).catch(() => null),
       voiceMusic,
       animation: activeAnimQuote,
       /** What Recreate animation costs: every scene authored again, whatever is cached. */

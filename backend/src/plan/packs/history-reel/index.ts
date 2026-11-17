@@ -300,6 +300,14 @@ export const historyReel: TemplatePack = {
   sceneSounds: true,
   // owner decision: no reference-sketch step for this template (no frameSketch model calls, no sketch charge); the storyboard shows plain key-phrase cards
   noSketches: true,
+  // owner decision: the storyboard shows one picture per scene, drawn from the film's own set and our cast sheet (plates/storyboard-previews.ts)
+  storyboardPreviews: "image",
+  previewCast: () => file("pose-sheet.png"),
+  previewDirection: [
+    "CAST: flat cut-out cartoon puppets exactly like the second reference sheet: thick dark-brown ink outlines, flat colours with one shade tone, bean-shaped heads with big oval eyes, a round nose and a moustache or beard where the era fits, a bean torso in one shirt colour, rounded tube arms and legs, mitten hands, shoes, era hats. Never realistic people, never stick figures, never white round heads.",
+    "SIZE: the main character fills 35-55% of the frame height; crowds in rows, smaller further back; feet on the ground with a soft shadow.",
+    "SET: the first reference picture is the place. Keep its sky, ground, light and objects exactly; only add the cast and the beat's props on its open ground."
+  ].join("\n"),
   drawRule: "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then `const cam = K.camera(frame, KEYS)` and `K.set(ctx, env, cam, place)` (the set picture is the backdrop; there is no K.backdrop and no K.vignette); then the cast and props; nothing after them fills the frame. Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
   soundsRule: "SOUNDS: also export `export const sounds: { kind: string; frame: number }[] = [...]`: one entry on the exact frame each visible action lands (kinds: step = a boot or shoe lands (one per footfall of the main figure, every 2-3 steps for a crowd); thud = a body or heavy thing drops or hits the ground; whoosh = a camera snap, whip or reveal starts; hit = a key word or a strike lands; drop = something small falls; shuffle = a crowd shifts). Only actions that happen on screen. Usually 1 to 4 per scene.",
   musicFor: (notes) => historyMusic(`${notes?.idea ?? ""} ${notes?.places ?? ""}`),
