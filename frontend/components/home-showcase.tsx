@@ -189,3 +189,12 @@ export function ResultsGallery({ signedIn }: { signedIn: boolean | null }) {
     </section>
   );
 }
+
+/** Hero: one finished render in a rounded frame, replacing the old mock player. */
+export function HeroVideo() {
+  return (
+    <div style={{ width: "100%", maxWidth: 880, marginTop: 44, borderRadius: 28, overflow: "hidden", border: "1px solid var(--d-bd-e1eaf4)", boxShadow: "0 24px 48px var(--d-sh-rgba46914408)" }}>
+      <LoopVideo src="/showcase/hero/brand-showreel" title="A Greedy Motion showreel made from a single brief" aspect="16 / 9" eager />
+    </div>
+  );
+}
