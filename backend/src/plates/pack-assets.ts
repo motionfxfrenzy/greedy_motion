@@ -269,6 +269,7 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
     const key = assetKeyFor(projectId, hash);
     const size = spec.size ?? "1K";
     let record: AssetRecord | undefined;
+    let earlierReused: AssetRecord | null = null;
     if ((await deps.objectSize("uploads", key)) !== null) {
       const prev = prevByHash.get(hash);
       record = { name: spec.name, hash, key, mime: prev?.mime ?? "image/jpeg", size, storedAt: prev?.storedAt ?? now().toISOString(), ...(prev?.redrawn ? { redrawn: true } : {}) };
@@ -302,15 +303,23 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
           return painted;
         };
         let reused: GeneratedImage | null = null;
-        for (const c of [...candidates].reverse().slice(0, MAX_CANDIDATES)) {
+        // A saved picture is never paid for twice: the set this spec had under an EARLIER prompt (a changed brief changes the hash) is checked first, with the same
+        // checks and the place question. If it passes it is this spec's picture (copied to the new hash: no image call, no charge); only a mismatch repaints.
+        const earlier = spec.expect ? previous?.assets?.[spec.name] : undefined;
+        if (earlier && earlier.hash !== hash) {
+          const data = await deps.getObject("uploads", earlier.key).catch(() => null);
+          if (data) candidates.push({ key: earlier.key, mime: earlier.mime, at: earlier.storedAt, earlier: true } as Candidate & { earlier: true });
+        }
+        for (const c of [...candidates].reverse().slice(0, MAX_CANDIDATES + 1)) {
           const data = await deps.getObject("uploads", c.key).catch(() => null);
           if (!data) continue;
           const check = await deps.checkText(data, c.mime, spec.expect).catch(() => null);
           if (!check) continue;
           index.usd += check.usd ?? 0;
-          if (!(check.figures ?? []).length && !(spec.noText ? check.extra : []).length && check.place?.match !== false) {
+          if (!(check.figures ?? []).length && !(spec.noText ? check.extra : []).length && ((c as { earlier?: boolean }).earlier ? check.place?.match === true : check.place?.match !== false)) { // a picture from an earlier prompt must be CONFIRMED as the place; a kept candidate of this prompt only must not be refuted
             reused = { data, mime: c.mime, usage: null };
-            log("info", "pack_asset_candidate_reused", { projectId, name: spec.name, hash, key: c.key });
+            log("info", (c as { earlier?: boolean }).earlier ? "pack_asset_kept_from_earlier_prompt" : "pack_asset_candidate_reused", { projectId, name: spec.name, hash, key: c.key, ...((c as { earlier?: boolean }).earlier ? { earlierHash: earlier?.hash } : {}) });
+            if ((c as { earlier?: boolean }).earlier && earlier) earlierReused = earlier;
             break;
           }
         }
@@ -365,6 +374,11 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
       const depthKey = depthKeyFor(projectId, hash), failedKey = depthFailedKeyFor(projectId, hash);
       const prev = prevByHash.get(hash)?.depth;
       record.depth = { key: depthKey, failedKey, queuedAt: prev?.queuedAt ?? now().toISOString() };
+      // a set kept from an earlier prompt keeps its depth map too (the same picture): copied, not made again
+      if (earlierReused?.depth && (await deps.objectSize("outputs", depthKey)) === null) {
+        const oldDepth = await deps.getObject("outputs", earlierReused.depth.key).catch(() => null);
+        if (oldDepth) await deps.putObject("outputs", depthKey, oldDepth, "image/png").catch(() => undefined);
+      }
       const exists = (await deps.objectSize("outputs", depthKey)) !== null || (await deps.objectSize("outputs", failedKey)) !== null;
       if (!exists) {
         await deps.enqueueDepth({ projectId, name: depthNameOf(spec.name), imageKey: key, depthKey, failedKey });

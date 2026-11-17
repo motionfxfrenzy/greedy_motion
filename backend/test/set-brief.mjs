@@ -161,4 +161,40 @@ function world(verdicts) {
 // a spec without an expectation (other packs) is checked exactly as before
 { const w = world({}); const spec = { name: "set-x", prompt: "p", aspect: "9:16", size: "2K", noText: true, noFigures: true }; await pa.generatePackAssets(PID, [spec], w.deps); assert.deepEqual(w.log.expects, [undefined]); }
 
+// ---- a saved picture is never paid for twice: a set stored under an EARLIER prompt that passes the checks (and the place question) is kept under the new hash:
+// no image call, no charge; one that fails is repainted once
+{
+  const oldSpec = { ...planned, prompt: "the old prompt: a castle town square", expect: planned.expect };
+  const run = async (late = {}) => {
+    const verdicts = {}; const w = world(verdicts); const charges = []; w.deps.charge = async (usd, ref) => { charges.push(ref); };
+    // 1. the film as it was: its set painted from the old prompt (its own check passed then)
+    const oldWorld = await pa.generatePackAssets(PID, [oldSpec], w.deps);
+    const oldRecord = oldWorld.assets["set-gorge"];
+    w.files.set(`outputs:${oldRecord.depth.key}`, Buffer.from("old-depth-map"));
+    Object.assign(verdicts, late); // from now on the check sees the old picture for what it is
+    const paintedBefore = w.log.prompts.length, chargedBefore = charges.length;
+    // 2. the new prompt: a new hash
+    assert.notEqual(pa.assetHash(planned, []), oldRecord.hash);
+    const next = await pa.generatePackAssets(PID, [planned], w.deps);
+    return { w, charges, oldRecord, next, painted: w.log.prompts.length - paintedBefore, charged: charges.length - chargedBefore };
+  };
+  const good = await run({});
+  assert.equal(good.painted, 0, "the old set passes the place question: no image call"); assert.equal(good.charged, 0, "and no charge");
+  assert.equal(Buffer.from(good.w.files.get(`uploads:${good.next.assets["set-gorge"].key}`)).toString(), Buffer.from(good.w.files.get(`uploads:${good.oldRecord.key}`)).toString(), "the new hash holds the very same picture");
+  assert.notEqual(good.next.assets["set-gorge"].key, good.oldRecord.key); assert.equal(good.next.status, "ready");
+  assert.equal(Buffer.from(good.w.files.get(`outputs:${good.next.assets["set-gorge"].depth.key}`)).toString(), "old-depth-map", "its depth map is copied too, not made again");
+  assert.equal(good.w.log.depth.filter((d) => d.depthKey === good.next.assets["set-gorge"].depth.key).length, 0, "no depth job for the new hash");
+  const bad = await run({ pic1: { match: false, reason: "it shows a European castle town square" } });
+  assert.equal(bad.painted, 1, "an old set that fails the place question is repainted once"); assert.equal(bad.charged, 1, "and paid for once");
+  assert.match(bad.w.log.prompts.at(-1), /LOCATION AND ERA: Niagara Gorge below the Horseshoe Falls/);
+  assert.notEqual(Buffer.from(bad.w.files.get(`uploads:${bad.next.assets["set-gorge"].key}`)).toString(), "pic1");
+  // an old picture the check cannot confirm (no place answer) is not trusted: it is repainted
+  const unknown = world({}); unknown.deps.checkText = async (image) => ({ extra: [], figures: [], ...(image.toString() === "pic1" ? {} : { place: { match: true, reason: "" } }), usd: 0 });
+  await pa.generatePackAssets(PID, [oldSpec], unknown.deps); const before = unknown.log.prompts.length;
+  await pa.generatePackAssets(PID, [planned], unknown.deps); assert.equal(unknown.log.prompts.length - before, 1, "an unconfirmed old picture is repainted");
+  // only specs with an expectation (the sets) look back: another pack's picture keeps its hash rules
+  const plain = world({}); const a = { name: "set-p", prompt: "one", aspect: "9:16", size: "2K", noText: true, noFigures: true }; const b = { ...a, prompt: "two" };
+  await pa.generatePackAssets(PID, [a], plain.deps); const n0 = plain.log.prompts.length; await pa.generatePackAssets(PID, [b], plain.deps); assert.equal(plain.log.prompts.length - n0, 1);
+}
+
 console.log("set-brief: a set is painted as the real place (Niagara Gorge, 1859), from a full brief, and checked against it: ok");
