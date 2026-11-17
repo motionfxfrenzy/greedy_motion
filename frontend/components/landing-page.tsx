@@ -6,7 +6,7 @@ import { appHref } from "../lib/hosts";
 import { ThemeToggle } from "./theme-toggle";
 import { PublicLinks } from "./public-links";
 import { createClient } from "../utils/supabase/client";
-import { HeroVideo, ReelsShowcase, ResultsGallery } from "./home-showcase";
+import { HeroVideo, ReelsShowcase, ResultsGallery, Walkthrough } from "./home-showcase";
 import { GalleryGrid, startHref, useGalleryShelf } from "./template-gallery";
 
 const WORDS = ["product launches", "feature demos", "social stories", "visual explainers", "release notes"];
@@ -42,13 +42,13 @@ const HOW_STEPS = [
   {
     n: "03",
     title: "Review storyboard & voice",
-    body: "Preview every scene, script beat, voiceover take, and motion preview in your browser before rendering.",
+    body: "Greedy Motion writes the animation as code from your words, so every scene is precise and on-brand. Preview each scene, script beat, and voiceover in your browser before rendering.",
     bg: "var(--d-bg-d3f6e3)"
   },
   {
     n: "04",
     title: "Refine and download MP4",
-    body: "Ask for scoped scene changes in plain language, approve the preview, and download the finished 1080p MP4.",
+    body: "Ask for scoped scene changes in plain language and we update just that scene's code. Approve the preview, then download the finished 1080p MP4.",
     bg: "var(--d-bg-fff2be)"
   }
 ];
@@ -540,7 +540,7 @@ export function LandingPage() {
               textWrap: "pretty"
             }}
           >
-            Turn your brief, screenshots, and brand into on-brand motion videos, visual explainers, and 9:16 social stories.
+            Motion graphics with code, minus the coding: Greedy Motion turns your brief, screenshots, and brand into on-brand motion videos, visual explainers, and 9:16 social stories.
             Review a storyboard, ask for changes, approve, download.
           </p>
 
@@ -587,6 +587,7 @@ export function LandingPage() {
         </section>
 
         <ReelsShowcase signedIn={signedIn} />
+        <Walkthrough />
         <ResultsGallery signedIn={signedIn} />
 
         {/* How It Works Section */}
@@ -747,7 +748,7 @@ export function LandingPage() {
               Guardrails for everyone. Control for pros.
             </h2>
             <p style={{ margin: 0, fontSize: "16px", color: "var(--d-tx-535862)", maxWidth: "560px" }}>
-              Move through a guided storyboard flow—from script and voiceover to live browser motion previews—in one Studio.
+              Animate with code, without writing it: move through a guided storyboard flow—from script and voiceover to live browser motion previews—in one Studio.
             </p>
           </div>
 

@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { appHref } from "../lib/hosts";
+import { startHref } from "./template-gallery";
 
 /**
  * Homepage proof-of-output sections: a reels row and a results gallery.
@@ -10,16 +11,16 @@ import { appHref } from "../lib/hosts";
  * Videos stay posters until they scroll into view; only the ones on screen play, and nothing plays under reduced motion.
  */
 
-type Reel = { id: string; src: string; title: string; style: string };
+type Reel = { id: string; template: string; src: string; title: string; style: string };
 type Result = { id: string; src: string; title: string; kind: string; prompt: string };
 
 const REELS: Reel[] = [
-  { id: "illus-balloon", src: "/showcase/reels/illus-balloon", title: "Hot-air balloon story", style: "Storybook illustration" },
-  { id: "illus-blueprint", src: "/showcase/reels/illus-blueprint", title: "How it's built", style: "Blueprint" },
-  { id: "illus-coloured-pencil", src: "/showcase/reels/illus-coloured-pencil", title: "Sketchbook tale", style: "Coloured pencil" },
-  { id: "illus-fox", src: "/showcase/reels/illus-fox", title: "Fox in the forest", style: "Flat illustration" },
-  { id: "illus-embroidery", src: "/showcase/reels/illus-embroidery", title: "Stitched story", style: "Embroidery" },
-  { id: "illus-flat-vector", src: "/showcase/reels/illus-flat-vector", title: "Explainer in flat vector", style: "Flat vector" }
+  { id: "illus-balloon", template: "story-illus-balloon", src: "/showcase/reels/illus-balloon", title: "Hot-air balloon story", style: "Storybook illustration" },
+  { id: "illus-blueprint", template: "story-illus-blueprint", src: "/showcase/reels/illus-blueprint", title: "How it's built", style: "Blueprint" },
+  { id: "illus-coloured-pencil", template: "story-illus-coloured-pencil", src: "/showcase/reels/illus-coloured-pencil", title: "Sketchbook tale", style: "Coloured pencil" },
+  { id: "illus-fox", template: "story-illus-fox", src: "/showcase/reels/illus-fox", title: "Fox in the forest", style: "Flat illustration" },
+  { id: "illus-embroidery", template: "story-illus-embroidery", src: "/showcase/reels/illus-embroidery", title: "Stitched story", style: "Embroidery" },
+  { id: "illus-flat-vector", template: "story-illus-flat-vector", src: "/showcase/reels/illus-flat-vector", title: "Explainer in flat vector", style: "Flat vector" }
 ];
 
 const RESULTS: Result[] = [
@@ -32,6 +33,13 @@ const RESULTS: Result[] = [
   { id: "about-us-story", src: "/showcase/results/about-us-story", title: "Brand story", kind: "About us", prompt: "Our bakery's first year" },
   { id: "timeline-infographic", src: "/showcase/results/timeline-infographic", title: "Timeline", kind: "Infographic", prompt: "Four steps forward" }
 ];
+
+/** The studio opens a template from /studio?template=<id>; visitors who are not signed in go through sign-up and come back to that same URL (the auth page and callback accept only same-origin relative paths). */
+const useHref = (signedIn: boolean | null, id: string) => (signedIn ? `/studio?template=${id}` : startHref(id));
+
+function UseThis({ href, label }: { href: string; label: string }) {
+  return <Link href={href} className="gm-use" aria-label={label}>Use this</Link>;
+}
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -107,7 +115,7 @@ export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
     <section id="reels" aria-labelledby="reels-title" style={{ maxWidth: 1200, margin: "0 auto", padding: "40px 24px 24px", scrollMarginTop: 88, display: "flex", flexDirection: "column", gap: 28 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center", textAlign: "center" }}>
         <h2 id="reels-title" style={h2Style}>Made with Greedy Motion.</h2>
-        <p style={subStyle}>Real renders from one brief each. Story reels, explainers and ads, finished and ready to post.</p>
+        <p style={subStyle}>Motion with code, from one plain-language brief each. Story reels, explainers and ads, finished and ready to post.</p>
       </div>
       <div className="gm-reels" role="list">
         {REELS.map((r, i) => (
@@ -119,6 +127,7 @@ export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
                 <LoopVideo src={r.src} title={r.title} aspect="1 / 1" eager={i < 2} />
               </div>
               <span className="gm-reel-tag">{r.style}</span>
+              <UseThis href={useHref(signedIn, r.template)} label={`Use this: ${r.title}`} />
             </div>
             <strong className="gm-reel-title">{r.title}</strong>
           </article>
@@ -136,6 +145,10 @@ export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
         .gm-reel-bg{position:absolute;inset:-20px;background-size:cover;background-position:center;filter:blur(22px) saturate(1.1);opacity:.85}
         .gm-reel-tag{position:absolute;left:10px;top:10px;padding:4px 10px;border-radius:9999px;background:var(--d-bg-ffffff);color:var(--d-tx-0a0d12);font-size:12px;font-weight:600}
         .gm-reel-title{font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--d-tx-0a0d12)}
+        .gm-use{position:absolute;left:50%;bottom:14px;transform:translate(-50%,6px);z-index:2;padding:10px 20px;border-radius:9999px;background:var(--d-bg-181d27);color:var(--d-btn-ink);font-size:14px;font-weight:500;text-decoration:none;white-space:nowrap;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;opacity:0;transition:opacity 160ms ease,transform 160ms ease}
+        .gm-reel-frame:hover .gm-use,.gm-reel-frame:focus-within .gm-use,.gm-result:hover .gm-use,.gm-result:focus-within .gm-use,.gm-use:focus-visible{opacity:1;transform:translate(-50%,0)}
+        @media(hover:none){.gm-use{opacity:1;transform:translate(-50%,0)}}
+        @media(prefers-reduced-motion:reduce){.gm-use{transition:none}}
         @media(min-width:1100px){.gm-reels{justify-content:center;overflow-x:visible;flex-wrap:nowrap}.gm-reel{flex:1 1 0;min-width:0}}
       `}</style>
     </section>
@@ -162,12 +175,15 @@ export function ResultsGallery({ signedIn }: { signedIn: boolean | null }) {
       <div className="gm-results">
         {RESULTS.map((r) => (
           <article key={r.id} className="gm-hover-card gm-result">
-            <LoopVideo src={r.src} title={r.title} aspect="16 / 9" />
+            <div style={{ position: "relative" }}>
+              <LoopVideo src={r.src} title={r.title} aspect="16 / 9" />
+              <UseThis href={useHref(signedIn, r.id)} label={`Use this: ${r.title}`} />
+            </div>
             <div className="gm-result-body">
               <span className="gm-result-kind">{r.kind}</span>
               <strong>{r.title}</strong>
               <small>“{r.prompt}”</small>
-              <Link href={cta}>{signedIn ? "Use this style" : "Try this style"} →</Link>
+              <Link href={useHref(signedIn, r.id)}>{signedIn ? "Use this style" : "Try this style"} →</Link>
             </div>
           </article>
         ))}
@@ -199,5 +215,38 @@ export function HeroVideo() {
     <div style={{ width: "100%", maxWidth: 880, marginTop: 44, borderRadius: 28, overflow: "hidden", border: "1px solid var(--d-bd-e1eaf4)", boxShadow: "0 24px 48px var(--d-sh-rgba46914408)" }}>
       <LoopVideo src="/showcase/hero/brand-showreel" title="A Greedy Motion showreel made from a single brief" aspect="16 / 9" eager threshold={0.2} />
     </div>
+  );
+}
+
+const WALKTHROUGH_ID = "Loa3mTbpLF4";
+
+/** A click-to-load YouTube facade: just a poster until clicked, so the page doesn't pull the player's scripts up front. */
+export function Walkthrough() {
+  const [play, setPlay] = useState(false);
+  return (
+    <section id="walkthrough" aria-labelledby="walkthrough-title" style={{ maxWidth: 880, margin: "0 auto", padding: "72px 24px 24px", scrollMarginTop: 88, display: "flex", flexDirection: "column", gap: 24 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center", textAlign: "center" }}>
+        <h2 id="walkthrough-title" style={{ ...h2Style, fontSize: "clamp(24px, 2.8vw, 34px)" }}>See it in action</h2>
+        <p style={subStyle}>A quick walkthrough: brief in, finished video out.</p>
+      </div>
+      <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", borderRadius: 28, overflow: "hidden", border: "1px solid var(--d-bd-e1eaf4)", background: "var(--d-bg-181d27)", boxShadow: "0 14px 20px 4px var(--d-sh-rgba46914408)" }}>
+        {play ? (
+          <iframe
+            src={`https://www.youtube-nocookie.com/embed/${WALKTHROUGH_ID}?autoplay=1&rel=0`}
+            title="Greedy Motion walkthrough: how to make a video"
+            loading="lazy"
+            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowFullScreen
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}
+          />
+        ) : (
+          <button type="button" onClick={() => setPlay(true)} aria-label="Play the Greedy Motion walkthrough video" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", padding: 0, border: 0, cursor: "pointer", background: "transparent" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`https://i.ytimg.com/vi/${WALKTHROUGH_ID}/maxresdefault.jpg`} alt="" loading="lazy" width={1280} height={720} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+            <span aria-hidden style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 72, height: 72, borderRadius: "50%", display: "grid", placeItems: "center", background: "var(--d-bg-181d27)", color: "var(--d-btn-ink)", fontSize: 24, boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12, 0 14px 28px rgba(10,13,18,.35)" }}>▶</span>
+          </button>
+        )}
+      </div>
+    </section>
   );
 }

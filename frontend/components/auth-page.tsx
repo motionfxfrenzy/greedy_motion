@@ -40,6 +40,7 @@ export function AuthPage() {
   // Only same-origin relative paths are honoured, so ?next= can't redirect off-site.
   const requestedNext = searchParams.get("next") ?? "";
   const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/studio";
+  const hasTemplate = next.startsWith("/studio?template=");
   const callbackUrl = () => `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
 
   useEffect(() => {
@@ -287,7 +288,7 @@ export function AuthPage() {
                   {isSignup ? "Create your account" : "Welcome back"}
                 </h1>
                 <p style={{ margin: "10px 0 0", fontSize: "16px", color: "var(--d-tx-535862)" }}>
-                  {isSignup ? "Create your workspace and start making product videos." : "Sign in to open your workspace."}
+                  {hasTemplate ? `${isSignup ? "Create your account" : "Sign in"} and we'll open the template you picked, ready to edit.` : isSignup ? "Create your workspace and start making product videos." : "Sign in to open your workspace."}
                 </p>
               </div>
 
