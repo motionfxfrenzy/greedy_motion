@@ -19,7 +19,11 @@ const SIZE: Record<CardAspect, { w: number; h: number }> = { "9:16": { w: 1080, 
 export const CARD_OUT_WIDTH = 540;
 
 /** Where the cast stands in the set, from the kit's own rules: feet on the flat ground (the lower third), the hero 35-55% of the frame height. */
-export const LAYOUT = { feetAt: 0.8, heroHeight: 0.44, extraHeight: 0.3, extraFeetAt: 0.775, captionHeight: 0.07 } as const;
+/**
+ * Vertical shorts cover the bottom quarter of the frame with captions and the platform's buttons, so the cast stands ABOVE it: feet at 70% of the frame height, the
+ * hero's face near 35%, nothing of the cast below 75% (the ground itself runs on below, and the card's key-phrase pill sits in that band).
+ */
+export const LAYOUT = { feetAt: 0.7, heroHeight: 0.42, extraHeight: 0.3, extraFeetAt: 0.68, captionHeight: 0.07, captionBand: 0.25 } as const;
 
 function pose(K: Kit, name: PoseName, cast: any, mood: Mood): any {
   const face2 = { ...(K.FACE[mood === "calm" ? "calm" : mood === "grin" ? "grin" : mood === "scared" ? "scared" : mood === "angry" ? "angry" : "wow"]) };
@@ -56,7 +60,7 @@ export function drawCard(input: CardInput): string {
   const PH = K.PW * (setImage.height || 1) / (setImage.width || 1);
   const feetY = LAYOUT.feetAt * PH;
   // look at the set so the ground sits in the lower part of the frame (the kit keeps the view inside the picture)
-  const cam = K.camera(0, [[0, { x: K.PW / 2, y: feetY - 0.3 * H }]], { push: false });
+  const cam = K.camera(0, [[0, { x: K.PW / 2, y: feetY - (LAYOUT.feetAt - 0.5) * H }]], { push: false });
   K.set(ctx, env, cam, place);
 
   const viewH = H / (cam.z || 1), viewW = W / (cam.z || 1);

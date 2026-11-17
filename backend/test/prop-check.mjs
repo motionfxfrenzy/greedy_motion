@@ -16,12 +16,12 @@ const kit = pack.scenes().kit;
 const render = readFileSync(join(here, "history-reel-render.mjs"), "utf8");
 const NIAGARA = /const SCENE = `([\s\S]*?)`;\n/.exec(render)[1];
 const withProps = (body) => NIAGARA.replace("K.motes(g, cam, t);", `K.motes(g, cam, t);\n    ${body}`);
-const issues = (code) => scenePropIssues(code, kit);
+const issues = (code, film = {}) => scenePropIssues(code, kit, { aspect: "16:9", ...film });
 const has = (list, re) => list.some((m) => re.test(m));
 
 // the pack runs the check as part of its scene rules (the author's one repair round)
-assert.deepEqual(pack.sceneIssues(NIAGARA, { visual: "[gorge] a man walks" }), [], "a scene built only from the kit's own calls passes");
-assert.ok(has(pack.sceneIssues(withProps(`g.fillStyle = "#222"; g.fillRect(500, 700, 160, 120);`), { visual: "[gorge] x" }), /straight onto the screen/), "and the pack's sceneIssues reports a floating prop");
+assert.deepEqual(pack.sceneIssues(NIAGARA, { visual: "[gorge] a man walks" }, { aspect: "16:9" }), [], "a scene built only from the kit's own calls passes");
+assert.ok(has(pack.sceneIssues(withProps(`g.fillStyle = "#222"; g.fillRect(500, 700, 160, 120);`), { visual: "[gorge] x" }, { aspect: "16:9" }), /straight onto the screen/), "and the pack's sceneIssues reports a floating prop");
 
 // scenes that are fine
 assert.deepEqual(issues(NIAGARA), [], "the Niagara scene: puppets, crowd, rope, mist and motes are all anchored or kit effects");
@@ -66,6 +66,24 @@ assert.match(direction, /ALWAYS \\`K\.prop\\`/, "the author prompt says every st
 assert.match(direction, /NEVER paint a prop straight on \\`g\\`/);
 assert.match(pack.drawRule, /K\.prop\(g, cam, \{ name, x, y: floorY, on, draw \}\)/);
 
+
+// ---- the caption band (vertical shorts): faces, the main action and key props stay above 75% of the frame height
+const vertical = (code) => scenePropIssues(code, kit, { aspect: "9:16" });
+const bandHits = (list) => list.filter((m) => /bottom quarter/.test(m));
+assert.equal(bandHits(vertical(NIAGARA)).length, 1, "the pack's old proof scene has a big foreground puppet whose face sinks into the band: flagged in 9:16 (its hero is fine)");
+const lifted = NIAGARA.replace("K.puppet(g, cam, harry, 300, 1640, 480,", "K.puppet(g, cam, harry, 300, 1500, 380,");
+assert.deepEqual(bandHits(vertical(lifted)), [], "the same scene with the foreground puppet higher and smaller is fine");
+assert.equal(bandHits(scenePropIssues(NIAGARA, kit, { aspect: "16:9" })).length, 0, "the band rule is for vertical shorts only");
+assert.ok(has(vertical(withProps(`K.puppet(g, cam, K.makeCast({}), 600, 1850, 700, { face: 1, ...K.pose.stand(K.makeCast({}), "three") }, {});`)), /main figure's face is at \d+% of the frame height, inside the bottom quarter/), "a big figure low in the frame");
+assert.ok(has(vertical(withProps(`K.prop(g, cam, { name: "oven", x: 600, y: 1900, on: "ground", draw: (c) => { c.fillRect(-70, -90, 140, 90); } });`)), /Prop "oven" sits in the bottom quarter/), "a key prop low in the frame");
+const withLifted = (body) => lifted.replace("K.motes(g, cam, t);", `K.motes(g, cam, t);\n    ${body}`);
+assert.deepEqual(bandHits(vertical(withLifted(`K.puppet(g, cam, K.makeCast({}), 600, K.floorLine(cam), 300, { face: 1, ...K.pose.stand(K.makeCast({}), "three") }, {});`))), [], "a figure stood on K.floorLine(cam) is above the band");
+const probeBand = probeScene(withLifted(`K.puppet(g, cam, K.makeCast({}), 600, K.floorLine(cam), 300, { face: 1 }, {});`), kit);
+assert.ok(probeBand.puppets.length >= 5 && probeBand.puppets.every((p) => typeof p.face === "number" && typeof p.feet === "number"), "the kit records each puppet's face and feet as fractions of the frame height");
+assert.match(kit, /const CAPTION_BAND = 0\.25/); assert.match(kit, /const floorLine = \(cam: any, frac = 0\.7\)/);
+assert.match(direction, /The caption band \(vertical 9:16 shorts\)/, "the author prompt carries the rule");
+assert.match(pack.drawRule, /above 75% of the frame height \(stand the cast on K\.floorLine\(cam\)\)/);
+
 // owner scenes (if present): PROP_SCENES=<dir> with scene-1.ts .. scene-9.ts of production film 0ea430cc. The owner reported scenes 5 and 9 (a prop floating above the
 // bench); the others are not individually confirmed, so what the check says about them is printed as a finding, not asserted.
 const dir = process.env.PROP_SCENES;
@@ -73,7 +91,7 @@ if (dir && existsSync(dir)) {
   for (let n = 1; n <= 9; n++) {
     const file = join(dir, `scene-${n}.ts`);
     if (!existsSync(file)) continue;
-    const found = issues(readFileSync(file, "utf8"));
+    const found = scenePropIssues(readFileSync(file, "utf8"), kit, { aspect: "9:16" });
     if (n === 5 || n === 9) assert.ok(found.length > 0, `scene ${n} (reported by the owner): the check flags it`);
     console.log(`  scene ${n}${n === 5 || n === 9 ? " (reported)" : ""}: ${found.length ? "flagged: " + found.map((m) => m.slice(0, 90)).join(" | ") : "passes"}`);
   }

@@ -103,7 +103,7 @@ assert.equal(seen.length, 2, "one first try and one repair round"); assert.match
 // ---- the scene check: a scene that names a recurring prop must use the shared one
 const filmProps = { plan, code: CODE };
 const scene = (body) => NIAGARA.replace("K.motes(g, cam, t);", `K.motes(g, cam, t);\n    ${body}`);
-const issuesFor = (code, i) => scenePropIssues(code, kit, { filmProps, beat: beats[i], beatIndex: i });
+const issuesFor = (code, i) => scenePropIssues(code, kit, { filmProps, beat: beats[i], beatIndex: i, aspect: "16:9" });
 const USE = (v) => `K.prop(g, cam, { use: "magnetron", version: "${v}", x: 640, y: 1560, on: "bench", state: { t, active: frame > 40 ? 1 : 0 } });`;
 assert.deepEqual(issuesFor(scene(USE("1")), 2), [], "scene 3 names the magnetron and uses the shared drawing");
 const own = issuesFor(scene(`K.prop(g, cam, { name: "magnetron", x: 640, y: 1560, on: "bench", draw: (c) => { c.fillStyle = "#555"; c.fillRect(-60, -80, 120, 80); } });`), 2);
@@ -116,7 +116,7 @@ assert.deepEqual(issuesFor(scene(`K.prop(g, cam, { use: "microwave", version: "2
 assert.ok(issuesFor(scene(`K.prop(g, cam, { use: "microwave", version: "1", x: 640, y: 1560, on: "counter" });`), 6).some((m) => /version "1".*shows version "2"/.test(m)));
 assert.ok(issuesFor(scene(`K.prop(g, cam, { use: "toaster", x: 640, y: 1560, draw: () => {} });`), 4).some((m) => /not a recurring prop of this film \(known: magnetron, microwave\)/.test(m)), "an unknown id is reported with the known ones");
 assert.deepEqual(issuesFor(NIAGARA, 3).filter((m) => /recurring/.test(m)).length, 1, "a scene that names the magnetron (beat 4) and draws nothing for it is flagged; a scene that does not name any prop is not");
-assert.deepEqual(scenePropIssues(NIAGARA, kit, { filmProps, beat: { visual: "[gorge] a man walks", line: "He walked." }, beatIndex: 0 }), [], "no prop named, none drawn: fine");
+assert.deepEqual(scenePropIssues(NIAGARA, kit, { filmProps, beat: { visual: "[gorge] a man walks", line: "He walked." }, beatIndex: 0, aspect: "16:9" }), [], "no prop named, none drawn: fine");
 
 // ---- the shared module goes into every scene bundle, once, right after the kit
 const bundled = withPackKit(`import type { Ctx, Env } from "./core";\nconst x = 1;\n`, pack, CODE);
@@ -139,7 +139,7 @@ assert.ok(!/RECURRING PROPS/.test(noProps), "a film without recurring props gets
 // ---- the wiring: the author loads the film props once and passes them to the prompt, the check and the bundle
 const author = readFileSync(join(here, "../src/plates/author.ts"), "utf8");
 assert.match(author, /const filmProps = pack\?\.filmProps \? await filmPropsFor\(project, pack\)/);
-assert.match(author, /sceneIssues\?\.\(code, project\.brief\?\.scriptBeats\?\.\[row\.scene_index\], \{ filmProps, beatIndex: row\.scene_index \}\)/);
+assert.match(author, /sceneIssues\?\.\(code, project\.brief\?\.scriptBeats\?\.\[row\.scene_index\], \{ filmProps, beatIndex: row\.scene_index, aspect: row\.aspect \}\)/);
 assert.match(author, /withPackKit\(code, pack, filmProps\?\.code\)/);
 assert.equal(pack.filmProps, true); assert.equal(templatePack("dark-fable").filmProps, undefined);
 // the shared drawing is the kit's, so a recurring prop is anchored in the set like any prop (K.prop with `use`)

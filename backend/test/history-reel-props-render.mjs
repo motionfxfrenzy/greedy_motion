@@ -82,7 +82,7 @@ async function blue(png) {
 }
 
 // the check: the floating box is flagged, the anchored one passes
-const before = scenePropIssues(BEFORE, kit), after = scenePropIssues(AFTER, kit);
+const before = scenePropIssues(BEFORE, kit, { aspect: "16:9" }), after = scenePropIssues(AFTER, kit, { aspect: "16:9" });
 assert.ok(before.some((m) => /paints straight onto the screen/.test(m)), `the floating box is flagged: ${before.join(" | ").slice(0, 200)}`);
 assert.deepEqual(after, [], "the box through K.prop passes");
 
@@ -107,7 +107,7 @@ const SHARED = `K.defineProp("magnetron", { w: 190, h: 160, versions: { "1": (c,
 const sceneKeys = (keys, x, call) => scene(`    K.prop(g, cam, { use: "magnetron", version: "1", x: ${x}, y: 1560, on: "bench", w: 220 });`).replace(/const KEYS = .*\n/, `const KEYS = ${keys};\n`);
 const A = sceneKeys("[[0, { x: 540, y: 1250, z: 1.05 }], [89, { x: 540, y: 1250, z: 1.05 }, \"lin\"]]", 330);
 const B = sceneKeys("[[0, { x: 600, y: 1330, z: 1.6 }], [89, { x: 600, y: 1330, z: 1.6 }, \"lin\"]]", 700);
-assert.deepEqual(scenePropIssues(A, kit, { filmProps: { plan: { props: [{ id: "magnetron", name: "m", aliases: ["magnetron"], description: "d", versions: [{ version: "1", from: 0, description: "d" }] }] }, code: SHARED }, beat: { visual: "[gorge] the magnetron", line: "" }, beatIndex: 0 }), [], "the scene uses the shared drawing: fine");
+assert.deepEqual(scenePropIssues(A, kit, { aspect: "16:9", filmProps: { plan: { props: [{ id: "magnetron", name: "m", aliases: ["magnetron"], description: "d", versions: [{ version: "1", from: 0, description: "d" }] }] }, code: SHARED }, beat: { visual: "[gorge] the magnetron", line: "" }, beatIndex: 0 }), [], "the scene uses the shared drawing: fine");
 const sa = await render("shared-a", A, [0], SHARED), sb = await render("shared-b", B, [0], SHARED);
 async function cyan(png) {
   const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });

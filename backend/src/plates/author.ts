@@ -420,7 +420,7 @@ export async function handleAuthor(job: Job<AuthorMessage>) {
       const fullCheck = checkScene(plateName, code);
       const declaresKit = packed && /\b(?:const|let|var)\s+K\s*=/.test(code);
       // A pack's own scene rules (history-reel: the shot size named in the VISUAL must match the camera and the puppet size).
-      const packIssues = packed && !(packCode && code === packCode) ? pack?.sceneIssues?.(code, project.brief?.scriptBeats?.[row.scene_index], { filmProps, beatIndex: row.scene_index }) ?? [] : [];
+      const packIssues = packed && !(packCode && code === packCode) ? pack?.sceneIssues?.(code, project.brief?.scriptBeats?.[row.scene_index], { filmProps, beatIndex: row.scene_index, aspect: row.aspect }) ?? [] : [];
       const policyCheck = !packed ? fullCheck : {
         ...fullCheck,
         ok: fullCheck.noText.ok && !declaresKit && packIssues.length === 0,

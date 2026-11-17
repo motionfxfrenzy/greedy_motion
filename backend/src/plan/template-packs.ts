@@ -109,7 +109,7 @@ export type TemplatePack = {
   /** Script rules checked after writing; lines that break them are rewritten once (packScriptIssues). */
   scriptRules?: { maxWords: number; lastMaxWords: number; shortShare: number; forbidden: RegExp; /** The film must have at least this many spoken words (a script that lets the story decide its length); a fixed length asks for 2.7 words a second. */ minWords?: number; /** Shot sizes named in each VISUAL (`[place] wide|medium|close`): at least `wideShare` wide or medium, at most `closeShare` close. */ shotMix?: { wideShare: number; closeShare: number } };
   /** Problems in an authored scene module (null/empty = fine), checked before bundling; a scene that breaks them is repaired once with these messages. */
-  sceneIssues?: (code: string, beat: ScriptBeat | undefined, film?: { filmProps?: { plan: PropPlanLike; code: string } | null; beatIndex?: number }) => string[];
+  sceneIssues?: (code: string, beat: ScriptBeat | undefined, film?: { filmProps?: { plan: PropPlanLike; code: string } | null; beatIndex?: number; aspect?: string }) => string[];
   /** Recurring props are drawn once per film and shared by every scene (plates/film-props.ts): the plan and the module are made after the script and included in every scene. */
   filmProps?: boolean;
   /** Pictures generated for the project once the beats exist (plates/pack-assets.ts), in order so `refs` resolve. */

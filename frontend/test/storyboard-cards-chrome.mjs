@@ -79,7 +79,8 @@ test("cards: the film's kit draws our puppets on a fixture set, deterministicall
       return [a, b, other];
     }, { kitJs, plan: plans[0], caption: "x" });
     assert.ok(LAYOUT.heroHeight >= 0.35 && LAYOUT.heroHeight <= 0.55, "the hero fills 35-55% of the frame height (the kit's size rule)");
-    assert.ok(LAYOUT.feetAt >= 0.7 && LAYOUT.feetAt <= 0.9, "feet on the ground, in the lower third");
+    assert.ok(LAYOUT.feetAt >= 0.6 && LAYOUT.feetAt <= 1 - LAYOUT.captionBand, "feet on the ground, above the caption band (the bottom 25% stays clear of the cast)");
+    assert.ok(LAYOUT.extraFeetAt <= 1 - LAYOUT.captionBand, "the crowd too");
     assert.equal(again[0], again[1], "the same plan draws the same card");
     assert.notEqual(again[0], again[2], "a different person looks different");
     // nobody named, no crowd: nothing is drawn but the set (two such beats on the same set and caption are the same picture)

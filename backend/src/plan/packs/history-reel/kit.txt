@@ -684,6 +684,8 @@ const K = (() => {
    */
   function puppet(ctx: any, c: any, cast: any, x: number, y: number, h: number, p: any, opts: any = {}) {
     const s = h / castHeight(cast);
+    // the placement, recorded for the scene check (where the face and the feet are on the screen, as fractions of the frame height)
+    if (c.env && c.H) { const dd = opts.d ?? depthAt(c, x, y - 10), [, fy, fk] = toScreen(c, x, y - h * 0.86, dd), [, ky] = toScreen(c, x, y, dd); puppetLog(c.env).push({ x, y, h, frame: c.frame, face: fy / c.H, feet: ky / c.H, size: (h * fk) / c.H }); }
     if (opts.shadow !== false && c.env) {
       // the silhouette at a third of its size, stretched back up on the ground: the upscale softens it like a blur
       const S = layer(c.env, "sil", 512, 512), q = 0.32; S.ctx.setTransform(1, 0, 0, 1, 0, 0); S.ctx.clearRect(0, 0, 512, 512); S.ctx.globalCompositeOperation = "source-over"; S.ctx.setTransform(q, 0, 0, q, 256, 448);
@@ -703,6 +705,15 @@ const K = (() => {
    */
   const SURFACES: Record<string, number> = { ground: 0, stool: 55, crate: 62, table: 84, bench: 96, counter: 92, shelf: 150 };
   /** Where the prop placements of this scene are recorded while frames are drawn (read by the scene check): env.cache["hr:props"]. */
+  /** Placements of the puppets, recorded while frames are drawn (env.cache["hr:puppets"]): face / feet / size as fractions of the frame height. */
+  const puppetLog = (env: any): any[] => { let l = env.cache.get("hr:puppets"); if (!l) { l = []; env.cache.set("hr:puppets", l); } return l; };
+  /**
+   * Vertical shorts (9:16): the captions and the platform's own buttons cover the bottom quarter of the frame, so faces, the main action and key props stay ABOVE
+   * y = 0.75 of the frame height; the ground may run on below. CAPTION_BAND is that quarter. floorLine(cam) is the plate y that appears at `frac` of the frame
+   * height (default 0.70: where the cast's feet go in a vertical short), so `K.puppet(g, cam, c, x, K.floorLine(cam), h, ...)` stands on the ground above the band.
+   */
+  const CAPTION_BAND = 0.25;
+  const floorLine = (cam: any, frac = 0.7) => cam.y + (frac - 0.5) * (cam.H ?? 1920) / (cam.z || 1);
   const propLog = (env: any): any[] => { let l = env.cache.get("hr:props"); if (!l) { l = []; env.cache.set("hr:props", l); } return l; };
   /**
    * Put a prop IN the set. spec: { name, x, y (the FLOOR under it, plate px: the same y a puppet standing there would use), on: "ground" | "bench" | "table" | ... | a height,
@@ -730,7 +741,13 @@ const K = (() => {
     if (surface === undefined) throw new Error(`K.prop "${name}": unknown surface "${on}" (use ${Object.keys(SURFACES).join(", ")} or a height in plate px)`);
     if (typeof draw !== "function") throw new Error(`K.prop "${name}": draw(c) is required`);
     const lift = airborne > 0 ? airborne : 0, onSurface = y - surface;
-    if (cam.env) propLog(cam.env).push({ name, use: use ?? null, version: use !== undefined ? version : null, x, y, on: typeof on === "number" ? on : String(on), surface, airborne: lift, moving: Boolean(moving), frame: cam.frame, PH: cam.PH, place: cam.place });
+    let rec: any = null;
+    if (cam.env && cam.H) {
+      const dd0 = d ?? depthAt(cam, x, y - 10), hProp = (spec.h ?? (use !== undefined ? PROP_DEFS[use]?.h : undefined) ?? w * 0.8) * scale, base = y - surface - lift;
+      const [, by] = toScreen(cam, x, base, dd0), [, ty] = toScreen(cam, x, base - hProp, dd0);
+      rec = { bottom: by / cam.H, top: ty / cam.H };
+    }
+    if (cam.env) propLog(cam.env).push({ ...(rec ?? {}), name, use: use ?? null, version: use !== undefined ? version : null, x, y, on: typeof on === "number" ? on : String(on), surface, airborne: lift, moving: Boolean(moving), frame: cam.frame, PH: cam.PH, place: cam.place });
     const dd = d ?? depthAt(cam, x, y - 10);
     if (shadow) at(ctx, cam, x, onSurface, 1, (g) => {
       const r = g.createRadialGradient(0, 2, 0, 0, 2, w * 0.62); r.addColorStop(0, "rgba(40,22,8,0.5)"); r.addColorStop(1, "rgba(40,22,8,0)");
@@ -758,6 +775,6 @@ const K = (() => {
     PW, clamp, lerp, deg, E, rng, rot, track, span, blink,
     INK, VIEWS, FACE, makeCast, castHeight, rig, ik, shape, face, drawHead, drawPuppet, drawPiggyback, talk, pose,
     ropeCurve, drawRope, ropeNear, pole, wheelbarrow, pan, tool, crate, crowdCast, crowd, motes, mist, steam, popLines, burst, flame, rain,
-    camera, set, depthAt, toScreen, at, puppet, actors, fade, SURFACES, prop, propLog, anchored, defineProp, PROP_DEFS,
+    camera, set, depthAt, toScreen, at, puppet, actors, fade, SURFACES, prop, propLog, puppetLog, CAPTION_BAND, floorLine, anchored, defineProp, PROP_DEFS,
   };
 })();

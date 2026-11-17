@@ -45,7 +45,7 @@ function caller(): "scene" | "kit" | "other" {
 let kitCache: { source: string; js: string } | null = null;
 const kitJs = (source: string) => (kitCache?.source === source ? kitCache.js : (kitCache = { source, js: transformSync(source, { loader: "ts", target: "es2020" }).code }).js);
 
-export type PropProbe = { raw: { frame: number; ops: Record<string, number> }[]; /** Kit drawing helpers the scene called outside any anchored call, by name. */ kitRaw: Record<string, number>; props: any[]; errors: string[] };
+export type PropProbe = { raw: { frame: number; ops: Record<string, number> }[]; /** Kit drawing helpers the scene called outside any anchored call, by name. */ kitRaw: Record<string, number>; props: any[]; puppets: any[]; frames: number[]; errors: string[] };
 
 /** Kit helpers that paint in the CURRENT drawing space: legal only inside K.prop's draw, K.at's callback or a puppet's front/behind/top. */
 const KIT_PAINTERS = ["crate", "pole", "pan", "tool", "wheelbarrow", "drawPuppet", "drawPiggyback", "drawHead", "shape"] as const;
@@ -80,10 +80,10 @@ export function probeScene(code: string, kitSource: string, options: { frames?: 
     };
     for (const frame of frames) {
       ops = {};
-      try { draw(ctx, frame, env); } catch (error) { const message = String((error as Error)?.message ?? error); if (/^K\.prop/.test(message)) errors.push(message); else { if (process.env.PROP_CHECK_DEBUG) console.error("prop check: frame", frame, error); return errors.length ? { raw, kitRaw, props: K.propLog(env), errors } : null; } }
+      try { draw(ctx, frame, env); } catch (error) { const message = String((error as Error)?.message ?? error); if (/^K\.prop/.test(message)) errors.push(message); else { if (process.env.PROP_CHECK_DEBUG) console.error("prop check: frame", frame, error); return errors.length ? { raw, kitRaw, props: K.propLog(env), puppets: K.puppetLog(env), frames, errors } : null; } }
       if (Object.keys(ops).length) raw.push({ frame, ops });
     }
-    return { raw, kitRaw, props: K.propLog(env), errors };
+    return { raw, kitRaw, props: K.propLog(env), puppets: K.puppetLog(env), frames, errors };
   } catch (error) {
     if (process.env.PROP_CHECK_DEBUG) console.error("prop check could not run:", error);
     return null;
@@ -95,8 +95,9 @@ export const FLOOR_FROM = 0.58;
 const MOVE_TOLERANCE = 3;
 
 /** The messages for the author (empty = the scene is fine). */
-export function scenePropIssues(code: string, kitSource: string, film: { filmProps?: Pick<FilmProps, "plan" | "code"> | null; beat?: { line?: string | null; visual?: string | null; keyword?: string | null }; beatIndex?: number } = {}): string[] {
-  const probe = probeScene(code, kitSource, film.filmProps?.code ? { propsCode: film.filmProps.code } : {});
+export function scenePropIssues(code: string, kitSource: string, film: { filmProps?: Pick<FilmProps, "plan" | "code"> | null; beat?: { line?: string | null; visual?: string | null; keyword?: string | null }; beatIndex?: number; aspect?: string } = {}): string[] {
+  const size = film.aspect === "16:9" ? { width: 1920, height: 1080 } : film.aspect === "1:1" ? { width: 1080, height: 1080 } : { width: 1080, height: 1920 };
+  const probe = probeScene(code, kitSource, { ...size, ...(film.filmProps?.code ? { propsCode: film.filmProps.code } : {}) });
   if (!probe) return [];
   const out: string[] = [...probe.errors];
   if (probe.raw.length) {
@@ -134,6 +135,36 @@ export function scenePropIssues(code: string, kitSource: string, film: { filmPro
       if (dx > MOVE_TOLERANCE || dy > MOVE_TOLERANCE) out.push(`Prop "${name}" rests in the set but moves (x ${Math.round(dx)}, y ${Math.round(dy)} plate px between frames). A resting prop stays where it is put: use \`moving: true\` if it is carried, pushed or dragged, or \`airborne: <lift>\` if it is thrown, falling or flying.`);
     }
   }
+  if (!film.aspect || film.aspect === "9:16") out.push(...captionBandIssues(probe));
+  return out;
+}
+
+/** Vertical shorts: faces and key props stay above this fraction of the frame height; the bottom quarter is the caption band. */
+export const CAPTION_LIMIT = 0.75;
+/** A figure or prop is flagged when it sits in the band in at least this share of the probed frames. */
+export const BAND_SHARE = 0.6;
+
+/** The main figure's face, and any key prop, in the bottom quarter for most of the shot (the captions and the platform's buttons cover it). */
+export function captionBandIssues(probe: PropProbe): string[] {
+  const out: string[] = [];
+  const total = Math.max(1, probe.frames.length);
+  // the main figure of each frame is the biggest puppet on the screen
+  const main = new Map<number, any>();
+  for (const p of probe.puppets) if (!main.has(p.frame) || p.size > main.get(p.frame).size) main.set(p.frame, p);
+  const low = [...main.values()].filter((p) => p.face > CAPTION_LIMIT);
+  if (main.size && low.length / main.size >= BAND_SHARE) {
+    const at = Math.round((low.reduce((a, p) => a + p.face, 0) / low.length) * 100);
+    out.push(`In ${low.length} of ${main.size} probed frames the main figure's face is at ${at}% of the frame height, inside the bottom quarter. Vertical shorts put captions (and the platform's buttons) over the bottom 25%: faces, the main action and key props must sit ABOVE 75% of the frame height; only the ground may run on below. Stand the figures on K.floorLine(cam) (the plate y that appears at 70% of the frame height) or move the camera down so the face rises above the band.`);
+  }
+  const byName = new Map<string, any[]>();
+  for (const r of probe.props) if (typeof r.top === "number") byName.set(r.name, [...(byName.get(r.name) ?? []), r]);
+  for (const [name, records] of byName) {
+    const inBand = records.filter((r) => (r.top + r.bottom) / 2 > CAPTION_LIMIT);
+    if (records.length && inBand.length / records.length >= BAND_SHARE) {
+      out.push(`Prop "${name}" sits in the bottom quarter of the frame (its centre at ${Math.round((inBand.reduce((a, r) => a + (r.top + r.bottom) / 2, 0) / inBand.length) * 100)}% of the frame height) in ${inBand.length} of ${records.length} placements: the captions cover it. Put a key prop above 75% of the frame height (higher on its surface, or move the camera down); the ground may run on below.`);
+    }
+  }
+  void total;
   return out;
 }
 
