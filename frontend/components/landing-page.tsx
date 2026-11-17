@@ -7,6 +7,7 @@ import { ThemeToggle } from "./theme-toggle";
 import { PublicLinks } from "./public-links";
 import { createClient } from "../utils/supabase/client";
 import { SceneFrame, type SceneItem } from "./scene-frame";
+import { ReelsShowcase, ResultsGallery } from "./home-showcase";
 import { GalleryGrid, startHref, useGalleryShelf } from "./template-gallery";
 
 const SCENES: SceneItem[] = [
@@ -341,6 +342,19 @@ export function LandingPage() {
               }}
             >
               <a
+                href="#reels"
+                style={{
+                  color: "var(--d-tx-535862)",
+                  fontSize: "15px",
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  textDecoration: "none",
+                  transition: "color 180ms ease"
+                }}
+              >
+                Examples
+              </a>
+              <a
                 href="#how"
                 style={{
                   color: "var(--d-tx-535862)",
@@ -447,6 +461,7 @@ export function LandingPage() {
             </button>
             {menuOpen && (
               <nav id="gm-landing-mobile-menu" className="gm-landing-mobile-menu" aria-label="Mobile navigation">
+                <a href="#reels" onClick={() => setMenuOpen(false)}>Examples</a>
                 <a href="#how" onClick={() => setMenuOpen(false)}>How it works</a>
                 <a href="#features" onClick={() => setMenuOpen(false)}>Features</a>
                 <Link href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</Link>
@@ -805,6 +820,9 @@ export function LandingPage() {
             </div>
           </div>
         </section>
+
+        <ReelsShowcase signedIn={signedIn} />
+        <ResultsGallery signedIn={signedIn} />
 
         {/* How It Works Section */}
         <section
