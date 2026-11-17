@@ -343,6 +343,8 @@ const K = (() => {
   }
   /** Draw a rope (from ropeCurve) through the camera, thinner where it is far. */
   function drawRope(ctx: any, cam: any, point: (u: number) => any, width = 10, from = 0, to = 1) {
+    // the rope's line in plate coordinates, recorded for the scene check (who stands ON it)
+    if (cam.env) ropeLog(cam.env).push({ frame: cam.frame, pts: Array.from({ length: 25 }, (_, i) => { const p = point(lerp(from, to, i / 24)); return [p.x, p.y]; }) });
     const pts: number[][] = []; for (let i = 0; i <= 80; i++) { const u = lerp(from, to, i / 80), p = point(u); pts.push(toScreen(cam, p.x, p.y, p.d)); }
     for (const [col, extra] of [[INK, 6], ["#b08a52", 0]] as [string, number][]) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.2, (width + extra) * pts[pts.length >> 1][2] * 0.5); ctx.stroke(); }
   }
@@ -405,7 +407,7 @@ const K = (() => {
     else shape(ctx, () => { ctx.beginPath(); ctx.rect(-36, -20, 72, 40); }, "#6b6e75", "#55585e", 10);
     ctx.restore();
   }
-  /** A box, crate or chest at a puppet hand or anywhere in screen space: x, y = bottom centre. */
+  /** A box, crate or chest, bottom centre at (x, y) in the CURRENT drawing space: use it inside K.prop's draw (then x, y = 0, 0) or a puppet's opts.front; never on the screen. */
   function crate(ctx: any, x: number, y: number, w = 160, h = 120, color = "#b9834d") {
     shape(ctx, () => { ctx.beginPath(); ctx.rect(x - w / 2, y - h, w, h); }, color, "#946338", x + w * 0.2);
     ctx.strokeStyle = INK; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x - w / 2, y - h / 2); ctx.lineTo(x + w / 2, y - h / 2); ctx.moveTo(x - w / 2, y - h); ctx.lineTo(x + w / 2, y); ctx.stroke();
@@ -425,14 +427,28 @@ const K = (() => {
    */
   function crowd(ctx: any, cam: any, members: any[], rows: number[][], frame: number, mood = "watch", x0 = 120, x1 = 1000) {
     const t = frame / 30; let n = 0;
-    for (const [y, h, count] of rows) for (let i = 0; i < count; i++, n++) {
-      const cc = members[n % members.length], x = x0 + (i + (y % 3) * 0.33) * ((x1 - x0) / count) + Math.sin(n * 7.1) * 30;
-      const lean = mood === "eager" ? 8 + Math.sin(t * 3 + n) * 3 : mood === "scared" ? -4 + Math.sin(t * 9 + n) * 2 : 2 + Math.sin(t * 1.3 + n) * 1.5;
-      const point = n % 5 === 2, f = mood === "eager" ? (n % 2 ? FACE.grin : FACE.wow) : mood === "scared" ? FACE.scared : FACE.wow;
-      const arm = cc.armU + cc.armF;
-      puppet(ctx, cam, cc, x, y + Math.sin(n * 3.3) * 14, h, { face: x < 540 ? 1 : -1, lean, head: -10, look: 0.6, bob: Math.sin(t * 2.2 + n) * 3, face2: { ...f, blink: blink(frame, [(n % 7) * 9 + 3]) },
-        ...pose.stand(cc, "three"), ...(point ? { hFx: 0.7 * arm, hFy: -0.3 * arm, eF: "down" } : {}) }, { sun: "left", shadowAlpha: 0.3 });
-    }
+    // Spacing and depth (a crowd never looks stacked): each row holds only as many figures as fit with their bodies at least 0.65 body widths apart; a row further back
+    // sits higher on the ground and smaller than the row in front of it (never above the front row's head line), and its figures stand BETWEEN the front figures.
+    const order = rows.map((r, i) => ({ y: r[0]!, h: r[1]!, count: r[2]!, i })).sort((a, b) => a.y - b.y);
+    const fixed = order.map((r, k) => {
+      const front = order[k + 1];
+      const h = front ? Math.min(r.h, front.h * 0.9) : r.h;
+      const y = front ? clamp(r.y, front.y - front.h * 0.8, front.y - front.h * 0.18) : r.y;
+      const bw = (members[0] ? members[0].width : 100) * h / castHeight(members[0] ?? DEFAULTS);
+      const fit = Math.max(1, Math.floor((x1 - x0) / (bw * 0.65)));
+      return { ...r, h, y, count: Math.min(r.count, fit) };
+    });
+    fixed.forEach((r, k) => {
+      const spacing = (x1 - x0) / r.count, stagger = k % 2 ? spacing * 0.5 : 0;
+      for (let i = 0; i < r.count; i++, n++) {
+        const cc = members[n % members.length], x = clamp(x0 + (i + 0.5) * spacing + stagger - (k % 2 ? spacing * 0.25 : 0) + Math.sin(n * 7.1) * Math.min(30, spacing * 0.12), x0, x1);
+        const lean = mood === "eager" ? 8 + Math.sin(t * 3 + n) * 3 : mood === "scared" ? -4 + Math.sin(t * 9 + n) * 2 : 2 + Math.sin(t * 1.3 + n) * 1.5;
+        const point = n % 5 === 2, f = mood === "eager" ? (n % 2 ? FACE.grin : FACE.wow) : mood === "scared" ? FACE.scared : FACE.wow;
+        const arm = cc.armU + cc.armF;
+        puppet(ctx, cam, cc, x, r.y + Math.sin(n * 3.3) * 6, r.h, { face: x < 540 ? 1 : -1, lean, head: -10, look: 0.6, bob: Math.sin(t * 2.2 + n) * 3, face2: { ...f, blink: blink(frame, [(n % 7) * 9 + 3]) },
+          ...pose.stand(cc, "three"), ...(point ? { hFx: 0.7 * arm, hFy: -0.3 * arm, eF: "down" } : {}) }, { sun: "left", shadowAlpha: 0.3, crowd: true });
+      }
+    });
   }
   /** Sunlit dust motes in front of everything (strong parallax). Draw last inside K.layer. t in seconds. */
   function motes(ctx: any, cam: any, t: number, seed = 11, n = 40, color = "255,226,170") {
@@ -665,9 +681,14 @@ const K = (() => {
   /** Draw fn(ctx) in plate space at (x, y), depth d (default: the set's depth there), at `scale` units per plate px. Returns { sx, sy, k, d }. */
   function at(ctx: any, c: any, x: number, y: number, scale: number, fn: (ctx: any) => void, d?: number) {
     const dd = d ?? depthAt(c, x, y - 10), [sx, sy, k] = toScreen(c, x, y, dd);
-    ctx.save(); ctx.translate(sx, sy); ctx.rotate((c.roll ?? 0) * deg); ctx.scale(k * scale, k * scale); fn(ctx); ctx.restore();
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate((c.roll ?? 0) * deg); ctx.scale(k * scale, k * scale);
+    ANCHOR++; try { fn(ctx); } finally { ANCHOR--; }
+    ctx.restore();
     return { sx, sy, k, d: dd };
   }
+  /** > 0 while something is drawn through K.at (so K.puppet and K.prop too): that picture is fixed to a point of the set and moves with it under the camera. */
+  let ANCHOR = 0;
+  const anchored = () => ANCHOR > 0;
   function layer(env: any, key: string, w: number, h: number) {
     const k = `hr:layer:${key}:${w}x${h}`; let L = env.cache.get(k); if (!L) { L = env.canvas(w, h); env.cache.set(k, L); } return L;
   }
@@ -679,6 +700,8 @@ const K = (() => {
    */
   function puppet(ctx: any, c: any, cast: any, x: number, y: number, h: number, p: any, opts: any = {}) {
     const s = h / castHeight(cast);
+    // the placement, recorded for the scene check (where the face and the feet are on the screen, as fractions of the frame height)
+    if (c.env && c.H) { const dd = opts.d ?? depthAt(c, x, y - 10), [, fy, fk] = toScreen(c, x, y - h * 0.86, dd), [, ky] = toScreen(c, x, y, dd); puppetLog(c.env).push({ x, y, h, bw: cast.width * s, frame: c.frame, PH: c.PH, face: fy / c.H, feet: ky / c.H, size: (h * fk) / c.H, crowd: Boolean(opts.crowd), ...(opts.ride ? { ride: true } : {}) }); }
     if (opts.shadow !== false && c.env) {
       // the silhouette at a third of its size, stretched back up on the ground: the upscale softens it like a blur
       const S = layer(c.env, "sil", 512, 512), q = 0.32; S.ctx.setTransform(1, 0, 0, 1, 0, 0); S.ctx.clearRect(0, 0, 512, 512); S.ctx.globalCompositeOperation = "source-over"; S.ctx.setTransform(q, 0, 0, q, 256, 448);
@@ -691,6 +714,66 @@ const K = (() => {
     let R: any; at(ctx, c, x, y, s, (g) => { R = drawPuppet(g, cast, p, opts); }, opts.d);
     return { R, s, toPlate: (pt: number[]) => [x + pt[0] * (p.face ?? 1) * s, y + pt[1] * s] };
   }
+  // ================================================================ props that rest in the set
+  /**
+   * Heights, in plate px above the floor line, of the surfaces a prop can stand on (a bench top, a table, a counter ...). A number is also accepted.
+   * A prop's bottom always sits on its surface line; the floor line is the plate y of the floor under it (the lower part of the set, where the cast stands).
+   */
+  const SURFACES: Record<string, number> = { ground: 0, stool: 55, crate: 62, table: 84, bench: 96, counter: 92, shelf: 150 };
+  /** Where the prop placements of this scene are recorded while frames are drawn (read by the scene check): env.cache["hr:props"]. */
+  /** Placements of the puppets, recorded while frames are drawn (env.cache["hr:puppets"]): face / feet / size as fractions of the frame height. */
+  const puppetLog = (env: any): any[] => { let l = env.cache.get("hr:puppets"); if (!l) { l = []; env.cache.set("hr:puppets", l); } return l; };
+  /**
+   * Vertical shorts (9:16): the captions and the platform's own buttons cover the bottom quarter of the frame, so faces, the main action and key props stay ABOVE
+   * y = 0.75 of the frame height; the ground may run on below. CAPTION_BAND is that quarter. floorLine(cam) is the plate y that appears at `frac` of the frame
+   * height (default 0.70: where the cast's feet go in a vertical short), so `K.puppet(g, cam, c, x, K.floorLine(cam), h, ...)` stands on the ground above the band.
+   */
+  const CAPTION_BAND = 0.25;
+  const floorLine = (cam: any, frac = 0.7) => cam.y + (frac - 0.5) * (cam.H ?? 1920) / (cam.z || 1);
+  /** Ropes drawn by K.drawRope (env.cache["hr:ropes"]): the line as plate points, per frame. */
+  const ropeLog = (env: any): any[] => { let l = env.cache.get("hr:ropes"); if (!l) { l = []; env.cache.set("hr:ropes", l); } return l; };
+  const propLog = (env: any): any[] => { let l = env.cache.get("hr:props"); if (!l) { l = []; env.cache.set("hr:props", l); } return l; };
+  /**
+   * Put a prop IN the set. spec: { name, x, y (the FLOOR under it, plate px: the same y a puppet standing there would use), on: "ground" | "bench" | "table" | ... | a height,
+   * draw: (c) => ..., scale?, w? (shadow width), d? (depth override), airborne?: height in plate px above the surface, moving?: true }.
+   * A recurring prop of the film is NEVER drawn here: pass `use: "<id>", version, state` and the film's shared drawing is used (same look in every scene).
+   * draw(c) paints with the prop's bottom centre at (0, 0) in prop units (so K.crate(c, 0, 0, 140, 110) is a box standing on the line). The prop is fixed to
+   * the set exactly like K.puppet (the same parallax and depth), so it stays put under the camera, and it gets a contact shadow on its surface.
+   * A resting prop must not move: a prop that is carried, pushed or dragged says `moving: true`; one that is thrown, falling or flying says `airborne`
+   * (the lift above the surface, plate px; its shadow stays on the surface below). Everything else rests on the ground or on a named surface.
+   */
+  /** The film's recurring props, drawn ONCE (K.defineProp, in the film-level props module that every scene of the film includes) and used by id: K.prop(g, cam, { use: "magnetron", version: 2, state: { active: 1, t } ... }). */
+  const PROP_DEFS: Record<string, { w: number; h: number; versions: Record<string, (c: any, s: any) => void> }> = {};
+  const defineProp = (id: string, def: { w?: number; h?: number; versions: Record<string, (c: any, s: any) => void> }) => { PROP_DEFS[id] = { w: def.w ?? 140, h: def.h ?? 120, versions: def.versions }; };
+  function prop(ctx: any, cam: any, spec: any) {
+    let { name, x, y, on = "ground", scale = 1, draw, airborne = 0, moving = false, shadow = true, w = 140, d } = spec;
+    const use = spec.use as string | undefined, version = String(spec.version ?? "1");
+    if (use !== undefined) {
+      const def = PROP_DEFS[use];
+      if (!def) throw new Error(`K.prop: "${use}" is not a recurring prop of this film (known: ${Object.keys(PROP_DEFS).join(", ") || "none"})`);
+      const drawVersion = def.versions[version];
+      if (!drawVersion) throw new Error(`K.prop "${use}": no version "${version}" (known: ${Object.keys(def.versions).join(", ")})`);
+      name = name ?? use; w = spec.w ?? def.w; draw = (c: any) => drawVersion(c, { version, t: 0, active: 0, ...(spec.state ?? {}) });
+    }
+    const surface = typeof on === "number" ? on : SURFACES[on];
+    if (surface === undefined) throw new Error(`K.prop "${name}": unknown surface "${on}" (use ${Object.keys(SURFACES).join(", ")} or a height in plate px)`);
+    if (typeof draw !== "function") throw new Error(`K.prop "${name}": draw(c) is required`);
+    const lift = airborne > 0 ? airborne : 0, onSurface = y - surface;
+    let rec: any = null;
+    if (cam.env && cam.H) {
+      const dd0 = d ?? depthAt(cam, x, y - 10), hProp = (spec.h ?? (use !== undefined ? PROP_DEFS[use]?.h : undefined) ?? w * 0.8) * scale, base = y - surface - lift;
+      const [, by] = toScreen(cam, x, base, dd0), [, ty] = toScreen(cam, x, base - hProp, dd0);
+      rec = { bottom: by / cam.H, top: ty / cam.H, topY: base - hProp, halfW: (w * scale) / 2 };
+    }
+    if (cam.env) propLog(cam.env).push({ ...(rec ?? {}), name, use: use ?? null, version: use !== undefined ? version : null, x, y, on: typeof on === "number" ? on : String(on), surface, airborne: lift, moving: Boolean(moving), frame: cam.frame, PH: cam.PH, place: cam.place });
+    const dd = d ?? depthAt(cam, x, y - 10);
+    if (shadow) at(ctx, cam, x, onSurface, 1, (g) => {
+      const r = g.createRadialGradient(0, 2, 0, 0, 2, w * 0.62); r.addColorStop(0, "rgba(40,22,8,0.5)"); r.addColorStop(1, "rgba(40,22,8,0)");
+      g.save(); g.globalAlpha = Math.max(0.2, 1 - lift / 420); g.fillStyle = r; g.scale(1, 0.22); g.beginPath(); g.arc(0, 0, w * 0.62, 0, 7); g.fill(); g.restore();
+    }, dd);
+    return at(ctx, cam, x, onSurface - lift, scale, (g) => draw(g), dd);
+  }
+
   /**
    * Draw the actors and props in their own layer, then grade it with the set's light (cam.grade, a warm left-to-right wash), so flat
    * colours sit in the painted world. fn(g) draws with g exactly like ctx (same W x H coordinates). Call after K.set.
@@ -710,6 +793,6 @@ const K = (() => {
     PW, clamp, lerp, deg, E, rng, rot, track, span, blink,
     INK, VIEWS, FACE, makeCast, castHeight, rig, ik, shape, face, drawHead, drawPuppet, drawPiggyback, talk, pose,
     ropeCurve, drawRope, ropeNear, pole, wheelbarrow, pan, tool, crate, crowdCast, crowd, motes, mist, steam, popLines, burst, flame, rain,
-    camera, set, depthAt, toScreen, at, puppet, actors, fade,
+    camera, set, depthAt, toScreen, at, puppet, actors, fade, SURFACES, prop, propLog, puppetLog, ropeLog, CAPTION_BAND, floorLine, anchored, defineProp, PROP_DEFS,
   };
 })();

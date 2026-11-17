@@ -1,7 +1,7 @@
 import { packScriptIssues, templatePack } from "./template-packs.ts";
 import { enqueueVisuals, visualStatus, VisualWorkerBusy } from "./visuals.ts";
 import { materialBillingOn, visualDir, digest, verifyVisualAssets } from "./visual-state.ts";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import sharp from "sharp";
 import { join } from "node:path";
@@ -49,6 +49,7 @@ import { directorContextFor } from "./context.ts";
 import { draftScript, reviseScript } from "./script-draft.ts";
 import { finishInsertedScene, finishScript, writeInsertedScene, writeScript } from "./script-writer.ts";
 import { placeholderFrame, sketchFrame, withoutLegacyLogo, xmlSafeSvg } from "./frame-sketch.ts";
+import { projectForPreviews } from "../plates/storyboard-previews.ts";
 import { readGalleryText } from "../gallery.ts";
 import { rewriteBeat } from "./rewrite-beat.ts";
 import { SFX } from "./sound.ts";
@@ -1422,6 +1423,26 @@ export async function registerPlanRoutes(app: FastifyInstance) {
   });
 
   /**
+   * The pack's puppet kit as plain JavaScript, for the storyboard cards the page draws itself (frontend/lib/storyboard-preview): the very kit the film's
+   * scenes use (packs/<id>/kit.txt, TypeScript source), transpiled once. Only a pack that opts in with storyboardPreviews has one.
+   */
+  const kitScripts = new Map<string, { js: string; etag: string }>();
+  app.get<{ Params: { packId: string } }>("/v1/storyboard-kit/:packId", async (request, reply) => {
+    const pack = templatePack(request.params.packId);
+    if (!pack || pack.storyboardPreviews !== "cast" || !pack.scenes) return reply.code(404).send(notFound);
+    let hit = kitScripts.get(pack.id);
+    if (!hit) {
+      const { transform } = await import("esbuild");
+      const source = pack.scenes().kit;
+      const js = (await transform(source, { loader: "ts", target: "es2020" })).code;
+      hit = { js, etag: `"${createHash("sha256").update(js).digest("hex").slice(0, 16)}"` };
+      kitScripts.set(pack.id, hit);
+    }
+    if (request.headers["if-none-match"] === hit.etag) return reply.code(304).send();
+    return reply.header("content-type", "text/javascript; charset=utf-8").header("etag", hit.etag).header("cache-control", "private, max-age=3600").send(hit.js);
+  });
+
+  /**
    * Reference frames for the script canvas: one still SVG per beat in the chosen template's style, streamed as server-sent
    * events (`{ index, svg }` or `{ index, error }` as each is drawn, then `{ done }`). `indices` limits it to the beats that
    * changed. Each frame is saved on the project (`scriptFrames`) under its key, and a beat whose key is already saved is
@@ -1498,8 +1519,25 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     // Frame 1 is the project card's thumbnail, so the card always shows how the film opens.
     if (wanted.includes(0) && saved.get(keyFor(0))) await setCoverFrame(project.id, saved.get(keyFor(0))!).catch(() => undefined);
     // A template whose scenes are its own pictures: plain key-phrase cards, no sketch model call.
-    if (templatePack(brief.styleExample)?.noSketches) {
+    const quietPack = templatePack(brief.styleExample);
+    if (quietPack?.noSketches) {
+      // The storyboard text and these cards come first; a pack with previews then paints its pictures over the cards as they land.
       for (const index of wanted) send({ index, svg: placeholderFrame(beats[index]!, brief.aspect) });
+      if (quietPack.storyboardPreviews === "cast" && quietPack.assets) {
+        try {
+          const { getObject, putObject } = await import("../storage.ts");
+          const { livePreviewDeps, planPreviews, runStoryboardSets } = await import("../plates/storyboard-previews.ts");
+          const plan = await planPreviews(project, quietPack, brief, beats, notes, wanted, { getObject, putObject });
+          // the plan (which set each beat stands in) goes out at once; each set follows as it is stored; the page draws the cast on it
+          const stats = await runStoryboardSets(project.id, plan, await livePreviewDeps(projectForPreviews(project, brief, beats, notes), userId), (event) => {
+            if ("setError" in event) { app.log.warn({ projectId: project.id, set: event.set, reason: event.setError }, "storyboard set not shown"); send({ setFailed: { set: event.set, message: event.setError } }); } // its cards say so and offer a retry
+            else send(event);
+          }, controller.signal);
+          app.log.info({ event: "storyboard_previews", projectId: project.id, ...stats, ms: Date.now() - started }, "storyboard sets");
+        } catch (error) {
+          app.log.warn({ err: error, projectId: project.id }, "storyboard sets could not run; the cards keep their key phrase");
+        }
+      }
       send({ done: true, ms: Date.now() - started });
       reply.raw.end();
       return;

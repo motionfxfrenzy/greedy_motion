@@ -867,6 +867,11 @@ dialog[open] { overscroll-behavior: contain; }
 .sc-frame img{display:block;width:100%;height:100%;object-fit:contain}
 .sc-frame.stale img,.sc-frame.drawing img{opacity:.45}
 .sc-frame>button:not(.sc-frame-pick),.sc-frame-busy{position:absolute;right:10px;bottom:10px;padding:5px 11px;border:0;border-radius:999px;background:rgba(255,255,255,.92);color:#111;font-size:12px;font-weight:650}
+.sc-frame-painting,.sc-frame-failed{position:absolute;inset:0;display:grid;align-content:end;justify-items:center;gap:6px;padding:10px;pointer-events:none}
+.sc-frame-painting{background:linear-gradient(100deg,rgba(255,255,255,0) 30%,rgba(255,255,255,.2) 50%,rgba(255,255,255,0) 70%);background-size:200% 100%;animation:gallery-shimmer 1.4s linear infinite}
+.sc-frame-painting span,.sc-frame-failed span{padding:4px 10px;border-radius:999px;background:rgba(12,14,22,.72);color:#fff;font-size:11px;font-weight:650;text-align:center}
+.sc-frame-failed{background:rgba(12,14,22,.35);pointer-events:auto}
+.sc-frame-failed button{padding:4px 12px;border:0;border-radius:999px;background:rgba(255,255,255,.92);color:#111;font-size:12px;font-weight:650;cursor:pointer}
 .sc-frame-wait{display:grid;place-content:center;justify-items:center;gap:8px;padding:12px;background:linear-gradient(100deg,var(--d-bg-eef1f5) 30%,var(--d-bg-f7f9fb) 50%,var(--d-bg-eef1f5) 70%);background-size:200% 100%;animation:gallery-shimmer 1.4s linear infinite;color:var(--muted);font-size:12px;text-align:center}
 .sc-frame-wait button{position:static}
 .sc-skeleton{animation:none}.sc-skeleton .sc-text i{display:block;width:45%;height:18px;border-radius:7px;background:linear-gradient(100deg,var(--d-bg-eef1f5) 30%,var(--d-bg-f7f9fb) 50%,var(--d-bg-eef1f5) 70%);background-size:200% 100%;animation:gallery-shimmer 1.4s linear infinite}

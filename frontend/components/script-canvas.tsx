@@ -34,7 +34,8 @@ export function sceneBoundaryPlaceholder(position: number, beats: readonly Scrip
 
 export type StoryboardState = { state: "waiting" | "building" | "ready" | "stale" | "failed"; plan?: BeatPlan; error?: string; /** When the storyboard job started (ms), while building. */ startedAt?: number; resuming?: boolean };
 /** A beat's reference frame: SVG text drawn by the backend, shown only as an image. `stale` keeps the old drawing after an edit. */
-export type FrameSlot = { state: "drawing" | "ready" | "stale" | "failed"; svg?: string; error?: string };
+/** `phase` is for cast-preview cards (the set with the film's puppets on it): painting = its set is being painted, failed = the set failed (Retry), plain = no set will come (the balance is short, with the notice shown); no phase = drawn. */
+export type FrameSlot = { state: "drawing" | "ready" | "stale" | "failed"; svg?: string; error?: string; phase?: "painting" | "plain" | "failed" };
 /** Confirm script → voiceover. `takes` holds a playable URL per beat once that beat's line is voiced. */
 export type VoiceState = {
   state: "idle" | "storyboard" | "voicing" | "ready" | "failed";
@@ -104,6 +105,8 @@ function Frame({ slot, aspect, index, writing, onRedraw, onPick, picked }: { slo
       : <img src={svgSrc(slot.svg!)} alt={`Reference frame for beat ${index + 1}`} draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
     {slot.state === "stale" && <button type="button" onClick={onRedraw}>Redraw</button>}
     {slot.state === "drawing" && <span className="sc-frame-busy">Redrawing…</span>}
+    {slot.phase === "painting" && <div className="sc-frame-painting" role="status" aria-label="Painting the set"><span>Painting the set…</span></div>}
+    {slot.phase === "failed" && <div className="sc-frame-failed" role="status"><span>The set could not be painted</span><button type="button" onClick={onRedraw}>Retry</button></div>}
   </figure>;
 }
 
@@ -311,7 +314,7 @@ function RenderAction({ seconds, cost: costProp, pricingVersion, rendering, labe
  * beside it; a single prompt bar at the bottom asks the AI for changes. Confirming the script voices it; the storyboard is
  * built from it in the background.
  */
-export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing, onInsertScene, onRemoveScene, undoScene, onUndoRemoveScene, onDismissUndoScene, animationTier = DEFAULT_ANIMATION_TIER, canUsePremium = false, onAnimationTierChange, onLockedPremiumClick, animationQuoteTokens, voiceQuoteTokens, animationExists = false, recreateQuoteTokens = null, onRecreate }: {
+export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, music, onRender, rendering, beats, open, writing, scoped, versions, onReimagine, onVersion, streaming, startedAt, firstAt, flags, error, limit, onTryAgain, onBackToBrief, voiced, length, onFit, onEdit, onAsk, onCancel, frames, aspect, styleName, previewTokens, paintingSets, setsNotice, onRedraw, voice, onConfirm, onRetryVoice, storyboard, onContinue, continuing, onInsertScene, onRemoveScene, undoScene, onUndoRemoveScene, onDismissUndoScene, animationTier = DEFAULT_ANIMATION_TIER, canUsePremium = false, onAnimationTierChange, onLockedPremiumClick, animationQuoteTokens, voiceQuoteTokens, animationExists = false, recreateQuoteTokens = null, onRecreate }: {
   /** Identifies the open project so duration acceptance never leaks across projects. */
   projectId?: string;
   /** Durable per-project flag indicating the user already accepted the over-length notice. */
@@ -350,6 +353,12 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
   aspect: Aspect;
   /** The template the frames are drawn in, when one was chosen. */
   styleName?: string;
+  /** Set for a template whose storyboard shows one picture per scene (the pack's storyboardPreviews): the heading says so, with the extra cost when there is one. */
+  previewTokens?: number | null;
+  /** The sets are being painted right now (the cards fill in as they land). */
+  paintingSets?: boolean;
+  /** A short balance stops the real sets: the message and the top-up action, shown above the cards. */
+  setsNotice?: { message: string; onAddTokens: () => void };
   onRedraw: (index: number) => void;
   voice: VoiceState;
   onConfirm: () => void;
@@ -727,7 +736,7 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
     : voice.state === "failed" ? voice.error ?? `Could not make the ${soundLabel}.`
     : storyboard.state === "building" && storyboard.resuming
     ? <><i className="sc-live" />{`Resuming your storyboard · ${beats.length} beats · about ${formatDurationSeconds(runs)}`}</>
-    : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${formatDurationSeconds(runs)}${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}${voicedCount > 0 ? ` · ${voicedCount}/${totalVoicedBeats} voiced` : ""}`;
+    : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${formatDurationSeconds(runs)}${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}${paintingSets ? " · painting the sets…" : previewTokens ? ` · sets ${Math.round(previewTokens * 10) / 10}t` : ""}${voicedCount > 0 ? ` · ${voicedCount}/${totalVoicedBeats} voiced` : ""}`;
 
   if (!streaming && beats.length === 0 && error) return <div className="script-canvas">
     <header className="sc-head"><div className="sc-head-title"><h1>Storyboard</h1></div></header>
@@ -913,7 +922,8 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
         </div>
         <div className="sc-length-actions"><button type="button" className="secondary-button" disabled={savingKeep} onClick={() => void handleKeepOverLength()}>{savingKeep ? "Saving…" : `Keep ${runs}s`}</button><button type="button" className="primary-button" disabled={busyVoice || savingKeep} onClick={onFit}>Fit to {length.seconds}s</button></div>
       </div>}
-      <div className="sc-doc-head" aria-hidden="true" style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col }}><span>Script</span><span>Reference frames{styleName ? ` · ${styleName} style` : ""}</span></div>
+      <div className="sc-doc-head" aria-hidden="true" style={{ gridTemplateColumns: (FRAME_BOX[aspect] ?? FRAME_BOX["16:9"]).col }}><span>Script</span><span style={{ whiteSpace: "nowrap", justifySelf: "end", direction: "rtl" }}>{previewTokens !== undefined ? <span style={{ direction: "ltr", unicodeBidi: "isolate" }} title="The action and camera are written in Animation.">Preview · real set and cast</span> : <span style={{ direction: "ltr", unicodeBidi: "isolate" }}>{`Reference frames${styleName ? ` · ${styleName} style` : ""}`}</span>}</span></div>
+      {setsNotice && <div className="sc-sets-notice" role="status" style={{ margin: "8px 0", padding: "10px 12px", borderRadius: 10, border: "1px solid #e0b34a", background: "rgba(224,179,74,0.14)", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}><span>{setsNotice.message}</span><button type="button" onClick={setsNotice.onAddTokens} style={{ fontWeight: 700 }}>Add tokens</button></div>}
       <ol className="sc-doc" ref={docListRef}>
         {beats.length > 0 && renderBoundary(0)}
         {beats.map((beat, index) => {

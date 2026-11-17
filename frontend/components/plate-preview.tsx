@@ -52,6 +52,7 @@ import {
 } from "./animation-workspace";
 import { shouldSeekClip } from "./animation-workspace/clip-seek";
 import { PlateLiveStage, type PlateLiveOptions } from "./plate-live-stage";
+import { voiceHoldsSceneEnd, voiceStallLimitMs } from "../lib/live/film-end";
 import { useBrowserClips } from "./use-browser-clips";
 import { svgSrc } from "./script-canvas";
 
@@ -764,6 +765,9 @@ export function PlatePreview({
     [scenes, viewAspect, referenceFrames]
   );
 
+  // Set when playback ran to the end of the film (cleared by any seek or scene change): the clip effects may move the last clip or the clock after the
+  // end (a finished clip is rewound), so "Play restarts from 0:00" must not rely on the clock still reading the end.
+  const filmEndedRef = useRef(false);
   const advanceFrom = useCallback((index: number) => {
     if (index !== current) return;
     voices.current[index]?.pause();
@@ -823,6 +827,7 @@ export function PlatePreview({
       watchedTrackerRef.current = nextWatched;
       if (nextWatched.watched !== watched) setWatched(nextWatched.watched);
       wantPlay.current = false;
+      filmEndedRef.current = true;
       audioTimelineRef.current?.pause();
       setPlaying(false);
       musicAudio.current?.pause();
@@ -966,11 +971,14 @@ export function PlatePreview({
         pending.current = offset;
       }
     }
-    if ((wantPlay.current || playing) && (!isLiveMode || Boolean(liveResolutions[current]?.isPlayable))) {
+    // play() on a clip that already ended restarts it from the beginning: a scene whose clock is at its end is done, not to be played again
+    // (this re-ran on every status update and made the last frames of the film loop).
+    const sceneDone = el.ended && timeRef.current >= (starts[current] ?? 0) + (durations[current] ?? 0) - 0.1;
+    if ((wantPlay.current || playing) && !sceneDone && (!isLiveMode || Boolean(liveResolutions[current]?.isPlayable))) {
       wantPlay.current = true;
       void el.play().catch(() => setPlaying(false));
     }
-  }, [current, rateFor, isLiveMode, liveResolutions, playing, starts, canPlaySceneWithSketch, voiceOn, musicOn, muted, master, musicSrc]);
+  }, [current, rateFor, isLiveMode, liveResolutions, playing, starts, durations, canPlaySceneWithSketch, voiceOn, musicOn, muted, master, musicSrc]);
 
   const seek = useCallback((at: number) => {
     if (!scenes.length) return;
@@ -979,6 +987,7 @@ export function PlatePreview({
     for (let i = 0; i < scenes.length; i++) if (clamped < starts[i]! + durations[i]!) { index = i; break; }
     const local = clamped - starts[index]!;
     seekingFlagRef.current = true;
+    filmEndedRef.current = false;
     setTime(clamped);
     audioTimelineRef.current?.seek(clamped);
     if (musicAudio.current) musicAudio.current.currentTime = clamped;
@@ -1040,21 +1049,26 @@ export function PlatePreview({
   };
 
   const toggle = () => {
-    const el = videos.current[current];
-    const vo = voices.current[current];
-    const hasSketchFallback = canPlaySceneWithSketch(current);
+    // Play at the end of the film starts again from 0:00: the scene to start is the FIRST one, not the last (starting the last scene's clip while
+    // the clock jumps to 0:00 replayed the end of the film instead of restarting it).
+    const atEnd = !playing && (filmEndedRef.current || time >= total - 0.1);
+    const at = atEnd ? 0 : current;
+    const el = videos.current[at];
+    const vo = voices.current[at];
+    const hasSketchFallback = canPlaySceneWithSketch(at);
+    const shownAt = scenes[at];
     if (isLiveMode) {
-      const curRes = liveResolutions[current];
+      const curRes = liveResolutions[at];
       if (!curRes?.isPlayable && !hasSketchFallback) return;
       if (!playing) {
         wantPlay.current = true;
-        if (time >= total - 0.1) seek(0);
+        if (atEnd) seek(0);
         void audioTimelineRef.current?.unlockFromUserGesture();
         if (curRes?.mode === "live" || !curRes?.isPlayable) {
           setPlaying(true);
           void audioTimelineRef.current?.play({ fromUserGesture: true });
         } else if (el) {
-          el.playbackRate = rateFor(current, el);
+          el.playbackRate = rateFor(at, el);
           void el.play().catch(() => setPlaying(false));
         }
       } else {
@@ -1069,13 +1083,13 @@ export function PlatePreview({
       }
       return;
     }
-    if ((!el || shown?.state !== "drawn") && !hasSketchFallback) return;
+    if ((!el || shownAt?.state !== "drawn") && !hasSketchFallback) return;
     if (!playing) {
       wantPlay.current = true;
-      if (time >= total - 0.1) seek(0);
+      if (atEnd) seek(0);
       void audioTimelineRef.current?.unlockFromUserGesture();
-      if (el && shown?.state === "drawn") {
-        el.playbackRate = rateFor(current, el);
+      if (el && shownAt?.state === "drawn") {
+        el.playbackRate = rateFor(at, el);
         void el.play().catch(() => undefined);
       } else {
         setPlaying(true);
@@ -1101,10 +1115,19 @@ export function PlatePreview({
     }
   };
 
+  // The scene's picture ended; its voice may still be speaking, and then the voice's own end moves on. A voice that can never end (stalled
+  // mid-file, or stopped just short of its end) must not hold the film for ever: after its remaining time plus a margin the scene moves on.
+  const advanceFromRef = useRef(advanceFrom);
+  advanceFromRef.current = advanceFrom;
+  const voiceStallTimer = useRef(0);
   const onVideoEnded = (index: number) => {
     if (index !== current) return;
     const vo = voices.current[index];
-    if (vo && !vo.paused && !vo.ended) return;
+    if (vo && voiceHoldsSceneEnd(vo)) {
+      window.clearTimeout(voiceStallTimer.current);
+      voiceStallTimer.current = window.setTimeout(() => { if (wantPlay.current) advanceFromRef.current(index); }, voiceStallLimitMs(vo));
+      return;
+    }
     advanceFrom(index);
   };
 

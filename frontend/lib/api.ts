@@ -244,6 +244,8 @@ export type ProjectBillingOverview = {
     scriptEditBeat: StepQuoteView;
     storyboardPlan: StepQuoteView;
     frameSketch: StepQuoteView & { uncachedIndices: number[] };
+    /** The storyboard step's cost for a cast-preview template: only the sets not stored yet (Animation would draw them anyway); the cast on the cards is free. Null for other templates. */
+    storyboardPreviews?: { sets: number; setMilli: number; milli: number; tokens: number } | null;
     voiceMusic: StepQuoteView & { uncachedVoiceIndices: number[]; needsMusic: boolean };
     animation: StepQuoteView & { scenesToAuthor: number; scenesReused: number };
     /** What Recreate animation costs: every scene authored again, whatever is cached. */
@@ -718,7 +720,22 @@ export function planVoiceUrl(projectId: string, file: string) {
   return withMediaToken(`${apiOrigin}/v1/preview/plans/${encodeURIComponent(projectId)}/audio/${file.split("/").map(encodeURIComponent).join("/")}`);
 }
 
-export type FrameEvent = { index: number; svg?: string; error?: string };
+export type FrameEvent = {
+  index?: number; svg?: string; error?: string;
+  /** Cast-preview templates (storyboardPreviews): which set each beat stands in (sent first), then each set picture as a data URL when it is stored. */
+  plan?: { index: number; set: string }[]; set?: string; image?: string; cached?: boolean;
+  /** The sets cannot be painted because the balance is short (needed and remaining are tokens). */
+  notice?: { code: "insufficient_tokens"; message: string; needed: number; remaining: number };
+  /** A set could not be painted (or checked): its cards say so and offer a retry. */
+  setFailed?: { set: string; message: string };
+};
+
+/** The pack's puppet kit as JavaScript (GET /v1/storyboard-kit/<pack>), for the storyboard cards the page draws itself. */
+export async function getStoryboardKit(packId: string): Promise<string> {
+  const response = await apiFetch(apiOrigin + "/v1/storyboard-kit/" + encodeURIComponent(packId));
+  if (!response.ok) throw new Error("The storyboard kit could not be loaded.");
+  return response.text();
+}
 
 /**
  * Draws a reference frame (SVG text) per beat in the template's style; `onFrame` gets each one as it lands, in any order.
@@ -1072,6 +1089,8 @@ export async function generatePlanVisuals(projectId: string, budgetUsd: number):
 export type PlateAspect = "16:9" | "9:16" | "1:1";
 export type PlateVariantState = "queued" | "authoring" | "bundled" | "checked" | "rendering" | "drawn" | "failed";
 export type PlateRetrying = { attempt: number; reason: string };
+/** The scene is being fixed after its own checks: repair `round` of `of`. */
+export type PlateFixing = { round: number; of: number };
 /** One ratio of one scene: `v` changes whenever its stored clip changes, so the player fetches the new one. */
 export type PlateVariant = {
   state: PlateVariantState;
@@ -1093,6 +1112,7 @@ export type PlateVariant = {
   authorMs?: number;
   drawnAt?: string | null;
   retrying?: PlateRetrying;
+  fixing?: PlateFixing;
   stale?: boolean;
   needsReconcile?: boolean;
   /** A template pack's own scene sounds (`export const sounds` in the module), mixed instead of the keyword sounds. */
@@ -1121,6 +1141,7 @@ export type PlateScene = {
   authorMs?: number;
   drawnAt?: string | null;
   retrying?: PlateRetrying;
+  fixing?: PlateFixing;
   stale?: boolean;
   needsReconcile?: boolean;
   /** The primary-ratio variant's own scene sounds (see PlateVariant.sounds). */

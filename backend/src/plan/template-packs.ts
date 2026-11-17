@@ -39,6 +39,10 @@ export type AssetSpec = {
   noFigures?: boolean;
   /** Words that MAY appear (hand-lettered labels): the word check runs too and only words outside this list count as stray. */
   allowedText?: string[];
+  /** The REAL place the picture must show (location, era, landmarks): asked in the same check call; a picture of another place is redrawn with the reason, within the redraw cap. */
+  expect?: { location: string; era: string; landmarks: string[] };
+  /** One approved house picture passed as an image reference (match ONLY its rendering style), so the first picture comes out in the house style: its digest is part of the picture's hash. */
+  styleRef?: { name: string; data: Buffer; mime: string; digest: string };
 };
 
 /** A beat's spoken words, start/end in seconds from the start of that beat's scene. */
@@ -67,6 +71,8 @@ export type PackSceneCodeInput = PackAssetsInput & {
   assetNames: string[];
 };
 
+type PropPlanLike = { props: { id: string; name: string; aliases: string[]; description: string; versions: { version: string; from: number; description: string }[] }[] };
+
 export type TemplatePack = {
   /** Gallery template id (GalleryTemplate.id) that switches the pack on. */
   id: string;
@@ -84,8 +90,14 @@ export type TemplatePack = {
   sketchDirection?: string;
   /** The scenes are the pictures themselves, so the storyboard shows a plain key-phrase card per beat and makes no sketch model call (and no sketch charge). */
   noSketches?: boolean;
+  /**
+   * "cast": while the storyboard builds, only the pack's real sets are painted by the image model (plates/storyboard-previews.ts, the same specs Animation
+   * computes, so Animation reuses them); each card is that set with the pack's own kit puppets drawn on top in the browser (no model call, no charge).
+   * Needs `assets` (the sets), `scenes` (the kit) and `noSketches`; a pack without the flag shows what it showed before.
+   */
+  storyboardPreviews?: "cast";
   /** One cheap model call after the script that plans every picture (request -> reply -> parse). The parsed plan reaches `assets` as `input.plan`. */
-  shotPlan?: { request: (beats: readonly ScriptBeat[], notes: unknown) => { system: string; user: string; maxTokens: number }; parse: (reply: string, beats: readonly ScriptBeat[], notes: unknown) => unknown };
+  shotPlan?: { /** Bump when the request changes so stored plans are made again. */ version?: number; request: (beats: readonly ScriptBeat[], notes: unknown, topic?: string | null) => { system: string; user: string; maxTokens: number }; parse: (reply: string, beats: readonly ScriptBeat[], notes: unknown, topic?: string | null) => unknown };
   /** The cast kit and pictures for code-drawn scenes (read on first use). */
   scenes?: () => PackScenes;
   /** Each scene module exports `sounds: { kind, frame }[]` (kinds in SCENE_SOUND_KINDS), mixed on the frame its action lands. */
@@ -101,7 +113,9 @@ export type TemplatePack = {
   /** Script rules checked after writing; lines that break them are rewritten once (packScriptIssues). */
   scriptRules?: { maxWords: number; lastMaxWords: number; shortShare: number; forbidden: RegExp; /** The film must have at least this many spoken words (a script that lets the story decide its length); a fixed length asks for 2.7 words a second. */ minWords?: number; /** Shot sizes named in each VISUAL (`[place] wide|medium|close`): at least `wideShare` wide or medium, at most `closeShare` close. */ shotMix?: { wideShare: number; closeShare: number } };
   /** Problems in an authored scene module (null/empty = fine), checked before bundling; a scene that breaks them is repaired once with these messages. */
-  sceneIssues?: (code: string, beat: ScriptBeat | undefined) => string[];
+  sceneIssues?: (code: string, beat: ScriptBeat | undefined, film?: { filmProps?: { plan: PropPlanLike; code: string } | null; beatIndex?: number; aspect?: string }) => string[];
+  /** Recurring props are drawn once per film and shared by every scene (plates/film-props.ts): the plan and the module are made after the script and included in every scene. */
+  filmProps?: boolean;
   /** Pictures generated for the project once the beats exist (plates/pack-assets.ts), in order so `refs` resolve. */
   assets?: (input: PackAssetsInput) => AssetSpec[];
   /** A complete scene module for a beat: authoring skips the model call for it. */
@@ -212,10 +226,11 @@ export function packScriptIssues(pack: TemplatePack | undefined, beats: { keywor
 export const templatePack = (styleExample: string | null | undefined): TemplatePack | undefined => (styleExample ? packs[styleExample] : undefined);
 
 /** A scene module ready to bundle: a pack's cast kit goes in right after the module's imports (the kit declares the global K). */
-export function withPackKit(code: string, pack: TemplatePack | undefined): string {
+export function withPackKit(code: string, pack: TemplatePack | undefined, filmPropsCode?: string | null): string {
   const scenes = pack?.scenes?.();
   if (!scenes) return code;
   let end = 0;
   for (const match of code.matchAll(/^import[^\n]*\n/gm)) end = match.index + match[0].length;
-  return `${code.slice(0, end)}\n${scenes.kit}\n${code.slice(end)}`;
+  // the film's shared props module goes right after the kit (it calls K.defineProp), so every scene of the film draws a recurring prop the same way
+  return `${code.slice(0, end)}\n${scenes.kit}\n${filmPropsCode ? `${filmPropsCode}\n` : ""}${code.slice(end)}`;
 }

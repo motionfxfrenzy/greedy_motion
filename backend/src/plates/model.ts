@@ -509,9 +509,11 @@ export function variantSignature(input: {
   look: string;
   styleFamily?: string | null;
   styleExample?: string | null;
-  engineDigest: string;
-  styleDigest: string;
-  promptDigest: string;
+  /** Code versions (engine, style recipe, prompt and template kit). Accepted so callers can pass them, but NOT part of the signature: a deploy must never
+   *  make an already-drawn scene look stale or charge for a redraw. New code applies to scenes drawn from then on; only the person's own edits change a signature. */
+  engineDigest?: string;
+  styleDigest?: string;
+  promptDigest?: string;
   film: string;
   castKeywords: string[];
   beat: Pick<ScriptBeat, "keyword" | "visual" | "onScreen" | "line">;
@@ -531,9 +533,6 @@ export function variantSignature(input: {
     sha(
       PIPELINE_VERSION,
       input.look,
-      input.engineDigest,
-      input.styleDigest,
-      input.promptDigest,
       input.film,
       input.castKeywords,
       input.beat.keyword,

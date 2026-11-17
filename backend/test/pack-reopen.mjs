@@ -40,7 +40,7 @@ project.brief.scriptBeats[0].line = "A different line entirely about swallowed g
 await pa.loadShotPlan(project, pack, { ...deps, call });
 assert.equal(calls, 2, "a changed script is planned again");
 assert.equal(await pa.loadShotPlan(project, pack, { getObject: async () => null, putObject: async () => {}, call: async () => { throw new Error("down"); } }), undefined, "a failing call falls back to the script's own shot list");
-assert.equal(await pa.loadShotPlan(project, templatePack("history-reel"), deps), undefined, "packs without a plan step are untouched");
+assert.equal(await pa.loadShotPlan(project, templatePack("dark-fable"), deps), undefined, "packs without a plan step are untouched (Cartoon history has one now: its set briefs, test/set-brief.mjs)");
 // a smaller preview copy is stored next to each picture (and made for a cached one), the full picture stays untouched
 const pstore = new Map();
 const pdeps = { ...deps, getObject: async (_b, k) => pstore.get(k) ?? null, putObject: async (_b, k, v) => { pstore.set(k, Buffer.from(v)); }, objectSize: async (_b, k) => pstore.get(k)?.length ?? null, preview: async (d) => Buffer.from("small:" + d.length) };

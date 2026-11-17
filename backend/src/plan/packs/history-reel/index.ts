@@ -9,6 +9,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { ScriptBeat } from "@videosaas/contracts";
 import type { AssetSpec, TemplatePack } from "../../template-packs.ts";
+import { scenePropIssues } from "./prop-check.ts";
+import { type SetBrief, composeSetPrompt, parseSetBriefs, placeExpectOf, resolveSetBrief, setBriefRequest } from "./set-brief.ts";
 
 /** A place of the story: an empty set the cast acts in. */
 export type HistoryPlace = { id: string; description: string };
@@ -82,8 +84,19 @@ export function placeOfBeat(beatIndex: number, beats: readonly Pick<ScriptBeat, 
 
 /** What made the reference Niagara set look right (experiments/history-reels, films/niagara/sets.json), asked of every set: bright daylight, visible sky, clear air. */
 const SET_LOOK = "Look: bright, colourful and clear like the best frames of a modern animated feature. A visible sky in the top quarter (soft clouds or a clear colour gradient), one clear light direction with soft shadows, sharp detailed middle ground, clean air: no fog, haze, murk or heavy mist covering the scene (a thin mist rising in the distance is fine). Rich saturated greens, blues and warm earth tones; never grey, brown or dull. A night or interior set stays warm and readable: a glowing lamp, moonlight on the floor, colour in the shadows.";
-const setPrompt = (p: HistoryPlace) =>
-  `${SET_STYLE}\n\n${p.description}\n${SET_LOOK}\nThe bottom 35% of the frame is flat open ground with lots of empty space in the centre for people to stand on. An empty set: no people, no characters, no figures of any kind (not even small or far away), no animals, no vehicles, no rope, wire or bridge strung across, no objects that would move, no text. Anything the story moves or puts on screen is drawn later by code.`;
+const SET_EMPTY = "An empty set: no people, no characters, no figures of any kind (not even small or far away), no animals, no vehicles, no rope, wire or bridge strung across, no objects that would move, no text. Anything the story moves or puts on screen is drawn later by code.";
+/** The set prompt, always the full brief in a fixed order (set-brief.ts): real location and era, landmarks, camera, ground and standing area, light, then the look and the empty-set rules. */
+/** The house style reference (an approved set picture of the pack): passed to every set as an image reference, style only. */
+const houseRef = once(() => { const data = file("set-reference.jpg"); return { name: "house style reference (match ONLY its rendering style, colours and light; never its place, objects or composition)", data, mime: "image/jpeg", digest: createHash("sha256").update(data).digest("hex").slice(0, 12) }; });
+export const setPrompt = (p: HistoryPlace, brief: SetBrief) => composeSetPrompt(brief, { style: SET_STYLE, look: SET_LOOK, empty: SET_EMPTY, styleRef: true });
+/** What the film is about, for the place facts (its year and place names): the brief text and the idea. */
+const topicOf = (input: { brief?: { text?: string | null; scriptNotes?: { idea?: string | null } | null } | null }) => [input.brief?.text, input.brief?.scriptNotes?.idea].filter(Boolean).join(" ");
+/** One place's full set brief: the plan's facts, the place note, the topic (never a bare description of a beat's action). */
+export function setBriefFor(place: HistoryPlace, input: { plan?: unknown; beats?: readonly { visual?: string | null; line?: string | null }[]; brief?: { text?: string | null; scriptNotes?: { idea?: string | null } | null } | null }): SetBrief {
+  const planned = (input.plan as { sets?: Record<string, Partial<SetBrief>> } | undefined)?.sets?.[place.id];
+  const beatText = (input.beats ?? []).filter((b) => beatPlace(b as never) === place.id).map((b) => `${b.visual ?? ""} ${b.line ?? ""}`).join(" ");
+  return resolveSetBrief(place, topicOf(input), planned, beatText);
+}
 
 /** Underscore matched to the film's era (the year in its IDEA, else its place words); one fixed banjo score never fits a Roman film. */
 export function historyMusic(text: string): string | null {
@@ -180,7 +193,7 @@ function draw(ctx: Ctx, frame: number, env: Env) {
     const balance = { face: 1, ...K.pose.holdPole(blondin, "side"), stepF: walk.stepF, stepB: walk.stepB, fFy: walk.fFy, fBy: walk.fBy, bob: walk.bob, lean: 2 + Math.sin(tp * 2.3) * 3, face2: K.FACE.focus };
     K.puppet(g, cam, blondin, p.x, p.y, 150 - u * 120, balance, { shadow: false, d: p.d + 0.02, front: (c: Ctx, R: any) => K.pole(c, R, Math.sin(tp * 2.3) * 4) });
     K.crowd(g, cam, crowd, [[1500, 230, 4], [1650, 290, 4]], frame - (frame % 2), "watch", 560, 1040);
-    K.puppet(g, cam, harry, 300, 1640, 480, { face: 1, ...K.pose.fidget(harry, tp), head: -6, look: 0.9, face2: { ...K.FACE.scared, blink: K.blink(frame, [20, 70]) } }, { sun: "left" });
+    K.puppet(g, cam, harry, 300, 1500, 380, { face: 1, ...K.pose.fidget(harry, tp), head: -6, look: 0.9, face2: { ...K.FACE.scared, blink: K.blink(frame, [20, 70]) } }, { sun: "left" });
     K.motes(g, cam, t);
   });
 }
@@ -223,9 +236,12 @@ Nothing else is drawn after the actors. No captions: the editor adds them.
 - **Views:** "side" (profile: the far arm is hidden BEHIND the body), "three" (default three-quarter: the far arm hangs half visible along the back edge, behind the body), "front" (both arms in front). Never set armsFront on a side or three view.
 - **Arms:** relaxed hands hang OUTSIDE the body's edges, never in front of the crotch; hanging arms are nearly straight (elbow at the waist, wrist at the belt). Elbows bend one way: reaching forward the elbow drops below (eF "down"); hanging or hand on hip side-on it points back ("back"); from the front, elbows point outward. Hands are always visible or holding a prop: never a hand hidden behind the back or cut off.
 - **Holding:** a pole: the near hand at the chest, elbow down by the side (pose.holdPole + K.pole as opts.front). Holding out a pan or lamp: near arm 0.74 forward, far hand at the back hip (pose.holdOut). Pushing low: lean 16°, both hands forward and down, the back leg pushing (pose.push + K.wheelbarrow).
+- **The caption band (vertical 9:16 shorts):** captions and the platform's buttons cover the BOTTOM QUARTER of the frame. Faces, the main action and key props stay ABOVE 75% of the frame height (the screen y of a head or a prop's middle < 0.75 * H); only the ground may run on below. Stand the cast on \`K.floorLine(cam)\` (the plate y that appears at 70% of the frame height; pass a different fraction as the second argument) and size a hero for that: a foreground puppet near the bottom edge puts its face in the band, so keep it smaller or higher. Wide shots: the figures' feet at about 0.65-0.72 of the frame height. The camera may look down so the floor fills the bottom, but never carries the face or the action down into the band.
+- **Every figure stands on something, and nobody stands on anybody:** a figure's feet are on the set's ground (\`K.floorLine(cam)\` or the cast's feet line), on a prop's surface (a \`K.prop\` \`on:\` surface), or, ONLY when its beat's VISUAL says so, on the rope it walks. The walker the beat names may be on the rope; bystanders, the crowd and everyone else stand on the ground at the cliff edge, never on the rope line, and never float above the ground (a jump, a climb or a carry must be in the VISUAL). A crowd never piles up: figures at the same depth are at least 60% of a body width apart (bodies overlap by 35% at most), a row further back sits higher on the ground and smaller than the row in front and its figures stand BETWEEN the front figures, and nobody's feet are above another figure's head line. \`K.crowd\` spaces its rows itself; carrying someone is the kit's piggyback (\`K.drawPiggyback\`), never one puppet stacked on another. The set picture always covers the whole frame: never fill, clear or letterbox the frame with a colour (no fillRect over the frame, no K.fade except to black for a fade).
 - **Legs:** standing legs nearly straight; knees bend only forward, from the front outward on each side. Walking stride 0.34 of the leg with the arms swinging opposite (pose.walk; move x with time so the feet do not slide: about 0.55 h per second at speed 2). Sitting: hips just below the seat line, thigh level, shin straight down (pose.sit; K.crate makes a seat).
 - **Feet:** the shoe is the lowest part, on the ground line, and turns with the shin; never draw your own feet or shoes.
 - **Piggyback:** \`const b = { face: 1, ...K.pose.carry(c) }; K.drawPiggyback(g, carrier, rider, b, { face: 1, ...K.pose.ride(rider, K.rig(carrier, b), carrier) })\` inside a K.at in the set.
+- **Props that stand in the set (an oven, a box, a lamp, a table, a barrel, a magnetron): ALWAYS \`K.prop\`.** \`K.prop(g, cam, { name: "oven", x: 700, y: 1560, on: "bench", draw: (c) => { /* paint with the bottom centre at 0, 0 */ } })\`: x, y are the FLOOR under it (the same y a puppet standing there would use, about 0.8 of the set height: 1560 on a 9:16 set), \`on\` is "ground" (default), "stool", "crate", "table", "bench", "counter", "shelf" or a height in plate px above the floor. The prop is fixed to the set like a puppet (same parallax, it stays put under the camera) and gets its contact shadow. A resting prop never moves: carried, pushed or dragged props say \`moving: true\`; a thrown, falling or flying thing (popcorn, a bursting egg, sparks) says \`airborne: <lift in plate px>\` with \`moving: true\` and its y is the floor it will land on. NEVER paint a prop straight on \`g\` / \`ctx\` in screen space (g.fillRect, g.arc, g.fill ... outside K.prop's draw, K.puppet or the kit's own functions) and never call K.at yourself: a picture painted on the screen does not move with the set, so it floats and drifts under the camera (a dark box with a blue light hanging over the bench was exactly this). Anything you paint by hand goes INSIDE a prop's draw(c).
 - Props in hands: pass \`opts.front: (c, R) => K.pole(c, R, tilt) | K.pan(c, R, cook, t) | K.wheelbarrow(c, R, spin) | K.tool(c, R, "pick" | "axe" | "hammer")\`; R.armF[2] is the front hand in puppet space for your own small prop.
 
 ## The camera grammar: every shot moves, and every move lands on a word
@@ -294,13 +310,17 @@ export const historyReel: TemplatePack = {
     return { kit, images, hash: hash.digest("hex").slice(0, 12) };
   }),
   // one empty set per place, each with a depth map (made on the render worker; a set without one draws flat)
-  assets: (input) => placesFrom(input).map((place): AssetSpec => ({ name: `set-${place.id}`, prompt: setPrompt(place), aspect: "9:16", size: "2K", depth: true, noText: true, noFigures: true })),
+  assets: (input) => placesFrom(input).map((place): AssetSpec => { const brief = setBriefFor(place, input); return { name: `set-${place.id}`, prompt: setPrompt(place, brief), expect: placeExpectOf(brief), styleRef: houseRef(), aspect: "9:16", size: "2K", depth: true, noText: true, noFigures: true }; }),
+  // one cheap call after the script writes each place's set brief (real location, era, landmarks, light); the plan reaches `assets` as input.plan
+  shotPlan: { version: 2, request: (beats, notes, topic) => setBriefRequest(placesFrom({ beats, scriptNotes: notes }), beats, notes as never, topic), parse: (reply) => parseSetBriefs(reply) },
   // the beat's place: its set and depth map (the engine adds depth-<place> too; listing it is harmless)
   sceneAssets: (beatIndex, beats) => { const id = placeOfBeat(beatIndex, beats); return [`set-${id}`, `depth-${id}`]; },
   sceneSounds: true,
   // owner decision: no reference-sketch step for this template (no frameSketch model calls, no sketch charge); the storyboard shows plain key-phrase cards
   noSketches: true,
-  drawRule: "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then `const cam = K.camera(frame, KEYS)` and `K.set(ctx, env, cam, place)` (the set picture is the backdrop; there is no K.backdrop and no K.vignette); then the cast and props; nothing after them fills the frame. Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
+  // owner decision: the storyboard paints only the real sets and draws our kit's puppets on them in the browser (plates/storyboard-previews.ts)
+  storyboardPreviews: "cast",
+  drawRule: "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then `const cam = K.camera(frame, KEYS)` and `K.set(ctx, env, cam, place)` (the set picture is the backdrop; there is no K.backdrop and no K.vignette); then the cast and props; nothing after them fills the frame; every prop that stands in the set is K.prop(g, cam, { name, x, y: floorY, on, draw }) and nothing is painted straight on g outside K.prop, K.puppet and the kit's own functions; in 9:16 keep every face, the main action and key props above 75% of the frame height (stand the cast on K.floorLine(cam)). Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
   soundsRule: "SOUNDS: also export `export const sounds: { kind: string; frame: number }[] = [...]`: one entry on the exact frame each visible action lands (kinds: step = a boot or shoe lands (one per footfall of the main figure, every 2-3 steps for a crowd); thud = a body or heavy thing drops or hits the ground; whoosh = a camera snap, whip or reveal starts; hit = a key word or a strike lands; drop = something small falls; shuffle = a crowd shifts). Only actions that happen on screen. Usually 1 to 4 per scene.",
   musicFor: (notes) => historyMusic(`${notes?.idea ?? ""} ${notes?.places ?? ""}`),
   captions: { wordsPerCue: 2, style: "shadow", size: 84, y: 70 },
@@ -308,5 +328,8 @@ export const historyReel: TemplatePack = {
   pacing: { gap: 0.04, long: 0.04, beforeLast: 0.08, tail: 1.0, min: 0.5, titleMin: 0.5 },
   // sentences swing from 2 to 27 words; the payoff is one plain line; nothing is forbidden by word (forbidden never matches)
   scriptRules: { maxWords: 28, lastMaxWords: 16, shortShare: 0.1, forbidden: /(?!)/, shotMix: { wideShare: 0.5, closeShare: 0.34 } },
-  sceneIssues: (code, beat) => sceneShotIssues(code, beat)
+  // the shot size matches the camera and the puppet size; every prop rests in the set (prop-check.ts: no drawing outside the set's anchored calls, no hovering or drifting prop)
+  sceneIssues: (code, beat, film) => [...sceneShotIssues(code, beat), ...scenePropIssues(code, file("kit.txt").toString("utf8"), { ...(film ?? {}), ...(beat ? { beat } : {}) })],
+  // recurring props (the microwave, the lantern ...) are one drawing for the whole film (plates/film-props.ts)
+  filmProps: true
 };

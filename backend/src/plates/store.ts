@@ -90,8 +90,12 @@ export type Desired = {
  *  - `legacySignatures` match (computed with the previous scene list's `castKeywords` for rows written before `contentSig` existed)
  *  - Synthetic short test signatures (`!isComputedVariantSignature(row.signature)`) when `options.allowSyntheticSignature` is enabled
  */
+/** Rows signed by the code-version-free formula carry `timings.sigFormula = 2`. */
+export const SIGNATURE_FORMULA = 2;
+const hasCodeFreeSignature = (row: { timings?: unknown }) => ((row.timings as Record<string, unknown> | undefined)?.sigFormula ?? 0) === SIGNATURE_FORMULA;
+
 export function isVariantCompatibleWithDesired(
-  row: Pick<VariantRow, "aspect" | "signature" | "timings" | "keyword" | "scene_index">,
+  row: Pick<VariantRow, "aspect" | "signature" | "timings" | "keyword" | "scene_index"> & Partial<Pick<VariantRow, "frames" | "bundle_key" | "state">>,
   d: Desired,
   options?: { allowSyntheticSignature?: boolean }
 ): boolean {
@@ -101,6 +105,12 @@ export function isVariantCompatibleWithDesired(
   if (d.contentSignature && typeof storedContentSig === "string" && storedContentSig === d.contentSignature) return true;
   if (d.contentSignature && row.signature === d.contentSignature) return true;
   if (d.legacySignatures && d.legacySignatures.includes(row.signature)) return true;
+  // A scene drawn before signatures stopped carrying the code versions (engine, style, prompt, template kit): the code has changed since, the person's script has not
+  // unless the scene's name or length moved. It stays drawn (no "update needed", no charge); it is re-signed the next time it is reconciled.
+  if (
+    !hasCodeFreeSignature(row) && isCurrentSignature(row.signature) && row.scene_index === d.index && row.bundle_key &&
+    row.keyword === d.keyword && row.frames === d.frames && row.state !== "queued" && row.state !== "failed"
+  ) return true;
   if (
     options?.allowSyntheticSignature &&
     !isComputedVariantSignature(row.signature) &&
@@ -334,7 +344,7 @@ export async function reconcileVariants(
       const key = `${d.index}:${d.aspect}`;
       const row = byKey.get(key);
       const match = matched.get(key);
-      const contentSigPatch = d.contentSignature ? { contentSig: d.contentSignature } : {};
+      const contentSigPatch = { ...(d.contentSignature ? { contentSig: d.contentSignature } : {}), sigFormula: SIGNATURE_FORMULA };
 
       if (match && !match.inPlace) {
         // Transfer reusable variant from another scene_index (reorder, insert shift, or remove shift) with zero model calls
@@ -514,6 +524,7 @@ export async function reconcileVariants(
       if (
         row.signature !== d.signature ||
         row.keyword !== d.keyword ||
+        !hasCodeFreeSignature(row) ||
         (d.contentSignature && storedContentSig !== d.contentSignature)
       ) {
         await client.query(
@@ -997,6 +1008,14 @@ export async function noteAuthorCall(variantId: string, gen: number, owner: stri
   await pool.query(
     "update app.plate_variants set authored = authored + 1, timings = timings || $4::jsonb, updated_at = now() where id = $1 and gen = $2 and author_owner = $3",
     [variantId, gen, owner, JSON.stringify(timings)]
+  );
+}
+
+/** A repair of the scene's own checks is about to start: `repairs` is the number of model calls made so far, so the next call is repair number `repairs` (1 or 2). The page shows "Fixing the scene (repair N of 2)". */
+export async function noteFixing(variantId: string, gen: number, owner: string, calls: number): Promise<void> {
+  await pool.query(
+    "update app.plate_variants set timings = timings || jsonb_build_object('fixing', jsonb_build_object('round', $4::int)), updated_at = now() where id = $1 and gen = $2 and author_owner = $3",
+    [variantId, gen, owner, Math.max(1, calls)]
   );
 }
 

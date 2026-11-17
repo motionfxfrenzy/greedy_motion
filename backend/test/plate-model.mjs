@@ -14,10 +14,12 @@ const sig = (over = {}) => m.variantSignature({ ...base, ...over, beat: { ...bas
 assert.equal(sig(), sig(), "signature is stable");
 assert.ok(m.isCurrentSignature(sig()), "signatures carry the pipeline version");
 for (const [name, over] of Object.entries({
-  "engine version": { engineDigest: "e2" }, "style source": { styleDigest: "s2" }, "prompt template": { promptDigest: "p2" }, "film brief": { film: "Another film" },
+  "film brief": { film: "Another film" },
   "shared cast": { castKeywords: ["Keeper", "Boat"] }, "visual line": { beat: { visual: "A keeper falls" } }, "narration": { beat: { line: "He falls." } },
   "length": { frames: 91 }, "aspect": { aspect: "9:16" }, "style": { look: "illus-balloon" }
 })) assert.notEqual(sig(over), sig(), `${name} changes the artwork signature`);
+// code versions are NOT part of it: a deploy never makes a drawn scene stale (new code applies to scenes drawn from then on; see deploy-not-stale.mjs)
+for (const over of [{ engineDigest: "e2" }, { styleDigest: "s2" }, { promptDigest: "p2" }]) assert.equal(sig(over), sig(), "code versions leave the signature as it was");
 assert.notEqual(sig({ aspect: "9:16" }), sig({ aspect: "1:1" }), "each ratio has its own signature");
 // the signature takes no audio/subtitle input at all: those cannot invalidate artwork
 assert.equal(m.variantSignature.length, 1);

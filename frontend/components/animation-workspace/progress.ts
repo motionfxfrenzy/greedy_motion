@@ -27,6 +27,12 @@ export interface SceneRetrying {
   reason: string;
 }
 
+/** The scene is being fixed after its own checks: repair `round` of at most `of`. */
+export interface SceneFixing {
+  round: number;
+  of: number;
+}
+
 export interface ProgressContext {
   /** Current client timestamp in ms (`Date.now()`). */
   nowClient?: number;
@@ -62,6 +68,8 @@ export interface SceneProgressResult {
   /** True when `elapsed` has reached or passed the estimate without determinate completion. */
   takingLongerThanUsual?: boolean;
   retrying?: SceneRetrying | null;
+  /** Set while the scene is being fixed after its own checks (replaces a frozen "Writing 95%"). */
+  fixing?: SceneFixing | null;
   /** True when the scene is being prepared as a worker clip for smooth playback (`playback: "clip"`). */
   preparingAsClip?: boolean;
   /** True when the scene is out of date with the current storyboard/style revision and awaiting rebuild. */
@@ -520,10 +528,32 @@ export function formatRetryingSceneText(sceneIndex: number, retrying: SceneRetry
   return `Retrying scene ${sceneNumber} (${reason})`;
 }
 
+/** "Fixing the scene (repair 1 of 2)…": what the chip and the banner say while a repair runs. */
+export function formatFixingText(fixing: SceneFixing): string {
+  const round = Math.max(1, Math.floor(fixing.round));
+  const of = Math.max(round, Math.floor(fixing.of));
+  return `Fixing the scene (repair ${round} of ${of})…`;
+}
+
 /**
- * Computes live progress for a single scene (and optional viewed-ratio variant).
+ * Computes live progress for a single scene (and optional viewed-ratio variant). While a repair runs the label says so, with no percentage.
  */
 export function sceneProgress(
+  scene: PlateScene,
+  variantForView?: PlateVariant | null,
+  ctx?: ProgressContext
+): SceneProgressResult {
+  const base = sceneProgressBase(scene, variantForView, ctx);
+  if (base.phase !== "writing" && base.phase !== "waiting") return base;
+  if (base.stale || base.retrying) return base;
+  const v = pickVariant(scene, variantForView, ctx);
+  const fixing = (v as { fixing?: SceneFixing }).fixing ?? (scene as { fixing?: SceneFixing }).fixing;
+  if (!fixing || !(fixing.round >= 1)) return base;
+  const text = formatFixingText(fixing);
+  return { ...base, label: text, chipLabel: text, meaning: "Fixing a problem the checks found in the scene's drawing code", fraction: null, etaSeconds: null, fixing };
+}
+
+function sceneProgressBase(
   scene: PlateScene,
   variantForView?: PlateVariant | null,
   ctx?: ProgressContext
@@ -1102,9 +1132,11 @@ export function bufferingCause(input: BufferingCauseInput): BufferingCauseResult
         : null;
     const title = sp?.retrying
       ? formatRetryingSceneText(input.sceneIndex, sp.retrying)
-      : `Scene ${sceneNumber} is still being written`;
+      : sp?.fixing
+        ? formatFixingText(sp.fixing)
+        : `Scene ${sceneNumber} is still being written`;
     const meaning = sp
-      ? sp.retrying
+      ? sp.retrying || sp.fixing
         ? sp.meaning
         : sp.phase === "writing" || sp.phase === "waiting" || sp.phase === "checking"
           ? `${sp.label} · ${sp.meaning}`
@@ -1873,6 +1905,7 @@ export function formatSceneStatusText(
   if (sp.retrying && sp.phase !== "ready" && sp.phase !== "failed") {
     return formatRetryingSceneText(sceneIndex, sp.retrying);
   }
+  if (sp.fixing && (sp.phase === "writing" || sp.phase === "waiting")) return formatFixingText(sp.fixing);
   const etaBrief = formatEtaBrief(sp.etaSeconds) || sp.etaNote || "";
 
   if (sp.phase === "writing") {

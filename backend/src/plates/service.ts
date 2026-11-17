@@ -56,6 +56,15 @@ const retryingOf = (v: VariantRow): { attempt: number; reason: string } | undefi
   return r && typeof r.reason === "string" && Number.isFinite(r.attempt) && OPEN.includes(v.state) ? { attempt: Number(r.attempt), reason: r.reason } : undefined;
 };
 
+/** The scene is being fixed after its own checks (repair `round` of at most `of`): from timings.fixing (written by the author) or a send-back from the worker. Shown only while the scene is waiting or being written. */
+export const REPAIR_ROUNDS_MAX = 2;
+export const fixingOf = (v: Pick<VariantRow, "state" | "stage" | "repairs" | "timings">): { round: number; of: number } | undefined => {
+  if (v.state !== "queued" && v.state !== "authoring") return undefined;
+  const f = (v.timings as Record<string, any> | undefined)?.fixing;
+  if (f && Number.isFinite(f.round) && f.round >= 1) return { round: Math.min(Number(f.round), REPAIR_ROUNDS_MAX), of: REPAIR_ROUNDS_MAX };
+  return v.stage === "repairing" && v.repairs > 0 ? { round: Math.min(v.repairs, REPAIR_ROUNDS_MAX), of: REPAIR_ROUNDS_MAX } : undefined;
+};
+
 const etaRowOf = (v: VariantRow, mode: LiveMode): SceneEtaRow => {
   const t = v.timings ?? {};
   const retrying = retryingOf(v);
@@ -100,6 +109,7 @@ function viewOf(v: VariantRow, mode: LiveMode, progress?: SceneProgress): PlateV
     drawnAt: toIso(v.drawn_at),
     ...(progress ? { progress } : {}),
     ...(retryingOf(v) ? { retrying: retryingOf(v) } : {}),
+    ...(fixingOf(v) ? { fixing: fixingOf(v) } : {}),
     ...playbackOf(v),
     ...(v.stage && OPEN.includes(v.state) ? { stage: v.stage } : {}),
     ...(v.state === "failed" && v.error ? { error: v.error.message } : {})
@@ -282,6 +292,7 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
           drawnAt: toIso(v.drawn_at),
           ...(sceneProgress ? { progress: sceneProgress } : {}),
           ...(retryingOf(v) ? { retrying: retryingOf(v) } : {}),
+    ...(fixingOf(v) ? { fixing: fixingOf(v) } : {}),
           ...playbackOf(v),
           ...(v.stage && OPEN.includes(v.state) ? { stage: v.stage } : {}),
           ...(v.state === "failed" && v.error ? { error: v.error.message } : {}),
@@ -387,6 +398,7 @@ export async function plateStatus(projectId: string): Promise<PlateStatus> {
       drawnAt: toIso(v.drawn_at),
       ...(sceneProgress ? { progress: sceneProgress } : {}),
       ...(retryingOf(v) ? { retrying: retryingOf(v) } : {}),
+    ...(fixingOf(v) ? { fixing: fixingOf(v) } : {}),
       ...playbackOf(v),
       ...(v.state === "failed" && v.error ? { error: v.error.message } : {}), ...(v.authored ? { attempts: v.authored } : {}),
       variants: Object.fromEntries(
