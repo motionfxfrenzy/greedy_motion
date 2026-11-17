@@ -16,11 +16,12 @@ const kit = pack.scenes().kit;
 const render = readFileSync(join(here, "history-reel-render.mjs"), "utf8");
 const NIAGARA = /const SCENE = `([\s\S]*?)`;\n/.exec(render)[1];
 const withProps = (body) => NIAGARA.replace("K.motes(g, cam, t);", `K.motes(g, cam, t);\n    ${body}`);
-const issues = (code, film = {}) => scenePropIssues(code, kit, { aspect: "16:9", ...film });
+const ROPE = { visual: "[gorge] a man walks the rope", line: "" }; // the proof scene has Blondin walking its rope: a rope beat
+const issues = (code, film = {}) => scenePropIssues(code, kit, { aspect: "16:9", beat: ROPE, ...film });
 const has = (list, re) => list.some((m) => re.test(m));
 
 // the pack runs the check as part of its scene rules (the author's one repair round)
-assert.deepEqual(pack.sceneIssues(NIAGARA, { visual: "[gorge] a man walks" }, { aspect: "16:9" }), [], "a scene built only from the kit's own calls passes");
+assert.deepEqual(pack.sceneIssues(NIAGARA, ROPE, { aspect: "16:9" }), [], "a scene built only from the kit's own calls passes");
 assert.ok(has(pack.sceneIssues(withProps(`g.fillStyle = "#222"; g.fillRect(500, 700, 160, 120);`), { visual: "[gorge] x" }, { aspect: "16:9" }), /straight onto the screen/), "and the pack's sceneIssues reports a floating prop");
 
 // scenes that are fine
@@ -68,12 +69,12 @@ assert.match(pack.drawRule, /K\.prop\(g, cam, \{ name, x, y: floorY, on, draw \}
 
 
 // ---- the caption band (vertical shorts): faces, the main action and key props stay above 75% of the frame height
-const vertical = (code) => scenePropIssues(code, kit, { aspect: "9:16" });
+const vertical = (code) => scenePropIssues(code, kit, { aspect: "9:16", beat: ROPE });
 const bandHits = (list) => list.filter((m) => /bottom quarter/.test(m));
 assert.equal(bandHits(vertical(NIAGARA)).length, 1, "the pack's old proof scene has a big foreground puppet whose face sinks into the band: flagged in 9:16 (its hero is fine)");
 const lifted = NIAGARA.replace("K.puppet(g, cam, harry, 300, 1640, 480,", "K.puppet(g, cam, harry, 300, 1500, 380,");
 assert.deepEqual(bandHits(vertical(lifted)), [], "the same scene with the foreground puppet higher and smaller is fine");
-assert.equal(bandHits(scenePropIssues(NIAGARA, kit, { aspect: "16:9" })).length, 0, "the band rule is for vertical shorts only");
+assert.equal(bandHits(scenePropIssues(NIAGARA, kit, { aspect: "16:9", beat: ROPE })).length, 0, "the band rule is for vertical shorts only");
 assert.ok(has(vertical(withProps(`K.puppet(g, cam, K.makeCast({}), 600, 1850, 700, { face: 1, ...K.pose.stand(K.makeCast({}), "three") }, {});`)), /main figure's face is at \d+% of the frame height, inside the bottom quarter/), "a big figure low in the frame");
 assert.ok(has(vertical(withProps(`K.prop(g, cam, { name: "oven", x: 600, y: 1900, on: "ground", draw: (c) => { c.fillRect(-70, -90, 140, 90); } });`)), /Prop "oven" sits in the bottom quarter/), "a key prop low in the frame");
 const withLifted = (body) => lifted.replace("K.motes(g, cam, t);", `K.motes(g, cam, t);\n    ${body}`);

@@ -16,7 +16,7 @@ const { buildAuthorMessages } = await import("../src/plates/prompt.ts");
 const pack = templatePack("history-reel");
 const kit = pack.scenes().kit;
 const render = readFileSync(join(here, "history-reel-render.mjs"), "utf8");
-const NIAGARA = /const SCENE = `([\s\S]*?)`;\n/.exec(render)[1];
+const NIAGARA = /const SCENE = `([\s\S]*?)`;\n/.exec(render)[1].replace(/K\.puppet\(g, cam, blondin,[^\n]*\n/, "").replace(/K\.drawRope\(g, cam, rope, 9\);\n/, ""); // without the rope walker: these tests are about props
 
 // ---- the film: the microwave story (a magnetron box that is rebuilt as a metal box in scene 6)
 const beats = [

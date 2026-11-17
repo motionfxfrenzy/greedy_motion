@@ -203,6 +203,8 @@ export type PackAssetDeps = AssetStorage & {
   enqueueDepth: (job: DepthJob) => Promise<void>;
   /** Charge `usd` of provider cost as material (v2 step billing only); `ref` is unique per picture. */
   charge?: (usd: number, ref: string) => Promise<void>;
+  /** The share (0..1) of the picture height that is a blank band at the bottom (plates/set-flatness.ts); absent = not checked. A set with more than FLAT_BAND_MAX is repainted. */
+  flatBand?: (image: Buffer) => Promise<number>;
   /** Normalises the picture for storage (JPEG); identity in tests. */
   normalise?: (image: GeneratedImage) => Promise<{ data: Buffer; mime: string }>;
   /** Makes the smaller preview copy of a stored picture (JPEG bytes). */
@@ -316,6 +318,7 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
           const check = await deps.checkText(data, c.mime, spec.expect).catch(() => null);
           if (!check) continue;
           index.usd += check.usd ?? 0;
+          if (deps.flatBand && (await deps.flatBand(data).catch(() => 0)) > FLAT_BAND_LIMIT) continue; // a blank band at the bottom: not this one
           if (!(check.figures ?? []).length && !(spec.noText ? check.extra : []).length && ((c as { earlier?: boolean }).earlier ? placeVerdict(check.place) === "match" : placeVerdict(check.place) !== "mismatch")) { // a picture from an earlier prompt must be CONFIRMED as the place; a kept candidate of this prompt only must not be refuted
             reused = { data, mime: c.mime, usage: null };
             log("info", (c as { earlier?: boolean }).earlier ? "pack_asset_kept_from_earlier_prompt" : "pack_asset_candidate_reused", { projectId, name: spec.name, hash, key: c.key, ...((c as { earlier?: boolean }).earlier ? { earlierHash: earlier?.hash } : {}) });
@@ -340,16 +343,19 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
             // the place answer of the same call: a picture of ANOTHER place or era (a castle town for Niagara) is redrawn with the reason, within the same cap
             const wrongPlace = placeVerdict(check.place) === "mismatch" ? (check.place!.reason || "it does not show the expected place") : null;
             if (check.place && !check.place.match && !wrongPlace) log("info", "pack_asset_place_style_ignored", { projectId, name: spec.name, reason: check.place.reason.slice(0, 200) }); // a complaint about style or a minor detail: not a different place
+            const blank = deps.flatBand ? await deps.flatBand(picture.data).catch(() => 0) : 0, blankBand = blank > FLAT_BAND_LIMIT ? blank : 0;
+            if (redraws === 0 && blankBand) log("info", "pack_asset_flat_band", { projectId, name: spec.name, share: Math.round(blank * 100) / 100 });
             // the first-try pass rate: did the FIRST painted picture of this spec pass every check without a repaint? (logged once per set)
-            if (redraws === 0) log("info", "pack_asset_first_try", { projectId, name: spec.name, pass: !(check.figures ?? []).length && !stray.length && !wrongPlace, figures: (check.figures ?? []).slice(0, 4), stray: stray.slice(0, 4), ...(wrongPlace ? { wrongPlace: wrongPlace.slice(0, 160) } : {}) });
-            if (!figures.length && !stray.length && !wrongPlace) break;
+            if (redraws === 0) log("info", "pack_asset_first_try", { projectId, name: spec.name, pass: !(check.figures ?? []).length && !stray.length && !wrongPlace && !blankBand, figures: (check.figures ?? []).slice(0, 4), stray: stray.slice(0, 4), ...(wrongPlace ? { wrongPlace: wrongPlace.slice(0, 160) } : {}) });
+            if (!figures.length && !stray.length && !wrongPlace && !blankBand) break;
             if (redraws >= MAX_FIGURE_REDRAWS) {
+              if (!figures.length && !stray.length && !wrongPlace && blankBand) { log("warn", "pack_asset_flat_band_unmet", { projectId, name: spec.name, share: Math.round(blank * 100) / 100 }); break; }
               if (!figures.length && !stray.length && wrongPlace) { log("warn", "pack_asset_place_unmet", { projectId, name: spec.name, reason: wrongPlace.slice(0, 200) }); break; } // the best of the capped tries is used; every try is kept as a candidate
               if (figures.length) throw new Error(`The picture "${spec.name}" kept coming back with ${figures.map((f) => `"${f}"`).join(", ")} in it after ${MAX_FIGURE_REDRAWS} redraws, so it was not used.`);
               break; // stray writing only: accepted, as for any picture
             }
             log("info", "pack_asset_redraw", { projectId, name: spec.name, extra: stray.slice(0, 8), figures, ...(wrongPlace ? { wrongPlace: wrongPlace.slice(0, 200) } : {}) });
-            picture = await draw(((stray.length ? `\n\nABSOLUTELY NO WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. No letters, numbers, labels, signs or captions anywhere.` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS OR ANIMALS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Leave them out and keep the place itself (its furniture and scenery); no rope or cable stretched across open space.` : "")) + (wrongPlace && spec.expect ? `\n\nWRONG PLACE: ${wrongPlace}. This MUST be ${spec.expect.location} in ${spec.expect.era}${spec.expect.landmarks.length ? `, showing ${spec.expect.landmarks.join("; ")}` : ""}: draw the real place, not a generic or European town.` : ""));
+            picture = await draw(((stray.length ? `\n\nABSOLUTELY NO WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. No letters, numbers, labels, signs or captions anywhere.` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS OR ANIMALS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Leave them out and keep the place itself (its furniture and scenery); no rope or cable stretched across open space.` : "")) + (blankBand ? `\n\nBLANK GROUND: the bottom ${Math.round(blank * 100)}% of the last attempt was one flat, smooth band of colour. The real ground, with its texture (grass, earth, stone, boards), must continue all the way to the bottom edge of the picture: no blank band, no gradient fill.` : "") + (wrongPlace && spec.expect ? `\n\nWRONG PLACE: ${wrongPlace}. This MUST be ${spec.expect.location} in ${spec.expect.era}${spec.expect.landmarks.length ? `, showing ${spec.expect.landmarks.join("; ")}` : ""}: draw the real place, not a generic or European town.` : ""));
             redrawn = true;
           }
         } else if (spec.noText || spec.allowedText?.length) {
@@ -414,6 +420,8 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
 
 /** Redraws of an empty set whose picture had a person, animal or story prop in it (pack-assets noFigures). */
 export const MAX_FIGURE_REDRAWS = 2;
+/** A set whose bottom is a blank band of more than this share of its height is repainted (set-flatness.ts). */
+export const FLAT_BAND_LIMIT = 0.05;
 
 /** Reasons that mean the picture shows ANOTHER place or era (a generic European town, a castle, a fantasy or modern setting). Anything else a check says is not a place mismatch. */
 const OTHER_PLACE = /\b(european|castle|palace|medieval|cobble\w*|town square|village square|fantasy|sci-?fi|futuristic|modern|skyscrapers?|desert|jungle|tropical|arctic|snow|different (?:place|location|era|country|city|landscape)|another (?:place|location|era|country|city)|wrong (?:place|location|era)|not the (?:real )?(?:place|location))\b/i;
@@ -540,6 +548,7 @@ export async function liveDeps(project: VideoProject): Promise<PackAssetDeps> {
     getObject, putObject, objectSize,
     image: (prompt, refs, spec) => geminiImage(prompt, refs, spec),
     checkText: (image, mime, expect) => geminiTextCheck(image, mime, expect),
+    flatBand: async (image) => (await import("./set-flatness.ts")).flatBandShare(image),
     normalise: toJpeg,
     preview: toPreviewJpeg,
     enqueueDepth: async (job) => {

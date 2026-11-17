@@ -45,7 +45,7 @@ function caller(): "scene" | "kit" | "other" {
 let kitCache: { source: string; js: string } | null = null;
 const kitJs = (source: string) => (kitCache?.source === source ? kitCache.js : (kitCache = { source, js: transformSync(source, { loader: "ts", target: "es2020" }).code }).js);
 
-export type PropProbe = { raw: { frame: number; ops: Record<string, number> }[]; /** Kit drawing helpers the scene called outside any anchored call, by name. */ kitRaw: Record<string, number>; props: any[]; puppets: any[]; frames: number[]; errors: string[] };
+export type PropProbe = { raw: { frame: number; ops: Record<string, number> }[]; /** Kit drawing helpers the scene called outside any anchored call, by name. */ kitRaw: Record<string, number>; props: any[]; puppets: any[]; ropes: any[]; frames: number[]; errors: string[] };
 
 /** Kit helpers that paint in the CURRENT drawing space: legal only inside K.prop's draw, K.at's callback or a puppet's front/behind/top. */
 const KIT_PAINTERS = ["crate", "pole", "pan", "tool", "wheelbarrow", "drawPuppet", "drawPiggyback", "drawHead", "shape"] as const;
@@ -80,10 +80,10 @@ export function probeScene(code: string, kitSource: string, options: { frames?: 
     };
     for (const frame of frames) {
       ops = {};
-      try { draw(ctx, frame, env); } catch (error) { const message = String((error as Error)?.message ?? error); if (/^K\.prop/.test(message)) errors.push(message); else { if (process.env.PROP_CHECK_DEBUG) console.error("prop check: frame", frame, error); return errors.length ? { raw, kitRaw, props: K.propLog(env), puppets: K.puppetLog(env), frames, errors } : null; } }
+      try { draw(ctx, frame, env); } catch (error) { const message = String((error as Error)?.message ?? error); if (/^K\.prop/.test(message)) errors.push(message); else { if (process.env.PROP_CHECK_DEBUG) console.error("prop check: frame", frame, error); return errors.length ? { raw, kitRaw, props: K.propLog(env), puppets: K.puppetLog(env), ropes: K.ropeLog(env), frames, errors } : null; } }
       if (Object.keys(ops).length) raw.push({ frame, ops });
     }
-    return { raw, kitRaw, props: K.propLog(env), puppets: K.puppetLog(env), frames, errors };
+    return { raw, kitRaw, props: K.propLog(env), puppets: K.puppetLog(env), ropes: K.ropeLog(env), frames, errors };
   } catch (error) {
     if (process.env.PROP_CHECK_DEBUG) console.error("prop check could not run:", error);
     return null;
@@ -136,6 +136,7 @@ export function scenePropIssues(code: string, kitSource: string, film: { filmPro
     }
   }
   if (!film.aspect || film.aspect === "9:16") out.push(...captionBandIssues(probe));
+  out.push(...figureIssues(probe, film.beat));
   return out;
 }
 
@@ -165,6 +166,81 @@ export function captionBandIssues(probe: PropProbe): string[] {
     }
   }
   void total;
+  return out;
+}
+
+// ------------------------------------------------------------------ where figures stand, and whether they pile up
+const ROPE_ACTION = /\b(rope|tightrope|cable|wire|line)\b/i;
+const OFF_GROUND = /\b(jumps?|leaps?|flies|flying|falls?|falling|floats?|hangs?|hanging|dangles?|ride[sd]?|riding|carries|carrying|climbs?|climbing|swings?|thrown|tosses?|lifted|lifts?|hoisted|piggyback|on (?:his|her|the) (?:back|shoulders?))\b/i;
+
+/** Distance (plate px) from a point to a polyline. */
+function distanceToLine(x: number, y: number, pts: number[][]): number {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1]!, [x1, y1] = pts[i]!, dx = x1! - x0!, dy = y1! - y0!, len2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((x - x0!) * dx + (y - y0!) * dy) / len2));
+    best = Math.min(best, Math.hypot(x - (x0! + t * dx), y - (y0! + t * dy)));
+  }
+  return best;
+}
+
+/**
+ * Every figure stands on a support: the set's ground, a prop's top surface, or (only when its beat's VISUAL says so) the rope it walks on. And a crowd never piles up:
+ * same-depth bodies overlap at most ~35%, and nobody's feet are above another figure's head line (a carry/ride is the kit's own piggyback pose, not two stacked puppets).
+ */
+export function figureIssues(probe: PropProbe, beat?: { visual?: string | null; line?: string | null }): string[] {
+  const out: string[] = [];
+  const visual = `${beat?.visual ?? ""}`;
+  // the beat is a rope beat when its place tag, its VISUAL or its line names the rope; then the character it names is on the rope (never the crowd)
+  const ropeAllowed = ROPE_ACTION.test(`${visual} ${beat?.line ?? ""}`);
+  const airAllowed = OFF_GROUND.test(visual);
+  const ropeByFrame = new Map<number, number[][]>(); for (const r of probe.ropes) ropeByFrame.set(r.frame, [...(ropeByFrame.get(r.frame) ?? []), ...r.pts]);
+  const ropeLines = new Map<number, number[][][]>(); for (const r of probe.ropes) ropeLines.set(r.frame, [...(ropeLines.get(r.frame) ?? []), r.pts]);
+
+  // 1. supports
+  const onRopeBy = new Map<string, number>(), floating = new Map<string, number>();
+  const ropeCount = new Map<number, { count: number; xs: Set<string>; crowd: boolean }>();
+  for (const p of probe.puppets) {
+    const lines = ropeLines.get(p.frame) ?? [];
+    const tol = Math.max(18, p.h * 0.07);
+    const onRope = lines.some((pts) => distanceToLine(p.x, p.y, pts) <= tol);
+    const key = `${Math.round(p.x / 40) * 40}`;
+    if (onRope) {
+      const c = ropeCount.get(p.frame) ?? { count: 0, xs: new Set<string>(), crowd: false };
+      c.count += 1; c.xs.add(key); c.crowd ||= Boolean(p.crowd); ropeCount.set(p.frame, c);
+      continue;
+    }
+    const onProp = probe.props.some((r) => r.frame === p.frame && typeof r.topY === "number" && Math.abs(p.x - r.x) <= (r.halfW ?? 80) + 10 && Math.abs(p.y - r.topY) <= Math.max(25, p.h * 0.08));
+    const onGround = p.PH ? p.y / p.PH >= FLOOR_FROM : true;
+    // a small far figure (a crowd on the far bank, under 10% of the set height) stands on ground that is higher up the picture: not floating
+    const far = p.PH ? p.h < 0.1 * p.PH : false;
+    if (!onGround && !onProp && !airAllowed && !p.ride && !far) floating.set(key, (floating.get(key) ?? 0) + 1);
+  }
+  // on a rope beat the walker and one companion (the person carried or following) may be on the rope; nobody else, and never a crowd member
+  const MAX_ON_ROPE = ropeAllowed ? 2 : 0;
+  for (const c of ropeCount.values()) if (c.count > MAX_ON_ROPE || c.crowd) for (const x of c.xs) onRopeBy.set(x, (onRopeBy.get(x) ?? 0) + 1);
+  const maxOn = Math.max(0, ...[...ropeCount.values()].map((c) => c.count));
+  if (onRopeBy.size) out.push(`${maxOn <= 1 ? "A figure stands" : `${maxOn} figures stand`} ON the rope line (feet at plate x ${[...onRopeBy.keys()].join(", ")})${ropeAllowed ? ": only the character the beat names (and one it carries or follows) may be on the rope, never the crowd or bystanders" : ": this beat's VISUAL does not put anyone on the rope"}. Every figure stands on a support: the set's ground (K.floorLine / the cast's feet line), a prop's surface (K.prop on: "bench"...), or, only when the VISUAL says so, the rope it walks on. Move bystanders onto the ground at the cliff edge.`);
+  if (floating.size) out.push(`${floating.size === 1 ? "A figure floats" : `${floating.size} figures float`} above the ground (feet at plate x ${[...floating.keys()].join(", ")} are higher than the floor of the set) with nothing under them. Stand them on the ground (K.floorLine(cam)), on a prop's surface, or say in the VISUAL what lifts them (a jump, a climb, a carry).`);
+
+  // 2. crowds: spacing and stacking, per frame
+  const byFrame = new Map<number, any[]>(); for (const p of probe.puppets) byFrame.set(p.frame, [...(byFrame.get(p.frame) ?? []), p]);
+  const overlaps: string[] = [], stacked: string[] = [];
+  for (const [frame, list] of byFrame) {
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+      const a = list[i]!, b = list[j]!;
+      if (a.ride || b.ride) continue;
+      if (airAllowed && !a.crowd && !b.crowd) continue; // a carry, a ride or a climb onto a back named by the VISUAL: the two named characters meet by design
+      const overlap = (Math.min(a.x + a.bw / 2, b.x + b.bw / 2) - Math.max(a.x - a.bw / 2, b.x - b.bw / 2)) / Math.min(a.bw, b.bw);
+      const sameDepth = Math.abs(a.h - b.h) / Math.max(a.h, b.h) <= 0.25 && Math.abs(a.y - b.y) <= 0.35 * Math.max(a.h, b.h);
+      if (sameDepth && overlap > 0.35) overlaps.push(`frame ${frame}`);
+      const [hi, lo] = a.y < b.y ? [a, b] : [b, a]; // hi = the one standing higher up the screen (further back)
+      const headLine = lo.y - lo.h * 0.86;
+      if (hi.y < headLine && hi.h >= lo.h * 0.4 && Math.abs(hi.x - lo.x) < 0.6 * (hi.bw + lo.bw)) stacked.push(`frame ${frame}`);
+    }
+  }
+  if (overlaps.length) out.push(`Figures at the same depth overlap by more than 35% of a body (${[...new Set(overlaps)].slice(0, 3).join(", ")}): bodies must be at least ~60% of a body width apart. Space the crowd out (fewer figures, or a wider x range), or use K.crowd, which spaces its rows by itself.`);
+  if (stacked.length) out.push(`A figure's feet are above another figure's head line and right over it (${[...new Set(stacked)].slice(0, 3).join(", ")}): it looks like standing on that figure's head. A row further back sits higher on the ground and smaller, but never above the front figures' heads and never over them: stagger the rows between the front figures. A carry or ride is the kit's piggyback pose (K.drawPiggyback), never two stacked puppets.`);
   return out;
 }
 
