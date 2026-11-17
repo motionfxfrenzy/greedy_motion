@@ -405,7 +405,7 @@ const K = (() => {
     else shape(ctx, () => { ctx.beginPath(); ctx.rect(-36, -20, 72, 40); }, "#6b6e75", "#55585e", 10);
     ctx.restore();
   }
-  /** A box, crate or chest at a puppet hand or anywhere in screen space: x, y = bottom centre. */
+  /** A box, crate or chest, bottom centre at (x, y) in the CURRENT drawing space: use it inside K.prop's draw (then x, y = 0, 0) or a puppet's opts.front; never on the screen. */
   function crate(ctx: any, x: number, y: number, w = 160, h = 120, color = "#b9834d") {
     shape(ctx, () => { ctx.beginPath(); ctx.rect(x - w / 2, y - h, w, h); }, color, "#946338", x + w * 0.2);
     ctx.strokeStyle = INK; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x - w / 2, y - h / 2); ctx.lineTo(x + w / 2, y - h / 2); ctx.moveTo(x - w / 2, y - h); ctx.lineTo(x + w / 2, y); ctx.stroke();
@@ -665,9 +665,14 @@ const K = (() => {
   /** Draw fn(ctx) in plate space at (x, y), depth d (default: the set's depth there), at `scale` units per plate px. Returns { sx, sy, k, d }. */
   function at(ctx: any, c: any, x: number, y: number, scale: number, fn: (ctx: any) => void, d?: number) {
     const dd = d ?? depthAt(c, x, y - 10), [sx, sy, k] = toScreen(c, x, y, dd);
-    ctx.save(); ctx.translate(sx, sy); ctx.rotate((c.roll ?? 0) * deg); ctx.scale(k * scale, k * scale); fn(ctx); ctx.restore();
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate((c.roll ?? 0) * deg); ctx.scale(k * scale, k * scale);
+    ANCHOR++; try { fn(ctx); } finally { ANCHOR--; }
+    ctx.restore();
     return { sx, sy, k, d: dd };
   }
+  /** > 0 while something is drawn through K.at (so K.puppet and K.prop too): that picture is fixed to a point of the set and moves with it under the camera. */
+  let ANCHOR = 0;
+  const anchored = () => ANCHOR > 0;
   function layer(env: any, key: string, w: number, h: number) {
     const k = `hr:layer:${key}:${w}x${h}`; let L = env.cache.get(k); if (!L) { L = env.canvas(w, h); env.cache.set(k, L); } return L;
   }
@@ -691,6 +696,37 @@ const K = (() => {
     let R: any; at(ctx, c, x, y, s, (g) => { R = drawPuppet(g, cast, p, opts); }, opts.d);
     return { R, s, toPlate: (pt: number[]) => [x + pt[0] * (p.face ?? 1) * s, y + pt[1] * s] };
   }
+  // ================================================================ props that rest in the set
+  /**
+   * Heights, in plate px above the floor line, of the surfaces a prop can stand on (a bench top, a table, a counter ...). A number is also accepted.
+   * A prop's bottom always sits on its surface line; the floor line is the plate y of the floor under it (the lower part of the set, where the cast stands).
+   */
+  const SURFACES: Record<string, number> = { ground: 0, stool: 55, crate: 62, table: 84, bench: 96, counter: 92, shelf: 150 };
+  /** Where the prop placements of this scene are recorded while frames are drawn (read by the scene check): env.cache["hr:props"]. */
+  const propLog = (env: any): any[] => { let l = env.cache.get("hr:props"); if (!l) { l = []; env.cache.set("hr:props", l); } return l; };
+  /**
+   * Put a prop IN the set. spec: { name, x, y (the FLOOR under it, plate px: the same y a puppet standing there would use), on: "ground" | "bench" | "table" | ... | a height,
+   * draw: (c) => ..., scale?, w? (shadow width), d? (depth override), airborne?: height in plate px above the surface, moving?: true }.
+   * draw(c) paints with the prop's bottom centre at (0, 0) in prop units (so K.crate(c, 0, 0, 140, 110) is a box standing on the line). The prop is fixed to
+   * the set exactly like K.puppet (the same parallax and depth), so it stays put under the camera, and it gets a contact shadow on its surface.
+   * A resting prop must not move: a prop that is carried, pushed or dragged says `moving: true`; one that is thrown, falling or flying says `airborne`
+   * (the lift above the surface, plate px; its shadow stays on the surface below). Everything else rests on the ground or on a named surface.
+   */
+  function prop(ctx: any, cam: any, spec: any) {
+    const { name, x, y, on = "ground", scale = 1, draw, airborne = 0, moving = false, shadow = true, w = 140, d } = spec;
+    const surface = typeof on === "number" ? on : SURFACES[on];
+    if (surface === undefined) throw new Error(`K.prop "${name}": unknown surface "${on}" (use ${Object.keys(SURFACES).join(", ")} or a height in plate px)`);
+    if (typeof draw !== "function") throw new Error(`K.prop "${name}": draw(c) is required`);
+    const lift = airborne > 0 ? airborne : 0, onSurface = y - surface;
+    if (cam.env) propLog(cam.env).push({ name, x, y, on: typeof on === "number" ? on : String(on), surface, airborne: lift, moving: Boolean(moving), frame: cam.frame, PH: cam.PH, place: cam.place });
+    const dd = d ?? depthAt(cam, x, y - 10);
+    if (shadow) at(ctx, cam, x, onSurface, 1, (g) => {
+      const r = g.createRadialGradient(0, 2, 0, 0, 2, w * 0.62); r.addColorStop(0, "rgba(40,22,8,0.5)"); r.addColorStop(1, "rgba(40,22,8,0)");
+      g.save(); g.globalAlpha = Math.max(0.2, 1 - lift / 420); g.fillStyle = r; g.scale(1, 0.22); g.beginPath(); g.arc(0, 0, w * 0.62, 0, 7); g.fill(); g.restore();
+    }, dd);
+    return at(ctx, cam, x, onSurface - lift, scale, (g) => draw(g), dd);
+  }
+
   /**
    * Draw the actors and props in their own layer, then grade it with the set's light (cam.grade, a warm left-to-right wash), so flat
    * colours sit in the painted world. fn(g) draws with g exactly like ctx (same W x H coordinates). Call after K.set.
@@ -710,6 +746,6 @@ const K = (() => {
     PW, clamp, lerp, deg, E, rng, rot, track, span, blink,
     INK, VIEWS, FACE, makeCast, castHeight, rig, ik, shape, face, drawHead, drawPuppet, drawPiggyback, talk, pose,
     ropeCurve, drawRope, ropeNear, pole, wheelbarrow, pan, tool, crate, crowdCast, crowd, motes, mist, steam, popLines, burst, flame, rain,
-    camera, set, depthAt, toScreen, at, puppet, actors, fade,
+    camera, set, depthAt, toScreen, at, puppet, actors, fade, SURFACES, prop, propLog, anchored,
   };
 })();

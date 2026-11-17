@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { ScriptBeat } from "@videosaas/contracts";
 import type { AssetSpec, TemplatePack } from "../../template-packs.ts";
+import { scenePropIssues } from "./prop-check.ts";
 
 /** A place of the story: an empty set the cast acts in. */
 export type HistoryPlace = { id: string; description: string };
@@ -226,6 +227,7 @@ Nothing else is drawn after the actors. No captions: the editor adds them.
 - **Legs:** standing legs nearly straight; knees bend only forward, from the front outward on each side. Walking stride 0.34 of the leg with the arms swinging opposite (pose.walk; move x with time so the feet do not slide: about 0.55 h per second at speed 2). Sitting: hips just below the seat line, thigh level, shin straight down (pose.sit; K.crate makes a seat).
 - **Feet:** the shoe is the lowest part, on the ground line, and turns with the shin; never draw your own feet or shoes.
 - **Piggyback:** \`const b = { face: 1, ...K.pose.carry(c) }; K.drawPiggyback(g, carrier, rider, b, { face: 1, ...K.pose.ride(rider, K.rig(carrier, b), carrier) })\` inside a K.at in the set.
+- **Props that stand in the set (an oven, a box, a lamp, a table, a barrel, a magnetron): ALWAYS \`K.prop\`.** \`K.prop(g, cam, { name: "oven", x: 700, y: 1560, on: "bench", draw: (c) => { /* paint with the bottom centre at 0, 0 */ } })\`: x, y are the FLOOR under it (the same y a puppet standing there would use, about 0.8 of the set height: 1560 on a 9:16 set), \`on\` is "ground" (default), "stool", "crate", "table", "bench", "counter", "shelf" or a height in plate px above the floor. The prop is fixed to the set like a puppet (same parallax, it stays put under the camera) and gets its contact shadow. A resting prop never moves: carried, pushed or dragged props say \`moving: true\`; a thrown, falling or flying thing (popcorn, a bursting egg, sparks) says \`airborne: <lift in plate px>\` with \`moving: true\` and its y is the floor it will land on. NEVER paint a prop straight on \`g\` / \`ctx\` in screen space (g.fillRect, g.arc, g.fill ... outside K.prop's draw, K.puppet or the kit's own functions) and never call K.at yourself: a picture painted on the screen does not move with the set, so it floats and drifts under the camera (a dark box with a blue light hanging over the bench was exactly this). Anything you paint by hand goes INSIDE a prop's draw(c).
 - Props in hands: pass \`opts.front: (c, R) => K.pole(c, R, tilt) | K.pan(c, R, cook, t) | K.wheelbarrow(c, R, spin) | K.tool(c, R, "pick" | "axe" | "hammer")\`; R.armF[2] is the front hand in puppet space for your own small prop.
 
 ## The camera grammar: every shot moves, and every move lands on a word
@@ -302,7 +304,7 @@ export const historyReel: TemplatePack = {
   noSketches: true,
   // owner decision: the storyboard paints only the real sets and draws our kit's puppets on them in the browser (plates/storyboard-previews.ts)
   storyboardPreviews: "cast",
-  drawRule: "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then `const cam = K.camera(frame, KEYS)` and `K.set(ctx, env, cam, place)` (the set picture is the backdrop; there is no K.backdrop and no K.vignette); then the cast and props; nothing after them fills the frame. Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
+  drawRule: "draw(ctx, frame, env): first ctx.setTransform(env.scale,0,0,env.scale,0,0); then `const cam = K.camera(frame, KEYS)` and `K.set(ctx, env, cam, place)` (the set picture is the backdrop; there is no K.backdrop and no K.vignette); then the cast and props; nothing after them fills the frame; every prop that stands in the set is K.prop(g, cam, { name, x, y: floorY, on, draw }) and nothing is painted straight on g outside K.prop, K.puppet and the kit's own functions. Let t = frame / 30 for idle motion and use K.span(frame, a, b) for timed actions.",
   soundsRule: "SOUNDS: also export `export const sounds: { kind: string; frame: number }[] = [...]`: one entry on the exact frame each visible action lands (kinds: step = a boot or shoe lands (one per footfall of the main figure, every 2-3 steps for a crowd); thud = a body or heavy thing drops or hits the ground; whoosh = a camera snap, whip or reveal starts; hit = a key word or a strike lands; drop = something small falls; shuffle = a crowd shifts). Only actions that happen on screen. Usually 1 to 4 per scene.",
   musicFor: (notes) => historyMusic(`${notes?.idea ?? ""} ${notes?.places ?? ""}`),
   captions: { wordsPerCue: 2, style: "shadow", size: 84, y: 70 },
@@ -310,5 +312,6 @@ export const historyReel: TemplatePack = {
   pacing: { gap: 0.04, long: 0.04, beforeLast: 0.08, tail: 1.0, min: 0.5, titleMin: 0.5 },
   // sentences swing from 2 to 27 words; the payoff is one plain line; nothing is forbidden by word (forbidden never matches)
   scriptRules: { maxWords: 28, lastMaxWords: 16, shortShare: 0.1, forbidden: /(?!)/, shotMix: { wideShare: 0.5, closeShare: 0.34 } },
-  sceneIssues: (code, beat) => sceneShotIssues(code, beat)
+  // the shot size matches the camera and the puppet size; every prop rests in the set (prop-check.ts: no drawing outside the set's anchored calls, no hovering or drifting prop)
+  sceneIssues: (code, beat) => [...sceneShotIssues(code, beat), ...scenePropIssues(code, file("kit.txt").toString("utf8"))]
 };
