@@ -44,6 +44,14 @@ export const assetIndexKey = (projectId: string) => `${assetPrefix(projectId)}in
 export const assetKeyFor = (projectId: string, hash: string) => `${assetPrefix(projectId)}${hash}.jpg`;
 /** A smaller copy of a stored picture for the browser preview (the export always reads the full one). */
 export const previewKeyFor = (projectId: string, hash: string) => `${assetPrefix(projectId)}${hash}.preview.jpg`;
+/**
+ * Every picture the image model paints for a checked spec is kept as a candidate (paid for once), listed per picture hash. A later run
+ * of the same picture (a retry, a reload, a relaxed check) checks the kept candidates first and paints a new one only if none passes.
+ */
+export const candidateListKey = (projectId: string, hash: string) => `${assetPrefix(projectId)}candidates/${hash}.json`;
+const candidateKey = (projectId: string, hash: string, at: number) => `${assetPrefix(projectId)}candidates/${hash}-${at.toString(36)}-${Math.random().toString(36).slice(2, 8)}.img`;
+export const MAX_CANDIDATES = 8;
+type Candidate = { key: string; mime: string; at: string };
 export const depthKeyFor = (projectId: string, hash: string) => `${assetPrefix(projectId)}${hash}.depth.png`;
 export const depthFailedKeyFor = (projectId: string, hash: string) => `${assetPrefix(projectId)}${hash}.depth.failed`;
 
@@ -278,10 +286,38 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
           return { name: r.name, ...have };
         }));
         let redrawn = false;
-        let picture = await drawOnce(projectId, spec, refBytes, deps, index);
-        if (spec.noFigures) {
+        // Checked pictures: keep every painted one (it is paid for), and try the kept ones before painting again.
+        const candidates: Candidate[] = spec.noFigures
+          ? await deps.getObject("uploads", candidateListKey(projectId, hash)).then((b) => (b ? (JSON.parse(b.toString("utf8")) as Candidate[]) : [])).catch(() => [])
+          : [];
+        const draw = async (extra = ""): Promise<GeneratedImage> => {
+          const painted = await drawOnce(projectId, spec, refBytes, deps, index, extra);
+          if (spec.noFigures) {
+            const c: Candidate = { key: candidateKey(projectId, hash, now().getTime()), mime: painted.mime, at: now().toISOString() };
+            await deps.putObject("uploads", c.key, painted.data, painted.mime).then(async () => {
+              candidates.push(c);
+              await deps.putObject("uploads", candidateListKey(projectId, hash), JSON.stringify(candidates.slice(-MAX_CANDIDATES)), "application/json");
+            }).catch(() => undefined);
+          }
+          return painted;
+        };
+        let reused: GeneratedImage | null = null;
+        for (const c of [...candidates].reverse().slice(0, MAX_CANDIDATES)) {
+          const data = await deps.getObject("uploads", c.key).catch(() => null);
+          if (!data) continue;
+          const check = await deps.checkText(data, c.mime).catch(() => null);
+          if (!check) continue;
+          index.usd += check.usd ?? 0;
+          if (!(check.figures ?? []).length && !(spec.noText ? check.extra : []).length) {
+            reused = { data, mime: c.mime, usage: null };
+            log("info", "pack_asset_candidate_reused", { projectId, name: spec.name, hash, key: c.key });
+            break;
+          }
+        }
+        let picture = reused ?? (await draw());
+        if (spec.noFigures && !reused) {
           // The rule for an empty set: the image model never puts a character into the film. Up to MAX_FIGURE_REDRAWS redraws with the
-          // detected figure named; a picture the check does not pass is never stored. A check that cannot run counts as a failure too.
+          // detected figure named; a picture the check does not pass is never used (it stays a candidate). A check that cannot run counts as a failure too.
           const allowedWords = new Set((spec.allowedText ?? []).flatMap((t) => t.toLowerCase().split(/[^a-z0-9]+/)).filter(Boolean));
           const strayOf = (words: string[]) => words.filter((w) => !w.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).every((part) => allowedWords.has(part)));
           for (let redraws = 0; ; redraws++) {
@@ -298,7 +334,7 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
               break; // stray writing only: accepted, as for any picture
             }
             log("info", "pack_asset_redraw", { projectId, name: spec.name, extra: stray.slice(0, 8), figures });
-            picture = await drawOnce(projectId, spec, refBytes, deps, index, (stray.length ? `\n\nABSOLUTELY NO WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. No letters, numbers, labels, signs or captions anywhere.` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS OR ANIMALS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Leave them out and keep the place itself (its furniture and scenery); no rope or cable stretched across open space.` : ""));
+            picture = await draw((stray.length ? `\n\nABSOLUTELY NO WRITING: the last attempt had the words ${stray.slice(0, 6).map((w) => `"${w}"`).join(", ")} in it. No letters, numbers, labels, signs or captions anywhere.` : "") + (figures.length ? `\n\nABSOLUTELY NO PEOPLE, CHARACTERS OR ANIMALS: the last attempt had ${figures.map((f) => `"${f}"`).join(", ")} in it. Leave them out and keep the place itself (its furniture and scenery); no rope or cable stretched across open space.` : ""));
             redrawn = true;
           }
         } else if (spec.noText || spec.allowedText?.length) {
