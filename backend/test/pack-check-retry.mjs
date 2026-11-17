@@ -37,10 +37,30 @@ assert.equal(pa.checkFailureRetryable(null), false);
   }
 }
 
+// The "generating" mark written before an automatic rerun keeps the count, so the cap still holds.
+{
+  const store = { uploads: new Map(), outputs: new Map() };
+  const PID = "11111111-2222-3333-4444-555555555598";
+  const deps = {
+    getObject: async (b, k) => store[b].get(k) ?? null,
+    putObject: async (b, k, body) => { store[b].set(k, Buffer.isBuffer(body) ? body : Buffer.from(body)); },
+    objectSize: async (b, k) => (store[b].has(k) ? store[b].get(k).length : null),
+    image: async (_p, _r, spec) => ({ data: Buffer.from(`img:${spec.name}`), mime: "image/jpeg" }),
+    checkText: async () => { throw new Error("down"); },
+    enqueueDepth: async () => undefined, charge: async () => undefined, parallel: 1
+  };
+  const specs = [{ name: "set-lab", prompt: "an empty lab", aspect: "9:16", size: "2K", noText: true, noFigures: true }];
+  store.uploads.set(pa.assetIndexKey(PID), Buffer.from(JSON.stringify({ version: 1, digest: pa.specsDigest(specs), status: "generating", assets: {}, usd: 0, updatedAt: "x", checkFailures: 2 })));
+  await pa.generatePackAssets(PID, specs, deps).catch(() => undefined);
+  assert.equal(JSON.parse(store.uploads.get(pa.assetIndexKey(PID)).toString()).checkFailures, 3, "count kept across the generating mark");
+}
+
 // Wiring guards: Haiku is the backup, and a waiting scene holds for a due retry instead of failing.
 const gem = readFileSync(new URL("../src/plates/pack-assets-gemini.ts", import.meta.url), "utf8");
 assert.match(gem, /CHECK_FALLBACK_MODEL = "claude-haiku-5-5"/);
 assert.match(gem, /checkWith\("anthropic"/);
 const author = readFileSync(new URL("../src/plates/author.ts", import.meta.url), "utf8");
 assert.match(author, /checkFailureRetryable\(failedIndex\)/);
+const routes = readFileSync(new URL("../src/plates/routes.ts", import.meta.url), "utf8");
+assert.equal((routes.match(/ensurePackAssets\(project, \{ retryFailed: true \}\)/g) ?? []).length, 2, "Retry scene and Redraw both try failed pictures again");
 console.log("pack-check-retry: Haiku backup, capped automatic retry of check failures: ok");

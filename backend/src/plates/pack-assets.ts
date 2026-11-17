@@ -234,7 +234,8 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
   const names = new Set(specs.map((spec) => spec.name));
   const kept = Object.fromEntries(Object.entries(previous?.assets ?? {}).filter(([name]) => names.has(name)));
   const index: AssetIndex = { version: 1, digest, status: "generating", assets: kept, usd: 0, updatedAt: now().toISOString() };
-  const priorCheckFailures = previous?.digest === digest && previous.status === "failed" && previous.error?.includes(CHECK_FAILURE) ? (previous.checkFailures ?? 1) : 0;
+  // The count survives the "generating" mark ensurePackAssets writes before an automatic rerun; a retry the viewer asks for starts it again.
+  const priorCheckFailures = previous?.digest === digest ? (previous.checkFailures ?? (previous.status === "failed" && previous.error?.includes(CHECK_FAILURE) ? 1 : 0)) : 0;
   if (priorCheckFailures) index.checkFailures = priorCheckFailures;
   // Keep records whose hash still matches (written by an earlier run of this digest or another one).
   const prevByHash = new Map(Object.values(previous?.assets ?? {}).map((r) => [r.hash, r]));
@@ -574,6 +575,11 @@ export async function ensurePackAssets(project: VideoProject, options: { retryFa
   if (index?.digest === digest && !abandoned && !checkRetry && (index.status !== "failed" || options.retryFailed === false)) return digest;
   const { sendOnce } = await import("../jobs/queues.ts");
   await sendOnce(null, PLATE_ASSETS_QUEUE, { projectId: project.id, digest } satisfies AssetsMessage, `${project.id}:${digest}`);
+  // A failed step that is run again reads as "generating" at once, so scenes asked to draw now wait for the new pictures instead of
+  // failing on the old failure (a run that never starts is picked up again after GENERATING_STALE_MS).
+  if (index?.digest === digest && index.status === "failed") {
+    await putObject("uploads", assetIndexKey(project.id), JSON.stringify({ ...index, status: "generating", error: undefined, updatedAt: new Date().toISOString(), checkFailures: checkRetry ? index.checkFailures ?? 1 : undefined } satisfies AssetIndex), "application/json").catch(() => undefined);
+  }
   return digest;
 }
 
