@@ -55,6 +55,33 @@ assert.equal(pa.checkFailureRetryable(null), false);
   assert.equal(JSON.parse(store.uploads.get(pa.assetIndexKey(PID)).toString()).checkFailures, 3, "count kept across the generating mark");
 }
 
+// Paid pictures are kept: a run whose sets are all rejected stores them as candidates, and the next run reuses one that passes
+// (no new picture is painted or charged).
+{
+  const store = { uploads: new Map(), outputs: new Map() };
+  const PID = "11111111-2222-3333-4444-555555555597";
+  let painted = 0, strict = true;
+  const deps = {
+    getObject: async (b, k) => store[b].get(k) ?? null,
+    putObject: async (b, k, body) => { store[b].set(k, Buffer.isBuffer(body) ? body : Buffer.from(body)); },
+    objectSize: async (b, k) => (store[b].has(k) ? store[b].get(k).length : null),
+    image: async (_p, _r, spec) => { painted += 1; return { data: Buffer.from(`img:${spec.name}:${painted}`), mime: "image/jpeg" }; },
+    checkText: async () => ({ extra: [], figures: strict ? ["workbench wiring"] : [], usd: 0.0002 }),
+    enqueueDepth: async () => undefined, charge: async () => undefined, parallel: 1
+  };
+  const specs = [{ name: "set-lab", prompt: "an empty lab", aspect: "9:16", size: "2K", noText: true, noFigures: true }];
+  await pa.generatePackAssets(PID, specs, deps).catch(() => undefined);
+  assert.equal(painted, 1 + pa.MAX_FIGURE_REDRAWS, "first run painted and redrew");
+  const hash = pa.assetHash(specs[0], []);
+  const kept = JSON.parse(store.uploads.get(pa.candidateListKey(PID, hash)).toString());
+  assert.equal(kept.length, painted, "every painted picture is kept");
+  strict = false; const before = painted;
+  const idx = await pa.generatePackAssets(PID, specs, deps);
+  assert.equal(idx.status, "ready");
+  assert.equal(painted, before, "the second run paints nothing: a kept picture passes and is used");
+  assert.ok(store.uploads.get(pa.assetKeyFor(PID, hash)).toString().startsWith("img:set-lab:"), "and it is stored as the set");
+}
+
 // Wiring guards: Haiku is the backup, and a waiting scene holds for a due retry instead of failing.
 const gem = readFileSync(new URL("../src/plates/pack-assets-gemini.ts", import.meta.url), "utf8");
 assert.match(gem, /CHECK_FALLBACK_MODEL = "claude-haiku-5-5"/);
