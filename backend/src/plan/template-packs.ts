@@ -41,6 +41,8 @@ export type AssetSpec = {
   allowedText?: string[];
   /** The REAL place the picture must show (location, era, landmarks): asked in the same check call; a picture of another place is redrawn with the reason, within the redraw cap. */
   expect?: { location: string; era: string; landmarks: string[] };
+  /** One approved house picture passed as an image reference (match ONLY its rendering style), so the first picture comes out in the house style: its digest is part of the picture's hash. */
+  styleRef?: { name: string; data: Buffer; mime: string; digest: string };
 };
 
 /** A beat's spoken words, start/end in seconds from the start of that beat's scene. */
@@ -95,7 +97,7 @@ export type TemplatePack = {
    */
   storyboardPreviews?: "cast";
   /** One cheap model call after the script that plans every picture (request -> reply -> parse). The parsed plan reaches `assets` as `input.plan`. */
-  shotPlan?: { request: (beats: readonly ScriptBeat[], notes: unknown, topic?: string | null) => { system: string; user: string; maxTokens: number }; parse: (reply: string, beats: readonly ScriptBeat[], notes: unknown, topic?: string | null) => unknown };
+  shotPlan?: { /** Bump when the request changes so stored plans are made again. */ version?: number; request: (beats: readonly ScriptBeat[], notes: unknown, topic?: string | null) => { system: string; user: string; maxTokens: number }; parse: (reply: string, beats: readonly ScriptBeat[], notes: unknown, topic?: string | null) => unknown };
   /** The cast kit and pictures for code-drawn scenes (read on first use). */
   scenes?: () => PackScenes;
   /** Each scene module exports `sounds: { kind, frame }[]` (kinds in SCENE_SOUND_KINDS), mixed on the frame its action lands. */

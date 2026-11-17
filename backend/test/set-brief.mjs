@@ -42,7 +42,7 @@ assert.match(gorge.prompt, /never a generic, fantasy or European town, castle or
 assert.deepEqual(gorge.expect, { location: "Niagara Gorge", era: "1859", landmarks: [] });
 assert.match(rope.prompt, /LOCATION AND ERA: Niagara Gorge, in 1859/, "the rope crossing is at Niagara Gorge too");
 // the fixed order: style, place, what the set shows, view, camera, ground, light, look, empty-set rules
-const order = ["A vertical 9:16 frame", "LOCATION AND ERA:", "THE SET SHOWS:", "VIEW:", "CAMERA:", "GROUND AND STANDING AREA:", "LIGHT:", "Look: bright", "An empty set:"];
+const order = ["STYLE: A vertical 9:16 frame", "MATERIALS AND TEXTURE:", "STYLE REFERENCE:", "LOCATION AND ERA:", "THE SET SHOWS:", "COMPOSITION:", "VIEW:", "CAMERA:", "GROUND AND STANDING AREA:", "LIGHT AND WEATHER:", "Look: bright", "OPEN AND EMPTY:", "An empty set:"];
 const at = order.map((h) => gorge.prompt.indexOf(h));
 assert.ok(at.every((i) => i >= 0), `every part is present: ${order.filter((_, i) => at[i] < 0)}`);
 assert.deepEqual([...at].sort((a, b) => a - b), at, "in the fixed order");
@@ -54,7 +54,7 @@ assert.match(gorge.prompt, /lower 60% of the frame/);
 assert.match(gorge.prompt, /feet at about 70% of the frame height/);
 assert.match(gorge.prompt, /band between 55% and 75% of the frame height completely open, flat and empty/);
 assert.match(gorge.prompt, /bottom quarter of the frame \(below 75%\) is that same ground simply continuing towards the camera.*never a blank band, a smooth gradient or a different surface/);
-assert.match(gorge.prompt, /LIGHT: bright natural daylight: the sun high and to the upper left/);
+assert.match(gorge.prompt, /LIGHT AND WEATHER: bright natural daylight: the sun high and to the upper left/);
 assert.match(gorge.prompt, /no people, no characters/i); assert.match(gorge.prompt, /no rope, wire or bridge strung across/);
 assert.notEqual(gorge.prompt, rope.prompt);
 
@@ -70,7 +70,7 @@ assert.match(planned.prompt, /Niagara Gorge below the Horseshoe Falls, on the bo
 assert.match(planned.prompt, /Its unmistakable landmarks, all recognisable: the Horseshoe Falls with rising white mist; steep limestone cliffs; the wide green Niagara River far below/);
 assert.match(planned.prompt, /THE SET SHOWS: the grassy cliff-top where the rope is anchored/);
 assert.match(planned.prompt, /VIEW: standing on the cliff-top looking across the gorge towards the falls/);
-assert.match(planned.prompt, /LIGHT: bright midday summer sun high to the upper left, soft shadows, a thin mist rising from the falls\./);
+assert.match(planned.prompt, /LIGHT AND WEATHER: bright midday summer sun high to the upper left, soft shadows, a thin mist rising from the falls\./);
 assert.deepEqual(planned.expect.landmarks.length, 4);
 assert.notEqual(planned.prompt, gorge.prompt, "the planned brief is a different (richer) request");
 // a plan that misses fields never leaves them empty: they are built from the script
@@ -122,7 +122,7 @@ assert.match(seenUser, /TOPIC: In 1859 Charles Blondin/); assert.deepEqual(Objec
 
 // ---- 7. the check: the same request carries the place question; a wrong place is redrawn with the reason, within the cap, every try kept as a candidate
 const q = gem.placeQuestion({ location: "Niagara Gorge", era: "1859", landmarks: ["the Horseshoe Falls", "limestone cliffs"] });
-assert.match(q, /Niagara Gorge in 1859, recognisable from its main scenery \(the Horseshoe Falls; limestone cliffs\)/); assert.match(q, /judge the scenery, not small props, equipment or minor details, and do not demand every landmark/); assert.match(q, /"place": \{"match": true or false, "reason":/); assert.match(q, /generic European town, castle, palace or fantasy/);
+assert.match(q, /Niagara Gorge in 1859, recognisable from its main scenery \(the Horseshoe Falls; limestone cliffs\)/); assert.match(q, /Judge ONLY the place and the era/); assert.match(q, /NEVER judge or mention the art style/); assert.match(q, /MOST of them, not all/); assert.match(q, /never fail it for a single missing or minor landmark, prop, tool or piece of equipment/); assert.match(q, /"place": \{"match": true or false, "reason":/); assert.match(q, /generic European town, castle, palace or fantasy/);
 const gsrc = readFileSync(join(here, "../src/plates/pack-assets-gemini.ts"), "utf8");
 assert.match(gsrc, /text: expect \? CHECK_PROMPT \+ placeQuestion\(expect\) : CHECK_PROMPT/, "ONE request: the place question is appended to the existing check prompt");
 const checkBody = gsrc.slice(gsrc.indexOf("async function checkWith"), gsrc.indexOf("export async function geminiTextCheck"));
@@ -134,7 +134,7 @@ function world(verdicts) {
   const deps = {
     getObject: async (b, k) => files.get(`${b}:${k}`) ?? null, putObject: async (b, k, body) => { files.set(`${b}:${k}`, Buffer.isBuffer(body) ? body : Buffer.from(body)); },
     objectSize: async (b, k) => (files.has(`${b}:${k}`) ? files.get(`${b}:${k}`).length : null),
-    image: async (prompt) => { log.prompts.push(prompt); n += 1; return { data: Buffer.from(`pic${n}`), mime: "image/jpeg" }; },
+    image: async (prompt, refs) => { log.prompts.push(prompt); (log.refs ??= []).push((refs ?? []).map((r) => r.name)); n += 1; return { data: Buffer.from(`pic${n}`), mime: "image/jpeg" }; },
     checkText: async (image, _mime, expect) => { log.expects.push(expect); const v = verdicts[image.toString()] ?? { match: true, reason: "" }; return { extra: [], figures: [], place: v, usd: 0.0002 }; },
     enqueueDepth: async (j) => { log.depth.push(j); }, parallel: 1
   };
@@ -209,6 +209,62 @@ function world(verdicts) {
   // only specs with an expectation (the sets) look back: another pack's picture keeps its hash rules
   const plain = world({}); const a = { name: "set-p", prompt: "one", aspect: "9:16", size: "2K", noText: true, noFigures: true }; const b = { ...a, prompt: "two" };
   await pa.generatePackAssets(PID, [a], plain.deps); const n0 = plain.log.prompts.length; await pa.generatePackAssets(PID, [b], plain.deps); assert.equal(plain.log.prompts.length - n0, 1);
+}
+
+// ---- the first prompt is the fuller one: sections, exclusions for what the scenes draw in code, a style anchor, and the first-try rate is logged
+const gorgeSpec = specs.find((s) => s.name === "set-gorge"), ropeSpec = specs.find((s) => s.name === "set-rope");
+assert.match(gorgeSpec.prompt, /OPEN AND EMPTY: Nobody and nothing lives in this picture: no people, characters, silhouettes or crowds, no animals, no vehicles, carts or boats, no rope, cable or wire across the frame, and no signs, banners, posters or lettering of any kind\./);
+assert.match(gorgeSpec.prompt, /For this place: The open air above the ground is clear: no rope, cable, wire, pole or bridge spans the gap or crosses the frame \(the crossing is drawn later\); a plain post or platform at the edge is fine\./, "the beats act on a rope: the brief says it is not in the picture");
+assert.match(ropeSpec.prompt, /no rope, cable, wire, pole or bridge spans the gap/, "the rope place excludes the rope the code draws");
+assert.match(gorgeSpec.prompt, /COMPOSITION: foreground \(the bottom 60%\): .*Middle distance: .*Background: .*bottom quarter of the frame stays plain ground\./);
+assert.match(gorgeSpec.prompt, /MATERIALS AND TEXTURE: stylised, hand-painted-looking surfaces.*A stylised look is intended and correct\./);
+assert.match(gorgeSpec.prompt, /STYLE REFERENCE: the attached house reference picture shows the rendering style to match.*Take ONLY the style from it/);
+// the exclusions come from what each place's beats draw; a place whose beats draw nothing special gets only the standing list
+assert.equal(sb.exclusionsFor("a cart rolls past a boat on the river, a horse waits", []).length, 3);
+assert.match(sb.exclusionsFor("the cart", [])[0], /empty of carts, wagons/i);
+assert.deepEqual(sb.exclusionsFor("Percy at the bench", []), [], "nothing code-drawn named: only the standing exclusions");
+const planned2 = sb.parseSetBriefs(JSON.stringify({ places: [{ id: "gorge", location: "Niagara Gorge", era: "1859", landmarks: ["limestone cliffs"], exclusions: ["the gorge is open air: no rope, cable, wire or bridge spans it", "the cliff-top is empty of people, carts and animals", "put a man on the rope"], foreground: "a wide flat grassy cliff-top", middle: "the cliff edge dropping into the gorge", background: "the falls in the distance", weather: "clear sky, thin mist" }] }));
+const withPlanned = pa.packSpecs(project, pack, planned2).find((s) => s.name === "set-gorge");
+assert.match(withPlanned.prompt, /The gorge is open air: no rope, cable, wire or bridge spans it\./); assert.match(withPlanned.prompt, /The cliff-top is empty of people, carts and animals\./, "the planner's exclusions are capitalised and end in a full stop, so they read as sentences");
+assert.match(withPlanned.prompt, /COMPOSITION: foreground \(the bottom 60%\): a wide flat grassy cliff-top\. Middle distance: the cliff edge dropping into the gorge\. Background: the falls in the distance\./);
+assert.match(withPlanned.prompt, /Weather and air: clear sky, thin mist\./);
+assert.equal((withPlanned.prompt.match(/no rope, cable, wire/g) ?? []).length >= 2, true);
+const planReq2 = sb.setBriefRequest([{ id: "gorge", description: "" }], beats, null, TOPIC);
+assert.match(planReq2.system, /exclusions: 1-3 short sentences, positive and specific to THIS place/); assert.match(planReq2.system, /the square is empty of people, carts and animals/); assert.match(planReq2.system, /3-5 concrete, painterly phrases/); assert.match(planReq2.system, /foreground \/ middle \/ background/);
+// the style anchor: one house picture, passed to the image model as a reference, part of the hash; the film's own sets are never references
+assert.ok(gorgeSpec.styleRef && gorgeSpec.styleRef.data.length > 20_000 && gorgeSpec.styleRef.mime === "image/jpeg" && /^[0-9a-f]{12}$/.test(gorgeSpec.styleRef.digest));
+assert.match(gorgeSpec.styleRef.name, /house style reference \(match ONLY its rendering style/);
+assert.notEqual(pa.assetHash(gorgeSpec, []), pa.assetHash({ ...gorgeSpec, styleRef: { ...gorgeSpec.styleRef, digest: "other" } }, []), "a different house reference is a different picture");
+assert.equal(readFileSync(join(here, "../src/plan/packs/history-reel/set-reference.jpg")).subarray(0, 2).toString("hex"), "ffd8", "the reference ships with the pack (an approved Niagara set picture)");
+{
+  const w = world({}); await pa.generatePackAssets(PID, [gorgeSpec], w.deps);
+  assert.deepEqual(w.log.refs[0], [gorgeSpec.styleRef.name], "the first image call carries the house reference and nothing of the film's own");
+}
+// the first-try rate is logged once per set: pass true when the first picture passes everything, false when it needed a repaint
+{
+  const lines = []; const realLog = console.log; console.log = (...a) => { lines.push(String(a[0])); };
+  try {
+    const ok = world({}); await pa.generatePackAssets(PID, [gorgeSpec], ok.deps);
+    const redo = world({ pic1: { match: false, reason: "it shows a European castle town square with cobbles and stairs" } }); await pa.generatePackAssets("aaaaaaaa-2222-3333-4444-555555555555", [gorgeSpec], redo.deps);
+  } finally { console.log = realLog; }
+  const tries = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((e) => e?.event === "pack_asset_first_try");
+  assert.deepEqual(tries.map((t) => t.pass), [true, false], "pack_asset_first_try: true then false");
+  assert.match(tries[1].wrongPlace, /European castle town/);
+}
+
+// ---- the place check judges the PLACE and ERA only: the exact reasons seen on staging
+const verdict = pa.placeVerdict;
+assert.equal(verdict({ match: false, reason: "The image is a stylized video game illustration lacking the required historical features such as massive wooden winches." }), "match", "style and a missing winch are not a different place");
+assert.equal(verdict({ match: false, reason: "The image depicts a generic digital landscape without the historical tightrope cable or guy ropes spanning across the gorge." }), "match", "the rope is meant to be absent");
+assert.equal(verdict({ match: false, reason: "it shows a European castle town square with cobbles and stairs" }), "mismatch", "a castle town for Niagara is a mismatch");
+assert.equal(verdict({ match: false, reason: "It shows a modern city skyline instead of the 1859 gorge." }), "mismatch");
+assert.equal(verdict({ match: true, reason: "" }), "match"); assert.equal(verdict(undefined), "unknown");
+{
+  // a style-only "no" never repaints
+  const w = world({ pic1: { match: false, reason: "The image is a stylized video game illustration lacking the required historical features such as massive wooden winches." } });
+  const index = await pa.generatePackAssets(PID, [gorgeSpec], w.deps); assert.equal(w.log.prompts.length, 1, "no repaint for a complaint about style or a minor landmark"); assert.equal(index.status, "ready");
+  // and a real mismatch still does
+  const real = world({ pic1: { match: false, reason: "it shows a European castle town square" } }); await pa.generatePackAssets("bbbbbbbb-2222-3333-4444-555555555555", [gorgeSpec], real.deps); assert.equal(real.log.prompts.length, 2);
 }
 
 console.log("set-brief: a set is painted as the real place (Niagara Gorge, 1859), from a full brief, and checked against it: ok");

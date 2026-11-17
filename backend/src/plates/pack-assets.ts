@@ -65,7 +65,7 @@ export const parseAssetRef = (ref: string): { bucket: "uploads" | "outputs"; key
 /** Content hash of a spec: model, prompt, shape and its references' own hashes, so the same request is never paid for twice. */
 export function assetHash(spec: AssetSpec, refHashes: string[], model = config.visualImageModel): string {
   return createHash("sha256")
-    .update(JSON.stringify([PACK_ASSET_VERSION, model, spec.prompt, spec.aspect, spec.size ?? "1K", Boolean(spec.noText), ...(spec.noFigures ? ["nofig"] : []), refHashes]))
+    .update(JSON.stringify([PACK_ASSET_VERSION, model, spec.prompt, spec.aspect, spec.size ?? "1K", Boolean(spec.noText), ...(spec.noFigures ? ["nofig"] : []), ...(spec.styleRef ? ["style:" + spec.styleRef.digest] : []), refHashes]))
     .digest("hex")
     .slice(0, 32);
 }
@@ -316,7 +316,7 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
           const check = await deps.checkText(data, c.mime, spec.expect).catch(() => null);
           if (!check) continue;
           index.usd += check.usd ?? 0;
-          if (!(check.figures ?? []).length && !(spec.noText ? check.extra : []).length && ((c as { earlier?: boolean }).earlier ? check.place?.match === true : check.place?.match !== false)) { // a picture from an earlier prompt must be CONFIRMED as the place; a kept candidate of this prompt only must not be refuted
+          if (!(check.figures ?? []).length && !(spec.noText ? check.extra : []).length && ((c as { earlier?: boolean }).earlier ? placeVerdict(check.place) === "match" : placeVerdict(check.place) !== "mismatch")) { // a picture from an earlier prompt must be CONFIRMED as the place; a kept candidate of this prompt only must not be refuted
             reused = { data, mime: c.mime, usage: null };
             log("info", (c as { earlier?: boolean }).earlier ? "pack_asset_kept_from_earlier_prompt" : "pack_asset_candidate_reused", { projectId, name: spec.name, hash, key: c.key, ...((c as { earlier?: boolean }).earlier ? { earlierHash: earlier?.hash } : {}) });
             if ((c as { earlier?: boolean }).earlier && earlier) earlierReused = earlier;
@@ -338,7 +338,10 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
             index.usd += check.usd ?? 0;
             const figures = (check.figures ?? []).slice(0, 6), stray = spec.noText || allowedWords.size ? strayOf(check.extra) : [];
             // the place answer of the same call: a picture of ANOTHER place or era (a castle town for Niagara) is redrawn with the reason, within the same cap
-            const wrongPlace = check.place && check.place.match === false ? (check.place.reason || "it does not show the expected place") : null;
+            const wrongPlace = placeVerdict(check.place) === "mismatch" ? (check.place!.reason || "it does not show the expected place") : null;
+            if (check.place && !check.place.match && !wrongPlace) log("info", "pack_asset_place_style_ignored", { projectId, name: spec.name, reason: check.place.reason.slice(0, 200) }); // a complaint about style or a minor detail: not a different place
+            // the first-try pass rate: did the FIRST painted picture of this spec pass every check without a repaint? (logged once per set)
+            if (redraws === 0) log("info", "pack_asset_first_try", { projectId, name: spec.name, pass: !(check.figures ?? []).length && !stray.length && !wrongPlace, figures: (check.figures ?? []).slice(0, 4), stray: stray.slice(0, 4), ...(wrongPlace ? { wrongPlace: wrongPlace.slice(0, 160) } : {}) });
             if (!figures.length && !stray.length && !wrongPlace) break;
             if (redraws >= MAX_FIGURE_REDRAWS) {
               if (!figures.length && !stray.length && wrongPlace) { log("warn", "pack_asset_place_unmet", { projectId, name: spec.name, reason: wrongPlace.slice(0, 200) }); break; } // the best of the capped tries is used; every try is kept as a candidate
@@ -412,9 +415,25 @@ export async function generatePackAssets(projectId: string, specs: AssetSpec[], 
 /** Redraws of an empty set whose picture had a person, animal or story prop in it (pack-assets noFigures). */
 export const MAX_FIGURE_REDRAWS = 2;
 
+/** Reasons that mean the picture shows ANOTHER place or era (a generic European town, a castle, a fantasy or modern setting). Anything else a check says is not a place mismatch. */
+const OTHER_PLACE = /\b(european|castle|palace|medieval|cobble\w*|town square|village square|fantasy|sci-?fi|futuristic|modern|skyscrapers?|desert|jungle|tropical|arctic|snow|different (?:place|location|era|country|city|landscape)|another (?:place|location|era|country|city)|wrong (?:place|location|era)|not the (?:real )?(?:place|location))\b/i;
+/** A complaint about the art style or a single missing detail (stylised, illustration, video game, "lacking X such as Y"). Style is intended; a minor landmark never decides the place. */
+const STYLE_OR_DETAIL = /\b(styli[sz]ed|illustrat\w*|video[- ]?game|cartoon\w*|digital|artistic|render(?:ing|ed)?|3d|art style|lack(?:s|ing)?|missing|absen\w*|without|does not (?:show|include|contain)|no (?:visible )?\w+)\b/i;
+/**
+ * The place answer of the set check, read for what it really says: "match" (the place is right), "mismatch" (another place or era: redraw), or "unknown" (no answer).
+ * A false answer whose reason only complains about the art style or a missing detail ("a stylized video game illustration lacking the required historical features such as
+ * massive wooden winches") is NOT a mismatch: the style is meant to be stylised and a minor landmark never decides the place.
+ */
+export function placeVerdict(place: { match: boolean; reason: string } | undefined): "match" | "mismatch" | "unknown" {
+  if (!place) return "unknown";
+  if (place.match) return "match";
+  if (OTHER_PLACE.test(place.reason)) return "mismatch";
+  return STYLE_OR_DETAIL.test(place.reason) || !place.reason.trim() ? "match" : "mismatch";
+}
+
 async function drawOnce(projectId: string, spec: AssetSpec, refs: { name: string; data: Buffer; mime: string }[], deps: PackAssetDeps, index: AssetIndex, extra = ""): Promise<GeneratedImage> {
   const started = Date.now();
-  const picture = await deps.image(spec.prompt + extra, refs, spec);
+  const picture = await deps.image(spec.prompt + extra, spec.styleRef ? [...refs, { name: spec.styleRef.name, data: spec.styleRef.data, mime: spec.styleRef.mime }] : refs, spec);
   const usd = IMAGE_USD[spec.size ?? "1K"];
   index.usd += usd;
   // The same line shape as every other model call (providers.ts callModel), so cost dashboards pick it up.
@@ -544,7 +563,7 @@ async function materialCharge(project: VideoProject): Promise<PackAssetDeps["cha
 // ------------------------------------------------------------------ a pack's own shot plan
 
 export const shotPlanKey = (projectId: string) => `${assetPrefix(projectId)}shot-plan.json`;
-const planHash = (project: VideoProject) => createHash("sha256").update(JSON.stringify([(project.brief?.scriptBeats ?? []).map((b) => [b.line, b.visual]), project.brief?.scriptNotes ?? null, project.brief?.text ?? null])).digest("hex").slice(0, 16);
+const planHash = (project: VideoProject, version = 0) => createHash("sha256").update(JSON.stringify([(project.brief?.scriptBeats ?? []).map((b) => [b.line, b.visual]), project.brief?.scriptNotes ?? null, project.brief?.text ?? null, ...(version ? [version] : [])])).digest("hex").slice(0, 16);
 
 /**
  * The plan of a pack that plans its pictures with one cheap model call (TemplatePack.shotPlan), stored with the project and reused until the
@@ -554,7 +573,7 @@ const planFlights = new Map<string, Promise<unknown | undefined>>();
 export function loadShotPlan(project: VideoProject, pack: TemplatePack | undefined, deps: Pick<AssetStorage, "getObject" | "putObject"> & { call?: (request: { system: string; user: string; maxTokens: number }) => Promise<{ text: string; usd: number | null }> }): Promise<unknown | undefined> {
   // One planning call per project and script at a time: the enqueue step and the asset job both ask for the plan right after the script,
   // and two model calls give two different plans, which gives two different sets of picture prompts (every picture drawn and charged twice).
-  const key = `${project.id}:${planHash(project)}`;
+  const key = `${project.id}:${planHash(project, pack?.shotPlan?.version)}`;
   const running = planFlights.get(key);
   if (running) return running;
   const flight = loadShotPlanOnce(project, pack, deps).finally(() => planFlights.delete(key));
@@ -563,7 +582,7 @@ export function loadShotPlan(project: VideoProject, pack: TemplatePack | undefin
 }
 async function loadShotPlanOnce(project: VideoProject, pack: TemplatePack | undefined, deps: Pick<AssetStorage, "getObject" | "putObject"> & { call?: (request: { system: string; user: string; maxTokens: number }) => Promise<{ text: string; usd: number | null }> }): Promise<unknown | undefined> {
   if (!pack?.shotPlan || !project.brief?.scriptBeats?.length) return undefined;
-  const hash = planHash(project);
+  const hash = planHash(project, pack?.shotPlan?.version);
   const stored = await deps.getObject("uploads", shotPlanKey(project.id)).catch(() => null);
   if (stored) { try { const v = JSON.parse(stored.toString("utf8")) as { hash?: string; plan?: unknown }; if (v.hash === hash && v.plan) return v.plan; } catch { /* planned again */ } }
   try {

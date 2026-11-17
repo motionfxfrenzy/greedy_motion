@@ -37,7 +37,7 @@ assert.equal(placeOfBeat(1, beats), "gorge", "an untagged beat stays in the last
 assert.equal(placeOfBeat(2, beats), "bedroom");
 const specs = pack.assets(input);
 assert.deepEqual(specs.map((s) => [s.name, s.aspect, s.size, s.depth, s.noText]), [["set-gorge", "9:16", "2K", true, true], ["set-bedroom", "9:16", "2K", true, true]]);
-assert.ok(specs[0].prompt.startsWith(SET_STYLE) && /Niagara Gorge/.test(specs[0].prompt) && /no people/i.test(specs[0].prompt));
+assert.ok(specs[0].prompt.startsWith(`STYLE: ${SET_STYLE}`) && /Niagara Gorge/.test(specs[0].prompt) && /no people/i.test(specs[0].prompt));
 assert.deepEqual(pack.sceneAssets(1, beats), ["set-gorge", "depth-gorge"]);
 assert.deepEqual(sceneAssetNames(pack, specs, 2, beats), ["set-bedroom", "depth-bedroom"], "no duplicate depth name");
 
