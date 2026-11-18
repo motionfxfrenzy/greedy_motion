@@ -135,7 +135,7 @@ export function AuthPage() {
   return (
     <div className="auth-root" style={{ position: "relative", minHeight: "100vh", overflow: "hidden", background: "var(--d-bg-ebf5ff)", color: "var(--d-tx-0a0d12)" }}>
       {/* Hide the showcase when the columns wrap (both need 460px), so it doesn't drop below the form */}
-      <style>{"@media (max-width: 919px) { .auth-showcase { display: none !important; } } @media (min-width: 920px) { .auth-root { height: 100vh; height: 100dvh; } .auth-grid { height: 100%; min-height: 0 !important; grid-template-rows: minmax(0, 1fr); } .auth-form { min-height: 0; overflow-y: auto; scrollbar-width: none; } .auth-form::-webkit-scrollbar { display: none; } .auth-showcase > div { height: calc(100vh - 32px) !important; height: calc(100dvh - 32px) !important; } } @media (min-width: 920px) and (max-height: 860px) { .auth-form { zoom: 0.86; } } @media (min-width: 920px) and (max-height: 740px) { .auth-form { zoom: 0.78; } } @media (min-width: 920px) and (max-height: 640px) { .auth-form { zoom: 0.66; } }"}</style>
+      <style>{"@media (max-width: 919px) { .auth-showcase { display: none !important; } } @media (min-width: 920px) { .auth-root { height: 100vh; height: 100dvh; } .auth-grid { height: 100%; min-height: 0 !important; grid-template-rows: minmax(0, 1fr); } .auth-form { min-height: 0; overflow-y: auto; scrollbar-width: none; } .auth-form::-webkit-scrollbar { display: none; } .auth-showcase > div { height: calc(100vh - 32px) !important; height: calc(100dvh - 32px) !important; } } @media (min-width: 920px) and (max-height: 860px) { .auth-form { padding-top: 14px !important; padding-bottom: 14px !important; } .auth-stack { gap: 16px !important; } .auth-methods { gap: 12px !important; } .auth-fields { gap: 8px !important; } } @media (min-width: 920px) and (max-height: 800px) { .auth-form { padding-top: 8px !important; padding-bottom: 8px !important; } .auth-stack { gap: 8px !important; } .auth-methods { gap: 8px !important; } .auth-fields { gap: 6px !important; } .auth-form h1 + p { margin-top: 4px !important; } } @media (min-width: 920px) and (max-height: 740px) { .auth-form { padding-top: 6px !important; padding-bottom: 4px !important; } .auth-stack { gap: 4px !important; } .auth-fields { gap: 4px !important; } }"}</style>
       {/* Ambient background blobs */}
       <div
         aria-hidden="true"
@@ -203,7 +203,7 @@ export function AuthPage() {
           </Link>
 
           <div style={{ flex: 1, display: "grid", placeItems: "center", padding: "40px 0" }}>
-            <div style={{ width: "100%", maxWidth: "400px", display: "flex", flexDirection: "column", gap: "22px" }}>
+            <div className="auth-stack" style={{ width: "100%", maxWidth: "400px", display: "flex", flexDirection: "column", gap: "22px" }}>
               {/* Mode switch */}
               <div
                 style={{
@@ -340,7 +340,7 @@ export function AuthPage() {
                   </button>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div className="auth-methods" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     <button
                       type="button"
@@ -387,7 +387,7 @@ export function AuthPage() {
                     <span style={{ flex: 1, height: "1px", background: "var(--d-bg-d6e4f2)" }} />
                   </div>
 
-                  <form onSubmit={(e) => void handleSubmit(e)} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <form className="auth-fields" onSubmit={(e) => void handleSubmit(e)} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                     {isSignup && (
                       <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                         <span style={{ fontSize: "14px", fontWeight: 500 }}>Full name</span>
