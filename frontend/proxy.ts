@@ -34,9 +34,8 @@ export async function proxy(request: NextRequest) {
   if (guarded && !signedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
-    url.search = emailRejected
-      ? `?error=invalid_email&next=${encodeURIComponent(pathname)}`
-      : `?next=${encodeURIComponent(pathname)}`;
+    const next = encodeURIComponent(pathname + request.nextUrl.search);
+    url.search = emailRejected ? `?error=invalid_email&next=${next}` : `?next=${next}`;
     const redirect = NextResponse.redirect(url);
     response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
     redirect.headers.set("Cache-Control", "private, no-store");
