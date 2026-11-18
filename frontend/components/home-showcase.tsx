@@ -109,29 +109,69 @@ function LoopVideo({ src, title, aspect, fit = "cover", eager = false, threshold
 const h2Style: React.CSSProperties = { margin: 0, fontWeight: 600, fontSize: "clamp(28px, 3.4vw, 44px)", lineHeight: 1.15, letterSpacing: "-0.03em", maxWidth: 760 };
 const subStyle: React.CSSProperties = { margin: 0, fontSize: 16, color: "var(--d-tx-535862)", maxWidth: 620, lineHeight: 1.5 };
 
+type Card = { template: string; src: string; title: string; tag: string; wide: boolean };
+const r = (template: string, title: string, tag: string, wide: boolean, dir = "reels"): Card => ({ template, title, tag, wide, src: `/showcase/${dir}/${wide ? template : template.replace("story-", "")}` });
+
+/**
+ * Marquee order. The first four are the catalog's curated landing picks (featuredGalleryIds in @videosaas/contracts),
+ * tagged "Featured". Production has no trending data of its own (the Trending tab exists only on the unmerged
+ * trending-templates branch, with templates this build doesn't have), so nothing here is labelled "Trending".
+ */
+const FEATURED_CARDS: Card[] = [
+  r("product-launch", "Product launch", "Featured", true, "results"),
+  r("feature-walkthrough", "Feature walkthrough", "Featured", true),
+  r("sketch-explainer", "Sketch explainer", "Featured", true),
+  r("whats-new", "What's new", "Featured", true, "results")
+];
+const MORE_CARDS: Card[] = [
+  r("product-spin-ad", "Product ad", "Social ad", true, "results"),
+  r("story-illus-balloon", "Hot-air balloon story", "Crayon story", false),
+  r("kinetic-type-explainer", "Kinetic type", "Typography", true),
+  r("story-illus-koi", "Koi pond story", "Marker comic", false),
+  r("data-centre-flythrough", "Data centre fly-through", "3D explainer", true),
+  r("story-illus-fox", "Fox in the forest", "Cut-paper", false),
+  r("stat-highlight", "Stat highlight", "Data moment", true, "results"),
+  r("isometric-diorama", "Isometric diorama", "3D showcase", true),
+  r("story-illus-blueprint", "How it's built", "Blueprint", false),
+  r("zoom-into-chip", "Zoom into the chip", "Tech explainer", true),
+  r("story-illus-lighthouse", "Lighthouse story", "Risograph", false),
+  r("keyboard-exploded-view", "Exploded view", "Product reveal", true),
+  r("story-illus-embroidery", "Stitched story", "Embroidery", false),
+  r("narrated-product-minute", "Narrated explainer", "Voiceover", true, "results"),
+  r("story-illus-paper-craft", "Toy-theatre story", "Paper craft", false),
+  r("bar-chart-race", "Bar chart race", "Data viz", true),
+  r("story-illus-coloured-pencil", "Sketchbook tale", "Coloured pencil", false),
+  r("api-request-flow", "API request flow", "Dev explainer", true),
+  r("story-illus-low-poly", "Low-poly story", "Low poly", false),
+  r("animated-map-route", "Animated map route", "Map", true),
+  r("snow-globe-city", "Holiday greeting", "3D scene", true),
+  r("story-illus-flat-vector", "Flat vector explainer", "Flat vector", false)
+];
+const CARDS: Card[] = [...FEATURED_CARDS, ...MORE_CARDS];
+
 export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
   const cta = signedIn ? appHref("/studio") : appHref("/auth?mode=signup");
+  const item = (c: Card, dup: boolean) => (
+    <article key={`${c.template}${dup ? "-dup" : ""}`} aria-hidden={dup || undefined} className={`gm-reel ${c.wide ? "gm-reel-wide" : "gm-reel-sq"}${dup ? " gm-mq-dup" : ""}`}>
+      <div className="gm-reel-frame">
+        <LoopVideo src={c.src} title={c.title} aspect={c.wide ? "16 / 9" : "1 / 1"} threshold={0.3} />
+        <span className={`gm-reel-tag${c.tag === "Featured" ? " gm-reel-tag-hot" : ""}`}>{c.tag}</span>
+        <Link href={useHref(signedIn, c.template)} className="gm-use" aria-label={`Use this: ${c.title}`} tabIndex={dup ? -1 : undefined}>Use this</Link>
+      </div>
+      <strong className="gm-reel-title">{c.title}</strong>
+    </article>
+  );
   return (
-    <section id="reels" aria-labelledby="reels-title" style={{ maxWidth: 1200, margin: "0 auto", padding: "40px 24px 24px", scrollMarginTop: 88, display: "flex", flexDirection: "column", gap: 28 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center", textAlign: "center" }}>
+    <section id="reels" aria-labelledby="reels-title" style={{ maxWidth: 1200, margin: "0 auto", padding: "40px 0 24px", scrollMarginTop: 88, display: "flex", flexDirection: "column", gap: 28 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center", textAlign: "center", padding: "0 24px" }}>
         <h2 id="reels-title" style={h2Style}>Made with Greedy Motion.</h2>
         <p style={subStyle}>Motion with code, from one plain-language brief each. Story reels, explainers and ads, finished and ready to post.</p>
       </div>
-      <div className="gm-reels" role="list">
-        {REELS.map((r, i) => (
-          <article key={r.id} role="listitem" className="gm-reel">
-            <div className="gm-reel-frame">
-              {/* Blurred poster fills the 9:16 frame; the clip sits uncropped in the middle. */}
-              <div aria-hidden className="gm-reel-bg" style={{ backgroundImage: `url(${r.src}.jpg)` }} />
-              <div style={{ position: "absolute", left: 0, right: 0, top: "50%", transform: "translateY(-50%)" }}>
-                <LoopVideo src={r.src} title={r.title} aspect="1 / 1" eager={i < 2} />
-              </div>
-              <span className="gm-reel-tag">{r.style}</span>
-              <UseThis href={useHref(signedIn, r.template)} label={`Use this: ${r.title}`} />
-            </div>
-            <strong className="gm-reel-title">{r.title}</strong>
-          </article>
-        ))}
+      <div className="gm-marquee">
+        <div className="gm-marquee-track" role="list">
+          {CARDS.map((c) => item(c, false))}
+          {CARDS.map((c) => item(c, true))}
+        </div>
       </div>
       <div style={{ display: "flex", justifyContent: "center" }}>
         <Link href={cta} className="gm-btn-primary" style={{ padding: "13px 26px", borderRadius: 9999, background: "var(--d-bg-181d27)", color: "var(--d-btn-ink)", fontSize: 15, fontWeight: 500, textDecoration: "none", boxShadow: "0 1px 2px rgba(10,13,18,.8), 0 0 0 1px #0a0d12" }}>
@@ -139,17 +179,23 @@ export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
         </Link>
       </div>
       <style>{`
-        .gm-reels{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 2px 12px;scrollbar-width:thin}
-        .gm-reel{flex:0 0 clamp(170px,22vw,230px);scroll-snap-align:start;display:flex;flex-direction:column;gap:10px}
-        .gm-reel-frame{position:relative;aspect-ratio:9/16;border-radius:28px;overflow:hidden;background:var(--d-bg-ebf5ff);border:1px solid var(--d-bd-e1eaf4);box-shadow:0 14px 20px 4px var(--d-sh-rgba46914408)}
-        .gm-reel-bg{position:absolute;inset:-20px;background-size:cover;background-position:center;filter:blur(22px) saturate(1.1);opacity:.85}
-        .gm-reel-tag{position:absolute;left:10px;top:10px;padding:4px 10px;border-radius:9999px;background:var(--d-bg-ffffff);color:var(--d-tx-0a0d12);font-size:12px;font-weight:600}
+        .gm-marquee{--h:260px;overflow:hidden;padding:8px 0 12px;-webkit-mask-image:linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%)}
+        @media(max-width:640px){.gm-marquee{--h:200px}}
+        .gm-marquee-track{display:flex;width:max-content;animation:gm-marquee 75s linear infinite;will-change:transform}
+        .gm-marquee:hover .gm-marquee-track,.gm-marquee:focus-within .gm-marquee-track{animation-play-state:paused}
+        @keyframes gm-marquee{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
+        .gm-reel{flex:none;margin-right:16px;display:flex;flex-direction:column;gap:10px}
+        .gm-reel-sq{width:var(--h)}
+        .gm-reel-wide{width:calc(var(--h)*16/9)}
+        .gm-reel-frame{position:relative;border-radius:28px;overflow:hidden;background:var(--d-bg-ebf5ff);border:1px solid var(--d-bd-e1eaf4);box-shadow:0 14px 20px 4px var(--d-sh-rgba46914408)}
+        .gm-reel-tag{position:absolute;left:10px;top:10px;z-index:2;padding:4px 10px;border-radius:9999px;background:var(--d-bg-ffffff);color:var(--d-tx-0a0d12);font-size:12px;font-weight:600}
+        .gm-reel-tag-hot{background:var(--d-bg-d3f6e3);color:var(--d-tx-0a5c35)}
         .gm-reel-title{font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--d-tx-0a0d12)}
+        @media(prefers-reduced-motion:reduce){.gm-marquee{overflow-x:auto;padding-left:24px;-webkit-mask-image:none;mask-image:none}.gm-marquee-track{animation:none}.gm-mq-dup{display:none}}
         .gm-use{position:absolute;left:50%;bottom:14px;transform:translate(-50%,6px);z-index:2;padding:10px 20px;border-radius:9999px;background:var(--d-bg-181d27);color:var(--d-btn-ink);font-size:14px;font-weight:500;text-decoration:none;white-space:nowrap;box-shadow:0 1px 2px rgba(10,13,18,.8),0 0 0 1px #0a0d12;opacity:0;transition:opacity 160ms ease,transform 160ms ease}
         .gm-reel-frame:hover .gm-use,.gm-reel-frame:focus-within .gm-use,.gm-result:hover .gm-use,.gm-result:focus-within .gm-use,.gm-use:focus-visible{opacity:1;transform:translate(-50%,0)}
         @media(hover:none){.gm-use{opacity:1;transform:translate(-50%,0)}}
         @media(prefers-reduced-motion:reduce){.gm-use{transition:none}}
-        @media(min-width:1100px){.gm-reels{justify-content:center;overflow-x:visible;flex-wrap:nowrap}.gm-reel{flex:1 1 0;min-width:0}}
       `}</style>
     </section>
   );
