@@ -460,7 +460,7 @@ export function LandingPage() {
           style={{
             maxWidth: "1200px",
             margin: "0 auto",
-            padding: "96px 24px 56px",
+            padding: "56px 24px 56px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
