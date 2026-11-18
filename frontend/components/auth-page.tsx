@@ -534,11 +534,13 @@ export function AuthPage() {
         </section>
 
         {/* Right column: Dark Stage Showcase */}
-        <aside className="auth-showcase" style={{ padding: "16px", display: "flex" }}>
+        <aside className="auth-showcase" style={{ position: "relative", minHeight: 0, minWidth: 0 }}>
           <div
             style={{
-              position: "relative",
-              flex: 1,
+              position: "sticky",
+              top: "16px",
+              height: "calc(100vh - 32px)",
+              margin: "16px",
               overflow: "hidden",
               borderRadius: "36px",
               background: "#0a0d12",
@@ -547,13 +549,14 @@ export function AuthPage() {
               flexDirection: "column",
               justifyContent: "space-between",
               gap: "28px",
-              padding: "44px"
+              padding: "36px 44px"
             }}
           >
             <div
               style={{
                 position: "absolute",
                 inset: 0,
+                pointerEvents: "none",
                 background:
                   "radial-gradient(70% 60% at 100% 0%, rgba(22,139,255,.5), transparent 60%), radial-gradient(60% 60% at 0% 100%, rgba(255,90,31,.22), transparent 60%)"
               }}

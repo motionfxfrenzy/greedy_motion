@@ -256,26 +256,48 @@ const COLLAGE: Clip[] = [
   ...REELS.map((r) => ({ template: r.template, src: r.src, title: r.title, ratio: "4 / 5" })),
   ...RESULTS.map((r) => ({ template: r.id, src: r.src, title: r.title, ratio: "16 / 10" }))
 ];
-const COLLAGE_ORDER = ["story-illus-balloon", "product-spin-ad", "story-illus-fox", "stat-highlight", "story-illus-blueprint", "whats-new", "story-illus-embroidery"];
+const COLUMN_ORDER = [
+  ["story-illus-balloon", "product-spin-ad", "story-illus-fox", "stat-highlight"],
+  ["feature-spotlight", "story-illus-blueprint", "whats-new", "story-illus-embroidery"]
+];
 
-/** Sign-in side panel: a staggered collage of real renders. A template the visitor picked on the homepage leads, and is larger. */
+/**
+ * Sign-in side panel: two columns of real renders drifting in opposite directions, a seamless loop (each list is
+ * rendered twice and the track moves by exactly half). Fills its positioned parent and never sizes it. A template the
+ * visitor picked on the homepage leads the first column. Reduced motion: a static set of posters.
+ */
 export function AuthCollage({ featured }: { featured?: string }) {
   const byId = new Map(COLLAGE.map((c) => [c.template, c]));
   const lead = featured ? byId.get(featured) : undefined;
-  const clips = [lead, ...COLLAGE_ORDER.filter((id) => id !== lead?.template).map((id) => byId.get(id))].filter((c): c is Clip => !!c).slice(0, 7);
-  const cols: Clip[][] = [[], []];
-  clips.forEach((c, i) => cols[i % 2].push(c));
+  const cols = COLUMN_ORDER.map((ids, ci) => {
+    const list = ids.filter((id) => id !== lead?.template).map((id) => byId.get(id)).filter((c): c is Clip => !!c);
+    return ci === 0 && lead ? [lead, ...list.slice(0, 3)] : list;
+  });
+  const card = (c: Clip, key: string, dup: boolean) => (
+    <div key={key} aria-hidden={dup || undefined} className={dup ? "gm-mq-dup" : undefined} style={{ marginBottom: 14, borderRadius: 20, overflow: "hidden", boxShadow: "0 18px 36px rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.1)" }}>
+      <LoopVideo src={c.src} title={c.title} aspect={c === lead ? "1 / 1" : c.ratio} />
+    </div>
+  );
   return (
-    <div className="gm-collage" style={{ position: "relative", width: "100%", flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignContent: "center", transform: "rotate(-3deg) scale(1.04)" }}>
+    <div className="gm-collage" aria-hidden style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
       {cols.map((col, ci) => (
-        <div key={ci} style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: ci ? 36 : 0 }}>
-          {col.map((c, i) => (
-            <div key={c.template} title={c.title} style={{ borderRadius: 20, overflow: "hidden", boxShadow: "0 18px 36px rgba(0,0,0,.45)", border: "1px solid rgba(255,255,255,.1)" }}>
-              <LoopVideo src={c.src} title={c.title} aspect={c === lead ? "1 / 1" : c.ratio} eager={ci === 0 && i === 0} />
-            </div>
-          ))}
+        <div key={ci} style={{ minHeight: 0, overflow: "hidden" }}>
+          <div className={`gm-mq ${ci ? "gm-mq-down" : "gm-mq-up"}`} style={{ animationDuration: ci ? "48s" : "58s", willChange: "transform" }}>
+            {col.map((c) => card(c, c.template, false))}
+            {col.map((c) => card(c, `${c.template}-dup`, true))}
+          </div>
         </div>
       ))}
+      <style>{`
+        .gm-collage{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 14%,#000 86%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 14%,#000 86%,transparent 100%)}
+        .gm-mq{animation:gm-mq-up linear infinite}
+        .gm-mq-down{animation-name:gm-mq-down}
+        .gm-mq-up{animation-name:gm-mq-up}
+        .gm-collage:hover .gm-mq{animation-play-state:paused}
+        @keyframes gm-mq-up{from{transform:translate3d(0,0,0)}to{transform:translate3d(0,-50%,0)}}
+        @keyframes gm-mq-down{from{transform:translate3d(0,-50%,0)}to{transform:translate3d(0,0,0)}}
+        @media(prefers-reduced-motion:reduce){.gm-mq{animation:none}.gm-mq-dup{display:none}}
+      `}</style>
     </div>
   );
 }
