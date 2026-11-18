@@ -133,9 +133,9 @@ export function AuthPage() {
   const isSignup = mode === "signup";
 
   return (
-    <div style={{ position: "relative", minHeight: "100vh", overflow: "hidden", background: "var(--d-bg-ebf5ff)", color: "var(--d-tx-0a0d12)" }}>
+    <div className="auth-root" style={{ position: "relative", minHeight: "100vh", overflow: "hidden", background: "var(--d-bg-ebf5ff)", color: "var(--d-tx-0a0d12)" }}>
       {/* Hide the showcase when the columns wrap (both need 460px), so it doesn't drop below the form */}
-      <style>{"@media (max-width: 919px) { .auth-showcase { display: none !important; } }"}</style>
+      <style>{"@media (max-width: 919px) { .auth-showcase { display: none !important; } } @media (min-width: 920px) { .auth-root { height: 100vh; height: 100dvh; } .auth-grid { height: 100%; min-height: 0 !important; grid-template-rows: minmax(0, 1fr); } .auth-form { min-height: 0; overflow-y: auto; scrollbar-width: none; } .auth-form::-webkit-scrollbar { display: none; } .auth-showcase > div { height: calc(100vh - 32px) !important; height: calc(100dvh - 32px) !important; } } @media (min-width: 920px) and (max-height: 860px) { .auth-form { zoom: 0.86; } } @media (min-width: 920px) and (max-height: 740px) { .auth-form { zoom: 0.78; } } @media (min-width: 920px) and (max-height: 640px) { .auth-form { zoom: 0.66; } }"}</style>
       {/* Ambient background blobs */}
       <div
         aria-hidden="true"
@@ -173,6 +173,7 @@ export function AuthPage() {
       </div>
 
       <div
+        className="auth-grid"
         style={{
           position: "relative",
           zIndex: 1,
@@ -182,7 +183,7 @@ export function AuthPage() {
         }}
       >
         {/* Left column: Form */}
-        <section style={{ position: "relative", display: "flex", flexDirection: "column", padding: "28px 40px" }}>
+        <section className="auth-form" style={{ position: "relative", display: "flex", flexDirection: "column", padding: "28px 40px" }}>
           <div style={{ position: "absolute", top: 24, right: 24 }}><ThemeToggle /></div>
           <Link
             href="/"
