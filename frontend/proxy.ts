@@ -34,7 +34,7 @@ export async function proxy(request: NextRequest) {
   if (guarded && !signedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
-    url.search = `?next=${encodeURIComponent(pathname)}`;
+    url.search = `?next=${encodeURIComponent(pathname + request.nextUrl.search)}`;
     const redirect = NextResponse.redirect(url);
     response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
     redirect.headers.set("Cache-Control", "private, no-store");

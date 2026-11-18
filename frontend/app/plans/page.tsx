@@ -7,7 +7,7 @@ import { SiteNav } from "../../components/site-nav";
 import { createClient } from "../../utils/supabase/server";
 import styles from "../../components/public-page.module.css";
 
-export const metadata: Metadata = { title: "Plans · Greedy Motion" };
+export const metadata: Metadata = { title: "Plans · Greedy Motion", description: "Motion graphics with code. Choose a Greedy Motion plan priced in tokens; the animation code is written for you." };
 
 // Per request: the visitor's country (from the host's geo header) and, when signed in, their email.
 export default async function Plans() {
@@ -30,6 +30,7 @@ export default async function Plans() {
       <SiteNav active="pricing" />
       <div className="pricing-page">
         <h1>Choose a plan</h1>
+        <p>Motion graphics with code. Every plan writes the animation code for your videos from a plain-language brief, so you never have to code.</p>
         <PaddlePricing country={country} email={email} userId={userId} />
         <p className="paddle-fine">
           Prices are shown in your local currency where available; taxes are added at checkout. Plans renew automatically until cancelled. By subscribing you agree to our <Link href="/terms">Terms of service</Link>; see our <Link href="/privacy">Privacy notice</Link> and <Link href="/refunds">Refund &amp; cancellation policy</Link>.

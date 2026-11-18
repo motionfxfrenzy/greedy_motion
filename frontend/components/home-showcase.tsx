@@ -128,23 +128,18 @@ const MORE_CARDS: Card[] = [
   r("story-illus-balloon", "Hot-air balloon story", "Crayon story", false),
   r("kinetic-type-explainer", "Kinetic type", "Typography", true),
   r("story-illus-koi", "Koi pond story", "Marker comic", false),
-  r("data-centre-flythrough", "Data centre fly-through", "3D explainer", true),
-  r("story-illus-fox", "Fox in the forest", "Cut-paper", false),
   r("stat-highlight", "Stat highlight", "Data moment", true, "results"),
-  r("isometric-diorama", "Isometric diorama", "3D showcase", true),
+  r("story-illus-fox", "Fox in the forest", "Cut-paper", false),
   r("story-illus-blueprint", "How it's built", "Blueprint", false),
-  r("zoom-into-chip", "Zoom into the chip", "Tech explainer", true),
-  r("story-illus-lighthouse", "Lighthouse story", "Risograph", false),
-  r("keyboard-exploded-view", "Exploded view", "Product reveal", true),
-  r("story-illus-embroidery", "Stitched story", "Embroidery", false),
   r("narrated-product-minute", "Narrated explainer", "Voiceover", true, "results"),
-  r("story-illus-paper-craft", "Toy-theatre story", "Paper craft", false),
+  r("story-illus-lighthouse", "Lighthouse story", "Risograph", false),
   r("bar-chart-race", "Bar chart race", "Data viz", true),
-  r("story-illus-coloured-pencil", "Sketchbook tale", "Coloured pencil", false),
+  r("story-illus-embroidery", "Stitched story", "Embroidery", false),
+  r("story-illus-paper-craft", "Toy-theatre story", "Paper craft", false),
   r("api-request-flow", "API request flow", "Dev explainer", true),
-  r("story-illus-low-poly", "Low-poly story", "Low poly", false),
+  r("story-illus-coloured-pencil", "Sketchbook tale", "Coloured pencil", false),
   r("animated-map-route", "Animated map route", "Map", true),
-  r("snow-globe-city", "Holiday greeting", "3D scene", true),
+  r("story-illus-low-poly", "Low-poly story", "Low poly", false),
   r("story-illus-flat-vector", "Flat vector explainer", "Flat vector", false)
 ];
 const CARDS: Card[] = [...FEATURED_CARDS, ...MORE_CARDS];
@@ -179,15 +174,15 @@ export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
         </Link>
       </div>
       <style>{`
-        .gm-marquee{--h:260px;overflow:hidden;padding:8px 0 12px;-webkit-mask-image:linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%)}
-        @media(max-width:640px){.gm-marquee{--h:200px}}
-        .gm-marquee-track{display:flex;width:max-content;animation:gm-marquee 75s linear infinite;will-change:transform}
+        .gm-marquee{--h:180px;overflow:hidden;padding:8px 0 12px;-webkit-mask-image:linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%)}
+        @media(max-width:640px){.gm-marquee{--h:150px}}
+        .gm-marquee-track{display:flex;width:max-content;animation:gm-marquee 140s linear infinite;will-change:transform}
         .gm-marquee:hover .gm-marquee-track,.gm-marquee:focus-within .gm-marquee-track{animation-play-state:paused}
         @keyframes gm-marquee{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
         .gm-reel{flex:none;margin-right:16px;display:flex;flex-direction:column;gap:10px}
         .gm-reel-sq{width:var(--h)}
         .gm-reel-wide{width:calc(var(--h)*16/9)}
-        .gm-reel-frame{position:relative;border-radius:28px;overflow:hidden;background:var(--d-bg-ebf5ff);border:1px solid var(--d-bd-e1eaf4);box-shadow:0 14px 20px 4px var(--d-sh-rgba46914408)}
+        .gm-reel-frame{position:relative;border-radius:20px;overflow:hidden;background:var(--d-bg-ebf5ff);border:1px solid var(--d-bd-e1eaf4);box-shadow:0 14px 20px 4px var(--d-sh-rgba46914408)}
         .gm-reel-tag{position:absolute;left:10px;top:10px;z-index:2;padding:4px 10px;border-radius:9999px;background:var(--d-bg-ffffff);color:var(--d-tx-0a0d12);font-size:12px;font-weight:600}
         .gm-reel-tag-hot{background:var(--d-bg-d3f6e3);color:var(--d-tx-0a5c35)}
         .gm-reel-title{font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--d-tx-0a0d12)}
