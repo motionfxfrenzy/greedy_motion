@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { validateEmailAddress } from "@videosaas/contracts";
 import { PasswordInput } from "./password-input";
 import Link from "next/link";
@@ -8,17 +8,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 import { sendWelcomeEmail } from "../lib/api";
 import { ThemeToggle } from "./theme-toggle";
-import { SceneFrame, type SceneItem } from "./scene-frame";
+import { AuthCollage } from "./home-showcase";
 import { PasswordRules } from "./password-rules";
 import { EMAIL_CODE_MINUTES, MIN_PASSWORD_LENGTH, passwordProblem } from "../lib/password";
-
-const SCENES: SceneItem[] = [
-  { kind: "hook", headline: "Finally see what every sale is really worth.", copy: "" },
-  { kind: "problem", headline: "Fees, refunds, and shipping hide your actual margin.", copy: "Most dashboards stop at revenue." },
-  { kind: "product", headline: "Smart Profit Dashboard", copy: "", shot: "profit-dashboard.png" },
-  { kind: "benefit", headline: "See real profitability at a glance.", copy: "Tracks fees, refunds, shipping, and margin in one dashboard." },
-  { kind: "cta", headline: "See your real margins", copy: "acme.com/profit" }
-];
 
 export function AuthPage() {
   const searchParams = useSearchParams();
@@ -41,20 +33,12 @@ export function AuthPage() {
     }
     return initialError ? "Sign-in failed. Please try again." : "";
   });
-  const [sceneIdx, setSceneIdx] = useState(0);
   const router = useRouter();
   // Only same-origin relative paths are honoured, so ?next= can't redirect off-site.
   const requestedNext = searchParams.get("next") ?? "";
   const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/studio";
+  const hasTemplate = next.startsWith("/studio?template=");
   const callbackUrl = () => `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSceneIdx((s) => (s + 1) % SCENES.length);
-      // Long enough for each scene's entrance motion (scene-frame.tsx) to finish and be read.
-    }, 3600);
-    return () => clearInterval(timer);
-  }, []);
 
   const emailCheck = validateEmailAddress(email);
   const isValidEmail = emailCheck.ok;
@@ -159,9 +143,9 @@ export function AuthPage() {
   const isSignup = mode === "signup";
 
   return (
-    <div style={{ position: "relative", minHeight: "100vh", overflow: "hidden", background: "var(--d-bg-ebf5ff)", color: "var(--d-tx-0a0d12)" }}>
+    <div className="auth-root" style={{ position: "relative", minHeight: "100vh", overflow: "hidden", background: "var(--d-bg-ebf5ff)", color: "var(--d-tx-0a0d12)" }}>
       {/* Hide the showcase when the columns wrap (both need 460px), so it doesn't drop below the form */}
-      <style>{"@media (max-width: 919px) { .auth-showcase { display: none !important; } }"}</style>
+      <style>{"@media (max-width: 919px) { .auth-showcase { display: none !important; } } @media (min-width: 920px) { .auth-root { height: 100vh; height: 100dvh; } .auth-grid { height: 100%; min-height: 0 !important; grid-template-rows: minmax(0, 1fr); } .auth-form { min-height: 0; overflow-y: auto; scrollbar-width: none; } .auth-form::-webkit-scrollbar { display: none; } .auth-showcase > div { height: calc(100vh - 32px) !important; height: calc(100dvh - 32px) !important; } } @media (min-width: 920px) and (max-height: 860px) { .auth-form { padding-top: 14px !important; padding-bottom: 14px !important; } .auth-stack { gap: 16px !important; } .auth-methods { gap: 12px !important; } .auth-fields { gap: 8px !important; } } @media (min-width: 920px) and (max-height: 800px) { .auth-form { padding-top: 8px !important; padding-bottom: 8px !important; } .auth-stack { gap: 8px !important; } .auth-methods { gap: 8px !important; } .auth-fields { gap: 6px !important; } .auth-form h1 + p { margin-top: 4px !important; } } @media (min-width: 920px) and (max-height: 740px) { .auth-form { padding-top: 6px !important; padding-bottom: 4px !important; } .auth-stack { gap: 4px !important; } .auth-fields { gap: 4px !important; } }"}</style>
       {/* Ambient background blobs */}
       <div
         aria-hidden="true"
@@ -199,6 +183,7 @@ export function AuthPage() {
       </div>
 
       <div
+        className="auth-grid"
         style={{
           position: "relative",
           zIndex: 1,
@@ -208,7 +193,7 @@ export function AuthPage() {
         }}
       >
         {/* Left column: Form */}
-        <section style={{ position: "relative", display: "flex", flexDirection: "column", padding: "28px 40px" }}>
+        <section className="auth-form" style={{ position: "relative", display: "flex", flexDirection: "column", padding: "28px 40px" }}>
           <div style={{ position: "absolute", top: 24, right: 24 }}><ThemeToggle /></div>
           <Link
             href="/"
@@ -228,7 +213,7 @@ export function AuthPage() {
           </Link>
 
           <div style={{ flex: 1, display: "grid", placeItems: "center", padding: "40px 0" }}>
-            <div style={{ width: "100%", maxWidth: "400px", display: "flex", flexDirection: "column", gap: "22px" }}>
+            <div className="auth-stack" style={{ width: "100%", maxWidth: "400px", display: "flex", flexDirection: "column", gap: "22px" }}>
               {/* Mode switch */}
               <div
                 style={{
@@ -297,7 +282,7 @@ export function AuthPage() {
                   {isSignup ? "Create your account" : "Welcome back"}
                 </h1>
                 <p style={{ margin: "10px 0 0", fontSize: "16px", color: "var(--d-tx-535862)" }}>
-                  {isSignup ? "Create your workspace and start making product videos." : "Sign in to open your workspace."}
+                  {hasTemplate ? `${isSignup ? "Create your account" : "Sign in"} and we'll open the template you picked, ready to edit.` : isSignup ? "Create your workspace and start making product videos." : "Sign in to open your workspace."}
                 </p>
               </div>
 
@@ -366,7 +351,7 @@ export function AuthPage() {
                   </button>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div className="auth-methods" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     <button
                       type="button"
@@ -413,7 +398,7 @@ export function AuthPage() {
                     <span style={{ flex: 1, height: "1px", background: "var(--d-bg-d6e4f2)" }} />
                   </div>
 
-                  <form onSubmit={(e) => void handleSubmit(e)} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <form className="auth-fields" onSubmit={(e) => void handleSubmit(e)} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                     {isSignup && (
                       <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                         <span style={{ fontSize: "14px", fontWeight: 500 }}>Full name</span>
@@ -561,11 +546,13 @@ export function AuthPage() {
         </section>
 
         {/* Right column: Dark Stage Showcase */}
-        <aside className="auth-showcase" style={{ padding: "16px", display: "flex" }}>
+        <aside className="auth-showcase" style={{ position: "relative", minHeight: 0, minWidth: 0 }}>
           <div
             style={{
-              position: "relative",
-              flex: 1,
+              position: "sticky",
+              top: "16px",
+              height: "calc(100vh - 32px)",
+              margin: "16px",
               overflow: "hidden",
               borderRadius: "36px",
               background: "#0a0d12",
@@ -573,13 +560,15 @@ export function AuthPage() {
               display: "flex",
               flexDirection: "column",
               justifyContent: "space-between",
-              padding: "44px"
+              gap: "28px",
+              padding: "36px 44px"
             }}
           >
             <div
               style={{
                 position: "absolute",
                 inset: 0,
+                pointerEvents: "none",
                 background:
                   "radial-gradient(70% 60% at 100% 0%, rgba(22,139,255,.5), transparent 60%), radial-gradient(60% 60% at 0% 100%, rgba(255,90,31,.22), transparent 60%)"
               }}
@@ -598,49 +587,11 @@ export function AuthPage() {
               Product motion, without the production maze
             </span>
 
-            <div
-              style={{
-                position: "relative",
-                width: "100%",
-                maxWidth: "520px",
-                alignSelf: "center",
-                display: "flex",
-                flexDirection: "column",
-                gap: "14px"
-              }}
-            >
-              <div style={{ padding: "10px", borderRadius: "24px", background: "rgba(255,255,255,.06)" }}>
-                <SceneFrame
-                  scene={SCENES[sceneIdx]}
-                  branded={true}
-                  logoPlace="open-end"
-                  radius="16px"
-                />
-              </div>
-
-              {/* Progress dots */}
-              <div style={{ display: "flex", gap: "6px" }}>
-                {SCENES.map((_, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      flex: 1,
-                      height: "4px",
-                      borderRadius: "4px",
-                      background: i === sceneIdx ? "#168BFF" : "rgba(255,255,255,.15)",
-                      transition: "background 400ms ease"
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
+            <AuthCollage featured={hasTemplate ? next.slice("/studio?template=".length).split("&")[0] : undefined} />
 
             <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: "10px", maxWidth: "460px" }}>
               <span style={{ fontSize: "19px", lineHeight: 1.45, fontWeight: 500, letterSpacing: "-.02em" }}>
-                Plan your story. Review the motion. Refine the result.
-              </span>
-              <span style={{ fontSize: "14px", color: "var(--d-tx-93979f)" }}>
-                Illustrative product demo · Not a customer endorsement
+                Made with Greedy Motion: motion graphics with code, from one brief each.
               </span>
             </div>
           </div>

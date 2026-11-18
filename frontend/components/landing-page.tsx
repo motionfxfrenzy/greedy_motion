@@ -7,16 +7,8 @@ import { appHref } from "../lib/hosts";
 import { ThemeToggle } from "./theme-toggle";
 import { PublicLinks } from "./public-links";
 import { createClient } from "../utils/supabase/client";
-import { SceneFrame, type SceneItem } from "./scene-frame";
+import { HeroVideo, ReelsShowcase, ResultsGallery, Walkthrough } from "./home-showcase";
 import { GalleryGrid, startHref, useGalleryShelf } from "./template-gallery";
-
-const SCENES: SceneItem[] = [
-  { kind: "hook", headline: "Finally see what every sale is really worth.", copy: "" },
-  { kind: "problem", headline: "Fees, refunds, and shipping hide your actual margin.", copy: "Most dashboards stop at revenue." },
-  { kind: "product", headline: "Smart Profit Dashboard", copy: "", shot: "profit-dashboard.png" },
-  { kind: "benefit", headline: "See real profitability at a glance.", copy: "Tracks fees, refunds, shipping, and margin in one dashboard." },
-  { kind: "cta", headline: "See your real margins", copy: "acme.com/profit" }
-];
 
 const WORDS = ["product launches", "feature demos", "social stories", "visual explainers", "release notes"];
 
@@ -51,13 +43,13 @@ const HOW_STEPS = [
   {
     n: "03",
     title: "Review storyboard & voice",
-    body: "Preview every scene, script beat, voiceover take, and motion preview in your browser before rendering.",
+    body: "Greedy Motion writes the animation as code from your words, so every scene is precise and on-brand. Preview each scene, script beat, and voiceover in your browser before rendering.",
     bg: "var(--d-bg-d3f6e3)"
   },
   {
     n: "04",
     title: "Refine and download MP4",
-    body: "Ask for scoped scene changes in plain language, approve the preview, and download the finished 1080p MP4.",
+    body: "Ask for scoped scene changes in plain language and we update just that scene's code. Approve the preview, then download the finished 1080p MP4.",
     bg: "var(--d-bg-fff2be)"
   }
 ];
@@ -93,7 +85,6 @@ export function LandingPage() {
   // The curated starting points come from the backend, like the Templates page, so the landing bundle carries no catalog.
   const featured = useGalleryShelf({ featured: true, limit: 4 });
   const [t, setT] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true);
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
   const [proposalState, setProposalState] = useState<"pending" | "accepted" | "rejected">("pending");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -115,22 +106,16 @@ export function LandingPage() {
     };
   }, [menuOpen]);
 
-  // Timer loop for auto-playing scenes and word rotation
+  // Timer loop for the headline word rotation
   useEffect(() => {
-    if (!isPlaying) return;
     const timer = setInterval(() => {
       setT((prev) => prev + 1);
     }, 250);
     return () => clearInterval(timer);
-  }, [isPlaying]);
+  }, []);
 
-  // 14 ticks of 250 ms per scene: room for each scene's entrance motion (scene-frame.tsx) to finish and be read.
-  const SCENE_TICKS = 14;
-  const sceneIndex = Math.floor(t / SCENE_TICKS) % 5;
   const wordIndex = Math.floor(t / 24) % WORDS.length;
   const currentWord = WORDS[wordIndex];
-  const heroPct = `${((t % SCENE_TICKS) / SCENE_TICKS) * 100}%`;
-  const activeScene = SCENES[sceneIndex];
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", overflowX: "clip", background: "var(--d-bg-ebf5ff)", color: "var(--d-tx-0a0d12)" }}>
@@ -344,6 +329,19 @@ export function LandingPage() {
               }}
             >
               <a
+                href="#reels"
+                style={{
+                  color: "var(--d-tx-535862)",
+                  fontSize: "15px",
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  textDecoration: "none",
+                  transition: "color 180ms ease"
+                }}
+              >
+                Examples
+              </a>
+              <a
                 href="#how"
                 style={{
                   color: "var(--d-tx-535862)",
@@ -450,6 +448,7 @@ export function LandingPage() {
             </button>
             {menuOpen && (
               <nav id="gm-landing-mobile-menu" className="gm-landing-mobile-menu" aria-label="Mobile navigation">
+                <a href="#reels" onClick={() => setMenuOpen(false)}>Examples</a>
                 <a href="#how" onClick={() => setMenuOpen(false)}>How it works</a>
                 <a href="#features" onClick={() => setMenuOpen(false)}>Features</a>
                 <Link href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</Link>
@@ -544,7 +543,7 @@ export function LandingPage() {
               textWrap: "pretty"
             }}
           >
-            Turn your brief, screenshots, and brand into on-brand motion videos, visual explainers, and 9:16 social stories.
+            Motion graphics with code, minus the coding: Greedy Motion turns your brief, screenshots, and brand into on-brand motion videos, visual explainers, and 9:16 social stories.
             Review a storyboard, ask for changes, approve, download.
           </p>
 
@@ -586,228 +585,13 @@ export function LandingPage() {
           </div>
 
 
-          {/* Interactive Hero Video Preview Showcase */}
-          <div style={{ position: "relative", width: "100%", maxWidth: "880px", marginTop: "44px" }}>
-            {/* Floating Tag 1: Brand Kit (Purple) */}
-            <div
-              style={{
-                position: "absolute",
-                left: "max(-6%, calc(12px - (100vw - 100%) / 2))",
-                top: "10%",
-                zIndex: 4,
-                padding: "12px 18px",
-                borderRadius: "20px",
-                background: "var(--d-bg-f1e6ff)",
-                textAlign: "left",
-                fontSize: "13px",
-                // @ts-expect-error custom prop
-                "--r": "-4deg",
-                animation: "gmFloat 6s ease-in-out infinite",
-                boxShadow: "0 14px 20px 4px var(--d-sh-rgba46914408)",
-                border: "1px solid var(--d-bd-rgba2011672554)"
-              }}
-            >
-              <strong style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "var(--d-tx-2b164d)" }}>
-                Brand kit found
-              </strong>
-              <span style={{ color: "var(--d-tx-535862)" }}>Logo · #4F46E5 · Inter</span>
-            </div>
-
-            {/* Floating Tag 2: Storyboard Ready (Green) */}
-            <div
-              style={{
-                position: "absolute",
-                right: "max(-5%, calc(12px - (100vw - 100%) / 2))",
-                top: "6%",
-                zIndex: 4,
-                padding: "12px 18px",
-                borderRadius: "20px",
-                background: "var(--d-bg-d3f6e3)",
-                textAlign: "left",
-                fontSize: "13px",
-                // @ts-expect-error custom prop
-                "--r": "3deg",
-                animation: "gmFloat 7s ease-in-out 1s infinite",
-                boxShadow: "0 14px 20px 4px var(--d-sh-rgba46914408)",
-                border: "1px solid var(--d-bd-rgba1602301905)"
-              }}
-            >
-              <strong style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "var(--d-tx-0b4d2c)" }}>
-                Storyboard ready
-              </strong>
-              <span style={{ color: "var(--d-tx-535862)" }}>5 scenes · 0:30</span>
-            </div>
-
-            {/* Floating Tag 3: Revision Comment (White) */}
-            <div
-              style={{
-                position: "absolute",
-                right: "max(-3%, calc(12px - (100vw - 100%) / 2))",
-                bottom: "10%",
-                zIndex: 4,
-                maxWidth: "250px",
-                padding: "12px 18px",
-                borderRadius: "20px",
-                background: "var(--d-bg-fafdff)",
-                textAlign: "left",
-                fontSize: "13px",
-                // @ts-expect-error custom prop
-                "--r": "-2deg",
-                animation: "gmFloat 8s ease-in-out .5s infinite",
-                boxShadow: "0 14px 20px 4px var(--d-sh-rgba46914410)",
-                border: "1px solid var(--d-bd-e1eaf4)"
-              }}
-            >
-              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: "11px", color: "var(--d-tx-0a6cff)", fontWeight: 600 }}>
-                0:11 · Scene 3
-              </span>
-              <span style={{ display: "block", marginTop: "4px", color: "var(--d-tx-0a0d12)" }}>
-                “Show the dashboard for longer.”
-              </span>
-            </div>
-
-            {/* Floating Tag 4: Approved (Yellow) */}
-            <div
-              style={{
-                position: "absolute",
-                left: "max(-3%, calc(12px - (100vw - 100%) / 2))",
-                bottom: "14%",
-                zIndex: 4,
-                padding: "12px 18px",
-                borderRadius: "20px",
-                background: "var(--d-bg-fff2be)",
-                textAlign: "left",
-                fontSize: "13px",
-                // @ts-expect-error custom prop
-                "--r": "4deg",
-                animation: "gmFloat 6.5s ease-in-out 2s infinite",
-                boxShadow: "0 14px 20px 4px var(--d-sh-rgba46914408)",
-                border: "1px solid var(--d-bd-rgba2402101205)"
-              }}
-            >
-              <strong style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "var(--d-tx-6b5200)" }}>
-                Approved · Revision 4
-              </strong>
-              <span style={{ color: "var(--d-tx-535862)" }}>MP4 · 1920 × 1080</span>
-            </div>
-
-            {/* Video Bezel Container */}
-            <div
-              style={{
-                padding: "3px",
-                borderRadius: "36px",
-                background: "linear-gradient(180deg,#168BFF 11%,#0A6CFF 78%)",
-                boxShadow: "0 30px 60px -20px var(--d-sh-rgba46914435)"
-              }}
-            >
-              <div
-                style={{
-                  padding: "14px",
-                  borderRadius: "33px",
-                  background: "#0a0d12"
-                }}
-              >
-                {/* Scene Render Frame */}
-                <SceneFrame
-                  scene={activeScene}
-                  branded={true}
-                  logoPlace="open-end"
-                  radius="20px"
-                  eyebrow="Smart Profit Dashboard"
-                  productName="Acme"
-                />
-
-                {/* Player Controls Bar */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    padding: "12px 8px 4px"
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setIsPlaying(!isPlaying)}
-                    aria-label={isPlaying ? "Pause preview" : "Play preview"}
-                    style={{
-                      display: "grid",
-                      placeItems: "center",
-                      width: "30px",
-                      height: "30px",
-                      borderRadius: "50%",
-                      background: "var(--d-bg-ffffff)",
-                      color: "var(--d-tx-0a0d12)",
-                      border: 0,
-                      cursor: "pointer",
-                      fontSize: "11px",
-                      flexShrink: 0
-                    }}
-                  >
-                    {isPlaying ? "❚❚" : "▶"}
-                  </button>
-
-                  {/* Progress track */}
-                  <div
-                    style={{
-                      flex: 1,
-                      height: "4px",
-                      borderRadius: "4px",
-                      background: "rgba(255,255,255,.14)",
-                      overflow: "hidden",
-                      position: "relative"
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: "100%",
-                        width: heroPct,
-                        background: "linear-gradient(90deg,#168BFF,#0A6CFF)",
-                        transition: "width 250ms linear"
-                      }}
-                    />
-                  </div>
-
-                  {/* Scene Counter & Nav */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span
-                      style={{
-                        fontFamily: "'DM Mono', monospace",
-                        fontSize: "12px",
-                        color: "var(--d-tx-93979f)",
-                        whiteSpace: "nowrap"
-                      }}
-                    >
-                      Scene {sceneIndex + 1} of 5
-                    </span>
-                    <div style={{ display: "flex", gap: "3px" }}>
-                      {SCENES.map((_, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => {
-                            setT(idx * SCENE_TICKS);
-                          }}
-                          aria-label={`Jump to scene ${idx + 1}`}
-                          style={{
-                            width: "8px",
-                            height: "8px",
-                            borderRadius: "50%",
-                            border: 0,
-                            padding: 0,
-                            cursor: "pointer",
-                            background: idx === sceneIndex ? "#168BFF" : "rgba(255,255,255,.2)",
-                            transition: "background 200ms ease"
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* Real render: a finished Greedy Motion video, muted loop, poster first */}
+          <HeroVideo />
         </section>
+
+        <ReelsShowcase signedIn={signedIn} />
+        <Walkthrough />
+        <ResultsGallery signedIn={signedIn} />
 
         {/* How It Works Section */}
         <section
@@ -967,7 +751,7 @@ export function LandingPage() {
               Guardrails for everyone. Control for pros.
             </h2>
             <p style={{ margin: 0, fontSize: "16px", color: "var(--d-tx-535862)", maxWidth: "560px" }}>
-              Move through a guided storyboard flow—from script and voiceover to live browser motion previews—in one Studio.
+              Animate with code, without writing it: move through a guided storyboard flow—from script and voiceover to live browser motion previews—in one Studio.
             </p>
           </div>
 

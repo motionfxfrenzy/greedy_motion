@@ -7,7 +7,7 @@ import { PublicLinks } from "../../components/public-links";
 import { SiteNav } from "../../components/site-nav";
 import styles from "../../components/public-page.module.css";
 
-export const metadata: Metadata = { title: "Pricing · Greedy Motion", description: "Start free with a 90-second film. Paid plans from $19 a month ($15.83/mo billed annually), priced in tokens." };
+export const metadata: Metadata = { title: "Pricing · Greedy Motion", description: "Motion graphics with code, starting free with a 90-second film. Paid plans from $19 a month ($15.83/mo billed annually), priced in tokens." };
 
 export default function Pricing() {
   return (
@@ -25,7 +25,7 @@ export default function Pricing() {
         <CompareTable />
         <Faq />
         <section className="closing">
-          <h2>Ready to see your product in motion?</h2>
+          <h2>Ready to animate your product with code?</h2>
           <div className="hero-actions"><Link className="accent-button" href={appHref("/auth")}>Start free</Link><a className="secondary-button" href="#plans">Choose a plan</a></div>
           <p className="pricing-fine">Prices are in US dollars. Taxes are added at checkout. Unused prepaid tokens can be refunded within 30 days under the <Link href="/refunds">refund policy</Link>.</p>
         </section>
