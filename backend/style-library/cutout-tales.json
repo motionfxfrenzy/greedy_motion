@@ -1,0 +1,37 @@
+{
+  "id": "cutout-tales",
+  "name": "Cutout tales",
+  "group": "Drawn",
+  "description": "Code-drawn 2D cutout / puppet storytelling: flat vector characters that barely move, layered parallax sets and pop-in overlays, timed to the voiceover.",
+  "libraries": [
+    "gsap"
+  ],
+  "available": true,
+  "version": 1,
+  "renderer": "cutout",
+  "renderMode": "native",
+  "preview": {
+    "src": "/previews/looks/cutout-tales.jpg",
+    "kind": "image",
+    "label": "Rendered 4-frame contact sheet"
+  },
+  "source": "third_party/cutout-tales/README.md",
+  "referenceAssets": [],
+  "instructions": {
+    "image": "Flat vector adult cutout characters (about 7 heads tall, mitten hands, dark-brown outline, one hard shadow tone), layered sets with parallax depth, dust and vignette.",
+    "motion": "Characters barely move (breathing, blinks, slow sway); a slow camera push-in plus drift and back-out pop-in overlays carry the energy. Shots are cut to voiceover sentences.",
+    "composition": "The planner outputs only a JSON shot list (set, mood, cast archetypes, poses, overlays); the renderer lays overlays out so they never overlap each other or a head. Keep one style for the whole film.",
+    "negative": "No game, film or TV characters. No model-written drawing code. No unseeded randomness, render-time network or live clocks.",
+    "requiredAssets": [
+      "Voiceover sentence timings",
+      "Validated cutout-tales shot list"
+    ],
+    "acceptance": [
+      "Identical pixels after repeated and backward seeking",
+      "Original characters only",
+      "Overlays never overlap each other or a head, in 16:9 and 9:16",
+      "Readable copy in landscape and portrait"
+    ]
+  },
+  "sourceSha256": "a03c6042bb1290d694277c770759c1c32d165551bdf5991ec4409c0494844a75"
+}

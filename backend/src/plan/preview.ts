@@ -14,6 +14,7 @@ import { filmFeel, filmFrames, withFrameFilm } from "./frame-film.ts";
 import { soundTracks, withAudioContinuity, withSoundtrack } from "./sound.ts";
 import { planTiming, takeOptions, type PlanTiming } from "./timing.ts";
 import { getProjectSubtitles } from "../plates/service.ts";
+import { cutoutPreviewHtml, isCutoutLook } from "./cutout.ts";
 
 /**
  * The live storyboard page for a project's beat plan: the beat-plan engine template
@@ -69,6 +70,8 @@ export const brandNameFor = (project: VideoProject, brand: { name: string } | nu
 export async function planPreviewHtml(project: VideoProject): Promise<string> {
   const plan = project.beatPlan;
   if (!plan) throw new PreviewUnavailable("Generate the plan first.");
+  // Cutout tales draws its own composition from the stored shot list (plan/cutout.ts); every other look uses the beat-plan engine.
+  if (isCutoutLook(project)) return cutoutPreviewHtml(project);
   await verifyVisualAssets(project);
   const [templateHtml, bundledFonts] = await Promise.all([
     requiredText(join(config.templatesDir, ENGINE_TEMPLATE, "index.html"), "The beat-plan engine"),

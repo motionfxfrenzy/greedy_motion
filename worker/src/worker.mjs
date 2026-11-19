@@ -5,7 +5,7 @@ import { preflightRender, RenderContractError, RENDER_CAPABILITIES } from "./ren
 import http from "node:http";
 import { access, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, writeVariables } from "./compose.mjs";
+import { HYPERFRAMES, addAudio, addScreenshot, buildProject, idOrDefault, run, stampCutoutTales, writeVariables } from "./compose.mjs";
 import { DISK_FULL_CODE, DISK_FULL_MESSAGE, cleanTempScratchDirs, deleteOutputs, downloadProject, isDiskFullError, otherAttempts, storageEnabled, uploadOutput } from "./storage.mjs";
 import { QUEUES, claim, finish, noteRetry, progress } from "./jobs.mjs";
 import { consume, createControl, runLeased } from "./control.mjs";
@@ -255,7 +255,9 @@ async function renderVideo(input, attempt, signal, reporter) {
       await mkdir(project, { recursive: true });
       const { brandVariables } = await buildProject(project, { template, theme, brandId });
       const screenshotVariables = await addScreenshot(project, input.screenshot);
-      await addAudio(project, id, input.audio);
+      // Cutout tales takes its canvas and length from the shot list; audio is trimmed to that length.
+      const stamped = template === "cutout-tales" ? await stampCutoutTales(project, variables) : null;
+      await addAudio(project, id, input.audio, stamped?.duration);
       variablesFile = await writeVariables(project, { ...variables, ...brandVariables, ...screenshotVariables });
     } catch (error) {
       if (isDiskFullError(error)) throw new PermanentError(DISK_FULL_MESSAGE, DISK_FULL_CODE);

@@ -18,8 +18,11 @@ assert.ok(explain.includes("dark-fable") && explain.includes("picture-film"));
 
 // trending: the default list, in order, drawn from the other tabs (counts of those tabs still include them)
 const t1 = queryGallery({ plates: true, useCase: "trending" });
-assert.deepEqual(t1.items.map((x) => x.id), [...trendingGalleryIds]);
-assert.equal(t1.counts.trending, trendingGalleryIds.length);
+// Cutout tales is staging-only: its template leads the list but is hidden while the flag is off.
+const visibleTrending = trendingGalleryIds.filter((id) => id !== "cutout-tales-western");
+assert.ok(trendingGalleryIds[0] === "cutout-tales-western");
+assert.deepEqual(t1.items.map((x) => x.id), visibleTrending);
+assert.equal(t1.counts.trending, visibleTrending.length);
 assert.ok(all.counts.story >= 1 && all.counts.explain >= 2, "the templates are still counted in their own tabs");
 // changed on the fly: another list, another order, unknown ids ignored
 const t2 = queryGallery({ plates: true, useCase: "trending", trending: ["dark-fable", "no-such-template", "story-vox-collage"] });

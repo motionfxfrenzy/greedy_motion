@@ -167,6 +167,14 @@ export async function watchRenderJob(id: string, onJob: (job: RenderJob) => void
   throw new Error("The render stream closed early.");
 }
 
+// ---------- Cutout tales (staging flag) ----------
+
+/** Plans the cutout shots for the project's current script and characters (the storyboard step calls this). */
+export async function planCutoutShots(projectId: string, force = false) {
+  const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/cutout/plan${force ? "?force=1" : ""}`, { method: "POST" });
+  return parse<{ planned: boolean; cached: boolean; shots?: number }>(response, "Could not plan the cutout shots.");
+}
+
 /** Output URLs from the backend are paths; resolve them against the backend origin. */
 export function outputUrl(path: string) {
   return withMediaToken(new URL(path, apiOrigin).toString());
@@ -539,6 +547,8 @@ export type Composition = {
   audio?: PlanAudioStatus;
   /** Whether Submit can render the storyboard as is; `blocking` items point at the beat to fix. */
   readiness?: PlanReadiness;
+  /** Cutout tales only: whether the shot list is planned for the current script (the preview needs it). */
+  cutout?: { planned: boolean; supported: boolean };
 };
 export type PlanReadiness = {
   ok: boolean;

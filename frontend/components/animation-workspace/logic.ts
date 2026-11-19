@@ -250,10 +250,14 @@ export function wordSubtitleCues(scene: number, line: string, start: number, dur
   }
   if (!words.length) return [];
   const n = Math.max(1, Math.floor(perCue));
+  // perCue 99 = one sentence per cue (it ends on . ! ? or after 14 words); any other number is that many words.
+  const groups: { text: string; at: number }[][] = [];
+  if (n >= 99) { let cur: { text: string; at: number }[] = []; for (const w of words) { cur.push(w); if (/[.!?\u2026]["')\]]*$/.test(w.text) || cur.length >= 14) { groups.push(cur); cur = []; } } if (cur.length) groups.push(cur); }
+  else for (let k = 0; k < words.length; k += n) groups.push(words.slice(k, k + n));
   const cues: SubtitleCue[] = [];
   let last = start - 1;
-  for (let k = 0; k < words.length; k += n) {
-    const group = words.slice(k, k + n);
+  for (let k = 0; k < groups.length; k++) {
+    const group = groups[k]!;
     const at = k === 0 ? start : Math.max(start + group[0]!.at, last + 0.04);
     if (at >= end) { if (cues.length) cues[cues.length - 1]!.text += ` ${group.map((w) => w.text).join(" ")}`; continue; }
     if (cues.length) cues[cues.length - 1]!.end = at;

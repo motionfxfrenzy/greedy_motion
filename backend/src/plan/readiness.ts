@@ -13,6 +13,7 @@ import { authorRouteForTier, resolveProjectAnimationTier } from "../billing/step
 import { setCoverFrame } from "../projects/store.ts";
 import { plateFilmSeconds } from "../plates/inputs.ts";
 import { TIMING_RULES } from "./timing.ts";
+import { cutoutAspectOf, currentCutout, isCutoutLook } from "./cutout.ts";
 
 /**
  * Everything that can stop a film is decided on the storyboard, never at render time: the plan's
@@ -38,6 +39,11 @@ export function planReadiness(project: VideoProject): Readiness {
   const visuals = visualStatus(project);
   if (visuals.required && (visuals.status !== "ready" || visuals.ready !== visuals.total)) blocking.push({ beat: null, message: `Generate the selected style’s material scenes before rendering (${visuals.ready}/${visuals.total} ready${visuals.status === "stale" ? "; storyboard changed" : ""}).` });
   const clips = currentClips(project);
+  if (isCutoutLook(project)) {
+    if (!config.cutoutTales) blocking.push({ beat: null, message: "Cutout tales is not available here." });
+    else if (!cutoutAspectOf(project)) blocking.push({ beat: null, message: "Cutout tales supports 16:9 and 9:16 films. Change the format in the brief." });
+    else if (!currentCutout(project)) blocking.push({ beat: null, message: "Plan the cutout shots for the current script first." });
+  }
   const isPlate = Boolean(project.brief?.look?.startsWith("illus-"));
   if (!isPlate) {
     for (const beat of plan.beats) {

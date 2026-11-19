@@ -155,6 +155,14 @@ const curated: readonly GalleryTemplate[] = [
     prompt: "Explain the bystander effect: why the more people watch someone in trouble, the less likely anyone helps."
   },
   {
+    id: "cutout-tales-western", kind: "explainer", name: "Cutout tales", group: "Story",
+    summary: "A story told by flat cutout characters that barely move, in front of layered dusk sets, with name tags, stamps and speech bubbles popping in on the narration.",
+    bestFor: "Western, crime and 'what if you were born as\u2026' life stories in under a minute",
+    preview: { src: "/templates/cutout-tales-western.jpg", kind: "video", label: "Example film", video: "/templates/cutout-tales-western-5s.mp4", film: "/templates/cutout-tales-western.mp4" },
+    skill: null, look: "cutout-tales", theme: "neutral", aspect: "9:16", durationSeconds: 30, motionProfile: "smooth", pace: "fast", audio: "both", captions: "full", voice: "Puck",
+    prompt: "A 30-second Old West tale: a lone drifter named Silas rides into the town of Dust Creek, where the sheriff, a tall woman named Maya, suspects him of last night's bank robbery. He tips his hat, says he only wants work, and she pins a deputy's star on him."
+  },
+  {
     id: "history-reel", kind: "explainer", name: "Cartoon history", group: "Story",
     summary: "A surprising true story told fast by cartoon characters acting in a painted 3D world, with a camera that never stops.",
     bestFor: "True stories from history and science that end on a twist, in under a minute",
@@ -240,9 +248,12 @@ const withRendered = (item: GalleryTemplate): GalleryTemplate => {
 
 const exampleStylePrompt = "A 30-second explainer for Pocket, an app that turns receipts into a tidy monthly budget. Show the problem of a pile of receipts, how Pocket sorts them, and a call to try it free.";
 
+/** Cutout tales is staging-only: hidden from every gallery, picker and template list unless the flag is on (build-time for the browser). */
+export const cutoutLookHidden = (look: string) => look === "cutout-tales" && process.env.NEXT_PUBLIC_CUTOUT_TALES !== "1" && process.env.CUTOUT_TALES_ENABLED !== "1";
+
 /** Every drawn style is also a template: its look, a ready example prompt and a preview. */
 const styleTemplates: readonly GalleryTemplate[] = looks
-  .filter((look) => look.available && look.renderMode === "native" && !curated.some((item) => item.look === look.id))
+  .filter((look) => look.available && look.renderMode === "native" && !cutoutLookHidden(look.id) && !curated.some((item) => item.look === look.id))
   .map((look): GalleryTemplate => ({
     id: `style-${look.id}`, kind: "style", name: look.name.replace(/^Illustration · /, ""), group: look.group,
     summary: look.description,
@@ -320,7 +331,7 @@ const everyGalleryTemplate: readonly GalleryTemplate[] = [...curated, ...sceneTe
  * Set to false to bring them all back.
  */
 export const HOLD_GENERATED_STYLES = true;
-export const heldForV2 = (look: string) => HOLD_GENERATED_STYLES && getLook(look).renderMode === "generated";
+export const heldForV2 = (look: string) => cutoutLookHidden(look) || (HOLD_GENERATED_STYLES && getLook(look).renderMode === "generated");
 /** The Story & film plates of the illustration styles: each is code-drawn (anidoodle), so they stay in the gallery while the generated looks are held. */
 export const isStylePlate = (item: GalleryTemplate) => item.id.startsWith("story-illus-");
 export const isStylePlateLook = (look: string) => everyGalleryTemplate.some((item) => item.look === look && isStylePlate(item));
@@ -351,7 +362,7 @@ export function useCaseOf(item: GalleryTemplate): GalleryUseCase {
   // A fable that explains one idea: an educational film (the film brief, the explainer kind), though drawn in a story look.
   if (item.id === "dark-fable" || item.id === "picture-film") return "explain";
   // A true story told by painted puppets is a story film.
-  if (item.id === "history-reel") return "story";
+  if (item.id === "history-reel" || item.id === "cutout-tales-western") return "story";
   if (item.kind === "style" && item.group === "Story") return "story";
   if (brandGroups.has(item.group)) return "brand";
   return "saas";

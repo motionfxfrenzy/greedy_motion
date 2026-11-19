@@ -5,7 +5,8 @@ import { existsSync } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const APP_ROOT = "/app";
+// WORKER_APP_ROOT lets local tooling (scripts/cutout-render.mjs) run the same code outside the container.
+export const APP_ROOT = process.env.WORKER_APP_ROOT || "/app";
 const RUN_CWD = existsSync(APP_ROOT) ? APP_ROOT : process.cwd();
 export const HYPERFRAMES = join(APP_ROOT, "node_modules/.bin/hyperframes");
 const SAFE_ID = /^[a-z0-9-]{1,40}$/;
@@ -78,7 +79,7 @@ export async function buildProject(project, { template, theme, brandId }) {
   return { brandVariables: brand?.variables ?? {} };
 }
 
-const AUDIO_ROOT = "/audio";
+const AUDIO_ROOT = process.env.WORKER_AUDIO_ROOT || "/audio";
 const VOICE_START = 0.3;
 const PROJECTS_ROOT = "/projects";
 const PROJECT_ID = /^[0-9a-f-]{36}$/;
@@ -196,4 +197,26 @@ export function run(command, args, { onLine, signal, cwd = RUN_CWD } = {}) {
       return code === 0 ? settleResolve(stdout) : settleReject(Object.assign(new Error(`Command failed (${code}): ${(stderr || stdout).slice(-800)}`), { stdout }));
     });
   });
+}
+
+const CUTOUT_CANVAS = { "16:9": [1920, 1080], "9:16": [1080, 1920] };
+
+/**
+ * Cutout tales: the composition's size and length come from its shot list, so stamp them on #root and the viewport.
+ * The backend validates the whole shot list before a job exists; this only reads the three fields the render needs and
+ * refuses anything outside the two supported canvases.
+ */
+export async function stampCutoutTales(project, variables) {
+  let spec = variables?.spec;
+  if (typeof spec === "string") { try { spec = JSON.parse(spec); } catch { spec = null; } }
+  const size = spec && typeof spec === "object" ? CUTOUT_CANVAS[spec.aspect] : undefined;
+  const duration = Number(spec?.duration);
+  if (!size || !Number.isFinite(duration) || duration < 1 || duration > 300 || !Array.isArray(spec.shots) || !spec.shots.length) throw new Error("The cutout-tales shot list is missing or invalid.");
+  const htmlPath = join(project, "index.html");
+  const html = await readFile(htmlPath, "utf8");
+  const root = /<div id="root"[^>]*>/.exec(html);
+  if (!root) throw new Error("Template has no #root element.");
+  const stamped = root[0].replace(/data-width="\d+"/, `data-width="${size[0]}"`).replace(/data-height="\d+"/, `data-height="${size[1]}"`).replace(/data-duration="[\d.]+"/, `data-duration="${duration}"`);
+  await writeFile(htmlPath, html.replace(root[0], () => stamped).replace(/<meta name="viewport" content="[^"]*">/, `<meta name="viewport" content="width=${size[0]}, height=${size[1]}">`));
+  return { width: size[0], height: size[1], duration };
 }

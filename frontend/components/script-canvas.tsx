@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { ANIMATION_TIER_SPECS, DEFAULT_ANIMATION_TIER, formatDurationSeconds, PLANS, PAID_TIERS, PREMIUM_LOCKED_COPY, PREVIEW_ALLOWANCE, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, remapIndicesOnInsert, remapIndicesOnRemove, type AnimationTier, type BillingInterval, type BillingPolicyVersion, renderCostMillitokens, renderExportCostMillitokensV2, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
 import Link from "next/link";
 import { getMySubscription, getMyTokens, startCheckout, type LimitError, type ScriptFlag } from "../lib/api";
@@ -264,14 +265,15 @@ export function PlanLimitOptions({ limit }: { limit: LimitError }) {
 }
 
 /** The refusal as a dialog (used away from the storyboard page). */
-export function PlanLimitModal({ limit, onClose, onBack }: { limit: LimitError; onClose: () => void; onBack?: () => void }) {
+export function PlanLimitModal({ limit, onClose, onBack, onRetry }: { limit: LimitError; onClose: () => void; onBack?: () => void; onRetry?: () => void }) {
   useEffect(() => {
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
   const capped = limit.code === "preview_call_cap";
-  return <div className="sc-modal-backdrop" onClick={onClose}>
+  // Portalled to the page body: the storyboard canvas is its own stacking context, which would keep the dialog under the header.
+  return createPortal(<div className="sc-modal-backdrop" style={{ zIndex: 1000 }} onClick={onClose}>
     <div className="sc-modal lim-modal" role="dialog" aria-modal="true" aria-labelledby="sc-limit-title" onClick={(event) => event.stopPropagation()}>
       <header>
         <h2 id="sc-limit-title">{limitCopy(limit).title}</h2>
@@ -282,10 +284,11 @@ export function PlanLimitModal({ limit, onClose, onBack }: { limit: LimitError; 
       <small>{capped ? "Start a new film to keep going; your other films are not affected." : "Nothing is lost: your brief and settings are saved, and you can pick up where you left off after checkout."}</small>
       <div className="sc-modal-actions">
         {onBack && <button type="button" className="secondary-button" onClick={onBack}>Back to brief</button>}
+        {onRetry && <button type="button" className="secondary-button" onClick={onRetry}>Try again</button>}
         <button type="button" className="secondary-button" onClick={onClose}>Close</button>
       </div>
     </div>
-  </div>;
+  </div>, document.body);
 }
 
 /** Render, or (when the balance does not cover the film) Add tokens, which opens the purchase modal. */
@@ -737,6 +740,13 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
     : storyboard.state === "building" && storyboard.resuming
     ? <><i className="sc-live" />{`Resuming your storyboard · ${beats.length} beats · about ${formatDurationSeconds(runs)}`}</>
     : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${formatDurationSeconds(runs)}${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}${paintingSets ? " · painting the sets…" : previewTokens ? ` · sets ${Math.round(previewTokens * 10) / 10}t` : ""}${voicedCount > 0 ? ` · ${voicedCount}/${totalVoicedBeats} voiced` : ""}`;
+
+  // A refusal for tokens or plan limits floats over the (empty) storyboard instead of replacing it.
+  if (!streaming && beats.length === 0 && error && limit) return <div className="script-canvas">
+    <header className="sc-head"><div className="sc-head-title"><h1>Storyboard</h1></div></header>
+    <div className="sc-scroll" aria-hidden="true" />
+    <PlanLimitModal limit={limit} onClose={() => onBackToBrief?.()} onBack={onBackToBrief} onRetry={limit.code !== "preview_call_cap" ? onTryAgain : undefined} />
+  </div>;
 
   if (!streaming && beats.length === 0 && error) return <div className="script-canvas">
     <header className="sc-head"><div className="sc-head-title"><h1>Storyboard</h1></div></header>
