@@ -24,7 +24,7 @@ const REELS: Reel[] = [
 ];
 
 const RESULTS: Result[] = [
-  { id: "product-spin-ad", src: "/showcase/results/product-spin-ad", title: "Product ad", kind: "Social ad", prompt: "Launch ad for our sparkling drink" },
+  { id: "code-diff-reveal", src: "/showcase/reels/code-diff-reveal", title: "Code walkthrough", kind: "Dev explainer", prompt: "Show what changed in our refactor" },
   { id: "feature-spotlight", src: "/showcase/results/feature-spotlight", title: "Feature spotlight", kind: "Product demo", prompt: "Show off our new dashboard" },
   { id: "stat-highlight", src: "/showcase/results/stat-highlight", title: "Stat highlight", kind: "Data moment", prompt: "72% of launch videos are watched muted" },
   { id: "whats-new", src: "/showcase/results/whats-new", title: "What's new", kind: "Release notes", prompt: "Changelog for v2.4" },
@@ -124,7 +124,7 @@ const FEATURED_CARDS: Card[] = [
   r("whats-new", "What's new", "Featured", true, "results")
 ];
 const MORE_CARDS: Card[] = [
-  r("product-spin-ad", "Product ad", "Social ad", true, "results"),
+  r("kinetic-quote-stack", "Quote card", "Typography", true),
   r("story-illus-balloon", "Hot-air balloon story", "Crayon story", false),
   r("kinetic-type-explainer", "Kinetic type", "Typography", true),
   r("story-illus-koi", "Koi pond story", "Marker comic", false),
@@ -415,7 +415,7 @@ const COLLAGE: Clip[] = [
   ...RESULTS.map((r) => ({ template: r.id, src: r.src, title: r.title, ratio: "16 / 10" }))
 ];
 const COLUMN_ORDER = [
-  ["story-illus-balloon", "product-spin-ad", "story-illus-fox", "stat-highlight"],
+  ["story-illus-balloon", "code-diff-reveal", "story-illus-fox", "stat-highlight"],
   ["feature-spotlight", "story-illus-blueprint", "whats-new", "story-illus-embroidery"]
 ];
 
