@@ -73,6 +73,24 @@ assert.equal(cutoutTalesEnabled({ CUTOUT_TALES_ENABLED: "1", APP_ENV: "staging" 
 assert.equal(cutoutTalesEnabled({ CUTOUT_TALES_ENABLED: "1", APP_ENV: "production" }), false);
 assert.equal(cutoutTalesEnabled({ APP_ENV: "staging" }), false);
 
+// The gallery follows the backend flag: it can never list a template whose renders are blocked.
+{
+  const { cutoutLookHidden } = await import("../../packages/contracts/src/gallery.ts");
+  const keys = ["CUTOUT_TALES_ENABLED", "NEXT_PUBLIC_CUTOUT_TALES", "APP_ENV"];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  const withEnv = (env, fn) => { for (const k of keys) delete process.env[k]; Object.assign(process.env, env); try { return fn(); } finally { for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } } };
+  const hidden = (env) => withEnv(env, () => cutoutLookHidden("cutout-tales"));
+  assert.equal(hidden({ CUTOUT_TALES_ENABLED: "1", APP_ENV: "staging" }), false, "staging backend flag shows it");
+  assert.equal(hidden({ NEXT_PUBLIC_CUTOUT_TALES: "1", APP_ENV: "staging" }), false, "staging browser flag shows it");
+  assert.equal(hidden({ CUTOUT_TALES_ENABLED: "1", APP_ENV: "production" }), true, "production hides it whatever the flag says");
+  assert.equal(hidden({ NEXT_PUBLIC_CUTOUT_TALES: "1", CUTOUT_TALES_ENABLED: "1", APP_ENV: "production" }), true);
+  assert.equal(hidden({ APP_ENV: "staging" }), true, "flag off hides it");
+  for (const env of [{ CUTOUT_TALES_ENABLED: "1", APP_ENV: "staging" }, { CUTOUT_TALES_ENABLED: "1", APP_ENV: "production" }, { APP_ENV: "staging" }]) {
+    if (!("NEXT_PUBLIC_CUTOUT_TALES" in env)) assert.equal(hidden(env), !cutoutTalesEnabled(env), "server side: hidden exactly when the backend flag is off");
+  }
+  assert.equal(hidden({}) , true); assert.equal(withEnv({}, () => cutoutLookHidden("dark-fable")), false, "other looks are never affected");
+}
+
 // The contract vocabulary and the renderer kit must not drift apart.
 await import(new URL("kit.js", root).href); // browser-global script: registers globalThis.CutoutKit
 const kit = globalThis.CutoutKit;

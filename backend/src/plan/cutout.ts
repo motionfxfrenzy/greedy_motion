@@ -41,6 +41,23 @@ export function cutoutFingerprint(project: VideoProject): string {
 
 export const currentCutout = (project: VideoProject) => (project.beatPlan && project.cutout?.fingerprint === cutoutFingerprint(project) ? project.cutout : null);
 
+/**
+ * A second guard on the unmetered-looking model call: at most CUTOUT_PLAN_MAX planner runs per project per CUTOUT_PLAN_WINDOW_MS,
+ * whoever pays for them (open mode, step billing and local development skip the preview meter). In memory per process.
+ */
+export const CUTOUT_PLAN_MAX = 6;
+export const CUTOUT_PLAN_WINDOW_MS = 60 * 60 * 1000;
+const planRuns = new Map<string, number[]>();
+/** Records a planner run for the project, or returns the seconds to wait when it has used its runs for the window. */
+export function takeCutoutPlanSlot(projectId: string, now = Date.now()): { ok: true } | { ok: false; retryAfterSeconds: number } {
+  const recent = (planRuns.get(projectId) ?? []).filter((t) => now - t < CUTOUT_PLAN_WINDOW_MS);
+  if (recent.length >= CUTOUT_PLAN_MAX) { planRuns.set(projectId, recent); return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil((recent[0]! + CUTOUT_PLAN_WINDOW_MS - now) / 1000)) }; }
+  recent.push(now);
+  planRuns.set(projectId, recent);
+  return { ok: true };
+}
+export const resetCutoutPlanSlots = () => planRuns.clear();
+
 /** Plans (or re-plans) the shots for the current beats and keeps them with the project. */
 export async function planCutoutShots(project: VideoProject): Promise<NonNullable<VideoProject["cutout"]>> {
   const aspect = cutoutAspectOf(project);
