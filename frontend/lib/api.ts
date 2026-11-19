@@ -167,6 +167,19 @@ export async function watchRenderJob(id: string, onJob: (job: RenderJob) => void
   throw new Error("The render stream closed early.");
 }
 
+// ---------- Cutout tales (staging flag) ----------
+
+export type CutoutTalesStatus = { enabled: boolean; aspects: string[]; limits: { scriptMin: number; scriptMax: number; sentences: number } };
+export async function getCutoutTalesStatus() {
+  const response = await apiFetch(`${apiOrigin}/v1/cutout-tales`, { cache: "no-store" });
+  return parse<CutoutTalesStatus>(response, "Could not check Cutout tales.");
+}
+/** Narrates the script, plans a validated shot list, and queues the render through the normal job queue. */
+export async function startCutoutTales(input: { script: string; aspect: "16:9" | "9:16" }) {
+  const response = await apiFetch(`${apiOrigin}/v1/cutout-tales/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  return parse<RenderJob & { spec: { aspect: string; duration: number; shots: number } }>(response, "Could not start the film.");
+}
+
 /** Output URLs from the backend are paths; resolve them against the backend origin. */
 export function outputUrl(path: string) {
   return withMediaToken(new URL(path, apiOrigin).toString());

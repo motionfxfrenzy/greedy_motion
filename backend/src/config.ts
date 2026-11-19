@@ -1,5 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cutoutTalesEnabled } from "@videosaas/contracts";
 import { validateRoutes } from "./models/routes.ts";
 
 const backendSourceDir = dirname(fileURLToPath(import.meta.url));
@@ -198,6 +199,8 @@ export const config = {
   skillsBundleDir: resolve(process.env.SKILLS_BUNDLE_DIR ?? resolve(backendSourceDir, "../skills")),
   hyperframesRuntimePath: resolve(process.env.HYPERFRAMES_RUNTIME_PATH ?? resolve(repositoryDir, "node_modules", "hyperframes", "dist", "hyperframe-runtime.js")),
   gsapPath: resolve(process.env.GSAP_PATH ?? resolve(repositoryDir, "node_modules", "gsap", "dist", "gsap.min.js")),
+  /** Staging-only flag: never true in production, whatever the variable says (packages/contracts/src/cutout-tales.ts). */
+  cutoutTales: cutoutTalesEnabled(process.env),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
   // Only for the offline acceptance stack, where a stub answers authoring with fixed modules; hosted environments leave it unset.
   anthropicBaseUrl: (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/$/, ""),

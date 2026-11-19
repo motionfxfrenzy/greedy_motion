@@ -1,0 +1,59 @@
+{
+  "script": [
+    "Eighteen eighty-seven. The Red Mesa Riders ride toward the town of Dustwater.",
+    "Cade runs the crew.",
+    "Juno never misses.",
+    "And Tuck is on his very first week.",
+    "Marshal Hale is waiting, and he is not smiling.",
+    "Just passing through, says Cade.",
+    "That night by the fire, Tuck only wanted a horse.",
+    "But the last job was still coming."
+  ],
+  "draft": {
+    "aspect": "16:9",
+    "seed": 7,
+    "shots": [
+      { "sentences": [0, 0], "set": "silhouette", "mood": "gold", "props": ["riders"], "cast": [],
+        "overlays": [
+          { "type": "year", "text": "1887", "atSentence": 0, "offset": 0.4 },
+          { "type": "title", "text": "THE RED MESA RIDERS", "atSentence": 0, "offset": 1.4, "forSentences": 1 }
+        ] },
+      { "sentences": [1, 3], "set": "western_town", "mood": "dusk",
+        "cast": [
+          { "id": "cade", "archetype": "drifter", "name": "Cade", "x": 0.5, "scale": 1.3, "pose": "hips", "expr": "sly", "talkSentences": [0] },
+          { "id": "juno", "archetype": "markswoman", "name": "Juno", "x": 0.24, "scale": 1.25, "pose": "cross", "expr": "neutral", "expressions": [{ "atSentence": 1, "expr": "sly" }] },
+          { "id": "tuck", "archetype": "scamp", "name": "Tuck", "x": 0.78, "scale": 1.2, "pose": "idle", "expr": "happy", "flip": true, "gestures": [{ "atSentence": 2, "offset": 0.6, "pose": "wave" }] }
+        ],
+        "overlays": [
+          { "type": "tag", "text": "CADE", "sub": "the boss", "target": 0, "atSentence": 0, "offset": 0.2 },
+          { "type": "tag", "text": "JUNO", "sub": "never misses", "target": 1, "atSentence": 1, "offset": 0.1 },
+          { "type": "tag", "text": "TUCK", "sub": "first week on the job", "target": 2, "atSentence": 2, "offset": 0.1 },
+          { "type": "rating", "text": "MENACE", "atSentence": 1, "offset": 0.6 }
+        ] },
+      { "sentences": [4, 5], "set": "western_town", "mood": "dusk",
+        "cast": [
+          { "id": "juno", "archetype": "markswoman", "x": 0.2, "scale": 1.2, "pose": "cross", "expr": "angry" },
+          { "id": "cade", "archetype": "drifter", "x": 0.45, "scale": 1.28, "pose": "hips", "expr": "sly", "expressions": [{ "atSentence": 1, "expr": "angry" }], "talkSentences": [1] },
+          { "id": "tuck", "archetype": "scamp", "x": 0.65, "scale": 1.15, "pose": "idle", "expr": "worried", "expressions": [{ "atSentence": 0, "offset": 0.4, "expr": "shock" }], "gestures": [{ "atSentence": 0, "offset": 0.4, "pose": "up" }] },
+          { "id": "hale", "archetype": "marshal", "name": "Marshal Hale", "x": 0.86, "scale": 1.3, "pose": "hips", "expr": "neutral", "flip": true, "talkSentences": [0], "gestures": [{ "atSentence": 1, "pose": "point" }] }
+        ],
+        "overlays": [
+          { "type": "tag", "text": "MARSHAL HALE", "sub": "30 years, zero smiles", "target": 3, "atSentence": 0, "offset": 0.2 },
+          { "type": "bubble", "text": "Just passin' through, Marshal.", "speaker": 1, "atSentence": 1 },
+          { "type": "stamp", "text": "WANTED: $500", "target": 1, "atSentence": 1, "offset": 1.0 }
+        ] },
+      { "sentences": [6, 6], "set": "camp", "mood": "night", "props": ["fire"],
+        "cast": [
+          { "id": "cade", "archetype": "drifter", "x": 0.3, "scale": 1.2, "pose": "hold", "expr": "neutral" },
+          { "id": "juno", "archetype": "markswoman", "x": 0.68, "scale": 1.15, "pose": "cross", "expr": "sly", "flip": true },
+          { "id": "tuck", "archetype": "scamp", "x": 0.88, "scale": 1.05, "pose": "sad", "expr": "worried", "expressions": [{ "atSentence": 0, "offset": 1.5, "expr": "sad" }] }
+        ],
+        "overlays": [
+          { "type": "bubble", "text": "I just wanted a horse...", "speaker": 2, "think": true, "atSentence": 0, "offset": 1.2 },
+          { "type": "caption", "text": "One last job", "atSentence": 0, "offset": 0.3 }
+        ] },
+      { "sentences": [7, 7], "set": "silhouette", "mood": "gold", "props": ["riders"], "cast": [],
+        "overlays": [ { "type": "title", "text": "TO BE CONTINUED...", "atSentence": 0, "offset": 0.8 } ] }
+    ]
+  }
+}
