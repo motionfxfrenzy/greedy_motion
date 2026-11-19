@@ -57,6 +57,7 @@ import { InsufficientTokens, refundSpend, spendTokens } from "./tokens/store.ts"
 import { PLANS, renderCostMillitokens } from "./tokens/plan.ts";
 import { grantDueAnnualTokens, tierFor } from "./billing/service.ts";
 import { registerFormatRoutes } from "./formats/routes.ts";
+import { registerCutoutTalesRoutes } from "./cutout-tales/routes.ts";
 import { registerGalleryRoutes } from "./gallery.ts";
 import { registerLibraryRoutes } from "./library.ts";
 import { registerProRoutes } from "./pro/routes.ts";
@@ -193,6 +194,7 @@ app.get<{ Params: { id: string; name: string } }>("/v1/preview/brands/:id/fonts/
 // Product flow v2: Script & Style → beat plan, storyboard edits, live composition (backend/src/plan).
 await registerPlanRoutes(app);
 await registerFormatRoutes(app);
+await registerCutoutTalesRoutes(app);
 await registerGalleryRoutes(app);
 await registerPlateRoutes(app);
 await registerBrowserClipRoutes(app);

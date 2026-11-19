@@ -713,6 +713,16 @@
     else { cy = pl.y - 466 * s; rx = (d.stetson ? 92 : d.tophat ? 70 : 54) * s; top = cy - (hat ? (d.tophat ? 140 : d.stetson ? 100 : 78) : 78) * s; bot = cy + 66 * s; }
     return { x0: pl.x - rx, y0: top, x1: pl.x + rx, y1: bot };
   }
+  /** Boxes around each arm (shoulder, elbow, hand) for one pose, in frame px, so raised hands count as obstacles too. */
+  function armBoxes(pl, ch, pose) {
+    var d = resolveLook(ch.archetype, ch.look), wid = d.chubby ? 1.25 : 1, legh = d.chibi ? 150 : 230, sc = pl.s * (d.chibi ? 0.62 : 1), flip = ch.flip ? -1 : 1, out = [];
+    [[-52 * wid, pose.ba1, pose.ba2], [52 * wid, pose.fa1, pose.fa2]].forEach(function (a) {
+      var sx = a[0], sy = -150, ex = sx - Math.sin(a[1]) * 84, ey = sy + Math.cos(a[1]) * 84, hx = ex - Math.sin(a[1] + a[2]) * 84, hy = ey + Math.cos(a[1] + a[2]) * 84;
+      var xs = [sx, ex, hx].map(function (x) { return pl.x + flip * x * sc; }), ys = [sy, ey, hy].map(function (y) { return pl.y + (y - legh + 2) * sc; }), pad = 30 * sc;
+      out.push({ x0: Math.min.apply(null, xs) - pad, x1: Math.max.apply(null, xs) + pad, y0: Math.min.apply(null, ys) - pad, y1: Math.max.apply(null, ys) + pad });
+    });
+    return out;
+  }
   function overlap(a, b, pad) { pad = pad || 0; return a.x0 < b.x1 + pad && a.x1 > b.x0 - pad && a.y0 < b.y1 + pad && a.y1 > b.y0 - pad; }
 
   var layoutCache = typeof WeakMap === "function" ? new WeakMap() : null;
@@ -749,12 +759,18 @@
     spec.shots.forEach(function (shot) {
       var cam = camOf(spec, shot), dur = cam.dur, pl = placeCast(spec, shot);
       var heads = shot.cast.map(function (ch, i) { return headBox(pl[i], ch); });
+      // arms in every pose the cast takes during the shot (conservative: a raised hand blocks its space all shot)
+      var arms = []; shot.cast.forEach(function (ch, i) {
+        var names = [ch.pose || "idle"].concat((ch.gestures || []).map(function (g) { return g.pose; }));
+        names.forEach(function (n) { armBoxes(pl[i], ch, POSES[n] || POSES.idle).forEach(function (b) { arms.push(b); }); });
+      });
+      var obstacles = heads.concat(arms);
       var margin = 24, topM = D.portrait ? 110 : 36, botM = 36, boxes = [], placed = [];
       var order = (shot.overlays || []).map(function (ov, idx) { return { ov: ov, idx: idx, fixed: ov.type === "caption" || ov.type === "title" ? 0 : (ov.target !== undefined || ov.speaker !== undefined || ov.at ? 1 : 2) }; })
         .sort(function (a, b) { return a.fixed - b.fixed || a.ov.t0 - b.ov.t0 || a.idx - b.idx; });
       function bbAt(cx, cy, size) { return { x0: cx - size.w / 2 - 14 * u, x1: cx + size.w / 2 + 14 * u, y0: cy - size.h / 2 - 14 * u, y1: cy + size.h / 2 + 14 * u }; }
       function inFrame(bb) { return SAMPLES.every(function (p) { var q = cam.proj(bb, 0.85, p); return q.x0 >= margin && q.x1 <= D.W - margin && q.y0 >= topM && q.y1 <= D.H - botM; }); }
-      function clearOfHeads(bb) { return SAMPLES.every(function (p) { var q = cam.proj(bb, 0.85, p); return heads.every(function (h) { return !overlap(q, cam.proj(h, 1.0, p), 22); }); }); }
+      function clearOfHeads(bb) { return SAMPLES.every(function (p) { var q = cam.proj(bb, 0.85, p); return obstacles.every(function (h) { return !overlap(q, cam.proj(h, 1.0, p), 22); }); }); }
       order.forEach(function (it) {
         var ov = it.ov, size = ovSize(c, ov, u, D.W), end = ov.t1 === undefined ? dur : ov.t1, cands = [], chosen = null;
         var focus = null;
@@ -893,6 +909,7 @@
     var c = new Cr(ctx), lay = layoutSpec(c, spec), si = shotAt(spec, t), shot = spec.shots[si], cam = camOf(spec, shot);
     var lt = t - shot.t0, p = clamp(lt / cam.dur), pl = placeCast(spec, shot);
     var heads = shot.cast.map(function (ch, i) { return { id: "head:" + (ch.id || i), box: cam.proj(headBox(pl[i], ch), 1.0, p) }; });
+    shot.cast.forEach(function (ch, i) { armBoxes(pl[i], ch, poseAt(ch, lt)).forEach(function (b, k) { heads.push({ id: "arm" + (k ? "R" : "L") + ":" + (ch.id || i), box: cam.proj(b, 1.0, p) }); }); });
     var ovs = [], boxes = lay.byShot.get(shot) || [];
     (shot.overlays || []).forEach(function (ov, idx) {
       var b = boxes[idx]; if (!b) return; var end = ov.t1 === undefined ? cam.dur : ov.t1;

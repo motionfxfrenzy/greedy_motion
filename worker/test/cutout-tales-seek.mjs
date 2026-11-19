@@ -1,6 +1,6 @@
 // Seek determinism + layout rules for Cutout tales, in headless Chrome with the bundled fonts.
 //  1. Frames are pixel-identical forwards, backwards, shuffled/repeated, and in a brand-new browser page.
-//  2. At every sampled time, overlays never overlap each other or a character's head, and stay inside the frame.
+//  2. At every sampled time, overlays never overlap each other, a character's head, or an arm / raised hand, and stay inside the frame.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { openKit, TEMPLATE } from "../../scripts/cutout-lib.mjs";
@@ -28,6 +28,7 @@ for (const aspect of ["16:9", "9:16"]) {
   const dense = []; for (let t = 0; t <= spec.duration; t += 0.1) dense.push(Math.round(t * 10) / 10);
   const samples = await kit.boxes(spec, dense);
   let checked = 0;
+  assert.ok(samples.some((q) => q.heads.some((h) => h.id.startsWith("arm"))), `${aspect}: arms must be part of the collision check`);
   for (const s of samples) {
     const all = [...s.overlays];
     for (const o of all) {
