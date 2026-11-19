@@ -214,6 +214,8 @@ export type VideoProject = {
   beatPlan?: BeatPlan;
   /** The plan's voiceover takes and music bed (backend/src/plan/audio.ts). */
   planAudio?: PlanAudio;
+  /** Cutout tales look: the planned shot list (a draft keyed to the beats), kept with the project (backend/src/plan/cutout.ts). */
+  cutout?: { draft: import("./cutout-tales.ts").CutoutDraft; fingerprint: string; plannedAt: string };
   /** The script canvas's reference frames (contracts/script-stream.ts). Left out of the project list; read with the project. */
   scriptFrames?: ScriptFrame[];
   /** The film's first frame (SVG text): the project card's thumbnail, so it matches the video. Kept in the project list. */

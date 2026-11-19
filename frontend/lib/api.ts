@@ -169,15 +169,10 @@ export async function watchRenderJob(id: string, onJob: (job: RenderJob) => void
 
 // ---------- Cutout tales (staging flag) ----------
 
-export type CutoutTalesStatus = { enabled: boolean; aspects: string[]; limits: { scriptMin: number; scriptMax: number; sentences: number } };
-export async function getCutoutTalesStatus() {
-  const response = await apiFetch(`${apiOrigin}/v1/cutout-tales`, { cache: "no-store" });
-  return parse<CutoutTalesStatus>(response, "Could not check Cutout tales.");
-}
-/** Narrates the script, plans a validated shot list, and queues the render through the normal job queue. */
-export async function startCutoutTales(input: { script: string; aspect: "16:9" | "9:16" }) {
-  const response = await apiFetch(`${apiOrigin}/v1/cutout-tales/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
-  return parse<RenderJob & { spec: { aspect: string; duration: number; shots: number } }>(response, "Could not start the film.");
+/** Plans the cutout shots for the project's current script and characters (the storyboard step calls this). */
+export async function planCutoutShots(projectId: string, force = false) {
+  const response = await apiFetch(`${apiOrigin}/v1/projects/${encodeURIComponent(projectId)}/cutout/plan${force ? "?force=1" : ""}`, { method: "POST" });
+  return parse<{ planned: boolean; cached: boolean; shots?: number }>(response, "Could not plan the cutout shots.");
 }
 
 /** Output URLs from the backend are paths; resolve them against the backend origin. */
@@ -552,6 +547,8 @@ export type Composition = {
   audio?: PlanAudioStatus;
   /** Whether Submit can render the storyboard as is; `blocking` items point at the beat to fix. */
   readiness?: PlanReadiness;
+  /** Cutout tales only: whether the shot list is planned for the current script (the preview needs it). */
+  cutout?: { planned: boolean; supported: boolean };
 };
 export type PlanReadiness = {
   ok: boolean;

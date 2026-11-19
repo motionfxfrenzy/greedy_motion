@@ -287,6 +287,7 @@ export const cutoutPlannerBrief = [
   `set: ${cutoutSets.join(" | ")}. mood: ${cutoutMoods.join(" | ")}. props: ${cutoutProps.join(" | ")}.`,
   `cast: at most ${CUTOUT_LIMITS.cast} per shot. Each: archetype (${cutoutArchetypes.join(" | ")}), an ORIGINAL display name, optional look overrides (colours as #rrggbb, hair, flags), x (0..1), pose (${cutoutPoses.join(" | ")}), expr (${cutoutExpressions.join(" | ")}), gestures/expressions at a sentence, talkSentences for the sentences that character speaks.`,
   `overlays: ${cutoutOverlayTypes.join(" | ")}. tag = name tag (text + sub), year, stamp, rating (stars), bubble (needs speaker = cast index), caption, title. Use at most 3 overlays at once. Never place text yourself: the renderer lays overlays out so they never overlap each other or a head. Text is short (under 40 characters; bubbles under 100).`,
+  "Appearance: the archetype is only the outfit and build base. ALWAYS set `look` to match each character's description: female (true/false), mustache, hair (short|curly|slick|long|bun|bald), hairColor, shirt, jacket, pants, shoes as #rrggbb, stetson/bandana for hats. A woman must have look.female true and no mustache.",
   "FIELD NAMES ARE EXACT. Example (3 sentences; every shot lists first and last sentence index):",
   JSON.stringify({ aspect: "16:9", shots: [
     { sentences: [0, 0], set: "silhouette", mood: "gold", props: ["riders"], cast: [], overlays: [{ type: "year", text: "1887", atSentence: 0 }, { type: "title", text: "THE RED MESA RIDERS", atSentence: 0, offset: 1.2 }] },

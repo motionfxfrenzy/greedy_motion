@@ -605,7 +605,7 @@
   function ovSize(c, ov, u, W) {
     var sz, w, h, lines, lw, e, fitSize;
     switch (ov.type) {
-      case "tag": case "year": c.font(38); e = c.text_extents(ov.text); w = Math.max(e.width, 140) + 52; h = ov.sub ? 92 : 64; break;
+      case "tag": case "year": c.font(38); e = c.text_extents(ov.text); w = Math.max(e.width, 140) + 52; if (ov.sub) { c.font(20, false); w = Math.max(w, c.text_extents(ov.sub).width + 52); } h = ov.sub ? 92 : 64; break;
       case "stamp": sz = ov.size || 34; c.font(sz); e = c.text_extents(ov.text); w = e.width + 56; h = sz * 2; break;
       case "rating": c.font(34); e = c.text_extents(ov.text); w = Math.max(e.width, 240) + 20; h = 120; break;
       case "bubble": sz = ov.size || 34; lines = wrapText(c, ov.text, sz, Math.min(ov.maxw || 620, (W * 0.84) / u - 80)); c.font(sz); lw = 0; lines.forEach(function (l) { lw = Math.max(lw, c.text_extents(l).x_advance); }); w = lw + 80; h = lines.length * sz * 1.3 + 46; break;

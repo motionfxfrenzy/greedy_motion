@@ -288,10 +288,6 @@ export function StylePicker({
         </details>
       </div>
     </div>
-    {process.env.NEXT_PUBLIC_CUTOUT_TALES === "1" && <a className="sp-cutout" href="/cutout-tales" style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, padding: 10, border: "1px solid var(--line, #d8d8e0)", borderRadius: 12, textDecoration: "none", color: "inherit" }}>
-      <img src="/previews/looks/cutout-tales.jpg" alt="" width={96} height={54} style={{ borderRadius: 8, objectFit: "cover" }} />
-      <span><b>Cutout tales</b> <small>(staging preview)</small><br /><small>Narrated 2D puppet-style stories with characters, sets and pop-in labels.</small></span>
-    </a>}
     </>}
 
     <dialog ref={dialog} className="theme-dialog" aria-labelledby="style-dialog-title" onClose={() => setDetail(null)} onClick={(event) => { if (event.target === dialog.current) close(); }}>

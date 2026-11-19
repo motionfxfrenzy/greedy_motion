@@ -5,7 +5,7 @@
       "id": "clean",
       "version": 1,
       "recipe": "clean.json",
-      "sourceSha256": "204ec7988455d3fb7df729948fb32f3167240ed1014622af3911d0a623c629f4"
+      "sourceSha256": "efd98e68e4f3a2fa1c57378792166c584951604a3ede2cb998aafc17067122af"
     },
     {
       "id": "sketch",
@@ -294,6 +294,12 @@
       "version": 1,
       "recipe": "illus-wren.json",
       "sourceSha256": "2a858d301447037f6e51a1bcc8bc7ea7ce113002721cc43d9e0945c399cb4089"
+    },
+    {
+      "id": "cutout-tales",
+      "version": 1,
+      "recipe": "cutout-tales.json",
+      "sourceSha256": "a03c6042bb1290d694277c770759c1c32d165551bdf5991ec4409c0494844a75"
     }
   ],
   "assets": {
