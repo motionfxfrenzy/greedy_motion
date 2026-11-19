@@ -765,13 +765,15 @@
         else if (ov.type === "title") cands.push([D.W * 0.5, D.H * (D.portrait ? 0.14 : 0.27)]);
         if (ov.at) cands.push([ov.at.x * D.W, ov.at.y * D.H]);
         if (focus) {
-          var hb = cam.proj(focus, 1.0, 0.5), hx = (hb.x0 + hb.x1) / 2, hy = (hb.y0 + hb.y1) / 2, gap = 30, sw = size.w, sh = size.h;
+          var hb = cam.proj(focus, 1.0, 0.5), hx = (hb.x0 + hb.x1) / 2, hy = (hb.y0 + hb.y1) / 2, gap = 70, edge = 62, sw = size.w, sh = size.h;
           var around = ov.type === "bubble"
             ? [[hx - sw * 0.25, hb.y0 - sh / 2 - gap], [hx + sw * 0.25, hb.y0 - sh / 2 - gap], [hx - sw * 0.7, hb.y0 - sh / 2 - gap], [hx + sw * 0.7, hb.y0 - sh / 2 - gap], [hx, hb.y0 - sh / 2 - gap - sh]]
-            : [[hx, hb.y0 - sh / 2 - 18], [hb.x0 - sw / 2 - 18, hy], [hb.x1 + sw / 2 + 18, hy], [hb.x0 - sw / 2 - 18, hb.y0 - sh / 2 - 10], [hb.x1 + sw / 2 + 18, hb.y0 - sh / 2 - 10], [hx, hb.y0 - sh * 1.5 - 24]];
+            : [[hx, hb.y0 - sh / 2 - edge], [hb.x0 - sw / 2 - edge, hy], [hb.x1 + sw / 2 + edge, hy], [hb.x0 - sw / 2 - edge, hb.y0 - sh / 2 - edge], [hb.x1 + sw / 2 + edge, hb.y0 - sh / 2 - edge], [hx, hb.y0 - sh * 1.5 - edge]];
+          // more rows and sideways offsets above the head, so a long bubble can slide toward the frame centre
+          [0, 1, 2].forEach(function (row) { [-0.9, -0.7, -0.5, -0.25, 0, 0.25, 0.5, 0.7, 0.9].forEach(function (k) { around.push([hx + k * sw, hb.y0 - sh / 2 - (ov.type === "bubble" ? gap : edge) - row * (sh + 12)]); }); });
           around.forEach(function (q) { var pre = frameToPre(q[0], q[1]); cands.push([pre[0], pre[1]]); });
         }
-        slots.forEach(function (q) { cands.push([q[0] * D.W, q[1] * D.H]); });
+        if (!focus) slots.forEach(function (q) { cands.push([q[0] * D.W, q[1] * D.H]); });
         // systematic fallback: a grid over the frame, nearest the focus (or the frame centre) first, so a free spot is
         // always found when one exists.
         var grid = [], gcx = focus ? (focus.x0 + focus.x1) / 2 : D.W / 2, gcy = focus ? (focus.y0 + focus.y1) / 2 : D.H / 2;

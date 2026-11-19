@@ -127,6 +127,7 @@ export function cutoutSpecProblems(value: unknown): string[] {
     if (shot.props !== undefined && (!Array.isArray(shot.props) || shot.props.some((p) => !has(cutoutProps, p)))) add(`${at}.props must be from ${cutoutProps.join(", ")}`);
     if (shot.zoom !== undefined && (!Array.isArray(shot.zoom) || shot.zoom.length !== 2 || !isNum(shot.zoom[0], 0.9, 1.4) || !isNum(shot.zoom[1], 0.9, 1.4))) add(`${at}.zoom must be [from, to] between 0.9 and 1.4`);
     if (!Array.isArray(shot.cast) || shot.cast.length > L.cast) return add(`${at}.cast must be a list of at most ${L.cast}`);
+    const castLength = shot.cast.length;
     shot.cast.forEach((c: unknown, ci: number) => {
       const cat = `${at}.cast[${ci}]`;
       if (!isObj(c)) return add(`${cat} must be an object`);
@@ -168,7 +169,7 @@ export function cutoutSpecProblems(value: unknown): string[] {
         if (o.color !== undefined && !isHex(o.color)) add(`${oat}.color must be #rrggbb`);
         if (o.stars !== undefined && !isNum(o.stars, 1, 5)) add(`${oat}.stars must be 1..5`);
         if (o.think !== undefined && typeof o.think !== "boolean") add(`${oat}.think must be boolean`);
-        for (const key of ["speaker", "target"]) if (o[key] !== undefined && (!isNum(o[key], 0, 4) || !Number.isInteger(o[key]) || (o[key] as number) >= shot.cast.length)) add(`${oat}.${key} must index the shot's cast`);
+        for (const key of ["speaker", "target"]) if (o[key] !== undefined && (!isNum(o[key], 0, 4) || !Number.isInteger(o[key]) || (o[key] as number) >= castLength)) add(`${oat}.${key} must index the shot's cast`);
         if (o.type === "bubble" && o.speaker === undefined) add(`${oat}: a speech bubble needs a speaker (cast index)`);
         if (o.at !== undefined && (!isObj(o.at) || !isNum(o.at.x, 0, 1) || !isNum(o.at.y, 0, 1))) add(`${oat}.at must be {x,y} in 0..1`);
       });

@@ -73,4 +73,15 @@ const same = (a, b, name) => assert.deepEqual([...a].sort(), [...b].sort(), `${n
 same(cutoutSets, kit.SETS, "sets"); same(cutoutMoods, kit.MOODS, "moods"); same(cutoutProps, kit.PROPS, "props");
 same(cutoutArchetypes, kit.ARCHETYPES, "archetypes"); same(cutoutPoses, kit.POSES, "poses"); same(cutoutExpressions, kit.EXPRESSIONS, "expressions");
 same(cutoutOverlayTypes, kit.OVERLAYS, "overlays"); same(cutoutHairs, kit.HAIRS, "hairs");
+// The style recipe follows the style-library format and stays behind the flag.
+import { createHash } from "node:crypto";
+const recipe = JSON.parse(readFileSync(new URL("../style-library/cutout-tales.json", import.meta.url), "utf8"));
+assert.equal(recipe.id, "cutout-tales"); assert.equal(recipe.renderMode, "native"); assert.equal(recipe.renderer, "cutout");
+assert.equal(recipe.available, false, "not offered until the flag graduates"); assert.equal(recipe.flag, "CUTOUT_TALES_ENABLED");
+assert.deepEqual(Object.keys(recipe.framing), ["16:9", "9:16"]);
+assert.ok(recipe.instructions.acceptance.some((a) => /seeking/.test(a)));
+assert.equal(recipe.sourceSha256, createHash("sha256").update(readFileSync(new URL("../../" + recipe.source, import.meta.url))).digest("hex"), "source changed without refreshing the recipe hash");
+const license = readFileSync(new URL("../../third_party/cutout-tales/LICENSE.txt", import.meta.url), "utf8");
+assert.match(license, /MIT License/); assert.match(license, /Grow With Kaz/);
+assert.ok(readFileSync(new URL("index.html", root), "utf8").includes("Grow With Kaz"), "the built template carries the MIT notice");
 console.log("cutout-tales contract tests passed");
