@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import {
-  CUTOUT_LIMITS, cutoutAspects, cutoutPlannerBrief, cutoutSpecProblems, resolveCutoutTimings, voiceIds,
+  CUTOUT_LIMITS, cutoutArchetypes, cutoutAspects, cutoutExpressions, cutoutHairs, cutoutMoods, cutoutOverlayTypes, cutoutPlannerBrief, cutoutPoses, cutoutProps, cutoutSets, cutoutSkins, cutoutTransitions, cutoutSpecProblems, resolveCutoutTimings, voiceIds,
   type CutoutAspect, type CutoutDraft, type CutoutSpec, type RenderJob, type SentenceTiming
 } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
@@ -61,7 +61,46 @@ export function joinTakes(takes: Buffer[], sentences: string[]): { wav: Buffer; 
   return { wav: pcmToWav(pcm, rate, channels), timings, seconds: pcm.length / (rate * frame) };
 }
 
-const DRAFT_SCHEMA = { type: "object", additionalProperties: true, required: ["aspect", "shots"], properties: { aspect: { type: "string", enum: [...cutoutAspects] }, seed: { type: "number" }, shots: { type: "array", maxItems: CUTOUT_LIMITS.shots, items: { type: "object", additionalProperties: true, required: ["sentences", "set", "cast"] } } } };
+const en = (values: readonly string[]) => ({ type: "string", enum: [...values] });
+const ints = { type: "array", items: { type: "integer" } };
+/** Every `required` key is declared under `properties` (providers reject schemas that are not strict about this). */
+export const DRAFT_SCHEMA = {
+  type: "object", required: ["aspect", "shots"],
+  properties: {
+    aspect: en(cutoutAspects), seed: { type: "number" },
+    shots: { type: "array", maxItems: CUTOUT_LIMITS.shots, items: {
+      type: "object", required: ["sentences", "set", "cast"],
+      properties: {
+        sentences: { type: "array", items: { type: "integer" }, minItems: 2, maxItems: 2 },
+        set: en(cutoutSets), mood: en(cutoutMoods), transition: en(cutoutTransitions),
+        props: { type: "array", items: en(cutoutProps) },
+        zoom: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+        cast: { type: "array", maxItems: CUTOUT_LIMITS.cast, items: {
+          type: "object", required: ["archetype"],
+          properties: {
+            id: { type: "string" }, name: { type: "string" }, archetype: en(cutoutArchetypes),
+            x: { type: "number" }, scale: { type: "number" }, pose: en(cutoutPoses), expr: en(cutoutExpressions), flip: { type: "boolean" },
+            talkSentences: ints,
+            gestures: { type: "array", items: { type: "object", required: ["atSentence", "pose"], properties: { atSentence: { type: "integer" }, offset: { type: "number" }, pose: en(cutoutPoses), hold: { type: "number" } } } },
+            expressions: { type: "array", items: { type: "object", required: ["atSentence", "expr"], properties: { atSentence: { type: "integer" }, offset: { type: "number" }, expr: en(cutoutExpressions) } } },
+            look: { type: "object", properties: {
+              skin: en(cutoutSkins), hair: en(cutoutHairs),
+              hairColor: { type: "string" }, shirt: { type: "string" }, jacket: { type: "string" }, pants: { type: "string" }, shoes: { type: "string" }, tie: { type: "string" }, stetson: { type: "string" }, bandana: { type: "string" }, band: { type: "string" }, cap: { type: "string" },
+              stubble: { type: "boolean" }, mustache: { type: "boolean" }, female: { type: "boolean" }, dress: { type: "boolean" }, tophat: { type: "boolean" }, chubby: { type: "boolean" }, patched: { type: "boolean" }, holster: { type: "boolean" }, star: { type: "boolean" }, chibi: { type: "boolean" }, glasses: { type: "boolean" }
+            } }
+          }
+        } },
+        overlays: { type: "array", maxItems: CUTOUT_LIMITS.overlays, items: {
+          type: "object", required: ["type", "text"],
+          properties: {
+            type: en(cutoutOverlayTypes), text: { type: "string" }, sub: { type: "string" }, size: { type: "number" }, color: { type: "string" }, stars: { type: "integer" }, think: { type: "boolean" },
+            speaker: { type: "integer" }, target: { type: "integer" }, atSentence: { type: "integer" }, offset: { type: "number" }, forSentences: { type: "integer" }
+          }
+        } }
+      }
+    } }
+  }
+};
 
 async function planDraft(sentences: SentenceTiming[], aspect: CutoutAspect): Promise<{ spec: CutoutSpec } | { error: string }> {
   const user = `Voiceover sentences (index: text):\n${sentences.map((s, i) => `${i}: ${s.text}`).join("\n")}\n\nAspect: ${aspect}. Return the CutoutDraft JSON.`;
