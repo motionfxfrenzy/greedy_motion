@@ -269,5 +269,14 @@ export const cutoutPlannerBrief = [
   `set: ${cutoutSets.join(" | ")}. mood: ${cutoutMoods.join(" | ")}. props: ${cutoutProps.join(" | ")}.`,
   `cast: at most ${CUTOUT_LIMITS.cast} per shot. Each: archetype (${cutoutArchetypes.join(" | ")}), an ORIGINAL display name, optional look overrides (colours as #rrggbb, hair, flags), x (0..1), pose (${cutoutPoses.join(" | ")}), expr (${cutoutExpressions.join(" | ")}), gestures/expressions at a sentence, talkSentences for the sentences that character speaks.`,
   `overlays: ${cutoutOverlayTypes.join(" | ")}. tag = name tag (text + sub), year, stamp, rating (stars), bubble (needs speaker = cast index), caption, title. Use at most 3 overlays at once. Never place text yourself: the renderer lays overlays out so they never overlap each other or a head. Text is short (under 40 characters; bubbles under 100).`,
+  "FIELD NAMES ARE EXACT. Example (3 sentences; every shot lists first and last sentence index):",
+  JSON.stringify({ aspect: "16:9", shots: [
+    { sentences: [0, 0], set: "silhouette", mood: "gold", props: ["riders"], cast: [], overlays: [{ type: "year", text: "1887", atSentence: 0 }, { type: "title", text: "THE RED MESA RIDERS", atSentence: 0, offset: 1.2 }] },
+    { sentences: [1, 2], set: "western_town", mood: "dusk", cast: [
+      { archetype: "drifter", name: "Cade", x: 0.4, pose: "hips", expr: "sly", talkSentences: [0] },
+      { archetype: "marshal", name: "Marshal Hale", x: 0.8, pose: "hips", expr: "neutral", flip: true, gestures: [{ atSentence: 1, pose: "point" }], talkSentences: [1] }
+    ], overlays: [{ type: "tag", text: "CADE", sub: "the boss", target: 0, atSentence: 0 }, { type: "bubble", text: "Just passing through.", speaker: 0, atSentence: 0 }, { type: "stamp", text: "WANTED", target: 0, atSentence: 1 }] }
+  ] }),
+  "Overlay objects use exactly: type, text, sub, target, speaker, atSentence, offset, forSentences, stars, think. Cast objects use exactly: archetype, name, x, scale, pose, expr, flip, look, gestures, expressions, talkSentences.",
   "RULES: original characters only; never a game, film or TV character or their names. Silhouette shots (set silhouette, no cast, props riders) suit an epic open and a closing ride-off. Classic arc: epic open, name tag intro, stat or stamp jokes, a speech-bubble line, ride-off."
 ].join("\n");
