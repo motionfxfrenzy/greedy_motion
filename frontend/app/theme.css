@@ -583,3 +583,15 @@
   --d-tx-c2410c:#ec9d7c;
   --ink:#e8edf5;--body:#aab3c2;--muted:#8d97a8;--canvas:#0a0f16;--surface:#10161f;--line:#232c3a;--soft:#121923;--blue:#4aa0ff;--bright:#4aa0ff;--shadow:0 14px 20px 4px rgba(0,0,0,.4);
 }
+
+/* LaunchBuff badge in the landing footer: small, muted, swaps with the theme. */
+.gm-launchbuff { display: inline-flex; opacity: .8; transition: opacity 160ms ease; }
+.gm-launchbuff:hover, .gm-launchbuff:focus-visible { opacity: 1; }
+.gm-launchbuff img { display: block; height: 30px; width: auto; }
+.gm-launchbuff-dark { display: none !important; }
+:root[data-theme="dark"] .gm-launchbuff-light { display: none !important; }
+:root[data-theme="dark"] .gm-launchbuff-dark { display: block !important; }
+@media (prefers-color-scheme: dark) {
+  :root[data-system]:not([data-theme]) .gm-launchbuff-light { display: none !important; }
+  :root[data-system]:not([data-theme]) .gm-launchbuff-dark { display: block !important; }
+}
