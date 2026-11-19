@@ -143,6 +143,7 @@ export async function registerCutoutTalesRoutes(app: FastifyInstance) {
       const takes = await Promise.all(sentences.map((text) => synthesizeVoiceover(config.geminiApiKey, { text, voice, style: "warm storyteller narration" }).then((t) => t.wav)));
       const { wav, timings } = joinTakes(takes, sentences);
       const planned = await planDraft(timings, aspect as CutoutAspect);
+      if ("error" in planned) request.log.warn({ detail: planned.error }, "cutout tales plan invalid");
       if ("error" in planned) return reply.code(422).send(fail("plan_invalid", "The shot list could not be planned for this script. Try rewording it.", { detail: planned.error.slice(0, 400) }));
       const problems = cutoutSpecProblems(planned.spec);
       if (problems.length) return reply.code(422).send(fail("plan_invalid", "The shot list failed validation.", { problems: problems.slice(0, 5) }));
