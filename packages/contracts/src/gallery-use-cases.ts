@@ -16,4 +16,4 @@ export type GalleryUseCase = (typeof galleryUseCases)[number]["id"];
 export const normalizeSearch = (text: string | undefined | null): string => (text ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
 
 /** The Trending tab is a curated list, in this order (a template keeps its own tab too). */
-export const trendingGalleryIds = ["history-reel", "picture-film", "dark-fable"] as const;
+export const trendingGalleryIds = ["cutout-tales-western", "history-reel", "picture-film", "dark-fable"] as const;

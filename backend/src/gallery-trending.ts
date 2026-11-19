@@ -1,4 +1,5 @@
 import { trendingGalleryIds } from "@videosaas/contracts";
+import { config } from "./config.ts";
 
 /**
  * The Trending tab's template ids, in order, from app.gallery_trending (ordered by position). Cached in memory for a minute so a
@@ -51,8 +52,11 @@ export async function getGalleryTrendingIds(): Promise<readonly string[]> {
     query: async (text, params) => (await import("./db/database.ts")).query<{ template_id: string }>(text, params),
     log: { warn: (object, message) => sharedLog?.warn(object, message) ?? console.warn(message, object) },
   });
-  return shared.get();
+  const ids = await shared.get();
+  // Where Cutout tales is on (staging), its template leads the tab even when the table predates it; elsewhere the table decides.
+  return config.cutoutTales && !ids.includes(CUTOUT_TEMPLATE) ? [CUTOUT_TEMPLATE, ...ids] : ids;
 }
+const CUTOUT_TEMPLATE = "cutout-tales-western";
 
 /** Drops the cached list; the next gallery request re-reads the table. Call after changing app.gallery_trending. */
 export function invalidateGalleryTrending() { shared?.invalidate(); }
