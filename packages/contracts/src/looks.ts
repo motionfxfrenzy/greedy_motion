@@ -2,7 +2,7 @@
 // Edit the catalog and run npm run styles:build; see docs/STYLE_LIBRARY.md.
 import catalog from "./style-library/catalog.json" with { type: "json" };
 
-export type LookId = "clean" | "sketch" | "hairline" | "doodle" | "doodle-crosshatch" | "doodle-zigzag" | "vox-collage" | "paper-diorama" | "paper" | "paper-cutout" | "paper-stop-motion" | "paper-collage" | "origami" | "paper-cut" | "clay-goofy" | "clay-clean" | "clay-puppet" | "claymation" | `illus-${string}`;
+export type LookId = "clean" | "sketch" | "hairline" | "doodle" | "doodle-crosshatch" | "doodle-zigzag" | "vox-collage" | "paper-diorama" | "paper" | "paper-cutout" | "paper-stop-motion" | "paper-collage" | "origami" | "paper-cut" | "clay-goofy" | "clay-clean" | "clay-puppet" | "claymation" | "cutout-tales" | `illus-${string}`;
 export type Look = {
   id: LookId;
   name: string;

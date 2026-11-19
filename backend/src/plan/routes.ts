@@ -73,6 +73,7 @@ import { ensurePromptAllowed } from "../moderation/creem.ts";
 import { admitPreview, meteringOn } from "./preview-meter.ts";
 import { tierFor } from "../billing/service.ts";
 import { isPlateLook, startPlates } from "../plates/service.ts";
+import { cutoutAspectOf, currentCutout, isCutoutLook, planCutoutShots } from "./cutout.ts";
 
 const frameLogos = new Map<string, string>();
 
@@ -2720,7 +2721,8 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     const times = beatTimes(timing);
     const readiness = planReadiness(project);
     return {
-      engine: "beat-plan",
+      engine: isCutoutLook(project) ? "cutout-tales" : "beat-plan",
+      ...(isCutoutLook(project) ? { cutout: { planned: Boolean(currentCutout(project)), supported: Boolean(cutoutAspectOf(project)) } } : {}),
       baseUrl: `/v1/preview/plans/${project.id}`,
       canvas: project.beatPlan.canvas,
       // The composition's real length (plate films use their rendered scene timeline; others use the plan clock).
@@ -2742,6 +2744,27 @@ export async function registerPlanRoutes(app: FastifyInstance) {
         { id: `${beat.id}.line`, beat: beat.id, budget: { words: BEAT_LIMITS.lineWords } }
       ])
     };
+  });
+
+  /**
+   * Cutout tales (flag): plans the shot list for the project's current beats and characters (one planner call, JSON only,
+   * validated) and keeps it with the project. The storyboard, the animation preview and the render all draw from it.
+   */
+  app.post<{ Params: { id: string } }>("/v1/projects/:id/cutout/plan", async (request, reply) => {
+    if (!config.cutoutTales) return reply.code(404).send(notFound);
+    const project = await getProject(request.params.id);
+    if (!project) return reply.code(404).send(notFound);
+    if (!isCutoutLook(project)) return reply.code(409).send({ error: { code: "wrong_look", message: "This project does not use the Cutout tales style." } });
+    if (!project.beatPlan) return reply.code(409).send({ error: { code: "no_plan", message: "Generate the storyboard first." } });
+    if (!cutoutAspectOf(project)) return reply.code(409).send({ error: { code: "unsupported_format", message: "Cutout tales supports 16:9 and 9:16 films." } });
+    if (currentCutout(project) && request.query && (request.query as { force?: string }).force !== "1") return { planned: true, cached: true };
+    try {
+      const cutout = await planCutoutShots(project);
+      return { planned: true, cached: false, shots: cutout.draft.shots.length };
+    } catch (error) {
+      app.log.warn({ err: error, projectId: project.id }, "cutout planning failed");
+      return reply.code(502).send({ error: { code: "cutout_plan_failed", message: error instanceof Error ? error.message : "The shots could not be planned." } });
+    }
   });
 
   /**

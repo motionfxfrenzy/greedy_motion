@@ -565,6 +565,14 @@ export async function updateProjectPlan(
  * storyboard was being edited are merged against the current plan (a take whose line changed
  * meanwhile simply no longer matches; see `currentTake`). Approval is kept: audio is derived data.
  */
+export async function updateProjectCutout(id: string, cutout: NonNullable<VideoProject["cutout"]>) {
+  return serializeProject(id, async () => {
+    const current = await getProject(id);
+    if (!current) return null;
+    return save({ ...current, cutout, updatedAt: new Date().toISOString() });
+  });
+}
+
 export async function updateProjectAudio(id: string, mutate: (current: VideoProject) => VideoProject["planAudio"]) {
   return serializeProject(id, async () => {
     const current = await getProject(id);

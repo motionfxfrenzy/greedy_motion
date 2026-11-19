@@ -3,9 +3,12 @@
 //   node --env-file=<backend .env> scripts/cutout-plan-local.mjs
 process.env.PLANNER ??= "anthropic";
 process.env.DATABASE_URL ??= "postgres://unused@127.0.0.1:1/unused";
-const { planDraft, splitSentences } = await import("../backend/src/cutout-tales/routes.ts");
+const { planDraft } = await import("../backend/src/cutout-tales/plan.ts");
+const splitSentences = (t) => t.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+const characters = [[{ id: "maya", description: "Maya, a young baker with curly dark hair, a flour-dusted apron over a green shirt" }, { id: "tom", description: "Tom, a stocky older neighbour with a grey moustache and a blue cap" }, { id: "landlord", description: "the landlord, a stern man in a dark suit and tie" }]];
 const { cutoutSpecProblems } = await import("../packages/contracts/src/cutout-tales.ts");
 const scripts = [
+  "Maya started her bakery with two hundred dollars and a borrowed oven. Her landlord laughed at the plan. Her neighbour Tom lent her flour on credit. By winter there was a line down the street. The landlord asked for a job.",
   "Eighteen eighty-seven. A lone rider reached the town of Dustwater at sundown. The marshal was waiting at the saloon door. He did not smile. The rider tipped his hat and rode on.",
   "Maya started her bakery with two hundred dollars and a borrowed oven. Her landlord laughed at the plan. Her neighbour Tom lent her flour on credit. By winter there was a line down the street. The landlord asked for a job.",
   "In nineteen twenty, a young clerk named Arthur found a mistake in the company ledger. His boss called him into the office. Arthur told the truth. The boss shook his hand and gave him a promotion."
@@ -17,7 +20,7 @@ for (const [si, script] of scripts.entries()) {
   for (const aspect of ["16:9", "9:16"]) {
     const started = Date.now();
     try {
-      const r = await planDraft(sentences, aspect);
+      const r = await planDraft(sentences, aspect, si === 0 ? characters[0] : []);
       if ("error" in r) { failures++; console.log(`script ${si} ${aspect}: FAILED after repair: ${r.error}`); continue; }
       const problems = cutoutSpecProblems(r.spec);
       console.log(`script ${si} ${aspect}: ${problems.length ? "INVALID " + problems.join("; ") : "ok"} — ${r.spec.shots.length} shots, ${r.spec.shots.reduce((n, s) => n + (s.overlays?.length ?? 0), 0)} overlays, ${((Date.now() - started) / 1000).toFixed(1)}s`);

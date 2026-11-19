@@ -15,6 +15,7 @@ import { declareVariables, ENGINE_TEMPLATE, engineVariables, fillTextBlock, stam
 import { brandNameFor, projectLook, projectTiming } from "./preview.ts";
 import { soundTracks, withSoundtrack, type SfxName } from "./sound.ts";
 import { getProjectSubtitles } from "../plates/service.ts";
+import { buildCutoutRenderProject, isCutoutLook } from "./cutout.ts";
 
 /**
  * A self-contained HyperFrames project for a plan: the same page as the live storyboard
@@ -29,6 +30,7 @@ import { getProjectSubtitles } from "../plates/service.ts";
 export async function buildPlanRenderProject(project: VideoProject, dir: string, { check = false, watermark = false }: { check?: boolean; watermark?: boolean } = {}) {
   const plan = project.beatPlan;
   if (!plan) throw new Error("Generate the plan first.");
+  if (isCutoutLook(project)) return buildCutoutRenderProject(project, dir);
   requireReadyVisuals(project);
   const [template, fontCss] = await Promise.all([
     readFile(join(config.templatesDir, ENGINE_TEMPLATE, "index.html"), "utf8"),

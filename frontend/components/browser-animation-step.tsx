@@ -50,6 +50,7 @@ import {
   ensureMediaToken,
   generatePlanAudio,
   getComposition,
+  planCutoutShots,
   getMyTokens,
   getPlates,
   getRenderQuote,
@@ -669,7 +670,15 @@ export function BrowserAnimationStep({
     setPreviewError(null);
     void (async () => {
       try {
-        const comp = await getComposition(project.id);
+        let comp = await getComposition(project.id);
+        // Cutout tales draws from a planned shot list (one planner call, JSON only); plan it before the preview loads.
+        if (comp.engine === "cutout-tales" && comp.cutout?.supported && !comp.cutout.planned) {
+          setPreviewError("Planning the cutout shots for your script (about 30 seconds)…");
+          await planCutoutShots(project.id);
+          if (!live) return;
+          setPreviewError(null);
+          comp = await getComposition(project.id);
+        }
         const token = encodeURIComponent(await ensureMediaToken());
         const res = await fetch(
           `${comp.baseUrl.replace(/^\/v1\/preview\//, "/api/preview/")}?t=${token}&v=${effectiveVersion}`,

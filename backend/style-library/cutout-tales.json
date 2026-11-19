@@ -6,9 +6,7 @@
   "libraries": [
     "gsap"
   ],
-  "available": false,
-  "flag": "CUTOUT_TALES_ENABLED",
-  "template": "cutout-tales",
+  "available": true,
   "version": 1,
   "renderer": "cutout",
   "renderMode": "native",
@@ -19,10 +17,6 @@
   },
   "source": "third_party/cutout-tales/README.md",
   "referenceAssets": [],
-  "framing": {
-    "16:9": { "canvas": [1920, 1080], "feetY": 0.958, "heroScale": 1.25 },
-    "9:16": { "canvas": [1080, 1920], "feetY": 0.9, "heroHeight": 0.6, "note": "a lone character is re-framed to about 60% of frame height; groups shrink to fit the width" }
-  },
   "instructions": {
     "image": "Flat vector adult cutout characters (about 7 heads tall, mitten hands, dark-brown outline, one hard shadow tone), layered sets with parallax depth, dust and vignette.",
     "motion": "Characters barely move (breathing, blinks, slow sway); a slow camera push-in plus drift and back-out pop-in overlays carry the energy. Shots are cut to voiceover sentences.",

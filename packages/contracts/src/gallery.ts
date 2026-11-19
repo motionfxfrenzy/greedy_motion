@@ -240,9 +240,12 @@ const withRendered = (item: GalleryTemplate): GalleryTemplate => {
 
 const exampleStylePrompt = "A 30-second explainer for Pocket, an app that turns receipts into a tidy monthly budget. Show the problem of a pile of receipts, how Pocket sorts them, and a call to try it free.";
 
+/** Cutout tales is staging-only: hidden from every gallery, picker and template list unless the flag is on (build-time for the browser). */
+export const cutoutLookHidden = (look: string) => look === "cutout-tales" && process.env.NEXT_PUBLIC_CUTOUT_TALES !== "1" && process.env.CUTOUT_TALES_ENABLED !== "1";
+
 /** Every drawn style is also a template: its look, a ready example prompt and a preview. */
 const styleTemplates: readonly GalleryTemplate[] = looks
-  .filter((look) => look.available && look.renderMode === "native" && !curated.some((item) => item.look === look.id))
+  .filter((look) => look.available && look.renderMode === "native" && !cutoutLookHidden(look.id) && !curated.some((item) => item.look === look.id))
   .map((look): GalleryTemplate => ({
     id: `style-${look.id}`, kind: "style", name: look.name.replace(/^Illustration · /, ""), group: look.group,
     summary: look.description,
@@ -320,7 +323,7 @@ const everyGalleryTemplate: readonly GalleryTemplate[] = [...curated, ...sceneTe
  * Set to false to bring them all back.
  */
 export const HOLD_GENERATED_STYLES = true;
-export const heldForV2 = (look: string) => HOLD_GENERATED_STYLES && getLook(look).renderMode === "generated";
+export const heldForV2 = (look: string) => cutoutLookHidden(look) || (HOLD_GENERATED_STYLES && getLook(look).renderMode === "generated");
 /** The Story & film plates of the illustration styles: each is code-drawn (anidoodle), so they stay in the gallery while the generated looks are held. */
 export const isStylePlate = (item: GalleryTemplate) => item.id.startsWith("story-illus-");
 export const isStylePlateLook = (look: string) => everyGalleryTemplate.some((item) => item.look === look && isStylePlate(item));

@@ -84,8 +84,7 @@ same(cutoutOverlayTypes, kit.OVERLAYS, "overlays"); same(cutoutHairs, kit.HAIRS,
 import { createHash } from "node:crypto";
 const recipe = JSON.parse(readFileSync(new URL("../style-library/cutout-tales.json", import.meta.url), "utf8"));
 assert.equal(recipe.id, "cutout-tales"); assert.equal(recipe.renderMode, "native"); assert.equal(recipe.renderer, "cutout");
-assert.equal(recipe.available, false, "not offered until the flag graduates"); assert.equal(recipe.flag, "CUTOUT_TALES_ENABLED");
-assert.deepEqual(Object.keys(recipe.framing), ["16:9", "9:16"]);
+assert.equal(recipe.available, true, "a normal look; the staging flag gates who sees it (frontend picker + backend readiness)");
 assert.ok(recipe.instructions.acceptance.some((a) => /seeking/.test(a)));
 assert.equal(recipe.sourceSha256, createHash("sha256").update(readFileSync(new URL("../../" + recipe.source, import.meta.url))).digest("hex"), "source changed without refreshing the recipe hash");
 const license = readFileSync(new URL("../../third_party/cutout-tales/LICENSE.txt", import.meta.url), "utf8");
