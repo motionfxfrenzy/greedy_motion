@@ -331,10 +331,14 @@ export function wordSubtitleCues(scene: number, line: string, start: number, dur
   }
   if (!words.length) return [];
   const n = Math.max(1, Math.floor(perCue));
+  // perCue 99 = one sentence per cue (it ends on . ! ? or after 14 words); any other number is that many words.
+  const groups: { text: string; at: number }[][] = [];
+  if (n >= 99) { let cur: { text: string; at: number }[] = []; for (const w of words) { cur.push(w); if (/[.!?\u2026]["')\]]*$/.test(w.text) || cur.length >= 14) { groups.push(cur); cur = []; } } if (cur.length) groups.push(cur); }
+  else for (let k = 0; k < words.length; k += n) groups.push(words.slice(k, k + n));
   const cues: SubtitleCue[] = [];
   let last = start - 1;
-  for (let k = 0; k < words.length; k += n) {
-    const group = words.slice(k, k + n);
+  for (let k = 0; k < groups.length; k++) {
+    const group = groups[k]!;
     const at = k === 0 ? start : Math.max(start + group[0]!.at, last + 0.04);
     if (at >= end) { if (cues.length) cues[cues.length - 1]!.text += ` ${group.map((w) => w.text).join(" ")}`; continue; }
     if (cues.length) cues[cues.length - 1]!.end = at;
@@ -440,7 +444,7 @@ export function mergeSubtitles(current: PlateSubtitles, input: Record<string, un
   }
   const flag = (value: unknown, now: boolean | undefined, fallback: boolean) => typeof value === "boolean" ? value : (now ?? fallback);
   const aspects = Array.isArray(input.aspects) ? input.aspects.filter(isAspect) : (current.aspects ?? [fallbackAspect]);
-  const wordsPerCue = input.wordsPerCue === null || input.wordsPerCue === 0 ? undefined : input.wordsPerCue !== undefined && Number.isFinite(Number(input.wordsPerCue)) ? Math.min(12, Math.max(1, Math.round(Number(input.wordsPerCue)))) : current.wordsPerCue;
+  const wordsPerCue = input.wordsPerCue === null || input.wordsPerCue === 0 ? undefined : input.wordsPerCue !== undefined && Number.isFinite(Number(input.wordsPerCue)) ? Math.min(99, Math.max(1, Math.round(Number(input.wordsPerCue)))) : current.wordsPerCue;
   return {
     mode, style, size, opacity, x, y, scenePositions, ...(wordsPerCue ? { wordsPerCue } : {}),
     voice: flag(input.voice, current.voice, true), music: flag(input.music, current.music, true), sfx: flag(input.sfx, current.sfx, true), transitions: flag(input.transitions, current.transitions, false),

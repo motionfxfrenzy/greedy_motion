@@ -75,7 +75,7 @@ export function cutoutSpecFor(project: VideoProject): { spec: CutoutSpec; timing
 const rewriteFontUrls = (css: string, to: string) => css.replace(/url\(\s*(["'])?fonts\//g, (_m, q: string) => `url(${q ?? ""}${to}/`);
 
 /** Burned-in captions for the composition: the saved subtitle settings plus timed cues (spoken words in chunks, or the beat's key phrase). */
-export type CutoutCaptions = { mode: "none" | "key-phrases" | "full"; size: number; opacity: number; color: string; bg: string; x: number; y: number; cues: { s: number; e: number; t: string }[] };
+export type CutoutCaptions = { mode: "none" | "key-phrases" | "full"; style: string; size: number; opacity: number; color: string; bg: string; x: number; y: number; cues: { s: number; e: number; t: string }[] };
 const round2 = (n: number) => Math.round(n * 100) / 100;
 export async function cutoutCaptions(project: VideoProject, timing: PlanTiming): Promise<CutoutCaptions> {
   const sub = await getProjectSubtitles(project);
@@ -89,7 +89,7 @@ export async function cutoutCaptions(project: VideoProject, timing: PlanTiming):
       if (text) cues.push({ s: round2(t.start + 0.1), e: round2(Math.max(t.start + 0.4, t.end - 0.15)), t: text });
     });
   } else if (mode === "full") {
-    const per = Math.max(1, Math.min(12, Math.round(sub.wordsPerCue ?? 6)));
+    const per = Math.max(1, Math.min(99, Math.round(sub.wordsPerCue ?? 6)));
     beats.forEach((beat, i) => {
       const t = timing.beats[i]!;
       const line = (beat.line ?? "").trim();
@@ -100,17 +100,22 @@ export async function cutoutCaptions(project: VideoProject, timing: PlanTiming):
         const step = (t.vo!.end - t.vo!.start) / list.length;
         return list.map((text, k) => ({ text, start: t.vo!.start + k * step, end: t.vo!.start + (k + 1) * step }));
       })();
-      for (let k = 0; k < words.length; k += per) {
-        const chunk = words.slice(k, k + per);
-        const next = words[k + per];
-        cues.push({ s: round2(chunk[0]!.start), e: round2(next ? Math.min(next.start, chunk[chunk.length - 1]!.end + 0.35) : chunk[chunk.length - 1]!.end + 0.25), t: chunk.map((w) => w.text).join(" ") });
-      }
+      // 99 = one sentence per cue; otherwise that many words
+      const groups: typeof words[] = [];
+      if (per >= 99) { let cur: typeof words = []; for (const w of words) { cur.push(w); if (/[.!?\u2026]["')\]]*$/.test(w.text) || cur.length >= 14) { groups.push(cur); cur = []; } } if (cur.length) groups.push(cur); }
+      else for (let k = 0; k < words.length; k += per) groups.push(words.slice(k, k + per));
+      groups.forEach((chunk, g) => {
+        const next = groups[g + 1];
+        cues.push({ s: round2(chunk[0]!.start), e: round2(next ? Math.min(next[0]!.start, chunk[chunk.length - 1]!.end + 0.35) : chunk[chunk.length - 1]!.end + 0.25), t: chunk.map((w) => w.text).join(" ") });
+      });
     });
   }
-  return { mode, size: sub.size ?? 100, opacity: sub.opacity ?? 100, color: sub.color || "#ffffff", bg: sub.bgColor || "#0c0f16", x: sub.x ?? 50, y: sub.y ?? 88, cues };
+  return { mode, style: sub.style || "pill", size: sub.size ?? 100, opacity: sub.opacity ?? 100, color: sub.color || "", bg: sub.bgColor || "", x: sub.x ?? 50, y: sub.y ?? 88, cues };
 }
 
-function stamp(html: string, spec: CutoutSpec, captions: CutoutCaptions): string {
+function stamp(html: string, baseSpec: CutoutSpec, captions: CutoutCaptions): string {
+  // overlays keep out of the subtitle band when subtitles are burned in near the bottom
+  const spec = captions.mode !== "none" && captions.cues.length && captions.y >= 60 ? { ...baseSpec, captionBand: Math.min(0.3, (100 - captions.y) / 100 + 0.1) } : baseSpec;
   const { width, height } = cutoutCanvas[spec.aspect];
   const root = /<div id="root"[^>]*>/.exec(html);
   if (!root) throw new PreviewUnavailable("The cutout-tales template has no #root element.");

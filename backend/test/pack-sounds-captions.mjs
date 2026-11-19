@@ -107,6 +107,7 @@ assert.equal(plain.style, "pill"); assert.equal(plain.wordsPerCue, undefined);
 assert.equal(m.mergeSubtitles(d, { style: "shadow", size: 120 }, "9:16").wordsPerCue, 1, "an update keeps wordsPerCue");
 assert.equal(m.mergeSubtitles(plain, { style: "shadow" }, "9:16").style, "shadow", "shadow is a valid style");
 assert.equal(m.mergeSubtitles(d, { wordsPerCue: 3 }, "9:16").wordsPerCue, 3);
-assert.equal(m.mergeSubtitles(d, { wordsPerCue: 99 }, "9:16").wordsPerCue, 12);
+assert.equal(m.mergeSubtitles(d, { wordsPerCue: 99 }, "9:16").wordsPerCue, 99, "99 = a whole sentence per cue");
+assert.equal(m.mergeSubtitles(d, { wordsPerCue: 500 }, "9:16").wordsPerCue, 99);
 assert.equal(m.mergeSubtitles(d, { wordsPerCue: null }, "9:16").wordsPerCue, undefined, "null goes back to the chunks");
 console.log("pack sounds + captions: ok");

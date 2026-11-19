@@ -766,10 +766,12 @@
       });
       var obstacles = heads.concat(arms);
       var margin = 24, topM = D.portrait ? 110 : 36, botM = 36, boxes = [], placed = [];
+      // Burned-in subtitles own a band at the bottom: tags, stamps and ratings keep out of it (explicit caption/title overlays live there).
+      var band = spec.captionBand > 0 ? D.H * Math.min(0.3, spec.captionBand) : 0, curBot = botM;
       var order = (shot.overlays || []).map(function (ov, idx) { return { ov: ov, idx: idx, fixed: ov.type === "caption" || ov.type === "title" ? 0 : (ov.target !== undefined || ov.speaker !== undefined || ov.at ? 1 : 2) }; })
         .sort(function (a, b) { return a.fixed - b.fixed || a.ov.t0 - b.ov.t0 || a.idx - b.idx; });
       function bbAt(cx, cy, size) { return { x0: cx - size.w / 2 - 14 * u, x1: cx + size.w / 2 + 14 * u, y0: cy - size.h / 2 - 14 * u, y1: cy + size.h / 2 + 14 * u }; }
-      function inFrame(bb) { return SAMPLES.every(function (p) { var q = cam.proj(bb, 0.85, p); return q.x0 >= margin && q.x1 <= D.W - margin && q.y0 >= topM && q.y1 <= D.H - botM; }); }
+      function inFrame(bb) { return SAMPLES.every(function (p) { var q = cam.proj(bb, 0.85, p); return q.x0 >= margin && q.x1 <= D.W - margin && q.y0 >= topM && q.y1 <= D.H - curBot; }); }
       function clearOfHeads(bb) { return SAMPLES.every(function (p) { var q = cam.proj(bb, 0.85, p); return obstacles.every(function (h) { return !overlap(q, cam.proj(h, 1.0, p), 22); }); }); }
       order.forEach(function (it) {
         var ov = it.ov, size = ovSize(c, ov, u, D.W), end = ov.t1 === undefined ? dur : ov.t1, cands = [], chosen = null;
@@ -796,13 +798,18 @@
         for (var gy = 0.05; gy <= 0.97; gy += 0.04) for (var gx = 0.06; gx <= 0.95; gx += 0.04) grid.push([gx * D.W, gy * D.H]);
         grid.sort(function (a, b) { return Math.hypot(a[0] - gcx, a[1] - gcy) - Math.hypot(b[0] - gcx, b[1] - gcy) || a[1] - b[1] || a[0] - b[0]; });
         grid.forEach(function (q) { var pre = frameToPre(q[0], q[1]); cands.push([pre[0], pre[1]]); });
-        for (var ci = 0; ci < cands.length && !chosen; ci++) {
-          var cx = cands[ci][0], cy = cands[ci][1], bb = bbAt(cx, cy, size);
-          if (!inFrame(bb)) continue;
-          var ok = clearOfHeads(bb);
-          for (var pi = 0; ok && pi < placed.length; pi++) { var pp = placed[pi]; if (pp.start < end + 0.25 && pp.end + 0.25 > ov.t0 && overlap(bb, pp.bb, 10)) ok = false; }
-          if (ok) chosen = { cx: cx, cy: cy, bb: bb };
+        // The subtitle band is a preference: first look for a free spot outside it, then anywhere in the frame.
+        for (var pass = 0; pass < 2 && !chosen; pass++) {
+          curBot = pass === 0 && !(ov.type === "caption" || ov.type === "title") ? botM + band : botM;
+          for (var ci = 0; ci < cands.length && !chosen; ci++) {
+            var cx = cands[ci][0], cy = cands[ci][1], bb = bbAt(cx, cy, size);
+            if (!inFrame(bb)) continue;
+            var ok = clearOfHeads(bb);
+            for (var pi = 0; ok && pi < placed.length; pi++) { var pp = placed[pi]; if (pp.start < end + 0.25 && pp.end + 0.25 > ov.t0 && overlap(bb, pp.bb, 10)) ok = false; }
+            if (ok) chosen = { cx: cx, cy: cy, bb: bb };
+          }
         }
+        curBot = botM;
         var failed = false;
         if (!chosen) { // nothing collision-free: keep the first in-frame candidate and flag it for QC
           failed = true;

@@ -58,7 +58,7 @@ import {
   projectScreenshotUrl,
   proposePlanCommentEdits,
   saveMusicPrompt,
-  savePlateSubtitles,
+  savePlateSubtitles as savePlateSubtitlesRaw,
   suggestMusic,
   undoPlanElementOverride,
   type PlanAudioStatus
@@ -548,6 +548,14 @@ export function BrowserAnimationStep({
     () => (project.beatPlan?.audio.captions ?? project.brief?.captions ?? "full") as WorkspaceSubtitleMode
   );
   const [subStyle, setSubStyle] = useState<WorkspaceSubtitleStyle>("pill");
+  // Words per subtitle cue: 1 = one word, 3 = short, undefined = phrase (6), 99 = a whole sentence. Shared by every template.
+  const [subWordsPerCue, setSubWordsPerCue] = useState<number | undefined>(undefined);
+  // Cutout tales draws its subtitles inside the composition (so the render matches the preview): no page overlay, and a settings change reloads the preview.
+  const [cutoutBurned, setCutoutBurned] = useState(false);
+  const cutoutBurnedRef = useRef(false);
+  cutoutBurnedRef.current = cutoutBurned;
+  const savePlateSubtitles = (id: string, patch: Parameters<typeof savePlateSubtitlesRaw>[1]) =>
+    savePlateSubtitlesRaw(id, patch).then((result) => { if (cutoutBurnedRef.current) setLocalVersion((v) => v + 1); return result; });
   const [subSize, setSubSize] = useState<number>(100);
   const [subOpacity, setSubOpacity] = useState<number>(100);
   const [subColor, setSubColor] = useState<string>("");
@@ -571,6 +579,7 @@ export function BrowserAnimationStep({
         subLoaded.current = true;
         if (s.subtitles.mode) setSubMode(s.subtitles.mode as WorkspaceSubtitleMode);
         if (s.subtitles.style) setSubStyle(s.subtitles.style as WorkspaceSubtitleStyle);
+        if (typeof s.subtitles.wordsPerCue === "number" && s.subtitles.wordsPerCue >= 1) setSubWordsPerCue(s.subtitles.wordsPerCue);
         if (typeof s.subtitles.size === "number") setSubSize(s.subtitles.size);
         if (typeof s.subtitles.opacity === "number") setSubOpacity(s.subtitles.opacity);
         setSubColor(s.subtitles.color ?? "");
@@ -671,6 +680,7 @@ export function BrowserAnimationStep({
     void (async () => {
       try {
         let comp = await getComposition(project.id);
+        if (live) setCutoutBurned(comp.engine === "cutout-tales");
         // Cutout tales draws from a planned shot list (one planner call, JSON only); plan it before the preview loads.
         if (comp.engine === "cutout-tales" && comp.cutout?.supported && !comp.cutout.planned) {
           setPreviewError("Planning the cutout shots for your script (about 30 seconds)…");
@@ -1279,6 +1289,12 @@ export function BrowserAnimationStep({
     }).catch(() => undefined);
   };
 
+  const chooseCueUnit = (words: number | undefined) => {
+    subLoaded.current = true;
+    setSubWordsPerCue(words);
+    void savePlateSubtitles(project.id, { wordsPerCue: words ?? null }).catch(() => undefined);
+  };
+
   const changeSubSize = (delta: number) => {
     subLoaded.current = true;
     const nextSize = Math.min(160, Math.max(50, subSize + delta));
@@ -1355,9 +1371,10 @@ export function BrowserAnimationStep({
         segments.map((s) => ({ seconds: s.duration, keyword: s.label })),
         effectiveBeatsForCues,
         segments.map((s) => s.start),
-        segments.map((s) => s.duration)
+        segments.map((s) => s.duration),
+        { wordsPerCue: subWordsPerCue }
       ),
-    [subMode, segments, effectiveBeatsForCues]
+    [subMode, segments, effectiveBeatsForCues, subWordsPerCue]
   );
 
   const activeCue = useMemo(
@@ -1613,6 +1630,8 @@ export function BrowserAnimationStep({
           position: curScenePos,
           currentSceneIndex: activeSceneIndex,
           onSelectMode: chooseSubMode,
+          wordsPerCue: subWordsPerCue,
+          onSelectCueUnit: chooseCueUnit,
           onSelectStyle: chooseSubStyle,
           onStepSize: changeSubSize,
           onChangeTextColor: changeSubColor,
@@ -1650,7 +1669,7 @@ export function BrowserAnimationStep({
                   display: "block"
                 }
               })}
-              {activeCue && (
+              {activeCue && !cutoutBurned && (
                 <div
                   className={`aw-subtitle aw-sub-${subStyle}`}
                   aria-live="polite"
