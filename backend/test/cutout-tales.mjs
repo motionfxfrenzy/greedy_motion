@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  cutoutSpecProblems, resolveCutoutTimings, cutoutTalesEnabled, cutoutNameProblem,
+  cutoutSpecProblems, resolveCutoutTimings, normalizeDraftCoverage, cutoutTalesEnabled, cutoutNameProblem,
   cutoutSets, cutoutMoods, cutoutProps, cutoutArchetypes, cutoutPoses, cutoutExpressions, cutoutOverlayTypes, cutoutHairs
 } from "../../packages/contracts/src/cutout-tales.ts";
 
@@ -60,6 +60,13 @@ assert.ok(bubble.t1 > bubble.t0 && bubble.t1 <= 3.4 + 0.31, "bubble lasts its se
 assert.deepEqual(cutoutSpecProblems(spec), []);
 assert.ok("error" in resolveCutoutTimings({ ...draft, shots: [draft.shots[1]] }, sentences), "shots must cover every sentence from 0");
 assert.ok("error" in resolveCutoutTimings(draft, sentences.slice(0, 2)), "range beyond the sentences is refused");
+
+// Coverage normalising: a short last shot, a gap and an overlap are fixed mechanically; the strict resolver still refuses bad input.
+const cov = (shots, n) => normalizeDraftCoverage({ aspect: "16:9", shots: shots.map((sentences) => ({ sentences, set: "plain", cast: [] })) }, n).shots.map((s) => s.sentences);
+assert.deepEqual(cov([[0, 0], [1, 2]], 5), [[0, 0], [1, 4]], "last shot extended to the final sentence");
+assert.deepEqual(cov([[0, 0], [2, 3], [3, 4]], 5), [[0, 0], [1, 3], [4, 4]], "a gap closes and an overlap is trimmed");
+assert.deepEqual(cov([[0, 4], [5, 6]], 3), [[0, 1], [2, 2]], "never runs past the script");
+assert.ok("spec" in resolveCutoutTimings(normalizeDraftCoverage({ aspect: "16:9", shots: [{ sentences: [0, 1], set: "plain", cast: [] }] }, 4), [0, 1, 2, 3].map((i) => ({ start: i + 0.3, end: i + 0.9 }))));
 
 // Staging-only flag.
 assert.equal(cutoutTalesEnabled({ CUTOUT_TALES_ENABLED: "1", APP_ENV: "staging" }), true);
