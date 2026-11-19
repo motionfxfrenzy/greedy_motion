@@ -1130,14 +1130,20 @@ export function LandingPage() {
               <a href="mailto:support@greedymotion.com" style={{ color: "inherit", textDecoration: "underline" }}>
                 support@greedymotion.com
               </a>
+              <span aria-hidden="true">·</span>
+              <a
+                className="gm-launchbuff"
+                href="https://launchbuff.com/products/greedy-motion-fbhl5x"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Featured on LaunchBuff"
+              >
+                <img className="gm-launchbuff-light" src="https://launchbuff.com/badge-featured-light.svg" alt="Featured on LaunchBuff" width="96" height="30" />
+                <img className="gm-launchbuff-dark" src="https://launchbuff.com/badge-featured-dark.svg" alt="" width="96" height="30" />
+              </a>
             </span>
             <PublicLinks />
           </footer>
-          <div style={{ display: "flex", justifyContent: "center", padding: "20px 8px 0" }}>
-            <a href="https://launchbuff.com/products/greedy-motion-fbhl5x" target="_blank" rel="noopener noreferrer" title="Featured on LaunchBuff">
-              <img src="https://launchbuff.com/badge-featured-dark.svg" alt="Featured on LaunchBuff" width="173" height="54" style={{ height: "54px", width: "auto" }} />
-            </a>
-          </div>
         </section>
       </div>
     </div>
