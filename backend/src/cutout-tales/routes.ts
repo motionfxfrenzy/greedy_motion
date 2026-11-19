@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import {
-  cutoutAspects, cutoutPlannerBrief, cutoutSpecProblems, resolveCutoutTimings, voiceIds,
+  cutoutAspects, cutoutPlannerBrief, normalizeDraftCoverage, cutoutSpecProblems, resolveCutoutTimings, voiceIds,
   type CutoutAspect, type CutoutDraft, type CutoutSpec, type RenderJob, type SentenceTiming
 } from "@videosaas/contracts";
 import { callerId } from "../auth.ts";
@@ -91,8 +91,8 @@ export const DRAFT_SCHEMA = {
   }
 };
 
-async function planDraft(sentences: SentenceTiming[], aspect: CutoutAspect): Promise<{ spec: CutoutSpec } | { error: string }> {
-  const user = `Voiceover sentences (index: text):\n${sentences.map((s, i) => `${i}: ${s.text}`).join("\n")}\n\nAspect: ${aspect}. Return the CutoutDraft JSON.`;
+export async function planDraft(sentences: SentenceTiming[], aspect: CutoutAspect): Promise<{ spec: CutoutSpec } | { error: string }> {
+  const user = `Voiceover sentences (index: text):\n${sentences.map((s, i) => `${i}: ${s.text}`).join("\n")}\n\nAspect: ${aspect}. The last sentence index is ${sentences.length - 1}: the final shot must end there. Return the CutoutDraft JSON.`;
   const history: { role: "user" | "assistant"; content: string }[] = [];
   let last = "";
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -100,7 +100,7 @@ async function planDraft(sentences: SentenceTiming[], aspect: CutoutAspect): Pro
     let draft: CutoutDraft;
     try { draft = JSON.parse(result.text) as CutoutDraft; } catch { last = "the answer was not valid JSON"; continue; }
     draft.aspect = aspect;
-    const resolved = resolveCutoutTimings(draft, sentences);
+    const resolved = resolveCutoutTimings(normalizeDraftCoverage(draft, sentences.length), sentences);
     if ("spec" in resolved) return resolved;
     last = resolved.error;
   }

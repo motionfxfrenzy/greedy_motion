@@ -254,6 +254,24 @@ export function resolveCutoutTimings(draft: CutoutDraft, sentences: SentenceTimi
   return problems.length ? { error: problems.join("; ") } : { spec };
 }
 
+/**
+ * Planners often under-cover the sentences (a last shot that stops early, or a one-sentence gap). Coverage is mechanical, so
+ * fix it instead of failing: shots keep their order, each starts right after the previous one, and the last runs to the end.
+ */
+export function normalizeDraftCoverage(draft: CutoutDraft, sentenceCount: number): CutoutDraft {
+  if (!Array.isArray(draft?.shots) || !draft.shots.length || sentenceCount < 1) return draft;
+  let next = 0;
+  const shots = draft.shots.slice(0, sentenceCount).map((shot, i, all) => {
+    const raw = Array.isArray(shot.sentences) ? shot.sentences : [next, next];
+    const last = i === all.length - 1;
+    const end = last ? sentenceCount - 1 : Math.min(Math.max(Number.isInteger(raw[1]) ? raw[1]! : next, next), sentenceCount - 1 - (all.length - 1 - i));
+    const out = { ...shot, sentences: [next, end] as [number, number] };
+    next = end + 1;
+    return out;
+  });
+  return { ...draft, shots };
+}
+
 /** Staging-only flag. The look is never offered in production, whatever the env var says. */
 export function cutoutTalesEnabled(env: Record<string, string | undefined>): boolean {
   return env.CUTOUT_TALES_ENABLED === "1" && (env.APP_ENV ?? "local") !== "production";
@@ -265,7 +283,7 @@ export const cutoutCanvas: Record<CutoutAspect, { width: number; height: number 
 /** Prompt text for the planner: the vocabulary it may use, as data (the draft is JSON only). */
 export const cutoutPlannerBrief = [
   "LOOK: Cutout tales. Flat vector adult characters (about 7 heads tall, mitten hands) as layered puppets that barely move; the camera push-in and pop-in overlays carry the energy.",
-  `Output a JSON CutoutDraft: { aspect, shots: [{ sentences: [first, last], set, mood, props?, cast: [...], overlays?: [...] }] }. Shots cover every voiceover sentence in order, 1 to 3 sentences each.`,
+  `Output a JSON CutoutDraft: { aspect, shots: [{ sentences: [first, last], set, mood, props?, cast: [...], overlays?: [...] }] }. Shots cover EVERY voiceover sentence, in order, with no gaps: the first shot starts at sentence 0, each next shot starts at the previous last + 1, and the final shot ends at the LAST sentence index. 1 to 3 sentences per shot.`,
   `set: ${cutoutSets.join(" | ")}. mood: ${cutoutMoods.join(" | ")}. props: ${cutoutProps.join(" | ")}.`,
   `cast: at most ${CUTOUT_LIMITS.cast} per shot. Each: archetype (${cutoutArchetypes.join(" | ")}), an ORIGINAL display name, optional look overrides (colours as #rrggbb, hair, flags), x (0..1), pose (${cutoutPoses.join(" | ")}), expr (${cutoutExpressions.join(" | ")}), gestures/expressions at a sentence, talkSentences for the sentences that character speaks.`,
   `overlays: ${cutoutOverlayTypes.join(" | ")}. tag = name tag (text + sub), year, stamp, rating (stars), bubble (needs speaker = cast index), caption, title. Use at most 3 overlays at once. Never place text yourself: the renderer lays overlays out so they never overlap each other or a head. Text is short (under 40 characters; bubbles under 100).`,
