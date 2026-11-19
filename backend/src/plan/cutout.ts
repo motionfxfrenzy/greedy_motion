@@ -8,6 +8,7 @@ import { ensureMedia } from "../media.ts";
 import { PreviewUnavailable } from "../preview/service.ts";
 import { updateProjectCutout } from "../projects/store.ts";
 import { audioMode, planAudioDir } from "./audio.ts";
+import { getProjectSubtitles } from "../plates/service.ts";
 import { projectTiming } from "./preview.ts";
 import { soundTracks, withAudioContinuity, withSoundtrack } from "./sound.ts";
 import type { PlanTiming } from "./timing.ts";
@@ -73,12 +74,48 @@ export function cutoutSpecFor(project: VideoProject): { spec: CutoutSpec; timing
 
 const rewriteFontUrls = (css: string, to: string) => css.replace(/url\(\s*(["'])?fonts\//g, (_m, q: string) => `url(${q ?? ""}${to}/`);
 
-function stamp(html: string, spec: CutoutSpec): string {
+/** Burned-in captions for the composition: the saved subtitle settings plus timed cues (spoken words in chunks, or the beat's key phrase). */
+export type CutoutCaptions = { mode: "none" | "key-phrases" | "full"; size: number; opacity: number; color: string; bg: string; x: number; y: number; cues: { s: number; e: number; t: string }[] };
+const round2 = (n: number) => Math.round(n * 100) / 100;
+export async function cutoutCaptions(project: VideoProject, timing: PlanTiming): Promise<CutoutCaptions> {
+  const sub = await getProjectSubtitles(project);
+  const mode = sub.mode === "none" || sub.mode === "key-phrases" ? sub.mode : "full";
+  const cues: CutoutCaptions["cues"] = [];
+  const beats = project.beatPlan!.beats;
+  if (mode === "key-phrases") {
+    beats.forEach((beat, i) => {
+      const t = timing.beats[i]!;
+      const text = (beat.on_screen ?? beat.keyword ?? "").trim();
+      if (text) cues.push({ s: round2(t.start + 0.1), e: round2(Math.max(t.start + 0.4, t.end - 0.15)), t: text });
+    });
+  } else if (mode === "full") {
+    const per = Math.max(1, Math.min(12, Math.round(sub.wordsPerCue ?? 6)));
+    beats.forEach((beat, i) => {
+      const t = timing.beats[i]!;
+      const line = (beat.line ?? "").trim();
+      if (!line || !t.vo) return;
+      // measured word times when the take has them, else the line's words spread evenly over its voiceover slot
+      const words = t.words?.length ? t.words.map((w) => ({ text: w.text, start: w.start, end: w.end })) : (() => {
+        const list = line.split(/\s+/);
+        const step = (t.vo!.end - t.vo!.start) / list.length;
+        return list.map((text, k) => ({ text, start: t.vo!.start + k * step, end: t.vo!.start + (k + 1) * step }));
+      })();
+      for (let k = 0; k < words.length; k += per) {
+        const chunk = words.slice(k, k + per);
+        const next = words[k + per];
+        cues.push({ s: round2(chunk[0]!.start), e: round2(next ? Math.min(next.start, chunk[chunk.length - 1]!.end + 0.35) : chunk[chunk.length - 1]!.end + 0.25), t: chunk.map((w) => w.text).join(" ") });
+      }
+    });
+  }
+  return { mode, size: sub.size ?? 100, opacity: sub.opacity ?? 100, color: sub.color || "#ffffff", bg: sub.bgColor || "#0c0f16", x: sub.x ?? 50, y: sub.y ?? 88, cues };
+}
+
+function stamp(html: string, spec: CutoutSpec, captions: CutoutCaptions): string {
   const { width, height } = cutoutCanvas[spec.aspect];
   const root = /<div id="root"[^>]*>/.exec(html);
   if (!root) throw new PreviewUnavailable("The cutout-tales template has no #root element.");
   const stamped = root[0].replace(/data-width="\d+"/, `data-width="${width}"`).replace(/data-height="\d+"/, `data-height="${height}"`).replace(/data-duration="[\d.]+"/, `data-duration="${spec.duration}"`);
-  const json = JSON.stringify({ spec }).replace(/</g, "\\u003c");
+  const json = JSON.stringify({ spec, captions }).replace(/</g, "\\u003c");
   return html.replace(root[0], () => stamped)
     .replace(/<meta name="viewport" content="[^"]*">/, `<meta name="viewport" content="width=${width}, height=${height}">`)
     .replace(/<script id="hf-variables" type="application\/json">[\s\S]*?<\/script>/, () => `<script id="hf-variables" type="application/json">${json}</script>`);
@@ -93,7 +130,7 @@ export async function cutoutPreviewHtml(project: VideoProject): Promise<string> 
   const { spec, timing } = cutoutSpecFor(project);
   const [template, fontCss] = await Promise.all([readFile(join(config.templatesDir, "cutout-tales/index.html"), "utf8"), readFile(join(config.fontsDir, "fonts.css"), "utf8")]);
   const bootstrap = [`<script src="/api/preview/runtime.js"></script>`, `<script src="/api/preview/gsap.js"></script>`].join("\n  ");
-  let html = stamp(template, spec).replace('<script src="vendor/gsap.min.js"></script>', () => bootstrap);
+  let html = stamp(template, spec, await cutoutCaptions(project, timing)).replace('<script src="vendor/gsap.min.js"></script>', () => bootstrap);
   if (!html.includes("/api/preview/gsap.js")) throw new PreviewUnavailable("The cutout-tales template has no supported preview bootstrap.");
   html = withSoundtrack(html, tracksFor(project, timing, (file) => `/api/preview/plans/${project.id}/audio/${file}`));
   html = withAudioContinuity(html);
@@ -114,7 +151,7 @@ export async function buildCutoutRenderProject(project: VideoProject, dir: strin
     await mkdir(join(dir, track.src, ".."), { recursive: true });
     await cp(from, join(dir, track.src));
   }
-  let html = withSoundtrack(stamp(template, spec), tracks);
+  let html = withSoundtrack(stamp(template, spec, await cutoutCaptions(project, timing)), tracks);
   html = html.replace("</head>", () => `  <style id="fonts">\n${fontCss}\n  </style>\n</head>`);
   await writeFile(join(dir, "index.html"), html);
   await writeFile(join(dir, "variables.json"), "{}");
