@@ -12,6 +12,7 @@ import storyWorlds from "./story-worlds.json" with { type: "json" };
 import { getLook, looks, type LookId } from "./looks.ts";
 import { themes } from "./themes.ts";
 import { familiesOfLook } from "./style-families.ts";
+import { cutoutTalesEnabled } from "./cutout-tales.ts";
 
 export type GalleryKind = "starter" | "explainer" | "skill" | "style";
 
@@ -248,8 +249,13 @@ const withRendered = (item: GalleryTemplate): GalleryTemplate => {
 
 const exampleStylePrompt = "A 30-second explainer for Pocket, an app that turns receipts into a tidy monthly budget. Show the problem of a pile of receipts, how Pocket sorts them, and a call to try it free.";
 
-/** Cutout tales is staging-only: hidden from every gallery, picker and template list unless the flag is on (build-time for the browser). */
-export const cutoutLookHidden = (look: string) => look === "cutout-tales" && process.env.NEXT_PUBLIC_CUTOUT_TALES !== "1" && process.env.CUTOUT_TALES_ENABLED !== "1";
+/**
+ * Cutout tales is staging-only: hidden from every gallery, picker and template list unless the flag is on. On the server this is exactly the
+ * backend's `cutoutTalesEnabled` (so production hides it whatever the env says); in the browser the build-time NEXT_PUBLIC flag decides,
+ * but never when APP_ENV says production.
+ */
+export const cutoutLookHidden = (look: string) =>
+  look === "cutout-tales" && !(cutoutTalesEnabled(process.env) || (process.env.NEXT_PUBLIC_CUTOUT_TALES === "1" && (process.env.APP_ENV ?? "local") !== "production"));
 
 /** Every drawn style is also a template: its look, a ready example prompt and a preview. */
 const styleTemplates: readonly GalleryTemplate[] = looks

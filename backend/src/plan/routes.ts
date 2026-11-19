@@ -7,11 +7,11 @@ import sharp from "sharp";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { aspects, audioModes, captionModes, BEAT_LIMITS, effectiveBriefDurationSeconds, ensureScriptBeatIds, findGalleryTemplate, formatForDuration, inferVideoType, isAnimationTier, isPaidTier, isScriptLedDuration, materialCostMillitokens, materialCostMillitokensV2, parseScriptNotes, resolvePrimaryAspect, scriptFrameKey, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, getStyleFamily, parseScriptBeats, scenesFor, textEffects, transitionTypes, aspectToFormat, beatPlanProblems, isLook, parseScriptBrief, plainText, voices, voiceIds, voiceText, validateBeatLayoutHint, validateHyperFramesOverrides, type Aspect, type AudioMode, type Beat, type BeatPlan, type CaptionMode, type EditPatch, type LookId, type PlanAudio, type ProjectScript, type ScriptBeat, type ScriptBrief, type ScriptNotes, type VideoProject } from "@videosaas/contracts";
-import { callerId } from "../auth.ts";
+import { callerId, isOpen } from "../auth.ts";
 import { brandLogoPath, brandOwner, getBrand } from "../brand/store.ts";
 import { registerRequestId, requestIdOf, upstreamError, upstreamSseError } from "../http-errors.ts";
 import { discardPlateVariants } from "../plates/store.ts";
-import { discardProjectAnimation, getProject, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan, type PlanMutationPatch } from "../projects/store.ts";
+import { discardProjectAnimation, getProject, projectOwnerById, ProjectInvalid, saveScriptFrame, setCoverFrame, setProjectPlanning, updateProject, updateProjectAudio, updateProjectPlan, type PlanMutationPatch } from "../projects/store.ts";
 import { config } from "../config.ts";
 import {
   PremiumRequiresSubscriptionError,
@@ -73,7 +73,7 @@ import { ensurePromptAllowed } from "../moderation/creem.ts";
 import { admitPreview, meteringOn } from "./preview-meter.ts";
 import { tierFor } from "../billing/service.ts";
 import { isPlateLook, startPlates } from "../plates/service.ts";
-import { cutoutAspectOf, currentCutout, isCutoutLook, planCutoutShots } from "./cutout.ts";
+import { cutoutAspectOf, currentCutout, isCutoutLook, planCutoutShots, takeCutoutPlanSlot } from "./cutout.ts";
 
 const frameLogos = new Map<string, string>();
 
@@ -2760,6 +2760,19 @@ export async function registerPlanRoutes(app: FastifyInstance) {
     if (!project.beatPlan) return reply.code(409).send({ error: { code: "no_plan", message: "Generate the storyboard first." } });
     if (!cutoutAspectOf(project)) return reply.code(409).send({ error: { code: "unsupported_format", message: "Cutout tales supports 16:9 and 9:16 films." } });
     if (currentCutout(project) && request.query && (request.query as { force?: string }).force !== "1") return { planned: true, cached: true };
+    // The planner call is a model call: count it like the other planner stages (once per film, with the film's call cap), only when it will run.
+    if (meteringOn() && !isOpen(request) && !stepBillingOnForProject(project)) {
+      const userId = callerId(request);
+      const owner = await projectOwnerById(project.id);
+      if (owner === userId) {
+        const refusal = await admitPreview(userId, project.id, await tierFor(userId));
+        if (refusal) return reply.code(402).send(refusal);
+      }
+    }
+    const slot = takeCutoutPlanSlot(project.id);
+    if (!slot.ok) {
+      return reply.code(429).header("retry-after", String(slot.retryAfterSeconds)).send({ error: { code: "cutout_plan_rate_limited", message: "The shots for this film were planned several times recently. Try again in a little while." } });
+    }
     try {
       const cutout = await planCutoutShots(project);
       return { planned: true, cached: false, shots: cutout.draft.shots.length };
