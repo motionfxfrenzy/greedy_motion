@@ -326,7 +326,13 @@ export function activeSubtitleCueAt(
   currentScene: number
 ): SubtitleCue | null {
   if (mode === "none" || !cues.length) return null;
-  return cues.find((c) => time >= c.start && time < c.end) ?? cues.find((c) => c.scene === currentScene) ?? null;
+  const hit = cues.find((c) => time >= c.start && time < c.end);
+  if (hit) return hit;
+  // No cue covers this instant. Before the scene's first cue (the beat between a cut and the first word) show that first cue;
+  // once the scene's last cue has finished (the film's end, a pause after the last word) show nothing, never the scene's opening line again.
+  const own = cues.filter((c) => c.scene === currentScene);
+  if (!own.length || time >= own[own.length - 1]!.end) return null;
+  return own.find((c) => time < c.start) ?? null;
 }
 
 export type HfAudioMode = "voiceover" | "music" | "both" | "none";
