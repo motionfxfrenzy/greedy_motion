@@ -988,7 +988,15 @@ button.sc-num[aria-pressed="true"]{border-color:var(--blue);background:var(--blu
 .sc-limit-note{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
 .sc-empty{max-width:920px}
 
-.lim-modal{width:min(880px,100%)}
+.lim-modal{width:min(1040px,100%);gap:10px;padding:18px 22px;overflow:hidden}
+.lim-modal .lim{gap:10px}
+.lim-modal .lim-need{display:none}
+.lim-modal .lim-grid[data-count="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
+.lim-modal .lim-card{gap:6px;padding:16px 14px 14px;border-radius:16px}
+.lim-modal .lim-top p{min-height:0;margin-top:2px;font-size:12.5px}
+.lim-modal .lim-price b{font-size:26px}
+.lim-modal .lim-card ul{gap:4px;padding-top:8px;font-size:12.5px}
+@media(max-width:900px),(max-height:620px){.lim-modal{overflow:auto}.lim-modal .lim-grid[data-count="4"]{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .lim{display:grid;gap:16px;width:100%}
 .lim .billing-toggle{justify-self:center}
 .lim-need{margin:0;line-height:1.5}

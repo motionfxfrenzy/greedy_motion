@@ -142,7 +142,9 @@ const MORE_CARDS: Card[] = [
   r("story-illus-low-poly", "Low-poly story", "Low poly", false),
   r("story-illus-flat-vector", "Flat vector explainer", "Flat vector", false)
 ];
-const CARDS: Card[] = [...FEATURED_CARDS, ...MORE_CARDS];
+// Cutout tales is staging-only (NEXT_PUBLIC_CUTOUT_TALES is inlined at build time), so its reel is added only where the look exists.
+const CUTOUT_CARDS: Card[] = process.env.NEXT_PUBLIC_CUTOUT_TALES === "1" ? [r("cutout-tales-western", "Cutout tales", "New", true)] : [];
+const CARDS: Card[] = [...FEATURED_CARDS, ...CUTOUT_CARDS, ...MORE_CARDS];
 
 export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
   const cta = signedIn ? appHref("/studio") : appHref("/auth?mode=signup");

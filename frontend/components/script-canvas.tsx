@@ -264,7 +264,7 @@ export function PlanLimitOptions({ limit }: { limit: LimitError }) {
 }
 
 /** The refusal as a dialog (used away from the storyboard page). */
-export function PlanLimitModal({ limit, onClose, onBack }: { limit: LimitError; onClose: () => void; onBack?: () => void }) {
+export function PlanLimitModal({ limit, onClose, onBack, onRetry }: { limit: LimitError; onClose: () => void; onBack?: () => void; onRetry?: () => void }) {
   useEffect(() => {
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", close);
@@ -282,6 +282,7 @@ export function PlanLimitModal({ limit, onClose, onBack }: { limit: LimitError; 
       <small>{capped ? "Start a new film to keep going; your other films are not affected." : "Nothing is lost: your brief and settings are saved, and you can pick up where you left off after checkout."}</small>
       <div className="sc-modal-actions">
         {onBack && <button type="button" className="secondary-button" onClick={onBack}>Back to brief</button>}
+        {onRetry && <button type="button" className="secondary-button" onClick={onRetry}>Try again</button>}
         <button type="button" className="secondary-button" onClick={onClose}>Close</button>
       </div>
     </div>
@@ -737,6 +738,13 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
     : storyboard.state === "building" && storyboard.resuming
     ? <><i className="sc-live" />{`Resuming your storyboard · ${beats.length} beats · about ${formatDurationSeconds(runs)}`}</>
     : `${beats.length} beats${voiced ? ` · ${words} spoken words` : ""} · about ${formatDurationSeconds(runs)}${drawn < beats.length ? ` · ${drawn}/${beats.length} frames drawn` : ""}${paintingSets ? " · painting the sets…" : previewTokens ? ` · sets ${Math.round(previewTokens * 10) / 10}t` : ""}${voicedCount > 0 ? ` · ${voicedCount}/${totalVoicedBeats} voiced` : ""}`;
+
+  // A refusal for tokens or plan limits floats over the (empty) storyboard instead of replacing it.
+  if (!streaming && beats.length === 0 && error && limit) return <div className="script-canvas">
+    <header className="sc-head"><div className="sc-head-title"><h1>Storyboard</h1></div></header>
+    <div className="sc-scroll" aria-hidden="true" />
+    <PlanLimitModal limit={limit} onClose={() => (onBackToBrief ?? onTryAgain)?.()} onBack={onBackToBrief} onRetry={limit.code !== "preview_call_cap" ? onTryAgain : undefined} />
+  </div>;
 
   if (!streaming && beats.length === 0 && error) return <div className="script-canvas">
     <header className="sc-head"><div className="sc-head-title"><h1>Storyboard</h1></div></header>
