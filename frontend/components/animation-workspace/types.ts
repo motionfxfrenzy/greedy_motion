@@ -117,6 +117,9 @@ export interface WorkspaceSubtitleControlState {
   position: { x: number; y: number };
   currentSceneIndex: number;
   onSelectMode: (mode: WorkspaceSubtitleMode) => void;
+  /** Words per cue: 1 word, 3 short, undefined phrase (6), 99 whole sentence. */
+  wordsPerCue?: number;
+  onSelectCueUnit?: (words: number | undefined) => void;
   onSelectStyle: (style: WorkspaceSubtitleStyle) => void;
   onStepSize: (delta: number) => void;
   onChangeTextColor: (hex: string) => void;

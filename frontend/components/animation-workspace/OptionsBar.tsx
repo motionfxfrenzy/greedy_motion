@@ -334,6 +334,20 @@ export function OptionsBar({ optionsConfig, audio, subtitles, previewQuality, mo
                     </button>
                   ))}
                 </div>
+                {subMode === "full" && subtitles.onSelectCueUnit && (
+                  <div className="aw-dialog-group" role="radiogroup" aria-label="Words per subtitle">
+                    <div className="aw-dialog-head"><b>Words per subtitle</b><span>One word, a short phrase or a whole sentence at a time</span></div>
+                    {([{ id: "word", label: "One word", words: 1 }, { id: "short", label: "Short phrase", words: 3 }, { id: "phrase", label: "Phrase", words: undefined }, { id: "sentence", label: "Whole sentence", words: 99 }] as const).map((u) => {
+                      const on = (subtitles.wordsPerCue === undefined || subtitles.wordsPerCue === 6 ? undefined : subtitles.wordsPerCue) === u.words;
+                      return (
+                        <button key={u.id} type="button" role="radio" aria-checked={on} className={`aw-option-row${on ? " on" : ""}`} onClick={() => subtitles.onSelectCueUnit?.(u.words)}>
+                          <div><b>{u.label}</b></div>
+                          {on && <span className="aw-check">✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
