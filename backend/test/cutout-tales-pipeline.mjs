@@ -9,7 +9,7 @@ process.env.PLANNER = "deterministic";
 process.env.DATABASE_URL = "postgres://unused@127.0.0.1:1/unused";
 process.env.CUTOUT_TALES_ENABLED = "1";
 const { isLook, getLook } = await import("../../packages/contracts/src/index.ts");
-const { isCutoutLook, cutoutSentences, cutoutFingerprint, currentCutout, cutoutSpecFor, cutoutPreviewHtml, buildCutoutRenderProject } = await import("../src/plan/cutout.ts");
+const { isCutoutLook, cutoutSentences, cutoutFingerprint, currentCutout, cutoutSpecFor, cutoutPreviewHtml, buildCutoutRenderProject, takeCutoutPlanSlot, resetCutoutPlanSlots, CUTOUT_PLAN_MAX, CUTOUT_PLAN_WINDOW_MS } = await import("../src/plan/cutout.ts");
 const { planReadiness } = await import("../src/plan/readiness.ts");
 const { projectTiming } = await import("../src/plan/preview.ts");
 const { preflightRender } = await import("../../worker/src/render-preflight.mjs");
@@ -26,6 +26,19 @@ const project = {
   beatPlan: { canvas: "16:9", target_duration_s: 20, clock: "beats", brand: { name: "T", motion_profile: "smooth" }, characters: [{ id: "rider", description: "a lone rider in a long coat" }], beats: lines.map((l, i) => beat(`b${i + 1}`, l)), audio: { voice: null, music: null, captions: "none" } }
 };
 assert.ok(isCutoutLook(project));
+
+// Re-plan rate limit: a project gets CUTOUT_PLAN_MAX planner runs per window; force-replan loops are refused until the oldest run ages out.
+{
+  resetCutoutPlanSlots();
+  const t0 = 1_000_000;
+  for (let i = 0; i < CUTOUT_PLAN_MAX; i++) assert.equal(takeCutoutPlanSlot("p1", t0 + i).ok, true);
+  const refused = takeCutoutPlanSlot("p1", t0 + 10);
+  assert.equal(refused.ok, false);
+  assert.ok(refused.retryAfterSeconds > 0 && refused.retryAfterSeconds <= CUTOUT_PLAN_WINDOW_MS / 1000);
+  assert.equal(takeCutoutPlanSlot("p2", t0 + 10).ok, true, "another film is not affected");
+  assert.equal(takeCutoutPlanSlot("p1", t0 + CUTOUT_PLAN_WINDOW_MS + 1).ok, true, "a slot frees once the oldest run leaves the window");
+  resetCutoutPlanSlots();
+}
 const timing = projectTiming(project);
 const sentences = cutoutSentences(project, timing);
 assert.equal(sentences.length, 4);
