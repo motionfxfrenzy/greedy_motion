@@ -1133,6 +1133,11 @@ export function LandingPage() {
             </span>
             <PublicLinks />
           </footer>
+          <div style={{ display: "flex", justifyContent: "center", padding: "20px 8px 0" }}>
+            <a href="https://launchbuff.com/products/greedy-motion-fbhl5x" target="_blank" rel="noopener noreferrer" title="Featured on LaunchBuff">
+              <img src="https://launchbuff.com/badge-featured-dark.svg" alt="Featured on LaunchBuff" width="173" height="54" style={{ height: "54px", width: "auto" }} />
+            </a>
+          </div>
         </section>
       </div>
     </div>
