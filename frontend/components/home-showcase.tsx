@@ -146,8 +146,122 @@ const MORE_CARDS: Card[] = [
 const CUTOUT_CARDS: Card[] = process.env.NEXT_PUBLIC_CUTOUT_TALES === "1" ? [r("cutout-tales-western", "Cutout tales", "New", true)] : [];
 const CARDS: Card[] = [...FEATURED_CARDS, ...CUTOUT_CARDS, ...MORE_CARDS];
 
+/**
+ * Drives the reels marquee: a slow auto-scroll (one loop of the duplicated track every 140s) that the
+ * viewer can grab and drag with a mouse or finger, or push with a horizontal trackpad swipe. Auto-scroll
+ * pauses on hover, on keyboard focus and while dragging, and resumes afterwards. A drag never fires the
+ * "Use this" link it started on. Under reduced motion it does nothing and the CSS falls back to native scrolling.
+ */
+function useDragMarquee() {
+  const marqueeRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const wrap = marqueeRef.current;
+    const track = trackRef.current;
+    if (!wrap || !track || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const LOOP_SECONDS = 140;
+    const DRAG_THRESHOLD = 5;
+    let offset = 0;
+    let last = performance.now();
+    let raf = 0;
+    let hovering = false;
+    let focused = false;
+    let drag: { id: number; startX: number; startOffset: number; moved: boolean } | null = null;
+    let suppressClick = false;
+    wrap.dataset.drag = "";
+
+    const half = () => track.scrollWidth / 2;
+    const apply = () => {
+      const h = half();
+      if (h > 0) offset = ((offset % h) - h) % h; // keep within (-h, 0] so the duplicate seam is never seen
+      track.style.transform = `translate3d(${offset}px,0,0)`;
+    };
+    const tick = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      if (!drag && !hovering && !focused) offset -= (half() / LOOP_SECONDS) * dt;
+      apply();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      suppressClick = false;
+      drag = { id: e.pointerId, startX: e.clientX, startOffset: offset, moved: false };
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.startX;
+      if (!drag.moved && Math.abs(dx) > DRAG_THRESHOLD) {
+        drag.moved = true;
+        wrap.dataset.drag = "active";
+        try { wrap.setPointerCapture(drag.id); } catch { /* pointer already released */ }
+      }
+      if (drag.moved) {
+        offset = drag.startOffset + dx;
+        apply();
+      }
+    };
+    const endDrag = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      if (drag.moved) suppressClick = true;
+      drag = null;
+      wrap.dataset.drag = "";
+      last = performance.now();
+    };
+    const onClickCapture = (e: MouseEvent) => {
+      if (!suppressClick) return;
+      suppressClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return; // vertical scrolling stays with the page
+      e.preventDefault();
+      offset -= e.deltaX;
+      apply();
+    };
+    const onEnter = (e: PointerEvent) => { if (e.pointerType === "mouse") hovering = true; };
+    const onLeave = () => { hovering = false; };
+    const onFocusIn = () => { focused = true; };
+    const onFocusOut = (e: FocusEvent) => { if (!wrap.contains(e.relatedTarget as Node | null)) focused = false; };
+    const onDragStart = (e: DragEvent) => e.preventDefault();
+
+    wrap.addEventListener("pointerdown", onPointerDown);
+    wrap.addEventListener("pointermove", onPointerMove);
+    wrap.addEventListener("pointerup", endDrag);
+    wrap.addEventListener("pointercancel", endDrag);
+    wrap.addEventListener("click", onClickCapture, true);
+    wrap.addEventListener("wheel", onWheel, { passive: false });
+    wrap.addEventListener("pointerenter", onEnter);
+    wrap.addEventListener("pointerleave", onLeave);
+    wrap.addEventListener("focusin", onFocusIn);
+    wrap.addEventListener("focusout", onFocusOut);
+    wrap.addEventListener("dragstart", onDragStart);
+    return () => {
+      cancelAnimationFrame(raf);
+      wrap.removeEventListener("pointerdown", onPointerDown);
+      wrap.removeEventListener("pointermove", onPointerMove);
+      wrap.removeEventListener("pointerup", endDrag);
+      wrap.removeEventListener("pointercancel", endDrag);
+      wrap.removeEventListener("click", onClickCapture, true);
+      wrap.removeEventListener("wheel", onWheel);
+      wrap.removeEventListener("pointerenter", onEnter);
+      wrap.removeEventListener("pointerleave", onLeave);
+      wrap.removeEventListener("focusin", onFocusIn);
+      wrap.removeEventListener("focusout", onFocusOut);
+      wrap.removeEventListener("dragstart", onDragStart);
+      delete wrap.dataset.drag;
+      track.style.transform = "";
+    };
+  }, []);
+  return { marqueeRef, trackRef };
+}
+
 export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
   const cta = signedIn ? appHref("/studio") : appHref("/auth?mode=signup");
+  const { marqueeRef, trackRef } = useDragMarquee();
   const item = (c: Card, dup: boolean) => (
     <article key={`${c.template}${dup ? "-dup" : ""}`} aria-hidden={dup || undefined} className={`gm-reel ${c.wide ? "gm-reel-wide" : "gm-reel-sq"}${dup ? " gm-mq-dup" : ""}`}>
       <div className="gm-reel-frame">
@@ -164,8 +278,8 @@ export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
         <h2 id="reels-title" style={h2Style}>Made with Greedy Motion.</h2>
         <p style={subStyle}>Motion with code, from one plain-language brief each. Story reels, explainers and ads, finished and ready to post.</p>
       </div>
-      <div className="gm-marquee">
-        <div className="gm-marquee-track" role="list">
+      <div className="gm-marquee" ref={marqueeRef}>
+        <div className="gm-marquee-track" role="list" ref={trackRef}>
           {CARDS.map((c) => item(c, false))}
           {CARDS.map((c) => item(c, true))}
         </div>
@@ -178,9 +292,10 @@ export function ReelsShowcase({ signedIn }: { signedIn: boolean | null }) {
       <style>{`
         .gm-marquee{--h:180px;overflow:hidden;padding:8px 0 12px;-webkit-mask-image:linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 6%,#000 94%,transparent 100%)}
         @media(max-width:640px){.gm-marquee{--h:150px}}
-        .gm-marquee-track{display:flex;width:max-content;animation:gm-marquee 140s linear infinite;will-change:transform}
-        .gm-marquee:hover .gm-marquee-track,.gm-marquee:focus-within .gm-marquee-track{animation-play-state:paused}
-        @keyframes gm-marquee{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
+        .gm-marquee-track{display:flex;width:max-content;will-change:transform}
+        .gm-marquee[data-drag]{cursor:grab;touch-action:pan-y;user-select:none;-webkit-user-select:none}
+        .gm-marquee[data-drag="active"]{cursor:grabbing}
+        .gm-marquee[data-drag] img,.gm-marquee[data-drag] video{-webkit-user-drag:none}
         .gm-reel{flex:none;margin-right:16px;display:flex;flex-direction:column;gap:10px}
         .gm-reel-sq{width:var(--h)}
         .gm-reel-wide{width:calc(var(--h)*16/9)}
