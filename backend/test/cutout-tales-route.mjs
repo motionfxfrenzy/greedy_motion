@@ -6,7 +6,7 @@ import { join } from "node:path";
 process.env.PLANNER = "deterministic";
 process.env.DATABASE_URL = "postgres://unused@127.0.0.1:1/unused";
 process.env.CUTOUT_TALES_ENABLED = "1";
-const { splitSentences, joinTakes, readPcm, buildCutoutProject } = await import("../src/cutout-tales/routes.ts");
+const { splitSentences, joinTakes, readPcm, buildCutoutProject, DRAFT_SCHEMA } = await import("../src/cutout-tales/routes.ts");
 const { pcmToWav } = await import("../src/audio/wav.ts");
 const { config } = await import("../src/config.ts");
 const { cutoutSpecProblems } = await import("../../packages/contracts/src/cutout-tales.ts");
@@ -28,4 +28,16 @@ assert.match(html, /data-width="1080" data-height="1920"/); assert.match(html, /
 assert.match(html, /"spec":\{"version":1,"aspect":"9:16"/); assert.match(html, /<style id="fonts">/); assert.ok(html.includes("Grow With Kaz"));
 for (const f of ["vendor/gsap.min.js", "audio/voiceover.wav", "fonts/fonts.css"]) await stat(join(dir, f));
 await rm(dir, { recursive: true, force: true });
+// Provider schemas must declare every required key (Gemini 400s otherwise).
+const strict = (node, path = "schema") => {
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node.required)) for (const key of node.required) assert.ok(node.properties && key in node.properties, `${path}: required "${key}" is not declared in properties`);
+  for (const [k, v] of Object.entries(node.properties ?? {})) strict(v, `${path}.${k}`);
+  if (node.items) strict(node.items, `${path}[]`);
+};
+strict(DRAFT_SCHEMA);
+// A draft shaped like the schema resolves end to end.
+const { resolveCutoutTimings } = await import("../../packages/contracts/src/cutout-tales.ts");
+const ok = resolveCutoutTimings({ aspect: "16:9", shots: [{ sentences: [0, 1], set: "western_town", cast: [{ archetype: "drifter", name: "Cade" }], overlays: [{ type: "tag", text: "CADE", target: 0 }] }] }, joined.timings);
+assert.ok("spec" in ok, JSON.stringify(ok));
 console.log("cutout-tales route tests passed");
