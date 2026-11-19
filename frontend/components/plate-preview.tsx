@@ -1199,6 +1199,11 @@ export function PlatePreview({
     setSubMode(nextMode);
     void savePlateSubtitles(project.id, { mode: nextMode, style: subStyle, size: subSize, color: subColor || null, bgColor: subBgColor || null, x: subPos.x, y: subPos.y }).catch(() => undefined);
   };
+  const chooseCueUnit = (words: number | undefined) => {
+    setSubWordsPerCue(words);
+    void savePlateSubtitles(project.id, { wordsPerCue: words ?? null }).catch(() => undefined);
+  };
+
   const chooseSubStyle = (nextStyle: SubtitleStyle) => {
     subLoaded.current = true;
     setSubStyle(nextStyle);
@@ -1620,7 +1625,7 @@ export function PlatePreview({
               } finally { setMusicBusy(false); }
             }
     } }}
-    subtitleControls={{ mode: subMode, style: subStyle, size: subSize, opacity: subOpacity, textColor: subColor, bgColor: subBgColor, effectiveTextColor, effectiveBgColor, position: curScenePos, currentSceneIndex: current, onSelectMode: chooseSubMode, onSelectStyle: chooseSubStyle, onStepSize: changeSubSize, onChangeTextColor: changeSubColor, onChangeBgColor: changeSubBgColor, onChangeOpacity: setSubOpacityDirect, onChangeScenePosition: setSceneSubtitlePos, onApplyPositionToAll: applyPosToAllScenes, onResetCustomization: resetSubCustomization }}
+    subtitleControls={{ mode: subMode, style: subStyle, wordsPerCue: subWordsPerCue, onSelectCueUnit: chooseCueUnit, size: subSize, opacity: subOpacity, textColor: subColor, bgColor: subBgColor, effectiveTextColor, effectiveBgColor, position: curScenePos, currentSceneIndex: current, onSelectMode: chooseSubMode, onSelectStyle: chooseSubStyle, onStepSize: changeSubSize, onChangeTextColor: changeSubColor, onChangeBgColor: changeSubBgColor, onChangeOpacity: setSubOpacityDirect, onChangeScenePosition: setSceneSubtitlePos, onApplyPositionToAll: applyPosToAllScenes, onResetCustomization: resetSubCustomization }}
     previewQualityControls={{
       quality: previewQuality,
       onSelectQuality: choosePreviewQuality,

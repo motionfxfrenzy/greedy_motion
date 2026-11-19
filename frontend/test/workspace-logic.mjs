@@ -215,6 +215,13 @@ test("buildSubtitleCues and activeSubtitleCueAt chunk full lines and select acti
   assert.equal(activeSubtitleCueAt("full", fullCues, 3.5, 0)?.text, "seven eight");
   assert.equal(activeSubtitleCueAt("full", fullCues, 4.5, 1)?.text, "Short second line");
   assert.equal(activeSubtitleCueAt("none", fullCues, 0.5, 0), null);
+  // past the last cue of the scene (the end of the film): nothing, not the scene's first line again
+  const last = fullCues.filter((c) => c.scene === 1);
+  assert.equal(activeSubtitleCueAt("full", fullCues, last[last.length - 1].end + 0.5, 1), null);
+  // a short beat between the cut and the scene's first cue: that first cue (no flicker)
+  const gapCues = [{ scene: 0, start: 0.1, end: 2, text: "first" }, { scene: 0, start: 2, end: 3.9, text: "second" }];
+  assert.equal(activeSubtitleCueAt("full", gapCues, 0.02, 0)?.text, "first");
+  assert.equal(activeSubtitleCueAt("full", gapCues, 3.95, 0), null);
 });
 
 test("nextPlateAnswer and resolvePlateRouting: errors keep unknown, available:true is known true, available:false requires non-plate look or 2 confirmations for plate looks", () => {
