@@ -984,6 +984,8 @@ export async function registerPlanRoutes(app: FastifyInstance) {
           return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message }, quote: error.freshQuote });
         }
         if (error instanceof InsufficientTokens) {
+          // The brief is kept even though nothing was written, so the project card and the look survive until the person adds tokens.
+          if (!project.brief) await updateProjectPlan(project.id, (current) => ({ brief: parsed.brief, beatPlan: current.beatPlan })).catch(() => undefined);
           return reply.code(402).send({
             error: {
               code: "insufficient_tokens",

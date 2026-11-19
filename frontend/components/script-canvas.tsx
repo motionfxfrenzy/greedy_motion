@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { ANIMATION_TIER_SPECS, DEFAULT_ANIMATION_TIER, formatDurationSeconds, PLANS, PAID_TIERS, PREMIUM_LOCKED_COPY, PREVIEW_ALLOWANCE, SCRIPT_BEATS_MAX, SCRIPT_BEATS_MIN, TOP_UP, annualMonthlyUsd, annualSavingsPercent, filmsFromTokens, remapIndicesOnInsert, remapIndicesOnRemove, type AnimationTier, type BillingInterval, type BillingPolicyVersion, renderCostMillitokens, renderExportCostMillitokensV2, scriptSeconds, tokensFromMilli, type Aspect, type BeatPlan, type Pace, type ScriptBeat } from "@videosaas/contracts";
 import Link from "next/link";
 import { getMySubscription, getMyTokens, startCheckout, type LimitError, type ScriptFlag } from "../lib/api";
@@ -271,7 +272,8 @@ export function PlanLimitModal({ limit, onClose, onBack, onRetry }: { limit: Lim
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
   const capped = limit.code === "preview_call_cap";
-  return <div className="sc-modal-backdrop" onClick={onClose}>
+  // Portalled to the page body: the storyboard canvas is its own stacking context, which would keep the dialog under the header.
+  return createPortal(<div className="sc-modal-backdrop" style={{ zIndex: 1000 }} onClick={onClose}>
     <div className="sc-modal lim-modal" role="dialog" aria-modal="true" aria-labelledby="sc-limit-title" onClick={(event) => event.stopPropagation()}>
       <header>
         <h2 id="sc-limit-title">{limitCopy(limit).title}</h2>
@@ -286,7 +288,7 @@ export function PlanLimitModal({ limit, onClose, onBack, onRetry }: { limit: Lim
         <button type="button" className="secondary-button" onClick={onClose}>Close</button>
       </div>
     </div>
-  </div>;
+  </div>, document.body);
 }
 
 /** Render, or (when the balance does not cover the film) Add tokens, which opens the purchase modal. */
@@ -743,7 +745,7 @@ export function ScriptCanvas({ projectId, keepOverLength, onKeepOverLength, musi
   if (!streaming && beats.length === 0 && error && limit) return <div className="script-canvas">
     <header className="sc-head"><div className="sc-head-title"><h1>Storyboard</h1></div></header>
     <div className="sc-scroll" aria-hidden="true" />
-    <PlanLimitModal limit={limit} onClose={() => (onBackToBrief ?? onTryAgain)?.()} onBack={onBackToBrief} onRetry={limit.code !== "preview_call_cap" ? onTryAgain : undefined} />
+    <PlanLimitModal limit={limit} onClose={() => onBackToBrief?.()} onBack={onBackToBrief} onRetry={limit.code !== "preview_call_cap" ? onTryAgain : undefined} />
   </div>;
 
   if (!streaming && beats.length === 0 && error) return <div className="script-canvas">
