@@ -62,7 +62,7 @@ export function joinTakes(takes: Buffer[], sentences: string[]): { wav: Buffer; 
 }
 
 /**
- * Deliberately shallow: providers refuse deeply nested, enum-heavy schemas ("too many states for serving"). The shape of
+ * Deliberately small: providers refuse deeply nested, enum-heavy schemas ("too many states for serving"), but an empty `{type: "object"}` makes them emit `{}`, so every field is declared (no enums). The vocabulary of
  * every field is enforced by cutoutSpecProblems() after resolving, with one repair round, and the vocabulary is in the prompt.
  * Every `required` key must still be declared under `properties`.
  */
@@ -76,8 +76,16 @@ export const DRAFT_SCHEMA = {
         sentences: { type: "array", items: { type: "integer" } },
         set: { type: "string" }, mood: { type: "string" },
         props: { type: "array", items: { type: "string" } },
-        cast: { type: "array", items: { type: "object" } },
-        overlays: { type: "array", items: { type: "object" } }
+        cast: { type: "array", items: { type: "object", required: ["archetype"], properties: {
+          archetype: { type: "string" }, name: { type: "string" }, x: { type: "number" }, scale: { type: "number" }, pose: { type: "string" }, expr: { type: "string" }, flip: { type: "boolean" },
+          talkSentences: { type: "array", items: { type: "integer" } },
+          gestures: { type: "array", items: { type: "object", required: ["atSentence", "pose"], properties: { atSentence: { type: "integer" }, offset: { type: "number" }, pose: { type: "string" }, hold: { type: "number" } } } },
+          expressions: { type: "array", items: { type: "object", required: ["atSentence", "expr"], properties: { atSentence: { type: "integer" }, offset: { type: "number" }, expr: { type: "string" } } } }
+        } } },
+        overlays: { type: "array", items: { type: "object", required: ["type", "text"], properties: {
+          type: { type: "string" }, text: { type: "string" }, sub: { type: "string" }, target: { type: "integer" }, speaker: { type: "integer" },
+          atSentence: { type: "integer" }, offset: { type: "number" }, forSentences: { type: "integer" }, stars: { type: "integer" }, think: { type: "boolean" }
+        } } }
       }
     } }
   }
