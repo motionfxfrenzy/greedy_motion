@@ -114,7 +114,7 @@ try {
   assert.equal(await tierFor(U), "free");
   assert.equal((await entitlementsFor(U, { fresh: true })).features.proEditor, "view");
   t = await tokenSummary(U);
-  assert.deepEqual([t.plan.remaining, t.free.remaining, t.remaining], [0, 33, 33], "the plan's monthly tokens end with the plan; the free allowance stays");
+  assert.deepEqual([t.plan.remaining, t.free.remaining, t.remaining], [0, 15, 15], "the plan's monthly tokens end with the plan; the free allowance stays");
 
   // An older event cannot undo a newer one.
   const stale = sub("subscription_updated", U, { status: "active", updated_at: iso(now - 5 * day) });
@@ -197,7 +197,7 @@ try {
   wt = await tokenSummary(W, 20, addUtcMonths(yearEnd, 1));
   assert.deepEqual([wt.plan.granted, wt.plan.used, wt.plan.remaining], [550, 0, 550], "still paid through ends_at, so month 2 of year 2 is granted");
   wt = await tokenSummary(W, 20, cancelEnd);
-  assert.deepEqual([wt.plan.remaining, wt.free.remaining, wt.remaining], [0, 33, 33], "at ends_at the annual plan's remaining tokens expire");
+  assert.deepEqual([wt.plan.remaining, wt.free.remaining, wt.remaining], [0, 15, 15], "at ends_at the annual plan's remaining tokens expire");
 
   // Status mapping the entitlement layer depends on.
   const at = new Date();

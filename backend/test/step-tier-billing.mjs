@@ -95,7 +95,7 @@ await migrate();
   const userId = randomUUID();
   const projectId = randomUUID();
   await grantTokens(userId, 100, "test grant", "test", `grant:${userId}`, "plan");
-  const startBalance = (await tokenSummary(userId)).remaining; // 100 plan + 33 free = 133
+  const startBalance = (await tokenSummary(userId)).remaining; // 100 plan + 15 free = 115
 
   const quote = await createStepQuote({
     userId,
