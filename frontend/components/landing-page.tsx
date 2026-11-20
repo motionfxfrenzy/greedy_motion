@@ -23,7 +23,7 @@ const FAQS = [
   },
   {
     q: "What formats and Pricing plans are available?",
-    a: "Export crisp MP4 videos in 16:9 widescreen and 9:16 vertical (Reels, Shorts, TikTok). Your first 90-second film is free with no credit card required, and paid plans start at $19/month."
+    a: "Export crisp MP4 videos in 16:9 widescreen and 9:16 vertical (Reels, Shorts, TikTok). Your first 30-second film is free with no credit card required, and paid plans start at $19/month."
   }
 ];
 

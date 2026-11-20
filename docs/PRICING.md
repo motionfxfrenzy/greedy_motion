@@ -29,7 +29,7 @@ cost**: $1 of generation = 30 tokens. It is paid-plan only (below).
 
 | Plan | Price | Annual | Tokens a month | 60 s films | 30 s films | Per token | Watermark | Pro editor |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Free | $0 | | 33, once, for the account | 0 (one film up to 90 s) | 1 (or 2 at 30 s) | | yes | no |
+| Free | $0 | | 15, once, for the account | 0 (one film up to 30 s) | 1 | | yes | no |
 | Starter | $19 | $190 (2 months free) | 200 | 8 | 13 | $0.095 | no | no |
 | Pro | $49 | $490 | 550 | 22 | 36 | $0.089 | no | yes |
 | Studio | $99 | $990 | 1,200 | 50 | 80 | $0.083 | no | yes |
@@ -140,7 +140,7 @@ with typical revisions.
 
 ## Free, exactly
 
-**33 tokens once per account**: one watermarked film of up to 90 seconds, with its storyboard, voice and motion, and 3 films to try
+**15 tokens once per account**: one watermarked film of up to 30 seconds, with its storyboard, voice and motion, and 3 films to try
 (previews). It costs us about $0.50 if the person finishes the film (measured cost model), at most $2.37 more if all three previews are
 used and never rendered. Every Free film carries a "Made with Greedy Motion" watermark for its whole length. When the tokens are
 used, Render says what is needed and offers a plan or a pack. (It was 11 tokens, a 16-second film, until 2026-10-28; see "Market
